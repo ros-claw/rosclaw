@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rosclaw-v4"
+version = "0.1.0"
+description = "ROSClaw V4: Production-Ready Embodied Multi-Agent OS"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+authors = [
+    {name = "ROSClaw Team"},
+]
+dependencies = [
+    "rosclaw-core",
+    "rosclaw-mcp",
+    "rosclaw-vla",
+    "rosclaw-sim",
+    "rosclaw-rl",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "black>=23.0",
+    "ruff>=0.1.0",
+    "mypy>=1.5",
+]
+
+[tool.hatch.workspace]
+members = ["src/*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310']
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
