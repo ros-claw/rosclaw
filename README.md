@@ -8,7 +8,7 @@
 [![ROS 2](https://img.shields.io/badge/ROS_2-Humble_|_Jazzy-FF3E00?logo=ros)](https://docs.ros.org/)
 [![Simulation](https://img.shields.io/badge/Digital_Twin-mjlab_(MuJoCo)-black?logo=mujoco)](https://mujoco.org/)
 
-[English](README.md) • [中文文档](https://docs.rosclaw.io/zh) • [Architecture](#-architecture) • [Quick Start](#-quick-start) • [Discord](https://discord.gg/rosclaw)
+[English](README.md) • [中文文档](https://docs.rosclaw.io/zh) • [Architecture](#-architecture) • [Quick Start](#-quick-start) • [Discord](https://discord.com/invite/E6nPCDu6KJ)
 
 <br/>
 
