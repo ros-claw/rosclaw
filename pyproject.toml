@@ -3,46 +3,84 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "rosclaw-v4"
+name = "rosclaw"
 version = "0.1.0"
-description = "ROSClaw V4: Production-Ready Embodied Multi-Agent OS"
-readme = "README.md"
+description = "The Universal Operating System for Software-Defined Embodied AI"
+readme = "../README.md"
 license = {text = "Apache-2.0"}
-requires-python = ">=3.10"
 authors = [
-    {name = "ROSClaw Team"},
+    {name = "ROSClaw Team", email = "team@rosclaw.io"},
 ]
+keywords = ["robotics", "ros2", "mcp", "llm", "embodied-ai", "mujoco"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+requires-python = ">=3.10"
 dependencies = [
-    "rosclaw-core",
-    "rosclaw-mcp",
-    "rosclaw-vla",
-    "rosclaw-sim",
-    "rosclaw-rl",
+    "numpy>=1.24.0",
+    "mujoco>=3.0.0",
+    "mcp>=1.0.0",
 ]
 
 [project.optional-dependencies]
+ros2 = [
+    "rclpy>=3.0.0",
+    "geometry-msgs",
+    "sensor-msgs",
+    "std-msgs",
+    "trajectory-msgs",
+    "control-msgs",
+]
 dev = [
-    "pytest>=7.0",
-    "pytest-asyncio>=0.21",
-    "black>=23.0",
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
     "ruff>=0.1.0",
-    "mypy>=1.5",
+    "mypy>=1.5.0",
+]
+all = [
+    "rosclaw[ros2,dev]",
 ]
 
-[tool.hatch.workspace]
-members = ["src/*"]
+[project.scripts]
+rosclaw-ur5-mcp = "rosclaw.mcp.ur5_server:main"
 
-[tool.black]
-line-length = 100
-target-version = ['py310']
+[project.urls]
+Homepage = "https://rosclaw.io"
+Repository = "https://github.com/ros-claw/rosclaw"
+Documentation = "https://docs.rosclaw.io"
+"Bug Tracker" = "https://github.com/ros-claw/rosclaw/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rosclaw"]
 
 [tool.ruff]
+target-version = "py310"
 line-length = 100
-select = ["E", "F", "I", "N", "W", "UP"]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
 ignore = ["E501"]
+
+[tool.ruff.isort]
+known-first-party = ["rosclaw"]
 
 [tool.mypy]
 python_version = "3.10"
 strict = true
 warn_return_any = true
-warn_unused_configs = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"

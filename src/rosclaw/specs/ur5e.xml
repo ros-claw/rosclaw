@@ -1,0 +1,128 @@
+<mujoco model="ur5e">
+  <!--
+    UR5e MuJoCo Model for ROSClaw Digital Twin Firewall
+    Simplified model for trajectory validation
+  -->
+
+  <compiler angle="radian" meshdir="." autolimits="true"/>
+
+  <option timestep="0.001" iterations="50" solver="Newton" gravity="0 0 -9.81">
+    <flag warmstart="enable"/>
+  </option>
+
+  <default>
+    <joint armature="0.1" damping="2" limited="true"/>
+    <geom contype="1" conaffinity="1" friction="1 0.005 0.001" rgba="0.7 0.7 0.7 1"/>
+    <motor ctrllimited="true" ctrlrange="-150 150"/>
+  </default>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.6 0.6 0.6" rgb2="0 0 0" width="512" height="512"/>
+    <texture name="plane" type="2d" builtin="checker" rgb1="0.2 0.2 0.2" rgb2="0.3 0.3 0.3" width="512" height="512"/>
+    <material name="plane" texture="plane" texrepeat="5 5" reflectance="0.1"/>
+    <material name="ur5e_base" rgba="0.2 0.2 0.2 1"/>
+    <material name="ur5e_link" rgba="0.6 0.1 0.1 1"/>
+    <material name="ur5e_joint" rgba="0.1 0.1 0.1 1"/>
+  </asset>
+
+  <worldbody>
+    <light directional="true" diffuse=".8 .8 .8" specular=".2 .2 .2" pos="0 0 5" dir="0 0 -1"/>
+    <geom name="floor" type="plane" size="10 10 0.1" material="plane"/>
+
+    <!-- UR5e Robot -->
+    <body name="base" pos="0 0 0">
+      <!-- Base Link -->
+      <geom name="base_geom" type="cylinder" size="0.075 0.038" material="ur5e_base"/>
+
+      <!-- Shoulder Pan Joint -->
+      <joint name="shoulder_pan_joint" type="hinge" axis="0 0 1"
+             range="-6.2831853 6.2831853" damping="2"/>
+
+      <body name="shoulder_link" pos="0 0 0.089">
+        <geom name="shoulder_geom" type="cylinder" size="0.06 0.055"
+              quat="1 1 0 0" material="ur5e_link"/>
+
+        <!-- Shoulder Lift Joint -->
+        <joint name="shoulder_lift_joint" type="hinge" axis="0 1 0"
+               range="-6.2831853 6.2831853" damping="2"/>
+
+        <body name="upper_arm_link" pos="0 -0.136 0">
+          <geom name="upper_arm_geom" type="capsule" size="0.038 0.243"
+                pos="0 0 0.1215" material="ur5e_link"/>
+
+          <!-- Elbow Joint -->
+          <joint name="elbow_joint" type="hinge" axis="0 1 0"
+                 range="-3.1415926 3.1415926" damping="2"/>
+
+          <body name="forearm_link" pos="0 0 0.425">
+            <geom name="forearm_geom" type="capsule" size="0.032 0.197"
+                  pos="0 0 0.0985" material="ur5e_link"/>
+
+            <!-- Wrist 1 Joint -->
+            <joint name="wrist_1_joint" type="hinge" axis="0 1 0"
+                   range="-6.2831853 6.2831853" damping="1"/>
+
+            <body name="wrist_1_link" pos="0 0.120 0.392">
+              <geom name="wrist_1_geom" type="cylinder" size="0.035 0.037"
+                    quat="1 1 0 0" material="ur5e_joint"/>
+
+              <!-- Wrist 2 Joint -->
+              <joint name="wrist_2_joint" type="hinge" axis="0 0 1"
+                     range="-6.2831853 6.2831853" damping="1"/>
+
+              <body name="wrist_2_link" pos="0 0 0.093">
+                <geom name="wrist_2_geom" type="cylinder" size="0.03 0.037"
+                      quat="1 1 0 0" material="ur5e_joint"/>
+
+                <!-- Wrist 3 Joint -->
+                <joint name="wrist_3_joint" type="hinge" axis="0 1 0"
+                       range="-6.2831853 6.2831853" damping="1"/>
+
+                <body name="wrist_3_link" pos="0 0 0.093">
+                  <geom name="wrist_3_geom" type="cylinder" size="0.025 0.024"
+                        quat="1 1 0 0" material="ur5e_link"/>
+
+                  <!-- End Effector / Tool Mount -->
+                  <body name="tool0" pos="0 0.0825 0">
+                    <geom name="tool0_geom" type="sphere" size="0.02" rgba="1 0.5 0 1"/>
+                    <site name="tcp" pos="0 0 0" size="0.01" rgba="0 1 0 1"/>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <!-- Position-controlled motors for each joint -->
+    <motor name="shoulder_pan_motor" joint="shoulder_pan_joint"
+           ctrlrange="-150 150" gear="1"/>
+    <motor name="shoulder_lift_motor" joint="shoulder_lift_motor"
+           ctrlrange="-150 150" gear="1"/>
+    <motor name="elbow_motor" joint="elbow_joint"
+           ctrlrange="-100 100" gear="1"/>
+    <motor name="wrist_1_motor" joint="wrist_1_joint"
+           ctrlrange="-28 28" gear="1"/>
+    <motor name="wrist_2_motor" joint="wrist_2_joint"
+           ctrlrange="-28 28" gear="1"/>
+    <motor name="wrist_3_motor" joint="wrist_3_joint"
+           ctrlrange="-28 28" gear="1"/>
+  </actuator>
+
+  <sensor>
+    <!-- Joint position sensors -->
+    <jointpos name="shoulder_pan_pos" joint="shoulder_pan_joint"/>
+    <jointpos name="shoulder_lift_pos" joint="shoulder_lift_joint"/>
+    <jointpos name="elbow_pos" joint="elbow_joint"/>
+    <jointpos name="wrist_1_pos" joint="wrist_1_joint"/>
+    <jointpos name="wrist_2_pos" joint="wrist_2_joint"/>
+    <jointpos name="wrist_3_pos" joint="wrist_3_joint"/>
+
+    <!-- Force/Torque sensor at TCP -->
+    <force name="tcp_force" site="tcp"/>
+    <torque name="tcp_torque" site="tcp"/>
+  </sensor>
+</mujoco>
