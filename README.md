@@ -90,40 +90,58 @@ graph TD
 
 ### Installation
 
-Install the core ROSClaw framework and standard MCP drivers:
+Install the production-ready ROSClaw framework:
 
 ```bash
-# Install the core OS
-pip install rosclaw-core
+# Clone repository
+git clone https://github.com/ros-claw/rosclaw.git
+cd rosclaw
 
-# Install specific embodiment drivers
-pip install rosclaw-ur-mcp rosclaw-g1-mcp
+# Install with ROS 2 support (for real robot control)
+pip install -e ".[ros2,dev]"
+
+# Or minimal installation (Digital Twin only)
+pip install -e "."
 ```
 
-### Write Once. Embody Anywhere.
+### Dependencies
 
-Create your first Embodied Agent in a few lines of Python:
+- Python 3.10+
+- NumPy >= 1.24.0
+- MuJoCo >= 3.0.0
+- MCP >= 1.0.0
+- ROS 2 (optional, for real robot control)
 
-```python
-from rosclaw import EmbodiedAgent
-from rosclaw.firewall import MuJoCoFirewall
+### Run Integration Tests
 
-# 1. Connect to the robot (UR5 or G1)
-agent = EmbodiedAgent.connect("robot_ip")
+```bash
+# Test Digital Twin firewall
+python scripts/integration_test.py
 
-# 2. Attach the Digital Twin Firewall to prevent LLM hallucinations
-agent.attach_firewall(MuJoCoFirewall(e_urdf="ur5e_workspace.yaml"))
-
-# 3. Issue a semantic task. The OS handles the IK, routing, and safety.
-task = "Navigate to the kitchen, check if the table is clean. If not, pick up the trash."
-
-# 4. Execute with OS-level safety and autonomous data collection
-agent.execute(
-    task,
-    auto_recovery=True,   # Enable Auto-EAP error recovery
-    record_rlds=True      # Silently build your LeRobot training dataset
-)
+# Start MCP Server
+rosclaw-ur5-mcp
 ```
+
+### OpenClaw Integration
+
+ROSClaw connects to OpenClaw via the mcporter bridge:
+
+```typescript
+// OpenClaw agent configuration
+{
+  mcpServers: {
+    "rosclaw-ur5": {
+      command: "rosclaw-ur5-mcp",
+      env: {
+        ROBOT_IP: "192.168.1.100",
+        DIGITAL_TWIN_ENABLED: "true"
+      }
+    }
+  }
+}
+```
+
+See [docs/OPENCLAW_INTEGRATION.md](docs/OPENCLAW_INTEGRATION.md) for complete guide.
 
 ---
 
@@ -131,15 +149,65 @@ agent.execute(
 
 ```text
 rosclaw/
-├── src/
-│   ├── rosclaw_core/      # OS Kernel, Async Router, Multi-Agent Federation
-│   ├── rosclaw_mcp/       # Southbound Drivers (UR5, Unitree G1, PTZ Gimbals)
-│   ├── rosclaw_sim/       # e-URDF & mjlab (MuJoCo) Digital Twin integration
-│   ├── rosclaw_vla/       # VLA policy serving (OpenVLA, π0)
-│   └── rosclaw_rl/        # Asynchronous RL pipeline (OpenClaw-RL integration)
-├── configs/               # e-URDF specifications and Agent Profiles
-└── docs/                  # Architecture whitepapers and tutorials
+├── src/rosclaw/
+│   ├── __init__.py           # Package exports
+│   ├── firewall/
+│   │   ├── __init__.py
+│   │   └── decorator.py      # DigitalTwinFirewall with real MuJoCo physics
+│   ├── mcp/
+│   │   ├── __init__.py
+│   │   └── ur5_server.py     # UR5 MCP Server (rclpy, real ROS 2)
+│   └── specs/
+│       └── ur5e.xml          # MuJoCo MJCF model
+├── docs/
+│   └── OPENCLAW_INTEGRATION.md  # Integration guide
+├── scripts/
+│   └── integration_test.py   # Test suite
+├── pyproject.toml            # Package configuration
+└── README.md                 # This file
 ```
+
+## 🔧 Phase 1: Production-Ready Layers 1-4
+
+ROSClaw Phase 1 is complete with **NO MOCK CODE**:
+
+| Layer | Component | Status |
+|-------|-----------|--------|
+| L1 | ROS 2 Runtime (`rclpy`) | ✅ Real Subscribers, Publishers, ActionClients |
+| L2 | Semantic-HAL | ✅ Fast/Slow lane abstraction |
+| L3 | Digital Twin (MuJoCo) | ✅ Real physics validation |
+| L4 | Embodiment MCP | ✅ UR5 MCP Server |
+
+---
+
+## 🛡️ Safety Architecture
+
+### Digital Twin Firewall
+
+Every motion is validated in MuJoCo before physical execution:
+
+```python
+from rosclaw.firewall import DigitalTwinFirewall, mujoco_firewall, SafetyLevel
+
+# Method 1: Direct validation
+firewall = DigitalTwinFirewall("src/rosclaw/specs/ur5e.xml")
+result = firewall.validate_trajectory(trajectory_points)
+if not result.is_valid:
+    raise SafetyViolationError(f"Unsafe: {result.violations}")
+
+# Method 2: Decorator
+@mujoco_firewall(model_path="ur5e.xml", safety_level=SafetyLevel.STRICT)
+def execute_motion(trajectory):
+    # Only runs if validation passes
+    ...
+```
+
+### Validation Checks
+
+- **Collision Detection**: Self-collision and environment collision
+- **Joint Limits**: Position, velocity, and torque limits
+- **Workspace**: TCP position within safe bounds
+- **Smoothness**: Jerk and acceleration limits
 
 ---
 
