@@ -2,181 +2,161 @@
 
 # 🦾 ROSClaw
 
-**The Universal Operating System for Software-Defined Embodied AI.**
+**The Universal OS Bridging Multimodal AI Agents with the Physical World.**
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![ROS 2](https://img.shields.io/badge/ROS_2-Humble_|_Jazzy-FF3E00?logo=ros)](https://docs.ros.org/)
-[![Simulation](https://img.shields.io/badge/Digital_Twin-mjlab_(MuJoCo)-black?logo=mujoco)](https://mujoco.org/)
+[![Simulation](https://img.shields.io/badge/Digital_Twin-MuJoCo-black?logo=mujoco)](https://mujoco.org/)
+[![MCP](https://img.shields.io/badge/Protocol-MCP_Ready-8A2BE2)](https://modelcontextprotocol.io/)
 
 [English](README.md) • [中文文档](https://docs.rosclaw.io/zh) • [Architecture](#-architecture) • [Quick Start](#-quick-start) • [Discord](https://discord.com/invite/E6nPCDu6KJ)
 
 <br/>
 
-> *"Write Once, Embody Anywhere. Train any robot simply by talking."*
+> *"Teach Once, Embody Anywhere. Share Skills, Shape Reality."*
 
 </div>
 
 <br/>
 
-## 🌍 The Vision
+## 🌍 The Vision: Democratizing Physical AI
 
-While large foundation models have demonstrated unprecedented cognitive reasoning for embodied tasks, their real-world deployment is severely bottlenecked. The industry lacks a unified operating system that can safely and asynchronously bridge low-frequency semantic intents (LLMs) with high-frequency physical execution (Robotics).
+Phenomenal frameworks like **Claude Code, OpenClaw, and WorkBuddy** have democratized the digital world—empowering anyone to orchestrate AI teams to build software effortlessly.
 
-**ROSClaw is the "AUTOSAR + Android" for the robotics industry.** It breaks down hardware silos by providing a standardized OS layer that unifies heterogeneous embodiments (humanoids, quadrupeds, robotic arms), Vision-Language-Action (VLA) policies, and autonomous data flywheels.
+**ROSClaw brings this exact revolution to the Physical World.**
+
+We are not just building a bridge between LLMs and robots; we are building an **Open Ecosystem for Physical Skills**. If a developer in Tokyo teaches a robotic arm the "precision screwdriving" skill via ROSClaw, a factory worker in Berlin can instantly download that skill and deploy it on a completely different humanoid robot—**no re-programming required**.
+
+By unifying heterogeneous hardware behind the universal Model Context Protocol (MCP) and abstracting physics through our OS kernel, we enable creators to **share, iterate, and deploy Embodied AI across thousands of industries**.
+
+> **The future we imagine**: A skill marketplace where physical intelligence flows as freely as software—teach once, embody everywhere.
 
 ---
 
 ## ✨ Core Innovations
 
-ROSClaw is not just a middleware; it is a paradigm shift built on four foundational pillars:
+ROSClaw is an **Agent-Agnostic Embodied OS** built on four pillars:
 
-### 1. 🧠 Asynchronous Brain-Cerebellum Routing
-Decouples the **Cognitive Brain** (LLMs running at ~1Hz via MCP) from the **Physical Cerebellum** (ROS 2 controllers/VLA running at 1000Hz). This ensures that network latency or LLM generation delays never compromise physical stability.
+### 1. 🌐 Universal MCP Hub
+Plug-and-play with **ANY** AI Agent framework. We translate complex ROS 2 topics and DDS streams into clean JSON schemas that Claude Code, OpenClaw, or any MCP-compatible agent can command natively.
 
-### 2. 🛡️ Semantic-Physical Firewall (e-URDF + MuJoCo)
-LLM hallucinations in the physical world are catastrophic. ROSClaw introduces `e-URDF`—an Embodied URDF sandbox. Before any risky command reaches the real robot, it is fast-forwarded in a **Headless Digital Twin (powered by mjlab/MuJoCo)**. If the simulation predicts a collision or torque overload, the action is blocked, and the LLM is prompted to self-correct.
+### 2. 🧠 Asynchronous Brain-Cerebellum Routing
+Decouples the **Cognitive Brain** (LLMs at ~1Hz) from the **Physical Cerebellum** (ROS 2/VLA at 1000Hz). Network latency or LLM delays never compromise physical stability.
 
-### 3. 🤝 Embodied Multi-Agent Federation
-Robots shouldn't act alone. ROSClaw natively supports the **Reflex Handshake Protocol** via DDS, allowing seamless, millisecond-level collaboration between heterogeneous robots (e.g., a Unitree G1 handing over an object to a UR5e).
+### 3. 🛡️ Digital Twin Firewall (MuJoCo)
+LLM hallucinations in the physical world are catastrophic. Before any command executes, it is fast-forwarded in a **Headless Digital Twin (MuJoCo)**. If collision or torque overload is predicted, the action is blocked and the Agent self-corrects.
 
-### 4. 🔄 RosClaw-RL & The Data Flywheel
-**Train any robot simply by talking.** Every successful action and Auto-EAP recovery attempt is intercepted by an Event-Driven Ring Buffer. Data is automatically time-synced and packaged into Hugging Face `LeRobot` formats (RLDS/HDF5) to continuously fine-tune underlying VLA models.
+### 4. 🔄 Skill Flywheel (TODO)
+Every execution feeds an Event-Driven Ring Buffer. Data is packaged into `LeRobot` formats to continuously fine-tune VLA models. **Talk to Train**—evolve your robot's physical intuition daily.
 
 ---
 
-## 🏗 System Architecture
-
-ROSClaw elegantly abstracts the complexity of modern robotics into a unified 7-layer stack:
+## 🗺️ Architecture: Agent-Agnostic by Design
 
 ```mermaid
 graph TD
-    subgraph Cognitive[Cognitive & Planning Layer]
-        LLM[LLM / Task Planner]
-        NT[Neural Twin: Cosmos/JEPA]
+    subgraph Agents[Any MCP-Compatible Agent]
+        CC[Claude Code]
+        OC[OpenClaw]
+        QB[QClaw / WorkBuddy]
+        AC[AutoGen / Custom]
     end
 
-    subgraph OS_Kernel [ROSClaw OS Kernel]
-        MCP[Embodied MCP Hub]
-        DT[Digital Twin Firewall: mjlab]
-        DF[Event-Driven Data Flywheel]
-        RL[RosClaw-RL: Async Trainer]
+    subgraph OS[ROSClaw OS Kernel: Layers 1-4]
+        MCP[MCP Hub: JSON-RPC Bridge]
+        DT[Digital Twin: MuJoCo Validation]
+        RB[Ring Buffer: Data Capture]
     end
 
-    subgraph Physical [Runtime & Hardware Layer]
-        VLA[VLA Engine: OpenVLA]
-        ROS2[ROS 2 / CycloneDDS]
-        HW_G1[Unitree G1]
-        HW_UR5[UR5e Arm]
+    subgraph Runtime[Physical Runtime: Layer 5]
+        VLA[VLA Engine: OpenVLA/π0]
+        ROS2[ROS 2 / DDS]
     end
 
-    LLM <-->|Semantic Intent| MCP
-    NT -.->|Long-horizon foresight| LLM
+    subgraph Hardware[Hardware Layer]
+        G1[Unitree G1]
+        UR5[UR5e Arm]
+        Other[Your Robot]
+    end
 
-    MCP <-->|e-URDF Checks| DT
-    MCP <-->|Verified Execution| VLA
-
-    VLA <-->|1000Hz Torque| ROS2
-    ROS2 <--> HW_G1
-    ROS2 <--> HW_UR5
-
-    ROS2 -.->|Sensor Stream| DF
-    DF -.->|RLDS Dataset| RL
-    RL -.->|Weight Updates| VLA
+    CC & OC & QB & AC <-->|JSON-RPC| MCP
+    MCP <-->|Physics Check| DT
+    MCP <-->|Safe Execution| VLA
+    VLA <-->|1000Hz Control| ROS2
+    ROS2 <--> G1 & UR5 & Other
+    ROS2 -.->|Events| RB
 ```
+
+**Key Insight**: Layers 1-4 form the stable kernel. Any Agent (Layer 6+) can connect via MCP without hardware-specific knowledge.
 
 ---
 
 ## 🚀 Quick Start
 
-### Installation
+Zero configuration. Native compatibility. Get your robot online in 30 seconds.
 
-Install the production-ready ROSClaw framework:
-
-```bash
-# Clone repository
-git clone https://github.com/ros-claw/rosclaw.git
-cd rosclaw
-
-# Install with ROS 2 support (for real robot control)
-pip install -e ".[ros2,dev]"
-
-# Or minimal installation (Digital Twin only)
-pip install -e "."
-```
-
-### Dependencies
-
-- Python 3.10+
-- NumPy >= 1.24.0
-- MuJoCo >= 3.0.0
-- MCP >= 1.0.0
-- ROS 2 (optional, for real robot control)
-
-### Run Integration Tests
+### 1. Install ROSClaw OS Kernel
 
 ```bash
-# Test Digital Twin firewall
-python scripts/integration_test.py
-
-# Start MCP Server
-rosclaw-ur5-mcp
+curl -sSL https://rosclaw.io/get | bash
 ```
 
-### OpenClaw Integration
+### 2. Plug into ANY Agent Framework
 
-ROSClaw connects to OpenClaw via the mcporter bridge:
+**Claude Code:**
+```bash
+claude mcp add rosclaw -- rosclaw-hub --auto-discover
+# Then: "Claude, move the UR5 arm to home position and validate first"
+```
 
-```typescript
-// OpenClaw agent configuration
+**OpenClaw / WorkBuddy (mcp_servers.json):**
+```json
 {
-  mcpServers: {
-    "rosclaw-ur5": {
-      command: "rosclaw-ur5-mcp",
-      env: {
-        ROBOT_IP: "192.168.1.100",
-        DIGITAL_TWIN_ENABLED: "true"
-      }
+  "mcpServers": {
+    "rosclaw-embodiment": {
+      "command": "rosclaw-hub",
+      "args": ["--enable-digital-twin"]
     }
   }
 }
 ```
 
-See [docs/OPENCLAW_INTEGRATION.md](docs/OPENCLAW_INTEGRATION.md) for complete guide.
+---
+
+## 🎯 Roadmap: Where We're Going
+
+| Phase | Status | Key Deliverables |
+|-------|--------|------------------|
+| **1** | ✅ | Digital Twin Firewall, UR5 MCP Server, MuJoCo models |
+| **1.5** | 🚧 | Testing (42 tests), CI/CD, PyPI release |
+| **2** | 📋 | Data Flywheel, OpenVLA/π0 integration, Skill library |
+| **3** | 📋 | G1/Panda support via sdk_to_mcp, ClawHub skill marketplace |
+| **4** | 🔮 | Neural Twin, Multi-agent collaboration, TSN |
+
+### Active TODOs
+- [ ] Replace print with logging module
+- [ ] YAML configuration for model paths
+- [ ] PyPI release v0.1.0
+- [ ] sdk_to_mcp integration docs
 
 ---
 
-## 📁 Repository Structure
+## 💎 Supported Embodiments & Ecosystem
 
-```text
-rosclaw/
-├── src/rosclaw/
-│   ├── __init__.py           # Package exports
-│   ├── firewall/
-│   │   ├── __init__.py
-│   │   └── decorator.py      # DigitalTwinFirewall with real MuJoCo physics
-│   ├── mcp/
-│   │   ├── __init__.py
-│   │   └── ur5_server.py     # UR5 MCP Server (rclpy, real ROS 2)
-│   └── specs/
-│       └── ur5e.xml          # MuJoCo MJCF model
-├── docs/
-│   └── OPENCLAW_INTEGRATION.md  # Integration guide
-├── scripts/
-│   └── integration_test.py   # Test suite
-├── pyproject.toml            # Package configuration
-└── README.md                 # This file
+We are actively unifying all hardware through our official south-bound drivers:
+
+*   **Unitree G1** (via `rosclaw-g1-dds-mcp`)
+*   **Universal Robots (UR5e)** (via `rosclaw-ur-ros2-mcp`)
+*   **General PTZ Gimbals** (via `rosclaw-gimbal-mcp`)
+
+### 🚀 sdk_to_mcp: Zero-Code Hardware Integration
+
+Have a new robot with an SDK? Our **[sdk_to_mcp](https://github.com/ros-claw/sdk_to_mcp)** toolchain auto-generates MCP servers from official SDK documentation—**no manual driver development required**.
+
+```bash
+# Example: Generate MCP server from robot SDK docs
+python -m sdk_to_mcp generate --sdk-doc robot_sdk.pdf --output rosclaw-newrobot-mcp
 ```
-
-## 🔧 Phase 1: Production-Ready Layers 1-4
-
-ROSClaw Phase 1 is complete with **NO MOCK CODE**:
-
-| Layer | Component | Status |
-|-------|-----------|--------|
-| L1 | ROS 2 Runtime (`rclpy`) | ✅ Real Subscribers, Publishers, ActionClients |
-| L2 | Semantic-HAL | ✅ Fast/Slow lane abstraction |
-| L3 | Digital Twin (MuJoCo) | ✅ Real physics validation |
-| L4 | Embodiment MCP | ✅ UR5 MCP Server |
 
 ---
 
@@ -192,8 +172,8 @@ from rosclaw.firewall import DigitalTwinFirewall, mujoco_firewall, SafetyLevel
 # Method 1: Direct validation
 firewall = DigitalTwinFirewall("src/rosclaw/specs/ur5e.xml")
 result = firewall.validate_trajectory(trajectory_points)
-if not result.is_valid:
-    raise SafetyViolationError(f"Unsafe: {result.violations}")
+if not result.is_safe:
+    raise SafetyViolationError(f"Unsafe: {result.violation_details}")
 
 # Method 2: Decorator
 @mujoco_firewall(model_path="ur5e.xml", safety_level=SafetyLevel.STRICT)
@@ -211,28 +191,16 @@ def execute_motion(trajectory):
 
 ---
 
-## 💎 Supported Embodiments & Ecosystem
-
-ROSClaw is designed to be hardware-agnostic. Official south-bound MCP drivers currently include:
-*   **Unitree G1** (via `rosclaw-g1-dds-mcp`)
-*   **Universal Robots (UR5e)** (via `rosclaw-ur-ros2-mcp`)
-*   **General PTZ Gimbals** (via `rosclaw-gimbal-mcp`)
-
-*Want to add your robot? Check out our [e-URDF Auto-Compiler Guide](docs/e-URDF.md).*
-
----
-
 ## 🙏 Acknowledgements
 
-ROSClaw stands on the shoulders of giants. We deeply acknowledge the following projects that shaped our architecture:
-*   **[OpenClaw](https://github.com/openclaw/openclaw)**: For the groundbreaking digital Agent framework and MCP integration.
+ROSClaw stands on the shoulders of giants:
+*   **The Agent Ecosystem (OpenClaw, Claude Code, etc.)**: For pioneering the digital workflows that inspired our physical architecture.
 *   **[RoboClaw](https://github.com/MINT-SJTU/RoboClaw)**: For pioneering the Embodied closed-loop and Entangled Action Pairs (EAP).
 *   **[mjlab](https://github.com/mujocolab/mjlab)**: For providing the blazingly fast MuJoCo backend that powers our Digital Twin Firewall.
-*   **[OpenClaw-RL](https://github.com/openclaw/openclaw-rl)**: For the asynchronous reinforcement learning paradigm that enables our "Talk to Train" vision.
 
 ---
 
 <div align="center">
-  <b>Defined by the Open Source Community. Built for the Physical World.</b><br>
+  <b>Bridging AGI to the Physical Universe.</b><br>
   <a href="https://rosclaw.io">rosclaw.io</a>
 </div>

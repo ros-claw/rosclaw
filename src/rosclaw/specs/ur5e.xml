@@ -30,7 +30,7 @@
     <geom name="floor" type="plane" size="10 10 0.1" material="plane"/>
 
     <!-- UR5e Robot -->
-    <body name="base" pos="0 0 0">
+    <body name="base" pos="0 0 0.038">
       <!-- Base Link -->
       <geom name="base_geom" type="cylinder" size="0.075 0.038" material="ur5e_base"/>
 
@@ -38,8 +38,8 @@
       <joint name="shoulder_pan_joint" type="hinge" axis="0 0 1"
              range="-6.2831853 6.2831853" damping="2"/>
 
-      <body name="shoulder_link" pos="0 0 0.089">
-        <geom name="shoulder_geom" type="cylinder" size="0.06 0.055"
+      <body name="shoulder_link" pos="0 0 0.163">
+        <geom name="shoulder_geom" type="cylinder" size="0.06 0.045"
               quat="1 1 0 0" material="ur5e_link"/>
 
         <!-- Shoulder Lift Joint -->
@@ -100,7 +100,7 @@
     <!-- Position-controlled motors for each joint -->
     <motor name="shoulder_pan_motor" joint="shoulder_pan_joint"
            ctrlrange="-150 150" gear="1"/>
-    <motor name="shoulder_lift_motor" joint="shoulder_lift_motor"
+    <motor name="shoulder_lift_motor" joint="shoulder_lift_joint"
            ctrlrange="-150 150" gear="1"/>
     <motor name="elbow_motor" joint="elbow_joint"
            ctrlrange="-100 100" gear="1"/>

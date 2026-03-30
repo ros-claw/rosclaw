@@ -264,6 +264,30 @@ class DigitalTwinFirewall:
         """
         self.reset()
 
+        # Pre-validate: Check if any target position exceeds joint limits
+        for step_idx, target_pos in enumerate(trajectory):
+            for joint_idx, joint_name in enumerate(self.joint_names):
+                if joint_idx >= len(target_pos):
+                    continue
+                if joint_name not in self.joint_limits:
+                    continue
+                target_qpos = target_pos[joint_idx]
+                min_limit, max_limit = self.joint_limits[joint_name]
+                if target_qpos < min_limit or target_qpos > max_limit:
+                    return ValidationResult(
+                        is_safe=False,
+                        collision_detected=False,
+                        joint_limit_violated=True,
+                        torque_limit_exceeded=False,
+                        max_predicted_torque=0.0,
+                        min_distance_to_collision=float('inf'),
+                        simulation_steps=0,
+                        violation_details=[
+                            f"Step {step_idx}: Joint {joint_name} target position {target_qpos:.4f} "
+                            f"exceeds limits [{min_limit:.4f}, {max_limit:.4f}]"
+                        ],
+                    )
+
         collision_detected = False
         joint_limit_violated = False
         torque_limit_exceeded = False

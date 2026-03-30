@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "rosclaw"
 version = "0.1.0"
 description = "The Universal Operating System for Software-Defined Embodied AI"
-readme = "../README.md"
+readme = "README.md"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "ROSClaw Team", email = "team@rosclaw.io"},
