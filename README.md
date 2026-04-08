@@ -10,7 +10,7 @@
 [![MCP](https://img.shields.io/badge/Protocol-MCP_Ready-8A2BE2)](https://modelcontextprotocol.io/)
 [![arXiv](https://img.shields.io/badge/arXiv-2604.04664-b31b1b.svg)](https://arxiv.org/pdf/2604.04664)
 
-[English](README.md) • [中文文档](https://docs.rosclaw.io/zh) • [Architecture](#-architecture) • [Quick Start](#-quick-start) • [Discord](https://discord.com/invite/E6nPCDu6KJ)
+🌐 [English](README.md) • [中文](README.zh.md) • [Architecture](#-architecture) • [Quick Start](#-quick-start) • [Discord](https://discord.com/invite/E6nPCDu6KJ)
 
 <br/>
 
