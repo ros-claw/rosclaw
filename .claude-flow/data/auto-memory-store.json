@@ -1,0 +1,184 @@
+[
+  {
+    "id": "mem-MEMORY-project-knowledge",
+    "key": "project-knowledge",
+    "content": "- [CSS Layout Lessons](css-layout-lessons.md) — 固定侧边栏+主内容区居中布局的经验教训",
+    "summary": "Project Knowledge",
+    "namespace": "core",
+    "type": "semantic",
+    "metadata": {
+      "sourceFile": "/root/.claude/projects/-root--openclaw-workspace-alphatown-agentgram/memory/MEMORY.md",
+      "bootstrapped": true
+    },
+    "createdAt": 1775543486816
+  },
+  {
+    "id": "mem-css-layout-lessons-----",
+    "key": "-",
+    "content": "AlphaTown 主页布局反复调整多次才修复，根本原因是**固定侧边栏 + 主内容区居中**的视觉陷阱。",
+    "summary": "问题背景",
+    "namespace": "css-layout-lessons",
+    "type": "semantic",
+    "metadata": {
+      "sourceFile": "/root/.claude/projects/-root--openclaw-workspace-alphatown-agentgram/memory/css-layout-lessons.md",
+      "bootstrapped": true
+    },
+    "createdAt": 1775543486817
+  },
+  {
+    "id": "mem-css-layout-lessons-----",
+    "key": "-",
+    "content": "### 1. 视觉 vs 代码 的偏差\n- **侧边栏**: `fixed left-0 w-44` (176px)\n- **主内容区**: `lg:ml-44` 偏移避开侧边栏\n- **陷阱**: 主内容区内部的 `mx-auto` 是在**剩余空间**内居中，而非整个屏幕居中\n\n**结果**: 1920px 屏幕下，主内容区右侧有 176px 空白，视觉上\"偏右\"\n\n```\n屏幕: [侧边栏 176px][主内容区 1744px]\n                         [内容居中在此区域内]\n视觉: 看起来偏右 ↑\n```\n\n### 2. 多处缺失 `mx-auto`\n- Stats 卡片: `max-w-md` 无 `mx-auto` → 左对齐\n- Facilities 网格: 无 `justify-items-center` → 左对齐\n- 多个嵌套容器各自为政，没有统一的居中策略",
+    "summary": "核心问题",
+    "namespace": "css-layout-lessons",
+    "type": "semantic",
+    "metadata": {
+      "sourceFile": "/root/.claude/projects/-root--openclaw-workspace-alphatown-agentgram/memory/css-layout-lessons.md",
+      "bootstrapped": true
+    },
+    "createdAt": 1775543486817
+  },
+  {
+    "id": "mem-css-layout-lessons-------",
+    "key": "-",
+    "content": "### 方案: 主内容区整体居中包裹\n在 `<main>` 内部添加居中层：\n\n```tsx\n<main className=\"lg:ml-44\">\n  <div className=\"flex justify-center\">      {/* 新增: 水平居中 */}\n    <div className=\"w-full max-w-6xl px-4\">  {/* 新增: 限制宽度 + 内边距 */}\n      {/* 所有内容 */}\n    </div>\n  </div>\n</main>\n```\n\n**效果**: 内容在扣除侧边栏后的空间内居中，视觉上平衡。",
+    "summary": "正确修复方案",
+    "namespace": "css-layout-lessons",
+    "type": "semantic",
+    "metadata": {
+      "sourceFile": "/root/.claude/projects/-root--openclaw-workspace-alphatown-agentgram/memory/css-layout-lessons.md",
+      "bootstrapped": true
+    },
+    "createdAt": 1775543486817
+  },
+  {
+    "id": "mem-css-layout-lessons-----",
+    "key": "-",
+    "content": "| 位置 | 问题 | 修复 |\n|------|------|------|\n| Stats 卡片 | `max-w-md` 无居中 | 添加 `mx-auto` |\n| Facilities 网格 | 默认左对齐 | 添加 `justify-items-center` |\n| 主内容区 | 视觉偏右 | 包裹 `flex justify-center` + `max-w-6xl` |",
+    "summary": "修复清单",
+    "namespace": "css-layout-lessons",
+    "type": "semantic",
+    "metadata": {
+      "sourceFile": "/root/.claude/projects/-root--openclaw-workspace-alphatown-agentgram/memory/css-layout-lessons.md",
+      "bootstrapped": true
+    },
+    "createdAt": 1775543486817
+  },
+  {
+    "id": "mem-css-layout-lessons-----",
+    "key": "-",
+    "content": "### ❌ 错误做法\n1. 在子元素各自使用 `mx-auto` → 每个都在自己的容器内居中，没有整体协调\n2. 使用负 margin 试图\"拉回来\" →  hacky，难以维护\n3. 反复调整 padding → 治标不治本\n\n### ✅ 正确做法\n1. **整体布局优先**: 先确保主内容区的居中策略正确\n2. **统一容器**: 使用一个居中的包裹层控制所有内容\n3. **检查所有限制宽度的元素**: 有 `max-w-*` 就加 `mx-auto`\n4. **网格居中**: 使用 `justify-items-center` 或 `place-items-center`\n\n### 🔍 调试技巧\n1. 在浏览器 DevTools 中给容器加临时边框 (`border border-red-500`) 查看边界\n2. 检查计算后的 `margin` 值是否为 `auto`\n3. 确认 `justify-content` 和 `align-items` 的值",
+    "summary": "经验教训",
+    "namespace": "css-layout-lessons",
+    "type": "semantic",
+    "metadata": {
+      "sourceFile": "/root/.claude/projects/-root--openclaw-workspace-alphatown-agentgram/memory/css-layout-lessons.md",
+      "bootstrapped": true
+    },
+    "createdAt": 1775543486817
+  },
+  {
+    "id": "mem-css-layout-lessons-----",
+    "key": "-",
+    "content": "### 陷阱 1: `text-center` 不等于水平居中\n```html\n<!-- 错误: 文字居中，但容器本身左对齐 -->\n<div class=\"max-w-md text-center\">...</div>\n\n<!-- 正确: 容器本身居中 -->\n<div class=\"max-w-md mx-auto text-center\">...</div>\n```\n\n### 陷阱 2: 固定侧边栏的视觉欺骗\n```html\n<!-- 错误: 在剩余空间内居中，视觉上偏右 -->\n<main class=\"ml-44\">\n  <div class=\"max-w-4xl mx-auto\">...</div>\n</main>\n\n<!-- 正确: 使用 flex 居中 -->\n<main class=\"ml-44\">\n  <div class=\"flex justify-center\">\n    <div class=\"max-w-6xl\">...</div>\n  </div>\n</main>\n```\n\n### 陷阱 3: 网格布局默认左对齐\n```html\n<!-- 错误: 卡片从左",
+    "summary": "常见陷阱",
+    "namespace": "css-layout-lessons",
+    "type": "semantic",
+    "metadata": {
+      "sourceFile": "/root/.claude/projects/-root--openclaw-workspace-alphatown-agentgram/memory/css-layout-lessons.md",
+      "bootstrapped": true
+    },
+    "createdAt": 1775543486817
+  },
+  {
+    "id": "mem-css-layout-lessons-----",
+    "key": "-",
+    "content": "1. **先定框架，再填内容**: 确保外层布局正确后再处理内部元素\n2. **使用 DevTools 实时调试**: 肉眼难以判断边界时，加边框\n3. **响应式优先**: 移动端无侧边栏时，居中策略可能不同\n4. **一致的最大宽度**: 全站使用统一的 `max-w-*` 值（如 `max-w-6xl`）",
+    "summary": "最佳实践",
+    "namespace": "css-layout-lessons",
+    "type": "semantic",
+    "metadata": {
+      "sourceFile": "/root/.claude/projects/-root--openclaw-workspace-alphatown-agentgram/memory/css-layout-lessons.md",
+      "bootstrapped": true
+    },
+    "createdAt": 1775543486817
+  },
+  {
+    "id": "mem-css-layout-lessons-------",
+    "key": "-",
+    "content": "- `/apps/web/app/(public)/page.tsx`\n- 关键修改: 主内容区添加 `flex justify-center` 包裹层",
+    "summary": "相关代码位置",
+    "namespace": "css-layout-lessons",
+    "type": "semantic",
+    "metadata": {
+      "sourceFile": "/root/.claude/projects/-root--openclaw-workspace-alphatown-agentgram/memory/css-layout-lessons.md",
+      "bootstrapped": true
+    },
+    "createdAt": 1775543486817
+  },
+  {
+    "id": "mem-security-fixes-2026-04-05----------",
+    "key": "-",
+    "content": "### 已修复\n\n#### 1. HIGH: 源代码映射暴露\n**修复**: `next.config.ts`\n```typescript\nproductionBrowserSourceMaps: false,\n```\n\n#### 2. HIGH: 开发模式配置泄露\n**修复**: 移除 `allowedDevOrigins`（生产环境不需要）\n```typescript\n// 已删除以下配置\nallowedDevOrigins: [\n  '107.150.106.101:3000',\n  '107.150.106.101',\n  'localhost:3000',\n],\n```\n\n#### 3. MEDIUM: CSP frame-ancestors 过于宽松\n**修复**: `proxy.ts`\n```typescript\n// 之前\nframe-ancestors 'self' *;\n\n// 修复后\nframe-ancestors 'self';\n```\n\n### 需要手动配置的（部署时）\n\n#### 4. HIGH: 开发模式运行\n**修复**: 确保生产环境设置环境变量\n``",
+    "summary": "渗透测试发现的问题",
+    "namespace": "security-fixes-2026-04-05",
+    "type": "semantic",
+    "metadata": {
+      "sourceFile": "/root/.claude/projects/-root--openclaw-workspace-alphatown-agentgram/memory/security-fixes-2026-04-05.md",
+      "bootstrapped": true
+    },
+    "createdAt": 1775543486818
+  },
+  {
+    "id": "mem-security-fixes-2026-04-05-----",
+    "key": "-",
+    "content": "pnpm build",
+    "summary": "生产构建",
+    "namespace": "security-fixes-2026-04-05",
+    "type": "semantic",
+    "metadata": {
+      "sourceFile": "/root/.claude/projects/-root--openclaw-workspace-alphatown-agentgram/memory/security-fixes-2026-04-05.md",
+      "bootstrapped": true
+    },
+    "createdAt": 1775543486818
+  },
+  {
+    "id": "mem-security-fixes-2026-04-05------",
+    "key": "-",
+    "content": "curl -I http://localhost:3000/ | grep -i \"content-security-policy\"",
+    "summary": "检查响应头",
+    "namespace": "security-fixes-2026-04-05",
+    "type": "semantic",
+    "metadata": {
+      "sourceFile": "/root/.claude/projects/-root--openclaw-workspace-alphatown-agentgram/memory/security-fixes-2026-04-05.md",
+      "bootstrapped": true
+    },
+    "createdAt": 1775543486818
+  },
+  {
+    "id": "mem-security-fixes-2026-04-05----source-map-----",
+    "key": "-source-map-",
+    "content": "curl http://localhost:3000/_next/static/chunks/main.js.map",
+    "summary": "检查 source map 是否禁用",
+    "namespace": "security-fixes-2026-04-05",
+    "type": "semantic",
+    "metadata": {
+      "sourceFile": "/root/.claude/projects/-root--openclaw-workspace-alphatown-agentgram/memory/security-fixes-2026-04-05.md",
+      "bootstrapped": true
+    },
+    "createdAt": 1775543486818
+  },
+  {
+    "id": "mem-security-fixes-2026-04-05-----",
+    "key": "-",
+    "content": "- `/apps/web/next.config.ts`\n- `/apps/web/proxy.ts`",
+    "summary": "相关文件",
+    "namespace": "security-fixes-2026-04-05",
+    "type": "semantic",
+    "metadata": {
+      "sourceFile": "/root/.claude/projects/-root--openclaw-workspace-alphatown-agentgram/memory/security-fixes-2026-04-05.md",
+      "bootstrapped": true
+    },
+    "createdAt": 1775543486818
+  }
+]

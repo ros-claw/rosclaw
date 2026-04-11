@@ -195,6 +195,33 @@ def execute_motion(trajectory):
 ## 🙏 Acknowledgements
 
 ROSClaw stands on the shoulders of giants:
+
+### Academic Partners
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center" width="50%">
+        <a href="https://www.tongji.edu.cn/">
+          <img src="docs/logos/同济大学logo.png" height="80" alt="Tongji University"/>
+        </a>
+        <br/>
+        <b><a href="https://www.tongji.edu.cn/">Tongji University</a></b>
+      </td>
+      <td align="center" width="50%">
+        <a href="https://srias.tongji.edu.cn/">
+          <img src="docs/logos/上海自主智能无人系统科学中心logo.png" height="80" alt="Shanghai Research Institute of Autonomous Intelligent Unmanned Systems"/>
+        </a>
+        <br/>
+        <b><a href="https://srias.tongji.edu.cn/">Shanghai Research Institute of Autonomous Intelligent Unmanned Systems</a></b>
+      </td>
+    </tr>
+  </table>
+</div>
+
+This project is proudly supported by **Tongji University** and the **Shanghai Research Institute of Autonomous Intelligent Unmanned Systems (SRIAS)**. Their commitment to advancing autonomous intelligent systems research provides the foundation for innovations like ROSClaw.
+
+### Open Source Community
 *   **The Agent Ecosystem (OpenClaw, Claude Code, etc.)**: For pioneering the digital workflows that inspired our physical architecture.
 *   **[RoboClaw](https://github.com/MINT-SJTU/RoboClaw)**: For pioneering the Embodied closed-loop and Entangled Action Pairs (EAP).
 *   **[mjlab](https://github.com/mujocolab/mjlab)**: For providing the blazingly fast MuJoCo backend that powers our Digital Twin Firewall.

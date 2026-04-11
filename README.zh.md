@@ -199,6 +199,33 @@ def execute_motion(trajectory):
 ## 🙏 致谢
 
 ROSClaw 站在巨人的肩膀上：
+
+### 学术合作单位
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center" width="50%">
+        <a href="https://www.tongji.edu.cn/">
+          <img src="docs/logos/同济大学logo.png" height="80" alt="同济大学"/>
+        </a>
+        <br/>
+        <b><a href="https://www.tongji.edu.cn/">同济大学</a></b>
+      </td>
+      <td align="center" width="50%">
+        <a href="https://srias.tongji.edu.cn/">
+          <img src="docs/logos/上海自主智能无人系统科学中心logo.png" height="80" alt="上海自主智能无人系统科学中心"/>
+        </a>
+        <br/>
+        <b><a href="https://srias.tongji.edu.cn/">上海自主智能无人系统科学中心</a></b>
+      </td>
+    </tr>
+  </table>
+</div>
+
+本项目由**同济大学**和**上海自主智能无人系统科学中心** proudly 支持。他们对推进自主智能系统研究的承诺为 ROSClaw 等创新提供了基础。
+
+### 开源社区
 *   **代理生态系统 (OpenClaw、Claude Code 等)**：开创了启发我们物理架构的数字工作流程。
 *   **[RoboClaw](https://github.com/MINT-SJTU/RoboClaw)**：开创了具身闭环和纠缠动作对 (EAP)。
 *   **[mjlab](https://github.com/mujocolab/mjlab)**：提供了驱动我们数字孪生防火墙的超快速 MuJoCo 后端。

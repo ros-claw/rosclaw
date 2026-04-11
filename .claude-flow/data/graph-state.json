@@ -1,0 +1,169 @@
+{
+  "version": 1,
+  "updatedAt": 1775543486828,
+  "nodeCount": 7,
+  "nodes": {
+    "mem-MEMORY-project-knowledge": {
+      "id": "mem-MEMORY-project-knowledge",
+      "category": "core",
+      "confidence": 0.5,
+      "accessCount": 0,
+      "createdAt": 1775543486816
+    },
+    "mem-css-layout-lessons-----": {
+      "id": "mem-css-layout-lessons-----",
+      "category": "css-layout-lessons",
+      "confidence": 0.5,
+      "accessCount": 0,
+      "createdAt": 1775543486817
+    },
+    "mem-css-layout-lessons-------": {
+      "id": "mem-css-layout-lessons-------",
+      "category": "css-layout-lessons",
+      "confidence": 0.5,
+      "accessCount": 0,
+      "createdAt": 1775543486817
+    },
+    "mem-security-fixes-2026-04-05----------": {
+      "id": "mem-security-fixes-2026-04-05----------",
+      "category": "security-fixes-2026-04-05",
+      "confidence": 0.5,
+      "accessCount": 0,
+      "createdAt": 1775543486818
+    },
+    "mem-security-fixes-2026-04-05-----": {
+      "id": "mem-security-fixes-2026-04-05-----",
+      "category": "security-fixes-2026-04-05",
+      "confidence": 0.5,
+      "accessCount": 0,
+      "createdAt": 1775543486818
+    },
+    "mem-security-fixes-2026-04-05------": {
+      "id": "mem-security-fixes-2026-04-05------",
+      "category": "security-fixes-2026-04-05",
+      "confidence": 0.5,
+      "accessCount": 0,
+      "createdAt": 1775543486818
+    },
+    "mem-security-fixes-2026-04-05----source-map-----": {
+      "id": "mem-security-fixes-2026-04-05----source-map-----",
+      "category": "security-fixes-2026-04-05",
+      "confidence": 0.5,
+      "accessCount": 0,
+      "createdAt": 1775543486818
+    }
+  },
+  "edges": [
+    {
+      "sourceId": "mem-css-layout-lessons-----",
+      "targetId": "mem-css-layout-lessons-----",
+      "type": "temporal",
+      "weight": 0.5
+    },
+    {
+      "sourceId": "mem-css-layout-lessons-----",
+      "targetId": "mem-css-layout-lessons-------",
+      "type": "temporal",
+      "weight": 0.5
+    },
+    {
+      "sourceId": "mem-css-layout-lessons-------",
+      "targetId": "mem-css-layout-lessons-----",
+      "type": "temporal",
+      "weight": 0.5
+    },
+    {
+      "sourceId": "mem-css-layout-lessons-----",
+      "targetId": "mem-css-layout-lessons-----",
+      "type": "temporal",
+      "weight": 0.5
+    },
+    {
+      "sourceId": "mem-css-layout-lessons-----",
+      "targetId": "mem-css-layout-lessons-----",
+      "type": "temporal",
+      "weight": 0.5
+    },
+    {
+      "sourceId": "mem-css-layout-lessons-----",
+      "targetId": "mem-css-layout-lessons-----",
+      "type": "temporal",
+      "weight": 0.5
+    },
+    {
+      "sourceId": "mem-css-layout-lessons-----",
+      "targetId": "mem-css-layout-lessons-------",
+      "type": "temporal",
+      "weight": 0.5
+    },
+    {
+      "sourceId": "mem-security-fixes-2026-04-05----------",
+      "targetId": "mem-security-fixes-2026-04-05-----",
+      "type": "temporal",
+      "weight": 0.5
+    },
+    {
+      "sourceId": "mem-security-fixes-2026-04-05-----",
+      "targetId": "mem-security-fixes-2026-04-05------",
+      "type": "temporal",
+      "weight": 0.5
+    },
+    {
+      "sourceId": "mem-security-fixes-2026-04-05------",
+      "targetId": "mem-security-fixes-2026-04-05----source-map-----",
+      "type": "temporal",
+      "weight": 0.5
+    },
+    {
+      "sourceId": "mem-security-fixes-2026-04-05----source-map-----",
+      "targetId": "mem-security-fixes-2026-04-05-----",
+      "type": "temporal",
+      "weight": 0.5
+    },
+    {
+      "sourceId": "mem-css-layout-lessons-----",
+      "targetId": "mem-css-layout-lessons-----",
+      "type": "similar",
+      "weight": 0.5797101449275363
+    },
+    {
+      "sourceId": "mem-css-layout-lessons-----",
+      "targetId": "mem-css-layout-lessons-----",
+      "type": "similar",
+      "weight": 0.3170731707317073
+    },
+    {
+      "sourceId": "mem-css-layout-lessons-------",
+      "targetId": "mem-css-layout-lessons-----",
+      "type": "similar",
+      "weight": 0.31343283582089554
+    },
+    {
+      "sourceId": "mem-css-layout-lessons-------",
+      "targetId": "mem-css-layout-lessons-----",
+      "type": "similar",
+      "weight": 0.5263157894736842
+    },
+    {
+      "sourceId": "mem-css-layout-lessons-----",
+      "targetId": "mem-css-layout-lessons-----",
+      "type": "similar",
+      "weight": 0.3076923076923077
+    },
+    {
+      "sourceId": "mem-css-layout-lessons-----",
+      "targetId": "mem-css-layout-lessons-----",
+      "type": "similar",
+      "weight": 0.4307692307692308
+    }
+  ],
+  "pageRanks": {
+    "mem-MEMORY-project-knowledge": 0.02439024390243903,
+    "mem-css-layout-lessons-----": 0.25710513515391564,
+    "mem-css-layout-lessons-------": 0.06809811687860469,
+    "mem-security-fixes-2026-04-05----------": 0.02439024390243903,
+    "mem-security-fixes-2026-04-05-----": 0.21593663968264382,
+    "mem-security-fixes-2026-04-05------": 0.20805017966173137,
+    "mem-security-fixes-2026-04-05----source-map-----": 0.20202944081822644
+  }
+}
