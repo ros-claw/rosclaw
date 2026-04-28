@@ -20,6 +20,12 @@
 
 <br/>
 
+> ⚠️ **Project Status: Pre-Alpha (V0.1)**
+>
+> ROSClaw is currently in active development. We are NOT building another simple "LLM-to-ROS2 API wrapper" (there are plenty of those). We are building a full **Embodied AI Operating System**, featuring a MuJoCo-based Digital Twin Firewall, Reflex Handshake protocol for Multi-Agent coordination, and an Auto-EAP Data Flywheel.
+>
+> Current release is a structural proof-of-concept. Production-grade ROS 2 Action servers, MoveIt 2 integration, and the full e-URDF firewall will be released in the upcoming `v0.2.0` milestone. Stay tuned.
+
 ## 🌍 The Vision: Democratizing Physical AI
 
 Phenomenal frameworks like **Claude Code, OpenClaw, and WorkBuddy** have democratized the digital world—empowering anyone to orchestrate AI teams to build software effortlessly.
@@ -31,6 +37,14 @@ We are not just building a bridge between LLMs and robots; we are building an **
 By unifying heterogeneous hardware behind the universal Model Context Protocol (MCP) and abstracting physics through our OS kernel, we enable creators to **share, iterate, and deploy Embodied AI across thousands of industries**.
 
 > **The future we imagine**: A skill marketplace where physical intelligence flows as freely as software—teach once, embody everywhere.
+
+### 💡 What does "ROS" in ROSClaw mean?
+
+We transcend legacy middleware. In our architecture, the agent in the digital world is simply called an "Agent" (via OpenClaw). **When that Agent enters the physical universe, it is called a "Robot".**
+
+ROSClaw is the **Universal Embodied Operating System** that facilitates this transition. We are NOT just another "LLM-to-ROS2 API wrapper." While traditional frameworks (like recent academic papers sharing the *ROSClaw* namesake) focus purely on translating text to ROS 2 topics, we treat legacy ROS 1, ROS 2, and IoT protocols merely as "Southbound Drivers."
+
+Our core value lies in the **OS Kernel**: the Semantic-Physical Firewall, the Asynchronous Brain-Cerebellum Routing, and the Autonomous Data Flywheel. We are a "Super Plugin" that connects the entire physical ecosystem to any multimodal agent seamlessly.
 
 ---
 
