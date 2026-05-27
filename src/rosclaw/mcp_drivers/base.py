@@ -27,6 +27,19 @@ class DriverState:
     def is_ready(self) -> bool:
         return self.connected and self.error_code == 0
 
+    def to_dict(self) -> dict:
+        """Return state as a plain dict for easy inspection."""
+        return {
+            "connected": self.connected,
+            "joint_positions": list(self.joint_positions),
+            "joint_velocities": list(self.joint_velocities),
+            "joint_torques": list(self.joint_torques),
+            "end_effector_pose": list(self.end_effector_pose) if self.end_effector_pose else None,
+            "gripper_state": self.gripper_state,
+            "error_code": self.error_code,
+            "error_message": self.error_message,
+        }
+
 
 @dataclass
 class TrajectoryCommand:
@@ -57,6 +70,11 @@ class BaseDriver(LifecycleMixin, ABC):
     @property
     def state(self) -> DriverState:
         return self._driver_state
+
+    @property
+    def state_dict(self) -> dict:
+        """Get driver state as a plain dict for easy inspection."""
+        return self._driver_state.to_dict()
 
     @abstractmethod
     def get_joint_positions(self) -> list[float]:
@@ -91,10 +109,10 @@ class BaseDriver(LifecycleMixin, ABC):
                 raise TypeError(f"Joint position {i} must be numeric, got {type(p).__name__}")
             if not math.isfinite(p):
                 raise ValueError(f"Joint position {i} is not finite: {p}")
-            if abs(p) > 1e6:
+            if abs(p) > 1e5:
                 raise ValueError(
                     f"Joint position {i} exceeds safe bounds: {p}. "
-                    f"Max allowed absolute value is 1e6."
+                    f"Max allowed absolute value is 1e5."
                 )
 
     @abstractmethod

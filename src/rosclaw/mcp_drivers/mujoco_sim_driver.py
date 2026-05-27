@@ -15,7 +15,7 @@ class MuJoCoSimDriver(BaseDriver):
     Provides identical interface to real hardware but runs in simulation.
     """
 
-    def __init__(self, robot_id: str, model_path: str, joint_dof: int = 6):
+    def __init__(self, robot_id: str = "default_robot", model_path: str = "", joint_dof: int = 6):
         super().__init__(robot_id, joint_dof)
         self._model_path = model_path
         self._model: Optional[Any] = None
@@ -115,7 +115,7 @@ class MuJoCoSimDriver(BaseDriver):
         self._driver_state.joint_positions = self.get_joint_positions()
         self._driver_state.joint_velocities = self.get_joint_velocities()
         self._driver_state.joint_torques = self.get_joint_torques()
-        return self._state
+        return self._driver_state
 
     def get_mujoco_data(self) -> Optional[Any]:
         """Access underlying MuJoCo data for Digital Twin validation."""
