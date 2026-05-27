@@ -30,6 +30,24 @@ from typing import Any, Optional
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin, LifecycleState
 
+# Provider layer imports (lazy to avoid hard deps)
+ProviderRegistry = None
+CapabilityRouter = None
+ProviderRequest = None
+GuardPipeline = None
+SchemaGuard = None
+ActionGuard = None
+
+try:
+    from rosclaw.provider.core.registry import ProviderRegistry
+    from rosclaw.provider.core.router import CapabilityRouter
+    from rosclaw.provider.core.request import ProviderRequest
+    from rosclaw.provider.guard.pipeline import GuardPipeline
+    from rosclaw.provider.guard.schema_guard import SchemaGuard
+    from rosclaw.provider.guard.action_guard import ActionGuard
+except ImportError:
+    pass
+
 
 @dataclass
 class RuntimeConfig:
@@ -41,6 +59,7 @@ class RuntimeConfig:
     enable_practice: bool = True
     enable_swarm: bool = False
     enable_skill_manager: bool = True
+    enable_provider: bool = True
     joint_dof: int = 6
     sampling_rate_hz: int = 1000
     safety_level: str = "MODERATE"          # STRICT | MODERATE | LENIENT
@@ -74,6 +93,11 @@ class Runtime(LifecycleMixin):
         self._skill_manager: Optional[Any] = None
         self._e_urdf: Optional[Any] = None
         self._mcp_drivers: dict[str, Any] = {}
+
+        # Provider layer
+        self._provider_registry: Optional[Any] = None
+        self._capability_router: Optional[Any] = None
+        self._guard_pipeline: Optional[Any] = None
 
         # Internal state
         self._agent_runtime: Optional[Any] = None
@@ -163,6 +187,19 @@ class Runtime(LifecycleMixin):
                 print("[Runtime] Skill Grounding (SkillManager) initialized")
             except ImportError as e:
                 print(f"[Runtime] SkillManager module not available: {e}")
+
+        # Initialize Provider Layer (Capability Router + Guard)
+        if self.config.enable_provider and ProviderRegistry is not None:
+            try:
+                self._provider_registry = ProviderRegistry()
+                self._guard_pipeline = GuardPipeline()
+                self._guard_pipeline.add(SchemaGuard())
+                self._guard_pipeline.add(ActionGuard())
+                self._register_builtin_providers()
+                self._capability_router = CapabilityRouter(self._provider_registry)
+                print("[Runtime] Provider Layer (Registry + Router + Guard) initialized")
+            except Exception as e:
+                print(f"[Runtime] Provider layer not available: {e}")
 
         # Initialize all module lifecycles
         for module in self._modules:
@@ -266,6 +303,138 @@ class Runtime(LifecycleMixin):
         """Get comprehensive runtime status (alias for get_status)."""
         return self.get_status()
 
+    @property
+    def provider_registry(self) -> Optional[Any]:
+        return self._provider_registry
+
+    @property
+    def capability_router(self) -> Optional[Any]:
+        return self._capability_router
+
+    @property
+    def guard_pipeline(self) -> Optional[Any]:
+        return self._guard_pipeline
+
+    def _register_builtin_providers(self) -> None:
+        """Register built-in mock providers for out-of-box capability support."""
+        from rosclaw.provider.core.manifest import ProviderManifest
+        from rosclaw.provider.core.provider import Provider
+        from rosclaw.provider.core.request import ProviderRequest
+        from rosclaw.provider.core.response import ProviderResponse
+
+        class MockVLMProvider(Provider):
+            name = "mock_vlm"
+            capabilities = ["vlm.object_grounding", "vlm.scene_understanding"]
+
+            async def infer(self, request: ProviderRequest) -> ProviderResponse:
+                cap = request.capability
+                if cap == "vlm.object_grounding":
+                    query = request.inputs.get("query", "")
+                    return ProviderResponse(
+                        request_id=request.request_id,
+                        provider=self.name,
+                        capability=cap,
+                        result={
+                            "objects": [
+                                {
+                                    "id": "obj_001",
+                                    "label": query or "unknown",
+                                    "bbox_2d": [120, 80, 230, 200],
+                                    "confidence": 0.93,
+                                }
+                            ],
+                            "risks": [],
+                        },
+                        confidence=0.93,
+                    )
+                return ProviderResponse(
+                    request_id=request.request_id,
+                    provider=self.name,
+                    capability=cap,
+                    result={"scene": "tabletop", "objects": [], "risks": []},
+                )
+
+            async def health(self):
+                return {"ok": True}
+
+        class MockSkillProvider(Provider):
+            name = "mock_skill"
+            capabilities = ["skill.grasp", "skill.place", "skill.pick_and_place"]
+
+            async def infer(self, request: ProviderRequest) -> ProviderResponse:
+                skill = request.capability.split(".", 1)[1]
+                return ProviderResponse(
+                    request_id=request.request_id,
+                    provider=self.name,
+                    capability=request.capability,
+                    result={
+                        "skill": skill,
+                        "status": "dispatched",
+                        "execution_trace": {
+                            "controller": self.name,
+                            "guard_checks": ["joint_limit", "collision", "workspace"],
+                        },
+                    },
+                )
+
+            async def health(self):
+                return {"ok": True}
+
+        class MockCriticProvider(Provider):
+            name = "mock_critic"
+            capabilities = ["critic.success_detection", "critic.retry_advice"]
+
+            async def infer(self, request: ProviderRequest) -> ProviderResponse:
+                return ProviderResponse(
+                    request_id=request.request_id,
+                    provider=self.name,
+                    capability=request.capability,
+                    result={
+                        "success": True,
+                        "confidence": 0.85,
+                        "reason": "mock evaluation",
+                        "retry": {"recommended": False},
+                    },
+                )
+
+            async def health(self):
+                return {"ok": True}
+
+        self._provider_registry.register(
+            ProviderManifest.from_dict({
+                "name": "mock_vlm", "version": "0.1.0", "type": "vlm",
+                "capabilities": ["vlm.object_grounding", "vlm.scene_understanding"],
+                "modalities": {"input": ["image", "text"], "output": ["object_list"]},
+                "safety": {"executable": False, "requires_guard": False},
+            }),
+            lambda m: MockVLMProvider(m),
+            auto_load=False,
+        )
+        self._provider_registry._health["mock_vlm"] = {"ok": True}
+
+        self._provider_registry.register(
+            ProviderManifest.from_dict({
+                "name": "mock_skill", "version": "0.1.0", "type": "skill",
+                "capabilities": ["skill.grasp", "skill.place", "skill.pick_and_place"],
+                "embodiment": {"supported_robots": []},
+                "safety": {"executable": True, "requires_guard": True},
+            }),
+            lambda m: MockSkillProvider(m),
+            auto_load=False,
+        )
+        self._provider_registry._health["mock_skill"] = {"ok": True}
+
+        self._provider_registry.register(
+            ProviderManifest.from_dict({
+                "name": "mock_critic", "version": "0.1.0", "type": "critic",
+                "capabilities": ["critic.success_detection", "critic.retry_advice"],
+                "safety": {"executable": False, "requires_guard": False},
+            }),
+            lambda m: MockCriticProvider(m),
+            auto_load=False,
+        )
+        self._provider_registry._health["mock_critic"] = {"ok": True}
+
     def get_status(self) -> dict:
         """Get comprehensive runtime status."""
         return {
@@ -282,6 +451,7 @@ class Runtime(LifecycleMixin):
                 "swarm": self._swarm is not None,
                 "skill_manager": self._skill_manager is not None,
                 "e_urdf": self._e_urdf is not None,
+                "provider_layer": self._provider_registry is not None,
             },
             "drivers": list(self._mcp_drivers.keys()),
         }
