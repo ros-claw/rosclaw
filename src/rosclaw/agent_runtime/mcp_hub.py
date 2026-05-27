@@ -6,11 +6,12 @@ robot control tools to LLMs. This is the primary interface
 between AI agents and the physical world.
 
 The MCP Hub:
-1. Registers tools for robot control (move, grasp, etc.)
-2. Maintains AgentContext with grounding information
-3. Validates all commands through the Digital Twin Firewall
-4. Publishes events to the EventBus for module coordination
-5. Uses command-response pattern (NOT fire-and-forget)
+1. Registers semantic capability tools (VLM, Skill, Critic) when provider layer is available
+2. Falls back to low-level control tools when provider layer is unavailable
+3. Maintains AgentContext with grounding information
+4. Validates all commands through the Digital Twin Firewall
+5. Publishes events to the EventBus for module coordination
+6. Uses command-response pattern (NOT fire-and-forget)
 """
 
 import asyncio
@@ -66,12 +67,23 @@ class MCPHub(LifecycleMixin):
     Exposes robot control capabilities to LLMs through the
     Model Context Protocol. All tool calls are validated
     and routed through the EventBus using command-response pattern.
+
+    When a Runtime with provider layer is attached, MCPHub exposes
+    semantic capability tools (e.g., locate_object, delegate_skill)
+    that route through the CapabilityRouter. Otherwise, it falls back
+    to low-level control primitives.
     """
 
-    def __init__(self, event_bus: EventBus, robot_id: str = "rosclaw_default"):
+    def __init__(
+        self,
+        event_bus: EventBus,
+        robot_id: str = "rosclaw_default",
+        runtime: Optional[Any] = None,
+    ):
         super().__init__()
         self.event_bus = event_bus
         self.robot_id = robot_id
+        self.runtime = runtime
         self.context = AgentContext(
             session_id="default",
             robot_id=robot_id,
@@ -111,8 +123,120 @@ class MCPHub(LifecycleMixin):
                 fut.cancel()
         self._pending_requests.clear()
 
+    # ------------------------------------------------------------------
+    # Tool registration
+    # ------------------------------------------------------------------
+    @property
+    def _has_provider_layer(self) -> bool:
+        return (
+            self.runtime is not None
+            and getattr(self.runtime, "capability_router", None) is not None
+        )
+
     def _register_all_tools(self) -> None:
-        """Register all robot control tools."""
+        """Register all tools based on available runtime capabilities."""
+        if self._has_provider_layer:
+            self._register_semantic_tools()
+        else:
+            self._register_low_level_tools()
+
+    # -- Semantic capability tools (provider-aware) --
+    def _register_semantic_tools(self) -> None:
+        """Register semantic tools that route through CapabilityRouter."""
+        self._register_observe_scene_tool()
+        self._register_locate_object_tool()
+        self._register_delegate_skill_tool()
+        self._register_verify_task_success_tool()
+        self._register_get_state_tool()
+        self._register_emergency_stop_tool()
+
+    def _register_observe_scene_tool(self) -> None:
+        self._tools["observe_scene"] = {
+            "name": "observe_scene",
+            "description": "Analyze the current scene using VLM. Returns detected objects, scene type, and any risks.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "image_topic": {
+                        "type": "string",
+                        "description": "ROS camera topic name (e.g., /camera/color/image_raw)",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Optional natural language query about the scene",
+                    },
+                },
+            },
+        }
+
+    def _register_locate_object_tool(self) -> None:
+        self._tools["locate_object"] = {
+            "name": "locate_object",
+            "description": "Locate a specific object in the scene using VLM object grounding. Returns bounding box and confidence.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "object_name": {
+                        "type": "string",
+                        "description": "Name of the object to locate (e.g., 'red cup', 'screwdriver')",
+                    },
+                    "image_topic": {
+                        "type": "string",
+                        "description": "ROS camera topic name",
+                    },
+                },
+                "required": ["object_name"],
+            },
+        }
+
+    def _register_delegate_skill_tool(self) -> None:
+        self._tools["delegate_skill"] = {
+            "name": "delegate_skill",
+            "description": "Delegate a high-level skill execution (grasp, place, pick_and_place, etc.) to the skill provider.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "skill": {
+                        "type": "string",
+                        "enum": ["grasp", "place", "pick_and_place", "push", "pull", "navigate", "inspect"],
+                        "description": "Skill to execute",
+                    },
+                    "target": {
+                        "type": "object",
+                        "description": "Target specification (object name, pose, waypoint, etc.)",
+                    },
+                    "constraints": {
+                        "type": "object",
+                        "description": "Optional constraints (force, speed, approach_direction)",
+                    },
+                },
+                "required": ["skill"],
+            },
+        }
+
+    def _register_verify_task_success_tool(self) -> None:
+        self._tools["verify_task_success"] = {
+            "name": "verify_task_success",
+            "description": "Verify whether the current or last task was completed successfully using the critic provider.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "task_description": {
+                        "type": "string",
+                        "description": "Description of what success looks like",
+                    },
+                    "image_topic": {
+                        "type": "string",
+                        "description": "Optional camera topic for visual verification",
+                    },
+                },
+                "required": ["task_description"],
+            },
+        }
+
+    # -- Low-level control tools (fallback when no provider layer) --
+    def _register_low_level_tools(self) -> None:
+        """Register low-level robot control tools."""
         self._register_move_tool()
         self._register_grasp_tool()
         self._register_get_state_tool()
@@ -120,7 +244,6 @@ class MCPHub(LifecycleMixin):
         self._register_emergency_stop_tool()
 
     def _register_move_tool(self) -> None:
-        """Register move_joints tool."""
         self._tools["move_joints"] = {
             "name": "move_joints",
             "description": "Move robot joints to target positions",
@@ -143,7 +266,6 @@ class MCPHub(LifecycleMixin):
         }
 
     def _register_grasp_tool(self) -> None:
-        """Register grasp tool."""
         self._tools["grasp"] = {
             "name": "grasp",
             "description": "Control the gripper to grasp or release",
@@ -166,7 +288,6 @@ class MCPHub(LifecycleMixin):
         }
 
     def _register_get_state_tool(self) -> None:
-        """Register get_robot_state tool."""
         self._tools["get_robot_state"] = {
             "name": "get_robot_state",
             "description": "Get current robot joint positions and state",
@@ -174,7 +295,6 @@ class MCPHub(LifecycleMixin):
         }
 
     def _register_validate_trajectory_tool(self) -> None:
-        """Register validate_trajectory tool."""
         self._tools["validate_trajectory"] = {
             "name": "validate_trajectory",
             "description": "Validate a trajectory through Digital Twin before execution",
@@ -192,13 +312,15 @@ class MCPHub(LifecycleMixin):
         }
 
     def _register_emergency_stop_tool(self) -> None:
-        """Register emergency_stop tool."""
         self._tools["emergency_stop"] = {
             "name": "emergency_stop",
             "description": "EMERGENCY STOP - halt all robot motion immediately",
             "inputSchema": {"type": "object", "properties": {}},
         }
 
+    # ------------------------------------------------------------------
+    # Tool call dispatch
+    # ------------------------------------------------------------------
     async def handle_tool_call(self, name: str, arguments: dict) -> dict:
         """
         Handle an MCP tool call from an LLM.
@@ -208,7 +330,18 @@ class MCPHub(LifecycleMixin):
         """
         print(f"[MCPHub] Tool call: {name}({arguments})")
 
-        if name == "move_joints":
+        # Semantic capability tools (provider-aware)
+        if name == "observe_scene":
+            return await self._handle_observe_scene(arguments)
+        elif name == "locate_object":
+            return await self._handle_locate_object(arguments)
+        elif name == "delegate_skill":
+            return await self._handle_delegate_skill(arguments)
+        elif name == "verify_task_success":
+            return await self._handle_verify_task_success(arguments)
+
+        # Low-level control tools
+        elif name == "move_joints":
             return await self._handle_move_joints(arguments)
         elif name == "grasp":
             return await self._handle_grasp(arguments)
@@ -221,6 +354,98 @@ class MCPHub(LifecycleMixin):
         else:
             return {"error": f"Unknown tool: {name}"}
 
+    # ------------------------------------------------------------------
+    # Semantic capability handlers
+    # ------------------------------------------------------------------
+    async def _route_capability(
+        self,
+        capability: str,
+        inputs: dict[str, Any],
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Route a capability request through the CapabilityRouter."""
+        router = self.runtime.capability_router
+        guard = self.runtime.guard_pipeline
+
+        from rosclaw.provider.core.request import ProviderRequest
+
+        request = ProviderRequest(
+            request_id=str(uuid.uuid4())[:8],
+            capability=capability,
+            inputs=inputs,
+            context={
+                "robot": self.robot_id,
+                "safety_level": self.context.safety_level,
+                **(context or {}),
+            },
+            constraints={"safety_level": self.context.safety_level.upper()},
+        )
+
+        try:
+            response = await router.invoke(request)
+        except Exception as e:
+            return {
+                "status": "failed",
+                "capability": capability,
+                "error": str(e),
+            }
+
+        # Run guard pipeline on executable outputs
+        if guard and getattr(response, "result", None):
+            try:
+                guard.check(request, response)
+            except Exception as e:
+                return {
+                    "status": "blocked",
+                    "capability": capability,
+                    "error": f"Guard blocked: {e}",
+                }
+
+        return {
+            "status": "ok" if response.is_ok else "failed",
+            "capability": capability,
+            "provider": getattr(response, "provider", ""),
+            "result": getattr(response, "result", {}),
+            "confidence": getattr(response, "confidence", None),
+            "latency_ms": getattr(response, "latency_ms", None),
+            "warnings": getattr(response, "warnings", []),
+            "errors": getattr(response, "errors", []),
+        }
+
+    async def _handle_observe_scene(self, arguments: dict) -> dict:
+        """Handle observe_scene via VLM scene_understanding capability."""
+        inputs = {"camera_topic": arguments.get("image_topic", ""), "text": arguments.get("query", "")}
+        return await self._route_capability("vlm.scene_understanding", inputs)
+
+    async def _handle_locate_object(self, arguments: dict) -> dict:
+        """Handle locate_object via VLM object_grounding capability."""
+        inputs = {
+            "query": arguments.get("object_name", ""),
+            "camera_topic": arguments.get("image_topic", ""),
+        }
+        return await self._route_capability("vlm.object_grounding", inputs)
+
+    async def _handle_delegate_skill(self, arguments: dict) -> dict:
+        """Handle delegate_skill via Skill provider."""
+        skill = arguments.get("skill", "")
+        capability = f"skill.{skill}"
+        inputs = {
+            "target": arguments.get("target", {}),
+            "constraints": arguments.get("constraints", {}),
+        }
+        return await self._route_capability(capability, inputs)
+
+    async def _handle_verify_task_success(self, arguments: dict) -> dict:
+        """Handle verify_task_success via Critic provider."""
+        inputs = {
+            "task": arguments.get("task_description", ""),
+            "camera_topic": arguments.get("image_topic", ""),
+        }
+        return await self._route_capability("critic.success_detection", inputs)
+
+    # ------------------------------------------------------------------
+    # Low-level control handlers
+    # ------------------------------------------------------------------
     async def _send_command_and_wait(
         self,
         topic: str,
@@ -284,7 +509,6 @@ class MCPHub(LifecycleMixin):
             },
         )
 
-        # If timeout or no response handler, fall back to issued status
         if result.get("status") == "timeout":
             return {
                 "status": "command_issued",

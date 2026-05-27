@@ -131,3 +131,141 @@ async def test_mcp_hub_command_response_pattern():
     assert len(received_requests) == 1
     assert received_requests[0] is not None
     hub.stop()
+
+
+# ------------------------------------------------------------------
+# Provider-aware MCPHub tests
+# ------------------------------------------------------------------
+
+def test_mcp_hub_semantic_tools_with_runtime():
+    """When attached to a Runtime with provider layer, MCPHub exposes semantic tools."""
+    from rosclaw.core.runtime import Runtime, RuntimeConfig
+
+    runtime = Runtime(RuntimeConfig(robot_id="test_bot", enable_provider=True))
+    runtime.initialize()
+
+    bus = EventBus()
+    hub = MCPHub(bus, robot_id="test_bot", runtime=runtime)
+    hub.initialize()
+
+    tools = hub.tools
+    names = [t["name"] for t in tools]
+
+    assert "observe_scene" in names
+    assert "locate_object" in names
+    assert "delegate_skill" in names
+    assert "verify_task_success" in names
+    assert "get_robot_state" in names
+    assert "emergency_stop" in names
+
+    # Low-level tools should NOT be present in semantic mode
+    assert "move_joints" not in names
+    assert "grasp" not in names
+
+    hub.stop()
+    runtime.stop()
+
+
+async def test_mcp_hub_observe_scene_via_provider():
+    """Test observe_scene routes through capability router to mock VLM."""
+    from rosclaw.core.runtime import Runtime, RuntimeConfig
+
+    runtime = Runtime(RuntimeConfig(robot_id="test_bot", enable_provider=True))
+    runtime.initialize()
+
+    bus = EventBus()
+    hub = MCPHub(bus, robot_id="test_bot", runtime=runtime)
+    hub.initialize()
+
+    result = await hub.handle_tool_call("observe_scene", {"query": "what do you see?"})
+    assert result["status"] == "ok"
+    assert result["capability"] == "vlm.scene_understanding"
+    assert "result" in result
+
+    hub.stop()
+    runtime.stop()
+
+
+async def test_mcp_hub_locate_object_via_provider():
+    """Test locate_object routes through capability router to mock VLM."""
+    from rosclaw.core.runtime import Runtime, RuntimeConfig
+
+    runtime = Runtime(RuntimeConfig(robot_id="test_bot", enable_provider=True))
+    runtime.initialize()
+
+    bus = EventBus()
+    hub = MCPHub(bus, robot_id="test_bot", runtime=runtime)
+    hub.initialize()
+
+    result = await hub.handle_tool_call("locate_object", {"object_name": "red cup"})
+    assert result["status"] == "ok"
+    assert result["capability"] == "vlm.object_grounding"
+    assert "result" in result
+    assert result["result"]["objects"][0]["label"] == "red cup"
+
+    hub.stop()
+    runtime.stop()
+
+
+async def test_mcp_hub_delegate_skill_via_provider():
+    """Test delegate_skill routes through capability router to mock skill provider."""
+    from rosclaw.core.runtime import Runtime, RuntimeConfig
+
+    runtime = Runtime(RuntimeConfig(robot_id="test_bot", enable_provider=True))
+    runtime.initialize()
+
+    bus = EventBus()
+    hub = MCPHub(bus, robot_id="test_bot", runtime=runtime)
+    hub.initialize()
+
+    result = await hub.handle_tool_call("delegate_skill", {
+        "skill": "grasp",
+        "target": {"object": "red cup"},
+    })
+    assert result["status"] == "ok"
+    assert result["capability"] == "skill.grasp"
+    assert result["result"]["skill"] == "grasp"
+    assert result["result"]["status"] == "dispatched"
+
+    hub.stop()
+    runtime.stop()
+
+
+async def test_mcp_hub_verify_task_success_via_provider():
+    """Test verify_task_success routes through capability router to mock critic."""
+    from rosclaw.core.runtime import Runtime, RuntimeConfig
+
+    runtime = Runtime(RuntimeConfig(robot_id="test_bot", enable_provider=True))
+    runtime.initialize()
+
+    bus = EventBus()
+    hub = MCPHub(bus, robot_id="test_bot", runtime=runtime)
+    hub.initialize()
+
+    result = await hub.handle_tool_call("verify_task_success", {
+        "task_description": "pick up the red cup",
+    })
+    assert result["status"] == "ok"
+    assert result["capability"] == "critic.success_detection"
+    assert result["result"]["success"] is True
+
+    hub.stop()
+    runtime.stop()
+
+
+async def test_mcp_hub_emergency_stop_with_runtime():
+    """Emergency stop works in both semantic and low-level modes."""
+    from rosclaw.core.runtime import Runtime, RuntimeConfig
+
+    runtime = Runtime(RuntimeConfig(robot_id="test_bot", enable_provider=True))
+    runtime.initialize()
+
+    bus = EventBus()
+    hub = MCPHub(bus, robot_id="test_bot", runtime=runtime)
+    hub.initialize()
+
+    result = await hub.handle_tool_call("emergency_stop", {})
+    assert result["status"] == "emergency_stop_triggered"
+
+    hub.stop()
+    runtime.stop()

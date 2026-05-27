@@ -71,6 +71,24 @@ from rosclaw.swarm import SwarmRuntimeManager
 from rosclaw.skill_manager import SkillRegistry, SkillEntry, SkillExecutor, SkillLoader
 from rosclaw.mcp_drivers import BaseDriver, DriverState, TrajectoryCommand
 
+# Provider Layer (optional - available when provider skeleton is installed)
+try:
+    from rosclaw.provider.core.provider import Provider
+    from rosclaw.provider.core.registry import ProviderRegistry
+    from rosclaw.provider.core.router import CapabilityRouter
+    from rosclaw.provider.core.manifest import ProviderManifest
+    from rosclaw.provider.core.request import ProviderRequest
+    from rosclaw.provider.core.response import ProviderResponse
+    from rosclaw.provider.guard.pipeline import GuardPipeline
+except ImportError:
+    Provider = None  # type: ignore
+    ProviderRegistry = None  # type: ignore
+    CapabilityRouter = None  # type: ignore
+    ProviderManifest = None  # type: ignore
+    ProviderRequest = None  # type: ignore
+    ProviderResponse = None  # type: ignore
+    GuardPipeline = None  # type: ignore
+
 __all__ = [
     # Core
     "EventBus",
@@ -112,4 +130,12 @@ __all__ = [
     "BaseDriver",
     "DriverState",
     "TrajectoryCommand",
+    # Provider Layer
+    "Provider",
+    "ProviderRegistry",
+    "CapabilityRouter",
+    "ProviderManifest",
+    "ProviderRequest",
+    "ProviderResponse",
+    "GuardPipeline",
 ]

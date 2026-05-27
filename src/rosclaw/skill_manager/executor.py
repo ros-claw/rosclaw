@@ -18,10 +18,10 @@ class SkillExecutor(LifecycleMixin):
     - Swarm coordination
     """
 
-    def __init__(self, event_bus: EventBus, registry: Optional[SkillRegistry] = None):
+    def __init__(self, event_bus: EventBus, registry: SkillRegistry):
         super().__init__()
         self.event_bus = event_bus
-        self.registry = registry if registry is not None else SkillRegistry(event_bus=event_bus)
+        self.registry = registry
         self._current_skill: Optional[str] = None
 
     def _do_initialize(self) -> None:

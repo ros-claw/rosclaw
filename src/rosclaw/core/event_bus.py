@@ -158,9 +158,12 @@ class EventBus:
             events = [e for e in events if e.topic == topic]
         return events[-limit:]
 
-    def clear_history(self) -> None:
-        """Clear event history."""
-        self._event_history.clear()
+    def clear_history(self, topic: Optional[str] = None) -> None:
+        """Clear event history. If topic is given, clear only events for that topic."""
+        if topic:
+            self._event_history = [e for e in self._event_history if e.topic != topic]
+        else:
+            self._event_history.clear()
 
     @property
     def topics(self) -> list[str]:
