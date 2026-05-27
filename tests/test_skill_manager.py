@@ -50,6 +50,24 @@ def test_skill_registry_stats():
     reg.stop()
 
 
+def test_skill_registry_get_stats():
+    reg = SkillRegistry()
+    reg.initialize()
+    reg.register(SkillEntry(name="s1", description="", skill_type="programmed"))
+    reg.register(SkillEntry(name="s2", description="", skill_type="learned"))
+    reg.update_stats("s1", success=True)
+    reg.update_stats("s1", success=True)
+    reg.update_stats("s2", success=False)
+
+    stats = reg.get_stats()
+    assert stats["total_skills"] == 2
+    assert stats["total_executions"] == 3
+    assert 0.0 <= stats["average_success_rate"] <= 1.0
+    assert "programmed" in stats["by_type"]
+    assert "learned" in stats["by_type"]
+    reg.stop()
+
+
 def test_skill_executor_success():
     bus = EventBus()
     reg = SkillRegistry()

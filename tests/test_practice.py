@@ -22,3 +22,27 @@ def test_practice_mark_event():
     event_id = rec.mark_event(EventType.SUCCESS, {"task": "test"})
     assert event_id != ""
     rec.stop()
+
+
+def test_practice_record_praxis_event():
+    rec = PracticeRecorder("test_bot", joint_dof=6)
+    rec.initialize()
+    rec.start_recording()
+    event_id = rec.record_praxis_event(
+        event_id="evt1",
+        event_type="success",
+        instruction="pick up block",
+        metadata={"outcome": "ok"},
+    )
+    assert event_id != ""
+    rec.stop()
+
+
+def test_practice_record_praxis_event_not_recording():
+    rec = PracticeRecorder("test_bot", joint_dof=6)
+    rec.initialize()
+    # Not started recording
+    event_id = rec.record_praxis_event(
+        event_id="evt2", event_type="milestone", instruction="test"
+    )
+    assert event_id == ""

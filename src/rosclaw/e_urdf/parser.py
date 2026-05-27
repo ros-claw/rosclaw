@@ -33,7 +33,7 @@ from typing import Any, Optional
 import numpy as np
 
 
-@dataclass
+@dataclass(init=False)
 class JointSpec:
     """Specification for a robot joint."""
     name: str
@@ -46,6 +46,31 @@ class JointSpec:
     dynamics: dict = field(default_factory=dict)
     safety: dict = field(default_factory=dict)
     control: dict = field(default_factory=dict)
+
+    def __init__(
+        self,
+        name: str,
+        joint_type: str = "",
+        parent: str = "",
+        child: str = "",
+        axis: np.ndarray = None,
+        origin: np.ndarray = None,
+        limits: dict = None,
+        dynamics: dict = None,
+        safety: dict = None,
+        control: dict = None,
+        type: str = "",  # URDF-compatible alias for joint_type
+    ):
+        self.name = name
+        self.joint_type = joint_type or type or "fixed"
+        self.parent = parent
+        self.child = child
+        self.axis = axis if axis is not None else np.array([0, 0, 1])
+        self.origin = origin if origin is not None else np.eye(4)
+        self.limits = limits if limits is not None else {}
+        self.dynamics = dynamics if dynamics is not None else {}
+        self.safety = safety if safety is not None else {}
+        self.control = control if control is not None else {}
 
 
 @dataclass

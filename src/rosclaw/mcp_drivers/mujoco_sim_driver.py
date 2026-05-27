@@ -27,21 +27,21 @@ class MuJoCoSimDriver(BaseDriver):
             import mujoco
         except ImportError:
             print("[MuJoCoSimDriver] mujoco not available, running in mock mode")
-            self._state.connected = True
+            self._driver_state.connected = True
             return
 
         if not Path(self._model_path).exists():
             print(f"[MuJoCoSimDriver] Model not found, running in mock mode: {self._model_path}")
-            self._state.connected = True
+            self._driver_state.connected = True
             return
 
         self._model = mujoco.MjModel.from_xml_path(self._model_path)
         self._data = mujoco.MjData(self._model)
-        self._state.connected = True
+        self._driver_state.connected = True
         print(f"[MuJoCoSimDriver] MuJoCo model loaded: {self._model_path}")
 
     def _do_stop(self) -> None:
-        self._state.connected = False
+        self._driver_state.connected = False
         self._model = None
         self._data = None
 
@@ -69,15 +69,15 @@ class MuJoCoSimDriver(BaseDriver):
         return [0.0] * self.joint_dof
 
     def move_joints(self, positions: list[float], duration: float = 2.0) -> bool:
-        if not self._state.connected:
+        if not self._driver_state.connected:
             return False
         if len(positions) != self.joint_dof:
-            self._state.error_code = 1
-            self._state.error_message = f"Expected {self.joint_dof} joints, got {len(positions)}"
+            self._driver_state.error_code = 1
+            self._driver_state.error_message = f"Expected {self.joint_dof} joints, got {len(positions)}"
             return False
 
         if self._data is None:
-            self._state.joint_positions = list(positions)
+            self._driver_state.joint_positions = list(positions)
             return True
 
         target = np.array(positions)
@@ -90,33 +90,33 @@ class MuJoCoSimDriver(BaseDriver):
             self._data.ctrl[:self.joint_dof] = interp
             self._step()
 
-        self._state.joint_positions = self.get_joint_positions()
+        self._driver_state.joint_positions = self.get_joint_positions()
         return True
 
     def execute_trajectory(self, trajectory: TrajectoryCommand) -> bool:
-        if not self._state.connected:
+        if not self._driver_state.connected:
             return False
         for wp in trajectory.waypoints:
             if len(wp) != self.joint_dof:
-                self._state.error_code = 1
+                self._driver_state.error_code = 1
                 return False
             self.move_joints(wp, duration=trajectory.times[0] if trajectory.times else 1.0)
         return True
 
     def set_gripper(self, position: float, force: float = 0.5) -> bool:
-        self._state.gripper_state = position
+        self._driver_state.gripper_state = position
         return True
 
     def emergency_stop(self) -> None:
-        self._state.error_code = 99
-        self._state.error_message = "Emergency stop triggered"
+        self._driver_state.error_code = 99
+        self._driver_state.error_message = "Emergency stop triggered"
         if self._data is not None:
             self._data.ctrl[:] = 0.0
 
     def get_state(self) -> DriverState:
-        self._state.joint_positions = self.get_joint_positions()
-        self._state.joint_velocities = self.get_joint_velocities()
-        self._state.joint_torques = self.get_joint_torques()
+        self._driver_state.joint_positions = self.get_joint_positions()
+        self._driver_state.joint_velocities = self.get_joint_velocities()
+        self._driver_state.joint_torques = self.get_joint_torques()
         return self._state
 
     def get_mujoco_data(self) -> Optional[Any]:

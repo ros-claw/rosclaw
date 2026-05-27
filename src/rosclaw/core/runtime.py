@@ -261,6 +261,11 @@ class Runtime(LifecycleMixin):
     def e_urdf(self) -> Optional[Any]:
         return self._e_urdf
 
+    @property
+    def status(self) -> dict:
+        """Get comprehensive runtime status (alias for get_status)."""
+        return self.get_status()
+
     def get_status(self) -> dict:
         """Get comprehensive runtime status."""
         return {

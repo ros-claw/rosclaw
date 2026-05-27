@@ -280,8 +280,10 @@ class DeepSeekProvider(LLMProvider):
     DEFAULT_BASE_URL = "https://api.deepseek.com"
     DEFAULT_MODEL = "deepseek-v4-pro"
 
-    def __init__(self, config: Optional[LLMConfig] = None):
-        cfg = config or LLMConfig()
+    def __init__(self, config: Optional[LLMConfig] = None, **kwargs):
+        if config is not None and kwargs:
+            raise TypeError("Cannot pass both config and keyword arguments")
+        cfg = config if config is not None else LLMConfig(**kwargs)
         if not cfg.api_key:
             cfg.api_key = os.getenv("DEEPSEEK_API_KEY", "")
         if not cfg.base_url:
@@ -321,8 +323,10 @@ class OpenAIProvider(LLMProvider):
     DEFAULT_BASE_URL = "https://api.openai.com/v1"
     DEFAULT_MODEL = "gpt-4o"
 
-    def __init__(self, config: Optional[LLMConfig] = None):
-        cfg = config or LLMConfig()
+    def __init__(self, config: Optional[LLMConfig] = None, **kwargs):
+        if config is not None and kwargs:
+            raise TypeError("Cannot pass both config and keyword arguments")
+        cfg = config if config is not None else LLMConfig(**kwargs)
         if not cfg.api_key:
             cfg.api_key = os.getenv("OPENAI_API_KEY", "")
         if not cfg.base_url:
@@ -362,8 +366,10 @@ class QwenProvider(LLMProvider):
     DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     DEFAULT_MODEL = "qwen-max"
 
-    def __init__(self, config: Optional[LLMConfig] = None):
-        cfg = config or LLMConfig()
+    def __init__(self, config: Optional[LLMConfig] = None, **kwargs):
+        if config is not None and kwargs:
+            raise TypeError("Cannot pass both config and keyword arguments")
+        cfg = config if config is not None else LLMConfig(**kwargs)
         if not cfg.api_key:
             cfg.api_key = os.getenv("DASHSCOPE_API_KEY", "")
         if not cfg.base_url:

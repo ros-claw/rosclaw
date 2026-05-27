@@ -98,3 +98,16 @@ def test_runtime_status():
     assert status["robot_id"] == "rosclaw_default"
     assert status["modules"]["firewall"] is False
     rt.stop()
+
+
+def test_runtime_status_property():
+    """Runtime.status property should mirror get_status()."""
+    from rosclaw.core.runtime import Runtime
+    runtime = Runtime()
+    runtime.initialize()
+    status = runtime.status
+    assert isinstance(status, dict)
+    assert "robot_id" in status
+    assert "modules" in status
+    assert status == runtime.get_status()
+    runtime.stop()

@@ -37,7 +37,9 @@ PraxisEventType.GRASP     # "grasp"
 ## 2. EventBus
 
 ```python
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core import EventBus, Event, EventPriority  # recommended
+# or: from rosclaw.core.event_bus import EventBus, Event, EventPriority
+# or: from rosclaw import EventBus, Event, EventPriority
 
 bus = EventBus()
 
@@ -100,7 +102,8 @@ runtime.initialize()
 runtime.start()
 
 # Status
-status = runtime.get_status()
+status = runtime.status           # property (recommended)
+# or: status = runtime.get_status()  # method
 print(status["modules"])  # {'firewall': True, 'memory': True, ...}
 
 runtime.stop()
@@ -130,7 +133,52 @@ hub.update_robot_description("UR5e 6-DOF arm")
 
 ---
 
-## 6. e-URDF Parser
+## 6. LLM Provider
+
+```python
+from rosclaw.agent_runtime import (
+    DeepSeekProvider,
+    OpenAIProvider,
+    QwenProvider,
+    get_provider,
+    LLMConfig,
+)
+
+# Option 1: Auto-configure from environment variables
+# Set DEEPSEEK_API_KEY, then:
+provider = DeepSeekProvider()
+
+# Option 2: Pass keyword arguments directly (no LLMConfig needed)
+provider = DeepSeekProvider(
+    api_key="sk-...",
+    model="deepseek-chat",
+    temperature=0.5,
+)
+
+# Option 3: Use LLMConfig object
+config = LLMConfig(api_key="sk-...", model="gpt-4o")
+provider = OpenAIProvider(config)
+
+# Option 4: Factory by name
+provider = get_provider("qwen", LLMConfig(api_key="sk-..."))
+
+# All providers have the same interface
+plan = provider.plan_task("pick up the red block", {"joints": 6})
+analysis = provider.analyze_failure("grasp failed", "timeout")
+skill = provider.generate_skill_description({"trajectory": [...]})
+health = provider.health_check()
+```
+
+**Environment Variables:**
+| Provider | API Key Var | Base URL Var | Default Model |
+|----------|------------|--------------|---------------|
+| DeepSeek | `DEEPSEEK_API_KEY` | `DEEPSEEK_BASE_URL` | `deepseek-v4-pro` |
+| OpenAI | `OPENAI_API_KEY` | `OPENAI_BASE_URL` | `gpt-4o` |
+| Qwen | `DASHSCOPE_API_KEY` | `DASHSCOPE_BASE_URL` | `qwen-max` |
+
+---
+
+## 7. e-URDF Parser
 
 ```python
 from rosclaw.e_urdf import EURDFParser, RobotModel  # or EUrdfParser (alias)
@@ -146,7 +194,7 @@ print(model.to_llm_context())  # Natural language description for LLM
 
 ---
 
-## 7. Firewall
+## 8. Firewall
 
 ```python
 from rosclaw.firewall import FirewallValidator
@@ -176,7 +224,7 @@ print(response.is_safe)
 
 ---
 
-## 8. Practice (Timeline)
+## 9. Practice (Timeline)
 
 ```python
 from rosclaw.practice import UnifiedTimeline  # or TimelineChannel
@@ -215,7 +263,7 @@ entries = timeline.get_entries(correlation_id="session_1")
 
 ---
 
-## 9. Memory (SeekDB)
+## 10. Memory (SeekDB)
 
 ```python
 from rosclaw.memory import MemoryInterface, SeekDBSQLiteClient  # or SQLiteSeekDB (alias)
@@ -248,7 +296,7 @@ stats = mem.get_statistics()
 
 ---
 
-## 10. Skill Manager
+## 11. Skill Manager
 
 ```python
 from rosclaw.skill_manager import SkillRegistry, SkillExecutor, SkillEntry

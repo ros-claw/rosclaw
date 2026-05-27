@@ -52,11 +52,11 @@ class BaseDriver(LifecycleMixin, ABC):
         super().__init__()
         self.robot_id = robot_id
         self.joint_dof = joint_dof
-        self._state = DriverState()
+        self._driver_state = DriverState()
 
     @property
     def state(self) -> DriverState:
-        return self._state
+        return self._driver_state
 
     @abstractmethod
     def get_joint_positions(self) -> list[float]:
@@ -91,4 +91,4 @@ class BaseDriver(LifecycleMixin, ABC):
         """Get full driver state."""
 
     def is_connected(self) -> bool:
-        return self._state.connected
+        return self._driver_state.connected

@@ -31,21 +31,21 @@ class SerialDriver(BaseDriver):
             import serial
         except ImportError:
             print("[SerialDriver] pyserial not available, running in mock mode")
-            self._state.connected = True
+            self._driver_state.connected = True
             return
 
         try:
             self._serial = serial.Serial(self._port, self._baudrate, timeout=1.0)
-            self._state.connected = True
+            self._driver_state.connected = True
             print(f"[SerialDriver] Serial port opened: {self._port} @ {self._baudrate}")
         except Exception as e:
             print(f"[SerialDriver] Could not open {self._port}: {e}, running in mock mode")
-            self._state.connected = True
+            self._driver_state.connected = True
 
     def _do_stop(self) -> None:
         if self._serial and hasattr(self._serial, "is_open") and self._serial.is_open:
             self._serial.close()
-        self._state.connected = False
+        self._driver_state.connected = False
 
     def _build_move_packet(self, positions: list[float], duration: float) -> bytes:
         fmt = f"<B{self.joint_dof}ff"
@@ -94,15 +94,15 @@ class SerialDriver(BaseDriver):
         return {}
 
     def move_joints(self, positions: list[float], duration: float = 2.0) -> bool:
-        if not self._state.connected:
+        if not self._driver_state.connected:
             return False
         if len(positions) != self.joint_dof:
-            self._state.error_code = 1
-            self._state.error_message = f"Expected {self.joint_dof} joints, got {len(positions)}"
+            self._driver_state.error_code = 1
+            self._driver_state.error_message = f"Expected {self.joint_dof} joints, got {len(positions)}"
             return False
 
         if self._serial is None:
-            self._state.joint_positions = list(positions)
+            self._driver_state.joint_positions = list(positions)
             return True
 
         packet = self._build_move_packet(positions, duration)
@@ -110,7 +110,7 @@ class SerialDriver(BaseDriver):
         return True
 
     def execute_trajectory(self, trajectory: TrajectoryCommand) -> bool:
-        if not self._state.connected:
+        if not self._driver_state.connected:
             return False
         for wp in trajectory.waypoints:
             if not self.move_joints(wp, duration=trajectory.times[0] if trajectory.times else 1.0):
@@ -118,22 +118,22 @@ class SerialDriver(BaseDriver):
         return True
 
     def set_gripper(self, position: float, force: float = 0.5) -> bool:
-        self._state.gripper_state = position
+        self._driver_state.gripper_state = position
         if self._serial is not None:
             packet = self._build_gripper_packet(position, force)
             self._serial.write(packet)
         return True
 
     def emergency_stop(self) -> None:
-        self._state.error_code = 99
-        self._state.error_message = "Emergency stop triggered"
+        self._driver_state.error_code = 99
+        self._driver_state.error_message = "Emergency stop triggered"
         if self._serial is not None:
             self._serial.write(self._build_stop_packet())
 
     def get_state(self) -> DriverState:
         state = self._read_state()
         if state:
-            self._state.joint_positions = state.get("positions", [])
-            self._state.joint_velocities = state.get("velocities", [])
-            self._state.joint_torques = state.get("torques", [])
+            self._driver_state.joint_positions = state.get("positions", [])
+            self._driver_state.joint_velocities = state.get("velocities", [])
+            self._driver_state.joint_torques = state.get("torques", [])
         return self._state

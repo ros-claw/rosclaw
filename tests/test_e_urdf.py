@@ -18,6 +18,19 @@ def test_joint_spec():
     assert joint.limits["upper"] == 3.14
 
 
+def test_joint_spec_type_alias():
+    """URDF uses 'type' attribute; Python constructor accepts both."""
+    j1 = JointSpec(name="j1", type="revolute", parent="base", child="link1")
+    assert j1.joint_type == "revolute"
+
+    j2 = JointSpec(name="j2", joint_type="prismatic", parent="base", child="link2")
+    assert j2.joint_type == "prismatic"
+
+    # If neither provided, defaults to "fixed"
+    j3 = JointSpec(name="j3", parent="base", child="link3")
+    assert j3.joint_type == "fixed"
+
+
 def test_link_spec():
     link = LinkSpec(name="base", mass=1.0)
     assert link.mass == 1.0

@@ -114,6 +114,34 @@ class PracticeRecorder(LifecycleMixin):
             raise RuntimeError("Flywheel not initialized")
         return self._flywheel.export_to_lerobot(output_path)
 
+    def record_praxis_event(self, event_id: str, event_type: str, instruction: str, metadata: Optional[dict] = None) -> str:
+        """Record a praxis event on the timeline.
+
+        Args:
+            event_id: Unique event identifier
+            event_type: Event classification (success, failure, milestone)
+            instruction: Natural language instruction that triggered this event
+            metadata: Additional context data
+
+        Returns:
+            Event marker ID
+        """
+        if not self._recording or self._flywheel is None:
+            return ""
+        from rosclaw.data.flywheel import EventType as FlywheelEventType
+        try:
+            fw_type = FlywheelEventType[event_type.upper()]
+        except KeyError:
+            fw_type = FlywheelEventType.MILESTONE
+        return self._flywheel.trigger_event(
+            fw_type,
+            {
+                "event_id": event_id,
+                "instruction": instruction,
+                **(metadata or {}),
+            },
+        )
+
     @property
     def is_recording(self) -> bool:
         """Check if currently recording."""

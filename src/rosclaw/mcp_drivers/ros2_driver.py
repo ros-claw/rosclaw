@@ -30,7 +30,7 @@ class ROS2Driver(BaseDriver):
             from sensor_msgs.msg import JointState
         except ImportError:
             print(f"[ROS2Driver] rclpy not available, running in mock mode")
-            self._state.connected = True
+            self._driver_state.connected = True
             return
 
         self._rclpy = rclpy
@@ -43,7 +43,7 @@ class ROS2Driver(BaseDriver):
         self._sub_joint_state = self._node.create_subscription(
             JointState, "/joint_states", self._on_joint_state, 10
         )
-        self._state.connected = True
+        self._driver_state.connected = True
         print(f"[ROS2Driver] ROS 2 node '{self._node_name}' initialized")
 
     def _do_stop(self) -> None:
@@ -51,7 +51,7 @@ class ROS2Driver(BaseDriver):
             self._node.destroy_node()
         if self._rclpy and self._rclpy.ok():
             self._rclpy.shutdown()
-        self._state.connected = False
+        self._driver_state.connected = False
 
     def _on_joint_state(self, msg: Any) -> None:
         self._latest_joint_state = {
@@ -59,9 +59,9 @@ class ROS2Driver(BaseDriver):
             "velocities": list(msg.velocity),
             "efforts": list(msg.effort),
         }
-        self._state.joint_positions = list(msg.position)[:self.joint_dof]
-        self._state.joint_velocities = list(msg.velocity)[:self.joint_dof]
-        self._state.joint_torques = list(msg.effort)[:self.joint_dof]
+        self._driver_state.joint_positions = list(msg.position)[:self.joint_dof]
+        self._driver_state.joint_velocities = list(msg.velocity)[:self.joint_dof]
+        self._driver_state.joint_torques = list(msg.effort)[:self.joint_dof]
 
     def get_joint_positions(self) -> list[float]:
         if self._latest_joint_state:
@@ -79,15 +79,15 @@ class ROS2Driver(BaseDriver):
         return [0.0] * self.joint_dof
 
     def move_joints(self, positions: list[float], duration: float = 2.0) -> bool:
-        if not self._state.connected:
+        if not self._driver_state.connected:
             return False
         if len(positions) != self.joint_dof:
-            self._state.error_code = 1
-            self._state.error_message = f"Expected {self.joint_dof} joints, got {len(positions)}"
+            self._driver_state.error_code = 1
+            self._driver_state.error_message = f"Expected {self.joint_dof} joints, got {len(positions)}"
             return False
 
         if self._rclpy is None:
-            self._state.joint_positions = list(positions)
+            self._driver_state.joint_positions = list(positions)
             return True
 
         from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
@@ -102,7 +102,7 @@ class ROS2Driver(BaseDriver):
         return True
 
     def execute_trajectory(self, trajectory: TrajectoryCommand) -> bool:
-        if not self._state.connected or self._rclpy is None:
+        if not self._driver_state.connected or self._rclpy is None:
             return False
         from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
@@ -117,12 +117,12 @@ class ROS2Driver(BaseDriver):
         return True
 
     def set_gripper(self, position: float, force: float = 0.5) -> bool:
-        self._state.gripper_state = position
+        self._driver_state.gripper_state = position
         return True
 
     def emergency_stop(self) -> None:
-        self._state.error_code = 99
-        self._state.error_message = "Emergency stop triggered"
+        self._driver_state.error_code = 99
+        self._driver_state.error_message = "Emergency stop triggered"
         self.move_joints(self.get_joint_positions(), duration=0.1)
 
     def get_state(self) -> DriverState:

@@ -140,6 +140,25 @@ class SkillRegistry(LifecycleMixin):
             ) / skill.execution_count
         skill.updated_at = time.time()
 
+    def get_stats(self) -> dict:
+        """Get aggregated statistics for all registered skills."""
+        total = len(self._skills)
+        if total == 0:
+            return {"total_skills": 0, "total_executions": 0, "average_success_rate": 0.0}
+        total_exec = sum(s.execution_count for s in self._skills.values())
+        avg_success = sum(s.success_rate for s in self._skills.values()) / total
+        by_type = {}
+        for s in self._skills.values():
+            by_type.setdefault(s.skill_type, {"count": 0, "executions": 0})
+            by_type[s.skill_type]["count"] += 1
+            by_type[s.skill_type]["executions"] += s.execution_count
+        return {
+            "total_skills": total,
+            "total_executions": total_exec,
+            "average_success_rate": round(avg_success, 4),
+            "by_type": by_type,
+        }
+
     @property
     def count(self) -> int:
         return len(self._skills)
