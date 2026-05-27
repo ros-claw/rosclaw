@@ -3,14 +3,26 @@
 This module provides canonical data structures used across ROSClaw:
 - RobotState: Unified robot state representation
 - PraxisEvent: Unified practice event binding LLM CoT with physical data
+- PraxisEventType: Type-safe enumeration for praxis event types
 
 RFC-0001 Core Types.
 """
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Optional
 
 import numpy as np
+
+
+class PraxisEventType(Enum):
+    """Type-safe enumeration for praxis event types."""
+    SUCCESS = "success"
+    FAILURE = "failure"
+    EMERGENCY = "emergency"
+    MOVE = "move"
+    GRASP = "grasp"
+    VALIDATE = "validate"
 
 
 @dataclass
@@ -49,7 +61,7 @@ class PraxisEvent:
     RFC-0001 core type.
     """
     event_id: str
-    event_type: str              # "success" | "failure" | "emergency"
+    event_type: str              # Use PraxisEventType.SUCCESS.value etc
     timestamp: float
     robot_id: str
     agent_instruction: str      # LLM's original natural language instruction

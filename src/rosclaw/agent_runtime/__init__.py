@@ -11,4 +11,7 @@ It provides:
 from rosclaw.agent_runtime.mcp_hub import MCPHub, AgentContext
 from rosclaw.agent_runtime.ai_collaboration import DeepSeekClient, DeepSeekConfig
 
-__all__ = ["MCPHub", "AgentContext", "DeepSeekClient", "DeepSeekConfig"]
+# Backward-compatible alias for documentation
+AgentRuntime = AgentContext
+
+__all__ = ["MCPHub", "AgentContext", "AgentRuntime", "DeepSeekClient", "DeepSeekConfig"]

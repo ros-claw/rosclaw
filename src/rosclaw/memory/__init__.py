@@ -12,9 +12,15 @@ from rosclaw.memory.seekdb_client import (
     SeekDBSQLiteClient,
 )
 
+# Backward-compatible aliases for documentation
+SQLiteSeekDB = SeekDBSQLiteClient
+MemorySeekDB = SeekDBMemoryClient
+
 __all__ = [
     "MemoryInterface",
     "SeekDBClient",
     "SeekDBMemoryClient",
+    "MemorySeekDB",
     "SeekDBSQLiteClient",
+    "SQLiteSeekDB",
 ]
