@@ -36,7 +36,24 @@
 | mcp_drivers (ROS2/MuJoCo/Serial) | ✅ | ✅ |
 | data (RingBuffer/Flywheel) | ✅ | ✅ |
 
+### 交付物
+| 文档 | 大小 | 状态 |
+|------|------|------|
+| `ARCHITECTURE_REVIEW.md` | 34KB | ✅ |
+| `DESIGN_SPRINT3_5.md` | 72KB | ✅ |
+| `SPRINT3_5_IMPLEMENTATION_REVIEW.md` | 6.7KB | ✅ |
+| `FINAL_ACCEPTANCE.md` | ~20KB | ✅ APPROVED |
+| `API_REFERENCE.md` | 462 lines | ✅ 覆盖全部公共API |
+| `E2E_TEST_FINDINGS.md` | ~2KB | ✅ 9个问题已解决 |
+
+### 已解决
+- [x] Runtime 集成 FirewallValidator/UnifiedTimeline/SeekDB (FINAL_ACCEPTANCE.md §5)
+- [x] 端到端测试 9 个 API 不一致问题 (API_REFERENCE.md Migration Guide)
+- [x] 向后兼容别名: AgentRuntime, EUrdfParser, SQLiteSeekDB, MemorySeekDB
+- [x] PraxisEventType 枚举已添加到 core.types
+
 ### 待办
 - [ ] LLM Provider 抽象层 (AgentRuntime 硬编码 DeepSeek)
-- [ ] Runtime 集成 FirewallValidator/UnifiedTimeline/SeekDB
-- [ ] 端到端集成测试
+- [ ] SeekDB 向量嵌入替代关键词匹配
+- [ ] MCAP 格式写入支持
+- [ ] Prometheus 指标 / OpenTelemetry 追踪

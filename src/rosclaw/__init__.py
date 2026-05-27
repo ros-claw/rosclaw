@@ -50,7 +50,21 @@ except ImportError:
     mujoco_firewall = None  # type: ignore
 
 from rosclaw.e_urdf import EURDFParser, RobotModel
-from rosclaw.agent_runtime import MCPHub, AgentContext, DeepSeekClient, DeepSeekConfig
+from rosclaw.agent_runtime import (
+    MCPHub,
+    AgentContext,
+    LLMProvider,
+    LLMConfig,
+    DeepSeekProvider,
+    OpenAIProvider,
+    QwenProvider,
+    get_provider,
+    list_providers,
+    register_provider,
+    # Backward-compatible aliases
+    DeepSeekClient,
+    DeepSeekConfig,
+)
 from rosclaw.memory import MemoryInterface
 from rosclaw.practice import PracticeRecorder
 from rosclaw.swarm import SwarmRuntimeManager
@@ -75,6 +89,16 @@ __all__ = [
     "RobotModel",
     "MCPHub",
     "AgentContext",
+    # LLM Providers
+    "LLMProvider",
+    "LLMConfig",
+    "DeepSeekProvider",
+    "OpenAIProvider",
+    "QwenProvider",
+    "get_provider",
+    "list_providers",
+    "register_provider",
+    # Backward-compatible aliases
     "DeepSeekClient",
     "DeepSeekConfig",
     "MemoryInterface",
