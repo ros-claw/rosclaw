@@ -60,6 +60,8 @@ class JointSpec:
         safety: dict = None,
         control: dict = None,
         type: str = "",  # URDF-compatible alias for joint_type
+        lower_limit: float = None,
+        upper_limit: float = None,
     ):
         self.name = name
         self.joint_type = joint_type or type or "fixed"
@@ -68,6 +70,10 @@ class JointSpec:
         self.axis = axis if axis is not None else np.array([0, 0, 1])
         self.origin = origin if origin is not None else np.eye(4)
         self.limits = limits if limits is not None else {}
+        if lower_limit is not None:
+            self.limits["lower"] = float(lower_limit)
+        if upper_limit is not None:
+            self.limits["upper"] = float(upper_limit)
         self.dynamics = dynamics if dynamics is not None else {}
         self.safety = safety if safety is not None else {}
         self.control = control if control is not None else {}

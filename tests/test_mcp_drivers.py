@@ -31,20 +31,26 @@ def test_trajectory_command():
 
 def test_ros2_driver_mock_mode():
     driver = ROS2Driver("test_bot")
-    driver._do_initialize()
+    driver.initialize()
+    driver.start()
     assert driver.is_connected()
     assert driver.get_joint_positions() == [0.0] * 6
     assert driver.move_joints([0.1] * 6, duration=1.0) is True
-    driver._do_stop()
+    driver.stop()
     assert not driver.is_connected()
 
 
 def test_ros2_driver_dof_mismatch():
     driver = ROS2Driver("test_bot", joint_dof=6)
-    driver._do_initialize()
-    assert driver.move_joints([0.1] * 5) is False
-    assert driver.state.error_code == 1
-    driver._do_stop()
+    driver.initialize()
+    driver.start()
+    # _validate_joint_positions raises ValueError before connected check
+    try:
+        driver.move_joints([0.1] * 5)
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+    driver.stop()
 
 
 def test_mujoco_driver_mock_mode():

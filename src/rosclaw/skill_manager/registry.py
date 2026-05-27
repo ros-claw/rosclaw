@@ -90,6 +90,10 @@ class SkillRegistry(LifecycleMixin):
 
     def register(self, entry: SkillEntry) -> None:
         """Register a skill."""
+        if not isinstance(entry, SkillEntry):
+            raise TypeError(f"Expected SkillEntry, got {type(entry).__name__}")
+        if not entry.name or not isinstance(entry.name, str):
+            raise ValueError(f"Skill name must be a non-empty string, got {entry.name!r}")
         if entry.name in self._skills:
             print(f"[SkillRegistry] Overwriting skill: {entry.name}")
         self._skills[entry.name] = entry

@@ -79,11 +79,9 @@ class ROS2Driver(BaseDriver):
         return [0.0] * self.joint_dof
 
     def move_joints(self, positions: list[float], duration: float = 2.0) -> bool:
+        self._ensure_ready("move_joints")
+        self._validate_joint_positions(positions)
         if not self._driver_state.connected:
-            return False
-        if len(positions) != self.joint_dof:
-            self._driver_state.error_code = 1
-            self._driver_state.error_message = f"Expected {self.joint_dof} joints, got {len(positions)}"
             return False
 
         if self._rclpy is None:

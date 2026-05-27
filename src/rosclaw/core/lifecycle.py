@@ -33,23 +33,23 @@ class LifecycleMixin:
     """
 
     def __init__(self):
-        self._state = LifecycleState.UNINITIALIZED
+        self._lifecycle_state = LifecycleState.UNINITIALIZED
         self._error_message: Optional[str] = None
 
     @property
     def state(self) -> LifecycleState:
         """Current lifecycle state."""
-        return self._state
+        return self._lifecycle_state
 
     @property
     def is_ready(self) -> bool:
         """Check if module is ready for operation."""
-        return self._state in (LifecycleState.READY, LifecycleState.RUNNING)
+        return self._lifecycle_state in (LifecycleState.READY, LifecycleState.RUNNING)
 
     @property
     def is_running(self) -> bool:
         """Check if module is actively running."""
-        return self._state == LifecycleState.RUNNING
+        return self._lifecycle_state == LifecycleState.RUNNING
 
     @property
     def error_message(self) -> Optional[str]:
@@ -58,42 +58,47 @@ class LifecycleMixin:
 
     def initialize(self) -> None:
         """Initialize the module. Override in subclass."""
-        self._state = LifecycleState.INITIALIZING
+        if self._lifecycle_state not in (LifecycleState.UNINITIALIZED, LifecycleState.ERROR):
+            raise RuntimeError(
+                f"Cannot initialize: already in state {self._lifecycle_state.name}. "
+                f"Call stop() first if re-initialization is needed."
+            )
+        self._lifecycle_state = LifecycleState.INITIALIZING
         try:
             self._do_initialize()
-            self._state = LifecycleState.READY
+            self._lifecycle_state = LifecycleState.READY
         except Exception as e:
-            self._state = LifecycleState.ERROR
+            self._lifecycle_state = LifecycleState.ERROR
             self._error_message = str(e)
             raise
 
     def start(self) -> None:
         """Start the module. Must be initialized first."""
-        if self._state not in (LifecycleState.READY, LifecycleState.PAUSED):
-            raise RuntimeError(f"Cannot start from state {self._state.name}")
-        self._state = LifecycleState.RUNNING
+        if self._lifecycle_state not in (LifecycleState.READY, LifecycleState.PAUSED):
+            raise RuntimeError(f"Cannot start from state {self._lifecycle_state.name}")
+        self._lifecycle_state = LifecycleState.RUNNING
         self._do_start()
 
     def pause(self) -> None:
         """Pause the module."""
-        if self._state == LifecycleState.RUNNING:
-            self._state = LifecycleState.PAUSED
+        if self._lifecycle_state == LifecycleState.RUNNING:
+            self._lifecycle_state = LifecycleState.PAUSED
             self._do_pause()
 
     def resume(self) -> None:
         """Resume from paused state."""
-        if self._state == LifecycleState.PAUSED:
-            self._state = LifecycleState.RUNNING
+        if self._lifecycle_state == LifecycleState.PAUSED:
+            self._lifecycle_state = LifecycleState.RUNNING
             self._do_resume()
 
     def stop(self) -> None:
         """Stop the module gracefully."""
-        if self._state in (LifecycleState.RUNNING, LifecycleState.PAUSED, LifecycleState.READY):
-            self._state = LifecycleState.SHUTTING_DOWN
+        if self._lifecycle_state in (LifecycleState.RUNNING, LifecycleState.PAUSED, LifecycleState.READY):
+            self._lifecycle_state = LifecycleState.SHUTTING_DOWN
             try:
                 self._do_stop()
             finally:
-                self._state = LifecycleState.STOPPED
+                self._lifecycle_state = LifecycleState.STOPPED
 
     # --- Override these in subclasses ---
 

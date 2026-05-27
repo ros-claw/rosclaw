@@ -70,6 +70,33 @@ class BaseDriver(LifecycleMixin, ABC):
     def get_joint_torques(self) -> list[float]:
         """Read current joint torques."""
 
+    def _ensure_ready(self, operation: str = "operation") -> None:
+        """Guard: require READY or RUNNING state."""
+        if not self.is_ready:
+            lifecycle = super().state
+            raise RuntimeError(
+                f"Cannot perform {operation}: driver lifecycle state is {lifecycle.name}. "
+                f"Call initialize() and start() first."
+            )
+
+    def _validate_joint_positions(self, positions: list[float]) -> None:
+        """Guard: validate joint positions are finite and within reasonable bounds."""
+        import math
+        if len(positions) != self.joint_dof:
+            raise ValueError(
+                f"Expected {self.joint_dof} joint positions, got {len(positions)}"
+            )
+        for i, p in enumerate(positions):
+            if not isinstance(p, (int, float)):
+                raise TypeError(f"Joint position {i} must be numeric, got {type(p).__name__}")
+            if not math.isfinite(p):
+                raise ValueError(f"Joint position {i} is not finite: {p}")
+            if abs(p) > 1e6:
+                raise ValueError(
+                    f"Joint position {i} exceeds safe bounds: {p}. "
+                    f"Max allowed absolute value is 1e6."
+                )
+
     @abstractmethod
     def move_joints(self, positions: list[float], duration: float = 2.0) -> bool:
         """Command joints to target positions."""

@@ -190,6 +190,23 @@ print(model.name)
 print(model.get_joint_names())
 print(model.get_joint_limits())
 print(model.to_llm_context())  # Natural language description for LLM
+
+# Manual RobotModel construction (for testing without URDF file):
+from rosclaw.e_urdf.parser import JointSpec
+model = RobotModel(
+    name="test_robot",
+    joints={
+        "joint1": JointSpec(
+            name="joint1",
+            joint_type="revolute",  # or type="revolute" (URDF alias)
+            parent="base_link",
+            child="link1",
+            limits={"lower": -3.14, "upper": 3.14, "velocity": 2.0, "effort": 10.0},
+        ),
+    },
+)
+# NOTE: RobotModel.joints must be dict[str, JointSpec], NOT dict[str, dict].
+# Use EURDFParser.get_model() for production; manual construction for testing only.
 ```
 
 ---
@@ -259,6 +276,24 @@ timeline.record_sensorimotor(
 # Query
 print(timeline.get_summary())
 entries = timeline.get_entries(correlation_id="session_1")
+
+# Agent commands are recorded AUTOMATICALLY via EventBus (no public method):
+from rosclaw.core.event_bus import Event
+bus.publish(Event(
+    topic="agent.command",
+    payload={"action": "move_joints", "joint_positions": [0.1]*6},
+    metadata={"request_id": "req_001"},
+))
+# -> UnifiedTimeline._on_agent_command() records to AGENT_COMMAND channel
+
+# Export is AUTOMATIC when praxis.completed fires:
+bus.publish(Event(
+    topic="praxis.completed",
+    payload={"correlation_id": "session_1", "instruction": "pick up block", "duration_sec": 3.2},
+))
+# -> Auto-exports to output_dir/session_{id}/timeline.jsonl + sensorimotor.npz
+# NOTE: No manual export_session() method exists; export is event-driven.
+# NOTE: enable_mcap=True is EXPERIMENTAL — MCAP writer not fully implemented.
 ```
 
 ---
@@ -322,8 +357,20 @@ registry.register(entry)
 result = executor.execute("pick_and_place", {"target": "red_block"})
 print(result["status"])
 
-# List
-print(registry.list_skills())
+# List skill names (returns list[str], NOT list[SkillEntry])
+names = registry.list_skills()  # -> ["pick_and_place"]
+print(names)
+
+# Get SkillEntry by name (for full details)
+entry = registry.get("pick_and_place")
+print(entry.name, entry.description, entry.execution_count, entry.success_rate)
+
+# List by type
+learned = registry.list_skills(skill_type="learned")  # -> list[str]
+
+# Stats
+stats = registry.get_stats()
+# -> {"total_skills": 1, "total_executions": 1, "average_success_rate": 1.0, "by_type": {...}}
 ```
 
 ---

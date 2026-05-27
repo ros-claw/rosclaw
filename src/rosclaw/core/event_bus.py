@@ -81,6 +81,12 @@ class EventBus:
 
     def subscribe(self, topic: str, callback: Callable[[Event], None]) -> None:
         """Subscribe to a topic with a sync callback."""
+        if not callable(callback):
+            raise TypeError(f"Handler must be callable, got {type(callback).__name__}")
+        if not isinstance(topic, str):
+            raise TypeError(f"Topic must be str, got {type(topic).__name__}")
+        if not topic:
+            raise ValueError("Topic cannot be empty")
         if topic not in self._subscribers:
             self._subscribers[topic] = []
         self._subscribers[topic].append(callback)
@@ -89,6 +95,12 @@ class EventBus:
         self, topic: str, callback: Callable[[Event], Coroutine]
     ) -> None:
         """Subscribe to a topic with an async callback."""
+        if not callable(callback):
+            raise TypeError(f"Handler must be callable, got {type(callback).__name__}")
+        if not isinstance(topic, str):
+            raise TypeError(f"Topic must be str, got {type(topic).__name__}")
+        if not topic:
+            raise ValueError("Topic cannot be empty")
         if topic not in self._async_subscribers:
             self._async_subscribers[topic] = []
         self._async_subscribers[topic].append(callback)

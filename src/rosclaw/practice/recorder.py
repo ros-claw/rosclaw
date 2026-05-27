@@ -114,11 +114,12 @@ class PracticeRecorder(LifecycleMixin):
             raise RuntimeError("Flywheel not initialized")
         return self._flywheel.export_to_lerobot(output_path)
 
-    def record_praxis_event(self, event_id: str, event_type: str, instruction: str, metadata: Optional[dict] = None) -> str:
+    def record_praxis_event(self, event=None, event_id: str = "", event_type: str = "", instruction: str = "", metadata: Optional[dict] = None) -> str:
         """Record a praxis event on the timeline.
 
         Args:
-            event_id: Unique event identifier
+            event: A PraxisEvent dataclass instance (alternative to individual args)
+            event_id: Unique event identifier (ignored if event is provided)
             event_type: Event classification (success, failure, milestone)
             instruction: Natural language instruction that triggered this event
             metadata: Additional context data
@@ -128,7 +129,25 @@ class PracticeRecorder(LifecycleMixin):
         """
         if not self._recording or self._flywheel is None:
             return ""
+
         from rosclaw.data.flywheel import EventType as FlywheelEventType
+        from rosclaw.core.types import PraxisEvent
+
+        if isinstance(event, PraxisEvent):
+            data = {
+                "event_id": event.event_id,
+                "event_type": event.event_type,
+                "instruction": event.agent_instruction,
+                "duration_sec": event.duration_sec,
+                "cot_trace": event.cot_trace,
+                "trajectory": event.trajectory,
+            }
+            try:
+                fw_type = FlywheelEventType[event.event_type.upper()]
+            except KeyError:
+                fw_type = FlywheelEventType.MILESTONE
+            return self._flywheel.trigger_event(fw_type, data)
+
         try:
             fw_type = FlywheelEventType[event_type.upper()]
         except KeyError:
