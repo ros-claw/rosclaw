@@ -160,3 +160,38 @@ class EventBus:
         sync = len(self._subscribers.get(topic, []))
         async_ = len(self._async_subscribers.get(topic, []))
         return sync + async_
+
+    async def await_event(
+        self,
+        topic: str,
+        timeout: float = 30.0,
+        filter_fn: Optional[Callable[[Event], bool]] = None,
+    ) -> Optional[Event]:
+        """
+        Wait for an event on a topic with optional filtering.
+
+        Creates a temporary one-shot subscription, waits for the
+        first matching event, then unsubscribes.
+
+        Args:
+            topic: Event topic to wait for
+            timeout: Maximum seconds to wait
+            filter_fn: Optional predicate to filter events
+
+        Returns:
+            Matching Event, or None if timeout
+        """
+        future = asyncio.get_event_loop().create_future()
+
+        def handler(event: Event) -> None:
+            if not future.done():
+                if filter_fn is None or filter_fn(event):
+                    future.set_result(event)
+
+        self.subscribe(topic, handler)
+        try:
+            return await asyncio.wait_for(future, timeout=timeout)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            self.unsubscribe(topic, handler)
