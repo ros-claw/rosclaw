@@ -88,3 +88,36 @@
 
 ### v1.0 发布就绪
 ROSClaw v1.0 全部完成，所有验收标准通过，建议发布。
+
+## 2025-05-28 深度用户体验测试 — 7个API问题修复
+
+### 测试方式
+模拟真实用户从零开始使用ROSClaw，发现7个阻碍直觉使用的API问题。
+
+### 修复详情
+
+| # | 问题 | 影响 | 修复 |
+|---|------|------|------|
+| 1 | Event导入路径文档只展示`rosclaw.core.event_bus` | 用户不知道有`from rosclaw.core import Event` | API_REFERENCE.md展示3种导入路径，推荐`rosclaw.core` |
+| 2 | DeepSeekProvider必须传LLMConfig对象 | `DeepSeekProvider(api_key="...")`失败 | 构造函数接受`**kwargs`，内部自动构建LLMConfig |
+| 3 | BaseDriver._state与LifecycleMixin._state冲突 | driver.initialize()后DriverState被LifecycleState覆盖 | BaseDriver._state → _driver_state，全部子类同步 |
+| 4 | SkillRegistry缺少get_stats() | 用户无法获取聚合统计 | 新增get_stats()返回total_skills/executions/success_rate/by_type |
+| 5 | PracticeRecorder缺少record_praxis_event() | 用户只能调用低级的mark_event() | 新增record_praxis_event(event_id, event_type, instruction, metadata) |
+| 6 | JointSpec构造函数不接受URDF的`type`参数 | `JointSpec(type="revolute")`抛TypeError | 自定义__init__接受`type`作为`joint_type`别名 |
+| 7 | Runtime只有get_status()没有status属性 | 用户直觉写`runtime.status`失败 | 新增`status` property作为get_status()别名 |
+
+### 代码改动
+- 修改: `src/rosclaw/mcp_drivers/base.py` + 3个子类驱动
+- 修改: `src/rosclaw/skill_manager/registry.py`
+- 修改: `src/rosclaw/practice/recorder.py`
+- 修改: `src/rosclaw/e_urdf/parser.py`
+- 修改: `src/rosclaw/core/runtime.py`
+- 修改: `src/rosclaw/agent_runtime/llm_provider.py`
+- 修改: `docs/API_REFERENCE.md`
+- 新增测试: 5个 (test_core.py, test_e_urdf.py, test_practice.py, test_skill_manager.py)
+- 提交: `97d9e13` fix: 7 UX API issues from deep user testing
+
+### 最终状态
+- **总测试数**: 157/157 通过
+- **测试文件**: 15 个
+- **总提交数**: 13 commits (92bdcc2之后)
