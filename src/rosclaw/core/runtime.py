@@ -67,6 +67,7 @@ class RuntimeConfig:
     enable_mcap: bool = False
     seekdb_backend: str = "memory"          # "memory" | "sqlite"
     seekdb_path: str = "./seekdb.sqlite"
+    embodied_memory: Optional[Any] = None   # powermem.EmbodiedMemory instance
 
 
 class Runtime(LifecycleMixin):
@@ -144,9 +145,11 @@ class Runtime(LifecycleMixin):
                     robot_id=self.config.robot_id,
                     event_bus=self.event_bus,
                     seekdb_client=seekdb,
+                    embodied_memory=self.config.embodied_memory,
                 )
                 self._modules.append(self._memory)
-                print("[Runtime] Experience Grounding (Memory) initialized")
+                em_label = "+EmbodiedMemory" if self.config.embodied_memory else "SeekDB-only"
+                print(f"[Runtime] Experience Grounding (Memory) initialized [{em_label}]")
             except ImportError as e:
                 print(f"[Runtime] Memory module not available: {e}")
 
@@ -435,6 +438,82 @@ class Runtime(LifecycleMixin):
         )
         self._provider_registry._health["mock_critic"] = {"ok": True}
 
+    # ------------------------------------------------------------------
+    # Physical World APIs (delegate to MemoryInterface / EmbodiedMemory)
+    # ------------------------------------------------------------------
+
+    def add_world_object(self, obj: Any) -> Optional[str]:
+        """Add a world object. Requires EmbodiedMemory."""
+        if self._memory is None:
+            return None
+        return self._memory.add_world_object(obj)
+
+    def get_world_object(self, obj_id: str) -> Optional[Any]:
+        """Get a world object by ID."""
+        if self._memory is None:
+            return None
+        return self._memory.get_world_object(obj_id)
+
+    def update_world_object_pose(self, obj_id: str, pose: Any, state: Optional[str] = None) -> bool:
+        """Update world object pose and optional state."""
+        if self._memory is None:
+            return False
+        return self._memory.update_world_object_pose(obj_id, pose, state)
+
+    def search_world_objects(self, center: Any, radius: float, scene_id: Optional[str] = None) -> list[Any]:
+        """Search world objects within spatial radius."""
+        if self._memory is None:
+            return []
+        return self._memory.search_world_objects(center, radius, scene_id)
+
+    def get_scene_graph(self, scene_id: str) -> tuple[list[Any], list[Any]]:
+        """Get scene graph: (objects, relations)."""
+        if self._memory is None:
+            return [], []
+        return self._memory.get_scene_graph(scene_id)
+
+    def sync_scene_objects(
+        self,
+        scene_id: str,
+        detections: list[Any],
+        timestamp_sec: float,
+        occlusion_radius: float = 0.5,
+    ) -> Optional[Any]:
+        """Sync sensor detections with world model (Object Permanence)."""
+        if self._memory is None:
+            return None
+        return self._memory.sync_scene_objects(scene_id, detections, timestamp_sec, occlusion_radius)
+
+    def cognitive_search(
+        self,
+        query: str,
+        spatial_center: Optional[Any] = None,
+        spatial_radius: float = 2.0,
+        temporal_interval: Optional[Any] = None,
+        limit: int = 10,
+    ) -> list[Any]:
+        """Cognitive search: semantic + spatial + temporal."""
+        if self._memory is None:
+            return []
+        return self._memory.cognitive_search(query, spatial_center, spatial_radius, temporal_interval, limit)
+
+    def record_trajectory(self, content: str, waypoints: list[tuple[Any, float]]) -> Optional[int]:
+        """Record a trajectory. Returns memory_id or None."""
+        if self._memory is None:
+            return None
+        return self._memory.record_trajectory(content, waypoints)
+
+    def search_similar_trajectories(
+        self,
+        query_waypoints: list[tuple[Any, float]],
+        top_k: int = 5,
+        max_dtw_distance: Optional[float] = None,
+    ) -> list[tuple[Any, float]]:
+        """Search for similar trajectories using DTW."""
+        if self._memory is None:
+            return []
+        return self._memory.search_similar_trajectories(query_waypoints, top_k, max_dtw_distance)
+
     def get_status(self) -> dict:
         """Get comprehensive runtime status."""
         return {
@@ -452,6 +531,12 @@ class Runtime(LifecycleMixin):
                 "skill_manager": self._skill_manager is not None,
                 "e_urdf": self._e_urdf is not None,
                 "provider_layer": self._provider_registry is not None,
+            },
+            "embodied_memory": {
+                "attached": self.config.embodied_memory is not None,
+                "has_world_objects": (
+                    self._memory.has_embodied_memory if self._memory else False
+                ),
             },
             "drivers": list(self._mcp_drivers.keys()),
         }

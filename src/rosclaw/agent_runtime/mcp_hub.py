@@ -242,6 +242,9 @@ class MCPHub(LifecycleMixin):
         self._register_get_state_tool()
         self._register_validate_trajectory_tool()
         self._register_emergency_stop_tool()
+        self._register_query_world_objects_tool()
+        self._register_get_scene_graph_tool()
+        self._register_cognitive_search_tool()
 
     def _register_move_tool(self) -> None:
         self._tools["move_joints"] = {
@@ -318,6 +321,51 @@ class MCPHub(LifecycleMixin):
             "inputSchema": {"type": "object", "properties": {}},
         }
 
+    def _register_query_world_objects_tool(self) -> None:
+        self._tools["query_world_objects"] = {
+            "name": "query_world_objects",
+            "description": "Query world objects in a scene by spatial region or scene ID. Requires EmbodiedMemory.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "scene_id": {"type": "string", "description": "Scene identifier"},
+                    "center_x": {"type": "number", "description": "Search center X coordinate"},
+                    "center_y": {"type": "number", "description": "Search center Y coordinate"},
+                    "center_z": {"type": "number", "description": "Search center Z coordinate"},
+                    "radius": {"type": "number", "description": "Search radius in meters", "default": 2.0},
+                },
+                "required": ["scene_id"],
+            },
+        }
+
+    def _register_get_scene_graph_tool(self) -> None:
+        self._tools["get_scene_graph"] = {
+            "name": "get_scene_graph",
+            "description": "Get the scene graph (objects and spatial relations) for a scene. Requires EmbodiedMemory.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "scene_id": {"type": "string", "description": "Scene identifier"},
+                },
+                "required": ["scene_id"],
+            },
+        }
+
+    def _register_cognitive_search_tool(self) -> None:
+        self._tools["cognitive_search"] = {
+            "name": "cognitive_search",
+            "description": "Cognitive search across memory: semantic + spatial + temporal. Requires EmbodiedMemory.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Natural language query"},
+                    "scene_id": {"type": "string", "description": "Optional scene filter"},
+                    "limit": {"type": "integer", "description": "Max results", "default": 10},
+                },
+                "required": ["query"],
+            },
+        }
+
     # ------------------------------------------------------------------
     # Tool call dispatch
     # ------------------------------------------------------------------
@@ -351,6 +399,12 @@ class MCPHub(LifecycleMixin):
             return await self._handle_validate_trajectory(arguments)
         elif name == "emergency_stop":
             return self._handle_emergency_stop()
+        elif name == "query_world_objects":
+            return self._handle_query_world_objects(arguments)
+        elif name == "get_scene_graph":
+            return self._handle_get_scene_graph(arguments)
+        elif name == "cognitive_search":
+            return self._handle_cognitive_search(arguments)
         else:
             return {"error": f"Unknown tool: {name}"}
 
@@ -579,6 +633,88 @@ class MCPHub(LifecycleMixin):
             priority=EventPriority.CRITICAL,
         ))
         return {"status": "emergency_stop_triggered"}
+
+    # ------------------------------------------------------------------
+    # Physical world handlers
+    # ------------------------------------------------------------------
+
+    def _handle_query_world_objects(self, arguments: dict) -> dict:
+        """Handle query_world_objects tool call."""
+        if self.runtime is None:
+            return {"status": "error", "error": "Runtime not available"}
+        scene_id = arguments.get("scene_id", "")
+        radius = arguments.get("radius", 2.0)
+        cx = arguments.get("center_x", 0.0)
+        cy = arguments.get("center_y", 0.0)
+        cz = arguments.get("center_z", 0.0)
+
+        try:
+            from rosclaw.e_urdf.parser import Vec3
+        except ImportError:
+            Vec3 = None
+
+        center = Vec3(cx, cy, cz) if Vec3 else {"x": cx, "y": cy, "z": cz}
+        results = self.runtime.search_world_objects(center, radius, scene_id)
+        return {
+            "status": "ok",
+            "scene_id": scene_id,
+            "count": len(results),
+            "objects": [self._world_object_to_dict(o) for o in results],
+        }
+
+    def _handle_get_scene_graph(self, arguments: dict) -> dict:
+        """Handle get_scene_graph tool call."""
+        if self.runtime is None:
+            return {"status": "error", "error": "Runtime not available"}
+        scene_id = arguments.get("scene_id", "")
+        objects, relations = self.runtime.get_scene_graph(scene_id)
+        return {
+            "status": "ok",
+            "scene_id": scene_id,
+            "object_count": len(objects),
+            "relation_count": len(relations),
+            "objects": [self._world_object_to_dict(o) for o in objects],
+            "relations": [self._relation_to_dict(r) for r in relations],
+        }
+
+    def _handle_cognitive_search(self, arguments: dict) -> dict:
+        """Handle cognitive_search tool call."""
+        if self.runtime is None:
+            return {"status": "error", "error": "Runtime not available"}
+        query = arguments.get("query", "")
+        limit = arguments.get("limit", 10)
+        results = self.runtime.cognitive_search(query, limit=limit)
+        return {
+            "status": "ok",
+            "query": query,
+            "count": len(results),
+            "results": [self._memory_atom_to_dict(r) for r in results],
+        }
+
+    @staticmethod
+    def _world_object_to_dict(obj: Any) -> dict:
+        """Serialize a WorldObject-like instance to dict."""
+        if hasattr(obj, "to_dict"):
+            return obj.to_dict()
+        return {"obj_id": getattr(obj, "obj_id", "")}
+
+    @staticmethod
+    def _relation_to_dict(rel: Any) -> dict:
+        """Serialize a SpatialRelation-like instance to dict."""
+        if hasattr(rel, "to_dict"):
+            return rel.to_dict()
+        return {
+            "subject_id": getattr(rel, "subject_id", ""),
+            "object_id": getattr(rel, "object_id", ""),
+            "relation": getattr(rel, "relation", ""),
+        }
+
+    @staticmethod
+    def _memory_atom_to_dict(atom: Any) -> dict:
+        """Serialize a MemoryAtom-like instance to dict."""
+        if hasattr(atom, "to_dict"):
+            return atom.to_dict()
+        return {"content": getattr(atom, "content", "")}
 
     def _on_joint_states(self, event: Event) -> None:
         """Update context with joint state."""

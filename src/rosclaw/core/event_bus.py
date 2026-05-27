@@ -196,7 +196,8 @@ class EventBus:
         Returns:
             Matching Event, or None if timeout
         """
-        future = asyncio.get_event_loop().create_future()
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
 
         def handler(event: Event) -> None:
             if not future.done():
@@ -210,3 +211,15 @@ class EventBus:
             return None
         finally:
             self.unsubscribe(topic, handler)
+
+    def get_stats(self) -> dict:
+        """Return event bus statistics."""
+        return {
+            "topics": self.topics,
+            "total_subscribers": sum(
+                len(self._subscribers.get(t, [])) + len(self._async_subscribers.get(t, []))
+                for t in self.topics
+            ),
+            "history_size": len(self._event_history),
+            "max_history": self._max_history,
+        }

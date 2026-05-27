@@ -3,10 +3,16 @@
 Replaces the in-memory list with SeekDB persistence.
 Subscribes to praxis.recorded events to auto-ingest experiences.
 
+Optional integration with powermem.EmbodiedMemory for:
+- World object storage (Object Permanence)
+- Trajectory memory with DTW similarity
+- Cognitive search (semantic + spatial + temporal)
+- Scene graph management
+
 Sprint 5 of DESIGN_SPRINT3_5.
 """
 
-from typing import Optional
+from typing import Optional, Any
 import json
 import time
 
@@ -22,6 +28,14 @@ class MemoryInterface(LifecycleMixin):
     Stores PraxisEvents as experiences in the experience_graph table.
     Provides similarity search for finding relevant past experiences.
 
+    When ``embodied_memory`` (powermem.EmbodiedMemory) is provided,
+    additional capabilities are unlocked:
+    - World object CRUD and spatial search
+    - Trajectory storage and DTW similarity search
+    - Cognitive search (semantic + spatial + temporal)
+    - Object permanence (occlusion-aware scene sync)
+    - Scene graph and spatial relations
+
     EventBus:
         Subscribes: praxis.recorded (to auto-ingest new experiences)
         Publishes:  memory.experience.stored
@@ -32,14 +46,19 @@ class MemoryInterface(LifecycleMixin):
         robot_id: str,
         event_bus: Optional[EventBus] = None,
         seekdb_client: Optional[SeekDBClient] = None,
+        embodied_memory: Optional[Any] = None,
     ):
         super().__init__()
         self._robot_id = robot_id
         self.event_bus = event_bus
         self._client = seekdb_client or SeekDBMemoryClient()
+        self._embodied = embodied_memory
 
     def _do_initialize(self) -> None:
         self._client.connect()
+
+        if self._embodied is not None and hasattr(self._embodied, "db_conn"):
+            print(f"[MemoryInterface] EmbodiedMemory attached: {type(self._embodied).__name__}")
 
         if self.event_bus is not None:
             self.event_bus.subscribe("praxis.recorded", self._on_praxis_recorded)
@@ -55,6 +74,7 @@ class MemoryInterface(LifecycleMixin):
                     "state": "running",
                     "robot_id": self._robot_id,
                     "experience_count": self._client.count("experience_graph"),
+                    "embodied_memory": self._embodied is not None,
                 },
                 source="memory_interface",
             ))
@@ -74,6 +94,10 @@ class MemoryInterface(LifecycleMixin):
             duration_sec=payload.get("duration_sec", 0.0),
             metadata=payload,
         )
+
+    # ------------------------------------------------------------------
+    # SeekDB Experience APIs
+    # ------------------------------------------------------------------
 
     def store_experience(
         self,
@@ -174,3 +198,125 @@ class MemoryInterface(LifecycleMixin):
             "emergency_count": emergencies,
             "success_rate": successes / total if total > 0 else 0.0,
         }
+
+    # ------------------------------------------------------------------
+    # EmbodiedMemory bridge (world objects, trajectories, cognitive search)
+    # ------------------------------------------------------------------
+
+    @property
+    def has_embodied_memory(self) -> bool:
+        """Whether an EmbodiedMemory instance is attached."""
+        return self._embodied is not None
+
+    # -- World Objects --
+
+    def add_world_object(self, obj: Any) -> Optional[str]:
+        """Add a world object. Returns obj_id or None if no EmbodiedMemory."""
+        if self._embodied is None:
+            return None
+        return self._embodied.add_world_object(obj)
+
+    def get_world_object(self, obj_id: str) -> Optional[Any]:
+        """Get a world object by ID."""
+        if self._embodied is None:
+            return None
+        return self._embodied.get_world_object(obj_id)
+
+    def update_world_object_pose(self, obj_id: str, pose: Any, state: Optional[str] = None) -> bool:
+        """Update world object pose and optional state."""
+        if self._embodied is None:
+            return False
+        return self._embodied.update_world_object_pose(obj_id, pose, state)
+
+    def search_world_objects(
+        self,
+        center: Any,
+        radius: float,
+        scene_id: Optional[str] = None,
+    ) -> list[Any]:
+        """Search world objects within spatial radius."""
+        if self._embodied is None:
+            return []
+        return self._embodied.search_world_objects(center, radius, scene_id)
+
+    def get_scene_graph(self, scene_id: str) -> tuple[list[Any], list[Any]]:
+        """Get scene graph: (objects, relations)."""
+        if self._embodied is None:
+            return [], []
+        return self._embodied.get_scene_graph(scene_id)
+
+    def compute_relations(self, scene_id: str, spatial_tolerance: float = 0.05) -> list[Any]:
+        """Compute spatial relations for a scene."""
+        if self._embodied is None:
+            return []
+        return self._embodied.compute_relations(scene_id, spatial_tolerance)
+
+    # -- Object Permanence --
+
+    def sync_scene_objects(
+        self,
+        scene_id: str,
+        detections: list[Any],
+        timestamp_sec: float,
+        occlusion_radius: float = 0.5,
+    ) -> Optional[Any]:
+        """
+        Sync sensor detections with world model (Object Permanence).
+
+        Returns PermanenceReport or None if no EmbodiedMemory.
+        """
+        if self._embodied is None:
+            return None
+        return self._embodied.sync_scene_objects(
+            scene_id, detections, timestamp_sec, occlusion_radius
+        )
+
+    # -- Trajectories --
+
+    def record_trajectory(self, content: str, waypoints: list[tuple[Any, float]]) -> Optional[int]:
+        """Record a trajectory. Returns memory_id or None."""
+        if self._embodied is None:
+            return None
+        return self._embodied.record_trajectory(content, waypoints)
+
+    def search_similar_trajectories(
+        self,
+        query_waypoints: list[tuple[Any, float]],
+        top_k: int = 5,
+        max_dtw_distance: Optional[float] = None,
+    ) -> list[tuple[Any, float]]:
+        """Search for similar trajectories using DTW."""
+        if self._embodied is None:
+            return []
+        return self._embodied.search_similar_trajectories(
+            query_waypoints, top_k, max_dtw_distance
+        )
+
+    # -- Cognitive Search --
+
+    def cognitive_search(
+        self,
+        query: str,
+        spatial_center: Optional[Any] = None,
+        spatial_radius: float = 2.0,
+        temporal_interval: Optional[Any] = None,
+        limit: int = 10,
+    ) -> list[Any]:
+        """Cognitive search: semantic + spatial + temporal."""
+        if self._embodied is None:
+            return []
+        kwargs = {"query": query, "limit": limit}
+        if spatial_center is not None:
+            kwargs["spatial_center"] = spatial_center
+            kwargs["spatial_radius"] = spatial_radius
+        if temporal_interval is not None:
+            kwargs["temporal_interval"] = temporal_interval
+        return self._embodied.cognitive_search(**kwargs)
+
+    # -- Meditation (offline abstraction) --
+
+    def run_meditation(self, phases: Optional[list[str]] = None) -> dict:
+        """Run meditation pipeline for offline memory abstraction."""
+        if self._embodied is None:
+            return {"success": False, "error": "EmbodiedMemory not attached"}
+        return self._embodied.run_meditation(phases or ["consolidate", "crystallize", "extract"])
