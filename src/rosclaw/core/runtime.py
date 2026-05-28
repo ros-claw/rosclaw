@@ -59,6 +59,7 @@ class RuntimeConfig:
     enable_practice: bool = True
     enable_swarm: bool = False
     enable_skill_manager: bool = True
+    enable_knowledge: bool = True
     enable_provider: bool = True
     joint_dof: int = 6
     sampling_rate_hz: int = 1000
@@ -93,6 +94,7 @@ class Runtime(LifecycleMixin):
         self._practice: Optional[Any] = None
         self._swarm: Optional[Any] = None
         self._skill_manager: Optional[Any] = None
+        self._how: Optional[Any] = None
         self._e_urdf: Optional[Any] = None
         self._mcp_drivers: dict[str, Any] = {}
 
@@ -192,6 +194,48 @@ class Runtime(LifecycleMixin):
             except ImportError as e:
                 print(f"[Runtime] SkillManager module not available: {e}")
 
+        # Initialize Heuristic Grounding (HeuristicEngine)
+        if self.config.enable_how:
+            try:
+                from rosclaw.how.engine import HeuristicEngine
+                # Reuse Memory's SeekDB client if available
+                seekdb = None
+                if self._memory is not None:
+                    seekdb = getattr(self._memory, "seekdb_client", None)
+                if seekdb is not None:
+                    self._how = HeuristicEngine(
+                        seekdb_client=seekdb,
+                        knowledge_interface=self._knowledge,
+                    )
+                    self._modules.append(self._how)
+                    print("[Runtime] Heuristic Grounding (HeuristicEngine) initialized")
+                else:
+                    print("[Runtime] HeuristicEngine skipped: no SeekDB client (memory not enabled)")
+            except ImportError as e:
+                print(f"[Runtime] HeuristicEngine not available: {e}")
+
+        # Initialize Knowledge Grounding (KnowledgeInterface)
+        if self.config.enable_knowledge:
+            try:
+                from rosclaw.know.interface import KnowledgeInterface
+                from rosclaw.know.storage import seed_knowledge_graph
+                # Reuse Memory's SeekDB client if available
+                seekdb = None
+                if self._memory is not None:
+                    seekdb = getattr(self._memory, "seekdb_client", None)
+                self._knowledge = KnowledgeInterface(
+                    robot_id=self.config.robot_id,
+                    event_bus=self.event_bus,
+                    seekdb_client=seekdb,
+                )
+                self._modules.append(self._knowledge)
+                print("[Runtime] Knowledge Grounding (KnowledgeInterface) initialized")
+                # Seed knowledge_graph with baseline data
+                if seekdb is not None:
+                    seed_knowledge_graph(seekdb)
+            except ImportError as e:
+                print(f"[Runtime] Knowledge module not available: {e}")
+
         # Initialize Provider Layer (Capability Router + Guard)
         if self.config.enable_provider and ProviderRegistry is not None:
             try:
@@ -247,6 +291,7 @@ class Runtime(LifecycleMixin):
         self.event_bus.subscribe("safety.violation", self._on_safety_violation)
         self.event_bus.subscribe("agent.command", self._on_agent_command)
         self.event_bus.subscribe("robot.emergency_stop", self._on_emergency_stop)
+        self.event_bus.subscribe("firewall.action_blocked", self._on_firewall_action_blocked)
 
     def _on_safety_violation(self, event: Event) -> None:
         """Handle safety violation events."""
@@ -257,6 +302,36 @@ class Runtime(LifecycleMixin):
             source="runtime",
             priority=EventPriority.CRITICAL,
         ))
+
+    def _on_firewall_action_blocked(self, event: Event) -> None:
+        """Handle firewall action blocked: query heuristic recovery.
+
+        When Firewall blocks an agent command, this handler queries the
+        HeuristicEngine for a recovery suggestion and publishes it on
+        the EventBus so the agent can attempt recovery before escalating.
+        """
+        if self._how is None:
+            return
+        try:
+            import asyncio
+            request_id = event.payload.get("request_id", "")
+            violations = event.payload.get("violations", [])
+            error_log = "; ".join(v.get("description", "") for v in violations)
+            recovery = asyncio.run(self._how.suggest_recovery(error_log, context={"request_id": request_id}))
+            if recovery:
+                from rosclaw.how.recovery import RecoveryFormatter
+                payload = RecoveryFormatter.to_event_payload(
+                    recovery, request_id=request_id, source="heuristic_engine"
+                )
+                self.event_bus.publish(Event(
+                    topic="heuristic.recovery_suggested",
+                    payload=payload,
+                    source="runtime",
+                    priority=EventPriority.HIGH,
+                ))
+                print(f"[Runtime] Heuristic recovery suggested for {request_id}: {recovery['action']}")
+        except Exception as e:
+            print(f"[Runtime] Heuristic recovery failed: {e}")
 
     def _on_agent_command(self, event: Event) -> None:
         """Handle agent commands - route to appropriate module."""
@@ -298,6 +373,10 @@ class Runtime(LifecycleMixin):
     @property
     def skill_manager(self) -> Optional[Any]:
         return self._skill_manager
+
+    @property
+    def knowledge(self) -> Optional[Any]:
+        return getattr(self, "_knowledge", None)
 
     @property
     def e_urdf(self) -> Optional[Any]:
@@ -428,7 +507,7 @@ class Runtime(LifecycleMixin):
             lambda m: MockVLMProvider(m),
             auto_load=False,
         )
-        self._provider_registry._health["mock_vlm"] = {"ok": True}
+        self._provider_registry.set_provider_health("mock_vlm", ok=True)
 
         self._provider_registry.register(
             ProviderManifest.from_dict({
@@ -440,7 +519,7 @@ class Runtime(LifecycleMixin):
             lambda m: MockSkillProvider(m),
             auto_load=False,
         )
-        self._provider_registry._health["mock_skill"] = {"ok": True}
+        self._provider_registry.set_provider_health("mock_skill", ok=True)
 
         self._provider_registry.register(
             ProviderManifest.from_dict({
@@ -451,7 +530,7 @@ class Runtime(LifecycleMixin):
             lambda m: MockCriticProvider(m),
             auto_load=False,
         )
-        self._provider_registry._health["mock_critic"] = {"ok": True}
+        self._provider_registry.set_provider_health("mock_critic", ok=True)
 
     # ------------------------------------------------------------------
     # Physical World APIs (delegate to MemoryInterface / EmbodiedMemory)

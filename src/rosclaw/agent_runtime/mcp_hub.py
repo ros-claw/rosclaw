@@ -149,6 +149,8 @@ class MCPHub(LifecycleMixin):
         self._register_verify_task_success_tool()
         self._register_get_state_tool()
         self._register_emergency_stop_tool()
+        self._register_query_knowledge_tool()
+        self._register_get_safety_heuristic_tool()
 
     def _register_observe_scene_tool(self) -> None:
         self._tools["observe_scene"] = {
@@ -321,6 +323,44 @@ class MCPHub(LifecycleMixin):
             "inputSchema": {"type": "object", "properties": {}},
         }
 
+    def _register_query_knowledge_tool(self) -> None:
+        self._tools["query_knowledge"] = {
+            "name": "query_knowledge",
+            "description": "Query the Knowledge Graph for robot capabilities, known failure symptoms, or cross-domain engineering analogies.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query_type": {
+                        "type": "string",
+                        "enum": ["capability", "symptom", "analogy"],
+                        "description": "Type of knowledge to query",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "The query text (e.g. robot ID for capabilities, error log for symptoms, situation for analogies)",
+                    },
+                },
+                "required": ["query_type", "query"],
+            },
+        }
+
+    def _register_get_safety_heuristic_tool(self) -> None:
+        self._tools["get_safety_heuristic"] = {
+            "name": "get_safety_heuristic",
+            "description": "Get a safety heuristic rule for a known dangerous condition (torque_overflow, velocity_divergence, memory_exhaustion, numerical_instability).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "condition": {
+                        "type": "string",
+                        "enum": ["torque_overflow", "velocity_divergence", "memory_exhaustion", "numerical_instability"],
+                        "description": "The dangerous condition to get a heuristic for",
+                    },
+                },
+                "required": ["condition"],
+            },
+        }
+
     def _register_query_world_objects_tool(self) -> None:
         self._tools["query_world_objects"] = {
             "name": "query_world_objects",
@@ -405,6 +445,13 @@ class MCPHub(LifecycleMixin):
             return self._handle_get_scene_graph(arguments)
         elif name == "cognitive_search":
             return self._handle_cognitive_search(arguments)
+
+        # Knowledge tools
+        elif name == "query_knowledge":
+            return self._handle_query_knowledge(arguments)
+        elif name == "get_safety_heuristic":
+            return self._handle_get_safety_heuristic(arguments)
+
         else:
             return {"error": f"Unknown tool: {name}"}
 
@@ -689,6 +736,77 @@ class MCPHub(LifecycleMixin):
             "query": query,
             "count": len(results),
             "results": [self._memory_atom_to_dict(r) for r in results],
+        }
+
+    def _handle_query_knowledge(self, arguments: dict) -> dict:
+        """Handle query_knowledge tool call."""
+        if self.runtime is None:
+            return {"status": "error", "error": "Runtime not available"}
+        query_type = arguments.get("query_type", "")
+        query = arguments.get("query", "")
+
+        knowledge = getattr(self.runtime, "knowledge", None)
+        if knowledge is None:
+            return {"status": "error", "error": "Knowledge module not available"}
+
+        if query_type == "capability":
+            capabilities = knowledge.query_robot_capabilities(query)
+            return {
+                "status": "ok",
+                "query_type": "capability",
+                "robot_id": query,
+                "count": len(capabilities),
+                "capabilities": capabilities,
+            }
+        elif query_type == "symptom":
+            match = knowledge.match_symptom(query)
+            return {
+                "status": "ok",
+                "query_type": "symptom",
+                "matched": match is not None,
+                "result": match,
+            }
+        elif query_type == "analogy":
+            analogy = knowledge.get_analogy(query)
+            return {
+                "status": "ok",
+                "query_type": "analogy",
+                "matched": analogy is not None,
+                "result": analogy,
+            }
+        else:
+            return {"status": "error", "error": f"Unknown query_type: {query_type}"}
+
+    def _handle_get_safety_heuristic(self, arguments: dict) -> dict:
+        """Handle get_safety_heuristic tool call."""
+        if self.runtime is None:
+            return {"status": "error", "error": "Runtime not available"}
+
+        knowledge = getattr(self.runtime, "knowledge", None)
+        if knowledge is None:
+            return {"status": "error", "error": "Knowledge module not available"}
+
+        condition = arguments.get("condition", "")
+        # Map snake_case to KnowledgeInterface's Safety_Pattern labels
+        label_map = {
+            "torque_overflow": "Torque_Overflow",
+            "velocity_divergence": "Velocity_Divergence",
+            "memory_exhaustion": "Memory_Exhaustion",
+            "numerical_instability": "Numerical_Instability",
+        }
+        label = label_map.get(condition, "")
+        if not label:
+            return {
+                "status": "error",
+                "error": f"Unknown condition: {condition}",
+                "known_conditions": list(label_map.keys()),
+            }
+
+        rule = knowledge.get_safety_rule(label)
+        return {
+            "status": "ok",
+            "condition": condition,
+            "safety_rule": rule,
         }
 
     @staticmethod
