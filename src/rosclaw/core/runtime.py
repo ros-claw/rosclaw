@@ -137,6 +137,24 @@ class Runtime(LifecycleMixin):
             except ImportError as e:
                 print(f"[Runtime] FirewallValidator not available: {e}")
 
+        # Initialize Sandbox (Digital Twin + Physics Simulation)
+        try:
+            from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
+            sandbox_config = {
+                "engine": "mujoco",
+                "world_id": "empty",
+                "robot_id": self.config.robot_id,
+            }
+            self._sandbox = SandboxRuntimeAdapter(
+                config=sandbox_config,
+                event_bus=self.event_bus,
+                e_urdf_model=self._e_urdf,
+            )
+            self._modules.append(self._sandbox)
+            print("[Runtime] Sandbox (Digital Twin + Physics) initialized")
+        except ImportError as e:
+            print(f"[Runtime] Sandbox not available: {e}")
+
         # Initialize Experience Grounding (Memory)
         if self.config.enable_memory:
             try:

@@ -447,25 +447,65 @@ class UR5MCPServer:
         if not valid:
             return [TextContent(type="text", text=f"Error: Joint limit violation - {msg}")]
 
-        # Digital Twin validation
-        if validate and self.firewall:
+        # Digital Twin validation via EventBus (replaces direct Firewall import)
+        if validate:
             try:
-                # Create simple trajectory: current -> target
-                current = self.ros_node.get_current_joint_positions()
-                trajectory = self._interpolate_trajectory(current, positions, int(duration * 50))  # 50Hz
+                import asyncio
+                from rosclaw.core.event_bus import EventBus
 
-                result = self.firewall.validate_trajectory(
-                    [np.array(p) for p in trajectory],
-                    safety_level=SafetyLevel.STRICT,
-                )
+                # Get or create event bus reference
+                event_bus = getattr(self, '_event_bus', None)
+                if event_bus is None:
+                    # Fallback: try to find Runtime's event bus
+                    try:
+                        from rosclaw.core.runtime import Runtime
+                        runtime = Runtime._instance if hasattr(Runtime, '_instance') else None
+                        if runtime:
+                            event_bus = runtime.event_bus
+                    except Exception:
+                        pass
 
-                if not result.is_safe:
-                    error_msg = f"Digital Twin validation FAILED:\n"
-                    error_msg += f"  - Collision: {result.collision_detected}\n"
-                    error_msg += f"  - Joint limit: {result.joint_limit_violated}\n"
-                    error_msg += f"  - Torque limit: {result.torque_limit_exceeded}\n"
-                    error_msg += f"  - Details: {result.violation_details}"
-                    return [TextContent(type="text", text=error_msg)]
+                if event_bus:
+                    # Publish validation request
+                    current = self.ros_node.get_current_joint_positions()
+                    trajectory = self._interpolate_trajectory(current, positions, int(duration * 50))
+
+                    validation_result = {"is_safe": True, "reason": ""}
+
+                    def on_validation_result(event):
+                        nonlocal validation_result
+                        validation_result = event.payload
+
+                    event_bus.subscribe("firewall.validation_result", on_validation_result)
+                    event_bus.publish(Event(
+                        topic="firewall.validation_request",
+                        payload={
+                            "robot_id": self.ros_node.robot_id,
+                            "trajectory": trajectory,
+                            "safety_level": "STRICT",
+                        },
+                        source="ur5_mcp_server",
+                    ))
+
+                    # Wait briefly for result
+                    await asyncio.sleep(0.1)
+                    event_bus.unsubscribe("firewall.validation_result", on_validation_result)
+
+                    if not validation_result.get("is_safe", True):
+                        error_msg = "Digital Twin validation FAILED:\n"
+                        error_msg += f"  - Reason: {validation_result.get('reason', 'Unknown')}"
+                        return [TextContent(type="text", text=error_msg)]
+                else:
+                    # Fallback to direct firewall if EventBus unavailable
+                    if self.firewall:
+                        current = self.ros_node.get_current_joint_positions()
+                        trajectory = self._interpolate_trajectory(current, positions, int(duration * 50))
+                        result = self.firewall.validate_trajectory(
+                            [np.array(p) for p in trajectory],
+                            safety_level=SafetyLevel.STRICT,
+                        )
+                        if not result.is_safe:
+                            return [TextContent(type="text", text="Digital Twin validation FAILED")]
 
             except Exception as e:
                 return [TextContent(type="text", text=f"Digital Twin validation error: {e}")]

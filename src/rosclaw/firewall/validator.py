@@ -218,6 +218,26 @@ class FirewallValidator(LifecycleMixin):
                 source="firewall_validator",
                 priority=EventPriority.CRITICAL,
             ))
+            # Publish firewall.action_blocked for HeuristicEngine recovery
+            self._event_bus.publish(Event(
+                topic="firewall.action_blocked",
+                payload={
+                    "request_id": request.request_id,
+                    "robot_id": request.robot_id,
+                    "action": action,
+                    "violations": [
+                        {
+                            "layer": v.layer.value,
+                            "severity": v.severity,
+                            "description": v.description,
+                        }
+                        for v in response.violations
+                    ],
+                    "trajectory": request.trajectory,
+                },
+                source="firewall_validator",
+                priority=EventPriority.CRITICAL,
+            ))
 
     def validate(self, request: ValidationRequest) -> ValidationResponse:
         """Run 3-layer validation pipeline."""
@@ -279,35 +299,67 @@ class FirewallValidator(LifecycleMixin):
         return violations
 
     def _check_mujoco_collision(self, request: ValidationRequest) -> list[ViolationDetail]:
-        """Layer 2: Simulate trajectory in MuJoCo, check for collisions."""
+        """Layer 2: Simulate trajectory in MuJoCo using mj_step, check for collisions.
+
+        Replaces the previous static mj_forward-based check with dynamic simulation.
+        This detects collisions that occur during motion between waypoints.
+        """
         violations = []
         if self._mj_data is None:
             return violations
 
         import mujoco
+        import numpy as np
 
-        for waypoint in request.trajectory:
+        # Save original state for restoration
+        original_qpos = self._mj_data.qpos.copy()
+        original_qvel = self._mj_data.qvel.copy()
+
+        # Reset velocity
+        self._mj_data.qvel[:] = 0.0
+
+        dt = self._mj_model.opt.timestep
+        steps_per_waypoint = max(1, int(0.02 / dt))  # ~50Hz control
+
+        for wp_idx, waypoint in enumerate(request.trajectory):
             dof = min(len(waypoint), self._mj_model.nq)
-            self._mj_data.qpos[:dof] = waypoint[:dof]
-            mujoco.mj_forward(self._mj_model, self._mj_data)
+            target_qpos = np.array(waypoint[:dof])
+            current_qpos = np.array(self._mj_data.qpos[:dof])
+            velocity = (target_qpos - current_qpos) / (steps_per_waypoint * dt)
 
-            for i in range(self._mj_data.ncon):
-                contact = self._mj_data.contact[i]
-                geom1_name = mujoco.mj_id2name(self._mj_model, 6, contact.geom1) or f"geom{contact.geom1}"
-                geom2_name = mujoco.mj_id2name(self._mj_model, 6, contact.geom2) or f"geom{contact.geom2}"
+            for step in range(steps_per_waypoint):
+                # Apply velocity control
+                self._mj_data.qvel[:dof] = velocity
+                mujoco.mj_step(self._mj_model, self._mj_data)
 
-                if geom1_name in self._envelope.allowed_contacts or \
-                   geom2_name in self._envelope.allowed_contacts:
-                    continue
+                # Check contacts after each physics step
+                for i in range(self._mj_data.ncon):
+                    contact = self._mj_data.contact[i]
+                    if contact.dist < 0.001:
+                        geom1_name = mujoco.mj_id2name(self._mj_model, 6, contact.geom1) or f"geom{contact.geom1}"
+                        geom2_name = mujoco.mj_id2name(self._mj_model, 6, contact.geom2) or f"geom{contact.geom2}"
 
-                violations.append(ViolationDetail(
-                    layer=ValidationLayer.MUJOCO_COLLISION,
-                    severity="critical",
-                    joint_index=None,
-                    description=f"Collision detected: {geom1_name} <-> {geom2_name}",
-                ))
-                break
+                        if geom1_name in self._envelope.allowed_contacts or \
+                           geom2_name in self._envelope.allowed_contacts:
+                            continue
 
+                        violations.append(ViolationDetail(
+                            layer=ValidationLayer.MUJOCO_COLLISION,
+                            severity="critical",
+                            joint_index=None,
+                            description=f"Dynamic collision: {geom1_name} <-> {geom2_name} "
+                                        f"at waypoint {wp_idx}, step {step}",
+                        ))
+                        # Restore original state
+                        self._mj_data.qpos[:] = original_qpos
+                        self._mj_data.qvel[:] = original_qvel
+                        mujoco.mj_forward(self._mj_model, self._mj_data)
+                        return violations
+
+        # Restore original state
+        self._mj_data.qpos[:] = original_qpos
+        self._mj_data.qvel[:] = original_qvel
+        mujoco.mj_forward(self._mj_model, self._mj_data)
         return violations
 
     def _check_semantic_safety(self, request: ValidationRequest) -> tuple[list[ViolationDetail], list[str]]:

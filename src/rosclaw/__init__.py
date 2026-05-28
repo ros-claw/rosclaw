@@ -24,6 +24,11 @@ Architecture:
 __version__ = "1.0.0"
 __author__ = "ROSClaw Team"
 
+# Enable namespace extension so rosclaw-sandbox and other
+# sibling packages can add sub-packages under rosclaw.*
+from pkgutil import extend_path as _extend_path
+__path__ = _extend_path(__path__, __name__)
+
 # Core OS (always available)
 from rosclaw.core import (
     EventBus,

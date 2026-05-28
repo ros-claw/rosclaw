@@ -111,14 +111,25 @@ class SeekDBClient(ABC):
 
 
 class SeekDBMemoryClient(SeekDBClient):
-    """In-memory SeekDB client for testing."""
+    """In-memory SeekDB client for testing.
+
+    Maintains inverted indexes on columns declared in SEEKDB_SCHEMAS
+    to avoid full-table scans on the most common filter patterns.
+    """
+
+    MAX_SCAN_LIMIT = 10_000
 
     def __init__(self):
         self._tables: dict[str, dict[str, dict]] = {}
+        # Inverted indexes: _indices[table][column][value] = set of record_ids
+        self._indices: dict[str, dict[str, dict[Any, set[str]]]] = {}
 
     def connect(self) -> None:
-        for table_name in SEEKDB_SCHEMAS:
+        for table_name, schema in SEEKDB_SCHEMAS.items():
             self._tables[table_name] = {}
+            self._indices[table_name] = {}
+            for col in schema.get("indices", []):
+                self._indices[table_name][col] = {}
 
     def disconnect(self) -> None:
         pass
@@ -126,8 +137,17 @@ class SeekDBMemoryClient(SeekDBClient):
     def insert(self, table: str, record: dict) -> str:
         if table not in self._tables:
             self._tables[table] = {}
+            self._indices[table] = {}
         record_id = record.get("id", str(len(self._tables[table])))
         self._tables[table][record_id] = dict(record)
+        # Update inverted indexes
+        if table in self._indices:
+            for col, idx in self._indices[table].items():
+                val = record.get(col)
+                if val is not None:
+                    if val not in idx:
+                        idx[val] = set()
+                    idx[val].add(record_id)
         return record_id
 
     def query(
@@ -139,14 +159,38 @@ class SeekDBMemoryClient(SeekDBClient):
     ) -> list[dict]:
         if table not in self._tables:
             return []
-        records = list(self._tables[table].values())
-        if filters:
-            filtered = []
-            for r in records:
-                match = all(r.get(k) == v for k, v in filters.items())
-                if match:
-                    filtered.append(r)
-            records = filtered
+
+        # Use inverted indexes when filters match indexed columns
+        candidate_ids = None
+        remaining_filters = {}
+        if filters and table in self._indices:
+            for k, v in filters.items():
+                if k in self._indices[table]:
+                    idx = self._indices[table][k]
+                    matched_ids = idx.get(v, set())
+                    if candidate_ids is None:
+                        candidate_ids = set(matched_ids)
+                    else:
+                        candidate_ids &= matched_ids
+                else:
+                    remaining_filters[k] = v
+
+        if candidate_ids is not None:
+            records = [
+                self._tables[table][rid]
+                for rid in candidate_ids
+                if rid in self._tables[table]
+            ]
+        else:
+            records = list(self._tables[table].values())
+
+        # Apply remaining non-indexed filters
+        if remaining_filters:
+            records = [
+                r for r in records
+                if all(r.get(k) == v for k, v in remaining_filters.items())
+            ]
+
         if order_by:
             reverse = order_by.startswith("-")
             key = order_by.lstrip("-")
@@ -156,11 +200,39 @@ class SeekDBMemoryClient(SeekDBClient):
     def update(self, table: str, record_id: str, updates: dict) -> bool:
         if table not in self._tables or record_id not in self._tables[table]:
             return False
-        self._tables[table][record_id].update(updates)
+        old_record = self._tables[table][record_id]
+        # Remove old index entries
+        if table in self._indices:
+            for col, idx in self._indices[table].items():
+                old_val = old_record.get(col)
+                if old_val is not None and old_val in idx:
+                    idx[old_val].discard(record_id)
+        # Apply updates
+        old_record.update(updates)
+        # Add new index entries
+        if table in self._indices:
+            for col, idx in self._indices[table].items():
+                new_val = old_record.get(col)
+                if new_val is not None:
+                    if new_val not in idx:
+                        idx[new_val] = set()
+                    idx[new_val].add(record_id)
         return True
 
     def count(self, table: str, filters: Optional[dict] = None) -> int:
-        return len(self.query(table, filters, limit=1_000_000))
+        # Use index for simple counts when possible
+        if filters and table in self._indices:
+            indexed_keys = [k for k in filters if k in self._indices[table]]
+            if len(indexed_keys) == len(filters) and len(indexed_keys) > 0:
+                candidate_ids = None
+                for k in indexed_keys:
+                    matched = self._indices[table][k].get(filters[k], set())
+                    if candidate_ids is None:
+                        candidate_ids = set(matched)
+                    else:
+                        candidate_ids &= matched
+                return len(candidate_ids) if candidate_ids else 0
+        return len(self.query(table, filters, limit=self.MAX_SCAN_LIMIT))
 
 
 class SeekDBSQLiteClient(SeekDBClient):
@@ -176,6 +248,15 @@ class SeekDBSQLiteClient(SeekDBClient):
         self._conn.row_factory = sqlite3.Row
         self._create_tables()
 
+    # Composite indexes for common query patterns
+    _COMPOSITE_INDICES = [
+        # (table, index_name, columns)
+        ("experience_graph", "idx_exp_robot_ts", "robot_id, timestamp DESC"),
+        ("experience_graph", "idx_exp_robot_outcome", "robot_id, outcome"),
+        ("knowledge_graph", "idx_kg_subj_pred", "subject, predicate"),
+        ("heuristic_rules", "idx_hr_priority_action", "priority DESC, action"),
+    ]
+
     def _create_tables(self) -> None:
         for table_name, schema in SEEKDB_SCHEMAS.items():
             cols = ", ".join(f"{k} {v}" for k, v in schema["columns"].items())
@@ -185,6 +266,11 @@ class SeekDBSQLiteClient(SeekDBClient):
                 self._conn.execute(
                     f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table_name}({idx_col})"
                 )
+        # Create composite indexes
+        for table_name, idx_name, columns in self._COMPOSITE_INDICES:
+            self._conn.execute(
+                f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table_name}({columns})"
+            )
         self._conn.commit()
 
     def disconnect(self) -> None:
