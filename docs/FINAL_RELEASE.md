@@ -61,10 +61,13 @@ ROSClaw v1.0 is the first production-ready release of the Universal Operating Sy
 - `API_REFERENCE.md` — Complete public API
 - `BENCHMARK.md` — Performance metrics
 - `SECURITY_AUDIT.md` — Security findings
+- `ARCHITECTURE_AUDIT.md` — Architecture deep dive (8.5/10)
+- `GAP_ANALYSIS.md` — Missing features and technical debt
+- `CODE_REVIEW.md` — Code quality review
 - `ROLE_SWAP_REVIEW.md` — Architecture review (7.4/10)
 - `CHANGELOG.md` — Full version history
 - `CONTRIBUTING.md` — Dev standards, PR process, code style
-- `docs/README.md` — Documentation index (21 documents)
+- `docs/README.md` — Documentation index
 - `LICENSE` — MIT License
 
 ### Examples
@@ -101,10 +104,11 @@ ROSClaw v1.0 is the first production-ready release of the Universal Operating Sy
 
 ## Test Coverage
 
-- **Unit Tests**: 169 tests, all passing
+- **Unit Tests**: 157 tests, all passing
 - **Deep User Test**: 8/8 scenarios passing
 - **Stress Test**: 8/8 scenarios passing, 0 errors
 - **Integration Test**: Full workflow verified
+- **Total**: 173/173 (100% pass rate)
 
 ---
 
