@@ -114,17 +114,38 @@ Generate a task plan."""
         except Exception as e:
             return {"error": str(e), "task_name": "failed", "steps": []}
 
-    def analyze_failure(self, task_description: str, error_log: str) -> dict:
+    def analyze_failure(self, task_description: str, error_log: str,
+                        heuristic_engine=None) -> dict:
         """
         Analyze a task failure and suggest recovery.
 
         Args:
             task_description: What the robot was trying to do
             error_log: Error messages and state information
+            heuristic_engine: Optional HeuristicEngine for fast rule lookup
 
         Returns:
             Analysis and recovery suggestions
         """
+        # 1. Try heuristic first (fast, deterministic, free)
+        if heuristic_engine is not None:
+            try:
+                import asyncio
+                heuristic = asyncio.run(heuristic_engine.suggest_recovery(error_log))
+                if heuristic:
+                    return {
+                        "root_cause": "matched_heuristic",
+                        "severity": "medium",
+                        "recovery_strategy": heuristic["action"],
+                        "preventive_measures": [
+                            f"Rule {heuristic['rule_id']}: {heuristic['condition']}"
+                        ],
+                        "source": "heuristic",
+                    }
+            except Exception:
+                pass  # fallback to LLM
+
+        # 2. Fall back to LLM (slow, expensive, but handles novel errors)
         system_prompt = """You are a robot failure analyst for ROSClaw.
 Analyze task failures and suggest recovery strategies.
 

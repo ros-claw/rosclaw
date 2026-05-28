@@ -20,11 +20,29 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Optional
 
 import numpy as np
-import rclpy
-from rclpy.action import ActionClient
-from rclpy.callback_groups import ReentrantCallbackGroup
-from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy
+
+try:
+    import rclpy
+    from rclpy.action import ActionClient
+    from rclpy.callback_groups import ReentrantCallbackGroup
+    from rclpy.node import Node
+    from rclpy.qos import QoSProfile, ReliabilityPolicy
+    RCLPY_AVAILABLE = True
+except ImportError:
+    RCLPY_AVAILABLE = False
+    # Stub classes for import-time compatibility when ROS 2 is not installed
+    class Node:
+        def __init__(self, *args, **kwargs):
+            pass
+    class ActionClient:
+        pass
+    class ReentrantCallbackGroup:
+        pass
+    class QoSProfile:
+        def __init__(self, *args, **kwargs):
+            pass
+    class ReliabilityPolicy:
+        BEST_EFFORT = None
 
 # MCP imports
 from mcp.server import Server
@@ -56,6 +74,11 @@ try:
 except ImportError as e:
     print(f"[ERROR] ROS 2 message imports failed: {e}")
     ROS_IMPORTS_OK = False
+    # Stubs for type annotations when ROS 2 is not installed
+    class Pose:
+        pass
+    class JointState:
+        pass
 
 
 @dataclass
@@ -274,7 +297,8 @@ class UR5MCPServer:
         self.firewall_model_path = firewall_model_path or self._find_default_model()
 
         # Initialize ROS 2
-        rclpy.init(args=None)
+        if RCLPY_AVAILABLE:
+            rclpy.init(args=None)
 
         # Create ROS node
         self.ros_node = UR5ROSNode(robot_ip)
@@ -622,7 +646,7 @@ class UR5MCPServer:
 
     async def _ros_spin(self) -> None:
         """Background task to spin ROS node."""
-        while rclpy.ok():
+        while RCLPY_AVAILABLE and rclpy.ok():
             rclpy.spin_once(self.ros_node, timeout_sec=0.01)
             await asyncio.sleep(0.001)
 
@@ -635,7 +659,8 @@ class UR5MCPServer:
         def signal_handler(sig, frame):
             print("\n[UR5MCP] Shutting down...")
             self.ros_spin_task.cancel()
-            rclpy.shutdown()
+            if RCLPY_AVAILABLE:
+                rclpy.shutdown()
             sys.exit(0)
 
         signal.signal(signal.SIGINT, signal_handler)
@@ -682,7 +707,7 @@ def main():
     except KeyboardInterrupt:
         print("\n[UR5MCP] Shutdown complete")
     finally:
-        if rclpy.ok():
+        if RCLPY_AVAILABLE and rclpy.ok():
             rclpy.shutdown()
 
 

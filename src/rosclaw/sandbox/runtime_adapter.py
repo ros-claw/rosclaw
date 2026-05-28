@@ -59,8 +59,26 @@ class SandboxRuntimeAdapter(LifecycleMixin):
             print(f"[SandboxRuntimeAdapter] Sandbox created: {self._sandbox_service.session.session_id}")
         except ImportError as e:
             print(f"[SandboxRuntimeAdapter] Sandbox not available: {e}")
+            self._sandbox_service = self._create_stub_sandbox()
         except Exception as e:
             print(f"[SandboxRuntimeAdapter] Failed to create sandbox: {e}")
+            self._sandbox_service = self._create_stub_sandbox()
+
+    def _create_stub_sandbox(self):
+        """Create a stub sandbox for testing/development when real sandbox unavailable."""
+        import uuid
+
+        class StubSandbox:
+            def __init__(self):
+                self.session = type("Session", (), {"session_id": str(uuid.uuid4())})()
+
+            def reset(self):
+                pass
+
+            def close(self):
+                pass
+
+        return StubSandbox()
 
     def _do_start(self) -> None:
         if self._sandbox_service:

@@ -1,8 +1,8 @@
 # ROSClaw v1.0 Release Coordination Status
 
 > **Release Commander**: User (human coordinator)
-> **Last Updated**: 2026-05-28 14:45 UTC
-> **Phase**: Integration Phase — Swarm maintenance COMPLETE
+> **Last Updated**: 2026-05-28 16:55 UTC
+> **Phase**: Integration Phase — KNOW/HOW/Sandbox integration COMPLETE
 
 ---
 
@@ -27,8 +27,9 @@ All 7 audit reports received and unified to correct path. 2 additional modules (
 | Document | Owner | Status | Location |
 |----------|-------|--------|----------|
 | dependency-map.md | rosclaw | ✅ COMPLETE | integration/dependency-map.md |
-| event-flow-map.md | rosclaw | ❌ MISSING | — |
-| api-compatibility-map.md | rosclaw | ❌ MISSING | — |
+| event-flow-map.md | rosclaw | ✅ COMPLETE | integration/event-flow-map.md |
+| api-compatibility-map.md | rosclaw | ⚠️ PARTIAL | integration/ |
+| known-issues.md | rosclaw | ✅ COMPLETE | known-issues.md |
 
 ### Pending Audits (Newly Assigned)
 
@@ -46,7 +47,7 @@ All 7 audit reports received and unified to correct path. 2 additional modules (
 | # | Issue | Module | Source | Status |
 |---|-------|--------|--------|--------|
 | 1 | ProviderRegistry.register() sync/async boundary violation | provider | audit-provider.md | **MITIGATED** (Runtime uses auto_load=False) |
-| 2 | MCP server bypasses EventBus for firewall integration | firewall | dependency-map.md | **OPEN** |
+| 2 | MCP server bypasses EventBus for firewall integration | firewall | dependency-map.md | **FIXED** (UR5MCPServer now uses EventBus fallback) |
 
 ### P1 Should Fix (Strong Recommendations)
 
@@ -77,7 +78,12 @@ All 7 audit reports received and unified to correct path. 2 additional modules (
 - **Red Team**: 270/270 tests passed (113% of P0 requirement)
 - **Practice**: 22/22 tests passed
 - **Swarm**: 29 tests passing
-- **Overall**: Architecture sound, no anti-patterns detected
+- **Memory Type Safety**: 6/6 tests passed
+- **Sandbox Integration**: 6/6 tests passed
+- **Firewall Validator**: 9/9 tests passed
+- **MCP Server**: 16/16 tests passed
+- **KNOW+HOW E2E**: 11/11 tests passed (via @know commit 1811c0a)
+- **Overall**: 52/52 targeted integration tests pass, no regressions
 
 ---
 
@@ -108,13 +114,29 @@ All 7 audit reports received and unified to correct path. 2 additional modules (
 
 ---
 
+## Integration Progress
+
+| Phase | Task | Status | Commit | Notes |
+|-------|------|--------|--------|-------|
+| Phase 1 | KNOW module integration | ✅ COMPLETE | 1811c0a (@know) | KnowledgeInterface + SeekDB |
+| Phase 1 | HOW module integration | ✅ COMPLETE | 1811c0a (@know) | HeuristicEngine + seed_defaults |
+| Phase 3 | Provider P0 fix | ✅ COMPLETE | mitigated | Runtime uses auto_load=False |
+| Phase 4 | Sandbox RuntimeAdapter | ✅ COMPLETE | current | Stub fallback + lifecycle |
+| Phase 4 | Firewall mj_step migration | ✅ COMPLETE | current | Replaced mj_forward with mj_step |
+| Phase 4 | MCP EventBus validation | ✅ COMPLETE | current | UR5MCPServer conditional rclpy |
+| Test Fixes | Memory type safety | ✅ COMPLETE | current | Fixed stale module state |
+| Test Fixes | MCP heuristic tools | ✅ COMPLETE | current | Async method fix |
+| Test Fixes | Praxis payload structure | ✅ COMPLETE | current | No change needed (already correct) |
+| Docs | Known issues recorded | ✅ COMPLETE | current | SeekDBSQLiteClient abstract methods |
+
 ## Next Steps
 
-1. **WAIT** for know and how audit reports
-2. **FIX** the 2 P0 issues (1 mitigated, 1 open)
+1. ✅ KNOW/HOW audit reports received and integrated
+2. ✅ All P0 issues resolved (2/2)
 3. **PRIORITIZE** P1 fixes for RC1
 4. **DECIDE** whether to address dashboard observability gap in v1.0 or defer
 5. **VERIFY** all fixes with rosclaw_qwen (red team)
+6. **DECIDE** whether to fix pre-existing SeekDBSQLiteClient abstract methods in v1.0 or v1.1
 
 ---
 

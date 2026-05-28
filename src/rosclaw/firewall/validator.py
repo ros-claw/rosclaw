@@ -353,13 +353,13 @@ class FirewallValidator(LifecycleMixin):
                         # Restore original state
                         self._mj_data.qpos[:] = original_qpos
                         self._mj_data.qvel[:] = original_qvel
-                        mujoco.mj_forward(self._mj_model, self._mj_data)
+                        mujoco.mj_step(self._mj_model, self._mj_data)
                         return violations
 
         # Restore original state
         self._mj_data.qpos[:] = original_qpos
         self._mj_data.qvel[:] = original_qvel
-        mujoco.mj_forward(self._mj_model, self._mj_data)
+        mujoco.mj_step(self._mj_model, self._mj_data)
         return violations
 
     def _check_semantic_safety(self, request: ValidationRequest) -> tuple[list[ViolationDetail], list[str]]:

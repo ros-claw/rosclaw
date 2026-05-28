@@ -26,7 +26,9 @@ Scanned all `bus.publish()` and `bus.subscribe()` calls in `src/rosclaw/` to map
 |-------|-------------|---------------|-------------|
 | `agent.command` | agent_runtime/mcp_hub | core/runtime, practice/recorder, practice/timeline, firewall/validator | OK |
 | `agent.response` | firewall/validator | agent_runtime/mcp_hub | OK |
+| `firewall.action_blocked` | firewall/validator | core/runtime | OK (KNOW/HOW integration) |
 | `firewall.status` | firewall/validator | (none) | Orphan pub |
+| `heuristic.recovery_suggested` | core/runtime | (none) | Orphan pub (KNOW/HOW integration) |
 | `memory.experience.stored` | memory/interface | (none) | Orphan pub |
 | `memory.status` | memory/interface | (none) | Orphan pub |
 | `praxis.completed` | **(NONE)** | skill_manager/registry, practice/timeline | **P0: Orphan sub** |

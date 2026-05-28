@@ -21,7 +21,13 @@
 
 <br/>
 
-> **Project Status: V1.0 — Grounding Runtime**
+> **⚠️ WARNING: THIS VERSION IS UNDER ACTIVE DEVELOPMENT AND HAS NOT BEEN OFFICIALLY RELEASED.**
+>
+> This is a pre-release development build of ROSClaw v1.0. APIs, schemas, and module interfaces are subject to change without notice. Do NOT use this version in production environments. The official v1.0 release will be announced after all integration gates pass.
+>
+> ---
+>
+> **Project Status: V1.0 — Grounding Runtime (Pre-Release)**
 >
 > ROSClaw is **NOT** just another agent framework, nor is it a simple LLM-to-ROS API wrapper. It is the **foundational infrastructure** designed to solve the ultimate bottleneck of AGI: **The Physical Grounding Problem.**
 >
