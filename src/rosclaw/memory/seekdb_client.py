@@ -134,10 +134,13 @@ class SeekDBMemoryClient(SeekDBClient):
 
     def connect(self) -> None:
         for table_name, schema in SEEKDB_SCHEMAS.items():
-            self._tables[table_name] = {}
-            self._indices[table_name] = {}
+            if table_name not in self._tables:
+                self._tables[table_name] = {}
+            if table_name not in self._indices:
+                self._indices[table_name] = {}
             for col in schema.get("indices", []):
-                self._indices[table_name][col] = {}
+                if col not in self._indices[table_name]:
+                    self._indices[table_name][col] = {}
 
     def disconnect(self) -> None:
         pass
