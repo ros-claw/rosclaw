@@ -1,0 +1,56 @@
+# ROSClaw v1.0 - Docker Compose Stack
+# Universal OS for Software-Defined Embodied AI
+
+services:
+  rosclaw:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rosclaw/rosclaw:v1.0.0
+    container_name: rosclaw-runtime
+    restart: unless-stopped
+    volumes:
+      - rosclaw-practice:/opt/rosclaw/practice_data
+      - rosclaw-data:/opt/rosclaw/rosclaw_data
+      - ./models:/opt/rosclaw/models:ro
+      - ./skills:/opt/rosclaw/skills:ro
+      - ./rosclaw.yaml:/opt/rosclaw/rosclaw.yaml:ro
+    environment:
+      - ROSCLAW_ROBOT_ID=${ROSCLAW_ROBOT_ID:-rosclaw_bot}
+      - ROSCLAW_SAFETY_LEVEL=${ROSCLAW_SAFETY_LEVEL:-MODERATE}
+      - ROSCLAW_API_KEY=${ROSCLAW_API_KEY:-}
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8080:8080"
+    networks:
+      - rosclaw-net
+    command: ["run", "--robot-id", "${ROSCLAW_ROBOT_ID:-rosclaw_bot}"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import rosclaw; print(rosclaw.__version__)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Optional: SeekDB SQLite persistence service
+  seekdb:
+    image: alpine:latest
+    container_name: rosclaw-seekdb
+    restart: unless-stopped
+    volumes:
+      - seekdb-data:/data
+    networks:
+      - rosclaw-net
+    command: ["sh", "-c", "echo 'SeekDB SQLite volume ready' && tail -f /dev/null"]
+
+volumes:
+  rosclaw-practice:
+    driver: local
+  rosclaw-data:
+    driver: local
+  seekdb-data:
+    driver: local
+
+networks:
+  rosclaw-net:
+    driver: bridge
