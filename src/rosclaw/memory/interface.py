@@ -170,6 +170,11 @@ class MemoryInterface(LifecycleMixin):
                 source="memory_interface",
             ))
 
+        # Periodic capacity check (every ~100 inserts to avoid overhead)
+        self._insert_count = getattr(self, "_insert_count", 0) + 1
+        if self._insert_count % 100 == 0:
+            self.enforce_capacity()
+
         return record_id
 
     @staticmethod
@@ -222,7 +227,11 @@ class MemoryInterface(LifecycleMixin):
         query_tokens: list[str],
         limit: int,
     ) -> list[dict]:
-        """Rank experiences using BM25Okapi."""
+        """Rank experiences using BM25Okapi.
+
+        Falls back to keyword matching when BM25 produces no positive
+        scores (common with small corpora where IDF can go negative).
+        """
         corpus = []
         for exp in experiences:
             text = exp.get("instruction", "") + " " + " ".join(exp.get("tags", []))
@@ -231,12 +240,18 @@ class MemoryInterface(LifecycleMixin):
         bm25 = BM25Okapi(corpus)
         scores = bm25.get_scores(query_tokens)
 
-        # Pair scores with experiences and filter zero scores
+        # Pair scores with experiences and filter non-positive scores
         scored = [
             (score, exp)
             for score, exp in zip(scores, experiences)
             if score > 0
         ]
+
+        if not scored:
+            # BM25 IDF can go negative for terms in >50% of docs (small corpus).
+            # Fall back to keyword matching which always works for overlaps.
+            return self._keyword_search(experiences, query_tokens, limit)
+
         scored.sort(key=lambda x: x[0], reverse=True)
         return [exp for _, exp in scored[:limit]]
 
@@ -281,6 +296,134 @@ class MemoryInterface(LifecycleMixin):
             "failure_count": failures,
             "emergency_count": emergencies,
             "success_rate": successes / total if total > 0 else 0.0,
+        }
+
+    # ------------------------------------------------------------------
+    # Capacity management (forgetting / eviction)
+    # ------------------------------------------------------------------
+
+    DEFAULT_MAX_EXPERIENCES = 10_000
+    DEFAULT_MAX_AGE_DAYS = 30
+
+    def delete_experience(self, experience_id: str) -> bool:
+        """Delete a single experience by ID."""
+        return self._client.delete("experience_graph", experience_id)
+
+    def forget_old_experiences(
+        self,
+        max_age_days: Optional[int] = None,
+        outcome_filter: Optional[str] = None,
+    ) -> int:
+        max_age_days = self.DEFAULT_MAX_AGE_DAYS if max_age_days is None else max_age_days
+        """Delete experiences older than ``max_age_days``.
+
+        Args:
+            max_age_days: Maximum age in days. Experiences older than this
+                are deleted. Defaults to 30 days.
+            outcome_filter: If set, only forget experiences with this outcome
+                (e.g. "failure" to clean up old failures first).
+
+        Returns:
+            Number of experiences deleted.
+        """
+        cutoff = time.time() - (max_age_days * 86400)
+
+        # Find old experiences
+        filters = {"robot_id": self._robot_id}
+        if outcome_filter:
+            filters["outcome"] = outcome_filter
+
+        all_experiences = self._client.query(
+            "experience_graph",
+            filters=filters,
+            order_by="timestamp",
+            limit=10_000,
+        )
+
+        deleted = 0
+        for exp in all_experiences:
+            ts = exp.get("timestamp", 0)
+            if ts < cutoff:
+                if self._client.delete("experience_graph", exp.get("id", "")):
+                    deleted += 1
+            else:
+                break  # Sorted by timestamp, no more old ones
+
+        if deleted > 0:
+            print(f"[MemoryInterface] Forgot {deleted} experiences "
+                  f"(older than {max_age_days} days)")
+        return deleted
+
+    def enforce_capacity(self, max_experiences: Optional[int] = None) -> int:
+        max_experiences = self.DEFAULT_MAX_EXPERIENCES if max_experiences is None else max_experiences
+        """Evict oldest experiences when capacity is exceeded.
+
+        Removes the oldest experiences until the total count is at or below
+        ``max_experiences``.
+
+        Returns:
+            Number of experiences evicted.
+        """
+        total = self._client.count("experience_graph",
+                                   {"robot_id": self._robot_id})
+        if total <= max_experiences:
+            return 0
+
+        excess = total - max_experiences
+        # Find oldest experiences
+        oldest = self._client.query(
+            "experience_graph",
+            filters={"robot_id": self._robot_id},
+            order_by="timestamp",
+            limit=excess,
+        )
+
+        evicted = 0
+        for exp in oldest:
+            if self._client.delete("experience_graph", exp.get("id", "")):
+                evicted += 1
+
+        if evicted > 0:
+            print(f"[MemoryInterface] Evicted {evicted} experiences "
+                  f"(capacity: {max_experiences})")
+        return evicted
+
+    def get_capacity_info(self) -> dict:
+        """Get capacity information for the experience store.
+
+        Returns:
+            dict with total, max_experiences, utilization, and oldest/newest
+            timestamps.
+        """
+        total = self._client.count("experience_graph",
+                                   {"robot_id": self._robot_id})
+
+        # Find oldest and newest
+        oldest_list = self._client.query(
+            "experience_graph",
+            filters={"robot_id": self._robot_id},
+            order_by="timestamp",
+            limit=1,
+        )
+        newest_list = self._client.query(
+            "experience_graph",
+            filters={"robot_id": self._robot_id},
+            order_by="-timestamp",
+            limit=1,
+        )
+
+        oldest_ts = oldest_list[0].get("timestamp", 0) if oldest_list else 0
+        newest_ts = newest_list[0].get("timestamp", 0) if newest_list else 0
+        age_days = (newest_ts - oldest_ts) / 86400 if oldest_ts and newest_ts else 0
+
+        return {
+            "total_experiences": total,
+            "max_experiences": self.DEFAULT_MAX_EXPERIENCES,
+            "utilization": total / self.DEFAULT_MAX_EXPERIENCES
+                if self.DEFAULT_MAX_EXPERIENCES > 0 else 0.0,
+            "oldest_timestamp": oldest_ts,
+            "newest_timestamp": newest_ts,
+            "age_span_days": round(age_days, 1),
         }
 
     # ------------------------------------------------------------------

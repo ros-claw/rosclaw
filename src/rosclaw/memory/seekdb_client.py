@@ -109,6 +109,14 @@ class SeekDBClient(ABC):
     def count(self, table: str, filters: Optional[dict] = None) -> int:
         ...
 
+    @abstractmethod
+    def delete(self, table: str, record_id: str) -> bool:
+        ...
+
+    @abstractmethod
+    def delete_where(self, table: str, filters: dict) -> int:
+        ...
+
 
 class SeekDBMemoryClient(SeekDBClient):
     """In-memory SeekDB client for testing.
@@ -234,6 +242,29 @@ class SeekDBMemoryClient(SeekDBClient):
                 return len(candidate_ids) if candidate_ids else 0
         return len(self.query(table, filters, limit=self.MAX_SCAN_LIMIT))
 
+    def delete(self, table: str, record_id: str) -> bool:
+        if table not in self._tables or record_id not in self._tables[table]:
+            return False
+        record = self._tables[table].pop(record_id)
+        # Remove from indexes
+        if table in self._indices:
+            for col, idx in self._indices[table].items():
+                val = record.get(col)
+                if val is not None and val in idx:
+                    idx[val].discard(record_id)
+        return True
+
+    def delete_where(self, table: str, filters: dict) -> int:
+        if table not in self._tables:
+            return 0
+        to_delete = []
+        for rid, record in self._tables[table].items():
+            if all(record.get(k) == v for k, v in filters.items()):
+                to_delete.append(rid)
+        for rid in to_delete:
+            self.delete(table, rid)
+        return len(to_delete)
+
 
 class SeekDBSQLiteClient(SeekDBClient):
     """SQLite-backed SeekDB client for single-machine deployment."""
@@ -357,3 +388,24 @@ class SeekDBSQLiteClient(SeekDBClient):
             sql += " WHERE " + " AND ".join(conditions)
         cursor = self._conn.execute(sql, params)
         return cursor.fetchone()[0]
+
+    def delete(self, table: str, record_id: str) -> bool:
+        cursor = self._conn.execute(
+            f"DELETE FROM {table} WHERE id = ?",
+            (record_id,),
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
+
+    def delete_where(self, table: str, filters: dict) -> int:
+        if not filters:
+            return 0
+        conditions = []
+        params = []
+        for k, v in filters.items():
+            conditions.append(f"{k} = ?")
+            params.append(v)
+        sql = f"DELETE FROM {table} WHERE " + " AND ".join(conditions)
+        cursor = self._conn.execute(sql, params)
+        self._conn.commit()
+        return cursor.rowcount
