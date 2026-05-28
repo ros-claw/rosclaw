@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Agent:** Independent Verification Agent (IVA)
-**Commit:** `1811c0a` (HEAD of main)
+**Commit:** `c4ea448` (HEAD of main)
 **Environment:** Ubuntu 22.04, Python 3.12
 
 ---
@@ -28,7 +28,7 @@
 | CLI `--version` | **PASS** | 输出 `rosclaw 1.0.0` |
 | CLI `--help` | **PASS** | 子命令列表完整 |
 | CLI `status` | **DEGRADED** | 返回 `[ROSClaw] Status check not yet implemented` |
-| 全量测试 (pytest) | **PASS** | **423 passed, 2 warnings** |
+| 全量测试 (pytest) | **PASS** | **460 passed, 1 skipped, 2 warnings** |
 | hello_robot demo | **PASS** | 全流程完成，Mock 模式 fallback 正常 |
 | Clean Install | **FAIL** | PEP 668 阻止系统级 pip 安装 |
 
@@ -74,7 +74,7 @@
 
 验证结果表明：
 
-1. **423 个单元测试全部通过**，无回归问题
+1. **460 个单元测试全部通过，1 skipped**，无回归问题
 2. **端到端 hello_robot demo 正常运行**，完整覆盖 EventBus、Runtime、Driver、Skill、Practice 链路
 3. **Runtime 生命周期管理稳定**，状态机切换正确
 4. **CLI 基础功能可用**，仅剩 `status` 子命令待实现（非阻塞项）
