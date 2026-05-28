@@ -253,9 +253,15 @@ class Runtime(LifecycleMixin):
                     # HeuristicEngine is not a LifecycleMixin;
                     # seed defaults explicitly here.
                     import asyncio
-                    asyncio.get_event_loop().run_until_complete(
-                        self._how.seed_defaults()
-                    )
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_closed():
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                    loop.run_until_complete(self._how.seed_defaults())
                     print("[Runtime] Heuristic Grounding (HeuristicEngine) initialized")
                 else:
                     print("[Runtime] HeuristicEngine skipped: no SeekDB client (memory not enabled)")
