@@ -18,6 +18,14 @@ sys.path.insert(0, '/home/ubuntu/rosclaw/rosclaw_memory/powermem/src')
 from rosclaw.memory.interface import MemoryInterface
 
 
+@pytest.fixture(autouse=True)
+def reload_memory_interface():
+    """Ensure rosclaw.memory.interface is in clean state before each test."""
+    import importlib
+    import rosclaw.memory.interface
+    importlib.reload(rosclaw.memory.interface)
+
+
 def test_protocol_import_with_powermem():
     """Verify Protocol types are imported when powermem is available."""
     # powermem is in the test environment, so protocols should be imported
@@ -85,46 +93,49 @@ def test_proxy_methods_have_type_annotations():
     """Verify proxy methods use Protocol types instead of Any."""
     from typing import get_type_hints
 
+    # Re-import MemoryInterface from the freshly reloaded module
+    from rosclaw.memory.interface import MemoryInterface as FreshMemoryInterface
+
     # Get type hints for proxy methods
-    hints = get_type_hints(MemoryInterface)
+    hints = get_type_hints(FreshMemoryInterface)
 
     # Verify add_world_object uses WorldObjectLike (not Any)
-    add_hints = get_type_hints(MemoryInterface.add_world_object)
+    add_hints = get_type_hints(FreshMemoryInterface.add_world_object)
     obj_type = add_hints.get("obj")
     assert obj_type is not None
     assert obj_type is not Any, "add_world_object should use Protocol type, not Any"
     assert "WorldObjectLike" in str(obj_type)
 
     # Verify get_world_object returns Optional[WorldObjectLike]
-    get_hints = get_type_hints(MemoryInterface.get_world_object)
+    get_hints = get_type_hints(FreshMemoryInterface.get_world_object)
     assert "WorldObjectLike" in str(get_hints.get("return", ""))
 
     # Verify update_world_object_pose uses PoseLike (not Any)
-    update_hints = get_type_hints(MemoryInterface.update_world_object_pose)
+    update_hints = get_type_hints(FreshMemoryInterface.update_world_object_pose)
     pose_type = update_hints.get("pose")
     assert pose_type is not None
     assert pose_type is not Any, "update_world_object_pose should use Protocol type, not Any"
     assert "PoseLike" in str(pose_type)
 
     # Verify search_world_objects uses Vec3Like (not Any)
-    search_hints = get_type_hints(MemoryInterface.search_world_objects)
+    search_hints = get_type_hints(FreshMemoryInterface.search_world_objects)
     center_type = search_hints.get("center")
     assert center_type is not None
     assert center_type is not Any, "search_world_objects should use Protocol type, not Any"
     assert "Vec3Like" in str(center_type)
 
     # Verify sync_scene_objects uses PermanenceReportLike
-    sync_hints = get_type_hints(MemoryInterface.sync_scene_objects)
+    sync_hints = get_type_hints(FreshMemoryInterface.sync_scene_objects)
     # Note: Optional[PermanenceReportLike] is Union[PermanenceReportLike, None]
     assert "PermanenceReportLike" in str(sync_hints.get("return", ""))
 
     # Verify record_trajectory uses Vec3Like
-    record_hints = get_type_hints(MemoryInterface.record_trajectory)
+    record_hints = get_type_hints(FreshMemoryInterface.record_trajectory)
     # Note: list[tuple[Vec3Like, float]] is a complex type
     assert "Vec3Like" in str(record_hints.get("waypoints", ""))
 
     # Verify cognitive_search uses Vec3Like, TemporalIntervalLike, and MemoryAtomLike
-    cognitive_hints = get_type_hints(MemoryInterface.cognitive_search)
+    cognitive_hints = get_type_hints(FreshMemoryInterface.cognitive_search)
     spatial_type = cognitive_hints.get("spatial_center")
     assert spatial_type is not None
     assert "Vec3Like" in str(spatial_type)
