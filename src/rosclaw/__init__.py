@@ -80,6 +80,9 @@ try:
     from rosclaw.provider.core.request import ProviderRequest
     from rosclaw.provider.core.response import ProviderResponse
     from rosclaw.provider.guard.pipeline import GuardPipeline
+    from rosclaw.provider.client import CapabilityClient
+    from rosclaw.provider.loader import ProviderLoader
+    from rosclaw.provider.adapters.generic import GenericProvider
 except ImportError:
     Provider = None  # type: ignore
     ProviderRegistry = None  # type: ignore
@@ -88,6 +91,9 @@ except ImportError:
     ProviderRequest = None  # type: ignore
     ProviderResponse = None  # type: ignore
     GuardPipeline = None  # type: ignore
+    CapabilityClient = None  # type: ignore
+    ProviderLoader = None  # type: ignore
+    GenericProvider = None  # type: ignore
 
 __all__ = [
     # Core
@@ -138,4 +144,7 @@ __all__ = [
     "ProviderRequest",
     "ProviderResponse",
     "GuardPipeline",
+    "CapabilityClient",
+    "ProviderLoader",
+    "GenericProvider",
 ]

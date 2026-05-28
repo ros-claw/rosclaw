@@ -68,6 +68,7 @@ class RuntimeConfig:
     seekdb_backend: str = "memory"          # "memory" | "sqlite"
     seekdb_path: str = "./seekdb.sqlite"
     embodied_memory: Optional[Any] = None   # powermem.EmbodiedMemory instance
+    providers_dir: Optional[str] = None     # Directory to scan for provider.yaml files
 
 
 class Runtime(LifecycleMixin):
@@ -199,6 +200,7 @@ class Runtime(LifecycleMixin):
                 self._guard_pipeline.add(SchemaGuard())
                 self._guard_pipeline.add(ActionGuard())
                 self._register_builtin_providers()
+                self._load_external_providers()
                 self._capability_router = CapabilityRouter(self._provider_registry)
                 print("[Runtime] Provider Layer (Registry + Router + Guard) initialized")
             except Exception as e:
@@ -317,6 +319,19 @@ class Runtime(LifecycleMixin):
     @property
     def guard_pipeline(self) -> Optional[Any]:
         return self._guard_pipeline
+
+    def _load_external_providers(self) -> None:
+        """Scan providers_dir for provider.yaml files and load them."""
+        if not self.config.providers_dir:
+            return
+        try:
+            from rosclaw.provider.loader import ProviderLoader
+            loader = ProviderLoader(self._provider_registry)
+            loaded = loader.scan_directory(self.config.providers_dir)
+            if loaded:
+                print(f"[Runtime] Loaded external providers: {loaded}")
+        except Exception as e:
+            print(f"[Runtime] Failed to load external providers: {e}")
 
     def _register_builtin_providers(self) -> None:
         """Register built-in mock providers for out-of-box capability support."""

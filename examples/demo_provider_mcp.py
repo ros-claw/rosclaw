@@ -177,11 +177,107 @@ async def demo_registry_stats():
     runtime.stop()
 
 
+async def demo_capability_client():
+    """Demo 5: High-level task orchestration via CapabilityClient."""
+    print("\n" + "=" * 60)
+    print("Demo 5: CapabilityClient - Composite Task Orchestration")
+    print("=" * 60)
+
+    from rosclaw.provider.client import CapabilityClient
+
+    runtime = Runtime(RuntimeConfig(robot_id="ur5e_001", enable_provider=True))
+    runtime.initialize()
+
+    client = CapabilityClient(runtime.capability_router)
+
+    # --- pick up task ---
+    print("\n--- Task: pick up the red cup ---")
+    result = await client.run_task(
+        task="pick up the red cup",
+        robot="ur5e_001",
+        scene_input={"camera_topic": "/camera/color/image_raw"},
+    )
+    print(f"Task: {result.task}")
+    print(f"Status: {result.status}")
+    print(f"Steps:")
+    for step in result.steps:
+        print(f"  - {step['capability']}: {step['status']} (provider={step.get('provider', 'n/a')})")
+    print(f"Trace ID: {result.trace['trace_id']}")
+    print(f"Total latency: {result.trace['total_latency_ms']}ms")
+    print(f"Final result: {result.final_result}")
+
+    # --- inspect task ---
+    print("\n--- Task: what do you see on the table? ---")
+    result = await client.run_task(
+        task="what do you see on the table?",
+        robot="ur5e_001",
+        scene_input={"camera_topic": "/camera/color/image_raw"},
+    )
+    print(f"Task: {result.task}")
+    print(f"Status: {result.status}")
+    print(f"Steps: {[s['capability'] + ':' + s['status'] for s in result.steps]}")
+
+    runtime.stop()
+
+
+async def demo_provider_loader():
+    """Demo 6: ProviderLoader scans directory and loads from YAML."""
+    print("\n" + "=" * 60)
+    print("Demo 6: ProviderLoader - YAML Auto-Discovery")
+    print("=" * 60)
+
+    import tempfile
+    from pathlib import Path
+    from rosclaw.provider.loader import ProviderLoader
+    from rosclaw.provider.core.registry import ProviderRegistry
+
+    registry = ProviderRegistry()
+    loader = ProviderLoader(registry)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Write a test provider.yaml
+        provider_dir = Path(tmpdir) / "ollama_vlm"
+        provider_dir.mkdir()
+        (provider_dir / "provider.yaml").write_text("""
+name: ollama_vlm
+version: "0.1.0"
+type: vlm
+capabilities:
+  - vlm.scene_understanding
+  - vlm.object_grounding
+modalities:
+  input: [image, text]
+  output: [object_list]
+runtime:
+  backend: http
+  endpoint: http://localhost:11434/api/generate
+  device: cpu
+safety:
+  executable: false
+  requires_guard: false
+""")
+
+        loaded = loader.scan_directory(tmpdir)
+        print(f"\nLoaded providers from {tmpdir}: {loaded}")
+
+        for name in loaded:
+            manifest = registry.get_manifest(name)
+            print(f"  - {name}: type={manifest.type}, backend={manifest.runtime.backend}")
+            print(f"    capabilities: {manifest.capabilities}")
+            print(f"    endpoint: {manifest.runtime.endpoint}")
+
+    print("\nProviderLoader unload test:")
+    loader.unload("ollama_vlm")
+    print(f"  Registry after unload: {registry.list_providers()}")
+
+
 async def main():
     await demo_semantic_tools()
     await demo_low_level_fallback()
     await demo_provider_layer_directly()
     await demo_registry_stats()
+    await demo_capability_client()
+    await demo_provider_loader()
 
     print("\n" + "=" * 60)
     print("All demos completed successfully!")
