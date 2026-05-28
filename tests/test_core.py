@@ -1,5 +1,7 @@
 """Tests for Core modules."""
 
+import asyncio
+
 import pytest
 
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
