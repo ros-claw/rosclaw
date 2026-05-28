@@ -30,6 +30,11 @@ class MuJoCoSimDriver(BaseDriver):
             self._driver_state.connected = True
             return
 
+        if not self._model_path or not self._model_path.strip():
+            print("[MuJoCoSimDriver] No model path provided, running in mock mode")
+            self._driver_state.connected = True
+            return
+
         if not Path(self._model_path).exists():
             print(f"[MuJoCoSimDriver] Model not found, running in mock mode: {self._model_path}")
             self._driver_state.connected = True
