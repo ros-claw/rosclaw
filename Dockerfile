@@ -1,7 +1,7 @@
 # ROSClaw v1.0 - Production Docker Image
 # Universal OS for Software-Defined Embodied AI
 
-FROM python:3.12-slim as base
+FROM python:3.11-slim as base
 
 LABEL maintainer="ROSClaw Team <team@rosclaw.io>"
 LABEL version="1.0.0"
