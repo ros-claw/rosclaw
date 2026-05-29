@@ -50,8 +50,8 @@ def create_g1_free_floating_model():
         <body name="pelvis" pos="0 0 0.75">
           <freejoint name="root"/>
           <geom type="box" size="0.12 0.08 0.06" mass="8" material="pelvis_mat"/>
-          <!-- torso visual: shifted forward to place COM over feet -->
-          <geom type="capsule" fromto="0.04 0 0.06 0.04 0 0.35" size="0.07" mass="12"
+          <!-- torso visual: low mass for stability -->
+          <geom type="capsule" fromto="0.02 0 0.06 0.02 0 0.30" size="0.06" mass="4"
                 material="pelvis_mat"/>
 
           <!-- Left Leg -->
@@ -115,16 +115,16 @@ def create_g1_free_floating_model():
       </worldbody>
 
       <actuator>
-        <position joint="hip_yaw_left" kp="60" kv="12" ctrlrange="-0.87 0.87"/>
-        <position joint="hip_roll_left" kp="80" kv="16" ctrlrange="-0.52 0.52"/>
-        <position joint="hip_pitch_left" kp="100" kv="20" ctrlrange="-2.0 2.0"/>
-        <position joint="knee_pitch_left" kp="80" kv="16" ctrlrange="-0.1 2.5"/>
-        <position joint="ankle_pitch_left" kp="40" kv="8" ctrlrange="-0.8 0.5"/>
-        <position joint="hip_yaw_right" kp="60" kv="12" ctrlrange="-0.87 0.87"/>
-        <position joint="hip_roll_right" kp="80" kv="16" ctrlrange="-0.52 0.52"/>
-        <position joint="hip_pitch_right" kp="100" kv="20" ctrlrange="-2.0 2.0"/>
-        <position joint="knee_pitch_right" kp="80" kv="16" ctrlrange="-0.1 2.5"/>
-        <position joint="ankle_pitch_right" kp="40" kv="8" ctrlrange="-0.8 0.5"/>
+        <position joint="hip_yaw_left" kp="120" kv="24" ctrlrange="-0.87 0.87"/>
+        <position joint="hip_roll_left" kp="160" kv="32" ctrlrange="-0.52 0.52"/>
+        <position joint="hip_pitch_left" kp="200" kv="40" ctrlrange="-2.0 2.0"/>
+        <position joint="knee_pitch_left" kp="160" kv="32" ctrlrange="-0.1 2.5"/>
+        <position joint="ankle_pitch_left" kp="80" kv="16" ctrlrange="-0.8 0.5"/>
+        <position joint="hip_yaw_right" kp="120" kv="24" ctrlrange="-0.87 0.87"/>
+        <position joint="hip_roll_right" kp="160" kv="32" ctrlrange="-0.52 0.52"/>
+        <position joint="hip_pitch_right" kp="200" kv="40" ctrlrange="-2.0 2.0"/>
+        <position joint="knee_pitch_right" kp="160" kv="32" ctrlrange="-0.1 2.5"/>
+        <position joint="ankle_pitch_right" kp="80" kv="16" ctrlrange="-0.8 0.5"/>
       </actuator>
 
       <sensor>

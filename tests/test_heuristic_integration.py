@@ -650,11 +650,16 @@ class TestHowEndToEndRecovery:
             metadata={"recovery_hint": "Return to charging station immediately"},
         )
 
-        # No heuristic rule for "battery low" -> knowledge fallback via Memory
-        # Connect MemoryInterface as knowledge interface to HeuristicEngine
+        # Direct Memory analogy query
+        analogy = memory.find_analogy("battery low voltage warning")
+        assert analogy is not None, "Memory should find analogy for battery low failure"
+        assert "charging station" in analogy["action_suggestion"]
+
+        # Wire Memory as knowledge backend for HeuristicEngine
         how._knowledge = memory
 
-        analogy = await how._knowledge_fallback("battery low voltage warning", None)
-        assert analogy is not None
-        assert "charging station" in analogy["action_suggestion"]
-        assert analogy["source"] == "knowledge_analogy"
+        # _knowledge_fallback should route to Memory.find_analogy
+        fallback = await how._knowledge_fallback("battery low voltage warning", None)
+        assert fallback is not None
+        assert fallback["source"] == "knowledge_analogy"
+        assert "charging station" in fallback["action_suggestion"]

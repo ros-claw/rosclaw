@@ -195,6 +195,23 @@ SEEKDB_SCHEMAS = {
         },
         "indices": ["episode_id", "artifact_type", "created_at"],
     },
+    "retries": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "failure_type": "TEXT",
+            "rule_id": "TEXT",
+            "parameter_patch": "TEXT",
+            "max_retries": "INTEGER DEFAULT 3",
+            "attempt_count": "INTEGER DEFAULT 0",
+            "status": "TEXT DEFAULT 'pending'",
+            "created_at": "REAL",
+            "updated_at": "REAL",
+            "original_outcome": "TEXT",
+            "retry_outcome": "TEXT",
+            "improvement": "TEXT",
+        },
+        "indices": ["status", "rule_id", "created_at"],
+    },
 }
 
 
