@@ -490,21 +490,89 @@ class MCPHub(LifecycleMixin):
         inputs: dict[str, Any],
         context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Route a capability request through the CapabilityRouter."""
-        router = self.runtime.capability_router
-        guard = self.runtime.guard_pipeline
+        """Route a capability request via EventBus (preferred) or direct Runtime fallback.
 
+        Architecture: MCPHub publishes agent.capability.request to EventBus.
+        Provider layer (or Runtime) subscribes and publishes agent.capability.response.
+        This removes direct MCPHub -> ProviderRegistry coupling.
+        """
+        request_id = str(uuid.uuid4())[:8]
+        ctx = {
+            "robot": self.robot_id,
+            "safety_level": self.context.safety_level,
+            **(context or {}),
+        }
+
+        # --- EventBus path (preferred): publish request, await response ---
+        if self.event_bus is not None:
+            future = asyncio.get_event_loop().create_future()
+            self._pending_requests[request_id] = future
+
+            self.event_bus.publish(Event(
+                topic="agent.capability.request",
+                payload={
+                    "request_id": request_id,
+                    "capability": capability,
+                    "inputs": inputs,
+                    "context": ctx,
+                    "constraints": {"safety_level": self.context.safety_level.upper()},
+                },
+                source="mcp_hub",
+                priority=EventPriority.HIGH,
+            ))
+
+            try:
+                # Wait for provider layer to respond via EventBus
+                result = await asyncio.wait_for(future, timeout=self._default_timeout)
+                return result
+            except asyncio.TimeoutError:
+                # No subscriber handled the request — fall back to direct Runtime
+                pass
+            finally:
+                self._pending_requests.pop(request_id, None)
+
+        # --- Direct Runtime fallback (when EventBus has no provider subscribers) ---
+        return await self._route_capability_direct(
+            request_id, capability, inputs, ctx
+        )
+
+    async def _route_capability_direct(
+        self,
+        request_id: str,
+        capability: str,
+        inputs: dict[str, Any],
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Direct Runtime fallback for capability routing.
+
+        Kept for backward compatibility until Provider layer fully migrates
+        to EventBus subscription.
+        """
+        if self.runtime is None:
+            return {
+                "status": "failed",
+                "capability": capability,
+                "error": "Runtime not available",
+            }
+
+        router = getattr(self.runtime, "capability_router", None)
+        guard = getattr(self.runtime, "guard_pipeline", None)
+
+        if router is None:
+            return {
+                "status": "failed",
+                "capability": capability,
+                "error": "CapabilityRouter not available",
+            }
+
+        # Lazy import to avoid hard dependency at module load time
         from rosclaw.provider.core.request import ProviderRequest
 
         request = ProviderRequest(
-            request_id=str(uuid.uuid4())[:8],
+            request_id=request_id,
             capability=capability,
             inputs=inputs,
-            context={
-                "robot": self.robot_id,
-                "safety_level": self.context.safety_level,
-                **(context or {}),
-            },
+            context=context,
             constraints={"safety_level": self.context.safety_level.upper()},
         )
 
@@ -712,57 +780,91 @@ class MCPHub(LifecycleMixin):
     # ------------------------------------------------------------------
 
     def _handle_query_world_objects(self, arguments: dict) -> dict:
-        """Handle query_world_objects tool call."""
-        if self.runtime is None:
-            return {"status": "error", "error": "Runtime not available"}
+        """Handle query_world_objects tool call via EventBus (preferred) or Runtime fallback."""
         scene_id = arguments.get("scene_id", "")
         radius = arguments.get("radius", 2.0)
         cx = arguments.get("center_x", 0.0)
         cy = arguments.get("center_y", 0.0)
         cz = arguments.get("center_z", 0.0)
 
-        try:
-            from rosclaw.e_urdf.parser import Vec3
-        except ImportError:
-            Vec3 = None
+        # Publish query event to EventBus for decoupled world-state access
+        if self.event_bus is not None:
+            self.event_bus.publish(Event(
+                topic="world.objects.query",
+                payload={
+                    "scene_id": scene_id,
+                    "radius": radius,
+                    "center": {"x": cx, "y": cy, "z": cz},
+                },
+                source="mcp_hub",
+                priority=EventPriority.NORMAL,
+            ))
 
-        center = Vec3(cx, cy, cz) if Vec3 else {"x": cx, "y": cy, "z": cz}
-        results = self.runtime.search_world_objects(center, radius, scene_id)
-        return {
-            "status": "ok",
-            "scene_id": scene_id,
-            "count": len(results),
-            "objects": [self._world_object_to_dict(o) for o in results],
-        }
+        # Fallback: direct Runtime access when no subscriber responded
+        if self.runtime is not None and hasattr(self.runtime, "search_world_objects"):
+            try:
+                from rosclaw.e_urdf.parser import Vec3
+                center = Vec3(cx, cy, cz)
+            except ImportError:
+                center = {"x": cx, "y": cy, "z": cz}
+            results = self.runtime.search_world_objects(center, radius, scene_id)
+            return {
+                "status": "ok",
+                "scene_id": scene_id,
+                "count": len(results),
+                "objects": [self._world_object_to_dict(o) for o in results],
+            }
+
+        return {"status": "error", "error": "Runtime not available"}
 
     def _handle_get_scene_graph(self, arguments: dict) -> dict:
-        """Handle get_scene_graph tool call."""
-        if self.runtime is None:
-            return {"status": "error", "error": "Runtime not available"}
+        """Handle get_scene_graph tool call via EventBus (preferred) or Runtime fallback."""
         scene_id = arguments.get("scene_id", "")
-        objects, relations = self.runtime.get_scene_graph(scene_id)
-        return {
-            "status": "ok",
-            "scene_id": scene_id,
-            "object_count": len(objects),
-            "relation_count": len(relations),
-            "objects": [self._world_object_to_dict(o) for o in objects],
-            "relations": [self._relation_to_dict(r) for r in relations],
-        }
+
+        if self.event_bus is not None:
+            self.event_bus.publish(Event(
+                topic="world.scene_graph.query",
+                payload={"scene_id": scene_id},
+                source="mcp_hub",
+                priority=EventPriority.NORMAL,
+            ))
+
+        if self.runtime is not None and hasattr(self.runtime, "get_scene_graph"):
+            objects, relations = self.runtime.get_scene_graph(scene_id)
+            return {
+                "status": "ok",
+                "scene_id": scene_id,
+                "object_count": len(objects),
+                "relation_count": len(relations),
+                "objects": [self._world_object_to_dict(o) for o in objects],
+                "relations": [self._relation_to_dict(r) for r in relations],
+            }
+
+        return {"status": "error", "error": "Runtime not available"}
 
     def _handle_cognitive_search(self, arguments: dict) -> dict:
-        """Handle cognitive_search tool call."""
-        if self.runtime is None:
-            return {"status": "error", "error": "Runtime not available"}
+        """Handle cognitive_search tool call via EventBus (preferred) or Runtime fallback."""
         query = arguments.get("query", "")
         limit = arguments.get("limit", 10)
-        results = self.runtime.cognitive_search(query, limit=limit)
-        return {
-            "status": "ok",
-            "query": query,
-            "count": len(results),
-            "results": [self._memory_atom_to_dict(r) for r in results],
-        }
+
+        if self.event_bus is not None:
+            self.event_bus.publish(Event(
+                topic="memory.cognitive.query",
+                payload={"query": query, "limit": limit},
+                source="mcp_hub",
+                priority=EventPriority.NORMAL,
+            ))
+
+        if self.runtime is not None and hasattr(self.runtime, "cognitive_search"):
+            results = self.runtime.cognitive_search(query, limit=limit)
+            return {
+                "status": "ok",
+                "query": query,
+                "count": len(results),
+                "results": [self._memory_atom_to_dict(r) for r in results],
+            }
+
+        return {"status": "error", "error": "Runtime not available"}
 
     def _handle_query_knowledge(self, arguments: dict) -> dict:
         """Handle query_knowledge tool call."""

@@ -62,7 +62,7 @@ class RuntimeConfig:
     enable_swarm: bool = False
     enable_skill_manager: bool = True
     enable_knowledge: bool = True           # KnowledgeInterface (KNOW module)
-    enable_how: bool = False                # HeuristicEngine (HOW module)
+    enable_how: bool = True                 # HeuristicEngine (HOW module)
     enable_provider: bool = True
     joint_dof: int = 6
     sampling_rate_hz: int = 1000
