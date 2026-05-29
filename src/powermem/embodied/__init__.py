@@ -1,0 +1,1 @@
+"""Embodied memory protocols stub."""
