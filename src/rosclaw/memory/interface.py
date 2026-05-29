@@ -19,6 +19,7 @@ import time
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
 from rosclaw.memory.seekdb_client import SeekDBClient, SeekDBMemoryClient
+from rosclaw.memory.types import PraxisEvent, FailureMemory, ArtifactRef
 
 # Conditional import: powermem Protocol types for type-safe proxy methods
 try:
@@ -90,6 +91,11 @@ class MemoryInterface(LifecycleMixin):
 
         if self.event_bus is not None:
             self.event_bus.subscribe("praxis.recorded", self._on_praxis_recorded)
+            # Sprint 8 — Knowledge Plane event subscriptions
+            self.event_bus.subscribe("rosclaw.practice.event.created", self._on_practice_event_created)
+            self.event_bus.subscribe("rosclaw.sandbox.episode.failed", self._on_sandbox_episode_failed)
+            self.event_bus.subscribe("rosclaw.sandbox.episode.succeeded", self._on_sandbox_episode_succeeded)
+            self.event_bus.subscribe("rosclaw.how.recovery_hint.generated", self._on_recovery_hint_generated)
 
         print(f"[MemoryInterface] Initialized for {self._robot_id}, "
               f"backend={type(self._client).__name__}")
@@ -110,6 +116,10 @@ class MemoryInterface(LifecycleMixin):
     def _do_stop(self) -> None:
         if self.event_bus is not None:
             self.event_bus.unsubscribe("praxis.recorded", self._on_praxis_recorded)
+            self.event_bus.unsubscribe("rosclaw.practice.event.created", self._on_practice_event_created)
+            self.event_bus.unsubscribe("rosclaw.sandbox.episode.failed", self._on_sandbox_episode_failed)
+            self.event_bus.unsubscribe("rosclaw.sandbox.episode.succeeded", self._on_sandbox_episode_succeeded)
+            self.event_bus.unsubscribe("rosclaw.how.recovery_hint.generated", self._on_recovery_hint_generated)
         self._client.disconnect()
 
     @property
@@ -127,6 +137,57 @@ class MemoryInterface(LifecycleMixin):
             duration_sec=payload.get("duration_sec", 0.0),
             metadata=payload,
         )
+
+    # -- Sprint 8 event handlers --
+
+    def _on_practice_event_created(self, event: Event) -> None:
+        """Auto-ingest practice events into praxis_events table."""
+        payload = event.payload
+        self.write_praxis_event(PraxisEvent(
+            event_id=payload.get("event_id", ""),
+            robot_id=payload.get("robot_id", self._robot_id),
+            event_type=payload.get("event_type", "practice"),
+            episode_id=payload.get("episode_id"),
+            task_id=payload.get("task_id"),
+            payload=payload,
+        ))
+
+    def _on_sandbox_episode_failed(self, event: Event) -> None:
+        """Auto-ingest sandbox failures into failures table."""
+        payload = event.payload
+        self.write_failure_memory(FailureMemory(
+            failure_id=payload.get("failure_id", ""),
+            robot_id=payload.get("robot_id", self._robot_id),
+            episode_id=payload.get("episode_id"),
+            task_id=payload.get("task_id"),
+            failure_type=payload.get("failure_type", "unknown"),
+            root_cause=payload.get("root_cause", ""),
+            recovery_hint=payload.get("recovery_hint", ""),
+            sandbox_intervened=payload.get("sandbox_intervened", False),
+            category=payload.get("category", ""),
+        ))
+
+    def _on_sandbox_episode_succeeded(self, event: Event) -> None:
+        """Auto-ingest success patterns from sandbox episodes."""
+        payload = event.payload
+        record = {
+            "id": payload.get("pattern_id", ""),
+            "skill_id": payload.get("skill_id", ""),
+            "robot_id": payload.get("robot_id", self._robot_id),
+            "context_hash": payload.get("context_hash", ""),
+            "success_count": payload.get("success_count", 1),
+            "avg_duration_sec": payload.get("avg_duration_sec", 0.0),
+            "metadata": payload,
+        }
+        self._client.insert("success_patterns", record)
+
+    def _on_recovery_hint_generated(self, event: Event) -> None:
+        """Associate recovery hint with the related failure record."""
+        payload = event.payload
+        failure_id = payload.get("failure_id")
+        hint = payload.get("hint", "")
+        if failure_id:
+            self._client.update("failures", failure_id, {"recovery_hint": hint})
 
     # ------------------------------------------------------------------
     # SeekDB Experience APIs
@@ -517,6 +578,182 @@ class MemoryInterface(LifecycleMixin):
             limit=limit,
         )
         return [r for r in rows if int(r.get("priority", 0)) >= min_priority]
+
+    # ------------------------------------------------------------------
+    # Sprint 8 — Knowledge Plane core APIs
+    # ------------------------------------------------------------------
+
+    def write_praxis_event(self, event: PraxisEvent | dict) -> str:
+        """Write a PraxisEvent to the SeekDB praxis_events table.
+
+        Accepts either a PraxisEvent instance or a plain dict for
+        backward compatibility with integration tests.
+        """
+        if isinstance(event, dict):
+            record = dict(event)
+            record.setdefault("robot_id", self._robot_id)
+        else:
+            record = event.to_seekdb_record()
+        return self._client.insert("praxis_events", record)
+
+    def write_failure_memory(self, failure: FailureMemory | dict) -> str:
+        """Write a FailureMemory to the SeekDB failures table.
+
+        Accepts either a FailureMemory instance or a plain dict for
+        backward compatibility with integration tests.
+        """
+        if isinstance(failure, dict):
+            record = dict(failure)
+            record.setdefault("robot_id", self._robot_id)
+        else:
+            record = failure.to_seekdb_record()
+        return self._client.insert("failures", record)
+
+    def retrieve_similar_episode(
+        self,
+        task_id: Optional[str] = None,
+        robot_id: Optional[str] = None,
+        n: int = 5,
+    ) -> list[dict]:
+        """Retrieve similar historical episodes.
+
+        Filters by task_id and/or robot_id, ordered by most recent.
+        """
+        filters: dict[str, Any] = {}
+        if task_id:
+            filters["task_id"] = task_id
+        if robot_id:
+            filters["robot_id"] = robot_id
+        return self._client.query(
+            "episodes",
+            filters=filters,
+            order_by="-started_at",
+            limit=n,
+        )
+
+    def explain_last_failure(
+        self,
+        task_id: Optional[str] = None,
+    ) -> Optional[dict]:
+        """Explain the most recent failure for a task.
+
+        Returns the latest failure record including root_cause,
+        recovery_hint, and sandbox_intervened flag.
+        """
+        filters: dict[str, Any] = {}
+        if task_id:
+            filters["task_id"] = task_id
+        results = self._client.query(
+            "failures",
+            filters=filters,
+            order_by="-timestamp",
+            limit=1,
+        )
+        if not results:
+            return None
+        return dict(results[0])
+
+    def retrieve_robot_capability(
+        self,
+        robot_id: Optional[str] = None,
+    ) -> list[dict]:
+        """Query capabilities for a robot from the knowledge_graph."""
+        rid = robot_id or self._robot_id
+        return self.query_knowledge_graph(
+            entity_id=rid,
+            predicate="has_capability",
+            limit=100,
+        )
+
+    def retrieve_skill_success_pattern(
+        self,
+        skill_name: str,
+        robot_id: Optional[str] = None,
+    ) -> Optional[dict]:
+        """Retrieve success pattern for a skill + robot combination."""
+        filters: dict[str, Any] = {"skill_id": skill_name}
+        if robot_id:
+            filters["robot_id"] = robot_id
+        results = self._client.query(
+            "success_patterns",
+            filters=filters,
+            limit=1,
+        )
+        return dict(results[0]) if results else None
+
+    def retrieve_safety_case(
+        self,
+        robot_id: Optional[str] = None,
+        constraint_type: Optional[str] = None,
+    ) -> list[dict]:
+        """Retrieve safety-related heuristic rules for a robot.
+
+        Looks up heuristic rules whose condition mentions safety
+        constraints or the given constraint_type.
+        """
+        filters: dict[str, Any] = {}
+        if constraint_type:
+            filters["condition"] = constraint_type
+        rows = self._client.query(
+            "heuristic_rules",
+            filters=filters,
+            order_by="-priority",
+            limit=50,
+        )
+        return [r for r in rows if int(r.get("priority", 0)) >= 0]
+
+    # -- Artifact handling --
+
+    def store_artifact(self, artifact: ArtifactRef) -> str:
+        """Store an artifact reference in SeekDB.
+
+        Large files (MCAP, video, replay) live in the local object
+        store at ``./.rosclaw/artifacts/``.  SeekDB only keeps the URI.
+        """
+        record = artifact.to_seekdb_record()
+        return self._client.insert("artifacts", record)
+
+    def get_artifact(self, artifact_id: str) -> Optional[ArtifactRef]:
+        """Retrieve a single artifact reference by ID."""
+        rows = self._client.query(
+            "artifacts",
+            filters={"id": artifact_id},
+            limit=1,
+        )
+        if not rows:
+            return None
+        return ArtifactRef(
+            artifact_id=rows[0]["id"],
+            artifact_type=rows[0].get("artifact_type", ""),
+            uri=rows[0].get("uri", ""),
+            episode_id=rows[0].get("episode_id"),
+            size_bytes=rows[0].get("size_bytes"),
+            created_at=rows[0].get("created_at", 0.0),
+            metadata=rows[0].get("metadata") or {},
+        )
+
+    def find_artifacts_by_episode(
+        self,
+        episode_id: str,
+        artifact_type: Optional[str] = None,
+    ) -> list[ArtifactRef]:
+        """Find all artifacts linked to an episode."""
+        filters: dict[str, Any] = {"episode_id": episode_id}
+        if artifact_type:
+            filters["artifact_type"] = artifact_type
+        rows = self._client.query("artifacts", filters=filters, limit=100)
+        return [
+            ArtifactRef(
+                artifact_id=r["id"],
+                artifact_type=r.get("artifact_type", ""),
+                uri=r.get("uri", ""),
+                episode_id=r.get("episode_id"),
+                size_bytes=r.get("size_bytes"),
+                created_at=r.get("created_at", 0.0),
+                metadata=r.get("metadata") or {},
+            )
+            for r in rows
+        ]
 
     # ------------------------------------------------------------------
     # EmbodiedMemory bridge (world objects, trajectories, cognitive search)
