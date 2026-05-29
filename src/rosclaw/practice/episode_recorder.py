@@ -112,6 +112,13 @@ class EpisodeRecorder(LifecycleMixin):
     def _do_initialize(self) -> None:
         self._artifact_base.mkdir(parents=True, exist_ok=True)
 
+        if self._event_bus is None:
+            print(f"[EpisodeRecorder] Initialized in read-only mode for {self._robot_id}, "
+                  f"artifacts={self._artifact_base}")
+            return
+
+
+
         topic_map = {
             "skill.execution.start": self._on_skill_start,
             "skill.execution.complete": self._on_skill_complete,

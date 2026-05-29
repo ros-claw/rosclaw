@@ -61,7 +61,7 @@ class RuntimeConfig:
     enable_practice: bool = True
     enable_swarm: bool = False
     enable_skill_manager: bool = True
-    enable_knowledge: bool = False          # KnowledgeInterface (KNOW module)
+    enable_knowledge: bool = True           # KnowledgeInterface (KNOW module)
     enable_how: bool = False                # HeuristicEngine (HOW module)
     enable_provider: bool = True
     joint_dof: int = 6
@@ -813,11 +813,39 @@ class Runtime(LifecycleMixin):
         Falls back to mock responses for known capability patterns when
         the provider layer is unavailable.
 
+        v1.0 KNOW integration: queries KnowledgeInterface before routing
+        to check robot capability match and safety limits.
+
         Example:
             result = rt.capability_invoke(
                 "vlm.object_grounding", {"image": "red_cup.jpg"}
             )
         """
+        # --- KNOW pre-check (v1.0) ---
+        know_result: dict[str, Any] | None = None
+        if self._knowledge is not None:
+            try:
+                know_result = self._knowledge.query_for_provider_selection(
+                    capability_name, self.config.robot_id
+                )
+                print(f"[Runtime] KNOW pre-check for {capability_name}: "
+                      f"has_capability={know_result.get('has_capability', False)}")
+            except Exception as e:
+                print(f"[Runtime] KNOW pre-check failed (non-fatal): {e}")
+
+        # Publish pre-check event for Practice/Memory tracking
+        if self.event_bus is not None and know_result is not None:
+            self.event_bus.publish(Event(
+                topic="rosclaw.provider.inference.requested",
+                payload={
+                    "capability": capability_name,
+                    "robot_id": self.config.robot_id,
+                    "know_result": know_result,
+                },
+                source="runtime",
+                priority=EventPriority.NORMAL,
+            ))
+
         # Lazy init: if provider layer is importable but not initialized, set it up now
         if self._capability_router is None and ProviderRegistry is not None and CapabilityRouter is not None:
             try:
@@ -968,6 +996,21 @@ class Runtime(LifecycleMixin):
 
         # Publish praxis event for Practice/Memory auto-ingest
         duration = time.time() - t0
+
+        # KNOW post-execution recording (v1.0)
+        if self._knowledge is not None:
+            try:
+                self._knowledge.record_knowledge_usage({
+                    "episode_id": action.get("request_id", "unknown"),
+                    "robot_id": self.config.robot_id,
+                    "action": action,
+                    "result": result,
+                    "duration_sec": duration,
+                    "knowledge_queried": True,
+                })
+            except Exception as e:
+                print(f"[Runtime] KNOW post-execution recording failed (non-fatal): {e}")
+
         if result.get("status") == "ok":
             self.event_bus.publish(Event(
                 topic="praxis.completed",

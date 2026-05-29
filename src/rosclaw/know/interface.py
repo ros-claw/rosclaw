@@ -20,6 +20,12 @@ from pathlib import Path
 from typing import Any
 
 from rosclaw.core.lifecycle import LifecycleMixin
+from rosclaw.core.event_bus import Event, EventPriority
+
+try:
+    from rosclaw.core.event_bus import EventBus
+except ImportError:
+    EventBus = None
 
 logger = logging.getLogger("rosclaw.know.interface")
 
@@ -199,13 +205,89 @@ class KnowledgeInterface(LifecycleMixin):
 
     def _do_start(self) -> None:
         logger.info("[Know] KnowledgeInterface started")
+        if self.event_bus is not None:
+            self.event_bus.subscribe("rosclaw.provider.inference.requested",
+                                     self._on_provider_inference_requested)
+            self.event_bus.subscribe("rosclaw.sandbox.episode.started",
+                                     self._on_sandbox_episode_started)
+            self.event_bus.subscribe("rosclaw.runtime.execution.completed",
+                                     self._on_runtime_execution_completed)
+        # Publish startup event for Practice / Dashboard tracking
+        if self.event_bus is not None:
+            self.event_bus.publish(Event(
+                topic="rosclaw.knowledge.started",
+                payload={"robot_id": self.robot_id,
+                         "capabilities_loaded": len(self._capabilities.get(self.robot_id, [])),
+                         "patterns_loaded": len(self._patterns)},
+                source="knowledge_interface",
+                priority=EventPriority.NORMAL,
+            ))
 
     def _do_stop(self) -> None:
         logger.info("[Know] KnowledgeInterface stopped")
+        if self.event_bus is not None:
+            self.event_bus.unsubscribe("rosclaw.provider.inference.requested",
+                                        self._on_provider_inference_requested)
+            self.event_bus.unsubscribe("rosclaw.sandbox.episode.started",
+                                        self._on_sandbox_episode_started)
+            self.event_bus.unsubscribe("rosclaw.runtime.execution.completed",
+                                        self._on_runtime_execution_completed)
         self._capabilities.clear()
         self._symptoms.clear()
         self._patterns.clear()
         self._initialized = False
+
+    # -- EventBus handlers --
+
+    def _on_provider_inference_requested(self, event: Event) -> None:
+        """React to provider inference requests: pre-check robot capabilities.
+
+        Publishes ``rosclaw.knowledge.pre_check`` with capability match info.
+        """
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        capability = payload.get("capability", "")
+        robot_id = payload.get("robot_id", self.robot_id)
+        result = self.query_for_provider_selection(capability, robot_id)
+        if self.event_bus is not None:
+            self.event_bus.publish(Event(
+                topic="rosclaw.knowledge.pre_check",
+                payload={
+                    "capability": capability,
+                    "robot_id": robot_id,
+                    "result": result,
+                },
+                source="knowledge_interface",
+                priority=EventPriority.NORMAL,
+            ))
+
+    def _on_sandbox_episode_started(self, event: Event) -> None:
+        """React to sandbox episode start: load robot safety limits.
+
+        Publishes ``rosclaw.knowledge.safety_limits_loaded``.
+        """
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        robot_id = payload.get("robot_id", self.robot_id)
+        limits = self.get_robot_safety_limits(robot_id)
+        profile = self.get_robot_simulation_profile(robot_id)
+        if self.event_bus is not None:
+            self.event_bus.publish(Event(
+                topic="rosclaw.knowledge.safety_limits_loaded",
+                payload={
+                    "robot_id": robot_id,
+                    "safety_limits": limits,
+                    "simulation_profile": profile,
+                },
+                source="knowledge_interface",
+                priority=EventPriority.NORMAL,
+            ))
+
+    def _on_runtime_execution_completed(self, event: Event) -> None:
+        """React to execution completion: record knowledge usage in memory.
+
+        Publishes ``knowledge.ingest_complete`` for Practice tracking.
+        """
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        self.record_knowledge_usage(payload)
 
     # -- Public API --
 
@@ -303,6 +385,96 @@ class KnowledgeInterface(LifecycleMixin):
                     results.append(robot_id)
                     break
         return results
+
+    def query_for_provider_selection(self, capability: str, robot_id: str | None = None) -> dict[str, Any]:
+        """Query KNOW before provider selection to check robot capability match.
+
+        Returns a dict with robot_id, capability, can_perform, recommendations,
+        and safety_limits.  Used by Runtime.capability_invoke() to make
+        informed provider routing decisions.
+        """
+        rid = robot_id or self.robot_id
+        result: dict[str, Any] = {
+            "robot_id": rid,
+            "capability": capability,
+            "timestamp": time.time(),
+        }
+
+        # 1. Check if robot has the exact capability
+        caps = self.query_robot_capabilities(rid)
+        result["has_capability"] = capability in caps
+
+        # 2. Get safety limits for the robot
+        result["safety_limits"] = self.get_robot_safety_limits(rid)
+
+        # 3. Get simulation profile
+        result["simulation_profile"] = self.get_robot_simulation_profile(rid)
+
+        # 4. If exact capability missing, recommend alternatives
+        if not result["has_capability"]:
+            skill_name = capability.split(".")[-1] if "." in capability else capability
+            alt_robots = self.robot_capability_query(skill_name)
+            result["alternative_robots"] = alt_robots
+
+            # Try task-based recommendation
+            task_hint = self.task_decomposition_hint(skill_name.replace("_", " "))
+            if task_hint:
+                result["task_decomposition"] = task_hint
+                can_perf = self.can_perform_task(rid, skill_name.replace("_", " "))
+                if can_perf:
+                    result["can_perform_task"] = can_perf
+
+        # 5. Check for known failure patterns related to this capability
+        for pattern_id, pattern in self._patterns.items():
+            if any(kw in capability.lower() for kw in pattern.get("keywords", [])):
+                result["known_risk"] = {
+                    "pattern_id": pattern_id,
+                    "symptom": pattern.get("symptom", ""),
+                    "fix": pattern.get("fix", ""),
+                }
+                break
+
+        return result
+
+    def record_knowledge_usage(self, context: dict[str, Any]) -> None:
+        """Record that KNOW was queried/used during an execution.
+
+        Persists a knowledge usage record to SeekDB and publishes
+        ``knowledge.ingest_complete`` so Practice can track it.
+        """
+        record = {
+            "id": f"know_usage_{time.time()}",
+            "robot_id": self.robot_id,
+            "timestamp": time.time(),
+            "event_type": "knowledge.usage",
+            "context": context,
+        }
+        if self.seekdb is not None:
+            try:
+                self.seekdb.insert("knowledge_graph", {
+                    "id": record["id"],
+                    "subject": self.robot_id,
+                    "predicate": "used_knowledge",
+                    "object": json.dumps(record),
+                    "confidence": 1.0,
+                    "source": "runtime",
+                    "timestamp": record["timestamp"],
+                })
+            except Exception as exc:
+                logger.warning("[Know] Failed to record knowledge usage: %s", exc)
+
+        if self.event_bus is not None:
+            self.event_bus.publish(Event(
+                topic="knowledge.ingest_complete",
+                payload={
+                    "practice_id": context.get("episode_id", "unknown"),
+                    "knowledge_version": "1.0",
+                    "status": "success",
+                    "context": context,
+                },
+                source="knowledge_interface",
+                priority=EventPriority.NORMAL,
+            ))
 
     def task_decomposition_hint(self, task: str) -> dict[str, Any] | None:
         """Decompose a high-level task into ordered sub-tasks.
