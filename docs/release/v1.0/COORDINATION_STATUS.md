@@ -153,3 +153,38 @@ All sessions have been notified to copy their reports to the unified path:
 ```
 
 Reports from practice, dashboard, sandbox, and swarm have been manually copied to correct location.
+
+---
+
+## Sprint Verification Status
+
+**Updated:** 2026-05-29 by IVA
+
+| Sprint | Module | Status | Tests | Blockers |
+|--------|--------|--------|-------|----------|
+| Sprint 1 | Runtime 骨架 | **PARTIAL** | 7/7 CLI pass | doctor, logs CLI missing (P1) |
+| Sprint 2 | e-URDF-Zoo | **PARTIAL** | Parser OK | robot install/inspect/validate CLI missing (P1) |
+| Sprint 3 | Sandbox MVP | **PARTIAL** | Mock fallback OK | MCAP recording, replay, sandbox CLI missing (P2/P1) |
+| Sprint 4 | Firewall Mode | **PASS** | 8/8 pass | Replay playback deferred (P2) |
+| Sprint 5 | Provider Core | **PASS** | 44/44 pass | None |
+| Sprint 6 | Forge / sdk_to_mcp | **FAIL** | N/A | Module not implemented (v1.1) |
+| Sprint 7 | Practice | **PASS** | 4/4 + 7/7 timeline pass | MCAP write deferred (P2) |
+| Sprint 8 | Memory + SeekDB | **PASS** | 4/4 + 27/27 knowledge pass | SeekDBSQLiteClient delete methods missing (P2) |
+| Sprint 9 | HOW / Recovery | **PARTIAL** | 27/27 + 11/11 e2e + 16/16 smoke pass | 9 heuristic edge-case tests fail (P1) |
+| Sprint 10 | Dashboard | **FAIL** | N/A | Module not implemented (v1.1) |
+| Sprint 11 | Swarm | **PASS** | 3/3 pass | DDS/spatial sync deferred (P2) |
+| Sprint 12 | Release闭环 | **FAIL** | N/A | install.rosclaw.io, demo CLI missing (P0/P1) |
+
+**Summary:** 5 PASS / 4 PARTIAL / 3 FAIL
+
+### P0 Sprints (Must be PASS for v1.0)
+- Sprint 1: Runtime — Core OK, doctor/logs = P1
+- Sprint 4: Firewall — PASS
+- Sprint 5: Provider — PASS
+- Sprint 7: Practice — PASS
+- Sprint 8: Memory — PASS
+
+### v1.1 Deferred Sprints
+- Sprint 6: Forge
+- Sprint 10: Dashboard
+- Sprint 12: install.rosclaw.io (partial — init/start/status work)

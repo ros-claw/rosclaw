@@ -368,18 +368,35 @@ class Runtime(LifecycleMixin):
         except Exception as e:
             print(f"[Runtime] Heuristic recovery failed: {e}")
 
+    def _run_async(self, coro):
+        """Run an async coroutine from a sync context.
+
+        Handles both production (no running loop) and test (pytest-asyncio
+        with running loop) contexts gracefully.
+        """
+        import asyncio
+        import concurrent.futures
+        try:
+            loop = asyncio.get_running_loop()
+            # Already inside an event loop — run in a thread to avoid
+            # "cannot run nested event loop" errors during tests.
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, coro)
+                return future.result(timeout=30)
+        except RuntimeError:
+            return asyncio.run(coro)
+
     def _on_sandbox_episode_failed(self, event: Event) -> None:
         """Handle sandbox episode failure: generate recovery hint."""
         if self._how is None:
             return
         try:
-            import asyncio
             from rosclaw.how.recovery import RecoveryEngine
 
             failure_type = event.payload.get("failure_type", "")
             request_id = event.payload.get("request_id", "")
             re = RecoveryEngine(self._how)
-            hint = asyncio.run(re.generate_recovery_hint(
+            hint = self._run_async(re.generate_recovery_hint(
                 failure_type,
                 context={"request_id": request_id, "source": "sandbox"},
                 sources=["sandbox_episode"],
@@ -401,13 +418,12 @@ class Runtime(LifecycleMixin):
         if self._how is None:
             return
         try:
-            import asyncio
             from rosclaw.how.recovery import RecoveryEngine
 
             failure_type = event.payload.get("reason", "")
             request_id = event.payload.get("request_id", "")
             re = RecoveryEngine(self._how)
-            hint = asyncio.run(re.generate_recovery_hint(
+            hint = self._run_async(re.generate_recovery_hint(
                 failure_type,
                 context={"request_id": request_id, "source": "sandbox"},
                 sources=["sandbox_action"],
@@ -429,13 +445,12 @@ class Runtime(LifecycleMixin):
         if self._how is None:
             return
         try:
-            import asyncio
             from rosclaw.how.recovery import RecoveryEngine
 
             failure_type = event.payload.get("error_type", "")
             request_id = event.payload.get("request_id", "")
             re = RecoveryEngine(self._how)
-            hint = asyncio.run(re.generate_recovery_hint(
+            hint = self._run_async(re.generate_recovery_hint(
                 failure_type,
                 context={"request_id": request_id, "source": "runtime"},
                 sources=["runtime_execution"],

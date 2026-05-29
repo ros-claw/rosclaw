@@ -283,7 +283,7 @@ class EURDFLoader:
 
         # Build Benchmark Profile
         benchmark_profile = RobotBenchmarkProfile(
-            robot_id=robot_id,
+            robot_id=embodiment.robot_id,
             kinematic_benchmarks=benchmark.get("kinematic_benchmarks", []),
             dynamic_benchmarks=benchmark.get("dynamic_benchmarks", []),
             simulation_benchmarks=benchmark.get("simulation_benchmarks", {}),
@@ -388,6 +388,8 @@ class RobotRegistry:
     def install(self, robot_id: str) -> RobotCompleteProfile:
         """Load and register a robot profile."""
         profile = self.loader.load(robot_id)
+        # Store under both the directory name and the canonical robot_id
+        self._profiles[robot_id] = profile
         self._profiles[profile.robot_id] = profile
         return profile
 
