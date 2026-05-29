@@ -327,6 +327,27 @@ class UnifiedTimeline(LifecycleMixin):
         print(f"[UnifiedTimeline] Exported {len(entries)} events + "
               f"{len(sensor_entries)} sensorimotor samples to {session_dir}")
 
+    def record(self, event_type: str = "praxis", **kwargs: Any) -> None:
+        """Convenience method to record a generic event on the timeline.
+
+        Publishes a ``praxis.completed`` event so that Memory auto-ingests
+        the experience and the timeline exports the session.
+        """
+        self._event_bus.publish(Event(
+            topic="praxis.completed",
+            payload={
+                "event_id": kwargs.get("event_id", f"evt_{time.time_ns()}"),
+                "event_type": event_type,
+                "correlation_id": kwargs.get("correlation_id"),
+                "instruction": kwargs.get("instruction", ""),
+                "initial_state": kwargs.get("initial_state"),
+                "final_state": kwargs.get("final_state"),
+                "duration_sec": kwargs.get("duration_sec", 0.0),
+            },
+            source="unified_timeline",
+            priority=EventPriority.NORMAL,
+        ))
+
     def _flush_pending_praxis(self) -> None:
         for cid, state in self._pending_praxis.items():
             print(f"[UnifiedTimeline] Flushing incomplete praxis: {cid}")

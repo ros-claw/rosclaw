@@ -409,3 +409,92 @@ class TestRuntimeRecoveryHandlers:
         last = history[-1]
         assert last.payload["failure_type"] == "grasp slippage"
         assert "retry_plan" in last.payload
+
+
+class TestRuntimeIntegrationAPIs:
+    """Tests for v1.0 minimum closed-loop integration APIs."""
+
+    def test_capability_invoke_mock_vlm(self):
+        from rosclaw.core.runtime import Runtime, RuntimeConfig
+
+        config = RuntimeConfig(enable_provider=True, enable_memory=False, enable_how=False)
+        runtime = Runtime(config)
+        runtime._do_initialize()
+
+        result = runtime.capability_invoke("vlm.object_grounding", {"query": "red_cup"})
+        assert result["status"] == "ok"
+        assert result["capability"] == "vlm.object_grounding"
+        assert "result" in result
+
+    def test_capability_invoke_unknown(self):
+        from rosclaw.core.runtime import Runtime, RuntimeConfig
+
+        config = RuntimeConfig(enable_provider=True, enable_memory=False, enable_how=False)
+        runtime = Runtime(config)
+        runtime._do_initialize()
+
+        result = runtime.capability_invoke("unknown_capability", {})
+        # Should not crash; may return error depending on router behavior
+        assert "status" in result
+
+    def test_sandbox_check_no_firewall(self):
+        from rosclaw.core.runtime import Runtime, RuntimeConfig
+
+        config = RuntimeConfig(enable_firewall=False, enable_memory=False, enable_how=False)
+        runtime = Runtime(config)
+        runtime._do_initialize()
+
+        result = runtime.sandbox_check({"trajectory": [[0.1, 0.2]]})
+        assert result["decision"] == "ALLOW"
+        assert result["reason"] == "firewall_disabled"
+
+    def test_execute_with_sandbox(self):
+        from rosclaw.core.runtime import Runtime, RuntimeConfig
+
+        config = RuntimeConfig(enable_firewall=False, enable_memory=False, enable_how=False)
+        runtime = Runtime(config)
+        runtime._do_initialize()
+
+        result = runtime.execute({"trajectory": [[0.1, 0.2]]})
+        # Sandbox is always initialized; uses stub when robot not found
+        assert "status" in result
+
+    def test_integration_acceptance_scenario(self):
+        """Acceptance: the task example runs without crashing."""
+        from rosclaw.core.runtime import Runtime, RuntimeConfig
+
+        config = RuntimeConfig(
+            enable_provider=True,
+            enable_memory=True,
+            enable_how=True,
+            enable_firewall=True,
+            robot_model_path=None,
+        )
+        runtime = Runtime(config)
+        runtime._do_initialize()
+
+        # Step 1: VLM object grounding
+        result = runtime.capability_invoke("vlm.object_grounding", {"query": "red_cup"})
+        assert "status" in result
+
+        # Step 2: Plan action
+        action = runtime.plan_action("pick red cup", result)
+        assert "status" in action
+
+        # Step 3: Sandbox check
+        check = runtime.sandbox_check(action)
+        assert "decision" in check
+        assert check["decision"] in ("ALLOW", "BLOCK")
+
+        # Step 4a: Execute if allowed
+        if check["decision"] == "ALLOW":
+            exec_result = runtime.execute(action)
+            assert "status" in exec_result
+        # Step 4b: Recovery hint if blocked
+        else:
+            from rosclaw.how.recovery import RecoveryEngine
+            import asyncio
+            re = RecoveryEngine(runtime._how)
+            asyncio.run(runtime._how.seed_defaults())
+            hint = asyncio.run(re.generate_recovery_hint(check["reason"]))
+            assert hint is not None or check["reason"]

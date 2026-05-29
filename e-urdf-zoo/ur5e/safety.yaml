@@ -1,92 +1,129 @@
-# UR5e Safety Profile — Physical DNA Safety Layer
-# Ref: ISO 10218-1, ISO/TS 15066 (collaborative robots)
-
 safety_level: STRICT
-
-# ── Joint Soft Limits ──
 joint_soft_limits:
   shoulder_pan_joint:
-    lower: -6.10
-    upper: 6.10
+    lower: -6.1
+    upper: 6.1
     k_position: 100.0
     k_velocity: 50.0
   shoulder_lift_joint:
-    lower: -6.10
-    upper: 6.10
+    lower: -6.1
+    upper: 6.1
     k_position: 100.0
     k_velocity: 50.0
   elbow_joint:
-    lower: -3.00
-    upper: 3.00
+    lower: -3.0
+    upper: 3.0
     k_position: 100.0
     k_velocity: 50.0
   wrist_1_joint:
-    lower: -6.10
-    upper: 6.10
+    lower: -6.1
+    upper: 6.1
     k_position: 50.0
     k_velocity: 25.0
   wrist_2_joint:
-    lower: -6.10
-    upper: 6.10
+    lower: -6.1
+    upper: 6.1
     k_position: 50.0
     k_velocity: 25.0
   wrist_3_joint:
-    lower: -6.10
-    upper: 6.10
+    lower: -6.1
+    upper: 6.1
     k_position: 50.0
     k_velocity: 25.0
-
-# ── Power & Force Limiting (PFL) — ISO/TS 15066 ──
 pfl:
   enabled: true
-  max_tcp_force: 150.0        # N (conservative vs 200N nominal)
-  max_tcp_torque: 8.0         # Nm
-  max_static_force: 50.0      # N at contact point
-  max_pressure: 150.0         # N/m²
-  max_speed_tool: 0.25        # m/s (typical collaborative limit)
-  max_speed_joint: 1.57       # rad/s (≈90°/s)
-
-# ── Collision Detection ──
+  max_tcp_force: 150.0
+  max_tcp_torque: 8.0
+  max_static_force: 50.0
+  max_pressure: 150.0
+  max_speed_tool: 0.25
+  max_speed_joint: 1.57
 collision_detection:
   method: force_threshold
-  threshold_force: 50.0       # N
-  threshold_torque: 3.0       # Nm
-  reaction_time_ms: 4.0       # ms (UR5e typical)
+  threshold_force: 50.0
+  threshold_torque: 3.0
+  reaction_time_ms: 4.0
   reaction_strategy: stop_and_retract
-  retraction_distance: 0.02   # m
-
-# ── Emergency Stop ──
+  retraction_distance: 0.02
 emergency_stop:
-  category: 3                 # ISO 13849-1 Cat 3 / PL d
+  category: 3
   stop_time_ms: 250.0
-  stop_distance_m: 0.30
+  stop_distance_m: 0.3
   dual_channel: true
-
-# ── Workspace Boundaries ──
 workspace_boundaries:
   type: enclosure
-  fenceless: true             # collaborative mode
+  fenceless: true
   virtual_boundaries:
-    - name: front_plane
-      type: plane
-      normal: [0, 1, 0]
-      offset: -0.5
-    - name: top_plane
-      type: plane
-      normal: [0, 0, -1]
-      offset: 1.5
-
-# ── Human-Robot Interaction ──
+  - name: front_plane
+    type: plane
+    normal:
+    - 0
+    - 1
+    - 0
+    offset: -0.5
+  - name: top_plane
+    type: plane
+    normal:
+    - 0
+    - 0
+    - -1
+    offset: 1.5
 interaction:
   hand_guiding: true
-  speed_slider_max: 0.25      # m/s during hand-guiding
-  force_guiding_max: 10.0     # N feedback force
+  speed_slider_max: 0.25
+  force_guiding_max: 10.0
   protective_stop_on_contact: true
-
-# ── Environmental Limits ──
 environment:
-  ambient_temp_min: 0.0       # °C
-  ambient_temp_max: 50.0      # °C
-  humidity_max: 80.0          # %RH
+  ambient_temp_min: 0.0
+  ambient_temp_max: 50.0
+  humidity_max: 80.0
   ip_rating: IP54
-  cleanroom_class: "ISO 5"
+  cleanroom_class: ISO 5
+safety_limits:
+  joint_limits:
+    shoulder_pan_joint:
+      lower: -6.28
+      upper: 6.28
+    shoulder_lift_joint:
+      lower: -6.28
+      upper: 6.28
+    elbow_joint:
+      lower: -3.14
+      upper: 3.14
+    wrist_1_joint:
+      lower: -6.28
+      upper: 6.28
+    wrist_2_joint:
+      lower: -6.28
+      upper: 6.28
+    wrist_3_joint:
+      lower: -6.28
+      upper: 6.28
+  velocity_limits:
+    shoulder_pan_joint: 3.14
+    shoulder_lift_joint: 3.14
+    elbow_joint: 3.14
+    wrist_1_joint: 6.28
+    wrist_2_joint: 6.28
+    wrist_3_joint: 6.28
+  force_limits:
+    max_tcp_force: 200.0
+    max_tcp_torque: 10.0
+    max_joint_effort: 150.0
+  workspace:
+    type: sphere
+    center:
+    - 0
+    - 0
+    - 0.425
+    radius: 0.85
+    height_min: 0.0
+    height_max: 1.2
+  collision_pairs_to_check:
+  - - upper_arm_link
+    - forearm_link
+  - - forearm_link
+    - wrist_1_link
+  power_limits:
+    max_power: 350.0
+    max_current_total: 40.0

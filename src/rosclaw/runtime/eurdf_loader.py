@@ -56,6 +56,7 @@ class RobotSafetyProfile:
     """Safety constraints: limits, PFL, collision, e-stop."""
     robot_id: str
     safety_level: str
+    safety_limits: dict = field(default_factory=dict)
     joint_soft_limits: dict = field(default_factory=dict)
     pfl: dict = field(default_factory=dict)
     collision_detection: dict = field(default_factory=dict)
@@ -68,6 +69,7 @@ class RobotSafetyProfile:
         return {
             "robot_id": self.robot_id,
             "safety_level": self.safety_level,
+            "safety_limits": self.safety_limits,
             "joint_soft_limits": self.joint_soft_limits,
             "pfl": self.pfl,
             "collision_detection": self.collision_detection,
@@ -247,6 +249,7 @@ class EURDFLoader:
         safety_profile = RobotSafetyProfile(
             robot_id=robot_id,
             safety_level=safety.get("safety_level", "MODERATE"),
+            safety_limits=safety.get("safety_limits", {}),
             joint_soft_limits=safety.get("joint_soft_limits", {}),
             pfl=safety.get("pfl", {}),
             collision_detection=safety.get("collision_detection", {}),

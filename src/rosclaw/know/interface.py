@@ -13,6 +13,7 @@ Design decisions for v1.0:
 from __future__ import annotations
 
 import json
+import time
 import logging
 import re
 from pathlib import Path
@@ -580,6 +581,150 @@ class KnowledgeInterface(LifecycleMixin):
             overlap = len(task_words & pattern_words)
             return min(1.0, overlap / max(len(pattern_words), 1) * 0.7 + 0.1)
         return 0.0
+
+    # -- e-URDF loader --
+
+    def load_eurdf_profile(self, robot_id: str, eurdf_path: str) -> dict[str, Any]:
+        """Load an e-URDF YAML file and persist key entities to SeekDB.
+
+        Returns a summary dict with counts of joints, links, sensors,
+        actuators, and capabilities loaded.
+        """
+        import yaml
+        from pathlib import Path
+
+        if self.seekdb is None:
+            return {"loaded": False, "error": "No SeekDB client", "robot_id": robot_id}
+
+        path = Path(eurdf_path)
+        if not path.exists():
+            raise FileNotFoundError(f"e-URDF not found: {eurdf_path}")
+
+        with open(path, "r", encoding="utf-8") as f:
+            eurdf = yaml.safe_load(f)
+
+        counts = {"joints": 0, "links": 0, "sensors": 0, "actuators": 0, "capabilities": 0}
+
+        # Store joints as JSON blob
+        joints = eurdf.get("joints", [])
+        if joints:
+            self.seekdb.insert("knowledge_graph", {
+                "id": f"{robot_id}_eurdf_joints",
+                "subject": robot_id,
+                "predicate": "has_eurdf_joints",
+                "object": json.dumps(joints),
+                "confidence": 1.0,
+                "source": "eurdf",
+                "timestamp": time.time(),
+            })
+            counts["joints"] = len(joints)
+
+        # Store links
+        links = eurdf.get("links", [])
+        if links:
+            self.seekdb.insert("knowledge_graph", {
+                "id": f"{robot_id}_eurdf_links",
+                "subject": robot_id,
+                "predicate": "has_eurdf_links",
+                "object": json.dumps(links),
+                "confidence": 1.0,
+                "source": "eurdf",
+                "timestamp": time.time(),
+            })
+            counts["links"] = len(links)
+
+        # Store sensors
+        sensors = eurdf.get("sensors", [])
+        if sensors:
+            self.seekdb.insert("knowledge_graph", {
+                "id": f"{robot_id}_eurdf_sensors",
+                "subject": robot_id,
+                "predicate": "has_eurdf_sensors",
+                "object": json.dumps(sensors),
+                "confidence": 1.0,
+                "source": "eurdf",
+                "timestamp": time.time(),
+            })
+            counts["sensors"] = len(sensors)
+
+        # Store actuators
+        actuators = eurdf.get("actuators", [])
+        if actuators:
+            self.seekdb.insert("knowledge_graph", {
+                "id": f"{robot_id}_eurdf_actuators",
+                "subject": robot_id,
+                "predicate": "has_eurdf_actuators",
+                "object": json.dumps(actuators),
+                "confidence": 1.0,
+                "source": "eurdf",
+                "timestamp": time.time(),
+            })
+            counts["actuators"] = len(actuators)
+
+        # Store safety limits
+        safety = eurdf.get("safety_limits", {})
+        if safety:
+            self.seekdb.insert("knowledge_graph", {
+                "id": f"{robot_id}_eurdf_safety",
+                "subject": robot_id,
+                "predicate": "has_eurdf_safety",
+                "object": json.dumps(safety),
+                "confidence": 1.0,
+                "source": "eurdf",
+                "timestamp": time.time(),
+            })
+
+        # Store simulation backends
+        sim = eurdf.get("simulation_backends", {})
+        if sim:
+            self.seekdb.insert("knowledge_graph", {
+                "id": f"{robot_id}_eurdf_simulation",
+                "subject": robot_id,
+                "predicate": "has_eurdf_simulation",
+                "object": json.dumps(sim),
+                "confidence": 1.0,
+                "source": "eurdf",
+                "timestamp": time.time(),
+            })
+
+        # Store capabilities
+        caps = eurdf.get("capabilities", [])
+        if caps:
+            self.seekdb.insert("knowledge_graph", {
+                "id": f"{robot_id}_eurdf_capabilities",
+                "subject": robot_id,
+                "predicate": "has_eurdf_capabilities",
+                "object": json.dumps(caps),
+                "confidence": 1.0,
+                "source": "eurdf",
+                "timestamp": time.time(),
+            })
+            counts["capabilities"] = len(caps)
+
+        # Update in-memory properties from e-URDF
+        self._ROBOT_PROPERTIES[robot_id] = {
+            "dof": eurdf.get("dof", 0),
+            "payload_kg": self._extract_payload_kg(caps),
+            "reach_mm": self._extract_reach_mm(caps),
+            "sim_backends": list(sim.keys()) if sim else [],
+        }
+
+        return {"loaded": True, "robot_id": robot_id, **counts}
+
+    @staticmethod
+    def _extract_payload_kg(capabilities: list[dict]) -> float:
+        for cap in capabilities:
+            if cap.get("name") == "pick_and_place":
+                return cap.get("constraints", {}).get("max_payload", 0.0)
+        return 0.0
+
+    @staticmethod
+    def _extract_reach_mm(capabilities: list[dict]) -> float:
+        for cap in capabilities:
+            if cap.get("name") == "pick_and_place":
+                reach = cap.get("constraints", {}).get("max_reach", 0.0)
+                return int(reach * 1000) if reach else 0
+        return 0
 
     # -- Internal loaders --
 

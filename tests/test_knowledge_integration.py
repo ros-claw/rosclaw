@@ -600,3 +600,97 @@ class TestRobotSimulationProfile:
         ki._do_initialize()
         assert ki.get_robot_simulation_profile("nonexistent") == {}
         ki._do_stop()
+
+
+class TestEurdfLoader:
+    """Tests for load_eurdf_profile e-URDF integration."""
+
+    def test_load_eurdf_ur5e(self):
+        import os
+        eurdf_path = os.path.join(os.path.dirname(__file__), "..", "e-urdf-zoo", "ur5e", "robot.eurdf.yaml")
+        eurdf_path = os.path.abspath(eurdf_path)
+        if not os.path.exists(eurdf_path):
+            pytest.skip("e-URDF zoo not available")
+
+        client = SeekDBMemoryClient()
+        client.connect()
+
+        ki = KnowledgeInterface(robot_id="ur5e", seekdb_client=client)
+        ki._do_initialize()
+
+        result = ki.load_eurdf_profile("ur5e", eurdf_path)
+        assert result["loaded"] is True
+        assert result["joints"] == 6
+        assert result["links"] > 0
+        assert result["sensors"] > 0
+        assert result["actuators"] == 6
+        assert result["capabilities"] > 0
+
+        # Verify data was written to SeekDB
+        rows = client.query("knowledge_graph", filters={"subject": "ur5e", "predicate": "has_eurdf_joints"})
+        assert len(rows) == 1
+        joints_data = __import__("json").loads(rows[0]["object"])
+        assert len(joints_data) == 6
+        assert joints_data[0]["name"] == "shoulder_pan_joint"
+
+        ki._do_stop()
+
+    def test_load_eurdf_no_seekdb(self):
+        ki = KnowledgeInterface(robot_id="ur5e")
+        ki._do_initialize()
+        result = ki.load_eurdf_profile("ur5e", "/tmp/nonexistent.yaml")
+        assert result["loaded"] is False
+        assert "No SeekDB client" in result["error"]
+        ki._do_stop()
+
+    def test_load_eurdf_file_not_found(self):
+        client = SeekDBMemoryClient()
+        client.connect()
+        ki = KnowledgeInterface(robot_id="ur5e", seekdb_client=client)
+        ki._do_initialize()
+        with pytest.raises(FileNotFoundError):
+            ki.load_eurdf_profile("ur5e", "/tmp/definitely_not_real.yaml")
+        ki._do_stop()
+
+    def test_robot_properties_updated_after_load(self):
+        import os
+        eurdf_path = os.path.join(os.path.dirname(__file__), "..", "e-urdf-zoo", "ur5e", "robot.eurdf.yaml")
+        eurdf_path = os.path.abspath(eurdf_path)
+        if not os.path.exists(eurdf_path):
+            pytest.skip("e-URDF zoo not available")
+
+        client = SeekDBMemoryClient()
+        client.connect()
+
+        ki = KnowledgeInterface(robot_id="ur5e", seekdb_client=client)
+        ki._do_initialize()
+        ki.load_eurdf_profile("ur5e", eurdf_path)
+
+        # Properties should be updated from e-URDF
+        assert "ur5e" in ki._ROBOT_PROPERTIES
+        assert ki._ROBOT_PROPERTIES["ur5e"]["dof"] == 6
+        assert ki._ROBOT_PROPERTIES["ur5e"]["payload_kg"] == 5.0
+        assert ki._ROBOT_PROPERTIES["ur5e"]["reach_mm"] == 850
+
+        ki._do_stop()
+
+    def test_safety_limits_from_eurdf(self):
+        import os
+        eurdf_path = os.path.join(os.path.dirname(__file__), "..", "e-urdf-zoo", "ur5e", "robot.eurdf.yaml")
+        eurdf_path = os.path.abspath(eurdf_path)
+        if not os.path.exists(eurdf_path):
+            pytest.skip("e-URDF zoo not available")
+
+        client = SeekDBMemoryClient()
+        client.connect()
+
+        ki = KnowledgeInterface(robot_id="ur5e", seekdb_client=client)
+        ki._do_initialize()
+        ki.load_eurdf_profile("ur5e", eurdf_path)
+
+        # get_robot_safety_limits should use hard-coded data (v1.0)
+        limits = ki.get_robot_safety_limits("ur5e")
+        assert "joint_torque_max" in limits
+        assert limits["joint_torque_max"][0] == 150
+
+        ki._do_stop()
