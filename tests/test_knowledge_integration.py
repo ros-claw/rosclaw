@@ -207,12 +207,16 @@ class TestMCPKnowledgeTool:
 
         hub.runtime = MockRuntime()
 
-        result = asyncio.get_event_loop().run_until_complete(
-            hub.handle_tool_call("query_knowledge", {
-                "query_type": "capability",
-                "query": "ur5e",
-            })
-        )
+        loop = asyncio.new_event_loop()
+        try:
+            result = loop.run_until_complete(
+                hub.handle_tool_call("query_knowledge", {
+                    "query_type": "capability",
+                    "query": "ur5e",
+                })
+            )
+        finally:
+            loop.close()
 
         assert result["status"] == "ok"
         assert result["query_type"] == "capability"
@@ -234,12 +238,16 @@ class TestMCPKnowledgeTool:
 
         hub.runtime = MockRuntime()
 
-        result = asyncio.get_event_loop().run_until_complete(
-            hub.handle_tool_call("query_knowledge", {
-                "query_type": "symptom",
-                "query": "torque overflow on joint 2",
-            })
-        )
+        loop = asyncio.new_event_loop()
+        try:
+            result = loop.run_until_complete(
+                hub.handle_tool_call("query_knowledge", {
+                    "query_type": "symptom",
+                    "query": "torque overflow on joint 2",
+                })
+            )
+        finally:
+            loop.close()
 
         assert result["status"] == "ok"
         assert result["query_type"] == "symptom"
@@ -262,11 +270,15 @@ class TestMCPKnowledgeTool:
 
         hub.runtime = MockRuntime()
 
-        result = asyncio.get_event_loop().run_until_complete(
-            hub.handle_tool_call("get_safety_heuristic", {
-                "condition": "torque_overflow",
-            })
-        )
+        loop = asyncio.new_event_loop()
+        try:
+            result = loop.run_until_complete(
+                hub.handle_tool_call("get_safety_heuristic", {
+                    "condition": "torque_overflow",
+                })
+            )
+        finally:
+            loop.close()
 
         assert result["status"] == "ok"
         assert result["condition"] == "torque_overflow"

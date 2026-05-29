@@ -100,6 +100,7 @@ class Runtime(LifecycleMixin):
         self._knowledge: Optional[Any] = None
         self._how: Optional[Any] = None
         self._e_urdf: Optional[Any] = None
+        self._robot_profile: Optional[Any] = None
         self._sandbox: Optional[Any] = None
         self._episode_recorder: Optional[Any] = None
         self._mcp_drivers: dict[str, Any] = {}
@@ -279,10 +280,22 @@ class Runtime(LifecycleMixin):
                 self._guard_pipeline = GuardPipeline()
                 self._guard_pipeline.add(SchemaGuard())
                 self._guard_pipeline.add(ActionGuard())
-                self._register_builtin_providers()
-                self._register_robot_capabilities()
-                self._load_external_providers()
+                # Create router early so it's always available even if
+                # some provider registrations fail downstream.
                 self._capability_router = CapabilityRouter(self._provider_registry)
+                # Register providers — non-fatal if individual steps fail
+                try:
+                    self._register_builtin_providers()
+                except Exception as e:
+                    print(f"[Runtime] Built-in provider registration warning: {e}")
+                try:
+                    self._register_robot_capabilities()
+                except Exception as e:
+                    print(f"[Runtime] Robot capability registration warning: {e}")
+                try:
+                    self._load_external_providers()
+                except Exception as e:
+                    print(f"[Runtime] External provider loading warning: {e}")
                 print("[Runtime] Provider Layer (Registry + Router + Guard) initialized")
             except Exception as e:
                 print(f"[Runtime] Provider layer not available: {e}")
