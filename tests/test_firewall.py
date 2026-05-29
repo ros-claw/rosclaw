@@ -57,12 +57,15 @@ class TestDigitalTwinFirewall:
         assert firewall.joint_limits == JOINT_LIMITS
 
     def test_initialization_no_limits(self):
-        """Test firewall initializes without explicit joint limits."""
+        """Test firewall initializes with auto-extracted joint limits."""
         fw = DigitalTwinFirewall(
             model_path=str(MODEL_PATH),
             sim_steps_per_check=10,
         )
-        assert fw.joint_limits == {}
+        # DigitalTwin now auto-extracts limits from the model
+        assert len(fw.joint_limits) == 6
+        assert "elbow_joint" in fw.joint_limits
+        assert "shoulder_pan_joint" in fw.joint_limits
 
     def test_reset(self, firewall):
         """Test reset clears simulation state."""
