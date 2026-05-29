@@ -726,7 +726,7 @@ class TestKnowEventBusIntegration:
         ki = KnowledgeInterface(robot_id="test_robot", event_bus=bus)
         ki._do_initialize()
         ki._do_start()
-        events = bus.get_events_for_topic("rosclaw.knowledge.started")
+        events = bus.get_history("rosclaw.knowledge.started")
         assert len(events) == 1
         assert events[0].payload["robot_id"] == "test_robot"
         ki._do_stop()
@@ -743,7 +743,7 @@ class TestKnowEventBusIntegration:
             source="test",
             priority=EventPriority.NORMAL,
         ))
-        events = bus.get_events_for_topic("rosclaw.knowledge.pre_check")
+        events = bus.get_history("rosclaw.knowledge.pre_check")
         assert len(events) >= 1
         assert events[0].payload["capability"] == "skill.pick_and_place"
         ki._do_stop()
@@ -760,7 +760,7 @@ class TestKnowEventBusIntegration:
             source="test",
             priority=EventPriority.NORMAL,
         ))
-        events = bus.get_events_for_topic("rosclaw.knowledge.safety_limits_loaded")
+        events = bus.get_history("rosclaw.knowledge.safety_limits_loaded")
         assert len(events) >= 1
         assert "joint_torque_max" in str(events[0].payload.get("safety_limits", {}))
         ki._do_stop()
@@ -801,7 +801,7 @@ class TestKnowProviderSelection:
         ki = KnowledgeInterface(robot_id="ur5e", event_bus=bus)
         ki._do_initialize()
         ki.record_knowledge_usage({"episode_id": "ep_001", "action": "test"})
-        events = bus.get_events_for_topic("knowledge.ingest_complete")
+        events = bus.get_history("knowledge.ingest_complete")
         assert len(events) >= 1
         ki._do_stop()
 

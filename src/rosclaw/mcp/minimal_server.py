@@ -36,7 +36,14 @@ class ROSClawMinimalMCPServer:
         self.server = Server("rosclaw-minimal")
         self.event_bus = EventBus()
         self.hub = MCPHub(event_bus=self.event_bus, robot_id="rosclaw_default")
-        self.hub.initialize()
+        # Redirect hub init prints to stderr so they don't interfere with stdio JSON-RPC
+        import io
+        old_stdout = sys.stdout
+        sys.stdout = sys.stderr
+        try:
+            self.hub.initialize()
+        finally:
+            sys.stdout = old_stdout
 
         self._register_handlers()
 

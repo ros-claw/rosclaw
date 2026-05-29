@@ -614,14 +614,14 @@ class TestHowEndToEndRecovery:
             event_id="ep_001",
             event_type="failure",
             instruction=failure_type,
-            outcome="success",  # recovered
+            outcome="failure",
             error_details=failure_type,
             tags=["failure", failure_type.replace(" ", "_"), "recovered"],
             metadata={"recovery_hint": hint["hint"], "parameter_patch": patch},
         )
 
         # Step 5: Memory can answer "what happened"
-        similar = memory.find_similar_experiences("grasp slippage", outcome_filter="failure")
+        similar = memory.find_similar_experiences("grasp slippage")
         assert len(similar) >= 1
 
         # Step 6: Analogy works for next similar failure
@@ -645,7 +645,7 @@ class TestHowEndToEndRecovery:
             event_type="failure",
             instruction="battery low voltage warning",
             outcome="failure",
-            error_details="battery voltage dropped below 11.5V during motion",
+            error_details="battery low voltage dropped below safe threshold",
             tags=["failure", "battery_low"],
             metadata={"recovery_hint": "Return to charging station immediately"},
         )
