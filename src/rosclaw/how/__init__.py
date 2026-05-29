@@ -11,5 +11,6 @@ Integration:
   Practice   -> on praxis.failed: record outcome -> update rule stats
 """
 from .engine import HeuristicEngine
+from .recovery import RecoveryEngine, RecoveryFormatter, format_recovery_suggestion
 
-__all__ = ["HeuristicEngine"]
+__all__ = ["HeuristicEngine", "RecoveryEngine", "RecoveryFormatter", "format_recovery_suggestion"]

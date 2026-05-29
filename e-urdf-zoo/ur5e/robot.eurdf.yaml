@@ -1,0 +1,313 @@
+# ROSClaw Extended URDF (e-URDF) — Universal Robots UR5e
+# Physical DNA Registry Entry
+# https://www.universal-robots.com/products/ur5-robot/
+
+robot_id: universal_robots_ur5e
+name: UR5e
+vendor: Universal Robots
+version: "5.12"
+description: >
+  Collaborative 6-DOF industrial manipulator with 5kg payload,
+  850mm reach, ±0.03mm repeatability. Designed for safe human-robot
+  collaboration with force/torque sensing in each joint.
+
+# ── Kinematics ──
+dof: 6
+links:
+  - name: base_link
+    type: base
+    mass: 2.0
+    mesh: "assets/base.dae"
+  - name: shoulder_link
+    type: link
+    mass: 3.761
+    mesh: "assets/shoulder.dae"
+  - name: upper_arm_link
+    type: link
+    mass: 8.058
+    mesh: "assets/upperarm.dae"
+  - name: forearm_link
+    type: link
+    mass: 2.846
+    mesh: "assets/forearm.dae"
+  - name: wrist_1_link
+    type: link
+    mass: 1.37
+    mesh: "assets/wrist1.dae"
+  - name: wrist_2_link
+    type: link
+    mass: 1.37
+    mesh: "assets/wrist2.dae"
+  - name: wrist_3_link
+    type: link
+    mass: 0.202
+    mesh: "assets/wrist3.dae"
+  - name: flange
+    type: end_effector_mount
+    mass: 0.1
+  - name: tool0
+    type: tcp
+    mass: 0.0
+
+joints:
+  - name: shoulder_pan_joint
+    type: revolute
+    parent: base_link
+    child: shoulder_link
+    axis: [0, 0, 1]
+    limits:
+      lower: -6.283185307
+      upper: 6.283185307
+      velocity: 3.141592654
+      effort: 150.0
+  - name: shoulder_lift_joint
+    type: revolute
+    parent: shoulder_link
+    child: upper_arm_link
+    axis: [0, 1, 0]
+    limits:
+      lower: -6.283185307
+      upper: 6.283185307
+      velocity: 3.141592654
+      effort: 150.0
+  - name: elbow_joint
+    type: revolute
+    parent: upper_arm_link
+    child: forearm_link
+    axis: [0, 1, 0]
+    limits:
+      lower: -3.141592654
+      upper: 3.141592654
+      velocity: 3.141592654
+      effort: 150.0
+  - name: wrist_1_joint
+    type: revolute
+    parent: forearm_link
+    child: wrist_1_link
+    axis: [0, 1, 0]
+    limits:
+      lower: -6.283185307
+      upper: 6.283185307
+      velocity: 6.283185307
+      effort: 28.0
+  - name: wrist_2_joint
+    type: revolute
+    parent: wrist_1_link
+    child: wrist_2_link
+    axis: [0, 0, 1]
+    limits:
+      lower: -6.283185307
+      upper: 6.283185307
+      velocity: 6.283185307
+      effort: 28.0
+  - name: wrist_3_joint
+    type: revolute
+    parent: wrist_2_link
+    child: wrist_3_link
+    axis: [0, 1, 0]
+    limits:
+      lower: -6.283185307
+      upper: 6.283185307
+      velocity: 6.283185307
+      effort: 28.0
+
+# ── Sensors ──
+sensors:
+  - name: tcp_force_sensor
+    type: force_torque
+    parent_link: wrist_3_link
+    frame: tool0
+    range:
+      force: [0, 200]   # N
+      torque: [0, 10]  # Nm
+    noise_std:
+      force: 1.0
+      torque: 0.05
+  - name: joint_torque_sensors
+    type: torque
+    parent_link: "*"  # all joints
+    resolution: 0.1   # Nm
+  - name: wrist_camera
+    type: camera
+    parent_link: wrist_2_link
+    resolution: [640, 480]
+    fov: 69.4
+    near: 0.01
+    far: 10.0
+    fps: 30
+  - name: base_imu
+    type: imu
+    parent_link: base_link
+    noise_std:
+      accel: 0.01
+      gyro: 0.001
+
+# ── Actuators ──
+actuators:
+  - name: shoulder_pan_motor
+    type: electric_motor
+    joint: shoulder_pan_joint
+    max_current: 10.0
+    gear_ratio: 101.0
+    control_mode: [position, velocity, torque]
+  - name: shoulder_lift_motor
+    type: electric_motor
+    joint: shoulder_lift_joint
+    max_current: 10.0
+    gear_ratio: 101.0
+    control_mode: [position, velocity, torque]
+  - name: elbow_motor
+    type: electric_motor
+    joint: elbow_joint
+    max_current: 10.0
+    gear_ratio: 101.0
+    control_mode: [position, velocity, torque]
+  - name: wrist_1_motor
+    type: electric_motor
+    joint: wrist_1_joint
+    max_current: 5.0
+    gear_ratio: 50.0
+    control_mode: [position, velocity, torque]
+  - name: wrist_2_motor
+    type: electric_motor
+    joint: wrist_2_joint
+    max_current: 5.0
+    gear_ratio: 50.0
+    control_mode: [position, velocity, torque]
+  - name: wrist_3_motor
+    type: electric_motor
+    joint: wrist_3_joint
+    max_current: 5.0
+    gear_ratio: 50.0
+    control_mode: [position, velocity, torque]
+
+# ── Safety Limits ──
+safety_limits:
+  joint_limits:
+    shoulder_pan_joint: {lower: -6.28, upper: 6.28}
+    shoulder_lift_joint: {lower: -6.28, upper: 6.28}
+    elbow_joint: {lower: -3.14, upper: 3.14}
+    wrist_1_joint: {lower: -6.28, upper: 6.28}
+    wrist_2_joint: {lower: -6.28, upper: 6.28}
+    wrist_3_joint: {lower: -6.28, upper: 6.28}
+  velocity_limits:
+    shoulder_pan_joint: 3.14
+    shoulder_lift_joint: 3.14
+    elbow_joint: 3.14
+    wrist_1_joint: 6.28
+    wrist_2_joint: 6.28
+    wrist_3_joint: 6.28
+  force_limits:
+    max_tcp_force: 200.0
+    max_tcp_torque: 10.0
+    max_joint_effort: 150.0
+  workspace:
+    type: sphere
+    center: [0, 0, 0.425]  # relative to base_link
+    radius: 0.85
+    height_min: 0.0
+    height_max: 1.2
+  collision_pairs_to_check:
+    - [upper_arm_link, forearm_link]
+    - [forearm_link, wrist_1_link]
+  power_limits:
+    max_power: 350.0  # W
+    max_current_total: 40.0  # A
+
+# ── Capabilities ──
+capabilities:
+  - name: pick_and_place
+    type: manipulation
+    skill_type: programmed
+    parameters:
+      object: {type: str, description: "Object identifier or class"}
+      location: {type: str, description: "Target location identifier"}
+      grip_force: {type: float, default: 20.0, unit: N}
+    constraints:
+      max_payload: 5.0
+      max_reach: 0.85
+      requires_gripper: true
+  - name: push
+    type: manipulation
+    skill_type: programmed
+    parameters:
+      object: {type: str}
+      direction: {type: list, shape: [3]}
+      distance: {type: float, unit: m}
+  - name: scan_workspace
+    type: perception
+    skill_type: programmed
+    parameters:
+      resolution: {type: str, enum: [low, medium, high], default: medium}
+    sensors_used: [wrist_camera]
+  - name: force_compliant_insert
+    type: assembly
+    skill_type: composed
+    parameters:
+      hole_location: {type: str}
+      insertion_depth: {type: float, unit: m}
+      max_force: {type: float, default: 50.0, unit: N}
+    sensors_used: [tcp_force_sensor]
+  - name: hand_guided_teaching
+    type: teaching
+    skill_type: programmed
+    parameters:
+      record_trajectory: {type: bool, default: true}
+      sample_rate: {type: float, default: 125.0, unit: Hz}
+
+# ── Simulation Backends ──
+simulation_backends:
+  mujoco:
+    model_file: robot.mjcf.xml
+    timestep: 0.002
+    integrator: implicitfast
+    solver: newton
+    iterations: 50
+    ls_iterations: 10
+    gravity: [0, 0, -9.81]
+    contact:
+      friction: [1.0, 0.005, 0.0001]
+      solref: [0.02, 1.0]
+      solimp: [0.9, 0.95, 0.001]
+  isaac:
+    model_file: robot.urdf
+    stage_units: meters
+    physics_dt: 0.00833
+    rendering_dt: 0.01667
+    gpu_physics: false
+  gazebo:
+    model_file: robot.urdf
+    physics_engine: ode
+    max_step_size: 0.001
+    real_time_factor: 1.0
+
+# ── Semantic Tags ──
+semantic_tags:
+  - collaborative_robot
+  - industrial
+  - 6dof
+  - force_sensing
+  - pick_and_place
+  - assembly
+  - european
+  - ur_series
+
+# ── Metadata ──
+metadata:
+  urdf_version: "1.0"
+  ros2_package: ur_description
+  moveit_config_package: ur_moveit_config
+  ros2_controllers:
+    - joint_trajectory_controller
+    - forward_command_controller
+    - scaled_joint_trajectory_controller
+  default_controller: scaled_joint_trajectory_controller
+  gripper_options:
+    - Robotiq 2F-85
+    - Robotiq 2F-140
+    - OnRobot RG2
+    - OnRobot RG6
+    - SCHUNK EGP
+  calibration_file: "assets/default_calibration.yaml"
+  firmware_min: "5.12"
+  certification: [CE, ISO_10218_1, ISO_13849_1]

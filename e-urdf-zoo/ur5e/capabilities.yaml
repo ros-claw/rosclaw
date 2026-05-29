@@ -1,0 +1,163 @@
+# UR5e Capability Profile — Physical DNA Capability Layer
+# Defines what this robot can do and how it maps to skills
+
+capability_version: "1.0"
+robot_id: universal_robots_ur5e
+
+# ── Core Capabilities ──
+capabilities:
+  # ── Manipulation ──
+  - id: ur5e_pick_and_place
+    name: pick_and_place
+    category: manipulation
+    description: "Pick an object from one location and place at another"
+    skill_type: programmed
+    skill_package: ur5e_manipulation
+    inputs:
+      - name: object
+        type: str
+        description: "Object identifier or semantic class"
+      - name: pick_location
+        type: pose
+        frame: world
+        description: "6-DOF pose for pick approach"
+      - name: place_location
+        type: pose
+        frame: world
+        description: "6-DOF pose for place approach"
+      - name: grip_force
+        type: float
+        default: 20.0
+        unit: N
+        range: [0, 120]
+    preconditions:
+      - gripper_attached
+      - object_in_reach
+      - object_mass_leq_5kg
+    postconditions:
+      - object_at_place_location
+    required_hardware:
+      - gripper
+    required_software:
+      - moveit2
+      - ros2_control
+    estimated_duration: {mean: 8.0, std: 2.0, unit: s}
+    success_metrics:
+      - name: placement_accuracy
+        target: 0.002
+        unit: m
+      - name: grasp_stability
+        target: 0.95
+    failure_modes:
+      - name: grasp_miss
+        symptoms: [object_not_in_gripper]
+        recovery: retry_with_adjusted_approach
+      - name: object_slippage
+        symptoms: [force_drop, object_moved]
+        recovery: increase_grip_force_and_retry
+
+  - id: ur5e_push
+    name: push
+    category: manipulation
+    description: "Push an object in a specified direction"
+    skill_type: programmed
+    inputs:
+      - name: object
+        type: str
+      - name: direction
+        type: vector3
+      - name: distance
+        type: float
+        unit: m
+    preconditions:
+      - object_in_reach
+    estimated_duration: {mean: 3.0, unit: s}
+
+  - id: ur5e_force_compliant_insert
+    name: force_compliant_insert
+    category: assembly
+    description: "Insert a peg into a hole using force feedback"
+    skill_type: composed
+    inputs:
+      - name: hole_location
+        type: pose
+      - name: insertion_depth
+        type: float
+        unit: m
+      - name: max_force
+        type: float
+        default: 50.0
+        unit: N
+    preconditions:
+      - tcp_force_sensor_active
+    required_sensors: [tcp_force_sensor]
+    estimated_duration: {mean: 5.0, unit: s}
+
+  # ── Perception ──
+  - id: ur5e_scan_workspace
+    name: scan_workspace
+    category: perception
+    description: "Scan the reachable workspace with wrist camera"
+    skill_type: programmed
+    inputs:
+      - name: resolution
+        type: str
+        enum: [low, medium, high]
+        default: medium
+    required_sensors: [wrist_camera]
+    output: point_cloud_or_image_set
+
+  # ── Teaching ──
+  - id: ur5e_hand_guided_teaching
+    name: hand_guided_teaching
+    category: teaching
+    description: "Record a trajectory by physically guiding the robot"
+    skill_type: programmed
+    inputs:
+      - name: record_trajectory
+        type: bool
+        default: true
+      - name: sample_rate
+        type: float
+        default: 125.0
+        unit: Hz
+    safety:
+      - protective_stop_on_contact
+      - speed_limited
+    output: recorded_trajectory
+
+# ── Skill Registry Mapping ──
+skill_registry:
+  ur5e_manipulation:
+    version: "1.0"
+    skills:
+      - pick_and_place
+      - push
+      - slide
+  ur5e_assembly:
+    version: "1.0"
+    skills:
+      - force_compliant_insert
+      - screw
+      - press_fit
+  ur5e_perception:
+    version: "1.0"
+    skills:
+      - scan_workspace
+      - object_detection
+      - pose_estimation
+
+# ── Capability Preconditions ──
+precondition_checks:
+  gripper_attached:
+    check: "tool0.child_links > 0"
+    description: "A gripper or tool must be attached to the flange"
+  object_in_reach:
+    check: "euclidean_distance(object.pose, base_link.pose) <= 0.85"
+    description: "Object must be within robot reach"
+  object_mass_leq_5kg:
+    check: "object.mass <= 5.0"
+    description: "Object must not exceed 5kg payload"
+  tcp_force_sensor_active:
+    check: "sensors.tcp_force_sensor.status == ACTIVE"
+    description: "TCP force/torque sensor must be active"

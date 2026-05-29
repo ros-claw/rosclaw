@@ -373,16 +373,17 @@ class Runtime(LifecycleMixin):
         if self._how is None:
             return
         try:
+            import asyncio
             from rosclaw.how.recovery import RecoveryEngine
 
             failure_type = event.payload.get("failure_type", "")
             request_id = event.payload.get("request_id", "")
             re = RecoveryEngine(self._how)
-            hint = re.generate_recovery_hint(
+            hint = asyncio.run(re.generate_recovery_hint(
                 failure_type,
                 context={"request_id": request_id, "source": "sandbox"},
                 sources=["sandbox_episode"],
-            )
+            ))
             if hint:
                 payload = re.format_for_eventbus(hint, request_id=request_id)
                 self.event_bus.publish(Event(
@@ -400,16 +401,17 @@ class Runtime(LifecycleMixin):
         if self._how is None:
             return
         try:
+            import asyncio
             from rosclaw.how.recovery import RecoveryEngine
 
             failure_type = event.payload.get("reason", "")
             request_id = event.payload.get("request_id", "")
             re = RecoveryEngine(self._how)
-            hint = re.generate_recovery_hint(
+            hint = asyncio.run(re.generate_recovery_hint(
                 failure_type,
                 context={"request_id": request_id, "source": "sandbox"},
                 sources=["sandbox_action"],
-            )
+            ))
             if hint:
                 payload = re.format_for_eventbus(hint, request_id=request_id)
                 self.event_bus.publish(Event(
@@ -427,16 +429,17 @@ class Runtime(LifecycleMixin):
         if self._how is None:
             return
         try:
+            import asyncio
             from rosclaw.how.recovery import RecoveryEngine
 
             failure_type = event.payload.get("error_type", "")
             request_id = event.payload.get("request_id", "")
             re = RecoveryEngine(self._how)
-            hint = re.generate_recovery_hint(
+            hint = asyncio.run(re.generate_recovery_hint(
                 failure_type,
                 context={"request_id": request_id, "source": "runtime"},
                 sources=["runtime_execution"],
-            )
+            ))
             if hint:
                 payload = re.format_for_eventbus(hint, request_id=request_id)
                 self.event_bus.publish(Event(

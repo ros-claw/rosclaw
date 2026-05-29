@@ -147,6 +147,14 @@ class HeuristicEngine:
             ("joint overload", "Reduce payload and re-home joints; check current limits", 3),
             ("collision avoidance", "Switch to compliant mode and back off 5cm", 2),
             ("communication timeout", "Retry with exponential backoff; check ROS master", 1),
+            ("grasp slippage", "Increase gripper force by 15%, approach 2cm lower, reduce lateral speed", 2),
+            ("collision predicted", "Adjust trajectory and increase safety clearance", 2),
+            ("object not found", "Adjust camera angle and expand search range", 1),
+            ("force exceeded", "Switch to compliant mode and reduce contact force", 3),
+            ("unstable grasp", "Add support point and change grasp pose", 2),
+            ("path blocked", "Request obstacle clearance or replan path", 1),
+            ("sensor failure", "Switch to backup sensor and verify calibration", 2),
+            ("communication lost", "Retry connection and fallback to local control", 3),
         ]
         inserted = 0
         for idx, (condition, action, priority) in enumerate(defaults):
@@ -241,6 +249,37 @@ class HeuristicEngine:
             "success_count": int(rule.get("success_count", 0)),
             "failure_count": int(rule.get("failure_count", 0)),
         }
+
+    # ── retry plan ───────────────────────────────────────────────────────
+
+    async def get_retry_plan(
+        self,
+        failure_type: str,
+        context: Optional[dict[str, Any]] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Build a structured retry plan for a failure type.
+
+        Looks up the heuristic rule and converts it into a parameter patch
+        that the caller can apply on the next attempt.
+
+        Returns:
+            {
+                "failure_type": str,
+                "action": "retry_with_adjustments",
+                "parameter_patch": dict,
+                "max_retries": int,
+                "rule_id": str,
+            } or None.
+        """
+        rule = await self.suggest_recovery(failure_type, context)
+        if rule is None:
+            return None
+
+        from rosclaw.how.recovery import RecoveryEngine
+
+        re = RecoveryEngine(self)
+        retry_plan = re.build_retry_plan(failure_type, rule, context)
+        return retry_plan
 
     # ── stats ────────────────────────────────────────────────────────────
 

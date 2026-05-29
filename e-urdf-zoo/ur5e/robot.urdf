@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+<!-- UR5e URDF — Physical DNA Standard URDF Layer -->
+<!-- Full mesh URDF available in ROS 2 ur_description package -->
+<robot name="ur5e">
+  <link name="base_link"/>
+  <link name="shoulder_link"/>
+  <link name="upper_arm_link"/>
+  <link name="forearm_link"/>
+  <link name="wrist_1_link"/>
+  <link name="wrist_2_link"/>
+  <link name="wrist_3_link"/>
+  <link name="flange"/>
+  <link name="tool0"/>
+
+  <joint name="shoulder_pan_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="shoulder_link"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-6.283185307" upper="6.283185307" velocity="3.141592654" effort="150.0"/>
+  </joint>
+  <joint name="shoulder_lift_joint" type="revolute">
+    <parent link="shoulder_link"/>
+    <child link="upper_arm_link"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-6.283185307" upper="6.283185307" velocity="3.141592654" effort="150.0"/>
+  </joint>
+  <joint name="elbow_joint" type="revolute">
+    <parent link="upper_arm_link"/>
+    <child link="forearm_link"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-3.141592654" upper="3.141592654" velocity="3.141592654" effort="150.0"/>
+  </joint>
+  <joint name="wrist_1_joint" type="revolute">
+    <parent link="forearm_link"/>
+    <child link="wrist_1_link"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-6.283185307" upper="6.283185307" velocity="6.283185307" effort="28.0"/>
+  </joint>
+  <joint name="wrist_2_joint" type="revolute">
+    <parent link="wrist_1_link"/>
+    <child link="wrist_2_link"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-6.283185307" upper="6.283185307" velocity="6.283185307" effort="28.0"/>
+  </joint>
+  <joint name="wrist_3_joint" type="revolute">
+    <parent link="wrist_2_link"/>
+    <child link="wrist_3_link"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-6.283185307" upper="6.283185307" velocity="6.283185307" effort="28.0"/>
+  </joint>
+  <joint name="wrist_3_link-flange" type="fixed">
+    <parent link="wrist_3_link"/>
+    <child link="flange"/>
+  </joint>
+  <joint name="flange-tool0" type="fixed">
+    <parent link="flange"/>
+    <child link="tool0"/>
+  </joint>
+
+  <metadata>
+    <robot_id>universal_robots_ur5e</robot_id>
+    <vendor>Universal Robots</vendor>
+    <version>5.12</version>
+  </metadata>
+</robot>

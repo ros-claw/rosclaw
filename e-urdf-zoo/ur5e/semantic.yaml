@@ -1,0 +1,102 @@
+# UR5e Semantic Annotation — Physical DNA Semantic Layer
+# For VLM/LLM grounding and task decomposition
+
+semantic_version: "1.0"
+
+# ── Functional Regions ──
+functional_regions:
+  - name: base
+    link: base_link
+    tags: [mount, stationary, foundation]
+    description: "Fixed base mounting point"
+    affordances: []
+
+  - name: shoulder
+    link: shoulder_link
+    tags: [rotary, yaw, vertical_axis]
+    description: "First rotary joint around vertical axis"
+    affordances: [rotate]
+
+  - name: upper_arm
+    link: upper_arm_link
+    tags: [structural, long_link, main_segment]
+    description: "Main upper arm segment"
+    affordances: []
+    visual_features:
+      - type: cylinder
+        color: silver
+        dominant: true
+
+  - name: forearm
+    link: forearm_link
+    tags: [structural, long_link]
+    description: "Forearm segment between elbow and wrist"
+    affordances: []
+    visual_features:
+      - type: cylinder
+        color: silver
+
+  - name: wrist_assembly
+    links: [wrist_1_link, wrist_2_link, wrist_3_link]
+    tags: [wrist, compact, dexterous, 3dof]
+    description: "Three intersecting wrist joints providing orientation dexterity"
+    affordances: [orient, rotate]
+
+  - name: tool_mount
+    link: flange
+    tags: [end_effector_mount, coupling, tcp]
+    description: "ISO 9409-1-50-4-M6 tool mounting flange"
+    affordances: [attach_tool, attach_gripper]
+    geometry:
+      type: cylinder
+      diameter: 0.050  # m
+      bolt_pattern: 4xM6
+
+# ── Grasp Points / Affordances ──
+grasp_points:
+  - name: upper_arm_grasp
+    link: upper_arm_link
+    position: [0, 0, 0.15]      # relative to link frame
+    approach_direction: [0, 0, 1]
+    description: "For human hand-guiding during teaching"
+    safety: {max_force: 50.0}
+
+  - name: forearm_grasp
+    link: forearm_link
+    position: [0, 0, 0.10]
+    approach_direction: [0, 0, 1]
+    description: "For human hand-guiding during teaching"
+    safety: {max_force: 50.0}
+
+# ── Visual Features for VLM Grounding ──
+visual_features:
+  - name: shoulder_joint_visible
+    type: rotary_joint
+    links: [base_link, shoulder_link]
+    visual_cues: [black_ring, silver_cylinder]
+    llm_description: "The circular joint where the robot body connects to the base"
+
+  - name: elbow_joint_visible
+    type: rotary_joint
+    links: [upper_arm_link, forearm_link]
+    visual_cues: [black_ring]
+    llm_description: "The elbow joint that bends the arm"
+
+  - name: wrist_joints_visible
+    type: compact_joint_cluster
+    links: [wrist_1_link, wrist_2_link, wrist_3_link]
+    visual_cues: [silver_block, compact]
+    llm_description: "The compact wrist assembly near the end of the arm"
+
+# ── Task-Relevant Descriptions ──
+task_descriptions:
+  pick_and_place:
+    relevant_links: [wrist_3_link, flange, tool0]
+    relevant_joints: [wrist_1_joint, wrist_2_joint, wrist_3_joint]
+    workspace_hint: "Objects should be within 850mm of the base"
+    collision_warning: "Watch the elbow joint when reaching low objects"
+
+  hand_guided_teaching:
+    relevant_links: [upper_arm_link, forearm_link]
+    description: "Gently hold the upper arm or forearm to guide motion"
+    safety: "Do not grasp the wrist joints or tool mount"

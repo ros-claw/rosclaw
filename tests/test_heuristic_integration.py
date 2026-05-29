@@ -4,7 +4,7 @@ import pytest
 
 from rosclaw.how.engine import HeuristicEngine
 from rosclaw.how.rules import RuleManager
-from rosclaw.how.recovery import RecoveryFormatter, format_recovery_suggestion
+from rosclaw.how.recovery import RecoveryEngine, RecoveryFormatter, format_recovery_suggestion
 from rosclaw.memory.seekdb_client import SeekDBMemoryClient
 
 
@@ -84,6 +84,63 @@ class TestHeuristicEngine:
         assert "backoff" in recovery["action"].lower()
         assert recovery["source"] == "heuristic"
 
+    @pytest.mark.asyncio
+    async def test_get_retry_plan_grasp_slippage(self, engine):
+        await engine.seed_defaults()
+        plan = await engine.get_retry_plan("grasp slippage")
+        assert plan is not None
+        assert plan["action"] == "retry_with_adjustments"
+        patch = plan["parameter_patch"]
+        assert "gripper_force_offset" in patch
+        assert "approach_offset_z" in patch
+
+    @pytest.mark.asyncio
+    async def test_get_retry_plan_collision_predicted(self, engine):
+        await engine.seed_defaults()
+        plan = await engine.get_retry_plan("collision predicted")
+        assert plan is not None
+        patch = plan["parameter_patch"]
+        assert "safety_clearance" in patch
+        assert "velocity_factor" in patch
+
+    @pytest.mark.asyncio
+    async def test_get_retry_plan_object_not_found(self, engine):
+        await engine.seed_defaults()
+        plan = await engine.get_retry_plan("object not found")
+        assert plan is not None
+        patch = plan["parameter_patch"]
+        assert "camera_angle_offset" in patch
+
+    @pytest.mark.asyncio
+    async def test_get_retry_plan_force_exceeded(self, engine):
+        await engine.seed_defaults()
+        plan = await engine.get_retry_plan("force exceeded")
+        assert plan is not None
+        patch = plan["parameter_patch"]
+        assert patch.get("control_mode") == "compliant"
+
+    @pytest.mark.asyncio
+    async def test_get_retry_plan_sensor_failure(self, engine):
+        await engine.seed_defaults()
+        plan = await engine.get_retry_plan("sensor failure")
+        assert plan is not None
+        patch = plan["parameter_patch"]
+        assert patch.get("sensor_fusion") is True
+
+    @pytest.mark.asyncio
+    async def test_get_retry_plan_communication_lost(self, engine):
+        await engine.seed_defaults()
+        plan = await engine.get_retry_plan("communication lost")
+        assert plan is not None
+        patch = plan["parameter_patch"]
+        assert "timeout_multiplier" in patch
+
+    @pytest.mark.asyncio
+    async def test_get_retry_plan_no_match(self, engine):
+        await engine.seed_defaults()
+        plan = await engine.get_retry_plan("totally unknown failure xyz")
+        assert plan is None
+
 
 class TestRuleManager:
     """Tests for RuleManager CRUD operations."""
@@ -141,6 +198,72 @@ class TestRecoveryFormatter:
     def test_format_recovery_suggestion_none(self):
         text = format_recovery_suggestion(None)
         assert "No heuristic" in text
+
+
+class TestRecoveryEngine:
+    """Tests for RecoveryEngine RecoveryHint generation."""
+
+    @pytest.fixture
+    def recovery_engine(self):
+        client = SeekDBMemoryClient()
+        client.connect()
+        how = HeuristicEngine(seekdb_client=client)
+        return RecoveryEngine(how)
+
+    @pytest.mark.asyncio
+    async def test_generate_recovery_hint_grasp_slippage(self, recovery_engine):
+        await recovery_engine._how.seed_defaults()
+        hint = recovery_engine.generate_recovery_hint("grasp slippage")
+        assert hint is not None
+        assert hint["failure_type"] == "grasp slippage"
+        assert "gripper" in hint["hint"].lower()
+        assert 0.0 <= hint["confidence"] <= 1.0
+        assert "retry_plan" in hint
+        assert hint["retry_plan"]["parameter_patch"]["gripper_force_offset"] == 0.15
+
+    @pytest.mark.asyncio
+    async def test_generate_recovery_hint_collision_predicted(self, recovery_engine):
+        await recovery_engine._how.seed_defaults()
+        hint = recovery_engine.generate_recovery_hint("collision predicted")
+        assert hint is not None
+        assert "trajectory" in hint["hint"].lower()
+
+    @pytest.mark.asyncio
+    async def test_generate_recovery_hint_unstable_grasp(self, recovery_engine):
+        await recovery_engine._how.seed_defaults()
+        hint = recovery_engine.generate_recovery_hint("unstable grasp")
+        assert hint is not None
+        assert "support" in hint["hint"].lower()
+
+    @pytest.mark.asyncio
+    async def test_generate_recovery_hint_path_blocked(self, recovery_engine):
+        await recovery_engine._how.seed_defaults()
+        hint = recovery_engine.generate_recovery_hint("path blocked")
+        assert hint is not None
+        assert "obstacle" in hint["hint"].lower()
+
+    @pytest.mark.asyncio
+    async def test_generate_recovery_hint_no_match(self, recovery_engine):
+        await recovery_engine._how.seed_defaults()
+        hint = recovery_engine.generate_recovery_hint("magical unicorn failure")
+        assert hint is None
+
+    @pytest.mark.asyncio
+    async def test_format_for_eventbus(self, recovery_engine):
+        await recovery_engine._how.seed_defaults()
+        hint = recovery_engine.generate_recovery_hint("grasp slippage")
+        payload = recovery_engine.format_for_eventbus(hint, request_id="req99")
+        assert payload["request_id"] == "req99"
+        assert payload["failure_type"] == "grasp slippage"
+        assert "confidence" in payload
+        assert "retry_plan" in payload
+
+    @pytest.mark.asyncio
+    async def test_build_retry_plan_with_context(self, recovery_engine):
+        await recovery_engine._how.seed_defaults()
+        rule = await recovery_engine._how.suggest_recovery("grasp slippage")
+        plan = recovery_engine.build_retry_plan("grasp slippage", rule, {"max_retries": 5})
+        assert plan["max_retries"] == 5
 
 
 class TestMCPHeuristicTool:
@@ -210,3 +333,73 @@ class TestMCPHeuristicTool:
 
         assert result["status"] == "ok"
         assert result["matched"] is False
+
+
+class TestRuntimeRecoveryHandlers:
+    """Tests for Runtime EventBus recovery handlers."""
+
+    def test_sandbox_episode_failed_handler(self):
+        from rosclaw.core.runtime import Runtime, RuntimeConfig
+        from rosclaw.core.event_bus import Event, EventPriority
+
+        config = RuntimeConfig(enable_how=True, enable_memory=True)
+        runtime = Runtime(config)
+        runtime._do_initialize()
+
+        # Publish a sandbox episode failed event
+        event = Event(
+            topic="rosclaw.sandbox.episode.failed",
+            payload={"failure_type": "grasp slippage", "request_id": "ep001"},
+            source="sandbox",
+            priority=EventPriority.HIGH,
+        )
+        runtime.event_bus.publish(event)
+
+        # Check that recovery_hint.generated event was published
+        history = runtime.event_bus.get_history("rosclaw.how.recovery_hint.generated")
+        assert len(history) >= 1
+        last = history[-1]
+        assert last.payload["failure_type"] == "grasp slippage"
+        assert "retry_plan" in last.payload
+
+    def test_sandbox_action_blocked_handler(self):
+        from rosclaw.core.runtime import Runtime, RuntimeConfig
+        from rosclaw.core.event_bus import Event, EventPriority
+
+        config = RuntimeConfig(enable_how=True, enable_memory=True)
+        runtime = Runtime(config)
+        runtime._do_initialize()
+
+        event = Event(
+            topic="rosclaw.sandbox.action.blocked",
+            payload={"reason": "collision predicted", "request_id": "act042"},
+            source="sandbox",
+            priority=EventPriority.HIGH,
+        )
+        runtime.event_bus.publish(event)
+
+        history = runtime.event_bus.get_history("rosclaw.how.recovery_hint.generated")
+        assert len(history) >= 1
+        last = history[-1]
+        assert last.payload["failure_type"] == "collision predicted"
+
+    def test_runtime_execution_failed_handler(self):
+        from rosclaw.core.runtime import Runtime, RuntimeConfig
+        from rosclaw.core.event_bus import Event, EventPriority
+
+        config = RuntimeConfig(enable_how=True, enable_memory=True)
+        runtime = Runtime(config)
+        runtime._do_initialize()
+
+        event = Event(
+            topic="rosclaw.runtime.execution.failed",
+            payload={"error_type": "sensor failure", "request_id": "exec123"},
+            source="runtime",
+            priority=EventPriority.HIGH,
+        )
+        runtime.event_bus.publish(event)
+
+        history = runtime.event_bus.get_history("rosclaw.how.recovery_hint.generated")
+        assert len(history) >= 1
+        last = history[-1]
+        assert last.payload["failure_type"] == "sensor failure"

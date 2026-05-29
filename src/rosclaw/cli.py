@@ -9,6 +9,10 @@ Commands:
     rosclaw run                Start the ROSClaw runtime
     rosclaw start              Alias for run (legacy)
     rosclaw status             Show runtime status
+    rosclaw robot list         List available robots
+    rosclaw robot install ID   Install/register a robot
+    rosclaw robot inspect ID   Show complete robot profile
+    rosclaw robot validate ID  Validate e-URDF completeness
 """
 
 import argparse
@@ -163,6 +167,182 @@ def cmd_status(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_robot_list(_args: argparse.Namespace) -> int:
+    """List all available robots in the e-URDF-Zoo."""
+    from rosclaw.runtime import RobotRegistry
+
+    registry = RobotRegistry()
+    available = registry.list_available()
+    registered = registry.list()
+
+    print("=" * 50)
+    print("ROSClaw e-URDF-Zoo — Robot Registry")
+    print("=" * 50)
+
+    if available:
+        print(f"\nAvailable robots ({len(available)}):")
+        for rid in available:
+            status = "[installed]" if rid in registered else "[available]"
+            print(f"  {status:<12} {rid}")
+    else:
+        print("\nNo robots found in e-URDF-Zoo.")
+        print("Expected path: e-urdf-zoo/<robot_id>/robot.eurdf.yaml")
+
+    if registered:
+        print(f"\nInstalled robots ({len(registered)}):")
+        for rid in registered:
+            print(f"  [installed]  {rid}")
+
+    print("=" * 50)
+    print("\nCommands:")
+    print("  rosclaw robot install <robot_id>")
+    print("  rosclaw robot inspect <robot_id>")
+    print("  rosclaw robot validate <robot_id>")
+    return 0
+
+
+def cmd_robot_install(args: argparse.Namespace) -> int:
+    """Install/register a robot from the e-URDF-Zoo."""
+    from rosclaw.runtime import RobotRegistry
+
+    registry = RobotRegistry()
+    robot_id = args.robot_id
+
+    print(f"[ROSClaw] Installing robot: {robot_id} ...")
+    try:
+        profile = registry.install(robot_id)
+        print(f"[ROSClaw] ✅ Installed: {profile.name} ({profile.robot_id})")
+        print(f"[ROSClaw]    Vendor:  {profile.vendor}")
+        print(f"[ROSClaw]    DOF:     {profile.embodiment.dof}")
+        print(f"[ROSClaw]    Links:   {len(profile.embodiment.links)}")
+        print(f"[ROSClaw]    Joints:  {len(profile.embodiment.joints)}")
+        print(f"[ROSClaw]    Sensors: {len(profile.embodiment.sensors)}")
+        return 0
+    except FileNotFoundError as exc:
+        print(f"[ROSClaw] ❌ Installation failed: {exc}")
+        available = registry.list_available()
+        if available:
+            print(f"[ROSClaw] Available robots: {', '.join(available)}")
+        return 1
+
+
+def cmd_robot_inspect(args: argparse.Namespace) -> int:
+    """Show complete robot profile."""
+    import json
+    from rosclaw.runtime import RobotRegistry
+
+    registry = RobotRegistry()
+    robot_id = args.robot_id
+
+    try:
+        profile = registry.inspect(robot_id)
+    except FileNotFoundError:
+        print(f"[ROSClaw] ❌ Robot '{robot_id}' not found.")
+        available = registry.list_available()
+        if available:
+            print(f"[ROSClaw] Available: {', '.join(available)}")
+        return 1
+
+    emb = profile["embodiment"]
+    safety = profile["safety"]
+    cap = profile["capability"]
+    sim = profile["simulation"]
+    sem = profile["semantic"]
+
+    print("=" * 60)
+    print(f"Robot Profile: {profile['name']} ({profile['robot_id']})")
+    print("=" * 60)
+    print(f"Vendor:      {profile['vendor']}")
+    print(f"Version:     {profile['version']}")
+    print(f"Description: {profile['description'].strip()}")
+    print()
+    print(f"DOF:         {emb['dof']}")
+    print(f"Links:       {len(emb['links'])}")
+    for link in emb["links"]:
+        print(f"  • {link['name']} ({link.get('type', 'link')}, mass={link.get('mass', 0)}kg)")
+    print()
+    print(f"Joints:      {len(emb['joints'])}")
+    for joint in emb["joints"]:
+        lim = joint.get("limits", {})
+        lim_str = f"[{lim.get('lower', 0):.2f}, {lim.get('upper', 0):.2f}]" if lim else "[-, -]"
+        print(f"  • {joint['name']} ({joint['type']}) limits={lim_str}")
+    print()
+    print(f"Sensors:     {len(emb['sensors'])}")
+    for sensor in emb["sensors"]:
+        print(f"  • {sensor['name']} ({sensor['type']}) on {sensor.get('parent_link', 'N/A')}")
+    print()
+    print(f"Actuators:   {len(emb['actuators'])}")
+    for act in emb["actuators"]:
+        modes = ", ".join(act.get("control_mode", []))
+        print(f"  • {act['name']} ({act['type']}) joint={act['joint']} modes=[{modes}]")
+    print()
+    print("Safety Limits:")
+    print(f"  Safety Level: {safety['safety_level']}")
+    if safety.get("pfl"):
+        print(f"  PFL max TCP force: {safety['pfl'].get('max_tcp_force', 'N/A')} N")
+    if safety.get("workspace_boundaries"):
+        print(f"  Workspace: {safety['workspace_boundaries'].get('type', 'N/A')}")
+    print()
+    print("Capabilities:")
+    for capability in cap.get("capabilities", []):
+        print(f"  • {capability['name']} ({capability['category']}) — {capability.get('description', '')}")
+    print()
+    print("Simulation Backends:")
+    for backend_name, backend_cfg in sim.get("backends", {}).items():
+        print(f"  • {backend_name}: {backend_cfg.get('model_file', 'N/A')}")
+    print()
+    print("Semantic Tags:")
+    print(f"  {', '.join(sem.get('semantic_tags', []))}")
+    print("=" * 60)
+
+    if args.json:
+        print("\n--- JSON Output ---")
+        print(json.dumps(profile, indent=2, default=str))
+
+    return 0
+
+
+def cmd_robot_validate(args: argparse.Namespace) -> int:
+    """Validate e-URDF completeness for a robot."""
+    from rosclaw.runtime import RobotRegistry
+
+    registry = RobotRegistry()
+    robot_id = args.robot_id
+
+    print(f"[ROSClaw] Validating e-URDF for: {robot_id} ...")
+    result = registry.validate(robot_id)
+
+    print()
+    print("=" * 50)
+    print(f"Validation Result: {robot_id}")
+    print("=" * 50)
+    print(f"Valid: {'✅ YES' if result['valid'] else '❌ NO'}")
+    print()
+
+    if result["files_found"]:
+        print(f"Files found ({len(result['files_found'])}):")
+        for f in result["files_found"]:
+            print(f"  ✅ {f}")
+
+    if result["files_missing"]:
+        print(f"\nFiles missing ({len(result['files_missing'])}):")
+        for f in result["files_missing"]:
+            print(f"  ❌ {f}")
+
+    if result["warnings"]:
+        print(f"\nWarnings ({len(result['warnings'])}):")
+        for w in result["warnings"]:
+            print(f"  ⚠️  {w}")
+
+    if result["errors"]:
+        print(f"\nErrors ({len(result['errors'])}):")
+        for e in result["errors"]:
+            print(f"  🚫 {e}")
+
+    print("=" * 50)
+    return 0 if result["valid"] else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="rosclaw",
@@ -200,6 +380,22 @@ def main() -> int:
 
     subparsers.add_parser("status", help="Show runtime status")
 
+    # robot subcommand
+    robot_parser = subparsers.add_parser("robot", help="Robot registry commands")
+    robot_subparsers = robot_parser.add_subparsers(dest="robot_command")
+
+    robot_subparsers.add_parser("list", help="List available robots")
+
+    robot_install_parser = robot_subparsers.add_parser("install", help="Install/register a robot")
+    robot_install_parser.add_argument("robot_id", help="Robot identifier (e.g., ur5e)")
+
+    robot_inspect_parser = robot_subparsers.add_parser("inspect", help="Inspect robot profile")
+    robot_inspect_parser.add_argument("robot_id", help="Robot identifier")
+    robot_inspect_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    robot_validate_parser = robot_subparsers.add_parser("validate", help="Validate robot e-URDF")
+    robot_validate_parser.add_argument("robot_id", help="Robot identifier")
+
     args = parser.parse_args()
 
     if args.command == "init":
@@ -208,6 +404,18 @@ def main() -> int:
         return cmd_run(args)
     elif args.command == "status":
         return cmd_status(args)
+    elif args.command == "robot":
+        if args.robot_command == "list":
+            return cmd_robot_list(args)
+        elif args.robot_command == "install":
+            return cmd_robot_install(args)
+        elif args.robot_command == "inspect":
+            return cmd_robot_inspect(args)
+        elif args.robot_command == "validate":
+            return cmd_robot_validate(args)
+        else:
+            robot_parser.print_help()
+            return 1
     else:
         parser.print_help()
         return 1
