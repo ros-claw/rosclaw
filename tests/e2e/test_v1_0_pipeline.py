@@ -127,7 +127,10 @@ class TestFullPipeline:
         ))
 
         assert len(praxis_captured) >= 1
-        recorded = praxis_captured[-1]
+        # Find the EpisodeRecorder event (has artifact_uri)
+        recorder_events = [e for e in praxis_captured if "artifact_uri" in e.payload]
+        assert len(recorder_events) >= 1
+        recorded = recorder_events[0]
         assert recorded.payload["event_id"] == "e2e-full-001"
         assert recorded.payload["outcome"] == "success"
 
@@ -158,7 +161,9 @@ class TestFullPipeline:
         ))
 
         assert len(praxis_captured) >= 1
-        recorded = praxis_captured[-1]
+        recorder_events = [e for e in praxis_captured if "artifact_uri" in e.payload]
+        assert len(recorder_events) >= 1
+        recorded = recorder_events[0]
         assert recorded.payload["outcome"] == "BLOCKED"
 
     def test_runtime_lifecycle(self, runtime):

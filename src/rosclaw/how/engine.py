@@ -250,6 +250,25 @@ class HeuristicEngine:
             "failure_count": int(rule.get("failure_count", 0)),
         }
 
+    async def generate_recovery_hint(
+        self,
+        failure_type: str,
+        context: Optional[dict[str, Any]] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Generate a recovery hint for a failure type.
+
+        This is the canonical API used by Runtime.how.generate_recovery_hint().
+        """
+        rule = await self.suggest_recovery(failure_type, context)
+        if rule is None:
+            return None
+        return {
+            "hint": rule.get("action", ""),
+            "rule_id": rule.get("rule_id", ""),
+            "priority": rule.get("priority", 0),
+            "source": rule.get("source", "heuristic"),
+        }
+
     # ── retry plan ───────────────────────────────────────────────────────
 
     async def get_retry_plan(

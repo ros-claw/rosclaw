@@ -525,7 +525,9 @@ class Runtime(LifecycleMixin):
 
     @property
     def how(self) -> Optional[Any]:
-        return self._how
+        if self._how is None:
+            return None
+        return _HowProxy(self._how, self._run_async)
 
     @property
     def e_urdf(self) -> Optional[Any]:
@@ -563,88 +565,12 @@ class Runtime(LifecycleMixin):
 
     def _register_builtin_providers(self) -> None:
         """Register built-in mock providers for out-of-box capability support."""
+        from rosclaw.provider.builtins import (
+            MockVLMProvider,
+            MockSkillProvider,
+            MockCriticProvider,
+        )
         from rosclaw.provider.core.manifest import ProviderManifest
-        from rosclaw.provider.core.provider import Provider
-        from rosclaw.provider.core.request import ProviderRequest
-        from rosclaw.provider.core.response import ProviderResponse
-
-        class MockVLMProvider(Provider):
-            name = "mock_vlm"
-            capabilities = ["vlm.object_grounding", "vlm.scene_understanding"]
-
-            async def infer(self, request: ProviderRequest) -> ProviderResponse:
-                cap = request.capability
-                if cap == "vlm.object_grounding":
-                    query = request.inputs.get("query", "")
-                    return ProviderResponse(
-                        request_id=request.request_id,
-                        provider=self.name,
-                        capability=cap,
-                        result={
-                            "objects": [
-                                {
-                                    "id": "obj_001",
-                                    "label": query or "unknown",
-                                    "bbox_2d": [120, 80, 230, 200],
-                                    "confidence": 0.93,
-                                }
-                            ],
-                            "risks": [],
-                        },
-                        confidence=0.93,
-                    )
-                return ProviderResponse(
-                    request_id=request.request_id,
-                    provider=self.name,
-                    capability=cap,
-                    result={"scene": "tabletop", "objects": [], "risks": []},
-                )
-
-            async def health(self):
-                return {"ok": True}
-
-        class MockSkillProvider(Provider):
-            name = "mock_skill"
-            capabilities = ["skill.grasp", "skill.place", "skill.pick_and_place"]
-
-            async def infer(self, request: ProviderRequest) -> ProviderResponse:
-                skill = request.capability.split(".", 1)[1]
-                return ProviderResponse(
-                    request_id=request.request_id,
-                    provider=self.name,
-                    capability=request.capability,
-                    result={
-                        "skill": skill,
-                        "status": "dispatched",
-                        "execution_trace": {
-                            "controller": self.name,
-                            "guard_checks": ["joint_limit", "collision", "workspace"],
-                        },
-                    },
-                )
-
-            async def health(self):
-                return {"ok": True}
-
-        class MockCriticProvider(Provider):
-            name = "mock_critic"
-            capabilities = ["critic.success_detection", "critic.retry_advice"]
-
-            async def infer(self, request: ProviderRequest) -> ProviderResponse:
-                return ProviderResponse(
-                    request_id=request.request_id,
-                    provider=self.name,
-                    capability=request.capability,
-                    result={
-                        "success": True,
-                        "confidence": 0.85,
-                        "reason": "mock evaluation",
-                        "retry": {"recommended": False},
-                    },
-                )
-
-            async def health(self):
-                return {"ok": True}
 
         # Subscribe to provider lifecycle events before registering builtins
         self.event_bus.subscribe("provider_registered", self._on_provider_event)
@@ -965,24 +891,63 @@ class Runtime(LifecycleMixin):
     def execute(self, action: dict[str, Any]) -> dict[str, Any]:
         """Execute an action through the sandbox or drivers.
 
+        Publishes ``praxis.completed`` on success so Practice auto-records
+        and Memory auto-ingests the experience.
+
         Returns execution result dict.
         """
+        import time
+        t0 = time.time()
+        result: dict[str, Any]
         if self._sandbox is not None and hasattr(self._sandbox, "validate_trajectory"):
             try:
                 trajectory = action.get("trajectory", [])
-                result = self._sandbox.validate_trajectory(trajectory)
-                return {"status": "ok", "result": result, "source": "sandbox"}
+                validation = self._sandbox.validate_trajectory(trajectory)
+                result = {"status": "ok", "result": validation, "source": "sandbox"}
             except Exception as e:
-                return {"status": "error", "error": str(e), "source": "sandbox"}
-        # Fallback: try MCP drivers
-        for name, driver in self._mcp_drivers.items():
-            if hasattr(driver, "execute"):
-                try:
-                    result = driver.execute(action)
-                    return {"status": "ok", "result": result, "source": f"driver:{name}"}
-                except Exception as e:
-                    return {"status": "error", "error": str(e), "source": f"driver:{name}"}
-        return {"status": "error", "error": "No execution backend available"}
+                result = {"status": "error", "error": str(e), "source": "sandbox"}
+        else:
+            # Fallback: try MCP drivers
+            result = {"status": "error", "error": "No execution backend available"}
+            for name, driver in self._mcp_drivers.items():
+                if hasattr(driver, "execute"):
+                    try:
+                        drv_result = driver.execute(action)
+                        result = {"status": "ok", "result": drv_result, "source": f"driver:{name}"}
+                        break
+                    except Exception as e:
+                        result = {"status": "error", "error": str(e), "source": f"driver:{name}"}
+
+        # Publish praxis event for Practice/Memory auto-ingest
+        duration = time.time() - t0
+        if result.get("status") == "ok":
+            self.event_bus.publish(Event(
+                topic="praxis.completed",
+                payload={
+                    "event_id": f"praxis_{int(time.time_ns())}",
+                    "event_type": "success",
+                    "correlation_id": action.get("request_id"),
+                    "instruction": action.get("instruction", ""),
+                    "initial_state": action.get("initial_state"),
+                    "final_state": result,
+                    "duration_sec": duration,
+                },
+                source="runtime",
+                priority=EventPriority.NORMAL,
+            ))
+        else:
+            self.event_bus.publish(Event(
+                topic="rosclaw.runtime.execution.failed",
+                payload={
+                    "request_id": action.get("request_id"),
+                    "error_type": result.get("error", "execution_failed"),
+                    "action": action,
+                    "duration_sec": duration,
+                },
+                source="runtime",
+                priority=EventPriority.CRITICAL,
+            ))
+        return result
 
     def get_status(self) -> dict:
         """Get comprehensive runtime status."""
