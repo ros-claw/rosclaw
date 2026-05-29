@@ -9,6 +9,8 @@ Commands:
     rosclaw run                Start the ROSClaw runtime
     rosclaw start              Alias for run (legacy)
     rosclaw status             Show runtime status
+    rosclaw doctor             Run health diagnosis
+    rosclaw logs               Show runtime logs
     rosclaw robot list         List available robots
     rosclaw robot install ID   Install/register a robot
     rosclaw robot inspect ID   Show complete robot profile
@@ -118,6 +120,180 @@ def cmd_run(args: argparse.Namespace) -> int:
     finally:
         runtime.stop()
 
+    return 0
+
+
+def cmd_doctor(_args: argparse.Namespace) -> int:
+    """Deep health diagnosis for ROSClaw runtime and dependencies."""
+    import importlib
+    import platform
+
+    issues = []
+    checks = []
+
+    # 1. Python version
+    py_version = platform.python_version()
+    py_ok = py_version >= "3.10"
+    checks.append(("Python version", py_version, py_ok))
+    if not py_ok:
+        issues.append(f"Python {py_version} < 3.10 (recommended)")
+
+    # 2. Core modules import
+    core_modules = [
+        ("rosclaw.core.runtime", "Runtime"),
+        ("rosclaw.core.event_bus", "EventBus"),
+        ("rosclaw.provider.core.registry", "ProviderRegistry"),
+        ("rosclaw.sandbox.runtime_adapter", "SandboxRuntimeAdapter"),
+        ("rosclaw.memory.interface", "MemoryInterface"),
+        ("rosclaw.practice.episode_recorder", "EpisodeRecorder"),
+        ("rosclaw.how.engine", "HeuristicEngine"),
+        ("rosclaw.runtime.eurdf_loader", "EURDFLoader"),
+    ]
+    for mod_name, cls_name in core_modules:
+        try:
+            mod = importlib.import_module(mod_name)
+            getattr(mod, cls_name)
+            checks.append((f"Module {mod_name}", "OK", True))
+        except Exception as exc:
+            checks.append((f"Module {mod_name}", f"FAIL: {exc}", False))
+            issues.append(f"Cannot import {mod_name}: {exc}")
+
+    # 3. e-URDF-Zoo accessibility
+    zoo_path = Path(__file__).parent.parent.parent / "e-urdf-zoo"
+    zoo_ok = zoo_path.exists() and any(zoo_path.iterdir())
+    checks.append(("e-URDF-Zoo", str(zoo_path), zoo_ok))
+    if not zoo_ok:
+        issues.append(f"e-URDF-Zoo not found at {zoo_path}")
+
+    # 4. Config file
+    config_path = Path("rosclaw.yaml")
+    config_ok = config_path.exists()
+    checks.append(("Workspace config", str(config_path), config_ok))
+    if not config_ok:
+        issues.append("No rosclaw.yaml in current directory. Run `rosclaw init`.")
+
+    # 5. Key dependencies
+    deps = ["yaml", "numpy", "pytest", "asyncio"]
+    for dep in deps:
+        try:
+            mod = importlib.import_module(dep)
+            ver = getattr(mod, "__version__", "unknown")
+            checks.append((f"Dependency {dep}", ver, True))
+        except ImportError:
+            checks.append((f"Dependency {dep}", "MISSING", False))
+            issues.append(f"Python package '{dep}' not installed")
+
+    # 6. GPU / CUDA (optional)
+    try:
+        import torch
+        cuda_ok = torch.cuda.is_available()
+        device_count = torch.cuda.device_count() if cuda_ok else 0
+        checks.append(("PyTorch CUDA", f"{device_count} device(s)" if cuda_ok else "Not available", cuda_ok))
+    except ImportError:
+        checks.append(("PyTorch", "Not installed", True))  # optional
+
+    # 7. MuJoCo (optional)
+    try:
+        import mujoco
+        checks.append(("MuJoCo", mujoco.__version__, True))
+    except ImportError:
+        checks.append(("MuJoCo", "Not installed", True))
+
+    # Output
+    print("=" * 60)
+    print("ROSClaw v1.0 — Doctor")
+    print("=" * 60)
+    for name, value, ok in checks:
+        icon = "✅" if ok else "❌"
+        print(f"  {icon} {name:<30} {value}")
+    print("=" * 60)
+
+    if issues:
+        print(f"\n⚠️  Issues found ({len(issues)}):")
+        for i, issue in enumerate(issues, 1):
+            print(f"  {i}. {issue}")
+        print("\nRecommendations:")
+        if any("e-URDF-Zoo" in i for i in issues):
+            print("  • Ensure e-urdf-zoo/ directory exists alongside src/")
+        if any("rosclaw.yaml" in i for i in issues):
+            print("  • Run: rosclaw init")
+        if any("Not installed" in i for i in issues):
+            print("  • Install deps: pip install -e .")
+        return 1
+
+    print("\n✅ All checks passed. ROSClaw is healthy!")
+    return 0
+
+
+def cmd_logs(args: argparse.Namespace) -> int:
+    """Display ROSClaw runtime logs."""
+    import glob
+    import os
+    from datetime import datetime
+
+    log_dir = Path.home() / ".rosclaw" / "logs"
+    if not log_dir.exists():
+        print(f"[ROSClaw] Log directory not found: {log_dir}")
+        print("[ROSClaw] No logs available yet. Start runtime with `rosclaw run`.")
+        return 0
+
+    # Collect log files
+    pattern = str(log_dir / "*.log")
+    log_files = sorted(glob.glob(pattern), key=os.path.getmtime, reverse=True)
+
+    if not log_files:
+        print(f"[ROSClaw] No log files in {log_dir}")
+        return 0
+
+    # Filter by module if specified
+    module_filter = args.module
+    if module_filter:
+        log_files = [f for f in log_files if module_filter in os.path.basename(f)]
+
+    # Show recent N lines
+    tail_lines = args.tail
+    level_filter = args.level.upper() if args.level else None
+
+    print("=" * 70)
+    print(f"ROSClaw Logs — {log_dir}")
+    if module_filter:
+        print(f"Module filter: {module_filter}")
+    if level_filter:
+        print(f"Level filter:  {level_filter}")
+    print("=" * 70)
+
+    for log_file in log_files[: args.files]:
+        fname = os.path.basename(log_file)
+        mtime = datetime.fromtimestamp(os.path.getmtime(log_file)).strftime("%Y-%m-%d %H:%M:%S")
+        print(f"\n📄 {fname} (modified {mtime})")
+        print("-" * 70)
+
+        try:
+            with open(log_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except Exception as exc:
+            print(f"  [Error reading file: {exc}]")
+            continue
+
+        # Filter by level
+        if level_filter:
+            lines = [ln for ln in lines if level_filter in ln.upper()]
+
+        # Tail
+        if tail_lines and len(lines) > tail_lines:
+            lines = lines[-tail_lines:]
+            print(f"  ... (showing last {tail_lines} lines)")
+
+        for line in lines:
+            print(f"  {line.rstrip()}")
+
+    print("\n" + "=" * 70)
+    print(f"Total log files: {len(log_files)}")
+    print("Commands:")
+    print("  rosclaw logs --tail 50          Show last 50 lines")
+    print("  rosclaw logs --level ERROR      Filter ERROR lines")
+    print("  rosclaw logs --module runtime   Filter by module")
+    print("  rosclaw logs --follow           Watch live (not implemented)")
     return 0
 
 
@@ -548,6 +724,16 @@ def main() -> int:
 
     subparsers.add_parser("status", help="Show runtime status")
 
+    # doctor
+    doctor_parser = subparsers.add_parser("doctor", help="Run health diagnosis")
+
+    # logs
+    logs_parser = subparsers.add_parser("logs", help="Show runtime logs")
+    logs_parser.add_argument("--tail", type=int, default=30, help="Show last N lines (default: 30)")
+    logs_parser.add_argument("--level", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Filter by log level")
+    logs_parser.add_argument("--module", default=None, help="Filter by module name")
+    logs_parser.add_argument("--files", type=int, default=5, help="Number of log files to show (default: 5)")
+
     # robot subcommand
     robot_parser = subparsers.add_parser("robot", help="Robot registry commands")
     robot_subparsers = robot_parser.add_subparsers(dest="robot_command")
@@ -589,6 +775,10 @@ def main() -> int:
         return cmd_run(args)
     elif args.command == "status":
         return cmd_status(args)
+    elif args.command == "doctor":
+        return cmd_doctor(args)
+    elif args.command == "logs":
+        return cmd_logs(args)
     elif args.command == "robot":
         if args.robot_command == "list":
             return cmd_robot_list(args)

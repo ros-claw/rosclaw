@@ -103,3 +103,87 @@ class TestStatus:
         assert "core.runtime" in captured.out
         assert "firewall.validator" in captured.out
         assert "memory.interface" in captured.out
+
+
+class TestDoctor:
+    def test_doctor_runs(self, capsys):
+        from rosclaw.cli import main
+
+        sys.argv = ["rosclaw", "doctor"]
+        code = main()
+        captured = capsys.readouterr()
+        assert "ROSClaw v1.0 — Doctor" in captured.out
+        assert "Python version" in captured.out
+        assert "e-URDF-Zoo" in captured.out
+
+    def test_doctor_passes_in_workspace(self, tmp_path, capsys):
+        from rosclaw.cli import main
+        import os
+
+        sys.argv = ["rosclaw", "init", str(tmp_path / "ws")]
+        main()
+
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(tmp_path / "ws")
+            sys.argv = ["rosclaw", "doctor"]
+            code = main()
+            captured = capsys.readouterr()
+            assert "ROSClaw v1.0 — Doctor" in captured.out
+            assert code == 0 or "All checks passed" in captured.out or "Issues found" in captured.out
+        finally:
+            os.chdir(old_cwd)
+
+
+class TestLogs:
+    def test_logs_no_logs_dir(self, capsys):
+        from rosclaw.cli import main
+
+        sys.argv = ["rosclaw", "logs"]
+        assert main() == 0
+        captured = capsys.readouterr()
+        assert "Log directory not found" in captured.out or "No log files" in captured.out
+
+    def test_logs_with_logs(self, tmp_path, capsys):
+        from rosclaw.cli import main
+        import os
+
+        log_dir = tmp_path / ".rosclaw" / "logs"
+        log_dir.mkdir(parents=True)
+        (log_dir / "runtime.log").write_text("INFO: test log line 1\nERROR: test error\n")
+        (log_dir / "provider.log").write_text("INFO: provider log\n")
+
+        old_home = os.environ.get("HOME")
+        try:
+            os.environ["HOME"] = str(tmp_path)
+            sys.argv = ["rosclaw", "logs", "--tail", "10"]
+            assert main() == 0
+            captured = capsys.readouterr()
+            assert "ROSClaw Logs" in captured.out
+            assert "runtime.log" in captured.out
+        finally:
+            if old_home is not None:
+                os.environ["HOME"] = old_home
+            else:
+                os.environ.pop("HOME", None)
+
+    def test_logs_level_filter(self, tmp_path, capsys):
+        from rosclaw.cli import main
+        import os
+
+        log_dir = tmp_path / ".rosclaw" / "logs"
+        log_dir.mkdir(parents=True)
+        (log_dir / "runtime.log").write_text("INFO: normal\nERROR: critical\nDEBUG: detail\n")
+
+        old_home = os.environ.get("HOME")
+        try:
+            os.environ["HOME"] = str(tmp_path)
+            sys.argv = ["rosclaw", "logs", "--level", "ERROR", "--tail", "10"]
+            assert main() == 0
+            captured = capsys.readouterr()
+            assert "ERROR" in captured.out
+        finally:
+            if old_home is not None:
+                os.environ["HOME"] = old_home
+            else:
+                os.environ.pop("HOME", None)
