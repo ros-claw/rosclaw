@@ -7,5 +7,6 @@ useful for testing, development, and demos without requiring real models.
 from rosclaw.provider.builtins.vlm import MockVLMProvider
 from rosclaw.provider.builtins.skill import MockSkillProvider
 from rosclaw.provider.builtins.critic import MockCriticProvider
+from rosclaw.provider.builtins.deepseek import DeepSeekProvider
 
-__all__ = ["MockVLMProvider", "MockSkillProvider", "MockCriticProvider"]
+__all__ = ["MockVLMProvider", "MockSkillProvider", "MockCriticProvider", "DeepSeekProvider"]
