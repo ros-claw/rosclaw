@@ -109,6 +109,7 @@ class MCPHub(LifecycleMixin):
         self.event_bus.subscribe("robot.end_effector_pose", self._on_end_effector_pose)
         # Subscribe to command responses
         self.event_bus.subscribe("agent.response", self._on_agent_response)
+        self.event_bus.subscribe("agent.capability.response", self._on_agent_response)
 
     def _do_start(self) -> None:
         """Start the MCP server."""
@@ -684,11 +685,11 @@ class MCPHub(LifecycleMixin):
 
     def _on_agent_response(self, event: Event) -> None:
         """Handle command responses from other modules."""
-        request_id = event.metadata.get("request_id")
+        request_id = event.payload.get("request_id") or event.metadata.get("request_id")
         if request_id and request_id in self._pending_requests:
             future = self._pending_requests[request_id]
             if not future.done():
-                future.set_result(event.payload)
+                future.set_result(event.payload.get("result", event.payload))
 
     async def _handle_move_joints(self, arguments: dict) -> dict:
         """Handle move_joints tool call with command-response."""

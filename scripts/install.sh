@@ -67,10 +67,13 @@ fi
 VENV_PYTHON="$VENV_DIR/bin/python"
 VENV_PIP="$VENV_DIR/bin/pip"
 
-# Ensure pip is available
-if [[ ! -f "$VENV_PIP" ]]; then
+# Ensure pip is available and executable
+if [[ ! -f "$VENV_PIP" ]] || ! "$VENV_PIP" --version &>/dev/null; then
     echo "  Installing pip into venv..."
-    "$VENV_PYTHON" -m ensurepip --upgrade
+    "$VENV_PYTHON" -m ensurepip --upgrade 2>/dev/null || {
+        echo "  ensurepip failed, downloading get-pip.py..."
+        curl -sS https://bootstrap.pypa.io/get-pip.py | "$VENV_PYTHON"
+    }
 fi
 
 # 3. Upgrade pip

@@ -96,9 +96,10 @@ class DigitalTwinFirewall:
         # Load MuJoCo model
         self._load_model()
 
-        # Override limits if provided
+        # Override limits if provided; otherwise keep model-extracted limits
         self.torque_limits = torque_limits or {}
-        self.joint_limits = joint_limits or {}
+        if joint_limits is not None:
+            self.joint_limits = joint_limits
 
     def _load_model(self) -> None:
         """Load MuJoCo model from file."""
@@ -123,8 +124,20 @@ class DigitalTwinFirewall:
                 joint_id = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_JOINT, i)
                 self.joint_names.append(joint_id)
 
+            # Auto-extract joint limits from model (fixes P0 bug where validate_trajectory
+            # skipped all checks when joint_limits not manually provided)
+            self.joint_limits = {}
+            for i in range(self.model.njnt):
+                name = self.joint_names[i]
+                if name == "floating_base_joint":
+                    continue
+                lo, hi = self.model.jnt_range[i]
+                if lo != 0.0 or hi != 0.0:  # Skip joints with no range
+                    self.joint_limits[name] = (float(lo), float(hi))
+
             print(f"[DigitalTwin] Loaded model: {self.model_path}")
             print(f"[DigitalTwin] Joints: {self.joint_names}")
+            print(f"[DigitalTwin] Auto-extracted limits: {len(self.joint_limits)} joints")
             print(f"[DigitalTwin] DOF: nq={self.nq}, nv={self.nv}, nu={self.nu}")
 
         except Exception as e:
