@@ -271,7 +271,7 @@ class Runtime(LifecycleMixin):
         # Initialize Provider Layer (Capability Router + Guard)
         if self.config.enable_provider and ProviderRegistry is not None:
             try:
-                self._provider_registry = ProviderRegistry()
+                self._provider_registry = ProviderRegistry(event_bus=self.event_bus)
                 self._guard_pipeline = GuardPipeline()
                 self._guard_pipeline.add(SchemaGuard())
                 self._guard_pipeline.add(ActionGuard())
@@ -324,6 +324,9 @@ class Runtime(LifecycleMixin):
         self.event_bus.subscribe("agent.command", self._on_agent_command)
         self.event_bus.subscribe("robot.emergency_stop", self._on_emergency_stop)
         self.event_bus.subscribe("firewall.action_blocked", self._on_firewall_action_blocked)
+        self.event_bus.subscribe("rosclaw.sandbox.episode.failed", self._on_sandbox_episode_failed)
+        self.event_bus.subscribe("rosclaw.sandbox.action.blocked", self._on_sandbox_action_blocked)
+        self.event_bus.subscribe("rosclaw.runtime.execution.failed", self._on_runtime_execution_failed)
 
     def _on_safety_violation(self, event: Event) -> None:
         """Handle safety violation events."""
@@ -364,6 +367,87 @@ class Runtime(LifecycleMixin):
                 print(f"[Runtime] Heuristic recovery suggested for {request_id}: {recovery['action']}")
         except Exception as e:
             print(f"[Runtime] Heuristic recovery failed: {e}")
+
+    def _on_sandbox_episode_failed(self, event: Event) -> None:
+        """Handle sandbox episode failure: generate recovery hint."""
+        if self._how is None:
+            return
+        try:
+            from rosclaw.how.recovery import RecoveryEngine
+
+            failure_type = event.payload.get("failure_type", "")
+            request_id = event.payload.get("request_id", "")
+            re = RecoveryEngine(self._how)
+            hint = re.generate_recovery_hint(
+                failure_type,
+                context={"request_id": request_id, "source": "sandbox"},
+                sources=["sandbox_episode"],
+            )
+            if hint:
+                payload = re.format_for_eventbus(hint, request_id=request_id)
+                self.event_bus.publish(Event(
+                    topic="rosclaw.how.recovery_hint.generated",
+                    payload=payload,
+                    source="runtime",
+                    priority=EventPriority.HIGH,
+                ))
+                print(f"[Runtime] RecoveryHint generated for sandbox failure {request_id}: {hint['hint']}")
+        except Exception as e:
+            print(f"[Runtime] RecoveryHint generation failed: {e}")
+
+    def _on_sandbox_action_blocked(self, event: Event) -> None:
+        """Handle sandbox action blocked: generate recovery hint."""
+        if self._how is None:
+            return
+        try:
+            from rosclaw.how.recovery import RecoveryEngine
+
+            failure_type = event.payload.get("reason", "")
+            request_id = event.payload.get("request_id", "")
+            re = RecoveryEngine(self._how)
+            hint = re.generate_recovery_hint(
+                failure_type,
+                context={"request_id": request_id, "source": "sandbox"},
+                sources=["sandbox_action"],
+            )
+            if hint:
+                payload = re.format_for_eventbus(hint, request_id=request_id)
+                self.event_bus.publish(Event(
+                    topic="rosclaw.how.recovery_hint.generated",
+                    payload=payload,
+                    source="runtime",
+                    priority=EventPriority.HIGH,
+                ))
+                print(f"[Runtime] RecoveryHint generated for blocked action {request_id}: {hint['hint']}")
+        except Exception as e:
+            print(f"[Runtime] RecoveryHint generation failed: {e}")
+
+    def _on_runtime_execution_failed(self, event: Event) -> None:
+        """Handle runtime execution failure: generate recovery hint."""
+        if self._how is None:
+            return
+        try:
+            from rosclaw.how.recovery import RecoveryEngine
+
+            failure_type = event.payload.get("error_type", "")
+            request_id = event.payload.get("request_id", "")
+            re = RecoveryEngine(self._how)
+            hint = re.generate_recovery_hint(
+                failure_type,
+                context={"request_id": request_id, "source": "runtime"},
+                sources=["runtime_execution"],
+            )
+            if hint:
+                payload = re.format_for_eventbus(hint, request_id=request_id)
+                self.event_bus.publish(Event(
+                    topic="rosclaw.how.recovery_hint.generated",
+                    payload=payload,
+                    source="runtime",
+                    priority=EventPriority.HIGH,
+                ))
+                print(f"[Runtime] RecoveryHint generated for execution failure {request_id}: {hint['hint']}")
+        except Exception as e:
+            print(f"[Runtime] RecoveryHint generation failed: {e}")
 
     def _on_agent_command(self, event: Event) -> None:
         """Handle agent commands - route to appropriate module."""
@@ -533,6 +617,11 @@ class Runtime(LifecycleMixin):
             async def health(self):
                 return {"ok": True}
 
+        # Subscribe to provider lifecycle events before registering builtins
+        self.event_bus.subscribe("provider_registered", self._on_provider_event)
+        self.event_bus.subscribe("provider_unregistered", self._on_provider_event)
+        self.event_bus.subscribe("provider_health_changed", self._on_provider_health_changed)
+
         self._provider_registry.register(
             ProviderManifest.from_dict({
                 "name": "mock_vlm", "version": "0.1.0", "type": "vlm",
@@ -567,6 +656,31 @@ class Runtime(LifecycleMixin):
             auto_load=False,
         )
         self._provider_registry.set_provider_health("mock_critic", ok=True)
+
+    def _on_provider_event(self, event: Event) -> None:
+        """Handle provider_registered / provider_unregistered events."""
+        print(f"[Runtime] Provider event: {event.topic} — {event.payload}")
+
+    def _on_provider_health_changed(self, event: Event) -> None:
+        """Handle provider_health_changed events."""
+        payload = event.payload
+        name = payload.get("provider", "unknown")
+        ok = payload.get("ok", False)
+        reason = payload.get("reason", "")
+        status = "healthy" if ok else "unhealthy"
+        print(f"[Runtime] Provider '{name}' is now {status} ({reason})")
+
+    def _on_sandbox_episode_failed(self, event: Event) -> None:
+        """Handle sandbox episode failure events."""
+        print(f"[Runtime] Sandbox episode failed: {event.payload}")
+
+    def _on_sandbox_action_blocked(self, event: Event) -> None:
+        """Handle sandbox action blocked events."""
+        print(f"[Runtime] Sandbox action blocked: {event.payload}")
+
+    def _on_runtime_execution_failed(self, event: Event) -> None:
+        """Handle runtime execution failure events."""
+        print(f"[Runtime] Execution failed: {event.payload}")
 
     # ------------------------------------------------------------------
     # Physical World APIs (delegate to MemoryInterface / EmbodiedMemory)
