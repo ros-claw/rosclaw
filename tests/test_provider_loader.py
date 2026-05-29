@@ -311,7 +311,9 @@ def test_provider_loader_custom_class_import_error():
 def test_provider_loader_custom_class_valid():
     """provider_class that is a valid Provider subclass is used."""
     from rosclaw.provider.core.manifest import ProviderManifest
-    import sys\n    if "tests" not in sys.modules:\n        pytest.skip("tests module not importable when installed as package")\n
+    import sys
+    if "tests" not in sys.modules:
+        pytest.skip("tests module not importable when installed as package")
     manifest = ProviderManifest.from_dict({
         "name": "custom_provider",
         "version": "0.1.0",

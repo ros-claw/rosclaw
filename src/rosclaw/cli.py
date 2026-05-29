@@ -687,6 +687,217 @@ def cmd_practice_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_provider_list(_args: argparse.Namespace) -> int:
+    """List all registered providers."""
+    from rosclaw.provider.core.registry import ProviderRegistry
+
+    registry = ProviderRegistry()
+    providers = registry.list_providers() if hasattr(registry, "list_providers") else []
+
+    print("=" * 60)
+    print("ROSClaw Provider Registry")
+    print("=" * 60)
+    if providers:
+        print(f"{'Name':<20} {'Type':<15} {'Status':<10} {'Description'}")
+        print("-" * 60)
+        for p in providers:
+            print(f"{p.get('name', 'N/A'):<20} {p.get('type', 'N/A'):<15} {p.get('status', 'N/A'):<10} {p.get('description', '')}")
+    else:
+        print("No providers registered.")
+        print("Builtin providers: llm, vlm, vla, vln, world, skill, critic, embedding")
+    print("=" * 60)
+    return 0
+
+
+def cmd_skill_list(_args: argparse.Namespace) -> int:
+    """List all available skills."""
+    from rosclaw.provider.core.registry import ProviderRegistry
+
+    registry = ProviderRegistry()
+    skills = registry.list_skills() if hasattr(registry, "list_skills") else []
+
+    print("=" * 60)
+    print("ROSClaw Skill Registry")
+    print("=" * 60)
+    if skills:
+        print(f"{'Skill ID':<20} {'Category':<15} {'Provider':<15} {'Description'}")
+        print("-" * 60)
+        for s in skills:
+            print(f"{s.get('skill_id', 'N/A'):<20} {s.get('category', 'N/A'):<15} {s.get('provider', 'N/A'):<15} {s.get('description', '')}")
+    else:
+        print("No skills registered.")
+        print("Builtin skills: pid_move, reach, grasp, navigate, inspect")
+    print("=" * 60)
+    return 0
+
+
+def cmd_sandbox_list_worlds(_args: argparse.Namespace) -> int:
+    """List available sandbox worlds."""
+    print("=" * 60)
+    print("ROSClaw Sandbox Worlds")
+    print("=" * 60)
+    worlds = [
+        {"name": "mock", "description": "Mock sandbox for testing (no physics)"},
+        {"name": "mujoco", "description": "MuJoCo physics simulation"},
+        {"name": "tabletop", "description": "Tabletop manipulation scene"},
+        {"name": "empty", "description": "Empty world for unit tests"},
+    ]
+    print(f"{'Name':<15} {'Description'}")
+    print("-" * 60)
+    for w in worlds:
+        print(f"{w['name']:<15} {w['description']}")
+    print("=" * 60)
+    return 0
+
+
+def cmd_sandbox_validate(args: argparse.Namespace) -> int:
+    """Validate a robot in sandbox."""
+    from rosclaw.runtime import RobotRegistry
+
+    robot_id = args.robot_id
+    print(f"[ROSClaw] Validating robot '{robot_id}' in sandbox...")
+    registry = RobotRegistry()
+    try:
+        result = registry.validate(robot_id)
+        if result["valid"]:
+            print(f"[ROSClaw] ✅ Sandbox validation passed for {robot_id}")
+            return 0
+        else:
+            print(f"[ROSClaw] ❌ Sandbox validation failed for {robot_id}")
+            for e in result.get("errors", []):
+                print(f"  🚫 {e}")
+            return 1
+    except Exception as exc:
+        print(f"[ROSClaw] ❌ Validation error: {exc}")
+        return 1
+
+
+def cmd_memory_status(_args: argparse.Namespace) -> int:
+    """Show memory module status."""
+    from rosclaw.memory.interface import MemoryInterface
+
+    mem = MemoryInterface("cli")
+    mem._do_initialize()
+    stats = mem.get_statistics()
+    cap = mem.get_capacity_info()
+
+    print("=" * 60)
+    print("ROSClaw Memory Status")
+    print("=" * 60)
+    print(f"Total experiences:    {stats['total_experiences']}")
+    print(f"Success count:        {stats['success_count']}")
+    print(f"Failure count:        {stats['failure_count']}")
+    print(f"Success rate:         {stats['success_rate']:.1%}")
+    print(f"Capacity utilization: {cap['utilization']:.1%}")
+    print(f"Age span:             {cap['age_span_days']:.1f} days")
+    print("=" * 60)
+    return 0
+
+
+def cmd_memory_query(args: argparse.Namespace) -> int:
+    """Query memory for similar experiences."""
+    from rosclaw.memory.interface import MemoryInterface
+
+    mem = MemoryInterface("cli")
+    mem._do_initialize()
+    results = mem.find_similar_experiences(args.query, limit=args.limit)
+
+    print("=" * 60)
+    print(f"Memory Query: '{args.query}'")
+    print("=" * 60)
+    if not results:
+        print("No matching experiences found.")
+        return 0
+
+    for i, r in enumerate(results, 1):
+        print(f"\n[{i}] {r.get('event_type', 'unknown').upper()}")
+        print(f"    ID:        {r.get('id', 'N/A')}")
+        print(f"    Instruction: {r.get('instruction', 'N/A')[:80]}")
+        print(f"    Outcome:   {r.get('outcome', 'N/A')}")
+        print(f"    Tags:      {', '.join(r.get('tags', []))}")
+    print("=" * 60)
+    return 0
+
+
+def cmd_memory_explain(args: argparse.Namespace) -> int:
+    """Explain the most recent failure."""
+    from rosclaw.memory.interface import MemoryInterface
+
+    mem = MemoryInterface("cli")
+    mem._do_initialize()
+    failure = mem.explain_last_failure(task_id=args.task_id)
+
+    print("=" * 60)
+    print("ROSClaw Memory — Last Failure Explanation")
+    print("=" * 60)
+    if failure is None:
+        print("No failure records found.")
+        return 0
+
+    print(f"Failure ID:    {failure.get('id', 'N/A')}")
+    print(f"Failure Type:  {failure.get('failure_type', 'N/A')}")
+    print(f"Root Cause:    {failure.get('root_cause', 'N/A')}")
+    print(f"Recovery Hint: {failure.get('recovery_hint', 'N/A')}")
+    print(f"Sandbox Intervention: {failure.get('sandbox_intervened', False)}")
+    print(f"Timestamp:     {failure.get('timestamp', 'N/A')}")
+    print("=" * 60)
+    return 0
+
+
+def cmd_events_tail(args: argparse.Namespace) -> int:
+    """Tail EventBus events."""
+    from rosclaw.core.event_bus import EventBus
+
+    bus = EventBus()
+    history = bus.get_history(limit=args.tail)
+
+    print("=" * 70)
+    print(f"ROSClaw EventBus — Last {args.tail} events")
+    print("=" * 70)
+    if not history:
+        print("No events in bus history.")
+        return 0
+
+    for ev in history:
+        ts = getattr(ev, "timestamp", "?")
+        topic = getattr(ev, "topic", "?")
+        src = getattr(ev, "source", "?")
+        print(f"[{ts}] {topic:<40} src={src}")
+    print("=" * 70)
+    return 0
+
+
+def cmd_stop(_args: argparse.Namespace) -> int:
+    """Stop ROSClaw runtime."""
+    import signal
+    import os
+
+    pid_file = Path.home() / ".rosclaw" / "runtime.pid"
+    if pid_file.exists():
+        pid = int(pid_file.read_text().strip())
+        try:
+            os.kill(pid, signal.SIGTERM)
+            print(f"[ROSClaw] Stopped runtime (PID {pid})")
+            pid_file.unlink()
+            return 0
+        except ProcessLookupError:
+            print(f"[ROSClaw] Runtime PID {pid} not found")
+            pid_file.unlink()
+            return 1
+    else:
+        print("[ROSClaw] No runtime PID file found. Runtime may not be running.")
+        return 1
+
+
+def cmd_restart(args: argparse.Namespace) -> int:
+    """Restart ROSClaw runtime."""
+    print("[ROSClaw] Restarting runtime...")
+    cmd_stop(args)
+    import time
+    time.sleep(1)
+    return cmd_run(args)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="rosclaw",
@@ -723,6 +934,8 @@ def main() -> int:
         )
 
     subparsers.add_parser("status", help="Show runtime status")
+    subparsers.add_parser("stop", help="Stop ROSClaw runtime")
+    subparsers.add_parser("restart", help="Restart ROSClaw runtime")
 
     # doctor
     doctor_parser = subparsers.add_parser("doctor", help="Run health diagnosis")
@@ -733,6 +946,10 @@ def main() -> int:
     logs_parser.add_argument("--level", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Filter by log level")
     logs_parser.add_argument("--module", default=None, help="Filter by module name")
     logs_parser.add_argument("--files", type=int, default=5, help="Number of log files to show (default: 5)")
+
+    # events
+    events_parser = subparsers.add_parser("events", help="EventBus commands")
+    events_parser.add_argument("--tail", type=int, default=20, help="Show last N events")
 
     # robot subcommand
     robot_parser = subparsers.add_parser("robot", help="Robot registry commands")
@@ -749,6 +966,33 @@ def main() -> int:
 
     robot_validate_parser = robot_subparsers.add_parser("validate", help="Validate robot e-URDF")
     robot_validate_parser.add_argument("robot_id", help="Robot identifier")
+
+    # provider subcommand
+    provider_parser = subparsers.add_parser("provider", help="Provider commands")
+    provider_subparsers = provider_parser.add_subparsers(dest="provider_command")
+    provider_subparsers.add_parser("list", help="List registered providers")
+
+    # skill subcommand
+    skill_parser = subparsers.add_parser("skill", help="Skill commands")
+    skill_subparsers = skill_parser.add_subparsers(dest="skill_command")
+    skill_subparsers.add_parser("list", help="List available skills")
+
+    # sandbox subcommand
+    sandbox_parser = subparsers.add_parser("sandbox", help="Sandbox commands")
+    sandbox_subparsers = sandbox_parser.add_subparsers(dest="sandbox_command")
+    sandbox_subparsers.add_parser("list-worlds", help="List available sandbox worlds")
+    sandbox_validate_parser = sandbox_subparsers.add_parser("validate", help="Validate robot in sandbox")
+    sandbox_validate_parser.add_argument("robot_id", help="Robot identifier")
+
+    # memory subcommand
+    memory_parser = subparsers.add_parser("memory", help="Memory commands")
+    memory_subparsers = memory_parser.add_subparsers(dest="memory_command")
+    memory_subparsers.add_parser("status", help="Show memory status")
+    memory_query_parser = memory_subparsers.add_parser("query", help="Query memory")
+    memory_query_parser.add_argument("query", help="Query text")
+    memory_query_parser.add_argument("--limit", type=int, default=5, help="Max results")
+    memory_explain_parser = memory_subparsers.add_parser("explain", help="Explain last failure")
+    memory_explain_parser.add_argument("--task-id", default=None, help="Filter by task ID")
 
     # practice subcommand
     practice_parser = subparsers.add_parser("practice", help="Practice episode commands")
@@ -791,6 +1035,42 @@ def main() -> int:
         else:
             robot_parser.print_help()
             return 1
+    elif args.command == "provider":
+        if args.provider_command == "list":
+            return cmd_provider_list(args)
+        else:
+            provider_parser.print_help()
+            return 1
+    elif args.command == "skill":
+        if args.skill_command == "list":
+            return cmd_skill_list(args)
+        else:
+            skill_parser.print_help()
+            return 1
+    elif args.command == "sandbox":
+        if args.sandbox_command == "list-worlds":
+            return cmd_sandbox_list_worlds(args)
+        elif args.sandbox_command == "validate":
+            return cmd_sandbox_validate(args)
+        else:
+            sandbox_parser.print_help()
+            return 1
+    elif args.command == "memory":
+        if args.memory_command == "status":
+            return cmd_memory_status(args)
+        elif args.memory_command == "query":
+            return cmd_memory_query(args)
+        elif args.memory_command == "explain":
+            return cmd_memory_explain(args)
+        else:
+            memory_parser.print_help()
+            return 1
+    elif args.command == "events":
+        return cmd_events_tail(args)
+    elif args.command == "stop":
+        return cmd_stop(args)
+    elif args.command == "restart":
+        return cmd_restart(args)
     elif args.command == "practice":
         if args.practice_command == "list":
             return cmd_practice_list(args)

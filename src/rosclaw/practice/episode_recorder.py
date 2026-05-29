@@ -450,6 +450,44 @@ class EpisodeRecorder(LifecycleMixin):
                 default=str,
             )
 
+        # Write events.jsonl — full event stream
+        with open(episode_dir / "events.jsonl", "w", encoding="utf-8") as f:
+            for ev_name in sorted(buf.received_events):
+                f.write(json.dumps({
+                    "timestamp": time.time(),
+                    "type": ev_name,
+                    "episode_id": episode_id,
+                    "robot_id": buf.robot_id,
+                }, default=str) + "\n")
+
+        # Write critic_result.json
+        critic_result = {
+            "episode_id": episode_id,
+            "reward": reward,
+            "status": status,
+            "critic_reward": buf.critic_reward,
+            "critic_status": buf.critic_status,
+            "praxis_status": buf.praxis_status,
+            "praxis_reward": buf.praxis_reward,
+        }
+        with open(episode_dir / "critic_result.json", "w", encoding="utf-8") as f:
+            json.dump(critic_result, f, indent=2, default=str)
+
+        # Write memory_write.json
+        memory_write = {
+            "episode_id": episode_id,
+            "robot_id": buf.robot_id,
+            "event_type": praxis_event.event_type,
+            "instruction": praxis_event.agent_instruction,
+            "outcome": status,
+            "duration_sec": buf.duration_sec,
+            "artifact_uri": f"rosclaw://artifacts/episodes/{episode_id}",
+            "artifact_dir": str(episode_dir),
+            "timestamp": time.time(),
+        }
+        with open(episode_dir / "memory_write.json", "w", encoding="utf-8") as f:
+            json.dump(memory_write, f, indent=2, default=str)
+
         # Publish enriched praxis.recorded
         self._event_bus.publish(Event(
             topic="praxis.recorded",
