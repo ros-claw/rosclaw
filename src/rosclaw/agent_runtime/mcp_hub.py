@@ -491,12 +491,19 @@ class MCPHub(LifecycleMixin):
         inputs: dict[str, Any],
         context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Route a capability request via EventBus (preferred) or direct Runtime fallback.
+        """Route a capability request via EventBus.
 
         Architecture: MCPHub publishes agent.capability.request to EventBus.
-        Provider layer (or Runtime) subscribes and publishes agent.capability.response.
-        This removes direct MCPHub -> ProviderRegistry coupling.
+        Provider layer (via Runtime) subscribes and publishes agent.capability.response.
+        Zero direct MCPHub -> ProviderRegistry coupling.
         """
+        if self.event_bus is None:
+            return {
+                "status": "failed",
+                "capability": capability,
+                "error": "EventBus not available",
+            }
+
         request_id = str(uuid.uuid4())[:8]
         ctx = {
             "robot": self.robot_id,
@@ -504,38 +511,33 @@ class MCPHub(LifecycleMixin):
             **(context or {}),
         }
 
-        # --- EventBus path (preferred): publish request, await response ---
-        if self.event_bus is not None:
-            future = asyncio.get_event_loop().create_future()
-            self._pending_requests[request_id] = future
+        future = asyncio.get_event_loop().create_future()
+        self._pending_requests[request_id] = future
 
-            self.event_bus.publish(Event(
-                topic="agent.capability.request",
-                payload={
-                    "request_id": request_id,
-                    "capability": capability,
-                    "inputs": inputs,
-                    "context": ctx,
-                    "constraints": {"safety_level": self.context.safety_level.upper()},
-                },
-                source="mcp_hub",
-                priority=EventPriority.HIGH,
-            ))
+        self.event_bus.publish(Event(
+            topic="agent.capability.request",
+            payload={
+                "request_id": request_id,
+                "capability": capability,
+                "inputs": inputs,
+                "context": ctx,
+                "constraints": {"safety_level": self.context.safety_level.upper()},
+            },
+            source="mcp_hub",
+            priority=EventPriority.HIGH,
+        ))
 
-            try:
-                # Wait for provider layer to respond via EventBus
-                result = await asyncio.wait_for(future, timeout=self._default_timeout)
-                return result
-            except asyncio.TimeoutError:
-                # No subscriber handled the request — fall back to direct Runtime
-                pass
-            finally:
-                self._pending_requests.pop(request_id, None)
-
-        # --- Direct Runtime fallback (when EventBus has no provider subscribers) ---
-        return await self._route_capability_direct(
-            request_id, capability, inputs, ctx
-        )
+        try:
+            result = await asyncio.wait_for(future, timeout=self._default_timeout)
+            return result
+        except asyncio.TimeoutError:
+            return {
+                "status": "failed",
+                "capability": capability,
+                "error": "No provider responded via EventBus (timeout)",
+            }
+        finally:
+            self._pending_requests.pop(request_id, None)
 
     async def _route_capability_direct(
         self,

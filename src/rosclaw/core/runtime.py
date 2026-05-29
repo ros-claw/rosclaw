@@ -345,6 +345,8 @@ class Runtime(LifecycleMixin):
         self.event_bus.subscribe("rosclaw.sandbox.episode.failed", self._on_sandbox_episode_failed)
         self.event_bus.subscribe("rosclaw.sandbox.action.blocked", self._on_sandbox_action_blocked)
         self.event_bus.subscribe("rosclaw.runtime.execution.failed", self._on_runtime_execution_failed)
+        # Route capability requests from MCPHub through Provider layer via EventBus
+        self.event_bus.subscribe("agent.capability.request", self._on_capability_request)
 
     def _on_safety_violation(self, event: Event) -> None:
         """Handle safety violation events."""
@@ -496,6 +498,53 @@ class Runtime(LifecycleMixin):
         for driver in self._mcp_drivers.values():
             if hasattr(driver, "emergency_stop"):
                 driver.emergency_stop()
+
+    def _on_capability_request(self, event: Event) -> None:
+        """Handle capability requests from MCPHub via EventBus.
+
+        Routes through CapabilityRouter and publishes response back
+        to EventBus.  This removes direct MCPHub -> Runtime coupling.
+        """
+        if self._capability_router is None:
+            return
+        payload = event.payload or {}
+        request_id = payload.get("request_id", "")
+        capability = payload.get("capability", "")
+        inputs = payload.get("inputs", {})
+        context = payload.get("context", {})
+
+        try:
+            from rosclaw.provider.core.request import ProviderRequest
+            req = ProviderRequest(
+                request_id=request_id,
+                capability=capability,
+                inputs=inputs,
+                context=context,
+                constraints=payload.get("constraints", {}),
+            )
+            result = self._run_async(self._capability_router.invoke(req))
+            self.event_bus.publish(Event(
+                topic="agent.capability.response",
+                payload={
+                    "request_id": request_id,
+                    "result": {
+                        "status": "ok" if result.is_ok else "failed",
+                        "capability": capability,
+                        "provider": getattr(result, "provider", ""),
+                        "result": getattr(result, "result", {}),
+                    },
+                },
+                source="runtime",
+            ))
+        except Exception as e:
+            self.event_bus.publish(Event(
+                topic="agent.capability.response",
+                payload={
+                    "request_id": request_id,
+                    "result": {"status": "error", "error": str(e)},
+                },
+                source="runtime",
+            ))
 
     def register_driver(self, name: str, driver: Any) -> None:
         """Register an MCP driver with the runtime."""
