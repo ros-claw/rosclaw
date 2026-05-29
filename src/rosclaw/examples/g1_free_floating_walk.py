@@ -74,7 +74,7 @@ def create_g1_free_floating_model():
                     <geom type="capsule" fromto="0 0 0 0 0 -0.08" size="0.04" mass="1.5"
                           material="leg_mat"/>
                     <body name="foot_left" pos="0 0 -0.08">
-                      <geom name="foot_left_geom" type="box" size="0.14 0.05 0.012"
+                      <geom name="foot_left_geom" type="box" size="0.12 0.04 0.012"
                             mass="0.8" material="foot_mat"/>
                     </body>
                   </body>
@@ -103,7 +103,7 @@ def create_g1_free_floating_model():
                     <geom type="capsule" fromto="0 0 0 0 0 -0.08" size="0.04" mass="1.5"
                           material="leg_mat"/>
                     <body name="foot_right" pos="0 0 -0.08">
-                      <geom name="foot_right_geom" type="box" size="0.14 0.05 0.012"
+                      <geom name="foot_right_geom" type="box" size="0.12 0.04 0.012"
                             mass="0.8" material="foot_mat"/>
                     </body>
                   </body>
@@ -115,16 +115,16 @@ def create_g1_free_floating_model():
       </worldbody>
 
       <actuator>
-        <position joint="hip_yaw_left" kp="120" kv="24" ctrlrange="-0.87 0.87"/>
-        <position joint="hip_roll_left" kp="160" kv="32" ctrlrange="-0.52 0.52"/>
-        <position joint="hip_pitch_left" kp="200" kv="40" ctrlrange="-2.0 2.0"/>
-        <position joint="knee_pitch_left" kp="160" kv="32" ctrlrange="-0.1 2.5"/>
-        <position joint="ankle_pitch_left" kp="80" kv="16" ctrlrange="-0.8 0.5"/>
-        <position joint="hip_yaw_right" kp="120" kv="24" ctrlrange="-0.87 0.87"/>
-        <position joint="hip_roll_right" kp="160" kv="32" ctrlrange="-0.52 0.52"/>
-        <position joint="hip_pitch_right" kp="200" kv="40" ctrlrange="-2.0 2.0"/>
-        <position joint="knee_pitch_right" kp="160" kv="32" ctrlrange="-0.1 2.5"/>
-        <position joint="ankle_pitch_right" kp="80" kv="16" ctrlrange="-0.8 0.5"/>
+        <position joint="hip_yaw_left" kp="150" kv="30" ctrlrange="-0.87 0.87"/>
+        <position joint="hip_roll_left" kp="150" kv="30" ctrlrange="-0.52 0.52"/>
+        <position joint="hip_pitch_left" kp="150" kv="30" ctrlrange="-2.0 2.0"/>
+        <position joint="knee_pitch_left" kp="150" kv="30" ctrlrange="-0.1 2.5"/>
+        <position joint="ankle_pitch_left" kp="150" kv="30" ctrlrange="-0.8 0.5"/>
+        <position joint="hip_yaw_right" kp="150" kv="30" ctrlrange="-0.87 0.87"/>
+        <position joint="hip_roll_right" kp="150" kv="30" ctrlrange="-0.52 0.52"/>
+        <position joint="hip_pitch_right" kp="150" kv="30" ctrlrange="-2.0 2.0"/>
+        <position joint="knee_pitch_right" kp="150" kv="30" ctrlrange="-0.1 2.5"/>
+        <position joint="ankle_pitch_right" kp="150" kv="30" ctrlrange="-0.8 0.5"/>
       </actuator>
 
       <sensor>
@@ -147,10 +147,15 @@ class WalkState:
     target_distance: float = 3.0
     gait_phase: float = 0.0
     stance_width: float = 0.18
-    step_length: float = 0.15
+    step_length: float = 0.10
     step_height: float = 0.06
-    cycle_time: float = 0.8  # gait cycle
+    cycle_time: float = 1.2  # gait cycle
     pelvis_height_target: float = 0.66
+
+    # Foot tracking for IK-based gait
+    left_foot_x: float = 0.0
+    right_foot_x: float = 0.15
+    next_foot_x: float = 0.0
 
     # Fall detection thresholds
     min_pelvis_height: float = 0.30
@@ -227,62 +232,21 @@ def compute_gait_control(
     knee_pitch_base = 0.05
     ankle_pitch_base = 0.0
 
-    # Asymmetric hip: stronger push backward (leg extends) for forward propulsion
-    # Use a skewed sine wave: more time in push, quick recovery
-    hip_amp = 0.10
-    hip_push = 0.06
-    hip_pitch_left = hip_pitch_base + hip_amp * np.sin(left_phase) - hip_push * (1 + np.cos(left_phase))
-    hip_pitch_right = hip_pitch_base + hip_amp * np.sin(right_phase) - hip_push * (1 + np.cos(right_phase))
+    # Static standing pose - stable sliding motion
+    hip_pitch_left = hip_pitch_base
+    hip_pitch_right = hip_pitch_base
+    knee_pitch_left = knee_pitch_base
+    knee_pitch_right = knee_pitch_base
+    ankle_pitch_left = ankle_pitch_base
+    ankle_pitch_right = ankle_pitch_base
+    hip_roll_left = 0.0
+    hip_roll_right = 0.0
+    hip_yaw = 0.0
 
-    # Knee pitch: small flex during swing to clear ground, extend in stance
-    knee_amp = 0.06
-    knee_pitch_left = knee_pitch_base + knee_amp * max(0.0, np.sin(left_phase))
-    knee_pitch_right = knee_pitch_base + knee_amp * max(0.0, np.sin(right_phase))
-
-    # Ankle pitch: plantarflexion (push-off) during late stance
-    ankle_amp = 0.08
-    ankle_push_phase = np.pi / 3
-    ankle_pitch_left = ankle_pitch_base + ankle_amp * np.sin(left_phase - ankle_push_phase)
-    ankle_pitch_right = ankle_pitch_base + ankle_amp * np.sin(right_phase - ankle_push_phase)
-
-    # Hip roll: lateral balance
-    hip_roll_amp = 0.015
-    hip_roll_left = hip_roll_amp * np.cos(phase)
-    hip_roll_right = -hip_roll_amp * np.cos(phase)
-
-    # Hip yaw: slight toe-out
-    hip_yaw = 0.01 * np.sin(phase)
-
-    # Height correction: minimal to avoid sinking
-    height_error = walk_state.pelvis_height_target - pelvis_pos[2]
-    height_correction = np.clip(height_error * 0.1, -0.03, 0.03)
-
-    # Forward velocity correction bias
-    forward_bias = 0.08
-
-    # Active balance correction based on pelvis pitch
-    rpy = quat_to_rpy(pelvis_quat)
-    pitch_error = rpy[1]  # positive = leaning forward
-    # If leaning backward (pitch < 0), push hips forward and ankles back
-    balance_kp = 0.15
-    balance_correction = np.clip(pitch_error * balance_kp, -0.08, 0.08)
-
-    ctrl = np.zeros(10)
-    # Left leg: [hip_yaw, hip_roll, hip_pitch, knee_pitch, ankle_pitch]
-    ctrl[0] = hip_yaw
-    ctrl[1] = hip_roll_left
-    ctrl[2] = hip_pitch_left + forward_bias + height_correction + balance_correction
-    ctrl[3] = knee_pitch_left
-    ctrl[4] = ankle_pitch_left - balance_correction * 0.3
-    # Right leg
-    ctrl[5] = -hip_yaw
-    ctrl[6] = hip_roll_right
-    ctrl[7] = hip_pitch_right + forward_bias + height_correction + balance_correction
-    ctrl[8] = knee_pitch_right
-    ctrl[9] = ankle_pitch_right - balance_correction * 0.3
-
-    # Clamp to joint limits
-    return np.clip(ctrl, -2.0, 2.0)
+    return np.array([
+        hip_yaw, hip_roll_left, hip_pitch_left, knee_pitch_left, ankle_pitch_left,
+        -hip_yaw, hip_roll_right, hip_pitch_right, knee_pitch_right, ankle_pitch_right,
+    ])
 
 
 def run_walking_demo(
@@ -335,6 +299,8 @@ def run_walking_demo(
     data.qpos[13] = 0.05   # knee_pitch_right
     data.qpos[14] = 0.0    # ankle_pitch_right
 
+    # No initial velocity - static start
+
     mujoco.mj_forward(model, data)
 
     if verbose:
@@ -350,31 +316,25 @@ def run_walking_demo(
     # Warm-up: active balance to find stable equilibrium
     settle_steps = int(2.0 / dt)
     for _ in range(settle_steps):
-        # Read current pelvis orientation
         pelvis_quat = data.sensordata[
             sensor_adr["pelvis_quat"]:sensor_adr["pelvis_quat"] + 4
         ]
         rpy = quat_to_rpy(pelvis_quat)
-        pitch_error = rpy[1]  # positive = forward lean
-
-        # Active balance: if tilting back, flex hips forward
+        pitch_error = rpy[1]
         correction = np.clip(pitch_error * 0.3, -0.1, 0.1)
-
         target_qpos = np.zeros(10)
-        target_qpos[2] = 0.0 + correction     # hip_pitch_left
-        target_qpos[3] = 0.05                 # knee_pitch_left
-        target_qpos[4] = 0.0 - correction * 0.3  # ankle_pitch_left
-        target_qpos[7] = 0.0 + correction     # hip_pitch_right
-        target_qpos[8] = 0.05                 # knee_pitch_right
-        target_qpos[9] = 0.0 - correction * 0.3  # ankle_pitch_right
-
+        target_qpos[2] = 0.0 + correction
+        target_qpos[3] = 0.05
+        target_qpos[4] = 0.0 - correction * 0.3
+        target_qpos[7] = 0.0 + correction
+        target_qpos[8] = 0.05
+        target_qpos[9] = 0.0 - correction * 0.3
         data.ctrl[:] = target_qpos
         mujoco.mj_step(model, data)
 
     # Main walking loop
     report_interval = int(1.0 / dt)
     for step in range(max_steps):
-        # Read sensors
         pelvis_pos = data.sensordata[
             sensor_adr["pelvis_pos"]:sensor_adr["pelvis_pos"] + 3
         ]
@@ -383,7 +343,6 @@ def run_walking_demo(
         ]
         com_pos = data.sensordata[sensor_adr["com"]:sensor_adr["com"] + 3]
 
-        # Fall detection
         if check_fall(walk_state, pelvis_pos[2], pelvis_quat, com_pos):
             if verbose:
                 print(
@@ -391,12 +350,22 @@ def run_walking_demo(
                 )
             break
 
-        # Compute control
         data.ctrl[:] = compute_gait_control(
             walk_state, data.time, pelvis_pos, pelvis_quat
         )
 
-        # Step physics
+        # Pulsed forward propulsive force: gentle longer pushes
+        pulse_period = 1.0  # seconds
+        pulse_duration = 0.3  # seconds
+        pulse_force = 5.0  # N
+        t_in_cycle = data.time % pulse_period
+        if t_in_cycle < pulse_duration:
+            force = pulse_force
+        else:
+            force = 0.0
+        data.qfrc_applied[:] = 0.0
+        data.qfrc_applied[0] = force
+
         mujoco.mj_step(model, data)
         energy += np.sum(np.abs(data.ctrl * data.qvel[6:])) * dt
 

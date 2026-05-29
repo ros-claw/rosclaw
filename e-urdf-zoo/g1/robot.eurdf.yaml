@@ -1,0 +1,188 @@
+robot_id: unitree_g1
+name: Unitree G1
+vendor: Unitree
+version: "1.0"
+description: Unitree G1 humanoid robot — free-floating bipedal platform with 23 DOF
+dof: 23
+links:
+  - name: pelvis
+    type: body
+    mass: 11.0
+    com: [0.0, 0.0, 0.0]
+    inertia: [0.05, 0.05, 0.03]
+  - name: torso
+    type: body
+    mass: 8.0
+    com: [0.0, 0.0, 0.2]
+    inertia: [0.1, 0.08, 0.04]
+  - name: left_thigh
+    type: limb
+    mass: 3.5
+    com: [0.0, 0.0, -0.125]
+    inertia: [0.03, 0.03, 0.005]
+  - name: left_shin
+    type: limb
+    mass: 2.5
+    com: [0.0, 0.0, -0.125]
+    inertia: [0.02, 0.02, 0.003]
+  - name: left_foot
+    type: end_effector
+    mass: 0.8
+    com: [0.0, 0.0, -0.02]
+    inertia: [0.002, 0.001, 0.003]
+  - name: right_thigh
+    type: limb
+    mass: 3.5
+    com: [0.0, 0.0, -0.125]
+    inertia: [0.03, 0.03, 0.005]
+  - name: right_shin
+    type: limb
+    mass: 2.5
+    com: [0.0, 0.0, -0.125]
+    inertia: [0.02, 0.02, 0.003]
+  - name: right_foot
+    type: end_effector
+    mass: 0.8
+    com: [0.0, 0.0, -0.02]
+    inertia: [0.002, 0.001, 0.003]
+joints:
+  - name: root
+    type: freejoint
+    parent: world
+    child: pelvis
+    axis: [0, 0, 0]
+    range: []
+  - name: hip_yaw_left
+    type: revolute
+    parent: pelvis
+    child: left_thigh
+    axis: [0, 0, 1]
+    range: [-0.87, 0.87]
+  - name: hip_roll_left
+    type: revolute
+    parent: left_thigh
+    child: left_shin
+    axis: [1, 0, 0]
+    range: [-0.52, 0.52]
+  - name: hip_pitch_left
+    type: revolute
+    parent: left_shin
+    child: left_foot
+    axis: [0, 1, 0]
+    range: [-2.0, 2.0]
+  - name: hip_yaw_right
+    type: revolute
+    parent: pelvis
+    child: right_thigh
+    axis: [0, 0, 1]
+    range: [-0.87, 0.87]
+  - name: hip_roll_right
+    type: revolute
+    parent: right_thigh
+    child: right_shin
+    axis: [1, 0, 0]
+    range: [-0.52, 0.52]
+  - name: hip_pitch_right
+    type: revolute
+    parent: right_shin
+    child: right_foot
+    axis: [0, 1, 0]
+    range: [-2.0, 2.0]
+sensors:
+  - name: pelvis_imu
+    type: imu
+    link: pelvis
+    rate: 200
+    noise: 0.01
+  - name: pelvis_pos
+    type: framepos
+    link: pelvis
+    rate: 100
+  - name: pelvis_quat
+    type: framequat
+    link: pelvis
+    rate: 100
+  - name: com_sensor
+    type: subtreecom
+    link: pelvis
+    rate: 100
+actuators:
+  - name: hip_yaw_left
+    type: position
+    joint: hip_yaw_left
+    kp: 150
+    kv: 30
+    ctrlrange: [-0.87, 0.87]
+  - name: hip_roll_left
+    type: position
+    joint: hip_roll_left
+    kp: 150
+    kv: 30
+    ctrlrange: [-0.52, 0.52]
+  - name: hip_pitch_left
+    type: position
+    joint: hip_pitch_left
+    kp: 150
+    kv: 30
+    ctrlrange: [-2.0, 2.0]
+  - name: hip_yaw_right
+    type: position
+    joint: hip_yaw_right
+    kp: 150
+    kv: 30
+    ctrlrange: [-0.87, 0.87]
+  - name: hip_roll_right
+    type: position
+    joint: hip_roll_right
+    kp: 150
+    kv: 30
+    ctrlrange: [-0.52, 0.52]
+  - name: hip_pitch_right
+    type: position
+    joint: hip_pitch_right
+    kp: 150
+    kv: 30
+    ctrlrange: [-2.0, 2.0]
+capabilities:
+  - id: walk.forward
+    name: Forward Walking
+    description: Walk forward with pulsed propulsion
+    params:
+      target_distance: { type: float, default: 0.1, min: 0.01, max: 10.0 }
+      duration_limit: { type: float, default: 30.0, min: 1.0, max: 600.0 }
+    preconditions: [balance.ok, no_fall]
+  - id: balance.maintain
+    name: Balance Maintenance
+    description: Active balance correction based on pelvis tilt
+    params: {}
+    preconditions: [feet.on_ground]
+  - id: fall.detect
+    name: Fall Detection
+    description: Real-time fall detection via height and tilt thresholds
+    params:
+      min_height: { type: float, default: 0.3 }
+      max_tilt_deg: { type: float, default: 45.0 }
+    preconditions: []
+simulation_backends:
+  mujoco:
+    model_file: robot.mjcf.xml
+    timestep: 0.0005
+    integrator: implicitfast
+    gravity: [0, 0, -9.81]
+  isaac:
+    usd_file: robot.usd
+    physics_freq: 120
+    rendering_freq: 60
+  gazebo:
+    sdf_file: robot.sdf
+    physics: ode
+semantic_tags:
+  - humanoid
+  - bipedal
+  - free_floating
+  - unitree
+  - g1
+metadata:
+  urdf_source: https://github.com/unitreerobotics/unitree_ros
+  license: MIT
+  maintainer: rosclaw
