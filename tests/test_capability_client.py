@@ -22,7 +22,7 @@ async def test_capability_client_pick_up_task(client):
         robot="ur5e",
         scene_input={"camera_topic": "/camera/color/image_raw"},
     )
-    assert result.status == "success"
+    assert result.status == "success", f"Expected success, got {result.status!r}: steps={result.steps}, errors={result.errors}"
     assert len(result.steps) == 3
     assert result.steps[0]["capability"] == "vlm.object_grounding"
     assert result.steps[1]["capability"] == "skill.grasp"
@@ -39,7 +39,7 @@ async def test_capability_client_inspect_task(client):
         robot="ur5e",
         scene_input={"camera_topic": "/camera/color/image_raw"},
     )
-    assert result.status == "success"
+    assert result.status == "success", f"Expected success, got {result.status!r}: steps={result.steps}, errors={result.errors}"
     assert len(result.steps) == 1
     assert result.steps[0]["capability"] == "vlm.scene_understanding"
 
@@ -52,7 +52,7 @@ async def test_capability_client_place_task(client):
         robot="ur5e",
         scene_input={"camera_topic": "/camera/color/image_raw"},
     )
-    assert result.status == "success"
+    assert result.status == "success", f"Expected success, got {result.status!r}: steps={result.steps}, errors={result.errors}"
     assert len(result.steps) == 2
     assert result.steps[0]["capability"] == "skill.pick_and_place"
     assert result.steps[1]["capability"] == "critic.success_detection"
@@ -66,7 +66,7 @@ async def test_capability_client_locate_and_grasp(client):
         robot="ur5e",
         camera_topic="/camera/color/image_raw",
     )
-    assert result.status == "success"
+    assert result.status == "success", f"Expected success, got {result.status!r}: steps={result.steps}, errors={result.errors}"
     assert result.steps[0]["capability"] == "vlm.object_grounding"
     assert result.steps[1]["capability"] == "skill.grasp"
 
@@ -80,7 +80,7 @@ async def test_capability_client_task_result_fields(client):
         scene_input={"camera_topic": "/camera/color/image_raw"},
     )
     assert result.task == "pick up the red cup"
-    assert result.status in ("success", "partial", "failed")
+    assert result.status in ("success", "partial", "failed"), f"Unexpected status {result.status!r}: steps={result.steps}, errors={result.errors}"
     assert isinstance(result.steps, list)
     assert isinstance(result.trace, dict)
     assert "trace_id" in result.trace
@@ -98,7 +98,7 @@ async def test_capability_client_failed_step_aborts(client):
         robot="ur5e",
         scene_input={},
     )
-    assert result.status == "failed"
+    assert result.status == "failed", f"Expected failed, got {result.status!r}: steps={result.steps}, errors={result.errors}"
     # Should have attempted navigate step and then aborted
     assert len(result.steps) >= 1
     assert any(s["status"] == "failed" for s in result.steps)

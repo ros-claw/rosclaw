@@ -181,7 +181,7 @@ async def test_mcp_hub_observe_scene_via_provider():
     hub.initialize()
 
     result = await hub.handle_tool_call("observe_scene", {"query": "what do you see?"})
-    assert result["status"] == "ok"
+    assert result.get("status") == "ok", f"Expected ok, got: {result}"
     assert result["capability"] == "vlm.scene_understanding"
     assert "result" in result
 
@@ -201,7 +201,7 @@ async def test_mcp_hub_locate_object_via_provider():
     hub.initialize()
 
     result = await hub.handle_tool_call("locate_object", {"object_name": "red cup"})
-    assert result["status"] == "ok"
+    assert result.get("status") == "ok", f"Expected ok, got: {result}"
     assert result["capability"] == "vlm.object_grounding"
     assert "result" in result
     assert result["result"]["objects"][0]["label"] == "red cup"
@@ -225,7 +225,7 @@ async def test_mcp_hub_delegate_skill_via_provider():
         "skill": "grasp",
         "target": {"object": "red cup"},
     })
-    assert result["status"] == "ok"
+    assert result.get("status") == "ok", f"Expected ok, got: {result}"
     assert result["capability"] == "skill.grasp"
     assert result["result"]["skill"] == "grasp"
     assert result["result"]["status"] == "dispatched"
@@ -248,7 +248,7 @@ async def test_mcp_hub_verify_task_success_via_provider():
     result = await hub.handle_tool_call("verify_task_success", {
         "task_description": "pick up the red cup",
     })
-    assert result["status"] == "ok"
+    assert result.get("status") == "ok", f"Expected ok, got: {result}"
     assert result["capability"] == "critic.success_detection"
     assert result["result"]["success"] is True
 
