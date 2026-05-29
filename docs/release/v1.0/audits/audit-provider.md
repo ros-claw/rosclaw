@@ -666,7 +666,7 @@ grep -n "_health\[" src/rosclaw/core/runtime.py
 | ISSUE-001 | P0 | provider | Sync/async boundary violation in ProviderRegistry.register() (mitigated by auto_load=False) | **fixed** |
 | ISSUE-002 | P1 | provider | No integration test with Runtime | **fixed** |
 | ISSUE-003 | P1 | provider | Provider system does not publish lifecycle events to EventBus | **fixed** |
-| ISSUE-004 | P2 | provider | No mock providers for VLM, VLA, Skill domains (Runtime has inline mocks) | open |
+| ISSUE-004 | P2 | provider | No mock providers for VLM, VLA, Skill domains (Runtime has inline mocks) | **fixed** |
 | ISSUE-005 | P1 | core/runtime | Runtime manually pokes ProviderRegistry._health, bypassing load() | **fixed** |
 
 ### RFC-0001 Anti-Pattern Compliance
@@ -803,9 +803,9 @@ The Provider system is well-designed and production-ready for v1.0. The abstract
 
 **Fixed in this session**:
 - ISSUE-003 (P1): Add EventBus lifecycle events to ProviderRegistry — injected EventBus, publish provider_registered/unregistered/health_changed, Runtime subscribes, 12 tests added
+- ISSUE-004 (P2): Extract inline mock providers to `src/rosclaw/provider/builtins/` — MockVLMProvider, MockSkillProvider, MockCriticProvider moved to separate modules
 
-**Remaining for v1.1**:
-- ISSUE-004 (P2): Extract inline mock providers to `src/rosclaw/provider/builtins/`
+**Remaining for v1.1**: None — all audit issues resolved.
 
 **v1.0 Narrative**: "ROSClaw v1.0 provides a unified capability-based provider system that routes agent requests through a multi-dimensional scoring algorithm, supports diverse runtimes (Python, HTTP, ROS2), and integrates cleanly with the Agent Runtime via MCPHub."
 
