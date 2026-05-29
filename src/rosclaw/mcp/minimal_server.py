@@ -128,7 +128,10 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\n[ROSClaw MCP] Shutdown complete", file=sys.stderr)
     finally:
-        server.hub.stop()
+        try:
+            server.hub.stop()
+        except ValueError:
+            pass  # stdout may be closed during teardown
 
 
 if __name__ == "__main__":

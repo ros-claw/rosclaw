@@ -22,7 +22,7 @@ def create_g1_free_floating_model():
     xml = """
     <mujoco model="g1_free_floating">
       <compiler angle="radian" autolimits="true"/>
-      <option timestep="0.001" gravity="0 0 -9.81" integrator="implicitfast">
+      <option timestep="0.0005" gravity="0 0 -9.81" integrator="implicit">
         <flag warmstart="enable"/>
       </option>
       <default>
