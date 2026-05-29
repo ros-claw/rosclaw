@@ -303,29 +303,26 @@ class ROSClawMinimalMCPServer:
             return {"status": "error", "error": str(e)}
 
     async def _handle_compile_asset_bundle(self, arguments: dict) -> dict:
-        """Compile an Asset Bundle."""
+        """Compile an Asset Bundle using Forge BundleCompiler."""
         sdk_doc = arguments.get("sdk_doc", "")
         bundle_name = arguments.get("bundle_name", "")
         staging = arguments.get("staging", True)
-        return {
-            "status": "generated",
-            "bundle_name": bundle_name,
-            "staging": staging,
-            "files": [
-                f"{bundle_name}/mcp_server.py",
-                f"{bundle_name}/skill_manifest.json",
-                f"{bundle_name}/provider_manifest.json",
-                f"{bundle_name}/tests/test_{bundle_name}.py",
-                f"{bundle_name}/README.md",
-            ],
-            "validation": {
-                "async_safe": True,
-                "schema_complete": True,
-                "safety_hooks": True,
-                "preemption_ready": True,
-            },
-            "next_step": "Run critic validation before promoting to production",
-        }
+        try:
+            from rosclaw.forge.bundle_compiler import BundleCompiler
+            compiler = BundleCompiler()
+            bundle = compiler.compile(sdk_doc, bundle_name)
+            return {
+                "status": "generated",
+                "bundle_name": bundle_name,
+                "staging": staging,
+                "staging_ready": bundle.staging_ready,
+                "production_ready": bundle.production_ready,
+                "files": list(bundle.files.keys()),
+                "validation": bundle.validation,
+                "next_step": "Run critic validation before promoting to production",
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
 
     async def run(self) -> None:
         async with stdio_server() as (read, write):

@@ -3,34 +3,83 @@ import json
 from pathlib import Path
 
 
+def _artifact_dir() -> Path:
+    return Path.home() / ".rosclaw" / "artifacts" / "episodes"
+
+
 def list_episodes():
-    artifacts = Path('.rosclaw/artifacts/episodes')
+    artifacts = _artifact_dir()
     if not artifacts.exists():
-        print('No episodes recorded yet.')
+        print("No episodes recorded yet.")
+        print(f"Artifact directory: {artifacts}")
         return
-    for d in sorted(artifacts.glob('ep_*')):
-        meta = d / 'metadata.json'
+    episodes = []
+    for d in sorted(artifacts.glob("ep_*")):
+        meta = d / "metadata.json"
         if meta.exists():
-            data = json.load(open(meta))
-            print(f"{d.name}: {data.get('task_id', 'unknown')}")
-        else:
-            print(d.name)
+            data = json.load(open(meta, encoding="utf-8"))
+            episodes.append({
+                "id": d.name,
+                "robot": data.get("robot_id", "unknown"),
+                "status": data.get("status", "UNKNOWN"),
+                "reward": data.get("reward", 0.0),
+            })
+    if not episodes:
+        print("No episodes recorded yet.")
+        return
+    print(f"{'Episode ID':<15} {'Robot':<15} {'Status':<10} {'Reward':<8}")
+    print("-" * 50)
+    for ep in episodes:
+        print(f"{ep['id']:<15} {ep['robot']:<15} {ep['status']:<10} {ep['reward']:<8.2f}")
 
 
 def show_episode(episode_id):
-    meta_path = Path(f'.rosclaw/artifacts/episodes/{episode_id}/metadata.json')
+    meta_path = _artifact_dir() / episode_id / "metadata.json"
     if not meta_path.exists():
-        print(f'Episode {episode_id} not found.')
+        print(f"Episode {episode_id} not found.")
+        print(f"Searched: {meta_path}")
         return
-    data = json.load(open(meta_path))
-    print(json.dumps(data, indent=2))
+    data = json.load(open(meta_path, encoding="utf-8"))
+    print(json.dumps(data, indent=2, default=str))
 
 
 def replay_episode(episode_id):
-    events_path = Path(f'.rosclaw/artifacts/episodes/{episode_id}/events.jsonl')
-    if not events_path.exists():
-        print(f'Episode {episode_id} has no events.')
+    art = _artifact_dir() / episode_id
+    if not art.exists():
+        print(f"Episode {episode_id} not found.")
         return
-    for line in open(events_path):
-        event = json.loads(line)
-        print(f"[{event.get('timestamp', '?')}] {event.get('type', '?')}")
+    meta_path = art / "metadata.json"
+    traj_path = art / "trajectory.jsonl"
+    trace_path = art / "provider_trace.jsonl"
+    sandbox_path = art / "sandbox_replay.json"
+
+    print(f"=== Replay: {episode_id} ===")
+
+    if meta_path.exists():
+        meta = json.load(open(meta_path, encoding="utf-8"))
+        print(f"Robot: {meta.get('robot_id', 'unknown')}")
+        print(f"Status: {meta.get('status', 'UNKNOWN')}")
+        print(f"Reward: {meta.get('reward', 0.0)}")
+        print(f"Events: {meta.get('received_events', [])}")
+        print()
+
+    if traj_path.exists():
+        print("--- Trajectory ---")
+        for line in open(traj_path, encoding="utf-8"):
+            event = json.loads(line)
+            print(f"  [{event.get('phase', '?')}] {event.get('skill_name', '?')}")
+        print()
+
+    if trace_path.exists():
+        print("--- Provider Traces ---")
+        for line in open(trace_path, encoding="utf-8"):
+            event = json.loads(line)
+            print(f"  {event.get('status', '?')}")
+        print()
+
+    if sandbox_path.exists():
+        print("--- Sandbox Replay ---")
+        data = json.load(open(sandbox_path, encoding="utf-8"))
+        print(f"  Blocked: {data.get('blocked', False)}")
+        print(f"  Reason: {data.get('block_reason', 'N/A')}")
+        print()

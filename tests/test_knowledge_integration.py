@@ -821,3 +821,36 @@ class TestKnowRuntimeIntegration:
         rt.initialize()
         assert rt.knowledge is not None
         rt.stop()
+
+
+class TestKnowIntegration:
+    """Tests for KnowIntegration (Runtime-facing bridge)."""
+
+    def test_query_before_decision_returns_full_result(self):
+        from rosclaw.know.integration import KnowIntegration
+        ki = KnowIntegration(robot_id="ur5e")
+        result = ki.query_before_decision("ur5e", "pick and place")
+        assert result["robot_id"] == "ur5e"
+        assert result["task"] == "pick and place"
+        assert "decomposition" in result
+        assert "can_perform" in result
+        assert "capability_match" in result
+
+    def test_query_before_decision_publishes_event(self):
+        from rosclaw.core.event_bus import EventBus
+        from rosclaw.know.integration import KnowIntegration
+        bus = EventBus()
+        ki = KnowIntegration(robot_id="ur5e", event_bus=bus)
+        ki.query_before_decision("ur5e", "pick and place")
+        events = bus.get_history("rosclaw.knowledge.pre_check")
+        assert len(events) >= 1
+        assert events[0].payload["robot_id"] == "ur5e"
+
+    def test_record_usage_publishes_ingest_event(self):
+        from rosclaw.core.event_bus import EventBus
+        from rosclaw.know.integration import KnowIntegration
+        bus = EventBus()
+        ki = KnowIntegration(robot_id="ur5e", event_bus=bus)
+        ki.record_usage({"episode_id": "ep_001", "action": "test"})
+        events = bus.get_history("knowledge.ingest_complete")
+        assert len(events) >= 1
