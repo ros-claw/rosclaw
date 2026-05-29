@@ -106,6 +106,19 @@ class KnowledgeInterface(LifecycleMixin):
         "stack blocks": ["grasp_block", "lift", "move_above_target", "align", "lower", "release", "repeat"],
     }
 
+    # Task -> required capability mapping for compositional reasoning.
+    # Each task maps to the minimum set of capabilities a robot must have.
+    _TASK_CAPABILITY_REQUIREMENTS: dict[str, list[str]] = {
+        "pick and place": ["grasp", "pick_and_place"],
+        "sort objects": ["grasp", "sort_objects"],
+        "walk to point": ["locomotion", "balance"],
+        "assembly": ["grasp", "assembly"],
+        "inspect surface": ["locomotion", "inspect_surface"],
+        "handover object": ["grasp", "handover_object"],
+        "open door": ["grasp", "open_door"],
+        "stack blocks": ["grasp", "stack_blocks"],
+    }
+
     # Cross-domain analogies for common symptoms.
     _CROSS_DOMAIN_ANALOGIES: dict[str, list[dict[str, str]]] = {
         "Torque_Overflow": [
@@ -308,6 +321,107 @@ class KnowledgeInterface(LifecycleMixin):
                 "confidence": round(best_score, 4),
             }
         return None
+
+    def can_perform_task(self, robot_id: str, task: str) -> dict[str, Any] | None:
+        """Check if a robot has all required capabilities for a task.
+
+        Returns a dict with robot_id, task, can_perform, missing_caps,
+        and matched_caps, or None if task is unknown.
+        """
+        if not robot_id or not task:
+            return None
+
+        # Find the best matching task pattern
+        task_lower = task.lower()
+        matched_task: str | None = None
+        best_score = 0.0
+        for pattern in self._TASK_CAPABILITY_REQUIREMENTS:
+            score = self._score_task_match(task_lower, pattern)
+            if score > best_score:
+                best_score = score
+                matched_task = pattern
+
+        if not matched_task or best_score < 0.3:
+            return None
+
+        required = set(self._TASK_CAPABILITY_REQUIREMENTS[matched_task])
+        robot_caps = set(self.query_robot_capabilities(robot_id))
+        missing = required - robot_caps
+        matched = required & robot_caps
+
+        return {
+            "robot_id": robot_id,
+            "task": task,
+            "matched_pattern": matched_task,
+            "can_perform": len(missing) == 0,
+            "required_capabilities": sorted(required),
+            "matched_capabilities": sorted(matched),
+            "missing_capabilities": sorted(missing),
+            "confidence": round(best_score, 4),
+        }
+
+    def recommend_robot_for_task(self, task: str) -> list[dict[str, Any]]:
+        """Recommend robots best suited for a given task.
+
+        Returns a ranked list of {robot_id, score, matched_caps, missing_caps}
+        sorted by match score descending.
+        """
+        if not task:
+            return []
+
+        # Find the best matching task pattern
+        task_lower = task.lower()
+        matched_task: str | None = None
+        best_score = 0.0
+        for pattern in self._TASK_CAPABILITY_REQUIREMENTS:
+            score = self._score_task_match(task_lower, pattern)
+            if score > best_score:
+                best_score = score
+                matched_task = pattern
+
+        if not matched_task or best_score < 0.3:
+            return []
+
+        required = set(self._TASK_CAPABILITY_REQUIREMENTS[matched_task])
+
+        # Gather all known robots from capabilities cache + SeekDB
+        all_robots = set(self._capabilities.keys())
+        if self.seekdb is not None:
+            try:
+                rows = self.seekdb.query("knowledge_graph",
+                    filters={"predicate": "has_capability"}, limit=1000)
+                for r in rows:
+                    rid = r.get("subject", "")
+                    if rid:
+                        all_robots.add(rid)
+            except Exception:
+                pass
+
+        recommendations = []
+        for rid in all_robots:
+            caps = set(self._capabilities.get(rid, []))
+            # Also query SeekDB for this robot's capabilities
+            if self.seekdb is not None and not caps:
+                try:
+                    rows = self.seekdb.query("knowledge_graph",
+                        filters={"subject": rid, "predicate": "has_capability"}, limit=100)
+                    caps = {r.get("object", "") for r in rows if r.get("object")}
+                except Exception:
+                    pass
+
+            matched = required & caps
+            missing = required - caps
+            score = len(matched) / max(len(required), 1)
+            recommendations.append({
+                "robot_id": rid,
+                "score": round(score, 4),
+                "matched_capabilities": sorted(matched),
+                "missing_capabilities": sorted(missing),
+                "task_match_confidence": round(best_score, 4),
+            })
+
+        recommendations.sort(key=lambda x: (-x["score"], x["robot_id"]))
+        return recommendations
 
     def _score_task_match(self, task_lower: str, pattern: str) -> float:
         """Score how well a task description matches a decomposition pattern."""

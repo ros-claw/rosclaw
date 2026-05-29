@@ -665,7 +665,7 @@ grep -n "_health\[" src/rosclaw/core/runtime.py
 |-------|----------|--------|-------------|
 | ISSUE-001 | P0 | provider | Sync/async boundary violation in ProviderRegistry.register() (mitigated by auto_load=False) | **fixed** |
 | ISSUE-002 | P1 | provider | No integration test with Runtime | **fixed** |
-| ISSUE-003 | P1 | provider | Provider system does not publish lifecycle events to EventBus | open |
+| ISSUE-003 | P1 | provider | Provider system does not publish lifecycle events to EventBus | **fixed** |
 | ISSUE-004 | P2 | provider | No mock providers for VLM, VLA, Skill domains (Runtime has inline mocks) | open |
 | ISSUE-005 | P1 | core/runtime | Runtime manually pokes ProviderRegistry._health, bypassing load() | **fixed** |
 

@@ -370,3 +370,86 @@ class TestTaskDecompositionHint:
 
         assert ki.task_decomposition_hint("") is None
         ki._do_stop()
+
+
+class TestCompositionalReasoning:
+    """Tests for can_perform_task and recommend_robot_for_task."""
+
+    def test_can_perform_task_yes(self):
+        client = SeekDBMemoryClient()
+        client.connect()
+        seed_knowledge_graph(client)
+
+        ki = KnowledgeInterface(robot_id="ur5e", seekdb_client=client)
+        ki._do_initialize()
+
+        result = ki.can_perform_task("ur5e", "pick and place")
+        assert result is not None
+        assert result["robot_id"] == "ur5e"
+        assert result["can_perform"] is True
+        assert "grasp" in result["matched_capabilities"]
+        assert result["missing_capabilities"] == []
+
+        ki._do_stop()
+
+    def test_can_perform_task_no(self):
+        client = SeekDBMemoryClient()
+        client.connect()
+        seed_knowledge_graph(client)
+
+        ki = KnowledgeInterface(robot_id="spot", seekdb_client=client)
+        ki._do_initialize()
+
+        # Spot can inspect_surface but not grasp, so can't do pick_and_place
+        result = ki.can_perform_task("spot", "pick and place")
+        assert result is not None
+        assert result["can_perform"] is False
+        assert "grasp" in result["missing_capabilities"]
+
+        ki._do_stop()
+
+    def test_can_perform_task_unknown(self):
+        ki = KnowledgeInterface(robot_id="test")
+        ki._do_initialize()
+        assert ki.can_perform_task("test", "nonsense task xyz") is None
+        ki._do_stop()
+
+    def test_recommend_robot_for_task(self):
+        client = SeekDBMemoryClient()
+        client.connect()
+        seed_knowledge_graph(client)
+
+        ki = KnowledgeInterface(robot_id="ur5e", seekdb_client=client)
+        ki._do_initialize()
+
+        recs = ki.recommend_robot_for_task("pick and place")
+        assert len(recs) > 0
+        # UR5e and Panda should be top candidates (both have grasp + pick_and_place)
+        top = recs[0]
+        assert top["score"] == 1.0  # Perfect match
+        assert "grasp" in top["matched_capabilities"]
+        assert "pick_and_place" in top["matched_capabilities"]
+
+        ki._do_stop()
+
+    def test_recommend_robot_sort_objects(self):
+        client = SeekDBMemoryClient()
+        client.connect()
+        seed_knowledge_graph(client)
+
+        ki = KnowledgeInterface(robot_id="ur5e", seekdb_client=client)
+        ki._do_initialize()
+
+        recs = ki.recommend_robot_for_task("sort objects")
+        assert len(recs) > 0
+        # ur5e and agilex_piper have sort_objects
+        robot_ids = [r["robot_id"] for r in recs if r["score"] == 1.0]
+        assert "ur5e" in robot_ids
+
+        ki._do_stop()
+
+    def test_recommend_robot_empty_task(self):
+        ki = KnowledgeInterface(robot_id="test")
+        ki._do_initialize()
+        assert ki.recommend_robot_for_task("") == []
+        ki._do_stop()

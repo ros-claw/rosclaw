@@ -427,6 +427,61 @@ class MemoryInterface(LifecycleMixin):
         }
 
     # ------------------------------------------------------------------
+    # KNOW / HOW wrappers — Knowledge Graph and Heuristic Rules
+    # ------------------------------------------------------------------
+
+    def query_knowledge_graph(
+        self,
+        entity_id: Optional[str] = None,
+        predicate: Optional[str] = None,
+        object_value: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Query the knowledge_graph table.
+
+        Args:
+            entity_id: Filter by subject (e.g. robot_id).
+            predicate: Filter by predicate (e.g. "has_capability").
+            object_value: Filter by object.
+            limit: Maximum records to return.
+
+        Returns:
+            List of knowledge graph records.
+        """
+        filters: dict[str, Any] = {}
+        if entity_id:
+            filters["subject"] = entity_id
+        if predicate:
+            filters["predicate"] = predicate
+        if object_value:
+            filters["object"] = object_value
+        return self._client.query("knowledge_graph", filters=filters, limit=limit)
+
+    def get_heuristic_rules(
+        self,
+        condition: Optional[str] = None,
+        min_priority: int = 0,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Query heuristic rules from SeekDB.
+
+        Args:
+            condition: Optional substring match on condition text.
+            min_priority: Minimum priority threshold (default 0).
+            limit: Maximum rules to return.
+
+        Returns:
+            List of heuristic rule records.
+        """
+        rows = self._client.query(
+            "heuristic_rules",
+            filters={} if condition is None else {"condition": condition},
+            order_by="-priority",
+            limit=limit,
+        )
+        return [r for r in rows if int(r.get("priority", 0)) >= min_priority]
+
+    # ------------------------------------------------------------------
     # EmbodiedMemory bridge (world objects, trajectories, cognitive search)
     # ------------------------------------------------------------------
 
@@ -555,3 +610,157 @@ class MemoryInterface(LifecycleMixin):
         if self._embodied is None:
             return {"success": False, "error": "EmbodiedMemory not attached"}
         return self._embodied.run_meditation(phases or ["consolidate", "crystallize", "extract"])
+
+
+# ---------------------------------------------------------------------------
+# KNOW / HOW wrapper classes
+# ---------------------------------------------------------------------------
+
+
+class KnowledgeGraphWrapper:
+    """Convenience wrapper for SeekDB knowledge_graph table.
+
+    Provides typed access to triples (subject-predicate-object) without
+    requiring callers to know the SeekDB schema details.
+    """
+
+    def __init__(self, client: SeekDBClient):
+        self._client = client
+        self._table = "knowledge_graph"
+
+    def get_triples(
+        self,
+        subject: Optional[str] = None,
+        predicate: Optional[str] = None,
+        obj: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Query triples by any combination of subject/predicate/object."""
+        filters: dict[str, Any] = {}
+        if subject:
+            filters["subject"] = subject
+        if predicate:
+            filters["predicate"] = predicate
+        if obj:
+            filters["object"] = obj
+        return self._client.query(self._table, filters=filters, limit=limit)
+
+    def add_triple(
+        self,
+        triple_id: str,
+        subject: str,
+        predicate: str,
+        obj: str,
+        confidence: float = 1.0,
+        source: str = "",
+    ) -> str:
+        """Insert a new triple. Returns the triple id."""
+        record = {
+            "id": triple_id,
+            "subject": subject,
+            "predicate": predicate,
+            "object": obj,
+            "confidence": confidence,
+            "source": source,
+            "timestamp": time.time(),
+        }
+        return self._client.insert(self._table, record)
+
+    def get_capabilities(self, robot_id: str) -> list[dict]:
+        """Return capabilities for a robot as {capability, confidence, source}."""
+        rows = self._client.query(
+            self._table,
+            filters={"subject": robot_id, "predicate": "has_capability"},
+            order_by="-confidence",
+            limit=100,
+        )
+        return [
+            {
+                "capability": r.get("object", ""),
+                "confidence": r.get("confidence", 1.0),
+                "source": r.get("source", ""),
+            }
+            for r in rows
+        ]
+
+    def count(self) -> int:
+        """Total number of triples in the knowledge graph."""
+        return self._client.count(self._table)
+
+
+class HeuristicRuleWrapper:
+    """Convenience wrapper for SeekDB heuristic_rules table.
+
+    Provides typed CRUD for heuristic rules used by the HOW recovery engine.
+    """
+
+    def __init__(self, client: SeekDBClient):
+        self._client = client
+        self._table = "heuristic_rules"
+
+    def list_rules(
+        self,
+        condition_filter: Optional[str] = None,
+        min_priority: int = 0,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Return active rules ordered by priority descending."""
+        filters = {}
+        if condition_filter:
+            filters["condition"] = condition_filter
+        rows = self._client.query(
+            self._table,
+            filters=filters,
+            order_by="-priority",
+            limit=limit,
+        )
+        return [r for r in rows if int(r.get("priority", 0)) >= min_priority]
+
+    def add_rule(
+        self,
+        rule_id: str,
+        condition: str,
+        action: str,
+        priority: int = 0,
+    ) -> str:
+        """Insert a new heuristic rule. Returns rule_id."""
+        record = {
+            "id": rule_id,
+            "condition": condition,
+            "action": action,
+            "priority": priority,
+            "success_count": 0,
+            "failure_count": 0,
+            "last_triggered": None,
+        }
+        return self._client.insert(self._table, record)
+
+    def get_rule(self, rule_id: str) -> Optional[dict]:
+        """Retrieve a single rule by id."""
+        rows = self._client.query(self._table, filters={"id": rule_id}, limit=1)
+        return dict(rows[0]) if rows else None
+
+    def update_rule(self, rule_id: str, **fields: Any) -> bool:
+        """Update rule fields. Allowed: condition, action, priority."""
+        allowed = {"condition", "action", "priority"}
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return False
+        return self._client.update(self._table, rule_id, updates)
+
+    def record_trigger(self, rule_id: str, success: bool = True) -> bool:
+        """Increment success_count or failure_count and update last_triggered."""
+        rule = self.get_rule(rule_id)
+        if not rule:
+            return False
+        key = "success_count" if success else "failure_count"
+        new_count = int(rule.get(key, 0)) + 1
+        return self._client.update(
+            self._table,
+            rule_id,
+            {key: new_count, "last_triggered": time.time()},
+        )
+
+    def count(self) -> int:
+        """Total number of heuristic rules."""
+        return self._client.count(self._table)
