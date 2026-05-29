@@ -7,6 +7,8 @@ from rosclaw.runtime.eurdf_loader import (
     RobotCapabilityProfile,
     RobotSimulationProfile,
     RobotSemanticProfile,
+    RobotBenchmarkProfile,
+    RobotCompleteProfile,
     RobotRegistry,
 )
 
@@ -17,5 +19,7 @@ __all__ = [
     "RobotCapabilityProfile",
     "RobotSimulationProfile",
     "RobotSemanticProfile",
+    "RobotBenchmarkProfile",
+    "RobotCompleteProfile",
     "RobotRegistry",
 ]
