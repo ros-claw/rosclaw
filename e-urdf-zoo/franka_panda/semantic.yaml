@@ -1,0 +1,77 @@
+semantic_version: "1.0"
+functional_regions:
+  - name: base
+    link: base_link
+    tags: [mount, stationary, foundation]
+    description: "Fixed base mounting point"
+    affordances: []
+  - name: shoulder
+    link: link1
+    tags: [rotary, yaw, vertical_axis]
+    description: "First rotary joint around vertical axis"
+    affordances: [rotate]
+  - name: upper_arm
+    link: link2
+    tags: [structural, long_link, main_segment]
+    description: "Main upper arm segment"
+    affordances: []
+    visual_features: [{type: cylinder, color: white, dominant: true}]
+  - name: forearm
+    link: link4
+    tags: [structural, long_link]
+    description: "Forearm segment"
+    affordances: []
+    visual_features: [{type: cylinder, color: white}]
+  - name: wrist_assembly
+    links: [link5, link6, link7]
+    tags: [wrist, compact, dexterous, 3dof]
+    description: "Three intersecting wrist joints"
+    affordances: [orient, rotate]
+  - name: tool_mount
+    link: flange
+    tags: [end_effector_mount, coupling, tcp]
+    description: "Tool mounting flange"
+    affordances: [attach_tool, attach_gripper]
+    geometry: {type: cylinder, diameter: 0.040, bolt_pattern: 4xM4}
+
+grasp_points:
+  - name: upper_arm_grasp
+    link: link2
+    position: [0, 0, 0.15]
+    approach_direction: [0, 0, 1]
+    description: "For human hand-guiding during teaching"
+    safety: {max_force: 50.0}
+  - name: forearm_grasp
+    link: link4
+    position: [0, 0, 0.10]
+    approach_direction: [0, 0, 1]
+    description: "For human hand-guiding during teaching"
+    safety: {max_force: 50.0}
+
+visual_features:
+  - name: shoulder_joint_visible
+    type: rotary_joint
+    links: [base_link, link1]
+    visual_cues: [white_ring, silver_cylinder]
+    llm_description: "Circular joint where robot connects to base"
+  - name: elbow_joint_visible
+    type: rotary_joint
+    links: [link2, link3]
+    visual_cues: [white_ring]
+    llm_description: "Elbow joint that bends the arm"
+  - name: wrist_joints_visible
+    type: compact_joint_cluster
+    links: [link5, link6, link7]
+    visual_cues: [white_block, compact]
+    llm_description: "Compact wrist assembly near end of arm"
+
+task_descriptions:
+  pick_and_place:
+    relevant_links: [link6, link7, flange]
+    relevant_joints: [panda_joint5, panda_joint6, panda_joint7]
+    workspace_hint: "Objects within 855mm of base"
+    collision_warning: "Watch elbow when reaching low objects"
+  hand_guided_teaching:
+    relevant_links: [link2, link4]
+    description: "Gently hold upper arm or forearm to guide"
+    safety: "Do not grasp wrist joints or tool mount"

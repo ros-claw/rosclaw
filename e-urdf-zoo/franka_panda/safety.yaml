@@ -1,0 +1,69 @@
+safety_level: STRICT
+joint_soft_limits:
+  panda_joint1: {lower: -2.8, upper: 2.8, k_position: 100.0, k_velocity: 50.0}
+  panda_joint2: {lower: -1.7, upper: 1.7, k_position: 100.0, k_velocity: 50.0}
+  panda_joint3: {lower: -2.8, upper: 2.8, k_position: 100.0, k_velocity: 50.0}
+  panda_joint4: {lower: -3.0, upper: -0.1, k_position: 100.0, k_velocity: 50.0}
+  panda_joint5: {lower: -2.8, upper: 2.8, k_position: 50.0, k_velocity: 25.0}
+  panda_joint6: {lower: -0.01, upper: 3.7, k_position: 50.0, k_velocity: 25.0}
+  panda_joint7: {lower: -2.8, upper: 2.8, k_position: 50.0, k_velocity: 25.0}
+pfl:
+  enabled: true
+  max_tcp_force: 140.0
+  max_tcp_torque: 7.0
+  max_static_force: 40.0
+  max_pressure: 140.0
+  max_speed_tool: 0.25
+  max_speed_joint: 1.57
+collision_detection:
+  method: force_threshold
+  threshold_force: 40.0
+  threshold_torque: 2.5
+  reaction_time_ms: 2.0
+  reaction_strategy: stop_and_retract
+  retraction_distance: 0.01
+emergency_stop:
+  category: 3
+  stop_time_ms: 200.0
+  stop_distance_m: 0.2
+  dual_channel: true
+workspace_boundaries:
+  type: enclosure
+  fenceless: true
+  virtual_boundaries:
+    - {name: front_plane, type: plane, normal: [0, 1, 0], offset: -0.5}
+    - {name: top_plane, type: plane, normal: [0, 0, -1], offset: 1.2}
+interaction:
+  hand_guiding: true
+  speed_slider_max: 0.25
+  force_guiding_max: 10.0
+  protective_stop_on_contact: true
+environment:
+  ambient_temp_min: 0.0
+  ambient_temp_max: 45.0
+  humidity_max: 80.0
+  ip_rating: IP40
+  cleanroom_class: ISO 5
+safety_limits:
+  joint_limits:
+    panda_joint1: {lower: -2.8973, upper: 2.8973}
+    panda_joint2: {lower: -1.7628, upper: 1.7628}
+    panda_joint3: {lower: -2.8973, upper: 2.8973}
+    panda_joint4: {lower: -3.0718, upper: -0.0698}
+    panda_joint5: {lower: -2.8973, upper: 2.8973}
+    panda_joint6: {lower: -0.0175, upper: 3.7525}
+    panda_joint7: {lower: -2.8973, upper: 2.8973}
+  velocity_limits:
+    panda_joint1: 2.1750
+    panda_joint2: 2.1750
+    panda_joint3: 2.1750
+    panda_joint4: 2.1750
+    panda_joint5: 2.6100
+    panda_joint6: 2.6100
+    panda_joint7: 2.6100
+  force_limits:
+    max_tcp_force: 200.0
+    max_tcp_torque: 10.0
+    max_joint_effort: 87.0
+  workspace: {type: sphere, center: [0, 0, 0.4], radius: 0.855, height_min: 0.0, height_max: 1.2}
+  power_limits: {max_power: 300.0, max_current_total: 40.0}

@@ -1,0 +1,72 @@
+safety_level: MODERATE
+joint_soft_limits:
+  fr_hip_joint: {lower: -0.75, upper: 0.75, k_position: 100.0, k_velocity: 50.0}
+  fr_thigh_joint: {lower: -1.0, upper: 4.0, k_position: 100.0, k_velocity: 50.0}
+  fr_calf_joint: {lower: -2.6, upper: -1.0, k_position: 100.0, k_velocity: 50.0}
+  fl_hip_joint: {lower: -0.75, upper: 0.75, k_position: 100.0, k_velocity: 50.0}
+  fl_thigh_joint: {lower: -1.0, upper: 4.0, k_position: 100.0, k_velocity: 50.0}
+  fl_calf_joint: {lower: -2.6, upper: -1.0, k_position: 100.0, k_velocity: 50.0}
+  rr_hip_joint: {lower: -0.75, upper: 0.75, k_position: 100.0, k_velocity: 50.0}
+  rr_thigh_joint: {lower: -1.0, upper: 4.0, k_position: 100.0, k_velocity: 50.0}
+  rr_calf_joint: {lower: -2.6, upper: -1.0, k_position: 100.0, k_velocity: 50.0}
+  rl_hip_joint: {lower: -0.75, upper: 0.75, k_position: 100.0, k_velocity: 50.0}
+  rl_thigh_joint: {lower: -1.0, upper: 4.0, k_position: 100.0, k_velocity: 50.0}
+  rl_calf_joint: {lower: -2.6, upper: -1.0, k_position: 100.0, k_velocity: 50.0}
+pfl:
+  enabled: true
+  max_foot_force: 400.0
+  max_body_acceleration: 2.0
+  max_fall_height: 0.3
+collision_detection:
+  method: foot_force_threshold
+  threshold_force: 100.0
+  reaction_time_ms: 10.0
+  reaction_strategy: adjust_gait
+emergency_stop:
+  category: 2
+  stop_time_ms: 500.0
+  stop_distance_m: 0.5
+  dual_channel: false
+workspace_boundaries:
+  type: free
+  fenceless: true
+interaction:
+  speed_slider_max: 1.0
+  protective_stop_on_contact: true
+environment:
+  ambient_temp_min: -10.0
+  ambient_temp_max: 45.0
+  humidity_max: 90.0
+  ip_rating: IP66
+safety_limits:
+  joint_limits:
+    fr_hip_joint: {lower: -0.8, upper: 0.8}
+    fr_thigh_joint: {lower: -1.05, upper: 4.19}
+    fr_calf_joint: {lower: -2.7, upper: -0.92}
+    fl_hip_joint: {lower: -0.8, upper: 0.8}
+    fl_thigh_joint: {lower: -1.05, upper: 4.19}
+    fl_calf_joint: {lower: -2.7, upper: -0.92}
+    rr_hip_joint: {lower: -0.8, upper: 0.8}
+    rr_thigh_joint: {lower: -1.05, upper: 4.19}
+    rr_calf_joint: {lower: -2.7, upper: -0.92}
+    rl_hip_joint: {lower: -0.8, upper: 0.8}
+    rl_thigh_joint: {lower: -1.05, upper: 4.19}
+    rl_calf_joint: {lower: -2.7, upper: -0.92}
+  velocity_limits:
+    fr_hip_joint: 20.0
+    fr_thigh_joint: 20.0
+    fr_calf_joint: 20.0
+    fl_hip_joint: 20.0
+    fl_thigh_joint: 20.0
+    fl_calf_joint: 20.0
+    rr_hip_joint: 20.0
+    rr_thigh_joint: 20.0
+    rr_calf_joint: 20.0
+    rl_hip_joint: 20.0
+    rl_thigh_joint: 20.0
+    rl_calf_joint: 20.0
+  force_limits:
+    max_joint_effort: 45.0
+    max_foot_force: 500.0
+  workspace: {type: bounding_box, center: [0, 0, 0.3], dimensions: [1.0, 0.5, 0.6]}
+  power_limits: {max_power: 500.0, max_current_total: 200.0}

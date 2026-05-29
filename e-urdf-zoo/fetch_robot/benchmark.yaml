@@ -1,0 +1,56 @@
+benchmark_version: "1.0"
+robot_id: fetch_robot
+
+kinematic_benchmarks:
+  - name: ik_solve_rate
+    description: "Success rate of analytical IK for 7-DOF arm"
+    target: 0.99
+    timeout_ms: 10.0
+  - name: fk_accuracy
+    description: "Forward kinematics accuracy vs CAD"
+    target: 1.0e-5
+    unit: m
+
+dynamic_benchmarks:
+  - name: trajectory_tracking_error
+    description: "RMSE of arm joint position tracking"
+    target: 0.002
+    unit: rad
+  - name: base_odometry_drift
+    description: "Position drift over 100m navigation"
+    target: 0.5
+    unit: m
+
+simulation_benchmarks:
+  mujoco:
+    - {name: real_time_factor, target: 1.0, tolerance: 0.05}
+    - {name: contact_stability, description: "No contact instabilities", target: true}
+  isaac:
+    - {name: real_time_factor, target: 1.0, tolerance: 0.1}
+
+task_benchmarks:
+  - name: office_navigation_10
+    description: "Navigate to 10 waypoints in office"
+    tasks: [navigate]
+    metrics:
+      - {name: success_rate, target: 0.90}
+      - {name: avg_navigation_time, target: 30.0, unit: s}
+      - {name: collision_count, target: 0}
+  - name: tabletop_pick_5
+    description: "Pick 5 objects from table"
+    tasks: [pick_and_place]
+    metrics:
+      - {name: success_rate, target: 0.90}
+      - {name: avg_cycle_time, target: 15.0, unit: s}
+
+safety_benchmarks:
+  - {name: emergency_stop_latency, description: "Time from trigger to full stop", target: 300.0, unit: ms}
+  - {name: collision_force_at_stop, description: "Contact force when stop triggers", target: 80.0, unit: N}
+
+baseline_hardware:
+  cpu: "Intel i7-12700"
+  gpu: "NVIDIA RTX 3080"
+  ram: "32GB DDR4"
+  os: "Ubuntu 22.04"
+  ros_distro: "humble"
+  realtime_kernel: false

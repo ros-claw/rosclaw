@@ -1,0 +1,62 @@
+benchmark_version: "1.0"
+robot_id: unitree_go2
+
+kinematic_benchmarks:
+  - name: gait_stability
+    description: "Stability margin during walking gait"
+    target: 0.05
+    unit: m
+  - name: foot_placement_accuracy
+    description: "Accuracy of planned foot placement"
+    target: 0.01
+    unit: m
+
+dynamic_benchmarks:
+  - name: walking_speed
+    description: "Maximum stable walking speed"
+    target: 0.5
+    unit: m/s
+  - name: trotting_speed
+    description: "Maximum stable trotting speed"
+    target: 3.5
+    unit: m/s
+  - name: power_efficiency
+    description: "Power consumption per meter traveled"
+    target: 50.0
+    unit: W/(m/s)
+
+simulation_benchmarks:
+  mujoco:
+    - {name: real_time_factor, target: 1.0, tolerance: 0.05}
+    - {name: contact_stability, description: "No contact instabilities in 60s", target: true}
+    - {name: terrain_adaptation, description: "Stable gait on uneven terrain", target: true}
+  isaac:
+    - {name: real_time_factor, target: 1.0, tolerance: 0.1}
+    - {name: parallel_env_speedup, target: 20.0, description: "Speedup for 1000 parallel envs"}
+
+task_benchmarks:
+  - name: flat_terrain_walk_100m
+    description: "Walk 100m on flat terrain"
+    tasks: [walk]
+    metrics:
+      - {name: success_rate, target: 0.98}
+      - {name: avg_speed, target: 0.4, unit: m/s}
+      - {name: fall_count, target: 0}
+  - name: stair_climb_10_steps
+    description: "Climb 10 steps"
+    tasks: [stair_climb]
+    metrics:
+      - {name: success_rate, target: 0.90}
+      - {name: avg_step_time, target: 1.5, unit: s}
+
+safety_benchmarks:
+  - {name: fall_recovery_time, description: "Time to recover from fall", target: 3.0, unit: s}
+  - {name: max_fall_impact_force, description: "Impact force during fall", target: 500.0, unit: N}
+
+baseline_hardware:
+  cpu: "Intel i7-12700"
+  gpu: "NVIDIA RTX 3080"
+  ram: "32GB DDR4"
+  os: "Ubuntu 22.04"
+  ros_distro: "humble"
+  realtime_kernel: false

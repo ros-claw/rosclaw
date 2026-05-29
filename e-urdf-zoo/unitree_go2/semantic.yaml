@@ -1,0 +1,56 @@
+semantic_version: "1.0"
+functional_regions:
+  - name: trunk
+    link: trunk
+    tags: [body, main_chassis, central]
+    description: "Main body/trunk of the quadruped"
+    affordances: [carry_payload]
+  - name: front_right_leg
+    links: [fr_hip, fr_thigh, fr_calf]
+    tags: [leg, front, right, 3dof]
+    description: "Front right leg"
+    affordances: [walk, support]
+  - name: front_left_leg
+    links: [fl_hip, fl_thigh, fl_calf]
+    tags: [leg, front, left, 3dof]
+    description: "Front left leg"
+    affordances: [walk, support]
+  - name: rear_right_leg
+    links: [rr_hip, rr_thigh, rr_calf]
+    tags: [leg, rear, right, 3dof]
+    description: "Rear right leg"
+    affordances: [walk, support]
+  - name: rear_left_leg
+    links: [rl_hip, rl_thigh, rl_calf]
+    tags: [leg, rear, left, 3dof]
+    description: "Rear left leg"
+    affordances: [walk, support]
+  - name: head
+    link: trunk
+    tags: [sensor_mount, perception]
+    description: "Sensor head with cameras and LIDAR"
+    affordances: [observe, scan]
+
+grasp_points: []
+
+visual_features:
+  - name: trunk_body
+    type: rectangular_body
+    links: [trunk]
+    visual_cues: [black_rectangular, compact]
+    llm_description: "Compact rectangular body of the quadruped robot"
+  - name: leg_structure
+    type: articulated_leg
+    links: [fr_hip, fr_thigh, fr_calf]
+    visual_cues: [three_segments, jointed]
+    llm_description: "Articulated leg with three segments and two visible joints"
+
+task_descriptions:
+  walk:
+    relevant_links: [fr_foot, fl_foot, rr_foot, rl_foot]
+    description: "Robot walks using alternating leg movements"
+    workspace_hint: "Requires flat or mildly sloped terrain"
+  navigation:
+    relevant_links: [trunk]
+    description: "Robot navigates to target while avoiding obstacles"
+    sensors: [lidar, depth_camera]

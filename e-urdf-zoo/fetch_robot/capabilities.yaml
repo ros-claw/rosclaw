@@ -1,0 +1,68 @@
+capability_version: "1.0"
+robot_id: fetch_robot
+capabilities:
+- id: fetch_navigate
+  name: navigate
+  category: navigation
+  description: Navigate to target pose using laser and odometry
+  skill_type: programmed
+  inputs:
+  - {name: target_pose, type: pose, frame: map}
+  - {name: obstacle_avoidance, type: bool, default: true}
+  required_sensors: [base_laser]
+  estimated_duration: {mean: 20.0, unit: s}
+- id: fetch_pick_and_place
+  name: pick_and_place
+  category: manipulation
+  description: Pick and place objects with mobile base
+  skill_type: programmed
+  inputs:
+  - {name: object, type: str}
+  - {name: pick_location, type: pose}
+  - {name: place_location, type: pose}
+  preconditions: [gripper_attached, object_in_reach, object_mass_leq_2kg]
+  constraints: {max_payload: 2.0, max_reach: 1.2, requires_gripper: true}
+  estimated_duration: {mean: 10.0, unit: s}
+- id: fetch_approach_table
+  name: approach_table
+  category: manipulation
+  description: Approach a table and position arm for manipulation
+  skill_type: composed
+  inputs:
+  - {name: table_height, type: float, unit: m}
+  - {name: approach_distance, type: float, default: 0.3, unit: m}
+  estimated_duration: {mean: 5.0, unit: s}
+- id: fetch_inspect_object
+  name: inspect_object
+  category: perception
+  description: Move head to inspect an object from multiple angles
+  skill_type: programmed
+  inputs:
+  - {name: object, type: str}
+  - {name: viewpoint, type: pose}
+  required_sensors: [head_camera_rgbd]
+  estimated_duration: {mean: 8.0, unit: s}
+- id: fetch_hand_over
+  name: hand_over
+  category: interaction
+  description: Hand an object to a person
+  skill_type: composed
+  inputs:
+  - {name: target_person, type: str}
+  - {name: object, type: str}
+  constraints: {requires_human_detection: true}
+  estimated_duration: {mean: 6.0, unit: s}
+skill_registry:
+  fetch_navigation:
+    version: "1.0"
+    skills: [navigate, explore, dock]
+  fetch_manipulation:
+    version: "1.0"
+    skills: [pick_and_place, approach_table, hand_over]
+  fetch_perception:
+    version: "1.0"
+    skills: [inspect_object, object_detection]
+precondition_checks:
+  gripper_attached: {check: gripper_link.child_links > 0, description: Gripper must be attached}
+  object_in_reach: {check: euclidean_distance(object.pose, base_link.pose) <= 1.2, description: Object within reach}
+  object_mass_leq_2kg: {check: object.mass <= 2.0, description: Object must not exceed 2kg}

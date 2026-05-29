@@ -1,0 +1,82 @@
+capability_version: "1.0"
+robot_id: franka_emika_panda
+capabilities:
+- id: panda_pick_and_place
+  name: pick_and_place
+  category: manipulation
+  description: Pick and place objects with force-sensitive gripping
+  skill_type: programmed
+  skill_package: panda_manipulation
+  inputs:
+  - {name: object, type: str, description: Object identifier}
+  - {name: pick_location, type: pose, frame: world}
+  - {name: place_location, type: pose, frame: world}
+  - {name: grip_force, type: float, default: 15.0, unit: N, range: [0, 120]}
+  preconditions: [gripper_attached, object_in_reach, object_mass_leq_3kg]
+  postconditions: [object_at_place_location]
+  required_hardware: [gripper]
+  required_software: [moveit2, ros2_control]
+  estimated_duration: {mean: 6.0, std: 1.5, unit: s}
+  success_metrics:
+  - {name: placement_accuracy, target: 0.001, unit: m}
+  - {name: grasp_stability, target: 0.95}
+  failure_modes:
+  - {name: grasp_miss, symptoms: [object_not_in_gripper], recovery: retry_with_adjusted_approach}
+  constraints: {max_payload: 3.0, max_reach: 0.855, requires_gripper: true}
+- id: panda_insertion
+  name: insertion
+  category: assembly
+  description: Insert a peg or component using force feedback
+  skill_type: composed
+  inputs:
+  - {name: hole_location, type: pose}
+  - {name: insertion_depth, type: float, unit: m}
+  - {name: max_force, type: float, default: 30.0, unit: N}
+  preconditions: [tcp_force_sensor_active]
+  required_sensors: [tcp_force_sensor]
+  estimated_duration: {mean: 4.0, unit: s}
+- id: panda_hand_guided_teaching
+  name: hand_guided_teaching
+  category: teaching
+  description: Record trajectory by physically guiding the robot
+  skill_type: programmed
+  inputs:
+  - {name: record_trajectory, type: bool, default: true}
+  - {name: sample_rate, type: float, default: 1000.0, unit: Hz}
+  safety: [protective_stop_on_contact, speed_limited]
+  output: recorded_trajectory
+- id: panda_peg_in_hole
+  name: peg_in_hole
+  category: assembly
+  description: Precision peg insertion with compliant control
+  skill_type: composed
+  inputs:
+  - {name: peg_diameter, type: float, unit: m}
+  - {name: hole_diameter, type: float, unit: m}
+  - {name: max_force, type: float, default: 20.0, unit: N}
+  estimated_duration: {mean: 3.0, unit: s}
+- id: panda_drawer_opening
+  name: drawer_opening
+  category: manipulation
+  description: Open drawers using force-compliant pulling
+  skill_type: composed
+  inputs:
+  - {name: handle_location, type: str}
+  - {name: pull_distance, type: float, unit: m}
+  - {name: max_force, type: float, default: 25.0, unit: N}
+  estimated_duration: {mean: 5.0, unit: s}
+skill_registry:
+  panda_manipulation:
+    version: "1.0"
+    skills: [pick_and_place, push, slide]
+  panda_assembly:
+    version: "1.0"
+    skills: [insertion, peg_in_hole, press_fit]
+  panda_teaching:
+    version: "1.0"
+    skills: [hand_guided_teaching]
+precondition_checks:
+  gripper_attached: {check: tool0.child_links > 0, description: Gripper must be attached}
+  object_in_reach: {check: euclidean_distance(object.pose, base_link.pose) <= 0.855, description: Object within reach}
+  object_mass_leq_3kg: {check: object.mass <= 3.0, description: Object must not exceed 3kg}
+  tcp_force_sensor_active: {check: sensors.tcp_force_sensor.status == ACTIVE, description: TCP force sensor active}

@@ -1,0 +1,68 @@
+capability_version: "1.0"
+robot_id: unitree_go2
+capabilities:
+- id: go2_walk
+  name: walk
+  category: locomotion
+  description: Walk in specified direction
+  skill_type: programmed
+  inputs:
+  - {name: direction, type: str, enum: [forward, backward, left, right]}
+  - {name: speed, type: float, default: 0.5, unit: m/s}
+  - {name: duration, type: float, unit: s}
+  preconditions: [robot_standing]
+  constraints: {max_slope: 30.0, max_step_height: 0.15}
+  estimated_duration: {mean: 10.0, unit: s}
+- id: go2_trot
+  name: trot
+  category: locomotion
+  description: Trot gait for faster locomotion
+  skill_type: programmed
+  inputs:
+  - {name: speed, type: float, default: 1.0, unit: m/s}
+  - {name: duration, type: float, unit: s}
+  constraints: {max_speed: 3.5, terrain: flat_or_rough}
+  estimated_duration: {mean: 5.0, unit: s}
+- id: go2_stand_up
+  name: stand_up
+  category: locomotion
+  description: Stand up from ground position
+  skill_type: programmed
+  inputs:
+  - {name: height, type: float, default: 0.35, unit: m}
+  estimated_duration: {mean: 2.0, unit: s}
+- id: go2_stair_climb
+  name: stair_climb
+  category: locomotion
+  description: Climb stairs using gait adaptation
+  skill_type: composed
+  inputs:
+  - {name: stair_count, type: int}
+  - {name: step_height, type: float, unit: m}
+  - {name: step_depth, type: float, unit: m}
+  constraints: {max_step_height: 0.18, max_slope: 40.0}
+  estimated_duration: {mean: 15.0, unit: s}
+- id: go2_navigation
+  name: navigation
+  category: perception
+  description: Navigate to target pose using sensors
+  skill_type: programmed
+  inputs:
+  - {name: target_pose, type: pose}
+  - {name: obstacle_avoidance, type: bool, default: true}
+  required_sensors: [lidar, depth_camera]
+  estimated_duration: {mean: 30.0, unit: s}
+skill_registry:
+  go2_locomotion:
+    version: "1.0"
+    skills: [walk, trot, stand_up, stair_climb]
+  go2_navigation:
+    version: "1.0"
+    skills: [navigation, explore]
+precondition_checks:
+  robot_standing:
+    check: all(foot.z > 0.05 for foot in feet)
+    description: All feet must be above ground
+  terrain_traversable:
+    check: max(terrain_slope) <= 30.0
+    description: Terrain slope must be within limits

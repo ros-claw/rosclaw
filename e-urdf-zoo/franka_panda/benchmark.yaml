@@ -1,0 +1,74 @@
+benchmark_version: "1.0"
+robot_id: franka_emika_panda
+
+kinematic_benchmarks:
+  - name: ik_solve_rate
+    description: "Success rate of analytical IK solutions"
+    target: 0.999
+    timeout_ms: 5.0
+  - name: fk_accuracy
+    description: "Forward kinematics accuracy vs CAD"
+    target: 1.0e-6
+    unit: m
+  - name: singularity_avoidance
+    description: "Avoid kinematic singularities during motion"
+    target: 0.95
+
+dynamic_benchmarks:
+  - name: trajectory_tracking_error
+    description: "RMSE of joint position tracking"
+    target: 0.001
+    unit: rad
+    test_trajectories:
+      - {name: slow_pick, duration: 5.0, max_speed: 0.5}
+      - {name: fast_pick, duration: 2.0, max_speed: 2.0}
+  - name: settling_time
+    description: "Time to settle within 0.1% of target"
+    target: 0.03
+    unit: s
+  - name: force_control_bandwidth
+    description: "Force control loop bandwidth"
+    target: 1000.0
+    unit: Hz
+
+simulation_benchmarks:
+  mujoco:
+    - {name: real_time_factor, target: 1.0, tolerance: 0.05}
+    - {name: contact_stability, description: "No contact instabilities in 60s", target: true}
+    - {name: energy_conservation, description: "Energy drift in free-fall", target: 0.01, unit: J}
+  isaac:
+    - {name: real_time_factor, target: 1.0, tolerance: 0.1}
+    - {name: gpu_physics_speedup, target: 10.0, description: "Speedup vs CPU for 1000 envs"}
+
+task_benchmarks:
+  - name: tabletop_pick_10
+    description: "Pick 10 objects from table"
+    tasks: [pick_and_place]
+    objects:
+      - {class: red_cup, mass: 0.1, shape: cylinder}
+      - {class: blue_box, mass: 0.5, shape: box}
+    layout: random
+    metrics:
+      - {name: success_rate, target: 0.95}
+      - {name: avg_cycle_time, target: 8.0, unit: s}
+      - {name: collision_count, target: 0}
+  - name: peg_in_hole_5
+    description: "Insert 5 pegs with force compliance"
+    tasks: [peg_in_hole]
+    tolerance: {position: 0.0005, orientation: 0.05}
+    metrics:
+      - {name: success_rate, target: 0.92}
+      - {name: avg_force, target: 20.0, unit: N, max: 30.0}
+
+safety_benchmarks:
+  - {name: pfl_response_time, description: "PFL response time", target: 2.0, unit: ms}
+  - {name: protective_stop_latency, description: "Time from trigger to full stop", target: 200.0, unit: ms}
+  - {name: collision_force_at_stop, description: "Contact force when stop triggers", target: 140.0, unit: N, max: 200.0}
+
+baseline_hardware:
+  cpu: "Intel i7-12700"
+  gpu: "NVIDIA RTX 3080"
+  ram: "32GB DDR4"
+  os: "Ubuntu 22.04"
+  ros_distro: "humble"
+  realtime_kernel: false

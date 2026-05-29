@@ -1,0 +1,301 @@
+robot_id: fetch_robot
+name: Fetch
+vendor: Fetch Robotics
+version: "1.0"
+description: >
+  Mobile manipulation platform with differential drive base,
+  telescoping torso lift, and 7-DOF arm. Features RGB-D camera,
+  laser scanner, and head pan/tilt. For indoor mobile manipulation.
+
+dof: 8
+links:
+  - name: base_link
+    type: base
+    mass: 20.0
+    mesh: "assets/base.dae"
+  - name: torso_lift_link
+    type: link
+    mass: 5.0
+    description: "Telescoping torso lift"
+  - name: shoulder_pan_link
+    type: link
+    mass: 2.5
+    description: "Shoulder pan joint link"
+  - name: shoulder_lift_link
+    type: link
+    mass: 2.5
+    description: "Shoulder lift joint link"
+  - name: upperarm_roll_link
+    type: link
+    mass: 2.0
+    description: "Upper arm roll link"
+  - name: elbow_flex_link
+    type: link
+    mass: 1.5
+    description: "Elbow flex link"
+  - name: forearm_roll_link
+    type: link
+    mass: 1.2
+    description: "Forearm roll link"
+  - name: wrist_flex_link
+    type: link
+    mass: 0.8
+    description: "Wrist flex link"
+  - name: wrist_roll_link
+    type: link
+    mass: 0.5
+    description: "Wrist roll link"
+  - name: gripper_link
+    type: end_effector_mount
+    mass: 0.3
+  - name: head_pan_link
+    type: link
+    mass: 0.5
+    description: "Head pan link"
+  - name: head_tilt_link
+    type: link
+    mass: 0.3
+    description: "Head tilt link"
+  - name: head_camera_link
+    type: link
+    mass: 0.2
+    description: "Head camera mount link"
+
+joints:
+  - name: torso_lift_joint
+    type: prismatic
+    parent: base_link
+    child: torso_lift_link
+    axis: [0, 0, 1]
+    limits: {lower: 0.0, upper: 0.386, velocity: 0.1, effort: 100.0}
+  - name: shoulder_pan_joint
+    type: revolute
+    parent: torso_lift_link
+    child: shoulder_pan_link
+    axis: [0, 0, 1]
+    limits: {lower: -1.6056, upper: 1.6056, velocity: 1.256, effort: 50.0}
+  - name: shoulder_lift_joint
+    type: revolute
+    parent: shoulder_pan_link
+    child: shoulder_lift_link
+    axis: [0, 1, 0]
+    limits: {lower: -1.221, upper: 1.518, velocity: 1.256, effort: 50.0}
+  - name: upperarm_roll_joint
+    type: revolute
+    parent: shoulder_lift_link
+    child: upperarm_roll_link
+    axis: [1, 0, 0]
+    limits: {lower: -3.14159, upper: 3.14159, velocity: 1.256, effort: 30.0}
+  - name: elbow_flex_joint
+    type: revolute
+    parent: upperarm_roll_link
+    child: elbow_flex_link
+    axis: [0, 1, 0]
+    limits: {lower: -2.251, upper: 2.251, velocity: 1.256, effort: 30.0}
+  - name: forearm_roll_joint
+    type: revolute
+    parent: elbow_flex_link
+    child: forearm_roll_link
+    axis: [1, 0, 0]
+    limits: {lower: -3.14159, upper: 3.14159, velocity: 1.256, effort: 20.0}
+  - name: wrist_flex_joint
+    type: revolute
+    parent: forearm_roll_link
+    child: wrist_flex_link
+    axis: [0, 1, 0]
+    limits: {lower: -2.16, upper: 2.16, velocity: 1.256, effort: 15.0}
+  - name: wrist_roll_joint
+    type: revolute
+    parent: wrist_flex_link
+    child: wrist_roll_link
+    axis: [1, 0, 0]
+    limits: {lower: -3.14159, upper: 3.14159, velocity: 1.256, effort: 15.0}
+
+sensors:
+  - name: base_laser
+    type: laser
+    parent_link: base_link
+    range: [0.1, 25.0]
+    angle: [-1.57, 1.57]
+    resolution: 0.25
+    frequency: 10
+    description: "Base-mounted 2D laser scanner"
+  - name: head_camera_rgbd
+    type: depth_camera
+    parent_link: head_camera_link
+    resolution: [640, 480]
+    fov: 58.0
+    near: 0.3
+    far: 5.0
+    fps: 30
+    description: "Head-mounted RGB-D camera"
+  - name: base_imu
+    type: imu
+    parent_link: base_link
+    noise_std: {accel: 0.01, gyro: 0.001}
+  - name: wheel_encoders
+    type: encoder
+    parent_link: base_link
+    resolution: 0.001
+    description: "Wheel encoders for odometry"
+
+actuators:
+  - name: torso_lift_motor
+    type: electric_motor
+    joint: torso_lift_joint
+    max_current: 10.0
+    gear_ratio: 50.0
+    control_mode: [position, velocity]
+  - name: shoulder_pan_motor
+    type: electric_motor
+    joint: shoulder_pan_joint
+    max_current: 8.0
+    gear_ratio: 80.0
+    control_mode: [position, velocity, torque]
+  - name: shoulder_lift_motor
+    type: electric_motor
+    joint: shoulder_lift_joint
+    max_current: 8.0
+    gear_ratio: 80.0
+    control_mode: [position, velocity, torque]
+  - name: upperarm_roll_motor
+    type: electric_motor
+    joint: upperarm_roll_joint
+    max_current: 5.0
+    gear_ratio: 60.0
+    control_mode: [position, velocity, torque]
+  - name: elbow_flex_motor
+    type: electric_motor
+    joint: elbow_flex_joint
+    max_current: 5.0
+    gear_ratio: 60.0
+    control_mode: [position, velocity, torque]
+  - name: forearm_roll_motor
+    type: electric_motor
+    joint: forearm_roll_joint
+    max_current: 3.0
+    gear_ratio: 40.0
+    control_mode: [position, velocity, torque]
+  - name: wrist_flex_motor
+    type: electric_motor
+    joint: wrist_flex_joint
+    max_current: 2.0
+    gear_ratio: 30.0
+    control_mode: [position, velocity, torque]
+  - name: wrist_roll_motor
+    type: electric_motor
+    joint: wrist_roll_joint
+    max_current: 2.0
+    gear_ratio: 30.0
+    control_mode: [position, velocity, torque]
+
+safety_limits:
+  joint_limits:
+    torso_lift_joint: {lower: 0.0, upper: 0.386}
+    shoulder_pan_joint: {lower: -1.6056, upper: 1.6056}
+    shoulder_lift_joint: {lower: -1.221, upper: 1.518}
+    upperarm_roll_joint: {lower: -3.14159, upper: 3.14159}
+    elbow_flex_joint: {lower: -2.251, upper: 2.251}
+    forearm_roll_joint: {lower: -3.14159, upper: 3.14159}
+    wrist_flex_joint: {lower: -2.16, upper: 2.16}
+    wrist_roll_joint: {lower: -3.14159, upper: 3.14159}
+  velocity_limits:
+    torso_lift_joint: 0.1
+    shoulder_pan_joint: 1.256
+    shoulder_lift_joint: 1.256
+    upperarm_roll_joint: 1.256
+    elbow_flex_joint: 1.256
+    forearm_roll_joint: 1.256
+    wrist_flex_joint: 1.256
+    wrist_roll_joint: 1.256
+  force_limits:
+    max_tcp_force: 100.0
+    max_tcp_torque: 5.0
+    max_joint_effort: 100.0
+  workspace: {type: cylinder, center: [0, 0, 0.8], radius: 1.2, height_min: 0.0, height_max: 1.5}
+  power_limits: {max_power: 400.0, max_current_total: 50.0}
+
+capabilities:
+  - name: navigate
+    type: navigation
+    skill_type: programmed
+    parameters:
+      target_pose: {type: pose, frame: map}
+      obstacle_avoidance: {type: bool, default: true}
+    sensors_used: [base_laser]
+  - name: pick_and_place
+    type: manipulation
+    skill_type: programmed
+    parameters:
+      object: {type: str}
+      pick_location: {type: pose}
+      place_location: {type: pose}
+    constraints: {max_payload: 2.0, max_reach: 1.2, requires_gripper: true}
+  - name: approach_table
+    type: manipulation
+    skill_type: composed
+    parameters:
+      table_height: {type: float, unit: m}
+      approach_distance: {type: float, default: 0.3, unit: m}
+  - name: inspect_object
+    type: perception
+    skill_type: programmed
+    parameters:
+      object: {type: str}
+      viewpoint: {type: pose}
+    sensors_used: [head_camera_rgbd]
+  - name: hand_over
+    type: interaction
+    skill_type: composed
+    parameters:
+      target_person: {type: str}
+      object: {type: str}
+    constraints: {requires_human_detection: true}
+
+simulation_backends:
+  mujoco:
+    model_file: robot.mjcf.xml
+    timestep: 0.002
+    integrator: implicitfast
+    solver: newton
+    iterations: 50
+    ls_iterations: 10
+    gravity: [0, 0, -9.81]
+    contact: {friction: [1.0, 0.005, 0.0001], solref: [0.02, 1.0], solimp: [0.9, 0.95, 0.001]}
+  isaac:
+    model_file: robot.urdf
+    stage_units: meters
+    physics_dt: 0.00833
+    rendering_dt: 0.01667
+    gpu_physics: false
+  gazebo:
+    model_file: robot.urdf
+    physics_engine: ode
+    max_step_size: 0.001
+    real_time_factor: 1.0
+
+semantic_tags:
+  - mobile_manipulator
+  - indoor
+  - navigation
+  - manipulation
+  - 7dof_arm
+  - differential_drive
+  - research
+  - service_robot
+  - american
+
+metadata:
+  urdf_version: "1.0"
+  ros2_package: fetch_description
+  moveit_config_package: fetch_moveit_config
+  ros2_controllers:
+    - joint_trajectory_controller
+    - diff_drive_controller
+    - forward_command_controller
+  default_controller: joint_trajectory_controller
+  gripper_options: [Fetch Gripper]
+  max_base_speed: 1.0
+  max_base_rotation: 1.0
+  battery_capacity: "21Ah"
+  certification: [CE]

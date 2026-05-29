@@ -1,108 +1,100 @@
-"""Extended tests for rosclaw.swarm coordinator and consensus."""
+"""Extended tests for swarm coordinator and consensus gaps."""
 
-import time
-
+import math
 import pytest
 
-from rosclaw.swarm.coordinator import AgentBid, SwarmCoordinator, TaskAllocation
+from rosclaw.core.event_bus import EventBus, Event
+from rosclaw.swarm.coordinator import SwarmCoordinator, AgentBid, TaskAllocation
 from rosclaw.swarm.consensus import RaftLikeConsensus
 
 
-class TestSwarmCoordinator:
-    def test_register_agent(self):
-        coord = SwarmCoordinator()
-        coord.register_agent("bot_1", ["skill.pick", "skill.place"])
-        assert "bot_1" in coord._agents
-        assert coord._agents["bot_1"]["status"] == "idle"
+class TestSwarmCoordinatorExtended:
+    def test_deregister_agent(self):
+        sc = SwarmCoordinator()
+        sc.register_agent("bot_1", ["pick"])
+        assert "bot_1" in sc._agents
+        sc.deregister_agent("bot_1")
+        assert "bot_1" not in sc._agents
+        # Idempotent
+        sc.deregister_agent("bot_1")
 
-    def test_decompose_single_task(self):
-        coord = SwarmCoordinator()
-        task = {"id": "t1", "type": "single", "required_capabilities": ["skill.pick"]}
-        subs = coord.decompose_task(task)
-        assert len(subs) == 1
+    def test_decompose_task_sequential_assembly(self):
+        sc = SwarmCoordinator()
+        subtasks = sc.decompose_task({
+            "id": "assemble",
+            "type": "sequential_assembly",
+            "steps": [
+                {"capabilities": ["insert"]},
+                {"capabilities": ["screw"]},
+            ],
+        })
+        assert len(subtasks) == 2
+        assert subtasks[0]["type"] == "assembly_step"
+        assert subtasks[1]["type"] == "assembly_step"
 
-    def test_decompose_parallel_pick(self):
-        coord = SwarmCoordinator()
-        task = {
-            "id": "t2",
-            "type": "parallel_pick",
-            "objects": ["cup", "plate", "fork"],
-            "target_location": "sink",
-        }
-        subs = coord.decompose_task(task)
-        assert len(subs) == 3
-        assert subs[0]["type"] == "pick_and_place"
+    def test_request_bids_non_idle_agent(self):
+        sc = SwarmCoordinator()
+        sc.register_agent("bot_1", ["pick"])
+        sc._agents["bot_1"]["status"] = "busy"
+        bids = sc.request_bids({"required_capabilities": ["pick"]})
+        assert bids == []
 
-    def test_allocate_task_success(self):
-        coord = SwarmCoordinator()
-        coord.register_agent("bot_1", ["skill.pick_and_place"])
-        task = {
-            "id": "t3",
+    def test_request_bids_with_distance(self):
+        sc = SwarmCoordinator()
+        sc.register_agent("bot_1", ["pick"], position=(0.0, 0.0, 0.0))
+        bids = sc.request_bids({
+            "required_capabilities": ["pick"],
+            "target_position": (3.0, 4.0, 0.0),
+        })
+        assert len(bids) == 1
+        # cost = 1.0 + distance(0,0 to 3,4) = 1.0 + 5.0 = 6.0
+        assert bids[0].cost == pytest.approx(6.0)
+
+    def test_allocate_task_publishes_event(self):
+        bus = EventBus()
+        received = []
+        def handler(event):
+            received.append(event)
+        bus.subscribe("swarm.task_allocated", handler)
+
+        sc = SwarmCoordinator(event_bus=bus)
+        sc.register_agent("bot_1", ["pick"])
+        allocation = sc.allocate_task({
+            "id": "task_1",
             "type": "single",
-            "required_capabilities": ["skill.pick_and_place"],
-        }
-        result = coord.allocate_task(task)
-        assert result.feasible is True
-        assert result.assignments[0]["agent_id"] == "bot_1"
-        assert coord._agents["bot_1"]["status"] == "busy"
+            "required_capabilities": ["pick"],
+        })
+        assert allocation.feasible is True
+        assert len(received) == 1
+        assert received[0].payload["agent_id"] == "bot_1"
 
-    def test_allocate_task_no_agent(self):
-        coord = SwarmCoordinator()
-        coord.register_agent("bot_1", ["skill.pick"])
-        task = {"id": "t4", "required_capabilities": ["skill.place"]}
-        result = coord.allocate_task(task)
-        assert result.feasible is False
+    def test_propose_state_consensus_reached(self):
+        bus = EventBus()
+        received = []
+        def handler(event):
+            received.append(event)
+        bus.subscribe("swarm.consensus_reached", handler)
 
-    def test_consensus_propose(self):
-        coord = SwarmCoordinator()
-        coord.register_agent("bot_1", ["skill.pick"])
-        coord.register_agent("bot_2", ["skill.place"])
-        coord.register_agent("bot_3", ["skill.pick"])
-        coord.propose_state("bot_1", "object_location", "table_center", time.time())
-        coord.propose_state("bot_2", "object_location", "table_center", time.time())
-        assert coord.get_consensus("object_location") == "table_center"
+        sc = SwarmCoordinator(event_bus=bus)
+        sc.register_agent("bot_1", ["pick"])
+        sc.register_agent("bot_2", ["place"])
+        sc.register_agent("bot_3", ["scan"])
 
-    def test_get_swarm_status(self):
-        coord = SwarmCoordinator()
-        coord.register_agent("bot_1", ["skill.pick"])
-        status = coord.get_swarm_status()
-        assert status["agent_count"] == 1
+        sc.propose_state("bot_1", "target_pos", (1.0, 2.0), 1.0)
+        sc.propose_state("bot_2", "target_pos", (1.1, 2.1), 2.0)
+        assert len(received) == 1
+        assert received[0].payload["key"] == "target_pos"
 
 
-class TestRaftLikeConsensus:
-    def test_leader_propose(self):
-        consensus = RaftLikeConsensus("bot_1", ["bot_2", "bot_3"])
-        consensus.set_leader(True)
-        assert consensus.propose("target", "table", time.time()) is True
+class TestRaftLikeConsensusExtended:
+    def test_vote_rejected_old_timestamp(self):
+        rc = RaftLikeConsensus("a1", ["a2", "a3"], quorum=2)
+        rc.set_leader(True)
+        rc.propose("x", 10, 10.0)
+        # Follower vote with older timestamp should be rejected
+        accepted = rc.vote("x", "a2", 20, 5.0)
+        assert accepted is False
 
-    def test_follower_cannot_propose(self):
-        consensus = RaftLikeConsensus("bot_2", ["bot_1", "bot_3"])
-        consensus.set_leader(False)
-        assert consensus.propose("target", "table", time.time()) is False
-
-    def test_quorum_commit(self):
-        consensus = RaftLikeConsensus("bot_1", ["bot_2", "bot_3"], quorum=2)
-        t = time.time()
-        consensus.vote("target", "bot_1", "table", t)
-        consensus.vote("target", "bot_2", "table", t)
-        assert consensus.check_commit("target") is True
-        assert consensus.get("target") == "table"
-
-    def test_no_quorum(self):
-        consensus = RaftLikeConsensus("bot_1", ["bot_2", "bot_3", "bot_4"], quorum=3)
-        consensus.vote("target", "bot_1", "table", time.time())
-        assert consensus.check_commit("target") is False
-        assert consensus.get("target") is None
-
-    def test_get_all_committed(self):
-        consensus = RaftLikeConsensus("bot_1", ["bot_2"], quorum=2)
-        t = time.time()
-        consensus.vote("k1", "bot_1", "v1", t)
-        consensus.vote("k1", "bot_2", "v1", t)
-        consensus.check_commit("k1")
-        consensus.vote("k2", "bot_1", "v2", t)
-        consensus.vote("k2", "bot_2", "v2", t)
-        consensus.check_commit("k2")
-        committed = consensus.get_all_committed()
-        assert committed["k1"] == "v1"
-        assert committed["k2"] == "v2"
+    def test_check_commit_no_entry(self):
+        rc = RaftLikeConsensus("a1", ["a2", "a3"])
+        assert rc.check_commit("nonexistent") is False

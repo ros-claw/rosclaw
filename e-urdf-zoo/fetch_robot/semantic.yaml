@@ -1,0 +1,72 @@
+semantic_version: "1.0"
+functional_regions:
+  - name: mobile_base
+    link: base_link
+    tags: [mobile, differential_drive, foundation]
+    description: "Differential drive mobile base with laser scanner"
+    affordances: [move, rotate, navigate]
+  - name: torso
+    link: torso_lift_link
+    tags: [lift, adjustable_height, prismatic]
+    description: "Telescoping torso lift for height adjustment"
+    affordances: [raise, lower]
+  - name: shoulder
+    link: shoulder_pan_link
+    tags: [rotary, yaw, shoulder]
+    description: "Shoulder pan joint"
+    affordances: [rotate]
+  - name: upper_arm
+    link: upperarm_roll_link
+    tags: [structural, arm_segment]
+    description: "Upper arm with roll joint"
+    affordances: []
+  - name: forearm
+    link: forearm_roll_link
+    tags: [structural, arm_segment]
+    description: "Forearm with roll joint"
+    affordances: []
+  - name: wrist
+    links: [wrist_flex_link, wrist_roll_link]
+    tags: [wrist, dexterous, 2dof]
+    description: "Wrist flex and roll joints"
+    affordances: [orient]
+  - name: gripper
+    link: gripper_link
+    tags: [end_effector, gripper, manipulation]
+    description: "Parallel jaw gripper"
+    affordances: [grasp, release]
+  - name: head
+    links: [head_pan_link, head_tilt_link]
+    tags: [head, pan_tilt, perception]
+    description: "Pan-tilt head with RGB-D camera"
+    affordances: [look, scan]
+
+grasp_points: []
+
+visual_features:
+  - name: mobile_base_visible
+    type: cylindrical_base
+    links: [base_link]
+    visual_cues: [white_cylinder, wheels]
+    llm_description: "White cylindrical mobile base with two drive wheels"
+  - name: arm_visible
+    type: articulated_arm
+    links: [shoulder_pan_link, shoulder_lift_link, elbow_flex_link, wrist_flex_link]
+    visual_cues: [white_tubes, joints]
+    llm_description: "White articulated arm with multiple joints"
+  - name: head_visible
+    type: pan_tilt_head
+    links: [head_pan_link, head_tilt_link, head_camera_link]
+    visual_cues: [white_head, camera_lens]
+    llm_description: "Pan-tilt head with camera mounted on front"
+
+task_descriptions:
+  pick_and_place:
+    relevant_links: [wrist_flex_link, wrist_roll_link, gripper_link]
+    relevant_joints: [shoulder_pan_joint, shoulder_lift_joint, elbow_flex_joint, wrist_flex_joint, wrist_roll_joint]
+    workspace_hint: "Objects within 1.2m of robot base"
+    collision_warning: "Watch base laser scanner when moving"
+  navigate:
+    relevant_links: [base_link]
+    description: "Robot drives to target location"
+    sensors: [base_laser]
