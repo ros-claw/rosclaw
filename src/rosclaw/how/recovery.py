@@ -12,6 +12,8 @@ Design:
 from __future__ import annotations
 
 import logging
+import math
+import time
 from typing import Any, Optional
 
 logger = logging.getLogger("rosclaw.how.recovery")
@@ -61,11 +63,8 @@ class RecoveryEngine:
         if rule is None:
             return None
 
-        # Build confidence from rule stats
-        success = int(rule.get("success_count", 0))
-        failure = int(rule.get("failure_count", 0))
-        total = success + failure
-        confidence = success / total if total > 0 else 0.5
+        # Build confidence from rule stats (with time decay & trigger threshold)
+        confidence = self._compute_confidence(rule)
 
         # Build retry plan
         retry_plan = self.build_retry_plan(failure_type, rule, ctx)
@@ -79,6 +78,44 @@ class RecoveryEngine:
         }
         logger.info("RecoveryHint generated for %s (confidence=%.2f)", failure_type, confidence)
         return hint
+
+    @staticmethod
+    def _compute_confidence(rule: dict[str, Any]) -> float:
+        """Compute confidence score with time decay and trigger threshold.
+
+        Formula:
+            confidence = base * time_decay * trigger_penalty
+
+        - base: success_rate (success / total), 0.5 if no data
+        - time_decay: e^(-0.1 * days_since_last_trigger), min 0.5
+        - trigger_penalty: min(1.0, total_triggers / 3)
+              (need at least 3 triggers for full confidence)
+        """
+        success = int(rule.get("success_count", 0))
+        failure = int(rule.get("failure_count", 0))
+        total = success + failure
+        last_triggered = rule.get("last_triggered", 0)
+
+        # Base confidence from success rate
+        if total == 0:
+            base = 0.5
+        else:
+            base = success / total
+
+        # Time decay: confidence fades if rule hasn't been used recently
+        if last_triggered:
+            days_since = (time.time() - last_triggered) / 86400
+            time_decay = max(0.5, math.exp(-0.1 * days_since))
+        else:
+            time_decay = 0.5  # Never triggered = lower confidence
+
+        # Minimum trigger threshold (need 3+ triggers for full confidence)
+        if total == 0:
+            return 0.5  # Neutral confidence for untested rules
+        trigger_penalty = min(1.0, total / 3.0)
+
+        confidence = base * time_decay * trigger_penalty
+        return round(min(1.0, max(0.0, confidence)), 2)
 
     def build_retry_plan(
         self,

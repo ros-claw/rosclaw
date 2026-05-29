@@ -335,6 +335,61 @@ class MemoryInterface(LifecycleMixin):
         scored.sort(key=lambda x: x[0], reverse=True)
         return [exp for _, exp in scored[:limit]]
 
+    def find_analogy(self, error_log: str, limit: int = 3) -> Optional[dict]:
+        """Find similar past failures and their recovery actions as analogy.
+
+        Searches the experience_graph for failures with similar error_details
+        or tags, returns the recovery hint from the most similar one.
+
+        This is the canonical API used by HOW.knowledge_fallback() when
+        no heuristic rule matches the failure.
+
+        Returns:
+            {"id": str, "action_suggestion": str, "similarity_score": float}
+            or None if no similar failure found.
+        """
+        filters = {"robot_id": self._robot_id, "outcome": "failure"}
+
+        all_failures = self._client.query(
+            "experience_graph",
+            filters=filters,
+            order_by="-timestamp",
+            limit=100,
+        )
+
+        if not all_failures:
+            return None
+
+        query_tokens = self._tokenize(error_log)
+        if not query_tokens:
+            return None
+
+        # Search in error_details and tags (not just instruction)
+        keywords = set(query_tokens)
+        scored = []
+        for exp in all_failures:
+            error_text = exp.get("error_details", "")
+            tags_text = " ".join(exp.get("tags", []))
+            text = error_text + " " + tags_text
+            exp_tokens = set(self._tokenize(text))
+            overlap = len(keywords & exp_tokens)
+            if overlap > 0:
+                scored.append((overlap, exp))
+
+        if not scored:
+            return None
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        best = scored[0][1]
+        metadata = best.get("metadata", {})
+
+        return {
+            "id": best.get("id", ""),
+            "action_suggestion": metadata.get("recovery_hint", ""),
+            "similarity_score": scored[0][0] / len(query_tokens),
+            "source_experience": best.get("id", ""),
+        }
+
     def get_experience(self, experience_id: str) -> Optional[dict]:
         """Retrieve a single experience by ID."""
         results = self._client.query(

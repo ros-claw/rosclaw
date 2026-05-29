@@ -54,6 +54,7 @@ all = [
 [project.scripts]
 rosclaw = "rosclaw.cli:main"
 rosclaw-ur5-mcp = "rosclaw.mcp.ur5_server:main"
+rosclaw-mcp = "rosclaw.mcp.minimal_server:main"
 
 [project.urls]
 Homepage = "https://rosclaw.io"

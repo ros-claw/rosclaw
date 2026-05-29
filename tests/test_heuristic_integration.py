@@ -498,3 +498,163 @@ class TestRuntimeIntegrationAPIs:
             asyncio.run(runtime._how.seed_defaults())
             hint = asyncio.run(re.generate_recovery_hint(check["reason"]))
             assert hint is not None or check["reason"]
+
+
+class TestHowEndToEndRecovery:
+    """End-to-end tests: failure -> How recovery -> retry -> record -> compare."""
+
+    @pytest.fixture
+    async def recovery_env(self):
+        """Set up HeuristicEngine + RecoveryEngine + MemoryInterface + EventBus."""
+        from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+        from rosclaw.memory.interface import MemoryInterface
+        from rosclaw.core.event_bus import EventBus
+
+        event_bus = EventBus()
+        client = SeekDBMemoryClient()
+        client.connect()
+
+        how = HeuristicEngine(seekdb_client=client)
+        await how.seed_defaults()
+
+        re = RecoveryEngine(how)
+
+        memory = MemoryInterface(robot_id="test_bot", event_bus=event_bus, seekdb_client=client)
+        memory._do_initialize()
+
+        return how, re, memory, event_bus
+
+    @pytest.mark.asyncio
+    async def test_failure_to_recovery_hint(self, recovery_env):
+        """Step 1: failure -> How generates RecoveryHint with confidence and patch."""
+        how, re, memory, bus = recovery_env
+
+        hint = await re.generate_recovery_hint("grasp slippage")
+        assert hint is not None
+        assert hint["failure_type"] == "grasp slippage"
+        assert "retry_plan" in hint
+        patch = hint["retry_plan"]["parameter_patch"]
+        assert patch["gripper_force_offset"] == 0.15
+        assert 0.0 <= hint["confidence"] <= 1.0
+
+    @pytest.mark.asyncio
+    async def test_memory_analogy_fallback(self, recovery_env):
+        """Step 2: Memory stores past failure and provides analogy on query."""
+        how, re, memory, bus = recovery_env
+
+        # Seed a past failure in Memory with recovery hint
+        memory.store_experience(
+            event_id="fail_001",
+            event_type="failure",
+            instruction="grasp slippage on red cup",
+            outcome="failure",
+            error_details="grasp slippage detected, cup dropped from gripper",
+            tags=["failure", "grasp_slippage"],
+            metadata={"recovery_hint": "Lower approach z by 3cm, increase force 20%"},
+        )
+
+        # Query analogy
+        analogy = memory.find_analogy("grasp slippage on red cup")
+        assert analogy is not None
+        assert "Lower approach z" in analogy["action_suggestion"]
+        assert analogy["similarity_score"] > 0
+
+    @pytest.mark.asyncio
+    async def test_recovery_outcome_updates_confidence(self, recovery_env):
+        """Step 3: recording success outcome increases rule confidence."""
+        how, re, memory, bus = recovery_env
+
+        # Find a rule and record 3 successes
+        rule = await how.suggest_recovery("grasp slippage")
+        rid = rule["rule_id"]
+
+        # Record outcomes
+        await how.record_outcome(rid, success=True)
+        await how.record_outcome(rid, success=True)
+        await how.record_outcome(rid, success=True)
+
+        # Refresh rule from cache
+        rule = how._rule_cache.get(rid, {})
+
+        confidence = RecoveryEngine._compute_confidence(rule)
+        # base = 3/3 = 1.0, time_decay ~1.0 (just triggered), trigger_penalty = 3/3 = 1.0
+        assert confidence > 0.8, f"Expected high confidence after 3 successes, got {confidence}"
+
+        # Record a failure -> confidence should drop
+        await how.record_outcome(rid, success=False)
+        rule = how._rule_cache.get(rid, {})
+        confidence_after_fail = RecoveryEngine._compute_confidence(rule)
+        assert confidence_after_fail < confidence, "Confidence should drop after failure"
+
+    @pytest.mark.asyncio
+    async def test_full_recovery_loop(self, recovery_env):
+        """Full loop: failure -> hint -> apply patch -> retry -> record -> Memory query."""
+        how, re, memory, bus = recovery_env
+
+        failure_type = "grasp slippage"
+
+        # Step 1: How generates recovery hint
+        hint = await re.generate_recovery_hint(failure_type)
+        assert hint is not None
+        patch = hint["retry_plan"]["parameter_patch"]
+
+        # Step 2: Apply parameter patch (simulated adjustment)
+        params = {"gripper_force": 1.0, "approach_z": 0.0}
+        params["gripper_force"] += patch.get("gripper_force_offset", 0)
+        params["approach_z"] += patch.get("approach_offset_z", 0)
+        assert params["gripper_force"] == 1.15
+        assert params["approach_z"] == -0.02
+
+        # Step 3: Record recovery outcome (success)
+        rule_id = hint["source"][0].split(":")[1]
+        await how.record_outcome(rule_id, success=True)
+
+        # Step 4: Memory stores the experience with recovery hint
+        memory.store_experience(
+            event_id="ep_001",
+            event_type="failure",
+            instruction=failure_type,
+            outcome="success",  # recovered
+            error_details=failure_type,
+            tags=["failure", failure_type.replace(" ", "_"), "recovered"],
+            metadata={"recovery_hint": hint["hint"], "parameter_patch": patch},
+        )
+
+        # Step 5: Memory can answer "what happened"
+        similar = memory.find_similar_experiences("grasp slippage", outcome_filter="failure")
+        assert len(similar) >= 1
+
+        # Step 6: Analogy works for next similar failure
+        analogy = memory.find_analogy("grasp slippage")
+        assert analogy is not None
+        assert analogy["similarity_score"] > 0
+
+        # Step 7: Verify the event bus has the recovery hint event
+        payload = re.format_for_eventbus(hint, request_id="req_loop_001")
+        assert payload["failure_type"] == failure_type
+        assert "retry_plan" in payload
+
+    @pytest.mark.asyncio
+    async def test_how_reads_memory_for_analogy_fallback(self, recovery_env):
+        """How uses Memory analogy when no heuristic rule matches."""
+        how, re, memory, bus = recovery_env
+
+        # Seed a past failure for an unknown failure type
+        memory.store_experience(
+            event_id="fail_unknown",
+            event_type="failure",
+            instruction="battery low voltage warning",
+            outcome="failure",
+            error_details="battery voltage dropped below 11.5V during motion",
+            tags=["failure", "battery_low"],
+            metadata={"recovery_hint": "Return to charging station immediately"},
+        )
+
+        # No heuristic rule for "battery low" -> knowledge fallback via Memory
+        # Connect MemoryInterface as knowledge interface to HeuristicEngine
+        how._knowledge = memory
+
+        analogy = await how._knowledge_fallback("battery low voltage warning", None)
+        assert analogy is not None
+        assert "charging station" in analogy["action_suggestion"]
+        assert analogy["source"] == "knowledge_analogy"

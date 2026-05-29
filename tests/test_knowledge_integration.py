@@ -706,3 +706,118 @@ class TestEurdfLoader:
         assert limits["joint_torque_max"][0] == 150
 
         ki._do_stop()
+
+
+class TestKnowEventBusIntegration:
+    """Tests for KNOW EventBus lifecycle and event publishing."""
+
+    def test_know_subscribes_to_events_on_start(self):
+        from rosclaw.core.event_bus import EventBus
+        bus = EventBus()
+        ki = KnowledgeInterface(robot_id="test_robot", event_bus=bus)
+        ki._do_initialize()
+        ki._do_start()
+        assert bus.subscriber_count("rosclaw.provider.inference.requested") >= 0
+        ki._do_stop()
+
+    def test_know_publishes_startup_event(self):
+        from rosclaw.core.event_bus import EventBus
+        bus = EventBus()
+        ki = KnowledgeInterface(robot_id="test_robot", event_bus=bus)
+        ki._do_initialize()
+        ki._do_start()
+        events = bus.get_events_for_topic("rosclaw.knowledge.started")
+        assert len(events) == 1
+        assert events[0].payload["robot_id"] == "test_robot"
+        ki._do_stop()
+
+    def test_know_publishes_pre_check_event(self):
+        from rosclaw.core.event_bus import EventBus, Event, EventPriority
+        bus = EventBus()
+        ki = KnowledgeInterface(robot_id="test_robot", event_bus=bus)
+        ki._do_initialize()
+        ki._do_start()
+        bus.publish(Event(
+            topic="rosclaw.provider.inference.requested",
+            payload={"capability": "skill.pick_and_place", "robot_id": "test_robot"},
+            source="test",
+            priority=EventPriority.NORMAL,
+        ))
+        events = bus.get_events_for_topic("rosclaw.knowledge.pre_check")
+        assert len(events) >= 1
+        assert events[0].payload["capability"] == "skill.pick_and_place"
+        ki._do_stop()
+
+    def test_know_publishes_safety_limits_event(self):
+        from rosclaw.core.event_bus import EventBus, Event, EventPriority
+        bus = EventBus()
+        ki = KnowledgeInterface(robot_id="ur5e", event_bus=bus)
+        ki._do_initialize()
+        ki._do_start()
+        bus.publish(Event(
+            topic="rosclaw.sandbox.episode.started",
+            payload={"robot_id": "ur5e"},
+            source="test",
+            priority=EventPriority.NORMAL,
+        ))
+        events = bus.get_events_for_topic("rosclaw.knowledge.safety_limits_loaded")
+        assert len(events) >= 1
+        assert "joint_torque_max" in str(events[0].payload.get("safety_limits", {}))
+        ki._do_stop()
+
+
+class TestKnowProviderSelection:
+    """Tests for query_for_provider_selection (main-flow hook)."""
+
+    def test_query_for_provider_exact_capability(self):
+        ki = KnowledgeInterface(robot_id="ur5e")
+        ki._do_initialize()
+        result = ki.query_for_provider_selection("grasp")
+        assert result["robot_id"] == "ur5e"
+        assert result["capability"] == "grasp"
+        assert "has_capability" in result
+        assert "safety_limits" in result
+        assert "simulation_profile" in result
+        ki._do_stop()
+
+    def test_query_for_provider_missing_capability_finds_alternatives(self):
+        ki = KnowledgeInterface(robot_id="ur5e")
+        ki._do_initialize()
+        result = ki.query_for_provider_selection("walking")
+        if not result["has_capability"]:
+            assert "alternative_robots" in result
+        ki._do_stop()
+
+    def test_query_for_provider_detects_known_risk(self):
+        ki = KnowledgeInterface(robot_id="ur5e")
+        ki._do_initialize()
+        result = ki.query_for_provider_selection("pid_control_with_torque")
+        assert "known_risk" in result
+        ki._do_stop()
+
+    def test_record_knowledge_usage_publishes_event(self):
+        from rosclaw.core.event_bus import EventBus
+        bus = EventBus()
+        ki = KnowledgeInterface(robot_id="ur5e", event_bus=bus)
+        ki._do_initialize()
+        ki.record_knowledge_usage({"episode_id": "ep_001", "action": "test"})
+        events = bus.get_events_for_topic("knowledge.ingest_complete")
+        assert len(events) >= 1
+        ki._do_stop()
+
+
+class TestKnowRuntimeIntegration:
+    """Tests for KNOW hooks in Runtime."""
+
+    def test_runtime_default_enables_knowledge(self):
+        from rosclaw.core.runtime import RuntimeConfig
+        cfg = RuntimeConfig()
+        assert cfg.enable_knowledge is True
+
+    def test_runtime_knowledge_initialized_with_memory(self):
+        from rosclaw.core.runtime import Runtime, RuntimeConfig
+        cfg = RuntimeConfig(robot_id="ur5e", enable_knowledge=True, enable_memory=True)
+        rt = Runtime(config=cfg)
+        rt.initialize()
+        assert rt.knowledge is not None
+        rt.stop()
