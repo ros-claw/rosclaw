@@ -191,6 +191,18 @@ class Runtime(LifecycleMixin):
             except ImportError as e:
                 print(f"[Runtime] UnifiedTimeline not available: {e}")
 
+            # Initialize EpisodeRecorder for artifact management
+            try:
+                from rosclaw.practice.episode_recorder import EpisodeRecorder
+                self._episode_recorder = EpisodeRecorder(
+                    robot_id=self.config.robot_id,
+                    event_bus=self.event_bus,
+                )
+                self._modules.append(self._episode_recorder)
+                print("[Runtime] EpisodeRecorder initialized")
+            except ImportError as e:
+                print(f"[Runtime] EpisodeRecorder not available: {e}")
+
         # Initialize Collaboration Grounding (Swarm)
         if self.config.enable_swarm:
             try:
@@ -775,6 +787,110 @@ class Runtime(LifecycleMixin):
         if self._memory is None:
             return []
         return self._memory.search_similar_trajectories(query_waypoints, top_k, max_dtw_distance)
+
+    # ------------------------------------------------------------------
+    # Integration APIs — v1.0 Minimum Closed-Loop
+    # ------------------------------------------------------------------
+
+    def capability_invoke(self, capability_name: str, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Invoke a provider capability and return the result.
+
+        Example:
+            result = rt.capability_invoke(
+                "vlm.object_grounding", {"image": "red_cup.jpg"}
+            )
+        """
+        if self._capability_router is None:
+            return {"error": "CapabilityRouter not initialized", "capability": capability_name}
+        try:
+            import asyncio
+            from rosclaw.provider.core.request import ProviderRequest
+            request = ProviderRequest(
+                capability=capability_name,
+                inputs=inputs,
+                request_id=f"cap_{len(self.event_bus._event_history)}" if hasattr(self.event_bus, '_event_history') else "cap_0",
+            )
+            response = asyncio.run(self._capability_router.invoke(request))
+            return {
+                "capability": capability_name,
+                "status": "ok" if response.is_ok else "error",
+                "result": response.result if response.is_ok else {"error": response.error},
+                "provider": response.provider,
+            }
+        except Exception as e:
+            return {"error": str(e), "capability": capability_name, "status": "error"}
+
+    def plan_action(self, instruction: str, perception_result: dict[str, Any]) -> dict[str, Any]:
+        """Plan a robot action from natural language instruction + perception.
+
+        Returns a structured action dict ready for sandbox_check().
+        """
+        if self._skill_manager is None:
+            return {"error": "SkillManager not initialized", "instruction": instruction}
+        try:
+            import asyncio
+            plan = asyncio.run(self._skill_manager.plan(instruction, perception_result))
+            return {
+                "status": "ok",
+                "instruction": instruction,
+                "action": plan,
+            }
+        except Exception as e:
+            return {"error": str(e), "instruction": instruction, "status": "error"}
+
+    def sandbox_check(self, action: dict[str, Any]) -> dict[str, Any]:
+        """Check an action against the sandbox firewall.
+
+        Returns:
+            {"decision": "ALLOW" | "BLOCK", "reason": str, "violations": list}
+        """
+        if self._firewall is None:
+            return {"decision": "ALLOW", "reason": "firewall_disabled", "violations": []}
+        try:
+            from rosclaw.firewall.validator import ValidationRequest
+            trajectory = action.get("trajectory", [])
+            request = ValidationRequest(
+                request_id=action.get("request_id", "sandbox_check_001"),
+                robot_id=self.config.robot_id,
+                trajectory=trajectory,
+                source="runtime",
+                metadata=action,
+            )
+            response = self._firewall.validate(request)
+            if response.is_safe:
+                return {"decision": "ALLOW", "reason": "safe", "violations": []}
+            return {
+                "decision": "BLOCK",
+                "reason": "; ".join(v.description for v in response.violations),
+                "violations": [
+                    {"layer": str(v.layer), "severity": v.severity, "description": v.description}
+                    for v in response.violations
+                ],
+            }
+        except Exception as e:
+            return {"decision": "BLOCK", "reason": str(e), "violations": []}
+
+    def execute(self, action: dict[str, Any]) -> dict[str, Any]:
+        """Execute an action through the sandbox or drivers.
+
+        Returns execution result dict.
+        """
+        if self._sandbox is not None and hasattr(self._sandbox, "validate_trajectory"):
+            try:
+                trajectory = action.get("trajectory", [])
+                result = self._sandbox.validate_trajectory(trajectory)
+                return {"status": "ok", "result": result, "source": "sandbox"}
+            except Exception as e:
+                return {"status": "error", "error": str(e), "source": "sandbox"}
+        # Fallback: try MCP drivers
+        for name, driver in self._mcp_drivers.items():
+            if hasattr(driver, "execute"):
+                try:
+                    result = driver.execute(action)
+                    return {"status": "ok", "result": result, "source": f"driver:{name}"}
+                except Exception as e:
+                    return {"status": "error", "error": str(e), "source": f"driver:{name}"}
+        return {"status": "error", "error": "No execution backend available"}
 
     def get_status(self) -> dict:
         """Get comprehensive runtime status."""

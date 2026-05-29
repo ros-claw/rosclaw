@@ -93,6 +93,16 @@ class KnowledgeInterface(LifecycleMixin):
         },
     }
 
+    # Robot physical properties for constraint-based matching.
+    # v1.0: Curated baseline data (kg, mm, count).
+    _ROBOT_PROPERTIES: dict[str, dict[str, Any]] = {
+        "ur5e": {"dof": 6, "payload_kg": 5, "reach_mm": 850, "sim_backends": ["mujoco", "isaacgym"]},
+        "panda": {"dof": 7, "payload_kg": 3, "reach_mm": 855, "sim_backends": ["mujoco", "pybullet"]},
+        "unitree_g1": {"dof": 23, "payload_kg": 2, "reach_mm": 700, "sim_backends": ["mujoco"]},
+        "spot": {"dof": 16, "payload_kg": 14, "reach_mm": 500, "sim_backends": ["mujoco", "isaacgym"]},
+        "agilex_piper": {"dof": 6, "payload_kg": 1, "reach_mm": 330, "sim_backends": ["mujoco"]},
+    }
+
     # Task decomposition hints: high-level task -> ordered sub-task list.
     # v1.0: Curated patterns for common embodied-intelligence tasks.
     _TASK_DECOMPOSITIONS: dict[str, list[str]] = {
@@ -422,6 +432,134 @@ class KnowledgeInterface(LifecycleMixin):
 
         recommendations.sort(key=lambda x: (-x["score"], x["robot_id"]))
         return recommendations
+
+    def match_robot_to_task(
+        self,
+        task: str,
+        constraints: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Match robots to a task with optional physical constraints.
+
+        Args:
+            task: High-level task description.
+            constraints: Optional filters like {"payload_kg": 2, "dof_min": 6}.
+
+        Returns:
+            Ranked list of {robot_id, score, properties, matched_caps,
+            missing_caps} sorted by capability match score.
+        """
+        constraints = constraints or {}
+        base_recs = self.recommend_robot_for_task(task)
+        if not base_recs:
+            return []
+
+        results = []
+        for rec in base_recs:
+            rid = rec["robot_id"]
+            props = self._ROBOT_PROPERTIES.get(rid, {})
+
+            # Apply constraint filters
+            passes = True
+            for key, value in constraints.items():
+                if key == "payload_kg":
+                    if props.get("payload_kg", 0) < value:
+                        passes = False
+                        break
+                elif key == "dof_min":
+                    if props.get("dof", 0) < value:
+                        passes = False
+                        break
+                elif key == "dof_max":
+                    if props.get("dof", 999) > value:
+                        passes = False
+                        break
+                elif key == "reach_mm_min":
+                    if props.get("reach_mm", 0) < value:
+                        passes = False
+                        break
+                elif key == "sim_backend":
+                    backends = props.get("sim_backends", [])
+                    if value not in backends:
+                        passes = False
+                        break
+
+            if not passes:
+                continue
+
+            results.append({
+                "robot_id": rid,
+                "score": rec["score"],
+                "properties": props,
+                "matched_capabilities": rec["matched_capabilities"],
+                "missing_capabilities": rec["missing_capabilities"],
+                "task_match_confidence": rec["task_match_confidence"],
+            })
+
+        return results
+
+    def get_robot_safety_limits(self, robot_id: str) -> dict[str, Any]:
+        """Return safety limits for a robot.
+
+        v1.0: Returns hard-coded baseline limits.
+        v1.1: Load from SeekDB safety_constraint table.
+        """
+        limits = {
+            "ur5e": {
+                "joint_torque_max": [150, 150, 150, 28, 28, 28],  # Nm per joint
+                "joint_velocity_max": [180, 180, 180, 360, 360, 360],  # deg/s
+                "joint_position_limits": [(-360, 360)] * 6,  # deg
+            },
+            "panda": {
+                "joint_torque_max": [87, 87, 87, 87, 12, 12, 12],
+                "joint_velocity_max": [150, 150, 150, 150, 180, 180, 180],
+                "joint_position_limits": [(-166, 166), (-101, 101), (-166, 166),
+                                          (-176, 4), (-166, 166), (-1, 215), (-166, 166)],
+            },
+            "unitree_g1": {
+                "joint_torque_max": [80] * 23,
+                "joint_velocity_max": [20] * 23,
+                "joint_position_limits": [(-180, 180)] * 23,
+            },
+        }
+        return limits.get(robot_id, {})
+
+    def get_robot_simulation_profile(self, robot_id: str) -> dict[str, Any]:
+        """Return simulation configuration profile for a robot.
+
+        v1.0: Returns hard-coded baseline profiles.
+        v1.1: Load from SeekDB simulation_profile table.
+        """
+        profiles = {
+            "ur5e": {
+                "default_backend": "mujoco",
+                "supported_backends": ["mujoco", "isaacgym"],
+                "timestep": 0.002,
+                "integrator": "implicitfast",
+                "solver_iterations": 50,
+            },
+            "panda": {
+                "default_backend": "mujoco",
+                "supported_backends": ["mujoco", "pybullet"],
+                "timestep": 0.001,
+                "integrator": "implicitfast",
+                "solver_iterations": 100,
+            },
+            "unitree_g1": {
+                "default_backend": "mujoco",
+                "supported_backends": ["mujoco"],
+                "timestep": 0.002,
+                "integrator": "implicitfast",
+                "solver_iterations": 100,
+            },
+            "spot": {
+                "default_backend": "mujoco",
+                "supported_backends": ["mujoco", "isaacgym"],
+                "timestep": 0.002,
+                "integrator": "implicitfast",
+                "solver_iterations": 50,
+            },
+        }
+        return profiles.get(robot_id, {})
 
     def _score_task_match(self, task_lower: str, pattern: str) -> float:
         """Score how well a task description matches a decomposition pattern."""

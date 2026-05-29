@@ -453,3 +453,150 @@ class TestCompositionalReasoning:
         ki._do_initialize()
         assert ki.recommend_robot_for_task("") == []
         ki._do_stop()
+
+
+class TestMatchRobotToTask:
+    """Tests for match_robot_to_task with constraints."""
+
+    def test_match_pick_and_place_no_constraints(self):
+        client = SeekDBMemoryClient()
+        client.connect()
+        seed_knowledge_graph(client)
+
+        ki = KnowledgeInterface(robot_id="ur5e", seekdb_client=client)
+        ki._do_initialize()
+
+        results = ki.match_robot_to_task("pick and place")
+        assert len(results) > 0
+        robot_ids = [r["robot_id"] for r in results]
+        assert "ur5e" in robot_ids
+        assert "panda" in robot_ids
+
+        ki._do_stop()
+
+    def test_match_with_payload_constraint(self):
+        client = SeekDBMemoryClient()
+        client.connect()
+        seed_knowledge_graph(client)
+
+        ki = KnowledgeInterface(robot_id="ur5e", seekdb_client=client)
+        ki._do_initialize()
+
+        # payload >= 2kg: ur5e (5kg), panda (3kg), spot (14kg) qualify
+        # unitree_g1 (2kg) and agilex_piper (1kg) do not
+        results = ki.match_robot_to_task("pick and place", {"payload_kg": 2})
+        robot_ids = [r["robot_id"] for r in results]
+        assert "ur5e" in robot_ids
+        assert "panda" in robot_ids
+        assert "agilex_piper" not in robot_ids
+
+        ki._do_stop()
+
+    def test_match_with_dof_min_constraint(self):
+        client = SeekDBMemoryClient()
+        client.connect()
+        seed_knowledge_graph(client)
+
+        ki = KnowledgeInterface(robot_id="ur5e", seekdb_client=client)
+        ki._do_initialize()
+
+        # dof >= 7: only panda (7) and unitree_g1 (23)
+        results = ki.match_robot_to_task("pick and place", {"dof_min": 7})
+        robot_ids = [r["robot_id"] for r in results]
+        assert "panda" in robot_ids
+        assert "unitree_g1" in robot_ids
+        assert "ur5e" not in robot_ids
+
+        ki._do_stop()
+
+    def test_match_with_reach_constraint(self):
+        client = SeekDBMemoryClient()
+        client.connect()
+        seed_knowledge_graph(client)
+
+        ki = KnowledgeInterface(robot_id="ur5e", seekdb_client=client)
+        ki._do_initialize()
+
+        # reach >= 800mm: ur5e (850), panda (855)
+        results = ki.match_robot_to_task("pick and place", {"reach_mm_min": 800})
+        robot_ids = [r["robot_id"] for r in results]
+        assert "ur5e" in robot_ids
+        assert "panda" in robot_ids
+        assert "agilex_piper" not in robot_ids
+
+        ki._do_stop()
+
+    def test_match_with_sim_backend_constraint(self):
+        client = SeekDBMemoryClient()
+        client.connect()
+        seed_knowledge_graph(client)
+
+        ki = KnowledgeInterface(robot_id="ur5e", seekdb_client=client)
+        ki._do_initialize()
+
+        results = ki.match_robot_to_task("pick and place", {"sim_backend": "pybullet"})
+        robot_ids = [r["robot_id"] for r in results]
+        assert "panda" in robot_ids
+        assert "ur5e" not in robot_ids  # ur5e doesn't support pybullet
+
+        ki._do_stop()
+
+    def test_match_unknown_task(self):
+        ki = KnowledgeInterface(robot_id="test")
+        ki._do_initialize()
+        assert ki.match_robot_to_task("nonsense xyz") == []
+        ki._do_stop()
+
+
+class TestRobotSafetyLimits:
+    """Tests for get_robot_safety_limits."""
+
+    def test_ur5e_safety_limits(self):
+        ki = KnowledgeInterface(robot_id="test")
+        ki._do_initialize()
+        limits = ki.get_robot_safety_limits("ur5e")
+        assert "joint_torque_max" in limits
+        assert len(limits["joint_torque_max"]) == 6
+        assert limits["joint_torque_max"][0] == 150
+        ki._do_stop()
+
+    def test_panda_safety_limits(self):
+        ki = KnowledgeInterface(robot_id="test")
+        ki._do_initialize()
+        limits = ki.get_robot_safety_limits("panda")
+        assert len(limits["joint_torque_max"]) == 7
+        assert limits["joint_position_limits"][0] == (-166, 166)
+        ki._do_stop()
+
+    def test_unknown_robot_limits(self):
+        ki = KnowledgeInterface(robot_id="test")
+        ki._do_initialize()
+        assert ki.get_robot_safety_limits("nonexistent") == {}
+        ki._do_stop()
+
+
+class TestRobotSimulationProfile:
+    """Tests for get_robot_simulation_profile."""
+
+    def test_ur5e_sim_profile(self):
+        ki = KnowledgeInterface(robot_id="test")
+        ki._do_initialize()
+        prof = ki.get_robot_simulation_profile("ur5e")
+        assert prof["default_backend"] == "mujoco"
+        assert "isaacgym" in prof["supported_backends"]
+        assert prof["timestep"] == 0.002
+        ki._do_stop()
+
+    def test_panda_sim_profile(self):
+        ki = KnowledgeInterface(robot_id="test")
+        ki._do_initialize()
+        prof = ki.get_robot_simulation_profile("panda")
+        assert prof["default_backend"] == "mujoco"
+        assert "pybullet" in prof["supported_backends"]
+        ki._do_stop()
+
+    def test_unknown_robot_profile(self):
+        ki = KnowledgeInterface(robot_id="test")
+        ki._do_initialize()
+        assert ki.get_robot_simulation_profile("nonexistent") == {}
+        ki._do_stop()

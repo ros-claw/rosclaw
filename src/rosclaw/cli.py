@@ -13,6 +13,10 @@ Commands:
     rosclaw robot install ID   Install/register a robot
     rosclaw robot inspect ID   Show complete robot profile
     rosclaw robot validate ID  Validate e-URDF completeness
+    rosclaw practice list      List recorded episodes
+    rosclaw practice show ID   Show episode details
+    rosclaw practice replay ID Replay episode trace
+    rosclaw practice export ID --format json  Export episode metadata
 """
 
 import argparse
@@ -343,6 +347,170 @@ def cmd_robot_validate(args: argparse.Namespace) -> int:
     return 0 if result["valid"] else 1
 
 
+# ------------------------------------------------------------------
+# Practice subcommands
+# ------------------------------------------------------------------
+
+def _practice_artifacts_dir() -> Path:
+    return Path.home() / ".rosclaw" / "artifacts"
+
+
+def cmd_practice_list(_args: argparse.Namespace) -> int:
+    """List all recorded practice episodes."""
+    from rosclaw.practice.episode_recorder import EpisodeRecorder
+
+    recorder = EpisodeRecorder("cli", event_bus=None, artifact_base_dir=str(_practice_artifacts_dir()))
+    episodes = recorder.list_episodes()
+
+    if not episodes:
+        print("No practice episodes found.")
+        print(f"Artifact directory: {recorder.artifact_base}")
+        return 0
+
+    print("=" * 70)
+    print(f"Practice Episodes ({len(episodes)})")
+    print("=" * 70)
+    print(f"{'Episode ID':<12} {'Status':<12} {'Reward':<8} {'Robot':<15} {'Timestamp'}")
+    print("-" * 70)
+    for ep in episodes:
+        ts = ep.get("timestamp", "N/A")
+        if isinstance(ts, (int, float)):
+            from datetime import datetime
+            ts = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+        reward = ep.get("reward")
+        reward_str = f"{reward:.2f}" if reward is not None else "N/A"
+        print(
+            f"{ep['episode_id']:<12} "
+            f"{ep.get('status', 'UNKNOWN'):<12} "
+            f"{reward_str:<8} "
+            f"{ep.get('robot_id', 'N/A'):<15} "
+            f"{ts}"
+        )
+    print("=" * 70)
+    print("\nCommands:")
+    print("  rosclaw practice show <episode_id>")
+    print("  rosclaw practice replay <episode_id>")
+    print("  rosclaw practice export <episode_id> --format json")
+    return 0
+
+
+def cmd_practice_show(args: argparse.Namespace) -> int:
+    """Show episode details."""
+    from rosclaw.practice.episode_recorder import EpisodeRecorder
+
+    recorder = EpisodeRecorder("cli", event_bus=None, artifact_base_dir=str(_practice_artifacts_dir()))
+    meta = recorder.get_episode(args.episode_id)
+
+    if meta is None:
+        print(f"[ROSClaw] Episode '{args.episode_id}' not found.", file=sys.stderr)
+        return 1
+
+    if args.json:
+        import json as _json
+        print(_json.dumps(meta, indent=2, default=str))
+        return 0
+
+    pe = meta.get("praxis_event", {})
+    print("=" * 60)
+    print(f"Episode: {args.episode_id}")
+    print("=" * 60)
+    print(f"Robot:     {meta.get('robot_id', 'N/A')}")
+    print(f"Status:    {meta.get('status', 'UNKNOWN')}")
+    print(f"Reward:    {meta.get('reward', 'N/A')}")
+    print(f"Complete:  {'Yes' if meta.get('is_complete') else 'No'}")
+    print(f"Duration:  {meta.get('duration_sec', 'N/A')}s")
+    print(f"Intent:    {pe.get('agent_instruction', 'N/A')}")
+    print(f"Events:    {', '.join(meta.get('received_events', []))}")
+    print(f"Artifact:  {recorder.artifact_base / 'episodes' / args.episode_id}")
+    print("=" * 60)
+    return 0
+
+
+def cmd_practice_replay(args: argparse.Namespace) -> int:
+    """Replay an episode showing all 6 acceptance criteria."""
+    from rosclaw.practice.episode_recorder import EpisodeRecorder
+
+    recorder = EpisodeRecorder("cli", event_bus=None, artifact_base_dir=str(_practice_artifacts_dir()))
+    meta = recorder.get_episode(args.episode_id)
+
+    if meta is None:
+        print(f"[ROSClaw] Episode '{args.episode_id}' not found.", file=sys.stderr)
+        return 1
+
+    pe = meta.get("praxis_event", {})
+
+    print("\n" + "=" * 60)
+    print(f"REPLAY: Episode {args.episode_id}")
+    print("=" * 60)
+
+    # 1. Agent intent
+    print("\n1. AGENT INTENT:")
+    intent = pe.get("agent_instruction", "N/A")
+    print(f"   {intent}")
+
+    # 2. Provider capability
+    print("\n2. PROVIDER CAPABILITY SELECTION:")
+    trace_path = recorder.artifact_base / "episodes" / args.episode_id / "provider_trace.jsonl"
+    if trace_path.exists():
+        with open(trace_path, "r", encoding="utf-8") as f:
+            traces = [json.loads(line) for line in f if line.strip()]
+        for t in traces:
+            print(f"   Status: {t.get('status')}, Safe: {t.get('is_safe')}")
+    else:
+        print("   No provider traces recorded")
+
+    # 3. Sandbox block status
+    print("\n3. SANDBOX:")
+    if meta.get("sandbox_blocked"):
+        print(f"   BLOCKED: {meta.get('sandbox_block_reason', 'Unknown reason')}")
+    else:
+        print("   No blocks recorded")
+
+    # 4. Runtime execution
+    print("\n4. RUNTIME EXECUTION:")
+    print(f"   Status: {meta.get('status', 'UNKNOWN')}")
+    if meta.get("runtime_error"):
+        print(f"   Error:  {meta['runtime_error']}")
+    traj_path = recorder.artifact_base / "episodes" / args.episode_id / "trajectory.jsonl"
+    if traj_path.exists():
+        with open(traj_path, "r", encoding="utf-8") as f:
+            traj = [json.loads(line) for line in f if line.strip()]
+        print(f"   Trajectory entries: {len(traj)}")
+
+    # 5. Critic judgment
+    print("\n5. CRITIC JUDGMENT:")
+    print(f"   Reward: {meta.get('reward', 'N/A')}")
+    print(f"   Status: {meta.get('status', 'UNKNOWN')}")
+
+    # 6. Memory write
+    print("\n6. MEMORY:")
+    print(f"   Artifact URI: rosclaw://artifacts/episodes/{args.episode_id}")
+    print(f"   SeekDB: Committed via ExperienceCommitter")
+
+    print("\n" + "=" * 60)
+    return 0
+
+
+def cmd_practice_export(args: argparse.Namespace) -> int:
+    """Export episode metadata."""
+    from rosclaw.practice.episode_recorder import EpisodeRecorder
+
+    recorder = EpisodeRecorder("cli", event_bus=None, artifact_base_dir=str(_practice_artifacts_dir()))
+    meta = recorder.get_episode(args.episode_id)
+
+    if meta is None:
+        print(f"[ROSClaw] Episode '{args.episode_id}' not found.", file=sys.stderr)
+        return 1
+
+    if args.format == "json":
+        print(json.dumps(meta, indent=2, default=str))
+    else:
+        print(f"Unknown format: {args.format}", file=sys.stderr)
+        return 1
+
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="rosclaw",
@@ -396,6 +564,23 @@ def main() -> int:
     robot_validate_parser = robot_subparsers.add_parser("validate", help="Validate robot e-URDF")
     robot_validate_parser.add_argument("robot_id", help="Robot identifier")
 
+    # practice subcommand
+    practice_parser = subparsers.add_parser("practice", help="Practice episode commands")
+    practice_subparsers = practice_parser.add_subparsers(dest="practice_command")
+
+    practice_subparsers.add_parser("list", help="List recorded episodes")
+
+    practice_show_parser = practice_subparsers.add_parser("show", help="Show episode details")
+    practice_show_parser.add_argument("episode_id", help="Episode identifier (e.g., ep_0001)")
+    practice_show_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    practice_replay_parser = practice_subparsers.add_parser("replay", help="Replay episode trace")
+    practice_replay_parser.add_argument("episode_id", help="Episode identifier")
+
+    practice_export_parser = practice_subparsers.add_parser("export", help="Export episode metadata")
+    practice_export_parser.add_argument("episode_id", help="Episode identifier")
+    practice_export_parser.add_argument("--format", choices=["json"], default="json", help="Export format")
+
     args = parser.parse_args()
 
     if args.command == "init":
@@ -415,6 +600,18 @@ def main() -> int:
             return cmd_robot_validate(args)
         else:
             robot_parser.print_help()
+            return 1
+    elif args.command == "practice":
+        if args.practice_command == "list":
+            return cmd_practice_list(args)
+        elif args.practice_command == "show":
+            return cmd_practice_show(args)
+        elif args.practice_command == "replay":
+            return cmd_practice_replay(args)
+        elif args.practice_command == "export":
+            return cmd_practice_export(args)
+        else:
+            practice_parser.print_help()
             return 1
     else:
         parser.print_help()

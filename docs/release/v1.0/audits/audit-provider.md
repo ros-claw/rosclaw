@@ -458,7 +458,7 @@ pytest tests/test_provider_integration.py -v
 **Module**: provider  
 **Owner**: rosclaw-provider  
 **Detected by**: Capability Plane Auditor  
-**Status**: open
+**Status**: fixed
 
 ### Problem
 
@@ -801,8 +801,10 @@ The Provider system is well-designed and production-ready for v1.0. The abstract
 - ISSUE-002 (P1): Integration test — 14 new tests added, all passing
 - ISSUE-005 (P1): Runtime poking _health — fixed with `set_provider_health()` public API
 
+**Fixed in this session**:
+- ISSUE-003 (P1): Add EventBus lifecycle events to ProviderRegistry — injected EventBus, publish provider_registered/unregistered/health_changed, Runtime subscribes, 12 tests added
+
 **Remaining for v1.1**:
-- ISSUE-003 (P1): Add EventBus lifecycle events to ProviderRegistry
 - ISSUE-004 (P2): Extract inline mock providers to `src/rosclaw/provider/builtins/`
 
 **v1.0 Narrative**: "ROSClaw v1.0 provides a unified capability-based provider system that routes agent requests through a multi-dimensional scoring algorithm, supports diverse runtimes (Python, HTTP, ROS2), and integrates cleanly with the Agent Runtime via MCPHub."
