@@ -209,7 +209,7 @@ class RecoveryLoop:
         # If max retries reached, store as new failure
         if status == "failed" and self._memory:
             self._memory.write_failure_memory({
-                "failure_id": f"retry_failed_{request_id}",
+                "id": f"retry_failed_{request_id}",
                 "robot_id": getattr(self._memory, "_robot_id", "unknown"),
                 "failure_type": retry.get("failure_type", "unknown"),
                 "root_cause": f"Retry failed after {max_retries} attempts",

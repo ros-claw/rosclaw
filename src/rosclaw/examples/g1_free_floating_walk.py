@@ -47,11 +47,11 @@ def create_g1_free_floating_model():
         <geom name="floor" type="plane" size="50 50 0.1" material="grid_mat"/>
 
         <!-- Free-floating pelvis -->
-        <body name="pelvis" pos="0 0 0.75">
+        <body name="pelvis" pos="0 0 0.50">
           <freejoint name="root"/>
-          <geom type="box" size="0.12 0.08 0.06" mass="8" material="pelvis_mat"/>
+          <geom type="box" size="0.14 0.10 0.08" mass="10" material="pelvis_mat"/>
           <!-- torso visual: low mass for stability -->
-          <geom type="capsule" fromto="0.02 0 0.06 0.02 0 0.30" size="0.06" mass="4"
+          <geom type="capsule" fromto="0 0 0.08 0 0 0.20" size="0.08" mass="3"
                 material="pelvis_mat"/>
 
           <!-- Left Leg -->
@@ -268,16 +268,17 @@ def compute_gait_control(
     # Left leg: [hip_yaw, hip_roll, hip_pitch, knee_pitch, ankle_pitch]
     ctrl[0] = hip_yaw
     ctrl[1] = hip_roll_left
-    ctrl[2] = -(hip_pitch_left + forward_bias) + height_correction + balance_correction
+    ctrl[2] = hip_pitch_left + forward_bias + height_correction + balance_correction
     ctrl[3] = knee_pitch_left
-    ctrl[4] = ankle_pitch_left - balance_correction * 0.5
+    ctrl[4] = ankle_pitch_left - balance_correction * 0.3
     # Right leg
     ctrl[5] = -hip_yaw
     ctrl[6] = hip_roll_right
-    ctrl[7] = -(hip_pitch_right + forward_bias) + height_correction + balance_correction
+    ctrl[7] = hip_pitch_right + forward_bias + height_correction + balance_correction
     ctrl[8] = knee_pitch_right
-    ctrl[9] = ankle_pitch_right - balance_correction * 0.5
+    ctrl[9] = ankle_pitch_right - balance_correction * 0.3
 
+    # Clamp to joint limits
     return np.clip(ctrl, -2.0, 2.0)
 
 

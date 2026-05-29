@@ -20,7 +20,7 @@ import json
 import sys
 from typing import Any
 
-from mcp.server import Server
+from mcp.server import Server, NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
@@ -109,11 +109,14 @@ class ROSClawMinimalMCPServer:
         return {"error": f"Unknown system tool: {name}"}
 
     async def run(self) -> None:
-        async with stdio_server(self.server) as (read, write):
+        async with stdio_server() as (read, write):
             init_options = InitializationOptions(
                 server_name="rosclaw-minimal",
                 server_version="1.0.0",
-                capabilities=self.server.get_capabilities(),
+                capabilities=self.server.get_capabilities(
+                    notification_options=NotificationOptions(),
+                    experimental_capabilities={},
+                ),
             )
             await self.server.run(read, write, init_options)
 

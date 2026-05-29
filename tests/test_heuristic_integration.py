@@ -662,4 +662,4 @@ class TestHowEndToEndRecovery:
         fallback = await how._knowledge_fallback("battery low voltage warning", None)
         assert fallback is not None
         assert fallback["source"] == "knowledge_analogy"
-        assert "charging station" in fallback["action_suggestion"]
+        assert "charging station" in fallback["action"]
