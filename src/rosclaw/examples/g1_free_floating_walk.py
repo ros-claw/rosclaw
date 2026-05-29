@@ -222,35 +222,40 @@ def compute_gait_control(
     left_phase = phase
     right_phase = phase + np.pi
 
+    # Gait oscillates around the semi-crouched baseline pose
+    hip_pitch_base = -0.05
+    knee_pitch_base = 0.25
+    ankle_pitch_base = -0.15
+
     # Hip pitch: push off in stance, swing forward in swing
-    hip_amp = 0.12
-    hip_pitch_left = hip_amp * np.sin(left_phase)
-    hip_pitch_right = hip_amp * np.sin(right_phase)
+    hip_amp = 0.08
+    hip_pitch_left = hip_pitch_base + hip_amp * np.sin(left_phase)
+    hip_pitch_right = hip_pitch_base + hip_amp * np.sin(right_phase)
 
     # Knee pitch: flex during swing, extend in stance
-    knee_amp = 0.2
-    knee_pitch_left = knee_amp * max(0.0, np.sin(left_phase))
-    knee_pitch_right = knee_amp * max(0.0, np.sin(right_phase))
+    knee_amp = 0.12
+    knee_pitch_left = knee_pitch_base + knee_amp * max(0.0, np.sin(left_phase))
+    knee_pitch_right = knee_pitch_base + knee_amp * max(0.0, np.sin(right_phase))
 
     # Ankle pitch: slight dorsiflexion at toe-off
-    ankle_amp = 0.08
-    ankle_pitch_left = ankle_amp * np.sin(left_phase - np.pi / 4)
-    ankle_pitch_right = ankle_amp * np.sin(right_phase - np.pi / 4)
+    ankle_amp = 0.05
+    ankle_pitch_left = ankle_pitch_base + ankle_amp * np.sin(left_phase - np.pi / 4)
+    ankle_pitch_right = ankle_pitch_base + ankle_amp * np.sin(right_phase - np.pi / 4)
 
     # Hip roll: lateral balance (keep pelvis level, slight counter-sway)
-    hip_roll_amp = 0.03
+    hip_roll_amp = 0.02
     hip_roll_left = hip_roll_amp * np.cos(phase)
     hip_roll_right = -hip_roll_amp * np.cos(phase)
 
     # Hip yaw: slight toe-out for stability
-    hip_yaw = 0.02 * np.sin(phase)
+    hip_yaw = 0.015 * np.sin(phase)
 
     # Height correction: bias hip pitch based on pelvis height error
     height_error = walk_state.pelvis_height_target - pelvis_pos[2]
-    height_correction = np.clip(height_error * 0.3, -0.08, 0.08)
+    height_correction = np.clip(height_error * 0.2, -0.05, 0.05)
 
     # Forward velocity correction bias
-    forward_bias = 0.02
+    forward_bias = 0.015
 
     # Active balance correction based on pelvis pitch
     rpy = quat_to_rpy(pelvis_quat)

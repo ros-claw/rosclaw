@@ -226,7 +226,7 @@ class HeuristicEngine:
         """Optional knowledge-based analogy fallback."""
         try:
             # Placeholder: if Knowledge module provides analogy lookup
-            analogy = await self._knowledge.find_analogy(error_log)
+            analogy = self._knowledge.find_analogy(error_log)
             if analogy:
                 return {
                     "rule_id": "analogy_" + str(analogy.get("id", "")),
