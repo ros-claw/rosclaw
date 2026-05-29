@@ -51,15 +51,11 @@ class TestKnowHowRuntimeE2E:
 
     def test_how_queries_work(self, runtime):
         how = runtime.how
-        recovery = asyncio.get_event_loop().run_until_complete(
-            how.suggest_recovery("joint limit exceeded")
-        )
+        recovery = how.suggest_recovery("joint limit exceeded")
         assert recovery is not None
         assert recovery["source"] == "heuristic"
         assert "action" in recovery
-        no_match = asyncio.get_event_loop().run_until_complete(
-            how.suggest_recovery("unicorn magical failure")
-        )
+        no_match = how.suggest_recovery("unicorn magical failure")
         assert no_match is None
 
     def test_know_how_symbiosis(self, runtime):
@@ -72,9 +68,7 @@ class TestKnowHowRuntimeE2E:
         assert match is not None
         symptom = match["symptom"]
         # HOW suggests recovery based on the original error log
-        recovery = asyncio.get_event_loop().run_until_complete(
-            how.suggest_recovery(error_log)
-        )
+        recovery = how.suggest_recovery(error_log)
         assert recovery is not None
         assert recovery["action"] != ""
         # KNOW provides cross-domain analogy for the matched symptom

@@ -817,7 +817,9 @@ class MCPHub(LifecycleMixin):
             return {"status": "error", "error": "error_log is required"}
 
         try:
-            recovery = await how_engine.suggest_recovery(error_log)
+            recovery = how_engine.suggest_recovery(error_log)
+            if asyncio.iscoroutine(recovery):
+                recovery = await recovery
         except Exception as exc:
             return {"status": "error", "error": f"Recovery lookup failed: {exc}"}
 

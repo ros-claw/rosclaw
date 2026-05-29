@@ -626,10 +626,14 @@ class Runtime(LifecycleMixin):
             robot_id = self.config.default_eurdf_robot
             self._robot_profile = loader.load(robot_id)
             robot_dir = loader.zoo_path / robot_id
-            eurdf_path = robot_dir / "robot.eurdf.yaml"
-            if eurdf_path.exists():
-                from rosclaw.e_urdf.parser import EURDFParser
-                self._e_urdf = EURDFParser(str(eurdf_path))
+            # EURDFParser expects XML (URDF/MJCF), not YAML
+            xml_path = robot_dir / "robot.urdf"
+            mjcf_path = robot_dir / "robot.mjcf.xml"
+            from rosclaw.e_urdf.parser import EURDFParser
+            if xml_path.exists():
+                self._e_urdf = EURDFParser(str(xml_path))
+            elif mjcf_path.exists():
+                self._e_urdf = EURDFParser(str(mjcf_path))
             self.event_bus.publish(Event(
                 topic="rosclaw.runtime.robot_loaded",
                 payload={
@@ -980,7 +984,7 @@ class Runtime(LifecycleMixin):
 
 
 class _HowProxy:
-    """Sync wrapper for HeuristicEngine so rt.how.generate_recovery_hint() works."""
+    """Sync wrapper for HeuristicEngine so async methods work from sync contexts."""
 
     def __init__(self, engine, run_async):
         self._engine = engine
@@ -993,6 +997,10 @@ class _HowProxy:
     def suggest_recovery(self, error_log: str, context: Optional[dict[str, Any]] = None) -> Optional[dict[str, Any]]:
         """Sync wrapper around HeuristicEngine.suggest_recovery."""
         return self._run_async(self._engine.suggest_recovery(error_log, context))
+
+    def record_outcome(self, rule_id: str, success: bool) -> None:
+        """Sync wrapper around HeuristicEngine.record_outcome."""
+        return self._run_async(self._engine.record_outcome(rule_id, success))
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._engine, name)
