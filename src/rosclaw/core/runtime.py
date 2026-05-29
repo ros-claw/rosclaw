@@ -975,3 +975,22 @@ class Runtime(LifecycleMixin):
             },
             "drivers": list(self._mcp_drivers.keys()),
         }
+
+
+class _HowProxy:
+    """Sync wrapper for HeuristicEngine so rt.how.generate_recovery_hint() works."""
+
+    def __init__(self, engine, run_async):
+        self._engine = engine
+        self._run_async = run_async
+
+    def generate_recovery_hint(self, failure_type: str, context: Optional[dict[str, Any]] = None) -> Optional[dict[str, Any]]:
+        """Sync wrapper around HeuristicEngine.generate_recovery_hint."""
+        return self._run_async(self._engine.generate_recovery_hint(failure_type, context))
+
+    def suggest_recovery(self, error_log: str, context: Optional[dict[str, Any]] = None) -> Optional[dict[str, Any]]:
+        """Sync wrapper around HeuristicEngine.suggest_recovery."""
+        return self._run_async(self._engine.suggest_recovery(error_log, context))
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._engine, name)

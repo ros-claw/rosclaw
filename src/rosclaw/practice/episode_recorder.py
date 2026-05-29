@@ -205,9 +205,6 @@ class EpisodeRecorder(LifecycleMixin):
             "parameters": payload.get("parameters"),
         })
         buf.last_event_at = time.time()
-        # If complete already arrived, finalize now
-        if "skill.execution.complete" in buf.received_events:
-            self._finalize_episode(episode_id)
 
     def _on_skill_complete(self, event: Event) -> None:
         payload = event.payload if isinstance(event.payload, dict) else {}
@@ -227,9 +224,9 @@ class EpisodeRecorder(LifecycleMixin):
             "duration_sec": duration,
         })
         buf.last_event_at = time.time()
-        # Terminal event — finalize only if start was already received
-        if "skill.execution.start" in buf.received_events:
-            self._finalize_episode(episode_id)
+        # Note: skill.execution.complete does NOT auto-finalize;
+        # we wait for praxis.completed/failed or other terminal events
+        # so that all context (provider, critic, sandbox) can be collected.
 
     def _on_praxis_completed(self, event: Event) -> None:
         payload = event.payload if isinstance(event.payload, dict) else {}
