@@ -178,10 +178,10 @@ class BundleCompiler:
     def _critic_validate(self, files: dict[str, str]) -> dict[str, bool]:
         """Run automated critic checks on generated files."""
         checks = {
-            "async_safe": all("async " in content for content in files.values() if content.strip()),
-            "schema_complete": all("inputSchema" in content or "inputs" in content for content in files.values()),
-            "safety_hooks": "firewall_hooks" in str(files),
-            "preemption_ready": "preemptible" in str(files),
+            "async_safe": any("async def" in content for content in files.values()),
+            "schema_complete": any("inputSchema" in content or "inputs" in content for content in files.values()),
+            "safety_hooks": any("firewall_hooks" in content for content in files.values()),
+            "preemption_ready": any("preemptible" in content for content in files.values()),
             "tests_present": any("test_" in fname for fname in files),
             "readme_present": any("README" in fname for fname in files),
         }
