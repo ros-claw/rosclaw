@@ -136,7 +136,7 @@ class TestPhase3MuJoCoRealPhysics:
             result = subprocess.run(
                 [sys.executable, "-m", "rosclaw.examples.g1_free_floating_walk"],
                 capture_output=True, text=True,
-                cwd="/home/ubuntu/rosclaw/rosclaw/rosclaw-v1.0",
+                cwd=str(Path(__file__).parent.parent),
                 timeout=20,
             )
             # The demo may timeout (expected) but should produce real data
