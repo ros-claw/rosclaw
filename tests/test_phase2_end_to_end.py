@@ -17,12 +17,16 @@ P0 Blockers validated:
 """
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 import pytest
+
+# Dynamic repo root for cross-machine compatibility (local, Dell, Spark)
+REPO_ROOT = str(Path(__file__).parent.parent)
 
 
 class TestPhase2CLI:
@@ -31,7 +35,7 @@ class TestPhase2CLI:
     def test_cli_version(self):
         result = subprocess.run(
             [sys.executable, "-m", "rosclaw.cli", "--version"],
-            capture_output=True, text=True, cwd="/home/ubuntu/rosclaw/rosclaw/rosclaw-v1.0"
+            capture_output=True, text=True, cwd=REPO_ROOT
         )
         assert result.returncode == 0
         assert "rosclaw" in result.stdout.lower()
@@ -41,7 +45,7 @@ class TestPhase2CLI:
             result = subprocess.run(
                 [sys.executable, "-m", "rosclaw.cli", "init", tmpdir],
                 capture_output=True, text=True,
-                cwd="/home/ubuntu/rosclaw/rosclaw/rosclaw-v1.0"
+                cwd=REPO_ROOT
             )
             assert result.returncode == 0, result.stderr
             assert (Path(tmpdir) / "rosclaw.yaml").exists()
@@ -50,7 +54,7 @@ class TestPhase2CLI:
         result = subprocess.run(
             [sys.executable, "-m", "rosclaw.cli", "doctor"],
             capture_output=True, text=True,
-            cwd="/home/ubuntu/rosclaw/rosclaw/rosclaw-v1.0"
+            cwd=REPO_ROOT
         )
         assert result.returncode in (0, 1)  # may warn about missing rosclaw.yaml
         assert "Doctor" in result.stdout
@@ -59,7 +63,7 @@ class TestPhase2CLI:
         result = subprocess.run(
             [sys.executable, "-m", "rosclaw.cli", "status"],
             capture_output=True, text=True,
-            cwd="/home/ubuntu/rosclaw/rosclaw/rosclaw-v1.0"
+            cwd=REPO_ROOT
         )
         assert result.returncode in (0, 1)
         assert "Status" in result.stdout
@@ -68,7 +72,7 @@ class TestPhase2CLI:
         result = subprocess.run(
             [sys.executable, "-m", "rosclaw.cli", "robot", "list"],
             capture_output=True, text=True,
-            cwd="/home/ubuntu/rosclaw/rosclaw/rosclaw-v1.0"
+            cwd=REPO_ROOT
         )
         assert result.returncode == 0, result.stderr
         assert "Robot Registry" in result.stdout
@@ -77,7 +81,7 @@ class TestPhase2CLI:
         result = subprocess.run(
             [sys.executable, "-m", "rosclaw.cli", "provider", "list"],
             capture_output=True, text=True,
-            cwd="/home/ubuntu/rosclaw/rosclaw/rosclaw-v1.0"
+            cwd=REPO_ROOT
         )
         assert result.returncode == 0, result.stderr
         assert "Provider Registry" in result.stdout
@@ -86,7 +90,7 @@ class TestPhase2CLI:
         result = subprocess.run(
             [sys.executable, "-m", "rosclaw.cli", "skill", "list"],
             capture_output=True, text=True,
-            cwd="/home/ubuntu/rosclaw/rosclaw/rosclaw-v1.0"
+            cwd=REPO_ROOT
         )
         assert result.returncode == 0, result.stderr
         assert "Skill Registry" in result.stdout
@@ -95,7 +99,7 @@ class TestPhase2CLI:
         result = subprocess.run(
             [sys.executable, "-m", "rosclaw.cli", "sandbox", "list-worlds"],
             capture_output=True, text=True,
-            cwd="/home/ubuntu/rosclaw/rosclaw/rosclaw-v1.0"
+            cwd=REPO_ROOT
         )
         assert result.returncode == 0, result.stderr
         assert "Sandbox Worlds" in result.stdout
@@ -104,7 +108,7 @@ class TestPhase2CLI:
         result = subprocess.run(
             [sys.executable, "-m", "rosclaw.cli", "memory", "status"],
             capture_output=True, text=True,
-            cwd="/home/ubuntu/rosclaw/rosclaw/rosclaw-v1.0"
+            cwd=REPO_ROOT
         )
         assert result.returncode == 0, result.stderr
         assert "Memory Status" in result.stdout
@@ -113,7 +117,7 @@ class TestPhase2CLI:
         result = subprocess.run(
             [sys.executable, "-m", "rosclaw.cli", "events", "--tail", "5"],
             capture_output=True, text=True,
-            cwd="/home/ubuntu/rosclaw/rosclaw/rosclaw-v1.0"
+            cwd=REPO_ROOT
         )
         assert result.returncode == 0, result.stderr
         assert "EventBus" in result.stdout
