@@ -73,6 +73,128 @@ SEEKDB_SCHEMAS = {
         },
         "indices": ["priority"],
     },
+    # Sprint 8 — Knowledge Plane tables
+    "robots": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "name": "TEXT NOT NULL",
+            "robot_type": "TEXT",
+            "eurdf_profile": "TEXT",
+            "status": "TEXT DEFAULT 'active'",
+            "registered_at": "REAL",
+            "metadata": "TEXT",
+        },
+        "indices": ["robot_type", "status"],
+    },
+    "providers": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "name": "TEXT NOT NULL",
+            "capability_type": "TEXT NOT NULL",
+            "endpoint": "TEXT",
+            "status": "TEXT DEFAULT 'active'",
+            "metadata": "TEXT",
+        },
+        "indices": ["capability_type", "status"],
+    },
+    "skills": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "name": "TEXT NOT NULL",
+            "version": "TEXT DEFAULT '1.0'",
+            "description": "TEXT",
+            "parameters": "TEXT",
+            "metadata": "TEXT",
+        },
+        "indices": ["name", "version"],
+    },
+    "tasks": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "name": "TEXT NOT NULL",
+            "description": "TEXT",
+            "robot_id": "TEXT",
+            "status": "TEXT DEFAULT 'pending'",
+            "created_at": "REAL",
+            "metadata": "TEXT",
+        },
+        "indices": ["robot_id", "status", "created_at"],
+    },
+    "episodes": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "task_id": "TEXT",
+            "robot_id": "TEXT NOT NULL",
+            "started_at": "REAL",
+            "ended_at": "REAL",
+            "outcome": "TEXT",
+            "artifact_uri": "TEXT",
+            "metadata": "TEXT",
+        },
+        "indices": ["task_id", "robot_id", "outcome", "started_at"],
+    },
+    "praxis_events": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "episode_id": "TEXT",
+            "robot_id": "TEXT NOT NULL",
+            "event_type": "TEXT NOT NULL",
+            "timestamp": "REAL NOT NULL",
+            "payload": "TEXT",
+            "metadata": "TEXT",
+        },
+        "indices": ["episode_id", "robot_id", "event_type", "timestamp"],
+    },
+    "failures": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "episode_id": "TEXT",
+            "task_id": "TEXT",
+            "robot_id": "TEXT NOT NULL",
+            "failure_type": "TEXT",
+            "root_cause": "TEXT",
+            "timestamp": "REAL",
+            "recovery_hint": "TEXT",
+            "metadata": "TEXT",
+        },
+        "indices": ["episode_id", "task_id", "robot_id", "failure_type", "timestamp"],
+    },
+    "success_patterns": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "skill_id": "TEXT",
+            "robot_id": "TEXT",
+            "context_hash": "TEXT",
+            "success_count": "INTEGER DEFAULT 0",
+            "avg_duration_sec": "REAL",
+            "metadata": "TEXT",
+        },
+        "indices": ["skill_id", "robot_id", "context_hash"],
+    },
+    "benchmarks": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "robot_id": "TEXT",
+            "task_id": "TEXT",
+            "score": "REAL",
+            "metrics": "TEXT",
+            "run_at": "REAL",
+            "metadata": "TEXT",
+        },
+        "indices": ["robot_id", "task_id", "run_at"],
+    },
+    "artifacts": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "episode_id": "TEXT",
+            "artifact_type": "TEXT NOT NULL",
+            "uri": "TEXT NOT NULL",
+            "size_bytes": "INTEGER",
+            "created_at": "REAL",
+            "metadata": "TEXT",
+        },
+        "indices": ["episode_id", "artifact_type", "created_at"],
+    },
 }
 
 
@@ -289,6 +411,15 @@ class SeekDBSQLiteClient(SeekDBClient):
         ("experience_graph", "idx_exp_robot_outcome", "robot_id, outcome"),
         ("knowledge_graph", "idx_kg_subj_pred", "subject, predicate"),
         ("heuristic_rules", "idx_hr_priority_action", "priority DESC, action"),
+        # Sprint 8 — Knowledge Plane composite indexes
+        ("episodes", "idx_ep_robot_started", "robot_id, started_at DESC"),
+        ("episodes", "idx_ep_task_outcome", "task_id, outcome"),
+        ("praxis_events", "idx_pe_episode_ts", "episode_id, timestamp DESC"),
+        ("failures", "idx_fail_robot_ts", "robot_id, timestamp DESC"),
+        ("failures", "idx_fail_task_type", "task_id, failure_type"),
+        ("artifacts", "idx_art_episode_type", "episode_id, artifact_type"),
+        ("success_patterns", "idx_sp_skill_robot", "skill_id, robot_id"),
+        ("benchmarks", "idx_bench_robot_run", "robot_id, run_at DESC"),
     ]
 
     def _create_tables(self) -> None:
