@@ -8,42 +8,25 @@ import uuid
 @dataclass
 class Decision:
     """Result of a firewall safety check."""
+    action: str = "ALLOW"
     is_allowed: bool = True
     risk_score: float = 0.0
     predicted_collision: bool = False
     reason: str = ""
     violated_constraints: list[str] = field(default_factory=list)
     replay_id: Optional[str] = None
+    modified_action: Optional[dict[str, Any]] = None
 
 
 class FirewallGate:
-    """Dynamic safety gate using MuJoCo mj_step simulation.
+    """Dynamic safety gate using MuJoCo mj_step simulation."""
 
-    Checks:
-    1. Joint limits
-    2. Workspace boundary (spherical reach envelope)
-    3. Velocity limits (only when previous state provided)
-    4. Force/torque limits (PFL)
-    5. Self-collision proximity (stub for full MJCF geometry check)
-    """
-
-    # UR5e approximate joint limits (rad)
     JOINT_LIMITS = [
-        (-6.28, 6.28),   # base
-        (-6.28, 6.28),   # shoulder
-        (-6.28, 6.28),   # elbow
-        (-6.28, 6.28),   # wrist1
-        (-6.28, 6.28),   # wrist2
-        (-6.28, 6.28),   # wrist3
+        (-6.28, 6.28), (-6.28, 6.28), (-6.28, 6.28),
+        (-6.28, 6.28), (-6.28, 6.28), (-6.28, 6.28),
     ]
-
-    # UR5e approximate workspace (m) — spherical radius
     WORKSPACE_RADIUS = 1.5
-
-    # UR5e max joint velocity (rad/s)
     MAX_JOINT_VELOCITY = 3.15
-
-    # PFL max TCP force (N) and torque (Nm)
     MAX_TCP_FORCE = 150.0
     MAX_TCP_TORQUE = 8.0
 
@@ -51,24 +34,20 @@ class FirewallGate:
         self.robot_id = robot_id
         self.world_id = world_id
         self.engine = engine
-        self._sandbox = None
-        self._replay_id: Optional[str] = None
 
     def _generate_replay_id(self) -> str:
-        """Generate a unique replay identifier."""
         return f"sandbox://replay/{uuid.uuid4().hex[:12]}"
 
     def check(self, action: dict[str, Any]) -> Decision:
-        """Run dynamic simulation (mj_step) to validate action safety."""
         values = action.get("values", [])
         if not values:
-            return Decision(is_allowed=True, risk_score=0.0)
+            return Decision(action="ALLOW", is_allowed=True, risk_score=0.0)
 
         max_violation = 0.0
-        violations: list[str] = []
+        violations = []
         replay_id = self._generate_replay_id()
 
-        # 1. Joint limit check
+        # Joint limits
         for i, v in enumerate(values):
             if i < len(self.JOINT_LIMITS):
                 lo, hi = self.JOINT_LIMITS[i]
@@ -76,7 +55,7 @@ class FirewallGate:
                     max_violation = max(max_violation, abs(v) - max(abs(lo), abs(hi)))
                     violations.append(f"joint_{i}_limit")
 
-        # 2. Velocity limit check (only when previous state is provided)
+        # Velocity limits
         current = action.get("current")
         if current is not None:
             for i, (target, curr) in enumerate(zip(values, current)):
@@ -84,14 +63,14 @@ class FirewallGate:
                     violations.append(f"joint_{i}_velocity")
                     max_violation = max(max_violation, abs(target - curr))
 
-        # 3. Workspace boundary check (simplified FK for UR5e)
+        # Workspace boundary
         tcp_position = self._forward_kinematics(values)
         dist_from_base = sum(x**2 for x in tcp_position) ** 0.5
         if dist_from_base > self.WORKSPACE_RADIUS:
             violations.append("workspace_boundary")
             max_violation = max(max_violation, dist_from_base - self.WORKSPACE_RADIUS)
 
-        # 4. Force/torque limit check (PFL)
+        # PFL
         planned_force = action.get("force", 0.0)
         planned_torque = action.get("torque", 0.0)
         if planned_force > self.MAX_TCP_FORCE:
@@ -101,30 +80,44 @@ class FirewallGate:
             violations.append("pfl_torque")
             max_violation = max(max_violation, planned_torque - self.MAX_TCP_TORQUE)
 
-        # 5. Self-collision proximity (stub)
+        # Self-collision
         if self._predict_self_collision(values):
             violations.append("self_collision")
             max_violation = max(max_violation, 0.5)
 
+        risk_score = min(1.0, 0.5 + max_violation * 0.1) if violations else 0.0
+
         if violations:
-            return Decision(
-                is_allowed=False,
-                risk_score=min(1.0, 0.5 + max_violation * 0.1),
-                predicted_collision=True,
-                reason=f"Firewall blocked: {', '.join(violations)}",
-                violated_constraints=violations,
-                replay_id=replay_id,
-            )
+            if risk_score >= 0.8 or "self_collision" in violations:
+                return Decision(
+                    action="BLOCK", is_allowed=False, risk_score=risk_score,
+                    predicted_collision=True,
+                    reason=f"Firewall blocked: {', '.join(violations)}",
+                    violated_constraints=violations, replay_id=replay_id,
+                )
+            elif risk_score >= 0.5:
+                modified = self._suggest_modification(action, violations)
+                return Decision(
+                    action="MODIFY", is_allowed=False, risk_score=risk_score,
+                    predicted_collision=True,
+                    reason=f"Firewall modified: {', '.join(violations)}",
+                    violated_constraints=violations, replay_id=replay_id,
+                    modified_action=modified,
+                )
+            else:
+                return Decision(
+                    action="REQUIRE_CONFIRMATION", is_allowed=False,
+                    risk_score=risk_score,
+                    reason=f"Firewall requires confirmation: {', '.join(violations)}",
+                    violated_constraints=violations, replay_id=replay_id,
+                )
 
         return Decision(
-            is_allowed=True,
-            risk_score=0.0,
-            reason="Within limits",
-            replay_id=replay_id,
+            action="ALLOW", is_allowed=True, risk_score=0.0,
+            reason="Within limits", replay_id=replay_id,
         )
 
-    def _forward_kinematics(self, joint_positions: list[float]) -> tuple[float, float, float]:
-        """Simplified forward kinematics for UR5e (approximate TCP position)."""
+    def _forward_kinematics(self, joint_positions):
         link_lengths = [0.089, 0.425, 0.392, 0.109, 0.093, 0.082]
         x, y, z = 0.0, 0.0, 0.0
         for i, (q, l) in enumerate(zip(joint_positions[:6], link_lengths)):
@@ -134,14 +127,32 @@ class FirewallGate:
                 z += l * abs(q) / 3.14
         return (x, y, z)
 
-    def _predict_self_collision(self, joint_positions: list[float]) -> bool:
-        """Stub for self-collision prediction. Full implementation requires MJCF geometry."""
+    def _predict_self_collision(self, joint_positions):
         if len(joint_positions) >= 3:
             elbow = joint_positions[2]
             if abs(elbow) > 3.0:
                 return True
         return False
 
-    def close(self) -> None:
-        """Release resources."""
+    def _suggest_modification(self, action, violations):
+        modified = dict(action)
+        values = list(modified.get("values", []))
+        for v in violations:
+            if "joint_" in v and "_limit" in v:
+                idx = int(v.split("_")[1])
+                if idx < len(values):
+                    lo, hi = self.JOINT_LIMITS[idx]
+                    values[idx] = max(lo, min(hi, values[idx]))
+            elif "pfl_force" in v:
+                modified["force"] = self.MAX_TCP_FORCE * 0.8
+            elif "pfl_torque" in v:
+                modified["torque"] = self.MAX_TCP_TORQUE * 0.8
+            elif "workspace_boundary" in v:
+                values = [v * 0.7 for v in values]
+        modified["values"] = values
+        modified["_firewall_modified"] = True
+        modified["_original_violations"] = violations
+        return modified
+
+    def close(self):
         pass
