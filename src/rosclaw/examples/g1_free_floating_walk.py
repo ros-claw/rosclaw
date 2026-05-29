@@ -149,11 +149,11 @@ class WalkState:
     stance_width: float = 0.18
     step_length: float = 0.15
     step_height: float = 0.06
-    cycle_time: float = 1.0  # gait cycle
-    pelvis_height_target: float = 0.64
+    cycle_time: float = 0.8  # gait cycle
+    pelvis_height_target: float = 0.66
 
     # Fall detection thresholds
-    min_pelvis_height: float = 0.25
+    min_pelvis_height: float = 0.30
     max_tilt_angle_deg: float = 45.0
     max_sim_time: float = 30.0
 
@@ -222,40 +222,43 @@ def compute_gait_control(
     left_phase = phase
     right_phase = phase + np.pi
 
-    # Gait oscillates around the semi-crouched baseline pose
-    hip_pitch_base = -0.05
-    knee_pitch_base = 0.25
-    ankle_pitch_base = -0.15
+    # Gait oscillates around the near-standing baseline pose
+    hip_pitch_base = 0.0
+    knee_pitch_base = 0.05
+    ankle_pitch_base = 0.0
 
-    # Hip pitch: push off in stance, swing forward in swing
-    hip_amp = 0.08
-    hip_pitch_left = hip_pitch_base + hip_amp * np.sin(left_phase)
-    hip_pitch_right = hip_pitch_base + hip_amp * np.sin(right_phase)
+    # Asymmetric hip: stronger push backward (leg extends) for forward propulsion
+    # Use a skewed sine wave: more time in push, quick recovery
+    hip_amp = 0.10
+    hip_push = 0.06
+    hip_pitch_left = hip_pitch_base + hip_amp * np.sin(left_phase) - hip_push * (1 + np.cos(left_phase))
+    hip_pitch_right = hip_pitch_base + hip_amp * np.sin(right_phase) - hip_push * (1 + np.cos(right_phase))
 
-    # Knee pitch: flex during swing, extend in stance
-    knee_amp = 0.12
+    # Knee pitch: small flex during swing to clear ground, extend in stance
+    knee_amp = 0.06
     knee_pitch_left = knee_pitch_base + knee_amp * max(0.0, np.sin(left_phase))
     knee_pitch_right = knee_pitch_base + knee_amp * max(0.0, np.sin(right_phase))
 
-    # Ankle pitch: slight dorsiflexion at toe-off
-    ankle_amp = 0.05
-    ankle_pitch_left = ankle_pitch_base + ankle_amp * np.sin(left_phase - np.pi / 4)
-    ankle_pitch_right = ankle_pitch_base + ankle_amp * np.sin(right_phase - np.pi / 4)
+    # Ankle pitch: plantarflexion (push-off) during late stance
+    ankle_amp = 0.08
+    ankle_push_phase = np.pi / 3
+    ankle_pitch_left = ankle_pitch_base + ankle_amp * np.sin(left_phase - ankle_push_phase)
+    ankle_pitch_right = ankle_pitch_base + ankle_amp * np.sin(right_phase - ankle_push_phase)
 
-    # Hip roll: lateral balance (keep pelvis level, slight counter-sway)
-    hip_roll_amp = 0.02
+    # Hip roll: lateral balance
+    hip_roll_amp = 0.015
     hip_roll_left = hip_roll_amp * np.cos(phase)
     hip_roll_right = -hip_roll_amp * np.cos(phase)
 
-    # Hip yaw: slight toe-out for stability
-    hip_yaw = 0.015 * np.sin(phase)
+    # Hip yaw: slight toe-out
+    hip_yaw = 0.01 * np.sin(phase)
 
-    # Height correction: bias hip pitch based on pelvis height error
+    # Height correction: minimal to avoid sinking
     height_error = walk_state.pelvis_height_target - pelvis_pos[2]
-    height_correction = np.clip(height_error * 0.2, -0.05, 0.05)
+    height_correction = np.clip(height_error * 0.1, -0.03, 0.03)
 
     # Forward velocity correction bias
-    forward_bias = 0.015
+    forward_bias = 0.08
 
     # Active balance correction based on pelvis pitch
     rpy = quat_to_rpy(pelvis_quat)
@@ -319,19 +322,18 @@ def run_walking_demo(
         max_sim_time=duration_limit,
     )
 
-    # Initial pose: semi-crouched stance for stability
-    # Effective leg length with hip=-0.05, knee=0.25, ankle=-0.15:
-    #   0.25*cos(0.05) + 0.25*cos(0.25) + 0.092*cos(0.15) ≈ 0.583m
-    # Hip at pelvis_z - 0.06, so pelvis_z ≈ 0.583 + 0.06 = 0.64 for ground contact
-    data.qpos[2] = 0.64  # pelvis height (feet on ground, slight knee bend)
+    # Initial pose: near-standing for minimal joint load
+    # Straight legs: hip=0, knee=0.05, ankle=0 gives leg length ≈ 0.25+0.25+0.092 = 0.592m
+    # Hip at pelvis_z - 0.06, so pelvis_z ≈ 0.592 + 0.06 = 0.65 for ground contact
+    data.qpos[2] = 0.66  # pelvis height (feet on ground, near straight)
     data.qpos[3] = 1.0   # qw
     data.qpos[5] = 0.0   # no initial pitch
-    data.qpos[7] = -0.05   # hip_pitch_left
-    data.qpos[8] = 0.25    # knee_pitch_left (gentle bend)
-    data.qpos[9] = -0.15   # ankle_pitch_left
-    data.qpos[12] = -0.05  # hip_pitch_right
-    data.qpos[13] = 0.25   # knee_pitch_right
-    data.qpos[14] = -0.15  # ankle_pitch_right
+    data.qpos[7] = 0.0     # hip_pitch_left (straight)
+    data.qpos[8] = 0.05    # knee_pitch_left (very slight bend)
+    data.qpos[9] = 0.0     # ankle_pitch_left (straight)
+    data.qpos[12] = 0.0    # hip_pitch_right
+    data.qpos[13] = 0.05   # knee_pitch_right
+    data.qpos[14] = 0.0    # ankle_pitch_right
 
     mujoco.mj_forward(model, data)
 
@@ -345,17 +347,27 @@ def run_walking_demo(
     energy = 0.0
     start_x = data.qpos[0]
 
-    # Warm-up: settle into semi-crouched stance for 1.0s using position actuators
-    settle_steps = int(1.0 / dt)
-    # Semi-crouched pose target for all 10 joints
-    target_qpos = np.zeros(10)
-    target_qpos[2] = -0.05   # hip_pitch_left
-    target_qpos[3] = 0.25    # knee_pitch_left
-    target_qpos[4] = -0.15   # ankle_pitch_left
-    target_qpos[7] = -0.05   # hip_pitch_right
-    target_qpos[8] = 0.25    # knee_pitch_right
-    target_qpos[9] = -0.15   # ankle_pitch_right
+    # Warm-up: active balance to find stable equilibrium
+    settle_steps = int(2.0 / dt)
     for _ in range(settle_steps):
+        # Read current pelvis orientation
+        pelvis_quat = data.sensordata[
+            sensor_adr["pelvis_quat"]:sensor_adr["pelvis_quat"] + 4
+        ]
+        rpy = quat_to_rpy(pelvis_quat)
+        pitch_error = rpy[1]  # positive = forward lean
+
+        # Active balance: if tilting back, flex hips forward
+        correction = np.clip(pitch_error * 0.3, -0.1, 0.1)
+
+        target_qpos = np.zeros(10)
+        target_qpos[2] = 0.0 + correction     # hip_pitch_left
+        target_qpos[3] = 0.05                 # knee_pitch_left
+        target_qpos[4] = 0.0 - correction * 0.3  # ankle_pitch_left
+        target_qpos[7] = 0.0 + correction     # hip_pitch_right
+        target_qpos[8] = 0.05                 # knee_pitch_right
+        target_qpos[9] = 0.0 - correction * 0.3  # ankle_pitch_right
+
         data.ctrl[:] = target_qpos
         mujoco.mj_step(model, data)
 
