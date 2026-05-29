@@ -124,4 +124,4 @@ class ROS2Driver(BaseDriver):
         self.move_joints(self.get_joint_positions(), duration=0.1)
 
     def get_state(self) -> DriverState:
-        return self._state
+        return self._driver_state

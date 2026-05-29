@@ -6,6 +6,24 @@ from pathlib import Path
 from rosclaw.provider.core.registry import ProviderRegistry
 from rosclaw.provider.loader import ProviderLoader
 from rosclaw.provider.adapters.generic import GenericProvider
+from rosclaw.provider.core.provider import Provider
+
+
+class MyTestProvider(Provider):
+    """Custom provider subclass for loader testing."""
+    name = "my_test"
+    version = "0.1.0"
+    capabilities = ["vlm.test"]
+
+    async def infer(self, request):
+        from rosclaw.provider.core.response import ProviderResponse
+        return ProviderResponse(
+            request_id=request.request_id,
+            provider=self.name,
+            capability=request.capability,
+            result={},
+            status="ok",
+        )
 
 
 def test_provider_loader_scan_empty_directory(tmp_path):
@@ -186,21 +204,120 @@ async def test_generic_provider_no_runtime():
         await provider.infer(req)
 
 
-def test_provider_loader_custom_class_fallback(tmp_path):
-    """Invalid provider_class falls back to GenericProvider."""
+def test_provider_loader_custom_class_import_error():
+    """provider_class that cannot be imported falls back."""
+    from rosclaw.provider.core.manifest import ProviderManifest
+    manifest = ProviderManifest.from_dict({
+        "name": "bad_class",
+        "version": "0.1.0",
+        "type": "vlm",
+        "capabilities": ["vlm.scene_understanding"],
+    })
+    manifest.extra = {"provider_class": "nonexistent.module.Class"}
+    cls = ProviderLoader._resolve_provider_class(manifest)
+    assert cls is GenericProvider
+
+
+def test_provider_loader_scan_nonexistent_directory():
+    """Scanning a non-existent directory returns empty list."""
+    registry = ProviderRegistry()
+    loader = ProviderLoader(registry)
+    loaded = loader.scan_directory("/definitely/not/a/real/path")
+    assert loaded == []
+
+
+def test_provider_loader_list_loaded(tmp_path):
+    """list_loaded returns name -> path mapping."""
     registry = ProviderRegistry()
     loader = ProviderLoader(registry)
 
     yaml_path = tmp_path / "provider.yaml"
     yaml_path.write_text("""
-name: bad_class
+name: list_test
 version: "0.1.0"
 type: vlm
 capabilities: [vlm.scene_understanding]
-extra:
-  provider_class: "nonexistent.module.Class"
 """)
 
-    # Should not raise; falls back to GenericProvider
-    loaded = loader.load_file(yaml_path)
-    assert loaded == "bad_class"
+    loader.load_file(yaml_path)
+    loaded = loader.list_loaded()
+    assert "list_test" in loaded
+    assert str(yaml_path) in loaded["list_test"]
+
+
+def test_provider_loader_manifest_parse_error(tmp_path, capsys):
+    """Invalid YAML is handled gracefully."""
+    registry = ProviderRegistry()
+    loader = ProviderLoader(registry)
+
+    yaml_path = tmp_path / "provider.yaml"
+    yaml_path.write_text("not: valid: yaml: [")
+
+    result = loader.load_file(yaml_path)
+    assert result is None
+    captured = capsys.readouterr()
+    assert "Failed to parse" in captured.out
+
+
+def test_provider_loader_register_exception(tmp_path, capsys):
+    """Registry.register exception is handled gracefully."""
+    from unittest.mock import patch
+    registry = ProviderRegistry()
+    loader = ProviderLoader(registry)
+
+    yaml_path = tmp_path / "provider.yaml"
+    yaml_path.write_text("""
+name: reg_fail
+version: "0.1.0"
+type: vlm
+capabilities: [vlm.scene_understanding]
+""")
+
+    with patch.object(registry, "register", side_effect=RuntimeError("register boom")):
+        result = loader.load_file(yaml_path)
+    assert result is None
+    captured = capsys.readouterr()
+    assert "Failed to register" in captured.out
+
+
+def test_provider_loader_custom_class_not_provider_subclass():
+    """provider_class that is not a Provider subclass falls back."""
+    from rosclaw.provider.core.manifest import ProviderManifest
+    manifest = ProviderManifest.from_dict({
+        "name": "not_provider",
+        "version": "0.1.0",
+        "type": "vlm",
+        "capabilities": ["vlm.scene_understanding"],
+    })
+    manifest.extra = {"provider_class": "builtins.str"}
+    cls = ProviderLoader._resolve_provider_class(manifest)
+    assert cls is GenericProvider
+
+
+def test_provider_loader_custom_class_import_error():
+    """provider_class that cannot be imported falls back."""
+    from rosclaw.provider.core.manifest import ProviderManifest
+    manifest = ProviderManifest.from_dict({
+        "name": "bad_class",
+        "version": "0.1.0",
+        "type": "vlm",
+        "capabilities": ["vlm.scene_understanding"],
+    })
+    manifest.extra = {"provider_class": "nonexistent.module.Class"}
+    cls = ProviderLoader._resolve_provider_class(manifest)
+    assert cls is GenericProvider
+
+
+def test_provider_loader_custom_class_valid():
+    """provider_class that is a valid Provider subclass is used."""
+    from rosclaw.provider.core.manifest import ProviderManifest
+    manifest = ProviderManifest.from_dict({
+        "name": "custom_provider",
+        "version": "0.1.0",
+        "type": "vlm",
+        "capabilities": ["vlm.test"],
+    })
+    manifest.extra = {"provider_class": "tests.test_provider_loader.MyTestProvider"}
+    cls = ProviderLoader._resolve_provider_class(manifest)
+    assert cls is not GenericProvider
+    assert cls.__name__ == "MyTestProvider"

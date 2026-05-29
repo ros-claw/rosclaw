@@ -22,6 +22,7 @@ Commands:
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -582,8 +583,7 @@ def cmd_practice_show(args: argparse.Namespace) -> int:
         return 1
 
     if args.json:
-        import json as _json
-        print(_json.dumps(meta, indent=2, default=str))
+        print(json.dumps(meta, indent=2, default=str))
         return 0
 
     pe = meta.get("praxis_event", {})
