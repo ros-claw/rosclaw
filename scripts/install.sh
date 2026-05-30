@@ -122,13 +122,31 @@ echo "[7/7] Running health check..."
     echo "  [WARN] rosclaw doctor had issues (non-fatal)"
 }
 
+# 8. Create rosclaw wrapper for easy access without manual venv activation
+echo ""
+echo "[8/7] Creating rosclaw wrapper..."
+WRAPPER="${PROJECT_ROOT}/rosclaw"
+cat > "$WRAPPER" <<EOF
+#!/bin/bash
+# ROSClaw wrapper — auto-activates venv
+source "${VENV_DIR}/bin/activate"
+exec rosclaw "\$@"
+EOF
+chmod +x "$WRAPPER"
+echo "  Wrapper created: ${WRAPPER}"
+echo "  Add to PATH: export PATH=\${PATH}:${PROJECT_ROOT}"
+
 echo ""
 echo "========================================"
 echo "  Installation Complete!"
 echo "========================================"
 echo ""
-echo "To activate: source ${VENV_DIR}/bin/activate"
-echo "To start:     rosclaw start"
-echo "To check:     rosclaw doctor"
-echo "To see help:  rosclaw --help"
+echo "Quick start:"
+echo "  ${WRAPPER} doctor     # Health check"
+echo "  ${WRAPPER} start      # Start runtime"
+echo "  ${WRAPPER} --help     # All commands"
+echo ""
+echo "Or manually:"
+echo "  source ${VENV_DIR}/bin/activate"
+echo "  rosclaw doctor"
 echo ""
