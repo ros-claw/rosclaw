@@ -40,8 +40,27 @@ class EpisodeMetric:
 class DashboardMetrics:
     """In-memory metrics collector with rolling windows."""
 
-    def __init__(self, max_history: int = 1000):
+    # Known topics whitelist — prevents unbounded dict growth from rogue/invalid topics.
+    _KNOWN_TOPICS: set[str] = {
+        "rosclaw.runtime.started",
+        "skill.execution.start",
+        "skill.execution.complete",
+        "praxis.completed",
+        "praxis.failed",
+        "rosclaw.practice.event.created",
+        "rosclaw.sandbox.episode.started",
+        "rosclaw.sandbox.episode.finished",
+        "rosclaw.sandbox.action.blocked",
+        "rosclaw.provider.inference.completed",
+        "rosclaw.critic.success.detected",
+        "rosclaw.dashboard.trace.updated",
+        "rosclaw.how.recovery_hint.generated",
+        "rosclaw.memory.write.completed",
+    }
+
+    def __init__(self, max_history: int = 1000, max_trace_history: int = 100):
         self.max_history = max_history
+        self.max_trace_history = max_trace_history
         self._provider_metrics: list[ProviderMetric] = []
         self._sandbox_metrics: list[SandboxMetric] = []
         self._episode_metrics: list[EpisodeMetric] = []
@@ -133,6 +152,11 @@ class DashboardMetrics:
 
     def increment_event(self, topic: str) -> None:
         self._event_counts[topic] = self._event_counts.get(topic, 0) + 1
+        # Prevent unbounded dict growth: cap total unique topics.
+        if len(self._event_counts) > 200:
+            # Drop oldest entries to make room.
+            for _key in list(self._event_counts.keys())[:50]:
+                del self._event_counts[_key]
 
     def get_event_counts(self) -> dict[str, int]:
         return dict(self._event_counts)
@@ -166,12 +190,16 @@ class DashboardMetrics:
     def record_trace(self, trace: dict[str, Any]) -> None:
         """Record a full Runtime→Provider→Sandbox→Practice→Memory→How trace."""
         self._traces.append(trace)
-        self._trim(self._traces)
+        self._trim(self._traces, maxsize=self.max_trace_history)
 
     def get_latest_traces(self, limit: int = 10) -> list[dict[str, Any]]:
         """Return the most recent traces."""
         return self._traces[-limit:]
 
-    def _trim(self, lst: list) -> None:
-        if len(lst) > self.max_history:
-            del lst[: len(lst) - self.max_history]
+    def _trim(self, lst: list, maxsize: int | None = None) -> None:
+        """Trim list to maxsize, defaulting to self.max_history."""
+        limit = maxsize if maxsize is not None else self.max_history
+        if limit < 0:
+            limit = 0
+        if len(lst) > limit:
+            del lst[: len(lst) - limit]

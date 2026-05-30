@@ -71,16 +71,18 @@ class DashboardServer:
 
     def attach_to_event_bus(self, event_bus: Any) -> None:
         """Subscribe to EventBus for live event streaming."""
-        # CRITICAL FIX: EventBus uses exact-match, wildcard '#' is no-op.
-        # Subscribe to all critical topics explicitly.
+        # Subscribe to all critical topics explicitly (EventBus uses exact-match).
         self._event_bus_subscriptions = []
         for topic in [
+            "rosclaw.runtime.started",
             "skill.execution.start",
             "skill.execution.complete",
             "praxis.completed",
             "praxis.failed",
+            "rosclaw.practice.event.created",
             "rosclaw.sandbox.episode.started",
             "rosclaw.sandbox.episode.finished",
+            "rosclaw.sandbox.action.blocked",
             "rosclaw.provider.inference.completed",
             "rosclaw.critic.success.detected",
             "rosclaw.dashboard.trace.updated",
@@ -108,18 +110,9 @@ class DashboardServer:
             if isinstance(payload, dict):
                 self.metrics.record_trace(payload)
 
-        # LIVE BROADCAST: push important events immediately to all WebSocket clients
-        payload = getattr(event, "payload", {})
-        message = json.dumps({
-            "type": "event",
-            "topic": topic,
-            "data": payload if isinstance(payload, dict) else {},
-            "timestamp": time.time(),
-        })
-        try:
-            asyncio.create_task(self._broadcast(message))
-        except Exception:
-            pass
+        # NOTE: Do NOT broadcast directly from sync callback.
+        # The _broadcast_loop already pushes snapshots periodically.
+        # Direct async calls from sync EventBus callbacks fail when no event loop is running.
 
     # ── HTTP API helpers ──
 

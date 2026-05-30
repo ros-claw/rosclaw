@@ -74,6 +74,11 @@ class RuntimeConfig:
     seekdb_path: str = "./seekdb.sqlite"
     embodied_memory: Optional[Any] = None   # powermem.EmbodiedMemory instance
     providers_dir: Optional[str] = None     # Directory to scan for provider.yaml files
+    # GPU model microservice endpoints (auto-registered as HTTP providers)
+    gpu_sam3_endpoint: Optional[str] = None      # e.g. "http://localhost:8001"
+    gpu_vggt_endpoint: Optional[str] = None      # e.g. "http://localhost:8002"
+    gpu_minicpm_endpoint: Optional[str] = None   # e.g. "http://localhost:8003"
+    gpu_cosmos_endpoint: Optional[str] = None    # e.g. "http://localhost:8004"
 
 
 class Runtime(LifecycleMixin):
@@ -790,6 +795,89 @@ class Runtime(LifecycleMixin):
             except Exception:
                 healthy = False
         self._provider_registry.set_provider_health("deepseek", ok=healthy)
+
+        # ─── GPU Model Microservice Providers ───────────────────────────────
+        self._register_gpu_providers()
+
+    def _register_gpu_providers(self) -> None:
+        """Register GPU model microservices as HTTP-backed GenericProviders.
+
+        Each service is a FastAPI container exposing model-specific endpoints.
+        Endpoint URLs come from RuntimeConfig or environment variable fallbacks.
+        """
+        from rosclaw.provider.adapters.generic import GenericProvider
+        from rosclaw.provider.core.manifest import ProviderManifest
+        import os
+
+        gpu_configs = [
+            {
+                "name": "gpu_sam3",
+                "endpoint": self.config.gpu_sam3_endpoint or os.getenv("SAM3_ENDPOINT", "http://localhost:8001"),
+                "capabilities": ["segmentation.mask", "segmentation.track"],
+                "type": "segmentation",
+                "modalities": {"input": ["image"], "output": ["mask", "bbox"]},
+            },
+            {
+                "name": "gpu_vggt",
+                "endpoint": self.config.gpu_vggt_endpoint or os.getenv("VGGT_ENDPOINT", "http://localhost:8002"),
+                "capabilities": ["geometry.depth", "geometry.pose", "geometry.point_cloud"],
+                "type": "geometry",
+                "modalities": {"input": ["image"], "output": ["depth", "pointcloud", "pose"]},
+            },
+            {
+                "name": "gpu_minicpm",
+                "endpoint": self.config.gpu_minicpm_endpoint or os.getenv("MINICPM_ENDPOINT", "http://localhost:8003"),
+                "capabilities": ["vlm.vqa", "vlm.scene_understanding", "vlm.object_grounding"],
+                "type": "vlm",
+                "modalities": {"input": ["image", "text"], "output": ["text", "bbox"]},
+            },
+            {
+                "name": "gpu_cosmos",
+                "endpoint": self.config.gpu_cosmos_endpoint or os.getenv("COSMOS_ENDPOINT", "http://localhost:8004"),
+                "capabilities": ["reasoning.physical", "reasoning.risk_explain", "critic.risk", "world.risk"],
+                "type": "reasoning",
+                "modalities": {"input": ["image", "text"], "output": ["text", "risk_score"]},
+            },
+        ]
+
+        for cfg in gpu_configs:
+            endpoint = cfg["endpoint"]
+            if not endpoint:
+                continue
+            try:
+                manifest = ProviderManifest.from_dict({
+                    "name": cfg["name"],
+                    "version": "1.0.0",
+                    "type": cfg["type"],
+                    "capabilities": cfg["capabilities"],
+                    "modalities": cfg["modalities"],
+                    "runtime": {
+                        "backend": "http",
+                        "protocol": "http",
+                        "endpoint": endpoint,
+                        "device": "cuda",
+                    },
+                    "safety": {"executable": False, "requires_guard": True},
+                })
+                self._provider_registry.register(
+                    manifest,
+                    lambda m: GenericProvider(m),
+                    auto_load=False,
+                )
+                # Health check: ping /health endpoint
+                healthy = False
+                try:
+                    import urllib.request
+                    req = urllib.request.Request(f"{endpoint}/health", method="GET")
+                    with urllib.request.urlopen(req, timeout=2) as resp:
+                        healthy = resp.status == 200
+                except Exception:
+                    healthy = False
+                self._provider_registry.set_provider_health(cfg["name"], ok=healthy)
+                status = "healthy" if healthy else "unreachable"
+                print(f"[Runtime] GPU provider '{cfg['name']}' registered ({status}) @ {endpoint}")
+            except Exception as e:
+                print(f"[Runtime] Failed to register GPU provider '{cfg['name']}': {e}")
 
     def _load_e_urdf(self) -> None:
         """Load robot e-URDF from file path or e-URDF Zoo."""

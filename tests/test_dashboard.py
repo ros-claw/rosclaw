@@ -493,8 +493,8 @@ class TestDashboardServerEventBus:
 
         server.attach_to_event_bus(mock_bus)
         # CRITICAL FIX: wildcard '#' is no-op; now subscribes to 11 explicit topics
-        assert mock_bus.subscribe.call_count == 11
-        assert len(server._event_bus_subscriptions) == 11
+        assert mock_bus.subscribe.call_count == 14
+        assert len(server._event_bus_subscriptions) == 14
 
     def test_detach_from_event_bus(self):
         metrics = DashboardMetrics()
