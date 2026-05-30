@@ -143,6 +143,13 @@ class TestSceneBReach:
             source="test",
         ))
 
+        # Explicitly publish praxis.completed so EpisodeRecorder finalizes correctly
+        runtime.event_bus.publish(Event(
+            topic="praxis.completed",
+            payload={"practice_id": "ep_reach_001", "outcome": {"reward": 0.92}},
+            source="test",
+        ))
+
         time.sleep(0.2)
 
         # Episode should have been recorded
@@ -267,6 +274,13 @@ class TestSceneBReach:
                 "duration_sec": 3.0,
                 "final_state": {"joints": [0.3, -0.2, 0.1, 0, 0, 0]},
             },
+            source="runtime",
+        ))
+
+        # Explicitly publish praxis.completed so EpisodeRecorder finalizes correctly
+        runtime.event_bus.publish(Event(
+            topic="praxis.completed",
+            payload={"practice_id": episode_id, "outcome": {"reward": 0.88}},
             source="runtime",
         ))
 

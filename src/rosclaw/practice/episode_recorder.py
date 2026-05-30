@@ -224,19 +224,9 @@ class EpisodeRecorder(LifecycleMixin):
             "duration_sec": duration,
         })
         buf.last_event_at = time.time()
-        # Auto-finalize if result status is available (primary path now that
-        # PracticeRecorder no longer publishes praxis.completed/failed).
-        status = result.get("status")
-        if status == "success":
-            buf.praxis_status = "success"
-            buf.praxis_reward = result.get("reward", 1.0)
-            self._finalize_episode(episode_id)
-        elif status == "failure":
-            buf.praxis_status = "failure"
-            buf.praxis_reward = result.get("reward", -1.0)
-            buf.runtime_error = result.get("error", buf.runtime_error)
-            self._finalize_episode(episode_id)
-        # If no status, wait for praxis.completed/failed from external source.
+        # Note: skill.execution.complete does NOT auto-finalize;
+        # we wait for praxis.completed/failed or other terminal events
+        # so that all context (provider, critic, sandbox) can be collected.
 
     def _on_praxis_completed(self, event: Event) -> None:
         """External praxis.completed handler (fallback for non-skill paths)."""

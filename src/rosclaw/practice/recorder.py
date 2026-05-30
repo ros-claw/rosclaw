@@ -54,24 +54,81 @@ class PracticeRecorder(LifecycleMixin):
         self._knowledge_ingest_log: list[dict] = []
 
     def _do_initialize(self) -> None:
-        """Initialize the practice recorder."""
+        """Initialize the practice recorder (flywheel + EventBus subscription)."""
         self._flywheel = DataFlywheel(
             robot_id=self.robot_id,
             joint_dof=self.joint_dof,
         )
         if self.event_bus is not None:
-            self.event_bus.subscribe("agent.command", self._on_agent_command)
-            self.event_bus.subscribe("skill.execution.start", self._on_skill_start)
             self.event_bus.subscribe("skill.execution.complete", self._on_skill_complete)
             self.event_bus.subscribe("knowledge.ingest_complete", self._on_knowledge_ingest_complete)
-        print(f"[Practice] Recorder initialized for {self.robot_id}")
+        print(f"[Practice] Recorder initialized for {self.robot_id} (flywheel mode)")
 
     def _do_stop(self) -> None:
+        """Stop the recorder and unsubscribe from EventBus."""
         if self.event_bus is not None:
-            self.event_bus.unsubscribe("agent.command", self._on_agent_command)
-            self.event_bus.unsubscribe("skill.execution.start", self._on_skill_start)
             self.event_bus.unsubscribe("skill.execution.complete", self._on_skill_complete)
             self.event_bus.unsubscribe("knowledge.ingest_complete", self._on_knowledge_ingest_complete)
+
+    def _on_skill_complete(self, event) -> None:
+        """Handle skill.execution.complete and publish praxis.completed/failed."""
+        if self.event_bus is None:
+            return
+        payload = event.payload if hasattr(event, "payload") else {}
+        if not isinstance(payload, dict):
+            return
+        result = payload.get("result", {})
+        status = result.get("status")
+        correlation_id = payload.get("correlation_id", "")
+        skill_name = payload.get("skill_name", "")
+        # Update failure context tracking
+        self._failure_context["current_iteration"] += 1
+        iteration = self._failure_context["current_iteration"]
+        if status == "success":
+            self._failure_context["previous_scores"].append(result.get("reward", 1.0))
+            self.event_bus.publish(Event(
+                topic="praxis.completed",
+                payload={
+                    "practice_id": correlation_id,
+                    "event_type": "praxis.completed",
+                    "robot_id": self.robot_id,
+                    "outcome": {
+                        "status": "success",
+                        "reward": result.get("reward", 1.0),
+                        "skill_name": skill_name,
+                        "details": {"details": result.get("details", {})},
+                    },
+                    "current_iteration": iteration,
+                    "previous_scores": list(self._failure_context["previous_scores"]),
+                    "timestamp": time.time(),
+                },
+                source="practice_recorder",
+                priority=EventPriority.NORMAL,
+            ))
+        elif status == "failure":
+            error = result.get("error", "")
+            self._failure_context["last_error"] = error
+            self._failure_context["previous_scores"].append(result.get("reward", -1.0))
+            self.event_bus.publish(Event(
+                topic="praxis.failed",
+                payload={
+                    "practice_id": correlation_id,
+                    "event_type": "praxis.failed",
+                    "robot_id": self.robot_id,
+                    "outcome": {
+                        "status": "failure",
+                        "reward": result.get("reward", -1.0),
+                        "skill_name": skill_name,
+                        "details": {"details": result.get("details", {})},
+                    },
+                    "error_log": error,
+                    "current_iteration": iteration,
+                    "previous_scores": list(self._failure_context["previous_scores"]),
+                    "timestamp": time.time(),
+                },
+                source="practice_recorder",
+                priority=EventPriority.HIGH,
+            ))
 
     def record_recovery_outcome(self, rule_id: str, success: bool, duration: float, correlation_id: str = "") -> None:
         """Record heuristic recovery outcome and publish event. Subscribers: HOW.
@@ -99,6 +156,18 @@ class PracticeRecorder(LifecycleMixin):
             priority=EventPriority.NORMAL,
         ))
         print(f"[Practice] Published heuristic.recovery_executed for rule {rule_id}")
+
+    def _on_knowledge_ingest_complete(self, event) -> None:
+        """Handle knowledge.ingest_complete and log to knowledge_ingest_log."""
+        payload = event.payload if hasattr(event, "payload") else {}
+        if not isinstance(payload, dict):
+            return
+        self._knowledge_ingest_log.append({
+            "practice_id": payload.get("practice_id", "unknown"),
+            "knowledge_version": payload.get("knowledge_version", "unknown"),
+            "status": payload.get("status", "unknown"),
+            "ingest_timestamp": payload.get("timestamp", time.time()),
+        })
 
     def start_recording(self) -> None:
         """Start a recording session."""
@@ -182,106 +251,6 @@ class PracticeRecorder(LifecycleMixin):
                 **(metadata or {}),
             },
         )
-
-    def _on_agent_command(self, event: Event) -> None:
-        """Auto-start recording when agent commands are issued."""
-        if not self._recording:
-            return
-        payload = event.payload if isinstance(event.payload, dict) else {}
-        action = payload.get("action", "unknown")
-        self.mark_event(EventType.MILESTONE, {"action": action, "source": event.source})
-
-    def _on_skill_start(self, event: Event) -> None:
-        """Mark skill execution start."""
-        if self._recording and self._flywheel is not None:
-            payload = event.payload if isinstance(event.payload, dict) else {}
-            self._flywheel.trigger_event(
-                EventType.MILESTONE,
-                {"skill_name": payload.get("skill_name"), "phase": "start"},
-            )
-
-    def _on_skill_complete(self, event: Event) -> None:
-        """Mark skill execution completion and publish praxis event."""
-        payload = event.payload if isinstance(event.payload, dict) else {}
-        result = payload.get("result", {})
-        status = result.get("status", "unknown")
-        skill_name = payload.get("skill_name", "unknown")
-        correlation_id = payload.get("correlation_id", "")
-
-        # Record on flywheel
-        if self._recording and self._flywheel is not None:
-            event_type = EventType.SUCCESS if status == "success" else EventType.FAILURE
-            self._flywheel.trigger_event(
-                event_type,
-                {"skill_name": skill_name, "phase": "complete", "result": result},
-            )
-
-        # Publish praxis event on EventBus
-        if self.event_bus is not None:
-            if status == "success":
-                self._publish_praxis_completed(correlation_id, skill_name, result)
-            else:
-                self._publish_praxis_failed(correlation_id, skill_name, result)
-
-    def _publish_praxis_completed(self, correlation_id: str, skill_name: str, result: dict) -> None:
-        """Publish praxis.completed event. Subscribers: KNOW, DASHBOARD."""
-        if self.event_bus is None:
-            return
-        self.event_bus.publish(Event(
-            topic="praxis.completed",
-            payload={
-                "practice_id": correlation_id,
-                "event_type": "praxis.completed",
-                "timestamp": time.time(),
-                "robot_id": self.robot_id,
-                "outcome": {
-                    "status": "success",
-                    "skill_name": skill_name,
-                    "reward": result.get("reward", 1.0),
-                    "details": result,
-                },
-            },
-            source="practice_recorder",
-            priority=EventPriority.NORMAL,
-        ))
-
-    def _publish_praxis_failed(self, correlation_id: str, skill_name: str, result: dict) -> None:
-        """Publish praxis.failed event with full context. Subscribers: HOW, MEMORY."""
-        if self.event_bus is None:
-            return
-        self._failure_context["current_iteration"] += 1
-        self._failure_context["previous_scores"].append(result.get("reward", -1.0))
-        self._failure_context["last_error"] = result.get("error", "unknown error")
-        self.event_bus.publish(Event(
-            topic="praxis.failed",
-            payload={
-                "practice_id": correlation_id,
-                "event_type": "praxis.failed",
-                "timestamp": time.time(),
-                "robot_id": self.robot_id,
-                "outcome": {
-                    "status": "failure",
-                    "skill_name": skill_name,
-                    "reward": result.get("reward", -1.0),
-                },
-                "error_log": self._failure_context["last_error"],
-                "previous_scores": self._failure_context["previous_scores"].copy(),
-                "current_iteration": self._failure_context["current_iteration"],
-            },
-            source="practice_recorder",
-            priority=EventPriority.HIGH,
-        ))
-
-    def _on_knowledge_ingest_complete(self, event: Event) -> None:
-        """Handle knowledge.ingest_complete from KNOW module."""
-        payload = event.payload if isinstance(event.payload, dict) else {}
-        log_entry = {
-            "practice_id": payload.get("practice_id", "unknown"),
-            "ingest_timestamp": event.timestamp,
-            "knowledge_version": payload.get("knowledge_version", "unknown"),
-            "status": payload.get("status", "unknown"),
-        }
-        self._knowledge_ingest_log.append(log_entry)
 
     @property
     def is_recording(self) -> bool:
