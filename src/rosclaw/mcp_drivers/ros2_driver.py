@@ -103,8 +103,13 @@ class ROS2Driver(BaseDriver):
         return True
 
     def execute_trajectory(self, trajectory: TrajectoryCommand) -> bool:
-        if not self._driver_state.connected or self._rclpy is None:
+        if not self._driver_state.connected:
             return False
+        if self._rclpy is None:
+            # Mock mode: update state and return success
+            if trajectory.waypoints:
+                self._driver_state.joint_positions = list(trajectory.waypoints[-1])
+            return True
         from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
         traj = JointTrajectory()

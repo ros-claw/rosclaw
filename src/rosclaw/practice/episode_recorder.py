@@ -425,6 +425,9 @@ class EpisodeRecorder(LifecycleMixin):
         episode_dir = self._artifact_base / "episodes" / episode_id
         episode_dir.mkdir(parents=True, exist_ok=True)
 
+        # An episode is "complete" if either all expected events arrived,
+        # or it reached a terminal state (success/failure/BLOCKED).
+        is_complete = buf.is_complete() or status in ("success", "failure", "BLOCKED", "FAILED_RUNTIME")
         metadata = {
             "episode_id": episode_id,
             "robot_id": buf.robot_id,
@@ -433,7 +436,7 @@ class EpisodeRecorder(LifecycleMixin):
             "finalization_reason": reason,
             "duration_sec": buf.duration_sec,
             "received_events": sorted(buf.received_events),
-            "is_complete": buf.is_complete(),
+            "is_complete": is_complete,
             "status": status,
             "reward": reward,
             "agent_request": buf.semantic_intent,

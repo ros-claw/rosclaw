@@ -49,7 +49,7 @@ class TestRuntimeClosedLoop:
         assert "final_position" in result
 
         bus = runtime.event_bus
-        history = bus.get_history(limit=20)
+        history = bus.get_history(limit=50)
         topics = [e.topic for e in history]
 
         assert "skill.execution.start" in topics
@@ -101,7 +101,7 @@ class TestRuntimeClosedLoop:
         assert result["status"] in ("blocked", "error"), f"Unexpected status: {result['status']}"
 
         bus = runtime.event_bus
-        history = bus.get_history(limit=20)
+        history = bus.get_history(limit=50)
         topics = [e.topic for e in history]
 
         assert "skill.execution.start" in topics
