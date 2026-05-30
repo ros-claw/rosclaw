@@ -157,6 +157,26 @@ class SandboxRuntimeAdapter(LifecycleMixin):
         except Exception as e:
             return {"is_safe": False, "reason": f"Validation error: {e}"}
 
+    def simulate_step(self, joint_positions: list[float]) -> dict[str, Any]:
+        """Step the sandbox physics with given joint positions.
+
+        Returns real physics state (qpos, qvel, time) if MuJoCo model is loaded,
+        otherwise returns an empty dict.
+        """
+        if self._sandbox_service is None:
+            return {}
+        if hasattr(self._sandbox_service, "step"):
+            state = self._sandbox_service.step(joint_positions)
+            return state or {}
+        return {}
+
+    @property
+    def has_physics(self) -> bool:
+        """True if the sandbox has a real MuJoCo model loaded."""
+        if self._sandbox_service is None:
+            return False
+        return getattr(self._sandbox_service, "has_physics", False)
+
     def health(self) -> dict[str, Any]:
         """Return health status for Runtime monitoring."""
         return {

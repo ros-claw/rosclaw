@@ -635,6 +635,7 @@ class Runtime(LifecycleMixin):
             MockVLMProvider,
             MockSkillProvider,
             MockCriticProvider,
+            DeepSeekProvider,
         )
         from rosclaw.provider.core.manifest import ProviderManifest
 
@@ -677,6 +678,20 @@ class Runtime(LifecycleMixin):
             auto_load=False,
         )
         self._provider_registry.set_provider_health("mock_critic", ok=True)
+
+        # Register DeepSeek LLM provider (requires DEEPSEEK_API_KEY)
+        self._provider_registry.register(
+            ProviderManifest.from_dict({
+                "name": "deepseek", "version": "1.0.0", "type": "llm",
+                "capabilities": ["llm.task_planning", "llm.summary", "llm.chat"],
+                "safety": {"executable": False, "requires_guard": False},
+            }),
+            lambda m: DeepSeekProvider(m),
+            auto_load=False,
+        )
+        # Health depends on API key presence
+        import os
+        self._provider_registry.set_provider_health("deepseek", ok=bool(os.environ.get("DEEPSEEK_API_KEY")))
 
     def _load_e_urdf(self) -> None:
         """Load robot e-URDF from file path or e-URDF Zoo."""
@@ -1111,11 +1126,27 @@ class Runtime(LifecycleMixin):
 
                     validation = self._sandbox.validate_trajectory(raw_trajectory)
 
+                    # Use real physics stepping if sandbox has MuJoCo model
+                    has_real_physics = (
+                        self._sandbox is not None
+                        and getattr(self._sandbox, "has_physics", False)
+                    )
                     dt = 0.01
                     for i, waypoint in enumerate(raw_trajectory):
+                        if has_real_physics:
+                            state = self._sandbox.simulate_step(waypoint)
+                            if state:
+                                joint_positions = state.get("qpos", waypoint)[:len(waypoint)]
+                                timestamp = state.get("time", i * dt)
+                            else:
+                                joint_positions = waypoint
+                                timestamp = i * dt
+                        else:
+                            joint_positions = waypoint
+                            timestamp = i * dt
                         trajectory_data.append({
-                            "timestamp": i * dt,
-                            "joint_positions": waypoint,
+                            "timestamp": timestamp,
+                            "joint_positions": joint_positions,
                             "phase": "approach" if i < len(raw_trajectory) * 0.3 else (
                                 "grasp" if i < len(raw_trajectory) * 0.6 else "retract"
                             ),
@@ -1194,6 +1225,33 @@ class Runtime(LifecycleMixin):
                     })
                 except Exception as e:
                     print(f"[Runtime] Failure memory write failed (non-fatal): {e}")
+            # How recovery hint generation (P0-6)
+            if self._how is not None:
+                try:
+                    hint = self._run_async(self._how.generate_recovery_hint(
+                        "firewall_blocked",
+                        context={
+                            "skill_name": skill_name,
+                            "instruction": instruction,
+                            "violations": sandbox_result.get("violations", []),
+                            "reason": sandbox_result.get("reason", ""),
+                        },
+                    ))
+                    if hint:
+                        self.event_bus.publish(Event(
+                            topic="rosclaw.how.recovery_hint.generated",
+                            payload={
+                                "episode_id": episode_id,
+                                "request_id": request_id,
+                                "hint": hint.get("hint", ""),
+                                "rule_id": hint.get("rule_id", ""),
+                                "failure_type": "firewall_blocked",
+                            },
+                            source="how",
+                            priority=EventPriority.HIGH,
+                        ))
+                except Exception as e:
+                    print(f"[Runtime] How recovery hint failed (non-fatal): {e}")
         else:
             self.event_bus.publish(Event(
                 topic="rosclaw.sandbox.episode.started",
