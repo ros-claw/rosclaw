@@ -139,11 +139,19 @@ class MemoryInterface(LifecycleMixin):
 
     def _on_praxis_recorded(self, event: Event) -> None:
         """Auto-ingest PraxisEvent as an experience."""
-        payload = event.payload
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        instruction = payload.get("instruction", "")
+        if not instruction:
+            instruction = (
+                payload.get("skill_name", "")
+                or payload.get("agent_instruction", "")
+                or (payload.get("episode_metadata", {}) or {}).get("agent_instruction", "")
+                or "unnamed_task"
+            )
         self.store_experience(
-            event_id=payload.get("event_id", ""),
+            event_id=payload.get("event_id", payload.get("episode_id", "")),
             event_type=payload.get("event_type", "unknown"),
-            instruction=payload.get("instruction", ""),
+            instruction=instruction,
             duration_sec=payload.get("duration_sec", 0.0),
             metadata=payload,
         )

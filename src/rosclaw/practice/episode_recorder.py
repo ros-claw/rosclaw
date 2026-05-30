@@ -376,7 +376,7 @@ class EpisodeRecorder(LifecycleMixin):
             status = "BLOCKED"
             reward = -1.0
         elif buf.critic_status:
-            status = buf.critic_status
+            status = buf.critic_status.lower()
             reward = buf.critic_reward or 0.0
         elif buf.praxis_status:
             status = buf.praxis_status

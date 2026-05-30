@@ -387,6 +387,8 @@ class Runtime(LifecycleMixin):
         self.event_bus.subscribe("rosclaw.sandbox.episode.failed", self._on_sandbox_episode_failed)
         self.event_bus.subscribe("rosclaw.sandbox.action.blocked", self._on_sandbox_action_blocked)
         self.event_bus.subscribe("rosclaw.runtime.execution.failed", self._on_runtime_execution_failed)
+        # Auto-sync critic judgments to Memory for closed-loop experience retention
+        self.event_bus.subscribe("rosclaw.critic.judgment", self._on_critic_judgment)
         # Route capability requests from MCPHub through Provider layer via EventBus
         self.event_bus.subscribe("agent.capability.request", self._on_capability_request)
 
@@ -531,6 +533,52 @@ class Runtime(LifecycleMixin):
                 print(f"[Runtime] RecoveryHint generated for execution failure {request_id}: {hint['hint']}")
         except Exception as e:
             print(f"[Runtime] RecoveryHint generation failed: {e}")
+
+    def _on_critic_judgment(self, event: Event) -> None:
+        """Auto-sync critic judgment to Memory for experience retention.
+
+        This closes the loop: Critic evaluates → Memory remembers →
+        Future queries can recall "what happened" for similar tasks.
+        """
+        if self._memory is None:
+            return
+        try:
+            payload = event.payload if isinstance(event.payload, dict) else {}
+            episode_id = payload.get("episode_id", "unknown")
+            status = payload.get("status", "UNKNOWN")
+            reward = payload.get("reward", 0.0)
+            reason = payload.get("reason", "")
+            context = payload.get("context", {})
+
+            # Extract skill_name from outcome inside context (BasicCritic passes full event payload as context)
+            outcome = context.get("outcome", {}) if isinstance(context, dict) else {}
+            skill_name = outcome.get("skill_name", "unknown")
+            instruction = context.get("instruction", "") if isinstance(context, dict) else ""
+
+            # Build tags for semantic search
+            tags = [skill_name, self.config.robot_id, status.lower()]
+            if reason:
+                tags.append(reason.replace(" ", "_"))
+
+            self._memory.store_experience(
+                event_id=episode_id,
+                event_type="praxis",
+                instruction=instruction or f"{skill_name} task",
+                outcome=status.lower(),
+                duration_sec=0.0,
+                error_details=reason if status != "SUCCESS" else None,
+                tags=tags,
+                metadata={
+                    "critic_reward": reward,
+                    "critic_status": status,
+                    "skill_name": skill_name,
+                    "auto_synced": True,
+                    "source": "critic_judgment",
+                },
+            )
+            print(f"[Runtime] Critic judgment auto-synced to Memory: {episode_id} ({status}, r={reward})")
+        except Exception as e:
+            print(f"[Runtime] Critic judgment Memory sync failed (non-fatal): {e}")
 
     def _on_agent_command(self, event: Event) -> None:
         """Handle agent commands - route to appropriate module."""

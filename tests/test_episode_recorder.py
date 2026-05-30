@@ -329,5 +329,5 @@ class TestStubTopics:
         meta_path = os.path.join(temp_artifact_dir, "episodes", "ep_017", "metadata.json")
         with open(meta_path) as f:
             meta = json.load(f)
-        assert meta["status"] == "SUCCESS"
+        assert meta["status"] == "success"
         assert meta["reward"] == 0.9
