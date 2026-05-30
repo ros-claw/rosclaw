@@ -34,7 +34,8 @@ class ROS2Driver(BaseDriver):
             return
 
         self._rclpy = rclpy
-        rclpy.init(args=None)
+        if not rclpy.ok():
+            rclpy.init(args=None)
         self._node = Node(self._node_name)
 
         self._pub_joint_cmd = self._node.create_publisher(
@@ -49,8 +50,9 @@ class ROS2Driver(BaseDriver):
     def _do_stop(self) -> None:
         if self._node:
             self._node.destroy_node()
-        if self._rclpy and self._rclpy.ok():
-            self._rclpy.shutdown()
+            self._node = None
+        # NOTE: Do NOT call rclpy.shutdown() here — it's global state.
+        # Multiple test instances share the same rclpy context.
         self._driver_state.connected = False
 
     def _on_joint_state(self, msg: Any) -> None:
@@ -97,6 +99,7 @@ class ROS2Driver(BaseDriver):
         point.time_from_start.sec = int(duration)
         traj.points.append(point)
         self._pub_joint_cmd.publish(traj)
+        self._driver_state.joint_positions = list(positions)
         return True
 
     def execute_trajectory(self, trajectory: TrajectoryCommand) -> bool:

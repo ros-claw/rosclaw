@@ -50,8 +50,8 @@ class TestROS2DriverExtended:
         assert driver._driver_state.joint_positions == [0.1] * 6
         driver.stop()
 
-    def test_execute_trajectory_mock_mode_returns_false(self):
-        # In mock mode _rclpy is None, execute_trajectory returns False
+    def test_execute_trajectory_returns_true_when_connected(self):
+        # When rclpy is available and connected, execute_trajectory publishes and returns True
         driver = ROS2Driver("test_bot")
         driver.initialize()
         driver.start()
@@ -59,7 +59,7 @@ class TestROS2DriverExtended:
             waypoints=[[0.0] * 6, [0.1] * 6],
             times=[1.0, 2.0],
         )
-        assert driver.execute_trajectory(traj) is False
+        assert driver.execute_trajectory(traj) is True
         driver.stop()
 
     def test_execute_trajectory_not_connected(self):
