@@ -45,6 +45,7 @@ class DashboardMetrics:
         self._provider_metrics: list[ProviderMetric] = []
         self._sandbox_metrics: list[SandboxMetric] = []
         self._episode_metrics: list[EpisodeMetric] = []
+        self._traces: list[dict[str, Any]] = []
         self._event_counts: dict[str, int] = {}
         self._module_health: dict[str, str] = {}
         self._start_time = time.time()
@@ -159,7 +160,17 @@ class DashboardMetrics:
             "sandbox": self.get_sandbox_stats(),
             "episodes": self.get_episode_stats(),
             "event_counts": self.get_event_counts(),
+            "traces": self.get_latest_traces(),
         }
+
+    def record_trace(self, trace: dict[str, Any]) -> None:
+        """Record a full Runtime→Provider→Sandbox→Practice→Memory→How trace."""
+        self._traces.append(trace)
+        self._trim(self._traces)
+
+    def get_latest_traces(self, limit: int = 10) -> list[dict[str, Any]]:
+        """Return the most recent traces."""
+        return self._traces[-limit:]
 
     def _trim(self, lst: list) -> None:
         if len(lst) > self.max_history:

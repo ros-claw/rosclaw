@@ -31,17 +31,20 @@ class HeuristicEngine:
         self,
         seekdb_client: Any,
         knowledge_interface: Optional[Any] = None,
+        event_bus: Optional[Any] = None,
     ) -> None:
         self._seekdb = seekdb_client
         self._knowledge = knowledge_interface
+        self._event_bus = event_bus
         self._table = "heuristic_rules"
         self._rule_cache: dict[str, dict[str, Any]] = {}
         self._cache_valid = False
+        self._subscriptions: list[Any] = []
 
     # ── lifecycle ────────────────────────────────────────────────────────
 
     async def initialize(self) -> None:
-        """Warm the rule cache from SeekDB."""
+        """Warm the rule cache from SeekDB and subscribe to failure events."""
         try:
             rows = self._seekdb.query(self._table, limit=1_000)
             self._rule_cache = {str(r.get("id", "")): dict(r) for r in rows if r.get("id")}
@@ -51,10 +54,34 @@ class HeuristicEngine:
             logger.warning("HeuristicEngine warm failed: %s", exc)
             self._cache_valid = False
 
+        # CRITICAL FIX: subscribe to failure events on EventBus for active recovery
+        if self._event_bus is not None:
+            try:
+                self._subscriptions.append(
+                    self._event_bus.subscribe("praxis.failed", self._on_failure_event)
+                )
+                self._subscriptions.append(
+                    self._event_bus.subscribe("firewall.action_blocked", self._on_failure_event)
+                )
+                self._subscriptions.append(
+                    self._event_bus.subscribe("safety.violation", self._on_failure_event)
+                )
+                logger.info("HeuristicEngine subscribed to failure events")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("HeuristicEngine EventBus subscribe failed: %s", exc)
+
     async def shutdown(self) -> None:
-        """Clear cache; no persistent teardown needed."""
+        """Clear cache and unsubscribe from EventBus."""
         self._rule_cache.clear()
         self._cache_valid = False
+        # CRITICAL FIX: unsubscribe from EventBus to prevent leaks
+        for sub in self._subscriptions:
+            try:
+                if hasattr(sub, 'unsubscribe'):
+                    sub.unsubscribe()
+            except Exception:  # noqa: BLE001
+                pass
+        self._subscriptions.clear()
 
     # ── public API ───────────────────────────────────────────────────────
 
@@ -296,9 +323,22 @@ class HeuristicEngine:
 
         from rosclaw.how.recovery import RecoveryEngine
 
-        re = RecoveryEngine(self)
+        re = RecoveryEngine(self, event_bus=self._event_bus)
         retry_plan = re.build_retry_plan(failure_type, rule, context)
         return retry_plan
+
+    # CRITICAL FIX: EventBus failure event handler for active recovery
+    async def _on_failure_event(self, event: Any) -> None:
+        """Handle failure events from EventBus and generate recovery hints."""
+        payload = event.payload if hasattr(event, "payload") else {}
+        failure_type = payload.get("error_log", payload.get("reason", "unknown_failure"))
+        from rosclaw.how.recovery import RecoveryEngine
+        re = RecoveryEngine(self, event_bus=self._event_bus)
+        await re.generate_recovery_hint(
+            failure_type,
+            context=payload,
+            request_id=payload.get("request_id", payload.get("episode_id", "")),
+        )
 
     # ── stats ────────────────────────────────────────────────────────────
 

@@ -123,11 +123,16 @@ class SandboxRuntimeAdapter(LifecycleMixin):
                 "values": trajectory[-1] if trajectory else [],
             }
             decision = gate.check(action)
-            # Publish firewall event to EventBus when blocked
-            if not decision.is_allowed and self._event_bus:
+            # CRITICAL FIX: Publish firewall event for BOTH blocked AND allowed
+            if self._event_bus:
                 from rosclaw.core.event_bus import Event, EventPriority
+                topic = (
+                    "firewall.action_blocked"
+                    if not decision.is_allowed
+                    else "firewall.action_allowed"
+                )
                 self._event_bus.publish(Event(
-                    topic="firewall.action_blocked",
+                    topic=topic,
                     payload={
                         "robot_id": self._robot_id,
                         "world_id": self._world_id,
@@ -137,6 +142,7 @@ class SandboxRuntimeAdapter(LifecycleMixin):
                         "violations": decision.violated_constraints,
                         "replay_id": decision.replay_id,
                         "safety_level": safety_level,
+                        "decision": "BLOCK" if not decision.is_allowed else "ALLOW",
                     },
                     source="sandbox.firewall",
                     priority=EventPriority.HIGH,

@@ -96,6 +96,7 @@ class MemoryInterface(LifecycleMixin):
             self.event_bus.subscribe("rosclaw.sandbox.episode.failed", self._on_sandbox_episode_failed)
             self.event_bus.subscribe("rosclaw.sandbox.episode.succeeded", self._on_sandbox_episode_succeeded)
             self.event_bus.subscribe("rosclaw.how.recovery_hint.generated", self._on_recovery_hint_generated)
+            self.event_bus.subscribe("firewall.action_blocked", self._on_firewall_action_blocked)
 
         print(f"[MemoryInterface] Initialized for {self._robot_id}, "
               f"backend={type(self._client).__name__}")
@@ -120,6 +121,7 @@ class MemoryInterface(LifecycleMixin):
             self.event_bus.unsubscribe("rosclaw.sandbox.episode.failed", self._on_sandbox_episode_failed)
             self.event_bus.unsubscribe("rosclaw.sandbox.episode.succeeded", self._on_sandbox_episode_succeeded)
             self.event_bus.unsubscribe("rosclaw.how.recovery_hint.generated", self._on_recovery_hint_generated)
+            self.event_bus.unsubscribe("firewall.action_blocked", self._on_firewall_action_blocked)
         self._client.disconnect()
 
     @property
@@ -189,6 +191,20 @@ class MemoryInterface(LifecycleMixin):
         if failure_id:
             self._client.update("failures", failure_id, {"recovery_hint": hint})
 
+    def _on_firewall_action_blocked(self, event: Event) -> None:
+        """Auto-ingest firewall-blocked actions into failures table."""
+        payload = event.payload
+        self.write_failure_memory(FailureMemory(
+            failure_id=payload.get("episode_id", ""),
+            robot_id=self._robot_id,
+            episode_id=payload.get("episode_id"),
+            failure_type="firewall_blocked",
+            root_cause=payload.get("reason", "firewall"),
+            recovery_hint="Check joint limits, workspace boundaries, and trajectory safety.",
+            sandbox_intervened=True,
+            category="safety",
+        ))
+
     # ------------------------------------------------------------------
     # SeekDB Experience APIs
     # ------------------------------------------------------------------
@@ -228,6 +244,11 @@ class MemoryInterface(LifecycleMixin):
             self.event_bus.publish(Event(
                 topic="memory.experience.stored",
                 payload={"experience_id": record_id, "event_type": event_type},
+                source="memory_interface",
+            ))
+            self.event_bus.publish(Event(
+                topic="rosclaw.memory.write.completed",
+                payload={"table": "experience_graph", "record_id": record_id, "robot_id": self._robot_id},
                 source="memory_interface",
             ))
 
@@ -386,7 +407,7 @@ class MemoryInterface(LifecycleMixin):
         return {
             "id": best.get("id", ""),
             "action_suggestion": metadata.get("recovery_hint", ""),
-            "similarity_score": scored[0][0] / len(query_tokens),
+            "similarity_score": scored[0][0] / len(query_tokens) if query_tokens else 0.0,
             "source_experience": best.get("id", ""),
         }
 

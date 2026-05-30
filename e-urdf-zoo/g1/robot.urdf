@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?\>
+<robot name="g1" xmlns:xacro="http://www.ros.org/wiki/xacro"\>
+  <!-- Unitree G1 Humanoid Robot URDF --\>
+  <!-- See g1.xml for full MuJoCo model --\>
+  <!-- See robot.eurdf.yaml for e-URDF specification --\>
+  
+  <link name="pelvis"/\>
+  <link name="torso"/\>
+  <link name="head"/\>
+  <link name="left_thigh"/\>
+  <link name="left_shin"/\>
+  <link name="left_foot"/\>
+  <link name="right_thigh"/\>
+  <link name="right_shin"/\>
+  <link name="right_foot"/\>
+  <link name="left_upper_arm"/\>
+  <link name="left_forearm"/\>
+  <link name="left_hand"/\>
+  <link name="right_upper_arm"/\>
+  <link name="right_forearm"/\>
+  <link name="right_hand"/\>
+  
+  <joint name="waist_yaw_joint" type="revolute"\>
+    <parent link="pelvis"/\>
+    <child link="torso"/\>
+    <limit lower="-2.5" upper="2.5"/\>
+  </joint\>
+  
+  <!-- URDF placeholder for G1 --\>
+  <!-- Full kinematics and dynamics defined in robot.eurdf.yaml and g1.xml --\>
+</robot\>

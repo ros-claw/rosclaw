@@ -47,14 +47,19 @@ class BundleCompiler:
 
         # Critic validation
         validation = self._critic_validate(files)
-        staging_ready = all(validation.values())
+        # CRITICAL FIX: staging only requires technical checks;
+        # safety_approved gates production, not staging.
+        staging_checks = {k: v for k, v in validation.items() if k != "safety_approved"}
+        staging_ready = all(staging_checks.values())
+        # production_ready requires explicit safety approval + human review
+        production_ready = False
 
         return BundleOutput(
             bundle_name=bundle_name,
             files=files,
             validation=validation,
             staging_ready=staging_ready,
-            production_ready=False,  # Requires human approval
+            production_ready=production_ready,
         )
 
     def _generate_mcp_server(self, cap_name: str, sdk_doc: str) -> str:
@@ -177,6 +182,18 @@ class BundleCompiler:
 
     def _critic_validate(self, files: dict[str, str]) -> dict[str, bool]:
         """Run automated critic checks on generated files."""
+        # CRITICAL FIX: detect explicitly unsafe SDK docs and block production
+        sdk_doc_lower = ""
+        for content in files.values():
+            if "SDK:" in content or "sdk" in content.lower():
+                sdk_doc_lower = content.lower()
+                break
+        # Only block explicitly malicious markers; "no safety info" is fine (auto-injected)
+        explicitly_unsafe = any(marker in sdk_doc_lower for marker in [
+            "unsafe", "bypass firewall", "disable check", "ignore limit",
+            "unrestricted", "malicious", "harmful"
+        ])
+
         checks = {
             "async_safe": any("async def" in content for content in files.values()),
             "schema_complete": any("inputSchema" in content or "inputs" in content for content in files.values()),
@@ -184,5 +201,6 @@ class BundleCompiler:
             "preemption_ready": any("preemptible" in content for content in files.values()),
             "tests_present": any("test_" in fname for fname in files),
             "readme_present": any("README" in fname for fname in files),
+            "safety_approved": not explicitly_unsafe,
         }
         return checks

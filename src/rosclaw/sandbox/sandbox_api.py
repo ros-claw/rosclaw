@@ -60,7 +60,7 @@ class Sandbox:
             return
 
         # Locate project root (repo top-level)
-        project_root = Path(__file__).parent.parent.parent
+        project_root = Path(__file__).parent.parent.parent.parent
         zoo_path = project_root / "e-urdf-zoo"
 
         # Canonical robot directory lookup

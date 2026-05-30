@@ -455,7 +455,7 @@ def cmd_robot_inspect(args: argparse.Namespace) -> int:
     print(f"Actuators:   {len(emb['actuators'])}")
     for act in emb["actuators"]:
         modes = ", ".join(act.get("control_mode", []))
-        print(f"  • {act['name']} ({act['type']}) joint={act['joint']} modes=[{modes}]")
+        print(f"  • {act['name']} ({act['type']}) joint={act.get('joint', 'N/A')} modes=[{modes}]")
     print()
     print("Safety Limits:")
     print(f"  Safety Level: {safety['safety_level']}")
@@ -466,7 +466,8 @@ def cmd_robot_inspect(args: argparse.Namespace) -> int:
     print()
     print("Capabilities:")
     for capability in cap.get("capabilities", []):
-        print(f"  • {capability['name']} ({capability['category']}) — {capability.get('description', '')}")
+        category = capability.get("category", capability.get("provider", "skill").split(".")[0])
+        print(f"  • {capability['name']} ({category}) — {capability.get('description', '')}")
     print()
     print("Simulation Backends:")
     for backend_name, backend_cfg in sim.get("backends", {}).items():

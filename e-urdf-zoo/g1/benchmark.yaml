@@ -1,0 +1,71 @@
+benchmarks:
+- name: flat_walk
+  description: Walk 10m on flat ground
+  metrics:
+  - name: completion_time
+    unit: s
+    target: < 15.0
+  - name: energy_consumption
+    unit: Wh
+    target: < 50.0
+  - name: max_deviation
+    unit: m
+    target: < 0.1
+- name: incline_walk
+  description: Walk 5m on 10-degree incline
+  metrics:
+  - name: completion_time
+    unit: s
+    target: < 12.0
+  - name: stability_margin
+    unit: ratio
+    target: "> 0.3"
+- name: stair_climb
+  description: Climb 3 steps (0.15m each)
+  metrics:
+  - name: success_rate
+    unit: percent
+    target: "> 95"
+  - name: completion_time
+    unit: s
+    target: < 10.0
+- name: push_recovery
+  description: Recover from lateral push (50N, 0.1s)
+  metrics:
+  - name: recovery_time
+    unit: s
+    target: < 1.0
+  - name: max_cop_displacement
+    unit: m
+    target: < 0.05
+- name: object_manipulation
+  description: Pick and place 1kg object
+  metrics:
+  - name: success_rate
+    unit: percent
+    target: "> 90"
+  - name: completion_time
+    unit: s
+    target: < 20.0
+  - name: grip_force_accuracy
+    unit: percent
+    target: "> 85"
+- name: outdoor_walk
+  description: Walk 20m on uneven terrain
+  metrics:
+  - name: completion_time
+    unit: s
+    target: < 40.0
+  - name: fall_count
+    unit: count
+    target: 0
+comparison_baseline:
+  ur5e:
+    reach_precision_mm: 0.5
+    max_payload_kg: 5.0
+  atlas:
+    walk_speed_mps: 1.5
+    stair_climb_steps: 10
+  digit:
+    walk_speed_mps: 1.3
+    runtime_hours: 3.0

@@ -47,6 +47,8 @@ class _EpisodeBuffer:
     praxis_status: Optional[str] = None
     praxis_reward: Optional[float] = None
     duration_sec: Optional[float] = None
+    # CRITICAL FIX: agent_request stores the original user/agent request for full traceability
+    agent_request: Optional[dict[str, Any]] = None
 
     # Tracking which events have arrived
     received_events: set = field(default_factory=set)
@@ -205,6 +207,11 @@ class EpisodeRecorder(LifecycleMixin):
         buf.received_events.add("skill.execution.start")
         buf.semantic_intent = payload.get("skill_name", buf.semantic_intent)
         buf.initial_state = payload.get("initial_state", payload.get("state"))
+        # CRITICAL FIX: capture the original agent request for artifact traceability
+        if "agent_request" in payload:
+            buf.agent_request = payload["agent_request"]
+        elif "parameters" in payload:
+            buf.agent_request = {"skill_name": payload.get("skill_name"), "parameters": payload.get("parameters")}
         buf.trajectory.append({
             "phase": "start",
             "timestamp": time.time(),
@@ -487,6 +494,16 @@ class EpisodeRecorder(LifecycleMixin):
         }
         with open(episode_dir / "memory_write.json", "w", encoding="utf-8") as f:
             json.dump(memory_write, f, indent=2, default=str)
+
+        # CRITICAL FIX: write agent_request.json — the original request that started this episode
+        agent_request = buf.agent_request or {"skill_name": buf.semantic_intent, "note": "agent_request not captured from event payload"}
+        with open(episode_dir / "agent_request.json", "w", encoding="utf-8") as f:
+            json.dump({
+                "episode_id": episode_id,
+                "robot_id": buf.robot_id,
+                "agent_request": agent_request,
+                "timestamp": time.time(),
+            }, f, indent=2, default=str)
 
         # Publish enriched praxis.recorded
         self._event_bus.publish(Event(

@@ -262,6 +262,10 @@ class SeekDBMemoryClient(SeekDBClient):
 
     Maintains inverted indexes on columns declared in SEEKDB_SCHEMAS
     to avoid full-table scans on the most common filter patterns.
+
+    Thread-safe: all mutating operations are protected by a reentrant lock
+    so that concurrent EventBus handlers and Runtime threads do not corrupt
+    the inverted indexes.
     """
 
     MAX_SCAN_LIMIT = 10_000
@@ -270,6 +274,8 @@ class SeekDBMemoryClient(SeekDBClient):
         self._tables: dict[str, dict[str, dict]] = {}
         # Inverted indexes: _indices[table][column][value] = set of record_ids
         self._indices: dict[str, dict[str, dict[Any, set[str]]]] = {}
+        import threading
+        self._lock = threading.RLock()
 
     def connect(self) -> None:
         for table_name, schema in SEEKDB_SCHEMAS.items():
@@ -285,20 +291,21 @@ class SeekDBMemoryClient(SeekDBClient):
         pass
 
     def insert(self, table: str, record: dict) -> str:
-        if table not in self._tables:
-            self._tables[table] = {}
-            self._indices[table] = {}
-        record_id = record.get("id", str(len(self._tables[table])))
-        self._tables[table][record_id] = dict(record)
-        # Update inverted indexes
-        if table in self._indices:
-            for col, idx in self._indices[table].items():
-                val = record.get(col)
-                if val is not None:
-                    if val not in idx:
-                        idx[val] = set()
-                    idx[val].add(record_id)
-        return record_id
+        with self._lock:
+            if table not in self._tables:
+                self._tables[table] = {}
+                self._indices[table] = {}
+            record_id = record.get("id", str(len(self._tables[table])))
+            self._tables[table][record_id] = dict(record)
+            # Update inverted indexes
+            if table in self._indices:
+                for col, idx in self._indices[table].items():
+                    val = record.get(col)
+                    if val is not None:
+                        if val not in idx:
+                            idx[val] = set()
+                        idx[val].add(record_id)
+            return record_id
 
     def query(
         self,
@@ -307,105 +314,110 @@ class SeekDBMemoryClient(SeekDBClient):
         order_by: Optional[str] = None,
         limit: int = 100,
     ) -> list[dict]:
-        if table not in self._tables:
-            return []
+        with self._lock:
+            if table not in self._tables:
+                return []
 
-        # Use inverted indexes when filters match indexed columns
-        candidate_ids = None
-        remaining_filters = {}
-        if filters and table in self._indices:
-            for k, v in filters.items():
-                if k in self._indices[table]:
-                    idx = self._indices[table][k]
-                    matched_ids = idx.get(v, set())
-                    if candidate_ids is None:
-                        candidate_ids = set(matched_ids)
+            # Use inverted indexes when filters match indexed columns
+            candidate_ids = None
+            remaining_filters = {}
+            if filters and table in self._indices:
+                for k, v in filters.items():
+                    if k in self._indices[table]:
+                        idx = self._indices[table][k]
+                        matched_ids = idx.get(v, set())
+                        if candidate_ids is None:
+                            candidate_ids = set(matched_ids)
+                        else:
+                            candidate_ids &= matched_ids
                     else:
-                        candidate_ids &= matched_ids
-                else:
-                    remaining_filters[k] = v
+                        remaining_filters[k] = v
 
-        if candidate_ids is not None:
-            records = [
-                self._tables[table][rid]
-                for rid in candidate_ids
-                if rid in self._tables[table]
-            ]
-        else:
-            records = list(self._tables[table].values())
+            if candidate_ids is not None:
+                records = [
+                    dict(self._tables[table][rid])
+                    for rid in candidate_ids
+                    if rid in self._tables[table]
+                ]
+            else:
+                records = [dict(r) for r in self._tables[table].values()]
 
-        # Apply remaining non-indexed filters
-        if remaining_filters:
-            records = [
-                r for r in records
-                if all(r.get(k) == v for k, v in remaining_filters.items())
-            ]
+            # Apply remaining non-indexed filters
+            if remaining_filters:
+                records = [
+                    r for r in records
+                    if all(r.get(k) == v for k, v in remaining_filters.items())
+                ]
 
-        if order_by:
-            reverse = order_by.startswith("-")
-            key = order_by.lstrip("-")
-            records.sort(key=lambda r: r.get(key, 0), reverse=reverse)
-        return records[:limit]
+            if order_by:
+                reverse = order_by.startswith("-")
+                key = order_by.lstrip("-")
+                records.sort(key=lambda r: r.get(key, 0), reverse=reverse)
+            return records[:limit]
 
     def update(self, table: str, record_id: str, updates: dict) -> bool:
-        if table not in self._tables or record_id not in self._tables[table]:
-            return False
-        old_record = self._tables[table][record_id]
-        # Remove old index entries
-        if table in self._indices:
-            for col, idx in self._indices[table].items():
-                old_val = old_record.get(col)
-                if old_val is not None and old_val in idx:
-                    idx[old_val].discard(record_id)
-        # Apply updates
-        old_record.update(updates)
-        # Add new index entries
-        if table in self._indices:
-            for col, idx in self._indices[table].items():
-                new_val = old_record.get(col)
-                if new_val is not None:
-                    if new_val not in idx:
-                        idx[new_val] = set()
-                    idx[new_val].add(record_id)
-        return True
+        with self._lock:
+            if table not in self._tables or record_id not in self._tables[table]:
+                return False
+            old_record = self._tables[table][record_id]
+            # Remove old index entries
+            if table in self._indices:
+                for col, idx in self._indices[table].items():
+                    old_val = old_record.get(col)
+                    if old_val is not None and old_val in idx:
+                        idx[old_val].discard(record_id)
+            # Apply updates
+            old_record.update(updates)
+            # Add new index entries
+            if table in self._indices:
+                for col, idx in self._indices[table].items():
+                    new_val = old_record.get(col)
+                    if new_val is not None:
+                        if new_val not in idx:
+                            idx[new_val] = set()
+                        idx[new_val].add(record_id)
+            return True
 
     def count(self, table: str, filters: Optional[dict] = None) -> int:
-        # Use index for simple counts when possible
-        if filters and table in self._indices:
-            indexed_keys = [k for k in filters if k in self._indices[table]]
-            if len(indexed_keys) == len(filters) and len(indexed_keys) > 0:
-                candidate_ids = None
-                for k in indexed_keys:
-                    matched = self._indices[table][k].get(filters[k], set())
-                    if candidate_ids is None:
-                        candidate_ids = set(matched)
-                    else:
-                        candidate_ids &= matched
-                return len(candidate_ids) if candidate_ids else 0
-        return len(self.query(table, filters, limit=self.MAX_SCAN_LIMIT))
+        with self._lock:
+            # Use index for simple counts when possible
+            if filters and table in self._indices:
+                indexed_keys = [k for k in filters if k in self._indices[table]]
+                if len(indexed_keys) == len(filters) and len(indexed_keys) > 0:
+                    candidate_ids = None
+                    for k in indexed_keys:
+                        matched = self._indices[table][k].get(filters[k], set())
+                        if candidate_ids is None:
+                            candidate_ids = set(matched)
+                        else:
+                            candidate_ids &= matched
+                    return len(candidate_ids) if candidate_ids else 0
+            return len(self.query(table, filters, limit=self.MAX_SCAN_LIMIT))
 
     def delete(self, table: str, record_id: str) -> bool:
-        if table not in self._tables or record_id not in self._tables[table]:
-            return False
-        record = self._tables[table].pop(record_id)
-        # Remove from indexes
-        if table in self._indices:
-            for col, idx in self._indices[table].items():
-                val = record.get(col)
-                if val is not None and val in idx:
-                    idx[val].discard(record_id)
-        return True
+        with self._lock:
+            if table not in self._tables or record_id not in self._tables[table]:
+                return False
+            record = self._tables[table].pop(record_id)
+            # Remove from indexes
+            if table in self._indices:
+                for col, idx in self._indices[table].items():
+                    val = record.get(col)
+                    if val is not None and val in idx:
+                        idx[val].discard(record_id)
+            return True
 
     def delete_where(self, table: str, filters: dict) -> int:
-        if table not in self._tables:
-            return 0
-        to_delete = []
-        for rid, record in self._tables[table].items():
-            if all(record.get(k) == v for k, v in filters.items()):
-                to_delete.append(rid)
-        for rid in to_delete:
-            self.delete(table, rid)
-        return len(to_delete)
+        with self._lock:
+            if table not in self._tables:
+                return 0
+            to_delete = []
+            for rid, record in self._tables[table].items():
+                if all(record.get(k) == v for k, v in filters.items()):
+                    to_delete.append(rid)
+            for rid in to_delete:
+                self.delete(table, rid)
+            return len(to_delete)
 
 
 class SeekDBSQLiteClient(SeekDBClient):
@@ -472,10 +484,17 @@ class SeekDBSQLiteClient(SeekDBClient):
         record_id = serialized.get("id", str(int(time.time() * 1000)))
         if "id" not in serialized:
             serialized["id"] = record_id
-        self._conn.execute(
-            f"INSERT OR REPLACE INTO {table} ({cols}) VALUES ({placeholders})",
-            values,
-        )
+        try:
+            self._conn.execute(
+                f"INSERT INTO {table} ({cols}) VALUES ({placeholders})",
+                values,
+            )
+        except Exception:
+            # Conflict on id — update existing record (explicit upsert)
+            self._conn.execute(
+                f"REPLACE INTO {table} ({cols}) VALUES ({placeholders})",
+                values,
+            )
         self._conn.commit()
         return record_id
 

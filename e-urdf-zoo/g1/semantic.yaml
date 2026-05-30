@@ -1,0 +1,116 @@
+name: Unitree G1 Humanoid
+manufacturer: Unitree
+year: 2024
+class: humanoid
+links:
+  pelvis:
+    type: base
+    mass: 8.0
+    com: [0, 0, 0.08]
+  torso:
+    type: trunk
+    mass: 12.0
+    dimensions: [0.25, 0.18, 0.35]
+    com: [0, 0, 0.2]
+  head:
+    type: end_effector
+    mass: 1.5
+    com: [0, 0, 0.08]
+  left_thigh:
+    type: limb_segment
+    mass: 3.5
+    com: [0, 0, -0.15]
+  left_shin:
+    type: limb_segment
+    mass: 2.5
+    com: [0, 0, -0.15]
+  left_foot:
+    type: end_effector
+    mass: 1.0
+    com: [0, 0, -0.02]
+  right_thigh:
+    type: limb_segment
+    mass: 3.5
+    com: [0, 0, -0.15]
+  right_shin:
+    type: limb_segment
+    mass: 2.5
+    com: [0, 0, -0.15]
+  right_foot:
+    type: end_effector
+    mass: 1.0
+    com: [0, 0, -0.02]
+  left_upper_arm:
+    type: limb_segment
+    mass: 2.0
+    com: [0, 0, -0.1]
+  left_forearm:
+    type: limb_segment
+    mass: 1.5
+    com: [0, 0, -0.1]
+  left_hand:
+    type: end_effector
+    mass: 0.5
+    com: [0, 0, 0]
+  right_upper_arm:
+    type: limb_segment
+    mass: 2.0
+    com: [0, 0, -0.1]
+  right_forearm:
+    type: limb_segment
+    mass: 1.5
+    com: [0, 0, -0.1]
+  right_hand:
+    type: end_effector
+    mass: 0.5
+    com: [0, 0, 0]
+semantic_tags:
+- humanoid
+- bipedal
+- dual_arm
+- locomotion
+- manipulation
+- outdoor_capable
+use_cases:
+- logistics_carrying
+- home_assistance
+- industrial_inspection
+- research_platform
+payload:
+  max_mass_kg: 2.0
+  grip_force_n: 50.0
+  gripper_span_m: 0.15
+end_effectors:
+  left_hand:
+    type: parallel_gripper
+    dof: 1
+    max_opening_m: 0.15
+    max_force_n: 50.0
+  right_hand:
+    type: parallel_gripper
+    dof: 1
+    max_opening_m: 0.15
+    max_force_n: 50.0
+locomotion:
+  type: bipedal
+  max_speed_mps: 2.0
+  max_incline_deg: 15
+  turning_radius_m: 0.0
+  step_height_m: 0.15
+  gait_types:
+  - walking
+  - trotting
+perception:
+  head_camera:
+    type: rgbd
+    resolution: [1280, 720]
+    fov_deg: 90
+    frame_rate: 30
+  torso_imu:
+    type: imu
+    dof: 6
+    sample_rate_hz: 1000
+  joint_encoders:
+    type: encoder
+    resolution: 20
+    absolute: true

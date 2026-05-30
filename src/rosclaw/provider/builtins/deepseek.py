@@ -99,6 +99,7 @@ class DeepSeekProvider(Provider):
     async def _call_api(self, prompt: str) -> dict[str, Any]:
         import asyncio
         import json
+        import re
         import time
         import urllib.request
 
@@ -123,10 +124,39 @@ class DeepSeekProvider(Provider):
         # Run blocking HTTP call in executor
         loop = asyncio.get_event_loop()
         resp = await loop.run_in_executor(None, urllib.request.urlopen, req)
-        body = json.loads(resp.read())
+        raw = resp.read()
+
+        # Robust JSON parsing with cleanup for malformed LLM output
+        try:
+            body = json.loads(raw)
+        except json.JSONDecodeError:
+            text = raw.decode("utf-8", errors="ignore")
+            text = re.sub(r",(\s*[}\]])", r"\1", text)
+            try:
+                body = json.loads(text)
+            except json.JSONDecodeError as e:
+                raise RuntimeError(f"DeepSeek returned invalid JSON: {e}") from e
 
         latency_ms = round((time.time() - start) * 1000, 2)
-        content = body["choices"][0]["message"]["content"]
+
+        # Defensive response parsing — CRITICAL fix from audit
+        if not isinstance(body, dict):
+            raise RuntimeError(f"DeepSeek returned non-dict body: {type(body)}")
+        if body.get("error"):
+            err = body["error"]
+            raise RuntimeError(f"DeepSeek API error: {err.get('message', err)}")
+        choices = body.get("choices")
+        if not choices or not isinstance(choices, list):
+            raise RuntimeError(f"DeepSeek missing choices in response keys: {list(body.keys())}")
+        first_choice = choices[0]
+        if not isinstance(first_choice, dict):
+            raise RuntimeError(f"DeepSeek first choice is not dict: {type(first_choice)}")
+        message = first_choice.get("message", {})
+        if not isinstance(message, dict):
+            raise RuntimeError(f"DeepSeek message is not dict: {type(message)}")
+        content = message.get("content", "")
+        if not content:
+            raise RuntimeError("DeepSeek returned empty content")
 
         return {
             "text": content,

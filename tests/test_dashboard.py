@@ -492,8 +492,9 @@ class TestDashboardServerEventBus:
         mock_bus.subscribe.return_value = mock_subscription
 
         server.attach_to_event_bus(mock_bus)
-        mock_bus.subscribe.assert_called_once_with("#", server._on_event_bus_message)
-        assert server._event_bus_subscription is mock_subscription
+        # CRITICAL FIX: wildcard '#' is no-op; now subscribes to 11 explicit topics
+        assert mock_bus.subscribe.call_count == 11
+        assert len(server._event_bus_subscriptions) == 11
 
     def test_detach_from_event_bus(self):
         metrics = DashboardMetrics()
@@ -504,7 +505,7 @@ class TestDashboardServerEventBus:
 
         server.attach_to_event_bus(mock_bus)
         server.detach_from_event_bus()
-        assert server._event_bus_subscription is None
+        assert server._event_bus_subscriptions is None
 
     def test_detach_without_attach(self):
         metrics = DashboardMetrics()

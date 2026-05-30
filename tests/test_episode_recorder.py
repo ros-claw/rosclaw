@@ -199,6 +199,8 @@ class TestArtifactFiles:
         assert os.path.exists(os.path.join(ep_dir, "trajectory.jsonl"))
         assert os.path.exists(os.path.join(ep_dir, "provider_trace.jsonl"))
         assert os.path.exists(os.path.join(ep_dir, "sandbox_replay.json"))
+        # CRITICAL FIX: agent_request.json is now part of the 7 artifact files
+        assert os.path.exists(os.path.join(ep_dir, "agent_request.json"))
 
     def test_trajectory_jsonl_content(self, recorder, temp_artifact_dir):
         recorder._event_bus.publish(Event(

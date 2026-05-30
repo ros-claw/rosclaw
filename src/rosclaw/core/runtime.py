@@ -24,6 +24,7 @@ Architecture:
     Physical World (Robot)
 """
 
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -113,6 +114,12 @@ class Runtime(LifecycleMixin):
         # Internal state
         self._agent_runtime: Optional[Any] = None
         self._modules: list[LifecycleMixin] = []
+
+        # Thread-safe async executor (created once, reused for _run_async)
+        import concurrent.futures
+        self._async_executor: concurrent.futures.ThreadPoolExecutor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="rosclaw_async"
+        )
 
     def _do_initialize(self) -> None:
         """Initialize all enabled grounding engines."""
@@ -344,6 +351,8 @@ class Runtime(LifecycleMixin):
         for module in reversed(self._modules):
             if isinstance(module, LifecycleMixin):
                 module.stop()
+        # Shutdown async executor to prevent thread leaks
+        self._async_executor.shutdown(wait=False)
         print("[Runtime] Shutdown complete")
 
     def _setup_internal_subscriptions(self) -> None:
@@ -378,11 +387,10 @@ class Runtime(LifecycleMixin):
         if self._how is None:
             return
         try:
-            import asyncio
             request_id = event.payload.get("request_id", "")
             violations = event.payload.get("violations", [])
             error_log = "; ".join(v.get("description", "") for v in violations)
-            recovery = asyncio.run(self._how.suggest_recovery(error_log, context={"request_id": request_id}))
+            recovery = self._run_async(self._how.suggest_recovery(error_log, context={"request_id": request_id}))
             if recovery:
                 from rosclaw.how.recovery import RecoveryFormatter
                 payload = RecoveryFormatter.to_event_payload(
@@ -401,18 +409,22 @@ class Runtime(LifecycleMixin):
     def _run_async(self, coro):
         """Run an async coroutine from a sync context.
 
-        Handles both production (no running loop) and test (pytest-asyncio
-        with running loop) contexts gracefully.
+        Uses the cached ThreadPoolExecutor for thread safety and avoids
+        creating a new executor on every call.
         """
         import asyncio
-        import concurrent.futures
         try:
             loop = asyncio.get_running_loop()
-            # Already inside an event loop — run in a thread to avoid
-            # "cannot run nested event loop" errors during tests.
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(asyncio.run, coro)
-                return future.result(timeout=30)
+            # Already inside an event loop — run in a dedicated thread with a
+            # fresh event loop to avoid "cannot run nested event loop" errors.
+            def _run_with_fresh_loop():
+                new_loop = asyncio.new_event_loop()
+                try:
+                    return new_loop.run_until_complete(coro)
+                finally:
+                    new_loop.close()
+            future = self._async_executor.submit(_run_with_fresh_loop)
+            return future.result(timeout=30)
         except RuntimeError:
             return asyncio.run(coro)
 
@@ -689,9 +701,22 @@ class Runtime(LifecycleMixin):
             lambda m: DeepSeekProvider(m),
             auto_load=False,
         )
-        # Health depends on API key presence
+        # Health check: verify API key AND ping endpoint
         import os
-        self._provider_registry.set_provider_health("deepseek", ok=bool(os.environ.get("DEEPSEEK_API_KEY")))
+        api_key = os.environ.get("DEEPSEEK_API_KEY", "")
+        healthy = False
+        if api_key:
+            try:
+                import urllib.request
+                req = urllib.request.Request(
+                    f"{os.environ.get('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')}/models",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    healthy = resp.status == 200
+            except Exception:
+                healthy = False
+        self._provider_registry.set_provider_health("deepseek", ok=healthy)
 
     def _load_e_urdf(self) -> None:
         """Load robot e-URDF from file path or e-URDF Zoo."""
@@ -787,18 +812,6 @@ class Runtime(LifecycleMixin):
         reason = payload.get("reason", "")
         status = "healthy" if ok else "unhealthy"
         print(f"[Runtime] Provider '{name}' is now {status} ({reason})")
-
-    def _on_sandbox_episode_failed(self, event: Event) -> None:
-        """Handle sandbox episode failure events."""
-        print(f"[Runtime] Sandbox episode failed: {event.payload}")
-
-    def _on_sandbox_action_blocked(self, event: Event) -> None:
-        """Handle sandbox action blocked events."""
-        print(f"[Runtime] Sandbox action blocked: {event.payload}")
-
-    def _on_runtime_execution_failed(self, event: Event) -> None:
-        """Handle runtime execution failure events."""
-        print(f"[Runtime] Execution failed: {event.payload}")
 
     # ------------------------------------------------------------------
     # Physical World APIs (delegate to MemoryInterface / EmbodiedMemory)
@@ -960,7 +973,7 @@ class Runtime(LifecycleMixin):
             request = ProviderRequest(
                 capability=capability_name,
                 inputs=inputs,
-                request_id=f"cap_{len(self.event_bus._event_history)}" if hasattr(self.event_bus, '_event_history') else "cap_0",
+                request_id=f"cap_{uuid.uuid4().hex[:8]}",
             )
             response = self._run_async(self._capability_router.invoke(request))
             return {
@@ -1203,28 +1216,10 @@ class Runtime(LifecycleMixin):
                 },
                 source="sandbox",
                 priority=EventPriority.HIGH,
+                trace_id=request_id,
             ))
-            # Write failure memory for blocked actions
-            if self._memory is not None:
-                try:
-                    self._memory.write_failure_memory({
-                        "failure_id": episode_id,
-                        "episode_id": episode_id,
-                        "robot_id": self.config.robot_id,
-                        "failure_type": "firewall_blocked",
-                        "root_cause": sandbox_result.get("reason", "firewall"),
-                        "recovery_hint": "Check joint limits, workspace boundaries, and trajectory safety.",
-                        "sandbox_intervened": True,
-                        "category": "safety",
-                        "instruction": instruction,
-                        "context": {
-                            "request_id": request_id,
-                            "skill_name": skill_name,
-                            "violations": sandbox_result.get("violations", []),
-                        },
-                    })
-                except Exception as e:
-                    print(f"[Runtime] Failure memory write failed (non-fatal): {e}")
+            # Memory auto-ingests firewall.action_blocked via EventBus subscription
+            # (see MemoryInterface._on_firewall_action_blocked)
             # How recovery hint generation (P0-6)
             if self._how is not None:
                 try:
@@ -1397,7 +1392,7 @@ class Runtime(LifecycleMixin):
         if self._knowledge is not None:
             try:
                 self._knowledge.record_knowledge_usage({
-                    "episode_id": request_id,
+                    "episode_id": episode_id,
                     "robot_id": self.config.robot_id,
                     "action": action,
                     "result": result,

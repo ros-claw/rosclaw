@@ -1,0 +1,212 @@
+safety_level: STRICT
+joint_soft_limits:
+  left_hip_pitch_joint:
+    lower: -2.5
+    upper: 2.5
+    k_position: 200.0
+    k_velocity: 100.0
+  left_hip_roll_joint:
+    lower: -1.0
+    upper: 1.0
+    k_position: 200.0
+    k_velocity: 100.0
+  left_hip_yaw_joint:
+    lower: -1.5
+    upper: 1.5
+    k_position: 200.0
+    k_velocity: 100.0
+  left_knee_joint:
+    lower: -0.5
+    upper: 2.5
+    k_position: 200.0
+    k_velocity: 100.0
+  left_ankle_pitch_joint:
+    lower: -1.5
+    upper: 1.5
+    k_position: 100.0
+    k_velocity: 50.0
+  left_ankle_roll_joint:
+    lower: -0.8
+    upper: 0.8
+    k_position: 100.0
+    k_velocity: 50.0
+  right_hip_pitch_joint:
+    lower: -2.5
+    upper: 2.5
+    k_position: 200.0
+    k_velocity: 100.0
+  right_hip_roll_joint:
+    lower: -1.0
+    upper: 1.0
+    k_position: 200.0
+    k_velocity: 100.0
+  right_hip_yaw_joint:
+    lower: -1.5
+    upper: 1.5
+    k_position: 200.0
+    k_velocity: 100.0
+  right_knee_joint:
+    lower: -0.5
+    upper: 2.5
+    k_position: 200.0
+    k_velocity: 100.0
+  right_ankle_pitch_joint:
+    lower: -1.5
+    upper: 1.5
+    k_position: 100.0
+    k_velocity: 50.0
+  right_ankle_roll_joint:
+    lower: -0.8
+    upper: 0.8
+    k_position: 100.0
+    k_velocity: 50.0
+  waist_yaw_joint:
+    lower: -2.5
+    upper: 2.5
+    k_position: 150.0
+    k_velocity: 75.0
+  left_shoulder_pitch_joint:
+    lower: -3.14
+    upper: 3.14
+    k_position: 100.0
+    k_velocity: 50.0
+  left_shoulder_roll_joint:
+    lower: -1.5
+    upper: 1.5
+    k_position: 100.0
+    k_velocity: 50.0
+  left_shoulder_yaw_joint:
+    lower: -2.5
+    upper: 2.5
+    k_position: 100.0
+    k_velocity: 50.0
+  left_elbow_joint:
+    lower: -2.5
+    upper: 0.0
+    k_position: 100.0
+    k_velocity: 50.0
+  right_shoulder_pitch_joint:
+    lower: -3.14
+    upper: 3.14
+    k_position: 100.0
+    k_velocity: 50.0
+  right_shoulder_roll_joint:
+    lower: -1.5
+    upper: 1.5
+    k_position: 100.0
+    k_velocity: 50.0
+  right_shoulder_yaw_joint:
+    lower: -2.5
+    upper: 2.5
+    k_position: 100.0
+    k_velocity: 50.0
+  right_elbow_joint:
+    lower: -2.5
+    upper: 0.0
+    k_position: 100.0
+    k_velocity: 50.0
+pfl:
+  enabled: true
+  max_tcp_force: 100.0
+  max_tcp_torque: 5.0
+  max_static_force: 30.0
+  max_pressure: 100.0
+  max_speed_tool: 0.5
+  max_speed_joint: 3.14
+collision_detection:
+  method: force_threshold
+  threshold_force: 30.0
+  threshold_torque: 2.0
+  reaction_time_ms: 5.0
+  reaction_strategy: stop_and_retract
+  retraction_distance: 0.05
+emergency_stop:
+  category: 3
+  stop_time_ms: 200.0
+  stop_distance_m: 0.5
+  dual_channel: true
+workspace_boundaries:
+  type: enclosure
+  fenceless: false
+  virtual_boundaries:
+  - name: front_plane
+    type: plane
+    normal: [0, 1, 0]
+    offset: -1.0
+  - name: top_plane
+    type: plane
+    normal: [0, 0, -1]
+    offset: 2.0
+interaction:
+  hand_guiding: false
+  speed_slider_max: 0.5
+  force_guiding_max: 5.0
+  protective_stop_on_contact: true
+environment:
+  ambient_temp_min: -10.0
+  ambient_temp_max: 45.0
+  humidity_max: 85.0
+  ip_rating: IP54
+  cleanroom_class: ISO 7
+safety_limits:
+  joint_limits:
+    left_hip_pitch_joint: {lower: -2.5, upper: 2.5}
+    left_hip_roll_joint: {lower: -1.0, upper: 1.0}
+    left_hip_yaw_joint: {lower: -1.5, upper: 1.5}
+    left_knee_joint: {lower: -0.5, upper: 2.5}
+    left_ankle_pitch_joint: {lower: -1.5, upper: 1.5}
+    left_ankle_roll_joint: {lower: -0.8, upper: 0.8}
+    right_hip_pitch_joint: {lower: -2.5, upper: 2.5}
+    right_hip_roll_joint: {lower: -1.0, upper: 1.0}
+    right_hip_yaw_joint: {lower: -1.5, upper: 1.5}
+    right_knee_joint: {lower: -0.5, upper: 2.5}
+    right_ankle_pitch_joint: {lower: -1.5, upper: 1.5}
+    right_ankle_roll_joint: {lower: -0.8, upper: 0.8}
+    waist_yaw_joint: {lower: -2.5, upper: 2.5}
+    left_shoulder_pitch_joint: {lower: -3.14, upper: 3.14}
+    left_shoulder_roll_joint: {lower: -1.5, upper: 1.5}
+    left_shoulder_yaw_joint: {lower: -2.5, upper: 2.5}
+    left_elbow_joint: {lower: -2.5, upper: 0.0}
+    right_shoulder_pitch_joint: {lower: -3.14, upper: 3.14}
+    right_shoulder_roll_joint: {lower: -1.5, upper: 1.5}
+    right_shoulder_yaw_joint: {lower: -2.5, upper: 2.5}
+    right_elbow_joint: {lower: -2.5, upper: 0.0}
+  velocity_limits:
+    left_hip_pitch_joint: 3.14
+    left_hip_roll_joint: 3.14
+    left_hip_yaw_joint: 3.14
+    left_knee_joint: 3.14
+    left_ankle_pitch_joint: 3.14
+    left_ankle_roll_joint: 3.14
+    right_hip_pitch_joint: 3.14
+    right_hip_roll_joint: 3.14
+    right_hip_yaw_joint: 3.14
+    right_knee_joint: 3.14
+    right_ankle_pitch_joint: 3.14
+    right_ankle_roll_joint: 3.14
+    waist_yaw_joint: 3.14
+    left_shoulder_pitch_joint: 3.14
+    left_shoulder_roll_joint: 3.14
+    left_shoulder_yaw_joint: 3.14
+    left_elbow_joint: 3.14
+    right_shoulder_pitch_joint: 3.14
+    right_shoulder_roll_joint: 3.14
+    right_shoulder_yaw_joint: 3.14
+    right_elbow_joint: 3.14
+  force_limits:
+    max_tcp_force: 150.0
+    max_tcp_torque: 10.0
+    max_joint_effort: 100.0
+  workspace:
+    type: sphere
+    center: [0, 0, 0.5]
+    radius: 1.5
+    height_min: 0.0
+    height_max: 2.0
+  collision_pairs_to_check:
+  - [left_thigh_link, right_thigh_link]
+  - [torso_link, left_upper_arm_link]
+  - [torso_link, right_upper_arm_link]
+  power_limits:
+    max_power: 500.0
+    max_current_total: 60.0

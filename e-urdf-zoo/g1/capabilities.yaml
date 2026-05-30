@@ -1,0 +1,163 @@
+capabilities:
+- name: walk_forward
+  description: Walk forward at specified speed
+  parameters:
+    speed:
+      type: float
+      unit: m/s
+      default: 0.5
+      min: 0.0
+      max: 2.0
+    distance:
+      type: float
+      unit: m
+      default: 1.0
+      min: 0.0
+      max: 100.0
+  provider: skill.locomotion
+  requirements:
+  - balance_control
+  - ground_contact
+  safety_level: MODERATE
+- name: turn_in_place
+  description: Turn to specified heading
+  parameters:
+    angle:
+      type: float
+      unit: rad
+      default: 0.0
+      min: -3.14
+      max: 3.14
+    speed:
+      type: float
+      unit: rad/s
+      default: 0.5
+      min: 0.1
+      max: 2.0
+  provider: skill.locomotion
+  requirements:
+  - balance_control
+  safety_level: MODERATE
+- name: reach
+  description: Reach to target position with hand
+  parameters:
+    target:
+      type: pose
+      frame: torso
+    hand:
+      type: enum
+      options: [left, right]
+      default: right
+    approach_vector:
+      type: vector3
+      default: [0, 0, -1]
+  provider: skill.reach
+  requirements:
+  - arm_control
+  - inverse_kinematics
+  safety_level: MODERATE
+- name: grasp
+  description: Grasp object with specified hand
+  parameters:
+    target:
+      type: object_ref
+    hand:
+      type: enum
+      options: [left, right]
+      default: right
+    force:
+      type: float
+      unit: N
+      default: 20.0
+      min: 0.0
+      max: 50.0
+  provider: skill.grasp
+  requirements:
+  - gripper_control
+  - force_sensing
+  safety_level: HIGH
+- name: pick_and_place
+  description: Pick object and place at destination
+  parameters:
+    object:
+      type: object_ref
+    destination:
+      type: pose
+      frame: world
+    hand:
+      type: enum
+      options: [left, right]
+      default: right
+  provider: skill.pick_and_place
+  requirements:
+  - grasp
+  - reach
+  - locomotion
+  safety_level: HIGH
+- name: scan_workspace
+  description: Scan surrounding area with head camera
+  parameters:
+    mode:
+      type: enum
+      options: [360_pan, front_only, up_down]
+      default: 360_pan
+  provider: vlm.scene_understanding
+  requirements:
+  - head_camera
+  safety_level: LOW
+- name: balance_recovery
+  description: Execute recovery maneuver when balance is lost
+  parameters:
+    strategy:
+      type: enum
+      options: [step_widening, arm_swing, crouch]
+      default: step_widening
+  provider: skill.balance
+  requirements:
+  - full_body_control
+  safety_level: HIGH
+- name: wave
+  description: Wave gesture with specified hand
+  parameters:
+    hand:
+      type: enum
+      options: [left, right]
+      default: right
+    repetitions:
+      type: int
+      default: 3
+      min: 1
+      max: 10
+  provider: skill.gesture
+  requirements:
+  - arm_control
+  safety_level: LOW
+sensors:
+  head_camera:
+    type: rgbd_camera
+    topics:
+    - /g1/camera/color/image_raw
+    - /g1/camera/depth/image_raw
+  torso_imu:
+    type: imu
+    topics:
+    - /g1/imu/data
+  joint_states:
+    type: joint_state
+    topics:
+    - /g1/joint_states
+controllers:
+  whole_body_control:
+    type: mpc
+    update_rate_hz: 1000
+  balance_controller:
+    type: zmp
+    update_rate_hz: 500
+  arm_controller:
+    type: impedance
+    update_rate_hz: 500
+simulation_backends:
+- mujoco
+- isaacsim
+- gazebo
+- pybullet

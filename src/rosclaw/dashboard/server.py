@@ -70,21 +70,41 @@ class DashboardServer:
 
     def attach_to_event_bus(self, event_bus: Any) -> None:
         """Subscribe to EventBus for live event streaming."""
-        self._event_bus_subscription = event_bus.subscribe(
-            "#",  # Wildcard — all topics
-            self._on_event_bus_message,
-        )
+        # CRITICAL FIX: EventBus uses exact-match, wildcard '#' is no-op.
+        # Subscribe to all critical topics explicitly.
+        self._event_bus_subscriptions = []
+        for topic in [
+            "skill.execution.start",
+            "skill.execution.complete",
+            "praxis.completed",
+            "praxis.failed",
+            "rosclaw.sandbox.episode.started",
+            "rosclaw.sandbox.episode.finished",
+            "rosclaw.provider.inference.completed",
+            "rosclaw.critic.success.detected",
+            "rosclaw.dashboard.trace.updated",
+            "rosclaw.how.recovery_hint.generated",
+            "rosclaw.memory.write.completed",
+        ]:
+            self._event_bus_subscriptions.append(
+                event_bus.subscribe(topic, self._on_event_bus_message)
+            )
 
     def detach_from_event_bus(self) -> None:
         """Unsubscribe from EventBus."""
-        if self._event_bus_subscription is not None:
+        if hasattr(self, '_event_bus_subscriptions') and self._event_bus_subscriptions is not None:
             # EventBus unsubscribe API varies by implementation
-            self._event_bus_subscription = None
+            self._event_bus_subscriptions = None
 
     def _on_event_bus_message(self, event: Any) -> None:
         """Handle incoming EventBus events."""
         topic = getattr(event, "topic", "unknown")
         self.metrics.increment_event(topic)
+        # CRITICAL FIX: record full traces for dashboard display
+        if topic == "rosclaw.dashboard.trace.updated":
+            payload = getattr(event, "payload", {})
+            if isinstance(payload, dict):
+                self.metrics.record_trace(payload)
 
     # ── HTTP API helpers ──
 

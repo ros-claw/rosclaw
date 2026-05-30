@@ -46,6 +46,7 @@ class Event:
     timestamp: float = field(default_factory=time.time)
     priority: EventPriority = EventPriority.NORMAL
     event_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    trace_id: str = ""  # correlation ID for distributed tracing across the pipeline
     metadata: dict = field(default_factory=dict)
 
 
@@ -119,6 +120,10 @@ class EventBus:
         Sync subscribers are called immediately.
         Async subscribers are scheduled on the event loop.
         """
+        # CRITICAL FIX: auto-inject trace_id for distributed tracing if missing
+        if not event.trace_id:
+            event.trace_id = f"trace_{uuid.uuid4().hex[:12]}"
+
         # Store in history
         self._event_history.append(event)
         if len(self._event_history) > self._max_history:

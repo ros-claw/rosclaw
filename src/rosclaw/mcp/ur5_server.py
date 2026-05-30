@@ -475,7 +475,7 @@ class UR5MCPServer:
         if validate:
             try:
                 import asyncio
-                from rosclaw.core.event_bus import EventBus
+                from rosclaw.core.event_bus import EventBus, Event
 
                 # Get or create event bus reference
                 event_bus = getattr(self, '_event_bus', None)
@@ -495,10 +495,12 @@ class UR5MCPServer:
                     trajectory = self._interpolate_trajectory(current, positions, int(duration * 50))
 
                     validation_result = {"is_safe": True, "reason": ""}
+                    validation_event = asyncio.Event()
 
                     def on_validation_result(event):
                         nonlocal validation_result
                         validation_result = event.payload
+                        validation_event.set()
 
                     event_bus.subscribe("firewall.validation_result", on_validation_result)
                     event_bus.publish(Event(
@@ -511,9 +513,14 @@ class UR5MCPServer:
                         source="ur5_mcp_server",
                     ))
 
-                    # Wait briefly for result
-                    await asyncio.sleep(0.1)
-                    event_bus.unsubscribe("firewall.validation_result", on_validation_result)
+                    # CRITICAL FIX: wait for validation result event instead of fixed sleep
+                    # eliminates race condition where result arrives after unsubscribe
+                    try:
+                        await asyncio.wait_for(validation_event.wait(), timeout=0.5)
+                    except asyncio.TimeoutError:
+                        pass
+                    finally:
+                        event_bus.unsubscribe("firewall.validation_result", on_validation_result)
 
                     if not validation_result.get("is_safe", True):
                         error_msg = "Digital Twin validation FAILED:\n"
@@ -667,7 +674,7 @@ class UR5MCPServer:
         signal.signal(signal.SIGTERM, signal_handler)
 
         # Run MCP server
-        async with stdio_server(self.server) as (read, write):
+        async with stdio_server() as (read, write):
             init_options = InitializationOptions(
                 server_name="rosclaw-ur5-mcp",
                 server_version="0.1.0",
