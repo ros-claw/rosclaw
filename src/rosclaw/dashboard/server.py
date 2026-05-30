@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any, Optional
 
 from .metrics import DashboardMetrics
@@ -97,14 +98,28 @@ class DashboardServer:
             self._event_bus_subscriptions = None
 
     def _on_event_bus_message(self, event: Any) -> None:
-        """Handle incoming EventBus events."""
+        """Handle incoming EventBus events — update metrics AND broadcast live."""
         topic = getattr(event, "topic", "unknown")
         self.metrics.increment_event(topic)
-        # CRITICAL FIX: record full traces for dashboard display
+
+        # Record full traces for dashboard display
         if topic == "rosclaw.dashboard.trace.updated":
             payload = getattr(event, "payload", {})
             if isinstance(payload, dict):
                 self.metrics.record_trace(payload)
+
+        # LIVE BROADCAST: push important events immediately to all WebSocket clients
+        payload = getattr(event, "payload", {})
+        message = json.dumps({
+            "type": "event",
+            "topic": topic,
+            "data": payload if isinstance(payload, dict) else {},
+            "timestamp": time.time(),
+        })
+        try:
+            asyncio.create_task(self._broadcast(message))
+        except Exception:
+            pass
 
     # ── HTTP API helpers ──
 

@@ -39,7 +39,7 @@ class HeuristicEngine:
         self._table = "heuristic_rules"
         self._rule_cache: dict[str, dict[str, Any]] = {}
         self._cache_valid = False
-        self._subscriptions: list[Any] = []
+        self._subscribed_topics: list[tuple[str, Any]] = []
 
     # ── lifecycle ────────────────────────────────────────────────────────
 
@@ -57,15 +57,12 @@ class HeuristicEngine:
         # CRITICAL FIX: subscribe to failure events on EventBus for active recovery
         if self._event_bus is not None:
             try:
-                self._subscriptions.append(
-                    self._event_bus.subscribe("praxis.failed", self._on_failure_event)
-                )
-                self._subscriptions.append(
-                    self._event_bus.subscribe("firewall.action_blocked", self._on_failure_event)
-                )
-                self._subscriptions.append(
-                    self._event_bus.subscribe("safety.violation", self._on_failure_event)
-                )
+                self._event_bus.subscribe("praxis.failed", self._on_failure_event)
+                self._subscribed_topics.append(("praxis.failed", self._on_failure_event))
+                self._event_bus.subscribe("firewall.action_blocked", self._on_failure_event)
+                self._subscribed_topics.append(("firewall.action_blocked", self._on_failure_event))
+                self._event_bus.subscribe("safety.violation", self._on_failure_event)
+                self._subscribed_topics.append(("safety.violation", self._on_failure_event))
                 logger.info("HeuristicEngine subscribed to failure events")
             except Exception as exc:  # noqa: BLE001
                 logger.warning("HeuristicEngine EventBus subscribe failed: %s", exc)
@@ -75,13 +72,13 @@ class HeuristicEngine:
         self._rule_cache.clear()
         self._cache_valid = False
         # CRITICAL FIX: unsubscribe from EventBus to prevent leaks
-        for sub in self._subscriptions:
-            try:
-                if hasattr(sub, 'unsubscribe'):
-                    sub.unsubscribe()
-            except Exception:  # noqa: BLE001
-                pass
-        self._subscriptions.clear()
+        if self._event_bus is not None:
+            for topic, handler in self._subscribed_topics:
+                try:
+                    self._event_bus.unsubscribe(topic, handler)
+                except Exception:  # noqa: BLE001
+                    pass
+        self._subscribed_topics.clear()
 
     # ── public API ───────────────────────────────────────────────────────
 
