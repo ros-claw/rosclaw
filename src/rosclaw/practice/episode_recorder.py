@@ -14,7 +14,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
@@ -119,9 +119,7 @@ class EpisodeRecorder(LifecycleMixin):
                   f"artifacts={self._artifact_base}")
             return
 
-
-
-        topic_map = {
+        self._topic_handlers: dict[str, Callable] = {
             "skill.execution.start": self._on_skill_start,
             "skill.execution.complete": self._on_skill_complete,
             "praxis.completed": self._on_praxis_completed,
@@ -135,30 +133,16 @@ class EpisodeRecorder(LifecycleMixin):
             "rosclaw.sandbox.episode.finished": self._on_sandbox_episode_finished,
         }
 
-        for topic, handler in topic_map.items():
+        for topic, handler in self._topic_handlers.items():
             self._event_bus.subscribe(topic, handler)
 
         print(f"[EpisodeRecorder] Initialized for {self._robot_id}, "
               f"artifacts={self._artifact_base}")
 
     def _do_stop(self) -> None:
-        topic_map = [
-            "skill.execution.start",
-            "skill.execution.complete",
-            "praxis.completed",
-            "praxis.failed",
-            "firewall.action_blocked",
-            "safety.violation",
-            "agent.response",
-            "rosclaw.provider.inference.completed",
-            "rosclaw.critic.success.detected",
-            "rosclaw.sandbox.episode.finished",
-        ]
-        for topic in topic_map:
-            # EventBus unsubscribe needs the exact callback reference;
-            # since we don't store them separately, rely on EventBus.clear_history
-            # or accept that unsubscribing by topic is best-effort here.
-            pass
+        if self._event_bus is not None and hasattr(self, "_topic_handlers"):
+            for topic, handler in self._topic_handlers.items():
+                self._event_bus.unsubscribe(topic, handler)
 
         # Finalize any remaining buffers
         for episode_id in list(self._buffers.keys()):

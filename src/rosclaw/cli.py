@@ -23,6 +23,7 @@ Commands:
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -104,11 +105,19 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     runtime = Runtime(config)
 
+    # PID file for daemon management
+    pid_file = Path.home() / ".rosclaw" / "runtime.pid"
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+
     try:
         runtime.initialize()
         runtime.start()
 
+        # Write PID file so `rosclaw stop` can find us
+        pid_file.write_text(str(os.getpid()), encoding="utf-8")
+
         print(f"\n[ROSClaw] Runtime started for robot: {args.robot_id}")
+        print(f"[ROSClaw] PID {os.getpid()} written to {pid_file}")
         print("[ROSClaw] Press Ctrl+C to stop\n")
 
         import time
@@ -120,6 +129,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         print("\n[ROSClaw] Shutdown requested...")
     finally:
         runtime.stop()
+        if pid_file.exists():
+            pid_file.unlink()
 
     return 0
 

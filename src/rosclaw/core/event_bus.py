@@ -10,6 +10,7 @@ This implements the "Event Bus" principle from the ROSClaw architecture:
 """
 
 import asyncio
+import fnmatch
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -113,6 +114,20 @@ class EventBus:
         if topic in self._async_subscribers and callback in self._async_subscribers[topic]:
             self._async_subscribers[topic].remove(callback)
 
+    def _topic_matches(self, pattern: str, topic: str) -> bool:
+        """Check if a topic matches a subscription pattern.
+
+        Supports exact match, MQTT-style ``#`` (match all), and
+        glob-style ``*`` wildcards.
+        """
+        if pattern == topic:
+            return True
+        if pattern == "#":
+            return True
+        if "*" in pattern or "?" in pattern:
+            return fnmatch.fnmatch(topic, pattern)
+        return False
+
     def publish(self, event: Event) -> None:
         """
         Publish an event to all subscribers.
@@ -129,19 +144,25 @@ class EventBus:
         if len(self._event_history) > self._max_history:
             self._event_history.pop(0)
 
-        # Call sync subscribers
-        for callback in self._subscribers.get(event.topic, []):
-            try:
-                callback(event)
-            except Exception as e:
-                print(f"[EventBus] Error in sync subscriber for {event.topic}: {e}")
+        # Call sync subscribers (exact + wildcard match)
+        for topic_pattern, callbacks in self._subscribers.items():
+            if not self._topic_matches(topic_pattern, event.topic):
+                continue
+            for callback in callbacks:
+                try:
+                    callback(event)
+                except Exception as e:
+                    print(f"[EventBus] Error in sync subscriber for {event.topic}: {e}")
 
-        # Schedule async subscribers
-        for callback in self._async_subscribers.get(event.topic, []):
-            try:
-                asyncio.create_task(self._run_async_callback(callback, event))
-            except Exception as e:
-                print(f"[EventBus] Error scheduling async subscriber for {event.topic}: {e}")
+        # Schedule async subscribers (exact + wildcard match)
+        for topic_pattern, callbacks in self._async_subscribers.items():
+            if not self._topic_matches(topic_pattern, event.topic):
+                continue
+            for callback in callbacks:
+                try:
+                    asyncio.create_task(self._run_async_callback(callback, event))
+                except Exception as e:
+                    print(f"[EventBus] Error scheduling async subscriber for {event.topic}: {e}")
 
     async def _run_async_callback(
         self, callback: Callable[[Event], Coroutine], event: Event
