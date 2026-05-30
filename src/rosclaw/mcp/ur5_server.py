@@ -15,6 +15,8 @@ import json
 import os
 import signal
 import sys
+import threading
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncIterator, Optional
@@ -138,6 +140,7 @@ class UR5ROSNode(Node):
 
         self.robot_ip = robot_ip
         self.namespace = namespace
+        self._state_lock = threading.Lock()
         self.state = RobotState(
             joint_positions=[0.0] * 6,
             joint_velocities=[0.0] * 6,
@@ -207,18 +210,20 @@ class UR5ROSNode(Node):
                     velocities.append(0.0)
                     efforts.append(0.0)
 
-            self.state.joint_positions = positions
-            self.state.joint_velocities = velocities
-            self.state.joint_efforts = efforts
-            self.state.is_connected = True
-            self.state.last_update_time = self.get_clock().now().nanoseconds / 1e9
+            with self._state_lock:
+                self.state.joint_positions = positions
+                self.state.joint_velocities = velocities
+                self.state.joint_efforts = efforts
+                self.state.is_connected = True
+                self.state.last_update_time = self.get_clock().now().nanoseconds / 1e9
 
         except Exception as e:
             self.get_logger().error(f"Error processing joint state: {e}")
 
     def get_current_joint_positions(self) -> list[float]:
         """Get current joint positions in radians."""
-        return self.state.joint_positions.copy()
+        with self._state_lock:
+            return self.state.joint_positions.copy()
 
     def validate_joint_limits(self, positions: list[float]) -> tuple[bool, str]:
         """Validate joint positions against limits."""
@@ -446,14 +451,15 @@ class UR5MCPServer:
 
     async def _handle_get_joint_states(self) -> list[TextContent]:
         """Handle get_joint_states tool call."""
-        state = self.ros_node.state
+        with self.ros_node._state_lock:
+            state = self.ros_node.state
 
-        result = {
-            "joint_positions": {name: pos for name, pos in zip(state.joint_names, state.joint_positions)},
-            "joint_velocities": {name: vel for name, vel in zip(state.joint_names, state.joint_velocities)},
-            "joint_efforts": {name: eff for name, eff in zip(state.joint_names, state.joint_efforts)},
-            "is_connected": state.is_connected,
-        }
+            result = {
+                "joint_positions": {name: pos for name, pos in zip(state.joint_names, state.joint_positions)},
+                "joint_velocities": {name: vel for name, vel in zip(state.joint_names, state.joint_velocities)},
+                "joint_efforts": {name: eff for name, eff in zip(state.joint_names, state.joint_efforts)},
+                "is_connected": state.is_connected,
+            }
 
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
@@ -490,17 +496,22 @@ class UR5MCPServer:
                         pass
 
                 if event_bus:
-                    # Publish validation request
+                    # Publish validation request with unique correlation ID
                     current = self.ros_node.get_current_joint_positions()
                     trajectory = self._interpolate_trajectory(current, positions, int(duration * 50))
+                    req_id = f"val_{uuid.uuid4().hex[:8]}"
 
                     validation_result = {"is_safe": True, "reason": ""}
                     validation_event = asyncio.Event()
 
                     def on_validation_result(event):
-                        nonlocal validation_result
-                        validation_result = event.payload
-                        validation_event.set()
+                        if not validation_event.is_set():
+                            payload = event.payload if hasattr(event, "payload") else {}
+                            # Only accept result matching our correlation ID
+                            if payload.get("request_id") == req_id:
+                                nonlocal validation_result
+                                validation_result = payload
+                                validation_event.set()
 
                     event_bus.subscribe("firewall.validation_result", on_validation_result)
                     event_bus.publish(Event(
@@ -509,12 +520,11 @@ class UR5MCPServer:
                             "robot_id": self.ros_node.robot_id,
                             "trajectory": trajectory,
                             "safety_level": "STRICT",
+                            "request_id": req_id,
                         },
                         source="ur5_mcp_server",
                     ))
 
-                    # CRITICAL FIX: wait for validation result event instead of fixed sleep
-                    # eliminates race condition where result arrives after unsubscribe
                     try:
                         await asyncio.wait_for(validation_event.wait(), timeout=0.5)
                     except asyncio.TimeoutError:

@@ -82,6 +82,7 @@ class EpisodeRecorder(LifecycleMixin):
         "praxis.failed",
         "firewall.action_blocked",
         "safety.violation",
+        "agent.command",
         "agent.response",
     ]
 
@@ -126,6 +127,7 @@ class EpisodeRecorder(LifecycleMixin):
             "praxis.failed": self._on_praxis_failed,
             "firewall.action_blocked": self._on_firewall_blocked,
             "safety.violation": self._on_safety_violation,
+            "agent.command": self._on_agent_command,
             "agent.response": self._on_agent_response,
             # Future topics — no-op stubs
             "rosclaw.provider.inference.completed": self._on_provider_inference,
@@ -294,6 +296,23 @@ class EpisodeRecorder(LifecycleMixin):
         buf.last_event_at = time.time()
         self._finalize_episode(episode_id)
 
+    def _on_agent_command(self, event: Event) -> None:
+        """Capture agent command for episode semantic intent."""
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        episode_id = self._extract_episode_id(payload)
+        buf = self._get_or_create_buffer(episode_id)
+        buf.received_events.add("agent.command")
+        # Prefer explicit agent_request, fallback to instruction or action
+        buf.semantic_intent = (
+            payload.get("agent_request")
+            or payload.get("instruction")
+            or payload.get("action")
+            or buf.semantic_intent
+        )
+        buf.llm_cot = payload.get("cot", payload.get("reasoning", buf.llm_cot))
+        buf.initial_state = payload.get("initial_state", buf.initial_state)
+        buf.last_event_at = time.time()
+
     def _on_agent_response(self, event: Event) -> None:
         payload = event.payload if isinstance(event.payload, dict) else {}
         episode_id = self._extract_episode_id(payload)
@@ -417,6 +436,7 @@ class EpisodeRecorder(LifecycleMixin):
             "is_complete": buf.is_complete(),
             "status": status,
             "reward": reward,
+            "agent_request": buf.semantic_intent,
             "sandbox_blocked": buf.sandbox_blocked,
             "sandbox_block_reason": buf.sandbox_block_reason,
             "runtime_failed": buf.runtime_failed,

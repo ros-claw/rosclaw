@@ -73,27 +73,28 @@ class BundleCompiler:
             from mcp.server import Server
             from mcp.types import TextContent, Tool
 
+            # CRITICAL FIX: module-level server and tool registration for structural stability
+            _server = Server("{cap_name}")
+
+            @_server.list_tools()
+            async def _list_tools() -> list[Tool]:
+                return [
+                    Tool(
+                        name="{cap_name}.invoke",
+                        description="Invoke the {cap_name} capability",
+                        inputSchema={{
+                            "type": "object",
+                            "properties": {{
+                                "param": {{"type": "string", "description": "Input parameter"}}
+                            }},
+                            "required": ["param"],
+                        }},
+                    ),
+                ]
+
             class {cap_name.title()}MCPServer:
                 def __init__(self):
-                    self.server = Server("{cap_name}")
-                    self._register_tools()
-
-                def _register_tools(self) -> None:
-                    @self.server.list_tools()
-                    async def list_tools() -> list[Tool]:
-                        return [
-                            Tool(
-                                name="{cap_name}.invoke",
-                                description="Invoke the {cap_name} capability",
-                                inputSchema={{
-                                    "type": "object",
-                                    "properties": {{
-                                        "param": {{"type": "string", "description": "Input parameter"}}
-                                    }},
-                                    "required": ["param"],
-                                }},
-                            ),
-                        ]
+                    self.server = _server
 
                 async def run(self):
                     from mcp.server.stdio import stdio_server

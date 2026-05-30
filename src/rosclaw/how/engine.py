@@ -55,14 +55,15 @@ class HeuristicEngine:
             self._cache_valid = False
 
         # CRITICAL FIX: subscribe to failure events on EventBus for active recovery
+        # Store (topic, callback) tuples for later unsubscribe
         if self._event_bus is not None:
             try:
-                self._event_bus.subscribe("praxis.failed", self._on_failure_event)
-                self._subscribed_topics.append(("praxis.failed", self._on_failure_event))
-                self._event_bus.subscribe("firewall.action_blocked", self._on_failure_event)
-                self._subscribed_topics.append(("firewall.action_blocked", self._on_failure_event))
-                self._event_bus.subscribe("safety.violation", self._on_failure_event)
-                self._subscribed_topics.append(("safety.violation", self._on_failure_event))
+                self._event_bus.subscribe("praxis.failed", self._on_failure_sync_wrapper)
+                self._subscribed_topics.append(("praxis.failed", self._on_failure_sync_wrapper))
+                self._event_bus.subscribe("firewall.action_blocked", self._on_failure_sync_wrapper)
+                self._subscribed_topics.append(("firewall.action_blocked", self._on_failure_sync_wrapper))
+                self._event_bus.subscribe("safety.violation", self._on_failure_sync_wrapper)
+                self._subscribed_topics.append(("safety.violation", self._on_failure_sync_wrapper))
                 logger.info("HeuristicEngine subscribed to failure events")
             except Exception as exc:  # noqa: BLE001
                 logger.warning("HeuristicEngine EventBus subscribe failed: %s", exc)
@@ -323,6 +324,16 @@ class HeuristicEngine:
         re = RecoveryEngine(self, event_bus=self._event_bus)
         retry_plan = re.build_retry_plan(failure_type, rule, context)
         return retry_plan
+
+    def _on_failure_sync_wrapper(self, event: Any) -> None:
+        """Sync wrapper that schedules async handler on the event loop."""
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._on_failure_event(event))
+        except RuntimeError:
+            # No running loop — fire and forget in a new loop
+            asyncio.run(self._on_failure_event(event))
 
     # CRITICAL FIX: EventBus failure event handler for active recovery
     def _on_failure_event(self, event: Any) -> None:

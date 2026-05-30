@@ -50,6 +50,26 @@ class Event:
     trace_id: str = ""  # correlation ID for distributed tracing across the pipeline
     metadata: dict = field(default_factory=dict)
 
+    def derive(self, **overrides) -> "Event":
+        """Create a new Event inheriting this event's trace_id.
+
+        Args:
+            **overrides: Fields to override (topic, payload, source, etc.)
+
+        Returns:
+            New Event with inherited trace_id.
+        """
+        return Event(
+            topic=overrides.get("topic", self.topic),
+            payload=overrides.get("payload", self.payload),
+            source=overrides.get("source", self.source),
+            timestamp=overrides.get("timestamp", time.time()),
+            priority=overrides.get("priority", self.priority),
+            event_id=overrides.get("event_id", str(uuid.uuid4())[:8]),
+            trace_id=overrides.get("trace_id", self.trace_id),
+            metadata=overrides.get("metadata", self.metadata.copy()),
+        )
+
 
 class EventBus:
     """
@@ -135,9 +155,17 @@ class EventBus:
         Sync subscribers are called immediately.
         Async subscribers are scheduled on the event loop.
         """
-        # CRITICAL FIX: auto-inject trace_id for distributed tracing if missing
+        # CRITICAL FIX: auto-inject trace_id for distributed tracing if missing.
+        # Derive from payload request_id/correlation_id/episode_id first so the
+        # entire pipeline shares one trace_id.
         if not event.trace_id:
-            event.trace_id = f"trace_{uuid.uuid4().hex[:12]}"
+            payload = event.payload if isinstance(event.payload, dict) else {}
+            event.trace_id = (
+                payload.get("request_id")
+                or payload.get("correlation_id")
+                or payload.get("episode_id")
+                or f"trace_{uuid.uuid4().hex[:12]}"
+            )
 
         # Store in history
         self._event_history.append(event)

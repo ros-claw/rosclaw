@@ -117,6 +117,9 @@ class Runtime(LifecycleMixin):
 
         # Thread-safe async executor (created once, reused for _run_async)
         import concurrent.futures
+        import threading
+        self._module_lock = threading.RLock()
+        self._executor_shutdown = False
         self._async_executor: concurrent.futures.ThreadPoolExecutor = concurrent.futures.ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="rosclaw_async"
         )
@@ -286,6 +289,8 @@ class Runtime(LifecycleMixin):
                     # initialize and seed defaults explicitly here.
                     self._run_async(self._how.initialize())
                     self._run_async(self._how.seed_defaults())
+                    # Initialize EventBus subscriptions for active recovery
+                    self._run_async(self._how.initialize())
                     print("[Runtime] Heuristic Grounding (HeuristicEngine) initialized")
                 else:
                     print("[Runtime] HeuristicEngine skipped: no SeekDB client (memory not enabled)")
@@ -329,9 +334,10 @@ class Runtime(LifecycleMixin):
     def _do_start(self) -> None:
         """Start all modules."""
         print("[Runtime] Starting all modules...")
-        for module in self._modules:
-            if isinstance(module, LifecycleMixin) and module.is_ready:
-                module.start()
+        with self._module_lock:
+            for module in self._modules:
+                if isinstance(module, LifecycleMixin) and module.is_ready:
+                    module.start()
         self.event_bus.publish(Event(
             topic="runtime.status",
             payload={"state": "running", "robot_id": self.config.robot_id},
@@ -350,11 +356,14 @@ class Runtime(LifecycleMixin):
             priority=EventPriority.CRITICAL,
         ))
         # Stop in reverse order
-        for module in reversed(self._modules):
-            if isinstance(module, LifecycleMixin):
-                module.stop()
+        with self._module_lock:
+            for module in reversed(self._modules):
+                if isinstance(module, LifecycleMixin):
+                    module.stop()
         # Shutdown async executor to prevent thread leaks
-        self._async_executor.shutdown(wait=False)
+        if not self._executor_shutdown:
+            self._executor_shutdown = True
+            self._async_executor.shutdown(wait=False)
         print("[Runtime] Shutdown complete")
 
     def _setup_internal_subscriptions(self) -> None:
@@ -412,12 +421,12 @@ class Runtime(LifecycleMixin):
         """Run an async coroutine from a sync context.
 
         Uses the cached ThreadPoolExecutor for thread safety and avoids
-        creating a new executor on every call.
+        creating a new executor on every call. Returns the synchronous result.
         """
         import asyncio
         try:
-            loop = asyncio.get_running_loop()
-            # Already inside an event loop — run in a dedicated thread with a
+            asyncio.get_running_loop()
+            # Already inside an event loop — run in a background thread with a
             # fresh event loop to avoid "cannot run nested event loop" errors.
             def _run_with_fresh_loop():
                 new_loop = asyncio.new_event_loop()
@@ -585,7 +594,9 @@ class Runtime(LifecycleMixin):
 
     @property
     def memory(self) -> Optional[Any]:
-        return self._memory
+        if self._memory is None:
+            return None
+        return _MemoryProxy(self._memory, event_bus=self.event_bus)
 
     @property
     def practice(self) -> Optional[Any]:
@@ -607,7 +618,7 @@ class Runtime(LifecycleMixin):
     def how(self) -> Optional[Any]:
         if self._how is None:
             return None
-        return _HowProxy(self._how, self._run_async)
+        return _HowProxy(self._how, self._run_async, event_bus=self.event_bus)
 
     @property
     def e_urdf(self) -> Optional[Any]:
@@ -1089,9 +1100,11 @@ class Runtime(LifecycleMixin):
                 "instruction": instruction,
                 "parameters": action.get("parameters", {}),
                 "robot_id": self.config.robot_id,
+                "agent_request": action,
             },
             source="runtime",
             priority=EventPriority.HIGH,
+            trace_id=request_id,
         ))
 
         # 2. Provider inference (action plan)
@@ -1455,23 +1468,119 @@ class Runtime(LifecycleMixin):
 
 
 class _HowProxy:
-    """Sync wrapper for HeuristicEngine so async methods work from sync contexts."""
+    """Sync wrapper for HeuristicEngine with EventBus transparency.
 
-    def __init__(self, engine, run_async):
+    All calls are proxied through the EventBus so that other modules
+    (Dashboard, Memory, etc.) can observe How activity without direct coupling.
+    """
+
+    def __init__(self, engine, run_async, event_bus: Any | None = None):
         self._engine = engine
         self._run_async = run_async
-
-    def generate_recovery_hint(self, failure_type: str, context: Optional[dict[str, Any]] = None) -> Optional[dict[str, Any]]:
-        """Sync wrapper around HeuristicEngine.generate_recovery_hint."""
-        return self._run_async(self._engine.generate_recovery_hint(failure_type, context))
-
-    def suggest_recovery(self, error_log: str, context: Optional[dict[str, Any]] = None) -> Optional[dict[str, Any]]:
-        """Sync wrapper around HeuristicEngine.suggest_recovery."""
-        return self._run_async(self._engine.suggest_recovery(error_log, context))
-
-    def record_outcome(self, rule_id: str, success: bool) -> None:
-        """Sync wrapper around HeuristicEngine.record_outcome."""
-        return self._run_async(self._engine.record_outcome(rule_id, success))
+        self._event_bus = event_bus
 
     def __getattr__(self, name: str) -> Any:
-        return getattr(self._engine, name)
+        attr = getattr(self._engine, name)
+        if not callable(attr):
+            return attr
+
+        def _wrapper(*args, **kwargs):
+            import asyncio
+            # Publish request event for observability / decoupling
+            if self._event_bus is not None:
+                try:
+                    self._event_bus.publish(Event(
+                        topic=f"how.{name}.requested",
+                        payload={"method": name, "args": str(args), "kwargs": str(kwargs)},
+                        source="runtime_proxy",
+                    ))
+                except Exception:
+                    pass
+
+            # Execute the real call (async → sync via _run_async)
+            try:
+                if asyncio.iscoroutinefunction(attr):
+                    result = self._run_async(attr(*args, **kwargs))
+                else:
+                    result = attr(*args, **kwargs)
+            except Exception as exc:
+                if self._event_bus is not None:
+                    try:
+                        self._event_bus.publish(Event(
+                            topic=f"how.{name}.failed",
+                            payload={"method": name, "error": str(exc)},
+                            source="runtime_proxy",
+                        ))
+                    except Exception:
+                        pass
+                raise
+
+            # Publish completion event
+            if self._event_bus is not None:
+                try:
+                    self._event_bus.publish(Event(
+                        topic=f"how.{name}.completed",
+                        payload={"method": name, "result_type": type(result).__name__},
+                        source="runtime_proxy",
+                    ))
+                except Exception:
+                    pass
+            return result
+
+        return _wrapper
+
+
+class _MemoryProxy:
+    """Transparent proxy for MemoryInterface with EventBus publishing.
+
+    Every Memory call is mirrored as an EventBus event so that the
+    rest of the system (Dashboard, Practice, etc.) can observe
+    Memory activity without direct coupling to Runtime.
+    """
+
+    def __init__(self, memory, event_bus: Any | None = None):
+        self._memory = memory
+        self._event_bus = event_bus
+
+    def __getattr__(self, name: str) -> Any:
+        attr = getattr(self._memory, name)
+        if not callable(attr):
+            return attr
+
+        def _wrapper(*args, **kwargs):
+            if self._event_bus is not None:
+                try:
+                    self._event_bus.publish(Event(
+                        topic=f"memory.{name}.requested",
+                        payload={"method": name, "args": str(args), "kwargs": str(kwargs)},
+                        source="runtime_proxy",
+                    ))
+                except Exception:
+                    pass
+
+            try:
+                result = attr(*args, **kwargs)
+            except Exception as exc:
+                if self._event_bus is not None:
+                    try:
+                        self._event_bus.publish(Event(
+                            topic=f"memory.{name}.failed",
+                            payload={"method": name, "error": str(exc)},
+                            source="runtime_proxy",
+                        ))
+                    except Exception:
+                        pass
+                raise
+
+            if self._event_bus is not None:
+                try:
+                    self._event_bus.publish(Event(
+                        topic=f"memory.{name}.completed",
+                        payload={"method": name, "result_type": type(result).__name__},
+                        source="runtime_proxy",
+                    ))
+                except Exception:
+                    pass
+            return result
+
+        return _wrapper
