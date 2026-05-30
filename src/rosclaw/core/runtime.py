@@ -279,10 +279,12 @@ class Runtime(LifecycleMixin):
                     self._how = HeuristicEngine(
                         seekdb_client=seekdb,
                         knowledge_interface=self._knowledge,
+                        event_bus=self.event_bus,
                     )
                     self._modules.append(self._how)
                     # HeuristicEngine is not a LifecycleMixin;
-                    # seed defaults explicitly here.
+                    # initialize and seed defaults explicitly here.
+                    self._run_async(self._how.initialize())
                     self._run_async(self._how.seed_defaults())
                     print("[Runtime] Heuristic Grounding (HeuristicEngine) initialized")
                 else:

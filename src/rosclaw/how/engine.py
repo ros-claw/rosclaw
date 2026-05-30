@@ -325,17 +325,30 @@ class HeuristicEngine:
         return retry_plan
 
     # CRITICAL FIX: EventBus failure event handler for active recovery
-    async def _on_failure_event(self, event: Any) -> None:
-        """Handle failure events from EventBus and generate recovery hints."""
+    def _on_failure_event(self, event: Any) -> None:
+        """Handle failure events from EventBus and generate recovery hints.
+
+        Note: This is a sync method because EventBus sync subscribers
+        do not await callbacks. Internally it schedules async work.
+        """
+        import asyncio
         payload = event.payload if hasattr(event, "payload") else {}
         failure_type = payload.get("error_log", payload.get("reason", "unknown_failure"))
         from rosclaw.how.recovery import RecoveryEngine
         re = RecoveryEngine(self, event_bus=self._event_bus)
-        await re.generate_recovery_hint(
-            failure_type,
-            context=payload,
-            request_id=payload.get("request_id", payload.get("episode_id", "")),
-        )
+        try:
+            loop = asyncio.get_running_loop()
+            # Only create coroutine when loop is available to avoid
+            # "never awaited" warnings on discarded coroutines.
+            coro = re.generate_recovery_hint(
+                failure_type,
+                context=payload,
+                request_id=payload.get("request_id", payload.get("episode_id", "")),
+            )
+            loop.create_task(coro)
+        except RuntimeError:
+            # No running event loop — fire and forget won't work here
+            pass
 
     # ── stats ────────────────────────────────────────────────────────────
 
