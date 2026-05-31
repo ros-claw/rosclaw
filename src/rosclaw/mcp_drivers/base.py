@@ -115,6 +115,39 @@ class BaseDriver(LifecycleMixin, ABC):
                     f"Max allowed absolute value is 1e5."
                 )
 
+    def _validate_duration(self, duration: float) -> None:
+        """Guard: validate duration is positive and finite."""
+        import math
+        if not isinstance(duration, (int, float)):
+            raise TypeError(f"Duration must be numeric, got {type(duration).__name__}")
+        if not math.isfinite(duration):
+            raise ValueError(f"Duration must be finite, got {duration}")
+        if duration <= 0:
+            raise ValueError(f"Duration must be positive, got {duration}")
+
+    def _validate_trajectory(self, trajectory: TrajectoryCommand) -> None:
+        """Guard: validate trajectory has matching waypoint lengths and positive times."""
+        import math
+        if not trajectory.waypoints:
+            raise ValueError("Trajectory must have at least one waypoint")
+        if len(trajectory.waypoints) != len(trajectory.times):
+            raise ValueError(
+                f"Waypoint count ({len(trajectory.waypoints)}) != time count ({len(trajectory.times)})"
+            )
+        for i, wp in enumerate(trajectory.waypoints):
+            if len(wp) != self.joint_dof:
+                raise ValueError(
+                    f"Waypoint {i} has {len(wp)} joints, expected {self.joint_dof}"
+                )
+            for j, p in enumerate(wp):
+                if not math.isfinite(p):
+                    raise ValueError(f"Waypoint {i} joint {j} is not finite: {p}")
+        for i, t in enumerate(trajectory.times):
+            if not math.isfinite(t):
+                raise ValueError(f"Time {i} is not finite: {t}")
+            if t < 0:
+                raise ValueError(f"Time {i} is negative: {t}")
+
     @abstractmethod
     def move_joints(self, positions: list[float], duration: float = 2.0) -> bool:
         """Command joints to target positions."""

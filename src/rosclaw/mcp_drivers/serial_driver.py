@@ -96,6 +96,7 @@ class SerialDriver(BaseDriver):
     def move_joints(self, positions: list[float], duration: float = 2.0) -> bool:
         self._ensure_ready("move_joints")
         self._validate_joint_positions(positions)
+        self._validate_duration(duration)
         if not self._driver_state.connected:
             return False
 
@@ -110,8 +111,10 @@ class SerialDriver(BaseDriver):
     def execute_trajectory(self, trajectory: TrajectoryCommand) -> bool:
         if not self._driver_state.connected:
             return False
-        for wp in trajectory.waypoints:
-            if not self.move_joints(wp, duration=trajectory.times[0] if trajectory.times else 1.0):
+        self._ensure_ready("execute_trajectory")
+        self._validate_trajectory(trajectory)
+        for wp, t in zip(trajectory.waypoints, trajectory.times):
+            if not self.move_joints(wp, duration=t):
                 return False
         return True
 

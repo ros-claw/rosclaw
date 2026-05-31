@@ -138,8 +138,8 @@ class TestMuJoCoSimDriverTrajectory:
         d.initialize()
         d.start()
         traj = TrajectoryCommand(waypoints=[[0.1] * 3], times=[0.1])
-        result = d.execute_trajectory(traj)
-        assert result is False
+        with pytest.raises(ValueError):
+            d.execute_trajectory(traj)
         d.stop()
 
     def test_execute_trajectory_not_connected(self):

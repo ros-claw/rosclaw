@@ -83,6 +83,7 @@ class ROS2Driver(BaseDriver):
     def move_joints(self, positions: list[float], duration: float = 2.0) -> bool:
         self._ensure_ready("move_joints")
         self._validate_joint_positions(positions)
+        self._validate_duration(duration)
         if not self._driver_state.connected:
             return False
 
@@ -105,6 +106,8 @@ class ROS2Driver(BaseDriver):
     def execute_trajectory(self, trajectory: TrajectoryCommand) -> bool:
         if not self._driver_state.connected:
             return False
+        self._ensure_ready("execute_trajectory")
+        self._validate_trajectory(trajectory)
         if self._rclpy is None:
             # Mock mode: update state and return success
             if trajectory.waypoints:

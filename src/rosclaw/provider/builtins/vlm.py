@@ -153,9 +153,10 @@ class MockVLMProvider(Provider):
 
         try:
             from PIL import Image
-            img = Image.open(image_path).convert("RGB")
-            pixels = list(img.getdata())
-            w, h = img.size
+            with Image.open(image_path) as img:
+                img = img.convert("RGB")
+                pixels = list(img.getdata())
+                w, h = img.size
 
             color = self._extract_color(query)
             if color is None:
@@ -229,8 +230,9 @@ class MockVLMProvider(Provider):
     def _analyze_scene(image_path):
         try:
             from PIL import Image
-            img = Image.open(image_path).convert("L")
-            pixels = list(img.getdata())
+            with Image.open(image_path) as img:
+                img = img.convert("L")
+                pixels = list(img.getdata())
             avg_brightness = sum(pixels) / len(pixels)
             if avg_brightness > 200:
                 return "bright_indoor"
