@@ -28,7 +28,7 @@ for LLM grounding. The e-URDF format adds to standard URDF:
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import numpy as np
 

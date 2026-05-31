@@ -206,12 +206,18 @@ class KnowledgeInterface(LifecycleMixin):
     def _do_start(self) -> None:
         logger.info("[Know] KnowledgeInterface started")
         if self.event_bus is not None:
-            self.event_bus.subscribe("rosclaw.provider.inference.requested",
-                                     self._on_provider_inference_requested)
-            self.event_bus.subscribe("rosclaw.sandbox.episode.started",
-                                     self._on_sandbox_episode_started)
-            self.event_bus.subscribe("rosclaw.runtime.execution.completed",
-                                     self._on_runtime_execution_completed)
+            self.event_bus.subscribe(
+                "rosclaw.provider.inference.requested",
+                self._on_provider_inference_requested,
+            )
+            self.event_bus.subscribe(
+                "rosclaw.sandbox.episode.started",
+                self._on_sandbox_episode_started,
+            )
+            self.event_bus.subscribe(
+                "rosclaw.runtime.execution.completed",
+                self._on_runtime_execution_completed,
+            )
         # Publish startup event for Practice / Dashboard tracking
         if self.event_bus is not None:
             self.event_bus.publish(Event(
@@ -226,12 +232,15 @@ class KnowledgeInterface(LifecycleMixin):
     def _do_stop(self) -> None:
         logger.info("[Know] KnowledgeInterface stopped")
         if self.event_bus is not None:
-            self.event_bus.unsubscribe("rosclaw.provider.inference.requested",
-                                        self._on_provider_inference_requested)
-            self.event_bus.unsubscribe("rosclaw.sandbox.episode.started",
-                                        self._on_sandbox_episode_started)
-            self.event_bus.unsubscribe("rosclaw.runtime.execution.completed",
-                                        self._on_runtime_execution_completed)
+            self.event_bus.unsubscribe(
+                "rosclaw.provider.inference.requested",
+                self._on_provider_inference_requested)
+            self.event_bus.unsubscribe(
+                "rosclaw.sandbox.episode.started",
+                self._on_sandbox_episode_started)
+            self.event_bus.unsubscribe(
+                "rosclaw.runtime.execution.completed",
+                self._on_runtime_execution_completed)
         self._capabilities.clear()
         self._symptoms.clear()
         self._patterns.clear()
@@ -571,7 +580,8 @@ class KnowledgeInterface(LifecycleMixin):
         all_robots = set(self._capabilities.keys())
         if self.seekdb is not None:
             try:
-                rows = self.seekdb.query("knowledge_graph",
+                rows = self.seekdb.query(
+                    "knowledge_graph",
                     filters={"predicate": "has_capability"}, limit=1000)
                 for r in rows:
                     rid = r.get("subject", "")
@@ -586,7 +596,8 @@ class KnowledgeInterface(LifecycleMixin):
             # Also query SeekDB for this robot's capabilities
             if self.seekdb is not None and not caps:
                 try:
-                    rows = self.seekdb.query("knowledge_graph",
+                    rows = self.seekdb.query(
+                        "knowledge_graph",
                         filters={"subject": rid, "predicate": "has_capability"}, limit=100)
                     caps = {r.get("object", "") for r in rows if r.get("object")}
                 except Exception:

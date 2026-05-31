@@ -277,8 +277,6 @@ def compute_gait_control(
         roll_correction = np.clip(-roll_error * 6.0, -0.45, 0.45)
 
     # Determine stance leg from phase: sin<0 means foot on ground (stance)
-    left_is_stance = np.sin(left_phase) < 0
-    right_is_stance = np.sin(right_phase) < 0
 
     # Lateral balance: ONLY use feedback correction, no stance-based hip_roll
     # This avoids introducing destabilizing lateral motion from gait

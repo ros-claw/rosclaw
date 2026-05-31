@@ -11,7 +11,7 @@ without writing custom Provider subclasses for every backend.
 
 from typing import Any
 
-from rosclaw.provider.core.errors import CapabilityNotSupportedError, RuntimeAdapterError
+from rosclaw.provider.core.errors import RuntimeAdapterError
 from rosclaw.provider.core.manifest import ProviderManifest
 from rosclaw.provider.core.provider import Provider
 from rosclaw.provider.core.request import ProviderRequest

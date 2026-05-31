@@ -56,11 +56,9 @@ class Provider(ABC):
     # ------------------------------------------------------------------
     async def load(self) -> None:
         """Load model weights, connect to runtime, warm up."""
-        pass
 
     async def unload(self) -> None:
         """Release resources, disconnect."""
-        pass
 
     # ------------------------------------------------------------------
     # Required implementations

@@ -283,7 +283,6 @@ class RecoveryLoop:
         import asyncio
         import concurrent.futures
         try:
-            loop = asyncio.get_running_loop()
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                 future = pool.submit(asyncio.run, coro)
                 return future.result(timeout=30)

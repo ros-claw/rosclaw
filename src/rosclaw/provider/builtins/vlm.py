@@ -7,8 +7,6 @@ without requiring an external model service.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +35,7 @@ def _resolve_artifact(uri: str) -> Path:
         if len(parts) == 2:
             return Path("./artifacts") / parts[0] / parts[1]
     return Path(uri)
+
 
 # Color detection thresholds (RGB) for common object queries
 _COLOR_MAP: dict[str, tuple[tuple[int, int, int], tuple[int, int, int]]] = {

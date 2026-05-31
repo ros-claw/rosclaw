@@ -15,7 +15,6 @@ The MCP Hub:
 """
 
 import asyncio
-import json
 import logging
 import uuid
 from dataclasses import dataclass, field

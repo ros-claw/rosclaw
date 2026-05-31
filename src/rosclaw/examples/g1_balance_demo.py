@@ -3,7 +3,6 @@
 Fixed-base bipedal robot performs sit-to-stand motion.
 Demonstrates trajectory tracking with position actuators.
 """
-import numpy as np
 
 
 def create_g1_model():
@@ -55,9 +54,9 @@ def run_demo(duration=3.0):
     xml = create_g1_model()
     model = mujoco.MjModel.from_xml_string(xml)
     data = mujoco.MjData(model)
-    
+
     print(f"G1 Sit-to-Stand: {model.nq} DOF, {model.nu} actuators")
-    
+
     # Start crouched
     data.qpos[0] = -0.8
     data.qpos[1] = 1.2
@@ -65,7 +64,7 @@ def run_demo(duration=3.0):
     data.qpos[3] = 1.2
     mujoco.mj_forward(model, data)
     print(f"Start: knees={data.qpos[1]:.2f},{data.qpos[3]:.2f} rad (crouched)")
-    
+
     steps = int(duration / 0.001)
     for i in range(steps):
         alpha = min(i / 1500.0, 1.0)
@@ -76,7 +75,7 @@ def run_demo(duration=3.0):
         mujoco.mj_step(model, data)
         if i % 500 == 0:
             print(f"  t={data.time:.2f}s: knees=[{data.qpos[1]:.2f},{data.qpos[3]:.2f}]")
-    
+
     success = data.qpos[1] < 0.8 and data.qpos[3] < 0.8  # Relaxed threshold
     print(f"\nFinal: knees=[{data.qpos[1]:.3f},{data.qpos[3]:.3f}]")
     print(f"Sit-to-stand success: {success}")

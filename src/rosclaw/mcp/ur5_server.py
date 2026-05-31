@@ -19,7 +19,7 @@ import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, AsyncIterator, Optional
+from typing import Optional
 
 import numpy as np
 
@@ -33,16 +33,23 @@ try:
 except ImportError:
     RCLPY_AVAILABLE = False
     # Stub classes for import-time compatibility when ROS 2 is not installed
+
     class Node:
+
         def __init__(self, *args, **kwargs):
             pass
+
     class ActionClient:
         pass
+
     class ReentrantCallbackGroup:
         pass
+
     class QoSProfile:
+
         def __init__(self, *args, **kwargs):
             pass
+
     class ReliabilityPolicy:
         BEST_EFFORT = None
 
@@ -51,7 +58,6 @@ from mcp.server import Server
 from mcp.server.models import InitializationOptions
 from mcp.server.stdio import stdio_server
 from mcp.types import (
-    CallToolRequestParams,
     ImageContent,
     TextContent,
     Tool,
@@ -61,24 +67,24 @@ from mcp.types import (
 from rosclaw.firewall.decorator import (
     DigitalTwinFirewall,
     SafetyLevel,
-    SafetyViolationError,
 )
 
 
 # ROS message imports
 try:
     from control_msgs.action import FollowJointTrajectory
-    from geometry_msgs.msg import Pose, PoseStamped, Twist
+    from geometry_msgs.msg import Pose, Twist
     from sensor_msgs.msg import JointState
-    from std_msgs.msg import Float64MultiArray, Header
     from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
     ROS_IMPORTS_OK = True
 except ImportError as e:
     print(f"[ERROR] ROS 2 message imports failed: {e}")
     ROS_IMPORTS_OK = False
     # Stubs for type annotations when ROS 2 is not installed
+
     class Pose:
         pass
+
     class JointState:
         pass
 
@@ -185,7 +191,7 @@ class UR5ROSNode(Node):
         )
 
         self.get_logger().info(f"UR5 ROS Node initialized for robot at {robot_ip}")
-        self.get_logger().info(f"Waiting for action server...")
+        self.get_logger().info("Waiting for action server...")
 
         # Wait for action server
         if not self.trajectory_client.wait_for_server(timeout_sec=5.0):
@@ -481,7 +487,7 @@ class UR5MCPServer:
         if validate:
             try:
                 import asyncio
-                from rosclaw.core.event_bus import EventBus, Event
+                from rosclaw.core.event_bus import Event
 
                 # Get or create event bus reference
                 event_bus = getattr(self, '_event_bus', None)
@@ -588,7 +594,7 @@ class UR5MCPServer:
                 )
 
                 if not result.is_safe:
-                    error_msg = f"Digital Twin validation FAILED for trajectory:\n"
+                    error_msg = "Digital Twin validation FAILED for trajectory:\n"
                     error_msg += json.dumps(result.to_dict(), indent=2)
                     return [TextContent(type="text", text=error_msg)]
 
@@ -710,7 +716,7 @@ def main():
     )
     args = parser.parse_args()
 
-    print(f"[UR5MCP] Starting ROSClaw UR5 MCP Server")
+    print("[UR5MCP] Starting ROSClaw UR5 MCP Server")
     print(f"[UR5MCP] Robot IP: {args.robot_ip}")
     print(f"[UR5MCP] Firewall Model: {args.firewall_model}")
 

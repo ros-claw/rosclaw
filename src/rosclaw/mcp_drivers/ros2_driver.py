@@ -29,26 +29,27 @@ class ROS2Driver(BaseDriver):
         try:
             import rclpy
             from rclpy.node import Node
-            from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+            from trajectory_msgs.msg import JointTrajectory
             from sensor_msgs.msg import JointState
-        except ImportError:
-            logger.warning("rclpy not available, running in mock mode")
+
+            self._rclpy = rclpy
+            if not rclpy.ok():
+                rclpy.init(args=None)
+            self._node = Node(self._node_name)
+
+            self._pub_joint_cmd = self._node.create_publisher(
+                JointTrajectory, "/joint_trajectory_controller/joint_trajectory", 10
+            )
+            self._sub_joint_state = self._node.create_subscription(
+                JointState, "/joint_states", self._on_joint_state, 10
+            )
             self._driver_state.connected = True
-            return
-
-        self._rclpy = rclpy
-        if not rclpy.ok():
-            rclpy.init(args=None)
-        self._node = Node(self._node_name)
-
-        self._pub_joint_cmd = self._node.create_publisher(
-            JointTrajectory, "/joint_trajectory_controller/joint_trajectory", 10
-        )
-        self._sub_joint_state = self._node.create_subscription(
-            JointState, "/joint_states", self._on_joint_state, 10
-        )
-        self._driver_state.connected = True
-        logger.info("ROS 2 node '%s' initialized", self._node_name)
+            logger.info("ROS 2 node '%s' initialized", self._node_name)
+        except Exception as e:
+            logger.warning("rclpy unavailable or init failed (%s), running in mock mode", e)
+            self._rclpy = None
+            self._node = None
+            self._driver_state.connected = True
 
     def _do_stop(self) -> None:
         if self._node:

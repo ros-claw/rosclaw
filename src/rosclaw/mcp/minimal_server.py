@@ -18,7 +18,6 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from typing import Any
 
 from mcp.server import Server, NotificationOptions
 from mcp.server.models import InitializationOptions
@@ -37,7 +36,6 @@ class ROSClawMinimalMCPServer:
         self.event_bus = EventBus()
         self.hub = MCPHub(event_bus=self.event_bus, robot_id="rosclaw_default")
         # Redirect hub init prints to stderr so they don't interfere with stdio JSON-RPC
-        import io
         old_stdout = sys.stdout
         sys.stdout = sys.stderr
         try:

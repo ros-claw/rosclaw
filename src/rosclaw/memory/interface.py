@@ -13,16 +13,15 @@ Sprint 5 of DESIGN_SPRINT3_5.
 """
 
 from typing import Optional, Any
-import json
 import logging
 import time
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import EventBus, Event
 from rosclaw.core.lifecycle import LifecycleMixin
-
-logger = logging.getLogger("rosclaw.memory.interface")
 from rosclaw.memory.seekdb_client import SeekDBClient, SeekDBMemoryClient
 from rosclaw.memory.types import PraxisEvent, FailureMemory, ArtifactRef
+
+logger = logging.getLogger("rosclaw.memory.interface")
 
 # Conditional import: powermem Protocol types for type-safe proxy methods
 try:
@@ -492,43 +491,6 @@ class MemoryInterface(LifecycleMixin):
         )
         return results[0] if results else None
 
-    def write_praxis_event(self, event: dict[str, Any]) -> str:
-        """Write a praxis event to the experience store (convenience wrapper).
-
-        This is the canonical API used by Runtime.execute() to persist
-        completed actions as experiences.
-        """
-        return self.store_experience(
-            event_id=event.get("event_id", ""),
-            event_type=event.get("event_type", "praxis"),
-            instruction=event.get("instruction", ""),
-            cot_trace=event.get("cot_trace"),
-            trajectory=event.get("trajectory"),
-            outcome=event.get("outcome", "success"),
-            duration_sec=event.get("duration_sec", 0.0),
-            error_details=event.get("error_details"),
-            tags=event.get("tags"),
-            metadata=event.get("metadata"),
-        )
-
-    def write_failure_memory(self, failure: dict[str, Any]) -> str:
-        """Write a failure event to the experience store (convenience wrapper).
-
-        Used by Runtime when sandbox_check blocks or execution fails.
-        """
-        return self.store_experience(
-            event_id=failure.get("failure_id", failure.get("event_id", "")),
-            event_type="failure",
-            instruction=failure.get("instruction", ""),
-            cot_trace=failure.get("cot_trace"),
-            trajectory=failure.get("trajectory"),
-            outcome="failure",
-            duration_sec=failure.get("duration_sec", 0.0),
-            error_details=failure.get("error", failure.get("reason", "")),
-            tags=["failure", failure.get("failure_type", "unknown")],
-            metadata=failure.get("context", {}),
-        )
-
     def get_statistics(self) -> dict:
         """Get experience statistics."""
         total = self._client.count("experience_graph")
@@ -686,7 +648,7 @@ class MemoryInterface(LifecycleMixin):
             "total_experiences": total,
             "max_experiences": self.DEFAULT_MAX_EXPERIENCES,
             "utilization": total / self.DEFAULT_MAX_EXPERIENCES
-                if self.DEFAULT_MAX_EXPERIENCES > 0 else 0.0,
+            if self.DEFAULT_MAX_EXPERIENCES > 0 else 0.0,
             "oldest_timestamp": oldest_ts,
             "newest_timestamp": newest_ts,
             "age_span_days": round(age_days, 1),

@@ -114,7 +114,6 @@ class ProviderRegistry:
     def _load_provider(self, provider: Provider) -> None:
         """Load a provider, handling both sync and async calling contexts."""
         try:
-            loop = asyncio.get_running_loop()
             # Called from within an async context — schedule deferred load.
             # The caller must await asyncio.sleep() or similar to let the
             # task complete before relying on provider._healthy.
@@ -148,7 +147,6 @@ class ProviderRegistry:
         provider = self._providers.pop(name, None)
         if provider is not None:
             try:
-                loop = asyncio.get_running_loop()
                 asyncio.create_task(provider.unload())
             except RuntimeError:
                 try:

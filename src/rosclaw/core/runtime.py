@@ -26,11 +26,11 @@ Architecture:
 
 import logging
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
-from rosclaw.core.lifecycle import LifecycleMixin, LifecycleState
+from rosclaw.core.lifecycle import LifecycleMixin
 
 logger = logging.getLogger("rosclaw.core.runtime")
 
@@ -45,7 +45,6 @@ ActionGuard = None
 try:
     from rosclaw.provider.core.registry import ProviderRegistry
     from rosclaw.provider.core.router import CapabilityRouter
-    from rosclaw.provider.core.request import ProviderRequest
     from rosclaw.provider.guard.pipeline import GuardPipeline
     from rosclaw.provider.guard.schema_guard import SchemaGuard
     from rosclaw.provider.guard.action_guard import ActionGuard
@@ -451,6 +450,7 @@ class Runtime(LifecycleMixin):
             asyncio.get_running_loop()
             # Already inside an event loop — run in a background thread with a
             # fresh event loop to avoid "cannot run nested event loop" errors.
+
             def _run_with_fresh_loop():
                 new_loop = asyncio.new_event_loop()
                 try:

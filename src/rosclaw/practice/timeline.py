@@ -6,7 +6,7 @@ Assembles PraxisEvent from timeline entries on praxis.completed.
 Sprint 4 of DESIGN_SPRINT3_5.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Optional, Any
@@ -18,7 +18,7 @@ import numpy as np
 
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
-from rosclaw.core.types import RobotState, PraxisEvent
+from rosclaw.core.types import PraxisEvent
 
 logger = logging.getLogger("rosclaw.practice.timeline")
 
@@ -102,7 +102,6 @@ class UnifiedTimeline(LifecycleMixin):
 
         if self._enable_mcap:
             try:
-                from mcap.writer import Writer
                 self._mcap_writer = True
             except ImportError:
                 logger.warning("mcap not available, using JSONL only")
@@ -137,7 +136,7 @@ class UnifiedTimeline(LifecycleMixin):
         llm_entries = [e for e in related_entries if e.channel == TimelineChannel.LLM_REASONING]
         cmd_entries = [e for e in related_entries if e.channel == TimelineChannel.AGENT_COMMAND]
         sensor_entries = [e for e in self._sensorimotor_buffer
-                         if e.correlation_id == correlation_id]
+                          if e.correlation_id == correlation_id]
 
         cot_trace = []
         for e in llm_entries:

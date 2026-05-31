@@ -109,20 +109,15 @@ class LifecycleMixin:
 
     def _do_initialize(self) -> None:
         """Module-specific initialization logic."""
-        pass
 
     def _do_start(self) -> None:
         """Module-specific start logic."""
-        pass
 
     def _do_pause(self) -> None:
         """Module-specific pause logic."""
-        pass
 
     def _do_resume(self) -> None:
         """Module-specific resume logic."""
-        pass
 
     def _do_stop(self) -> None:
         """Module-specific stop logic."""
-        pass

@@ -841,7 +841,7 @@ def cmd_practice_replay(args: argparse.Namespace) -> int:
     # 6. Memory write
     print("\n6. MEMORY:")
     print(f"   Artifact URI: rosclaw://artifacts/episodes/{args.episode_id}")
-    print(f"   SeekDB: Committed via ExperienceCommitter")
+    print("   SeekDB: Committed via ExperienceCommitter")
 
     print("\n" + "=" * 60)
     return 0
@@ -1131,7 +1131,7 @@ def main() -> int:
     dashboard_parser.add_argument("--open", action="store_true", help="Open dashboard in browser")
 
     # doctor
-    doctor_parser = subparsers.add_parser("doctor", help="Run health diagnosis")
+    subparsers.add_parser("doctor", help="Run health diagnosis")
 
     # logs
     logs_parser = subparsers.add_parser("logs", help="Show runtime logs")

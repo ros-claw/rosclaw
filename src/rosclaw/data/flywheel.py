@@ -31,8 +31,7 @@ Usage:
 import json
 import time
 import uuid
-from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
 from typing import Optional, Callable, Dict, List, Any
@@ -41,7 +40,7 @@ import logging
 
 import numpy as np
 
-from .ring_buffer import RingBuffer, MultiChannelRingBuffer
+from .ring_buffer import MultiChannelRingBuffer
 
 
 logger = logging.getLogger(__name__)
@@ -273,7 +272,6 @@ class DataFlywheel:
 
         # Extract data from ring buffers
         pre_samples = int(pre_duration_sec * self.sampling_rate_hz)
-        post_samples = int(post_duration_sec * self.sampling_rate_hz)
 
         # Get data from ring buffer
         all_data = self._buffers.get_last_n(pre_samples)
