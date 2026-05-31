@@ -10,6 +10,19 @@ import sys
 import pytest
 
 
+def _enough_ram_for_physics(min_gb: float = 4.0) -> bool:
+    """Check if system has enough free RAM for stable MuJoCo physics."""
+    try:
+        with open("/proc/meminfo", "r") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    kb = int(line.split()[1])
+                    return kb / (1024 * 1024) >= min_gb
+    except Exception:
+        pass
+    return True
+
+
 class TestPhase3Dashboard:
     """Dashboard real startup and EventBus subscription."""
 
@@ -126,6 +139,10 @@ class TestPhase3MuJoCoRealPhysics:
         assert profile["robot_id"] in ("g1", "unitree_g1")
         assert profile["embodiment"]["dof"] >= 16
 
+    @pytest.mark.skipif(
+        not _enough_ram_for_physics(min_gb=4.0),
+        reason="Heavy MuJoCo physics test requires >=4GB free RAM (run on Dell workstation)",
+    )
     def test_g1_walk_produces_physics_data(self):
         """Run G1 walk for a short duration and verify real physics output."""
         import tempfile

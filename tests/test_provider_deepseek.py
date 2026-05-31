@@ -10,7 +10,8 @@ from rosclaw.provider.core.request import ProviderRequest
 
 
 class TestDeepSeekProviderInit:
-    def test_defaults(self):
+    def test_defaults(self, monkeypatch):
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
         provider = DeepSeekProvider({"name": "deepseek", "capabilities": ["llm.task_planning"]})
         assert provider.name == "deepseek"
         assert provider._api_key == ""
@@ -76,7 +77,8 @@ class TestDeepSeekBuildPrompt:
 
 class TestDeepSeekInfer:
     @pytest.mark.asyncio
-    async def test_no_api_key_returns_error(self):
+    async def test_no_api_key_returns_error(self, monkeypatch):
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
         provider = DeepSeekProvider({"name": "deepseek", "capabilities": ["llm.task_planning"]})
         req = ProviderRequest(
             request_id="r1",

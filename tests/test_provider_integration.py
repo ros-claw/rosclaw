@@ -252,6 +252,10 @@ class TestRuntimeWithProviders:
         )
         runtime.provider_registry.set_provider_health("custom_llm", ok=True)
 
+        # Ensure deepseek does not steal the route when env key is present
+        if "deepseek" in runtime.provider_registry.list_providers():
+            runtime.provider_registry.set_provider_health("deepseek", ok=False)
+
         req = ProviderRequest(
             request_id="r1", capability="llm.chat", inputs={"text": "hi"}
         )
