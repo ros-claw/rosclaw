@@ -18,8 +18,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 
-def test_mcp_server_imports():
-    """Verify MCP server can be imported without ROS2/MuJoCo."""
+def _check_mcp_server_imports():
+    """Helper that returns bool for script mode."""
     try:
         from rosclaw.mcp.ur5_server import UR5MCPServer, RCLPY_AVAILABLE, ROS_IMPORTS_OK
         print(f"✅ UR5MCPServer imported (rclpy available: {RCLPY_AVAILABLE}, ROS imports: {ROS_IMPORTS_OK})")
@@ -29,8 +29,13 @@ def test_mcp_server_imports():
         return False
 
 
-def test_mcp_hub_imports():
-    """Verify MCPHub can be imported."""
+def test_mcp_server_imports():
+    """Verify MCP server can be imported without ROS2/MuJoCo."""
+    assert _check_mcp_server_imports()
+
+
+def _check_mcp_hub_imports():
+    """Helper that returns bool for script mode."""
     try:
         from rosclaw.agent_runtime.mcp_hub import MCPHub, AgentContext
         from rosclaw.core.event_bus import EventBus
@@ -41,8 +46,13 @@ def test_mcp_hub_imports():
         return False
 
 
-async def test_mcp_hub_tool_registration():
-    """Verify MCPHub registers tools and can handle tool calls."""
+def test_mcp_hub_imports():
+    """Verify MCPHub can be imported."""
+    assert _check_mcp_hub_imports()
+
+
+async def _check_mcp_hub_tool_registration():
+    """Helper that returns bool for script mode."""
     from rosclaw.agent_runtime.mcp_hub import MCPHub
     from rosclaw.core.event_bus import EventBus
 
@@ -76,8 +86,14 @@ async def test_mcp_hub_tool_registration():
     return True
 
 
-def test_mcp_tools_schema_completeness():
-    """Verify all registered tools have valid MCP schemas."""
+@pytest.mark.asyncio
+async def test_mcp_hub_tool_registration():
+    """Verify MCPHub registers tools and can handle tool calls."""
+    assert await _check_mcp_hub_tool_registration()
+
+
+def _check_mcp_tools_schema_completeness():
+    """Helper that returns bool for script mode."""
     from rosclaw.agent_runtime.mcp_hub import MCPHub
     from rosclaw.core.event_bus import EventBus
 
@@ -105,8 +121,13 @@ def test_mcp_tools_schema_completeness():
     return True
 
 
-async def test_command_response_pattern():
-    """Verify MCPHub uses command-response pattern (not fire-and-forget)."""
+def test_mcp_tools_schema_completeness():
+    """Verify all registered tools have valid MCP schemas."""
+    assert _check_mcp_tools_schema_completeness()
+
+
+async def _check_command_response_pattern():
+    """Helper that returns bool for script mode."""
     from rosclaw.agent_runtime.mcp_hub import MCPHub
     from rosclaw.core.event_bus import EventBus
 
@@ -123,6 +144,12 @@ async def test_command_response_pattern():
     return True
 
 
+@pytest.mark.asyncio
+async def test_command_response_pattern():
+    """Verify MCPHub uses command-response pattern (not fire-and-forget)."""
+    assert await _check_command_response_pattern()
+
+
 async def main():
     print("=" * 60)
     print("ROSClaw MCP Closed Loop Verification")
@@ -130,18 +157,18 @@ async def main():
 
     results = []
 
-    results.append(("MCP Server Imports", test_mcp_server_imports()))
-    results.append(("MCPHub Imports", test_mcp_hub_imports()))
-    results.append(("Tool Schema Completeness", test_mcp_tools_schema_completeness()))
+    results.append(("MCP Server Imports", _check_mcp_server_imports()))
+    results.append(("MCPHub Imports", _check_mcp_hub_imports()))
+    results.append(("Tool Schema Completeness", _check_mcp_tools_schema_completeness()))
 
     try:
-        results.append(("MCPHub Tool Registration", await test_mcp_hub_tool_registration()))
+        results.append(("MCPHub Tool Registration", await _check_mcp_hub_tool_registration()))
     except Exception as e:
         print(f"❌ MCPHub Tool Registration failed: {e}")
         results.append(("MCPHub Tool Registration", False))
 
     try:
-        results.append(("Command-Response Pattern", await test_command_response_pattern()))
+        results.append(("Command-Response Pattern", await _check_command_response_pattern()))
     except Exception as e:
         print(f"❌ Command-Response Pattern failed: {e}")
         results.append(("Command-Response Pattern", False))
