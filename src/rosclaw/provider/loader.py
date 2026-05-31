@@ -84,13 +84,20 @@ class ProviderLoader:
 
         return name
 
-    @staticmethod
-    def _resolve_provider_class(manifest: ProviderManifest) -> type[Provider]:
+    # Allowed top-level module prefixes for dynamic provider class loading.
+    # tests.* is allowed for test-time custom provider classes.
+    _ALLOWED_MODULE_PREFIXES: tuple[str, ...] = ("rosclaw.", "tests.")
+
+    @classmethod
+    def _resolve_provider_class(cls, manifest: ProviderManifest) -> type[Provider]:
         """Resolve the Provider class to use for this manifest.
 
         Priority:
         1. Custom class specified in manifest.extra["provider_class"]
         2. GenericProvider (default)
+
+        Security: module_name must start with an allowed prefix and must not
+        contain path traversal characters.
         """
         class_path = manifest.extra.get("provider_class", "")
         if not class_path:
@@ -98,15 +105,38 @@ class ProviderLoader:
 
         try:
             module_name, class_name = class_path.rsplit(".", 1)
+        except ValueError:
+            print(
+                f"[ProviderLoader] Invalid provider_class '{class_path}'; "
+                f"falling back to GenericProvider"
+            )
+            return GenericProvider
+
+        # Security: block path traversal and disallowed modules
+        if ".." in module_name or "/" in module_name or "\\" in module_name:
+            print(
+                f"[ProviderLoader] Blocked unsafe module_name '{module_name}'; "
+                f"falling back to GenericProvider"
+            )
+            return GenericProvider
+
+        if not any(module_name.startswith(prefix) for prefix in cls._ALLOWED_MODULE_PREFIXES):
+            print(
+                f"[ProviderLoader] Module '{module_name}' not in allowed prefixes "
+                f"{cls._ALLOWED_MODULE_PREFIXES}; falling back to GenericProvider"
+            )
+            return GenericProvider
+
+        try:
             module = __import__(module_name, fromlist=[class_name])
-            cls = getattr(module, class_name)
-            if not issubclass(cls, Provider):
+            cls_obj = getattr(module, class_name)
+            if not isinstance(cls_obj, type) or not issubclass(cls_obj, Provider):
                 print(
                     f"[ProviderLoader] {class_path} is not a Provider subclass; "
                     f"falling back to GenericProvider"
                 )
                 return GenericProvider
-            return cls
+            return cls_obj
         except Exception as e:
             print(
                 f"[ProviderLoader] Could not resolve {class_path}: {e}; "

@@ -58,12 +58,17 @@ class LifecycleMixin:
 
     def initialize(self) -> None:
         """Initialize the module. Override in subclass."""
-        if self._lifecycle_state not in (LifecycleState.UNINITIALIZED, LifecycleState.ERROR):
+        if self._lifecycle_state not in (
+            LifecycleState.UNINITIALIZED,
+            LifecycleState.ERROR,
+            LifecycleState.STOPPED,
+        ):
             raise RuntimeError(
                 f"Cannot initialize: already in state {self._lifecycle_state.name}. "
                 f"Call stop() first if re-initialization is needed."
             )
         self._lifecycle_state = LifecycleState.INITIALIZING
+        self._error_message = None
         try:
             self._do_initialize()
             self._lifecycle_state = LifecycleState.READY

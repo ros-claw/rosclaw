@@ -11,6 +11,7 @@ This implements the "Event Bus" principle from the ROSClaw architecture:
 
 import asyncio
 import fnmatch
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -103,7 +104,8 @@ class EventBus:
         self._async_subscribers: dict[str, list[Callable]] = {}
         self._event_history: list[Event] = []
         self._max_history = 10000
-        self._lock = asyncio.Lock()
+        self._lock = threading.Lock()          # protects _subscribers, _async_subscribers, _event_history
+        self._async_lock = asyncio.Lock()
         self._running = False
         self._event_queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
         self._normalize_topics = normalize_topics
@@ -126,9 +128,10 @@ class EventBus:
         if not topic:
             raise ValueError("Topic cannot be empty")
         topic = self._norm(topic)
-        if topic not in self._subscribers:
-            self._subscribers[topic] = []
-        self._subscribers[topic].append(callback)
+        with self._lock:
+            if topic not in self._subscribers:
+                self._subscribers[topic] = []
+            self._subscribers[topic].append(callback)
 
     def subscribe_async(
         self, topic: str, callback: Callable[[Event], Coroutine]
@@ -144,9 +147,10 @@ class EventBus:
         if not topic:
             raise ValueError("Topic cannot be empty")
         topic = self._norm(topic)
-        if topic not in self._async_subscribers:
-            self._async_subscribers[topic] = []
-        self._async_subscribers[topic].append(callback)
+        with self._lock:
+            if topic not in self._async_subscribers:
+                self._async_subscribers[topic] = []
+            self._async_subscribers[topic].append(callback)
 
     def unsubscribe(self, topic: str, callback: Callable) -> None:
         """Unsubscribe a callback from a topic.
@@ -154,10 +158,11 @@ class EventBus:
         Topic is normalized before lookup.
         """
         topic = self._norm(topic)
-        if topic in self._subscribers and callback in self._subscribers[topic]:
-            self._subscribers[topic].remove(callback)
-        if topic in self._async_subscribers and callback in self._async_subscribers[topic]:
-            self._async_subscribers[topic].remove(callback)
+        with self._lock:
+            if topic in self._subscribers and callback in self._subscribers[topic]:
+                self._subscribers[topic].remove(callback)
+            if topic in self._async_subscribers and callback in self._async_subscribers[topic]:
+                self._async_subscribers[topic].remove(callback)
 
     def _topic_matches(self, pattern: str, topic: str) -> bool:
         """Check if a topic matches a subscription pattern.
@@ -199,12 +204,21 @@ class EventBus:
             )
 
         # Store in history
-        self._event_history.append(event)
-        if len(self._event_history) > self._max_history:
-            self._event_history.pop(0)
+        with self._lock:
+            self._event_history.append(event)
+            if len(self._event_history) > self._max_history:
+                self._event_history.pop(0)
+
+            # Snapshot subscribers under lock to avoid races during iteration
+            subscribers_snapshot = {
+                k: list(v) for k, v in self._subscribers.items()
+            }
+            async_subscribers_snapshot = {
+                k: list(v) for k, v in self._async_subscribers.items()
+            }
 
         # Call sync subscribers (exact + wildcard match)
-        for topic_pattern, callbacks in self._subscribers.items():
+        for topic_pattern, callbacks in subscribers_snapshot.items():
             if not self._topic_matches(topic_pattern, norm_topic):
                 continue
             for callback in callbacks:
@@ -214,7 +228,7 @@ class EventBus:
                     print(f"[EventBus] Error in sync subscriber for {event.topic}: {e}")
 
         # Schedule async subscribers (exact + wildcard match)
-        for topic_pattern, callbacks in self._async_subscribers.items():
+        for topic_pattern, callbacks in async_subscribers_snapshot.items():
             if not self._topic_matches(topic_pattern, norm_topic):
                 continue
             for callback in callbacks:
@@ -238,27 +252,31 @@ class EventBus:
 
     def get_history(self, topic: Optional[str] = None, limit: int = 100) -> list[Event]:
         """Get recent event history, optionally filtered by topic."""
-        events = self._event_history
+        with self._lock:
+            events = list(self._event_history)
         if topic:
             events = [e for e in events if e.topic == topic]
         return events[-limit:]
 
     def clear_history(self, topic: Optional[str] = None) -> None:
         """Clear event history. If topic is given, clear only events for that topic."""
-        if topic:
-            self._event_history = [e for e in self._event_history if e.topic != topic]
-        else:
-            self._event_history.clear()
+        with self._lock:
+            if topic:
+                self._event_history = [e for e in self._event_history if e.topic != topic]
+            else:
+                self._event_history.clear()
 
     @property
     def topics(self) -> list[str]:
         """List all topics with subscribers."""
-        return list(set(list(self._subscribers.keys()) + list(self._async_subscribers.keys())))
+        with self._lock:
+            return list(set(list(self._subscribers.keys()) + list(self._async_subscribers.keys())))
 
     def subscriber_count(self, topic: str) -> int:
         """Count subscribers for a topic."""
-        sync = len(self._subscribers.get(topic, []))
-        async_ = len(self._async_subscribers.get(topic, []))
+        with self._lock:
+            sync = len(self._subscribers.get(topic, []))
+            async_ = len(self._async_subscribers.get(topic, []))
         return sync + async_
 
     async def await_event(
@@ -299,12 +317,16 @@ class EventBus:
 
     def get_stats(self) -> dict:
         """Return event bus statistics."""
-        return {
-            "topics": self.topics,
-            "total_subscribers": sum(
+        with self._lock:
+            topics = list(set(list(self._subscribers.keys()) + list(self._async_subscribers.keys())))
+            history_size = len(self._event_history)
+            total_subscribers = sum(
                 len(self._subscribers.get(t, [])) + len(self._async_subscribers.get(t, []))
-                for t in self.topics
-            ),
-            "history_size": len(self._event_history),
+                for t in topics
+            )
+        return {
+            "topics": topics,
+            "total_subscribers": total_subscribers,
+            "history_size": history_size,
             "max_history": self._max_history,
         }

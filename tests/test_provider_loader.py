@@ -308,7 +308,7 @@ def test_provider_loader_custom_class_import_error():
     assert cls is GenericProvider
 
 
-def test_provider_loader_custom_class_valid():
+def test_provider_loader_custom_class_valid(monkeypatch):
     """provider_class that is a valid Provider subclass is used."""
     from rosclaw.provider.core.manifest import ProviderManifest
     import sys
@@ -317,6 +317,10 @@ def test_provider_loader_custom_class_valid():
         import tests
     except ImportError:
         pytest.skip("tests module not importable")
+    # Temporarily allow tests. prefix for provider class loading
+    monkeypatch.setattr(
+        ProviderLoader, "_ALLOWED_MODULE_PREFIXES", ("rosclaw.", "tests.")
+    )
     manifest = ProviderManifest.from_dict({
         "name": "custom_provider",
         "version": "0.1.0",
