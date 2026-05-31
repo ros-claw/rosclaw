@@ -26,9 +26,9 @@ def create_g1_free_floating_model():
         <flag warmstart="enable"/>
       </option>
       <default>
-        <joint damping="4" armature="0.02"/>
-        <geom friction="1.2 0.3 0.01" density="1000"/>
-        <motor ctrllimited="true" ctrlrange="-80 80"/>
+        <joint damping="2" armature="0.01"/>
+        <geom friction="0.9 0.2 0.01" density="1000"/>
+        <motor ctrllimited="true" ctrlrange="-100 100"/>
       </default>
 
       <asset>
@@ -125,19 +125,18 @@ def create_g1_free_floating_model():
       </worldbody>
 
       <actuator>
-        <!-- Soft impedance control for smooth force transitions -->
-        <position joint="hip_yaw_left" kp="60" kv="15" ctrlrange="-0.87 0.87"/>
-        <position joint="hip_roll_left" kp="60" kv="15" ctrlrange="-0.52 0.52"/>
-        <position joint="hip_pitch_left" kp="60" kv="15" ctrlrange="-2.0 2.0"/>
-        <position joint="knee_pitch_left" kp="60" kv="15" ctrlrange="-0.1 2.5"/>
-        <position joint="ankle_pitch_left" kp="60" kv="15" ctrlrange="-0.8 0.5"/>
-        <position joint="hip_yaw_right" kp="60" kv="15" ctrlrange="-0.87 0.87"/>
-        <position joint="hip_roll_right" kp="60" kv="15" ctrlrange="-0.52 0.52"/>
-        <position joint="hip_pitch_right" kp="60" kv="15" ctrlrange="-2.0 2.0"/>
-        <position joint="knee_pitch_right" kp="60" kv="15" ctrlrange="-0.1 2.5"/>
-        <position joint="ankle_pitch_right" kp="60" kv="15" ctrlrange="-0.8 0.5"/>
-        <position joint="ankle_roll_left" kp="60" kv="15" ctrlrange="-0.5 0.5"/>
-        <position joint="ankle_roll_right" kp="60" kv="15" ctrlrange="-0.5 0.5"/>
+        <position joint="hip_yaw_left" kp="150" kv="30" ctrlrange="-0.87 0.87"/>
+        <position joint="hip_roll_left" kp="150" kv="30" ctrlrange="-0.52 0.52"/>
+        <position joint="hip_pitch_left" kp="150" kv="30" ctrlrange="-2.0 2.0"/>
+        <position joint="knee_pitch_left" kp="150" kv="30" ctrlrange="-0.1 2.5"/>
+        <position joint="ankle_pitch_left" kp="150" kv="30" ctrlrange="-0.8 0.5"/>
+        <position joint="hip_yaw_right" kp="150" kv="30" ctrlrange="-0.87 0.87"/>
+        <position joint="hip_roll_right" kp="150" kv="30" ctrlrange="-0.52 0.52"/>
+        <position joint="hip_pitch_right" kp="150" kv="30" ctrlrange="-2.0 2.0"/>
+        <position joint="knee_pitch_right" kp="150" kv="30" ctrlrange="-0.1 2.5"/>
+        <position joint="ankle_pitch_right" kp="150" kv="30" ctrlrange="-0.8 0.5"/>
+        <position joint="ankle_roll_left" kp="150" kv="30" ctrlrange="-0.5 0.5"/>
+        <position joint="ankle_roll_right" kp="150" kv="30" ctrlrange="-0.5 0.5"/>
       </actuator>
 
       <sensor>
@@ -252,10 +251,10 @@ def compute_gait_control(
         """
         ph = ph % (2 * np.pi)
 
-        hip_stance_amp = 0.15   # gentle extension (minimal disturbance)
+        hip_stance_amp = 0.10   # very gentle extension
         hip_swing_amp = 0.0     # completely passive swing
-        knee_amp = 0.15         # very small knee flex
-        ankle_amp = 0.10        # minimal ankle motion
+        knee_amp = 0.10         # minimal knee flex
+        ankle_amp = 0.05        # minimal ankle motion
 
         # Swing phase: ph in (0, π) roughly
         # Stance phase: ph in (π, 2π) roughly
@@ -299,23 +298,25 @@ def compute_gait_control(
         # Aggressive correction to prevent side-fall
         roll_correction = np.clip(-roll_error * 3.0, -0.40, 0.40)
 
-    # Base hip roll: aggressively shift weight onto stance leg
+    # Base hip roll: pull stance leg INWARD to shift torso OVER stance foot
+    # Left stance: left hip_roll NEGATIVE (inward) -> torso shifts LEFT
+    # Right stance: right hip_roll POSITIVE (inward) -> torso shifts RIGHT
     if np.sin(left_phase) < 0:
-        hip_roll_left = 0.25   # strong push left hip down
-        hip_roll_right = -0.10
+        hip_roll_left = -0.30   # pull left hip IN (torso goes left)
+        hip_roll_right = 0.05
     else:
-        hip_roll_left = -0.10
-        hip_roll_right = 0.25
+        hip_roll_left = 0.05
+        hip_roll_right = 0.30   # pull right hip IN (torso goes right)
 
     hip_roll_left += roll_correction
     hip_roll_right += roll_correction
 
-    # Pitch balance correction
+    # Strong pitch balance correction
     pitch_correction = 0.0
     if pelvis_quat is not None and len(pelvis_quat) >= 4:
         rpy = quat_to_rpy(pelvis_quat)
         pitch_error = rpy[1]
-        pitch_correction = np.clip(pitch_error * 0.8, -0.15, 0.15)
+        pitch_correction = np.clip(pitch_error * 2.0, -0.30, 0.30)
 
     # Ankle roll: disabled for now (rely on hip_roll for lateral balance)
     ankle_roll_left = 0.0
