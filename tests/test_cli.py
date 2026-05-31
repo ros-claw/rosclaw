@@ -44,7 +44,7 @@ class TestInit:
         main()
 
         sys.argv = ["rosclaw", "init", str(ws)]
-        assert main() == 1
+        assert main() == 0  # Idempotent: returns 0 if already exists
 
     def test_init_force_overwrite(self, tmp_path):
         from rosclaw.cli import main

@@ -79,6 +79,7 @@ class RuntimeConfig:
     gpu_vggt_endpoint: Optional[str] = None      # e.g. "http://localhost:8002"
     gpu_minicpm_endpoint: Optional[str] = None   # e.g. "http://localhost:8003"
     gpu_cosmos_endpoint: Optional[str] = None    # e.g. "http://localhost:8004"
+    event_bus: Optional[Any] = None              # External EventBus instance
 
 
 class Runtime(LifecycleMixin):
@@ -90,12 +91,12 @@ class Runtime(LifecycleMixin):
     agent runtimes to interact with the physical world.
     """
 
-    def __init__(self, config: Optional[RuntimeConfig] = None):
+    def __init__(self, config: Optional[RuntimeConfig] = None, event_bus: Optional[EventBus] = None):
         super().__init__()
         self.config = config or RuntimeConfig()
 
-        # Core infrastructure
-        self.event_bus = EventBus()
+        # Core infrastructure: accept external EventBus or create one
+        self.event_bus = event_bus or self.config.event_bus or EventBus()
 
         # Grounding engines (initialized on demand)
         self._firewall: Optional[Any] = None

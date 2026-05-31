@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "rosclaw": {
+      "command": "python3",
+      "args": [
+        "-m",
+        "rosclaw.mcp.minimal_server"
+      ],
+      "env": {
+        "PYTHONPATH": "src"
+      }
+    }
+  }
+}
