@@ -7,10 +7,13 @@ through the Runtime's module registry.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 from rosclaw.core.lifecycle import LifecycleMixin, LifecycleState
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
+
+logger = logging.getLogger("rosclaw.sandbox.runtime_adapter")
 
 
 class SandboxRuntimeAdapter(LifecycleMixin):
@@ -43,7 +46,7 @@ class SandboxRuntimeAdapter(LifecycleMixin):
 
     def _do_initialize(self) -> None:
         """Initialize sandbox service."""
-        print(f"[SandboxRuntimeAdapter] Initializing with engine={self._engine_name}")
+        logger.info("Initializing with engine=%s", self._engine_name)
 
         try:
             from rosclaw.sandbox.sandbox_api import Sandbox
@@ -56,12 +59,12 @@ class SandboxRuntimeAdapter(LifecycleMixin):
                 engine=self._engine_name,
                 publisher=publisher,
             )
-            print(f"[SandboxRuntimeAdapter] Sandbox created: {self._sandbox_service.session.session_id}")
+            logger.info("Sandbox created: %s", self._sandbox_service.session.session_id)
         except ImportError as e:
-            print(f"[SandboxRuntimeAdapter] Sandbox not available: {e}")
+            logger.warning("Sandbox not available: %s", e)
             self._sandbox_service = self._create_stub_sandbox()
         except Exception as e:
-            print(f"[SandboxRuntimeAdapter] Failed to create sandbox: {e}")
+            logger.warning("Failed to create sandbox: %s", e)
             self._sandbox_service = self._create_stub_sandbox()
 
     def _create_stub_sandbox(self):
@@ -83,12 +86,12 @@ class SandboxRuntimeAdapter(LifecycleMixin):
     def _do_start(self) -> None:
         if self._sandbox_service:
             self._sandbox_service.reset()
-            print("[SandboxRuntimeAdapter] Sandbox reset and running")
+            logger.info("Sandbox reset and running")
 
     def _do_stop(self) -> None:
         if self._sandbox_service:
             self._sandbox_service.close()
-            print("[SandboxRuntimeAdapter] Sandbox closed")
+            logger.info("Sandbox closed")
 
     def validate_trajectory(
         self,

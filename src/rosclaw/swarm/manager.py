@@ -4,10 +4,13 @@ Manages multi-robot coordination through the EventBus.
 All communication goes through EventBus — no direct module calls.
 """
 
+import logging
 from typing import Any, Optional
 
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
+
+logger = logging.getLogger("rosclaw.swarm.manager")
 
 
 class SwarmRuntimeManager(LifecycleMixin):
@@ -32,7 +35,7 @@ class SwarmRuntimeManager(LifecycleMixin):
             self.event_bus.subscribe("swarm.register", self._on_register_request)
             self.event_bus.subscribe("swarm.allocate", self._on_allocate_request)
             self.event_bus.subscribe("swarm.status", self._on_status_request)
-        print("[Swarm] Swarm manager initialized")
+        logger.info("Swarm manager initialized")
 
     def _do_stop(self) -> None:
         if self.event_bus is not None:
@@ -81,7 +84,7 @@ class SwarmRuntimeManager(LifecycleMixin):
             "capabilities": capabilities,
             "status": "idle",
         }
-        print(f"[Swarm] Agent registered: {agent_id} ({capabilities})")
+        logger.info("Agent registered: %s (%s)", agent_id, capabilities)
         if self.event_bus is not None:
             self.event_bus.publish(Event(
                 topic="swarm.agent_registered",

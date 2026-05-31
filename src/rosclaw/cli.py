@@ -1116,7 +1116,15 @@ def main() -> int:
 
     subparsers.add_parser("status", help="Show runtime status")
     subparsers.add_parser("stop", help="Stop ROSClaw runtime")
-    subparsers.add_parser("restart", help="Restart ROSClaw runtime")
+
+    # restart (uses same args as run)
+    restart_parser = subparsers.add_parser("restart", help="Restart ROSClaw runtime")
+    restart_parser.add_argument("--robot-id", default="rosclaw_default", help="Robot identifier")
+    restart_parser.add_argument("--model-path", default=None, help="Path to robot model file")
+    restart_parser.add_argument("--firewall", action="store_true", default=True, help="Enable Digital Twin Firewall")
+    restart_parser.add_argument("--memory", action="store_true", default=True, help="Enable Memory module")
+    restart_parser.add_argument("--practice", action="store_true", default=True, help="Enable Practice recorder")
+    restart_parser.add_argument("--swarm", action="store_true", default=False, help="Enable Swarm coordination")
 
     # dashboard
     dashboard_parser = subparsers.add_parser("dashboard", help="Open/show dashboard")

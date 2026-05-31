@@ -9,6 +9,7 @@ Usage:
     loader.scan_directory("~/.rosclaw/providers")
 """
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,8 @@ from rosclaw.provider.adapters.generic import GenericProvider
 from rosclaw.provider.core.manifest import ProviderManifest
 from rosclaw.provider.core.provider import Provider
 from rosclaw.provider.core.registry import ProviderRegistry
+
+logger = logging.getLogger("rosclaw.provider.loader")
 
 
 class ProviderLoader:
@@ -60,12 +63,12 @@ class ProviderLoader:
         try:
             manifest = ProviderManifest.from_yaml(path)
         except Exception as e:
-            print(f"[ProviderLoader] Failed to parse {path}: {e}")
+            logger.warning("Failed to parse %s: %s", path, e)
             return None
 
         name = manifest.name
         if name in self._loaded_paths:
-            print(f"[ProviderLoader] Provider '{name}' already loaded from {self._loaded_paths[name]}")
+            logger.info("Provider '%s' already loaded from %s", name, self._loaded_paths[name])
             return None
 
         # Allow custom subclass via env hint: provider_class = "my_module.MyProvider"
@@ -77,9 +80,9 @@ class ProviderLoader:
         try:
             self.registry.register(manifest, factory, auto_load=False)
             self._loaded_paths[name] = path
-            print(f"[ProviderLoader] Registered '{name}' from {path}")
+            logger.info("Registered '%s' from %s", name, path)
         except Exception as e:
-            print(f"[ProviderLoader] Failed to register '{name}': {e}")
+            logger.warning("Failed to register '%s': %s", name, e)
             return None
 
         return name

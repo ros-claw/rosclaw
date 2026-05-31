@@ -9,6 +9,7 @@ v1.0 EventBus Integration:
 - Publishes heuristic.recovery_executed outcomes
 """
 
+import logging
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -16,6 +17,8 @@ from typing import Any, Optional
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
 from rosclaw.data.flywheel import DataFlywheel, EventType
+
+logger = logging.getLogger("rosclaw.practice.recorder")
 
 
 class PracticeRecorder(LifecycleMixin):
@@ -62,7 +65,7 @@ class PracticeRecorder(LifecycleMixin):
         if self.event_bus is not None:
             self.event_bus.subscribe("skill.execution.complete", self._on_skill_complete)
             self.event_bus.subscribe("knowledge.ingest_complete", self._on_knowledge_ingest_complete)
-        print(f"[Practice] Recorder initialized for {self.robot_id} (flywheel mode)")
+        logger.info("Recorder initialized for %s (flywheel mode)", self.robot_id)
 
     def _do_stop(self) -> None:
         """Stop the recorder and unsubscribe from EventBus."""
@@ -155,7 +158,7 @@ class PracticeRecorder(LifecycleMixin):
             source="practice_recorder",
             priority=EventPriority.NORMAL,
         ))
-        print(f"[Practice] Published heuristic.recovery_executed for rule {rule_id}")
+        logger.info("Published heuristic.recovery_executed for rule %s", rule_id)
 
     def _on_knowledge_ingest_complete(self, event) -> None:
         """Handle knowledge.ingest_complete and log to knowledge_ingest_log."""
@@ -172,12 +175,12 @@ class PracticeRecorder(LifecycleMixin):
     def start_recording(self) -> None:
         """Start a recording session."""
         self._recording = True
-        print("[Practice] Recording started")
+        logger.info("Recording started")
 
     def stop_recording(self) -> None:
         """Stop recording."""
         self._recording = False
-        print("[Practice] Recording stopped")
+        logger.info("Recording stopped")
 
     def log_state(self, joint_positions: list[float], timestamp: float) -> None:
         """Log a robot state sample."""

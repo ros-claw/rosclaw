@@ -6,9 +6,12 @@ Falls back gracefully when no model is found.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from pathlib import Path
 from typing import Any, Optional
+
+logger = logging.getLogger("rosclaw.sandbox.sandbox_api")
 
 
 class SandboxSession:
@@ -56,7 +59,7 @@ class Sandbox:
         try:
             import mujoco
         except ImportError:
-            print("[Sandbox] MuJoCo not installed — physics disabled")
+            logger.warning("MuJoCo not installed — physics disabled")
             return
 
         # Locate project root (repo top-level)
@@ -77,7 +80,7 @@ class Sandbox:
             robot_dir = zoo_path / aliases.get(self._robot_id, self._robot_id)
 
         if not robot_dir.exists():
-            print(f"[Sandbox] No robot directory for {self._robot_id}")
+            logger.warning("No robot directory for %s", self._robot_id)
             return
 
         # Candidate MuJoCo XML files
@@ -95,13 +98,13 @@ class Sandbox:
                 try:
                     self._model = mujoco.MjModel.from_xml_path(str(candidate))
                     self._data = mujoco.MjData(self._model)
-                    print(f"[Sandbox] MuJoCo model loaded: {candidate.name} "
-                          f"(njoints={self._model.njnt}, nq={self._model.nq}, nv={self._model.nv})")
+                    logger.info("MuJoCo model loaded: %s (njoints=%s, nq=%s, nv=%s)",
+                                candidate.name, self._model.njnt, self._model.nq, self._model.nv)
                     return
                 except Exception as e:
-                    print(f"[Sandbox] Failed to load {candidate}: {e}")
+                    logger.warning("Failed to load %s: %s", candidate, e)
 
-        print(f"[Sandbox] No MuJoCo model found for {self._robot_id}")
+        logger.warning("No MuJoCo model found for %s", self._robot_id)
 
     def reset(self) -> None:
         """Reset physics state."""

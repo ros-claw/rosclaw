@@ -1,10 +1,13 @@
 """Serial Driver - Generic serial/CAN device robot control."""
 
+import logging
 import struct
 import time
 from typing import Any, Optional
 
 from rosclaw.mcp_drivers.base import BaseDriver, DriverState, TrajectoryCommand
+
+logger = logging.getLogger("rosclaw.mcp_drivers.serial")
 
 
 class SerialDriver(BaseDriver):
@@ -30,16 +33,16 @@ class SerialDriver(BaseDriver):
         try:
             import serial
         except ImportError:
-            print("[SerialDriver] pyserial not available, running in mock mode")
+            logger.warning("pyserial not available, running in mock mode")
             self._driver_state.connected = True
             return
 
         try:
             self._serial = serial.Serial(self._port, self._baudrate, timeout=1.0)
             self._driver_state.connected = True
-            print(f"[SerialDriver] Serial port opened: {self._port} @ {self._baudrate}")
+            logger.info("Serial port opened: %s @ %s", self._port, self._baudrate)
         except Exception as e:
-            print(f"[SerialDriver] Could not open {self._port}: {e}, running in mock mode")
+            logger.warning("Could not open %s: %s, running in mock mode", self._port, e)
             self._driver_state.connected = True
 
     def _do_stop(self) -> None:

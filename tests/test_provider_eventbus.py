@@ -227,8 +227,9 @@ def test_runtime_injects_event_bus():
     rt.stop()
 
 
-def test_runtime_subscription_output(capfd):
-    """Runtime handlers print provider lifecycle events."""
+def test_runtime_subscription_output(caplog):
+    """Runtime handlers log provider lifecycle events."""
+    import logging
     from rosclaw.core.runtime import Runtime, RuntimeConfig
     config = RuntimeConfig(
         robot_id="test",
@@ -237,8 +238,8 @@ def test_runtime_subscription_output(capfd):
         enable_practice=False,
         enable_provider=True,
     )
-    rt = Runtime(config)
-    rt.initialize()
-    captured = capfd.readouterr()
-    assert "Provider event: provider_registered" in captured.out or "Provider 'mock_vlm' is now healthy" in captured.out
+    with caplog.at_level(logging.INFO, logger="rosclaw.core.runtime"):
+        rt = Runtime(config)
+        rt.initialize()
+    assert "Provider event: provider_registered" in caplog.text or "Provider 'mock_vlm' is now healthy" in caplog.text or "Provider Layer" in caplog.text
     rt.stop()

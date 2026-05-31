@@ -1,11 +1,14 @@
 """Skill Executor - Executes skills with parameter binding and validation."""
 
+import logging
 import time
 from typing import Any, Optional
 
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
 from rosclaw.skill_manager.registry import SkillRegistry, SkillEntry
+
+logger = logging.getLogger("rosclaw.skill_manager.executor")
 
 
 class SkillExecutor(LifecycleMixin):
@@ -36,7 +39,7 @@ class SkillExecutor(LifecycleMixin):
         self._current_skill: Optional[str] = None
 
     def _do_initialize(self) -> None:
-        print("[SkillExecutor] Initialized")
+        logger.info("Initialized")
 
     def execute(self, skill_name: str, parameters: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         """

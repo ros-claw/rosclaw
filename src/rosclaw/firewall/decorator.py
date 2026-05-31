@@ -7,6 +7,7 @@ a MuJoCo physics simulation before executing on real hardware.
 
 import functools
 import inspect
+import logging
 import time
 from typing import Any, Callable, Optional, TypeVar
 from dataclasses import dataclass
@@ -18,6 +19,8 @@ import mujoco.viewer
 
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+logger = logging.getLogger("rosclaw.firewall.decorator")
 
 
 class SafetyLevel(Enum):
@@ -135,10 +138,10 @@ class DigitalTwinFirewall:
                 if lo != 0.0 or hi != 0.0:  # Skip joints with no range
                     self.joint_limits[name] = (float(lo), float(hi))
 
-            print(f"[DigitalTwin] Loaded model: {self.model_path}")
-            print(f"[DigitalTwin] Joints: {self.joint_names}")
-            print(f"[DigitalTwin] Auto-extracted limits: {len(self.joint_limits)} joints")
-            print(f"[DigitalTwin] DOF: nq={self.nq}, nv={self.nv}, nu={self.nu}")
+            logger.info("Loaded model: %s", self.model_path)
+            logger.info("Joints: %s", self.joint_names)
+            logger.info("Auto-extracted limits: %d joints", len(self.joint_limits))
+            logger.info("DOF: nq=%d, nv=%d, nu=%d", self.nq, self.nv, self.nu)
 
         except Exception as e:
             raise RuntimeError(f"Failed to load MuJoCo model: {e}") from e
@@ -407,11 +410,11 @@ class DigitalTwinFirewall:
                 result = self.validate_trajectory(trajectory, safety_level=safety_level)
                 elapsed = time.time() - start_time
 
-                print(f"[DigitalTwin] Validation completed in {elapsed*1000:.1f}ms")
-                print(f"[DigitalTwin] Result: {'SAFE' if result.is_safe else 'UNSAFE'}")
+                logger.info("Validation completed in %.1fms", elapsed * 1000)
+                logger.info("Result: %s", "SAFE" if result.is_safe else "UNSAFE")
 
                 if not result.is_safe:
-                    print(f"[DigitalTwin] Violations: {result.violation_details}")
+                    logger.warning("Violations: %s", result.violation_details)
                     raise SafetyViolationError(
                         f"Trajectory failed safety validation: {result.violation_details}",
                         result,

@@ -7,11 +7,14 @@ Subscribes to execution events and publishes critic judgments:
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any, Optional
 
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
+
+logger = logging.getLogger("rosclaw.critic.basic_critic")
 
 
 class BasicCritic(LifecycleMixin):
@@ -37,7 +40,7 @@ class BasicCritic(LifecycleMixin):
 
     def _do_initialize(self) -> None:
         if self.event_bus is None:
-            print(f"[Critic] Initialized in passive mode for {self.robot_id}")
+            logger.info("Initialized in passive mode for %s", self.robot_id)
             return
 
         handlers = {
@@ -51,7 +54,7 @@ class BasicCritic(LifecycleMixin):
             self.event_bus.subscribe(topic, handler)
             self._subscribed_topics.append((topic, handler))
 
-        print(f"[Critic] Initialized for {self.robot_id}")
+        logger.info("Initialized for %s", self.robot_id)
 
     def _do_stop(self) -> None:
         if self.event_bus is not None:

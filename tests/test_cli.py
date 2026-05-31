@@ -258,3 +258,162 @@ class TestPracticeCommands:
         code = main()
         captured = capsys.readouterr()
         assert "not found" in captured.out or code == 1
+
+
+class TestDashboard:
+    def test_dashboard(self, capsys):
+        from rosclaw.cli import main
+        sys.argv = ["rosclaw", "dashboard"]
+        code = main()
+        captured = capsys.readouterr()
+        assert "ROSClaw v1.0 Dashboard" in captured.out
+        assert code == 0
+
+    def test_dashboard_open(self, capsys):
+        from rosclaw.cli import main
+        sys.argv = ["rosclaw", "dashboard", "--open"]
+        code = main()
+        captured = capsys.readouterr()
+        assert "localhost:8765" in captured.out
+        assert code == 0
+
+
+class TestProviderList:
+    def test_provider_list(self, capsys):
+        from rosclaw.cli import main
+        sys.argv = ["rosclaw", "provider", "list"]
+        code = main()
+        captured = capsys.readouterr()
+        assert "Provider Registry" in captured.out or "No providers" in captured.out
+        assert code == 0
+
+
+class TestSkillList:
+    def test_skill_list(self, capsys):
+        from rosclaw.cli import main
+        sys.argv = ["rosclaw", "skill", "list"]
+        code = main()
+        captured = capsys.readouterr()
+        assert "Skill Registry" in captured.out or "No skills" in captured.out
+        assert code == 0
+
+
+class TestSandboxCommands:
+    def test_sandbox_list_worlds(self, capsys):
+        from rosclaw.cli import main
+        sys.argv = ["rosclaw", "sandbox", "list-worlds"]
+        code = main()
+        captured = capsys.readouterr()
+        assert "Sandbox Worlds" in captured.out
+        assert "mock" in captured.out
+        assert code == 0
+
+    def test_sandbox_validate_found(self, capsys):
+        from rosclaw.cli import main
+        sys.argv = ["rosclaw", "sandbox", "validate", "ur5e"]
+        code = main()
+        captured = capsys.readouterr()
+        assert "Validating" in captured.out or "not found" in captured.out
+
+    def test_sandbox_validate_not_found(self, capsys):
+        from rosclaw.cli import main
+        sys.argv = ["rosclaw", "sandbox", "validate", "nonexistent_robot_xyz"]
+        code = main()
+        captured = capsys.readouterr()
+        assert "not found" in captured.out or "error" in captured.out.lower() or code != 0
+
+
+class TestMemoryCommands:
+    def test_memory_status(self, capsys):
+        from rosclaw.cli import main
+        sys.argv = ["rosclaw", "memory", "status"]
+        code = main()
+        captured = capsys.readouterr()
+        assert "Memory Status" in captured.out
+        assert "experiences" in captured.out or code == 0
+
+    def test_memory_query(self, capsys):
+        from rosclaw.cli import main
+        sys.argv = ["rosclaw", "memory", "query", "pick up cup"]
+        code = main()
+        captured = capsys.readouterr()
+        assert "Query" in captured.out or "No matching" in captured.out or code == 0
+
+    def test_memory_explain(self, capsys):
+        from rosclaw.cli import main
+        sys.argv = ["rosclaw", "memory", "explain"]
+        code = main()
+        captured = capsys.readouterr()
+        assert "Failure Explanation" in captured.out or "No failure" in captured.out or code == 0
+
+
+class TestEventsCommand:
+    def test_events_tail(self, capsys):
+        from rosclaw.cli import main
+        sys.argv = ["rosclaw", "events", "--tail", "5"]
+        code = main()
+        captured = capsys.readouterr()
+        assert "EventBus" in captured.out or "No events" in captured.out
+        assert code == 0
+
+
+class TestStopCommand:
+    def test_stop_no_pid_file(self, capsys):
+        from rosclaw.cli import main
+        import os
+        from pathlib import Path
+
+        pid_file = Path.home() / ".rosclaw" / "runtime.pid"
+        # Ensure no PID file
+        if pid_file.exists():
+            pid_file.unlink()
+
+        sys.argv = ["rosclaw", "stop"]
+        code = main()
+        captured = capsys.readouterr()
+        assert "No runtime PID" in captured.out or "not running" in captured.out
+        assert code == 1
+
+    def test_stop_with_pid_file(self, capsys, tmp_path):
+        from rosclaw.cli import main
+        import os
+
+        pid_file = tmp_path / "runtime.pid"
+        pid_file.write_text("99999")
+
+        with patch("rosclaw.cli.Path.home", return_value=tmp_path):
+            sys.argv = ["rosclaw", "stop"]
+            code = main()
+            captured = capsys.readouterr()
+            # 99999 won't exist so it should be ProcessLookupError
+            assert "not found" in captured.out or code == 1
+
+
+class TestRestartCommand:
+    @patch("rosclaw.core.Runtime")
+    def test_restart(self, mock_runtime_cls, capsys):
+        from rosclaw.cli import main
+
+        mock_runtime = MagicMock()
+        mock_runtime.is_running = True
+        mock_runtime_cls.return_value = mock_runtime
+
+        call_count = 0
+        def fake_sleep(t):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                mock_runtime.is_running = False
+
+        # Ensure no PID file to avoid stop path issues
+        import os
+        from pathlib import Path
+        pid_file = Path.home() / ".rosclaw" / "runtime.pid"
+        if pid_file.exists():
+            pid_file.unlink()
+
+        with patch("time.sleep", fake_sleep):
+            sys.argv = ["rosclaw", "restart"]
+            code = main()
+
+        assert code == 0

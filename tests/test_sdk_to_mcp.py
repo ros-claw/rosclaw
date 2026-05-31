@@ -264,15 +264,14 @@ class TestAssetCompilerBatchAndExport:
         assert "skill_a" in names
         assert "skill_b" in names
 
-    def test_compile_directory_ignores_bad_files(self, tmp_path, capsys):
+    def test_compile_directory_ignores_bad_files(self, tmp_path, caplog):
         (tmp_path / "bad.yaml").write_text("not: valid: [", encoding="utf-8")
 
         compiler = AssetCompiler()
         assets = compiler.compile_directory(tmp_path, pattern="*.yaml")
 
         assert assets == []
-        captured = capsys.readouterr()
-        assert "Failed to compile" in captured.out
+        assert "Failed to compile" in caplog.text
 
     def test_compile_directory_empty(self, tmp_path):
         compiler = AssetCompiler()

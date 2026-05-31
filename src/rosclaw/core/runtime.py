@@ -24,12 +24,15 @@ Architecture:
     Physical World (Robot)
 """
 
+import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin, LifecycleState
+
+logger = logging.getLogger("rosclaw.core.runtime")
 
 # Provider layer imports (lazy to avoid hard deps)
 ProviderRegistry = None
@@ -132,7 +135,7 @@ class Runtime(LifecycleMixin):
 
     def _do_initialize(self) -> None:
         """Initialize all enabled grounding engines."""
-        print(f"[Runtime] Initializing ROSClaw Runtime for {self.config.robot_id}")
+        logger.info(f"Initializing ROSClaw Runtime for {self.config.robot_id}")
 
         # Initialize EventBus subscriptions for internal coordination
         self._setup_internal_subscriptions()
@@ -151,9 +154,9 @@ class Runtime(LifecycleMixin):
                     safety_level=self.config.safety_level,
                 )
                 self._modules.append(self._firewall)
-                print("[Runtime] Action Grounding (FirewallValidator) initialized")
+                logger.info("Action Grounding (FirewallValidator) initialized")
             except ImportError as e:
-                print(f"[Runtime] FirewallValidator not available: {e}")
+                logger.info(f"FirewallValidator not available: {e}")
 
         # Initialize Sandbox (Digital Twin + Physics Simulation)
         try:
@@ -179,9 +182,9 @@ class Runtime(LifecycleMixin):
                 e_urdf_model=self._e_urdf,
             )
             self._modules.append(self._sandbox)
-            print("[Runtime] Sandbox (Digital Twin + Physics) initialized")
+            logger.info("Sandbox (Digital Twin + Physics) initialized")
         except ImportError as e:
-            print(f"[Runtime] Sandbox not available: {e}")
+            logger.info(f"Sandbox not available: {e}")
 
         # Initialize Experience Grounding (Memory)
         if self.config.enable_memory:
@@ -200,9 +203,9 @@ class Runtime(LifecycleMixin):
                 )
                 self._modules.append(self._memory)
                 em_label = "+EmbodiedMemory" if self.config.embodied_memory else "SeekDB-only"
-                print(f"[Runtime] Experience Grounding (Memory) initialized [{em_label}]")
+                logger.info(f"Experience Grounding (Memory) initialized [{em_label}]")
             except ImportError as e:
-                print(f"[Runtime] Memory module not available: {e}")
+                logger.info(f"Memory module not available: {e}")
 
         # Initialize Timeline Grounding (UnifiedTimeline)
         if self.config.enable_practice:
@@ -215,9 +218,9 @@ class Runtime(LifecycleMixin):
                     enable_mcap=self.config.enable_mcap,
                 )
                 self._modules.append(self._practice)
-                print("[Runtime] Timeline Grounding (UnifiedTimeline) initialized")
+                logger.info("Timeline Grounding (UnifiedTimeline) initialized")
             except ImportError as e:
-                print(f"[Runtime] UnifiedTimeline not available: {e}")
+                logger.info(f"UnifiedTimeline not available: {e}")
 
             # Initialize EpisodeRecorder for artifact management
             try:
@@ -227,9 +230,9 @@ class Runtime(LifecycleMixin):
                     event_bus=self.event_bus,
                 )
                 self._modules.append(self._episode_recorder)
-                print("[Runtime] EpisodeRecorder initialized")
+                logger.info("EpisodeRecorder initialized")
             except ImportError as e:
-                print(f"[Runtime] EpisodeRecorder not available: {e}")
+                logger.info(f"EpisodeRecorder not available: {e}")
 
             # Initialize Critic for automatic success detection
             try:
@@ -239,9 +242,9 @@ class Runtime(LifecycleMixin):
                     event_bus=self.event_bus,
                 )
                 self._modules.append(self._critic)
-                print("[Runtime] Critic (BasicCritic) initialized")
+                logger.info("Critic (BasicCritic) initialized")
             except ImportError as e:
-                print(f"[Runtime] Critic not available: {e}")
+                logger.info(f"Critic not available: {e}")
 
         # Initialize Collaboration Grounding (Swarm)
         if self.config.enable_swarm:
@@ -249,9 +252,9 @@ class Runtime(LifecycleMixin):
                 from rosclaw.swarm.manager import SwarmRuntimeManager
                 self._swarm = SwarmRuntimeManager(event_bus=self.event_bus)
                 self._modules.append(self._swarm)
-                print("[Runtime] Collaboration Grounding (Swarm) initialized")
+                logger.info("Collaboration Grounding (Swarm) initialized")
             except ImportError as e:
-                print(f"[Runtime] Swarm module not available: {e}")
+                logger.info(f"Swarm module not available: {e}")
 
         # Initialize Skill Grounding (SkillManager)
         if self.config.enable_skill_manager:
@@ -262,9 +265,9 @@ class Runtime(LifecycleMixin):
                 self._skill_manager = SkillExecutor(self.event_bus, registry)
                 self._modules.append(registry)
                 self._modules.append(self._skill_manager)
-                print("[Runtime] Skill Grounding (SkillManager) initialized")
+                logger.info("Skill Grounding (SkillManager) initialized")
             except ImportError as e:
-                print(f"[Runtime] SkillManager module not available: {e}")
+                logger.info(f"SkillManager module not available: {e}")
 
         # Initialize Knowledge Grounding (KnowledgeInterface) - MUST come before HOW
         if self.config.enable_knowledge:
@@ -281,12 +284,12 @@ class Runtime(LifecycleMixin):
                     seekdb_client=seekdb,
                 )
                 self._modules.append(self._knowledge)
-                print("[Runtime] Knowledge Grounding (KnowledgeInterface) initialized")
+                logger.info("Knowledge Grounding (KnowledgeInterface) initialized")
                 # Seed knowledge_graph with baseline data
                 if seekdb is not None:
                     seed_knowledge_graph(seekdb)
             except ImportError as e:
-                print(f"[Runtime] Knowledge module not available: {e}")
+                logger.info(f"Knowledge module not available: {e}")
 
         # Initialize Heuristic Grounding (HeuristicEngine) - depends on KNOW
         if self.config.enable_how:
@@ -309,11 +312,11 @@ class Runtime(LifecycleMixin):
                     self._run_async(self._how.seed_defaults())
                     # Initialize EventBus subscriptions for active recovery
                     self._run_async(self._how.initialize())
-                    print("[Runtime] Heuristic Grounding (HeuristicEngine) initialized")
+                    logger.info("Heuristic Grounding (HeuristicEngine) initialized")
                 else:
-                    print("[Runtime] HeuristicEngine skipped: no SeekDB client (memory not enabled)")
+                    logger.info("HeuristicEngine skipped: no SeekDB client (memory not enabled)")
             except ImportError as e:
-                print(f"[Runtime] HeuristicEngine not available: {e}")
+                logger.info(f"HeuristicEngine not available: {e}")
 
         # Initialize Provider Layer (Capability Router + Guard)
         if self.config.enable_provider and ProviderRegistry is not None:
@@ -329,29 +332,29 @@ class Runtime(LifecycleMixin):
                 try:
                     self._register_builtin_providers()
                 except Exception as e:
-                    print(f"[Runtime] Built-in provider registration warning: {e}")
+                    logger.info(f"Built-in provider registration warning: {e}")
                 try:
                     self._register_robot_capabilities()
                 except Exception as e:
-                    print(f"[Runtime] Robot capability registration warning: {e}")
+                    logger.info(f"Robot capability registration warning: {e}")
                 try:
                     self._load_external_providers()
                 except Exception as e:
-                    print(f"[Runtime] External provider loading warning: {e}")
-                print("[Runtime] Provider Layer (Registry + Router + Guard) initialized")
+                    logger.info(f"External provider loading warning: {e}")
+                logger.info("Provider Layer (Registry + Router + Guard) initialized")
             except Exception as e:
-                print(f"[Runtime] Provider layer not available: {e}")
+                logger.info(f"Provider layer not available: {e}")
 
         # Initialize all module lifecycles
         for module in self._modules:
             if isinstance(module, LifecycleMixin):
                 module.initialize()
 
-        print("[Runtime] Initialization complete")
+        logger.info("Initialization complete")
 
     def _do_start(self) -> None:
         """Start all modules."""
-        print("[Runtime] Starting all modules...")
+        logger.info("Starting all modules...")
         with self._module_lock:
             for module in self._modules:
                 if isinstance(module, LifecycleMixin) and module.is_ready:
@@ -362,11 +365,11 @@ class Runtime(LifecycleMixin):
             source="runtime",
             priority=EventPriority.HIGH,
         ))
-        print("[Runtime] All modules started")
+        logger.info("All modules started")
 
     def _do_stop(self) -> None:
         """Stop all modules gracefully."""
-        print("[Runtime] Shutting down...")
+        logger.info("Shutting down...")
         self.event_bus.publish(Event(
             topic="runtime.status",
             payload={"state": "shutting_down", "robot_id": self.config.robot_id},
@@ -382,7 +385,7 @@ class Runtime(LifecycleMixin):
         if not self._executor_shutdown:
             self._executor_shutdown = True
             self._async_executor.shutdown(wait=False)
-        print("[Runtime] Shutdown complete")
+        logger.info("Shutdown complete")
 
     def _setup_internal_subscriptions(self) -> None:
         """Set up internal EventBus subscriptions for runtime coordination."""
@@ -400,7 +403,7 @@ class Runtime(LifecycleMixin):
 
     def _on_safety_violation(self, event: Event) -> None:
         """Handle safety violation events."""
-        print(f"[Runtime] SAFETY VIOLATION: {event.payload}")
+        logger.info(f"SAFETY VIOLATION: {event.payload}")
         self.event_bus.publish(Event(
             topic="robot.emergency_stop",
             payload={"reason": event.payload},
@@ -433,9 +436,9 @@ class Runtime(LifecycleMixin):
                     source="runtime",
                     priority=EventPriority.HIGH,
                 ))
-                print(f"[Runtime] Heuristic recovery suggested for {request_id}: {recovery['action']}")
+                logger.info(f"Heuristic recovery suggested for {request_id}: {recovery['action']}")
         except Exception as e:
-            print(f"[Runtime] Heuristic recovery failed: {e}")
+            logger.info(f"Heuristic recovery failed: {e}")
 
     def _run_async(self, coro):
         """Run an async coroutine from a sync context.
@@ -482,9 +485,9 @@ class Runtime(LifecycleMixin):
                     source="runtime",
                     priority=EventPriority.HIGH,
                 ))
-                print(f"[Runtime] RecoveryHint generated for sandbox failure {request_id}: {hint['hint']}")
+                logger.info(f"RecoveryHint generated for sandbox failure {request_id}: {hint['hint']}")
         except Exception as e:
-            print(f"[Runtime] RecoveryHint generation failed: {e}")
+            logger.info(f"RecoveryHint generation failed: {e}")
 
     def _on_sandbox_action_blocked(self, event: Event) -> None:
         """Handle sandbox action blocked: generate recovery hint."""
@@ -509,9 +512,9 @@ class Runtime(LifecycleMixin):
                     source="runtime",
                     priority=EventPriority.HIGH,
                 ))
-                print(f"[Runtime] RecoveryHint generated for blocked action {request_id}: {hint['hint']}")
+                logger.info(f"RecoveryHint generated for blocked action {request_id}: {hint['hint']}")
         except Exception as e:
-            print(f"[Runtime] RecoveryHint generation failed: {e}")
+            logger.info(f"RecoveryHint generation failed: {e}")
 
     def _on_runtime_execution_failed(self, event: Event) -> None:
         """Handle runtime execution failure: generate recovery hint."""
@@ -536,9 +539,9 @@ class Runtime(LifecycleMixin):
                     source="runtime",
                     priority=EventPriority.HIGH,
                 ))
-                print(f"[Runtime] RecoveryHint generated for execution failure {request_id}: {hint['hint']}")
+                logger.info(f"RecoveryHint generated for execution failure {request_id}: {hint['hint']}")
         except Exception as e:
-            print(f"[Runtime] RecoveryHint generation failed: {e}")
+            logger.info(f"RecoveryHint generation failed: {e}")
 
     def _on_critic_judgment(self, event: Event) -> None:
         """Auto-sync critic judgment to Memory for experience retention.
@@ -582,18 +585,18 @@ class Runtime(LifecycleMixin):
                     "source": "critic_judgment",
                 },
             )
-            print(f"[Runtime] Critic judgment auto-synced to Memory: {episode_id} ({status}, r={reward})")
+            logger.info(f"Critic judgment auto-synced to Memory: {episode_id} ({status}, r={reward})")
         except Exception as e:
-            print(f"[Runtime] Critic judgment Memory sync failed (non-fatal): {e}")
+            logger.info(f"Critic judgment Memory sync failed (non-fatal): {e}")
 
     def _on_agent_command(self, event: Event) -> None:
         """Handle agent commands - route to appropriate module."""
         command = event.payload.get("action", "")
-        print(f"[Runtime] Agent command received: {command}")
+        logger.info(f"Agent command received: {command}")
 
     def _on_emergency_stop(self, event: Event) -> None:
         """Handle emergency stop - stop all drivers."""
-        print("[Runtime] EMERGENCY STOP triggered")
+        logger.info("EMERGENCY STOP triggered")
         for driver in self._mcp_drivers.values():
             if hasattr(driver, "emergency_stop"):
                 driver.emergency_stop()
@@ -648,7 +651,7 @@ class Runtime(LifecycleMixin):
     def register_driver(self, name: str, driver: Any) -> None:
         """Register an MCP driver with the runtime."""
         self._mcp_drivers[name] = driver
-        print(f"[Runtime] Driver registered: {name}")
+        logger.info(f"Driver registered: {name}")
 
     def get_driver(self, name: str) -> Optional[Any]:
         """Get a registered driver by name."""
@@ -716,9 +719,9 @@ class Runtime(LifecycleMixin):
             loader = ProviderLoader(self._provider_registry)
             loaded = loader.scan_directory(self.config.providers_dir)
             if loaded:
-                print(f"[Runtime] Loaded external providers: {loaded}")
+                logger.info(f"Loaded external providers: {loaded}")
         except Exception as e:
-            print(f"[Runtime] Failed to load external providers: {e}")
+            logger.info(f"Failed to load external providers: {e}")
 
     def _register_builtin_providers(self) -> None:
         """Register built-in mock providers for out-of-box capability support."""
@@ -876,16 +879,16 @@ class Runtime(LifecycleMixin):
                     healthy = False
                 self._provider_registry.set_provider_health(cfg["name"], ok=healthy)
                 status = "healthy" if healthy else "unreachable"
-                print(f"[Runtime] GPU provider '{cfg['name']}' registered ({status}) @ {endpoint}")
+                logger.info(f"GPU provider '{cfg['name']}' registered ({status}) @ {endpoint}")
             except Exception as e:
-                print(f"[Runtime] Failed to register GPU provider '{cfg['name']}': {e}")
+                logger.info(f"Failed to register GPU provider '{cfg['name']}': {e}")
 
     def _load_e_urdf(self) -> None:
         """Load robot e-URDF from file path or e-URDF Zoo."""
         if self.config.robot_model_path:
             from rosclaw.e_urdf.parser import EURDFParser
             self._e_urdf = EURDFParser(self.config.robot_model_path)
-            print(f"[Runtime] Physical Grounding (e-URDF) loaded: {self.config.robot_model_path}")
+            logger.info(f"Physical Grounding (e-URDF) loaded: {self.config.robot_model_path}")
             return
         try:
             from rosclaw.runtime.eurdf_loader import EURDFLoader
@@ -910,9 +913,9 @@ class Runtime(LifecycleMixin):
                 source="runtime",
                 priority=EventPriority.HIGH,
             ))
-            print(f"[Runtime] Robot '{robot_id}' loaded from e-URDF Zoo")
+            logger.info(f"Robot '{robot_id}' loaded from e-URDF Zoo")
         except Exception as e:
-            print(f"[Runtime] Failed to load robot from zoo: {e}")
+            logger.info(f"Failed to load robot from zoo: {e}")
 
     def _register_robot_capabilities(self) -> None:
         """Register e-URDF capabilities as a provider in the registry."""
@@ -960,11 +963,11 @@ class Runtime(LifecycleMixin):
             auto_load=False,
         )
         self._provider_registry.set_provider_health("robot_capabilities", ok=True)
-        print(f"[Runtime] Registered {len(cap_names)} robot capabilities from e-URDF")
+        logger.info(f"Registered {len(cap_names)} robot capabilities from e-URDF")
 
     def _on_provider_event(self, event: Event) -> None:
         """Handle provider_registered / provider_unregistered events."""
-        print(f"[Runtime] Provider event: {event.topic} — {event.payload}")
+        logger.info(f"Provider event: {event.topic} — {event.payload}")
 
     def _on_provider_health_changed(self, event: Event) -> None:
         """Handle provider_health_changed events."""
@@ -973,7 +976,7 @@ class Runtime(LifecycleMixin):
         ok = payload.get("ok", False)
         reason = payload.get("reason", "")
         status = "healthy" if ok else "unhealthy"
-        print(f"[Runtime] Provider '{name}' is now {status} ({reason})")
+        logger.info(f"Provider '{name}' is now {status} ({reason})")
 
     # ------------------------------------------------------------------
     # Physical World APIs (delegate to MemoryInterface / EmbodiedMemory)
@@ -1077,10 +1080,10 @@ class Runtime(LifecycleMixin):
                 know_result = self._knowledge.query_for_provider_selection(
                     capability_name, self.config.robot_id
                 )
-                print(f"[Runtime] KNOW pre-check for {capability_name}: "
-                      f"has_capability={know_result.get('has_capability', False)}")
+                logger.info(f"KNOW pre-check for {capability_name}: "
+                            f"has_capability={know_result.get('has_capability', False)}")
             except Exception as e:
-                print(f"[Runtime] KNOW pre-check failed (non-fatal): {e}")
+                logger.info(f"KNOW pre-check failed (non-fatal): {e}")
 
         # Publish pre-check event for Practice/Memory tracking
         if self.event_bus is not None and know_result is not None:
@@ -1101,9 +1104,9 @@ class Runtime(LifecycleMixin):
                 self._provider_registry = ProviderRegistry(event_bus=self.event_bus)
                 self._capability_router = CapabilityRouter(self._provider_registry)
                 self._register_builtin_providers()
-                print("[Runtime] Provider layer auto-initialized on first capability_invoke")
+                logger.info("Provider layer auto-initialized on first capability_invoke")
             except Exception as e:
-                print(f"[Runtime] Provider auto-init failed: {e}")
+                logger.info(f"Provider auto-init failed: {e}")
 
         if self._capability_router is None:
             # Graceful fallback: return mock responses for known capability families
@@ -1410,7 +1413,7 @@ class Runtime(LifecycleMixin):
                             priority=EventPriority.HIGH,
                         ))
                 except Exception as e:
-                    print(f"[Runtime] How recovery hint failed (non-fatal): {e}")
+                    logger.info(f"How recovery hint failed (non-fatal): {e}")
         else:
             self.event_bus.publish(Event(
                 topic="rosclaw.sandbox.episode.started",
@@ -1534,7 +1537,7 @@ class Runtime(LifecycleMixin):
                     },
                 )
             except Exception as e:
-                print(f"[Runtime] Memory auto-ingest failed (non-fatal): {e}")
+                logger.info(f"Memory auto-ingest failed (non-fatal): {e}")
 
         # 11. dashboard.trace.updated
         self.event_bus.publish(Event(
@@ -1564,7 +1567,7 @@ class Runtime(LifecycleMixin):
                     "knowledge_queried": True,
                 })
             except Exception as e:
-                print(f"[Runtime] KNOW post-execution recording failed (non-fatal): {e}")
+                logger.info(f"KNOW post-execution recording failed (non-fatal): {e}")
 
         return result
 

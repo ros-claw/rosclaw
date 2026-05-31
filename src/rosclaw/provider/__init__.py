@@ -28,7 +28,8 @@ Example:
     )
 
     response = await router.invoke(request)
-    print(response.result)
+    import logging
+    logging.getLogger("rosclaw.provider").info("%s", response.result)
 """
 
 from rosclaw.provider.core import (

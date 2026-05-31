@@ -11,8 +11,11 @@ This implements the "Event Bus" principle from the ROSClaw architecture:
 
 import asyncio
 import fnmatch
+import logging
 import threading
 import time
+
+logger = logging.getLogger("rosclaw.core.event_bus")
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
@@ -225,7 +228,7 @@ class EventBus:
                 try:
                     callback(event)
                 except Exception as e:
-                    print(f"[EventBus] Error in sync subscriber for {event.topic}: {e}")
+                    logger.warning(f"Error in sync subscriber for {event.topic}: {e}")
 
         # Schedule async subscribers (exact + wildcard match)
         for topic_pattern, callbacks in async_subscribers_snapshot.items():
@@ -235,7 +238,7 @@ class EventBus:
                 try:
                     asyncio.create_task(self._run_async_callback(callback, event))
                 except Exception as e:
-                    print(f"[EventBus] Error scheduling async subscriber for {event.topic}: {e}")
+                    logger.warning(f"Error scheduling async subscriber for {event.topic}: {e}")
 
     async def _run_async_callback(
         self, callback: Callable[[Event], Coroutine], event: Event
@@ -244,7 +247,7 @@ class EventBus:
         try:
             await callback(event)
         except Exception as e:
-            print(f"[EventBus] Error in async subscriber for {event.topic}: {e}")
+            logger.warning(f"Error in async subscriber for {event.topic}: {e}")
 
     async def publish_async(self, event: Event) -> None:
         """Async version of publish for use in async contexts."""

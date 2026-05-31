@@ -1,8 +1,11 @@
 """ROS2 Driver - Real robot control via ROS 2 / rclpy."""
 
+import logging
 from typing import Any, Optional
 
 from rosclaw.mcp_drivers.base import BaseDriver, DriverState, TrajectoryCommand
+
+logger = logging.getLogger("rosclaw.mcp_drivers.ros2")
 
 
 class ROS2Driver(BaseDriver):
@@ -29,7 +32,7 @@ class ROS2Driver(BaseDriver):
             from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
             from sensor_msgs.msg import JointState
         except ImportError:
-            print(f"[ROS2Driver] rclpy not available, running in mock mode")
+            logger.warning("rclpy not available, running in mock mode")
             self._driver_state.connected = True
             return
 
@@ -45,7 +48,7 @@ class ROS2Driver(BaseDriver):
             JointState, "/joint_states", self._on_joint_state, 10
         )
         self._driver_state.connected = True
-        print(f"[ROS2Driver] ROS 2 node '{self._node_name}' initialized")
+        logger.info("ROS 2 node '%s' initialized", self._node_name)
 
     def _do_stop(self) -> None:
         if self._node:

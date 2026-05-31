@@ -1,11 +1,14 @@
 """Skill Registry - Skill registration and discovery."""
 
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
+
+logger = logging.getLogger("rosclaw.skill_manager.registry")
 
 
 @dataclass
@@ -54,7 +57,7 @@ class SkillRegistry(LifecycleMixin):
         self._skills: dict[str, SkillEntry] = {}
 
     def _do_initialize(self) -> None:
-        print("[SkillRegistry] Initialized")
+        logger.info("Initialized")
         if self.event_bus is not None:
             self.event_bus.subscribe("praxis.completed", self._on_praxis_completed)
             self.event_bus.subscribe("praxis.failed", self._on_praxis_failed)
@@ -95,9 +98,9 @@ class SkillRegistry(LifecycleMixin):
         if not entry.name or not isinstance(entry.name, str):
             raise ValueError(f"Skill name must be a non-empty string, got {entry.name!r}")
         if entry.name in self._skills:
-            print(f"[SkillRegistry] Overwriting skill: {entry.name}")
+            logger.info("Overwriting skill: %s", entry.name)
         self._skills[entry.name] = entry
-        print(f"[SkillRegistry] Registered skill: {entry.name} ({entry.skill_type})")
+        logger.info("Registered skill: %s (%s)", entry.name, entry.skill_type)
         if self.event_bus is not None:
             self.event_bus.publish(Event(
                 topic="skill.registered",

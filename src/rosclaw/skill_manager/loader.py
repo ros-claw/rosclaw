@@ -1,10 +1,13 @@
 """Skill Loader - Loads skills from files and demonstrations."""
 
 import json
+import logging
 from pathlib import Path
 from typing import Any, Optional
 
 from rosclaw.skill_manager.registry import SkillRegistry, SkillEntry
+
+logger = logging.getLogger("rosclaw.skill_manager.loader")
 
 
 class SkillLoader:
@@ -43,7 +46,7 @@ class SkillLoader:
                 self.load_from_json(path)
                 count += 1
             except Exception as e:
-                print(f"[SkillLoader] Failed to load {path}: {e}")
+                logger.warning("Failed to load %s: %s", path, e)
         return count
 
     def create_programmed_skill(

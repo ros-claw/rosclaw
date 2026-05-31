@@ -8,6 +8,7 @@ Sprint 3 of DESIGN_SPRINT3_5.
 
 from dataclasses import dataclass, field
 from enum import Enum
+import logging
 from typing import Optional
 
 import numpy as np
@@ -15,6 +16,8 @@ import numpy as np
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
 from rosclaw.e_urdf.parser import RobotModel
+
+logger = logging.getLogger("rosclaw.firewall.validator")
 
 
 class ValidationLayer(Enum):
@@ -148,12 +151,15 @@ class FirewallValidator(LifecycleMixin):
                 self._mj_model = mujoco.MjModel.from_xml_path(self._mujoco_model_path)
                 self._mj_data = mujoco.MjData(self._mj_model)
             except (ImportError, FileNotFoundError, Exception) as e:
-                print(f"[FirewallValidator] MuJoCo unavailable: {e}")
+                logger.warning("MuJoCo unavailable: %s", e)
 
         self._event_bus.subscribe("agent.command", self._on_agent_command)
-        print(f"[FirewallValidator] Initialized with {self._safety_level} safety, "
-              f"{len(self._envelope.joint_soft_limits)} joints, "
-              f"MuJoCo={'yes' if self._mj_model else 'no'}")
+        logger.info(
+            "Initialized with %s safety, %d joints, MuJoCo=%s",
+            self._safety_level,
+            len(self._envelope.joint_soft_limits),
+            "yes" if self._mj_model else "no",
+        )
 
     def _do_start(self) -> None:
         self._event_bus.publish(Event(

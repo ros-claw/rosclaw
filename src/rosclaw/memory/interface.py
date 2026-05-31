@@ -14,10 +14,13 @@ Sprint 5 of DESIGN_SPRINT3_5.
 
 from typing import Optional, Any
 import json
+import logging
 import time
 
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
+
+logger = logging.getLogger("rosclaw.memory.interface")
 from rosclaw.memory.seekdb_client import SeekDBClient, SeekDBMemoryClient
 from rosclaw.memory.types import PraxisEvent, FailureMemory, ArtifactRef
 
@@ -95,7 +98,7 @@ class MemoryInterface(LifecycleMixin):
         self._client.connect()
 
         if self._embodied is not None and hasattr(self._embodied, "db_conn"):
-            print(f"[MemoryInterface] EmbodiedMemory attached: {type(self._embodied).__name__}")
+            logger.info("EmbodiedMemory attached: %s", type(self._embodied).__name__)
 
         if self.event_bus is not None:
             self.event_bus.subscribe("praxis.recorded", self._on_praxis_recorded)
@@ -106,8 +109,7 @@ class MemoryInterface(LifecycleMixin):
             self.event_bus.subscribe("rosclaw.how.recovery_hint.generated", self._on_recovery_hint_generated)
             self.event_bus.subscribe("firewall.action_blocked", self._on_firewall_action_blocked)
 
-        print(f"[MemoryInterface] Initialized for {self._robot_id}, "
-              f"backend={type(self._client).__name__}")
+        logger.info("Initialized for %s, backend=%s", self._robot_id, type(self._client).__name__)
 
     def _do_start(self) -> None:
         if self.event_bus is not None:
@@ -616,8 +618,7 @@ class MemoryInterface(LifecycleMixin):
                 break  # Sorted by timestamp, no more old ones
 
         if deleted > 0:
-            print(f"[MemoryInterface] Forgot {deleted} experiences "
-                  f"(older than {max_age_days} days)")
+            logger.info("Forgot %d experiences (older than %s days)", deleted, max_age_days)
         return deleted
 
     def enforce_capacity(self, max_experiences: Optional[int] = None) -> int:
@@ -650,8 +651,7 @@ class MemoryInterface(LifecycleMixin):
                 evicted += 1
 
         if evicted > 0:
-            print(f"[MemoryInterface] Evicted {evicted} experiences "
-                  f"(capacity: {max_experiences})")
+            logger.info("Evicted %d experiences (capacity: %s)", evicted, max_experiences)
         return evicted
 
     def get_capacity_info(self) -> dict:

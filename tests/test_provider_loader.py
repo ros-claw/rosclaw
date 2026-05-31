@@ -245,22 +245,24 @@ capabilities: [vlm.scene_understanding]
     assert str(yaml_path) in loaded["list_test"]
 
 
-def test_provider_loader_manifest_parse_error(tmp_path, capsys):
+def test_provider_loader_manifest_parse_error(tmp_path, caplog):
     """Invalid YAML is handled gracefully."""
+    import logging
     registry = ProviderRegistry()
     loader = ProviderLoader(registry)
 
     yaml_path = tmp_path / "provider.yaml"
     yaml_path.write_text("not: valid: yaml: [")
 
-    result = loader.load_file(yaml_path)
+    with caplog.at_level(logging.WARNING, logger="rosclaw.provider.loader"):
+        result = loader.load_file(yaml_path)
     assert result is None
-    captured = capsys.readouterr()
-    assert "Failed to parse" in captured.out
+    assert "Failed to parse" in caplog.text
 
 
-def test_provider_loader_register_exception(tmp_path, capsys):
+def test_provider_loader_register_exception(tmp_path, caplog):
     """Registry.register exception is handled gracefully."""
+    import logging
     from unittest.mock import patch
     registry = ProviderRegistry()
     loader = ProviderLoader(registry)
@@ -273,11 +275,11 @@ type: vlm
 capabilities: [vlm.scene_understanding]
 """)
 
-    with patch.object(registry, "register", side_effect=RuntimeError("register boom")):
-        result = loader.load_file(yaml_path)
+    with caplog.at_level(logging.WARNING, logger="rosclaw.provider.loader"):
+        with patch.object(registry, "register", side_effect=RuntimeError("register boom")):
+            result = loader.load_file(yaml_path)
     assert result is None
-    captured = capsys.readouterr()
-    assert "Failed to register" in captured.out
+    assert "Failed to register" in caplog.text
 
 
 def test_provider_loader_custom_class_not_provider_subclass():

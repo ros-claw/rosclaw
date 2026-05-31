@@ -1,11 +1,14 @@
 """MuJoCo Simulation Driver - Simulated robot control via MuJoCo."""
 
+import logging
 from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
 
 from rosclaw.mcp_drivers.base import BaseDriver, DriverState, TrajectoryCommand
+
+logger = logging.getLogger("rosclaw.mcp_drivers.mujoco_sim")
 
 
 class MuJoCoSimDriver(BaseDriver):
@@ -26,24 +29,24 @@ class MuJoCoSimDriver(BaseDriver):
         try:
             import mujoco
         except ImportError:
-            print("[MuJoCoSimDriver] mujoco not available, running in mock mode")
+            logger.warning("mujoco not available, running in mock mode")
             self._driver_state.connected = True
             return
 
         if not self._model_path or not self._model_path.strip():
-            print("[MuJoCoSimDriver] No model path provided, running in mock mode")
+            logger.warning("No model path provided, running in mock mode")
             self._driver_state.connected = True
             return
 
         if not Path(self._model_path).exists():
-            print(f"[MuJoCoSimDriver] Model not found, running in mock mode: {self._model_path}")
+            logger.warning("Model not found, running in mock mode: %s", self._model_path)
             self._driver_state.connected = True
             return
 
         self._model = mujoco.MjModel.from_xml_path(self._model_path)
         self._data = mujoco.MjData(self._model)
         self._driver_state.connected = True
-        print(f"[MuJoCoSimDriver] MuJoCo model loaded: {self._model_path}")
+        logger.info("MuJoCo model loaded: %s", self._model_path)
 
     def _do_stop(self) -> None:
         self._driver_state.connected = False

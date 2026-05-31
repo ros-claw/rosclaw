@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
 import yaml
+
+logger = logging.getLogger("rosclaw.sdk_to_mcp.compiler")
 
 
 @dataclass
@@ -148,7 +151,7 @@ class AssetCompiler:
             try:
                 assets.extend(self.compile_skill_file(file_path))
             except Exception as exc:
-                print(f"[AssetCompiler] Failed to compile {file_path}: {exc}")
+                logger.warning("Failed to compile %s: %s", file_path, exc)
         return assets
 
     # ── Export ──

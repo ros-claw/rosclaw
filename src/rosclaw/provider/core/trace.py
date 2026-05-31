@@ -3,10 +3,13 @@
 Lightweight trace collector for provider invocation chains.
 """
 
+import logging
 import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
+
+logger = logging.getLogger("rosclaw.provider.core.trace")
 
 
 @dataclass
@@ -29,7 +32,7 @@ class ProviderTrace:
         trace = ProviderTrace(task_id="task_pick_red_cup")
         trace.add_step("locate_object", "grounding_sam", "vlm.object_grounding", 188, "success")
         trace.add_guard_result(blocked=False, checks=["schema", "collision"])
-        print(trace.to_dict())
+        logger.info("%s", trace.to_dict())
     """
 
     trace_id: str = field(default_factory=lambda: f"trace_{uuid.uuid4().hex[:8]}")

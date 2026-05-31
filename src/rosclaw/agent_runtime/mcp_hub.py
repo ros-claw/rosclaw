@@ -16,12 +16,15 @@ The MCP Hub:
 
 import asyncio
 import json
+import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
+
+logger = logging.getLogger("rosclaw.agent_runtime.mcp_hub")
 
 
 @dataclass
@@ -99,9 +102,9 @@ class MCPHub(LifecycleMixin):
             from mcp.server import Server
             self._server = Server("rosclaw-mcp")
             self._register_all_tools()
-            print("[MCPHub] MCP server initialized")
+            logger.info("MCP server initialized")
         except ImportError:
-            print("[MCPHub] MCP library not available, running in mock mode")
+            logger.warning("MCP library not available, running in mock mode")
             self._server = None
 
         # Subscribe to robot state updates
@@ -113,11 +116,11 @@ class MCPHub(LifecycleMixin):
 
     def _do_start(self) -> None:
         """Start the MCP server."""
-        print("[MCPHub] MCP Hub started")
+        logger.info("MCP Hub started")
 
     def _do_stop(self) -> None:
         """Stop the MCP server."""
-        print("[MCPHub] MCP Hub stopped")
+        logger.info("MCP Hub stopped")
         # Cancel any pending futures
         for fut in self._pending_requests.values():
             if not fut.done():
@@ -439,7 +442,7 @@ class MCPHub(LifecycleMixin):
         All tool calls are converted to EventBus events using
         command-response pattern for reliable execution feedback.
         """
-        print(f"[MCPHub] Tool call: {name}({arguments})")
+        logger.info("Tool call: %s(%s)", name, arguments)
 
         # Semantic capability tools (provider-aware)
         if name == "observe_scene":

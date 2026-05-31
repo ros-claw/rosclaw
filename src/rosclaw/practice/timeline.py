@@ -11,6 +11,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional, Any
 import json
+import logging
 import time
 
 import numpy as np
@@ -18,6 +19,8 @@ import numpy as np
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
 from rosclaw.core.types import RobotState, PraxisEvent
+
+logger = logging.getLogger("rosclaw.practice.timeline")
 
 
 class TimelineChannel(Enum):
@@ -102,12 +105,13 @@ class UnifiedTimeline(LifecycleMixin):
                 from mcap.writer import Writer
                 self._mcap_writer = True
             except ImportError:
-                print("[UnifiedTimeline] mcap not available, using JSONL only")
+                logger.warning("mcap not available, using JSONL only")
                 self._enable_mcap = False
 
-        print(f"[UnifiedTimeline] Initialized for {self._robot_id}, "
-              f"MCAP={'enabled' if self._enable_mcap else 'disabled'}, "
-              f"buffer_size={self._buffer_size}")
+        logger.info("Initialized for %s, MCAP=%s, buffer_size=%s",
+                    self._robot_id,
+                    'enabled' if self._enable_mcap else 'disabled',
+                    self._buffer_size)
 
     def _do_start(self) -> None:
         self._event_bus.publish(Event(
@@ -350,7 +354,7 @@ class UnifiedTimeline(LifecycleMixin):
 
     def _flush_pending_praxis(self) -> None:
         for cid, state in self._pending_praxis.items():
-            print(f"[UnifiedTimeline] Flushing incomplete praxis: {cid}")
+            logger.info("Flushing incomplete praxis: %s", cid)
         self._pending_praxis.clear()
 
     def get_entries(

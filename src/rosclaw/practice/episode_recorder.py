@@ -10,6 +10,7 @@ later sprints.
 """
 
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass, field
@@ -19,6 +20,8 @@ from typing import Any, Callable, Optional
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
 from rosclaw.core.types import PraxisEvent
+
+logger = logging.getLogger("rosclaw.practice.episode_recorder")
 
 
 @dataclass
