@@ -21,27 +21,14 @@ if sys.version_info[:2] != (3, 10):
 
 # Clean up sys.modules mocks from test_mcp_server.py so real ROS2 imports work.
 # Must run before ANY rosclaw or rclpy imports.
-_mocks_to_remove = [
-    "rclpy",
-    "rclpy.node",
-    "rclpy.action",
-    "rclpy.callback_groups",
-    "rclpy.executors",
-    "rclpy.qos",
-    "geometry_msgs",
-    "geometry_msgs.msg",
-    "sensor_msgs",
-    "sensor_msgs.msg",
-    "std_msgs",
-    "std_msgs.msg",
-    "trajectory_msgs",
-    "trajectory_msgs.msg",
-    "control_msgs",
-    "control_msgs.action",
-    "rosclaw.mcp.ur5_server",
-]
-for _mod in _mocks_to_remove:
-    sys.modules.pop(_mod, None)
+for _mod in list(sys.modules.keys()):
+    if _mod.startswith(("rclpy.", "rosclaw.", "geometry_msgs", "sensor_msgs",
+                        "std_msgs", "trajectory_msgs", "control_msgs",
+                        "builtin_interfaces", "unique_identifier_msgs",
+                        "action_msgs", "rcl_interfaces")):
+        sys.modules.pop(_mod, None)
+# Also remove top-level rclpy itself
+sys.modules.pop("rclpy", None)
 
 import asyncio
 from pathlib import Path
