@@ -10,6 +10,7 @@ This implements the "Event Bus" principle from the ROSClaw architecture:
 """
 
 import asyncio
+from collections import deque
 import fnmatch
 import logging
 import threading
@@ -105,8 +106,8 @@ class EventBus:
     def __init__(self, normalize_topics: bool = True):
         self._subscribers: dict[str, list[Callable]] = {}
         self._async_subscribers: dict[str, list[Callable]] = {}
-        self._event_history: list[Event] = []
         self._max_history = 10000
+        self._event_history: deque[Event] = deque(maxlen=self._max_history)
         self._lock = threading.Lock()          # protects _subscribers, _async_subscribers, _event_history
         self._async_lock = asyncio.Lock()
         self._running = False
@@ -209,8 +210,8 @@ class EventBus:
         # Store in history
         with self._lock:
             self._event_history.append(event)
-            if len(self._event_history) > self._max_history:
-                self._event_history.pop(0)
+            while len(self._event_history) > self._max_history:
+                self._event_history.popleft()
 
             # Snapshot subscribers under lock to avoid races during iteration
             subscribers_snapshot = {
@@ -255,6 +256,8 @@ class EventBus:
 
     def get_history(self, topic: Optional[str] = None, limit: int = 100) -> list[Event]:
         """Get recent event history, optionally filtered by topic."""
+        if limit <= 0:
+            return []
         with self._lock:
             events = list(self._event_history)
         if topic:
@@ -265,7 +268,7 @@ class EventBus:
         """Clear event history. If topic is given, clear only events for that topic."""
         with self._lock:
             if topic:
-                self._event_history = [e for e in self._event_history if e.topic != topic]
+                kept = [e for e in self._event_history if e.topic != topic]; self._event_history.clear(); self._event_history.extend(kept)
             else:
                 self._event_history.clear()
 
