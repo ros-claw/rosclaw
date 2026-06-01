@@ -3,17 +3,51 @@
 These tests require a ROS2 environment with rclpy and message packages installed.
 Run with:
     source /opt/ros/humble/setup.bash
-    PYTHONPATH="/tmp/ros2-local/opt/ros/humble/local/lib/python3.10/dist-packages:$PYTHONPATH" \
-        /tmp/ros2-venv/bin/pytest tests/test_ur5_server_ros2.py -v
+    export LD_LIBRARY_PATH="/tmp/ros2-local/opt/ros/humble/lib:$LD_LIBRARY_PATH"
+    export PYTHONPATH="/tmp/ros2-local/opt/ros/humble/local/lib/python3.10/dist-packages:$PYTHONPATH"
+    /tmp/ros2-venv/bin/pytest tests/test_ur5_server_ros2.py -v -p no:xdist
 """
 
-import asyncio
 import sys
+
+import pytest
+
+# Skip entire module if not on Python 3.10 (rclpy ABI mismatch)
+if sys.version_info[:2] != (3, 10):
+    pytest.skip(
+        f"ROS2 tests require Python 3.10 (found {sys.version_info.major}.{sys.version_info.minor})",
+        allow_module_level=True,
+    )
+
+# Clean up sys.modules mocks from test_mcp_server.py so real ROS2 imports work.
+# Must run before ANY rosclaw or rclpy imports.
+_mocks_to_remove = [
+    "rclpy",
+    "rclpy.node",
+    "rclpy.action",
+    "rclpy.callback_groups",
+    "rclpy.executors",
+    "rclpy.qos",
+    "geometry_msgs",
+    "geometry_msgs.msg",
+    "sensor_msgs",
+    "sensor_msgs.msg",
+    "std_msgs",
+    "std_msgs.msg",
+    "trajectory_msgs",
+    "trajectory_msgs.msg",
+    "control_msgs",
+    "control_msgs.action",
+    "rosclaw.mcp.ur5_server",
+]
+for _mod in _mocks_to_remove:
+    sys.modules.pop(_mod, None)
+
+import asyncio
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
 import rclpy
 from sensor_msgs.msg import JointState
