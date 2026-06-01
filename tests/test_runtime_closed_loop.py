@@ -14,8 +14,6 @@ Verifies the 11-step execution pipeline:
 11. dashboard.trace.updated
 """
 
-import pytest
-
 
 class TestRuntimeClosedLoop:
     """End-to-end closed loop via Runtime.execute()."""

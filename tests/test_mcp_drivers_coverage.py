@@ -219,7 +219,6 @@ class TestSerialDriverMockMode:
         traj = TrajectoryCommand(waypoints=[[0.0] * 6], times=[1.0])
         assert driver.execute_trajectory(traj) is False
 
-
     def test_set_gripper_no_serial(self):
         driver = SerialDriver("test_bot")
         driver.initialize()

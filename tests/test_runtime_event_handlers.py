@@ -3,7 +3,7 @@
 import time
 
 from rosclaw.core.runtime import Runtime, RuntimeConfig
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import Event
 
 
 def test_runtime_firewall_action_blocked_handler():
@@ -22,7 +22,7 @@ def test_runtime_firewall_action_blocked_handler():
     rt._do_initialize()
 
     received = []
-    def on_recovery(event):
+    def on_recovery(event):  # noqa: E306
         received.append(event.topic)
     rt.event_bus.subscribe("heuristic.recovery_suggested", on_recovery)
 
@@ -52,7 +52,7 @@ def test_runtime_sandbox_episode_failed_handler():
     rt._do_initialize()
 
     received = []
-    def on_hint(event):
+    def on_hint(event):  # noqa: E306
         received.append(event.topic)
     rt.event_bus.subscribe("rosclaw.how.recovery_hint.generated", on_hint)
 
@@ -81,7 +81,7 @@ def test_runtime_sandbox_action_blocked_handler():
     rt._do_initialize()
 
     received = []
-    def on_hint(event):
+    def on_hint(event):  # noqa: E306
         received.append(event.topic)
     rt.event_bus.subscribe("rosclaw.how.recovery_hint.generated", on_hint)
 
@@ -110,7 +110,7 @@ def test_runtime_execution_failed_handler():
     rt._do_initialize()
 
     received = []
-    def on_hint(event):
+    def on_hint(event):  # noqa: E306
         received.append(event.topic)
     rt.event_bus.subscribe("rosclaw.how.recovery_hint.generated", on_hint)
 
@@ -139,7 +139,7 @@ def test_runtime_safety_violation_handler():
     rt._do_initialize()
 
     received = []
-    def on_stop(event):
+    def on_stop(event):  # noqa: E306
         received.append(event.topic)
     rt.event_bus.subscribe("robot.emergency_stop", on_stop)
 

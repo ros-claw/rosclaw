@@ -3,12 +3,11 @@
 import json
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import EventBus, Event
 from rosclaw.data.flywheel import DataFlywheel, DataEvent, EventType, RobotState
 from rosclaw.practice.recorder import PracticeRecorder
 
@@ -68,7 +67,7 @@ class TestDataEvent:
 
 class TestDataFlywheelLifecycle:
     def test_init_creates_storage(self, tmp_path):
-        fw = DataFlywheel("bot", storage_path=tmp_path / "data")
+        DataFlywheel("bot", storage_path=tmp_path / "data")
         assert (tmp_path / "data").exists()
 
     def test_init_default_storage(self):

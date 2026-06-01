@@ -8,7 +8,6 @@ from rosclaw.firewall.decorator import (
     DigitalTwinFirewall,
     SafetyViolationError,
     SafetyLevel,
-    mujoco_firewall,
 )
 
 MODEL_PATH = Path(__file__).parent.parent / "src" / "rosclaw" / "specs" / "ur5e.xml"

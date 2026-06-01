@@ -1,7 +1,6 @@
 """Extended tests for eurdf_loader validation and edge cases."""
 
 import pytest
-from pathlib import Path
 
 from rosclaw.runtime.eurdf_loader import EURDFLoader, RobotRegistry
 

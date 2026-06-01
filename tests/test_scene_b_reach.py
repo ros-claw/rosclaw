@@ -15,12 +15,12 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-import time
-import pytest
-import numpy as np
+import time  # noqa: E402
+import pytest  # noqa: E402
+import numpy as np  # noqa: E402
 
-from rosclaw.core import Runtime, RuntimeConfig, EventBus, Event, EventPriority
-from rosclaw.critic.basic_critic import BasicCritic
+from rosclaw.core import Runtime, RuntimeConfig, Event  # noqa: E402
+from rosclaw.critic.basic_critic import BasicCritic  # noqa: E402
 
 
 @pytest.fixture

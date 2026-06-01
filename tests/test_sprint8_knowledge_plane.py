@@ -7,8 +7,6 @@ Covers:
 - Event subscriptions
 """
 
-import time
-from unittest.mock import MagicMock
 
 import pytest
 

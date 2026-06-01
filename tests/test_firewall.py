@@ -12,7 +12,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from rosclaw.firewall import (
+from rosclaw.firewall import (  # noqa: E402
     DigitalTwinFirewall,
     SafetyViolationError,
     SafetyLevel,

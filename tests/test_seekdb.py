@@ -1,6 +1,5 @@
 """Tests for SeekDB Client (Sprint 5)."""
 
-import pytest
 import os
 
 from rosclaw.memory.seekdb_client import SeekDBMemoryClient, SeekDBSQLiteClient

@@ -225,6 +225,6 @@ async def test_scenario_c_full_closed_loop(runtime_with_physics):
     assert "rosclaw.sandbox.action.allowed" in all_events
     assert "rosclaw.dashboard.trace.updated" in all_events
 
-    print(f"\n✅ Scenario C 端到端闭环验证通过！")
+    print("\n✅ Scenario C 端到端闭环验证通过！")
     print(f"   Events captured: {len(all_events)}")
-    print(f"   Physics trajectory points: {len(exec_result['trajectory_data'])}")
+    print("   Physics trajectory points: " + str(len(exec_result["trajectory_data"])))

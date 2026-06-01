@@ -1,6 +1,5 @@
 """Tests for LLM Provider abstraction layer."""
 
-import os
 from unittest.mock import MagicMock, patch
 
 import pytest

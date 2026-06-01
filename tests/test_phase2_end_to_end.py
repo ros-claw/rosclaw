@@ -17,13 +17,11 @@ P0 Blockers validated:
 """
 
 import json
-import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-import pytest
 
 # Dynamic repo root for cross-machine compatibility (local, Dell, Spark)
 REPO_ROOT = str(Path(__file__).parent.parent)
@@ -388,7 +386,7 @@ class TestPhase2Scenarios:
         gate = FirewallGate(robot_id="ur5e", world_id="tabletop")
         # Dangerous action: target through table
         action = {"type": "reach", "parameters": {"target_pose": [0.5, 0.0, -0.1]}}
-        decision = gate.check(action)
+        gate.check(action)
         # Note: mock gate may or may not block this; we test the recording path
 
         bus = EventBus()

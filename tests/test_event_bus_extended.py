@@ -421,7 +421,8 @@ def test_event_bus_no_normalization():
 
 def test_unsubscribe_callback_not_found_is_silent():
     bus = EventBus()
-    handler = lambda e: None
+    def handler(e):  # noqa: E306
+        pass
     bus.subscribe("test", handler)
     bus.unsubscribe("test", handler)  # removes it
     bus.unsubscribe("test", handler)  # second time: not found, should be silent
@@ -449,7 +450,6 @@ def test_sync_subscriber_exception_logged(caplog):
 
 @pytest.mark.asyncio
 async def test_async_subscriber_exception_logged(caplog):
-    import logging
     bus = EventBus()
 
     async def bad_handler(e):

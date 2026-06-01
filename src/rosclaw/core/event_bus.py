@@ -202,9 +202,9 @@ class EventBus:
             payload = event.payload if isinstance(event.payload, dict) else {}
             event.trace_id = (
                 payload.get("request_id")
-                or payload.get("correlation_id")
-                or payload.get("episode_id")
-                or f"trace_{uuid.uuid4().hex[:12]}"
+                or payload.get("correlation_id")  # noqa: W503
+                or payload.get("episode_id")  # noqa: W503
+                or f"trace_{uuid.uuid4().hex[:12]}"  # noqa: W503
             )
 
         # Store in history

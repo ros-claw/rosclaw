@@ -1,6 +1,5 @@
 """Tests for mcp.minimal_server — ROSClawMinimalMCPServer."""
 
-import asyncio
 import sys
 from unittest.mock import MagicMock, patch
 

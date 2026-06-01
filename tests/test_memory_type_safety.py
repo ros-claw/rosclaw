@@ -8,14 +8,14 @@ P1 Issue 1: https://github.com/ros-claw/rosclaw-v1.0/issues/XXX
 """
 
 import sys
-from typing import Any, Optional
+from typing import Any
 from unittest.mock import MagicMock
 import pytest
 
 # Import MemoryInterface directly to avoid triggering rosclaw.__init__
 # which imports all modules (including MCPHub which has unrelated issues)
 sys.path.insert(0, '/home/ubuntu/rosclaw/rosclaw_memory/powermem/src')
-from rosclaw.memory.interface import MemoryInterface
+from rosclaw.memory.interface import MemoryInterface  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -42,7 +42,6 @@ def test_protocol_import_with_powermem():
     assert _HAS_POWERMEM_PROTOCOLS is True
 
     # Verify they are Protocol types (not Any)
-    from typing import get_origin
     from powermem.embodied.protocols import (
         WorldObjectLike as RealWorldObjectLike,
         PoseLike as RealPoseLike,
@@ -97,7 +96,7 @@ def test_proxy_methods_have_type_annotations():
     from rosclaw.memory.interface import MemoryInterface as FreshMemoryInterface
 
     # Get type hints for proxy methods
-    hints = get_type_hints(FreshMemoryInterface)
+    get_type_hints(FreshMemoryInterface)
 
     # Verify add_world_object uses WorldObjectLike (not Any)
     add_hints = get_type_hints(FreshMemoryInterface.add_world_object)

@@ -1309,7 +1309,7 @@ class Runtime(LifecycleMixin):
                     # Use real physics stepping if sandbox has MuJoCo model
                     has_real_physics = (
                         self._sandbox is not None
-                        and getattr(self._sandbox, "has_physics", False)
+                        and getattr(self._sandbox, "has_physics", False)  # noqa: W503
                     )
                     dt = 0.01
                     for i, waypoint in enumerate(raw_trajectory):

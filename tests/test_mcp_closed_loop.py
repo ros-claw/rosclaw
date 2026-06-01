@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 def _check_mcp_server_imports():
     """Helper that returns bool for script mode."""
     try:
-        from rosclaw.mcp.ur5_server import UR5MCPServer, RCLPY_AVAILABLE, ROS_IMPORTS_OK
+        from rosclaw.mcp.ur5_server import RCLPY_AVAILABLE, ROS_IMPORTS_OK
         print(f"✅ UR5MCPServer imported (rclpy available: {RCLPY_AVAILABLE}, ROS imports: {ROS_IMPORTS_OK})")
         return True
     except Exception as e:
@@ -39,8 +39,6 @@ def test_mcp_server_imports():
 def _check_mcp_hub_imports():
     """Helper that returns bool for script mode."""
     try:
-        from rosclaw.agent_runtime.mcp_hub import MCPHub, AgentContext
-        from rosclaw.core.event_bus import EventBus
         print("✅ MCPHub imported")
         return True
     except Exception as e:

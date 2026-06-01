@@ -5,7 +5,7 @@ import asyncio
 import time
 
 from rosclaw.core.runtime import Runtime, RuntimeConfig
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import Event
 from rosclaw.agent_runtime.mcp_hub import MCPHub
 
 
@@ -147,7 +147,7 @@ class TestKnowHowRuntimeE2E:
 
     def test_event_bus_knowledge_topics(self, runtime):
         received = []
-        def handler(event):
+        def handler(event):  # noqa: E306
             received.append(event.topic)
         runtime.event_bus.subscribe("knowledge.query", handler)
         runtime.event_bus.subscribe("heuristic.recovery_suggested", handler)

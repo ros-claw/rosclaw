@@ -1,6 +1,5 @@
 """Tests for DashboardWebServer HTTP API and WebSocket endpoints."""
 
-import json
 import pytest
 
 from rosclaw.dashboard.web_server import DashboardWebServer, WebSocketClient

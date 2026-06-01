@@ -172,8 +172,8 @@ class MockVLMProvider(Provider):
                 (i % w, i // w)
                 for i, (r, g, b) in enumerate(pixels)
                 if low[0] <= r <= high[0]
-                and low[1] <= g <= high[1]
-                and low[2] <= b <= high[2]
+                and low[1] <= g <= high[1]  # noqa: W503
+                and low[2] <= b <= high[2]  # noqa: W503
             ]
 
             if not mask_pixels:

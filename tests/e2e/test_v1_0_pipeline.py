@@ -11,7 +11,7 @@ Sprint 7 acceptance: After a grasp task, verify:
 
 import pytest
 
-from rosclaw.core.event_bus import EventBus, Event
+from rosclaw.core.event_bus import Event
 from rosclaw.core.runtime import Runtime, RuntimeConfig
 
 

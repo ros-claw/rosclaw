@@ -1,8 +1,7 @@
 """Tests for Agent Runtime."""
 
-import pytest
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import EventBus, Event
 from rosclaw.agent_runtime.mcp_hub import MCPHub, AgentContext
 
 

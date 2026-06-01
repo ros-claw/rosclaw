@@ -176,7 +176,7 @@ class TestCapabilityRouterIntegration:
             type="llm",
             capabilities=["llm.chat"],
         )
-        p = reg.register(manifest, lambda m: DummyProvider(m), auto_load=False)
+        reg.register(manifest, lambda m: DummyProvider(m), auto_load=False)
         reg.set_provider_health("llm_provider", ok=True)
         return CapabilityRouter(reg)
 

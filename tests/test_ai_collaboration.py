@@ -1,6 +1,5 @@
 """Tests for AI Collaboration / DeepSeek integration."""
 
-import os
 import pytest
 
 from rosclaw.agent_runtime.ai_collaboration import DeepSeekConfig, DeepSeekClient

@@ -3,7 +3,6 @@
 Run: pytest tests/integration/test_know_how_smoke.py -v
 """
 
-import asyncio
 import pytest
 
 from rosclaw.core import Runtime, RuntimeConfig

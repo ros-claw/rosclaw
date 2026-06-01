@@ -171,6 +171,6 @@ async def test_scenario_d_full_patrol_closed_loop(runtime_with_go2):
     assert "rosclaw.sandbox.action.allowed" in all_events
     assert "rosclaw.dashboard.trace.updated" in all_events
 
-    print(f"\n✅ Scenario D 巡检端到端闭环验证通过！")
-    print(f"   Waypoints visited: {len(waypoints)}")
-    print(f"   Events captured: {len(all_events)}")
+    print("\n✅ Scenario D 巡检端到端闭环验证通过！")
+    print("   Waypoints visited: " + str(len(waypoints)))
+    print("   Events captured: " + str(len(all_events)))

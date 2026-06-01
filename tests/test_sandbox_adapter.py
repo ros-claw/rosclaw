@@ -1,9 +1,8 @@
 """Tests for SandboxRuntimeAdapter."""
 
-import pytest
 from unittest.mock import MagicMock, patch
 
-from rosclaw.core.event_bus import EventBus, Event
+from rosclaw.core.event_bus import EventBus
 from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
 
 

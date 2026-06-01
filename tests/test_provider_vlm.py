@@ -1,12 +1,11 @@
 """Tests for MockVLMProvider."""
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 try:
-    import PIL
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False

@@ -511,7 +511,7 @@ def run_walking_demo(
     result = {
         "success": (
             walk_state.distance_traveled >= target_distance * 0.95
-            and not walk_state.fall_detected
+            and not walk_state.fall_detected  # noqa: W503
         ),
         "distance_traveled": float(walk_state.distance_traveled),
         "target_distance": target_distance,
@@ -528,14 +528,14 @@ def run_walking_demo(
 
     if verbose:
         status = "PASS" if result["success"] else "FAIL"
-        print(f"\n{'='*50}")
+        print(f"\n{'=' * 50}")
         print(f"Result: {status}")
         print(f"  Distance: {result['distance_traveled']:.3f}m / {target_distance:.1f}m")
         print(f"  Sim time: {result['sim_time']:.2f}s")
         print(f"  Energy:   {result['energy_used']:.1f}J")
         print(f"  Fall:     {result['fall_detected']} ({result['fall_reason'] or 'N/A'})")
         print(f"  GPU:      {result['gpu_used']}")
-        print(f"{'='*50}")
+        print(f"{'=' * 50}")
 
     return result
 

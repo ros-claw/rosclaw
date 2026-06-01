@@ -145,9 +145,9 @@ class MemoryInterface(LifecycleMixin):
         if not instruction:
             instruction = (
                 payload.get("skill_name", "")
-                or payload.get("agent_instruction", "")
-                or (payload.get("episode_metadata", {}) or {}).get("agent_instruction", "")
-                or "unnamed_task"
+                or payload.get("agent_instruction", "")  # noqa: W503
+                or (payload.get("episode_metadata", {}) or {}).get("agent_instruction", "")  # noqa: W503
+                or "unnamed_task"  # noqa: W503
             )
         self.store_experience(
             event_id=payload.get("event_id", payload.get("episode_id", "")),

@@ -30,7 +30,7 @@ class TestPhase3Dashboard:
         from rosclaw.dashboard.web_server import DashboardWebServer
         from rosclaw.core.event_bus import EventBus
 
-        bus = EventBus()
+        EventBus()
         ws = DashboardWebServer(host="127.0.0.1", port=18765)
 
         # Simulate events directly via metrics
@@ -149,7 +149,7 @@ class TestPhase3MuJoCoRealPhysics:
         from pathlib import Path
 
         # Run the demo with a short timeout to get physics data
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory():
             result = subprocess.run(
                 [sys.executable, "-m", "rosclaw.examples.g1_free_floating_walk"],
                 capture_output=True, text=True,

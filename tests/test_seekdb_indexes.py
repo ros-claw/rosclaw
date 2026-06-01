@@ -9,8 +9,6 @@ Verifies:
 P1 Issue 3: https://github.com/ros-claw/rosclaw-v1.0/issues/XXX
 """
 
-import os
-import tempfile
 import time
 
 import pytest

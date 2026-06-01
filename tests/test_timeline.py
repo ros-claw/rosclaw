@@ -1,11 +1,10 @@
 """Tests for UnifiedTimeline (Sprint 4)."""
 
-import pytest
 import numpy as np
 from pathlib import Path
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
-from rosclaw.practice.timeline import UnifiedTimeline, TimelineChannel, TimelineEntry
+from rosclaw.core.event_bus import EventBus, Event
+from rosclaw.practice.timeline import UnifiedTimeline, TimelineChannel
 
 
 def test_multi_channel_recording():

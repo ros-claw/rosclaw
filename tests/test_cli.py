@@ -1,7 +1,6 @@
 """Tests for rosclaw.cli"""
 
 import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -110,7 +109,7 @@ class TestDoctor:
         from rosclaw.cli import main
 
         sys.argv = ["rosclaw", "doctor"]
-        code = main()
+        main()
         captured = capsys.readouterr()
         assert "ROSClaw v1.0 — Doctor" in captured.out
         assert "Python version" in captured.out
@@ -202,7 +201,7 @@ class TestRobotInspect:
     def test_robot_inspect_found(self, capsys):
         from rosclaw.cli import main
         sys.argv = ["rosclaw", "robot", "inspect", "ur5e"]
-        code = main()
+        main()
         captured = capsys.readouterr()
         assert "Robot Profile" in captured.out or "not found" in captured.out
 
@@ -218,7 +217,7 @@ class TestRobotValidate:
     def test_robot_validate_found(self, capsys):
         from rosclaw.cli import main
         sys.argv = ["rosclaw", "robot", "validate", "ur5e"]
-        code = main()
+        main()
         captured = capsys.readouterr()
         assert "Validation Result" in captured.out or "not found" in captured.out
 
@@ -311,7 +310,7 @@ class TestSandboxCommands:
     def test_sandbox_validate_found(self, capsys):
         from rosclaw.cli import main
         sys.argv = ["rosclaw", "sandbox", "validate", "ur5e"]
-        code = main()
+        main()
         captured = capsys.readouterr()
         assert "Validating" in captured.out or "not found" in captured.out
 
@@ -360,7 +359,6 @@ class TestEventsCommand:
 class TestStopCommand:
     def test_stop_no_pid_file(self, capsys):
         from rosclaw.cli import main
-        import os
         from pathlib import Path
 
         pid_file = Path.home() / ".rosclaw" / "runtime.pid"
@@ -376,7 +374,6 @@ class TestStopCommand:
 
     def test_stop_with_pid_file(self, capsys, tmp_path):
         from rosclaw.cli import main
-        import os
 
         pid_file = tmp_path / "runtime.pid"
         pid_file.write_text("99999")
@@ -399,14 +396,13 @@ class TestRestartCommand:
         mock_runtime_cls.return_value = mock_runtime
 
         call_count = 0
-        def fake_sleep(t):
+        def fake_sleep(t):  # noqa: E306
             nonlocal call_count
             call_count += 1
             if call_count >= 2:
                 mock_runtime.is_running = False
 
         # Ensure no PID file to avoid stop path issues
-        import os
         from pathlib import Path
         pid_file = Path.home() / ".rosclaw" / "runtime.pid"
         if pid_file.exists():

@@ -1,11 +1,10 @@
 """Provider coverage tests — fills gaps in generic adapter, loader, router."""
 
-import asyncio
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from rosclaw.provider.adapters.generic import GenericProvider
-from rosclaw.provider.core.errors import ProviderNotFoundError, ProviderUnavailableError, RuntimeAdapterError
+from rosclaw.provider.core.errors import ProviderNotFoundError, RuntimeAdapterError
 from rosclaw.provider.core.manifest import ProviderManifest, RuntimeSpec, SafetySpec
 from rosclaw.provider.core.provider import Provider
 from rosclaw.provider.core.request import ProviderRequest
@@ -217,7 +216,7 @@ class TestCapabilityRouterCoverage:
         class FailingProvider(Provider):
             name = "primary"
             capabilities = ["llm.chat"]
-            async def infer(self, request):
+            async def infer(self, request):  # noqa: E306
                 return ProviderResponse(
                     request_id=request.request_id,
                     provider=self.name,
@@ -229,7 +228,7 @@ class TestCapabilityRouterCoverage:
         class OKProvider(Provider):
             name = "fallback"
             capabilities = ["llm.chat"]
-            async def infer(self, request):
+            async def infer(self, request):  # noqa: E306
                 return ProviderResponse(
                     request_id=request.request_id,
                     provider=self.name,
@@ -261,7 +260,7 @@ class TestCapabilityRouterCoverage:
         class FailingProvider(Provider):
             name = "primary"
             capabilities = ["llm.chat"]
-            async def infer(self, request):
+            async def infer(self, request):  # noqa: E306
                 return ProviderResponse(
                     request_id=request.request_id,
                     provider=self.name,
@@ -293,7 +292,7 @@ class TestCapabilityRouterCoverage:
         class OKProvider(Provider):
             name = "slow"
             capabilities = ["llm.chat"]
-            async def infer(self, request):
+            async def infer(self, request):  # noqa: E306
                 return ProviderResponse(request_id="r1", provider="slow", capability="llm.chat")
 
         p = reg.register(m, lambda m: OKProvider(m), auto_load=False)
@@ -320,7 +319,7 @@ class TestCapabilityRouterCoverage:
         class OKProvider(Provider):
             name = "safe"
             capabilities = ["llm.chat"]
-            async def infer(self, request):
+            async def infer(self, request):  # noqa: E306
                 return ProviderResponse(request_id="r1", provider="safe", capability="llm.chat")
 
         p = reg.register(m, lambda m: OKProvider(m), auto_load=False)
@@ -356,7 +355,7 @@ class TestCapabilityRouterCoverage:
         class BoomProvider(Provider):
             name = "boom"
             capabilities = ["llm.chat"]
-            async def infer(self, request):
+            async def infer(self, request):  # noqa: E306
                 raise RuntimeError("infer boom")
 
         m = ProviderManifest(name="boom", version="0.1", type="llm", capabilities=["llm.chat"])

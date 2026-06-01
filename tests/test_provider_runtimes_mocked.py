@@ -77,7 +77,7 @@ class TestHTTPRuntimeMocked:
         good_resp.status = 200
         good_resp.json = AsyncMock(return_value={"result": "ok"})
         call_count = 0
-        def fake_post(*args, **kwargs):
+        def fake_post(*args, **kwargs):  # noqa: E306
             nonlocal call_count
             call_count += 1
             resp = good_resp if call_count > 1 else bad_resp

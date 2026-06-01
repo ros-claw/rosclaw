@@ -122,8 +122,8 @@ class RobotState:
     def validate(self, expected_dof: int) -> bool:
         """Validate state dimensions."""
         return (
-            self.joint_positions.shape == (expected_dof,) and
-            self.joint_velocities.shape == (expected_dof,) and
+            self.joint_positions.shape == (expected_dof,) and  # noqa: W504
+            self.joint_velocities.shape == (expected_dof,) and  # noqa: W504
             self.joint_torques.shape == (expected_dof,)
         )
 

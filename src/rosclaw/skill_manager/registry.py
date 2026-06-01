@@ -152,7 +152,7 @@ class SkillRegistry(LifecycleMixin):
         if success:
             skill.success_rate = (
                 (skill.success_rate * (skill.execution_count - 1) + 1.0)
-                / skill.execution_count
+                / skill.execution_count  # noqa: W503
             )
         else:
             skill.success_rate = (

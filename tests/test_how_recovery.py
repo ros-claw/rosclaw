@@ -1,9 +1,8 @@
 """Tests for how.recovery — RecoveryEngine."""
 
-import asyncio
-import math
 
 import pytest
+import time
 
 from rosclaw.how.recovery import (
     RecoveryEngine,
@@ -131,7 +130,7 @@ class TestGenerateRecoveryHint:
     @pytest.mark.asyncio
     async def test_publish_to_event_bus(self, engine_with_rules):
         bus = FakeEventBus()
-        result = await engine_with_rules.generate_recovery_hint(
+        await engine_with_rules.generate_recovery_hint(
             "joint limit exceeded", event_bus=bus, request_id="req1"
         )
         assert len(bus.events) == 1
@@ -319,6 +318,3 @@ class TestRecoveryEngineEventHandlers:
             "sandbox"
         )
         assert len(bus.events) >= 1
-
-
-import time

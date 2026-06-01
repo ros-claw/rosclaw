@@ -1,10 +1,9 @@
 """Extended tests for swarm coordinator and consensus gaps."""
 
-import math
 import pytest
 
-from rosclaw.core.event_bus import EventBus, Event
-from rosclaw.swarm.coordinator import SwarmCoordinator, AgentBid, TaskAllocation
+from rosclaw.core.event_bus import EventBus
+from rosclaw.swarm.coordinator import SwarmCoordinator
 from rosclaw.swarm.consensus import RaftLikeConsensus
 
 
@@ -53,7 +52,7 @@ class TestSwarmCoordinatorExtended:
     def test_allocate_task_publishes_event(self):
         bus = EventBus()
         received = []
-        def handler(event):
+        def handler(event):  # noqa: E306
             received.append(event)
         bus.subscribe("swarm.task_allocated", handler)
 
@@ -71,7 +70,7 @@ class TestSwarmCoordinatorExtended:
     def test_propose_state_consensus_reached(self):
         bus = EventBus()
         received = []
-        def handler(event):
+        def handler(event):  # noqa: E306
             received.append(event)
         bus.subscribe("swarm.consensus_reached", handler)
 

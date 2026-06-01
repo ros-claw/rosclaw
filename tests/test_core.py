@@ -1,6 +1,5 @@
 """Tests for Core modules."""
 
-import asyncio
 
 import pytest
 
