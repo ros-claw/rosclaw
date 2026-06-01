@@ -308,7 +308,7 @@ class UR5MCPServer:
         self.firewall_model_path = firewall_model_path or self._find_default_model()
 
         # Initialize ROS 2
-        if RCLPY_AVAILABLE:
+        if RCLPY_AVAILABLE and not rclpy.ok():
             rclpy.init(args=None)
 
         # Create ROS node
