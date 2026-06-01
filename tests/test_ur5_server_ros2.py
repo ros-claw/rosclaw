@@ -7,17 +7,14 @@ Run with:
         /tmp/ros2-venv/bin/pytest tests/test_ur5_server_ros2.py -v
 """
 
-import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import numpy as np
 import pytest
 
 import rclpy
 from sensor_msgs.msg import JointState
-from trajectory_msgs.msg import JointTrajectoryPoint
 
 from rosclaw.mcp.ur5_server import (
     RCLPY_AVAILABLE,
@@ -272,10 +269,10 @@ class TestUR5MCPServerInit:
     def test_server_creation_with_firewall(self, ros_context):
         model_path = str(
             Path(__file__).parent.parent
-            / "src"
-            / "rosclaw"
-            / "specs"
-            / "ur5e.xml"
+            / "src"  # noqa: W503
+            / "rosclaw"  # noqa: W503
+            / "specs"  # noqa: W503
+            / "ur5e.xml"  # noqa: W503
         )
         server = UR5MCPServer(
             robot_ip="127.0.0.1",
@@ -374,10 +371,10 @@ class TestUR5MCPServerHandleGetLimits:
     async def test_handle_get_limits_with_firewall(self, ros_context):
         model_path = str(
             Path(__file__).parent.parent
-            / "src"
-            / "rosclaw"
-            / "specs"
-            / "ur5e.xml"
+            / "src"  # noqa: W503
+            / "rosclaw"  # noqa: W503
+            / "specs"  # noqa: W503
+            / "ur5e.xml"  # noqa: W503
         )
         server = UR5MCPServer(
             robot_ip="127.0.0.1",
@@ -436,10 +433,10 @@ class TestUR5MCPServerHandleValidateTrajectory:
     async def test_validate_safe_trajectory(self, ros_context):
         model_path = str(
             Path(__file__).parent.parent
-            / "src"
-            / "rosclaw"
-            / "specs"
-            / "ur5e.xml"
+            / "src"  # noqa: W503
+            / "rosclaw"  # noqa: W503
+            / "specs"  # noqa: W503
+            / "ur5e.xml"  # noqa: W503
         )
         server = UR5MCPServer(
             robot_ip="127.0.0.1",

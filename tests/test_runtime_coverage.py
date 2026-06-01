@@ -15,13 +15,8 @@ Targets:
 """
 
 import asyncio
-import sys
 import threading
-import time
-from concurrent.futures import Future as ConcurrentFuture
-from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -379,7 +374,7 @@ class TestRuntimeInitializeImportErrors:
         mock_cr.return_value = MagicMock()
 
         # Make _register_builtin_providers raise by patching it
-        original = rt._register_builtin_providers
+        rt._register_builtin_providers
         rt._register_builtin_providers = MagicMock(side_effect=RuntimeError("boom"))
         rt.initialize()
         rt._register_builtin_providers.assert_called_once()
@@ -941,6 +936,7 @@ class TestLoadEURDF:
         assert rt._e_urdf is None
         assert rt._robot_profile is None
 
+
 class TestModuleProperties:
     def test_firewall_property(self):
         rt = Runtime()
@@ -1201,14 +1197,14 @@ class TestDriverRegistration:
 class TestRunAsync:
     def test_run_async_no_event_loop(self, fresh_runtime):
         rt = fresh_runtime
-        async def coro():
+        async def coro():  # noqa: E306
             return 42
         result = rt._run_async(coro())
         assert result == 42
 
     def test_run_async_inside_event_loop(self, fresh_runtime):
         rt = fresh_runtime
-        async def inner():
+        async def inner():  # noqa: E306
             async def coro():
                 return 42
             return rt._run_async(coro())
@@ -1238,7 +1234,7 @@ class TestHowProxy:
 
     def test_proxy_callable_async(self):
         engine = MagicMock()
-        async def async_fn(x):
+        async def async_fn(x):  # noqa: E306
             return x * 2
         engine.double = async_fn
         bus = MagicMock()
@@ -1248,7 +1244,7 @@ class TestHowProxy:
 
     def test_proxy_exception(self):
         engine = MagicMock()
-        def fail():
+        def fail():  # noqa: E306
             raise RuntimeError("boom")
         engine.fail = fail
         bus = MagicMock()
@@ -1287,7 +1283,7 @@ class TestMemoryProxy:
 
     def test_proxy_exception(self):
         mem = MagicMock()
-        def fail():
+        def fail():  # noqa: E306
             raise RuntimeError("boom")
         mem.fail = fail
         bus = MagicMock()
@@ -1929,11 +1925,13 @@ class TestRegisterBuiltinProviders:
         mock_reg.set_provider_health = MagicMock()
         rt._provider_registry = mock_reg
 
-        with patch("rosclaw.provider.builtins.MockVLMProvider") as mock_vlm, \
-             patch("rosclaw.provider.builtins.MockSkillProvider") as mock_skill, \
-             patch("rosclaw.provider.builtins.MockCriticProvider") as mock_critic, \
-             patch("rosclaw.provider.builtins.DeepSeekProvider") as mock_deepseek, \
-             patch("rosclaw.provider.core.manifest.ProviderManifest") as mock_manifest:
+        with (
+            patch("rosclaw.provider.builtins.MockVLMProvider"),
+            patch("rosclaw.provider.builtins.MockSkillProvider"),
+            patch("rosclaw.provider.builtins.MockCriticProvider"),
+            patch("rosclaw.provider.builtins.DeepSeekProvider"),
+            patch("rosclaw.provider.core.manifest.ProviderManifest") as mock_manifest,
+        ):
             mock_manifest.from_dict = MagicMock(return_value=MagicMock())
             rt._register_builtin_providers()
             assert mock_reg.register.call_count >= 3  # mock_vlm, mock_skill, mock_critic
@@ -1946,12 +1944,15 @@ class TestRegisterBuiltinProviders:
         mock_reg.set_provider_health = MagicMock()
         rt._provider_registry = mock_reg
 
-        with patch("rosclaw.provider.adapters.generic.GenericProvider") as mock_gp, \
-             patch("rosclaw.provider.core.manifest.ProviderManifest") as mock_manifest:
+        with (
+            patch("rosclaw.provider.adapters.generic.GenericProvider"),
+            patch("rosclaw.provider.core.manifest.ProviderManifest") as mock_manifest,
+        ):
             mock_manifest.from_dict = MagicMock(return_value=MagicMock())
             rt.config.gpu_sam3_endpoint = "http://localhost:8001"
             rt._register_gpu_providers()
             assert mock_reg.register.called
+
 
 class TestHowInitialization:
     def test_how_skipped_when_no_seekdb(self, fresh_runtime, caplog):

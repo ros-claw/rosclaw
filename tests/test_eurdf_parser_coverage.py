@@ -4,8 +4,6 @@ Targets: boost coverage from ~71% to 85%+ by exercising edge cases
 in JointSpec, RobotModel, and EURDFParser.
 """
 
-import xml.etree.ElementTree as ET
-from pathlib import Path
 
 import numpy as np
 import pytest

@@ -1,8 +1,6 @@
 """Coverage tests for rosclaw.cli edge cases and uncovered branches."""
 
-import json
 import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -32,35 +30,35 @@ class TestMainHelpPaths:
         from rosclaw.cli import main
         sys.argv = ["rosclaw", "provider"]
         code = main()
-        captured = capsys.readouterr()
+        capsys.readouterr()
         assert code == 1
 
     def test_skill_subcommand_no_action(self, capsys):
         from rosclaw.cli import main
         sys.argv = ["rosclaw", "skill"]
         code = main()
-        captured = capsys.readouterr()
+        capsys.readouterr()
         assert code == 1
 
     def test_sandbox_subcommand_no_action(self, capsys):
         from rosclaw.cli import main
         sys.argv = ["rosclaw", "sandbox"]
         code = main()
-        captured = capsys.readouterr()
+        capsys.readouterr()
         assert code == 1
 
     def test_memory_subcommand_no_action(self, capsys):
         from rosclaw.cli import main
         sys.argv = ["rosclaw", "memory"]
         code = main()
-        captured = capsys.readouterr()
+        capsys.readouterr()
         assert code == 1
 
     def test_practice_subcommand_no_action(self, capsys):
         from rosclaw.cli import main
         sys.argv = ["rosclaw", "practice"]
         code = main()
-        captured = capsys.readouterr()
+        capsys.readouterr()
         assert code == 1
 
 
@@ -146,7 +144,7 @@ class TestLogsEdgeCases:
         try:
             os.environ["HOME"] = str(tmp_path)
             sys.argv = ["rosclaw", "logs", "--module", "runtime", "--tail", "10"]
-            code = main()
+            main()
             captured = capsys.readouterr()
             assert "runtime.log" in captured.out
             assert "provider.log" not in captured.out
