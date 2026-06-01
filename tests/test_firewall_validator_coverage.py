@@ -199,3 +199,158 @@ class TestFirewallValidatorCheckLayers:
         assert len(responses) == 1
         assert responses[0]["request_id"] == "req_exec"
         validator.stop()
+
+    def test_unknown_action_ignored(self):
+        model = _make_test_robot()
+        bus = EventBus()
+        validator = FirewallValidator(model, bus)
+        validator.initialize()
+        responses = []
+        bus.subscribe("agent.response", lambda e: responses.append(e))
+        bus.publish(Event(
+            topic="agent.command",
+            payload={"action": "grasp_object", "robot_id": "test"},
+        ))
+        assert len(responses) == 0
+        validator.stop()
+
+    def test_blocked_publishes_violation_and_action_blocked(self):
+        model = _make_test_robot()
+        bus = EventBus()
+        validator = FirewallValidator(model, bus)
+        validator.initialize()
+        responses = []
+        violations = []
+        blocked_events = []
+        bus.subscribe("agent.response", lambda e: responses.append(e))
+        bus.subscribe("safety.violation", lambda e: violations.append(e))
+        bus.subscribe("firewall.action_blocked", lambda e: blocked_events.append(e))
+        bus.publish(Event(
+            topic="agent.command",
+            payload={
+                "action": "move_joints",
+                "robot_id": "test",
+                "trajectory": [[10.0, 10.0]],
+            },
+            metadata={"request_id": "req_block"},
+        ))
+        assert len(responses) == 1
+        assert responses[0].payload["is_safe"] is False
+        assert len(violations) == 1
+        assert violations[0].payload["action"] == "BLOCKED"
+        assert len(blocked_events) == 1
+        assert blocked_events[0].payload["request_id"] == "req_block"
+        assert blocked_events[0].priority.name == "CRITICAL"
+        validator.stop()
+
+
+class TestCheckEURDFLimitsEdgeCases:
+    def test_joint_exceeds_upper(self):
+        bus = EventBus()
+        model = _make_test_robot()
+        validator = FirewallValidator(model, bus)
+        validator.initialize()
+        req = ValidationRequest(request_id="r1", robot_id="bot", trajectory=[[2.0, 0.0]])
+        v = validator._check_eurdf_limits(req)
+        assert len(v) == 1
+        assert v[0].joint_index == 0
+        assert v[0].actual_value == 2.0
+        validator.stop()
+
+    def test_joint_below_lower(self):
+        bus = EventBus()
+        model = _make_test_robot()
+        validator = FirewallValidator(model, bus)
+        validator.initialize()
+        req = ValidationRequest(request_id="r1", robot_id="bot", trajectory=[[-2.0, 0.0]])
+        v = validator._check_eurdf_limits(req)
+        assert len(v) == 1
+        assert v[0].limit_value < 0
+        validator.stop()
+
+    def test_multiple_violations_multiple_waypoints(self):
+        bus = EventBus()
+        model = _make_test_robot()
+        validator = FirewallValidator(model, bus)
+        validator.initialize()
+        req = ValidationRequest(
+            request_id="r1", robot_id="bot",
+            trajectory=[[0.0, 0.0], [2.0, -1.0]],
+        )
+        v = validator._check_eurdf_limits(req)
+        assert len(v) == 2
+        assert "waypoint 1" in v[0].description
+        validator.stop()
+
+    def test_extra_joints_ignored(self):
+        bus = EventBus()
+        model = _make_test_robot()
+        validator = FirewallValidator(model, bus)
+        validator.initialize()
+        req = ValidationRequest(
+            request_id="r1", robot_id="bot",
+            trajectory=[[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]],
+        )
+        v = validator._check_eurdf_limits(req)
+        assert len(v) == 0
+        validator.stop()
+
+
+class TestCheckSemanticSafetyVelocity:
+    def test_velocity_within_limit(self):
+        bus = EventBus()
+        model = _make_test_robot()
+        validator = FirewallValidator(model, bus)
+        validator.initialize()
+        req = ValidationRequest(
+            request_id="r1", robot_id="bot",
+            trajectory=[[0.0, 0.0], [0.1, 0.1]],
+            duration_per_waypoint=[1.0, 1.0],
+        )
+        v, w = validator._check_semantic_safety(req)
+        assert len(v) == 0
+        validator.stop()
+
+    def test_velocity_exceeds_limit(self):
+        bus = EventBus()
+        model = _make_test_robot()
+        validator = FirewallValidator(model, bus)
+        validator.initialize()
+        req = ValidationRequest(
+            request_id="r1", robot_id="bot",
+            trajectory=[[0.0, 0.0], [10.0, 0.0]],
+            duration_per_waypoint=[1.0, 0.1],
+        )
+        v, w = validator._check_semantic_safety(req)
+        assert len(v) >= 1
+        assert v[0].layer == ValidationLayer.SEMANTIC_SAFETY
+        assert v[0].severity == "error"
+        validator.stop()
+
+    def test_no_duration_per_waypoint(self):
+        bus = EventBus()
+        model = _make_test_robot()
+        validator = FirewallValidator(model, bus)
+        validator.initialize()
+        req = ValidationRequest(
+            request_id="r1", robot_id="bot",
+            trajectory=[[0.0, 0.0]],
+        )
+        v, w = validator._check_semantic_safety(req)
+        assert len(v) == 0
+        validator.stop()
+
+    def test_zero_duration_skipped(self):
+        bus = EventBus()
+        model = _make_test_robot()
+        validator = FirewallValidator(model, bus)
+        validator.initialize()
+        req = ValidationRequest(
+            request_id="r1", robot_id="bot",
+            trajectory=[[0.0, 0.0], [10.0, 0.0]],
+            duration_per_waypoint=[0.0, 0.0],
+        )
+        v, w = validator._check_semantic_safety(req)
+        # duration is 0, skipped (avoids division by zero)
+        assert len(v) == 0
+        validator.stop()
