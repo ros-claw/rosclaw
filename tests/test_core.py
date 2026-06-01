@@ -113,3 +113,155 @@ def test_runtime_status_property():
     assert "modules" in status
     assert status == runtime.get_status()
     runtime.stop()
+
+
+# --- Lifecycle coverage: is_running, error_message, pause/resume, exceptions ---
+
+class TestLifecycleCoverage:
+    def test_is_running(self):
+        class Mod(LifecycleMixin):
+            pass
+
+        m = Mod()
+        assert m.is_running is False
+        m.initialize()
+        assert m.is_running is False
+        m.start()
+        assert m.is_running is True
+        m.stop()
+        assert m.is_running is False
+
+    def test_error_message_on_init_failure(self):
+        class BrokenMod(LifecycleMixin):
+            def _do_initialize(self):
+                raise ValueError("boom")
+
+        m = BrokenMod()
+        with pytest.raises(ValueError, match="boom"):
+            m.initialize()
+        assert m.state == LifecycleState.ERROR
+        assert m.error_message == "boom"
+
+    def test_reinitialize_from_error(self):
+        class FlakyMod(LifecycleMixin):
+            fail_count = 0
+
+            def _do_initialize(self):
+                FlakyMod.fail_count += 1
+                if FlakyMod.fail_count == 1:
+                    raise RuntimeError("first")
+
+        m = FlakyMod()
+        with pytest.raises(RuntimeError):
+            m.initialize()
+        assert m.state == LifecycleState.ERROR
+        m.initialize()
+        assert m.state == LifecycleState.READY
+
+    def test_pause_and_resume(self):
+        class Mod(LifecycleMixin):
+            paused = False
+            resumed = False
+
+            def _do_pause(self):
+                self.paused = True
+
+            def _do_resume(self):
+                self.resumed = True
+
+        m = Mod()
+        m.initialize()
+        m.start()
+        assert m.state == LifecycleState.RUNNING
+        m.pause()
+        assert m.state == LifecycleState.PAUSED
+        assert m.paused is True
+        m.resume()
+        assert m.state == LifecycleState.RUNNING
+        assert m.resumed is True
+        m.stop()
+
+    def test_pause_only_from_running(self):
+        class Mod(LifecycleMixin):
+            pass
+
+        m = Mod()
+        m.initialize()
+        # Not running yet — pause should be no-op
+        m.pause()
+        assert m.state == LifecycleState.READY
+        m.start()
+        m.pause()
+        assert m.state == LifecycleState.PAUSED
+        m.stop()
+
+    def test_resume_only_from_paused(self):
+        class Mod(LifecycleMixin):
+            pass
+
+        m = Mod()
+        m.initialize()
+        m.start()
+        # Not paused — resume should be no-op
+        m.resume()
+        assert m.state == LifecycleState.RUNNING
+        m.stop()
+
+    def test_stop_from_ready(self):
+        class Mod(LifecycleMixin):
+            stopped = False
+
+            def _do_stop(self):
+                self.stopped = True
+
+        m = Mod()
+        m.initialize()
+        assert m.state == LifecycleState.READY
+        m.stop()
+        assert m.state == LifecycleState.STOPPED
+        assert m.stopped is True
+
+    def test_initialize_from_stopped(self):
+        class Mod(LifecycleMixin):
+            pass
+
+        m = Mod()
+        m.initialize()
+        m.start()
+        m.stop()
+        assert m.state == LifecycleState.STOPPED
+        m.initialize()
+        assert m.state == LifecycleState.READY
+
+    def test_is_ready_property(self):
+        class Mod(LifecycleMixin):
+            pass
+
+        m = Mod()
+        assert m.is_ready is False
+        m.initialize()
+        assert m.is_ready is True
+        m.start()
+        assert m.is_ready is True
+        m.stop()
+        assert m.is_ready is False
+
+    def test_cannot_initialize_from_running(self):
+        class Mod(LifecycleMixin):
+            pass
+
+        m = Mod()
+        m.initialize()
+        m.start()
+        with pytest.raises(RuntimeError, match="Cannot initialize"):
+            m.initialize()
+
+    def test_cannot_initialize_from_initializing(self):
+        # Manually set state to INITIALIZING to test the guard
+        class Mod(LifecycleMixin):
+            pass
+
+        m = Mod()
+        m._lifecycle_state = LifecycleState.INITIALIZING
+        with pytest.raises(RuntimeError, match="Cannot initialize"):
+            m.initialize()
