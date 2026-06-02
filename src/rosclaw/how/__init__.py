@@ -12,5 +12,12 @@ Integration:
 """
 from .engine import HeuristicEngine
 from .recovery import RecoveryEngine, RecoveryFormatter, format_recovery_suggestion
+from .recovery_loop import RecoveryLoop
 
-__all__ = ["HeuristicEngine", "RecoveryEngine", "RecoveryFormatter", "format_recovery_suggestion"]
+__all__ = [
+    "HeuristicEngine",
+    "RecoveryEngine",
+    "RecoveryFormatter",
+    "format_recovery_suggestion",
+    "RecoveryLoop",
+]

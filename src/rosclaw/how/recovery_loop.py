@@ -42,6 +42,7 @@ class RecoveryLoop:
         self._memory = memory_interface
         self._how = heuristic_engine
         self._table = "retries"
+        self._executor = None
         self._ensure_table()
 
     # ── lifecycle ────────────────────────────────────────────────────────
@@ -72,12 +73,15 @@ class RecoveryLoop:
         logger.info("RecoveryLoop subscribed")
 
     def unsubscribe(self) -> None:
-        """Unsubscribe from recovery hint events."""
+        """Unsubscribe from recovery hint events and release resources."""
         if self._bus is None:
             return
         self._bus.unsubscribe("rosclaw.how.recovery_hint.generated", self._on_recovery_hint)
         self._bus.unsubscribe("rosclaw.sandbox.episode.succeeded", self._on_retry_success)
         self._bus.unsubscribe("rosclaw.sandbox.episode.failed", self._on_retry_failure)
+        if self._executor is not None:
+            self._executor.shutdown(wait=False)
+            self._executor = None
 
     # ── event handlers ───────────────────────────────────────────────────
 
@@ -279,13 +283,18 @@ class RecoveryLoop:
         }
 
     def _run_async(self, coro):
-        """Run async coroutine from sync context (mirror Runtime._run_async)."""
+        """Run async coroutine from sync context (mirror Runtime._run_async).
+
+        Uses a lazily-initialized ThreadPoolExecutor to avoid creating
+        a new thread pool on every call.  Timeout is 30 seconds.
+        """
         import asyncio
         import concurrent.futures
+        if self._executor is None:
+            self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
             loop = asyncio.get_running_loop()
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(asyncio.run, coro)
-                return future.result(timeout=30)
+            future = self._executor.submit(asyncio.run, coro)
+            return future.result(timeout=30)
         except RuntimeError:
             return asyncio.run(coro)

@@ -492,43 +492,6 @@ class MemoryInterface(LifecycleMixin):
         )
         return results[0] if results else None
 
-    def write_praxis_event(self, event: dict[str, Any]) -> str:
-        """Write a praxis event to the experience store (convenience wrapper).
-
-        This is the canonical API used by Runtime.execute() to persist
-        completed actions as experiences.
-        """
-        return self.store_experience(
-            event_id=event.get("event_id", ""),
-            event_type=event.get("event_type", "praxis"),
-            instruction=event.get("instruction", ""),
-            cot_trace=event.get("cot_trace"),
-            trajectory=event.get("trajectory"),
-            outcome=event.get("outcome", "success"),
-            duration_sec=event.get("duration_sec", 0.0),
-            error_details=event.get("error_details"),
-            tags=event.get("tags"),
-            metadata=event.get("metadata"),
-        )
-
-    def write_failure_memory(self, failure: dict[str, Any]) -> str:
-        """Write a failure event to the experience store (convenience wrapper).
-
-        Used by Runtime when sandbox_check blocks or execution fails.
-        """
-        return self.store_experience(
-            event_id=failure.get("failure_id", failure.get("event_id", "")),
-            event_type="failure",
-            instruction=failure.get("instruction", ""),
-            cot_trace=failure.get("cot_trace"),
-            trajectory=failure.get("trajectory"),
-            outcome="failure",
-            duration_sec=failure.get("duration_sec", 0.0),
-            error_details=failure.get("error", failure.get("reason", "")),
-            tags=["failure", failure.get("failure_type", "unknown")],
-            metadata=failure.get("context", {}),
-        )
-
     def get_statistics(self) -> dict:
         """Get experience statistics."""
         total = self._client.count("experience_graph")

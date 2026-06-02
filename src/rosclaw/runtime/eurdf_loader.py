@@ -373,6 +373,14 @@ class EURDFLoader:
 
     @staticmethod
     def _load_yaml(path: Path) -> Optional[dict]:
+        """Load a YAML file if it exists, otherwise return None.
+
+        Args:
+            path: Path to the YAML file.
+
+        Returns:
+            Parsed dict or None if the file does not exist.
+        """
         if not path.exists():
             return None
         with open(path, "r", encoding="utf-8") as f:

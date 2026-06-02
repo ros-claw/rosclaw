@@ -174,6 +174,11 @@ class WalkState:
     max_tilt_angle_deg: float = 45.0
     max_sim_time: float = 30.0
 
+    # Recovery state
+    recovery_attempts: int = 0
+    max_recovery_attempts: int = 3
+    recovery_phase: str = "none"
+
 
 def quat_to_rpy(quat: np.ndarray) -> np.ndarray:
     """Convert quaternion [w, x, y, z] to roll, pitch, yaw (rad)."""
@@ -219,6 +224,115 @@ def check_fall(
         return True
 
     return False
+
+
+def reset_fall(walk_state: WalkState) -> None:
+    """Reset fall flags after a recovery attempt."""
+    walk_state.fall_detected = False
+    walk_state.fall_reason = None
+    walk_state.recovery_attempts += 1
+    walk_state.recovery_phase = "none"
+
+
+def get_up_policy():
+    """Return keyframe poses for get-up sequence.
+
+    Returns list of (target_ctrl_12dof, duration_seconds) tuples.
+    Joint order: [yaw_L, roll_L, pitch_L, knee_L, ankle_pitch_L, ankle_roll_L,
+                  yaw_R, roll_R, pitch_R, knee_R, ankle_pitch_R, ankle_roll_R]
+    """
+    crouch = np.array([
+        0.0, 0.0, -0.4, 0.9, -0.2, 0.0,
+        0.0, 0.0, -0.4, 0.9, -0.2, 0.0,
+    ])
+    lift = np.array([
+        0.0, 0.0, -0.2, 0.5, -0.1, 0.0,
+        0.0, 0.0, -0.2, 0.5, -0.1, 0.0,
+    ])
+    extend = np.array([
+        0.0, 0.0, 0.0, 0.05, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.05, 0.0, 0.0,
+    ])
+    return [
+        (crouch, 0.8),
+        (lift, 1.0),
+        (extend, 1.0),
+    ]
+
+
+def execute_recovery(
+    model,
+    data,
+    walk_state: WalkState,
+    sensor_adr: dict,
+    verbose: bool = True,
+) -> bool:
+    """Execute get-up sequence and validate recovery.
+
+    Returns True if robot is upright after recovery, False otherwise.
+    """
+    import mujoco
+
+    if walk_state.recovery_attempts >= walk_state.max_recovery_attempts:
+        if verbose:
+            print("[RECOVERY] Max attempts reached, giving up.")
+        return False
+
+    walk_state.recovery_phase = "crouch"
+    keyframes = get_up_policy()
+    dt = model.opt.timestep
+
+    if verbose:
+        print(f"[RECOVERY] Attempt {walk_state.recovery_attempts + 1}...")
+
+    for target_pose, duration in keyframes:
+        steps = int(duration / dt)
+        for _ in range(steps):
+            data.ctrl[:] = target_pose
+            mujoco.mj_step(model, data)
+
+    # Stabilize: hold extend pose briefly with active balance
+    walk_state.recovery_phase = "stabilize"
+    stabilize_steps = int(0.7 / dt)
+    for _ in range(stabilize_steps):
+        pelvis_quat = data.sensordata[
+            sensor_adr["pelvis_quat"]:sensor_adr["pelvis_quat"] + 4
+        ]
+        rpy = quat_to_rpy(pelvis_quat)
+        pitch_error = rpy[1]
+        roll_error = rpy[0]
+        target_ctrl = np.zeros(12)
+        target_ctrl[3] = 0.05
+        target_ctrl[9] = 0.05
+        target_ctrl[2] = np.clip(pitch_error * 2.0, -0.1, 0.1)
+        target_ctrl[8] = np.clip(pitch_error * 2.0, -0.1, 0.1)
+        target_ctrl[1] = np.clip(-roll_error * 6.0, -0.2, 0.2)
+        target_ctrl[7] = np.clip(-roll_error * 6.0, -0.2, 0.2)
+        data.ctrl[:] = target_ctrl
+        mujoco.mj_step(model, data)
+
+    # Validate recovery
+    pelvis_pos = data.sensordata[
+        sensor_adr["pelvis_pos"]:sensor_adr["pelvis_pos"] + 3
+    ]
+    pelvis_quat = data.sensordata[
+        sensor_adr["pelvis_quat"]:sensor_adr["pelvis_quat"] + 4
+    ]
+    rpy = quat_to_rpy(pelvis_quat)
+    tilt_deg = np.degrees(np.max(np.abs(rpy[:2])))
+    height_ok = pelvis_pos[2] > walk_state.min_pelvis_height * 1.3
+    tilt_ok = tilt_deg < walk_state.max_tilt_angle_deg * 0.6
+
+    if height_ok and tilt_ok:
+        reset_fall(walk_state)
+        if verbose:
+            print(f"[RECOVERY] Success! height={pelvis_pos[2]:.3f}m tilt={tilt_deg:.1f}deg")
+        return True
+    else:
+        walk_state.recovery_phase = "failed"
+        if verbose:
+            print(f"[RECOVERY] Failed. height={pelvis_pos[2]:.3f}m tilt={tilt_deg:.1f}deg")
+        return False
 
 
 def compute_gait_control(
@@ -434,7 +548,13 @@ def run_walking_demo(
                     f"\n[FAIL] Fall at t={data.time:.2f}s: {walk_state.fall_reason}"
                 )
                 print(f"       roll={np.degrees(rpy[0]):.1f}deg pitch={np.degrees(rpy[1]):.1f}deg yaw={np.degrees(rpy[2]):.1f}deg")
-            break
+
+            recovered = execute_recovery(
+                model, data, walk_state, sensor_adr, verbose=verbose
+            )
+            if not recovered:
+                break
+            continue
 
         if enable_gait:
             # Ramp up gait amplitude gradually to avoid shock
@@ -523,6 +643,7 @@ def run_walking_demo(
         "sim_time": float(data.time),
         "energy_used": float(energy),
         "gpu_used": gpu_used,
+        "recovery_attempts": walk_state.recovery_attempts,
         "final_pelvis_height": (
             float(pelvis_pos[2]) if "pelvis_pos" in sensor_adr else None
         ),

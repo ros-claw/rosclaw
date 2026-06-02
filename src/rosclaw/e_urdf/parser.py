@@ -356,9 +356,23 @@ class EURDFParser:
             self.model.metadata[child.tag] = child.text or ""
 
     def _parse_origin(self, elem: ET.Element) -> np.ndarray:
-        """Parse origin element to 4x4 homogeneous matrix."""
+        """Parse origin element to 4x4 homogeneous matrix.
+
+        Args:
+            elem: XML element with 'xyz' and 'rpy' attributes.
+
+        Returns:
+            4x4 homogeneous transformation matrix.
+
+        Raises:
+            ValueError: If xyz or rpy do not contain exactly 3 values.
+        """
         xyz = elem.get("xyz", "0 0 0").split()
         rpy = elem.get("rpy", "0 0 0").split()
+        if len(xyz) != 3:
+            raise ValueError(f"Expected 3 xyz values, got {len(xyz)}: {xyz}")
+        if len(rpy) != 3:
+            raise ValueError(f"Expected 3 rpy values, got {len(rpy)}: {rpy}")
 
         x, y, z = [float(v) for v in xyz]
         roll, pitch, yaw = [float(v) for v in rpy]
