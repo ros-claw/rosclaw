@@ -31,7 +31,7 @@ class TestSeekDBDelete:
         c = SeekDBMemoryClient()
         c.connect()
         c.insert("experience_graph", {"id": "e1", "robot_id": "r1",
-                                       "timestamp": 1.0, "event_type": "t"})
+                                      "timestamp": 1.0, "event_type": "t"})
         assert c.count("experience_graph") == 1
         assert c.delete("experience_graph", "e1") is True
         assert c.count("experience_graph") == 0
@@ -58,8 +58,8 @@ class TestSeekDBDelete:
         c = SeekDBMemoryClient()
         c.connect()
         c.insert("experience_graph", {"id": "e1", "robot_id": "r1",
-                                       "outcome": "success", "timestamp": 1.0,
-                                       "event_type": "t"})
+                                      "outcome": "success", "timestamp": 1.0,
+                                      "event_type": "t"})
         idx = c._indices["experience_graph"]
         assert "e1" in idx["robot_id"]["r1"]
         c.delete("experience_graph", "e1")
@@ -69,7 +69,7 @@ class TestSeekDBDelete:
         c = SeekDBSQLiteClient(str(tmp_path / "t.sqlite"))
         c.connect()
         c.insert("experience_graph", {"id": "e1", "robot_id": "r1",
-                                       "timestamp": 1.0, "event_type": "t"})
+                                      "timestamp": 1.0, "event_type": "t"})
         assert c.count("experience_graph") == 1
         assert c.delete("experience_graph", "e1") is True
         assert c.count("experience_graph") == 0

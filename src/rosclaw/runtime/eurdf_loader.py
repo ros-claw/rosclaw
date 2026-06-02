@@ -10,10 +10,9 @@ Loads extended URDF directories and generates internal profiles:
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import yaml
 
@@ -351,10 +350,10 @@ class EURDFLoader:
                     eurdf = yaml.safe_load(f)
 
                 required_fields = ["robot_id", "name", "vendor", "dof", "links", "joints"]
-                for field in required_fields:
-                    if field not in eurdf or eurdf[field] is None:
+                for fld in required_fields:
+                    if fld not in eurdf or eurdf[fld] is None:
                         result["valid"] = False
-                        result["errors"].append(f"robot.eurdf.yaml missing field: {field}")
+                        result["errors"].append(f"robot.eurdf.yaml missing field: {fld}")
 
                 if "sensors" not in eurdf:
                     result["warnings"].append("No sensors defined in robot.eurdf.yaml")

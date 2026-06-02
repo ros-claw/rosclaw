@@ -16,11 +16,12 @@ import logging
 import threading
 import time
 
-logger = logging.getLogger("rosclaw.core.event_bus")
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Coroutine, Optional
+
+logger = logging.getLogger("rosclaw.core.event_bus")
 
 try:
     from rosclaw.core.event_topics import normalize_topic
@@ -35,7 +36,7 @@ class EventPriority(Enum):
     HIGH = 1       # Control commands, trajectory execution
     NORMAL = 2     # Standard operational events
     LOW = 3        # Telemetry, logging
-    BACKGROUND = 4 # Data export, analytics
+    BACKGROUND = 4  # Data export, analytics
 
 
 @dataclass
@@ -202,9 +203,9 @@ class EventBus:
             payload = event.payload if isinstance(event.payload, dict) else {}
             event.trace_id = (
                 payload.get("request_id")
-                or payload.get("correlation_id")
-                or payload.get("episode_id")
-                or f"trace_{uuid.uuid4().hex[:12]}"
+                or payload.get("correlation_id")  # noqa: W503
+                or payload.get("episode_id")  # noqa: W503
+                or f"trace_{uuid.uuid4().hex[:12]}"  # noqa: W503
             )
 
         # Store in history

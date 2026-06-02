@@ -12,9 +12,9 @@ from rosclaw.provider.core.errors import RuntimeAdapterError
 class TestRuntimeAdapterBase:
     def test_init_defaults(self):
         class Dummy(RuntimeAdapter):
-            async def start(self): ...
-            async def stop(self): ...
-            async def invoke(self, payload): ...
+            async def start(self): ...  # noqa: E704
+            async def stop(self): ...  # noqa: E704
+            async def invoke(self, payload): ...  # noqa: E704
 
         d = Dummy("test")
         assert d.name == "test"
@@ -23,18 +23,18 @@ class TestRuntimeAdapterBase:
 
     def test_init_with_config(self):
         class Dummy(RuntimeAdapter):
-            async def start(self): ...
-            async def stop(self): ...
-            async def invoke(self, payload): ...
+            async def start(self): ...  # noqa: E704
+            async def stop(self): ...  # noqa: E704
+            async def invoke(self, payload): ...  # noqa: E704
 
         d = Dummy("test", {"key": "val"})
         assert d.config == {"key": "val"}
 
     def test_ensure_started_raises(self):
         class Dummy(RuntimeAdapter):
-            async def start(self): ...
-            async def stop(self): ...
-            async def invoke(self, payload): ...
+            async def start(self): ...  # noqa: E704
+            async def stop(self): ...  # noqa: E704
+            async def invoke(self, payload): ...  # noqa: E704
 
         d = Dummy("test")
         with pytest.raises(RuntimeError, match="not started"):
@@ -94,7 +94,7 @@ class TestPythonRuntime:
     async def test_bind_after_init(self):
         rt = PythonRuntime("py_test")
         assert rt._fn is None
-        def fn(p): return p
+        def fn(p): return p  # noqa: E704
         rt.bind(fn)
         assert rt._fn is fn
 
@@ -119,7 +119,7 @@ class TestPythonRuntime:
 
     @pytest.mark.asyncio
     async def test_invoke_not_started(self):
-        def fn(p): return p
+        def fn(p): return p  # noqa: E704
         rt = PythonRuntime("py_test", fn=fn)
         with pytest.raises(RuntimeError, match="not started"):
             await rt.invoke({"x": 1})

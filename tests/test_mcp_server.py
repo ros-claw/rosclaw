@@ -7,7 +7,7 @@ Tests the UR5MCPServer class with mocked ROS 2 dependencies.
 import json
 import pytest
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import sys
 

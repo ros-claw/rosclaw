@@ -1,7 +1,6 @@
 """Tests for ProviderLoader and GenericProvider."""
 
 import pytest
-from pathlib import Path
 
 from rosclaw.provider.core.registry import ProviderRegistry
 from rosclaw.provider.loader import ProviderLoader
@@ -204,20 +203,6 @@ async def test_generic_provider_no_runtime():
         await provider.infer(req)
 
 
-def test_provider_loader_custom_class_import_error():
-    """provider_class that cannot be imported falls back."""
-    from rosclaw.provider.core.manifest import ProviderManifest
-    manifest = ProviderManifest.from_dict({
-        "name": "bad_class",
-        "version": "0.1.0",
-        "type": "vlm",
-        "capabilities": ["vlm.scene_understanding"],
-    })
-    manifest.extra = {"provider_class": "nonexistent.module.Class"}
-    cls = ProviderLoader._resolve_provider_class(manifest)
-    assert cls is GenericProvider
-
-
 def test_provider_loader_scan_nonexistent_directory():
     """Scanning a non-existent directory returns empty list."""
     registry = ProviderRegistry()
@@ -313,7 +298,6 @@ def test_provider_loader_custom_class_import_error():
 def test_provider_loader_custom_class_valid(monkeypatch):
     """provider_class that is a valid Provider subclass is used."""
     from rosclaw.provider.core.manifest import ProviderManifest
-    import sys
     # Allow test to run when tests module is importable OR when running directly
     try:
         import tests

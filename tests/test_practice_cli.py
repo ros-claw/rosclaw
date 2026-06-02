@@ -1,9 +1,7 @@
 """Tests for practice CLI module."""
 
 import json
-from pathlib import Path
 
-import pytest
 
 from rosclaw.practice.cli import list_episodes, replay_episode, show_episode
 

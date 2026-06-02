@@ -6,8 +6,6 @@ Full pipeline with actual physics:
     → Provider routing → physics execution → Memory recording
 """
 
-import asyncio
-import time
 
 import pytest
 
@@ -88,7 +86,6 @@ class TestV1_0PhysicalSimulation:
     def test_02_joint_trajectory_physics_simulation(self):
         """Simulate a joint trajectory in MuJoCo physics."""
         import mujoco
-        import numpy as np
 
         xml = """
         <mujoco model="ur5e_simple">
@@ -188,7 +185,6 @@ class TestV1_0PhysicalSimulation:
     @pytest.mark.asyncio
     async def test_05_provider_inference_with_physics(self):
         """Test provider routing with physics-backed validation."""
-        import mujoco
 
         from rosclaw.provider.core.request import ProviderRequest
         from rosclaw.provider.core.response import ProviderResponse

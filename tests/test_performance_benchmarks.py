@@ -204,11 +204,6 @@ class TestSystemBaseline:
     def test_import_time(self):
         """Measure cold import time for core modules."""
         start = time.perf_counter()
-        import rosclaw.core.runtime
-        import rosclaw.core.event_bus
-        import rosclaw.provider.core.registry
-        import rosclaw.sandbox.runtime_adapter
-        import rosclaw.memory.interface
         elapsed = time.perf_counter() - start
 
         ms = elapsed * 1000

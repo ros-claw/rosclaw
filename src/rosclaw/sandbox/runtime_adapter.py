@@ -10,8 +10,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from rosclaw.core.lifecycle import LifecycleMixin, LifecycleState
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.lifecycle import LifecycleMixin
+from rosclaw.core.event_bus import EventBus
 
 logger = logging.getLogger("rosclaw.sandbox.runtime_adapter")
 
@@ -176,6 +176,29 @@ class SandboxRuntimeAdapter(LifecycleMixin):
             return {}
         if hasattr(self._sandbox_service, "step"):
             state = self._sandbox_service.step(joint_positions)
+            return state or {}
+        return {}
+
+    def get_observation(self, normalize: bool = True) -> dict[str, Any]:
+        """Get rich normalized observation from scene state.
+
+        Args:
+            normalize: If True, joint positions are normalized to [-1, 1]
+                       using MuJoCo joint limits. Velocities use tanh clipping.
+
+        Returns:
+            Observation dict with joint positions (raw + normalized),
+            body positions, contacts, and simulation time.
+            Empty dict if sandbox has no physics model.
+        """
+        if self._sandbox_service is None:
+            return {}
+        if hasattr(self._sandbox_service, "get_observation"):
+            obs = self._sandbox_service.get_observation(normalize=normalize)
+            return obs or {}
+        # Fallback to legacy get_state
+        if hasattr(self._sandbox_service, "get_state"):
+            state = self._sandbox_service.get_state()
             return state or {}
         return {}
 

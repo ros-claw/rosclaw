@@ -16,7 +16,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from rosclaw.provider.core.request import ProviderRequest
-from rosclaw.provider.core.response import ProviderResponse
 from rosclaw.provider.core.router import CapabilityRouter
 from rosclaw.provider.core.trace import ProviderTrace
 
@@ -178,16 +177,6 @@ class CapabilityClient:
         camera_topic: str = "/camera/color/image_raw",
     ) -> TaskResult:
         """Verify task success and get retry advice if needed."""
-        plan = TaskPlan(
-            task=task_description,
-            steps=[
-                {
-                    "capability": "critic.success_detection",
-                    "inputs": {"task": task_description, "camera_topic": camera_topic},
-                    "context": {"robot": robot},
-                },
-            ],
-        )
         # Reuse run_task with a pre-built plan
         return await self.run_task(
             task=task_description,

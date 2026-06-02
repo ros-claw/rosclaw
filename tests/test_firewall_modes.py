@@ -2,7 +2,7 @@
 import pytest
 from rosclaw.core.event_bus import EventBus
 from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
-from rosclaw.sandbox.firewall.gate import FirewallGate, Decision
+from rosclaw.sandbox.firewall.gate import FirewallGate
 
 
 class TestFirewallAllowMode:

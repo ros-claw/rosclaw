@@ -150,6 +150,77 @@ class Sandbox:
             "time": float(self._data.time),
         }
 
+    def get_observation(self, normalize: bool = True) -> Optional[dict[str, Any]]:
+        """Get rich normalized observation from MuJoCo scene state.
+
+        Returns a dict with:
+        - joint_positions: raw qpos
+        - joint_positions_normalized: mapped to [-1, 1] via jnt_range
+        - joint_velocities: raw qvel
+        - body_positions: named body positions in world frame
+        - contacts: active contact pairs with distance
+        - time: simulation time
+
+        Args:
+            normalize: If True, joint positions are normalized to [-1, 1]
+                       using MuJoCo jnt_range. Velocities are clipped to
+                       [-1, 1] via tanh for stability.
+        """
+        if self._data is None or self._model is None:
+            return None
+
+        import mujoco
+        import numpy as np
+
+        qpos = self._data.qpos.copy()
+        qvel = self._data.qvel.copy()
+
+        # Joint position normalization using model limits
+        if normalize and self._model.njnt > 0:
+            qpos_norm = np.zeros_like(qpos)
+            jnt_range = self._model.jnt_range
+            for i in range(min(len(qpos), self._model.njnt)):
+                lo, hi = jnt_range[i]
+                if hi > lo:
+                    qpos_norm[i] = 2.0 * (qpos[i] - lo) / (hi - lo) - 1.0
+                else:
+                    qpos_norm[i] = 0.0
+            # Velocity: tanh clipping for stability
+            qvel_norm = np.tanh(qvel)
+        else:
+            qpos_norm = qpos.copy()
+            qvel_norm = qvel.copy()
+
+        # Body positions (scene objects)
+        body_positions: dict[str, list[float]] = {}
+        for i in range(self._model.nbody):
+            name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_BODY, i)
+            if name:
+                body_positions[name] = self._data.xpos[i].copy().tolist()
+
+        # Active contacts
+        contacts: list[dict[str, Any]] = []
+        for i in range(self._data.ncon):
+            c = self._data.contact[i]
+            if c.dist < 0.01:  # near contact
+                g1 = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, c.geom1) or f"geom{c.geom1}"
+                g2 = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, c.geom2) or f"geom{c.geom2}"
+                contacts.append({
+                    "geom1": g1,
+                    "geom2": g2,
+                    "distance": float(c.dist),
+                })
+
+        return {
+            "joint_positions": qpos.tolist(),
+            "joint_positions_normalized": qpos_norm.tolist(),
+            "joint_velocities": qvel.tolist(),
+            "joint_velocities_normalized": qvel_norm.tolist(),
+            "body_positions": body_positions,
+            "contacts": contacts,
+            "time": float(self._data.time),
+        }
+
     @property
     def has_physics(self) -> bool:
         return self._model is not None and self._data is not None

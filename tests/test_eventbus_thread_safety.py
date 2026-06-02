@@ -6,9 +6,7 @@ or race conditions in mixed sync/async usage.
 
 import asyncio
 import threading
-import time
 
-import pytest
 
 from rosclaw.core.event_bus import EventBus, Event
 

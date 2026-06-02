@@ -1,9 +1,8 @@
 """Tests for FirewallValidator (Sprint 3)."""
 
 import pytest
-import numpy as np
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import EventBus, Event
 from rosclaw.e_urdf.parser import RobotModel, JointSpec
 from rosclaw.firewall.validator import (
     FirewallValidator,
@@ -11,7 +10,6 @@ from rosclaw.firewall.validator import (
     ValidationRequest,
     ValidationLayer,
     ValidationResponse,
-    ViolationDetail,
 )
 
 

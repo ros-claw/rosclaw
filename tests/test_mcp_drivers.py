@@ -1,8 +1,7 @@
 """Tests for MCP Drivers."""
 
-import pytest
 
-from rosclaw.mcp_drivers.base import BaseDriver, DriverState, TrajectoryCommand
+from rosclaw.mcp_drivers.base import DriverState, TrajectoryCommand
 from rosclaw.mcp_drivers.ros2_driver import ROS2Driver
 from rosclaw.mcp_drivers.mujoco_sim_driver import MuJoCoSimDriver
 from rosclaw.mcp_drivers.serial_driver import SerialDriver

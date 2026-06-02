@@ -2,7 +2,7 @@
 
 import time
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import EventBus, Event
 from rosclaw.swarm.manager import SwarmRuntimeManager
 
 
@@ -35,7 +35,7 @@ class TestSwarmManagerEventBus:
         swarm.register_agent("bot_b", ["place"])
 
         received = []
-        def on_allocate(event):
+        def on_allocate(event):  # noqa: E306
             received.append(event.payload)
         bus.subscribe("swarm.allocate_result", on_allocate)
 
@@ -56,7 +56,7 @@ class TestSwarmManagerEventBus:
         swarm.register_agent("bot_c", ["scan"])
 
         received = []
-        def on_status(event):
+        def on_status(event):  # noqa: E306
             received.append(event.payload)
         bus.subscribe("swarm.status_result", on_status)
 
@@ -77,7 +77,7 @@ class TestSwarmManagerEventBus:
         swarm.register_agent("bot_d", ["scan"])
 
         received = []
-        def on_status(event):
+        def on_status(event):  # noqa: E306
             received.append(event.payload)
         bus.subscribe("swarm.status_result", on_status)
 
@@ -99,7 +99,7 @@ class TestSwarmManagerEventBus:
         swarm.register_agent("bot_e", ["pick"])
 
         received = []
-        def on_allocate(event):
+        def on_allocate(event):  # noqa: E306
             received.append(event.payload)
         bus.subscribe("swarm.allocate_result", on_allocate)
 

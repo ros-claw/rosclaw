@@ -4,7 +4,6 @@ Tests graceful degradation under failure conditions.
 Run: pytest tests/integration/test_error_paths.py -v
 """
 
-import asyncio
 import pytest
 
 from rosclaw.core import Runtime, RuntimeConfig
@@ -227,7 +226,7 @@ class TestRuntimeFailurePaths:
         # Second initialize should not crash
         try:
             runtime.initialize()
-        except Exception as e:
+        except Exception:
             # May raise if already initialized - that's acceptable
             pass
 

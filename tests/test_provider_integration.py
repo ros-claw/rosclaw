@@ -59,13 +59,16 @@ class AsyncLoadProvider(Provider):
 # ---------------------------------------------------------------------------
 
 class TestSyncContextRegistration:
-    def test_register_sync_context_auto_load(self):
+    @pytest.mark.asyncio
+    async def test_register_sync_context_auto_load(self):
         """register() from sync context with auto_load=True should work."""
         reg = ProviderRegistry()
         manifest = ProviderManifest(
             name="sync_provider", version="1.0", type="llm"
         )
         p = reg.register(manifest, lambda m: DummyProvider(m), auto_load=True)
+        # Allow deferred load coroutine to complete
+        await asyncio.sleep(0.01)
         assert p._healthy is True
         assert reg.is_healthy("sync_provider") is True
 
@@ -79,12 +82,15 @@ class TestSyncContextRegistration:
         assert p._healthy is False  # not loaded
         assert reg.is_healthy("no_load") is False
 
-    def test_unregister_sync_context(self):
+    @pytest.mark.asyncio
+    async def test_unregister_sync_context(self):
         """unregister() from sync context should work."""
         reg = ProviderRegistry()
         manifest = ProviderManifest(name="to_remove", version="1.0", type="llm")
         reg.register(manifest, lambda m: DummyProvider(m), auto_load=False)
         reg.unregister("to_remove")
+        # Allow unload coroutine to complete
+        await asyncio.sleep(0.01)
         assert reg.list_providers() == []
 
 
@@ -170,7 +176,7 @@ class TestCapabilityRouterIntegration:
             type="llm",
             capabilities=["llm.chat"],
         )
-        p = reg.register(manifest, lambda m: DummyProvider(m), auto_load=False)
+        reg.register(manifest, lambda m: DummyProvider(m), auto_load=False)
         reg.set_provider_health("llm_provider", ok=True)
         return CapabilityRouter(reg)
 

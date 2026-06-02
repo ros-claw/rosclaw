@@ -15,7 +15,6 @@ The MCP Hub:
 """
 
 import asyncio
-import json
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -134,7 +133,7 @@ class MCPHub(LifecycleMixin):
     def _has_provider_layer(self) -> bool:
         return (
             self.runtime is not None
-            and getattr(self.runtime, "capability_router", None) is not None
+            and getattr(self.runtime, "capability_router", None) is not None  # noqa: W503
         )
 
     def _register_all_tools(self) -> None:

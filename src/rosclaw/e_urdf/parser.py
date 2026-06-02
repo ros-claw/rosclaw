@@ -28,7 +28,7 @@ for LLM grounding. The e-URDF format adds to standard URDF:
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import numpy as np
 
@@ -382,10 +382,10 @@ class EURDFParser:
         cp, sp = np.cos(pitch), np.sin(pitch)
         cy, sy = np.cos(yaw), np.sin(yaw)
 
-        R = np.array([
-            [cy*cp, cy*sp*sr - sy*cr, cy*sp*cr + sy*sr],
-            [sy*cp, sy*sp*sr + cy*cr, sy*sp*cr - cy*sr],
-            [-sp, cp*sr, cp*cr],
+        R = np.array([  # noqa: E226
+            [cy*cp, cy*sp*sr - sy*cr, cy*sp*cr + sy*sr],  # noqa: E226
+            [sy*cp, sy*sp*sr + cy*cr, sy*sp*cr - cy*sr],  # noqa: E226
+            [-sp, cp*sr, cp*cr],  # noqa: E226
         ])
 
         T = np.eye(4)

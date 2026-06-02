@@ -14,11 +14,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-import asyncio
-import pytest
+import pytest  # noqa: E402
 
-from rosclaw.core import Runtime, RuntimeConfig, EventBus, Event, EventPriority
-from rosclaw.dashboard.web_server import DashboardWebServer
+from rosclaw.core import Runtime, RuntimeConfig, Event  # noqa: E402
+from rosclaw.dashboard.web_server import DashboardWebServer  # noqa: E402
 
 
 @pytest.fixture
@@ -128,7 +127,7 @@ class TestFullPipeline:
         import time
         time.sleep(0.1)
         # Episode should have been recorded
-        episodes = runtime._practice.list_episodes() if hasattr(runtime._practice, "list_episodes") else []
+        runtime._practice.list_episodes() if hasattr(runtime._practice, "list_episodes") else []
         # We just verify no exception occurred; episode counting is async
         assert True
 

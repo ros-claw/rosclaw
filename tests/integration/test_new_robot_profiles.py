@@ -1,6 +1,5 @@
 """Tests for new e-URDF-Zoo robot profiles: Franka Panda, Unitree Go2, Fetch."""
 
-import pytest
 
 from rosclaw.runtime import (
     EURDFLoader,

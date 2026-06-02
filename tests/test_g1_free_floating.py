@@ -9,7 +9,6 @@ Validates:
 """
 
 import numpy as np
-import pytest
 
 from rosclaw.examples.g1_free_floating_walk import (
     WalkState,

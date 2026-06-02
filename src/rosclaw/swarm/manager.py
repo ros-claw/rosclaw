@@ -5,7 +5,7 @@ All communication goes through EventBus — no direct module calls.
 """
 
 import logging
-from typing import Any, Optional
+from typing import Optional
 
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin

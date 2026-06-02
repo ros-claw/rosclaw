@@ -1,6 +1,5 @@
 """Tests for ActionGuard."""
 
-import pytest
 
 from rosclaw.provider.guard.action_guard import ActionGuard
 from rosclaw.provider.core.request import ProviderRequest

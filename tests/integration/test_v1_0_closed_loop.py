@@ -263,7 +263,7 @@ class TestV1_0ClosedLoop:
         ctx = e2e_setup
         event_bus = ctx["event_bus"]
         received = []
-        def subscriber(event):
+        def subscriber(event):  # noqa: E306
             received.append(event)
         event_bus.subscribe("test.topic", subscriber)
         event_bus.publish(Event("test.topic", {"msg": "hello"}, source="test"))

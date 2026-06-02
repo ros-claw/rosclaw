@@ -298,9 +298,9 @@ class EpisodeRecorder(LifecycleMixin):
         # Prefer explicit agent_request, fallback to instruction or action
         buf.semantic_intent = (
             payload.get("agent_request")
-            or payload.get("instruction")
-            or payload.get("action")
-            or buf.semantic_intent
+            or payload.get("instruction")  # noqa: W503
+            or payload.get("action")  # noqa: W503
+            or buf.semantic_intent  # noqa: W503
         )
         buf.llm_cot = payload.get("cot", payload.get("reasoning", buf.llm_cot))
         buf.initial_state = payload.get("initial_state", buf.initial_state)

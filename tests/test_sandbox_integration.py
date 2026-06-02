@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 
 class TestSandboxRuntimeAdapter:
     def test_adapter_imports(self):
@@ -85,7 +83,6 @@ class TestFirewallDynamicCollision:
 class TestMCPUsesEventBus:
     def test_ur5_server_event_bus_fallback(self):
         """Verify UR5 MCP server has EventBus fallback code."""
-        import inspect
 
         # Read source without importing (avoids rclpy dependency)
         mcp_path = Path(__file__).parent.parent / "src" / "rosclaw" / "mcp" / "ur5_server.py"

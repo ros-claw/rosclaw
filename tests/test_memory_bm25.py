@@ -7,8 +7,6 @@ when rank_bm25 is available, with correct fallback to keyword matching.
 P1 Issue 2: https://github.com/ros-claw/rosclaw-v1.0/issues/XXX
 """
 
-import sys
-from unittest.mock import patch
 import pytest
 
 from rosclaw.memory.interface import MemoryInterface, _HAS_BM25

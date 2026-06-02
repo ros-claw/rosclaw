@@ -2,7 +2,7 @@
 
 import asyncio
 import pytest
-from rosclaw.core.event_bus import EventBus, Event
+from rosclaw.core.event_bus import Event
 from rosclaw.provider.core.registry import ProviderRegistry
 from rosclaw.provider.core.manifest import ProviderManifest
 from rosclaw.provider.core.provider import Provider

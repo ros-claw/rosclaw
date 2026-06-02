@@ -13,10 +13,8 @@ Coverage target: 70%+
 """
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
 import yaml
 
 from rosclaw.sdk_to_mcp import AssetCompiler, MCPManifestBuilder

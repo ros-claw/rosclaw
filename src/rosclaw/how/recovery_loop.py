@@ -293,8 +293,8 @@ class RecoveryLoop:
         if self._executor is None:
             self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
-            loop = asyncio.get_running_loop()
-            future = self._executor.submit(asyncio.run, coro)
-            return future.result(timeout=30)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, coro)
+                return future.result(timeout=30)
         except RuntimeError:
             return asyncio.run(coro)

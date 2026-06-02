@@ -1,6 +1,5 @@
 """Tests for know/storage.py seed and ingest helpers."""
 
-import pytest
 
 from rosclaw.know.storage import seed_knowledge_graph, ingest_e_urdf_capabilities
 
@@ -42,7 +41,7 @@ def test_ingest_e_urdf_capabilities_none_client():
 
 def test_ingest_e_urdf_capabilities_empty_tags():
     class FakeDB:
-        def insert(self, t, r): pass
+        def insert(self, t, r): pass  # noqa: E704
     assert ingest_e_urdf_capabilities("ur5e", [], FakeDB()) == 0
     assert ingest_e_urdf_capabilities("ur5e", [""], FakeDB()) == 0
 

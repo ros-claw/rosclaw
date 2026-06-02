@@ -6,7 +6,6 @@ a MuJoCo physics simulation before executing on real hardware.
 """
 
 import functools
-import inspect
 import logging
 import time
 from typing import Any, Callable, Optional, TypeVar

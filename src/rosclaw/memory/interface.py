@@ -13,16 +13,15 @@ Sprint 5 of DESIGN_SPRINT3_5.
 """
 
 from typing import Optional, Any
-import json
 import logging
 import time
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import EventBus, Event
 from rosclaw.core.lifecycle import LifecycleMixin
-
-logger = logging.getLogger("rosclaw.memory.interface")
 from rosclaw.memory.seekdb_client import SeekDBClient, SeekDBMemoryClient
 from rosclaw.memory.types import PraxisEvent, FailureMemory, ArtifactRef
+
+logger = logging.getLogger("rosclaw.memory.interface")
 
 # Conditional import: powermem Protocol types for type-safe proxy methods
 try:
@@ -146,9 +145,9 @@ class MemoryInterface(LifecycleMixin):
         if not instruction:
             instruction = (
                 payload.get("skill_name", "")
-                or payload.get("agent_instruction", "")
-                or (payload.get("episode_metadata", {}) or {}).get("agent_instruction", "")
-                or "unnamed_task"
+                or payload.get("agent_instruction", "")  # noqa: W503
+                or (payload.get("episode_metadata", {}) or {}).get("agent_instruction", "")  # noqa: W503
+                or "unnamed_task"  # noqa: W503
             )
         self.store_experience(
             event_id=payload.get("event_id", payload.get("episode_id", "")),
@@ -649,7 +648,7 @@ class MemoryInterface(LifecycleMixin):
             "total_experiences": total,
             "max_experiences": self.DEFAULT_MAX_EXPERIENCES,
             "utilization": total / self.DEFAULT_MAX_EXPERIENCES
-                if self.DEFAULT_MAX_EXPERIENCES > 0 else 0.0,
+            if self.DEFAULT_MAX_EXPERIENCES > 0 else 0.0,
             "oldest_timestamp": oldest_ts,
             "newest_timestamp": newest_ts,
             "age_span_days": round(age_days, 1),
