@@ -27,6 +27,7 @@ try:
     import rclpy
     from rclpy.action import ActionClient
     from rclpy.callback_groups import ReentrantCallbackGroup
+    from rclpy.executors import SingleThreadedExecutor
     from rclpy.node import Node
     from rclpy.qos import QoSProfile, ReliabilityPolicy
     RCLPY_AVAILABLE = True
@@ -52,6 +53,9 @@ except ImportError:
 
     class ReliabilityPolicy:
         BEST_EFFORT = None
+
+    class SingleThreadedExecutor:
+        pass
 
 # MCP imports
 from mcp.server import Server
@@ -269,18 +273,37 @@ class UR5ROSNode(Node):
             point.time_from_start.nanosec = int((t % 1.0) * 1e9)
             goal_msg.trajectory.points.append(point)
 
-        # Send goal
+        # Send goal (rclpy Future is not compatible with asyncio.wrap_future)
         self.get_logger().info(f"Sending trajectory with {len(trajectory_points)} points")
 
         goal_future = self.trajectory_client.send_goal_async(goal_msg)
-        goal_handle = await asyncio.wrap_future(goal_future)
 
-        if not goal_handle.accepted:
+        loop = asyncio.get_event_loop()
+        executor = SingleThreadedExecutor()
+        executor.add_node(self)
+
+        def _wait_goal(fut):
+            executor.spin_until_future_complete(fut, timeout_sec=30.0)
+            return fut.result()
+
+        goal_handle = await loop.run_in_executor(None, _wait_goal, goal_future)
+
+        if goal_handle is None or not goal_handle.accepted:
+            executor.remove_node(self)
+            executor.shutdown()
             return False, "Trajectory goal rejected by controller"
 
         # Wait for result
         result_future = goal_handle.get_result_async()
-        result = await asyncio.wrap_future(result_future)
+
+        def _wait_result(fut):
+            executor.spin_until_future_complete(fut, timeout_sec=60.0)
+            return fut.result()
+
+        result = await loop.run_in_executor(None, _wait_result, result_future)
+
+        executor.remove_node(self)
+        executor.shutdown()
 
         if result.result.error_code == FollowJointTrajectory.Result.SUCCESSFUL:
             return True, "Trajectory executed successfully"
