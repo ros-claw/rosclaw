@@ -1,0 +1,31 @@
+benchmark_version: "1.0"
+robot_id: mock_mobile_base
+
+kinematic_benchmarks:
+  - name: straight_line_accuracy
+    description: "Final position accuracy after 1m straight move"
+    target: 0.05
+    unit: m
+  - name: turn_accuracy
+    description: "Final heading accuracy after 90° turn"
+    target: 0.1
+    unit: rad
+
+dynamic_benchmarks:
+  - name: max_linear_speed
+    description: "Maximum stable linear speed"
+    target: 1.0
+    unit: m/s
+  - name: max_angular_speed
+    description: "Maximum stable angular speed"
+    target: 2.0
+    unit: rad/s
+  - name: power_efficiency
+    description: "Power consumption per meter traveled"
+    target: 10.0
+    unit: W/(m/s)
+
+simulation_benchmarks:
+  mock:
+    - {name: real_time_factor, target: 1.0, tolerance: 0.1}
+    - {name: step_accuracy, target: 0.001, tolerance: 0.0001}

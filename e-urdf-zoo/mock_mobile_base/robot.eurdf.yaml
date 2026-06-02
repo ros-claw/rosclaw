@@ -1,0 +1,78 @@
+robot_id: mock_mobile_base
+name: Mock Mobile Base
+vendor: ROSClaw Mock
+version: "1.0"
+description: >
+  Simple differential-drive mobile base for testing PID control,
+  navigation, and sandbox simulation. No ROS2 required.
+
+dof: 2
+links:
+  - name: chassis
+    type: base
+    mass: 5.0
+  - name: left_wheel
+    type: wheel
+    mass: 0.5
+  - name: right_wheel
+    type: wheel
+    mass: 0.5
+  - name: caster
+    type: caster
+    mass: 0.2
+
+joints:
+  - name: left_wheel_joint
+    type: revolute
+    parent: chassis
+    child: left_wheel
+    axis: [0, 1, 0]
+    limits:
+      lower: -999
+      upper: 999
+      velocity: 10.0
+      effort: 5.0
+  - name: right_wheel_joint
+    type: revolute
+    parent: chassis
+    child: right_wheel
+    axis: [0, 1, 0]
+    limits:
+      lower: -999
+      upper: 999
+      velocity: 10.0
+      effort: 5.0
+  - name: caster_joint
+    type: continuous
+    parent: chassis
+    child: caster
+    axis: [0, 0, 1]
+
+sensors:
+  - name: odometry
+    type: encoder
+    parent_link: chassis
+    parameters:
+      ticks_per_rev: 360
+      wheel_radius: 0.05
+  - name: lidar_front
+    type: lidar
+    parent_link: chassis
+    parameters:
+      range_min: 0.1
+      range_max: 10.0
+      angle_min: -1.57
+      angle_max: 1.57
+      angle_resolution: 0.01
+
+actuators:
+  - name: left_motor
+    type: dc_motor
+    joint: left_wheel_joint
+    control_mode: [velocity, position]
+    max_torque: 5.0
+  - name: right_motor
+    type: dc_motor
+    joint: right_wheel_joint
+    control_mode: [velocity, position]
+    max_torque: 5.0

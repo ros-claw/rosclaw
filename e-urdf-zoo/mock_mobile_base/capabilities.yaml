@@ -1,0 +1,35 @@
+capability_version: "1.0"
+robot_id: mock_mobile_base
+capabilities:
+- id: mobile_pid_move
+  name: pid_move
+  category: motion
+  description: Move robot using PID control to a target position
+  skill_type: programmed
+  inputs:
+  - {name: target_x, type: float, unit: m}
+  - {name: target_y, type: float, default: 0.0, unit: m}
+  - {name: max_velocity, type: float, default: 0.3, unit: m/s}
+  - {name: max_acceleration, type: float, default: 0.5, unit: m/s^2}
+  preconditions: [robot_on_ground]
+  constraints: {max_distance: 10.0, max_angle_error: 0.1}
+  estimated_duration: {mean: 5.0, unit: s}
+- id: mobile_navigate
+  name: navigate
+  category: navigation
+  description: Navigate to a waypoint using simple path planning
+  skill_type: programmed
+  inputs:
+  - {name: waypoint, type: list, unit: "[x, y]"}
+  - {name: speed, type: float, default: 0.3, unit: m/s}
+  constraints: {obstacle_avoidance: true, min_path_width: 0.6}
+  estimated_duration: {mean: 10.0, unit: s}
+- id: mobile_inspect
+  name: inspect
+  category: perception
+  description: Inspect surroundings using front lidar
+  skill_type: programmed
+  inputs:
+  - {name: scan_angle, type: float, default: 180.0, unit: deg}
+  constraints: {min_range: 0.1, max_range: 10.0}
+  estimated_duration: {mean: 2.0, unit: s}

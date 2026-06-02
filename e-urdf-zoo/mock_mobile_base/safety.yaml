@@ -1,0 +1,37 @@
+safety_level: LOW
+joint_soft_limits:
+  left_wheel_joint: {lower: -999, upper: 999, k_position: 10.0, k_velocity: 5.0}
+  right_wheel_joint: {lower: -999, upper: 999, k_position: 10.0, k_velocity: 5.0}
+collision_detection:
+  method: lidar_obstacle
+  threshold_distance: 0.3
+  reaction_time_ms: 100.0
+  reaction_strategy: stop
+emergency_stop:
+  category: 1
+  stop_time_ms: 200.0
+  stop_distance_m: 0.1
+  dual_channel: false
+workspace_boundaries:
+  type: bounding_box
+  center: [0, 0, 0]
+  dimensions: [5.0, 5.0, 0]
+interaction:
+  speed_slider_max: 1.0
+  protective_stop_on_contact: true
+environment:
+  ambient_temp_min: 0.0
+  ambient_temp_max: 40.0
+  humidity_max: 80.0
+  ip_rating: IP54
+safety_limits:
+  joint_limits:
+    left_wheel_joint: {lower: -999, upper: 999}
+    right_wheel_joint: {lower: -999, upper: 999}
+  velocity_limits:
+    left_wheel_joint: 10.0
+    right_wheel_joint: 10.0
+  force_limits:
+    max_joint_effort: 5.0
+  workspace: {type: bounding_box, center: [0, 0, 0], dimensions: [5.0, 5.0, 0]}
+  power_limits: {max_power: 100.0, max_current_total: 10.0}

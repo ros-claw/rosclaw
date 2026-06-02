@@ -1,0 +1,19 @@
+semantic_version: "1.0"
+functional_regions:
+  - name: chassis
+    link: chassis
+    tags: [body, main, mobile_base]
+    description: "Main chassis of the mobile base"
+    affordances: [carry, move]
+  - name: drivetrain
+    links: [left_wheel, right_wheel]
+    tags: [drive, differential, wheels]
+    description: "Differential drive wheels"
+    affordances: [move_forward, turn]
+  - name: caster_wheel
+    link: caster
+    tags: [support, passive]
+    description: "Passive caster wheel for stability"
+    affordances: [support]
+grasp_points: []
+semantic_tags: [mobile, differential_drive, 2dof, mock]
