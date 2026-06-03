@@ -1,0 +1,68 @@
+{
+  "benchmark": "ROSClaw Auto-Tuning on ManiSkill PickCube",
+  "date": "2026-06-03 19:21:43",
+  "config": {
+    "episodes": 50,
+    "max_steps": 100,
+    "policy": "scaled_random_identical_actions"
+  },
+  "baseline": {
+    "scale": 0.1,
+    "success_rate": 0.0,
+    "avg_reward": 0.0429,
+    "avg_steps": 50.0,
+    "truncated_count": 50
+  },
+  "rosclaw_rounds": [
+    {
+      "round": 1,
+      "scale": 0.30000000000000004,
+      "actual_scale": 0.30000000000000004,
+      "success_count": 0,
+      "success_rate": 0.0,
+      "avg_reward": 0.0448,
+      "avg_steps": 50.0,
+      "truncated_count": 50,
+      "diagnosis": "50/50 episodes truncated \u2014 actions too small"
+    },
+    {
+      "round": 2,
+      "scale": 0.9000000000000001,
+      "actual_scale": 0.9000000000000001,
+      "success_count": 0,
+      "success_rate": 0.0,
+      "avg_reward": 0.0494,
+      "avg_steps": 50.0,
+      "truncated_count": 50,
+      "diagnosis": "50/50 episodes truncated \u2014 actions too small"
+    },
+    {
+      "round": 3,
+      "scale": 2.0,
+      "actual_scale": 2.0,
+      "success_count": 0,
+      "success_rate": 0.0,
+      "avg_reward": 0.1816,
+      "avg_steps": 50.0,
+      "truncated_count": 50,
+      "diagnosis": "50/50 episodes truncated \u2014 actions too small"
+    },
+    {
+      "round": 4,
+      "scale": 2.0,
+      "actual_scale": 2.0,
+      "success_count": 0,
+      "success_rate": 0.0,
+      "avg_reward": 0.213,
+      "avg_steps": 50.0,
+      "truncated_count": 50,
+      "diagnosis": "50/50 episodes truncated \u2014 actions too small"
+    }
+  ],
+  "improvement": {
+    "best_round": 4,
+    "reward_percent": 396.27,
+    "step_percent": 0.0,
+    "truncated_reduction": 0
+  }
+}
