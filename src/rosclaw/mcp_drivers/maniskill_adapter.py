@@ -153,12 +153,14 @@ class ManiSkillAdapter:
         else:
             success = bool(success)
 
+        # Reward may be a PyTorch tensor — convert to float
+        reward_val = float(self._episode_reward)
         trace = {
             "task": self.task,
             "robot": self.robot,
             "episode_id": f"maniskill_{self.task}_{self._episode_count:04d}",
             "steps": len(self._episode_steps),
-            "total_reward": round(self._episode_reward, 4),
+            "total_reward": round(reward_val, 4),
             "success": success,
             "control_mode": self.control_mode,
             "step_traces": self._episode_steps,
