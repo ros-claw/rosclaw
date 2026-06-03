@@ -1666,6 +1666,52 @@ def cmd_demo_tabletop_grasp(args: argparse.Namespace) -> int:
         return 1
 
 
+# Shared event history file for cross-CLI-process persistence
+_EVENT_HISTORY_FILE = Path.home() / ".rosclaw" / "event_history.jsonl"
+_EVENT_HISTORY_MAX = 10000
+
+
+def _append_event_history(event) -> None:
+    """Append an event to the persistent JSONL history file."""
+    _EVENT_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "timestamp": getattr(event, "timestamp", time.time()),
+        "topic": getattr(event, "topic", ""),
+        "source": getattr(event, "source", ""),
+        "payload": getattr(event, "payload", {}),
+        "event_id": getattr(event, "event_id", ""),
+        "trace_id": getattr(event, "trace_id", ""),
+    }
+    with open(_EVENT_HISTORY_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, default=str) + "\n")
+    # Trim if too large
+    try:
+        lines = _EVENT_HISTORY_FILE.read_text(encoding="utf-8").strip().split("\n")
+        if len(lines) > _EVENT_HISTORY_MAX:
+            trimmed = lines[-_EVENT_HISTORY_MAX:]
+            _EVENT_HISTORY_FILE.write_text("\n".join(trimmed) + "\n", encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _load_event_history(limit: int = 100) -> list:
+    """Load events from the persistent JSONL history file."""
+    if not _EVENT_HISTORY_FILE.exists():
+        return []
+    try:
+        with open(_EVENT_HISTORY_FILE, "r", encoding="utf-8") as f:
+            lines = [ln.strip() for ln in f if ln.strip()]
+        events = []
+        for line in lines[-limit:]:
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return events
+    except Exception:
+        return []
+
+
 def cmd_events_tail(args: argparse.Namespace) -> int:
     """Tail EventBus events."""
     from rosclaw.core.event_bus import get_global_event_bus
