@@ -4,16 +4,17 @@ The engine provides:
   * suggest_recovery()  — lookup heuristic_rules table (<10ms)
   * record_outcome()    — update rule efficacy counters
   * seed_defaults()     — populate initial safety rules
-  * decide_recovery()   — v1.5 InterventionRequest → InterventionDecision +
-                          rule_id (so outcome tracking covers v1.5 too)
+  * decide_recovery()   — InterventionRequest → InterventionDecision +
+                          rule_id (so outcome tracking covers the
+                          proactive intervention layer too)
 
 Design:
   - Pure rule-based, zero LLM calls in the hot path.
-  - Condition matching: exact → v1.0 substring → v1.5 SAFETY_TAXONOMY
+  - Condition matching: exact → reactive substring → SAFETY_TAXONOMY
     fallback → knowledge analogy. The taxonomy ships as the fallback so
-    hand-tuned v1.0 remediations (e.g. "compliant mode", "exponential
+    hand-tuned reactive remediations (e.g. "compliant mode", "exponential
     backoff") still win when both could match. ``tax_<symptom>`` IDs
-    never collide with v1.0 ``rule_<n>_<slug>`` IDs.
+    never collide with reactive ``rule_<n>_<slug>`` IDs.
   - Outcome tracking: success_count / failure_count / priority.
 """
 from __future__ import annotations
@@ -22,7 +23,7 @@ import logging
 import time
 from typing import Any, Final, Optional
 
-from .v15 import (
+from .intervention import (
     SAFETY_TAXONOMY,
     InterventionDecision,
     InterventionRequest,
@@ -36,7 +37,7 @@ from .v15 import (
 logger = logging.getLogger("rosclaw.how.engine")
 
 # Rule-ID prefix for SAFETY_TAXONOMY-derived rules. Distinct prefix so the
-# v1.0 rule_id namespace (``rule_<n>_<slug>``) never collides.
+# reactive rule_id namespace (``rule_<n>_<slug>``) never collides.
 _TAXONOMY_RULE_PREFIX: Final[str] = "tax_"
 
 # S0 (info) → 0 … S4 (emergency stop) → 4. Hoisted to module level so the
@@ -58,7 +59,7 @@ def _severity_priority(severity: str) -> int:
 
 def _format_taxonomy_action(symptom: str, severity: str, strategy: str) -> str:
     """Human-readable action text for a taxonomy-derived rule."""
-    return f"[{severity}/{strategy}] inject {symptom} guard (v1.5 taxonomy)"
+    return f"[{severity}/{strategy}] inject {symptom} guard (safety taxonomy)"
 
 
 class HeuristicEngine:
@@ -152,28 +153,28 @@ class HeuristicEngine:
         if not error_log:
             return None
 
-        # 1. Exact match (v1.0 rules in seekdb / cache)
+        # 1. Exact match (reactive rules in seekdb / cache)
         result = self._query_exact(error_log)
         if result:
             return self._format(result)
 
-        # 2. Substring match against v1.0 cached rules. We try this BEFORE
-        #    the taxonomy because the v1.0 rule library carries
+        # 2. Substring match against reactive cached rules. We try this BEFORE
+        #    the taxonomy because the reactive rule library carries
         #    hand-written remediations ("Switch to compliant mode and back
         #    off 5cm") that are more actionable than the taxonomy's
         #    generic "[S2/SAFETY] inject Workspace_Boundary guard"
-        #    template. Taxonomy is the fallback for symptoms v1.0 doesn't
-        #    cover.
+        #    template. Taxonomy is the fallback for symptoms reactive rules
+        #    don't cover.
         result = self._query_substring(error_log)
         if result:
             return self._format(result)
 
-        # 3. v1.5 SAFETY_TAXONOMY lookup — extended S0-S4 vocabulary that
+        # 3. SAFETY_TAXONOMY lookup — extended S0-S4 vocabulary that
         #    covers physical-AI failure modes (collision, self-collision,
-        #    OOM, NaN, …) the v1.0 rule list doesn't. When a symptom
+        #    OOM, NaN, …) the reactive rule list doesn't. When a symptom
         #    matches we return a synthetic rule keyed by ``tax_<symptom>``
         #    so ``record_outcome`` can track efficacy the same way as
-        #    v1.0 rules.
+        #    reactive rules.
         symptom, severity, strategy = diagnose_safety(error_log)
         if symptom is not None:
             tax_rule = self._taxonomy_rule(symptom, severity, strategy)
@@ -222,7 +223,7 @@ class HeuristicEngine:
             return False
 
     async def seed_defaults(self) -> int:
-        """Populate heuristic_rules with v1.0 default safety rules.
+        """Populate heuristic_rules with default safety rules.
 
         Returns number of rules inserted.
         """
@@ -271,7 +272,7 @@ class HeuristicEngine:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Seed rule %s failed: %s", rid, exc)
 
-        # Append the v1.5 SAFETY_TAXONOMY rows so they show up in
+        # Append the SAFETY_TAXONOMY rows so they show up in
         # ``list_rules`` / dashboards and ``record_outcome`` can attribute
         # successes to them. Action text is the SAFETY snippet's first line,
         # priority is the severity ordinal (S0=0 … S4=4).
@@ -317,8 +318,8 @@ class HeuristicEngine:
 
         Taxonomy rows (id prefix ``tax_``) are skipped here so a bare
         symptom string like ``"joint limit violation"`` doesn't pre-empt
-        a v1.0 rule whose condition is a substring. The taxonomy has its
-        own match path via ``diagnose_safety`` in ``suggest_recovery``.
+        a reactive rule whose condition is a substring. The taxonomy has
+        its own match path via ``diagnose_safety`` in ``suggest_recovery``.
         """
         if self._cache_valid:
             for rule in self._rule_cache.values():
@@ -404,7 +405,7 @@ class HeuristicEngine:
             "failure_count": int(rule.get("failure_count", 0)),
         }
 
-    # ── v1.5 SAFETY_TAXONOMY bridge ──────────────────────────────────────
+    # ── SAFETY_TAXONOMY bridge ───────────────────────────────────────────
 
     def _taxonomy_rule(
         self,
@@ -455,7 +456,7 @@ class HeuristicEngine:
         *,
         recent_pattern_id: Optional[str] = None,
     ) -> tuple[InterventionDecision, Optional[str]]:
-        """Run the v1.5 diagnose → policy → composer pipeline.
+        """Run the proactive diagnose → policy → composer pipeline.
 
         Returns ``(decision, rule_id_or_None)``. When the final decision
         was driven by a safety symptom (``decision.strategy`` is one of

@@ -1,19 +1,20 @@
-"""Merge-layer smoke tests: v1.5 SAFETY_TAXONOMY + decide_recovery in v1.0 engine.
+"""Merge-layer smoke tests: SAFETY_TAXONOMY + decide_recovery in the engine.
 
-Verifies that the v1.5 modules ported into ``src/rosclaw/how/v15`` integrate
-correctly with the v1.0 :class:`HeuristicEngine`:
+Verifies that the intervention pipeline ported into
+``src/rosclaw/how/intervention`` integrates correctly with the reactive
+:class:`HeuristicEngine`:
 
 * ``suggest_recovery`` falls through to the SAFETY_TAXONOMY for symptoms
-  that v1.0 hand-written rules don't cover (collision, self-collision,
+  that reactive hand-written rules don't cover (collision, self-collision,
   human proximity, …).
 * ``decide_recovery`` runs the full diagnose → decide_strategy → compose
   pipeline and returns a stable rule_id for safety-attributable
   decisions.
 * ``record_outcome`` accepts taxonomy-derived rule_ids and increments
-  the same counters as it would for v1.0 rules.
-* The taxonomy and v1.0 rules coexist — substring-matched v1.0 rules
-  still win when both could match (e.g. "communication timeout"
-  surfaces the v1.0 "Retry with exponential backoff" remediation).
+  the same counters as it would for reactive rules.
+* The taxonomy and reactive rules coexist — substring-matched reactive
+  rules still win when both could match (e.g. "communication timeout"
+  surfaces the "Retry with exponential backoff" remediation).
 """
 from __future__ import annotations
 
@@ -42,7 +43,7 @@ def engine():
 # ── pure-rules layer (no engine state) ────────────────────────────────────
 
 
-class TestV15PureRules:
+class TestInterventionPureRules:
     """The diagnose / decide_strategy / compose pipeline is pure data."""
 
     def test_safety_taxonomy_covers_15_symptoms(self) -> None:
@@ -97,7 +98,7 @@ class TestV15PureRules:
 
 
 class TestEngineTaxonomyFallback:
-    """suggest_recovery should consult SAFETY_TAXONOMY when v1.0 rules miss."""
+    """suggest_recovery should consult SAFETY_TAXONOMY when reactive rules miss."""
 
     @pytest.mark.asyncio
     async def test_unseeded_collision_log_returns_taxonomy_rule(
@@ -119,7 +120,7 @@ class TestEngineTaxonomyFallback:
     async def test_v1_rule_wins_over_taxonomy_for_overlapping_keywords(
         self, engine: HeuristicEngine,
     ) -> None:
-        """The v1.0 'communication timeout' rule should beat the taxonomy.
+        """The reactive 'communication timeout' rule should beat the taxonomy.
 
         Without this ordering, the more generic taxonomy would shadow the
         hand-written 'Retry with exponential backoff' remediation that
@@ -138,8 +139,8 @@ class TestEngineTaxonomyFallback:
         self, engine: HeuristicEngine,
     ) -> None:
         count = await engine.seed_defaults()
-        # 21 v1.0 rules + 15 taxonomy rows = 36, but some IDs collide
-        # within the v1.0 set (e.g. "timeout" appears twice) — assert the
+        # 21 reactive rules + 15 taxonomy rows = 36, but some IDs collide
+        # within the reactive set (e.g. "timeout" appears twice) — assert the
         # taxonomy rows are present rather than a hard count.
         assert count >= len(SAFETY_TAXONOMY)
         for symptom in SAFETY_TAXONOMY:
@@ -150,7 +151,7 @@ class TestEngineTaxonomyFallback:
 
 
 class TestDecideRecoveryOutcome:
-    """decide_recovery wires v1.5 decisions into record_outcome."""
+    """decide_recovery wires intervention decisions into record_outcome."""
 
     @pytest.mark.asyncio
     async def test_decide_recovery_returns_rule_id_for_safety_symptom(
@@ -241,13 +242,13 @@ class TestMergeEdgeCases:
         ``condition`` field, ``_query_exact`` must skip it. (The
         taxonomy reaches the same row via ``diagnose_safety`` in step
         #3 of ``suggest_recovery``; this skip enforces that step #1
-        only ever returns v1.0 rules.)
+        only ever returns reactive rules.)
         """
         await engine.seed_defaults()
         # Direct unit check on the bypass path.
         assert engine._query_exact("joint limit violation") is None
         assert engine._query_exact("collision risk") is None
-        # Sanity: a v1.0 condition still matches exactly.
+        # Sanity: a reactive condition still matches exactly.
         v1_hit = engine._query_exact("joint limit exceeded")
         assert v1_hit is not None
         assert not str(v1_hit.get("id", "")).startswith("tax_")
