@@ -137,8 +137,118 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_doctor(_args: argparse.Namespace) -> int:
+def _cmd_doctor_ros2() -> int:
+    """Run L1-L5 ROS2 environment profile check."""
+    import shutil
+    import subprocess
+
+    checks = []
+
+    # L1: ros2 CLI
+    ros2_path = shutil.which("ros2")
+    l1_ok = ros2_path is not None
+    checks.append(("L1: ros2 CLI", ros2_path or "not found", l1_ok))
+
+    # L2: ROS_DISTRO / AMENT_PREFIX_PATH
+    distro = os.environ.get("ROS_DISTRO", "")
+    ament = os.environ.get("AMENT_PREFIX_PATH", "")
+    l2_ok = bool(distro and ament)
+    if l2_ok:
+        checks.append(("L2: ROS_DISTRO", f"{distro} @ {ament.split(':')[0]}", True))
+    else:
+        # Fallback: check /opt/ros
+        opt_ros = "/opt/ros"
+        if os.path.isdir(opt_ros):
+            distros = [d for d in os.listdir(opt_ros) if os.path.isdir(os.path.join(opt_ros, d))]
+            if distros:
+                checks.append(("L2: ROS_DISTRO", f"unset (found /opt/ros/{distros[0]} — source setup.bash?)", False))
+            else:
+                checks.append(("L2: ROS_DISTRO", "not set, no /opt/ros/* found", False))
+        else:
+            checks.append(("L2: ROS_DISTRO", "not set, /opt/ros missing", False))
+
+    # L3: rclpy import
+    try:
+        import rclpy  # noqa: F401
+        l3_ok = True
+        checks.append(("L3: Python rclpy", "OK", True))
+    except ImportError as exc:
+        l3_ok = False
+        checks.append(("L3: Python rclpy", f"FAIL: {exc}", False))
+
+    # L4: ros2 graph commands
+    l4_ok = True
+    l4_failures = []
+    for cmd, label in [("ros2 topic list", "topic"), ("ros2 service list", "service"), ("ros2 node list", "node")]:
+        try:
+            result = subprocess.run(cmd.split(), capture_output=True, text=True, timeout=10)
+            if result.returncode != 0:
+                l4_ok = False
+                l4_failures.append(f"{label}: {result.stderr.strip()[:60]}")
+        except Exception as exc:
+            l4_ok = False
+            l4_failures.append(f"{label}: {exc}")
+    if l4_ok:
+        checks.append(("L4: Graph commands", "OK", True))
+    else:
+        checks.append(("L4: Graph commands", "; ".join(l4_failures), False))
+
+    # L5: active pub/sub (optional — no running nodes is OK for a fresh env)
+    try:
+        result = subprocess.run(["ros2", "topic", "list"], capture_output=True, text=True, timeout=10)
+        topics = result.stdout.strip().splitlines() if result.returncode == 0 else []
+        if topics and topics != ["/rosout"]:
+            checks.append(("L5: Active pub/sub", f"{len(topics)} topic(s)", True))
+            l5_ok = True
+        else:
+            checks.append(("L5: Active pub/sub", "no active topics (no running nodes — OK for fresh env)", True))
+            l5_ok = True
+    except Exception as exc:
+        checks.append(("L5: Active pub/sub", f"FAIL: {exc}", False))
+        l5_ok = False
+
+    # Print report
+    print("=" * 60)
+    print("ROSClaw Doctor — ROS2 Environment Profile")
+    print("=" * 60)
+    for name, value, ok in checks:
+        icon = "✅" if ok else "❌"
+        print(f"  {icon} {name:<28} {value}")
+    print("=" * 60)
+
+    # Determine level
+    level = 0
+    for i, ok in enumerate([l1_ok, l2_ok, l3_ok, l4_ok, l5_ok], 1):
+        if ok:
+            level = i
+        else:
+            break
+
+    print(f"  Level achieved: L{level}")
+
+    if level >= 4:
+        print("  ROS2 profile: READY — ROSClaw ROS2 wrapper can run")
+        return 0
+    elif level >= 3:
+        print("  ROS2 profile: PARTIAL — Python API OK but graph commands failed")
+        print("  ROS2 wrapper importable but may fail at runtime if daemon is down")
+        return 0
+    elif level >= 1:
+        print("  ROS2 profile: NOT READY — CLI found but Python API missing")
+        print("  Tip: source /opt/ros/<distro>/setup.bash in your shell")
+        return 1
+    else:
+        print("  ROS2 profile: NOT AVAILABLE — ROS2 not installed")
+        print("  ROSClaw will run in sim-only / mock-only mode")
+        return 0  # Not an error — sim-only is valid
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
     """Deep health diagnosis for ROSClaw runtime and dependencies."""
+    # --ros2 profile check: L1-L5 layered ROS2 environment validation
+    if getattr(args, "ros2", False):
+        return _cmd_doctor_ros2()
+
     import importlib
     import platform
 
@@ -2300,7 +2410,8 @@ def main() -> int:
     dashboard_parser.add_argument("--open", action="store_true", help="Open dashboard in browser")
 
     # doctor
-    subparsers.add_parser("doctor", help="Run health diagnosis")
+    doctor_parser = subparsers.add_parser("doctor", help="Run health diagnosis")
+    doctor_parser.add_argument("--ros2", action="store_true", help="Check ROS2 environment profile (L1-L5)")
 
     # logs
     logs_parser = subparsers.add_parser("logs", help="Show runtime logs")
