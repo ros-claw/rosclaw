@@ -83,6 +83,23 @@ class Event:
         )
 
 
+# Global singleton EventBus instance for cross-process sharing
+# (within the same Python process). CLI commands and Runtime share
+# the same bus so published events are visible via list/tail.
+_global_event_bus: Optional["EventBus"] = None
+_global_bus_lock = threading.Lock()
+
+
+def get_global_event_bus() -> "EventBus":
+    """Return the singleton global EventBus instance."""
+    global _global_event_bus
+    if _global_event_bus is None:
+        with _global_bus_lock:
+            if _global_event_bus is None:
+                _global_event_bus = EventBus()
+    return _global_event_bus
+
+
 class EventBus:
     """
     Central publish/subscribe event bus for ROSClaw.

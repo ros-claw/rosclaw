@@ -493,7 +493,7 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_status(_args: argparse.Namespace) -> int:
+def cmd_status(args: argparse.Namespace) -> int:
     """Show ROSClaw runtime status."""
     import importlib
 
@@ -524,7 +524,22 @@ def cmd_status(_args: argparse.Namespace) -> int:
     degraded = [m for m, s in health if s == "DEGRADED"]
     overall = "HEALTHY" if not degraded else "DEGRADED"
 
-    # Output
+    if getattr(args, "json", False):
+        # JSON output mode
+        result = {
+            "version": _version(),
+            "config_file": str(config_path),
+            "config_found": has_config,
+            "overall": overall,
+            "modules": {
+                mod_name: status for mod_name, status in health
+            },
+            "degraded_count": len(degraded),
+        }
+        print(json.dumps(result, indent=2))
+        return 1 if degraded else 0
+
+    # Human-readable output
     print("=" * 50)
     print("ROSClaw v1.0 Status")
     print("=" * 50)
@@ -1225,20 +1240,82 @@ def cmd_memory_explain(args: argparse.Namespace) -> int:
     return 0
 
 
+# Shared event history file for cross-CLI-process persistence
+_EVENT_HISTORY_FILE = Path.home() / ".rosclaw" / "event_history.jsonl"
+_EVENT_HISTORY_MAX = 10000
+
+
+def _append_event_history(event) -> None:
+    """Append an event to the persistent JSONL history file."""
+    _EVENT_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "timestamp": getattr(event, "timestamp", time.time()),
+        "topic": getattr(event, "topic", ""),
+        "source": getattr(event, "source", ""),
+        "payload": getattr(event, "payload", {}),
+        "event_id": getattr(event, "event_id", ""),
+        "trace_id": getattr(event, "trace_id", ""),
+    }
+    with open(_EVENT_HISTORY_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, default=str) + "\n")
+    # Trim if too large
+    try:
+        lines = _EVENT_HISTORY_FILE.read_text(encoding="utf-8").strip().split("\n")
+        if len(lines) > _EVENT_HISTORY_MAX:
+            trimmed = lines[-_EVENT_HISTORY_MAX:]
+            _EVENT_HISTORY_FILE.write_text("\n".join(trimmed) + "\n", encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _load_event_history(limit: int = 100) -> list:
+    """Load events from the persistent JSONL history file."""
+    if not _EVENT_HISTORY_FILE.exists():
+        return []
+    try:
+        with open(_EVENT_HISTORY_FILE, "r", encoding="utf-8") as f:
+            lines = [ln.strip() for ln in f if ln.strip()]
+        events = []
+        for line in lines[-limit:]:
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return events
+    except Exception:
+        return []
+
+
 def cmd_events_tail(args: argparse.Namespace) -> int:
     """Tail EventBus events."""
-    from rosclaw.core.event_bus import EventBus
+    from rosclaw.core.event_bus import get_global_event_bus
 
-    bus = EventBus()
+    # Combine in-memory + persistent history
+    bus = get_global_event_bus()
     history = bus.get_history(limit=args.tail)
+    if not history:
+        # Fallback: load from persistent file (cross-process)
+        file_events = _load_event_history(limit=args.tail)
+        if file_events:
+            print("=" * 70)
+            print(f"ROSClaw EventBus — Last {args.tail} events")
+            print("=" * 70)
+            for ev in file_events:
+                ts = ev.get("timestamp", "?")
+                topic = ev.get("topic", "?")
+                src = ev.get("source", "?")
+                print(f"[{ts}] {topic:<40} src={src}")
+            print("=" * 70)
+            return 0
+        print("=" * 70)
+        print(f"ROSClaw EventBus — Last {args.tail} events")
+        print("=" * 70)
+        print("No events in bus history.")
+        return 0
 
     print("=" * 70)
     print(f"ROSClaw EventBus — Last {args.tail} events")
     print("=" * 70)
-    if not history:
-        print("No events in bus history.")
-        return 0
-
     for ev in history:
         ts = getattr(ev, "timestamp", "?")
         topic = getattr(ev, "topic", "?")
@@ -1250,9 +1327,9 @@ def cmd_events_tail(args: argparse.Namespace) -> int:
 
 def cmd_events_publish(args: argparse.Namespace) -> int:
     """Publish an event to EventBus."""
-    from rosclaw.core.event_bus import EventBus, Event
+    from rosclaw.core.event_bus import get_global_event_bus, Event
 
-    bus = EventBus()
+    bus = get_global_event_bus()
     try:
         payload = json.loads(args.payload) if args.payload else {}
     except json.JSONDecodeError:
@@ -1266,24 +1343,44 @@ def cmd_events_publish(args: argparse.Namespace) -> int:
         metadata={"trace_id": args.trace_id} if args.trace_id else {},
     )
     bus.publish(event)
+    # Persist to file for cross-process visibility
+    _append_event_history(event)
     print(f"[ROSClaw] ✅ Published event to '{args.topic}'")
     return 0
 
 
 def cmd_events_list(args: argparse.Namespace) -> int:
     """List published events in EventBus history."""
-    from rosclaw.core.event_bus import EventBus
+    from rosclaw.core.event_bus import get_global_event_bus
 
-    bus = EventBus()
+    bus = get_global_event_bus()
     history = bus.get_history(limit=args.limit)
+    if not history:
+        # Fallback: load from persistent file (cross-process)
+        file_events = _load_event_history(limit=args.limit)
+        if file_events:
+            print("=" * 70)
+            print("ROSClaw EventBus — Published Events")
+            print("=" * 70)
+            for i, ev in enumerate(file_events, 1):
+                ts = ev.get("timestamp", "?")
+                topic = ev.get("topic", "?")
+                src = ev.get("source", "?")
+                payload = ev.get("payload", {})
+                payload_preview = json.dumps(payload, default=str)[:50] if payload else "{}"
+                print(f"  [{i}] [{ts}] {topic:<35} src={src:<15} {payload_preview}")
+            print(f"\nTotal: {len(file_events)} event(s)")
+            print("=" * 70)
+            return 0
+        print("=" * 70)
+        print("ROSClaw EventBus — Published Events")
+        print("=" * 70)
+        print("No events in bus history.")
+        return 0
 
     print("=" * 70)
     print("ROSClaw EventBus — Published Events")
     print("=" * 70)
-    if not history:
-        print("No events in bus history.")
-        return 0
-
     for i, ev in enumerate(history, 1):
         ts = getattr(ev, "timestamp", "?")
         topic = getattr(ev, "topic", "?")
@@ -1703,7 +1800,8 @@ def main() -> int:
             "--swarm", action="store_true", default=False, help="Enable Swarm coordination"
         )
 
-    subparsers.add_parser("status", help="Show runtime status")
+    status_parser = subparsers.add_parser("status", help="Show runtime status")
+    status_parser.add_argument("--json", action="store_true", help="Output as JSON")
     subparsers.add_parser("stop", help="Stop ROSClaw runtime")
 
     # restart (uses same args as run)
