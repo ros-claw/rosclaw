@@ -1,0 +1,97 @@
+{
+  "benchmark": "ROSClaw Full-Stack on ManiSkill PickCube",
+  "date": "2026-06-03 19:40:18",
+  "config": {
+    "episodes": 100,
+    "max_steps": 100,
+    "rounds": 6
+  },
+  "baseline_a": {
+    "name": "Pure random",
+    "scale": 1.0,
+    "avg_reward": 0.1993,
+    "success_count": 0
+  },
+  "baseline_b": {
+    "name": "Fixed optimal",
+    "scale": 2.0,
+    "avg_reward": 0.2086,
+    "success_count": 0
+  },
+  "rosclaw_rounds": [
+    {
+      "round": 1,
+      "avg_reward": 0.1953,
+      "success_count": 0,
+      "success_rate": 0.0,
+      "avg_steps": 50.0,
+      "memory_size": 85,
+      "replay_ratio": 0.1,
+      "how_diagnosis": "Good reward (0.1953), leverage Memory more"
+    },
+    {
+      "round": 2,
+      "avg_reward": 0.2005,
+      "success_count": 0,
+      "success_rate": 0.0,
+      "avg_steps": 50.0,
+      "memory_size": 174,
+      "replay_ratio": 0.2,
+      "how_diagnosis": "Good reward (0.2005), leverage Memory more"
+    },
+    {
+      "round": 3,
+      "avg_reward": 0.2248,
+      "success_count": 0,
+      "success_rate": 0.0,
+      "avg_steps": 50.0,
+      "memory_size": 276,
+      "replay_ratio": 0.3,
+      "how_diagnosis": "Good reward (0.2248), leverage Memory more"
+    },
+    {
+      "round": 4,
+      "avg_reward": 0.2167,
+      "success_count": 0,
+      "success_rate": 0.0,
+      "avg_steps": 50.0,
+      "memory_size": 370,
+      "replay_ratio": 0.4,
+      "how_diagnosis": "Good reward (0.2167), leverage Memory more"
+    },
+    {
+      "round": 5,
+      "avg_reward": 0.2396,
+      "success_count": 0,
+      "success_rate": 0.0,
+      "avg_steps": 50.0,
+      "memory_size": 475,
+      "replay_ratio": 0.5,
+      "how_diagnosis": "Good reward (0.2396), leverage Memory more"
+    },
+    {
+      "round": 6,
+      "avg_reward": 0.2693,
+      "success_count": 0,
+      "success_rate": 0.0,
+      "avg_steps": 50.0,
+      "memory_size": 609,
+      "replay_ratio": 0.45,
+      "how_diagnosis": "Recent performance dropped (0.0054), explore more"
+    }
+  ],
+  "improvement": {
+    "vs_baseline_a_percent": 35.1,
+    "vs_baseline_b_percent": 29.07,
+    "best_round": 6
+  },
+  "module_stats": {
+    "memory_size": 609,
+    "replay_ratio": 0.45,
+    "best_episode_reward": 0.9004,
+    "sandbox_hits": 0,
+    "critic_accepts": 609,
+    "memory_replays": 7477,
+    "random_explores": 22523
+  }
+}
