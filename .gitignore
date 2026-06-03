@@ -58,3 +58,9 @@ htmlcov/
 Thumbs.db
 rosclaw_data/
 practice_data/
+
+# 验收/反思/自评报告 — 不应入仓
+*验收*.md
+*反思*.md
+*自评*.md
+*模板*.md
