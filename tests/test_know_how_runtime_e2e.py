@@ -13,7 +13,11 @@ class TestKnowHowRuntimeE2E:
     """End-to-end integration of KNOW + HOW + Runtime."""
 
     @pytest.fixture
-    def runtime(self):
+    def runtime(self, tmp_path, monkeypatch):
+        # v1.5 isolation: chdir to tmp_path so the Runtime's KI sees an
+        # empty ``data/knowledge_assets/`` directory and falls back to
+        # the curated baseline patterns this test was written against.
+        monkeypatch.chdir(tmp_path)
         config = RuntimeConfig(
             robot_id="ur5e_test",
             enable_firewall=False,

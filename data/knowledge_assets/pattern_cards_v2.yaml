@@ -1,0 +1,1385 @@
+schema_version: '2.0'
+pattern_cards:
+- id: compiled_add_boundary_validation
+  domain: Systems_Compute
+  task_families:
+  - unknown_optimization
+  - robotics_optimization
+  - kernel_engineering_optimization
+  - cryptographic_optimization
+  - computer_systems_optimization
+  - additive_manufacturing_optimization
+  - structural_optimization_optimization
+  embodiment_types: []
+  artifact_languages:
+  - python
+  priority: 0
+  symptom: Successful runs insert finiteness / range checks at the boundary of their
+    solver so a NaN or invalid output is caught before the evaluator returns 'infeasible'.
+  diagnosis: Successful runs insert finiteness / range checks at the boundary of their
+    solver so a NaN or invalid output is caught before the evaluator returns 'infeasible'.  Catches
+    a large fraction of soft failures in Frontier-Eng's pure-Python tasks.
+  preconditions:
+  - The candidate artifact compiles and runs without errors on the baseline evaluator.
+  next_experiment: '- Add a finiteness / range check at the boundary: added boundary
+    / finiteness check on intermediate value.'
+  code_target: The whole editable artifact is the patch site.
+  patch_sketch: "```python\n# Finiteness + range guard at the function boundary.\n\
+    if not np.all(np.isfinite(out)):\n    raise ValueError(\"non-finite output\")\n\
+    out = np.clip(out, lo, hi)\n```"
+  expected_verifier_signals:
+  - feasibility rate stays high even on novel candidate configurations.
+  anti_patterns:
+  - Do not embed concrete tuning values from another task's baseline archive — see
+    plan §3.5.
+  contraindications: []
+  cross_domain_analogy: ''
+  source_quality: A
+  source_ids:
+  - experiment1__openevolve__claude-opus-4.6__Aerodynamics_CarAerodynamicsSensing
+  - experiment1__openevolve__claude-opus-4.6__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__claude-opus-4.6__KernelEngineering_MLA
+  - experiment1__openevolve__claude-opus-4.6__SingleCellAnalysis_predict_modality
+  - experiment1__openevolve__deepseek-v3.2__Aerodynamics_CarAerodynamicsSensing
+  - experiment1__openevolve__deepseek-v3.2__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__deepseek-v3.2__KernelEngineering_MLA
+  - experiment1__openevolve__deepseek-v3.2__SingleCellAnalysis_predict_modality
+  - experiment1__openevolve__gemini-3.1-pro-preview__Aerodynamics_CarAerodynamicsSensing
+  - experiment1__openevolve__gemini-3.1-pro-preview__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__gemini-3.1-pro-preview__KernelEngineering_MLA
+  - experiment1__openevolve__gemini-3.1-pro-preview__SingleCellAnalysis_predict_modality
+  - experiment1__openevolve__glm-5__Aerodynamics_CarAerodynamicsSensing
+  - experiment1__openevolve__glm-5__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__glm-5__KernelEngineering_MLA
+  - experiment1__openevolve__glm-5__SingleCellAnalysis_predict_modality
+  - experiment1__openevolve__gpt-5.4__Aerodynamics_CarAerodynamicsSensing
+  - experiment1__openevolve__gpt-5.4__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__gpt-5.4__KernelEngineering_MLA
+  - experiment1__openevolve__gpt-5.4__SingleCellAnalysis_predict_modality
+  - experiment1__openevolve__grok-4.20__Aerodynamics_CarAerodynamicsSensing
+  - experiment1__openevolve__grok-4.20__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__grok-4.20__KernelEngineering_MLA
+  - experiment1__openevolve__grok-4.20__SingleCellAnalysis_predict_modality
+  - experiment1__openevolve__qwen3-coder-next__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__qwen3-coder-next__KernelEngineering_MLA
+  - experiment1__openevolve__qwen3-coder-next__SingleCellAnalysis_predict_modality
+  - experiment1__openevolve__seed-2.0-pro__Aerodynamics_CarAerodynamicsSensing
+  - experiment1__openevolve__seed-2.0-pro__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__seed-2.0-pro__KernelEngineering_MLA
+  - experiment1__openevolve__seed-2.0-pro__SingleCellAnalysis_predict_modality
+  - experiment2__abmcts__claude-opus-4.6__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__abmcts__claude-opus-4.6__SingleCellAnalysis_predict_modality
+  - experiment2__abmcts__gpt-oss-120b__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__abmcts__gpt-oss-120b__Astrodynamics_MannedLunarLanding
+  - experiment2__abmcts__gpt-oss-120b__InventoryOptimization_disruption_eoqd
+  - experiment2__abmcts__gpt-oss-120b__KernelEngineering_MLA
+  - experiment2__openevolve__claude-opus-4.6__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__openevolve__claude-opus-4.6__Astrodynamics_MannedLunarLanding
+  - experiment2__openevolve__claude-opus-4.6__KernelEngineering_MLA
+  - experiment2__openevolve__claude-opus-4.6__SingleCellAnalysis_predict_modality
+  - experiment2__openevolve__gpt-oss-120b__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__openevolve__gpt-oss-120b__Astrodynamics_MannedLunarLanding
+  - experiment2__openevolve__gpt-oss-120b__InventoryOptimization_disruption_eoqd
+  - experiment2__openevolve__gpt-oss-120b__KernelEngineering_MLA
+  - experiment2__openevolve__gpt-oss-120b__SingleCellAnalysis_predict_modality
+  - experiment2__shinkaevolve__claude-opus-4.6__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__shinkaevolve__claude-opus-4.6__Astrodynamics_MannedLunarLanding
+  - experiment2__shinkaevolve__claude-opus-4.6__KernelEngineering_MLA
+  - experiment2__shinkaevolve__claude-opus-4.6__SingleCellAnalysis_predict_modality
+  - experiment2__shinkaevolve__gpt-oss-120b__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__shinkaevolve__gpt-oss-120b__Astrodynamics_MannedLunarLanding
+  - experiment2__shinkaevolve__gpt-oss-120b__KernelEngineering_MLA
+  - experiment2__shinkaevolve__gpt-oss-120b__Robotics_QuadrupedGaitOptimization
+  - experiment2__shinkaevolve__gpt-oss-120b__SingleCellAnalysis_predict_modality
+  evidence:
+    n: 55
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'
+- id: compiled_add_time_budget
+  domain: Control_Locomotion
+  task_families:
+  - robotics_optimization
+  - kernel_engineering_optimization
+  - computer_systems_optimization
+  - sustainable_data_center_control_optimization
+  - job_shop_optimization
+  embodiment_types:
+  - uav
+  - manipulator
+  - wheeled_robot
+  - quadruped
+  artifact_languages:
+  - python
+  - cpp
+  priority: 0
+  symptom: A structured optimizer with no wall-clock guard can run past the evaluator
+    timeout and lose the run entirely.
+  diagnosis: A structured optimizer with no wall-clock guard can run past the evaluator
+    timeout and lose the run entirely.  Successful entries gate their search on ``time.time()
+    < deadline``.
+  preconditions:
+  - The candidate artifact compiles and runs without errors on the baseline evaluator.
+  next_experiment: '- Gate the search loop on a wall-clock deadline: added wall-clock
+    time budget guard.'
+  code_target: Locate every `while` / `for` loop that controls the search iteration
+    budget; treat its guard expression as the patch site.
+  patch_sketch: "```python\nimport time\nDEADLINE = time.time() + WALLCLOCK_BUDGET\n\
+    while time.time() < DEADLINE:\n    ...   # search step\n```"
+  expected_verifier_signals:
+  - evaluator returncode stays 0 even when the search explores deep alternatives.
+  anti_patterns:
+  - Do not embed concrete tuning values from another task's baseline archive — see
+    plan §3.5.
+  contraindications: []
+  cross_domain_analogy: '**Systems_Compute**: same shape as a request timeout in an
+    RPC client — gate the inner loop on a wall-clock deadline, fail soft when it elapses.'
+  source_quality: B
+  source_ids:
+  - experiment1__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__abmcts__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__shinkaevolve__claude-opus-4.6__Robotics_PIDTuning
+  evidence:
+    n: 4
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'
+- id: compiled_aes_branchless_select
+  domain: Systems_Compute
+  task_families:
+  - cryptographic_optimization
+  embodiment_types:
+  - gpu_kernel
+  artifact_languages:
+  - cpp
+  priority: 0
+  symptom: Secret-dependent conditional moves leak whether the key bit was 0 or 1
+    via branch-predictor state.
+  diagnosis: 'Likely cause(s):
+
+    - ternary / if-else on a secret value in the hot path
+
+    - no branchless lowering of conditional ops
+
+
+    Conditional moves and ``a if cond else b`` ternaries leak whether the secret key
+    bit was 0 or 1 via branch-predictor state.  Successful runs convert secret-dependent
+    branches into bitmask-driven branchless selects.'
+  preconditions:
+  - 'Observable signal: wall-clock differs measurably with key value'
+  - 'Observable signal: timing-side-channel test in the verifier fails'
+  next_experiment: '- Introduced a branchless / constant-time select in place of an
+    if-branch.'
+  code_target: The whole editable artifact is the patch site.
+  patch_sketch: _(no patch shape inferred — see Next Experiment)_
+  expected_verifier_signals:
+  - timing-side-channel test in the verifier (when present) stops flagging correlated
+    wall-clock per key bit.
+  anti_patterns:
+  - branchless rewrites on every comparison can hurt non-secret-dependent paths
+  contraindications:
+  - branchless selects on every comparison can hurt throughput on hot paths that are
+    *not* secret-dependent — apply selectively.
+  - branchless rewrites on every comparison can hurt non-secret-dependent paths
+  cross_domain_analogy: ''
+  source_quality: A
+  source_ids:
+  - experiment1__openevolve__claude-opus-4.6__Cryptographic_AES-128
+  - experiment1__openevolve__claude-opus-4.6__InventoryOptimization_finite_horizon_dp
+  - experiment1__openevolve__claude-opus-4.6__Optics_fiber_wdm_channel_power_allocation
+  - experiment1__openevolve__claude-opus-4.6__Optics_holographic_multifocus_power_ratio
+  - experiment1__openevolve__claude-opus-4.6__Optics_holographic_multiplane_focusing
+  - experiment1__openevolve__claude-opus-4.6__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__deepseek-v3.2__Optics_fiber_guardband_spectrum_packing
+  - experiment1__openevolve__deepseek-v3.2__Optics_fiber_wdm_channel_power_allocation
+  - experiment1__openevolve__deepseek-v3.2__Optics_holographic_multifocus_power_ratio
+  - experiment1__openevolve__deepseek-v3.2__Optics_holographic_multiplane_focusing
+  - experiment1__openevolve__gemini-3.1-pro-preview__Aerodynamics_CarAerodynamicsSensing
+  - experiment1__openevolve__gemini-3.1-pro-preview__Optics_holographic_multifocus_power_ratio
+  - experiment1__openevolve__gemini-3.1-pro-preview__Optics_holographic_multiplane_focusing
+  - experiment1__openevolve__gemini-3.1-pro-preview__Optics_phase_fourier_pattern_holography
+  - experiment1__openevolve__gemini-3.1-pro-preview__Robotics_RobotArmCycleTimeOptimization
+  - experiment1__openevolve__glm-5__Optics_fiber_wdm_channel_power_allocation
+  - experiment1__openevolve__glm-5__Optics_holographic_multifocus_power_ratio
+  - experiment1__openevolve__glm-5__Optics_holographic_multiplane_focusing
+  - experiment1__openevolve__glm-5__Optics_phase_fourier_pattern_holography
+  - experiment1__openevolve__glm-5__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__gpt-5.4__ComputerSystems_MallocLab
+  - experiment1__openevolve__grok-4.20__Optics_holographic_multifocus_power_ratio
+  - experiment1__openevolve__grok-4.20__Optics_holographic_multiplane_focusing
+  - experiment1__openevolve__grok-4.20__Optics_phase_dammann_uniform_orders
+  - experiment1__openevolve__grok-4.20__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__qwen3-coder-next__Aerodynamics_CarAerodynamicsSensing
+  - experiment1__openevolve__qwen3-coder-next__Optics_holographic_multifocus_power_ratio
+  - experiment1__openevolve__qwen3-coder-next__Optics_holographic_multiplane_focusing
+  - experiment1__openevolve__seed-2.0-pro__Optics_fiber_guardband_spectrum_packing
+  - experiment1__openevolve__seed-2.0-pro__Optics_holographic_multifocus_power_ratio
+  - experiment1__openevolve__seed-2.0-pro__Optics_holographic_multiplane_focusing
+  - experiment1__openevolve__seed-2.0-pro__Robotics_RobotArmCycleTimeOptimization
+  - experiment2__abmcts__claude-opus-4.6__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__abmcts__claude-opus-4.6__KernelEngineering_FlashAttention
+  - experiment2__abmcts__claude-opus-4.6__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__abmcts__claude-opus-4.6__Optics_holographic_multifocus_power_ratio
+  - experiment2__abmcts__claude-opus-4.6__Optics_holographic_multiplane_focusing
+  - experiment2__abmcts__claude-opus-4.6__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__abmcts__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__abmcts__claude-opus-4.6__StructuralOptimization_TopologyOptimization
+  - experiment2__abmcts__gpt-oss-120b__Optics_holographic_multifocus_power_ratio
+  - experiment2__abmcts__gpt-oss-120b__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__openevolve__claude-opus-4.6__Cryptographic_AES-128
+  - experiment2__openevolve__claude-opus-4.6__InventoryOptimization_finite_horizon_dp
+  - experiment2__openevolve__claude-opus-4.6__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__openevolve__claude-opus-4.6__Optics_holographic_multifocus_power_ratio
+  - experiment2__openevolve__claude-opus-4.6__Optics_holographic_multiplane_focusing
+  - experiment2__openevolve__claude-opus-4.6__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__openevolve__gpt-oss-120b__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__openevolve__gpt-oss-120b__Optics_holographic_multifocus_power_ratio
+  - experiment2__openevolve__gpt-oss-120b__Optics_holographic_multiplane_focusing
+  - experiment2__openevolve__gpt-oss-120b__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__openevolve__gpt-oss-120b__StructuralOptimization_TopologyOptimization
+  - experiment2__shinkaevolve__claude-opus-4.6__Cryptographic_SHA-256
+  - experiment2__shinkaevolve__claude-opus-4.6__InventoryOptimization_finite_horizon_dp
+  - experiment2__shinkaevolve__claude-opus-4.6__Optics_fiber_mcs_power_scheduling
+  - experiment2__shinkaevolve__claude-opus-4.6__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__shinkaevolve__claude-opus-4.6__Optics_holographic_multifocus_power_ratio
+  - experiment2__shinkaevolve__claude-opus-4.6__StructuralOptimization_ISCSO2015
+  - experiment2__shinkaevolve__claude-opus-4.6__StructuralOptimization_ISCSO2023
+  - experiment2__shinkaevolve__gpt-oss-120b__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__shinkaevolve__gpt-oss-120b__Optics_phase_fourier_pattern_holography
+  - experiment2__shinkaevolve__gpt-oss-120b__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__shinkaevolve__gpt-oss-120b__StructuralOptimization_ISCSO2023
+  - synthetic__aes-128
+  - synthetic__flashattention
+  evidence:
+    n: 66
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'
+- id: compiled_aes_constant_time_compare
+  domain: Systems_Compute
+  task_families:
+  - cryptographic_optimization
+  embodiment_types:
+  - gpu_kernel
+  artifact_languages:
+  - cpp
+  priority: 0
+  symptom: memcmp-style tag verification stops at the first mismatch, letting an attacker
+    recover the tag one byte at a time.
+  diagnosis: 'Likely cause(s):
+
+    - tag comparison via stock memcmp / standard equality
+
+    - no constant-time helper imported
+
+
+    Default ``memcmp``-style equality stops at the first mismatching byte; that lets
+    an attacker recover MAC tags one byte at a time.  Successful runs swap to a fixed-time
+    comparison routine that XORs every byte.'
+  preconditions:
+  - 'Observable signal: verifier flags constant-time compare regression'
+  - 'Observable signal: byte-by-byte wall-clock differential on injected mismatches'
+  next_experiment: '- Replaced early-exit memcmp with a constant-time comparison helper.'
+  code_target: The whole editable artifact is the patch site.
+  patch_sketch: _(no patch shape inferred — see Next Experiment)_
+  expected_verifier_signals:
+  - verifier's tag-validation tests still pass; timing test (if any) reports flat
+    wall-clock independent of mismatch position.
+  anti_patterns:
+  - do not roll your own constant-time compare — use the vetted helper
+  contraindications:
+  - do not roll your own constant-time compare — use the vetted helper
+  cross_domain_analogy: ''
+  source_quality: B
+  source_ids:
+  - synthetic__aes-128
+  evidence:
+    n: 1
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'
+- id: compiled_aes_unroll_round_structure
+  domain: Systems_Compute
+  task_families:
+  - cryptographic_optimization
+  embodiment_types:
+  - gpu_kernel
+  artifact_languages:
+  - cpp
+  priority: 0
+  symptom: Loop over 10 AES rounds keeps a counter live and exposes a predictable
+    but non-free branch each iteration.
+  diagnosis: 'Likely cause(s):
+
+    - rounds expressed as a Python / C++ ``for`` loop
+
+    - no #pragma unroll on the inner loop
+
+
+    Looping over the 10 AES rounds keeps a loop counter live in a register and exposes
+    a predictable but non-free branch.  Top entries hard-unroll the round schedule
+    (or add ``#pragma unroll``) so the rounds fuse with surrounding arithmetic.'
+  preconditions:
+  - 'Observable signal: profiler reports BR_MISP_RETIRED inside the round function'
+  - 'Observable signal: per-block throughput plateaus despite cache hits'
+  next_experiment: '- Manually unrolled round structure (symbol count rose above baseline).'
+  code_target: The whole editable artifact is the patch site.
+  patch_sketch: _(no patch shape inferred — see Next Experiment)_
+  expected_verifier_signals:
+  - throughput per block goes up without losing correctness on test vectors.
+  anti_patterns:
+  - do not unroll past the I-cache size on small cores
+  contraindications:
+  - manual unrolling can blow the I-cache on smaller cores; prefer the pragma form
+    when available.
+  - do not unroll past the I-cache size on small cores
+  cross_domain_analogy: ''
+  source_quality: B
+  source_ids:
+  - experiment1__openevolve__qwen3-coder-next__Cryptographic_AES-128
+  - experiment1__openevolve__seed-2.0-pro__Cryptographic_SHA-256
+  - experiment2__shinkaevolve__gpt-oss-120b__Cryptographic_AES-128
+  - synthetic__aes-128
+  evidence:
+    n: 4
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'
+- id: compiled_aes_use_precomputed_tables
+  domain: Systems_Compute
+  task_families:
+  - cryptographic_optimization
+  embodiment_types:
+  - gpu_kernel
+  artifact_languages:
+  - cpp
+  priority: 0
+  symptom: Per-byte AES (sbox + shift + mix as separate ops) is dominated by byte
+    arithmetic; throughput well below memory bandwidth.
+  diagnosis: 'Likely cause(s):
+
+    - sbox and mix-columns implemented as discrete byte ops
+
+    - no T-table consolidation
+
+
+    Per-byte AES (sbox lookup → shift rows → mix columns in separate stages) is dominated
+    by byte-level arithmetic overhead.  Top runs precompute T-tables (or merge sbox+mixcol
+    into one 32-bit lookup) so each round becomes four XORed table loads.'
+  preconditions:
+  - 'Observable signal: throughput stays well below the CPU-memory ceiling'
+  - 'Observable signal: profiler shows arithmetic-unit saturation'
+  - 'Symbols present in the editable artifact: `rcon`, `sbox`, `te0`, `te1`'
+  next_experiment: '- Added lookup table rcon.
+
+    - Added lookup table sbox.
+
+    - Added lookup table te0.
+
+    - Added lookup table te1.'
+  code_target: 'Search the editable artifact for these identifiers and treat their
+    definitions as the patch site: `rcon`, `sbox`, `te0`, `te1`.'
+  patch_sketch: _(no patch shape inferred — see Next Experiment)_
+  expected_verifier_signals:
+  - throughput rises; verifier reports correct ciphertext for every test vector at
+    higher MB/s.
+  anti_patterns:
+  - do not just inline more — the win comes from merging ops, not unrolling them
+  contraindications:
+  - do not embed the actual sbox bytes into the pattern — ship the *structural* recommendation
+    ("add a 256-entry lookup table indexed by state byte"), not the bytes themselves
+    (plan §3.5).
+  - T-tables increase code size and instruction cache pressure — verify on the target
+    machine before adopting.
+  - do not just inline more — the win comes from merging ops, not unrolling them
+  cross_domain_analogy: ''
+  source_quality: B
+  source_ids:
+  - synthetic__aes-128
+  evidence:
+    n: 1
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'
+- id: compiled_controller_output_clamp
+  domain: Control_Locomotion
+  task_families:
+  - robotics_optimization
+  embodiment_types:
+  - uav
+  - manipulator
+  - wheeled_robot
+  - quadruped
+  artifact_languages:
+  - python
+  - cpp
+  priority: 0
+  symptom: Final controller command is not bounded before it reaches the actuator
+    interface.
+  diagnosis: 'Likely cause(s):
+
+    - clamp removed during debugging
+
+    - feed-forward path bypasses clamp
+
+
+    Successful runs explicitly clamp the controller command to the actuator''s physical
+    range before it leaves the control function.  Relying on downstream code to clip
+    is a frequent source of saturation-induced instability.'
+  preconditions:
+  - 'Observable signal: command magnitude tracks raw PID output'
+  - 'Observable signal: actuator saturation flag never set by driver'
+  - 'Symbols present in the editable artifact: `T_cmd`, `desired_pitch`'
+  next_experiment: '- Clamp the controller output before it leaves the function: added
+    output clamp on desired_pitch; added output clamp on T_cmd.'
+  code_target: 'Search the editable artifact for these identifiers and treat their
+    definitions as the patch site: `T_cmd`, `desired_pitch`.'
+  patch_sketch: '```python
+
+    # Clamp the controller output BEFORE the actuator-lag filter.
+
+    out = max(min_value, min(max_value, out))
+
+    # or numpy:
+
+    out = np.clip(out, -bound, bound)
+
+    ```'
+  expected_verifier_signals:
+  - feasibility stays valid even on aggressive maneuvers; thrust / torque never exceeds
+    its bound.
+  anti_patterns:
+  - do not implement clamp inside the integrator step — keep it on the output
+  contraindications:
+  - clamps must be applied *before* the actuator-lag filter, not after, or the command
+    will spike at the next sample
+  - do not implement clamp inside the integrator step — keep it on the output
+  cross_domain_analogy: ''
+  source_quality: A
+  source_ids:
+  - experiment1__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment1__openevolve__deepseek-v3.2__Robotics_PIDTuning
+  - experiment1__openevolve__gemini-3.1-pro-preview__Robotics_PIDTuning
+  - experiment1__openevolve__glm-5__Robotics_PIDTuning
+  - experiment1__openevolve__gpt-5.4__Robotics_PIDTuning
+  - experiment1__openevolve__grok-4.20__Robotics_PIDTuning
+  - experiment1__openevolve__qwen3-coder-next__Robotics_PIDTuning
+  - experiment1__openevolve__seed-2.0-pro__Robotics_PIDTuning
+  - experiment2__abmcts__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__abmcts__gpt-oss-120b__Robotics_PIDTuning
+  - experiment2__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__openevolve__gpt-oss-120b__Robotics_PIDTuning
+  - experiment2__shinkaevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__shinkaevolve__gpt-oss-120b__Robotics_PIDTuning
+  evidence:
+    n: 14
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'
+- id: compiled_cuda_async_global_to_shared_copy
+  domain: Systems_Compute
+  task_families:
+  - kernel_engineering_optimization
+  embodiment_types:
+  - gpu_kernel
+  artifact_languages:
+  - python
+  - cuda
+  - triton
+  priority: 0
+  symptom: Synchronous ldg / __ldcs stall the warp; compute cannot overlap with the
+    next tile's load.
+  diagnosis: 'Likely cause(s):
+
+    - cp.async / tl.async_copy not used
+
+
+    Loading inputs with a synchronous ``ldg`` / ``__ldcs`` stall-the-warp pattern
+    leaves the compute units idle.  Successful runs schedule the next tile''s load
+    via ``cp.async`` / ``tl.async_copy`` so the current tile''s MMAs run concurrently.'
+  preconditions:
+  - 'Observable signal: profiler reports memory stalls between MMA stages'
+  next_experiment: '- Introduced asynchronous global→shared copies to overlap load
+    with compute.'
+  code_target: The whole editable artifact is the patch site.
+  patch_sketch: _(no patch shape inferred — see Next Experiment)_
+  expected_verifier_signals:
+  - Nsight reports the load stage and compute stage overlapping; total kernel time
+    drops.
+  anti_patterns:
+  - async copies require careful wait_group fences
+  contraindications:
+  - async copies require careful ``cp.async.wait_group`` fences — missing fences are
+    a correctness bug, not a perf bug.
+  - async copies require careful wait_group fences
+  cross_domain_analogy: ''
+  source_quality: B
+  source_ids:
+  - synthetic__flashattention
+  evidence:
+    n: 1
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'
+- id: compiled_cuda_shared_memory_tiling
+  domain: Systems_Compute
+  task_families:
+  - kernel_engineering_optimization
+  embodiment_types:
+  - gpu_kernel
+  artifact_languages:
+  - python
+  - cuda
+  - triton
+  priority: 0
+  symptom: Hot kernel re-reads the same input element from global memory across many
+    threads; bandwidth, not compute, caps performance.
+  diagnosis: 'Likely cause(s):
+
+    - inputs never promoted to shared memory
+
+    - tile loop missing
+
+
+    When the same input element is read by multiple threads (e.g. K in attention,
+    A row in matmul), leaving it in global memory dominates the kernel time.  Top
+    entries stage the reused tiles into shared memory (or Triton''s ``tl.load`` +
+    tile loop) before the inner reduction.'
+  preconditions:
+  - 'Observable signal: Nsight reports memory throughput saturated and tensor cores
+    idle'
+  - 'Observable signal: tokens/sec scales with bandwidth, not FLOPs'
+  next_experiment: '- Promoted reused inputs into shared-memory tiles before the inner
+    reduction.'
+  code_target: The whole editable artifact is the patch site.
+  patch_sketch: _(no patch shape inferred — see Next Experiment)_
+  expected_verifier_signals:
+  - tokens-per-sec or GB/s climbs; correctness vs reference kernel stays within tolerance.
+  anti_patterns:
+  - shared memory is scarce; over-tiling reduces occupancy
+  contraindications:
+  - shared memory is a scarce resource — over-tiling forces low occupancy and may
+    regress.  Tile size must respect ``cudaDeviceGetAttribute(maxSharedMemoryPerBlock)``.
+  - tile boundaries must guard against masked / partial loads or you'll silently read
+    garbage on the edge.
+  - shared memory is scarce; over-tiling reduces occupancy
+  cross_domain_analogy: ''
+  source_quality: B
+  source_ids:
+  - experiment2__abmcts__claude-opus-4.6__KernelEngineering_FlashAttention
+  - synthetic__flashattention
+  evidence:
+    n: 2
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'
+- id: compiled_cuda_tune_block_size
+  domain: Systems_Compute
+  task_families:
+  - kernel_engineering_optimization
+  embodiment_types:
+  - gpu_kernel
+  artifact_languages:
+  - python
+  - cuda
+  - triton
+  priority: 0
+  symptom: Conservative block size leaves the SM underutilised; throughput stays well
+    below theoretical peak.
+  diagnosis: 'Likely cause(s):
+
+    - hand-picked BLOCK_M / BLOCK_N too small
+
+    - num_warps / num_stages defaults left untouched
+
+
+    Default block sizes are conservative.  Top entries expose BLOCK_M / BLOCK_N /
+    num_warps / num_stages as tunable constants and pick values that maximise occupancy
+    while keeping shared-memory + register footprint within budget.'
+  preconditions:
+  - 'Observable signal: achieved occupancy < 50% on Nsight'
+  - 'Observable signal: register spill warnings absent (compute under-used)'
+  - 'Symbols present in the editable artifact: `BLOCK_M`, `BLOCK_N`, `num_stages`,
+    `num_warps`'
+  next_experiment: '- Introduced block-size constant block_m.
+
+    - Introduced block-size constant block_n.
+
+    - Introduced block-size constant num_stages.
+
+    - Introduced block-size constant num_warps.'
+  code_target: 'Search the editable artifact for these identifiers and treat their
+    definitions as the patch site: `BLOCK_M`, `BLOCK_N`, `num_stages`, `num_warps`.'
+  patch_sketch: _(no patch shape inferred — see Next Experiment)_
+  expected_verifier_signals:
+  - throughput rises on the target device; reduced number of register-spill warnings.
+  anti_patterns:
+  - do not hard-code the tuned value across SM counts
+  contraindications:
+  - 'do not hard-code the tuned values — keep them as named constants so an agent
+    on a different SM count can re-tune.  Plan §3.5: ship the *symbol*, not the answer.'
+  - do not hard-code the tuned value across SM counts
+  cross_domain_analogy: ''
+  source_quality: B
+  source_ids:
+  - synthetic__flashattention
+  evidence:
+    n: 1
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'
+- id: compiled_cuda_warp_specialization
+  domain: Systems_Compute
+  task_families:
+  - kernel_engineering_optimization
+  embodiment_types:
+  - gpu_kernel
+  artifact_languages:
+  - python
+  - cuda
+  - triton
+  priority: 0
+  symptom: Synchronous global → shared loads stall the warp and leave tensor cores
+    idle between tiles.
+  diagnosis: 'Likely cause(s):
+
+    - blocking ldg / __ldcs in the inner loop
+
+    - no warp specialization or async pipeline
+
+
+    On Hopper-class GPUs, splitting warps into producer (``cp.async`` loaders) and
+    consumer (compute) roles lets the next tile load overlap with the current tile''s
+    MMA work, doubling effective tensor-core utilisation.'
+  preconditions:
+  - 'Observable signal: Nsight shows compute SOL much lower than memory SOL'
+  - 'Observable signal: no overlap between load and MMA stages on the timeline'
+  next_experiment: '- Split warps into producer / consumer roles for double-buffered
+    load + compute.'
+  code_target: The whole editable artifact is the patch site.
+  patch_sketch: _(no patch shape inferred — see Next Experiment)_
+  expected_verifier_signals:
+  - throughput climbs on Hopper / Ampere targets; tensor-core SOL grows in Nsight.
+  anti_patterns:
+  - warp specialization requires sm_80+; falls back hurts older devices
+  contraindications:
+  - older architectures (sm < 80) cannot benefit and may regress because of the extra
+    synchronisation.
+  - warp specialization requires sm_80+; falls back hurts older devices
+  cross_domain_analogy: ''
+  source_quality: B
+  source_ids:
+  - synthetic__flashattention
+  evidence:
+    n: 1
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'
+- id: compiled_generic_time_budget
+  domain: World_Physics
+  task_families:
+  - optics_optimization
+  - robotics_optimization
+  - kernel_engineering_optimization
+  - computer_systems_optimization
+  - aerodynamics_optimization
+  - particle_physics_optimization
+  embodiment_types:
+  - optical_system
+  artifact_languages:
+  - python
+  priority: 0
+  symptom: Structured optimisers can overrun the per-task wall clock if left ungated.
+  diagnosis: Structured optimisers can overrun the per-task wall clock if left ungated.  Top
+    entries explicitly check ``time.time() < deadline`` inside their search loop.
+  preconditions:
+  - The candidate artifact compiles and runs without errors on the baseline evaluator.
+  next_experiment: '- Gate the search loop on a wall-clock deadline: added wall-clock
+    time budget guard.'
+  code_target: Locate every `while` / `for` loop that controls the search iteration
+    budget; treat its guard expression as the patch site.
+  patch_sketch: "```python\nimport time\nDEADLINE = time.time() + WALLCLOCK_BUDGET\n\
+    while time.time() < DEADLINE:\n    ...   # search step\n```"
+  expected_verifier_signals:
+  - evaluator returncode stays 0; no wall-clock-timeout infeasibility.
+  anti_patterns:
+  - Do not embed concrete tuning values from another task's baseline archive — see
+    plan §3.5.
+  contraindications: []
+  cross_domain_analogy: '**Systems_Compute**: same shape as a request timeout in an
+    RPC client — gate the inner loop on a wall-clock deadline, fail soft when it elapses.'
+  source_quality: A
+  source_ids:
+  - experiment1__openevolve__claude-opus-4.6__Optics_fiber_guardband_spectrum_packing
+  - experiment1__openevolve__claude-opus-4.6__QuantumComputing_task_03_cross_target_qaoa
+  - experiment1__openevolve__glm-5__Optics_holographic_multiplane_focusing
+  - experiment2__abmcts__claude-opus-4.6__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__abmcts__claude-opus-4.6__QuantumComputing_task_01_routing_qftentangled
+  - experiment2__abmcts__claude-opus-4.6__QuantumComputing_task_02_clifford_t_synthesis
+  - experiment2__abmcts__gpt-oss-120b__Optics_phase_dammann_uniform_orders
+  - experiment2__abmcts__gpt-oss-120b__StructuralOptimization_ISCSO2023
+  - experiment2__openevolve__claude-opus-4.6__Optics_fiber_guardband_spectrum_packing
+  - experiment2__openevolve__claude-opus-4.6__QuantumComputing_task_03_cross_target_qaoa
+  - experiment2__openevolve__gpt-oss-120b__Optics_fiber_guardband_spectrum_packing
+  - experiment2__shinkaevolve__claude-opus-4.6__Optics_fiber_guardband_spectrum_packing
+  - experiment2__shinkaevolve__claude-opus-4.6__QuantumComputing_task_03_cross_target_qaoa
+  - experiment2__shinkaevolve__claude-opus-4.6__Robotics_QuadrupedGaitOptimization
+  evidence:
+    n: 14
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'
+- id: compiled_sched_explicit_dependency_constraints
+  domain: Planning_Decision
+  task_families:
+  - job_shop_optimization
+  embodiment_types: []
+  artifact_languages:
+  - python
+  priority: 0
+  symptom: Schedules emit infeasible orderings because precedence / resource caps
+    are checked post-hoc rather than enforced during dispatch.
+  diagnosis: 'Likely cause(s):
+
+    - precedence / resource constraints not propagated into the eligibility test
+
+
+    Schedulers that treat precedence / resource caps as post-hoc checks produce infeasible
+    schedules they then have to repair.  Top entries thread the constraints through
+    the dispatch loop so every candidate operation is feasibility-clean before it
+    lands on a machine.'
+  preconditions:
+  - 'Observable signal: verifier reports precedence violation'
+  - 'Observable signal: repair pass needed before every submission'
+  next_experiment: '- Explicitly threaded precedence / resource-capacity constraints
+    through the scheduler.'
+  code_target: The whole editable artifact is the patch site.
+  patch_sketch: _(no patch shape inferred — see Next Experiment)_
+  expected_verifier_signals:
+  - validity_preservation_rate stays high even on dense instances; fewer repair iterations
+    needed.
+  anti_patterns:
+  - do not let repair loops grow without bound — fix the source
+  contraindications:
+  - do not let repair loops grow without bound — fix the source
+  cross_domain_analogy: ''
+  source_quality: B
+  source_ids:
+  - experiment1__openevolve__qwen3-coder-next__JobShop_swv
+  - experiment2__shinkaevolve__gpt-oss-120b__JobShop_swv
+  - experiment2__shinkaevolve__gpt-oss-120b__JobShop_ta
+  - synthetic__jobshop_abz
+  evidence:
+    n: 4
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'
+- id: compiled_sched_explicit_operation_ordering
+  domain: Planning_Decision
+  task_families:
+  - job_shop_optimization
+  embodiment_types: []
+  artifact_languages:
+  - python
+  priority: 0
+  symptom: Baseline schedules in input order, leaving slack that any priority sort
+    would recover.
+  diagnosis: 'Likely cause(s):
+
+    - no sorting / priority pass on the job list
+
+
+    Many jobshop baselines schedule operations in their input order, which leaves
+    a lot of slack on the table.  Top entries explicitly sort the operation list by
+    a priority key (SPT, EDD, slack-based) before dispatch.'
+  preconditions:
+  - 'Observable signal: makespan exceeds known lower bound on standard instances'
+  - 'Observable signal: utilization on bottleneck machine well below 100%'
+  next_experiment: '- Added an explicit ordering pass over the job/operation list
+    before scheduling.'
+  code_target: The whole editable artifact is the patch site.
+  patch_sketch: _(no patch shape inferred — see Next Experiment)_
+  expected_verifier_signals:
+  - makespan drops; verifier reports lower bound met more often.
+  anti_patterns:
+  - static priority rules struggle under high resource contention
+  contraindications:
+  - static priority rules struggle on instances with high resource contention — keep
+    the rule swappable.
+  - static priority rules struggle under high resource contention
+  cross_domain_analogy: ''
+  source_quality: A
+  source_ids:
+  - experiment1__openevolve__claude-opus-4.6__JobShop_abz
+  - experiment1__openevolve__claude-opus-4.6__JobShop_swv
+  - experiment1__openevolve__claude-opus-4.6__Optics_fiber_guardband_spectrum_packing
+  - experiment1__openevolve__claude-opus-4.6__Optics_fiber_mcs_power_scheduling
+  - experiment1__openevolve__claude-opus-4.6__QuantumComputing_task_01_routing_qftentangled
+  - experiment1__openevolve__claude-opus-4.6__ReactionOptimisation_reizman_suzuki_pareto
+  - experiment1__openevolve__deepseek-v3.2__ReactionOptimisation_reizman_suzuki_pareto
+  - experiment1__openevolve__deepseek-v3.2__ReactionOptimisation_snar_multiobjective
+  - experiment1__openevolve__glm-5__JobShop_swv
+  - experiment1__openevolve__grok-4.20__JobShop_abz
+  - experiment1__openevolve__qwen3-coder-next__Optics_fiber_guardband_spectrum_packing
+  - experiment1__openevolve__qwen3-coder-next__ReactionOptimisation_reizman_suzuki_pareto
+  - experiment1__openevolve__qwen3-coder-next__ReactionOptimisation_snar_multiobjective
+  - experiment1__openevolve__qwen3-coder-next__Robotics_PIDTuning
+  - experiment1__openevolve__seed-2.0-pro__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__abmcts__claude-opus-4.6__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__abmcts__claude-opus-4.6__JobShop_abz
+  - experiment2__abmcts__claude-opus-4.6__Optics_phase_dammann_uniform_orders
+  - experiment2__openevolve__claude-opus-4.6__JobShop_abz
+  - experiment2__openevolve__claude-opus-4.6__JobShop_swv
+  - experiment2__openevolve__claude-opus-4.6__Optics_fiber_guardband_spectrum_packing
+  - experiment2__openevolve__claude-opus-4.6__Optics_fiber_mcs_power_scheduling
+  - experiment2__openevolve__claude-opus-4.6__QuantumComputing_task_01_routing_qftentangled
+  - experiment2__openevolve__claude-opus-4.6__ReactionOptimisation_mit_case1_mixed
+  - experiment2__openevolve__claude-opus-4.6__ReactionOptimisation_reizman_suzuki_pareto
+  - experiment2__openevolve__gpt-oss-120b__Optics_fiber_guardband_spectrum_packing
+  - experiment2__shinkaevolve__claude-opus-4.6__InventoryOptimization_general_meio
+  - experiment2__shinkaevolve__claude-opus-4.6__JobShop_abz
+  - experiment2__shinkaevolve__claude-opus-4.6__JobShop_swv
+  - experiment2__shinkaevolve__claude-opus-4.6__JobShop_ta
+  - experiment2__shinkaevolve__claude-opus-4.6__Optics_fiber_mcs_power_scheduling
+  - experiment2__shinkaevolve__claude-opus-4.6__Optics_phase_dammann_uniform_orders
+  - experiment2__shinkaevolve__claude-opus-4.6__ReactionOptimisation_mit_case1_mixed
+  - experiment2__shinkaevolve__claude-opus-4.6__Robotics_QuadrupedGaitOptimization
+  - experiment2__shinkaevolve__claude-opus-4.6__StructuralOptimization_ISCSO2015
+  - experiment2__shinkaevolve__claude-opus-4.6__StructuralOptimization_ISCSO2023
+  - experiment2__shinkaevolve__gpt-oss-120b__JobShop_swv
+  - experiment2__shinkaevolve__gpt-oss-120b__JobShop_ta
+  - experiment2__shinkaevolve__gpt-oss-120b__Optics_fiber_mcs_power_scheduling
+  - experiment2__shinkaevolve__gpt-oss-120b__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__shinkaevolve__gpt-oss-120b__StructuralOptimization_ISCSO2023
+  - synthetic__jobshop_abz
+  evidence:
+    n: 42
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'
+- id: compiled_sched_named_dispatch_rule
+  domain: Planning_Decision
+  task_families:
+  - job_shop_optimization
+  embodiment_types: []
+  artifact_languages:
+  - python
+  priority: 0
+  symptom: Greedy ready-list selection without a named rule loses tail-end optimisations
+    available to Johnson / FFD.
+  diagnosis: 'Likely cause(s):
+
+    - dispatch implemented inline without a named-rule abstraction
+
+
+    Switching to a *named* dispatch rule (Johnson''s rule, first-fit-decreasing, backward
+    scheduling) gives the scheduler optimisation hooks (e.g. early ready-list compaction)
+    that anonymous dispatch loops lack.'
+  preconditions:
+  - 'Observable signal: schedule looks good early but late-job tardiness explodes'
+  - 'Observable signal: same instance solved in more dispatch decisions than necessary'
+  - 'Symbols present in the editable artifact: `apply_johnson_rule`, `best fit`, `best-fit`,
+    `dispatch rule`'
+  next_experiment: '- Adopted dispatch rule best-fit.
+
+    - Adopted dispatch rule best fit.
+
+    - Adopted dispatch rule dispatch rule.
+
+    - Adopted dispatch rule apply_johnson_rule.'
+  code_target: 'Search the editable artifact for these identifiers and treat their
+    definitions as the patch site: `apply_johnson_rule`, `best fit`, `best-fit`, `dispatch
+    rule`.'
+  patch_sketch: _(no patch shape inferred — see Next Experiment)_
+  expected_verifier_signals:
+  - improved utilisation; same instance solved in fewer dispatch decisions.
+  anti_patterns:
+  - Do not embed concrete tuning values from another task's baseline archive — see
+    plan §3.5.
+  contraindications: []
+  cross_domain_analogy: ''
+  source_quality: A
+  source_ids:
+  - experiment1__openevolve__deepseek-v3.2__ComputerSystems_MallocLab
+  - experiment2__shinkaevolve__claude-opus-4.6__ComputerSystems_MallocLab
+  - experiment2__shinkaevolve__gpt-oss-120b__ComputerSystems_MallocLab
+  - experiment2__shinkaevolve__gpt-oss-120b__JobShop_ta
+  - synthetic__jobshop_abz
+  evidence:
+    n: 5
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'
+- id: compiled_sched_priority_heuristic
+  domain: Planning_Decision
+  task_families:
+  - job_shop_optimization
+  embodiment_types: []
+  artifact_languages:
+  - python
+  priority: 0
+  symptom: Ad-hoc dispatch lacks a named priority (SPT / EDD / LPT / slack), so behaviour
+    does not scale with instance size.
+  diagnosis: 'Likely cause(s):
+
+    - dispatch loop picks the first ready job verbatim
+
+
+    Adding a named priority key (SPT / EDD / LPT / slack / critical-ratio) turns ad-hoc
+    dispatch into a principled selection that survives larger instances.'
+  preconditions:
+  - 'Observable signal: performance gap widens with instance size'
+  - 'Observable signal: ablation shows random priority beats the baseline'
+  - 'Symbols present in the editable artifact: `critical ratio`, `due_date`, `longest
+    processing time`, `lpt`, `priority_key`, `priority_score`'
+  next_experiment: '- Added scheduling priority heuristic lpt.
+
+    - Added scheduling priority heuristic longest processing time.
+
+    - Added scheduling priority heuristic shortest processing time.
+
+    - Added scheduling priority heuristic priority_key.
+
+    - Added scheduling priority heuristic slack time.
+
+    - Added scheduling priority heuristic critical ratio.
+
+    - Added scheduling priority heuristic priority_score.
+
+    - Added scheduling priority heuristic due_date.
+
+    - Added scheduling priority heuristic shortest-processing-time.
+
+    - Added scheduling priority heuristic spt.'
+  code_target: 'Search the editable artifact for these identifiers and treat their
+    definitions as the patch site: `critical ratio`, `due_date`, `longest processing
+    time`, `lpt`, `priority_key`, `priority_score`, `shortest processing time`, `shortest-processing-time`,
+    `slack time`, `spt`.'
+  patch_sketch: _(no patch shape inferred — see Next Experiment)_
+  expected_verifier_signals:
+  - makespan / tardiness reduction; ablation shows the named key beats the unsorted
+    baseline.
+  anti_patterns:
+  - do not freeze the priority weights at the values that tuned one instance
+  contraindications:
+  - do not embed *specific weight* values in the pattern — the *kind* of priority
+    (SPT vs slack) is the lesson, the coefficients vary per instance.
+  - do not freeze the priority weights at the values that tuned one instance
+  cross_domain_analogy: ''
+  source_quality: A
+  source_ids:
+  - experiment1__openevolve__claude-opus-4.6__JobShop_abz
+  - experiment1__openevolve__claude-opus-4.6__JobShop_swv
+  - experiment1__openevolve__claude-opus-4.6__JobShop_ta
+  - experiment1__openevolve__deepseek-v3.2__JobShop_abz
+  - experiment1__openevolve__deepseek-v3.2__JobShop_swv
+  - experiment1__openevolve__gemini-3.1-pro-preview__JobShop_swv
+  - experiment1__openevolve__glm-5__JobShop_abz
+  - experiment1__openevolve__glm-5__JobShop_swv
+  - experiment1__openevolve__glm-5__JobShop_ta
+  - experiment1__openevolve__grok-4.20__JobShop_swv
+  - experiment1__openevolve__grok-4.20__JobShop_ta
+  - experiment1__openevolve__qwen3-coder-next__JobShop_abz
+  - experiment1__openevolve__seed-2.0-pro__JobShop_abz
+  - experiment1__openevolve__seed-2.0-pro__JobShop_ta
+  - experiment2__abmcts__claude-opus-4.6__JobShop_swv
+  - experiment2__openevolve__claude-opus-4.6__JobShop_abz
+  - experiment2__openevolve__claude-opus-4.6__JobShop_swv
+  - experiment2__openevolve__claude-opus-4.6__JobShop_ta
+  - experiment2__openevolve__gpt-oss-120b__JobShop_abz
+  - experiment2__openevolve__gpt-oss-120b__JobShop_swv
+  - experiment2__shinkaevolve__claude-opus-4.6__InventoryOptimization_finite_horizon_dp
+  - experiment2__shinkaevolve__claude-opus-4.6__JobShop_abz
+  - experiment2__shinkaevolve__claude-opus-4.6__JobShop_swv
+  - experiment2__shinkaevolve__claude-opus-4.6__JobShop_ta
+  - experiment2__shinkaevolve__gpt-oss-120b__JobShop_abz
+  - experiment2__shinkaevolve__gpt-oss-120b__JobShop_swv
+  - experiment2__shinkaevolve__gpt-oss-120b__JobShop_ta
+  - experiment2__shinkaevolve__gpt-oss-120b__StructuralOptimization_ISCSO2023
+  - synthetic__jobshop_abz
+  evidence:
+    n: 29
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'
+- id: compiled_swap_random_search_to_structured_optimizer
+  domain: Control_Locomotion
+  task_families:
+  - robotics_optimization
+  - kernel_engineering_optimization
+  - molecular_mechanics_optimization
+  - aerodynamics_optimization
+  - additive_manufacturing_optimization
+  - reaction_optimisation_optimization
+  - py_portfolio_opt_optimization
+  - wireless_channel_simulation_optimization
+  embodiment_types:
+  - uav
+  - manipulator
+  - wheeled_robot
+  - quadruped
+  artifact_languages:
+  - python
+  - cpp
+  priority: 0
+  symptom: Random search saturates well below the achievable score on PID-tuning tasks
+    within the iteration budget.
+  diagnosis: Random search saturates well below the achievable score on PID-tuning
+    tasks within the iteration budget.  Top runs replace it with a structured optimizer
+    (CMA-ES, Bayesian, differential evolution).
+  preconditions:
+  - The candidate artifact compiles and runs without errors on the baseline evaluator.
+  next_experiment: '- Swap the search loop to a structured optimiser: swapped optimizer
+    from random search to CMA-ES-style strategy.'
+  code_target: Locate the main search loop (typically a function whose name contains
+    `optimize` / `search` / `solve`) and treat its body as the patch site.
+  patch_sketch: '```python
+
+    # Replace `random_search()` with a structured optimiser.
+
+    # Acceptable choices: CMA-ES, Bayesian, differential evolution.
+
+    # Pair with a wall-clock deadline (see add_time_budget).
+
+    ```'
+  expected_verifier_signals:
+  - score climbs monotonically past the random-search plateau before the time budget
+    elapses.
+  anti_patterns:
+  - Do not embed concrete tuning values from another task's baseline archive — see
+    plan §3.5.
+  contraindications:
+  - do not run unbounded — pair with an explicit time budget so the search returns
+    before the wall clock expires (see candidate_add_time_budget)
+  cross_domain_analogy: ''
+  source_quality: A
+  source_ids:
+  - experiment1__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__abmcts__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__shinkaevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__shinkaevolve__gpt-oss-120b__Robotics_PIDTuning
+  evidence:
+    n: 5
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'
+- id: compiled_vectorize_inner_loop
+  domain: Systems_Compute
+  task_families:
+  - unknown_optimization
+  - kernel_engineering_optimization
+  - cryptographic_optimization
+  - computer_systems_optimization
+  - sustainable_data_center_control_optimization
+  - wireless_channel_simulation_optimization
+  - robotics_optimization
+  - particle_physics_optimization
+  embodiment_types: []
+  artifact_languages:
+  - python
+  priority: 0
+  symptom: Top-scoring runs replace explicit Python iteration over candidate arrays
+    with numpy / array-form operations.
+  diagnosis: Top-scoring runs replace explicit Python iteration over candidate arrays
+    with numpy / array-form operations.  The inner-loop call overhead dominates wall-clock
+    budget on score-bounded benchmarks.
+  preconditions:
+  - The candidate artifact compiles and runs without errors on the baseline evaluator.
+  next_experiment: '- Replace the inner Python loop with numpy / array operations:
+    replaced explicit Python loop with numpy array form.'
+  code_target: The whole editable artifact is the patch site.
+  patch_sketch: '```python
+
+    # Replace explicit `for` over candidates with numpy array form.
+
+    x_vec = np.asarray(x_list)
+
+    scores = f_vectorised(x_vec)   # one call, vectorised body
+
+    ```'
+  expected_verifier_signals:
+  - more candidates evaluated within the same time budget; score plateau pushed further.
+  anti_patterns:
+  - Do not embed concrete tuning values from another task's baseline archive — see
+    plan §3.5.
+  contraindications:
+  - do not vectorise if the inner step has data-dependent branches — branchless numpy
+    ops will compute discarded work and may even regress.
+  cross_domain_analogy: ''
+  source_quality: A
+  source_ids:
+  - experiment1__openevolve__claude-opus-4.6__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__claude-opus-4.6__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__claude-opus-4.6__ReactionOptimisation_mit_case1_mixed
+  - experiment1__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment1__openevolve__claude-opus-4.6__Robotics_RobotArmCycleTimeOptimization
+  - experiment1__openevolve__deepseek-v3.2__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__deepseek-v3.2__Optics_fiber_wdm_channel_power_allocation
+  - experiment1__openevolve__deepseek-v3.2__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__deepseek-v3.2__ReactionOptimisation_snar_multiobjective
+  - experiment1__openevolve__gemini-3.1-pro-preview__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__glm-5__Optics_fiber_mcs_power_scheduling
+  - experiment1__openevolve__glm-5__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__glm-5__Robotics_DynamicObstacleAvoidanceNavigation
+  - experiment1__openevolve__glm-5__Robotics_RobotArmCycleTimeOptimization
+  - experiment1__openevolve__gpt-5.4__Optics_phase_dammann_uniform_orders
+  - experiment1__openevolve__gpt-5.4__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__gpt-5.4__Robotics_RobotArmCycleTimeOptimization
+  - experiment1__openevolve__grok-4.20__Optics_fiber_mcs_power_scheduling
+  - experiment1__openevolve__grok-4.20__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__qwen3-coder-next__Optics_fiber_guardband_spectrum_packing
+  - experiment1__openevolve__qwen3-coder-next__Optics_phase_dammann_uniform_orders
+  - experiment1__openevolve__qwen3-coder-next__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__qwen3-coder-next__Robotics_UAVInspectionCoverageWithWind
+  - experiment1__openevolve__seed-2.0-pro__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__seed-2.0-pro__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__abmcts__claude-opus-4.6__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__abmcts__claude-opus-4.6__InventoryOptimization_finite_horizon_dp
+  - experiment2__abmcts__claude-opus-4.6__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__abmcts__claude-opus-4.6__ReactionOptimisation_mit_case1_mixed
+  - experiment2__abmcts__claude-opus-4.6__ReactionOptimisation_reizman_suzuki_pareto
+  - experiment2__abmcts__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__abmcts__claude-opus-4.6__Robotics_QuadrupedGaitOptimization
+  - experiment2__abmcts__claude-opus-4.6__Robotics_RobotArmCycleTimeOptimization
+  - experiment2__abmcts__claude-opus-4.6__StructuralOptimization_TopologyOptimization
+  - experiment2__abmcts__gpt-oss-120b__Optics_fiber_mcs_power_scheduling
+  - experiment2__abmcts__gpt-oss-120b__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__openevolve__claude-opus-4.6__Astrodynamics_MannedLunarLanding
+  - experiment2__openevolve__claude-opus-4.6__Optics_fiber_mcs_power_scheduling
+  - experiment2__openevolve__claude-opus-4.6__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__openevolve__claude-opus-4.6__Robotics_RobotArmCycleTimeOptimization
+  - experiment2__openevolve__gpt-oss-120b__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__openevolve__gpt-oss-120b__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__openevolve__gpt-oss-120b__SingleCellAnalysis_predict_modality
+  - experiment2__shinkaevolve__claude-opus-4.6__Astrodynamics_MannedLunarLanding
+  - experiment2__shinkaevolve__claude-opus-4.6__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__shinkaevolve__claude-opus-4.6__Optics_phase_dammann_uniform_orders
+  - experiment2__shinkaevolve__claude-opus-4.6__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__shinkaevolve__claude-opus-4.6__ReactionOptimisation_mit_case1_mixed
+  - experiment2__shinkaevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__shinkaevolve__claude-opus-4.6__Robotics_RobotArmCycleTimeOptimization
+  - experiment2__shinkaevolve__claude-opus-4.6__StructuralOptimization_ISCSO2015
+  - experiment2__shinkaevolve__claude-opus-4.6__StructuralOptimization_ISCSO2023
+  - experiment2__shinkaevolve__gpt-oss-120b__Astrodynamics_MannedLunarLanding
+  - experiment2__shinkaevolve__gpt-oss-120b__Optics_fiber_mcs_power_scheduling
+  - experiment2__shinkaevolve__gpt-oss-120b__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__shinkaevolve__gpt-oss-120b__Optics_phase_dammann_uniform_orders
+  - experiment2__shinkaevolve__gpt-oss-120b__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__shinkaevolve__gpt-oss-120b__Robotics_PIDTuning
+  - experiment2__shinkaevolve__gpt-oss-120b__StructuralOptimization_ISCSO2023
+  evidence:
+    n: 60
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'
+- id: compiled_warm_start_from_prior_best
+  domain: Systems_Compute
+  task_families:
+  - unknown_optimization
+  - robotics_optimization
+  - kernel_engineering_optimization
+  - additive_manufacturing_optimization
+  - aerodynamics_optimization
+  - molecular_mechanics_optimization
+  - astrodynamics_optimization
+  - py_portfolio_opt_optimization
+  - inventory_optimization_optimization
+  embodiment_types: []
+  artifact_languages:
+  - python
+  priority: 0
+  symptom: Top entries seed their optimiser from a prior-best solution (their own
+    or a sibling task's) rather than starting from a random or hand-tuned baseline.
+  diagnosis: Top entries seed their optimiser from a prior-best solution (their own
+    or a sibling task's) rather than starting from a random or hand-tuned baseline.  Cuts
+    the path-length to a high score significantly.
+  preconditions:
+  - The candidate artifact compiles and runs without errors on the baseline evaluator.
+  next_experiment: '- Seed the optimiser from a prior-best solution: seeded optimizer
+    from a prior-best solution.'
+  code_target: The whole editable artifact is the patch site.
+  patch_sketch: '```python
+
+    # Warm-start from a prior-best solution on the SAME task.
+
+    # DO NOT embed concrete tuning values from another task''s archive.
+
+    initial = load_prior_best_for_this_task()
+
+    optimiser = make_optimizer(initial=initial)
+
+    ```'
+  expected_verifier_signals:
+  - first valid score is already close to the search ceiling; subsequent iterations
+    refine rather than discover.
+  anti_patterns:
+  - Do not embed concrete tuning values from another task's baseline archive — see
+    plan §3.5.
+  contraindications:
+  - never embed *concrete* gain values from another task verbatim — that turns the
+    pattern into a leaderboard cheat sheet (see plan §3.5).
+  - the seed must come from a previous run on the *same* task; cross-task seeding
+    is much less reliable.
+  cross_domain_analogy: ''
+  source_quality: A
+  source_ids:
+  - experiment1__openevolve__claude-opus-4.6__JobShop_ta
+  - experiment1__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment1__openevolve__glm-5__Robotics_PIDTuning
+  - experiment1__openevolve__gpt-5.4__InventoryOptimization_tree_gsm_safety_stock
+  - experiment2__abmcts__claude-opus-4.6__JobShop_abz
+  - experiment2__abmcts__claude-opus-4.6__JobShop_ta
+  - experiment2__abmcts__gpt-oss-120b__InventoryOptimization_tree_gsm_safety_stock
+  - experiment2__openevolve__claude-opus-4.6__JobShop_ta
+  - experiment2__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__openevolve__gpt-oss-120b__EnergyStorage_BatteryFastChargingSPMe
+  - experiment2__shinkaevolve__claude-opus-4.6__InventoryOptimization_general_meio
+  - experiment2__shinkaevolve__claude-opus-4.6__JobShop_ta
+  - experiment2__shinkaevolve__claude-opus-4.6__Optics_holographic_multifocus_power_ratio
+  - experiment2__shinkaevolve__claude-opus-4.6__ReactionOptimisation_reizman_suzuki_pareto
+  - experiment2__shinkaevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__shinkaevolve__gpt-oss-120b__InventoryOptimization_finite_horizon_dp
+  - experiment2__shinkaevolve__gpt-oss-120b__Robotics_PIDTuning
+  evidence:
+    n: 17
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'
+- id: compiled_zero_integral_gain_on_saturation
+  domain: Control_Locomotion
+  task_families:
+  - robotics_optimization
+  embodiment_types:
+  - uav
+  - manipulator
+  - wheeled_robot
+  - quadruped
+  artifact_languages:
+  - python
+  - cpp
+  priority: 0
+  symptom: Actuator saturates while integral term keeps accumulating; recovery after
+    setpoint change is slow.
+  diagnosis: 'Likely cause(s):
+
+    - unconditional integration during saturation
+
+    - missing back-calculation term
+
+    - integral gain too high for current actuator range
+
+
+    When an actuator output is at saturation, allowing the integral term to keep accumulating
+    produces windup.  Successful PID-tuning runs disable the integral channel entirely
+    for axes where the actuator is regularly saturated.'
+  preconditions:
+  - 'Observable signal: actuator output clipped to limit for many control steps'
+  - 'Observable signal: overshoot grows after error persists'
+  - 'Observable signal: settling time blows up after setpoint reversal'
+  - 'Symbols present in the editable artifact: `Ki_theta`, `Ki_x`, `Ki_z`'
+  next_experiment: '- Set the named parameter(s) to zero: set parameter to zero on
+    Ki_theta; set parameter to zero on Ki_x; set parameter to zero on Ki_z.'
+  code_target: 'Search the editable artifact for these identifiers and treat their
+    definitions as the patch site: `Ki_theta`, `Ki_x`, `Ki_z`.'
+  patch_sketch: '```python
+
+    # Zero out the named parameter(s) in your candidate dict.
+
+    # Example shape (replace identifier with the one in your code):
+
+    best_gains["<param>"] = 0.0   # was nonzero in baseline
+
+    ```'
+  expected_verifier_signals:
+  - feasibility stays valid, overshoot decreases, settling time after setpoint changes
+    goes down.
+  anti_patterns:
+  - do not simply increase Ki when output is already saturated
+  - do not remove the output limiter
+  contraindications:
+  - do not raise Ki to compensate — the integrator will wind up again on the next
+    saturation event
+  - do not simply increase Ki when output is already saturated
+  - do not remove the output limiter
+  cross_domain_analogy: '**Learning_Training**: same shape as `clip_grad_norm_` —
+    an upper bound that only fires when the magnitude exceeds a known physical limit.  Both
+    are ''stop the integration when downstream saturates''.'
+  source_quality: A
+  source_ids:
+  - experiment1__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment1__openevolve__deepseek-v3.2__Robotics_PIDTuning
+  - experiment1__openevolve__gemini-3.1-pro-preview__Robotics_PIDTuning
+  - experiment1__openevolve__glm-5__Robotics_PIDTuning
+  - experiment1__openevolve__gpt-5.4__Robotics_PIDTuning
+  - experiment1__openevolve__grok-4.20__Robotics_PIDTuning
+  - experiment1__openevolve__seed-2.0-pro__Robotics_PIDTuning
+  - experiment2__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__shinkaevolve__claude-opus-4.6__Robotics_PIDTuning
+  evidence:
+    n: 9
+    avg_uplift: 0.0
+    win_rate: 0.0
+    hint_use_rate: 0.0
+    last_seen: ''
+    placebo_adjusted_uplift: null
+  schema_version: '2.0'

@@ -1,0 +1,99 @@
+schema_version: "2.0"
+verifiers:
+  - id: verifier_frontier_eng_harness
+    verifier_type: benchmark_harness
+    objective_direction: maximize
+    metric_name: combined_score
+    score_range: [0.0, 1.0]
+    expected_signals:
+      - returncode == 0
+      - combined_score reported per problem instance
+      - geometric mean of per-instance scores
+    validity_checks:
+      - score not NaN
+      - no edit outside EVOLVE-BLOCK markers
+    runtime_estimate_seconds: 60.0
+  - id: verifier_checker_script_minimize
+    verifier_type: checker_script
+    objective_direction: minimize
+    metric_name: makespan
+    score_range: null
+    expected_signals:
+      - returncode == 0
+      - makespan reported as a positive float
+    validity_checks:
+      - all jobs scheduled
+      - precedence constraints satisfied
+    runtime_estimate_seconds: 5.0
+  - id: verifier_checker_script_maximize
+    verifier_type: checker_script
+    objective_direction: maximize
+    metric_name: score
+    score_range: null
+    expected_signals:
+      - returncode == 0
+      - score reported as a positive float
+    validity_checks:
+      - solution within feasible region
+    runtime_estimate_seconds: 5.0
+  - id: verifier_mujoco_rollout
+    verifier_type: simulator
+    objective_direction: maximize
+    metric_name: episode_return
+    score_range: null
+    expected_signals:
+      - rollout completes without simulator crash
+      - episode_return reported per seed
+      - no NaN in joint trajectories
+    validity_checks:
+      - simulator stable for full episode
+      - actuator commands within published limits
+    runtime_estimate_seconds: 30.0
+  - id: verifier_isaacsim_rollout
+    verifier_type: simulator
+    objective_direction: maximize
+    metric_name: success_rate
+    score_range: [0.0, 1.0]
+    expected_signals:
+      - rollout completes without simulator crash
+      - success flag reported per episode
+    validity_checks:
+      - simulator stable for full episode
+      - sensor outputs within plausible range
+    runtime_estimate_seconds: 60.0
+  - id: verifier_unit_test_python
+    verifier_type: unit_test
+    objective_direction: maximize
+    metric_name: pass_rate
+    score_range: [0.0, 1.0]
+    expected_signals:
+      - pytest exit code 0
+      - all tests in scope green
+    validity_checks:
+      - no test xfail without justification
+      - coverage above project gate
+    runtime_estimate_seconds: 10.0
+  - id: verifier_static_analysis
+    verifier_type: static_analysis
+    objective_direction: minimize
+    metric_name: violations
+    score_range: null
+    expected_signals:
+      - linter exits clean
+      - no new high-severity issues
+    validity_checks:
+      - tool version pinned
+      - rules file under source control
+    runtime_estimate_seconds: 2.0
+  - id: verifier_real_robot_log
+    verifier_type: real_hardware
+    objective_direction: maximize
+    metric_name: success_per_attempt
+    score_range: [0.0, 1.0]
+    expected_signals:
+      - log captured from physical robot
+      - safety stop not triggered
+    validity_checks:
+      - sensor clocks aligned
+      - no actuator over-current event
+    runtime_estimate_seconds: 120.0

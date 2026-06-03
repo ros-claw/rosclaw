@@ -1,0 +1,84 @@
+schema_version: "2.0"
+embodiments:
+  - id: embodiment_quadrotor
+    embodiment_type: uav
+    sensors: [imu, gps, optical_flow]
+    actuators: [brushless_motor_4x]
+    control_interfaces: [cmd_vel, rate_setpoint, attitude_setpoint]
+    common_failures:
+      - failure_actuator_clamp_missing
+      - failure_pid_integrator_windup
+    simulators: [gazebo, isaacsim, mujoco]
+    safety_constraints:
+      - thrust within rotor limits
+      - attitude within ±45° during AUTO mode
+  - id: embodiment_manipulator
+    embodiment_type: manipulator
+    sensors: [joint_encoders, force_torque, wrist_camera]
+    actuators: [joint_motors_6dof]
+    control_interfaces: [joint_position, joint_velocity, cartesian_pose]
+    common_failures:
+      - failure_actuator_clamp_missing
+      - failure_actuator_output_unbounded
+    simulators: [pybullet, isaacsim, mujoco]
+    safety_constraints:
+      - joint_torque within rated peak
+      - cartesian velocity below speed-limit when near human
+  - id: embodiment_quadruped
+    embodiment_type: quadruped
+    sensors: [imu, joint_encoders, foot_contact]
+    actuators: [leg_motors_12dof]
+    control_interfaces: [cmd_vel, joint_torque, body_pose]
+    common_failures:
+      - failure_pid_integrator_windup
+      - failure_actuator_output_unbounded
+      - failure_planning_divergence
+    simulators: [isaacsim, mujoco]
+    safety_constraints:
+      - foot contact force within structural limit
+      - tilt angle below tip-over threshold
+  - id: embodiment_humanoid
+    embodiment_type: humanoid
+    sensors: [imu, joint_encoders, force_torque_feet]
+    actuators: [arm_motors, leg_motors, neck_motors]
+    control_interfaces: [whole_body_qp, joint_position, end_effector_pose]
+    common_failures:
+      - failure_pid_integrator_windup
+      - failure_planning_divergence
+    simulators: [isaacsim, mujoco]
+    safety_constraints:
+      - centre-of-pressure within support polygon
+      - joint torque within actuator rating
+  - id: embodiment_gpu_kernel
+    embodiment_type: gpu_kernel
+    sensors: []
+    actuators: []
+    control_interfaces: [cuda_launch, triton_kernel]
+    common_failures:
+      - failure_gradient_explosion
+      - failure_simulator_compile_failure
+    simulators: []
+    safety_constraints:
+      - memory below device limit
+      - launch grid within max blocks
+  - id: embodiment_data_center
+    embodiment_type: data_center
+    sensors: [thermal, power_draw, queue_depth]
+    actuators: [scheduler_decision, cooling_setpoint]
+    control_interfaces: [job_dispatch, workload_assignment]
+    common_failures:
+      - failure_ppo_entropy_collapse
+      - failure_planning_divergence
+    simulators: [synthetic_workload_replay]
+    safety_constraints:
+      - SLA latency budget per tenant
+      - power draw below rack limit
+  - id: embodiment_optical_system
+    embodiment_type: optical_system
+    sensors: [camera, lidar, structured_light]
+    actuators: [shutter, gimbal_servo]
+    control_interfaces: [focus, exposure, gimbal_pose]
+    common_failures: []
+    simulators: [physics_optics_sim]
+    safety_constraints:
+      - laser duty cycle within MPE

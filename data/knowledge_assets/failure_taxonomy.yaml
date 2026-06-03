@@ -1,0 +1,485 @@
+schema_version: '2.0'
+failures:
+- id: failure_pid_integrator_windup
+  name: PID Integrator Windup
+  domain: Control_Locomotion
+  symptom_text: Actuator saturates while integral term keeps accumulating; recovery
+    after setpoint change is slow.
+  normalized_symptom: actuator_saturation_with_unbounded_integral
+  observable_signals:
+  - actuator output clipped to limit for many control steps
+  - overshoot grows after error persists
+  - settling time blows up after setpoint reversal
+  likely_causes:
+  - unconditional integration during saturation
+  - missing back-calculation term
+  - integral gain too high for current actuator range
+  contraindications:
+  - do not simply increase Ki when output is already saturated
+  - do not remove the output limiter
+  severity: safety_critical
+- id: failure_actuator_output_unbounded
+  name: Actuator Output Unbounded
+  domain: Control_Locomotion
+  symptom_text: Controller command exceeds the physical actuator limit; torque or
+    velocity command grows without bound.
+  normalized_symptom: unbounded_command_exceeds_actuator_limit
+  observable_signals:
+  - torque command > torque_max
+  - simulator emits saturation warning
+  - hardware E-stop or thermal trip
+  likely_causes:
+  - missing clamp on controller output
+  - feed-forward not bounded
+  - tracking gain too aggressive
+  contraindications:
+  - do not raise torque_max to mask the bug
+  severity: safety_critical
+- id: failure_kv_cache_unbounded_growth
+  name: KV-cache Unbounded Growth
+  domain: Memory_Reasoning
+  symptom_text: Long-context inference accumulates an unbounded key/value cache and
+    OOMs.
+  normalized_symptom: kv_cache_growth_to_oom
+  observable_signals:
+  - GPU memory rises linearly with sequence length
+  - throughput collapses past a context threshold
+  - CUDA OOM error
+  likely_causes:
+  - no eviction policy on KV cache
+  - context not paged or windowed
+  - prefetch + reuse mismatch
+  contraindications:
+  - do not just shrink batch size — wastes utilization
+  - do not silently truncate without telling the planner
+  severity: warning
+- id: failure_gradient_explosion
+  name: Gradient Explosion
+  domain: Learning_Training
+  symptom_text: Training loss spikes to NaN; gradient norm grows by orders of magnitude
+    in a few steps.
+  normalized_symptom: gradient_norm_diverges_to_nan
+  observable_signals:
+  - loss curve flips to NaN
+  - grad-norm > 1e3 within a window
+  - reward variance explodes (RL)
+  likely_causes:
+  - missing grad-norm clipping
+  - learning rate too high
+  - residual / projection layer reinitialised wrong
+  contraindications:
+  - do not turn off the offending layer wholesale
+  severity: warning
+- id: failure_actuator_clamp_missing
+  name: Output Clamp Missing
+  domain: Control_Locomotion
+  symptom_text: Final controller command is not bounded before it reaches the actuator
+    interface.
+  normalized_symptom: missing_command_clamp
+  observable_signals:
+  - command magnitude tracks raw PID output
+  - actuator saturation flag never set by driver
+  likely_causes:
+  - clamp removed during debugging
+  - feed-forward path bypasses clamp
+  contraindications:
+  - do not implement clamp inside the integrator step — keep it on the output
+  severity: safety_critical
+- id: failure_planning_divergence
+  name: Planning / Trajectory Divergence
+  domain: Planning_Decision
+  symptom_text: Open-loop plan drifts from the realised trajectory; agent does not
+    replan when state deviates.
+  normalized_symptom: open_loop_plan_diverges_from_state
+  observable_signals:
+  - position error grows monotonically
+  - velocity discontinuity at replan boundary
+  - safety margin shrinks below threshold
+  likely_causes:
+  - planning horizon too long
+  - no state-error trigger for replanning
+  - localization drift unmonitored
+  contraindications:
+  - do not just shorten the horizon — fix the trigger
+  severity: safety_critical
+- id: failure_simulator_compile_failure
+  name: Simulator / Compile Failure
+  domain: Systems_Compute
+  symptom_text: Simulation backend or build step fails transiently (network blip,
+    dep resolver hiccup, GPU contention).
+  normalized_symptom: transient_build_or_sim_crash
+  observable_signals:
+  - return code != 0 once, succeeds on retry
+  - error string mentions network, timeout, lock
+  likely_causes:
+  - missing retry logic
+  - back-off interval too short
+  - resource not released between attempts
+  contraindications:
+  - do not retry without exponential back-off + jitter — thundering herd
+  severity: info
+- id: failure_ppo_entropy_collapse
+  name: PPO Entropy Collapse
+  domain: Learning_Training
+  symptom_text: Policy entropy decays to near zero too early; agent becomes deterministic
+    before exploration is complete.
+  normalized_symptom: policy_entropy_decays_prematurely
+  observable_signals:
+  - mean entropy < threshold within first 10% of training
+  - reward plateaus at a sub-optimal mode
+  - new tasks produce the same action
+  likely_causes:
+  - entropy bonus coefficient too low
+  - clip range too tight
+  - lr decay too fast
+  contraindications:
+  - do not just raise lr — re-add entropy bonus first
+  severity: warning
+- id: failure_generic_unvalidated_input
+  name: Unvalidated Input Crash
+  domain: Systems_Compute
+  symptom_text: Function receives malformed or out-of-range input and crashes (or
+    silently mis-computes) without a guarding check.
+  normalized_symptom: boundary_input_propagates_to_crash
+  observable_signals:
+  - exception traceback originates inside an inner loop
+  - downstream NaN that traces back to a single unchecked value
+  - intermittent failures that disappear when input is hand-curated
+  likely_causes:
+  - missing precondition assertion
+  - implicit assumption about input shape or dtype
+  - no defensive clamp at the boundary
+  contraindications:
+  - do not wrap the whole call in try/except — fail loudly at the boundary instead
+  severity: warning
+- id: failure_generic_runaway_search
+  name: Runaway Search / No Time Budget
+  domain: Systems_Compute
+  symptom_text: Iterative search runs past its useful budget — either timing out the
+    harness or wasting compute past a flat reward plateau.
+  normalized_symptom: search_runs_without_wallclock_guard
+  observable_signals:
+  - wall-clock exceeds verifier timeout
+  - score curve flat for many iterations before exit
+  - per-iteration cost amortises poorly
+  likely_causes:
+  - no early-stop or budget guard
+  - convergence test never reaches threshold
+  - exploration coefficient never decays
+  contraindications:
+  - do not pick a budget below the first feasible solution — that aborts before convergence
+  severity: info
+- id: failure_generic_random_search_inefficiency
+  name: Random Search Inefficiency
+  domain: Systems_Compute
+  symptom_text: Pure random search keeps sampling uninformative points instead of
+    exploiting structure the gradient or surrogate exposes.
+  normalized_symptom: random_search_misses_structure
+  observable_signals:
+  - improvement rate plateaus while compute keeps going
+  - best-so-far stuck at one of the first 5 samples
+  - no exploration of high-density regions in the trust region
+  likely_causes:
+  - solver kept on default random_search
+  - no structured optimiser plugged in
+  - surrogate not refitted
+  contraindications:
+  - do not jump straight to a model-heavy optimiser before checking the search space
+    is structured
+  severity: info
+- id: failure_generic_python_loop_overhead
+  name: Python Inner-Loop Overhead
+  domain: Systems_Compute
+  symptom_text: Inner Python loop dominates wall-clock; replacing it with a vectorised
+    primitive recovers an order of magnitude.
+  normalized_symptom: python_loop_dominates_runtime
+  observable_signals:
+  - profiler shows interpreter overhead > numerical work
+  - throughput scales sub-linearly with batch size
+  - NumPy / Triton primitives unused on a hot path
+  likely_causes:
+  - loop body trivially vectorisable
+  - branch-heavy logic still in Python
+  - cache-unfriendly access pattern
+  contraindications:
+  - do not vectorise without preserving the original numerical semantics
+  severity: info
+- id: failure_generic_cold_start_search
+  name: Cold-Start Search Wasted Budget
+  domain: Systems_Compute
+  symptom_text: Search restarts from a random or default seed each call, ignoring
+    prior-best solutions.
+  normalized_symptom: cold_start_when_prior_best_exists
+  observable_signals:
+  - first-iteration score worse than last archived best
+  - convergence time longer than necessary
+  - cached results not loaded
+  likely_causes:
+  - prior-best not persisted
+  - warm-start path missing
+  - cache invalidated on every call
+  contraindications:
+  - do not blindly warm-start when the task distribution has shifted
+  severity: info
+- id: failure_aes_byte_op_overhead
+  name: AES Byte-Op Overhead
+  domain: Systems_Compute
+  symptom_text: Per-byte AES (sbox + shift + mix as separate ops) is dominated by
+    byte arithmetic; throughput well below memory bandwidth.
+  normalized_symptom: aes_per_byte_arithmetic_dominates
+  observable_signals:
+  - throughput stays well below the CPU-memory ceiling
+  - profiler shows arithmetic-unit saturation
+  likely_causes:
+  - sbox and mix-columns implemented as discrete byte ops
+  - no T-table consolidation
+  contraindications:
+  - do not just inline more — the win comes from merging ops, not unrolling them
+  severity: warning
+- id: failure_aes_branch_mispredict
+  name: AES Round-Loop Branch Mispredict
+  domain: Systems_Compute
+  symptom_text: Loop over 10 AES rounds keeps a counter live and exposes a predictable
+    but non-free branch each iteration.
+  normalized_symptom: aes_round_loop_branch_cost
+  observable_signals:
+  - profiler reports BR_MISP_RETIRED inside the round function
+  - per-block throughput plateaus despite cache hits
+  likely_causes:
+  - rounds expressed as a Python / C++ ``for`` loop
+  - 'no #pragma unroll on the inner loop'
+  contraindications:
+  - do not unroll past the I-cache size on small cores
+  severity: info
+- id: failure_aes_timing_side_channel
+  name: AES Timing Side Channel
+  domain: Systems_Compute
+  symptom_text: Secret-dependent conditional moves leak whether the key bit was 0
+    or 1 via branch-predictor state.
+  normalized_symptom: aes_secret_dependent_branch
+  observable_signals:
+  - wall-clock differs measurably with key value
+  - timing-side-channel test in the verifier fails
+  likely_causes:
+  - ternary / if-else on a secret value in the hot path
+  - no branchless lowering of conditional ops
+  contraindications:
+  - branchless rewrites on every comparison can hurt non-secret-dependent paths
+  severity: warning
+- id: failure_aes_early_exit_compare
+  name: AES Early-Exit MAC Compare
+  domain: Systems_Compute
+  symptom_text: memcmp-style tag verification stops at the first mismatch, letting
+    an attacker recover the tag one byte at a time.
+  normalized_symptom: aes_tag_compare_early_exit
+  observable_signals:
+  - verifier flags constant-time compare regression
+  - byte-by-byte wall-clock differential on injected mismatches
+  likely_causes:
+  - tag comparison via stock memcmp / standard equality
+  - no constant-time helper imported
+  contraindications:
+  - do not roll your own constant-time compare — use the vetted helper
+  severity: safety_critical
+- id: failure_cuda_global_memory_bound
+  name: CUDA Global-Memory-Bound Kernel
+  domain: Systems_Compute
+  symptom_text: Hot kernel re-reads the same input element from global memory across
+    many threads; bandwidth, not compute, caps performance.
+  normalized_symptom: cuda_global_memory_reuse
+  observable_signals:
+  - Nsight reports memory throughput saturated and tensor cores idle
+  - tokens/sec scales with bandwidth, not FLOPs
+  likely_causes:
+  - inputs never promoted to shared memory
+  - tile loop missing
+  contraindications:
+  - shared memory is scarce; over-tiling reduces occupancy
+  severity: warning
+- id: failure_cuda_occupancy_too_low
+  name: CUDA Low-Occupancy Kernel
+  domain: Systems_Compute
+  symptom_text: Conservative block size leaves the SM underutilised; throughput stays
+    well below theoretical peak.
+  normalized_symptom: cuda_low_occupancy
+  observable_signals:
+  - achieved occupancy < 50% on Nsight
+  - register spill warnings absent (compute under-used)
+  likely_causes:
+  - hand-picked BLOCK_M / BLOCK_N too small
+  - num_warps / num_stages defaults left untouched
+  contraindications:
+  - do not hard-code the tuned value across SM counts
+  severity: info
+- id: failure_cuda_launch_overhead
+  name: CUDA Kernel-Launch Overhead
+  domain: Systems_Compute
+  symptom_text: Two kernels chained back-to-back pay double launch cost and round-trip
+    activations through global memory.
+  normalized_symptom: cuda_back_to_back_launches
+  observable_signals:
+  - wall-clock dominated by launch latency on small batches
+  - activations written then immediately re-read
+  likely_causes:
+  - softmax + matmul left as separate kernels
+  - missing fusion pass
+  contraindications:
+  - fusion raises register pressure — watch for spill
+  severity: info
+- id: failure_cuda_load_compute_serialization
+  name: CUDA Load/Compute Serialised
+  domain: Systems_Compute
+  symptom_text: Synchronous global → shared loads stall the warp and leave tensor
+    cores idle between tiles.
+  normalized_symptom: cuda_serialised_load_compute
+  observable_signals:
+  - Nsight shows compute SOL much lower than memory SOL
+  - no overlap between load and MMA stages on the timeline
+  likely_causes:
+  - blocking ldg / __ldcs in the inner loop
+  - no warp specialization or async pipeline
+  contraindications:
+  - warp specialization requires sm_80+; falls back hurts older devices
+  severity: info
+- id: failure_cuda_blocking_load
+  name: CUDA Blocking Global Load
+  domain: Systems_Compute
+  symptom_text: Synchronous ldg / __ldcs stall the warp; compute cannot overlap with
+    the next tile's load.
+  normalized_symptom: cuda_blocking_global_load
+  observable_signals:
+  - profiler reports memory stalls between MMA stages
+  likely_causes:
+  - cp.async / tl.async_copy not used
+  contraindications:
+  - async copies require careful wait_group fences
+  severity: info
+- id: failure_sched_arrival_order_makespan
+  name: Scheduler Arrival-Order Bias
+  domain: Planning_Decision
+  symptom_text: Baseline schedules in input order, leaving slack that any priority
+    sort would recover.
+  normalized_symptom: sched_arrival_order_only
+  observable_signals:
+  - makespan exceeds known lower bound on standard instances
+  - utilization on bottleneck machine well below 100%
+  likely_causes:
+  - no sorting / priority pass on the job list
+  contraindications:
+  - static priority rules struggle under high resource contention
+  severity: warning
+- id: failure_sched_no_priority_rule
+  name: Scheduler Missing Priority Rule
+  domain: Planning_Decision
+  symptom_text: Ad-hoc dispatch lacks a named priority (SPT / EDD / LPT / slack),
+    so behaviour does not scale with instance size.
+  normalized_symptom: sched_unprincipled_dispatch
+  observable_signals:
+  - performance gap widens with instance size
+  - ablation shows random priority beats the baseline
+  likely_causes:
+  - dispatch loop picks the first ready job verbatim
+  contraindications:
+  - do not freeze the priority weights at the values that tuned one instance
+  severity: warning
+- id: failure_sched_greedy_dispatch_bias
+  name: Scheduler Greedy Dispatch Bias
+  domain: Planning_Decision
+  symptom_text: Greedy ready-list selection without a named rule loses tail-end optimisations
+    available to Johnson / FFD.
+  normalized_symptom: sched_unnamed_greedy_dispatch
+  observable_signals:
+  - schedule looks good early but late-job tardiness explodes
+  - same instance solved in more dispatch decisions than necessary
+  likely_causes:
+  - dispatch implemented inline without a named-rule abstraction
+  contraindications: []
+  severity: info
+- id: failure_sched_dependency_violations
+  name: Scheduler Dependency Violations
+  domain: Planning_Decision
+  symptom_text: Schedules emit infeasible orderings because precedence / resource
+    caps are checked post-hoc rather than enforced during dispatch.
+  normalized_symptom: sched_dependency_postcheck
+  observable_signals:
+  - verifier reports precedence violation
+  - repair pass needed before every submission
+  likely_causes:
+  - precedence / resource constraints not propagated into the eligibility test
+  contraindications:
+  - do not let repair loops grow without bound — fix the source
+  severity: safety_critical
+- id: failure_unhandled_collision_contact
+  name: Unhandled Collision Contact
+  domain: Control_Locomotion
+  symptom_text: A robot link makes unintended contact with the environment and the
+    controller keeps driving the same trajectory through the obstacle.
+  normalized_symptom: collision_contact_no_replan
+  observable_signals:
+  - contact force > F_max sustained for multiple control steps
+  - trajectory tracking continues past first contact event
+  - no replan trigger fired after collision detection
+  likely_causes:
+  - no collision response handler subscribed to contact stream
+  - environment model stale or incomplete
+  - safety margin set below sensor noise floor
+  contraindications:
+  - do not just retry the same trajectory — replan with the updated world model
+  severity: safety_critical
+  schema_version: '2.0'
+- id: failure_joint_limit_breach
+  name: Joint Limit Breach
+  domain: Control_Locomotion
+  symptom_text: A joint position or torque crosses the URDF / controller limit because
+    the planner emitted an out-of-range setpoint and the runtime did not clamp it.
+  normalized_symptom: joint_position_limit_exceeded
+  observable_signals:
+  - joint angle reports > qmax or < qmin for one or more steps
+  - torque command exceeds torque_max at the affected joint
+  - controller error flag raised at the joint level
+  likely_causes:
+  - trajectory generator did not respect URDF joint limits
+  - IK solver returned an out-of-range solution that was sent verbatim
+  - missing post-IK joint-limit clamp in the runtime
+  contraindications:
+  - do not just clamp inside the low-level driver — fix the planner so the limit is
+    respected upstream
+  severity: safety_critical
+  schema_version: '2.0'
+- id: failure_sensor_spike_dropout
+  name: Sensor Spike or Dropout
+  domain: Perception_Vision
+  symptom_text: A sensor channel returns a value far outside its expected envelope
+    (spike) or no value at all (dropout) and the value flows into the state estimator
+    unfiltered.
+  normalized_symptom: sensor_outlier_propagated_to_state
+  observable_signals:
+  - sensor reading > 5σ from running mean for a single step
+  - consecutive frames of missing measurements not flagged
+  - state estimate jumps in lock-step with the bad reading
+  likely_causes:
+  - no median / Hampel filter on the sensor pipeline
+  - no dropout detector raising a measurement_valid flag
+  - estimator trusts every sample equally regardless of innovation
+  contraindications:
+  - do not blindly average across an outlier — flag it and let the planner decide
+  severity: warning
+  schema_version: '2.0'
+- id: failure_safety_stop_no_recovery
+  name: Safety Stop Without Recovery Path
+  domain: Control_Locomotion
+  symptom_text: Safety controller triggers a halt and the runtime has no defined supervised-resume
+    path; the agent retries the offending command without operator clearance.
+  normalized_symptom: safety_halt_blocks_resumption
+  observable_signals:
+  - safety_stop event followed by repeated identical command retries
+  - no operator-clearance acknowledgement recorded before resumption
+  - post-halt state divergent from pre-halt plan assumptions
+  likely_causes:
+  - missing supervised-resume protocol in the runtime
+  - agent treats safety_stop as a transient error
+  - no state-resync step between halt and resume
+  contraindications:
+  - do not auto-resume after a safety halt without operator acknowledgement
+  severity: safety_critical
+  schema_version: '2.0'

@@ -17,11 +17,18 @@ from rosclaw.know.graph import count_knowledge_facts
 from rosclaw.memory.seekdb_client import SeekDBMemoryClient
 
 
+# v1.5 isolation: these tests pin the curated-baseline contract, so
+# they MUST not pick up the v1.5 catalog in ``data/knowledge_assets/``.
+# Pointing at a nonexistent path makes KnowledgeInterface skip the
+# bridge_index load and serve only the curated fallback patterns.
+_BASELINE_ASSETS = "/tmp/rosclaw_test_baseline_no_v15_assets"
+
+
 class TestKnowledgeInterface:
     """Unit tests for KnowledgeInterface query engine."""
 
     def test_initialization(self):
-        ki = KnowledgeInterface(robot_id="test_robot")
+        ki = KnowledgeInterface(robot_id="test_robot", assets_path=_BASELINE_ASSETS)
         ki._do_initialize()
         assert ki._initialized is True
         assert len(ki._patterns) > 0  # Curated patterns loaded
@@ -29,7 +36,7 @@ class TestKnowledgeInterface:
         assert ki._initialized is False
 
     def test_curated_patterns_loaded(self):
-        ki = KnowledgeInterface(robot_id="test_robot")
+        ki = KnowledgeInterface(robot_id="test_robot", assets_path=_BASELINE_ASSETS)
         ki._do_initialize()
         expected = [
             "Torque_Overflow",
@@ -46,7 +53,7 @@ class TestKnowledgeInterface:
         ki._do_stop()
 
     def test_match_symptom_torque_overflow(self):
-        ki = KnowledgeInterface(robot_id="test_robot")
+        ki = KnowledgeInterface(robot_id="test_robot", assets_path=_BASELINE_ASSETS)
         ki._do_initialize()
         match = ki.match_symptom("torque overflow on joint 2")
         assert match is not None
@@ -55,7 +62,7 @@ class TestKnowledgeInterface:
         ki._do_stop()
 
     def test_match_symptom_velocity_divergence(self):
-        ki = KnowledgeInterface(robot_id="test_robot")
+        ki = KnowledgeInterface(robot_id="test_robot", assets_path=_BASELINE_ASSETS)
         ki._do_initialize()
         match = ki.match_symptom("velocity diverging to infinity")
         assert match is not None
@@ -63,7 +70,7 @@ class TestKnowledgeInterface:
         ki._do_stop()
 
     def test_match_symptom_memory_exhaustion(self):
-        ki = KnowledgeInterface(robot_id="test_robot")
+        ki = KnowledgeInterface(robot_id="test_robot", assets_path=_BASELINE_ASSETS)
         ki._do_initialize()
         match = ki.match_symptom("cuda out of memory error")
         assert match is not None
@@ -71,7 +78,7 @@ class TestKnowledgeInterface:
         ki._do_stop()
 
     def test_match_symptom_numerical_instability(self):
-        ki = KnowledgeInterface(robot_id="test_robot")
+        ki = KnowledgeInterface(robot_id="test_robot", assets_path=_BASELINE_ASSETS)
         ki._do_initialize()
         match = ki.match_symptom("nan in loss gradient")
         assert match is not None
@@ -79,14 +86,14 @@ class TestKnowledgeInterface:
         ki._do_stop()
 
     def test_match_symptom_no_match(self):
-        ki = KnowledgeInterface(robot_id="test_robot")
+        ki = KnowledgeInterface(robot_id="test_robot", assets_path=_BASELINE_ASSETS)
         ki._do_initialize()
         match = ki.match_symptom("completely unrelated error about unicorns")
         assert match is None
         ki._do_stop()
 
     def test_get_analogy(self):
-        ki = KnowledgeInterface(robot_id="test_robot")
+        ki = KnowledgeInterface(robot_id="test_robot", assets_path=_BASELINE_ASSETS)
         ki._do_initialize()
         analogy = ki.get_analogy("torque overflow situation")
         assert analogy is not None
@@ -95,7 +102,7 @@ class TestKnowledgeInterface:
         ki._do_stop()
 
     def test_get_safety_rule(self):
-        ki = KnowledgeInterface(robot_id="test_robot")
+        ki = KnowledgeInterface(robot_id="test_robot", assets_path=_BASELINE_ASSETS)
         ki._do_initialize()
         rule = ki.get_safety_rule("Torque_Overflow")
         assert "SAFETY: Torque_Overflow" in rule
@@ -103,7 +110,7 @@ class TestKnowledgeInterface:
         ki._do_stop()
 
     def test_get_safety_rule_unknown(self):
-        ki = KnowledgeInterface(robot_id="test_robot")
+        ki = KnowledgeInterface(robot_id="test_robot", assets_path=_BASELINE_ASSETS)
         ki._do_initialize()
         rule = ki.get_safety_rule("Unknown_Label")
         assert rule == ""
@@ -202,7 +209,9 @@ class TestMCPKnowledgeTool:
 
         class MockRuntime:
             def __init__(self):
-                self.knowledge = KnowledgeInterface(robot_id="ur5e")
+                self.knowledge = KnowledgeInterface(
+                    robot_id="ur5e", assets_path=_BASELINE_ASSETS,
+                )
                 self.knowledge._do_initialize()
 
         hub.runtime = MockRuntime()
@@ -233,7 +242,9 @@ class TestMCPKnowledgeTool:
 
         class MockRuntime:
             def __init__(self):
-                self.knowledge = KnowledgeInterface(robot_id="ur5e")
+                self.knowledge = KnowledgeInterface(
+                    robot_id="ur5e", assets_path=_BASELINE_ASSETS,
+                )
                 self.knowledge._do_initialize()
 
         hub.runtime = MockRuntime()
@@ -265,7 +276,9 @@ class TestMCPKnowledgeTool:
 
         class MockRuntime:
             def __init__(self):
-                self.knowledge = KnowledgeInterface(robot_id="ur5e")
+                self.knowledge = KnowledgeInterface(
+                    robot_id="ur5e", assets_path=_BASELINE_ASSETS,
+                )
                 self.knowledge._do_initialize()
 
         hub.runtime = MockRuntime()
@@ -333,7 +346,7 @@ class TestTaskDecompositionHint:
     """Tests for task_decomposition_hint method."""
 
     def test_decompose_pick_and_place(self):
-        ki = KnowledgeInterface(robot_id="test_robot")
+        ki = KnowledgeInterface(robot_id="test_robot", assets_path=_BASELINE_ASSETS)
         ki._do_initialize()
 
         result = ki.task_decomposition_hint("pick and place")
@@ -347,7 +360,7 @@ class TestTaskDecompositionHint:
         ki._do_stop()
 
     def test_decompose_walk_to_point(self):
-        ki = KnowledgeInterface(robot_id="test_robot")
+        ki = KnowledgeInterface(robot_id="test_robot", assets_path=_BASELINE_ASSETS)
         ki._do_initialize()
 
         result = ki.task_decomposition_hint("walk to point")
@@ -358,7 +371,7 @@ class TestTaskDecompositionHint:
         ki._do_stop()
 
     def test_decompose_assembly(self):
-        ki = KnowledgeInterface(robot_id="test_robot")
+        ki = KnowledgeInterface(robot_id="test_robot", assets_path=_BASELINE_ASSETS)
         ki._do_initialize()
 
         result = ki.task_decomposition_hint("assembly task")
@@ -369,7 +382,7 @@ class TestTaskDecompositionHint:
         ki._do_stop()
 
     def test_decompose_no_match(self):
-        ki = KnowledgeInterface(robot_id="test_robot")
+        ki = KnowledgeInterface(robot_id="test_robot", assets_path=_BASELINE_ASSETS)
         ki._do_initialize()
 
         result = ki.task_decomposition_hint("completely unrelated nonsense task")
@@ -377,7 +390,7 @@ class TestTaskDecompositionHint:
         ki._do_stop()
 
     def test_decompose_empty(self):
-        ki = KnowledgeInterface(robot_id="test_robot")
+        ki = KnowledgeInterface(robot_id="test_robot", assets_path=_BASELINE_ASSETS)
         ki._do_initialize()
 
         assert ki.task_decomposition_hint("") is None

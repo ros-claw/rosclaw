@@ -1,0 +1,1713 @@
+schema_version: '2.0'
+benchmark: frontier-eng
+n_tasks: 74
+task_cards:
+- id: task_additive_manufacturing_diff_sim_thermal_control
+  benchmark: frontier-eng
+  task_name: DiffSimThermalControl
+  task_family: additive_manufacturing_optimization
+  domain: Control_Locomotion
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify optimization logic inside `scripts/init.py` between `EVOLVE-BLOCK-START` and `EVOLVE-BLOCK-END`.
+  - 'Keep function signatures unchanged:'
+  - load_cases(case_file=None)
+  - simulate(params, case)
+  - baseline_solve(case, max_sim_calls=..., simulate_fn=...)
+  - solve(case, max_sim_calls=..., simulate_fn=...)
+  - Candidate parameters are normalized laser-power control knots and must remain in [0, 1].
+  - Optimize mean thermal-control loss across the real toolpath layers extracted from the upstream repository.
+  - Do not modify `verification/evaluator.py` or files under `references/original/`.
+  verifier_type: simulator
+  baseline_description: The upstream project `differentiable-simulation-am` studies additive-manufacturing process optimization
+    with differentiable simulation. Its public repository contains a real build geometry (`0.k`), a real toolpath (`toolpath.crs`),
+    and a Ta
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_gradient_explosion
+  recommended_patterns:
+  - output_saturation_clamp
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_aerodynamics_car_aerodynamics_sensing
+  benchmark: frontier-eng
+  task_name: CarAerodynamicsSensing
+  task_family: aerodynamics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify `scripts/init.py`.
+  - Preserve the public entrypoint, function signatures, and output contract expected by `frontier_eval/evaluator.py`.
+  - Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/`
+    metadata.
+  - If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep
+    the expected filename and schema unchanged.
+  - Prioritize validity and correctness before optimization.
+  verifier_type: simulator
+  baseline_description: Aerodynamic pressure on a car surface varies with driving conditions. Because sensors are costly and
+    limited, the goal is to place a small number of sensors on the surface that allow accurate reconstruction of the full
+    pressure field.
+  common_failure_modes:
+  - failure_gradient_explosion
+  - failure_simulator_compile_failure
+  recommended_patterns:
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_aerodynamics_dawn_aircraft_design_optimization
+  benchmark: frontier-eng
+  task_name: DawnAircraftDesignOptimization
+  task_family: aerodynamics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Candidate file is `scripts/init.py` and must output `submission.json`.
+  - '`submission.json` must be a JSON object with numeric keys:'
+  - wing_span_m
+  - wing_area_m2
+  - fuselage_length_m
+  - fuselage_diameter_m
+  - motor_power_kw
+  - battery_mass_kg
+  - cruise_speed_mps
+  - All design values must stay within bounds in `references/mission_config.json`.
+  - 'Feasibility requires all margins >= 0:'
+  - takeoff distance, stall speed, cruise lift, structural stress,
+  verifier_type: simulator
+  baseline_description: Conceptual aircraft sizing is a coupled engineering optimization problem. Mission targets (payload,
+    cruise altitude, endurance) interact with aerodynamic, structural, and propulsion decisions. This benchmark captures that
+    coupling with a si
+  common_failure_modes:
+  - failure_gradient_explosion
+  - failure_simulator_compile_failure
+  recommended_patterns:
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_astrodynamics_manned_lunar_landing
+  benchmark: frontier-eng
+  task_name: MannedLunarLanding
+  task_family: astrodynamics_optimization
+  domain: Control_Locomotion
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify `scripts/init.py`.
+  - Preserve the public entrypoint, function signatures, and output contract expected by `frontier_eval/evaluator.py`.
+  - Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/`
+    metadata.
+  - If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep
+    the expected filename and schema unchanged.
+  - Prioritize validity and correctness before optimization.
+  verifier_type: simulator
+  baseline_description: In 1958, the Soviet Union and the United States began lunar exploration. In 1969, the United States
+    achieved the first manned lunar landing, and by 1972, a total of 12 astronauts had landed on the Moon. After decades of
+    silence, entering th
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_planning_divergence
+  recommended_patterns:
+  - output_saturation_clamp
+  schema_version: '2.0'
+- id: task_communication_engineering_ldpc_error_floor
+  benchmark: frontier-eng
+  task_name: LDPCErrorFloor
+  task_family: communication_engineering_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: minimize
+  metric_name: ber
+  hard_constraints:
+  - Implement `TrappingSetSampler` class that inherits from `SamplerBase`.
+  - Implement `simulate_variance_controlled()` method with the required signature.
+  - 'The method must return a tuple or dict with: (errors_log, weights_log, err_ratio, total_samples, actual_std, converged).'
+  - Use importance sampling to bias toward noise vectors that cause trapping set failures.
+  - The solution should estimate error floor BER accurately and efficiently.
+  verifier_type: checker_script
+  baseline_description: Low-Density Parity-Check (LDPC) codes are powerful error-correcting codes widely used in modern communication
+    systems. At very low BER regions (e.g., $10^{-6}$ or lower), LDPC codes exhibit an "error floor" phenomenon where the
+    BER curve fl
+  common_failure_modes:
+  - failure_gradient_explosion
+  - failure_planning_divergence
+  recommended_patterns:
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_communication_engineering_pmd_simulation
+  benchmark: frontier-eng
+  task_name: PMDSimulation
+  task_family: communication_engineering_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Implement `PMDSampler` class that inherits from `SamplerBase`.
+  - Implement `simulate_variance_controlled()` method with the required signature.
+  - 'The method must return a tuple or dict with: (outages_log, weights_log, outage_prob, total_samples, actual_std, converged).'
+  - Use importance sampling to bias PMD evolution toward high-DGD regions.
+  - The solution should estimate outage probability accurately and efficiently.
+  verifier_type: checker_script
+  baseline_description: Polarization Mode Dispersion (PMD) is a critical impairment in high-speed optical fiber communication
+    systems. PMD causes pulse broadening and inter-symbol interference, limiting the achievable data rates and transmission
+    distances.
+  common_failure_modes:
+  - failure_gradient_explosion
+  - failure_planning_divergence
+  recommended_patterns:
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_communication_engineering_rayleigh_fading_ber
+  benchmark: frontier-eng
+  task_name: RayleighFadingBER
+  task_family: communication_engineering_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: minimize
+  metric_name: ber
+  hard_constraints:
+  - Implement `DeepFadeSampler` class that inherits from `SamplerBase`.
+  - Implement `simulate_variance_controlled()` method with the required signature.
+  - 'The method must return a tuple or dict with: (errors_log, weights_log, err_ratio, total_samples, actual_std, converged).'
+  - Use importance sampling to bias channel gain distribution toward deep fade events.
+  - The solution should estimate average BER accurately and efficiently under Rayleigh fading.
+  verifier_type: checker_script
+  baseline_description: In wireless communication systems, multipath propagation causes signal fading. Rayleigh fading is
+    a statistical model for the effect of multipath propagation when there is no line-of-sight component. The channel gain
+    $h$ follows a Rayleigh
+  common_failure_modes:
+  - failure_gradient_explosion
+  - failure_planning_divergence
+  recommended_patterns:
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_computer_systems_duck_db_workload_optimization
+  benchmark: frontier-eng
+  task_name: DuckDBWorkloadOptimization
+  task_family: computer_systems_optimization
+  domain: Systems_Compute
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - 'Candidate file is `scripts/init.py` and must return JSON fields:'
+  - '`index_statements`: list[str]'
+  - '`materialized_view_statements`: list[str]'
+  - '`query_rewrites`: dict[str, str]'
+  - 'Official source fidelity:'
+  - Workload SQL and base data setup come from `duckdb/duckdb` benchmark files listed in `references/problem_config.json`.
+  - Do not fabricate replacement workload/data files.
+  - 'SQL safety:'
+  - Rewrite SQL must be single read-only SELECT/CTE statement.
+  - Index SQL must be `CREATE INDEX ... ON table(col, ...)` on allowed tables/columns.
+  - Materialized-view SQL must be `CREATE TABLE/CREATE MATERIALIZED VIEW mv_* AS SELECT ...`.
+  - 'Semantic correctness:'
+  verifier_type: simulator
+  baseline_description: 'In practical analytics systems, the same machine often serves multiple heavy SQL workloads with joins,
+    aggregations, and window functions. Real performance depends on both:'
+  common_failure_modes:
+  - failure_simulator_compile_failure
+  recommended_patterns: []
+  schema_version: '2.0'
+- id: task_computer_systems_malloc_lab
+  benchmark: frontier-eng
+  task_name: MallocLab
+  task_family: computer_systems_optimization
+  domain: Systems_Compute
+  artifact_type: cpp
+  objective_direction: maximize
+  metric_name: throughput
+  hard_constraints:
+  - Only modify allocator implementation logic in `malloclab-handout/mm.c`.
+  - 'Keep required function signatures unchanged:'
+  - mm_init
+  - mm_malloc
+  - mm_free
+  - mm_realloc
+  - Do not modify benchmark runner files (`mdriver.c`, trace files, build scripts).
+  - Candidate should target correctness first, then optimize throughput/utilization.
+  - Evaluator compiles with `make` and runs `./mdriver -V`.
+  verifier_type: checker_script
+  baseline_description: '* Write a C program for dynamic memory allocation.'
+  common_failure_modes:
+  - failure_simulator_compile_failure
+  recommended_patterns: []
+  schema_version: '2.0'
+- id: task_cryptographic_aes_128
+  benchmark: frontier-eng
+  task_name: AES-128
+  task_family: cryptographic_optimization
+  domain: Systems_Compute
+  artifact_type: cpp
+  objective_direction: maximize
+  metric_name: throughput
+  hard_constraints:
+  - Only modify `baseline/AES-128.cpp`.
+  - Preserve the public entrypoint, function signatures, and output contract expected by `frontier_eval/evaluator.py`.
+  - Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/`
+    metadata.
+  - If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep
+    the expected filename and schema unchanged.
+  - Prioritize validity and correctness before optimization.
+  verifier_type: checker_script
+  baseline_description: AES is a symmetric-key block cipher and a widely adopted international encryption standard. 128 refers
+    to its 128-bit key length. CTR (Counter mode) is one of the standard's supported operating modes.
+  common_failure_modes:
+  - failure_simulator_compile_failure
+  recommended_patterns: []
+  schema_version: '2.0'
+- id: task_cryptographic_sha_256
+  benchmark: frontier-eng
+  task_name: SHA-256
+  task_family: cryptographic_optimization
+  domain: Systems_Compute
+  artifact_type: cpp
+  objective_direction: maximize
+  metric_name: throughput
+  hard_constraints:
+  - Only modify `baseline/SHA-256.cpp`.
+  - Preserve the public entrypoint, function signatures, and output contract expected by `frontier_eval/evaluator.py`.
+  - Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/`
+    metadata.
+  - If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep
+    the expected filename and schema unchanged.
+  - Prioritize validity and correctness before optimization.
+  verifier_type: checker_script
+  baseline_description: SHA-256 is a member of the SHA-2 hash function family released by the National Institute of Standards
+    and Technology (NIST). It can compute a fixed-length 256-bit (32-byte) message digest for input data of arbitrary length.
+  common_failure_modes:
+  - failure_simulator_compile_failure
+  recommended_patterns: []
+  schema_version: '2.0'
+- id: task_cryptographic_sha3_256
+  benchmark: frontier-eng
+  task_name: SHA3-256
+  task_family: cryptographic_optimization
+  domain: Systems_Compute
+  artifact_type: cpp
+  objective_direction: maximize
+  metric_name: throughput
+  hard_constraints:
+  - Only modify `baseline/SHA3-256.cpp`.
+  - Preserve the public entrypoint, function signatures, and output contract expected by `frontier_eval/evaluator.py`.
+  - Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/`
+    metadata.
+  - If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep
+    the expected filename and schema unchanged.
+  - Prioritize validity and correctness before optimization.
+  verifier_type: checker_script
+  baseline_description: SHA3-256 is the latest generation hash function standard selected by NIST through the Open Cryptography
+    Competition (FIPS 202). It uses the Keccak algorithm at its core and also outputs a 256-bit digest.
+  common_failure_modes:
+  - failure_simulator_compile_failure
+  recommended_patterns: []
+  schema_version: '2.0'
+- id: task_energy_storage_battery_fast_charging_profile
+  benchmark: frontier-eng
+  task_name: BatteryFastChargingProfile
+  task_family: energy_storage_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify `scripts/init.py`.
+  - Candidate must define `build_charging_profile()` and return a dict with `currents_c` and `switch_soc`.
+  - Keep the profile deterministic. Do not use randomness.
+  - Optimize for charging speed without violating hard voltage (`4.25 V`) or hard temperature (`47 C`) limits.
+  - Lower plating loss and lower aging loss improve the score, even for feasible solutions.
+  verifier_type: simulator
+  baseline_description: 'Fast charging is valuable only when it is safe and does not induce excessive long-term damage. In
+    industrial battery-management systems, charging policies are usually constrained by three interacting mechanisms:'
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_gradient_explosion
+  recommended_patterns:
+  - output_saturation_clamp
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_energy_storage_battery_fast_charging_sp_me
+  benchmark: frontier-eng
+  task_name: BatteryFastChargingSPMe
+  task_family: energy_storage_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify `scripts/init.py`.
+  - Candidate must define `build_charging_policy()` and return `currents_c` plus `switch_soc`.
+  - Keep the policy deterministic. Do not use randomness.
+  - Optimize charging time while respecting hard voltage, temperature, and plating-margin limits.
+  - Lower aging loss and lower plating loss improve the score even among feasible solutions.
+  verifier_type: simulator
+  baseline_description: 'Extreme fast charging is a constrained optimal-control problem rather than a simple "charge as hard
+    as possible" problem. In practice, high current improves time-to-target but simultaneously:'
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_gradient_explosion
+  recommended_patterns:
+  - output_saturation_clamp
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_inventory_optimization_disruption_eoqd
+  benchmark: frontier-eng
+  task_name: disruption_eoqd
+  task_family: inventory_optimization_optimization
+  domain: Planning_Decision
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Candidate code is `baseline/init.py`; keep public function names and return schema compatible with `verification/evaluate.py`.
+  - Do not modify evaluator/reference logic (`verification/evaluate.py`, `verification/reference.py`).
+  - Keep task contracts in `Task.md` / `Task_zh-CN.md` unchanged.
+  - Ensure the candidate remains deterministic and executable under conda env `stock`.
+  - Evaluation score is read from `output/comparison.json` (`baseline_final_score`).
+  verifier_type: simulator
+  baseline_description: This is a single-variable optimization problem with disruption risk.
+  common_failure_modes:
+  - failure_planning_divergence
+  recommended_patterns:
+  - closed_loop_replanning
+  schema_version: '2.0'
+- id: task_inventory_optimization_finite_horizon_dp
+  benchmark: frontier-eng
+  task_name: finite_horizon_dp
+  task_family: inventory_optimization_optimization
+  domain: Planning_Decision
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Candidate code is `baseline/init.py`; keep public function names and return schema compatible with `verification/evaluate.py`.
+  - Do not modify evaluator/reference logic (`verification/evaluate.py`, `verification/reference.py`).
+  - Keep task contracts in `Task.md` / `Task_zh-CN.md` unchanged.
+  - Ensure the candidate remains deterministic and executable under conda env `stock`.
+  - Evaluation score is read from `output/comparison.json` (`baseline_final_score`).
+  verifier_type: simulator
+  baseline_description: This is a finite-horizon stochastic control problem.
+  common_failure_modes:
+  - failure_planning_divergence
+  recommended_patterns:
+  - closed_loop_replanning
+  schema_version: '2.0'
+- id: task_inventory_optimization_general_meio
+  benchmark: frontier-eng
+  task_name: general_meio
+  task_family: inventory_optimization_optimization
+  domain: Planning_Decision
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Candidate code is `baseline/init.py`; keep public function names and return schema compatible with `verification/evaluate.py`.
+  - Do not modify evaluator/reference logic (`verification/evaluate.py`, `verification/reference.py`).
+  - Keep task contracts in `Task.md` / `Task_zh-CN.md` unchanged.
+  - Ensure the candidate remains deterministic and executable under conda env `stock`.
+  - Evaluation score is read from `output/comparison.json` (`baseline_final_score`).
+  verifier_type: simulator
+  baseline_description: This is a network optimization problem with stochastic demand.
+  common_failure_modes:
+  - failure_planning_divergence
+  recommended_patterns:
+  - closed_loop_replanning
+  schema_version: '2.0'
+- id: task_inventory_optimization_joint_replenishment
+  benchmark: frontier-eng
+  task_name: joint_replenishment
+  task_family: inventory_optimization_optimization
+  domain: Planning_Decision
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Candidate code is `baseline/init.py`; keep public function names and return schema compatible with `verification/evaluate.py`.
+  - Do not modify evaluator/reference logic (`verification/evaluate.py`, `verification/reference.py`).
+  - Keep task contracts in `Task.md` / `Task_zh-CN.md` unchanged.
+  - Ensure the candidate remains deterministic and executable under conda env `stock`.
+  - Evaluation score is read from `output/comparison.json` (`baseline_final_score`).
+  verifier_type: simulator
+  baseline_description: This is a combinational optimization problem with shared setup cost.
+  common_failure_modes:
+  - failure_planning_divergence
+  recommended_patterns:
+  - closed_loop_replanning
+  schema_version: '2.0'
+- id: task_inventory_optimization_tree_gsm_safety_stock
+  benchmark: frontier-eng
+  task_name: tree_gsm_safety_stock
+  task_family: inventory_optimization_optimization
+  domain: Planning_Decision
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Candidate code is `baseline/init.py`; keep public function names and return schema compatible with `verification/evaluate.py`.
+  - Do not modify evaluator/reference logic (`verification/evaluate.py`, `verification/reference.py`).
+  - Keep task contracts in `Task.md` / `Task_zh-CN.md` unchanged.
+  - Ensure the candidate remains deterministic and executable under conda env `stock`.
+  - Evaluation score is read from `output/comparison.json` (`baseline_final_score`).
+  verifier_type: simulator
+  baseline_description: Treat this as a constrained optimization problem on a tree under demand uncertainty.
+  common_failure_modes:
+  - failure_planning_divergence
+  recommended_patterns:
+  - closed_loop_replanning
+  schema_version: '2.0'
+- id: task_job_shop_abz
+  benchmark: frontier-eng
+  task_name: abz
+  task_family: job_shop_optimization
+  domain: Planning_Decision
+  artifact_type: python
+  objective_direction: minimize
+  metric_name: makespan
+  hard_constraints:
+  - Optimize baseline/init.py for this JobShop family.
+  - 'Objective: minimize makespan for classical JSSP instances.'
+  - Keep solution as pure Python (standard library only), no external solver/library usage in baseline.
+  - Preserve expected interfaces used by verification/evaluate.py (e.g., solve_instance output fields).
+  verifier_type: checker_script
+  baseline_description: This task assumes you have general CS background but little/no prior scheduling knowledge.
+  common_failure_modes:
+  - failure_planning_divergence
+  recommended_patterns:
+  - closed_loop_replanning
+  schema_version: '2.0'
+- id: task_job_shop_ft
+  benchmark: frontier-eng
+  task_name: ft
+  task_family: job_shop_optimization
+  domain: Planning_Decision
+  artifact_type: python
+  objective_direction: minimize
+  metric_name: makespan
+  hard_constraints:
+  - Optimize baseline/init.py for this JobShop family.
+  - 'Objective: minimize makespan for classical JSSP instances.'
+  - Keep solution as pure Python (standard library only), no external solver/library usage in baseline.
+  - Preserve expected interfaces used by verification/evaluate.py (e.g., solve_instance output fields).
+  verifier_type: checker_script
+  baseline_description: This task assumes you have general CS background but little/no prior scheduling knowledge.
+  common_failure_modes:
+  - failure_planning_divergence
+  recommended_patterns:
+  - closed_loop_replanning
+  schema_version: '2.0'
+- id: task_job_shop_la
+  benchmark: frontier-eng
+  task_name: la
+  task_family: job_shop_optimization
+  domain: Planning_Decision
+  artifact_type: python
+  objective_direction: minimize
+  metric_name: makespan
+  hard_constraints:
+  - Optimize baseline/init.py for this JobShop family.
+  - 'Objective: minimize makespan for classical JSSP instances.'
+  - Keep solution as pure Python (standard library only), no external solver/library usage in baseline.
+  - Preserve expected interfaces used by verification/evaluate.py (e.g., solve_instance output fields).
+  verifier_type: checker_script
+  baseline_description: This task assumes you have general CS background but little/no prior scheduling knowledge.
+  common_failure_modes:
+  - failure_planning_divergence
+  recommended_patterns:
+  - closed_loop_replanning
+  schema_version: '2.0'
+- id: task_job_shop_orb
+  benchmark: frontier-eng
+  task_name: orb
+  task_family: job_shop_optimization
+  domain: Planning_Decision
+  artifact_type: python
+  objective_direction: minimize
+  metric_name: makespan
+  hard_constraints:
+  - Optimize baseline/init.py for this JobShop family.
+  - 'Objective: minimize makespan for classical JSSP instances.'
+  - Keep solution as pure Python (standard library only), no external solver/library usage in baseline.
+  - Preserve expected interfaces used by verification/evaluate.py (e.g., solve_instance output fields).
+  verifier_type: checker_script
+  baseline_description: This task assumes you have general CS background but little/no prior scheduling knowledge.
+  common_failure_modes:
+  - failure_planning_divergence
+  recommended_patterns:
+  - closed_loop_replanning
+  schema_version: '2.0'
+- id: task_job_shop_swv
+  benchmark: frontier-eng
+  task_name: swv
+  task_family: job_shop_optimization
+  domain: Planning_Decision
+  artifact_type: python
+  objective_direction: minimize
+  metric_name: makespan
+  hard_constraints:
+  - Optimize baseline/init.py for this JobShop family.
+  - 'Objective: minimize makespan for classical JSSP instances.'
+  - Keep solution as pure Python (standard library only), no external solver/library usage in baseline.
+  - Preserve expected interfaces used by verification/evaluate.py (e.g., solve_instance output fields).
+  verifier_type: checker_script
+  baseline_description: This task assumes you have general CS background but little/no prior scheduling knowledge.
+  common_failure_modes:
+  - failure_planning_divergence
+  recommended_patterns:
+  - closed_loop_replanning
+  schema_version: '2.0'
+- id: task_job_shop_ta
+  benchmark: frontier-eng
+  task_name: ta
+  task_family: job_shop_optimization
+  domain: Planning_Decision
+  artifact_type: python
+  objective_direction: minimize
+  metric_name: makespan
+  hard_constraints:
+  - Optimize baseline/init.py for this JobShop family.
+  - 'Objective: minimize makespan for classical JSSP instances.'
+  - Keep solution as pure Python (standard library only), no external solver/library usage in baseline.
+  - Preserve expected interfaces used by verification/evaluate.py (e.g., solve_instance output fields).
+  verifier_type: checker_script
+  baseline_description: This task assumes you have general CS background but little/no prior scheduling knowledge.
+  common_failure_modes:
+  - failure_planning_divergence
+  recommended_patterns:
+  - closed_loop_replanning
+  schema_version: '2.0'
+- id: task_job_shop_yn
+  benchmark: frontier-eng
+  task_name: yn
+  task_family: job_shop_optimization
+  domain: Planning_Decision
+  artifact_type: python
+  objective_direction: minimize
+  metric_name: makespan
+  hard_constraints:
+  - Optimize baseline/init.py for this JobShop family.
+  - 'Objective: minimize makespan for classical JSSP instances.'
+  - Keep solution as pure Python (standard library only), no external solver/library usage in baseline.
+  - Preserve expected interfaces used by verification/evaluate.py (e.g., solve_instance output fields).
+  verifier_type: checker_script
+  baseline_description: This task assumes you have general CS background but little/no prior scheduling knowledge.
+  common_failure_modes:
+  - failure_planning_divergence
+  recommended_patterns:
+  - closed_loop_replanning
+  schema_version: '2.0'
+- id: task_kernel_engineering_flash_attention
+  benchmark: frontier-eng
+  task_name: FlashAttention
+  task_family: kernel_engineering_optimization
+  domain: Systems_Compute
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify `baseline/submission.py`.
+  - Preserve the public entrypoint, function signatures, and output contract expected by `frontier_eval/evaluator.py`.
+  - Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/`
+    metadata.
+  - If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep
+    the expected filename and schema unchanged.
+  - Prioritize validity and correctness before optimization.
+  verifier_type: benchmark_harness
+  baseline_description: Implement an optimized forward kernel for causal scaled dot-product attention.
+  common_failure_modes:
+  - failure_simulator_compile_failure
+  recommended_patterns: []
+  schema_version: '2.0'
+- id: task_kernel_engineering_mla
+  benchmark: frontier-eng
+  task_name: MLA
+  task_family: kernel_engineering_optimization
+  domain: Systems_Compute
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify `baseline/submission.py`.
+  - Preserve the public entrypoint, function signatures, and output contract expected by `frontier_eval/evaluator.py`.
+  - Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/`
+    metadata.
+  - If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep
+    the expected filename and schema unchanged.
+  - Prioritize validity and correctness before optimization.
+  verifier_type: benchmark_harness
+  baseline_description: 'You will implement a custom mla decode kernel optimized for MI300, a few things simplified here:'
+  common_failure_modes:
+  - failure_simulator_compile_failure
+  recommended_patterns: []
+  schema_version: '2.0'
+- id: task_kernel_engineering_tri_mul
+  benchmark: frontier-eng
+  task_name: TriMul
+  task_family: kernel_engineering_optimization
+  domain: Systems_Compute
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify `baseline/submission.py`.
+  - Preserve the public entrypoint, function signatures, and output contract expected by `frontier_eval/evaluator.py`.
+  - Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/`
+    metadata.
+  - If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep
+    the expected filename and schema unchanged.
+  - Prioritize validity and correctness before optimization.
+  verifier_type: benchmark_harness
+  baseline_description: 'For a more complete description, see: https://tinyurl.com/gpumode-trimul You will be implementing
+    a Triangle Multiplicative Update (TriMul) module that is a core operation for AlphaFold3, Chai, Protenix, and other protein
+    structure predicti'
+  common_failure_modes:
+  - failure_simulator_compile_failure
+  recommended_patterns: []
+  schema_version: '2.0'
+- id: task_molecular_mechanics_diverse_conformer_portfolio
+  benchmark: frontier-eng
+  task_name: diverse_conformer_portfolio
+  task_family: molecular_mechanics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify `baseline/init.py`.
+  - 'Keep the CLI contract unchanged: the candidate must accept `--prepared-input` and `--solution-output`.'
+  - Output JSON must contain `selected_conformer_ids` as a mapping from molecule id to exactly `portfolio_size` distinct conformer
+    ids.
+  - Keep the solver deterministic. If you use randomness, seed it explicitly and reproducibly.
+  - Optimize the evaluated portfolio score, not just the candidate's internal predicted score.
+  verifier_type: checker_script
+  baseline_description: A molecule usually has many possible 3D conformers.
+  common_failure_modes:
+  - failure_gradient_explosion
+  recommended_patterns:
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_molecular_mechanics_torsion_profile_fitting
+  benchmark: frontier-eng
+  task_name: torsion_profile_fitting
+  task_family: molecular_mechanics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify `baseline/init.py`.
+  - 'Keep the CLI contract unchanged: the candidate must accept `--prepared-input` and `--solution-output`.'
+  - Output JSON must provide every `term_scale` required by the prepared input and keep each value inside its declared bounds.
+  - Keep the solver deterministic. If you use randomness, seed it explicitly and reproducibly.
+  - Optimize the evaluated torsion-profile score, not just the candidate's internal predicted score.
+  verifier_type: checker_script
+  baseline_description: When a molecule rotates around a bond, different dihedral angles usually have different energies.
+  common_failure_modes:
+  - failure_gradient_explosion
+  recommended_patterns:
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_molecular_mechanics_weighted_parameter_coverage
+  benchmark: frontier-eng
+  task_name: weighted_parameter_coverage
+  task_family: molecular_mechanics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify `baseline/init.py`.
+  - 'Keep the CLI contract unchanged: the candidate must accept `--prepared-input` and `--solution-output`.'
+  - Output JSON must contain `selected_candidate_ids` as a duplicate-free list whose length does not exceed `budget`.
+  - Keep the solver deterministic. If you use randomness, seed it explicitly and reproducibly.
+  - Optimize the evaluated coverage score, not just the candidate's internal predicted score.
+  verifier_type: checker_script
+  baseline_description: In real OpenFF workflows, each molecule activates a set of force-field parameters.
+  common_failure_modes:
+  - failure_gradient_explosion
+  recommended_patterns:
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_optics_adaptive_constrained_dm_control
+  benchmark: frontier-eng
+  task_name: adaptive_constrained_dm_control
+  task_family: optics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: score_0_to_1
+  hard_constraints:
+  - Edit only `baseline/init.py`.
+  - Keep the required public function signatures used by verification scripts.
+  - Do not modify files under `verification/`.
+  - Candidate outputs must be deterministic and finite (no NaN/Inf).
+  verifier_type: benchmark_harness
+  baseline_description: You can view this task as a constrained vector optimization problem in a noisy control loop.
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_gradient_explosion
+  recommended_patterns:
+  - output_saturation_clamp
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_optics_adaptive_energy_aware_control
+  benchmark: frontier-eng
+  task_name: adaptive_energy_aware_control
+  task_family: optics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: score_0_to_1
+  hard_constraints:
+  - Edit only `baseline/init.py`.
+  - Keep the required public function signatures used by verification scripts.
+  - Do not modify files under `verification/`.
+  - Candidate outputs must be deterministic and finite (no NaN/Inf).
+  verifier_type: benchmark_harness
+  baseline_description: This task is a **multi-objective optimization** problem.
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_gradient_explosion
+  recommended_patterns:
+  - output_saturation_clamp
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_optics_adaptive_fault_tolerant_fusion
+  benchmark: frontier-eng
+  task_name: adaptive_fault_tolerant_fusion
+  task_family: optics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: score_0_to_1
+  hard_constraints:
+  - Edit only `baseline/init.py`.
+  - Keep the required public function signatures used by verification scripts.
+  - Do not modify files under `verification/`.
+  - Candidate outputs must be deterministic and finite (no NaN/Inf).
+  verifier_type: benchmark_harness
+  baseline_description: This task is a **robust estimation + control** problem.
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_gradient_explosion
+  recommended_patterns:
+  - output_saturation_clamp
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_optics_adaptive_temporal_smooth_control
+  benchmark: frontier-eng
+  task_name: adaptive_temporal_smooth_control
+  task_family: optics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: score_0_to_1
+  hard_constraints:
+  - Edit only `baseline/init.py`.
+  - Keep the required public function signatures used by verification scripts.
+  - Do not modify files under `verification/`.
+  - Candidate outputs must be deterministic and finite (no NaN/Inf).
+  verifier_type: benchmark_harness
+  baseline_description: This task is a **sequential decision/control** problem.
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_gradient_explosion
+  recommended_patterns:
+  - output_saturation_clamp
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_optics_fiber_dsp_mode_scheduling
+  benchmark: frontier-eng
+  task_name: fiber_dsp_mode_scheduling
+  task_family: optics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: minimize
+  metric_name: ber
+  hard_constraints:
+  - Edit only `baseline/init.py`.
+  - Keep the required public function signatures used by verification scripts.
+  - Do not modify files under `verification/`.
+  - Candidate outputs must be deterministic and finite (no NaN/Inf).
+  verifier_type: simulator
+  baseline_description: 'In coherent optical receivers, there are different DSP processing modes:'
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_gradient_explosion
+  recommended_patterns:
+  - output_saturation_clamp
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_optics_fiber_guardband_spectrum_packing
+  benchmark: frontier-eng
+  task_name: fiber_guardband_spectrum_packing
+  task_family: optics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: minimize
+  metric_name: ber
+  hard_constraints:
+  - Edit only `baseline/init.py`.
+  - Keep the required public function signatures used by verification scripts.
+  - Do not modify files under `verification/`.
+  - Candidate outputs must be deterministic and finite (no NaN/Inf).
+  verifier_type: simulator
+  baseline_description: Elastic optical networking can be modeled as packing variable-width requests into a finite 1D spectrum
+    grid.
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_gradient_explosion
+  recommended_patterns:
+  - output_saturation_clamp
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_optics_fiber_mcs_power_scheduling
+  benchmark: frontier-eng
+  task_name: fiber_mcs_power_scheduling
+  task_family: optics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: throughput
+  hard_constraints:
+  - Edit only `baseline/init.py`.
+  - Keep the required public function signatures used by verification scripts.
+  - Do not modify files under `verification/`.
+  - Candidate outputs must be deterministic and finite (no NaN/Inf).
+  verifier_type: simulator
+  baseline_description: In digital communication, each user link can choose a modulation level (MCS) and transmit power.
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_gradient_explosion
+  recommended_patterns:
+  - output_saturation_clamp
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_optics_fiber_wdm_channel_power_allocation
+  benchmark: frontier-eng
+  task_name: fiber_wdm_channel_power_allocation
+  task_family: optics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: throughput
+  hard_constraints:
+  - Edit only `baseline/init.py`.
+  - Keep the required public function signatures used by verification scripts.
+  - Do not modify files under `verification/`.
+  - Candidate outputs must be deterministic and finite (no NaN/Inf).
+  verifier_type: benchmark_harness
+  baseline_description: In a WDM (Wavelength Division Multiplexing) optical system, multiple users share the same fiber by
+    occupying different wavelength channels.
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_gradient_explosion
+  recommended_patterns:
+  - output_saturation_clamp
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_optics_holographic_multifocus_power_ratio
+  benchmark: frontier-eng
+  task_name: holographic_multifocus_power_ratio
+  task_family: optics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: throughput
+  hard_constraints:
+  - Edit only `baseline/init.py`.
+  - Keep the required public function signatures used by verification scripts.
+  - Do not modify files under `verification/`.
+  - Candidate outputs must be deterministic and finite (no NaN/Inf).
+  verifier_type: checker_script
+  baseline_description: 'You can think of this task as "image formation by a physical compiler":'
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_gradient_explosion
+  recommended_patterns:
+  - output_saturation_clamp
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_optics_holographic_multiplane_focusing
+  benchmark: frontier-eng
+  task_name: holographic_multiplane_focusing
+  task_family: optics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Edit only `baseline/init.py`.
+  - Keep the required public function signatures used by verification scripts.
+  - Do not modify files under `verification/`.
+  - Candidate outputs must be deterministic and finite (no NaN/Inf).
+  verifier_type: checker_script
+  baseline_description: Task 1 is single-plane focusing. Task 2 adds **depth**.
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_gradient_explosion
+  recommended_patterns:
+  - output_saturation_clamp
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_optics_holographic_multispectral_focusing
+  benchmark: frontier-eng
+  task_name: holographic_multispectral_focusing
+  task_family: optics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Edit only `baseline/init.py`.
+  - Keep the required public function signatures used by verification scripts.
+  - Do not modify files under `verification/`.
+  - Candidate outputs must be deterministic and finite (no NaN/Inf).
+  verifier_type: checker_script
+  baseline_description: Different wavelengths (colors) naturally propagate differently.
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_gradient_explosion
+  recommended_patterns:
+  - output_saturation_clamp
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_optics_holographic_polarization_multiplexing
+  benchmark: frontier-eng
+  task_name: holographic_polarization_multiplexing
+  task_family: optics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Edit only `baseline/init.py`.
+  - Keep the required public function signatures used by verification scripts.
+  - Do not modify files under `verification/`.
+  - Candidate outputs must be deterministic and finite (no NaN/Inf).
+  verifier_type: checker_script
+  baseline_description: In polarization multiplexing, the same optical element should behave differently for different input
+    polarization states.
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_gradient_explosion
+  recommended_patterns:
+  - output_saturation_clamp
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_optics_phase_dammann_uniform_orders
+  benchmark: frontier-eng
+  task_name: phase_dammann_uniform_orders
+  task_family: optics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Edit only `baseline/init.py`.
+  - Keep the required public function signatures used by verification scripts.
+  - Do not modify files under `verification/`.
+  - Candidate outputs must be deterministic and finite (no NaN/Inf).
+  verifier_type: simulator
+  baseline_description: This is a **parameter optimization** task.
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_gradient_explosion
+  recommended_patterns:
+  - output_saturation_clamp
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_optics_phase_fourier_pattern_holography
+  benchmark: frontier-eng
+  task_name: phase_fourier_pattern_holography
+  task_family: optics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Edit only `baseline/init.py`.
+  - Keep the required public function signatures used by verification scripts.
+  - Do not modify files under `verification/`.
+  - Candidate outputs must be deterministic and finite (no NaN/Inf).
+  verifier_type: checker_script
+  baseline_description: 'This task is image reconstruction under constraints:'
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_gradient_explosion
+  recommended_patterns:
+  - output_saturation_clamp
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_optics_phase_large_scale_weighted_spot_array
+  benchmark: frontier-eng
+  task_name: phase_large_scale_weighted_spot_array
+  task_family: optics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Edit only `baseline/init.py`.
+  - Keep the required public function signatures used by verification scripts.
+  - Do not modify files under `verification/`.
+  - Candidate outputs must be deterministic and finite (no NaN/Inf).
+  verifier_type: checker_script
+  baseline_description: 'This task is dense multi-target allocation:'
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_gradient_explosion
+  recommended_patterns:
+  - output_saturation_clamp
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_optics_phase_weighted_multispot_single_plane
+  benchmark: frontier-eng
+  task_name: phase_weighted_multispot_single_plane
+  task_family: optics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Edit only `baseline/init.py`.
+  - Keep the required public function signatures used by verification scripts.
+  - Do not modify files under `verification/`.
+  - Candidate outputs must be deterministic and finite (no NaN/Inf).
+  verifier_type: simulator
+  baseline_description: 'You can view this task as a **2D optimization problem**:'
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_gradient_explosion
+  recommended_patterns:
+  - output_saturation_clamp
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_particle_physics_muon_tomography
+  benchmark: frontier-eng
+  task_name: MuonTomography
+  task_family: particle_physics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify `baseline/solution.py`.
+  - Preserve the public entrypoint, function signatures, and output contract expected by `frontier_eval/evaluator.py`.
+  - Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/`
+    metadata.
+  - If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep
+    the expected filename and schema unchanged.
+  - Prioritize validity and correctness before optimization.
+  verifier_type: checker_script
+  baseline_description: Cosmic ray muons are highly penetrating elementary particles commonly used for non-destructive, three-dimensional
+    internal imaging of large structures such as pyramids, mountains, or nuclear reactors. The core principle is transmission
+    radi
+  common_failure_modes:
+  - failure_gradient_explosion
+  - failure_planning_divergence
+  recommended_patterns:
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_particle_physics_proton_therapy_planning
+  benchmark: frontier-eng
+  task_name: ProtonTherapyPlanning
+  task_family: particle_physics_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: throughput
+  hard_constraints: []
+  verifier_type: benchmark_harness
+  baseline_description: Proton therapy is currently one of the most advanced and expensive radiation therapy techniques in
+    the world. While traditional X-rays continuously release energy as they penetrate the human body (causing extensive damage
+    to healthy tissues
+  common_failure_modes:
+  - failure_gradient_explosion
+  - failure_planning_divergence
+  recommended_patterns:
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_power_systems_ev2_gym_smart_charging
+  benchmark: frontier-eng
+  task_name: EV2GymSmartCharging
+  task_family: power_systems_optimization
+  domain: Control_Locomotion
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify optimization logic inside `scripts/init.py` between `EVOLVE-BLOCK-START` and `EVOLVE-BLOCK-END`.
+  - 'Keep the public function signature compatible: `solve(case, max_sim_calls=0, simulate_fn=None)`.'
+  - Return one normalized EV2Gym action per charging port for the current step; every action must stay in `[-1, 1]`.
+  - The evaluator runs the real upstream EV2Gym simulator on three fixed workplace cases derived from copied upstream `V2GProfitPlusLoads.yaml`
+    data.
+  - Score is the mean baseline-normalized upstream `total_reward`; the official `ChargeAsFastAsPossibleToDesiredCapacity`
+    heuristic corresponds to a score of `100`.
+  - Do not modify `verification/evaluator.py` or files under `references/upstream/`.
+  verifier_type: checker_script
+  baseline_description: Design a charging policy for a fixed set of upstream-aligned `EV2Gym` workplace simulations.
+  common_failure_modes:
+  - failure_actuator_output_unbounded
+  - failure_planning_divergence
+  recommended_patterns:
+  - output_saturation_clamp
+  - closed_loop_replanning
+  schema_version: '2.0'
+- id: task_py_portfolio_opt_cvar_stress_control
+  benchmark: frontier-eng
+  task_name: cvar_stress_control
+  task_family: py_portfolio_opt_optimization
+  domain: Planning_Decision
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Edit only `baseline/init.py`.
+  - 'Keep function signature `solve_instance(instance: dict) -> dict`.'
+  - 'Return `{"weights": np.ndarray}` with shape `(N,)` and numeric dtype.'
+  - Respect long-only bounds, target return, sector limits, turnover cap, and budget sum.
+  - Do not modify evaluator/reference files.
+  verifier_type: simulator
+  baseline_description: You are allocating a long-only portfolio using scenario returns.
+  common_failure_modes:
+  - failure_planning_divergence
+  - failure_gradient_explosion
+  recommended_patterns:
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_py_portfolio_opt_discrete_rebalance_mip
+  benchmark: frontier-eng
+  task_name: discrete_rebalance_mip
+  task_family: py_portfolio_opt_optimization
+  domain: Planning_Decision
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Edit only `baseline/init.py`.
+  - 'Keep function signature `solve_instance(instance: dict) -> dict`.'
+  - 'Return `{"lots": np.ndarray}` with integer lot counts and shape `(N,)`.'
+  - Respect budget, turnover notional limit, max lots, and lot integrality.
+  - Do not modify evaluator/reference files.
+  verifier_type: checker_script
+  baseline_description: You have target portfolio weights from a model, but execution must use integer lots.
+  common_failure_modes:
+  - failure_planning_divergence
+  - failure_gradient_explosion
+  recommended_patterns:
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_py_portfolio_opt_robust_mvo_rebalance
+  benchmark: frontier-eng
+  task_name: robust_mvo_rebalance
+  task_family: py_portfolio_opt_optimization
+  domain: Planning_Decision
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Edit only `baseline/init.py`.
+  - 'Keep function signature `solve_instance(instance: dict) -> dict`.'
+  - 'Return `{"weights": np.ndarray}` with shape `(N,)` and numeric dtype.'
+  - 'Respect practical constraints in the task: bounds, sector/factor exposure, turnover, and budget sum.'
+  - Do not modify evaluator/reference files.
+  verifier_type: checker_script
+  baseline_description: You are implementing a portfolio rebalancer for an equity strategy.
+  common_failure_modes:
+  - failure_planning_divergence
+  - failure_gradient_explosion
+  recommended_patterns:
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_reaction_optimisation_dtlz2_pareto
+  benchmark: frontier-eng
+  task_name: dtlz2_pareto
+  task_family: reaction_optimisation_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Edit only `baseline/solution.py`.
+  - 'Keep the `solve(seed: int = 0, budget: int = task.DEFAULT_BUDGET) -> dict` entry point working.'
+  - Preserve the `# EVOLVE-BLOCK-START` / `# EVOLVE-BLOCK-END` markers.
+  - Respect the evaluation budget and return a result dict with `history` and `summary`.
+  - Do not modify task definitions or verification/reference files.
+  verifier_type: checker_script
+  baseline_description: This is a synthetic multi-objective optimization task. The benchmark maps six continuous inputs to
+    two continuous objectives, and your goal is to approximate the Pareto front as well as possible under a small budget.
+  common_failure_modes:
+  - failure_gradient_explosion
+  - failure_planning_divergence
+  recommended_patterns:
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_reaction_optimisation_mit_case1_mixed
+  benchmark: frontier-eng
+  task_name: mit_case1_mixed
+  task_family: reaction_optimisation_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Edit only `baseline/solution.py`.
+  - 'Keep the `solve(seed: int = 0, budget: int = task.DEFAULT_BUDGET) -> dict` entry point working.'
+  - Preserve the `# EVOLVE-BLOCK-START` / `# EVOLVE-BLOCK-END` markers.
+  - Respect the evaluation budget and return a result dict with `history` and `summary`.
+  - Do not modify task definitions or verification/reference files.
+  verifier_type: checker_script
+  baseline_description: This is a small but realistic mixed-variable optimization task. You want to maximize reaction yield,
+    but one of the design variables is categorical, so the search space is not purely continuous.
+  common_failure_modes:
+  - failure_gradient_explosion
+  - failure_planning_divergence
+  recommended_patterns:
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_reaction_optimisation_reizman_suzuki_pareto
+  benchmark: frontier-eng
+  task_name: reizman_suzuki_pareto
+  task_family: reaction_optimisation_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Edit only `baseline/solution.py`.
+  - 'Keep the `solve(seed: int = 0, budget: int = task.DEFAULT_BUDGET) -> dict` entry point working.'
+  - Preserve the `# EVOLVE-BLOCK-START` / `# EVOLVE-BLOCK-END` markers.
+  - Respect the evaluation budget and return a result dict with `history` and `summary`.
+  - Do not modify task definitions or verification/reference files.
+  verifier_type: checker_script
+  baseline_description: 'This task models catalyst and process optimization for a Suzuki coupling benchmark. You must choose:'
+  common_failure_modes:
+  - failure_gradient_explosion
+  - failure_planning_divergence
+  recommended_patterns:
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_reaction_optimisation_snar_multiobjective
+  benchmark: frontier-eng
+  task_name: snar_multiobjective
+  task_family: reaction_optimisation_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: throughput
+  hard_constraints:
+  - Edit only `baseline/solution.py`.
+  - 'Keep the `solve(seed: int = 0, budget: int = task.DEFAULT_BUDGET) -> dict` entry point working.'
+  - Preserve the `# EVOLVE-BLOCK-START` / `# EVOLVE-BLOCK-END` markers.
+  - Respect the evaluation budget and return a result dict with `history` and `summary`.
+  - Do not modify task definitions or verification/reference files.
+  verifier_type: checker_script
+  baseline_description: This task models a continuous-flow reaction optimization loop. You choose reaction conditions, run
+    a black-box experiment, observe two outputs, and repeat until you run out of budget.
+  common_failure_modes:
+  - failure_gradient_explosion
+  - failure_planning_divergence
+  recommended_patterns:
+  - gradient_clipping
+  schema_version: '2.0'
+- id: task_robotics_co_flyers_vasarhelyi_tuning
+  benchmark: frontier-eng
+  task_name: CoFlyersVasarhelyiTuning
+  task_family: robotics_optimization
+  domain: Control_Locomotion
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Candidate code is `scripts/init.py` and must keep `solve(problem)` callable.
+  - '`solve(problem)` must return a dict containing tuned Vasarhelyi `params`, or a dict of parameter updates directly.'
+  - 'Only tune the released CoFlyers Vasarhelyi parameters: r_rep_0, p_rep, r_frict_0, c_frict, v_frict, p_frict, a_frict,
+    r_shill_0, v_shill, p_shill, a_shill.'
+  - Do not modify `verification/evaluator.py`, `references/coflyers_cases.json`, or files under `frontier_eval/`.
+  - 'Optimize the original CoFlyers evaluation_0 behavior: stronger alignment and speed with fewer collisions and wall contacts.'
+  verifier_type: simulator
+  baseline_description: This task asks the agent to tune `Vasarhelyi` flocking parameters on the publicly released CoFlyers
+    cases.
+  common_failure_modes:
+  - failure_pid_integrator_windup
+  - failure_actuator_output_unbounded
+  - failure_actuator_clamp_missing
+  recommended_patterns:
+  - anti_windup_pid
+  - output_saturation_clamp
+  - closed_loop_replanning
+  schema_version: '2.0'
+- id: task_robotics_dynamic_obstacle_avoidance_navigation
+  benchmark: frontier-eng
+  task_name: DynamicObstacleAvoidanceNavigation
+  task_family: robotics_optimization
+  domain: Control_Locomotion
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify `baseline/solution.py`.
+  - Preserve the public entrypoint, function signatures, and output contract expected by `frontier_eval/evaluator.py`.
+  - Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/`
+    metadata.
+  - If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep
+    the expected filename and schema unchanged.
+  - Prioritize validity and correctness before optimization.
+  verifier_type: simulator
+  baseline_description: Mobile robots in warehouses, factories, and hospitals must move quickly while safely avoiding moving
+    objects (workers, carts, AGVs).
+  common_failure_modes:
+  - failure_pid_integrator_windup
+  - failure_actuator_output_unbounded
+  - failure_actuator_clamp_missing
+  recommended_patterns:
+  - anti_windup_pid
+  - output_saturation_clamp
+  - closed_loop_replanning
+  schema_version: '2.0'
+- id: task_robotics_pid_tuning
+  benchmark: frontier-eng
+  task_name: PIDTuning
+  task_family: robotics_optimization
+  domain: Control_Locomotion
+  artifact_type: python
+  objective_direction: minimize
+  metric_name: itae
+  hard_constraints:
+  - Only modify `scripts/init.py`.
+  - Preserve the public entrypoint, function signatures, and output contract expected by `frontier_eval/evaluator.py`.
+  - Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/`
+    metadata.
+  - If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep
+    the expected filename and schema unchanged.
+  - Prioritize validity and correctness before optimization.
+  verifier_type: simulator
+  baseline_description: Tune 12 gains of a cascaded PID controller for a 2D quadrotor.
+  common_failure_modes:
+  - failure_pid_integrator_windup
+  - failure_actuator_output_unbounded
+  - failure_actuator_clamp_missing
+  recommended_patterns:
+  - anti_windup_pid
+  - output_saturation_clamp
+  - closed_loop_replanning
+  schema_version: '2.0'
+- id: task_robotics_quadruped_gait_optimization
+  benchmark: frontier-eng
+  task_name: QuadrupedGaitOptimization
+  task_family: robotics_optimization
+  domain: Control_Locomotion
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify `baseline/solution.py`.
+  - Preserve the public entrypoint, function signatures, and output contract expected by `frontier_eval/evaluator.py`.
+  - Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/`
+    metadata.
+  - If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep
+    the expected filename and schema unchanged.
+  - Prioritize validity and correctness before optimization.
+  verifier_type: simulator
+  baseline_description: Quadruped locomotion quality depends strongly on gait parameters (frequency, duty ratio, phase offsets,
+    and stride geometry).
+  common_failure_modes:
+  - failure_pid_integrator_windup
+  - failure_actuator_output_unbounded
+  - failure_actuator_clamp_missing
+  recommended_patterns:
+  - anti_windup_pid
+  - output_saturation_clamp
+  - closed_loop_replanning
+  schema_version: '2.0'
+- id: task_robotics_robot_arm_cycle_time_optimization
+  benchmark: frontier-eng
+  task_name: RobotArmCycleTimeOptimization
+  task_family: robotics_optimization
+  domain: Control_Locomotion
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: throughput
+  hard_constraints:
+  - Only modify `baseline/solution.py`.
+  - Preserve the public entrypoint, function signatures, and output contract expected by `frontier_eval/evaluator.py`.
+  - Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/`
+    metadata.
+  - If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep
+    the expected filename and schema unchanged.
+  - Prioritize validity and correctness before optimization.
+  verifier_type: checker_script
+  baseline_description: In production-line pick-and-place, reducing cycle time while respecting robot hardware constraints
+    directly increases throughput.
+  common_failure_modes:
+  - failure_pid_integrator_windup
+  - failure_actuator_output_unbounded
+  - failure_actuator_clamp_missing
+  recommended_patterns:
+  - anti_windup_pid
+  - output_saturation_clamp
+  - closed_loop_replanning
+  schema_version: '2.0'
+- id: task_robotics_uav_inspection_coverage_with_wind
+  benchmark: frontier-eng
+  task_name: UAVInspectionCoverageWithWind
+  task_family: robotics_optimization
+  domain: Control_Locomotion
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify `baseline/solution.py`.
+  - Preserve the public entrypoint, function signatures, and output contract expected by `frontier_eval/evaluator.py`.
+  - Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/`
+    metadata.
+  - If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep
+    the expected filename and schema unchanged.
+  - Prioritize validity and correctness before optimization.
+  verifier_type: simulator
+  baseline_description: In industrial inspection and infrastructure monitoring, UAVs must cover distributed inspection points
+    while handling wind disturbance and strict safety constraints.
+  common_failure_modes:
+  - failure_pid_integrator_windup
+  - failure_actuator_output_unbounded
+  - failure_actuator_clamp_missing
+  recommended_patterns:
+  - anti_windup_pid
+  - output_saturation_clamp
+  - closed_loop_replanning
+  schema_version: '2.0'
+- id: task_single_cell_analysis_denoising
+  benchmark: frontier-eng
+  task_name: denoising
+  task_family: single_cell_analysis_optimization
+  domain: Learning_Training
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints: []
+  verifier_type: checker_script
+  baseline_description: While single-cell RNA sequencing (scRNA-seq) is a powerful technology, current sequencing protocols
+    can typically only detect a small fraction of the mRNA molecules present in each individual cell. This extremely low capture
+    rate results in
+  common_failure_modes:
+  - failure_gradient_explosion
+  - failure_ppo_entropy_collapse
+  recommended_patterns:
+  - gradient_clipping
+  - ppo_entropy_collapse_guard
+  schema_version: '2.0'
+- id: task_single_cell_analysis_denoising_ttt
+  benchmark: frontier-eng
+  task_name: denoising_ttt
+  task_family: single_cell_analysis_optimization
+  domain: Learning_Training
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints: []
+  verifier_type: checker_script
+  baseline_description: While single-cell RNA sequencing (scRNA-seq) is a powerful technology, current sequencing protocols
+    can typically only detect a small fraction of the mRNA molecules present in each individual cell. This extremely low capture
+    rate results in
+  common_failure_modes:
+  - failure_gradient_explosion
+  - failure_ppo_entropy_collapse
+  recommended_patterns:
+  - gradient_clipping
+  - ppo_entropy_collapse_guard
+  schema_version: '2.0'
+- id: task_single_cell_analysis_perturbation_prediction
+  benchmark: frontier-eng
+  task_name: perturbation_prediction
+  task_family: single_cell_analysis_optimization
+  domain: Learning_Training
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints: []
+  verifier_type: checker_script
+  baseline_description: Single-cell perturbation screens measure how a chemical (small-molecule) perturbation changes gene
+    expression in
+  common_failure_modes:
+  - failure_gradient_explosion
+  - failure_ppo_entropy_collapse
+  recommended_patterns:
+  - gradient_clipping
+  - ppo_entropy_collapse_guard
+  schema_version: '2.0'
+- id: task_single_cell_analysis_predict_modality
+  benchmark: frontier-eng
+  task_name: predict_modality
+  task_family: single_cell_analysis_optimization
+  domain: Learning_Training
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify `baseline/run_mean_per_gene.py`.
+  - Preserve the public entrypoint, function signatures, and output contract expected by `frontier_eval/evaluator.py`.
+  - Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/`
+    metadata.
+  - If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep
+    the expected filename and schema unchanged.
+  - Prioritize validity and correctness before optimization.
+  verifier_type: checker_script
+  baseline_description: Multi-modal single-cell assays (e.g., CITE-seq measuring RNA + surface proteins) enable deeper characterization
+    of cell
+  common_failure_modes:
+  - failure_gradient_explosion
+  - failure_ppo_entropy_collapse
+  recommended_patterns:
+  - gradient_clipping
+  - ppo_entropy_collapse_guard
+  schema_version: '2.0'
+- id: task_structural_optimization_iscso2015
+  benchmark: frontier-eng
+  task_name: ISCSO2015
+  task_family: structural_optimization_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify `scripts/init.py`.
+  - Preserve the public entrypoint, function signatures, and output contract expected by `frontier_eval/evaluator.py`.
+  - Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/`
+    metadata.
+  - If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep
+    the expected filename and schema unchanged.
+  - Prioritize validity and correctness before optimization.
+  verifier_type: checker_script
+  baseline_description: 'Minimize weight of 2D planar truss structure:'
+  common_failure_modes:
+  - failure_gradient_explosion
+  - failure_actuator_output_unbounded
+  recommended_patterns:
+  - gradient_clipping
+  - output_saturation_clamp
+  schema_version: '2.0'
+- id: task_structural_optimization_iscso2023
+  benchmark: frontier-eng
+  task_name: ISCSO2023
+  task_family: structural_optimization_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify `scripts/init.py`.
+  - Preserve the public entrypoint, function signatures, and output contract expected by `frontier_eval/evaluator.py`.
+  - Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/`
+    metadata.
+  - If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep
+    the expected filename and schema unchanged.
+  - Prioritize validity and correctness before optimization.
+  verifier_type: checker_script
+  baseline_description: 'Minimize weight of 3D tower truss structure:'
+  common_failure_modes:
+  - failure_gradient_explosion
+  - failure_actuator_output_unbounded
+  recommended_patterns:
+  - gradient_clipping
+  - output_saturation_clamp
+  schema_version: '2.0'
+- id: task_structural_optimization_py_motosimp_compliance
+  benchmark: frontier-eng
+  task_name: PyMOTOSIMPCompliance
+  task_family: structural_optimization_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Candidate file is `scripts/init.py`; keep output file contract (`temp/submission.json`) and field `density_vector`.
+  - 'Keep benchmark setup fixed: hard-coded cantilever load/boundary condition and volume-fraction-constrained compliance
+    objective.'
+  - Keep evaluator and metadata files unchanged (`verification/`, `frontier_eval/`, `references/problem_config.json`).
+  - Candidate may modify update rules, filters, and step-size strategy only inside `scripts/init.py`.
+  - Output density must satisfy shape `nely x nelx` and values in [rho_min, 1].
+  verifier_type: checker_script
+  baseline_description: Design a material density field for a 2D load-bearing structure under a fixed volume-fraction budget.
+  common_failure_modes:
+  - failure_gradient_explosion
+  - failure_actuator_output_unbounded
+  recommended_patterns:
+  - gradient_clipping
+  - output_saturation_clamp
+  schema_version: '2.0'
+- id: task_structural_optimization_topology_optimization
+  benchmark: frontier-eng
+  task_name: TopologyOptimization
+  task_family: structural_optimization_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Only modify `scripts/init.py`.
+  - Preserve the public entrypoint, function signatures, and output contract expected by `frontier_eval/evaluator.py`.
+  - Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/`
+    metadata.
+  - If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep
+    the expected filename and schema unchanged.
+  - Prioritize validity and correctness before optimization.
+  verifier_type: checker_script
+  baseline_description: Optimize the density field of a 2D MBB beam under a fixed material budget.
+  common_failure_modes:
+  - failure_gradient_explosion
+  - failure_actuator_output_unbounded
+  recommended_patterns:
+  - gradient_clipping
+  - output_saturation_clamp
+  schema_version: '2.0'
+- id: task_sustainable_data_center_control_hand_written_control
+  benchmark: frontier-eng
+  task_name: hand_written_control
+  task_family: sustainable_data_center_control_optimization
+  domain: Control_Locomotion
+  artifact_type: python
+  objective_direction: maximize
+  metric_name: combined_score
+  hard_constraints:
+  - Edit only `baseline/solution.py`.
+  - Keep `decide_actions(observations) -> dict` working; `reset_policy()` is optional.
+  - Return exactly one valid discrete action for `agent_ls`, `agent_dc`, and `agent_bat`.
+  - Keep the policy deterministic and self-contained at evaluation time.
+  - Do not modify the evaluator, benchmark core, or the vendored `sustaindc/` checkout.
+  verifier_type: simulator
+  baseline_description: Write a function that controls the three original SustainDC agents without training a model.
+  common_failure_modes:
+  - failure_planning_divergence
+  recommended_patterns:
+  - closed_loop_replanning
+  - exponential_backoff_retry
+  schema_version: '2.0'
+- id: task_wireless_channel_simulation_high_reliable_simulation
+  benchmark: frontier-eng
+  task_name: HighReliableSimulation
+  task_family: wireless_channel_simulation_optimization
+  domain: World_Physics
+  artifact_type: python
+  objective_direction: minimize
+  metric_name: ber
+  hard_constraints:
+  - Only modify `scripts/init.py`.
+  - Preserve the public entrypoint, function signatures, and output contract expected by `frontier_eval/evaluator.py`.
+  - Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/`
+    metadata.
+  - If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep
+    the expected filename and schema unchanged.
+  - Prioritize validity and correctness before optimization.
+  verifier_type: checker_script
+  baseline_description: Estimate BER for Hamming(127,120) over AWGN in a rare-event regime.
+  common_failure_modes:
+  - failure_simulator_compile_failure
+  - failure_gradient_explosion
+  recommended_patterns:
+  - gradient_clipping
+  schema_version: '2.0'

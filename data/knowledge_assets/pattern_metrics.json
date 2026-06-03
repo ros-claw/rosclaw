@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "win_delta_threshold": 0.05,
+  "min_sample_size": 5,
+  "patterns": {
+    "anti_windup_pid": {
+      "pattern_id": "anti_windup_pid",
+      "n": 7,
+      "uplift_mean": -0.1205,
+      "uplift_std": 0.0,
+      "win_rate": 0.0,
+      "last_seen": "2026-05-17T21:00:55+00:00"
+    },
+    "closed_loop_replanning": {
+      "pattern_id": "closed_loop_replanning",
+      "n": 6,
+      "uplift_mean": 0.1613,
+      "uplift_std": 0.0,
+      "win_rate": 1.0,
+      "last_seen": "2026-05-17T21:00:57+00:00"
+    },
+    "output_saturation_clamp": {
+      "pattern_id": "output_saturation_clamp",
+      "n": 8,
+      "uplift_mean": 0.1569,
+      "uplift_std": 0.0,
+      "win_rate": 1.0,
+      "last_seen": "2026-05-17T21:00:56+00:00"
+    },
+    "pattern_deepmind_nfnets": {
+      "pattern_id": "pattern_deepmind_nfnets",
+      "n": 7,
+      "uplift_mean": -0.1035,
+      "uplift_std": 0.0,
+      "win_rate": 0.0,
+      "last_seen": "2026-05-17T21:00:58+00:00"
+    },
+    "pattern_high_level_planner": {
+      "pattern_id": "pattern_high_level_planner",
+      "n": 7,
+      "uplift_mean": 0.1776,
+      "uplift_std": 0.0,
+      "win_rate": 1.0,
+      "last_seen": "2026-05-17T21:00:58+00:00"
+    },
+    "sliding_window_kv_cache": {
+      "pattern_id": "sliding_window_kv_cache",
+      "n": 11,
+      "uplift_mean": -0.1035,
+      "uplift_std": 0.0,
+      "win_rate": 0.0,
+      "last_seen": "2026-05-17T21:00:58+00:00"
+    }
+  }
+}

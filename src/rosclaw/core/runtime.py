@@ -107,6 +107,8 @@ class Runtime(LifecycleMixin):
         self._swarm: Optional[Any] = None
         self._skill_manager: Optional[Any] = None
         self._knowledge: Optional[Any] = None
+        self._knowledge_batch: Optional[Any] = None  # v1.5 — KnowledgeBatchEngine
+        self._knowledge_assets: Optional[Any] = None  # v1.5 — AssetsLoader
         self._how: Optional[Any] = None
         self._e_urdf: Optional[Any] = None
         self._robot_profile: Optional[Any] = None
@@ -287,6 +289,35 @@ class Runtime(LifecycleMixin):
                 # Seed knowledge_graph with baseline data
                 if seekdb is not None:
                     seed_knowledge_graph(seekdb)
+
+                # v1.5: spawn KnowledgeBatchEngine + AssetsLoader.  Both
+                # are inert when rosclaw-know is not installed; failures
+                # here MUST NOT kill the runtime — the query side keeps
+                # working with its hard-coded fallback patterns.
+                try:
+                    from rosclaw.know.batch_engine import KnowledgeBatchEngine
+                    self._knowledge_batch = KnowledgeBatchEngine(
+                        runtime=self,
+                        assets_path="data/knowledge_assets",
+                    )
+                    self._modules.append(self._knowledge_batch)
+                    logger.info(
+                        "Knowledge Batch Engine initialized (active=%s)",
+                        self._knowledge_batch.is_active,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.info(f"KnowledgeBatchEngine not initialized: {e}")
+
+                try:
+                    from rosclaw.know.assets_loader import AssetsLoader
+                    self._knowledge_assets = AssetsLoader(
+                        runtime=self,
+                        assets_path="data/knowledge_assets",
+                    )
+                    self._modules.append(self._knowledge_assets)
+                    logger.info("Knowledge AssetsLoader initialized")
+                except Exception as e:  # noqa: BLE001
+                    logger.info(f"AssetsLoader not initialized: {e}")
             except ImportError as e:
                 logger.info(f"Knowledge module not available: {e}")
 

@@ -1,0 +1,132 @@
+# Sprint 6: hint-feature registry.
+#
+# Maps pattern_id → list of regex patterns used by
+# :func:`rosclaw_know.evidence_writer.detect_hint_use` to decide whether an
+# agent's code_diff_summary actually contains the structural change the
+# hint suggested.
+#
+# Each entry covers one or more compiled patterns (Sprint 4 markdowns).
+# Patterns are case-insensitive Python regex (compiled with re.IGNORECASE
+# at lookup time).  Use ``\b...\b`` only when you really need word
+# boundaries — diff summaries are paraphrased prose, not code.
+#
+# Reference: plan §8.2 ("hint feature taxonomy by task type").
+
+schema_version: "2.0"
+
+hint_features:
+
+  # ── PID / control family (Plan §8.2 row "PID") ─────────────────────────
+
+  compiled_zero_integral_gain_on_saturation:
+    - "zero[\\s_-]+integral"
+    - "ki[\\s_-]*=[\\s_-]*0"
+    - "set\\s+ki"
+    - "integral[\\s_-]+gain[\\s_-]+(to[\\s_-]+)?zero"
+    - "anti[\\s_-]+windup"
+    - "back[\\s_-]+calculat"
+
+  compiled_controller_output_clamp:
+    - "clamp"
+    - "saturat"
+    - "np\\.clip"
+    - "torch\\.clamp"
+    - "min\\s*\\(.*max\\s*\\("
+    - "limit\\s+(the\\s+)?(output|command)"
+    - "actuator\\s+bound"
+
+  # ── Systems / kernel optimisation (Plan §8.2 row "CUDA") ──────────────
+
+  compiled_vectorize_inner_loop:
+    - "vectoris(e|ed|ing|ation)"
+    - "vectorize"
+    - "numpy\\s+broadcast"
+    - "remove\\s+(the\\s+)?python\\s+loop"
+    - "triton"
+    - "tiling"
+    - "shared\\s+memory"
+    - "block\\s*size"
+    - "online[\\s_-]+softmax"
+    - "warp[\\s_-]+level"
+
+  # ── Optimiser / search (Plan §8.2 row "Scheduling") ───────────────────
+
+  compiled_add_time_budget:
+    - "time[\\s_-]+budget"
+    - "wall[\\s_-]*clock"
+    - "early[\\s_-]+stop"
+    - "deadline"
+    - "time\\.time"
+    - "timeout"
+
+  compiled_generic_time_budget:
+    - "time[\\s_-]+budget"
+    - "wall[\\s_-]*clock"
+    - "deadline"
+
+  compiled_swap_random_search_to_structured_optimizer:
+    - "cma[\\s_-]*es"
+    - "bayes(ian)?\\s+optim"
+    - "tpe"
+    - "differential[\\s_-]+evolution"
+    - "scipy\\.optimize"
+    - "scikit[\\s_-]+optimize"
+    - "swap.*random[\\s_-]+search"
+    - "replace.*random[\\s_-]+search"
+
+  compiled_warm_start_from_prior_best:
+    - "warm[\\s_-]+start"
+    - "prior[\\s_-]+best"
+    - "load.*best.*from"
+    - "init.*from.*prior"
+    - "seed.*from.*prior"
+    - "cache.*best.*solution"
+
+  compiled_add_boundary_validation:
+    - "assert\\s+"
+    - "input\\s+validation"
+    - "boundary\\s+check"
+    - "range\\s+check"
+    - "raise\\s+(value|type|index)\\s*error"
+    - "isfinite"
+    - "isnan"
+
+  # ── Robotics / planning (Plan §8.2 row "Robotics") ────────────────────
+
+  pattern_collision_check_before_move:
+    - "collision\\s+(margin|check|free|avoid)"
+    - "swept\\s+volume"
+    - "occupancy"
+    - "tebplanner"
+    - "ompl"
+
+  pattern_trajectory_smoothing:
+    - "trajector(y|ies)\\s+smooth"
+    - "lowpass"
+    - "savitzky"
+    - "spline\\s+(fit|smooth)"
+    - "polynomial\\s+smooth"
+
+  # ── Crypto (Plan §8.2 row "Crypto") ───────────────────────────────────
+
+  pattern_aes_ttable:
+    - "t[\\s_-]*table"
+    - "precomputed\\s+table"
+    - "lookup\\s+table"
+    - "sbox.*lookup"
+
+  pattern_aes_branchless:
+    - "branchless"
+    - "constant[\\s_-]+time"
+    - "ct[\\s_-]+select"
+    - "bitslic(e|ed)"
+    - "unroll(ed)?\\s+loop"
+
+  # ── Memory_Reasoning (KV-cache) ───────────────────────────────────────
+
+  pattern_kv_cache_sliding_window:
+    - "sliding\\s+window"
+    - "window\\s+attention"
+    - "kv[\\s_-]+cache.*evict"
+    - "page\\s+attention"
+    - "context\\s+window\\s+limit"

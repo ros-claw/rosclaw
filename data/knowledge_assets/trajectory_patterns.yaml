@@ -1,0 +1,834 @@
+schema_version: '2.0'
+benchmark: frontier-eng
+n_trajectories: 602
+n_candidates: 20
+candidate_patterns:
+- id: candidate_add_boundary_validation
+  task_family: unknown_optimization
+  failure_id: null
+  diagnosis: Successful runs insert finiteness / range checks at the boundary of their solver so a NaN or invalid output is
+    caught before the evaluator returns 'infeasible'.  Catches a large fraction of soft failures in Frontier-Eng's pure-Python
+    tasks.
+  successful_mutations:
+  - kind: add_input_validation
+    description: added boundary / finiteness check on intermediate value
+    target_identifier: null
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: feasibility rate stays high even on novel candidate configurations.
+  contraindications: []
+  evidence_count: 55
+  avg_score_delta: null
+  source_trajectory_ids:
+  - experiment1__openevolve__claude-opus-4.6__Aerodynamics_CarAerodynamicsSensing
+  - experiment1__openevolve__claude-opus-4.6__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__claude-opus-4.6__KernelEngineering_MLA
+  - experiment1__openevolve__claude-opus-4.6__SingleCellAnalysis_predict_modality
+  - experiment1__openevolve__deepseek-v3.2__Aerodynamics_CarAerodynamicsSensing
+  - experiment1__openevolve__deepseek-v3.2__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__deepseek-v3.2__KernelEngineering_MLA
+  - experiment1__openevolve__deepseek-v3.2__SingleCellAnalysis_predict_modality
+  - experiment1__openevolve__gemini-3.1-pro-preview__Aerodynamics_CarAerodynamicsSensing
+  - experiment1__openevolve__gemini-3.1-pro-preview__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__gemini-3.1-pro-preview__KernelEngineering_MLA
+  - experiment1__openevolve__gemini-3.1-pro-preview__SingleCellAnalysis_predict_modality
+  - experiment1__openevolve__glm-5__Aerodynamics_CarAerodynamicsSensing
+  - experiment1__openevolve__glm-5__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__glm-5__KernelEngineering_MLA
+  - experiment1__openevolve__glm-5__SingleCellAnalysis_predict_modality
+  - experiment1__openevolve__gpt-5.4__Aerodynamics_CarAerodynamicsSensing
+  - experiment1__openevolve__gpt-5.4__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__gpt-5.4__KernelEngineering_MLA
+  - experiment1__openevolve__gpt-5.4__SingleCellAnalysis_predict_modality
+  - experiment1__openevolve__grok-4.20__Aerodynamics_CarAerodynamicsSensing
+  - experiment1__openevolve__grok-4.20__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__grok-4.20__KernelEngineering_MLA
+  - experiment1__openevolve__grok-4.20__SingleCellAnalysis_predict_modality
+  - experiment1__openevolve__qwen3-coder-next__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__qwen3-coder-next__KernelEngineering_MLA
+  - experiment1__openevolve__qwen3-coder-next__SingleCellAnalysis_predict_modality
+  - experiment1__openevolve__seed-2.0-pro__Aerodynamics_CarAerodynamicsSensing
+  - experiment1__openevolve__seed-2.0-pro__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__seed-2.0-pro__KernelEngineering_MLA
+  - experiment1__openevolve__seed-2.0-pro__SingleCellAnalysis_predict_modality
+  - experiment2__abmcts__claude-opus-4.6__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__abmcts__claude-opus-4.6__SingleCellAnalysis_predict_modality
+  - experiment2__abmcts__gpt-oss-120b__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__abmcts__gpt-oss-120b__Astrodynamics_MannedLunarLanding
+  - experiment2__abmcts__gpt-oss-120b__InventoryOptimization_disruption_eoqd
+  - experiment2__abmcts__gpt-oss-120b__KernelEngineering_MLA
+  - experiment2__openevolve__claude-opus-4.6__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__openevolve__claude-opus-4.6__Astrodynamics_MannedLunarLanding
+  - experiment2__openevolve__claude-opus-4.6__KernelEngineering_MLA
+  - experiment2__openevolve__claude-opus-4.6__SingleCellAnalysis_predict_modality
+  - experiment2__openevolve__gpt-oss-120b__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__openevolve__gpt-oss-120b__Astrodynamics_MannedLunarLanding
+  - experiment2__openevolve__gpt-oss-120b__InventoryOptimization_disruption_eoqd
+  - experiment2__openevolve__gpt-oss-120b__KernelEngineering_MLA
+  - experiment2__openevolve__gpt-oss-120b__SingleCellAnalysis_predict_modality
+  - experiment2__shinkaevolve__claude-opus-4.6__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__shinkaevolve__claude-opus-4.6__Astrodynamics_MannedLunarLanding
+  - experiment2__shinkaevolve__claude-opus-4.6__KernelEngineering_MLA
+  - experiment2__shinkaevolve__claude-opus-4.6__SingleCellAnalysis_predict_modality
+  - experiment2__shinkaevolve__gpt-oss-120b__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__shinkaevolve__gpt-oss-120b__Astrodynamics_MannedLunarLanding
+  - experiment2__shinkaevolve__gpt-oss-120b__KernelEngineering_MLA
+  - experiment2__shinkaevolve__gpt-oss-120b__Robotics_QuadrupedGaitOptimization
+  - experiment2__shinkaevolve__gpt-oss-120b__SingleCellAnalysis_predict_modality
+  schema_version: '2.0'
+- id: candidate_add_time_budget
+  task_family: robotics_optimization
+  failure_id: null
+  diagnosis: A structured optimizer with no wall-clock guard can run past the evaluator timeout and lose the run entirely.  Successful
+    entries gate their search on ``time.time() < deadline``.
+  successful_mutations:
+  - kind: add_time_budget
+    description: added wall-clock time budget guard
+    target_identifier: null
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: evaluator returncode stays 0 even when the search explores deep alternatives.
+  contraindications: []
+  evidence_count: 4
+  avg_score_delta: null
+  source_trajectory_ids:
+  - experiment1__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__abmcts__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__shinkaevolve__claude-opus-4.6__Robotics_PIDTuning
+  schema_version: '2.0'
+- id: candidate_aes_branchless_select
+  task_family: cryptographic_optimization
+  failure_id: failure_aes_timing_side_channel
+  diagnosis: Conditional moves and ``a if cond else b`` ternaries leak whether the secret key bit was 0 or 1 via branch-predictor
+    state.  Successful runs convert secret-dependent branches into bitmask-driven branchless selects.
+  successful_mutations:
+  - kind: add_branchless_select
+    description: introduced a branchless / constant-time select in place of an if-branch
+    target_identifier: null
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: timing-side-channel test in the verifier (when present) stops flagging correlated wall-clock per
+    key bit.
+  contraindications:
+  - branchless selects on every comparison can hurt throughput on hot paths that are *not* secret-dependent — apply selectively.
+  evidence_count: 66
+  avg_score_delta: null
+  source_trajectory_ids:
+  - experiment1__openevolve__claude-opus-4.6__Cryptographic_AES-128
+  - experiment1__openevolve__claude-opus-4.6__InventoryOptimization_finite_horizon_dp
+  - experiment1__openevolve__claude-opus-4.6__Optics_fiber_wdm_channel_power_allocation
+  - experiment1__openevolve__claude-opus-4.6__Optics_holographic_multifocus_power_ratio
+  - experiment1__openevolve__claude-opus-4.6__Optics_holographic_multiplane_focusing
+  - experiment1__openevolve__claude-opus-4.6__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__deepseek-v3.2__Optics_fiber_guardband_spectrum_packing
+  - experiment1__openevolve__deepseek-v3.2__Optics_fiber_wdm_channel_power_allocation
+  - experiment1__openevolve__deepseek-v3.2__Optics_holographic_multifocus_power_ratio
+  - experiment1__openevolve__deepseek-v3.2__Optics_holographic_multiplane_focusing
+  - experiment1__openevolve__gemini-3.1-pro-preview__Aerodynamics_CarAerodynamicsSensing
+  - experiment1__openevolve__gemini-3.1-pro-preview__Optics_holographic_multifocus_power_ratio
+  - experiment1__openevolve__gemini-3.1-pro-preview__Optics_holographic_multiplane_focusing
+  - experiment1__openevolve__gemini-3.1-pro-preview__Optics_phase_fourier_pattern_holography
+  - experiment1__openevolve__gemini-3.1-pro-preview__Robotics_RobotArmCycleTimeOptimization
+  - experiment1__openevolve__glm-5__Optics_fiber_wdm_channel_power_allocation
+  - experiment1__openevolve__glm-5__Optics_holographic_multifocus_power_ratio
+  - experiment1__openevolve__glm-5__Optics_holographic_multiplane_focusing
+  - experiment1__openevolve__glm-5__Optics_phase_fourier_pattern_holography
+  - experiment1__openevolve__glm-5__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__gpt-5.4__ComputerSystems_MallocLab
+  - experiment1__openevolve__grok-4.20__Optics_holographic_multifocus_power_ratio
+  - experiment1__openevolve__grok-4.20__Optics_holographic_multiplane_focusing
+  - experiment1__openevolve__grok-4.20__Optics_phase_dammann_uniform_orders
+  - experiment1__openevolve__grok-4.20__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__qwen3-coder-next__Aerodynamics_CarAerodynamicsSensing
+  - experiment1__openevolve__qwen3-coder-next__Optics_holographic_multifocus_power_ratio
+  - experiment1__openevolve__qwen3-coder-next__Optics_holographic_multiplane_focusing
+  - experiment1__openevolve__seed-2.0-pro__Optics_fiber_guardband_spectrum_packing
+  - experiment1__openevolve__seed-2.0-pro__Optics_holographic_multifocus_power_ratio
+  - experiment1__openevolve__seed-2.0-pro__Optics_holographic_multiplane_focusing
+  - experiment1__openevolve__seed-2.0-pro__Robotics_RobotArmCycleTimeOptimization
+  - experiment2__abmcts__claude-opus-4.6__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__abmcts__claude-opus-4.6__KernelEngineering_FlashAttention
+  - experiment2__abmcts__claude-opus-4.6__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__abmcts__claude-opus-4.6__Optics_holographic_multifocus_power_ratio
+  - experiment2__abmcts__claude-opus-4.6__Optics_holographic_multiplane_focusing
+  - experiment2__abmcts__claude-opus-4.6__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__abmcts__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__abmcts__claude-opus-4.6__StructuralOptimization_TopologyOptimization
+  - experiment2__abmcts__gpt-oss-120b__Optics_holographic_multifocus_power_ratio
+  - experiment2__abmcts__gpt-oss-120b__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__openevolve__claude-opus-4.6__Cryptographic_AES-128
+  - experiment2__openevolve__claude-opus-4.6__InventoryOptimization_finite_horizon_dp
+  - experiment2__openevolve__claude-opus-4.6__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__openevolve__claude-opus-4.6__Optics_holographic_multifocus_power_ratio
+  - experiment2__openevolve__claude-opus-4.6__Optics_holographic_multiplane_focusing
+  - experiment2__openevolve__claude-opus-4.6__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__openevolve__gpt-oss-120b__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__openevolve__gpt-oss-120b__Optics_holographic_multifocus_power_ratio
+  - experiment2__openevolve__gpt-oss-120b__Optics_holographic_multiplane_focusing
+  - experiment2__openevolve__gpt-oss-120b__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__openevolve__gpt-oss-120b__StructuralOptimization_TopologyOptimization
+  - experiment2__shinkaevolve__claude-opus-4.6__Cryptographic_SHA-256
+  - experiment2__shinkaevolve__claude-opus-4.6__InventoryOptimization_finite_horizon_dp
+  - experiment2__shinkaevolve__claude-opus-4.6__Optics_fiber_mcs_power_scheduling
+  - experiment2__shinkaevolve__claude-opus-4.6__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__shinkaevolve__claude-opus-4.6__Optics_holographic_multifocus_power_ratio
+  - experiment2__shinkaevolve__claude-opus-4.6__StructuralOptimization_ISCSO2015
+  - experiment2__shinkaevolve__claude-opus-4.6__StructuralOptimization_ISCSO2023
+  - experiment2__shinkaevolve__gpt-oss-120b__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__shinkaevolve__gpt-oss-120b__Optics_phase_fourier_pattern_holography
+  - experiment2__shinkaevolve__gpt-oss-120b__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__shinkaevolve__gpt-oss-120b__StructuralOptimization_ISCSO2023
+  - synthetic__aes-128
+  - synthetic__flashattention
+  schema_version: '2.0'
+- id: candidate_aes_constant_time_compare
+  task_family: cryptographic_optimization
+  failure_id: failure_aes_early_exit_compare
+  diagnosis: Default ``memcmp``-style equality stops at the first mismatching byte; that lets an attacker recover MAC tags
+    one byte at a time.  Successful runs swap to a fixed-time comparison routine that XORs every byte.
+  successful_mutations:
+  - kind: add_constant_time_compare
+    description: replaced early-exit memcmp with a constant-time comparison helper
+    target_identifier: null
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: verifier's tag-validation tests still pass; timing test (if any) reports flat wall-clock independent
+    of mismatch position.
+  contraindications: []
+  evidence_count: 1
+  avg_score_delta: null
+  source_trajectory_ids:
+  - synthetic__aes-128
+  schema_version: '2.0'
+- id: candidate_aes_unroll_round_structure
+  task_family: cryptographic_optimization
+  failure_id: failure_aes_branch_mispredict
+  diagnosis: Looping over the 10 AES rounds keeps a loop counter live in a register and exposes a predictable but non-free
+    branch.  Top entries hard-unroll the round schedule (or add ``#pragma unroll``) so the rounds fuse with surrounding arithmetic.
+  successful_mutations:
+  - kind: unroll_loop
+    description: manually unrolled round structure (symbol count rose above baseline)
+    target_identifier: null
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: throughput per block goes up without losing correctness on test vectors.
+  contraindications:
+  - manual unrolling can blow the I-cache on smaller cores; prefer the pragma form when available.
+  evidence_count: 4
+  avg_score_delta: null
+  source_trajectory_ids:
+  - experiment1__openevolve__qwen3-coder-next__Cryptographic_AES-128
+  - experiment1__openevolve__seed-2.0-pro__Cryptographic_SHA-256
+  - experiment2__shinkaevolve__gpt-oss-120b__Cryptographic_AES-128
+  - synthetic__aes-128
+  schema_version: '2.0'
+- id: candidate_aes_use_precomputed_tables
+  task_family: cryptographic_optimization
+  failure_id: failure_aes_byte_op_overhead
+  diagnosis: Per-byte AES (sbox lookup → shift rows → mix columns in separate stages) is dominated by byte-level arithmetic
+    overhead.  Top runs precompute T-tables (or merge sbox+mixcol into one 32-bit lookup) so each round becomes four XORed
+    table loads.
+  successful_mutations:
+  - kind: add_lookup_table
+    description: added lookup table rcon
+    target_identifier: rcon
+    score_delta: null
+    schema_version: '2.0'
+  - kind: add_lookup_table
+    description: added lookup table sbox
+    target_identifier: sbox
+    score_delta: null
+    schema_version: '2.0'
+  - kind: add_lookup_table
+    description: added lookup table te0
+    target_identifier: te0
+    score_delta: null
+    schema_version: '2.0'
+  - kind: add_lookup_table
+    description: added lookup table te1
+    target_identifier: te1
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: throughput rises; verifier reports correct ciphertext for every test vector at higher MB/s.
+  contraindications:
+  - do not embed the actual sbox bytes into the pattern — ship the *structural* recommendation ("add a 256-entry lookup table
+    indexed by state byte"), not the bytes themselves (plan §3.5).
+  - T-tables increase code size and instruction cache pressure — verify on the target machine before adopting.
+  evidence_count: 1
+  avg_score_delta: null
+  source_trajectory_ids:
+  - synthetic__aes-128
+  schema_version: '2.0'
+- id: candidate_controller_output_clamp
+  task_family: robotics_optimization
+  failure_id: failure_actuator_clamp_missing
+  diagnosis: Successful runs explicitly clamp the controller command to the actuator's physical range before it leaves the
+    control function.  Relying on downstream code to clip is a frequent source of saturation-induced instability.
+  successful_mutations:
+  - kind: add_output_clamp
+    description: added output clamp on desired_pitch
+    target_identifier: desired_pitch
+    score_delta: null
+    schema_version: '2.0'
+  - kind: add_output_clamp
+    description: added output clamp on T_cmd
+    target_identifier: T_cmd
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: feasibility stays valid even on aggressive maneuvers; thrust / torque never exceeds its bound.
+  contraindications:
+  - clamps must be applied *before* the actuator-lag filter, not after, or the command will spike at the next sample
+  evidence_count: 14
+  avg_score_delta: null
+  source_trajectory_ids:
+  - experiment1__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment1__openevolve__deepseek-v3.2__Robotics_PIDTuning
+  - experiment1__openevolve__gemini-3.1-pro-preview__Robotics_PIDTuning
+  - experiment1__openevolve__glm-5__Robotics_PIDTuning
+  - experiment1__openevolve__gpt-5.4__Robotics_PIDTuning
+  - experiment1__openevolve__grok-4.20__Robotics_PIDTuning
+  - experiment1__openevolve__qwen3-coder-next__Robotics_PIDTuning
+  - experiment1__openevolve__seed-2.0-pro__Robotics_PIDTuning
+  - experiment2__abmcts__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__abmcts__gpt-oss-120b__Robotics_PIDTuning
+  - experiment2__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__openevolve__gpt-oss-120b__Robotics_PIDTuning
+  - experiment2__shinkaevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__shinkaevolve__gpt-oss-120b__Robotics_PIDTuning
+  schema_version: '2.0'
+- id: candidate_cuda_async_global_to_shared_copy
+  task_family: kernel_engineering_optimization
+  failure_id: failure_cuda_blocking_load
+  diagnosis: Loading inputs with a synchronous ``ldg`` / ``__ldcs`` stall-the-warp pattern leaves the compute units idle.  Successful
+    runs schedule the next tile's load via ``cp.async`` / ``tl.async_copy`` so the current tile's MMAs run concurrently.
+  successful_mutations:
+  - kind: add_async_copy
+    description: introduced asynchronous global→shared copies to overlap load with compute
+    target_identifier: null
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: Nsight reports the load stage and compute stage overlapping; total kernel time drops.
+  contraindications:
+  - async copies require careful ``cp.async.wait_group`` fences — missing fences are a correctness bug, not a perf bug.
+  evidence_count: 1
+  avg_score_delta: null
+  source_trajectory_ids:
+  - synthetic__flashattention
+  schema_version: '2.0'
+- id: candidate_cuda_shared_memory_tiling
+  task_family: kernel_engineering_optimization
+  failure_id: failure_cuda_global_memory_bound
+  diagnosis: When the same input element is read by multiple threads (e.g. K in attention, A row in matmul), leaving it in
+    global memory dominates the kernel time.  Top entries stage the reused tiles into shared memory (or Triton's ``tl.load``
+    + tile loop) before the inner reduction.
+  successful_mutations:
+  - kind: add_shared_memory_tile
+    description: promoted reused inputs into shared-memory tiles before the inner reduction
+    target_identifier: null
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: tokens-per-sec or GB/s climbs; correctness vs reference kernel stays within tolerance.
+  contraindications:
+  - shared memory is a scarce resource — over-tiling forces low occupancy and may regress.  Tile size must respect ``cudaDeviceGetAttribute(maxSharedMemoryPerBlock)``.
+  - tile boundaries must guard against masked / partial loads or you'll silently read garbage on the edge.
+  evidence_count: 2
+  avg_score_delta: null
+  source_trajectory_ids:
+  - experiment2__abmcts__claude-opus-4.6__KernelEngineering_FlashAttention
+  - synthetic__flashattention
+  schema_version: '2.0'
+- id: candidate_cuda_tune_block_size
+  task_family: kernel_engineering_optimization
+  failure_id: failure_cuda_occupancy_too_low
+  diagnosis: Default block sizes are conservative.  Top entries expose BLOCK_M / BLOCK_N / num_warps / num_stages as tunable
+    constants and pick values that maximise occupancy while keeping shared-memory + register footprint within budget.
+  successful_mutations:
+  - kind: adjust_block_size
+    description: introduced block-size constant BLOCK_M
+    target_identifier: BLOCK_M
+    score_delta: null
+    schema_version: '2.0'
+  - kind: adjust_block_size
+    description: introduced block-size constant BLOCK_N
+    target_identifier: BLOCK_N
+    score_delta: null
+    schema_version: '2.0'
+  - kind: adjust_block_size
+    description: introduced block-size constant num_stages
+    target_identifier: num_stages
+    score_delta: null
+    schema_version: '2.0'
+  - kind: adjust_block_size
+    description: introduced block-size constant num_warps
+    target_identifier: num_warps
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: throughput rises on the target device; reduced number of register-spill warnings.
+  contraindications:
+  - 'do not hard-code the tuned values — keep them as named constants so an agent on a different SM count can re-tune.  Plan
+    §3.5: ship the *symbol*, not the answer.'
+  evidence_count: 1
+  avg_score_delta: null
+  source_trajectory_ids:
+  - synthetic__flashattention
+  schema_version: '2.0'
+- id: candidate_cuda_warp_specialization
+  task_family: kernel_engineering_optimization
+  failure_id: failure_cuda_load_compute_serialization
+  diagnosis: On Hopper-class GPUs, splitting warps into producer (``cp.async`` loaders) and consumer (compute) roles lets
+    the next tile load overlap with the current tile's MMA work, doubling effective tensor-core utilisation.
+  successful_mutations:
+  - kind: add_warp_specialization
+    description: split warps into producer / consumer roles for double-buffered load + compute
+    target_identifier: null
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: throughput climbs on Hopper / Ampere targets; tensor-core SOL grows in Nsight.
+  contraindications:
+  - older architectures (sm < 80) cannot benefit and may regress because of the extra synchronisation.
+  evidence_count: 1
+  avg_score_delta: null
+  source_trajectory_ids:
+  - synthetic__flashattention
+  schema_version: '2.0'
+- id: candidate_generic_time_budget
+  task_family: optics_optimization
+  failure_id: null
+  diagnosis: Structured optimisers can overrun the per-task wall clock if left ungated.  Top entries explicitly check ``time.time()
+    < deadline`` inside their search loop.
+  successful_mutations:
+  - kind: add_time_budget
+    description: added wall-clock time budget guard
+    target_identifier: null
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: evaluator returncode stays 0; no wall-clock-timeout infeasibility.
+  contraindications: []
+  evidence_count: 14
+  avg_score_delta: null
+  source_trajectory_ids:
+  - experiment1__openevolve__claude-opus-4.6__Optics_fiber_guardband_spectrum_packing
+  - experiment1__openevolve__claude-opus-4.6__QuantumComputing_task_03_cross_target_qaoa
+  - experiment1__openevolve__glm-5__Optics_holographic_multiplane_focusing
+  - experiment2__abmcts__claude-opus-4.6__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__abmcts__claude-opus-4.6__QuantumComputing_task_01_routing_qftentangled
+  - experiment2__abmcts__claude-opus-4.6__QuantumComputing_task_02_clifford_t_synthesis
+  - experiment2__abmcts__gpt-oss-120b__Optics_phase_dammann_uniform_orders
+  - experiment2__abmcts__gpt-oss-120b__StructuralOptimization_ISCSO2023
+  - experiment2__openevolve__claude-opus-4.6__Optics_fiber_guardband_spectrum_packing
+  - experiment2__openevolve__claude-opus-4.6__QuantumComputing_task_03_cross_target_qaoa
+  - experiment2__openevolve__gpt-oss-120b__Optics_fiber_guardband_spectrum_packing
+  - experiment2__shinkaevolve__claude-opus-4.6__Optics_fiber_guardband_spectrum_packing
+  - experiment2__shinkaevolve__claude-opus-4.6__QuantumComputing_task_03_cross_target_qaoa
+  - experiment2__shinkaevolve__claude-opus-4.6__Robotics_QuadrupedGaitOptimization
+  schema_version: '2.0'
+- id: candidate_sched_explicit_dependency_constraints
+  task_family: job_shop_optimization
+  failure_id: failure_sched_dependency_violations
+  diagnosis: Schedulers that treat precedence / resource caps as post-hoc checks produce infeasible schedules they then have
+    to repair.  Top entries thread the constraints through the dispatch loop so every candidate operation is feasibility-clean
+    before it lands on a machine.
+  successful_mutations:
+  - kind: add_dependency_constraint
+    description: explicitly threaded precedence / resource-capacity constraints through the scheduler
+    target_identifier: null
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: validity_preservation_rate stays high even on dense instances; fewer repair iterations needed.
+  contraindications: []
+  evidence_count: 4
+  avg_score_delta: null
+  source_trajectory_ids:
+  - experiment1__openevolve__qwen3-coder-next__JobShop_swv
+  - experiment2__shinkaevolve__gpt-oss-120b__JobShop_swv
+  - experiment2__shinkaevolve__gpt-oss-120b__JobShop_ta
+  - synthetic__jobshop_abz
+  schema_version: '2.0'
+- id: candidate_sched_explicit_operation_ordering
+  task_family: job_shop_optimization
+  failure_id: failure_sched_arrival_order_makespan
+  diagnosis: Many jobshop baselines schedule operations in their input order, which leaves a lot of slack on the table.  Top
+    entries explicitly sort the operation list by a priority key (SPT, EDD, slack-based) before dispatch.
+  successful_mutations:
+  - kind: reorder_operations
+    description: added an explicit ordering pass over the job/operation list before scheduling
+    target_identifier: null
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: makespan drops; verifier reports lower bound met more often.
+  contraindications:
+  - static priority rules struggle on instances with high resource contention — keep the rule swappable.
+  evidence_count: 42
+  avg_score_delta: null
+  source_trajectory_ids:
+  - experiment1__openevolve__claude-opus-4.6__JobShop_abz
+  - experiment1__openevolve__claude-opus-4.6__JobShop_swv
+  - experiment1__openevolve__claude-opus-4.6__Optics_fiber_guardband_spectrum_packing
+  - experiment1__openevolve__claude-opus-4.6__Optics_fiber_mcs_power_scheduling
+  - experiment1__openevolve__claude-opus-4.6__QuantumComputing_task_01_routing_qftentangled
+  - experiment1__openevolve__claude-opus-4.6__ReactionOptimisation_reizman_suzuki_pareto
+  - experiment1__openevolve__deepseek-v3.2__ReactionOptimisation_reizman_suzuki_pareto
+  - experiment1__openevolve__deepseek-v3.2__ReactionOptimisation_snar_multiobjective
+  - experiment1__openevolve__glm-5__JobShop_swv
+  - experiment1__openevolve__grok-4.20__JobShop_abz
+  - experiment1__openevolve__qwen3-coder-next__Optics_fiber_guardband_spectrum_packing
+  - experiment1__openevolve__qwen3-coder-next__ReactionOptimisation_reizman_suzuki_pareto
+  - experiment1__openevolve__qwen3-coder-next__ReactionOptimisation_snar_multiobjective
+  - experiment1__openevolve__qwen3-coder-next__Robotics_PIDTuning
+  - experiment1__openevolve__seed-2.0-pro__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__abmcts__claude-opus-4.6__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__abmcts__claude-opus-4.6__JobShop_abz
+  - experiment2__abmcts__claude-opus-4.6__Optics_phase_dammann_uniform_orders
+  - experiment2__openevolve__claude-opus-4.6__JobShop_abz
+  - experiment2__openevolve__claude-opus-4.6__JobShop_swv
+  - experiment2__openevolve__claude-opus-4.6__Optics_fiber_guardband_spectrum_packing
+  - experiment2__openevolve__claude-opus-4.6__Optics_fiber_mcs_power_scheduling
+  - experiment2__openevolve__claude-opus-4.6__QuantumComputing_task_01_routing_qftentangled
+  - experiment2__openevolve__claude-opus-4.6__ReactionOptimisation_mit_case1_mixed
+  - experiment2__openevolve__claude-opus-4.6__ReactionOptimisation_reizman_suzuki_pareto
+  - experiment2__openevolve__gpt-oss-120b__Optics_fiber_guardband_spectrum_packing
+  - experiment2__shinkaevolve__claude-opus-4.6__InventoryOptimization_general_meio
+  - experiment2__shinkaevolve__claude-opus-4.6__JobShop_abz
+  - experiment2__shinkaevolve__claude-opus-4.6__JobShop_swv
+  - experiment2__shinkaevolve__claude-opus-4.6__JobShop_ta
+  - experiment2__shinkaevolve__claude-opus-4.6__Optics_fiber_mcs_power_scheduling
+  - experiment2__shinkaevolve__claude-opus-4.6__Optics_phase_dammann_uniform_orders
+  - experiment2__shinkaevolve__claude-opus-4.6__ReactionOptimisation_mit_case1_mixed
+  - experiment2__shinkaevolve__claude-opus-4.6__Robotics_QuadrupedGaitOptimization
+  - experiment2__shinkaevolve__claude-opus-4.6__StructuralOptimization_ISCSO2015
+  - experiment2__shinkaevolve__claude-opus-4.6__StructuralOptimization_ISCSO2023
+  - experiment2__shinkaevolve__gpt-oss-120b__JobShop_swv
+  - experiment2__shinkaevolve__gpt-oss-120b__JobShop_ta
+  - experiment2__shinkaevolve__gpt-oss-120b__Optics_fiber_mcs_power_scheduling
+  - experiment2__shinkaevolve__gpt-oss-120b__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__shinkaevolve__gpt-oss-120b__StructuralOptimization_ISCSO2023
+  - synthetic__jobshop_abz
+  schema_version: '2.0'
+- id: candidate_sched_named_dispatch_rule
+  task_family: job_shop_optimization
+  failure_id: failure_sched_greedy_dispatch_bias
+  diagnosis: Switching to a *named* dispatch rule (Johnson's rule, first-fit-decreasing, backward scheduling) gives the scheduler
+    optimisation hooks (e.g. early ready-list compaction) that anonymous dispatch loops lack.
+  successful_mutations:
+  - kind: add_dispatch_rule
+    description: adopted dispatch rule best-fit
+    target_identifier: best-fit
+    score_delta: null
+    schema_version: '2.0'
+  - kind: add_dispatch_rule
+    description: adopted dispatch rule best fit
+    target_identifier: best fit
+    score_delta: null
+    schema_version: '2.0'
+  - kind: add_dispatch_rule
+    description: adopted dispatch rule dispatch rule
+    target_identifier: dispatch rule
+    score_delta: null
+    schema_version: '2.0'
+  - kind: add_dispatch_rule
+    description: adopted dispatch rule apply_johnson_rule
+    target_identifier: apply_johnson_rule
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: improved utilisation; same instance solved in fewer dispatch decisions.
+  contraindications: []
+  evidence_count: 5
+  avg_score_delta: null
+  source_trajectory_ids:
+  - experiment1__openevolve__deepseek-v3.2__ComputerSystems_MallocLab
+  - experiment2__shinkaevolve__claude-opus-4.6__ComputerSystems_MallocLab
+  - experiment2__shinkaevolve__gpt-oss-120b__ComputerSystems_MallocLab
+  - experiment2__shinkaevolve__gpt-oss-120b__JobShop_ta
+  - synthetic__jobshop_abz
+  schema_version: '2.0'
+- id: candidate_sched_priority_heuristic
+  task_family: job_shop_optimization
+  failure_id: failure_sched_no_priority_rule
+  diagnosis: Adding a named priority key (SPT / EDD / LPT / slack / critical-ratio) turns ad-hoc dispatch into a principled
+    selection that survives larger instances.
+  successful_mutations:
+  - kind: add_priority_heuristic
+    description: added scheduling priority heuristic lpt
+    target_identifier: lpt
+    score_delta: null
+    schema_version: '2.0'
+  - kind: add_priority_heuristic
+    description: added scheduling priority heuristic longest processing time
+    target_identifier: longest processing time
+    score_delta: null
+    schema_version: '2.0'
+  - kind: add_priority_heuristic
+    description: added scheduling priority heuristic shortest processing time
+    target_identifier: shortest processing time
+    score_delta: null
+    schema_version: '2.0'
+  - kind: add_priority_heuristic
+    description: added scheduling priority heuristic priority_key
+    target_identifier: priority_key
+    score_delta: null
+    schema_version: '2.0'
+  - kind: add_priority_heuristic
+    description: added scheduling priority heuristic slack time
+    target_identifier: slack time
+    score_delta: null
+    schema_version: '2.0'
+  - kind: add_priority_heuristic
+    description: added scheduling priority heuristic critical ratio
+    target_identifier: critical ratio
+    score_delta: null
+    schema_version: '2.0'
+  - kind: add_priority_heuristic
+    description: added scheduling priority heuristic priority_score
+    target_identifier: priority_score
+    score_delta: null
+    schema_version: '2.0'
+  - kind: add_priority_heuristic
+    description: added scheduling priority heuristic due_date
+    target_identifier: due_date
+    score_delta: null
+    schema_version: '2.0'
+  - kind: add_priority_heuristic
+    description: added scheduling priority heuristic shortest-processing-time
+    target_identifier: shortest-processing-time
+    score_delta: null
+    schema_version: '2.0'
+  - kind: add_priority_heuristic
+    description: added scheduling priority heuristic spt
+    target_identifier: spt
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: makespan / tardiness reduction; ablation shows the named key beats the unsorted baseline.
+  contraindications:
+  - do not embed *specific weight* values in the pattern — the *kind* of priority (SPT vs slack) is the lesson, the coefficients
+    vary per instance.
+  evidence_count: 29
+  avg_score_delta: null
+  source_trajectory_ids:
+  - experiment1__openevolve__claude-opus-4.6__JobShop_abz
+  - experiment1__openevolve__claude-opus-4.6__JobShop_swv
+  - experiment1__openevolve__claude-opus-4.6__JobShop_ta
+  - experiment1__openevolve__deepseek-v3.2__JobShop_abz
+  - experiment1__openevolve__deepseek-v3.2__JobShop_swv
+  - experiment1__openevolve__gemini-3.1-pro-preview__JobShop_swv
+  - experiment1__openevolve__glm-5__JobShop_abz
+  - experiment1__openevolve__glm-5__JobShop_swv
+  - experiment1__openevolve__glm-5__JobShop_ta
+  - experiment1__openevolve__grok-4.20__JobShop_swv
+  - experiment1__openevolve__grok-4.20__JobShop_ta
+  - experiment1__openevolve__qwen3-coder-next__JobShop_abz
+  - experiment1__openevolve__seed-2.0-pro__JobShop_abz
+  - experiment1__openevolve__seed-2.0-pro__JobShop_ta
+  - experiment2__abmcts__claude-opus-4.6__JobShop_swv
+  - experiment2__openevolve__claude-opus-4.6__JobShop_abz
+  - experiment2__openevolve__claude-opus-4.6__JobShop_swv
+  - experiment2__openevolve__claude-opus-4.6__JobShop_ta
+  - experiment2__openevolve__gpt-oss-120b__JobShop_abz
+  - experiment2__openevolve__gpt-oss-120b__JobShop_swv
+  - experiment2__shinkaevolve__claude-opus-4.6__InventoryOptimization_finite_horizon_dp
+  - experiment2__shinkaevolve__claude-opus-4.6__JobShop_abz
+  - experiment2__shinkaevolve__claude-opus-4.6__JobShop_swv
+  - experiment2__shinkaevolve__claude-opus-4.6__JobShop_ta
+  - experiment2__shinkaevolve__gpt-oss-120b__JobShop_abz
+  - experiment2__shinkaevolve__gpt-oss-120b__JobShop_swv
+  - experiment2__shinkaevolve__gpt-oss-120b__JobShop_ta
+  - experiment2__shinkaevolve__gpt-oss-120b__StructuralOptimization_ISCSO2023
+  - synthetic__jobshop_abz
+  schema_version: '2.0'
+- id: candidate_swap_random_search_to_structured_optimizer
+  task_family: robotics_optimization
+  failure_id: null
+  diagnosis: Random search saturates well below the achievable score on PID-tuning tasks within the iteration budget.  Top
+    runs replace it with a structured optimizer (CMA-ES, Bayesian, differential evolution).
+  successful_mutations:
+  - kind: swap_optimizer
+    description: swapped optimizer from random search to CMA-ES-style strategy
+    target_identifier: null
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: score climbs monotonically past the random-search plateau before the time budget elapses.
+  contraindications:
+  - do not run unbounded — pair with an explicit time budget so the search returns before the wall clock expires (see candidate_add_time_budget)
+  evidence_count: 5
+  avg_score_delta: null
+  source_trajectory_ids:
+  - experiment1__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__abmcts__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__shinkaevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__shinkaevolve__gpt-oss-120b__Robotics_PIDTuning
+  schema_version: '2.0'
+- id: candidate_vectorize_inner_loop
+  task_family: unknown_optimization
+  failure_id: null
+  diagnosis: Top-scoring runs replace explicit Python iteration over candidate arrays with numpy / array-form operations.  The
+    inner-loop call overhead dominates wall-clock budget on score-bounded benchmarks.
+  successful_mutations:
+  - kind: vectorize_loop
+    description: replaced explicit Python loop with numpy array form
+    target_identifier: null
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: more candidates evaluated within the same time budget; score plateau pushed further.
+  contraindications:
+  - do not vectorise if the inner step has data-dependent branches — branchless numpy ops will compute discarded work and
+    may even regress.
+  evidence_count: 60
+  avg_score_delta: null
+  source_trajectory_ids:
+  - experiment1__openevolve__claude-opus-4.6__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__claude-opus-4.6__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__claude-opus-4.6__ReactionOptimisation_mit_case1_mixed
+  - experiment1__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment1__openevolve__claude-opus-4.6__Robotics_RobotArmCycleTimeOptimization
+  - experiment1__openevolve__deepseek-v3.2__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__deepseek-v3.2__Optics_fiber_wdm_channel_power_allocation
+  - experiment1__openevolve__deepseek-v3.2__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__deepseek-v3.2__ReactionOptimisation_snar_multiobjective
+  - experiment1__openevolve__gemini-3.1-pro-preview__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__glm-5__Optics_fiber_mcs_power_scheduling
+  - experiment1__openevolve__glm-5__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__glm-5__Robotics_DynamicObstacleAvoidanceNavigation
+  - experiment1__openevolve__glm-5__Robotics_RobotArmCycleTimeOptimization
+  - experiment1__openevolve__gpt-5.4__Optics_phase_dammann_uniform_orders
+  - experiment1__openevolve__gpt-5.4__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__gpt-5.4__Robotics_RobotArmCycleTimeOptimization
+  - experiment1__openevolve__grok-4.20__Optics_fiber_mcs_power_scheduling
+  - experiment1__openevolve__grok-4.20__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__qwen3-coder-next__Optics_fiber_guardband_spectrum_packing
+  - experiment1__openevolve__qwen3-coder-next__Optics_phase_dammann_uniform_orders
+  - experiment1__openevolve__qwen3-coder-next__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment1__openevolve__qwen3-coder-next__Robotics_UAVInspectionCoverageWithWind
+  - experiment1__openevolve__seed-2.0-pro__Astrodynamics_MannedLunarLanding
+  - experiment1__openevolve__seed-2.0-pro__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__abmcts__claude-opus-4.6__Aerodynamics_CarAerodynamicsSensing
+  - experiment2__abmcts__claude-opus-4.6__InventoryOptimization_finite_horizon_dp
+  - experiment2__abmcts__claude-opus-4.6__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__abmcts__claude-opus-4.6__ReactionOptimisation_mit_case1_mixed
+  - experiment2__abmcts__claude-opus-4.6__ReactionOptimisation_reizman_suzuki_pareto
+  - experiment2__abmcts__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__abmcts__claude-opus-4.6__Robotics_QuadrupedGaitOptimization
+  - experiment2__abmcts__claude-opus-4.6__Robotics_RobotArmCycleTimeOptimization
+  - experiment2__abmcts__claude-opus-4.6__StructuralOptimization_TopologyOptimization
+  - experiment2__abmcts__gpt-oss-120b__Optics_fiber_mcs_power_scheduling
+  - experiment2__abmcts__gpt-oss-120b__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__openevolve__claude-opus-4.6__Astrodynamics_MannedLunarLanding
+  - experiment2__openevolve__claude-opus-4.6__Optics_fiber_mcs_power_scheduling
+  - experiment2__openevolve__claude-opus-4.6__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__openevolve__claude-opus-4.6__Robotics_RobotArmCycleTimeOptimization
+  - experiment2__openevolve__gpt-oss-120b__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__openevolve__gpt-oss-120b__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__openevolve__gpt-oss-120b__SingleCellAnalysis_predict_modality
+  - experiment2__shinkaevolve__claude-opus-4.6__Astrodynamics_MannedLunarLanding
+  - experiment2__shinkaevolve__claude-opus-4.6__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__shinkaevolve__claude-opus-4.6__Optics_phase_dammann_uniform_orders
+  - experiment2__shinkaevolve__claude-opus-4.6__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__shinkaevolve__claude-opus-4.6__ReactionOptimisation_mit_case1_mixed
+  - experiment2__shinkaevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__shinkaevolve__claude-opus-4.6__Robotics_RobotArmCycleTimeOptimization
+  - experiment2__shinkaevolve__claude-opus-4.6__StructuralOptimization_ISCSO2015
+  - experiment2__shinkaevolve__claude-opus-4.6__StructuralOptimization_ISCSO2023
+  - experiment2__shinkaevolve__gpt-oss-120b__Astrodynamics_MannedLunarLanding
+  - experiment2__shinkaevolve__gpt-oss-120b__Optics_fiber_mcs_power_scheduling
+  - experiment2__shinkaevolve__gpt-oss-120b__Optics_fiber_wdm_channel_power_allocation
+  - experiment2__shinkaevolve__gpt-oss-120b__Optics_phase_dammann_uniform_orders
+  - experiment2__shinkaevolve__gpt-oss-120b__PyPortfolioOpt_robust_mvo_rebalance
+  - experiment2__shinkaevolve__gpt-oss-120b__Robotics_PIDTuning
+  - experiment2__shinkaevolve__gpt-oss-120b__StructuralOptimization_ISCSO2023
+  schema_version: '2.0'
+- id: candidate_warm_start_from_prior_best
+  task_family: unknown_optimization
+  failure_id: null
+  diagnosis: Top entries seed their optimiser from a prior-best solution (their own or a sibling task's) rather than starting
+    from a random or hand-tuned baseline.  Cuts the path-length to a high score significantly.
+  successful_mutations:
+  - kind: add_initialization_seed
+    description: seeded optimizer from a prior-best solution
+    target_identifier: null
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: first valid score is already close to the search ceiling; subsequent iterations refine rather
+    than discover.
+  contraindications:
+  - never embed *concrete* gain values from another task verbatim — that turns the pattern into a leaderboard cheat sheet
+    (see plan §3.5).
+  - the seed must come from a previous run on the *same* task; cross-task seeding is much less reliable.
+  evidence_count: 17
+  avg_score_delta: null
+  source_trajectory_ids:
+  - experiment1__openevolve__claude-opus-4.6__JobShop_ta
+  - experiment1__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment1__openevolve__glm-5__Robotics_PIDTuning
+  - experiment1__openevolve__gpt-5.4__InventoryOptimization_tree_gsm_safety_stock
+  - experiment2__abmcts__claude-opus-4.6__JobShop_abz
+  - experiment2__abmcts__claude-opus-4.6__JobShop_ta
+  - experiment2__abmcts__gpt-oss-120b__InventoryOptimization_tree_gsm_safety_stock
+  - experiment2__openevolve__claude-opus-4.6__JobShop_ta
+  - experiment2__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__openevolve__gpt-oss-120b__EnergyStorage_BatteryFastChargingSPMe
+  - experiment2__shinkaevolve__claude-opus-4.6__InventoryOptimization_general_meio
+  - experiment2__shinkaevolve__claude-opus-4.6__JobShop_ta
+  - experiment2__shinkaevolve__claude-opus-4.6__Optics_holographic_multifocus_power_ratio
+  - experiment2__shinkaevolve__claude-opus-4.6__ReactionOptimisation_reizman_suzuki_pareto
+  - experiment2__shinkaevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__shinkaevolve__gpt-oss-120b__InventoryOptimization_finite_horizon_dp
+  - experiment2__shinkaevolve__gpt-oss-120b__Robotics_PIDTuning
+  schema_version: '2.0'
+- id: candidate_zero_integral_gain_on_saturation
+  task_family: robotics_optimization
+  failure_id: failure_pid_integrator_windup
+  diagnosis: When an actuator output is at saturation, allowing the integral term to keep accumulating produces windup.  Successful
+    PID-tuning runs disable the integral channel entirely for axes where the actuator is regularly saturated.
+  successful_mutations:
+  - kind: set_parameter_zero
+    description: set parameter to zero on Ki_theta
+    target_identifier: Ki_theta
+    score_delta: null
+    schema_version: '2.0'
+  - kind: set_parameter_zero
+    description: set parameter to zero on Ki_x
+    target_identifier: Ki_x
+    score_delta: null
+    schema_version: '2.0'
+  - kind: set_parameter_zero
+    description: set parameter to zero on Ki_z
+    target_identifier: Ki_z
+    score_delta: null
+    schema_version: '2.0'
+  failed_mutations: []
+  expected_verifier_signal: feasibility stays valid, overshoot decreases, settling time after setpoint changes goes down.
+  contraindications:
+  - do not raise Ki to compensate — the integrator will wind up again on the next saturation event
+  evidence_count: 9
+  avg_score_delta: null
+  source_trajectory_ids:
+  - experiment1__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment1__openevolve__deepseek-v3.2__Robotics_PIDTuning
+  - experiment1__openevolve__gemini-3.1-pro-preview__Robotics_PIDTuning
+  - experiment1__openevolve__glm-5__Robotics_PIDTuning
+  - experiment1__openevolve__gpt-5.4__Robotics_PIDTuning
+  - experiment1__openevolve__grok-4.20__Robotics_PIDTuning
+  - experiment1__openevolve__seed-2.0-pro__Robotics_PIDTuning
+  - experiment2__openevolve__claude-opus-4.6__Robotics_PIDTuning
+  - experiment2__shinkaevolve__claude-opus-4.6__Robotics_PIDTuning
+  schema_version: '2.0'

@@ -1,0 +1,737 @@
+{
+  "schema_version": "1.0",
+  "events_count": 26,
+  "failures": [
+    {
+      "id": "failure_actuator_saturation_saturation_actuator_2",
+      "name": "Actuator command saturated (saturation::actuator::2)",
+      "domain": "Control_Locomotion",
+      "severity": "warning",
+      "observable_signals": [
+        "actuator_index=2"
+      ],
+      "likely_causes": [
+        "Aggressive feedforward command",
+        "Insufficient gear ratio for required torque",
+        "Multiple controllers competing"
+      ],
+      "contraindications": [
+        "Do not push commands past the saturation limit."
+      ],
+      "occurrence_count": 1,
+      "embodiments_seen": [
+        "quadrotor"
+      ]
+    },
+    {
+      "id": "failure_actuator_saturation_saturation_torque_rotor_a",
+      "name": "Actuator command saturated (saturation::torque::rotor_a)",
+      "domain": "Control_Locomotion",
+      "severity": "warning",
+      "observable_signals": [
+        "joint=rotor_a",
+        "torque=1.0"
+      ],
+      "likely_causes": [
+        "Aggressive feedforward command",
+        "Insufficient gear ratio for required torque",
+        "Multiple controllers competing"
+      ],
+      "contraindications": [
+        "Do not push commands past the saturation limit."
+      ],
+      "occurrence_count": 1,
+      "embodiments_seen": [
+        "quadrotor"
+      ]
+    },
+    {
+      "id": "failure_collision_with_environment_collision_quadrotor_rotor_a_obstacle",
+      "name": "Collision with environment (collision::quadrotor/rotor_a::obstacle)",
+      "domain": "Control_Locomotion",
+      "severity": "warning",
+      "observable_signals": [
+        "force=22.0",
+        "geom1=quadrotor/rotor_a",
+        "geom2=obstacle"
+      ],
+      "likely_causes": [
+        "Insufficient obstacle margin",
+        "Stale environment map",
+        "Velocity / acceleration limit too aggressive"
+      ],
+      "contraindications": [
+        "Do not retry the failing trajectory without updating the world model."
+      ],
+      "occurrence_count": 1,
+      "embodiments_seen": [
+        "quadrotor"
+      ]
+    },
+    {
+      "id": "failure_collision_with_environment_collision_ur5_wrist_3_link_table",
+      "name": "Collision with environment (collision::ur5/wrist_3_link::table)",
+      "domain": "Control_Locomotion",
+      "severity": "safety_critical",
+      "observable_signals": [
+        "force_mag=95.0",
+        "object_a=ur5/wrist_3_link",
+        "object_b=table",
+        "body_a=ur5/wrist_3_link",
+        "body_b=table",
+        "force=110.0"
+      ],
+      "likely_causes": [
+        "Insufficient obstacle margin",
+        "Stale environment map",
+        "Velocity / acceleration limit too aggressive"
+      ],
+      "contraindications": [
+        "Do not retry the failing trajectory without updating the world model."
+      ],
+      "occurrence_count": 3,
+      "embodiments_seen": [
+        "ur5"
+      ]
+    },
+    {
+      "id": "failure_controller_divergence_controller_attitude_pid",
+      "name": "Controller diverged or NaN-ed (controller::attitude_pid)",
+      "domain": "Control_Locomotion",
+      "severity": "warning",
+      "observable_signals": [
+        "controller=attitude_pid"
+      ],
+      "likely_causes": [
+        "Integral windup",
+        "Numerical instability (Δt too large, NaN in gains)",
+        "Unmodelled disturbance"
+      ],
+      "contraindications": [
+        "Do not raise integral gain to mask divergence."
+      ],
+      "occurrence_count": 1,
+      "embodiments_seen": [
+        "quadrotor"
+      ]
+    },
+    {
+      "id": "failure_controller_divergence_controller_attitude_pid_diverged",
+      "name": "Controller diverged or NaN-ed (controller::attitude_pid::diverged)",
+      "domain": "Control_Locomotion",
+      "severity": "warning",
+      "observable_signals": [
+        "policy=attitude_pid"
+      ],
+      "likely_causes": [
+        "Integral windup",
+        "Numerical instability (Δt too large, NaN in gains)",
+        "Unmodelled disturbance"
+      ],
+      "contraindications": [
+        "Do not raise integral gain to mask divergence."
+      ],
+      "occurrence_count": 1,
+      "embodiments_seen": [
+        "quadrotor"
+      ]
+    },
+    {
+      "id": "failure_controller_divergence_controller_attitude_pid_windup",
+      "name": "Controller diverged or NaN-ed (controller::attitude_pid::windup)",
+      "domain": "Control_Locomotion",
+      "severity": "warning",
+      "observable_signals": [
+        "controller=attitude_pid",
+        "status=windup",
+        "error_norm=1.21"
+      ],
+      "likely_causes": [
+        "Integral windup",
+        "Numerical instability (Δt too large, NaN in gains)",
+        "Unmodelled disturbance"
+      ],
+      "contraindications": [
+        "Do not raise integral gain to mask divergence."
+      ],
+      "occurrence_count": 1,
+      "embodiments_seen": [
+        "quadrotor"
+      ]
+    },
+    {
+      "id": "failure_controller_divergence_controller_joint_trajectory_controller_windup",
+      "name": "Controller diverged or NaN-ed (controller::joint_trajectory_controller::windup)",
+      "domain": "Control_Locomotion",
+      "severity": "warning",
+      "observable_signals": [
+        "controller=joint_trajectory_controller",
+        "status=windup",
+        "error_norm=0.78"
+      ],
+      "likely_causes": [
+        "Integral windup",
+        "Numerical instability (Δt too large, NaN in gains)",
+        "Unmodelled disturbance"
+      ],
+      "contraindications": [
+        "Do not raise integral gain to mask divergence."
+      ],
+      "occurrence_count": 1,
+      "embodiments_seen": [
+        "ur5"
+      ]
+    },
+    {
+      "id": "failure_controller_divergence_controller_lstm_pid_diverged",
+      "name": "Controller diverged or NaN-ed (controller::lstm_pid::diverged)",
+      "domain": "Control_Locomotion",
+      "severity": "warning",
+      "observable_signals": [
+        "policy=lstm_pid"
+      ],
+      "likely_causes": [
+        "Integral windup",
+        "Numerical instability (Δt too large, NaN in gains)",
+        "Unmodelled disturbance"
+      ],
+      "contraindications": [
+        "Do not raise integral gain to mask divergence."
+      ],
+      "occurrence_count": 1,
+      "embodiments_seen": [
+        "ur5"
+      ]
+    },
+    {
+      "id": "failure_controller_divergence_controller_nan_nan_in_ctrl",
+      "name": "Controller diverged or NaN-ed (controller::nan::nan_in_ctrl)",
+      "domain": "Control_Locomotion",
+      "severity": "safety_critical",
+      "observable_signals": [
+        "event=nan_in_ctrl"
+      ],
+      "likely_causes": [
+        "Integral windup",
+        "Numerical instability (Δt too large, NaN in gains)",
+        "Unmodelled disturbance"
+      ],
+      "contraindications": [
+        "Do not raise integral gain to mask divergence."
+      ],
+      "occurrence_count": 1,
+      "embodiments_seen": [
+        "quadrotor"
+      ]
+    },
+    {
+      "id": "failure_joint_limit_violation_joint_shoulder_pan",
+      "name": "Joint outside permitted range (joint::shoulder_pan)",
+      "domain": "Control_Locomotion",
+      "severity": "safety_critical",
+      "observable_signals": [
+        "joint=shoulder_pan",
+        "delta=0.05"
+      ],
+      "likely_causes": [
+        "Trajectory generator did not clamp to URDF limits",
+        "IK solver returned out-of-range solution",
+        "PID windup pushed actuator past limit"
+      ],
+      "contraindications": [
+        "Do not just clamp inside the controller — fix the planner."
+      ],
+      "occurrence_count": 1,
+      "embodiments_seen": [
+        "ur5"
+      ]
+    },
+    {
+      "id": "failure_joint_limit_violation_joint_shoulder_pan_joint",
+      "name": "Joint outside permitted range (joint::shoulder_pan_joint)",
+      "domain": "Control_Locomotion",
+      "severity": "safety_critical",
+      "observable_signals": [
+        "joint_name=shoulder_pan_joint",
+        "position=3.2",
+        "velocity=0.5",
+        "effort=12.0"
+      ],
+      "likely_causes": [
+        "Trajectory generator did not clamp to URDF limits",
+        "IK solver returned out-of-range solution",
+        "PID windup pushed actuator past limit"
+      ],
+      "contraindications": [
+        "Do not just clamp inside the controller — fix the planner."
+      ],
+      "occurrence_count": 2,
+      "embodiments_seen": [
+        "ur5"
+      ]
+    },
+    {
+      "id": "failure_safety_stop_triggered_emergency_stop",
+      "name": "Safety stop triggered (emergency_stop)",
+      "domain": "Control_Locomotion",
+      "severity": "safety_critical",
+      "observable_signals": [
+        "data=True",
+        "reason=manual"
+      ],
+      "likely_causes": [
+        "Operator-triggered e-stop",
+        "Force/torque safety threshold exceeded",
+        "Watchdog timeout"
+      ],
+      "contraindications": [
+        "Do not auto-resume without operator clearance."
+      ],
+      "occurrence_count": 2,
+      "embodiments_seen": [
+        "ur5"
+      ]
+    },
+    {
+      "id": "failure_sensor_outlier_sensor_front_realsense_dropout",
+      "name": "Sensor produced anomalous reading (sensor::front_realsense::dropout)",
+      "domain": "Control_Locomotion",
+      "severity": "warning",
+      "observable_signals": [
+        "sensor=front_realsense",
+        "kind=dropout"
+      ],
+      "likely_causes": [
+        "Hardware fault / loose cable",
+        "Lighting / surface condition change",
+        "Drift not compensated"
+      ],
+      "contraindications": [
+        "Do not blindly average across an outlier — flag and replan."
+      ],
+      "occurrence_count": 1,
+      "embodiments_seen": [
+        "ur5"
+      ]
+    },
+    {
+      "id": "failure_sensor_outlier_sensor_wrist_ft_sensor_sensor_dropout",
+      "name": "Sensor produced anomalous reading (sensor::wrist_ft_sensor::sensor_dropout)",
+      "domain": "Control_Locomotion",
+      "severity": "warning",
+      "observable_signals": [
+        "sensor=wrist_ft_sensor"
+      ],
+      "likely_causes": [
+        "Hardware fault / loose cable",
+        "Lighting / surface condition change",
+        "Drift not compensated"
+      ],
+      "contraindications": [
+        "Do not blindly average across an outlier — flag and replan."
+      ],
+      "occurrence_count": 1,
+      "embodiments_seen": [
+        "ur5"
+      ]
+    },
+    {
+      "id": "failure_sensor_outlier_sensor_wrist_ft_sensor_sensor_outlier",
+      "name": "Sensor produced anomalous reading (sensor::wrist_ft_sensor::sensor_outlier)",
+      "domain": "Control_Locomotion",
+      "severity": "warning",
+      "observable_signals": [
+        "sensor=wrist_ft_sensor"
+      ],
+      "likely_causes": [
+        "Hardware fault / loose cable",
+        "Lighting / surface condition change",
+        "Drift not compensated"
+      ],
+      "contraindications": [
+        "Do not blindly average across an outlier — flag and replan."
+      ],
+      "occurrence_count": 1,
+      "embodiments_seen": [
+        "ur5"
+      ]
+    },
+    {
+      "id": "failure_sensor_outlier_sensor_wrist_imu_imu_spike",
+      "name": "Sensor produced anomalous reading (sensor::wrist_imu::imu_spike)",
+      "domain": "Control_Locomotion",
+      "severity": "warning",
+      "observable_signals": [
+        "sensor=wrist_imu"
+      ],
+      "likely_causes": [
+        "Hardware fault / loose cable",
+        "Lighting / surface condition change",
+        "Drift not compensated"
+      ],
+      "contraindications": [
+        "Do not blindly average across an outlier — flag and replan."
+      ],
+      "occurrence_count": 1,
+      "embodiments_seen": [
+        "ur5"
+      ]
+    },
+    {
+      "id": "failure_task_timeout_task_pick_apple_off_table",
+      "name": "Task exceeded time budget (task::pick_apple_off_table)",
+      "domain": "Control_Locomotion",
+      "severity": "warning",
+      "observable_signals": [
+        "task_name=pick_apple_off_table",
+        "elapsed_seconds=30.0",
+        "budget_seconds=20.0",
+        "reason=timeout"
+      ],
+      "likely_causes": [
+        "Exploration plan too greedy",
+        "Verifier slower than budget allows",
+        "Plan repeatedly retries the same dead-end"
+      ],
+      "contraindications": [
+        "Do not extend the budget without diagnosing why."
+      ],
+      "occurrence_count": 2,
+      "embodiments_seen": [
+        "ur5"
+      ]
+    },
+    {
+      "id": "failure_task_timeout_task_rollout_timeout",
+      "name": "Task exceeded time budget (task::rollout_timeout)",
+      "domain": "Control_Locomotion",
+      "severity": "warning",
+      "observable_signals": [
+        "event=rollout_timeout"
+      ],
+      "likely_causes": [
+        "Exploration plan too greedy",
+        "Verifier slower than budget allows",
+        "Plan repeatedly retries the same dead-end"
+      ],
+      "contraindications": [
+        "Do not extend the budget without diagnosing why."
+      ],
+      "occurrence_count": 1,
+      "embodiments_seen": [
+        "ur5"
+      ]
+    },
+    {
+      "id": "failure_trajectory_follow_error_trajectory_g_42",
+      "name": "Trajectory follow error (trajectory::g_42)",
+      "domain": "Control_Locomotion",
+      "severity": "warning",
+      "observable_signals": [
+        "goal_id=g_42",
+        "follow_error=0.18",
+        "tolerance=0.05"
+      ],
+      "likely_causes": [
+        "Tracking gains too soft",
+        "Friction / payload model mismatch",
+        "Latency in feedback loop"
+      ],
+      "contraindications": [
+        "Do not stiffen gains without checking payload model."
+      ],
+      "occurrence_count": 1,
+      "embodiments_seen": [
+        "ur5"
+      ]
+    },
+    {
+      "id": "failure_trajectory_follow_error_trajectory_g_99",
+      "name": "Trajectory follow error (trajectory::g_99)",
+      "domain": "Control_Locomotion",
+      "severity": "warning",
+      "observable_signals": [
+        "follow_error=0.21",
+        "tolerance=0.05"
+      ],
+      "likely_causes": [
+        "Tracking gains too soft",
+        "Friction / payload model mismatch",
+        "Latency in feedback loop"
+      ],
+      "contraindications": [
+        "Do not stiffen gains without checking payload model."
+      ],
+      "occurrence_count": 1,
+      "embodiments_seen": [
+        "ur5"
+      ]
+    }
+  ],
+  "embodiments": [
+    {
+      "id": "ur5",
+      "embodiment_type": "manipulator",
+      "actuators": [
+        "elbow_joint",
+        "shoulder_lift_joint",
+        "shoulder_pan_joint",
+        "wrist_1_joint",
+        "wrist_2_joint",
+        "wrist_3_joint"
+      ],
+      "sensors": [
+        "front_realsense",
+        "wrist_ft_sensor"
+      ],
+      "control_interfaces": [
+        "joint_trajectory_controller",
+        "velocity_controller"
+      ],
+      "safety_constraints": [
+        "shoulder_pan_joint.position ∈ [-3.142, 3.142]",
+        "shoulder_pan_joint.effort ≤ 150.000",
+        "shoulder_pan_joint.velocity ≤ 3.150",
+        "shoulder_lift_joint.position ∈ [-3.142, 3.142]",
+        "shoulder_lift_joint.effort ≤ 150.000",
+        "shoulder_lift_joint.velocity ≤ 3.150",
+        "elbow_joint.position ∈ [-3.142, 3.142]",
+        "elbow_joint.effort ≤ 150.000",
+        "elbow_joint.velocity ≤ 3.150",
+        "wrist_1_joint.position ∈ [-6.280, 6.280]",
+        "wrist_1_joint.effort ≤ 28.000",
+        "wrist_1_joint.velocity ≤ 3.200",
+        "wrist_2_joint.position ∈ [-6.280, 6.280]",
+        "wrist_2_joint.effort ≤ 28.000",
+        "wrist_2_joint.velocity ≤ 3.200",
+        "wrist_3_joint.position ∈ [-6.280, 6.280]",
+        "wrist_3_joint.effort ≤ 28.000",
+        "wrist_3_joint.velocity ≤ 3.200"
+      ]
+    }
+  ],
+  "constraints": [
+    {
+      "id": "constraint_ur5_shoulder_pan_joint_position",
+      "constraint_type": "safety",
+      "description": "ur5: joint shoulder_pan_joint position must remain within [-3.142, 3.142].",
+      "violation_signals": [
+        "joint_limit_violation::joint::shoulder_pan_joint",
+        "shoulder_pan_joint.position out of bounds"
+      ]
+    },
+    {
+      "id": "constraint_ur5_shoulder_pan_joint_velocity",
+      "constraint_type": "safety",
+      "description": "ur5: joint shoulder_pan_joint velocity must remain ≤ 2.500.",
+      "violation_signals": [
+        "actuator_saturation::velocity::shoulder_pan_joint"
+      ]
+    },
+    {
+      "id": "constraint_ur5_shoulder_pan_joint_effort",
+      "constraint_type": "safety",
+      "description": "ur5: joint shoulder_pan_joint effort/torque must remain ≤ 100.000.",
+      "violation_signals": [
+        "actuator_saturation::torque::shoulder_pan_joint"
+      ]
+    },
+    {
+      "id": "constraint_ur5_shoulder_lift_joint_position",
+      "constraint_type": "safety",
+      "description": "ur5: joint shoulder_lift_joint position must remain within [-3.142, 3.142].",
+      "violation_signals": [
+        "joint_limit_violation::joint::shoulder_lift_joint",
+        "shoulder_lift_joint.position out of bounds"
+      ]
+    },
+    {
+      "id": "constraint_ur5_shoulder_lift_joint_velocity",
+      "constraint_type": "safety",
+      "description": "ur5: joint shoulder_lift_joint velocity must remain ≤ 3.150.",
+      "violation_signals": [
+        "actuator_saturation::velocity::shoulder_lift_joint"
+      ]
+    },
+    {
+      "id": "constraint_ur5_shoulder_lift_joint_effort",
+      "constraint_type": "safety",
+      "description": "ur5: joint shoulder_lift_joint effort/torque must remain ≤ 150.000.",
+      "violation_signals": [
+        "actuator_saturation::torque::shoulder_lift_joint"
+      ]
+    },
+    {
+      "id": "constraint_ur5_elbow_joint_position",
+      "constraint_type": "safety",
+      "description": "ur5: joint elbow_joint position must remain within [-3.142, 3.142].",
+      "violation_signals": [
+        "joint_limit_violation::joint::elbow_joint",
+        "elbow_joint.position out of bounds"
+      ]
+    },
+    {
+      "id": "constraint_ur5_elbow_joint_velocity",
+      "constraint_type": "safety",
+      "description": "ur5: joint elbow_joint velocity must remain ≤ 3.150.",
+      "violation_signals": [
+        "actuator_saturation::velocity::elbow_joint"
+      ]
+    },
+    {
+      "id": "constraint_ur5_elbow_joint_effort",
+      "constraint_type": "safety",
+      "description": "ur5: joint elbow_joint effort/torque must remain ≤ 150.000.",
+      "violation_signals": [
+        "actuator_saturation::torque::elbow_joint"
+      ]
+    },
+    {
+      "id": "constraint_ur5_wrist_1_joint_position",
+      "constraint_type": "safety",
+      "description": "ur5: joint wrist_1_joint position must remain within [-6.280, 6.280].",
+      "violation_signals": [
+        "joint_limit_violation::joint::wrist_1_joint",
+        "wrist_1_joint.position out of bounds"
+      ]
+    },
+    {
+      "id": "constraint_ur5_wrist_1_joint_velocity",
+      "constraint_type": "safety",
+      "description": "ur5: joint wrist_1_joint velocity must remain ≤ 2.000.",
+      "violation_signals": [
+        "actuator_saturation::velocity::wrist_1_joint"
+      ]
+    },
+    {
+      "id": "constraint_ur5_wrist_1_joint_effort",
+      "constraint_type": "safety",
+      "description": "ur5: joint wrist_1_joint effort/torque must remain ≤ 20.000.",
+      "violation_signals": [
+        "actuator_saturation::torque::wrist_1_joint"
+      ]
+    },
+    {
+      "id": "constraint_ur5_wrist_2_joint_position",
+      "constraint_type": "safety",
+      "description": "ur5: joint wrist_2_joint position must remain within [-6.280, 6.280].",
+      "violation_signals": [
+        "joint_limit_violation::joint::wrist_2_joint",
+        "wrist_2_joint.position out of bounds"
+      ]
+    },
+    {
+      "id": "constraint_ur5_wrist_2_joint_velocity",
+      "constraint_type": "safety",
+      "description": "ur5: joint wrist_2_joint velocity must remain ≤ 3.200.",
+      "violation_signals": [
+        "actuator_saturation::velocity::wrist_2_joint"
+      ]
+    },
+    {
+      "id": "constraint_ur5_wrist_2_joint_effort",
+      "constraint_type": "safety",
+      "description": "ur5: joint wrist_2_joint effort/torque must remain ≤ 28.000.",
+      "violation_signals": [
+        "actuator_saturation::torque::wrist_2_joint"
+      ]
+    },
+    {
+      "id": "constraint_ur5_wrist_3_joint_position",
+      "constraint_type": "safety",
+      "description": "ur5: joint wrist_3_joint position must remain within [-6.280, 6.280].",
+      "violation_signals": [
+        "joint_limit_violation::joint::wrist_3_joint",
+        "wrist_3_joint.position out of bounds"
+      ]
+    },
+    {
+      "id": "constraint_ur5_wrist_3_joint_velocity",
+      "constraint_type": "safety",
+      "description": "ur5: joint wrist_3_joint velocity must remain ≤ 3.200.",
+      "violation_signals": [
+        "actuator_saturation::velocity::wrist_3_joint"
+      ]
+    },
+    {
+      "id": "constraint_ur5_wrist_3_joint_effort",
+      "constraint_type": "safety",
+      "description": "ur5: joint wrist_3_joint effort/torque must remain ≤ 28.000.",
+      "violation_signals": [
+        "actuator_saturation::torque::wrist_3_joint"
+      ]
+    }
+  ],
+  "cross_embodiment": {
+    "distinct_embodiments": [
+      "quadrotor",
+      "ur5"
+    ],
+    "failures_seen_on_multiple_embodiments": [],
+    "patterns_seen_on_multiple_embodiments": [
+      {
+        "pattern_id": "compiled_zero_integral_gain_on_saturation",
+        "event_types": [
+          "actuator_saturation",
+          "controller_error"
+        ],
+        "embodiments": [
+          "quadrotor",
+          "ur5"
+        ]
+      }
+    ],
+    "all_pattern_rows": [
+      {
+        "pattern_id": "compiled_add_time_budget",
+        "event_types": [
+          "task_timeout"
+        ],
+        "embodiments": [
+          "ur5"
+        ]
+      },
+      {
+        "pattern_id": "compiled_controller_output_clamp",
+        "event_types": [
+          "actuator_saturation"
+        ],
+        "embodiments": [
+          "quadrotor"
+        ]
+      },
+      {
+        "pattern_id": "compiled_generic_time_budget",
+        "event_types": [
+          "task_timeout"
+        ],
+        "embodiments": [
+          "ur5"
+        ]
+      },
+      {
+        "pattern_id": "compiled_warm_start_from_prior_best",
+        "event_types": [
+          "task_timeout"
+        ],
+        "embodiments": [
+          "ur5"
+        ]
+      },
+      {
+        "pattern_id": "compiled_zero_integral_gain_on_saturation",
+        "event_types": [
+          "actuator_saturation",
+          "controller_error"
+        ],
+        "embodiments": [
+          "quadrotor",
+          "ur5"
+        ]
+      }
+    ],
+    "notes": [],
+    "acceptance_pattern_reuse_passed": true,
+    "acceptance_failure_reuse_passed": false
+  }
+}

@@ -1,0 +1,136 @@
+{
+  "schema_version": "2.0",
+  "win_delta_threshold": 0.05,
+  "min_sample_size": 5,
+  "adjusted_promote_threshold": 0.03,
+  "adjusted_demote_threshold": -0.03,
+  "coverage": {
+    "total": 48,
+    "catalyst_total": 36,
+    "catalyst_with_injection_id": 36,
+    "catalyst_with_post_score_3": 36,
+    "catalyst_with_post_score_5": 36,
+    "catalyst_with_code_diff_summary": 24,
+    "violations": []
+  },
+  "patterns": {
+    "compiled_vectorize_inner_loop": {
+      "pattern_id": "compiled_vectorize_inner_loop",
+      "n": 24,
+      "n_by_arm": {
+        "baseline": 6,
+        "true": 6,
+        "placebo": 6,
+        "shuffled": 6
+      },
+      "by_arm": {
+        "baseline": {
+          "arm": "baseline",
+          "n": 6,
+          "avg_uplift_1": 0.0007,
+          "avg_uplift_3": 0.0018,
+          "avg_uplift_5": 0.0024,
+          "win_rate": 0.0,
+          "regression_rate": 0.5,
+          "validity_preservation_rate": 1.0
+        },
+        "true": {
+          "arm": "true",
+          "n": 6,
+          "avg_uplift_1": 0.0395,
+          "avg_uplift_3": 0.0941,
+          "avg_uplift_5": 0.1386,
+          "win_rate": 1.0,
+          "regression_rate": 0.0,
+          "validity_preservation_rate": 0.6667
+        },
+        "placebo": {
+          "arm": "placebo",
+          "n": 6,
+          "avg_uplift_1": 0.0122,
+          "avg_uplift_3": 0.0224,
+          "avg_uplift_5": 0.0328,
+          "win_rate": 0.1667,
+          "regression_rate": 0.1667,
+          "validity_preservation_rate": 1.0
+        },
+        "shuffled": {
+          "arm": "shuffled",
+          "n": 6,
+          "avg_uplift_1": 0.0037,
+          "avg_uplift_3": 0.0081,
+          "avg_uplift_5": 0.0114,
+          "win_rate": 0.0,
+          "regression_rate": 0.3333,
+          "validity_preservation_rate": 1.0
+        }
+      },
+      "hint_use_rate": 0.5,
+      "placebo_adjusted_uplift": 0.1058,
+      "shuffled_adjusted_uplift": 0.1272,
+      "raw_uplift_mean": 0.0463,
+      "last_seen": "2026-06-03T01:05:00Z",
+      "is_promoted": true,
+      "is_demoted": false
+    },
+    "compiled_zero_integral_gain_on_saturation": {
+      "pattern_id": "compiled_zero_integral_gain_on_saturation",
+      "n": 24,
+      "n_by_arm": {
+        "baseline": 6,
+        "true": 6,
+        "placebo": 6,
+        "shuffled": 6
+      },
+      "by_arm": {
+        "baseline": {
+          "arm": "baseline",
+          "n": 6,
+          "avg_uplift_1": -0.001,
+          "avg_uplift_3": -0.0024,
+          "avg_uplift_5": -0.0036,
+          "win_rate": 0.0,
+          "regression_rate": 0.6667,
+          "validity_preservation_rate": 0.8333
+        },
+        "true": {
+          "arm": "true",
+          "n": 6,
+          "avg_uplift_1": 0.0478,
+          "avg_uplift_3": 0.103,
+          "avg_uplift_5": 0.1509,
+          "win_rate": 1.0,
+          "regression_rate": 0.0,
+          "validity_preservation_rate": 1.0
+        },
+        "placebo": {
+          "arm": "placebo",
+          "n": 6,
+          "avg_uplift_1": 0.0074,
+          "avg_uplift_3": 0.0164,
+          "avg_uplift_5": 0.0223,
+          "win_rate": 0.0,
+          "regression_rate": 0.0,
+          "validity_preservation_rate": 0.6667
+        },
+        "shuffled": {
+          "arm": "shuffled",
+          "n": 6,
+          "avg_uplift_1": 0.0041,
+          "avg_uplift_3": 0.0095,
+          "avg_uplift_5": 0.0129,
+          "win_rate": 0.0,
+          "regression_rate": 0.1667,
+          "validity_preservation_rate": 1.0
+        }
+      },
+      "hint_use_rate": 1.0,
+      "placebo_adjusted_uplift": 0.1286,
+      "shuffled_adjusted_uplift": 0.138,
+      "raw_uplift_mean": 0.0456,
+      "last_seen": "2026-06-03T00:05:00Z",
+      "is_promoted": true,
+      "is_demoted": false
+    }
+  }
+}
