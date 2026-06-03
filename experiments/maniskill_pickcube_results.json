@@ -1,0 +1,44 @@
+{
+  "benchmark": "ManiSkill PickCube \u2014 Baseline vs ROSClaw",
+  "date": "2026-06-03 18:41:36",
+  "config": {
+    "episodes": 20,
+    "max_steps": 100,
+    "policy": "random",
+    "task": "PickCube-v1",
+    "obs_mode": "state_dict",
+    "control_mode": "pd_joint_pos"
+  },
+  "baseline": {
+    "group": "Baseline (raw ManiSkill)",
+    "episodes": 20,
+    "max_steps_per_episode": 100,
+    "success_count": 0,
+    "success_rate": 0.0,
+    "total_return": 3.7882,
+    "avg_return": 0.1894,
+    "avg_length": 50.0,
+    "elapsed_sec": 4.34,
+    "episodes_per_sec": 4.6
+  },
+  "rosclaw": {
+    "group": "ROSClaw (adapter + governance)",
+    "episodes": 20,
+    "max_steps_per_episode": 100,
+    "success_count": 0,
+    "success_rate": 0.0,
+    "total_return": 3.8141,
+    "avg_return": 0.1907,
+    "avg_length": 50.0,
+    "elapsed_sec": 5.15,
+    "episodes_per_sec": 3.88,
+    "episode_completeness": 100.0
+  },
+  "comparison": {
+    "success_rate_delta": 0.0,
+    "avg_return_delta": 0.0013,
+    "avg_length_delta": 0.0,
+    "speed_ratio": 0.84,
+    "performance_neutral": true
+  }
+}
