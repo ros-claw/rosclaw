@@ -53,6 +53,9 @@ emergency_stop:
 workspace_boundaries:
   type: enclosure
   fenceless: true
+  x: [-0.85, 0.85]
+  y: [-0.85, 0.85]
+  z: [0.0, 1.2]
   virtual_boundaries:
   - name: front_plane
     type: plane
