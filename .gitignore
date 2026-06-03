@@ -64,3 +64,6 @@ practice_data/
 *反思*.md
 *自评*.md
 *模板*.md
+
+# 运行时日志
+MUJOCO_LOG.TXT
