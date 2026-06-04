@@ -210,6 +210,79 @@ SEEKDB_SCHEMAS = {
         },
         "indices": ["status", "rule_id", "created_at"],
     },
+    # Auto module tables
+    "auto_proposals": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "task_id": "TEXT",
+            "target_skill": "TEXT",
+            "source": "TEXT",
+            "hypothesis": "TEXT",
+            "search_space": "TEXT",
+            "status": "TEXT DEFAULT 'open'",
+            "created_at": "REAL",
+        },
+        "indices": ["task_id", "status", "created_at"],
+    },
+    "auto_patches": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "proposal_id": "TEXT",
+            "target_skill": "TEXT",
+            "patch_type": "TEXT",
+            "changes": "TEXT",
+            "status": "TEXT DEFAULT 'created'",
+            "created_at": "REAL",
+        },
+        "indices": ["proposal_id", "target_skill", "status"],
+    },
+    "auto_experiments": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "proposal_id": "TEXT",
+            "patch_id": "TEXT",
+            "task_id": "TEXT",
+            "baseline_skill": "TEXT",
+            "candidate_skill": "TEXT",
+            "status": "TEXT",
+            "metrics": "TEXT",
+            "created_at": "REAL",
+            "completed_at": "REAL",
+        },
+        "indices": ["task_id", "status", "created_at"],
+    },
+    "auto_results": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "experiment_id": "TEXT",
+            "decision": "TEXT",
+            "delta": "TEXT",
+            "created_at": "REAL",
+        },
+        "indices": ["experiment_id", "decision"],
+    },
+    "champions": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "skill_id": "TEXT NOT NULL",
+            "task_id": "TEXT",
+            "level": "TEXT",
+            "parent_skill": "TEXT",
+            "metrics": "TEXT",
+            "promoted_at": "REAL",
+        },
+        "indices": ["skill_id", "task_id", "level"],
+    },
+    "dead_ends": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "task_id": "TEXT",
+            "direction": "TEXT",
+            "rejection_reason": "TEXT",
+            "registered_at": "REAL",
+        },
+        "indices": ["task_id", "registered_at"],
+    },
 }
 
 

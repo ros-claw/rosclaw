@@ -66,6 +66,7 @@ class RuntimeConfig:
     enable_skill_manager: bool = True
     enable_knowledge: bool = True           # KnowledgeInterface (KNOW module)
     enable_how: bool = True                 # HeuristicEngine (HOW module)
+    enable_auto: bool = True                # Self-Evolution Control Plane (AUTO module)
     enable_provider: bool = True
     joint_dof: int = 6
     sampling_rate_hz: int = 1000
@@ -110,6 +111,7 @@ class Runtime(LifecycleMixin):
         self._knowledge_batch: Optional[Any] = None
         self._knowledge_assets: Optional[Any] = None
         self._how: Optional[Any] = None
+        self._auto: Optional[Any] = None
         self._e_urdf: Optional[Any] = None
         self._robot_profile: Optional[Any] = None
         self._sandbox: Optional[Any] = None
@@ -347,6 +349,24 @@ class Runtime(LifecycleMixin):
                     logger.info("HeuristicEngine skipped: no SeekDB client (memory not enabled)")
             except ImportError as e:
                 logger.info(f"HeuristicEngine not available: {e}")
+
+        # Initialize Auto Self-Evolution Control Plane
+        if self.config.enable_auto:
+            try:
+                from rosclaw.auto.plugin import AutoPlugin
+                seekdb = None
+                if self._memory is not None:
+                    seekdb = getattr(self._memory, "seekdb_client", None)
+                self._auto = AutoPlugin(
+                    config={},
+                    event_bus=self.event_bus,
+                    seekdb_client=seekdb,
+                    skill_registry=getattr(self._skill_manager, "registry", None) if self._skill_manager else None,
+                )
+                self._modules.append(self._auto)
+                logger.info("Self-Evolution Control Plane (Auto) initialized")
+            except ImportError as e:
+                logger.info(f"Auto module not available: {e}")
 
         # Initialize Provider Layer (Capability Router + Guard)
         if self.config.enable_provider and ProviderRegistry is not None:
@@ -719,6 +739,10 @@ class Runtime(LifecycleMixin):
         if self._how is None:
             return None
         return _HowProxy(self._how, self._run_async, event_bus=self.event_bus)
+
+    @property
+    def auto(self) -> Optional[Any]:
+        return self._auto
 
     @property
     def e_urdf(self) -> Optional[Any]:
@@ -1639,6 +1663,7 @@ class Runtime(LifecycleMixin):
                 "skill_manager": self._skill_manager is not None,
                 "e_urdf": self._e_urdf is not None,
                 "provider_layer": self._provider_registry is not None,
+                "auto": self._auto is not None,
             },
             "embodied_memory": {
                 "attached": self.config.embodied_memory is not None,
