@@ -67,3 +67,7 @@ practice_data/
 
 # 运行时日志
 MUJOCO_LOG.TXT
+
+# Claude Code internal data (never commit)
+.claude-flow/
+.claude/

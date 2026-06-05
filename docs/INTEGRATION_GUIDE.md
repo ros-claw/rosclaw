@@ -1,6 +1,6 @@
 # ROSClaw v1.0 Integration Guide
 
-**Author**: rosclaw_qwen (Integration Quality Engineer)  
+**Author**: ROSClaw Contributors  
 **Date**: 2026-05-29  
 **Status**: ✅ COMPLETE
 
