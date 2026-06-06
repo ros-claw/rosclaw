@@ -2031,7 +2031,7 @@ def cmd_sandbox_run(args: argparse.Namespace) -> int:
     from rosclaw.core.event_bus import EventBus
     from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
 
-    backend = args.backend or "mujoco"
+    backend = args.backend or "mock"
     world = args.world or "empty"
 
     print(
