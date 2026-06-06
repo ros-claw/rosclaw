@@ -97,6 +97,38 @@ class MemoryInterface(LifecycleMixin):
         self._search_cache_lock = threading.Lock()
         self._search_cache: dict[str, Any] = {}
         self._cache_version = 0
+        # Background preloader: rebuilds index during idle time
+        self._preload_thread: Optional[threading.Thread] = None
+        self._preload_stop = threading.Event()
+
+    def _preload_worker(self) -> None:
+        """Daemon thread that rebuilds the semantic index when stale."""
+        while not self._preload_stop.is_set():
+            # Wait up to 2 seconds or until stop is requested
+            if self._preload_stop.wait(timeout=2.0):
+                break
+            # Check if cache is stale
+            with self._search_cache_lock:
+                cache = self._search_cache
+                if cache.get("version") == self._cache_version:
+                    continue  # Cache is warm
+                # Rebuild in background
+                try:
+                    filters = {"robot_id": self._robot_id}
+                    all_experiences = self._client.query(
+                        "experience_graph",
+                        filters=filters,
+                        order_by="-timestamp",
+                        limit=200,
+                    )
+                    if all_experiences:
+                        self._search_cache = self._build_search_cache(
+                            all_experiences, filters
+                        )
+                        logger.debug("Preloaded semantic index (%d experiences)",
+                                     len(all_experiences))
+                except Exception as exc:
+                    logger.debug("Preload failed: %s", exc)
 
     def _do_initialize(self) -> None:
         self._client.connect()
@@ -116,6 +148,14 @@ class MemoryInterface(LifecycleMixin):
         logger.info("Initialized for %s, backend=%s", self._robot_id, type(self._client).__name__)
 
     def _do_start(self) -> None:
+        # Start background preloader to eliminate cold-start latency
+        if self._preload_thread is None or not self._preload_thread.is_alive():
+            self._preload_stop.clear()
+            self._preload_thread = threading.Thread(
+                target=self._preload_worker, daemon=True, name="memory-preload"
+            )
+            self._preload_thread.start()
+
         if self.event_bus is not None:
             self.event_bus.publish(Event(
                 topic="memory.status",
@@ -129,6 +169,12 @@ class MemoryInterface(LifecycleMixin):
             ))
 
     def _do_stop(self) -> None:
+        # Signal and join background preloader
+        if self._preload_thread is not None and self._preload_thread.is_alive():
+            self._preload_stop.set()
+            self._preload_thread.join(timeout=1.0)
+            self._preload_thread = None
+
         if self.event_bus is not None:
             self.event_bus.unsubscribe("praxis.recorded", self._on_praxis_recorded)
             self.event_bus.unsubscribe("rosclaw.practice.event.created", self._on_practice_event_created)
