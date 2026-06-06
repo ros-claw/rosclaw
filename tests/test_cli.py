@@ -324,6 +324,25 @@ class TestSandboxCommands:
         captured = capsys.readouterr()
         assert "not found" in captured.out or "error" in captured.out.lower() or code != 0
 
+    def test_sandbox_run_accepts_world_argument(self, capsys):
+        from rosclaw.cli import main
+
+        sys.argv = [
+            "rosclaw",
+            "sandbox",
+            "run",
+            "--robot",
+            "ur5e",
+            "--world",
+            "tabletop",
+            "--task",
+            "reach",
+        ]
+        code = main()
+        captured = capsys.readouterr()
+        assert code == 0
+        assert "World:      tabletop" in captured.out
+
 
 class TestMemoryCommands:
     def test_memory_status(self, capsys):
