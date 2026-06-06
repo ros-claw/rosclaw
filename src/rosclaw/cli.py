@@ -1105,6 +1105,9 @@ def cmd_skill_invoke(args: argparse.Namespace) -> int:
         print(json.dumps(result, indent=2, default=str))
         return 0
 
+    except Exception as exc:
+        print(f"[ROSClaw] Skill invocation failed: {exc}")
+        return 1
 
 def cmd_skill_champions_list(_args: argparse.Namespace) -> int:
     """List current champion skills."""
@@ -1214,9 +1217,6 @@ def cmd_auto_report(args: argparse.Namespace) -> int:
         argv.extend(["--format", args.format])
     return auto_main(argv)
 
-    except Exception as exc:
-        print(f"[ROSClaw] Skill invocation failed: {exc}")
-        return 1
 
 
 def cmd_how_explain(args: argparse.Namespace) -> int:
@@ -2595,17 +2595,28 @@ def main() -> int:
     # auto subcommand (Self-Evolution Control Plane)
     auto_parser = subparsers.add_parser("auto", help="Auto self-evolution commands")
     auto_subparsers = auto_parser.add_subparsers(dest="auto_command")
-    auto_subparsers.add_parser("init", help="Initialize an auto task")
+    auto_init_parser = auto_subparsers.add_parser("init", help="Initialize an auto task")
+    auto_init_parser.add_argument("--task", required=True, help="Task name")
+    auto_init_parser.add_argument("--robot", default="panda", help="Robot identifier")
+    auto_init_parser.add_argument("--skill", required=True, help="Target skill identifier")
+    auto_init_parser.add_argument("--env", default="maniskill", help="Simulation environment")
+    auto_init_parser.add_argument("--type", default="skill_tuning", choices=["skill_tuning", "failure_repair"], help="Task type")
+
     auto_run_parser = auto_subparsers.add_parser("run", help="Run auto evolution")
     auto_run_parser.add_argument("--task", required=True, help="Task name")
     auto_run_parser.add_argument("--rounds", type=int, default=10, help="Number of evolution rounds")
     auto_run_parser.add_argument("--episodes", type=int, default=None, help="Alias for --rounds (deprecated)")
     auto_run_parser.add_argument("--dry-run", action="store_true", help="Dry run mode")
     auto_run_parser.add_argument("--policy", default="failure_guided", help="Evolution policy")
-    auto_subparsers.add_parser("status", help="Show auto status")
+
+    auto_status_parser = auto_subparsers.add_parser("status", help="Show auto status")
+    auto_status_parser.add_argument("--task", default=None, help="Task name filter")
+
     auto_champ_parser = auto_subparsers.add_parser("champion", help="Show current champion")
     auto_champ_parser.add_argument("--task", required=True, help="Task name")
-    auto_subparsers.add_parser("deadends", help="List dead ends")
+
+    auto_deadends_parser = auto_subparsers.add_parser("deadends", help="List dead ends")
+    auto_deadends_parser.add_argument("--task", default=None, help="Task name filter")
     auto_report_parser = auto_subparsers.add_parser("report", help="Generate evolution report")
     auto_report_parser.add_argument("--task", required=True, help="Task name")
     auto_report_parser.add_argument("--output", default="", help="Output file")
