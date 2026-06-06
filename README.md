@@ -447,7 +447,7 @@ Example Claude Code MCP configuration:
   "mcpServers": {
     "rosclaw": {
       "command": "python3",
-      "args": ["-m", "rosclaw.mcp.server"],
+      "args": ["-m", "rosclaw.mcp.minimal_server"],
       "env": {
         "PYTHONPATH": "src"
       }
@@ -463,7 +463,7 @@ Exposes tools such as: `move_joints`, `grasp`, `get_robot_state`, `validate_traj
 ## Example: A Full Physical Intelligence Loop
 
 ```bash
-./rosclaw demo tabletop_pick --robot ur5e
+./rosclaw demo tabletop-grasp --robot-id ur5e
 ```
 
 What happens:
@@ -537,7 +537,7 @@ Example CLI:
 
 ```bash
 # Run auto evolution experiment
-./rosclaw auto run --task pick_cube --episodes 50
+./rosclaw auto run --task pick_cube --rounds 50
 
 # List current champions
 ./rosclaw skill champions list
@@ -567,9 +567,8 @@ Example:
 
 ```bash
 ./rosclaw forge sdk-to-mcp \
-  --robot unitree_go2 \
+  --name unitree_go2 \
   --sdk-docs ./docs/unitree_go2_sdk.md \
-  --eurdf ./e-urdf-zoo/unitree_go2 \
   --output ./generated/unitree_go2_bundle
 ```
 
@@ -757,7 +756,7 @@ PYTHONPATH=src pytest tests/test_e2e_full_pipeline.py -v
 Run architecture checks:
 
 ```bash
-./rosclaw doctor --architecture
+./rosclaw doctor --ros2
 ```
 
 ---

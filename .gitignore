@@ -71,3 +71,11 @@ MUJOCO_LOG.TXT
 # Claude Code internal data (never commit)
 .claude-flow/
 .claude/
+
+# Runtime test artifacts
+.rosclaw.auto/
+.rosclaw_auto_*/
+.rosclaw/
+
+# Generated bundles
+generated/

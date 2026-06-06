@@ -1,0 +1,20 @@
+{
+  "action_id": "unsafe_reach_v1",
+  "skill": "reach",
+  "target": {
+    "frame": "world",
+    "position": [0.85, 0.12, 0.45],
+    "orientation": [0.0, 0.0, 0.0, 1.0]
+  },
+  "motion": {
+    "type": "joint_position",
+    "max_velocity": 2.5,
+    "max_acceleration": 8.0,
+    "collision_check": false
+  },
+  "metadata": {
+    "description": "Intentionally aggressive reach used for firewall/sandbox negative testing.",
+    "expected_result": "rejected_by_firewall",
+    "tags": ["demo", "unsafe", "firewall_test"]
+  }
+}

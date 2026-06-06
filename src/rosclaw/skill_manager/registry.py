@@ -66,7 +66,7 @@ class SkillRegistry(LifecycleMixin):
         # Champion lookup: name -> champion_level -> skill_id
         self._champions: dict[str, dict[str, str]] = {}
         # Rollback history: skill_id -> list of previous skill_ids
-        self._rollback_history: dict[str, list[str]] = []
+        self._rollback_history: dict[str, list[dict[str, Any]]] = {}
 
     def _do_initialize(self) -> None:
         logger.info("SkillRegistry initialized")
@@ -126,18 +126,27 @@ class SkillRegistry(LifecycleMixin):
         return skill_id
 
     def unregister(self, skill_id: str) -> bool:
-        """Remove a skill by full skill_id."""
-        if skill_id in self._skills:
-            entry = self._skills[skill_id]
-            del self._skills[skill_id]
-            if skill_id in self._by_name.get(entry.name, []):
-                self._by_name[entry.name].remove(skill_id)
-            return True
-        return False
+        """Remove a skill by full skill_id or by bare name."""
+        target_id = skill_id
+        if target_id not in self._skills:
+            # Backward compatibility: treat as bare name and remove latest version
+            entry = self.get_by_name(skill_id)
+            if entry is None:
+                return False
+            target_id = self._make_id(entry.name, entry.version)
+        entry = self._skills[target_id]
+        del self._skills[target_id]
+        if target_id in self._by_name.get(entry.name, []):
+            self._by_name[entry.name].remove(target_id)
+        return True
 
     def get(self, skill_id: str) -> Optional[SkillEntry]:
-        """Retrieve a skill by full skill_id (name@version)."""
-        return self._skills.get(skill_id)
+        """Retrieve a skill by full skill_id (name@version) or by name."""
+        entry = self._skills.get(skill_id)
+        if entry is not None:
+            return entry
+        # Backward compatibility: allow lookup by bare name
+        return self.get_by_name(skill_id)
 
     def get_by_name(self, name: str, version: str | None = None) -> Optional[SkillEntry]:
         """Retrieve a skill by name and optional version."""
@@ -152,9 +161,13 @@ class SkillRegistry(LifecycleMixin):
         return self._skills.get(versions_sorted[-1])
 
     def list_skills(
-        self, skill_type: Optional[str] = None, champion_level: Optional[str] = None, return_entries: bool = False
+        self, skill_type: Optional[str] = None, champion_level: Optional[str] = None, return_entries: bool = False, full_ids: bool = False
     ) -> "list[str] | list[SkillEntry]":
-        """List all registered skills with optional filtering."""
+        """List all registered skills with optional filtering.
+
+        By default returns bare skill names for backward compatibility.
+        Set full_ids=True to receive name@version identifiers.
+        """
         skills = list(self._skills.values())
         if skill_type:
             skills = [s for s in skills if s.skill_type == skill_type]
@@ -162,7 +175,16 @@ class SkillRegistry(LifecycleMixin):
             skills = [s for s in skills if s.champion_level == champion_level]
         if return_entries:
             return skills
-        return [self._make_id(s.name, s.version) for s in skills]
+        if full_ids:
+            return [self._make_id(s.name, s.version) for s in skills]
+        # Backward compatibility: return unique bare names
+        seen = set()
+        names = []
+        for s in skills:
+            if s.name not in seen:
+                seen.add(s.name)
+                names.append(s.name)
+        return names
 
     def find_by_precondition(self, precondition: str) -> list[SkillEntry]:
         """Find skills matching a precondition."""

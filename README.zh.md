@@ -469,7 +469,7 @@ ROSClaw 可以作为 MCP Server 暴露给支持 MCP 的 Agent，例如 Claude Co
   "mcpServers": {
     "rosclaw": {
       "command": "python3",
-      "args": ["-m", "rosclaw.mcp.server"],
+      "args": ["-m", "rosclaw.mcp.minimal_server"],
       "env": {
         "PYTHONPATH": "src"
       }
@@ -487,7 +487,7 @@ ROSClaw 可以作为 MCP Server 暴露给支持 MCP 的 Agent，例如 Claude Co
 运行：
 
 ```bash
-./rosclaw demo tabletop_pick --robot ur5e
+./rosclaw demo tabletop-grasp --robot-id ur5e
 ```
 
 系统会执行：
@@ -562,7 +562,7 @@ ROSClaw 把 Skill 当成可版本化、可测试、可晋升、可回滚的物�
 
 ```bash
 # 运行自进化实验
-./rosclaw auto run --task pick_cube --episodes 50
+./rosclaw auto run --task pick_cube --rounds 50
 
 # 列出当前 Champion
 ./rosclaw skill champions list
@@ -588,9 +588,8 @@ ROSClaw 内置具身资产编译器 `rosclaw-forge`。
 
 ```bash
 ./rosclaw forge sdk-to-mcp \
-  --robot unitree_go2 \
+  --name unitree_go2 \
   --sdk-docs ./docs/unitree_go2_sdk.md \
-  --eurdf ./e-urdf-zoo/unitree_go2 \
   --output ./generated/unitree_go2_bundle
 ```
 
@@ -780,7 +779,7 @@ PYTHONPATH=src pytest tests/test_e2e_full_pipeline.py -v
 运行架构检查：
 
 ```bash
-./rosclaw doctor --architecture
+./rosclaw doctor --ros2
 ```
 
 ---
