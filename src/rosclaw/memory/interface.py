@@ -100,6 +100,9 @@ class MemoryInterface(LifecycleMixin):
         # Background preloader: rebuilds index during idle time
         self._preload_thread: Optional[threading.Thread] = None
         self._preload_stop = threading.Event()
+        # Query-result cache: same query within 5s returns cached results
+        self._query_result_cache: dict[str, tuple[list[dict], float]] = {}
+        self._query_cache_ttl_sec = 5.0
 
     def _preload_worker(self) -> None:
         """Daemon thread that rebuilds the semantic index when stale."""
@@ -343,6 +346,7 @@ class MemoryInterface(LifecycleMixin):
         with self._search_cache_lock:
             self._cache_version += 1
             self._search_cache.clear()
+            self._query_result_cache.clear()
 
     def _build_search_cache(
         self,
@@ -466,17 +470,32 @@ class MemoryInterface(LifecycleMixin):
         Find past experiences similar to the given instruction.
 
         Search priority (best available wins):
-          1. TF-IDF + cosine similarity (semantic, via sklearn) — cached
-          2. BM25Okapi ranking (statistical, via rank_bm25) — cached
-          3. Keyword set intersection (fallback, always works)
+          1. Query-result cache (same query within 5s)
+          2. TF-IDF + cosine similarity (semantic, via sklearn) — cached
+          3. BM25Okapi ranking (statistical, via rank_bm25) — cached
+          4. Keyword set intersection (fallback, always works)
 
-        The TF-IDF/BM25 indexes are lazily built on first query and reused
-        until an experience mutation invalidates the cache.
+        Tiered retrieval: if the first 200 experiences don't yield enough
+        matches, automatically expands to 400 then 600 records.
         """
         filters = {"robot_id": self._robot_id}
         if outcome_filter:
             filters["outcome"] = outcome_filter
 
+        # 1) Check query-result cache
+        cache_key = f"{instruction}|{outcome_filter}|{limit}"
+        now = time.time()
+        cached_result = self._query_result_cache.get(cache_key)
+        if cached_result is not None:
+            results, ts = cached_result
+            if now - ts < self._query_cache_ttl_sec:
+                return list(results)
+
+        query_tokens = self._tokenize(instruction)
+        if not query_tokens:
+            return []
+
+        # 2) Tiered retrieval: fast path 200, expand to 600 only if needed
         all_experiences = self._client.query(
             "experience_graph",
             filters=filters,
@@ -487,28 +506,50 @@ class MemoryInterface(LifecycleMixin):
         if not all_experiences:
             return []
 
-        query_tokens = self._tokenize(instruction)
-        if not query_tokens:
-            return []
-
-        # Check / build search cache
+        # Build cache once (max 600 experiences to avoid repeated rebuilds)
         with self._search_cache_lock:
             cache = self._search_cache
             if (
                 cache.get("version") != self._cache_version
                 or cache.get("filters") != filters
+                or len(cache.get("experiences", [])) < 200
             ):
                 cache = self._build_search_cache(all_experiences, filters)
                 self._search_cache = cache
 
-        # Priority 1: semantic search via TF-IDF (cached)
+        # Try semantic search on first 200
         if _HAS_SKLEARN:
-            return self._semantic_search_cached(instruction, limit, cache)
-        # Priority 2: BM25 (cached)
-        if _HAS_BM25:
-            return self._bm25_search_cached(query_tokens, limit, cache)
-        # Priority 3: keyword fallback
-        return self._keyword_search(all_experiences, query_tokens, limit)
+            results = self._semantic_search_cached(instruction, limit, cache)
+        elif _HAS_BM25:
+            results = self._bm25_search_cached(query_tokens, limit, cache)
+        else:
+            results = self._keyword_search(all_experiences, query_tokens, limit)
+
+        if len(results) >= limit:
+            self._query_result_cache[cache_key] = (results, now)
+            return results
+
+        # Expand to 600 if first 200 didn't yield enough matches
+        expanded = self._client.query(
+            "experience_graph",
+            filters=filters,
+            order_by="-timestamp",
+            limit=600,
+        )
+        if len(expanded) > len(all_experiences):
+            all_experiences = expanded
+            with self._search_cache_lock:
+                cache = self._build_search_cache(all_experiences, filters)
+                self._search_cache = cache
+            if _HAS_SKLEARN:
+                results = self._semantic_search_cached(instruction, limit, cache)
+            elif _HAS_BM25:
+                results = self._bm25_search_cached(query_tokens, limit, cache)
+            else:
+                results = self._keyword_search(all_experiences, query_tokens, limit)
+
+        self._query_result_cache[cache_key] = (results, now)
+        return results
 
     def _semantic_search(
         self,
