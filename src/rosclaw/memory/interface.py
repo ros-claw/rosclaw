@@ -14,6 +14,7 @@ Sprint 5 of DESIGN_SPRINT3_5.
 
 from typing import Optional, Any
 import logging
+import threading
 import time
 
 from rosclaw.core.event_bus import EventBus, Event
@@ -93,7 +94,6 @@ class MemoryInterface(LifecycleMixin):
         self._client = seekdb_client or SeekDBMemoryClient()
         self._embodied = embodied_memory
         # Semantic-search cache: invalidated on any experience mutation
-        import threading
         self._search_cache_lock = threading.Lock()
         self._search_cache: dict[str, Any] = {}
         self._cache_version = 0
