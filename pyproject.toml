@@ -13,7 +13,7 @@ authors = [
 ]
 keywords = ["robotics", "ros2", "mcp", "llm", "embodied-ai", "mujoco"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
