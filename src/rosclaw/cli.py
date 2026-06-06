@@ -1105,6 +1105,115 @@ def cmd_skill_invoke(args: argparse.Namespace) -> int:
         print(json.dumps(result, indent=2, default=str))
         return 0
 
+
+def cmd_skill_champions_list(_args: argparse.Namespace) -> int:
+    """List current champion skills."""
+    from rosclaw.skill_manager.registry import SkillRegistry
+    registry = SkillRegistry()
+    champions = registry.list_champions()
+    if not champions:
+        print("No champion skills found.")
+        return 0
+    print(f"Champion skills: {len(champions)}")
+    for champ in champions:
+        print(f"  {champ.name}@{champ.version} | level={champ.champion_level} | lineage={champ.lineage_id}")
+    return 0
+
+
+def cmd_skill_lineage(args: argparse.Namespace) -> int:
+    """Show skill lineage."""
+    from rosclaw.skill_manager.registry import SkillRegistry
+    registry = SkillRegistry()
+    lineage = registry.list_lineage(args.skill_id)
+    if not lineage:
+        print(f"No lineage found for '{args.skill_id}'")
+        return 1
+    print(f"Skill lineage for '{args.skill_id}':")
+    for entry in lineage:
+        print(f"  {entry.get('name', 'unknown')}@{entry.get('version', '?')} | level={entry.get('champion_level', '?')}")
+    return 0
+
+
+def cmd_skill_rollback(args: argparse.Namespace) -> int:
+    """Rollback skill to a specific version."""
+    from rosclaw.skill_manager.registry import SkillRegistry
+    registry = SkillRegistry()
+    ok = registry.rollback(args.skill_id, args.to)
+    if ok:
+        print(f"Rolled back '{args.skill_id}' to version {args.to}")
+    else:
+        print(f"Rollback failed for '{args.skill_id}' to {args.to}")
+    return 0 if ok else 1
+
+
+def cmd_auto_init(args: argparse.Namespace) -> int:
+    """Initialize an auto task (proxy to rosclaw.auto.cli)."""
+    from rosclaw.auto.cli import main as auto_main
+    argv = ["init"]
+    if getattr(args, "task", None):
+        argv.extend(["--task", args.task])
+    if getattr(args, "robot", None):
+        argv.extend(["--robot", args.robot])
+    if getattr(args, "skill", None):
+        argv.extend(["--skill", args.skill])
+    if getattr(args, "env", None):
+        argv.extend(["--env", args.env])
+    return auto_main(argv)
+
+
+def cmd_auto_run(args: argparse.Namespace) -> int:
+    """Run auto evolution (proxy to rosclaw.auto.cli)."""
+    from rosclaw.auto.cli import main as auto_main
+    argv = ["run"]
+    if getattr(args, "task", None):
+        argv.extend(["--task", args.task])
+    # Support --episodes as alias for --rounds
+    rounds = getattr(args, "rounds", 10)
+    if getattr(args, "episodes", None) is not None:
+        rounds = args.episodes
+    argv.extend(["--rounds", str(rounds)])
+    if getattr(args, "dry_run", False):
+        argv.append("--dry-run")
+    if getattr(args, "policy", None):
+        argv.extend(["--policy", args.policy])
+    return auto_main(argv)
+
+
+def cmd_auto_status(args: argparse.Namespace) -> int:
+    """Show auto status (proxy to rosclaw.auto.cli)."""
+    from rosclaw.auto.cli import main as auto_main
+    argv = ["status"]
+    if getattr(args, "task", None):
+        argv.extend(["--task", args.task])
+    return auto_main(argv)
+
+
+def cmd_auto_champion(args: argparse.Namespace) -> int:
+    """Show current champion (proxy to rosclaw.auto.cli)."""
+    from rosclaw.auto.cli import main as auto_main
+    argv = ["champion", "--task", args.task]
+    return auto_main(argv)
+
+
+def cmd_auto_deadends(args: argparse.Namespace) -> int:
+    """List dead ends (proxy to rosclaw.auto.cli)."""
+    from rosclaw.auto.cli import main as auto_main
+    argv = ["deadends"]
+    if getattr(args, "task", None):
+        argv.extend(["--task", args.task])
+    return auto_main(argv)
+
+
+def cmd_auto_report(args: argparse.Namespace) -> int:
+    """Generate evolution report (proxy to rosclaw.auto.cli)."""
+    from rosclaw.auto.cli import main as auto_main
+    argv = ["report", "--task", args.task]
+    if getattr(args, "output", None):
+        argv.extend(["--output", args.output])
+    if getattr(args, "format", None):
+        argv.extend(["--format", args.format])
+    return auto_main(argv)
+
     except Exception as exc:
         print(f"[ROSClaw] Skill invocation failed: {exc}")
         return 1
@@ -2483,6 +2592,25 @@ def main() -> int:
     provider_invoke_parser.add_argument("input", help="Input data (JSON string or text)")
     provider_invoke_parser.add_argument("--trace-id", default=None, help="Trace ID for the invocation")
 
+    # auto subcommand (Self-Evolution Control Plane)
+    auto_parser = subparsers.add_parser("auto", help="Auto self-evolution commands")
+    auto_subparsers = auto_parser.add_subparsers(dest="auto_command")
+    auto_subparsers.add_parser("init", help="Initialize an auto task")
+    auto_run_parser = auto_subparsers.add_parser("run", help="Run auto evolution")
+    auto_run_parser.add_argument("--task", required=True, help="Task name")
+    auto_run_parser.add_argument("--rounds", type=int, default=10, help="Number of evolution rounds")
+    auto_run_parser.add_argument("--episodes", type=int, default=None, help="Alias for --rounds (deprecated)")
+    auto_run_parser.add_argument("--dry-run", action="store_true", help="Dry run mode")
+    auto_run_parser.add_argument("--policy", default="failure_guided", help="Evolution policy")
+    auto_subparsers.add_parser("status", help="Show auto status")
+    auto_champ_parser = auto_subparsers.add_parser("champion", help="Show current champion")
+    auto_champ_parser.add_argument("--task", required=True, help="Task name")
+    auto_subparsers.add_parser("deadends", help="List dead ends")
+    auto_report_parser = auto_subparsers.add_parser("report", help="Generate evolution report")
+    auto_report_parser.add_argument("--task", required=True, help="Task name")
+    auto_report_parser.add_argument("--output", default="", help="Output file")
+    auto_report_parser.add_argument("--format", default="md", choices=["md", "json"], help="Report format")
+
     # skill subcommand
     skill_parser = subparsers.add_parser("skill", help="Skill commands")
     skill_subparsers = skill_parser.add_subparsers(dest="skill_command")
@@ -2492,6 +2620,20 @@ def main() -> int:
     skill_invoke_parser.add_argument("skill_id", help="Skill identifier (e.g., reach, grasp)")
     skill_invoke_parser.add_argument("input", help="Input data (JSON string)")
     skill_invoke_parser.add_argument("--trace-id", default=None, help="Trace ID for the invocation")
+
+    # skill champions subcommand
+    skill_champions_parser = skill_subparsers.add_parser("champions", help="Skill champion management")
+    skill_champions_sub = skill_champions_parser.add_subparsers(dest="skill_champions_command")
+    skill_champions_sub.add_parser("list", help="List current champions")
+
+    # skill lineage subcommand
+    skill_lineage_parser = skill_subparsers.add_parser("lineage", help="Show skill lineage")
+    skill_lineage_parser.add_argument("skill_id", help="Skill identifier")
+
+    # skill rollback subcommand
+    skill_rollback_parser = skill_subparsers.add_parser("rollback", help="Rollback skill to version")
+    skill_rollback_parser.add_argument("skill_id", help="Skill identifier")
+    skill_rollback_parser.add_argument("--to", required=True, help="Target version to rollback to")
 
     # sandbox subcommand
     sandbox_parser = subparsers.add_parser("sandbox", help="Sandbox commands")
@@ -2636,6 +2778,16 @@ def main() -> int:
             return cmd_skill_list(args)
         elif args.skill_command == "invoke":
             return cmd_skill_invoke(args)
+        elif args.skill_command == "champions":
+            if args.skill_champions_command == "list":
+                return cmd_skill_champions_list(args)
+            else:
+                skill_champions_parser.print_help()
+                return 1
+        elif args.skill_command == "lineage":
+            return cmd_skill_lineage(args)
+        elif args.skill_command == "rollback":
+            return cmd_skill_rollback(args)
         else:
             skill_parser.print_help()
             return 1
@@ -2646,6 +2798,22 @@ def main() -> int:
             return cmd_how_recover(args)
         else:
             how_parser.print_help()
+            return 1
+    elif args.command == "auto":
+        if args.auto_command == "init":
+            return cmd_auto_init(args)
+        elif args.auto_command == "run":
+            return cmd_auto_run(args)
+        elif args.auto_command == "status":
+            return cmd_auto_status(args)
+        elif args.auto_command == "champion":
+            return cmd_auto_champion(args)
+        elif args.auto_command == "deadends":
+            return cmd_auto_deadends(args)
+        elif args.auto_command == "report":
+            return cmd_auto_report(args)
+        else:
+            auto_parser.print_help()
             return 1
     elif args.command == "sandbox":
         if args.sandbox_command == "list-worlds":
