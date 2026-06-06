@@ -1965,7 +1965,8 @@ def cmd_firewall_check(args: argparse.Namespace) -> int:
     """Check action safety via firewall."""
     from rosclaw.runtime import RobotRegistry
 
-    print(f"[ROSClaw] Firewall check: robot={args.robot}, action={args.action}")
+    world = args.world or "empty"
+    print(f"[ROSClaw] Firewall check: robot={args.robot}, world={world}, action={args.action}")
     registry = RobotRegistry()
     profile = registry.get(args.robot)
     if profile is None:
@@ -2031,12 +2032,18 @@ def cmd_sandbox_run(args: argparse.Namespace) -> int:
     from rosclaw.core.event_bus import EventBus
     from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
 
-    print(f"[ROSClaw] Running sandbox episode: robot={args.robot}, task={args.task}")
+    backend = args.backend or "mock"
+    world = args.world or "empty"
+
+    print(
+        f"[ROSClaw] Running sandbox episode: robot={args.robot}, "
+        f"world={world}, task={args.task}"
+    )
 
     # Build config compatible with SandboxRuntimeAdapter.__init__
     config = {
-        "engine": args.backend or "mock",
-        "world_id": "empty",
+        "engine": backend,
+        "world_id": world,
         "robot_id": args.robot,
     }
     bus = EventBus()
@@ -2056,7 +2063,8 @@ def cmd_sandbox_run(args: argparse.Namespace) -> int:
             "status": "success",
             "robot_id": args.robot,
             "task": args.task,
-            "backend": args.backend or "mock",
+            "world": world,
+            "backend": backend,
             "steps": 100,
             "duration_sec": 5.0,
             "final_error": 0.02,
@@ -2068,6 +2076,8 @@ def cmd_sandbox_run(args: argparse.Namespace) -> int:
         print(f"Episode ID: {result['episode_id']}")
         print(f"Trace ID:   {result['trace_id']}")
         print(f"Status:     {result['status']}")
+        print(f"World:      {result['world']}")
+        print(f"Backend:    {result['backend']}")
         print(f"Steps:      {result['steps']}")
         print(f"Duration:   {result['duration_sec']:.2f}s")
         print(f"Final Error:{result['final_error']:.3f}m")
@@ -2491,6 +2501,7 @@ def main() -> int:
     sandbox_validate_parser.add_argument("robot_id", help="Robot identifier")
     sandbox_run_parser = sandbox_subparsers.add_parser("run", help="Run a sandbox episode")
     sandbox_run_parser.add_argument("--robot", required=True, help="Robot identifier")
+    sandbox_run_parser.add_argument("--world", default="empty", help="Sandbox world")
     sandbox_run_parser.add_argument("--task", required=True, help="Task name")
     sandbox_run_parser.add_argument("--backend", default="mujoco", help="Sandbox backend")
     sandbox_run_parser.add_argument("--trace-id", default=None, help="Trace ID")
@@ -2512,6 +2523,7 @@ def main() -> int:
     firewall_check_parser = firewall_subparsers.add_parser("check", help="Check action safety")
     firewall_check_parser.add_argument("--robot", required=True, help="Robot identifier")
     firewall_check_parser.add_argument("--action", required=True, help="Action JSON or name")
+    firewall_check_parser.add_argument("--world", default="empty", help="Sandbox world")
     firewall_check_parser.add_argument("--trace-id", default=None, help="Trace ID")
 
     # forge subcommand

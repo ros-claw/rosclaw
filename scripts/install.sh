@@ -92,7 +92,7 @@ echo "[3/7] Upgrading pip..."
 echo ""
 echo "[4/7] Installing ROSClaw..."
 cd "$PROJECT_ROOT"
-"$VENV_PIP" install -e "." -q
+"$VENV_PIP" install -e ".[dev]" -q
 
 # Optional extras
 if [[ "$INSTALL_DEV" == true ]]; then
