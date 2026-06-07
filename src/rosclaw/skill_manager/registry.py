@@ -239,11 +239,14 @@ class SkillRegistry(LifecycleMixin):
         if target is None:
             logger.warning("Rollback failed: %s not found", target_id)
             return False
-        # Mark current as deprecated, restore target
+        # Deprecate versions newer than target; restore target
         for sid, entry in self._skills.items():
-            if entry.name == name and entry.champion_level != "deprecated":
-                entry.champion_level = "deprecated"
-                entry.updated_at = time.time()
+            if entry.name == name and sid != target_id and entry.champion_level != "deprecated":
+                # Only deprecate if this version is newer than the target
+                other_ver = sid.split("@")[1]
+                if other_ver >= to_version:
+                    entry.champion_level = "deprecated"
+                    entry.updated_at = time.time()
         target.champion_level = "baseline_champion"
         target.updated_at = time.time()
         logger.info("Rolled back %s to version %s", name, to_version)

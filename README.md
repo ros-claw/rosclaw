@@ -536,8 +536,14 @@ Promotion is gated by six evaluation gates:
 Example CLI:
 
 ```bash
+# Initialize an auto task (required before running)
+./rosclaw auto init --task pick_cube --skill reach --type skill_tuning
+
 # Run auto evolution experiment
 ./rosclaw auto run --task pick_cube --rounds 50
+
+# Check evolution status
+./rosclaw auto status
 
 # List current champions
 ./rosclaw skill champions list
