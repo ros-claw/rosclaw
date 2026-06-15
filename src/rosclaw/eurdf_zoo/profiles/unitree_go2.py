@@ -4,13 +4,13 @@ Agile 12-DOF quadruped robot with LIDAR and depth cameras.
 """
 
 from rosclaw.runtime.eurdf_loader import (
+    RobotBenchmarkProfile,
+    RobotCapabilityProfile,
+    RobotCompleteProfile,
     RobotEmbodimentProfile,
     RobotSafetyProfile,
-    RobotCapabilityProfile,
-    RobotSimulationProfile,
     RobotSemanticProfile,
-    RobotBenchmarkProfile,
-    RobotCompleteProfile,
+    RobotSimulationProfile,
 )
 
 EMBODIMENT = RobotEmbodimentProfile(

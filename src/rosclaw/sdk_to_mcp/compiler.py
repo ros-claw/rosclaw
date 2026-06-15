@@ -6,7 +6,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -19,7 +19,7 @@ class CompiledAsset:
     name: str
     asset_type: str  # tool, resource, prompt
     mcp_schema: dict[str, Any]
-    source_path: Optional[str] = None
+    source_path: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -32,7 +32,7 @@ class AssetCompiler:
         assets = compiler.compile_robot_profile("ur5e")
     """
 
-    def __init__(self, output_dir: Optional[str] = None):
+    def __init__(self, output_dir: str | None = None):
         self.output_dir = Path(output_dir) if output_dir else None
 
     # ── Skill Compilation ──
@@ -40,7 +40,7 @@ class AssetCompiler:
     def compile_skill_file(self, path: str | Path) -> list[CompiledAsset]:
         """Compile a skill definition YAML to MCP tool schema."""
         path = Path(path)
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             skill = yaml.safe_load(f)
 
         assets = []

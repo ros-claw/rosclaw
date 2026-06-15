@@ -154,8 +154,9 @@ class TestPhase4ForgeEndToEnd:
 
     def test_mcp_forge_end_to_end_via_mcp(self):
         """Claude Code calls compile_asset_bundle and gets real files."""
-        from rosclaw.mcp.minimal_server import ROSClawMinimalMCPServer
         import asyncio
+
+        from rosclaw.mcp.minimal_server import ROSClawMinimalMCPServer
 
         server = ROSClawMinimalMCPServer()
         result = asyncio.run(server._handle_system_tool("system.compile_asset_bundle", {

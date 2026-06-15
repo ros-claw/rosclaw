@@ -37,8 +37,8 @@ class ROS2Runtime(RuntimeAdapter):
         try:
             import rclpy
             from rclpy.node import Node
-        except ImportError:
-            raise RuntimeError("rclpy is required for ROS2Runtime. Install ROS2.")
+        except ImportError as err:
+            raise RuntimeError("rclpy is required for ROS2Runtime. Install ROS2.") from err
         if not rclpy.ok():
             rclpy.init()
         self._node = Node(f"rosclaw_provider_{self.name}")

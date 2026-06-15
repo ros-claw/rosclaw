@@ -1,9 +1,9 @@
 """Tests for DashboardExporter."""
 import shutil
-import pytest
-from rosclaw.auto.engine.auto_engine import AutoEngine
+
 from rosclaw.auto.config import AutoConfig
 from rosclaw.auto.dashboard import DashboardExporter
+from rosclaw.auto.engine.auto_engine import AutoEngine
 
 
 class TestDashboardExporter:

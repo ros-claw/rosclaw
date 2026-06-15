@@ -6,7 +6,6 @@ Replaces pure random metrics with a physics-inspired lookup so that:
 - Tests can assert on exact metric values given known patch parameters.
 """
 import math
-from typing import Any
 
 
 class MockPhysicsModel:

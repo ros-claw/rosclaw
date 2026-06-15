@@ -12,10 +12,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 import yaml
-
 
 # ── Profile Data Classes ──
 
@@ -196,7 +194,7 @@ class EURDFLoader:
         "benchmark.yaml",
     ]
 
-    def __init__(self, zoo_path: Optional[str | Path] = None):
+    def __init__(self, zoo_path: str | Path | None = None):
         if zoo_path is None:
             # Default: look for e-urdf-zoo relative to project root
             self.zoo_path = Path(__file__).parent.parent.parent.parent / "e-urdf-zoo"
@@ -220,7 +218,7 @@ class EURDFLoader:
 
         # Load core e-URDF
         eurdf_path = robot_dir / "robot.eurdf.yaml"
-        with open(eurdf_path, "r", encoding="utf-8") as f:
+        with open(eurdf_path, encoding="utf-8") as f:
             eurdf = yaml.safe_load(f)
 
         # Load sub-profiles
@@ -346,7 +344,7 @@ class EURDFLoader:
         eurdf_path = robot_dir / "robot.eurdf.yaml"
         if eurdf_path.exists():
             try:
-                with open(eurdf_path, "r", encoding="utf-8") as f:
+                with open(eurdf_path, encoding="utf-8") as f:
                     eurdf = yaml.safe_load(f)
 
                 required_fields = ["robot_id", "name", "vendor", "dof", "links", "joints"]
@@ -371,7 +369,7 @@ class EURDFLoader:
         return result
 
     @staticmethod
-    def _load_yaml(path: Path) -> Optional[dict]:
+    def _load_yaml(path: Path) -> dict | None:
         """Load a YAML file if it exists, otherwise return None.
 
         Args:
@@ -382,7 +380,7 @@ class EURDFLoader:
         """
         if not path.exists():
             return None
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return yaml.safe_load(f)
 
 
@@ -391,7 +389,7 @@ class EURDFLoader:
 class RobotRegistry:
     """In-memory registry of loaded robot profiles."""
 
-    def __init__(self, loader: Optional[EURDFLoader] = None):
+    def __init__(self, loader: EURDFLoader | None = None):
         self.loader = loader or EURDFLoader()
         self._profiles: dict[str, RobotCompleteProfile] = {}
 
@@ -403,7 +401,7 @@ class RobotRegistry:
         self._profiles[profile.robot_id] = profile
         return profile
 
-    def get(self, robot_id: str) -> Optional[RobotCompleteProfile]:
+    def get(self, robot_id: str) -> RobotCompleteProfile | None:
         """Get a registered profile (auto-install if not cached)."""
         if robot_id not in self._profiles:
             try:

@@ -1,7 +1,7 @@
 """Task #21: Verify Sandbox Firewall Interception Capabilities."""
 from rosclaw.core.event_bus import EventBus
-from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
 from rosclaw.sandbox.firewall.gate import FirewallGate
+from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
 
 
 class TestFirewallGateChecks:

@@ -6,14 +6,13 @@ and MuJoCo collision model, publishes agent.response with request_id.
 Sprint 3 of DESIGN_SPRINT3_5.
 """
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
-import logging
-from typing import Optional
 
 import numpy as np
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
 from rosclaw.e_urdf.parser import RobotModel
 
@@ -51,14 +50,8 @@ class SafetyEnvelope:
             lo = joint.limits.get("lower", -float("inf"))
             hi = joint.limits.get("upper", float("inf"))
             # Apply soft factor inward from limits
-            if lo < 0:
-                lo = lo * factor
-            else:
-                lo = lo + (hi - lo) * (1 - factor) / 2
-            if hi > 0:
-                hi = hi * factor
-            else:
-                hi = hi - (hi - lo) * (1 - factor) / 2
+            lo = lo * factor if lo < 0 else lo + (hi - lo) * (1 - factor) / 2
+            hi = hi * factor if hi > 0 else hi - (hi - lo) * (1 - factor) / 2
             joint_limits.append((lo, hi))
             max_velocities.append(joint.limits.get("velocity", float("inf")) * factor)
             max_torques.append(joint.limits.get("effort", float("inf")) * factor)
@@ -87,10 +80,10 @@ class ViolationDetail:
     """Single safety violation found during validation."""
     layer: ValidationLayer
     severity: str
-    joint_index: Optional[int]
+    joint_index: int | None
     description: str
-    actual_value: Optional[float] = None
-    limit_value: Optional[float] = None
+    actual_value: float | None = None
+    limit_value: float | None = None
 
 
 @dataclass
@@ -127,7 +120,7 @@ class FirewallValidator(LifecycleMixin):
         self,
         robot_model: RobotModel,
         event_bus: EventBus,
-        mujoco_model_path: Optional[str] = None,
+        mujoco_model_path: str | None = None,
         safety_level: str = "MODERATE",
     ):
         super().__init__()
@@ -135,7 +128,7 @@ class FirewallValidator(LifecycleMixin):
         self._event_bus = event_bus
         self._mujoco_model_path = mujoco_model_path
         self._safety_level = safety_level
-        self._envelope: Optional[SafetyEnvelope] = None
+        self._envelope: SafetyEnvelope | None = None
         self._mj_model = None
         self._mj_data = None
 
@@ -385,16 +378,15 @@ class FirewallValidator(LifecycleMixin):
                     curr = np.array(request.trajectory[i])
                     velocities = np.abs(curr - prev) / duration
                     for j_idx, vel in enumerate(velocities):
-                        if j_idx < len(self._envelope.max_velocity):
-                            if vel > self._envelope.max_velocity[j_idx]:
-                                violations.append(ViolationDetail(
-                                    layer=ValidationLayer.SEMANTIC_SAFETY,
-                                    severity="error",
-                                    joint_index=j_idx,
-                                    description=f"Joint {j_idx} velocity {vel:.2f} rad/s "
-                                                f"exceeds limit {self._envelope.max_velocity[j_idx]:.2f}",
-                                    actual_value=vel,
-                                    limit_value=self._envelope.max_velocity[j_idx],
-                                ))
+                        if j_idx < len(self._envelope.max_velocity) and vel > self._envelope.max_velocity[j_idx]:
+                            violations.append(ViolationDetail(
+                                layer=ValidationLayer.SEMANTIC_SAFETY,
+                                severity="error",
+                                joint_index=j_idx,
+                                description=f"Joint {j_idx} velocity {vel:.2f} rad/s "
+                                            f"exceeds limit {self._envelope.max_velocity[j_idx]:.2f}",
+                                actual_value=vel,
+                                limit_value=self._envelope.max_velocity[j_idx],
+                            ))
 
         return violations, warnings

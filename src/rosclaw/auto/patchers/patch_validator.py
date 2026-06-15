@@ -90,9 +90,8 @@ class PatchValidator:
                     if alias.name in ("subprocess", "socket", "urllib", "http"):
                         violations.append(f"Forbidden import: {alias.name}")
 
-            if isinstance(node, ast.ImportFrom):
-                if node.module in ("os", "subprocess", "socket"):
-                    violations.append(f"Forbidden import from: {node.module}")
+            if isinstance(node, ast.ImportFrom) and node.module in ("os", "subprocess", "socket"):
+                violations.append(f"Forbidden import from: {node.module}")
 
         return violations
 
@@ -122,9 +121,9 @@ class PatchValidator:
         # Check forbidden paths in changes
         for change in changes:
             path = change.get("path", "")
-            old_val = change.get("old")
+            change.get("old")
             new_val = change.get("new")
-            action = change.get("action", "")
+            change.get("action", "")
 
             # Normalize path to prevent bypass
             normalized = self._normalize_path(path)

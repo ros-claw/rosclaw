@@ -2,10 +2,7 @@
 
 import json
 import logging
-from pathlib import Path
 from unittest.mock import MagicMock
-
-import pytest
 
 from rosclaw.skill_manager.loader import SkillLoader
 from rosclaw.skill_manager.registry import SkillRegistry

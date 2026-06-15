@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -32,8 +32,8 @@ class EpisodeMetric:
     episode_id: str
     robot_id: str
     status: str
-    reward: Optional[float] = None
-    duration_sec: Optional[float] = None
+    reward: float | None = None
+    duration_sec: float | None = None
     timestamp: float = field(default_factory=time.time)
 
 
@@ -109,7 +109,7 @@ class DashboardMetrics:
 
     # ── Sandbox metrics ──
 
-    def record_sandbox_validation(self, action_type: str, is_safe: bool, violations: Optional[list[str]] = None) -> None:
+    def record_sandbox_validation(self, action_type: str, is_safe: bool, violations: list[str] | None = None) -> None:
         self._sandbox_metrics.append(SandboxMetric(action_type, is_safe, violations or []))
         self._trim(self._sandbox_metrics)
 
@@ -130,7 +130,7 @@ class DashboardMetrics:
 
     # ── Episode metrics ──
 
-    def record_episode(self, episode_id: str, robot_id: str, status: str, reward: Optional[float] = None, duration_sec: Optional[float] = None) -> None:
+    def record_episode(self, episode_id: str, robot_id: str, status: str, reward: float | None = None, duration_sec: float | None = None) -> None:
         self._episode_metrics.append(EpisodeMetric(episode_id, robot_id, status, reward, duration_sec))
         self._trim(self._episode_metrics)
 

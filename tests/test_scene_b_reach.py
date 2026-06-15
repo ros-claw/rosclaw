@@ -16,10 +16,11 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 import time  # noqa: E402
-import pytest  # noqa: E402
-import numpy as np  # noqa: E402
 
-from rosclaw.core import Runtime, RuntimeConfig, Event  # noqa: E402
+import numpy as np  # noqa: E402
+import pytest  # noqa: E402
+
+from rosclaw.core import Event, Runtime, RuntimeConfig  # noqa: E402
 from rosclaw.critic.basic_critic import BasicCritic  # noqa: E402
 
 

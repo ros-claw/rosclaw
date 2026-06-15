@@ -12,27 +12,27 @@ Optional integration with powermem.EmbodiedMemory for:
 Sprint 5 of DESIGN_SPRINT3_5.
 """
 
-from typing import Optional, Any
 import logging
 import threading
 import time
+from typing import Any
 
-from rosclaw.core.event_bus import EventBus, Event
+from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.core.lifecycle import LifecycleMixin
 from rosclaw.memory.seekdb_client import SeekDBClient, SeekDBMemoryClient
-from rosclaw.memory.types import PraxisEvent, FailureMemory, ArtifactRef
+from rosclaw.memory.types import ArtifactRef, FailureMemory, PraxisEvent
 
 logger = logging.getLogger("rosclaw.memory.interface")
 
 # Conditional import: powermem Protocol types for type-safe proxy methods
 try:
     from powermem.embodied.protocols import (
-        WorldObjectLike,
-        PoseLike,
-        Vec3Like,
-        TemporalIntervalLike,
-        PermanenceReportLike,
         MemoryAtomLike,
+        PermanenceReportLike,
+        PoseLike,
+        TemporalIntervalLike,
+        Vec3Like,
+        WorldObjectLike,
     )
     _HAS_POWERMEM_PROTOCOLS = True
 except ImportError:
@@ -84,9 +84,9 @@ class MemoryInterface(LifecycleMixin):
     def __init__(
         self,
         robot_id: str,
-        event_bus: Optional[EventBus] = None,
-        seekdb_client: Optional[SeekDBClient] = None,
-        embodied_memory: Optional[Any] = None,
+        event_bus: EventBus | None = None,
+        seekdb_client: SeekDBClient | None = None,
+        embodied_memory: Any | None = None,
     ):
         super().__init__()
         self._robot_id = robot_id
@@ -98,7 +98,7 @@ class MemoryInterface(LifecycleMixin):
         self._search_cache: dict[str, Any] = {}
         self._cache_version = 0
         # Background preloader: rebuilds index during idle time
-        self._preload_thread: Optional[threading.Thread] = None
+        self._preload_thread: threading.Thread | None = None
         self._preload_stop = threading.Event()
         # Query-result cache: same query within 5s returns cached results
         self._query_result_cache: dict[str, tuple[list[dict], float]] = {}
@@ -285,13 +285,13 @@ class MemoryInterface(LifecycleMixin):
         event_id: str,
         event_type: str,
         instruction: str,
-        cot_trace: Optional[list[str]] = None,
-        trajectory: Optional[list[list[float]]] = None,
+        cot_trace: list[str] | None = None,
+        trajectory: list[list[float]] | None = None,
         outcome: str = "success",
         duration_sec: float = 0.0,
-        error_details: Optional[str] = None,
-        tags: Optional[list[str]] = None,
-        metadata: Optional[dict] = None,
+        error_details: str | None = None,
+        tags: list[str] | None = None,
+        metadata: dict | None = None,
     ) -> str:
         """Store a new experience in SeekDB."""
         record = {
@@ -425,7 +425,7 @@ class MemoryInterface(LifecycleMixin):
 
         scored = [
             (sim, exp)
-            for sim, exp in zip(similarities, experiences)
+            for sim, exp in zip(similarities, experiences, strict=False)
             if sim > 0
         ]
         if not scored:
@@ -450,7 +450,7 @@ class MemoryInterface(LifecycleMixin):
         scores = bm25.get_scores(query_tokens)
         scored = [
             (score, exp)
-            for score, exp in zip(scores, experiences)
+            for score, exp in zip(scores, experiences, strict=False)
             if score > 0
         ]
 
@@ -464,7 +464,7 @@ class MemoryInterface(LifecycleMixin):
         self,
         instruction: str,
         limit: int = 5,
-        outcome_filter: Optional[str] = None,
+        outcome_filter: str | None = None,
     ) -> list[dict]:
         """
         Find past experiences similar to the given instruction.
@@ -592,7 +592,7 @@ class MemoryInterface(LifecycleMixin):
 
         scored = [
             (sim, exp)
-            for sim, exp in zip(similarities, experiences)
+            for sim, exp in zip(similarities, experiences, strict=False)
             if sim > 0
         ]
         if not scored:
@@ -622,7 +622,7 @@ class MemoryInterface(LifecycleMixin):
 
         scored = [
             (score, exp)
-            for score, exp in zip(scores, experiences)
+            for score, exp in zip(scores, experiences, strict=False)
             if score > 0
         ]
 
@@ -651,7 +651,7 @@ class MemoryInterface(LifecycleMixin):
         scored.sort(key=lambda x: x[0], reverse=True)
         return [exp for _, exp in scored[:limit]]
 
-    def find_analogy(self, error_log: str, limit: int = 3) -> Optional[dict]:
+    def find_analogy(self, error_log: str, limit: int = 3) -> dict | None:
         """Find similar past failures and their recovery actions as analogy.
 
         Searches the experience_graph for failures with similar error_details
@@ -706,7 +706,7 @@ class MemoryInterface(LifecycleMixin):
             "source_experience": best.get("id", ""),
         }
 
-    def get_experience(self, experience_id: str) -> Optional[dict]:
+    def get_experience(self, experience_id: str) -> dict | None:
         """Retrieve a single experience by ID."""
         results = self._client.query(
             "experience_graph",
@@ -768,8 +768,8 @@ class MemoryInterface(LifecycleMixin):
 
     def forget_old_experiences(
         self,
-        max_age_days: Optional[int] = None,
-        outcome_filter: Optional[str] = None,
+        max_age_days: int | None = None,
+        outcome_filter: str | None = None,
     ) -> int:
         max_age_days = self.DEFAULT_MAX_AGE_DAYS if max_age_days is None else max_age_days
         """Delete experiences older than ``max_age_days``.
@@ -811,7 +811,7 @@ class MemoryInterface(LifecycleMixin):
             self._invalidate_search_cache()
         return deleted
 
-    def enforce_capacity(self, max_experiences: Optional[int] = None) -> int:
+    def enforce_capacity(self, max_experiences: int | None = None) -> int:
         max_experiences = self.DEFAULT_MAX_EXPERIENCES if max_experiences is None else max_experiences
         """Evict oldest experiences when capacity is exceeded.
 
@@ -889,9 +889,9 @@ class MemoryInterface(LifecycleMixin):
 
     def query_knowledge_graph(
         self,
-        entity_id: Optional[str] = None,
-        predicate: Optional[str] = None,
-        object_value: Optional[str] = None,
+        entity_id: str | None = None,
+        predicate: str | None = None,
+        object_value: str | None = None,
         limit: int = 100,
     ) -> list[dict]:
         """Query the knowledge_graph table.
@@ -916,7 +916,7 @@ class MemoryInterface(LifecycleMixin):
 
     def get_heuristic_rules(
         self,
-        condition: Optional[str] = None,
+        condition: str | None = None,
         min_priority: int = 0,
         limit: int = 100,
     ) -> list[dict]:
@@ -970,8 +970,8 @@ class MemoryInterface(LifecycleMixin):
 
     def retrieve_similar_episode(
         self,
-        task_id: Optional[str] = None,
-        robot_id: Optional[str] = None,
+        task_id: str | None = None,
+        robot_id: str | None = None,
         n: int = 5,
     ) -> list[dict]:
         """Retrieve similar historical episodes.
@@ -992,8 +992,8 @@ class MemoryInterface(LifecycleMixin):
 
     def explain_last_failure(
         self,
-        task_id: Optional[str] = None,
-    ) -> Optional[dict]:
+        task_id: str | None = None,
+    ) -> dict | None:
         """Explain the most recent failure for a task.
 
         Returns the latest failure record including root_cause,
@@ -1014,7 +1014,7 @@ class MemoryInterface(LifecycleMixin):
 
     def retrieve_robot_capability(
         self,
-        robot_id: Optional[str] = None,
+        robot_id: str | None = None,
     ) -> list[dict]:
         """Query capabilities for a robot from the knowledge_graph."""
         rid = robot_id or self._robot_id
@@ -1027,8 +1027,8 @@ class MemoryInterface(LifecycleMixin):
     def retrieve_skill_success_pattern(
         self,
         skill_name: str,
-        robot_id: Optional[str] = None,
-    ) -> Optional[dict]:
+        robot_id: str | None = None,
+    ) -> dict | None:
         """Retrieve success pattern for a skill + robot combination."""
         filters: dict[str, Any] = {"skill_id": skill_name}
         if robot_id:
@@ -1042,8 +1042,8 @@ class MemoryInterface(LifecycleMixin):
 
     def retrieve_safety_case(
         self,
-        robot_id: Optional[str] = None,
-        constraint_type: Optional[str] = None,
+        robot_id: str | None = None,
+        constraint_type: str | None = None,
     ) -> list[dict]:
         """Retrieve safety-related heuristic rules for a robot.
 
@@ -1072,7 +1072,7 @@ class MemoryInterface(LifecycleMixin):
         record = artifact.to_seekdb_record()
         return self._client.insert("artifacts", record)
 
-    def get_artifact(self, artifact_id: str) -> Optional[ArtifactRef]:
+    def get_artifact(self, artifact_id: str) -> ArtifactRef | None:
         """Retrieve a single artifact reference by ID."""
         rows = self._client.query(
             "artifacts",
@@ -1094,7 +1094,7 @@ class MemoryInterface(LifecycleMixin):
     def find_artifacts_by_episode(
         self,
         episode_id: str,
-        artifact_type: Optional[str] = None,
+        artifact_type: str | None = None,
     ) -> list[ArtifactRef]:
         """Find all artifacts linked to an episode."""
         filters: dict[str, Any] = {"episode_id": episode_id}
@@ -1125,20 +1125,20 @@ class MemoryInterface(LifecycleMixin):
 
     # -- World Objects --
 
-    def add_world_object(self, obj: WorldObjectLike) -> Optional[str]:
+    def add_world_object(self, obj: WorldObjectLike) -> str | None:
         """Add a world object. Returns obj_id or None if no EmbodiedMemory."""
         if self._embodied is None:
             return None
         return self._embodied.add_world_object(obj)
 
-    def get_world_object(self, obj_id: str) -> Optional[WorldObjectLike]:
+    def get_world_object(self, obj_id: str) -> WorldObjectLike | None:
         """Get a world object by ID."""
         if self._embodied is None:
             return None
         return self._embodied.get_world_object(obj_id)
 
     def update_world_object_pose(
-        self, obj_id: str, pose: PoseLike, state: Optional[str] = None
+        self, obj_id: str, pose: PoseLike, state: str | None = None
     ) -> bool:
         """Update world object pose and optional state."""
         if self._embodied is None:
@@ -1149,7 +1149,7 @@ class MemoryInterface(LifecycleMixin):
         self,
         center: Vec3Like,
         radius: float,
-        scene_id: Optional[str] = None,
+        scene_id: str | None = None,
     ) -> list[WorldObjectLike]:
         """Search world objects within spatial radius."""
         if self._embodied is None:
@@ -1180,7 +1180,7 @@ class MemoryInterface(LifecycleMixin):
         detections: list[WorldObjectLike],
         timestamp_sec: float,
         occlusion_radius: float = 0.5,
-    ) -> Optional[PermanenceReportLike]:
+    ) -> PermanenceReportLike | None:
         """
         Sync sensor detections with world model (Object Permanence).
 
@@ -1196,7 +1196,7 @@ class MemoryInterface(LifecycleMixin):
 
     def record_trajectory(
         self, content: str, waypoints: list[tuple[Vec3Like, float]]
-    ) -> Optional[int]:
+    ) -> int | None:
         """Record a trajectory. Returns memory_id or None."""
         if self._embodied is None:
             return None
@@ -1206,7 +1206,7 @@ class MemoryInterface(LifecycleMixin):
         self,
         query_waypoints: list[tuple[Vec3Like, float]],
         top_k: int = 5,
-        max_dtw_distance: Optional[float] = None,
+        max_dtw_distance: float | None = None,
     ) -> list[tuple[MemoryAtomLike, float]]:
         """Search for similar trajectories using DTW."""
         if self._embodied is None:
@@ -1220,9 +1220,9 @@ class MemoryInterface(LifecycleMixin):
     def cognitive_search(
         self,
         query: str,
-        spatial_center: Optional[Vec3Like] = None,
+        spatial_center: Vec3Like | None = None,
         spatial_radius: float = 2.0,
-        temporal_interval: Optional[TemporalIntervalLike] = None,
+        temporal_interval: TemporalIntervalLike | None = None,
         limit: int = 10,
     ) -> list[MemoryAtomLike]:
         """Cognitive search: semantic + spatial + temporal."""
@@ -1238,7 +1238,7 @@ class MemoryInterface(LifecycleMixin):
 
     # -- Meditation (offline abstraction) --
 
-    def run_meditation(self, phases: Optional[list[str]] = None) -> dict:
+    def run_meditation(self, phases: list[str] | None = None) -> dict:
         """Run meditation pipeline for offline memory abstraction."""
         if self._embodied is None:
             return {"success": False, "error": "EmbodiedMemory not attached"}
@@ -1263,9 +1263,9 @@ class KnowledgeGraphWrapper:
 
     def get_triples(
         self,
-        subject: Optional[str] = None,
-        predicate: Optional[str] = None,
-        obj: Optional[str] = None,
+        subject: str | None = None,
+        predicate: str | None = None,
+        obj: str | None = None,
         limit: int = 100,
     ) -> list[dict]:
         """Query triples by any combination of subject/predicate/object."""
@@ -1333,7 +1333,7 @@ class HeuristicRuleWrapper:
 
     def list_rules(
         self,
-        condition_filter: Optional[str] = None,
+        condition_filter: str | None = None,
         min_priority: int = 0,
         limit: int = 100,
     ) -> list[dict]:
@@ -1368,7 +1368,7 @@ class HeuristicRuleWrapper:
         }
         return self._client.insert(self._table, record)
 
-    def get_rule(self, rule_id: str) -> Optional[dict]:
+    def get_rule(self, rule_id: str) -> dict | None:
         """Retrieve a single rule by id."""
         rows = self._client.query(self._table, filters={"id": rule_id}, limit=1)
         return dict(rows[0]) if rows else None

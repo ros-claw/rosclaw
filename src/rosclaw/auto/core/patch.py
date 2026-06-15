@@ -1,6 +1,6 @@
 """Patch — 改进补丁."""
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 
@@ -15,7 +15,7 @@ class Patch:
     rollback_plan: dict = field(default_factory=dict)
     human_approval_required: bool = False
     status: Literal["draft", "approved", "applied", "rejected", "rolled_back"] = "draft"
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_dict(self) -> dict:
         return {

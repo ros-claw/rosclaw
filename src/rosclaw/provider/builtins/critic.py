@@ -6,7 +6,6 @@ and success criteria. Provides retry recommendations with parameter patches.
 
 from __future__ import annotations
 
-
 from rosclaw.provider.core.errors import CapabilityNotSupportedError
 from rosclaw.provider.core.provider import Provider
 from rosclaw.provider.core.request import ProviderRequest
@@ -222,12 +221,12 @@ class MockCriticProvider(Provider):
 
     @staticmethod
     def _position_error(target, actual):
-        return sum((t - a) ** 2 for t, a in zip(target, actual)) ** 0.5
+        return sum((t - a) ** 2 for t, a in zip(target, actual, strict=False)) ** 0.5
 
     @staticmethod
     def _orientation_error(target, actual):
         if len(target) == len(actual) == 4:
-            dot = abs(sum(t * a for t, a in zip(target, actual)))
+            dot = abs(sum(t * a for t, a in zip(target, actual, strict=False)))
             dot = min(1.0, dot)
             return 2.0 * (dot ** 0.5) * 57.2958
-        return sum(abs(t - a) for t, a in zip(target, actual))
+        return sum(abs(t - a) for t, a in zip(target, actual, strict=False))

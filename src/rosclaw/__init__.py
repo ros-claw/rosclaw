@@ -27,17 +27,18 @@ __author__ = "ROSClaw Team"
 # Enable namespace extension so rosclaw-sandbox and other
 # sibling packages can add sub-packages under rosclaw.*
 from pkgutil import extend_path as _extend_path
+
 __path__ = _extend_path(__path__, __name__)
 
 # Core OS (always available)
 from rosclaw.core import (
-    EventBus,
     Event,
+    EventBus,
     EventPriority,
+    LifecycleMixin,
+    LifecycleState,
     Runtime,
     RuntimeConfig,
-    LifecycleState,
-    LifecycleMixin,
 )
 
 # Grounding Engines (optional imports for environments without all deps)
@@ -54,40 +55,40 @@ except ImportError:
     SafetyViolationError = None  # type: ignore
     mujoco_firewall = None  # type: ignore
 
-from rosclaw.e_urdf import EURDFParser, RobotModel
 from rosclaw.agent_runtime import (
-    MCPHub,
     AgentContext,
-    LLMProvider,
-    LLMConfig,
+    # Backward-compatible aliases
+    DeepSeekClient,
+    DeepSeekConfig,
     DeepSeekProvider,
+    LLMConfig,
+    LLMProvider,
+    MCPHub,
     OpenAIProvider,
     QwenProvider,
     get_provider,
     list_providers,
     register_provider,
-    # Backward-compatible aliases
-    DeepSeekClient,
-    DeepSeekConfig,
 )
+from rosclaw.e_urdf import EURDFParser, RobotModel
+from rosclaw.mcp_drivers import BaseDriver, DriverState, TrajectoryCommand
 from rosclaw.memory import MemoryInterface
 from rosclaw.practice import PracticeRecorder
+from rosclaw.skill_manager import SkillEntry, SkillExecutor, SkillLoader, SkillRegistry
 from rosclaw.swarm import SwarmRuntimeManager
-from rosclaw.skill_manager import SkillRegistry, SkillEntry, SkillExecutor, SkillLoader
-from rosclaw.mcp_drivers import BaseDriver, DriverState, TrajectoryCommand
 
 # Provider Layer (optional - available when provider skeleton is installed)
 try:
+    from rosclaw.provider.adapters.generic import GenericProvider
+    from rosclaw.provider.client import CapabilityClient
+    from rosclaw.provider.core.manifest import ProviderManifest
     from rosclaw.provider.core.provider import Provider
     from rosclaw.provider.core.registry import ProviderRegistry
-    from rosclaw.provider.core.router import CapabilityRouter
-    from rosclaw.provider.core.manifest import ProviderManifest
     from rosclaw.provider.core.request import ProviderRequest
     from rosclaw.provider.core.response import ProviderResponse
+    from rosclaw.provider.core.router import CapabilityRouter
     from rosclaw.provider.guard.pipeline import GuardPipeline
-    from rosclaw.provider.client import CapabilityClient
     from rosclaw.provider.loader import ProviderLoader
-    from rosclaw.provider.adapters.generic import GenericProvider
 except ImportError:
     Provider = None  # type: ignore
     ProviderRegistry = None  # type: ignore

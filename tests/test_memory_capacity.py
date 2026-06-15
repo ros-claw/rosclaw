@@ -18,7 +18,6 @@ import pytest
 from rosclaw.memory.interface import MemoryInterface
 from rosclaw.memory.seekdb_client import SeekDBMemoryClient, SeekDBSQLiteClient
 
-
 # ---------------------------------------------------------------------------
 # SeekDB delete operations
 # ---------------------------------------------------------------------------

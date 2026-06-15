@@ -147,7 +147,7 @@ class ProviderManifest:
         p = Path(path)
         if not p.exists():
             raise ManifestValidationError(f"Manifest file not found: {p}")
-        with open(p, "r", encoding="utf-8") as f:
+        with open(p, encoding="utf-8") as f:
             data = yaml.safe_load(f)
         if not isinstance(data, dict):
             raise ManifestValidationError(f"Invalid YAML in {p}: expected dict, got {type(data).__name__}")

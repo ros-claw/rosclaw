@@ -116,8 +116,9 @@ class TestDoctor:
         assert "e-URDF-Zoo" in captured.out
 
     def test_doctor_passes_in_workspace(self, tmp_path, capsys):
-        from rosclaw.cli import main
         import os
+
+        from rosclaw.cli import main
 
         sys.argv = ["rosclaw", "init", str(tmp_path / "ws")]
         main()
@@ -144,8 +145,9 @@ class TestLogs:
         assert "Log directory not found" in captured.out or "No log files" in captured.out
 
     def test_logs_with_logs(self, tmp_path, capsys):
-        from rosclaw.cli import main
         import os
+
+        from rosclaw.cli import main
 
         log_dir = tmp_path / ".rosclaw" / "logs"
         log_dir.mkdir(parents=True)
@@ -167,8 +169,9 @@ class TestLogs:
                 os.environ.pop("HOME", None)
 
     def test_logs_level_filter(self, tmp_path, capsys):
-        from rosclaw.cli import main
         import os
+
+        from rosclaw.cli import main
 
         log_dir = tmp_path / ".rosclaw" / "logs"
         log_dir.mkdir(parents=True)
@@ -269,9 +272,10 @@ class TestDashboard:
         assert code == 0
 
     def test_dashboard_open(self, capsys, monkeypatch):
-        from rosclaw.cli import main
         # Stub uvicorn.run so the test doesn't actually start a blocking server.
         import uvicorn
+
+        from rosclaw.cli import main
         monkeypatch.setattr(uvicorn, "run", lambda *a, **kw: None)
         sys.argv = ["rosclaw", "dashboard", "--open"]
         code = main()
@@ -380,8 +384,9 @@ class TestEventsCommand:
 
 class TestStopCommand:
     def test_stop_no_pid_file(self, capsys):
-        from rosclaw.cli import main
         from pathlib import Path
+
+        from rosclaw.cli import main
 
         pid_file = Path.home() / ".rosclaw" / "runtime.pid"
         # Ensure no PID file

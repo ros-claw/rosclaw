@@ -13,9 +13,8 @@ class TestSandboxRuntimeAdapterLifecycle:
         config = {"engine": "mujoco", "world_id": "empty", "robot_id": "test_bot"}
         adapter = SandboxRuntimeAdapter(config, event_bus=bus)
         # Patch Sandbox.create to raise ImportError (caught by except ImportError)
-        with patch("rosclaw.sandbox.sandbox_api.Sandbox.create", side_effect=ImportError("no module")):
-            with caplog.at_level(logging.WARNING, logger="rosclaw.sandbox.runtime_adapter"):
-                adapter.initialize()
+        with patch("rosclaw.sandbox.sandbox_api.Sandbox.create", side_effect=ImportError("no module")), caplog.at_level(logging.WARNING, logger="rosclaw.sandbox.runtime_adapter"):
+            adapter.initialize()
         assert "Sandbox not available" in caplog.text
         assert adapter._sandbox_service is not None
         assert hasattr(adapter._sandbox_service, "session")
@@ -27,9 +26,8 @@ class TestSandboxRuntimeAdapterLifecycle:
         config = {"engine": "mujoco", "world_id": "empty", "robot_id": "test_bot"}
         adapter = SandboxRuntimeAdapter(config, event_bus=bus)
         # Patch Sandbox.create to raise RuntimeError (caught by except Exception)
-        with patch("rosclaw.sandbox.sandbox_api.Sandbox.create", side_effect=RuntimeError("boom")):
-            with caplog.at_level(logging.WARNING, logger="rosclaw.sandbox.runtime_adapter"):
-                adapter.initialize()
+        with patch("rosclaw.sandbox.sandbox_api.Sandbox.create", side_effect=RuntimeError("boom")), caplog.at_level(logging.WARNING, logger="rosclaw.sandbox.runtime_adapter"):
+            adapter.initialize()
         assert "Failed to create sandbox" in caplog.text
         assert adapter._sandbox_service is not None
         adapter.stop()
@@ -125,8 +123,8 @@ class TestSandboxRuntimeAdapterValidateTrajectory:
         mock_decision.violated_constraints = ["joint_limit"]
         mock_decision.replay_id = "rep_1"
 
-        with patch("rosclaw.sandbox.firewall.gate.FirewallGate") as MockGate:
-            instance = MockGate.return_value
+        with patch("rosclaw.sandbox.firewall.gate.FirewallGate") as mock_gate:
+            instance = mock_gate.return_value
             instance.check.return_value = mock_decision
             result = adapter.validate_trajectory([[0.0, 0.0, 0.0]])
 
@@ -151,8 +149,8 @@ class TestSandboxRuntimeAdapterValidateTrajectory:
         mock_decision.violated_constraints = []
         mock_decision.replay_id = None
 
-        with patch("rosclaw.sandbox.firewall.gate.FirewallGate") as MockGate:
-            instance = MockGate.return_value
+        with patch("rosclaw.sandbox.firewall.gate.FirewallGate") as mock_gate:
+            instance = mock_gate.return_value
             instance.check.return_value = mock_decision
             result = adapter.validate_trajectory([[0.0, 0.0, 0.0]])
 

@@ -104,10 +104,7 @@ def _payload_to_robot_events(
     )
     severity = payload.get("severity", "warning")
     timestamp = payload.get("timestamp")
-    if timestamp is None:
-        timestamp = str(time.time())
-    else:
-        timestamp = str(timestamp)
+    timestamp = str(time.time()) if timestamp is None else str(timestamp)
 
     # Pass everything else through as `fields` for downstream extractors.
     reserved = {

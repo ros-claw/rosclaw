@@ -1,6 +1,6 @@
 """Champion — 晋升技能冠军."""
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 
@@ -17,7 +17,7 @@ class Champion:
     known_limits: list[str] = field(default_factory=list)
     rollback_to: str | None = None
     experiment_id: str = ""
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_dict(self) -> dict:
         return {

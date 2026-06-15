@@ -1,18 +1,17 @@
 """Chaos: Fault injection and stress tests."""
-import shutil
+import contextlib
 import os
+import shutil
 import time
-import threading
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-from rosclaw.auto.engine.auto_engine import AutoEngine
 from rosclaw.auto.config import AutoConfig
-from rosclaw.auto.storage.local_store import LocalStore
-from rosclaw.auto.events.subscribers import AutoSubscriber
-from rosclaw.auto.events.publishers import AutoPublisher
-from rosclaw.auto.runners.local_runner import LocalRunner
 from rosclaw.auto.core.experiment import ExperimentSpec
+from rosclaw.auto.engine.auto_engine import AutoEngine
+from rosclaw.auto.events.publishers import AutoPublisher
+from rosclaw.auto.events.subscribers import AutoSubscriber
+from rosclaw.auto.runners.local_runner import LocalRunner
+from rosclaw.auto.storage.local_store import LocalStore
 
 
 class TestChaosFaultInjection:
@@ -22,11 +21,11 @@ class TestChaosFaultInjection:
         """AUTO-CHAOS-001: Storage failure should not lose champion decision."""
         store_path = "./.rosclaw_auto_test_chaos_storage"
         shutil.rmtree(store_path, ignore_errors=True)
-        store = LocalStore(store_path)
+        LocalStore(store_path)
         engine = AutoEngine(config=AutoConfig(local_store_path=store_path))
 
         # Write champion
-        champ = engine.promote_champion("pick_v1.5", "task_1", "sim", {"sr": 0.76}, "", "", "")
+        engine.promote_champion("pick_v1.5", "task_1", "sim", {"sr": 0.76}, "", "", "")
 
         # Inject ENOSPC (disk full) on next write
         call_count = [0]
@@ -38,11 +37,8 @@ class TestChaosFaultInjection:
                 raise OSError(28, "No space left on device")
             return original_open(*args, **kwargs)
 
-        with patch("builtins.open", side_effect=failing_open):
-            try:
-                engine.register_deadend("task_1", "bad_direction", "test", [])
-            except OSError:
-                pass  # Expected
+        with patch("builtins.open", side_effect=failing_open), contextlib.suppress(OSError):
+            engine.register_deadend("task_1", "bad_direction", "test", [])
 
         # Verify champion still readable (previous write succeeded)
         loaded = engine.champion_store.get_champion("task_1", "sim")

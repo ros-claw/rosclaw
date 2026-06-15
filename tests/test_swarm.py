@@ -9,11 +9,10 @@ import time
 
 import pytest
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
-from rosclaw.swarm.coordinator import AgentBid, SwarmCoordinator, TaskAllocation
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.swarm.consensus import ConsensusEntry, Proposal, RaftLikeConsensus
+from rosclaw.swarm.coordinator import AgentBid, SwarmCoordinator, TaskAllocation
 from rosclaw.swarm.manager import SwarmRuntimeManager
-
 
 # ==================================================================
 # SwarmRuntimeManager (existing coverage preserved)

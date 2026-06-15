@@ -1,8 +1,8 @@
 """Tests for Agent Runtime."""
 
 
-from rosclaw.core.event_bus import EventBus, Event
-from rosclaw.agent_runtime.mcp_hub import MCPHub, AgentContext
+from rosclaw.agent_runtime.mcp_hub import AgentContext, MCPHub
+from rosclaw.core.event_bus import Event, EventBus
 
 
 def test_agent_context():

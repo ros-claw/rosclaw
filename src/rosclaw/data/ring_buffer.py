@@ -16,11 +16,11 @@ Usage:
     recent = buffer.get_last_n(1000)  # Get last 1 second
 """
 
-import numpy as np
-from typing import Optional, Tuple
+import time
 from dataclasses import dataclass
 from enum import Enum, auto
-import time
+
+import numpy as np
 
 
 class BufferFullStrategy(Enum):
@@ -34,7 +34,7 @@ class BufferFullStrategy(Enum):
 class RingBufferConfig:
     """Configuration for RingBuffer."""
     capacity: int           # Maximum number of samples
-    shape: Tuple[int, ...]  # Shape of each sample (e.g., (6,) for 6 joints)
+    shape: tuple[int, ...]  # Shape of each sample (e.g., (6,) for 6 joints)
     dtype: np.dtype = np.float64
     strategy: BufferFullStrategy = BufferFullStrategy.OVERWRITE
 
@@ -59,7 +59,7 @@ class RingBuffer:
     def __init__(
         self,
         capacity: int,
-        shape: Tuple[int, ...],
+        shape: tuple[int, ...],
         dtype: np.dtype = np.float64,
         strategy: BufferFullStrategy = BufferFullStrategy.OVERWRITE,
     ):
@@ -77,7 +77,7 @@ class RingBuffer:
         self._size = 0  # Current number of valid samples
         self._is_full = False
 
-    def append(self, data: np.ndarray, timestamp: Optional[float] = None) -> None:
+    def append(self, data: np.ndarray, timestamp: float | None = None) -> None:
         """
         Append a new sample to the buffer.
 
@@ -103,7 +103,7 @@ class RingBuffer:
             if self._size >= self.capacity:
                 self._is_full = True
 
-    def get_last_n(self, n: int) -> Tuple[np.ndarray, np.ndarray]:
+    def get_last_n(self, n: int) -> tuple[np.ndarray, np.ndarray]:
         """
         Get the last n samples with timestamps.
 
@@ -152,7 +152,7 @@ class RingBuffer:
         self,
         start_time: float,
         end_time: float,
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Get samples within a time range.
 
@@ -182,7 +182,7 @@ class RingBuffer:
             self._timestamps[sorted_indices].copy(),
         )
 
-    def get_all(self) -> Tuple[np.ndarray, np.ndarray]:
+    def get_all(self) -> tuple[np.ndarray, np.ndarray]:
         """Get all valid samples in chronological order."""
         return self.get_last_n(self._size)
 
@@ -207,7 +207,7 @@ class RingBuffer:
         """Check if buffer is empty."""
         return self._size == 0
 
-    def latest(self) -> Optional[Tuple[np.ndarray, float]]:
+    def latest(self) -> tuple[np.ndarray, float] | None:
         """
         Get the most recent sample.
 
@@ -239,7 +239,7 @@ class MultiChannelRingBuffer:
         })
     """
 
-    def __init__(self, **channel_configs: Tuple[int, Tuple[int, ...]]):
+    def __init__(self, **channel_configs: tuple[int, tuple[int, ...]]):
         """
         Initialize multi-channel buffer.
 
@@ -257,7 +257,7 @@ class MultiChannelRingBuffer:
 
             self.channels[name] = RingBuffer(capacity=capacity, shape=shape)
 
-    def append(self, data: dict[str, np.ndarray], timestamp: Optional[float] = None) -> None:
+    def append(self, data: dict[str, np.ndarray], timestamp: float | None = None) -> None:
         """
         Append data to all channels.
 
@@ -272,7 +272,7 @@ class MultiChannelRingBuffer:
                 raise KeyError(f"Unknown channel: {name}")
             self.channels[name].append(channel_data, ts)
 
-    def get_last_n(self, n: int) -> dict[str, Tuple[np.ndarray, np.ndarray]]:
+    def get_last_n(self, n: int) -> dict[str, tuple[np.ndarray, np.ndarray]]:
         """Get last n samples from all channels."""
         return {
             name: buffer.get_last_n(n)
@@ -283,7 +283,7 @@ class MultiChannelRingBuffer:
         self,
         start_time: float,
         end_time: float,
-    ) -> dict[str, Tuple[np.ndarray, np.ndarray]]:
+    ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
         """Get samples within time range from all channels."""
         return {
             name: buffer.get_range(start_time, end_time)

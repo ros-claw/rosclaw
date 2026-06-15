@@ -28,8 +28,8 @@ class HTTPRuntime(RuntimeAdapter):
     async def start(self) -> None:
         try:
             import aiohttp
-        except ImportError:
-            raise RuntimeError("aiohttp is required for HTTPRuntime. pip install aiohttp")
+        except ImportError as err:
+            raise RuntimeError("aiohttp is required for HTTPRuntime. pip install aiohttp") from err
         self._session = aiohttp.ClientSession(headers=self.headers)
         self._started = True
 

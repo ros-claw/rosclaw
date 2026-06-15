@@ -4,13 +4,13 @@ Mobile base + 7-DOF arm with RGB-D camera and laser scanner.
 """
 
 from rosclaw.runtime.eurdf_loader import (
+    RobotBenchmarkProfile,
+    RobotCapabilityProfile,
+    RobotCompleteProfile,
     RobotEmbodimentProfile,
     RobotSafetyProfile,
-    RobotCapabilityProfile,
-    RobotSimulationProfile,
     RobotSemanticProfile,
-    RobotBenchmarkProfile,
-    RobotCompleteProfile,
+    RobotSimulationProfile,
 )
 
 EMBODIMENT = RobotEmbodimentProfile(

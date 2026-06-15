@@ -29,7 +29,7 @@ class TaskContext:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "TaskContext":
+    def from_dict(cls, d: dict[str, Any]) -> TaskContext:
         return cls(
             task_name=d.get("task_name", ""),
             task_family=d.get("task_family", ""),
@@ -57,7 +57,7 @@ class RobotContext:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "RobotContext":
+    def from_dict(cls, d: dict[str, Any]) -> RobotContext:
         return cls(
             robot_id=d.get("robot_id", ""),
             eurdf_profile=d.get("eurdf_profile", ""),
@@ -81,7 +81,7 @@ class SafetyContext:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "SafetyContext":
+    def from_dict(cls, d: dict[str, Any]) -> SafetyContext:
         return cls(
             safety_level=d.get("safety_level", "MODERATE"),
             sandbox_required=d.get("sandbox_required", True),
@@ -113,7 +113,7 @@ class RuntimeContext:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "RuntimeContext":
+    def from_dict(cls, d: dict[str, Any]) -> RuntimeContext:
         return cls(
             run_id=d.get("run_id", ""),
             trace_id=d.get("trace_id", ""),
@@ -147,7 +147,7 @@ class AgentContext:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "AgentContext":
+    def from_dict(cls, d: dict[str, Any]) -> AgentContext:
         return cls(
             agent_id=d.get("agent_id", ""),
             model=d.get("model", ""),

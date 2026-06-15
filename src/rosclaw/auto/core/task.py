@@ -1,7 +1,7 @@
 """AutoTask — 自进化任务定义."""
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Literal
-from datetime import datetime, timezone
 
 
 @dataclass
@@ -15,8 +15,8 @@ class AutoTask:
     objective: dict = field(default_factory=dict)
     constraints: dict = field(default_factory=dict)
     status: str = "pending"
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_dict(self) -> dict:
         return {

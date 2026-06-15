@@ -2,13 +2,13 @@
 
 import pytest
 
-from rosclaw.core.event_bus import EventBus, Event
-from rosclaw.e_urdf.parser import RobotModel, JointSpec
+from rosclaw.core.event_bus import Event, EventBus
+from rosclaw.e_urdf.parser import JointSpec, RobotModel
 from rosclaw.firewall.validator import (
     FirewallValidator,
     SafetyEnvelope,
-    ValidationRequest,
     ValidationLayer,
+    ValidationRequest,
     ValidationResponse,
 )
 
@@ -232,7 +232,7 @@ def test_safety_envelope_unknown_level_defaults():
 
 def test_safety_envelope_positive_only_limits():
     """Joint with only positive limits."""
-    from rosclaw.e_urdf.parser import RobotModel, JointSpec
+    from rosclaw.e_urdf.parser import JointSpec, RobotModel
     model = RobotModel(name="pos_only")
     model.joints["j1"] = JointSpec(
         name="j1", joint_type="prismatic", parent="base", child="link1",

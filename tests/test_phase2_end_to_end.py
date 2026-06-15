@@ -22,7 +22,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-
 # Dynamic repo root for cross-machine compatibility (local, Dell, Spark)
 REPO_ROOT = str(Path(__file__).parent.parent)
 
@@ -190,7 +189,7 @@ class TestPhase2EventBus:
     """P0-3: Event Bus real event flow."""
 
     def test_event_bus_publishes_during_task(self):
-        from rosclaw.core.event_bus import EventBus, Event
+        from rosclaw.core.event_bus import Event, EventBus
         from rosclaw.practice.episode_recorder import EpisodeRecorder
 
         bus = EventBus()
@@ -213,7 +212,7 @@ class TestPhase2PracticeArtifacts:
     """P0-4: Practice episode with all 7 artifact files."""
 
     def test_episode_artifacts_complete(self, tmp_path):
-        from rosclaw.core.event_bus import EventBus, Event
+        from rosclaw.core.event_bus import Event, EventBus
         from rosclaw.practice.episode_recorder import EpisodeRecorder
 
         bus = EventBus()
@@ -269,7 +268,7 @@ class TestPhase2PracticeArtifacts:
         assert "reward" in meta
 
     def test_practice_list_show_replay(self, tmp_path):
-        from rosclaw.core.event_bus import EventBus, Event
+        from rosclaw.core.event_bus import Event, EventBus
         from rosclaw.practice.episode_recorder import EpisodeRecorder
 
         bus = EventBus()
@@ -330,8 +329,8 @@ class TestPhase2MemoryHow:
         assert isinstance(results, list)
 
     def test_how_recovery_loop_subscribes(self):
-        from rosclaw.how.recovery_loop import RecoveryLoop
         from rosclaw.core.event_bus import EventBus
+        from rosclaw.how.recovery_loop import RecoveryLoop
 
         bus = EventBus()
         loop = RecoveryLoop(event_bus=bus, memory_interface=None, heuristic_engine=None)
@@ -352,7 +351,7 @@ class TestPhase2Scenarios:
 
     def test_scenario_a_pid_move(self, tmp_path):
         """场景A: 小车PID运动控制."""
-        from rosclaw.core.event_bus import EventBus, Event
+        from rosclaw.core.event_bus import Event, EventBus
         from rosclaw.practice.episode_recorder import EpisodeRecorder
         from rosclaw.sandbox.firewall.gate import FirewallGate
 
@@ -379,7 +378,7 @@ class TestPhase2Scenarios:
 
     def test_scenario_b_reach_firewall_block(self, tmp_path):
         """场景B: 机械臂reach + firewall BLOCK测试."""
-        from rosclaw.core.event_bus import EventBus, Event
+        from rosclaw.core.event_bus import Event, EventBus
         from rosclaw.practice.episode_recorder import EpisodeRecorder
         from rosclaw.sandbox.firewall.gate import FirewallGate
 
@@ -404,7 +403,7 @@ class TestPhase2Scenarios:
 
     def test_scenario_e_g1_walk(self, tmp_path):
         """场景E: G1人形机器人行走."""
-        from rosclaw.core.event_bus import EventBus, Event
+        from rosclaw.core.event_bus import Event, EventBus
         from rosclaw.practice.episode_recorder import EpisodeRecorder
 
         bus = EventBus()

@@ -2,8 +2,8 @@
 
 import pytest
 
+from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.dashboard.web_server import DashboardWebServer, WebSocketClient
-from rosclaw.core.event_bus import EventBus, Event
 
 
 @pytest.fixture

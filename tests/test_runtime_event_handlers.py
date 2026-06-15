@@ -2,8 +2,8 @@
 
 import time
 
-from rosclaw.core.runtime import Runtime, RuntimeConfig
 from rosclaw.core.event_bus import Event
+from rosclaw.core.runtime import Runtime, RuntimeConfig
 
 
 def test_runtime_firewall_action_blocked_handler():

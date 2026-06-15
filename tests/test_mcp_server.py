@@ -5,11 +5,11 @@ Tests the UR5MCPServer class with mocked ROS 2 dependencies.
 """
 
 import json
-import pytest
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import sys
+import pytest
 
 # Set up mocks BEFORE any rosclaw imports
 rclpy_mock = MagicMock()

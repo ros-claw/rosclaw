@@ -1,8 +1,8 @@
 """L9: CLI tests."""
-from pathlib import Path
 import subprocess
 import sys
-import pytest
+from pathlib import Path
+
 
 # Resolve the rosclaw_auto checkout relative to this test file so the suite
 # works regardless of where the repository is cloned.

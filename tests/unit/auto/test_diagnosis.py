@@ -1,7 +1,6 @@
 """L6: Diagnosis / Proposal / Patch tests."""
-import pytest
-from rosclaw.auto.diagnosis.rule_diagnoser import RuleDiagnoser
 from rosclaw.auto.core.failure import FailureCase
+from rosclaw.auto.diagnosis.rule_diagnoser import RuleDiagnoser
 
 
 class TestRuleDiagnoser:

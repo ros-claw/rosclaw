@@ -4,7 +4,7 @@ ROSClaw e-URDF Parser - Physical DNA Registry
 Parses extended URDF files with semantic annotations for LLM grounding.
 """
 
-from rosclaw.e_urdf.parser import EURDFParser, RobotModel, JointSpec, LinkSpec
+from rosclaw.e_urdf.parser import EURDFParser, JointSpec, LinkSpec, RobotModel
 
 # Backward-compatible alias for documentation
 EUrdfParser = EURDFParser

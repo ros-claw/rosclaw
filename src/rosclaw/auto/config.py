@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
+
 @dataclass
 class AutoConfig:
     enabled: bool = True

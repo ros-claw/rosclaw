@@ -14,11 +14,10 @@ import time
 import pytest
 
 from rosclaw.memory.seekdb_client import (
+    SEEKDB_SCHEMAS,
     SeekDBMemoryClient,
     SeekDBSQLiteClient,
-    SEEKDB_SCHEMAS,
 )
-
 
 # ---------------------------------------------------------------------------
 # SeekDBMemoryClient — Inverted Indexes

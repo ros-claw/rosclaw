@@ -1,7 +1,6 @@
 """L10: Safety policy tests with AST analysis."""
-import pytest
-from rosclaw.auto.patchers.patch_validator import PatchValidator
 from rosclaw.auto.core.patch import Patch
+from rosclaw.auto.patchers.patch_validator import PatchValidator
 from rosclaw.auto.promotion.gate import PromotionGate
 
 

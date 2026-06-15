@@ -19,7 +19,7 @@ def _cuda_available() -> bool:
     return bool(torch.cuda.is_available())
 
 
-class TestV1_0PhysicalSimulation:
+class TestV10PhysicalSimulation:
     """End-to-end test with actual MuJoCo physics simulation."""
 
     def test_01_mujoco_environment_creation(self):
@@ -127,7 +127,7 @@ class TestV1_0PhysicalSimulation:
         duration_steps = 500
         positions_recorded = []
 
-        for step in range(duration_steps):
+        for _step in range(duration_steps):
             mujoco.mj_step(model, data)
             positions_recorded.append(data.qpos.copy())
 
@@ -195,13 +195,13 @@ class TestV1_0PhysicalSimulation:
     async def test_05_provider_inference_with_physics(self):
         """Test provider routing with physics-backed validation."""
 
+        from rosclaw.core.event_bus import EventBus
+        from rosclaw.provider.core.manifest import ProviderManifest
+        from rosclaw.provider.core.provider import Provider
+        from rosclaw.provider.core.registry import ProviderRegistry
         from rosclaw.provider.core.request import ProviderRequest
         from rosclaw.provider.core.response import ProviderResponse
         from rosclaw.provider.core.router import CapabilityRouter
-        from rosclaw.provider.core.registry import ProviderRegistry
-        from rosclaw.provider.core.provider import Provider
-        from rosclaw.provider.core.manifest import ProviderManifest
-        from rosclaw.core.event_bus import EventBus
 
         event_bus = EventBus()
         provider_reg = ProviderRegistry(event_bus=event_bus)
@@ -252,7 +252,7 @@ class TestV1_0PhysicalSimulation:
         assert response.is_ok
         trajectory = response.result["trajectory"]
 
-        for i, point in enumerate(trajectory):
+        for _i, point in enumerate(trajectory):
             assert len(point) >= 2
             assert -6.28 <= point[0] <= 6.28
             assert -6.28 <= point[1] <= 6.28
@@ -262,6 +262,7 @@ class TestV1_0PhysicalSimulation:
     def test_06_eurdf_to_mujoco_conversion(self):
         """Load e-URDF and create corresponding MuJoCo model."""
         import xml.etree.ElementTree as ET
+
         import mujoco
 
         from rosclaw.runtime.eurdf_loader import EURDFLoader

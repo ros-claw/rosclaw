@@ -1,8 +1,9 @@
 """Phase 1收尾: 验证 Sandbox 防火墙 BLOCK/ALLOW/MODIFY/REQUIRE_CONFIRMATION 模式。"""
 import pytest
+
 from rosclaw.core.event_bus import EventBus
-from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
 from rosclaw.sandbox.firewall.gate import FirewallGate
+from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
 
 
 class TestFirewallAllowMode:

@@ -12,9 +12,9 @@ v1.0 EventBus Integration:
 import logging
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
 from rosclaw.data.flywheel import DataFlywheel, EventType
 
@@ -38,12 +38,12 @@ class PracticeRecorder(LifecycleMixin):
     - Publishes heuristic.recovery_executed after recovery attempts
     """
 
-    def __init__(self, robot_id: str, joint_dof: int = 6, event_bus: Optional[EventBus] = None):
+    def __init__(self, robot_id: str, joint_dof: int = 6, event_bus: EventBus | None = None):
         super().__init__()
         self.robot_id = robot_id
         self.joint_dof = joint_dof
         self.event_bus = event_bus
-        self._flywheel: Optional[DataFlywheel] = None
+        self._flywheel: DataFlywheel | None = None
         self._recording = False
 
         # Failure context tracking for praxis.failed events
@@ -186,8 +186,9 @@ class PracticeRecorder(LifecycleMixin):
         """Log a robot state sample."""
         if not self._recording or self._flywheel is None:
             return
-        from rosclaw.data.flywheel import RobotState as FlywheelRobotState
         import numpy as np
+
+        from rosclaw.data.flywheel import RobotState as FlywheelRobotState
         state = FlywheelRobotState(
             timestamp=timestamp,
             joint_positions=np.array(joint_positions),
@@ -196,7 +197,7 @@ class PracticeRecorder(LifecycleMixin):
         )
         self._flywheel.on_control_cycle(state)
 
-    def mark_event(self, event_type: EventType, metadata: Optional[dict] = None) -> str:
+    def mark_event(self, event_type: EventType, metadata: dict | None = None) -> str:
         """Mark an event in the recording."""
         if self._flywheel is None:
             return ""
@@ -208,7 +209,7 @@ class PracticeRecorder(LifecycleMixin):
             raise RuntimeError("Flywheel not initialized")
         return self._flywheel.export_to_lerobot(output_path)
 
-    def record_praxis_event(self, event=None, event_id: str = "", event_type: str = "", instruction: str = "", metadata: Optional[dict] = None) -> str:
+    def record_praxis_event(self, event=None, event_id: str = "", event_type: str = "", instruction: str = "", metadata: dict | None = None) -> str:
         """Record a praxis event on the timeline.
 
         Args:
@@ -224,8 +225,8 @@ class PracticeRecorder(LifecycleMixin):
         if not self._recording or self._flywheel is None:
             return ""
 
-        from rosclaw.data.flywheel import EventType as FlywheelEventType
         from rosclaw.core.types import PraxisEvent
+        from rosclaw.data.flywheel import EventType as FlywheelEventType
 
         if isinstance(event, PraxisEvent):
             data = {

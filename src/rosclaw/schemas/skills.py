@@ -56,7 +56,7 @@ class SkillVersion:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "SkillVersion":
+    def from_dict(cls, d: dict[str, Any]) -> SkillVersion:
         return cls(
             skill_id=d.get("skill_id", ""),
             name=d.get("name", ""),
@@ -107,7 +107,7 @@ class SkillCandidate:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "SkillCandidate":
+    def from_dict(cls, d: dict[str, Any]) -> SkillCandidate:
         return cls(
             candidate_id=d.get("candidate_id", ""),
             skill_id=d.get("skill_id", ""),
@@ -146,7 +146,7 @@ class SkillLineage:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "SkillLineage":
+    def from_dict(cls, d: dict[str, Any]) -> SkillLineage:
         return cls(
             lineage_id=d.get("lineage_id", ""),
             root_skill_id=d.get("root_skill_id", ""),

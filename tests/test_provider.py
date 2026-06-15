@@ -20,7 +20,6 @@ from rosclaw.provider.core import (
 from rosclaw.provider.core.errors import CapabilityNotSupportedError, ManifestValidationError
 from rosclaw.provider.core.manifest import EmbodimentSpec
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

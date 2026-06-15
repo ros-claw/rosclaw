@@ -1,7 +1,5 @@
 """L3: Runtime Plugin tests."""
-import pytest
 from rosclaw.auto.plugin import AutoPlugin
-from rosclaw.auto.config import AutoConfig
 
 
 class FakeRuntimeContext:
@@ -51,7 +49,7 @@ class TestRuntimePlugin:
         plugin.start()
         assert len(bus.subscriptions) > 0
         plugin.stop()
-        for topic, handlers in bus.subscriptions.items():
+        for _topic, handlers in bus.subscriptions.items():
             assert len(handlers) == 0
 
     def test_plugin_health(self):

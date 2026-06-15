@@ -21,8 +21,8 @@ Usage:
     flywheel.trigger_event(EventType.SUCCESS, metadata={"task": "pick"})
 """
 
-from .ring_buffer import RingBuffer, MultiChannelRingBuffer, RingBufferConfig
-from .flywheel import DataFlywheel, DataEvent, EventType, RobotState
+from .flywheel import DataEvent, DataFlywheel, EventType, RobotState
+from .ring_buffer import MultiChannelRingBuffer, RingBuffer, RingBufferConfig
 
 __all__ = [
     "RingBuffer",

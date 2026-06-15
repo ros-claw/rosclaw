@@ -1,7 +1,7 @@
 """Event schemas for rosclaw-auto Event Bus integration."""
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Literal
+from datetime import UTC, datetime
+from typing import Literal
 
 
 @dataclass
@@ -9,7 +9,7 @@ class EventEnvelope:
     """Unified event envelope used across ROSClaw modules."""
     event_id: str
     event_type: str
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     trace_id: str = ""
     run_id: str = ""
     task_id: str = ""

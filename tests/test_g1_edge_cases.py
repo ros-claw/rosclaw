@@ -13,7 +13,6 @@ from rosclaw.examples.g1_free_floating_walk import (
     WalkState,
     check_fall,
     compute_gait_control,
-    execute_recovery,
     get_up_policy,
     quat_to_rpy,
     reset_fall,
@@ -92,7 +91,7 @@ class TestResetFall:
     def test_reset_fall_multiple_times(self):
         """Multiple reset_fall calls should increment counter each time."""
         state = WalkState()
-        for i in range(3):
+        for _i in range(3):
             check_fall(state, 0.2, np.array([1.0, 0.0, 0.0, 0.0]), np.array([0.0, 0.0, 0.3]))
             reset_fall(state)
         assert state.recovery_attempts == 3

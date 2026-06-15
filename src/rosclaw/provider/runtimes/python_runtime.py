@@ -4,7 +4,8 @@ For backends that are directly importable Python callables
 (e.g., HuggingFace Transformers pipeline, local PyTorch model).
 """
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from rosclaw.provider.core.errors import RuntimeAdapterError
 from rosclaw.provider.runtimes.base import RuntimeAdapter

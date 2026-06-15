@@ -6,9 +6,12 @@ Full pipeline:
 """
 
 import asyncio
+
 import pytest
 
-from rosclaw.core.event_bus import EventBus, Event
+from rosclaw.core.event_bus import Event, EventBus
+from rosclaw.how import HeuristicEngine
+from rosclaw.memory import MemoryInterface
 from rosclaw.provider.core.manifest import ProviderManifest
 from rosclaw.provider.core.provider import Provider
 from rosclaw.provider.core.registry import ProviderRegistry
@@ -17,8 +20,6 @@ from rosclaw.provider.core.response import ProviderResponse
 from rosclaw.provider.core.router import CapabilityRouter
 from rosclaw.runtime import RobotRegistry
 from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
-from rosclaw.memory import MemoryInterface
-from rosclaw.how import HeuristicEngine
 
 
 class MockVLMProvider(Provider):
@@ -72,7 +73,7 @@ class MockCriticProvider(Provider):
         )
 
 
-class TestV1_0ClosedLoop:
+class TestV10ClosedLoop:
     """End-to-end closed loop: e-URDF → Provider → Sandbox → Memory → HOW."""
 
     @pytest.fixture

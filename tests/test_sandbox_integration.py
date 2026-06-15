@@ -70,8 +70,9 @@ class TestSandboxRuntimeAdapter:
 class TestFirewallDynamicCollision:
     def test_mj_step_replaces_mj_forward(self):
         """Verify firewall validator uses mj_step for dynamic simulation."""
-        from rosclaw.firewall.validator import FirewallValidator
         import inspect
+
+        from rosclaw.firewall.validator import FirewallValidator
 
         source = inspect.getsource(FirewallValidator._check_mujoco_collision)
         assert "mj_step" in source

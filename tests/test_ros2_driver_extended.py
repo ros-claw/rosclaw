@@ -1,7 +1,7 @@
 """Extended tests for ROS2Driver."""
 
-from rosclaw.mcp_drivers.ros2_driver import ROS2Driver
 from rosclaw.mcp_drivers.base import TrajectoryCommand
+from rosclaw.mcp_drivers.ros2_driver import ROS2Driver
 
 
 class TestROS2DriverExtended:

@@ -1,11 +1,13 @@
 """Tests for ProviderRegistry EventBus lifecycle events (ISSUE-003)."""
 
 import asyncio
+
 import pytest
+
 from rosclaw.core.event_bus import Event
-from rosclaw.provider.core.registry import ProviderRegistry
 from rosclaw.provider.core.manifest import ProviderManifest
 from rosclaw.provider.core.provider import Provider
+from rosclaw.provider.core.registry import ProviderRegistry
 from rosclaw.provider.core.request import ProviderRequest
 from rosclaw.provider.core.response import ProviderResponse
 
@@ -230,6 +232,7 @@ def test_runtime_injects_event_bus():
 def test_runtime_subscription_output(caplog):
     """Runtime handlers log provider lifecycle events."""
     import logging
+
     from rosclaw.core.runtime import Runtime, RuntimeConfig
     config = RuntimeConfig(
         robot_id="test",

@@ -1,15 +1,26 @@
 """AutoEngine — ROSClaw Self-Evolution Control Plane."""
+import contextlib
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from ..config import AutoConfig
-from ..core import (AutoTask, FailureCase, Diagnosis, Hypothesis, Proposal,
-                    Patch, ExperimentSpec, EvaluationResult, Champion, DeadEnd, EvolutionReport)
-from ..storage import LocalStore
-from ..runners import LocalRunner, SandboxRunner, DarwinRunner
-from ..promotion import PromotionGate, ChampionStore, RollbackManager, LineageTracker
+from ..core import (
+    AutoTask,
+    Champion,
+    DeadEnd,
+    Diagnosis,
+    EvaluationResult,
+    EvolutionReport,
+    ExperimentSpec,
+    FailureCase,
+    Patch,
+    Proposal,
+)
 from ..events.publishers import AutoPublisher
+from ..promotion import ChampionStore, LineageTracker, PromotionGate, RollbackManager
+from ..runners import DarwinRunner, LocalRunner, SandboxRunner
+from ..storage import LocalStore
 
 
 class AutoEngine:
@@ -136,16 +147,14 @@ class AutoEngine:
                 hypothesis_statement=hypothesis_statement,
             )
         if self._seekdb is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._seekdb.insert("auto_proposals", {
                     "id": prop.id, "task_id": task,
                     "target_skill": target_skill, "source": source,
                     "hypothesis": hypothesis_statement,
                     "search_space": search_space, "status": "open",
-                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "created_at": datetime.now(UTC).isoformat(),
                 })
-            except Exception:
-                pass
         return prop
 
     def list_proposals(self, task: str | None = None) -> list[Proposal]:
@@ -171,15 +180,13 @@ class AutoEngine:
         )
         self._save("patches", patch.id, patch.to_dict())
         if self._seekdb is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._seekdb.insert("auto_patches", {
                     "id": patch.id, "proposal_id": proposal_id,
                     "target_skill": target_skill, "patch_type": patch_type,
                     "changes": changes, "status": "created",
-                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "created_at": datetime.now(UTC).isoformat(),
                 })
-            except Exception:
-                pass
         return patch
 
     # ------------------------------------------------------------------
@@ -252,14 +259,12 @@ class AutoEngine:
         )
         self._save("evaluations", ev.id, ev.to_dict())
         if self._seekdb is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._seekdb.insert("auto_results", {
                     "id": ev.id, "experiment_id": experiment_id,
                     "decision": ev.decision, "delta": delta,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "created_at": datetime.now(UTC).isoformat(),
                 })
-            except Exception:
-                pass
         return ev
 
     # ------------------------------------------------------------------
@@ -307,15 +312,13 @@ class AutoEngine:
             except Exception:
                 pass
         if self._seekdb is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._seekdb.insert("champions", {
                     "id": champ.id, "skill_id": skill_id,
                     "task_id": task_id, "level": level,
                     "parent_skill": parent_skill, "metrics": metrics,
-                    "promoted_at": datetime.now(timezone.utc).isoformat(),
+                    "promoted_at": datetime.now(UTC).isoformat(),
                 })
-            except Exception:
-                pass
         return champ
 
     def get_champion(self, task_id: str, level: str | None = None) -> Champion | None:
@@ -340,15 +343,13 @@ class AutoEngine:
                 direction=direction, rejection_reason=rejection_reason,
             )
         if self._seekdb is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._seekdb.insert("dead_ends", {
                     "id": de.id, "task_id": task_id,
                     "direction": direction,
                     "rejection_reason": rejection_reason,
-                    "registered_at": datetime.now(timezone.utc).isoformat(),
+                    "registered_at": datetime.now(UTC).isoformat(),
                 })
-            except Exception:
-                pass
         return de
 
     def list_deadends(self, task_id: str | None = None) -> list[DeadEnd]:

@@ -13,7 +13,7 @@ import pytest
 def _enough_ram_for_physics(min_gb: float = 4.0) -> bool:
     """Check if system has enough free RAM for stable MuJoCo physics."""
     try:
-        with open("/proc/meminfo", "r") as f:
+        with open("/proc/meminfo") as f:
             for line in f:
                 if line.startswith("MemAvailable:"):
                     kb = int(line.split()[1])
@@ -27,8 +27,8 @@ class TestPhase3Dashboard:
     """Dashboard real startup and EventBus subscription."""
 
     def test_dashboard_imports(self):
-        from rosclaw.dashboard.web_server import DashboardWebServer
         from rosclaw.core.event_bus import EventBus
+        from rosclaw.dashboard.web_server import DashboardWebServer
 
         EventBus()
         ws = DashboardWebServer(host="127.0.0.1", port=18765)
@@ -113,8 +113,9 @@ class TestPhase3Forge:
         assert provider_manifest["async_safe"] is True
 
     def test_mcp_compile_uses_real_forge(self):
-        from rosclaw.mcp.minimal_server import ROSClawMinimalMCPServer
         import asyncio
+
+        from rosclaw.mcp.minimal_server import ROSClawMinimalMCPServer
 
         server = ROSClawMinimalMCPServer()
         result = asyncio.run(server._handle_system_tool("system.compile_asset_bundle", {

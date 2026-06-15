@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
-from typing import Any, Optional
+from typing import Any
 
 from .metrics import DashboardMetrics
 
@@ -32,9 +33,9 @@ class DashboardServer:
         self.port = port
         self.update_interval_sec = update_interval_sec
         self._clients: set[Any] = set()  # WebSocket clients
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self._running = False
-        self._event_bus_subscription: Optional[Any] = None
+        self._event_bus_subscription: Any | None = None
 
     # ── Lifecycle ──
 
@@ -50,10 +51,8 @@ class DashboardServer:
         self._running = False
         if self._task:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
             self._task = None
 
     # ── WebSocket client management ──

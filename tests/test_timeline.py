@@ -1,10 +1,11 @@
 """Tests for UnifiedTimeline (Sprint 4)."""
 
-import numpy as np
 from pathlib import Path
 
-from rosclaw.core.event_bus import EventBus, Event
-from rosclaw.practice.timeline import UnifiedTimeline, TimelineChannel
+import numpy as np
+
+from rosclaw.core.event_bus import Event, EventBus
+from rosclaw.practice.timeline import TimelineChannel, UnifiedTimeline
 
 
 def test_multi_channel_recording():
@@ -31,7 +32,7 @@ def test_sensorimotor_direct_recording():
     timeline = UnifiedTimeline("test_robot", bus, output_dir="/tmp/test_timeline")
     timeline.initialize()
 
-    for i in range(100):
+    for _i in range(100):
         timeline.record_sensorimotor(
             joint_positions=[0.1] * 6,
             joint_velocities=[0.0] * 6,

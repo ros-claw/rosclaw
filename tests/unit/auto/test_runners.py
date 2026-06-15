@@ -1,7 +1,6 @@
 """Tests for Sprint C: Sandbox/Darwin Runner with parametric physics."""
-import pytest
-from rosclaw.auto.runners import LocalRunner, SandboxRunner, DarwinRunner, RunnerResult
 from rosclaw.auto.core.experiment import ExperimentSpec
+from rosclaw.auto.runners import DarwinRunner, LocalRunner, RunnerResult, SandboxRunner
 
 
 def test_runner_result_roundtrip():
@@ -116,7 +115,7 @@ def test_darwin_runner_no_global_random_pollution():
     """DarwinRunner must not modify global random state."""
     import random
     random.seed(12345)
-    before = random.random()
+    random.random()
 
     exp = ExperimentSpec(
         id="exp_001", proposal_id="prop_001", patch_id="patch_001",

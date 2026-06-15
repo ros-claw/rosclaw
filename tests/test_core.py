@@ -3,7 +3,7 @@
 
 import pytest
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin, LifecycleState
 from rosclaw.core.runtime import Runtime, RuntimeConfig
 

@@ -11,7 +11,7 @@ from rosclaw.memory.seekdb_client import (
     SeekDBMemoryClient,
     SeekDBSQLiteClient,
 )
-from rosclaw.memory.types import PraxisEvent, FailureMemory, ArtifactRef
+from rosclaw.memory.types import ArtifactRef, FailureMemory, PraxisEvent
 
 # Backward-compatible aliases for documentation
 SQLiteSeekDB = SeekDBSQLiteClient

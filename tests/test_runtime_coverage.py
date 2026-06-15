@@ -374,7 +374,7 @@ class TestRuntimeInitializeImportErrors:
         mock_cr.return_value = MagicMock()
 
         # Make _register_builtin_providers raise by patching it
-        rt._register_builtin_providers
+        _ = rt._register_builtin_providers
         rt._register_builtin_providers = MagicMock(side_effect=RuntimeError("boom"))
         rt.initialize()
         rt._register_builtin_providers.assert_called_once()
@@ -1058,7 +1058,7 @@ class TestRobotRegistry:
         assert reg.get("ur5e_canonical") is not None
 
     def test_get_auto_install_failure(self, tmp_path):
-        from rosclaw.runtime.eurdf_loader import RobotRegistry, EURDFLoader
+        from rosclaw.runtime.eurdf_loader import EURDFLoader, RobotRegistry
 
         zoo = tmp_path / "zoo"
         zoo.mkdir(parents=True)
@@ -1066,7 +1066,7 @@ class TestRobotRegistry:
         assert reg.get("nonexistent") is None
 
     def test_list_available(self, tmp_path):
-        from rosclaw.runtime.eurdf_loader import RobotRegistry, EURDFLoader
+        from rosclaw.runtime.eurdf_loader import EURDFLoader, RobotRegistry
 
         zoo = tmp_path / "zoo"
         for name in ["ur5e", "panda", "xarm"]:
@@ -1086,7 +1086,7 @@ class TestRobotRegistry:
         assert sorted(available) == ["panda", "ur5e", "xarm"]
 
     def test_list_empty(self, tmp_path):
-        from rosclaw.runtime.eurdf_loader import RobotRegistry, EURDFLoader
+        from rosclaw.runtime.eurdf_loader import EURDFLoader, RobotRegistry
 
         zoo = tmp_path / "zoo"
         zoo.mkdir(parents=True)
@@ -1095,7 +1095,7 @@ class TestRobotRegistry:
         assert reg.list() == []
 
     def test_validate(self, tmp_path):
-        from rosclaw.runtime.eurdf_loader import RobotRegistry, EURDFLoader
+        from rosclaw.runtime.eurdf_loader import EURDFLoader, RobotRegistry
 
         zoo = tmp_path / "zoo"
         robot_dir = zoo / "ur5e"
@@ -1115,7 +1115,7 @@ class TestRobotRegistry:
         assert "robot.eurdf.yaml" in result["files_found"]
 
     def test_validate_missing_files(self, tmp_path):
-        from rosclaw.runtime.eurdf_loader import RobotRegistry, EURDFLoader
+        from rosclaw.runtime.eurdf_loader import EURDFLoader, RobotRegistry
 
         zoo = tmp_path / "zoo"
         robot_dir = zoo / "ur5e"
@@ -1132,7 +1132,7 @@ class TestRobotRegistry:
         assert len(result["files_missing"]) > 0
 
     def test_validate_robot_not_found(self, tmp_path):
-        from rosclaw.runtime.eurdf_loader import RobotRegistry, EURDFLoader
+        from rosclaw.runtime.eurdf_loader import EURDFLoader, RobotRegistry
 
         zoo = tmp_path / "zoo"
         zoo.mkdir(parents=True)
@@ -1142,7 +1142,7 @@ class TestRobotRegistry:
         assert "not found" in result["errors"][0]
 
     def test_inspect(self, tmp_path):
-        from rosclaw.runtime.eurdf_loader import RobotRegistry, EURDFLoader
+        from rosclaw.runtime.eurdf_loader import EURDFLoader, RobotRegistry
 
         zoo = tmp_path / "zoo"
         robot_dir = zoo / "ur5e"
@@ -1165,7 +1165,7 @@ class TestRobotRegistry:
         assert "capability" in d
 
     def test_inspect_not_found(self, tmp_path):
-        from rosclaw.runtime.eurdf_loader import RobotRegistry, EURDFLoader
+        from rosclaw.runtime.eurdf_loader import EURDFLoader, RobotRegistry
 
         zoo = tmp_path / "zoo"
         zoo.mkdir(parents=True)

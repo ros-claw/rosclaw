@@ -24,13 +24,14 @@ Architecture:
     Physical World (Robot)
 """
 
+import contextlib
 import logging
 import os
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
 
 logger = logging.getLogger("rosclaw.core.runtime")
@@ -46,9 +47,9 @@ ActionGuard = None
 try:
     from rosclaw.provider.core.registry import ProviderRegistry
     from rosclaw.provider.core.router import CapabilityRouter
+    from rosclaw.provider.guard.action_guard import ActionGuard
     from rosclaw.provider.guard.pipeline import GuardPipeline
     from rosclaw.provider.guard.schema_guard import SchemaGuard
-    from rosclaw.provider.guard.action_guard import ActionGuard
 except ImportError:
     pass
 
@@ -57,8 +58,8 @@ except ImportError:
 class RuntimeConfig:
     """Configuration for ROSClaw Runtime."""
     robot_id: str = "rosclaw_default"
-    robot_model_path: Optional[str] = None
-    robot_zoo_path: Optional[str] = None
+    robot_model_path: str | None = None
+    robot_zoo_path: str | None = None
     default_eurdf_robot: str = "ur5e"
     enable_firewall: bool = True
     enable_memory: bool = True
@@ -76,18 +77,18 @@ class RuntimeConfig:
     enable_mcap: bool = False
     seekdb_backend: str = "memory"          # "memory" | "sqlite"
     seekdb_path: str = "./seekdb.sqlite"
-    embodied_memory: Optional[Any] = None   # powermem.EmbodiedMemory instance
-    providers_dir: Optional[str] = None     # Directory to scan for provider.yaml files
+    embodied_memory: Any | None = None   # powermem.EmbodiedMemory instance
+    providers_dir: str | None = None     # Directory to scan for provider.yaml files
     # GPU model microservice endpoints (auto-registered as HTTP providers)
-    gpu_sam3_endpoint: Optional[str] = None      # e.g. "http://localhost:8001"
-    gpu_vggt_endpoint: Optional[str] = None      # e.g. "http://localhost:8002"
-    gpu_minicpm_endpoint: Optional[str] = None   # e.g. "http://localhost:8003"
-    gpu_cosmos_endpoint: Optional[str] = None    # e.g. "http://localhost:8004"
-    event_bus: Optional[Any] = None              # External EventBus instance
+    gpu_sam3_endpoint: str | None = None      # e.g. "http://localhost:8001"
+    gpu_vggt_endpoint: str | None = None      # e.g. "http://localhost:8002"
+    gpu_minicpm_endpoint: str | None = None   # e.g. "http://localhost:8003"
+    gpu_cosmos_endpoint: str | None = None    # e.g. "http://localhost:8004"
+    event_bus: Any | None = None              # External EventBus instance
     # HOW service client (optional). When set, Runtime talks to a local/private
     # rosclaw-how HTTP service instead of the built-in HeuristicEngine.
-    how_url: Optional[str] = field(default_factory=lambda: os.environ.get("ROSCLAW_HOW_URL"))
-    how_api_key: Optional[str] = field(default_factory=lambda: os.environ.get("ROSCLAW_HOW_API_KEY"))
+    how_url: str | None = field(default_factory=lambda: os.environ.get("ROSCLAW_HOW_URL"))
+    how_api_key: str | None = field(default_factory=lambda: os.environ.get("ROSCLAW_HOW_API_KEY"))
     how_timeout: float = 10.0
     how_fallback_to_local: bool = True
     # KNOW optional integration with private rosclaw_know curated registry.
@@ -105,7 +106,7 @@ class Runtime(LifecycleMixin):
     agent runtimes to interact with the physical world.
     """
 
-    def __init__(self, config: Optional[RuntimeConfig] = None, event_bus: Optional[EventBus] = None):
+    def __init__(self, config: RuntimeConfig | None = None, event_bus: EventBus | None = None):
         super().__init__()
         self.config = config or RuntimeConfig()
 
@@ -113,29 +114,29 @@ class Runtime(LifecycleMixin):
         self.event_bus = event_bus or self.config.event_bus or EventBus()
 
         # Grounding engines (initialized on demand)
-        self._firewall: Optional[Any] = None
-        self._memory: Optional[Any] = None
-        self._practice: Optional[Any] = None
-        self._swarm: Optional[Any] = None
-        self._skill_manager: Optional[Any] = None
-        self._knowledge: Optional[Any] = None
-        self._knowledge_batch: Optional[Any] = None
-        self._knowledge_assets: Optional[Any] = None
-        self._how: Optional[Any] = None
-        self._auto: Optional[Any] = None
-        self._e_urdf: Optional[Any] = None
-        self._robot_profile: Optional[Any] = None
-        self._sandbox: Optional[Any] = None
-        self._episode_recorder: Optional[Any] = None
+        self._firewall: Any | None = None
+        self._memory: Any | None = None
+        self._practice: Any | None = None
+        self._swarm: Any | None = None
+        self._skill_manager: Any | None = None
+        self._knowledge: Any | None = None
+        self._knowledge_batch: Any | None = None
+        self._knowledge_assets: Any | None = None
+        self._how: Any | None = None
+        self._auto: Any | None = None
+        self._e_urdf: Any | None = None
+        self._robot_profile: Any | None = None
+        self._sandbox: Any | None = None
+        self._episode_recorder: Any | None = None
         self._mcp_drivers: dict[str, Any] = {}
 
         # Provider layer
-        self._provider_registry: Optional[Any] = None
-        self._capability_router: Optional[Any] = None
-        self._guard_pipeline: Optional[Any] = None
+        self._provider_registry: Any | None = None
+        self._capability_router: Any | None = None
+        self._guard_pipeline: Any | None = None
 
         # Internal state
-        self._agent_runtime: Optional[Any] = None
+        self._agent_runtime: Any | None = None
         self._modules: list[LifecycleMixin] = []
 
         # Thread-safe async executor (created once, reused for _run_async)
@@ -204,7 +205,7 @@ class Runtime(LifecycleMixin):
         if self.config.enable_memory:
             try:
                 from rosclaw.memory.interface import MemoryInterface
-                from rosclaw.memory.seekdb_client import SeekDBSQLiteClient, SeekDBMemoryClient
+                from rosclaw.memory.seekdb_client import SeekDBMemoryClient, SeekDBSQLiteClient
                 if self.config.seekdb_backend == "sqlite":
                     seekdb = SeekDBSQLiteClient(self.config.seekdb_path)
                 else:
@@ -273,8 +274,8 @@ class Runtime(LifecycleMixin):
         # Initialize Skill Grounding (SkillManager)
         if self.config.enable_skill_manager:
             try:
-                from rosclaw.skill_manager.registry import SkillRegistry
                 from rosclaw.skill_manager.executor import SkillExecutor
+                from rosclaw.skill_manager.registry import SkillRegistry
                 registry = SkillRegistry(event_bus=self.event_bus)
                 self._skill_manager = SkillExecutor(self.event_bus, registry)
                 self._modules.append(registry)
@@ -736,48 +737,48 @@ class Runtime(LifecycleMixin):
         self._mcp_drivers[name] = driver
         logger.info(f"Driver registered: {name}")
 
-    def get_driver(self, name: str) -> Optional[Any]:
+    def get_driver(self, name: str) -> Any | None:
         """Get a registered driver by name."""
         return self._mcp_drivers.get(name)
 
     @property
-    def firewall(self) -> Optional[Any]:
+    def firewall(self) -> Any | None:
         return self._firewall
 
     @property
-    def memory(self) -> Optional[Any]:
+    def memory(self) -> Any | None:
         if self._memory is None:
             return None
         return _MemoryProxy(self._memory, event_bus=self.event_bus)
 
     @property
-    def practice(self) -> Optional[Any]:
+    def practice(self) -> Any | None:
         return self._practice
 
     @property
-    def swarm(self) -> Optional[Any]:
+    def swarm(self) -> Any | None:
         return self._swarm
 
     @property
-    def skill_manager(self) -> Optional[Any]:
+    def skill_manager(self) -> Any | None:
         return self._skill_manager
 
     @property
-    def knowledge(self) -> Optional[Any]:
+    def knowledge(self) -> Any | None:
         return self._knowledge
 
     @property
-    def how(self) -> Optional[Any]:
+    def how(self) -> Any | None:
         if self._how is None:
             return None
         return _HowProxy(self._how, self._run_async, event_bus=self.event_bus)
 
     @property
-    def auto(self) -> Optional[Any]:
+    def auto(self) -> Any | None:
         return self._auto
 
     @property
-    def e_urdf(self) -> Optional[Any]:
+    def e_urdf(self) -> Any | None:
         return self._e_urdf
 
     @property
@@ -786,15 +787,15 @@ class Runtime(LifecycleMixin):
         return self.get_status()
 
     @property
-    def provider_registry(self) -> Optional[Any]:
+    def provider_registry(self) -> Any | None:
         return self._provider_registry
 
     @property
-    def capability_router(self) -> Optional[Any]:
+    def capability_router(self) -> Any | None:
         return self._capability_router
 
     @property
-    def guard_pipeline(self) -> Optional[Any]:
+    def guard_pipeline(self) -> Any | None:
         return self._guard_pipeline
 
     def _load_external_providers(self) -> None:
@@ -813,10 +814,10 @@ class Runtime(LifecycleMixin):
     def _register_builtin_providers(self) -> None:
         """Register built-in mock providers for out-of-box capability support."""
         from rosclaw.provider.builtins import (
-            MockVLMProvider,
-            MockSkillProvider,
-            MockCriticProvider,
             DeepSeekProvider,
+            MockCriticProvider,
+            MockSkillProvider,
+            MockVLMProvider,
         )
         from rosclaw.provider.core.manifest import ProviderManifest
 
@@ -896,9 +897,10 @@ class Runtime(LifecycleMixin):
         Each service is a FastAPI container exposing model-specific endpoints.
         Endpoint URLs come from RuntimeConfig or environment variable fallbacks.
         """
+        import os
+
         from rosclaw.provider.adapters.generic import GenericProvider
         from rosclaw.provider.core.manifest import ProviderManifest
-        import os
 
         gpu_configs = [
             {
@@ -1069,25 +1071,25 @@ class Runtime(LifecycleMixin):
     # Physical World APIs (delegate to MemoryInterface / EmbodiedMemory)
     # ------------------------------------------------------------------
 
-    def add_world_object(self, obj: Any) -> Optional[str]:
+    def add_world_object(self, obj: Any) -> str | None:
         """Add a world object. Requires EmbodiedMemory."""
         if self._memory is None:
             return None
         return self._memory.add_world_object(obj)
 
-    def get_world_object(self, obj_id: str) -> Optional[Any]:
+    def get_world_object(self, obj_id: str) -> Any | None:
         """Get a world object by ID."""
         if self._memory is None:
             return None
         return self._memory.get_world_object(obj_id)
 
-    def update_world_object_pose(self, obj_id: str, pose: Any, state: Optional[str] = None) -> bool:
+    def update_world_object_pose(self, obj_id: str, pose: Any, state: str | None = None) -> bool:
         """Update world object pose and optional state."""
         if self._memory is None:
             return False
         return self._memory.update_world_object_pose(obj_id, pose, state)
 
-    def search_world_objects(self, center: Any, radius: float, scene_id: Optional[str] = None) -> list[Any]:
+    def search_world_objects(self, center: Any, radius: float, scene_id: str | None = None) -> list[Any]:
         """Search world objects within spatial radius."""
         if self._memory is None:
             return []
@@ -1105,7 +1107,7 @@ class Runtime(LifecycleMixin):
         detections: list[Any],
         timestamp_sec: float,
         occlusion_radius: float = 0.5,
-    ) -> Optional[Any]:
+    ) -> Any | None:
         """Sync sensor detections with world model (Object Permanence)."""
         if self._memory is None:
             return None
@@ -1114,9 +1116,9 @@ class Runtime(LifecycleMixin):
     def cognitive_search(
         self,
         query: str,
-        spatial_center: Optional[Any] = None,
+        spatial_center: Any | None = None,
         spatial_radius: float = 2.0,
-        temporal_interval: Optional[Any] = None,
+        temporal_interval: Any | None = None,
         limit: int = 10,
     ) -> list[Any]:
         """Cognitive search: semantic + spatial + temporal."""
@@ -1124,7 +1126,7 @@ class Runtime(LifecycleMixin):
             return []
         return self._memory.cognitive_search(query, spatial_center, spatial_radius, temporal_interval, limit)
 
-    def record_trajectory(self, content: str, waypoints: list[tuple[Any, float]]) -> Optional[int]:
+    def record_trajectory(self, content: str, waypoints: list[tuple[Any, float]]) -> int | None:
         """Record a trajectory. Returns memory_id or None."""
         if self._memory is None:
             return None
@@ -1134,7 +1136,7 @@ class Runtime(LifecycleMixin):
         self,
         query_waypoints: list[tuple[Any, float]],
         top_k: int = 5,
-        max_dtw_distance: Optional[float] = None,
+        max_dtw_distance: float | None = None,
     ) -> list[tuple[Any, float]]:
         """Search for similar trajectories using DTW."""
         if self._memory is None:
@@ -1551,7 +1553,7 @@ class Runtime(LifecycleMixin):
                     prev = trajectory_data[i - 1].get("joint_positions", [])
                     curr = trajectory_data[i].get("joint_positions", [])
                     if prev and curr and len(prev) == len(curr):
-                        diff = sum(abs(a - b) for a, b in zip(prev, curr))
+                        diff = sum(abs(a - b) for a, b in zip(prev, curr, strict=False))
                         max_diff = max(max_diff, diff)
                 if max_diff > 0.5:
                     critic_reward -= 0.2
@@ -1728,14 +1730,12 @@ class _HowProxy:
             import asyncio
             # Publish request event for observability / decoupling
             if self._event_bus is not None:
-                try:
+                with contextlib.suppress(Exception):
                     self._event_bus.publish(Event(
                         topic=f"how.{name}.requested",
                         payload={"method": name, "args": str(args), "kwargs": str(kwargs)},
                         source="runtime_proxy",
                     ))
-                except Exception:
-                    pass
 
             # Execute the real call (async → sync via _run_async)
             try:
@@ -1745,26 +1745,22 @@ class _HowProxy:
                     result = attr(*args, **kwargs)
             except Exception as exc:
                 if self._event_bus is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         self._event_bus.publish(Event(
                             topic=f"how.{name}.failed",
                             payload={"method": name, "error": str(exc)},
                             source="runtime_proxy",
                         ))
-                    except Exception:
-                        pass
                 raise
 
             # Publish completion event
             if self._event_bus is not None:
-                try:
+                with contextlib.suppress(Exception):
                     self._event_bus.publish(Event(
                         topic=f"how.{name}.completed",
                         payload={"method": name, "result_type": type(result).__name__},
                         source="runtime_proxy",
                     ))
-                except Exception:
-                    pass
             return result
 
         return _wrapper
@@ -1789,38 +1785,32 @@ class _MemoryProxy:
 
         def _wrapper(*args, **kwargs):
             if self._event_bus is not None:
-                try:
+                with contextlib.suppress(Exception):
                     self._event_bus.publish(Event(
                         topic=f"memory.{name}.requested",
                         payload={"method": name, "args": str(args), "kwargs": str(kwargs)},
                         source="runtime_proxy",
                     ))
-                except Exception:
-                    pass
 
             try:
                 result = attr(*args, **kwargs)
             except Exception as exc:
                 if self._event_bus is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         self._event_bus.publish(Event(
                             topic=f"memory.{name}.failed",
                             payload={"method": name, "error": str(exc)},
                             source="runtime_proxy",
                         ))
-                    except Exception:
-                        pass
                 raise
 
             if self._event_bus is not None:
-                try:
+                with contextlib.suppress(Exception):
                     self._event_bus.publish(Event(
                         topic=f"memory.{name}.completed",
                         payload={"method": name, "result_type": type(result).__name__},
                         source="runtime_proxy",
                     ))
-                except Exception:
-                    pass
             return result
 
         return _wrapper

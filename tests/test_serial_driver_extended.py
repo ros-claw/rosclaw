@@ -4,8 +4,8 @@ import struct
 
 import pytest
 
-from rosclaw.mcp_drivers.serial_driver import SerialDriver
 from rosclaw.mcp_drivers.base import TrajectoryCommand
+from rosclaw.mcp_drivers.serial_driver import SerialDriver
 
 
 class TestSerialDriverExtended:

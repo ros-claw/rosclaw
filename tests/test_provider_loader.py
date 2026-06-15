@@ -2,10 +2,11 @@
 
 import pytest
 
+from rosclaw.provider.adapters.generic import GenericProvider
+from rosclaw.provider.core.errors import RuntimeAdapterError
+from rosclaw.provider.core.provider import Provider
 from rosclaw.provider.core.registry import ProviderRegistry
 from rosclaw.provider.loader import ProviderLoader
-from rosclaw.provider.adapters.generic import GenericProvider
-from rosclaw.provider.core.provider import Provider
 
 
 class MyTestProvider(Provider):
@@ -199,7 +200,7 @@ async def test_generic_provider_no_runtime():
     # infer() should fail gracefully
     from rosclaw.provider.core.request import ProviderRequest
     req = ProviderRequest(request_id="r1", capability="critic.success_detection", inputs={})
-    with pytest.raises(Exception):
+    with pytest.raises(RuntimeAdapterError):  # noqa: B017
         await provider.infer(req)
 
 
@@ -260,9 +261,8 @@ type: vlm
 capabilities: [vlm.scene_understanding]
 """)
 
-    with caplog.at_level(logging.WARNING, logger="rosclaw.provider.loader"):
-        with patch.object(registry, "register", side_effect=RuntimeError("register boom")):
-            result = loader.load_file(yaml_path)
+    with caplog.at_level(logging.WARNING, logger="rosclaw.provider.loader"), patch.object(registry, "register", side_effect=RuntimeError("register boom")):
+        result = loader.load_file(yaml_path)
     assert result is None
     assert "Failed to register" in caplog.text
 

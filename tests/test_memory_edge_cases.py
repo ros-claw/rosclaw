@@ -6,15 +6,11 @@ by the main test suites.
 
 import time
 
-import pytest
-
-from rosclaw.memory.interface import MemoryInterface
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient
-from rosclaw.memory.types import PraxisEvent, FailureMemory, ArtifactRef
-from rosclaw.core.event_bus import EventBus, Event
+from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.how.engine import HeuristicEngine
 from rosclaw.how.recovery_loop import RecoveryLoop
-
+from rosclaw.memory.interface import MemoryInterface
+from rosclaw.memory.types import ArtifactRef
 
 # ---------------------------------------------------------------------------
 # MemoryInterface — empty inputs & boundary values

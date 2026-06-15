@@ -1,7 +1,7 @@
 """Tests for Practice module."""
 
-from rosclaw.practice.recorder import PracticeRecorder
 from rosclaw.data.flywheel import EventType
+from rosclaw.practice.recorder import PracticeRecorder
 
 
 def test_practice_lifecycle():

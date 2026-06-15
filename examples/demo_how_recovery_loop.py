@@ -10,20 +10,16 @@ Demonstrates the complete How recovery closed-loop:
     5. Update rule efficacy in Memory
 
 Usage:
-    PYTHONPATH=src python examples/demo_how_recovery_loop.py
+    python examples/demo_how_recovery_loop.py
 """
 
-import sys
+import asyncio
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
-
-import asyncio
-
-from rosclaw.core import Runtime, RuntimeConfig, EventBus, Event, EventPriority
+from rosclaw.core import Event, Runtime, RuntimeConfig
 from rosclaw.how.engine import HeuristicEngine
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+
+PROJECT_ROOT = Path(__file__).parent.parent
 
 
 def print_section(title: str) -> None:
@@ -112,7 +108,7 @@ async def main() -> int:
     # ------------------------------------------------------------------
     print_section("Step 5: Retry with Recovery Patch")
     patched_params = {"approach_z": 0.28, "speed": 0.2}
-    print(f"  Original params: {{approach_z: 0.3, speed: 0.5}}")
+    print("  Original params: {approach_z: 0.3, speed: 0.5}")
     print(f"  Patched params:  {patched_params}")
 
     # Simulate success with patched params
@@ -154,4 +150,4 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    exit(asyncio.run(main()))

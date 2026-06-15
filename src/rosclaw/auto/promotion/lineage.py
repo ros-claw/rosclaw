@@ -1,6 +1,7 @@
 """LineageTracker — skill evolution genealogy."""
 import logging
 from dataclasses import dataclass, field
+from datetime import UTC
 from typing import Any
 
 logger = logging.getLogger("rosclaw.auto.promotion.lineage")
@@ -52,12 +53,12 @@ class LineageTracker:
                experiment_id: str, result: str, metrics: dict | None = None) -> LineageNode:
         """Record a new lineage node."""
         self._ensure_namespace()
-        from datetime import datetime, timezone
+        from datetime import datetime
         node = LineageNode(
             skill_id=skill_id, parent=parent_skill,
             patch_id=patch_id, experiment_id=experiment_id,
             result=result, metrics=metrics or {},
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
         )
         self._store.save(self._namespace, skill_id, node.to_dict())
 

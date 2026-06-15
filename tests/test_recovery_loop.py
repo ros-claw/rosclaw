@@ -8,10 +8,10 @@ Covers:
 
 import pytest
 
-from rosclaw.core.event_bus import EventBus, Event
-from rosclaw.memory.interface import MemoryInterface
+from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.how.engine import HeuristicEngine
 from rosclaw.how.recovery_loop import RecoveryLoop
+from rosclaw.memory.interface import MemoryInterface
 
 
 @pytest.fixture

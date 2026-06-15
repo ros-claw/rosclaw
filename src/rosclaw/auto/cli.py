@@ -1,11 +1,11 @@
 """rosclaw-auto CLI."""
 import argparse
-import json
 import sys
+
 from .config import AutoConfig
+from .dashboard import DashboardExporter
 from .engine import AutoEngine
 from .reports import ReportGenerator
-from .dashboard import DashboardExporter
 
 
 def _find_task_id(engine, task_name: str) -> str | None:

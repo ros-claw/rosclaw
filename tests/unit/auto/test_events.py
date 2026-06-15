@@ -1,13 +1,15 @@
 """Tests for Sprint B: Event Bus Integration."""
 import pytest
-from rosclaw.auto.engine.auto_engine import AutoEngine
+
 from rosclaw.auto.config import AutoConfig
-from rosclaw.auto.events.subscribers import AutoSubscriber
+from rosclaw.auto.engine.auto_engine import AutoEngine
 from rosclaw.auto.events.publishers import AutoPublisher
 from rosclaw.auto.events.schemas import (
-    EventEnvelope, PraxisFailedEvent, BenchmarkCompletedEvent,
-    AutoProposalCreatedEvent, ChampionPromotedEvent,
+    BenchmarkCompletedEvent,
+    EventEnvelope,
+    PraxisFailedEvent,
 )
+from rosclaw.auto.events.subscribers import AutoSubscriber
 
 
 class FakeEventBus:
@@ -138,9 +140,10 @@ def test_publisher_champion_promoted():
 
 def test_praxis_failed_event_idempotent():
     """AUTO-EVENT-002: Duplicate PraxisFailedEvent should not create duplicate FailureCases."""
-    from rosclaw.auto.engine.auto_engine import AutoEngine
-    from rosclaw.auto.config import AutoConfig
     import shutil
+
+    from rosclaw.auto.config import AutoConfig
+    from rosclaw.auto.engine.auto_engine import AutoEngine
 
     store_path = "./.rosclaw_auto_test_idempotent"
     shutil.rmtree(store_path, ignore_errors=True)
@@ -148,7 +151,7 @@ def test_praxis_failed_event_idempotent():
 
     # Simulate same event_id arriving 3 times
     for _ in range(3):
-        fc = engine.create_failure_case(
+        engine.create_failure_case(
             praxis_event_id="same_event_id",
             task_id="pick_cube",
             skill_id="pick_v1",
@@ -176,10 +179,11 @@ def test_sandbox_rejected_prevents_promotion():
 
 def test_event_out_of_order_does_not_crash():
     """AUTO-EVENT-004: Out-of-order events should not crash the system."""
-    from rosclaw.auto.events.subscribers import AutoSubscriber
-    from rosclaw.auto.engine.auto_engine import AutoEngine
-    from rosclaw.auto.config import AutoConfig
     import shutil
+
+    from rosclaw.auto.config import AutoConfig
+    from rosclaw.auto.engine.auto_engine import AutoEngine
+    from rosclaw.auto.events.subscribers import AutoSubscriber
 
     store_path = "./.rosclaw_auto_test_outoforder"
     shutil.rmtree(store_path, ignore_errors=True)

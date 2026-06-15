@@ -30,16 +30,13 @@ for _mod in list(sys.modules.keys()):
 # Also remove top-level rclpy itself
 sys.modules.pop("rclpy", None)
 
-import asyncio
-from pathlib import Path
-from unittest.mock import patch
+from pathlib import Path  # noqa: E402
+from unittest.mock import patch  # noqa: E402
 
-import numpy as np
+import rclpy  # noqa: E402
+from sensor_msgs.msg import JointState  # noqa: E402
 
-import rclpy
-from sensor_msgs.msg import JointState
-
-from rosclaw.mcp.ur5_server import (
+from rosclaw.mcp.ur5_server import (  # noqa: E402
     RCLPY_AVAILABLE,
     ROS_IMPORTS_OK,
     RobotState,
@@ -47,7 +44,6 @@ from rosclaw.mcp.ur5_server import (
     UR5ROSNode,
     main,
 )
-
 
 # ------------------------------------------------------------------
 # Fixtures
@@ -657,9 +653,9 @@ class TestConstants:
         assert set(UR5ROSNode.TORQUE_LIMITS.keys()) == set(UR5ROSNode.JOINT_NAMES)
 
     def test_joint_limits_ranges(self):
-        for name, (min_val, max_val) in UR5ROSNode.JOINT_LIMITS.items():
+        for _name, (min_val, max_val) in UR5ROSNode.JOINT_LIMITS.items():
             assert min_val < max_val
 
     def test_torque_limits_positive(self):
-        for name, limit in UR5ROSNode.TORQUE_LIMITS.items():
+        for _name, limit in UR5ROSNode.TORQUE_LIMITS.items():
             assert limit > 0

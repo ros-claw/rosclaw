@@ -2,10 +2,11 @@
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
 
 logger = logging.getLogger("rosclaw.skill_manager.registry")
@@ -25,7 +26,7 @@ class SkillEntry:
     updated_at: float = field(default_factory=time.time)
     execution_count: int = 0
     success_rate: float = 0.0
-    handler: Optional[Callable] = None
+    handler: Callable | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     # v1.5 champion / versioning fields
     version: str = "1.0.0"
@@ -56,7 +57,7 @@ class SkillEntry:
 class SkillRegistry(LifecycleMixin):
     """Central registry for all robot skills with versioning and champion support."""
 
-    def __init__(self, event_bus: Optional[EventBus] = None):
+    def __init__(self, event_bus: EventBus | None = None):
         super().__init__()
         self.event_bus = event_bus
         # Keyed by full skill_id (name@version)
@@ -140,7 +141,7 @@ class SkillRegistry(LifecycleMixin):
             self._by_name[entry.name].remove(target_id)
         return True
 
-    def get(self, skill_id: str) -> Optional[SkillEntry]:
+    def get(self, skill_id: str) -> SkillEntry | None:
         """Retrieve a skill by full skill_id (name@version) or by name."""
         entry = self._skills.get(skill_id)
         if entry is not None:
@@ -148,7 +149,7 @@ class SkillRegistry(LifecycleMixin):
         # Backward compatibility: allow lookup by bare name
         return self.get_by_name(skill_id)
 
-    def get_by_name(self, name: str, version: str | None = None) -> Optional[SkillEntry]:
+    def get_by_name(self, name: str, version: str | None = None) -> SkillEntry | None:
         """Retrieve a skill by name and optional version."""
         if version:
             return self._skills.get(self._make_id(name, version))
@@ -161,7 +162,7 @@ class SkillRegistry(LifecycleMixin):
         return self._skills.get(versions_sorted[-1])
 
     def list_skills(
-        self, skill_type: Optional[str] = None, champion_level: Optional[str] = None, return_entries: bool = False, full_ids: bool = False
+        self, skill_type: str | None = None, champion_level: str | None = None, return_entries: bool = False, full_ids: bool = False
     ) -> "list[str] | list[SkillEntry]":
         """List all registered skills with optional filtering.
 
@@ -214,7 +215,7 @@ class SkillRegistry(LifecycleMixin):
             ))
         return True
 
-    def get_champion(self, name: str, level: str = "real_champion") -> Optional[SkillEntry]:
+    def get_champion(self, name: str, level: str = "real_champion") -> SkillEntry | None:
         """Get the champion skill for a task at a given level."""
         skill_id = self._champions.get(name, {}).get(level)
         if skill_id:

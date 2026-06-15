@@ -27,7 +27,6 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 
 def _version() -> str:
@@ -378,9 +377,9 @@ def _auto_register_builtins() -> tuple[list, list]:
 
     # Register builtin providers
     try:
-        from rosclaw.provider.core.registry import ProviderRegistry
-        from rosclaw.provider.core.manifest import ProviderManifest
         from rosclaw.provider.adapters.generic import GenericProvider
+        from rosclaw.provider.core.manifest import ProviderManifest
+        from rosclaw.provider.core.registry import ProviderRegistry
 
         reg = ProviderRegistry()
         providers = list(reg.list_providers()) if hasattr(reg, "list_providers") else []
@@ -421,7 +420,7 @@ def _auto_register_builtins() -> tuple[list, list]:
 
     # Register builtin skills
     try:
-        from rosclaw.skill_manager.registry import SkillRegistry, SkillEntry
+        from rosclaw.skill_manager.registry import SkillEntry, SkillRegistry
 
         reg = SkillRegistry()
         skills = list(reg.list_skills()) if hasattr(reg, "list_skills") else []
@@ -499,7 +498,7 @@ def cmd_logs(args: argparse.Namespace) -> int:
         print("-" * 70)
 
         try:
-            with open(log_file, "r", encoding="utf-8") as f:
+            with open(log_file, encoding="utf-8") as f:
                 lines = f.readlines()
         except Exception as exc:
             print(f"  [Error reading file: {exc}]")
@@ -592,6 +591,7 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
     if args.open:
         try:
             import uvicorn
+
             from rosclaw.dashboard.web_server import app
 
             print("[ROSClaw] Starting Dashboard Web Server...")
@@ -650,9 +650,7 @@ def cmd_status(args: argparse.Namespace) -> int:
             "config_file": str(config_path),
             "config_found": has_config,
             "overall": overall,
-            "modules": {
-                mod_name: status for mod_name, status in health
-            },
+            "modules": dict(health),
             "degraded_count": len(degraded),
         }
         print(json.dumps(result, indent=2))
@@ -739,6 +737,7 @@ def cmd_robot_install(args: argparse.Namespace) -> int:
 def cmd_robot_inspect(args: argparse.Namespace) -> int:
     """Show complete robot profile."""
     import json
+
     from rosclaw.runtime import RobotRegistry
 
     registry = RobotRegistry()
@@ -958,7 +957,7 @@ def cmd_practice_replay(args: argparse.Namespace) -> int:
     print("\n2. PROVIDER CAPABILITY SELECTION:")
     trace_path = recorder.artifact_base / "episodes" / args.episode_id / "provider_trace.jsonl"
     if trace_path.exists():
-        with open(trace_path, "r", encoding="utf-8") as f:
+        with open(trace_path, encoding="utf-8") as f:
             traces = [json.loads(line) for line in f if line.strip()]
         for t in traces:
             print(f"   Status: {t.get('status')}, Safe: {t.get('is_safe')}")
@@ -979,7 +978,7 @@ def cmd_practice_replay(args: argparse.Namespace) -> int:
         print(f"   Error:  {meta['runtime_error']}")
     traj_path = recorder.artifact_base / "episodes" / args.episode_id / "trajectory.jsonl"
     if traj_path.exists():
-        with open(traj_path, "r", encoding="utf-8") as f:
+        with open(traj_path, encoding="utf-8") as f:
             traj = [json.loads(line) for line in f if line.strip()]
         print(f"   Trajectory entries: {len(traj)}")
 
@@ -1019,7 +1018,6 @@ def cmd_practice_export(args: argparse.Namespace) -> int:
 
 def cmd_provider_invoke(args: argparse.Namespace) -> int:
     """Invoke a provider capability."""
-    from rosclaw.provider.core.registry import ProviderRegistry
 
     provider_id = args.provider_id
     input_data = args.input
@@ -1221,8 +1219,8 @@ def cmd_auto_report(args: argparse.Namespace) -> int:
 
 def cmd_how_explain(args: argparse.Namespace) -> int:
     """Explain a failure episode via HOW."""
-    from rosclaw.memory.interface import MemoryInterface
     from rosclaw.how.engine import HeuristicEngine
+    from rosclaw.memory.interface import MemoryInterface
 
     episode_id = args.episode_id
     print(f"[ROSClaw] HOW explaining episode: {episode_id}")
@@ -1528,7 +1526,7 @@ def cmd_memory_query(args: argparse.Namespace) -> int:
     return 0
 
 
-def _find_last_failure_from_artifacts(task_id: Optional[str] = None) -> Optional[dict]:
+def _find_last_failure_from_artifacts(task_id: str | None = None) -> dict | None:
     """Find the most recent failed episode from artifact data."""
     from rosclaw.practice.episode_recorder import EpisodeRecorder
 
@@ -1757,13 +1755,14 @@ def cmd_demo_mobile_pid(args: argparse.Namespace) -> int:
     print(f"PID:     Kp={kp}, Ki={ki}, Kd={kd}")
 
     try:
-        from rosclaw.core import Runtime, RuntimeConfig
         from rosclaw.control.pid_controller import PIDController, PIDGains
+        from rosclaw.core import Runtime, RuntimeConfig
 
         # Attempt ROS2 backend if requested
         if backend == "ros2":
             try:
                 import rclpy
+
                 from rosclaw.mcp_drivers.ros2_driver import ROS2Driver
 
                 print("[ROSClaw] Initializing ROS2 backend...")
@@ -1776,7 +1775,7 @@ def cmd_demo_mobile_pid(args: argparse.Namespace) -> int:
                 pid.set_output_limit(-3.0, 3.0)
                 position = 0.0
                 dt = 0.05
-                for step in range(100):
+                for _step in range(100):
                     error = target - position
                     control = pid.update(error, dt)
                     position += control * dt
@@ -1787,8 +1786,8 @@ def cmd_demo_mobile_pid(args: argparse.Namespace) -> int:
                 rclpy.shutdown()
                 final_error = abs(target - position)
                 status = "success" if final_error < 0.05 else "timeout"
-                print(f"\nResult:")
-                print(f"  Steps:       {step + 1}")
+                print("\nResult:")
+                print(f"  Steps:       {_step + 1}")
                 print(f"  Final error: {final_error:.4f}m")
                 print(f"  Status:      {status} (ROS2 backend)")
                 print("=" * 60)
@@ -1858,12 +1857,12 @@ def cmd_demo_mobile_pid(args: argparse.Namespace) -> int:
 
         runtime.stop()
 
-        print(f"\nResult:")
+        print("\nResult:")
         print(f"  Steps:       {step + 1}")
         print(f"  Final error: {final_error:.4f}m")
         print(f"  Status:      {status}")
         if backend == "mock":
-            print(f"  Note:        Using mock backend. For ROS2, use --backend ros2")
+            print("  Note:        Using mock backend. For ROS2, use --backend ros2")
         print("=" * 60)
         return 0 if status == "success" else 1
 
@@ -1950,7 +1949,7 @@ def _load_event_history(limit: int = 100) -> list:
     if not _EVENT_HISTORY_FILE.exists():
         return []
     try:
-        with open(_EVENT_HISTORY_FILE, "r", encoding="utf-8") as f:
+        with open(_EVENT_HISTORY_FILE, encoding="utf-8") as f:
             lines = [ln.strip() for ln in f if ln.strip()]
         events = []
         for line in lines[-limit:]:
@@ -2004,7 +2003,7 @@ def cmd_events_tail(args: argparse.Namespace) -> int:
 
 def cmd_events_publish(args: argparse.Namespace) -> int:
     """Publish an event to EventBus."""
-    from rosclaw.core.event_bus import get_global_event_bus, Event
+    from rosclaw.core.event_bus import Event, get_global_event_bus
 
     bus = get_global_event_bus()
     try:
@@ -2357,7 +2356,7 @@ def cmd_forge_sdk_to_mcp(args: argparse.Namespace) -> int:
             icon = "✅" if passed else "❌"
             print(f"  {icon} {check}")
         print("=" * 60)
-        print(f"\nNext steps:")
+        print("\nNext steps:")
         print(f"  rosclaw forge validate {output_dir / name}")
         print(f"  rosclaw forge install {output_dir / name} --staging")
         return 0
@@ -2368,7 +2367,6 @@ def cmd_forge_sdk_to_mcp(args: argparse.Namespace) -> int:
 
 def cmd_forge_validate(args: argparse.Namespace) -> int:
     """Validate a Forge bundle."""
-    from rosclaw.forge.bundle_compiler import BundleCompiler
 
     bundle_path = Path(args.bundle_path)
     if not bundle_path.exists():
@@ -2447,8 +2445,8 @@ def cmd_forge_install(args: argparse.Namespace) -> int:
 
 def cmd_stop(_args: argparse.Namespace) -> int:
     """Stop ROSClaw runtime."""
-    import signal
     import os
+    import signal
 
     pid_file = Path.home() / ".rosclaw" / "runtime.pid"
     if pid_file.exists():

@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ------------------------------------------------------------------
 # main() help paths
 # ------------------------------------------------------------------
@@ -86,8 +85,9 @@ class TestDoctorEdgeCases:
         assert code == 1
 
     def test_doctor_no_zoo_no_config(self, capsys, tmp_path):
-        from rosclaw.cli import main
         import os
+
+        from rosclaw.cli import main
         old_cwd = os.getcwd()
         try:
             os.chdir(tmp_path)
@@ -106,8 +106,9 @@ class TestDoctorEdgeCases:
 
 class TestLogsEdgeCases:
     def test_logs_unreadable_file(self, tmp_path, capsys):
-        from rosclaw.cli import main
         import os
+
+        from rosclaw.cli import main
 
         log_dir = tmp_path / ".rosclaw" / "logs"
         log_dir.mkdir(parents=True)
@@ -132,8 +133,9 @@ class TestLogsEdgeCases:
                 os.environ.pop("HOME", None)
 
     def test_logs_module_filter(self, tmp_path, capsys):
-        from rosclaw.cli import main
         import os
+
+        from rosclaw.cli import main
 
         log_dir = tmp_path / ".rosclaw" / "logs"
         log_dir.mkdir(parents=True)
@@ -176,8 +178,9 @@ class TestStatusEdgeCases:
 
 class TestStopEdgeCases:
     def test_stop_process_lookup_error(self, capsys, tmp_path):
-        from rosclaw.cli import main
         import os
+
+        from rosclaw.cli import main
 
         pid_file = tmp_path / "runtime.pid"
         pid_file.write_text("99999")
@@ -204,7 +207,7 @@ class TestStopEdgeCases:
 class TestEventsEdgeCases:
     def test_events_with_history(self, capsys):
         from rosclaw.cli import main
-        from rosclaw.core.event_bus import EventBus, Event
+        from rosclaw.core.event_bus import Event, EventBus
 
         bus = EventBus()
         bus.publish(Event(topic="test.event", payload={"x": 1}, source="test"))

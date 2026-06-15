@@ -5,9 +5,9 @@ Sits between CapabilityRouter and Runtime execution.
 
 from typing import Any
 
+from rosclaw.provider.core.errors import GuardBlockedError
 from rosclaw.provider.core.request import ProviderRequest
 from rosclaw.provider.core.response import ProviderResponse
-from rosclaw.provider.core.errors import GuardBlockedError
 from rosclaw.provider.guard.base import Guard
 
 

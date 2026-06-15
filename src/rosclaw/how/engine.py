@@ -19,9 +19,10 @@ Design:
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
-from typing import Any, Final, Optional
+from typing import Any, Final
 
 from .intervention import (
     SAFETY_TAXONOMY,
@@ -74,8 +75,8 @@ class HeuristicEngine:
     def __init__(
         self,
         seekdb_client: Any,
-        knowledge_interface: Optional[Any] = None,
-        event_bus: Optional[Any] = None,
+        knowledge_interface: Any | None = None,
+        event_bus: Any | None = None,
     ) -> None:
         self._seekdb = seekdb_client
         self._knowledge = knowledge_interface
@@ -127,10 +128,8 @@ class HeuristicEngine:
         # CRITICAL FIX: unsubscribe from EventBus to prevent leaks
         if self._event_bus is not None:
             for topic, handler in self._subscribed_topics:
-                try:
+                with contextlib.suppress(Exception):
                     self._event_bus.unsubscribe(topic, handler)
-                except Exception:  # noqa: BLE001
-                    pass
         self._subscribed_topics.clear()
 
     # ── public API ───────────────────────────────────────────────────────
@@ -138,8 +137,8 @@ class HeuristicEngine:
     async def suggest_recovery(
         self,
         error_log: str,
-        context: Optional[dict[str, Any]] = None,
-    ) -> Optional[dict[str, Any]]:
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
         """Return the best matching recovery strategy (<10ms when cached).
 
         Matching priority:
@@ -314,7 +313,7 @@ class HeuristicEngine:
 
     # ── internals ────────────────────────────────────────────────────────
 
-    def _query_exact(self, error_log: str) -> Optional[dict[str, Any]]:
+    def _query_exact(self, error_log: str) -> dict[str, Any] | None:
         """Exact condition match.
 
         Taxonomy rows (id prefix ``tax_``) are skipped here so a bare
@@ -345,7 +344,7 @@ class HeuristicEngine:
             return dict(row)
         return None
 
-    def _query_substring(self, error_log: str) -> Optional[dict[str, Any]]:
+    def _query_substring(self, error_log: str) -> dict[str, Any] | None:
         """Substring match: condition text appears inside error_log.
 
         Taxonomy rows (id prefix ``tax_``) are skipped here — they have
@@ -353,7 +352,7 @@ class HeuristicEngine:
         which honors keyword tuples / severity, not lowercase substrings.
         """
         error_lower = error_log.lower()
-        best: Optional[dict[str, Any]] = None
+        best: dict[str, Any] | None = None
         best_pri = -999
 
         rules = self._rule_cache.values() if self._cache_valid else self._seekdb.query(self._table, limit=1_000)
@@ -377,8 +376,8 @@ class HeuristicEngine:
     async def _knowledge_fallback(
         self,
         error_log: str,
-        context: Optional[dict[str, Any]],
-    ) -> Optional[dict[str, Any]]:
+        context: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
         """Optional knowledge-based analogy fallback."""
         try:
             # Placeholder: if Knowledge module provides analogy lookup
@@ -413,7 +412,7 @@ class HeuristicEngine:
         symptom: str,
         severity: str,
         strategy: str,
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Return (or lazily seed) the cached rule for a taxonomy symptom.
 
         Allows ``suggest_recovery`` to surface S2/S3/S4 events even before
@@ -455,8 +454,8 @@ class HeuristicEngine:
         self,
         request: InterventionRequest,
         *,
-        recent_pattern_id: Optional[str] = None,
-    ) -> tuple[InterventionDecision, Optional[str]]:
+        recent_pattern_id: str | None = None,
+    ) -> tuple[InterventionDecision, str | None]:
         """Run the proactive diagnose → policy → composer pipeline.
 
         Returns ``(decision, rule_id_or_None)``. When the final decision
@@ -496,7 +495,7 @@ class HeuristicEngine:
             recent_pattern_id=recent_pattern_id,
             require_curated_match=require_curated_match,
         )
-        rule_id: Optional[str] = None
+        rule_id: str | None = None
         # Attribute the outcome to the taxonomy ONLY when the final
         # decision was actually a safety-branch outcome — this protects
         # the counters when cooldown swaps the strategy to DIVERSIFY or
@@ -520,8 +519,8 @@ class HeuristicEngine:
     async def generate_recovery_hint(
         self,
         failure_type: str,
-        context: Optional[dict[str, Any]] = None,
-    ) -> Optional[dict[str, Any]]:
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
         """Generate a recovery hint for a failure type.
 
         This is the canonical API used by Runtime.how.generate_recovery_hint().
@@ -541,8 +540,8 @@ class HeuristicEngine:
     async def get_retry_plan(
         self,
         failure_type: str,
-        context: Optional[dict[str, Any]] = None,
-    ) -> Optional[dict[str, Any]]:
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
         """Build a structured retry plan for a failure type.
 
         Looks up the heuristic rule and converts it into a parameter patch

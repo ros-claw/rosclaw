@@ -21,7 +21,6 @@ from rosclaw.sdk_to_mcp import AssetCompiler, MCPManifestBuilder
 from rosclaw.sdk_to_mcp.compiler import CompiledAsset
 from rosclaw.sdk_to_mcp.manifest import MCPServerManifest
 
-
 # ───────────────────────────────
 # AssetCompiler — Skill Compilation
 # ───────────────────────────────

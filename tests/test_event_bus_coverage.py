@@ -1,10 +1,10 @@
 """EventBus coverage tests — fills gaps not covered by test_event_bus_extended.py."""
 
 import asyncio
+
 import pytest
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
-
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 
 # --- Event.derive ---
 

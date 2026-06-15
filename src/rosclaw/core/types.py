@@ -10,7 +10,6 @@ RFC-0001 Core Types.
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 import numpy as np
 
@@ -38,8 +37,8 @@ class RobotState:
     joint_velocities: np.ndarray        # Shape: (dof,)
     joint_torques: np.ndarray           # Shape: (dof,)
     joint_names: list[str] = field(default_factory=list)
-    end_effector_pose: Optional[np.ndarray] = None  # Shape: (4, 4)
-    gripper_state: Optional[float] = None            # 0.0=open, 1.0=closed
+    end_effector_pose: np.ndarray | None = None  # Shape: (4, 4)
+    gripper_state: float | None = None            # 0.0=open, 1.0=closed
     is_connected: bool = True
 
     def validate(self, expected_dof: int) -> bool:
@@ -67,9 +66,9 @@ class PraxisEvent:
     agent_instruction: str      # LLM's original natural language instruction
     cot_trace: list[str]         # Chain-of-Thought reasoning steps
     initial_state: RobotState
-    final_state: Optional[RobotState]
+    final_state: RobotState | None
     trajectory: list[list[float]]
-    mcap_path: Optional[str]     # Path to MCAP recording
-    error_details: Optional[str]
+    mcap_path: str | None     # Path to MCAP recording
+    error_details: str | None
     duration_sec: float
     metadata: dict = field(default_factory=dict)

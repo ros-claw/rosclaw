@@ -1,6 +1,6 @@
 """DeadEnd — 死胡同/无效方向记录."""
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 @dataclass
@@ -13,7 +13,7 @@ class DeadEnd:
     rejection_reason: str = ""
     avoid_conditions: dict = field(default_factory=dict)
     evidence: list[str] = field(default_factory=list)
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_dict(self) -> dict:
         return {

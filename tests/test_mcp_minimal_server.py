@@ -1,5 +1,6 @@
 """Tests for mcp.minimal_server — ROSClawMinimalMCPServer."""
 
+import contextlib
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -74,9 +75,8 @@ def mock_mcp():
         "mcp.server.models": mcp.server.models,
         "mcp.server.stdio": mcp.server.stdio,
         "mcp.types": mcp.types,
-    }):
-        with patch("rosclaw.agent_runtime.mcp_hub.MCPHub", FakeMCPHub):
-            yield mcp
+    }), patch("rosclaw.agent_runtime.mcp_hub.MCPHub", FakeMCPHub):
+        yield mcp
 
 
 class TestMinimalServerInit:
@@ -443,17 +443,11 @@ class TestMainShutdown:
     def test_main_keyboard_interrupt(self, mock_mcp):
         from rosclaw.mcp.minimal_server import main
 
-        with patch.object(sys, "stderr", MagicMock()):
-            # Main creates server then runs asyncio.run which would block;
-            # KeyboardInterrupt should be caught
-            with patch("rosclaw.mcp.minimal_server.ROSClawMinimalMCPServer") as mock_cls:
-                mock_server = MagicMock()
-                mock_cls.return_value = mock_server
-                mock_server.hub = MagicMock()
-                mock_server.hub.stop = MagicMock()
-                mock_server.run.side_effect = KeyboardInterrupt()
-                with patch("asyncio.run", side_effect=lambda coro: (_ for _ in ()).throw(KeyboardInterrupt())):
-                    try:
-                        main()
-                    except KeyboardInterrupt:
-                        pass  # Expected
+        with patch.object(sys, "stderr", MagicMock()), patch("rosclaw.mcp.minimal_server.ROSClawMinimalMCPServer") as mock_cls, patch("asyncio.run", side_effect=lambda coro: (_ for _ in ()).throw(KeyboardInterrupt())):
+            mock_server = MagicMock()
+            mock_cls.return_value = mock_server
+            mock_server.hub = MagicMock()
+            mock_server.hub.stop = MagicMock()
+            mock_server.run.side_effect = KeyboardInterrupt()
+            with contextlib.suppress(KeyboardInterrupt):
+                main()

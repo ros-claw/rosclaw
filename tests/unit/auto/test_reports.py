@@ -1,8 +1,8 @@
 """Tests for ReportGenerator."""
 import shutil
-import pytest
-from rosclaw.auto.engine.auto_engine import AutoEngine
+
 from rosclaw.auto.config import AutoConfig
+from rosclaw.auto.engine.auto_engine import AutoEngine
 from rosclaw.auto.reports import ReportGenerator
 
 

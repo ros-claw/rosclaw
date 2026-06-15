@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from rosclaw.core.event_bus import Event
 
 
 @dataclass
@@ -21,7 +24,7 @@ class EventEnvelope:
     event_id: str = ""
     event_type: str = ""  # canonical topic name, e.g. "rosclaw.auto.proposal.created"
     timestamp: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
     trace_id: str = ""
     run_id: str = ""
@@ -50,7 +53,7 @@ class EventEnvelope:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "EventEnvelope":
+    def from_dict(cls, d: dict[str, Any]) -> EventEnvelope:
         return cls(
             event_id=d.get("event_id", ""),
             event_type=d.get("event_type", ""),
@@ -66,7 +69,7 @@ class EventEnvelope:
             metadata=dict(d.get("metadata", {})),
         )
 
-    def to_core_event(self) -> "Event":
+    def to_core_event(self) -> Event:
         """Convert to core.event_bus.Event for publishing via EventBus."""
         from rosclaw.core.event_bus import Event, EventPriority
 
@@ -87,7 +90,7 @@ class EventEnvelope:
         )
 
     @classmethod
-    def from_core_event(cls, event: "Event") -> "EventEnvelope":
+    def from_core_event(cls, event: Event) -> EventEnvelope:
         """Build from a core.event_bus.Event received from EventBus."""
         payload = event.payload if isinstance(event.payload, dict) else {}
         return cls.from_dict(payload)

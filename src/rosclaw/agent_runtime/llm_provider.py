@@ -21,7 +21,7 @@ import json
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -73,7 +73,7 @@ class LLMProvider(ABC):
 
     def __init__(self, config: LLMConfig):
         self.config = config
-        self._client: Optional[Any] = None
+        self._client: Any | None = None
 
     @property
     @abstractmethod
@@ -96,9 +96,9 @@ class LLMProvider(ABC):
         self,
         system_prompt: str,
         user_prompt: str,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        response_format: Optional[dict] = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        response_format: dict | None = None,
     ) -> str:
         """
         Unified chat completion call.
@@ -301,7 +301,7 @@ class DeepSeekProvider(LLMProvider):
     DEFAULT_BASE_URL = "https://api.deepseek.com"
     DEFAULT_MODEL = "deepseek-v4-pro"
 
-    def __init__(self, config: Optional[LLMConfig] = None, **kwargs):
+    def __init__(self, config: LLMConfig | None = None, **kwargs):
         if config is not None and kwargs:
             raise TypeError("Cannot pass both config and keyword arguments")
         cfg = config if config is not None else LLMConfig(**kwargs)
@@ -326,11 +326,11 @@ class DeepSeekProvider(LLMProvider):
                 timeout=self.config.timeout,
                 default_headers=self.config.extra_headers,
             )
-        except ImportError:
+        except ImportError as err:
             raise RuntimeError(
                 "openai package required for DeepSeek integration. "
                 "Install with: pip install openai"
-            )
+            ) from err
 
 
 class OpenAIProvider(LLMProvider):
@@ -344,7 +344,7 @@ class OpenAIProvider(LLMProvider):
     DEFAULT_BASE_URL = "https://api.openai.com/v1"
     DEFAULT_MODEL = "gpt-4o"
 
-    def __init__(self, config: Optional[LLMConfig] = None, **kwargs):
+    def __init__(self, config: LLMConfig | None = None, **kwargs):
         if config is not None and kwargs:
             raise TypeError("Cannot pass both config and keyword arguments")
         cfg = config if config is not None else LLMConfig(**kwargs)
@@ -369,11 +369,11 @@ class OpenAIProvider(LLMProvider):
                 timeout=self.config.timeout,
                 default_headers=self.config.extra_headers,
             )
-        except ImportError:
+        except ImportError as err:
             raise RuntimeError(
                 "openai package required for OpenAI integration. "
                 "Install with: pip install openai"
-            )
+            ) from err
 
 
 class QwenProvider(LLMProvider):
@@ -387,7 +387,7 @@ class QwenProvider(LLMProvider):
     DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     DEFAULT_MODEL = "qwen-max"
 
-    def __init__(self, config: Optional[LLMConfig] = None, **kwargs):
+    def __init__(self, config: LLMConfig | None = None, **kwargs):
         if config is not None and kwargs:
             raise TypeError("Cannot pass both config and keyword arguments")
         cfg = config if config is not None else LLMConfig(**kwargs)
@@ -412,11 +412,11 @@ class QwenProvider(LLMProvider):
                 timeout=self.config.timeout,
                 default_headers=self.config.extra_headers,
             )
-        except ImportError:
+        except ImportError as err:
             raise RuntimeError(
                 "openai package required for Qwen integration. "
                 "Install with: pip install openai"
-            )
+            ) from err
 
 
 # Provider registry for runtime selection
@@ -427,7 +427,7 @@ _PROVIDER_REGISTRY: dict[str, type[LLMProvider]] = {
 }
 
 
-def get_provider(name: str, config: Optional[LLMConfig] = None) -> LLMProvider:
+def get_provider(name: str, config: LLMConfig | None = None) -> LLMProvider:
     """
     Factory function to get a provider by name.
 

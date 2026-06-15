@@ -1,9 +1,9 @@
 """Tests for ActionGuard."""
 
 
-from rosclaw.provider.guard.action_guard import ActionGuard
 from rosclaw.provider.core.request import ProviderRequest
 from rosclaw.provider.core.response import ProviderResponse
+from rosclaw.provider.guard.action_guard import ActionGuard
 
 
 class TestActionGuard:

@@ -7,7 +7,7 @@ avoids this module for latency; it is used by admin tools and tests.
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("rosclaw.how.rules")
 
@@ -66,7 +66,7 @@ class RuleManager:
         rows = self._seekdb.query(self._table, limit=limit)
         return [r for r in rows if int(r.get("priority", 0)) >= 0]
 
-    def get_rule(self, rule_id: str) -> Optional[dict[str, Any]]:
+    def get_rule(self, rule_id: str) -> dict[str, Any] | None:
         """Get a single rule by id."""
         rows = self._seekdb.query(self._table, filters={"id": rule_id}, limit=1)
         return dict(rows[0]) if rows else None

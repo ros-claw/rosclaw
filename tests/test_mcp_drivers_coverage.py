@@ -1,20 +1,20 @@
 """Coverage tests for MuJoCoSimDriver and SerialDriver."""
 
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from rosclaw.mcp_drivers.base import TrajectoryCommand
 from rosclaw.mcp_drivers.mujoco_sim_driver import MuJoCoSimDriver
 from rosclaw.mcp_drivers.serial_driver import SerialDriver
-from rosclaw.mcp_drivers.base import TrajectoryCommand
 
 
 class TestMuJoCoSimDriverLifecycle:
     def test_initialize_import_error(self, caplog):
         import logging
         driver = MuJoCoSimDriver("test_bot")
-        with patch.dict("sys.modules", {"mujoco": None}):
-            with caplog.at_level(logging.WARNING, logger="rosclaw.mcp_drivers.mujoco_sim"):
-                driver.initialize()
+        with patch.dict("sys.modules", {"mujoco": None}), caplog.at_level(logging.WARNING, logger="rosclaw.mcp_drivers.mujoco_sim"):
+            driver.initialize()
         assert "mujoco not available" in caplog.text
         assert driver._driver_state.connected is True
 
@@ -126,9 +126,8 @@ class TestSerialDriverLifecycle:
     def test_initialize_import_error(self, caplog):
         import logging
         driver = SerialDriver("test_bot", port="/dev/ttyUSB0")
-        with patch.dict("sys.modules", {"serial": None}):
-            with caplog.at_level(logging.WARNING, logger="rosclaw.mcp_drivers.serial"):
-                driver.initialize()
+        with patch.dict("sys.modules", {"serial": None}), caplog.at_level(logging.WARNING, logger="rosclaw.mcp_drivers.serial"):
+            driver.initialize()
         assert "pyserial not available" in caplog.text
         assert driver._driver_state.connected is True
 
@@ -137,9 +136,8 @@ class TestSerialDriverLifecycle:
         fake_serial = MagicMock()
         fake_serial.Serial.side_effect = Exception("port fail")
         driver = SerialDriver("test_bot", port="/dev/fake")
-        with patch.dict("sys.modules", {"serial": fake_serial}):
-            with caplog.at_level(logging.WARNING, logger="rosclaw.mcp_drivers.serial"):
-                driver.initialize()
+        with patch.dict("sys.modules", {"serial": fake_serial}), caplog.at_level(logging.WARNING, logger="rosclaw.mcp_drivers.serial"):
+            driver.initialize()
         assert "Could not open" in caplog.text
         assert driver._driver_state.connected is True
 

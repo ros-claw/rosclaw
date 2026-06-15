@@ -27,7 +27,7 @@ class StressScenario:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "StressScenario":
+    def from_dict(cls, d: dict[str, Any]) -> StressScenario:
         return cls(
             scenario_id=d.get("scenario_id", ""),
             name=d.get("name", ""),

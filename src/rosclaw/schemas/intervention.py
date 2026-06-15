@@ -57,7 +57,7 @@ class InterventionRequest:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "InterventionRequest":
+    def from_dict(cls, d: dict[str, Any]) -> InterventionRequest:
         return cls(
             run_id=d.get("run_id", ""),
             task_name=d.get("task_name", ""),
@@ -128,7 +128,7 @@ class InterventionDecision:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "InterventionDecision":
+    def from_dict(cls, d: dict[str, Any]) -> InterventionDecision:
         return cls(
             strategy=d.get("strategy", ""),
             snippet=d.get("snippet", ""),
@@ -177,7 +177,7 @@ class InterventionTrace:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "InterventionTrace":
+    def from_dict(cls, d: dict[str, Any]) -> InterventionTrace:
         return cls(
             injection_id=d.get("injection_id", ""),
             run_id=d.get("run_id", ""),
@@ -229,7 +229,7 @@ class EvidenceTrace:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "EvidenceTrace":
+    def from_dict(cls, d: dict[str, Any]) -> EvidenceTrace:
         return cls(
             injection_id=d.get("injection_id", ""),
             pattern_id=d.get("pattern_id", ""),

@@ -9,7 +9,7 @@ P1 Issue 2: https://github.com/ros-claw/rosclaw-v1.0/issues/XXX
 
 import pytest
 
-from rosclaw.memory.interface import MemoryInterface, _HAS_BM25
+from rosclaw.memory.interface import _HAS_BM25, MemoryInterface
 
 
 @pytest.fixture

@@ -3,9 +3,9 @@
 import numpy as np
 import pytest
 
-from rosclaw.sandbox.sandbox_api import Sandbox
-from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
 from rosclaw.core.event_bus import EventBus
+from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
+from rosclaw.sandbox.sandbox_api import Sandbox
 
 
 class TestSandboxGetObservation:

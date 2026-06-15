@@ -1,10 +1,10 @@
 """Tests for know/graph.py helpers."""
 
 from rosclaw.know.graph import (
+    count_knowledge_facts,
+    get_related_robots,
     get_robot_capabilities,
     get_robot_symptoms,
-    get_related_robots,
-    count_knowledge_facts,
 )
 
 

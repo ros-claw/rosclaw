@@ -29,7 +29,7 @@ class EmbodimentCard:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "EmbodimentCard":
+    def from_dict(cls, d: dict[str, Any]) -> EmbodimentCard:
         return cls(
             robot_id=d.get("robot_id", ""),
             embodiment_type=d.get("embodiment_type", ""),

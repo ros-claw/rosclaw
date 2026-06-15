@@ -15,13 +15,12 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from rosclaw.dashboard import DashboardMetrics, DashboardServer
-from rosclaw.dashboard.metrics import ProviderMetric, SandboxMetric, EpisodeMetric
-
+from rosclaw.dashboard.metrics import EpisodeMetric, ProviderMetric, SandboxMetric
 
 # ───────────────────────── DashboardMetrics ─────────────────────────
 

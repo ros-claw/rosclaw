@@ -1,11 +1,12 @@
 """Tests for Data Layer (RingBuffer, DataFlywheel)."""
 
-import numpy as np
-import pytest
 from pathlib import Path
 
-from rosclaw.data.ring_buffer import RingBuffer, MultiChannelRingBuffer
-from rosclaw.data.flywheel import DataFlywheel, RobotState, EventType
+import numpy as np
+import pytest
+
+from rosclaw.data.flywheel import DataFlywheel, EventType, RobotState
+from rosclaw.data.ring_buffer import MultiChannelRingBuffer, RingBuffer
 
 
 class TestRingBuffer:

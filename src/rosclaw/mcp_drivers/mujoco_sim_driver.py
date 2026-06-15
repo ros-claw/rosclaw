@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
@@ -21,8 +21,8 @@ class MuJoCoSimDriver(BaseDriver):
     def __init__(self, robot_id: str = "default_robot", model_path: str = "", joint_dof: int = 6):
         super().__init__(robot_id, joint_dof)
         self._model_path = model_path
-        self._model: Optional[Any] = None
-        self._data: Optional[Any] = None
+        self._model: Any | None = None
+        self._data: Any | None = None
         self._sim_step = 0.002
 
     def _do_initialize(self) -> None:
@@ -105,7 +105,7 @@ class MuJoCoSimDriver(BaseDriver):
             return False
         self._ensure_ready("execute_trajectory")
         self._validate_trajectory(trajectory)
-        for wp, t in zip(trajectory.waypoints, trajectory.times):
+        for wp, t in zip(trajectory.waypoints, trajectory.times, strict=False):
             self.move_joints(wp, duration=t)
         return True
 
@@ -125,6 +125,6 @@ class MuJoCoSimDriver(BaseDriver):
         self._driver_state.joint_torques = self.get_joint_torques()
         return self._driver_state
 
-    def get_mujoco_data(self) -> Optional[Any]:
+    def get_mujoco_data(self) -> Any | None:
         """Access underlying MuJoCo data for Digital Twin validation."""
         return self._data

@@ -11,11 +11,10 @@ Tests cover:
 
 import pytest
 
+from rosclaw.know.graph import count_knowledge_facts
 from rosclaw.know.interface import KnowledgeInterface
 from rosclaw.know.storage import seed_knowledge_graph
-from rosclaw.know.graph import count_knowledge_facts
 from rosclaw.memory.seekdb_client import SeekDBMemoryClient
-
 
 # Isolation: these tests pin the curated-baseline contract, so they
 # MUST not pick up the compiled catalog in ``data/knowledge_assets/``.
@@ -198,9 +197,10 @@ class TestMCPKnowledgeTool:
         hub._do_stop()
 
     def test_mcp_handle_query_knowledge_capability(self):
+        import asyncio
+
         from rosclaw.agent_runtime.mcp_hub import MCPHub
         from rosclaw.core.event_bus import EventBus
-        import asyncio
 
         event_bus = EventBus()
         hub = MCPHub(event_bus=event_bus, robot_id="ur5e")
@@ -232,9 +232,10 @@ class TestMCPKnowledgeTool:
         assert result["robot_id"] == "ur5e"
 
     def test_mcp_handle_query_knowledge_symptom(self):
+        import asyncio
+
         from rosclaw.agent_runtime.mcp_hub import MCPHub
         from rosclaw.core.event_bus import EventBus
-        import asyncio
 
         event_bus = EventBus()
         hub = MCPHub(event_bus=event_bus, robot_id="ur5e")
@@ -266,9 +267,10 @@ class TestMCPKnowledgeTool:
         assert result["result"]["pattern_id"] == "Torque_Overflow"
 
     def test_mcp_handle_get_safety_heuristic(self):
+        import asyncio
+
         from rosclaw.agent_runtime.mcp_hub import MCPHub
         from rosclaw.core.event_bus import EventBus
-        import asyncio
 
         event_bus = EventBus()
         hub = MCPHub(event_bus=event_bus, robot_id="ur5e")
@@ -745,7 +747,7 @@ class TestKnowEventBusIntegration:
         ki._do_stop()
 
     def test_know_publishes_pre_check_event(self):
-        from rosclaw.core.event_bus import EventBus, Event, EventPriority
+        from rosclaw.core.event_bus import Event, EventBus, EventPriority
         bus = EventBus()
         ki = KnowledgeInterface(robot_id="test_robot", event_bus=bus)
         ki._do_initialize()
@@ -762,7 +764,7 @@ class TestKnowEventBusIntegration:
         ki._do_stop()
 
     def test_know_publishes_safety_limits_event(self):
-        from rosclaw.core.event_bus import EventBus, Event, EventPriority
+        from rosclaw.core.event_bus import Event, EventBus, EventPriority
         bus = EventBus()
         ki = KnowledgeInterface(robot_id="ur5e", event_bus=bus)
         ki._do_initialize()

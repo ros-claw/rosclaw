@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import math
 import time
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("rosclaw.how.recovery")
 
@@ -46,7 +46,7 @@ class RecoveryEngine:
     def __init__(
         self,
         heuristic_engine: Any,
-        event_bus: Optional[Any] = None,
+        event_bus: Any | None = None,
     ) -> None:
         self._how = heuristic_engine
         self._event_bus = event_bus
@@ -173,11 +173,11 @@ class RecoveryEngine:
     async def generate_recovery_hint(
         self,
         failure_type: str,
-        context: Optional[dict[str, Any]] = None,
-        sources: Optional[list[str]] = None,
-        event_bus: Optional[Any] = None,
+        context: dict[str, Any] | None = None,
+        sources: list[str] | None = None,
+        event_bus: Any | None = None,
         request_id: str = "",
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Build a RecoveryHint dict from failure metadata.
 
         Uses multi-rule matching: ranks all matching rules by confidence
@@ -246,7 +246,7 @@ class RecoveryEngine:
     async def _find_all_candidates(
         self,
         failure_type: str,
-        context: Optional[dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Find all matching rules and rank them by confidence score."""
         if self._how is None:
@@ -300,7 +300,7 @@ class RecoveryEngine:
         self,
         failure_type: str,
         rule: dict[str, Any],
-        context: Optional[dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Build a structured RetryPlan from a matched rule."""
         ctx = context or {}
@@ -411,7 +411,7 @@ class RecoveryFormatter:
 
 
 def format_recovery_suggestion(
-    recovery: Optional[dict[str, Any]],
+    recovery: dict[str, Any] | None,
     *,
     request_id: str = "",
 ) -> str:

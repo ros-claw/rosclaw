@@ -3,8 +3,8 @@
 import pytest
 
 from rosclaw.how.engine import HeuristicEngine
-from rosclaw.how.rules import RuleManager
 from rosclaw.how.recovery import RecoveryEngine, RecoveryFormatter, format_recovery_suggestion
+from rosclaw.how.rules import RuleManager
 from rosclaw.memory.seekdb_client import SeekDBMemoryClient
 
 
@@ -492,8 +492,9 @@ class TestRuntimeIntegrationAPIs:
             assert "status" in exec_result
         # Step 4b: Recovery hint if blocked
         else:
-            from rosclaw.how.recovery import RecoveryEngine
             import asyncio
+
+            from rosclaw.how.recovery import RecoveryEngine
             re = RecoveryEngine(runtime._how)
             asyncio.run(runtime._how.seed_defaults())
             hint = asyncio.run(re.generate_recovery_hint(check["reason"]))
@@ -506,9 +507,9 @@ class TestHowEndToEndRecovery:
     @pytest.fixture
     async def recovery_env(self):
         """Set up HeuristicEngine + RecoveryEngine + MemoryInterface + EventBus."""
-        from rosclaw.memory.seekdb_client import SeekDBMemoryClient
-        from rosclaw.memory.interface import MemoryInterface
         from rosclaw.core.event_bus import EventBus
+        from rosclaw.memory.interface import MemoryInterface
+        from rosclaw.memory.seekdb_client import SeekDBMemoryClient
 
         event_bus = EventBus()
         client = SeekDBMemoryClient()

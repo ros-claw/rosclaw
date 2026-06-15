@@ -7,8 +7,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from rosclaw.core.event_bus import EventBus, Event
-from rosclaw.data.flywheel import DataFlywheel, DataEvent, EventType, RobotState
+from rosclaw.core.event_bus import Event, EventBus
+from rosclaw.data.flywheel import DataEvent, DataFlywheel, EventType, RobotState
 from rosclaw.practice.recorder import PracticeRecorder
 
 

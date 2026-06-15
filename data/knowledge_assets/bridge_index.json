@@ -19570,7 +19570,6 @@
       "associated_patterns": [
         "pattern_20260518_1bfb99e13c"
       ],
-      "priority": 1,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "production",
@@ -19631,7 +19630,6 @@
       "associated_patterns": [
         "pattern_digital_bonds_ics_enumeration_tools"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -19692,7 +19690,6 @@
       "associated_patterns": [
         "pattern_amerka_gui"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -19753,7 +19750,6 @@
       "associated_patterns": [
         "pattern_isef"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -19814,7 +19810,6 @@
       "associated_patterns": [
         "pattern_ics_mem_collect"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -19875,7 +19870,6 @@
       "associated_patterns": [
         "pattern_apmonitor"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -19936,7 +19930,6 @@
       "associated_patterns": [
         "pattern_reflections_of_a_process_control_practitioner"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -19997,7 +19990,6 @@
       "associated_patterns": [
         "pattern_isf"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -20058,7 +20050,6 @@
       "associated_patterns": [
         "pattern_pcs7-hardening-tool"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -20119,7 +20110,6 @@
       "associated_patterns": [
         "pattern_the_industrial_control_system_cyber_kill_chain"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -20180,7 +20170,6 @@
       "associated_patterns": [
         "pattern_modbuspal"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -20241,7 +20230,6 @@
       "associated_patterns": [
         "pattern_modbus_penetration_testing_framework"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -20302,7 +20290,6 @@
       "associated_patterns": [
         "pattern_minicps"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -20363,7 +20350,6 @@
       "associated_patterns": [
         "pattern_s7scan"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -20424,7 +20410,6 @@
       "associated_patterns": [
         "pattern_shunichi09linear_nonlinear_control"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -20485,7 +20470,6 @@
       "associated_patterns": [
         "pattern_scada_cybersecurity_framework"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -20546,7 +20530,6 @@
       "associated_patterns": [
         "pattern_pytrajectory"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -20607,7 +20590,6 @@
       "associated_patterns": [
         "pattern_a_collection_of_resources_for_getting_started_in_icsscada_cybersecurity"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -20668,7 +20650,6 @@
       "associated_patterns": [
         "pattern_hacker_machine_interface_-_the_state_of_scada_hmi_vulnerabilities"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -20729,7 +20710,6 @@
       "associated_patterns": [
         "pattern_scadashutdowntool"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -20790,7 +20770,6 @@
       "associated_patterns": [
         "pattern_nettoplcsim"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -20851,7 +20830,6 @@
       "associated_patterns": [
         "pattern_sixnet-tools"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -20912,7 +20890,6 @@
       "associated_patterns": [
         "pattern_atsushisakaipyadvancedcontrol"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -20973,7 +20950,6 @@
       "associated_patterns": [
         "pattern_plcinject"
       ],
-      "priority": 0,
       "metadata": {
         "schema_version": "2.0",
         "lifecycle_status": "staging",
@@ -21076,7 +21052,6 @@
       "associated_patterns": [
         "pattern_pid_antiwindup"
       ],
-      "priority": 0,
       "topic_tag": "actuator-saturation-windup",
       "topic_group": "control-loop-stability"
     },
@@ -21116,7 +21091,6 @@
       "associated_patterns": [
         "pattern_spot-on_a_checkpointing_framework_for_fault-tolerant_long-running_workloads_on_c"
       ],
-      "priority": 0,
       "topic_tag": "spot-instance-eviction",
       "topic_group": "fault-tolerant-compute"
     },
@@ -21156,7 +21130,6 @@
       "associated_patterns": [
         "pattern_veloc_very_low_overhead_checkpointing_in_the_age_of_exascale"
       ],
-      "priority": 0,
       "topic_tag": "concurrent-checkpoint-io-bottleneck",
       "topic_group": "fault-tolerant-compute"
     },
@@ -21196,7 +21169,6 @@
       "associated_patterns": [
         "pattern_dmtcp_transparent_checkpointing_for_cluster_computations_and_the_desktop"
       ],
-      "priority": 0,
       "topic_tag": "distributed-state-loss",
       "topic_group": "fault-tolerant-compute"
     },
@@ -21230,7 +21202,6 @@
       "associated_patterns": [
         "pattern_scheduling_and_checkpointing_optimization_algorithm_for_byzantine_fault_toleranc"
       ],
-      "priority": 0,
       "topic_tag": "byzantine-fault-propagation",
       "topic_group": "fault-tolerant-compute"
     },
@@ -21258,7 +21229,6 @@
       "associated_patterns": [
         "pattern_deeprobust_a_pytorch_library_for_adversarial_attacks_and_defenses"
       ],
-      "priority": 0,
       "topic_tag": "adversarial-attack-defense-fragmentation",
       "topic_group": "cybersecurity-and-resilience"
     },
@@ -21292,7 +21262,6 @@
       "associated_patterns": [
         "pattern_pytorch_frame_a_modular_framework_for_multi-modal_tabular_learning"
       ],
-      "priority": 0,
       "topic_tag": "multi-modal-tabular-fusion",
       "topic_group": "3d-perception-and-mapping"
     },
@@ -21332,7 +21301,6 @@
       "associated_patterns": [
         "pattern_adaptive_importance_sampling_and_quasi-monte_carlo_methods_for_6g_urllc_systems"
       ],
-      "priority": 0,
       "topic_tag": "rare-event-sampling",
       "topic_group": "simulation-and-numerics"
     },
@@ -21360,7 +21328,6 @@
       "associated_patterns": [
         "pattern_the_effect_of_uu_diquark_suppression_in_proton_splitting_in_monte_carlo_event_ge"
       ],
-      "priority": 0,
       "topic_tag": "proton-splitting-calibration",
       "topic_group": "simulation-and-numerics"
     },
@@ -21400,7 +21367,6 @@
       "associated_patterns": [
         "pattern_subset_simulation_method_for_rare_event_estimation_an_introduction"
       ],
-      "priority": 0,
       "topic_tag": "rare-event-sampling",
       "topic_group": "simulation-and-numerics"
     },
@@ -21434,7 +21400,6 @@
       "associated_patterns": [
         "pattern_monte_carlo_event_generators_for_high_energy_particle_physics_event_simulation"
       ],
-      "priority": 0,
       "topic_tag": "theory-uncertainty-mitigation",
       "topic_group": "simulation-and-numerics"
     },
@@ -21462,7 +21427,6 @@
       "associated_patterns": [
         "pattern_a_multilevel_monte_carlo_asymptotic-preserving_particle_method_for_kinetic_equat"
       ],
-      "priority": 0,
       "topic_tag": "diffusive-limit-time-step",
       "topic_group": "simulation-and-numerics"
     },
@@ -21502,7 +21466,6 @@
       "associated_patterns": [
         "pattern_performance_analysis_of_software_to_hardware_task_migration_in_codesign"
       ],
-      "priority": 0,
       "topic_tag": "multiprocessor-task-allocation",
       "topic_group": "scheduling-optimization"
     },
@@ -21530,7 +21493,6 @@
       "associated_patterns": [
         "pattern_metropolis_methods_for_quantum_monte_carlo_simulations"
       ],
-      "priority": 0,
       "topic_tag": "high-dimensional-quantum-sampling",
       "topic_group": "simulation-and-numerics"
     },
@@ -21570,7 +21532,6 @@
       "associated_patterns": [
         "pattern_morescient_gai_for_software_engineering_extended_version"
       ],
-      "priority": 0,
       "topic_tag": "semantic-grounding-deficiency",
       "topic_group": "language-to-action-grounding"
     },
@@ -21598,7 +21559,6 @@
       "associated_patterns": [
         "pattern_monte_carlo_simulation_of_quantum_computation"
       ],
-      "priority": 0,
       "topic_tag": "quantum-simulation-scaling",
       "topic_group": "simulation-and-numerics"
     },
@@ -21638,7 +21598,6 @@
       "associated_patterns": [
         "pattern_towards_effective_assessment_of_steady_state_performance_in_java_software_are_we"
       ],
-      "priority": 0,
       "topic_tag": "steady-state-detection",
       "topic_group": "software-engineering-and-tooling"
     },
@@ -21678,7 +21637,6 @@
       "associated_patterns": [
         "pattern_performance_of_genetic_algorithms_in_the_context_of_software_model_refactoring"
       ],
-      "priority": 0,
       "topic_tag": "large-search-space-navigation",
       "topic_group": "navigation-and-vla"
     },
@@ -21712,7 +21670,6 @@
       "associated_patterns": [
         "pattern_the_present_and_future_of_bots_in_software_engineering"
       ],
-      "priority": 0,
       "topic_tag": "workflow-automation-fragmentation",
       "topic_group": "software-engineering-and-tooling"
     },
@@ -21740,7 +21697,6 @@
       "associated_patterns": [
         "pattern_data-enabled_predictive_control_for_fast_charging_of_lithium-ion_batteries_with"
       ],
-      "priority": 0,
       "topic_tag": "battery-charging-profile-optimization",
       "topic_group": "battery-and-energy-management"
     },
@@ -21768,7 +21724,6 @@
       "associated_patterns": [
         "pattern_capacity_fade_due_to_side-reactions_in_silicon_anodes_in_lithium-ion_batteries"
       ],
-      "priority": 0,
       "topic_tag": "capacity-fade-side-reactions",
       "topic_group": "battery-and-energy-management"
     },
@@ -21802,7 +21757,6 @@
       "associated_patterns": [
         "pattern_model-free_fast_charging_of_lithium-ion_batteries_by_online_gradient_descent"
       ],
-      "priority": 0,
       "topic_tag": "battery-safety-violation",
       "topic_group": "battery-and-energy-management"
     },
@@ -21830,7 +21784,6 @@
       "associated_patterns": [
         "pattern_lifelong_reinforcement_learning_for_health-aware_fast_charging_of_lithium-ion_ba"
       ],
-      "priority": 0,
       "topic_tag": "battery-degradation-acceleration",
       "topic_group": "battery-and-energy-management"
     },
@@ -21864,7 +21817,6 @@
       "associated_patterns": [
         "pattern_comprehensive_analysis_of_thermal_dissipation_in_lithium-ion_battery_packs"
       ],
-      "priority": 0,
       "topic_tag": "battery-pack-thermal-runaway",
       "topic_group": "battery-and-energy-management"
     },
@@ -21904,7 +21856,6 @@
       "associated_patterns": [
         "pattern_a_poisson_multi-bernoulli_mixture_filter_for_coexisting_point_and_extended_targe"
       ],
-      "priority": 0,
       "topic_tag": "point-extended-target-coexistence",
       "topic_group": "3d-perception-and-mapping"
     },
@@ -21938,7 +21889,6 @@
       "associated_patterns": [
         "pattern_poisson_multi-bernoulli_mixture_filter_with_general_target-generated_measurement"
       ],
-      "priority": 0,
       "topic_tag": "non-standard-clutter-distribution",
       "topic_group": "3d-perception-and-mapping"
     },
@@ -21972,7 +21922,6 @@
       "associated_patterns": [
         "pattern_an_algorithmic_safety_vest_for_li-ion_batteries_during_fast_charging"
       ],
-      "priority": 0,
       "topic_tag": "battery-aging-constraint",
       "topic_group": "battery-and-energy-management"
     },
@@ -22012,7 +21961,6 @@
       "associated_patterns": [
         "pattern_cross-space_adaptive_filter_integrating_graph_topology_and_node_attributes_for_a"
       ],
-      "priority": 0,
       "topic_tag": "graph-over-smoothing",
       "topic_group": "rl-training-stability"
     },
@@ -22052,7 +22000,6 @@
       "associated_patterns": [
         "pattern_graph_neural_net_using_analytical_graph_filters_and_topology_optimization_for_im"
       ],
-      "priority": 0,
       "topic_tag": "image-denoising-generalization",
       "topic_group": "data-scarcity-and-generalization"
     },
@@ -22092,7 +22039,6 @@
       "associated_patterns": [
         "pattern_neural_global_shutter_learn_to_restore_video_from_a_rolling_shutter_camera_with"
       ],
-      "priority": 0,
       "topic_tag": "rolling-shutter-distortion",
       "topic_group": "3d-perception-and-mapping"
     },
@@ -22120,7 +22066,6 @@
       "associated_patterns": [
         "pattern_minimal_solvers_for_monocular_rolling_shutter_compensation_under_ackermann_motio"
       ],
-      "priority": 0,
       "topic_tag": "rolling-shutter-distortion",
       "topic_group": "3d-perception-and-mapping"
     },
@@ -22160,7 +22105,6 @@
       "associated_patterns": [
         "pattern_motion_blur_decomposition_with_cross-shutter_guidance"
       ],
-      "priority": 0,
       "topic_tag": "motion-blur-decomposition",
       "topic_group": "3d-perception-and-mapping"
     },
@@ -22194,7 +22138,6 @@
       "associated_patterns": [
         "pattern_fast_compact_laser_shutter_using_a_direct_current_motor_and_3d_printing"
       ],
-      "priority": 0,
       "topic_tag": "mechanical-shutter-jitter",
       "topic_group": "3d-perception-and-mapping"
     },
@@ -22234,7 +22177,6 @@
       "associated_patterns": [
         "pattern_towards_rolling_shutter_correction_and_deblurring_in_dynamic_scenes"
       ],
-      "priority": 0,
       "topic_tag": "joint-rolling-shutter-motion-blur",
       "topic_group": "3d-perception-and-mapping"
     },
@@ -22268,7 +22210,6 @@
       "associated_patterns": [
         "pattern_gaussian_splatting_on_the_move_blur_and_rolling_shutter_compensation_for_natural"
       ],
-      "priority": 0,
       "topic_tag": "handheld-video-distortion",
       "topic_group": "3d-perception-and-mapping"
     },
@@ -22296,7 +22237,6 @@
       "associated_patterns": [
         "pattern_pytorch_metric_learning"
       ],
-      "priority": 0,
       "topic_tag": "deep-metric-learning-modularity",
       "topic_group": "3d-perception-and-mapping"
     },
@@ -22324,7 +22264,6 @@
       "associated_patterns": [
         "pattern_designing_an_adaptive_application-level_checkpoint_management_system_for_malleab"
       ],
-      "priority": 0,
       "topic_tag": "malleable-checkpoint-inefficiency",
       "topic_group": "fault-tolerant-compute"
     },
@@ -22352,7 +22291,6 @@
       "associated_patterns": [
         "pattern_developers_perception_of_peer_code_review_in_research_software_development"
       ],
-      "priority": 0,
       "topic_tag": "research-code-review-deficit",
       "topic_group": "software-engineering-and-tooling"
     },
@@ -22386,7 +22324,6 @@
       "associated_patterns": [
         "pattern_filter_bank_fusion_frames"
       ],
-      "priority": 0,
       "topic_tag": "fusion-frame-robust-encoding",
       "topic_group": "3d-perception-and-mapping"
     },
@@ -22414,7 +22351,6 @@
       "associated_patterns": [
         "pattern_vectorial_velocity_filter_for_ultracold_neutrons_based_on_a_surface-disordered_m"
       ],
-      "priority": 0,
       "topic_tag": "high-angular-divergence",
       "topic_group": "3d-perception-and-mapping"
     },
@@ -22442,7 +22378,6 @@
       "associated_patterns": [
         "pattern_from_two_rolling_shutters_to_one_global_shutter"
       ],
-      "priority": 0,
       "topic_tag": "rolling-shutter-distortion",
       "topic_group": "3d-perception-and-mapping"
     },
@@ -22470,7 +22405,6 @@
       "associated_patterns": [
         "pattern_lithium_plating_induced_degradation_during_fast_charging_of_batteries_subjected"
       ],
-      "priority": 0,
       "topic_tag": "battery-fast-charge-degradation",
       "topic_group": "battery-and-energy-management"
     },
@@ -22498,7 +22432,6 @@
       "associated_patterns": [
         "pattern_cross-entropy-based_importance_sampling_with_failure-informed_dimension_reductio"
       ],
-      "priority": 0,
       "topic_tag": "rare-event-sampling",
       "topic_group": "simulation-and-numerics"
     }

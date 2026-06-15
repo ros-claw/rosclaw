@@ -1,8 +1,8 @@
 """Integration tests for AutoEngine."""
 import tempfile
-import shutil
-from rosclaw.auto.engine import AutoEngine
+
 from rosclaw.auto.config import AutoConfig
+from rosclaw.auto.engine import AutoEngine
 from rosclaw.auto.storage import LocalStore
 
 

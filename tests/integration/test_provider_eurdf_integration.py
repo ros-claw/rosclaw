@@ -8,13 +8,13 @@ Tests that ProviderRegistry and CapabilityRouter can:
 
 import pytest
 
+from rosclaw.provider.core.errors import ProviderNotFoundError
 from rosclaw.provider.core.manifest import ProviderManifest
 from rosclaw.provider.core.provider import Provider
 from rosclaw.provider.core.registry import ProviderRegistry
 from rosclaw.provider.core.request import ProviderRequest
 from rosclaw.provider.core.response import ProviderResponse
 from rosclaw.provider.core.router import CapabilityRouter
-from rosclaw.provider.core.errors import ProviderNotFoundError
 from rosclaw.runtime import RobotRegistry
 
 

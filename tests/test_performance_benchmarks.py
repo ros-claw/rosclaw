@@ -12,7 +12,7 @@ import time
 
 import pytest
 
-from rosclaw.core.event_bus import EventBus, Event
+from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.dashboard.metrics import DashboardMetrics
 from rosclaw.memory.interface import MemoryInterface
 from rosclaw.provider.builtins.critic import MockCriticProvider
@@ -153,7 +153,7 @@ class TestDashboardMetricsBenchmark:
         iterations = 50000
 
         start = time.perf_counter()
-        for i in range(iterations):
+        for _i in range(iterations):
             metrics.increment_event("rosclaw.test.topic")
         elapsed = time.perf_counter() - start
 

@@ -5,9 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from rosclaw.agent_runtime.mcp_hub import MCPHub, AgentContext
-from rosclaw.core.event_bus import EventBus, Event
-
+from rosclaw.agent_runtime.mcp_hub import AgentContext, MCPHub
+from rosclaw.core.event_bus import Event, EventBus
 
 # ------------------------------------------------------------------
 # AgentContext
@@ -44,9 +43,8 @@ class TestMCPHubLifecycle:
         import logging
         bus = EventBus()
         hub = MCPHub(event_bus=bus)
-        with patch("mcp.server.Server", side_effect=ImportError("no mcp")):
-            with caplog.at_level(logging.WARNING, logger="rosclaw.agent_runtime.mcp_hub"):
-                hub.initialize()
+        with patch("mcp.server.Server", side_effect=ImportError("no mcp")), caplog.at_level(logging.WARNING, logger="rosclaw.agent_runtime.mcp_hub"):
+            hub.initialize()
         assert "mock mode" in caplog.text
         assert hub._server is None
         hub.stop()

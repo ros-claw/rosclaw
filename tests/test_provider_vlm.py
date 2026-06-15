@@ -11,6 +11,7 @@ except ImportError:
     HAS_PIL = False
 
 from rosclaw.provider.builtins.vlm import MockVLMProvider, _ArtifactRef, _resolve_artifact
+from rosclaw.provider.core.errors import CapabilityNotSupportedError
 from rosclaw.provider.core.manifest import ProviderManifest
 from rosclaw.provider.core.request import ProviderRequest
 
@@ -152,7 +153,7 @@ class TestDetectByColor:
         # Create an actual file so PIL is attempted, then mock it
         img_path = tmp_path / "fake.png"
         img_path.write_text("not an image")
-        with patch("PIL.Image.open", side_effect=IOError("corrupt")):
+        with patch("PIL.Image.open", side_effect=OSError("corrupt")):
             result = provider._detect_by_color(img_path, "red cup")
             assert result["method"] == "error"
             assert "corrupt" in result.get("error", "")
@@ -282,5 +283,5 @@ class TestUnsupportedCapability:
             capability="vlm.unknown",
             inputs={},
         )
-        with pytest.raises(Exception):
+        with pytest.raises(CapabilityNotSupportedError):
             await provider.infer(req)

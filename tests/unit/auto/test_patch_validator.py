@@ -1,7 +1,6 @@
 """Tests for PatchValidator with AST and path normalization."""
-import pytest
-from rosclaw.auto.patchers.patch_validator import PatchValidator
 from rosclaw.auto.core.patch import Patch
+from rosclaw.auto.patchers.patch_validator import PatchValidator
 
 
 class TestPatchValidator:

@@ -12,7 +12,6 @@ from rosclaw.how import HeuristicEngine
 from rosclaw.know import KnowledgeInterface
 from rosclaw.memory.seekdb_client import SeekDBMemoryClient
 
-
 # ─────────────────────────────────────────────────────────────
 # SeekDB Failure Tests
 # ─────────────────────────────────────────────────────────────
@@ -224,11 +223,9 @@ class TestRuntimeFailurePaths:
         runtime.initialize()
 
         # Second initialize should not crash
-        try:
+        import contextlib
+        with contextlib.suppress(Exception):
             runtime.initialize()
-        except Exception:
-            # May raise if already initialized - that's acceptable
-            pass
 
         assert runtime.state.name in ["READY", "ERROR"]
 

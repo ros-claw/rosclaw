@@ -19,7 +19,6 @@ import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -73,7 +72,6 @@ from rosclaw.firewall.decorator import (
     SafetyLevel,
 )
 
-
 # ROS message imports
 try:
     from control_msgs.action import FollowJointTrajectory
@@ -100,7 +98,7 @@ class RobotState:
     joint_velocities: list[float]
     joint_efforts: list[float]
     joint_names: list[str]
-    end_effector_pose: Optional[Pose] = None
+    end_effector_pose: Pose | None = None
     is_connected: bool = False
     last_update_time: float = 0.0
 
@@ -237,7 +235,7 @@ class UR5ROSNode(Node):
 
     def validate_joint_limits(self, positions: list[float]) -> tuple[bool, str]:
         """Validate joint positions against limits."""
-        for i, (name, pos) in enumerate(zip(self.JOINT_NAMES, positions)):
+        for _i, (name, pos) in enumerate(zip(self.JOINT_NAMES, positions, strict=False)):
             min_limit, max_limit = self.JOINT_LIMITS[name]
             if pos < min_limit or pos > max_limit:
                 return False, f"Joint {name} position {pos:.4f} outside limits [{min_limit:.4f}, {max_limit:.4f}]"
@@ -266,7 +264,7 @@ class UR5ROSNode(Node):
         goal_msg.trajectory = JointTrajectory()
         goal_msg.trajectory.joint_names = self.JOINT_NAMES
 
-        for i, (positions, t) in enumerate(zip(trajectory_points, time_from_start)):
+        for _i, (positions, t) in enumerate(zip(trajectory_points, time_from_start, strict=False)):
             point = JointTrajectoryPoint()
             point.positions = positions
             point.time_from_start.sec = int(t)
@@ -326,7 +324,7 @@ class UR5MCPServer:
     Includes Digital Twin validation before executing on real hardware.
     """
 
-    def __init__(self, robot_ip: str = "192.168.1.100", firewall_model_path: Optional[str] = None):
+    def __init__(self, robot_ip: str = "192.168.1.100", firewall_model_path: str | None = None):
         self.robot_ip = robot_ip
         self.firewall_model_path = firewall_model_path or self._find_default_model()
 
@@ -355,7 +353,7 @@ class UR5MCPServer:
         self._register_tools()
 
         # Spin ROS node in background
-        self.ros_spin_task: Optional[asyncio.Task] = None
+        self.ros_spin_task: asyncio.Task | None = None
 
     def _find_default_model(self) -> str:
         """Find default MuJoCo model for UR5."""
@@ -484,9 +482,9 @@ class UR5MCPServer:
             state = self.ros_node.state
 
             result = {
-                "joint_positions": {name: pos for name, pos in zip(state.joint_names, state.joint_positions)},
-                "joint_velocities": {name: vel for name, vel in zip(state.joint_names, state.joint_velocities)},
-                "joint_efforts": {name: eff for name, eff in zip(state.joint_names, state.joint_efforts)},
+                "joint_positions": dict(zip(state.joint_names, state.joint_positions, strict=False)),
+                "joint_velocities": dict(zip(state.joint_names, state.joint_velocities, strict=False)),
+                "joint_efforts": dict(zip(state.joint_names, state.joint_efforts, strict=False)),
                 "is_connected": state.is_connected,
             }
 
@@ -510,6 +508,7 @@ class UR5MCPServer:
         if validate:
             try:
                 import asyncio
+
                 from rosclaw.core.event_bus import Event
 
                 # Get or create event bus reference
@@ -556,7 +555,7 @@ class UR5MCPServer:
 
                     try:
                         await asyncio.wait_for(validation_event.wait(), timeout=0.5)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         pass
                     finally:
                         event_bus.unsubscribe("firewall.validation_result", on_validation_result)
@@ -686,7 +685,7 @@ class UR5MCPServer:
         trajectory = []
         for i in range(num_points):
             t = i / (num_points - 1) if num_points > 1 else 0
-            point = [s + t * (e - s) for s, e in zip(start, end)]
+            point = [s + t * (e - s) for s, e in zip(start, end, strict=False)]
             trajectory.append(point)
         return trajectory
 

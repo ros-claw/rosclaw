@@ -16,7 +16,7 @@ Configuration:
 import json
 import os
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -39,12 +39,12 @@ class DeepSeekClient:
     - Error analysis and recovery
     """
 
-    def __init__(self, config: Optional[DeepSeekConfig] = None):
+    def __init__(self, config: DeepSeekConfig | None = None):
         self.config = config or DeepSeekConfig(
             api_key=os.getenv("DEEPSEEK_API_KEY", ""),
             base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         )
-        self._client: Optional[Any] = None
+        self._client: Any | None = None
 
     def _get_client(self) -> Any:
         """Lazy initialization of HTTP client."""
@@ -55,11 +55,11 @@ class DeepSeekClient:
                     api_key=self.config.api_key,
                     base_url=self.config.base_url,
                 )
-            except ImportError:
+            except ImportError as err:
                 raise RuntimeError(
                     "openai package required for DeepSeek integration. "
                     "Install with: pip install openai"
-                )
+                ) from err
         return self._client
 
     def plan_task(self, instruction: str, robot_context: dict) -> dict:

@@ -13,11 +13,12 @@ import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
 from rosclaw.core.types import PraxisEvent
 
@@ -34,24 +35,24 @@ class _EpisodeBuffer:
     last_event_at: float = field(default_factory=time.time)
 
     # Collected from individual events
-    semantic_intent: Optional[str] = None
-    llm_cot: Optional[str] = None
-    initial_state: Optional[dict] = None
-    final_state: Optional[dict] = None
+    semantic_intent: str | None = None
+    llm_cot: str | None = None
+    initial_state: dict | None = None
+    final_state: dict | None = None
     trajectory: list[dict] = field(default_factory=list)
     provider_traces: list[dict] = field(default_factory=list)
     sandbox_actions: list[dict] = field(default_factory=list)
     sandbox_blocked: bool = False
-    sandbox_block_reason: Optional[str] = None
+    sandbox_block_reason: str | None = None
     runtime_failed: bool = False
-    runtime_error: Optional[str] = None
-    critic_reward: Optional[float] = None
-    critic_status: Optional[str] = None
-    praxis_status: Optional[str] = None
-    praxis_reward: Optional[float] = None
-    duration_sec: Optional[float] = None
+    runtime_error: str | None = None
+    critic_reward: float | None = None
+    critic_status: str | None = None
+    praxis_status: str | None = None
+    praxis_reward: float | None = None
+    duration_sec: float | None = None
     # CRITICAL FIX: agent_request stores the original user/agent request for full traceability
-    agent_request: Optional[dict[str, Any]] = None
+    agent_request: dict[str, Any] | None = None
 
     # Tracking which events have arrived
     received_events: set = field(default_factory=set)
@@ -161,7 +162,7 @@ class EpisodeRecorder(LifecycleMixin):
         counter: dict[str, Any] = {"next_sequence": 1}
         if self._counter_file.exists():
             try:
-                with open(self._counter_file, "r", encoding="utf-8") as f:
+                with open(self._counter_file, encoding="utf-8") as f:
                     counter = json.load(f)
             except (json.JSONDecodeError, OSError):
                 pass
@@ -558,7 +559,7 @@ class EpisodeRecorder(LifecycleMixin):
             meta_path = ep_dir / "metadata.json"
             if meta_path.exists():
                 try:
-                    with open(meta_path, "r", encoding="utf-8") as f:
+                    with open(meta_path, encoding="utf-8") as f:
                         meta = json.load(f)
                     episodes.append({
                         "episode_id": name,
@@ -572,12 +573,12 @@ class EpisodeRecorder(LifecycleMixin):
                     pass
         return episodes
 
-    def get_episode(self, episode_id: str) -> Optional[dict]:
+    def get_episode(self, episode_id: str) -> dict | None:
         """Read full metadata for a single episode."""
         meta_path = self._artifact_base / "episodes" / episode_id / "metadata.json"
         if not meta_path.exists():
             return None
-        with open(meta_path, "r", encoding="utf-8") as f:
+        with open(meta_path, encoding="utf-8") as f:
             return json.load(f)
 
     @property

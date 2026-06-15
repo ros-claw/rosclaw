@@ -15,15 +15,11 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import time
-from pathlib import Path
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.practice.episode_recorder import EpisodeRecorder
 from rosclaw.swarm.coordinator import SwarmCoordinator
-from rosclaw.swarm.consensus import RaftLikeConsensus
-
 
 # ──────────────────────────────────────────────────────────────────
 # Scenario configuration
@@ -264,7 +260,7 @@ def main() -> int:
 
     # Build and decompose task
     task = build_task()
-    subtasks = run_task_decomposition(coordinator, task)
+    run_task_decomposition(coordinator, task)
 
     # Auction allocation
     allocation = run_auction_allocation(coordinator, task)

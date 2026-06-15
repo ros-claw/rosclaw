@@ -1,8 +1,9 @@
 """FirewallGate - dynamic trajectory validation via MuJoCo simulation."""
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Any, Optional
+
 import uuid
+from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -14,8 +15,8 @@ class Decision:
     predicted_collision: bool = False
     reason: str = ""
     violated_constraints: list[str] = field(default_factory=list)
-    replay_id: Optional[str] = None
-    modified_action: Optional[dict[str, Any]] = None
+    replay_id: str | None = None
+    modified_action: dict[str, Any] | None = None
 
 
 class FirewallGate:
@@ -58,7 +59,7 @@ class FirewallGate:
         # Velocity limits
         current = action.get("current")
         if current is not None:
-            for i, (target, curr) in enumerate(zip(values, current)):
+            for i, (target, curr) in enumerate(zip(values, current, strict=False)):
                 if abs(target - curr) > self.MAX_JOINT_VELOCITY * 0.002:
                     violations.append(f"joint_{i}_velocity")
                     max_violation = max(max_violation, abs(target - curr))
@@ -120,11 +121,11 @@ class FirewallGate:
     def _forward_kinematics(self, joint_positions):
         link_lengths = [0.089, 0.425, 0.392, 0.109, 0.093, 0.082]
         x, y, z = 0.0, 0.0, 0.0
-        for i, (q, l) in enumerate(zip(joint_positions[:6], link_lengths)):
+        for i, (q, length) in enumerate(zip(joint_positions[:6], link_lengths, strict=False)):
             if i % 2 == 0:
-                x += l * (1.0 if q >= 0 else -1.0)
+                x += length * (1.0 if q >= 0 else -1.0)
             else:
-                z += l * abs(q) / 3.14
+                z += length * abs(q) / 3.14
         return (x, y, z)
 
     def _predict_self_collision(self, joint_positions):

@@ -4,21 +4,21 @@ Unit tests for ROSClaw Digital Twin Firewall.
 Tests the DigitalTwinFirewall class and mujoco_firewall decorator.
 """
 
-import numpy as np
-import pytest
-from pathlib import Path
-
 # Add src to path for imports
 import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from rosclaw.firewall import (  # noqa: E402
     DigitalTwinFirewall,
-    SafetyViolationError,
     SafetyLevel,
+    SafetyViolationError,
     mujoco_firewall,
 )
-
 
 # Path to test model
 MODEL_PATH = Path(__file__).parent.parent / "src" / "rosclaw" / "specs" / "ur5e.xml"

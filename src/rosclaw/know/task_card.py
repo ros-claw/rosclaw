@@ -35,7 +35,7 @@ class TaskCard:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "TaskCard":
+    def from_dict(cls, d: dict[str, Any]) -> TaskCard:
         return cls(
             task_id=d.get("task_id", ""),
             task_family=d.get("task_family", ""),

@@ -2,7 +2,7 @@
 
 import pytest
 
-from rosclaw.e_urdf.parser import EURDFParser, RobotModel, JointSpec, LinkSpec
+from rosclaw.e_urdf.parser import EURDFParser, JointSpec, LinkSpec, RobotModel
 
 
 def test_robot_model_creation():

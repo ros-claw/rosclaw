@@ -6,8 +6,8 @@ from rosclaw.core.lifecycle import LifecycleMixin
 
 from .config import AutoConfig
 from .engine.auto_engine import AutoEngine
-from .events.subscribers import AutoSubscriber
 from .events.publishers import AutoPublisher
+from .events.subscribers import AutoSubscriber
 
 logger = logging.getLogger("rosclaw.auto.plugin")
 

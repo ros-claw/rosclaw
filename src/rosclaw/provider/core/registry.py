@@ -4,8 +4,10 @@ Central registry for provider discovery, health tracking, and lifecycle manageme
 """
 
 import asyncio
+import contextlib
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from rosclaw.provider.core.errors import ProviderNotFoundError
 from rosclaw.provider.core.manifest import ProviderManifest
@@ -151,10 +153,8 @@ class ProviderRegistry:
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
-                try:
+                with contextlib.suppress(Exception):
                     asyncio.run(provider.unload())
-                except Exception:
-                    pass
             else:
                 loop.create_task(provider.unload())
         self._factories.pop(name, None)
@@ -261,7 +261,7 @@ class ProviderRegistry:
             return_exceptions=True,
         )
         return {n: (r if not isinstance(r, Exception) else {"ok": False, "error": str(r)})
-                for n, r in zip(names, results)}
+                for n, r in zip(names, results, strict=False)}
 
     def _is_healthy(self, name: str) -> bool:
         health = self._health.get(name, {})
@@ -276,10 +276,8 @@ class ProviderRegistry:
     # ------------------------------------------------------------------
     async def _health_monitor_loop(self) -> None:
         while not self._shutdown:
-            try:
+            with contextlib.suppress(Exception):
                 await self.check_all_health()
-            except Exception:
-                pass
             await asyncio.sleep(self._health_interval)
 
     def start_health_monitor(self) -> None:

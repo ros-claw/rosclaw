@@ -1,12 +1,11 @@
 """Integration tests for Sprint B/C/D end-to-end workflow."""
 import shutil
-import pytest
-from rosclaw.auto.engine.auto_engine import AutoEngine
+
 from rosclaw.auto.config import AutoConfig
-from rosclaw.auto.core.experiment import ExperimentSpec
-from rosclaw.auto.events.subscribers import AutoSubscriber
+from rosclaw.auto.engine.auto_engine import AutoEngine
 from rosclaw.auto.events.publishers import AutoPublisher
 from rosclaw.auto.events.schemas import PraxisFailedEvent
+from rosclaw.auto.events.subscribers import AutoSubscriber
 
 
 class FakeBus:
@@ -29,7 +28,7 @@ def test_end_to_end_failure_to_proposal():
     engine = AutoEngine(config=AutoConfig(local_store_path=store_path))
     bus = FakeBus()
     sub = AutoSubscriber(engine=engine, event_bus=bus)
-    pub = AutoPublisher(event_bus=bus)
+    AutoPublisher(event_bus=bus)
     sub.subscribe_all()
 
     # Simulate 3 failures to cross threshold
@@ -50,7 +49,7 @@ def test_end_to_end_failure_to_proposal():
 def test_end_to_end_experiment_and_evaluation():
     """Full loop: experiment -> runner -> evaluation -> decision."""
     engine = AutoEngine(config=AutoConfig(local_store_path="./.rosclaw_auto_test_e2e2"))
-    task = engine.create_task("pick_cube", "panda", "pick_v1")
+    engine.create_task("pick_cube", "panda", "pick_v1")
 
     # Create and run experiment
     exp = engine.create_experiment("prop_001", "patch_001", "pick_cube",

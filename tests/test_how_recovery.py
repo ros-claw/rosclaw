@@ -1,8 +1,9 @@
 """Tests for how.recovery — RecoveryEngine."""
 
 
-import pytest
 import time
+
+import pytest
 
 from rosclaw.how.recovery import (
     RecoveryEngine,

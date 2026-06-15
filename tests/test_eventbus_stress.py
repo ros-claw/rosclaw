@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 
 
 class TestEventBusStress:

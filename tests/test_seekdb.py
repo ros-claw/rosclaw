@@ -2,9 +2,9 @@
 
 import os
 
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient, SeekDBSQLiteClient
+from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.memory.interface import MemoryInterface
-from rosclaw.core.event_bus import EventBus, Event
+from rosclaw.memory.seekdb_client import SeekDBMemoryClient, SeekDBSQLiteClient
 
 
 def test_memory_client_crud():

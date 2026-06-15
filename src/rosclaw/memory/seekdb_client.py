@@ -7,11 +7,11 @@ Provides abstract SeekDBClient and concrete implementations:
 Sprint 5 of DESIGN_SPRINT3_5.
 """
 
-from abc import ABC, abstractmethod
-from typing import Any, Optional
+import contextlib
 import json
 import time
-
+from abc import ABC, abstractmethod
+from typing import Any
 
 SEEKDB_SCHEMAS = {
     "experience_graph": {
@@ -305,8 +305,8 @@ class SeekDBClient(ABC):
     def query(
         self,
         table: str,
-        filters: Optional[dict] = None,
-        order_by: Optional[str] = None,
+        filters: dict | None = None,
+        order_by: str | None = None,
         limit: int = 100,
     ) -> list[dict]:
         ...
@@ -316,7 +316,7 @@ class SeekDBClient(ABC):
         ...
 
     @abstractmethod
-    def count(self, table: str, filters: Optional[dict] = None) -> int:
+    def count(self, table: str, filters: dict | None = None) -> int:
         ...
 
     @abstractmethod
@@ -381,8 +381,8 @@ class SeekDBMemoryClient(SeekDBClient):
     def query(
         self,
         table: str,
-        filters: Optional[dict] = None,
-        order_by: Optional[str] = None,
+        filters: dict | None = None,
+        order_by: str | None = None,
         limit: int = 100,
     ) -> list[dict]:
         with self._lock:
@@ -449,7 +449,7 @@ class SeekDBMemoryClient(SeekDBClient):
                         idx[new_val].add(record_id)
             return True
 
-    def count(self, table: str, filters: Optional[dict] = None) -> int:
+    def count(self, table: str, filters: dict | None = None) -> int:
         with self._lock:
             # Use index for simple counts when possible
             if filters and table in self._indices:
@@ -572,8 +572,8 @@ class SeekDBSQLiteClient(SeekDBClient):
     def query(
         self,
         table: str,
-        filters: Optional[dict] = None,
-        order_by: Optional[str] = None,
+        filters: dict | None = None,
+        order_by: str | None = None,
         limit: int = 100,
     ) -> list[dict]:
         sql = f"SELECT * FROM {table}"
@@ -596,10 +596,8 @@ class SeekDBSQLiteClient(SeekDBClient):
             record = dict(row)
             for k, v in record.items():
                 if isinstance(v, str) and (v.startswith("[") or v.startswith("{")):
-                    try:
+                    with contextlib.suppress(json.JSONDecodeError):
                         record[k] = json.loads(v)
-                    except json.JSONDecodeError:
-                        pass
             results.append(record)
         return results
 
@@ -618,7 +616,7 @@ class SeekDBSQLiteClient(SeekDBClient):
         self._conn.commit()
         return cursor.rowcount > 0
 
-    def count(self, table: str, filters: Optional[dict] = None) -> int:
+    def count(self, table: str, filters: dict | None = None) -> int:
         sql = f"SELECT COUNT(*) FROM {table}"
         params = []
         if filters:

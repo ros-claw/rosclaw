@@ -29,7 +29,7 @@ class ProviderRequest:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "ProviderRequest":
+    def from_dict(cls, d: dict[str, Any]) -> ProviderRequest:
         return cls(
             request_id=d.get("request_id", ""),
             capability=d.get("capability", ""),
@@ -65,7 +65,7 @@ class ProviderResponse:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "ProviderResponse":
+    def from_dict(cls, d: dict[str, Any]) -> ProviderResponse:
         return cls(
             request_id=d.get("request_id", ""),
             capability=d.get("capability", ""),

@@ -10,6 +10,7 @@ P1 Issue 1: https://github.com/ros-claw/rosclaw-v1.0/issues/XXX
 import sys
 from typing import Any
 from unittest.mock import MagicMock
+
 import pytest
 
 # Import MemoryInterface directly to avoid triggering rosclaw.__init__
@@ -22,6 +23,7 @@ from rosclaw.memory.interface import MemoryInterface  # noqa: E402
 def reload_memory_interface():
     """Ensure rosclaw.memory.interface is in clean state before each test."""
     import importlib
+
     import rosclaw.memory.interface
     importlib.reload(rosclaw.memory.interface)
 
@@ -31,24 +33,34 @@ def test_protocol_import_with_powermem():
     # powermem is in the test environment, so protocols should be imported
     from rosclaw.memory.interface import (
         _HAS_POWERMEM_PROTOCOLS,
-        WorldObjectLike,
-        PoseLike,
-        Vec3Like,
-        TemporalIntervalLike,
-        PermanenceReportLike,
         MemoryAtomLike,
+        PermanenceReportLike,
+        PoseLike,
+        TemporalIntervalLike,
+        Vec3Like,
+        WorldObjectLike,
     )
 
     assert _HAS_POWERMEM_PROTOCOLS is True
 
     # Verify they are Protocol types (not Any)
     from powermem.embodied.protocols import (
-        WorldObjectLike as RealWorldObjectLike,
-        PoseLike as RealPoseLike,
-        Vec3Like as RealVec3Like,
-        TemporalIntervalLike as RealTemporalIntervalLike,
-        PermanenceReportLike as RealPermanenceReportLike,
         MemoryAtomLike as RealMemoryAtomLike,
+    )
+    from powermem.embodied.protocols import (
+        PermanenceReportLike as RealPermanenceReportLike,
+    )
+    from powermem.embodied.protocols import (
+        PoseLike as RealPoseLike,
+    )
+    from powermem.embodied.protocols import (
+        TemporalIntervalLike as RealTemporalIntervalLike,
+    )
+    from powermem.embodied.protocols import (
+        Vec3Like as RealVec3Like,
+    )
+    from powermem.embodied.protocols import (
+        WorldObjectLike as RealWorldObjectLike,
     )
 
     assert WorldObjectLike is RealWorldObjectLike
@@ -74,6 +86,7 @@ def test_protocol_import_without_powermem(monkeypatch):
 
     # Reload the module to trigger the fallback
     import importlib
+
     import rosclaw.memory.interface
     importlib.reload(rosclaw.memory.interface)
 
@@ -250,7 +263,10 @@ def test_proxy_methods_without_embodied_memory():
 def test_protocol_runtime_checking():
     """Verify Protocol types support runtime isinstance() checks."""
     from rosclaw.memory.interface import (
-        WorldObjectLike, Vec3Like, PoseLike, _HAS_POWERMEM_PROTOCOLS
+        _HAS_POWERMEM_PROTOCOLS,
+        PoseLike,
+        Vec3Like,
+        WorldObjectLike,
     )
 
     # Skip this test when powermem is not available (WorldObjectLike would be Any)

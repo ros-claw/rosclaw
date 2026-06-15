@@ -40,7 +40,7 @@ class SandboxRunner(BaseRunner):
         if violations:
             return RunnerResult(success=False, error=f"Safety violations: {violations}")
 
-        task = getattr(experiment_spec, "task", "unknown")
+        getattr(experiment_spec, "task", "unknown")
         candidate = getattr(experiment_spec, "candidate_skill_id", "candidate")
         evaluation = getattr(experiment_spec, "evaluation", {})
         episodes = evaluation.get("episodes", 10)

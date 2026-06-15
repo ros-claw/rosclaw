@@ -2,7 +2,6 @@
 
 from unittest.mock import MagicMock, patch
 
-import numpy as np
 import pytest
 
 from rosclaw.sandbox.sandbox_api import Sandbox, SandboxSession
@@ -21,12 +20,12 @@ class TestSandboxLoadModelAliases:
             assert sandbox._model is not None
 
     def test_alias_unitree_g1(self):
-        sandbox = Sandbox("unitree_g1", "empty")
+        Sandbox("unitree_g1", "empty")
         # g1 may or may not have model, just check no crash
         pass
 
     def test_alias_unitree_go2(self):
-        sandbox = Sandbox("unitree_go2", "empty")
+        Sandbox("unitree_go2", "empty")
         pass
 
     def test_nonexistent_robot_no_physics(self):
@@ -122,7 +121,7 @@ class TestSandboxGetObservationEdgeCases:
         bodies = obs["body_positions"]
         assert len(bodies) > 0
         # Check that body positions are 3D
-        for name, pos in bodies.items():
+        for _name, pos in bodies.items():
             assert len(pos) == 3
 
 
@@ -136,9 +135,8 @@ class TestSandboxCreateFactory:
 class TestSandboxLoadModelImportError:
     def test_mujoco_import_error(self, caplog):
         import logging
-        with patch.dict("sys.modules", {"mujoco": None}):
-            with caplog.at_level(logging.WARNING, logger="rosclaw.sandbox.sandbox_api"):
-                sandbox = Sandbox("ur5e", "empty")
+        with patch.dict("sys.modules", {"mujoco": None}), caplog.at_level(logging.WARNING, logger="rosclaw.sandbox.sandbox_api"):
+            sandbox = Sandbox("ur5e", "empty")
         assert not sandbox.has_physics
         assert "MuJoCo not installed" in caplog.text
 
@@ -153,11 +151,11 @@ class TestSandboxLoadModelCandidateFailures:
         (robot_dir / "scene.xml").write_text("<invalid>")
         (robot_dir / "robot.mjcf.xml").write_text("<invalid>")
 
-        with patch("rosclaw.sandbox.sandbox_api.Path") as MockPath:
+        with patch("rosclaw.sandbox.sandbox_api.Path") as mock_path:
             mock_root = MagicMock()
             mock_root.parent.parent.parent.parent = zoo
-            MockPath.return_value = mock_root
-            MockPath.__truediv__ = lambda self, other: tmp_path / str(other)
+            mock_path.return_value = mock_root
+            mock_path.__truediv__ = lambda self, other: tmp_path / str(other)
 
             with caplog.at_level(logging.WARNING, logger="rosclaw.sandbox.sandbox_api"):
                 sandbox = Sandbox("fake_robot", "empty")

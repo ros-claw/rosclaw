@@ -4,9 +4,9 @@ Public API for provider infrastructure.
 """
 
 from rosclaw.provider.core.capability import (
+    CAPABILITY_CATALOG,
     Capability,
     CapabilityDomain,
-    CAPABILITY_CATALOG,
     is_valid_capability,
     list_capabilities,
 )

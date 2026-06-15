@@ -9,7 +9,6 @@ implementes the LifecycleMixin for consistent startup/shutdown.
 """
 
 from enum import Enum, auto
-from typing import Optional
 
 
 class LifecycleState(Enum):
@@ -34,7 +33,7 @@ class LifecycleMixin:
 
     def __init__(self):
         self._lifecycle_state = LifecycleState.UNINITIALIZED
-        self._error_message: Optional[str] = None
+        self._error_message: str | None = None
 
     @property
     def state(self) -> LifecycleState:
@@ -52,7 +51,7 @@ class LifecycleMixin:
         return self._lifecycle_state == LifecycleState.RUNNING
 
     @property
-    def error_message(self) -> Optional[str]:
+    def error_message(self) -> str | None:
         """Error message if in ERROR state."""
         return self._error_message
 

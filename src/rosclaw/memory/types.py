@@ -6,9 +6,8 @@ FailureMemory — structured failure case with root cause and recovery hint.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Optional
 import time
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -23,8 +22,8 @@ class PraxisEvent:
     robot_id: str
     event_type: str
     timestamp: float = field(default_factory=time.time)
-    episode_id: Optional[str] = None
-    task_id: Optional[str] = None
+    episode_id: str | None = None
+    task_id: str | None = None
     payload: dict = field(default_factory=dict)
     metadata: dict = field(default_factory=dict)
 
@@ -65,8 +64,8 @@ class FailureMemory:
 
     failure_id: str
     robot_id: str
-    episode_id: Optional[str] = None
-    task_id: Optional[str] = None
+    episode_id: str | None = None
+    task_id: str | None = None
     failure_type: str = "unknown"
     root_cause: str = ""
     timestamp: float = field(default_factory=time.time)
@@ -124,8 +123,8 @@ class ArtifactRef:
     artifact_id: str
     artifact_type: str
     uri: str
-    episode_id: Optional[str] = None
-    size_bytes: Optional[int] = None
+    episode_id: str | None = None
+    size_bytes: int | None = None
     created_at: float = field(default_factory=time.time)
     metadata: dict = field(default_factory=dict)
 

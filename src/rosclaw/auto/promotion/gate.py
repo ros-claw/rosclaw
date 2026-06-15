@@ -1,7 +1,6 @@
 """PromotionGate — safety-gated skill champion promotion."""
 import logging
 from dataclasses import dataclass, field
-from typing import Any
 
 logger = logging.getLogger("rosclaw.auto.promotion.gate")
 

@@ -3,7 +3,7 @@
 Task 2: Publish praxis.failed event with error_log, previous_scores, current_iteration.
 """
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.practice.recorder import PracticeRecorder
 
 

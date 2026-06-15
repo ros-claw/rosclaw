@@ -3,7 +3,7 @@
 import logging
 import struct
 import time
-from typing import Any, Optional
+from typing import Any
 
 from rosclaw.mcp_drivers.base import BaseDriver, DriverState, TrajectoryCommand
 
@@ -27,7 +27,7 @@ class SerialDriver(BaseDriver):
         super().__init__(robot_id, joint_dof)
         self._port = port
         self._baudrate = baudrate
-        self._serial: Optional[Any] = None
+        self._serial: Any | None = None
 
     def _do_initialize(self) -> None:
         try:
@@ -116,7 +116,7 @@ class SerialDriver(BaseDriver):
             return False
         self._ensure_ready("execute_trajectory")
         self._validate_trajectory(trajectory)
-        for wp, t in zip(trajectory.waypoints, trajectory.times):
+        for wp, t in zip(trajectory.waypoints, trajectory.times, strict=False):
             if not self.move_joints(wp, duration=t):
                 return False
         return True

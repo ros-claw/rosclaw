@@ -7,11 +7,12 @@ Subscribes to execution events and publishes critic judgments:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
-from typing import Any, Optional
+from typing import Any
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
 
 logger = logging.getLogger("rosclaw.critic.basic_critic")
@@ -30,7 +31,7 @@ class BasicCritic(LifecycleMixin):
     def __init__(
         self,
         robot_id: str,
-        event_bus: Optional[EventBus] = None,
+        event_bus: EventBus | None = None,
     ) -> None:
         super().__init__()
         self.robot_id = robot_id
@@ -59,10 +60,8 @@ class BasicCritic(LifecycleMixin):
     def _do_stop(self) -> None:
         if self.event_bus is not None:
             for topic, handler in self._subscribed_topics:
-                try:
+                with contextlib.suppress(Exception):
                     self.event_bus.unsubscribe(topic, handler)
-                except Exception:
-                    pass
         self._subscribed_topics.clear()
 
     def _on_skill_complete(self, event: Event) -> None:

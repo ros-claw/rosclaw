@@ -480,8 +480,8 @@ class TestEURDFParserParseOrigin:
         </robot>
         """)
         parser = EURDFParser(str(urdf))
-        T = parser.get_model().joints["j1"].origin
-        assert np.allclose(T, np.eye(4))
+        transform = parser.get_model().joints["j1"].origin
+        assert np.allclose(transform, np.eye(4))
 
     def test_origin_translation_only(self, tmp_path):
         urdf = tmp_path / "robot.urdf"
@@ -497,9 +497,9 @@ class TestEURDFParserParseOrigin:
         </robot>
         """)
         parser = EURDFParser(str(urdf))
-        T = parser.get_model().joints["j1"].origin
-        assert np.allclose(T[:3, 3], [1, 2, 3])
-        assert np.allclose(T[:3, :3], np.eye(3))
+        transform = parser.get_model().joints["j1"].origin
+        assert np.allclose(transform[:3, 3], [1, 2, 3])
+        assert np.allclose(transform[:3, :3], np.eye(3))
 
     def test_origin_rotation_only(self, tmp_path):
         urdf = tmp_path / "robot.urdf"
@@ -515,10 +515,10 @@ class TestEURDFParserParseOrigin:
         </robot>
         """)
         parser = EURDFParser(str(urdf))
-        T = parser.get_model().joints["j1"].origin
-        assert np.allclose(T[0, 0], 1.0, atol=1e-3)
-        assert np.allclose(T[1, 1], 0.0, atol=1e-3)
-        assert np.allclose(T[2, 2], 0.0, atol=1e-3)
+        transform = parser.get_model().joints["j1"].origin
+        assert np.allclose(transform[0, 0], 1.0, atol=1e-3)
+        assert np.allclose(transform[1, 1], 0.0, atol=1e-3)
+        assert np.allclose(transform[2, 2], 0.0, atol=1e-3)
 
     def test_origin_full_transform(self, tmp_path):
         urdf = tmp_path / "robot.urdf"
@@ -534,12 +534,12 @@ class TestEURDFParserParseOrigin:
         </robot>
         """)
         parser = EURDFParser(str(urdf))
-        T = parser.get_model().joints["j1"].origin
-        assert np.allclose(T[:3, 3], [0.5, -0.2, 1.0])
+        transform = parser.get_model().joints["j1"].origin
+        assert np.allclose(transform[:3, 3], [0.5, -0.2, 1.0])
         # Rotation matrix should be orthonormal
-        R = T[:3, :3]
-        assert np.allclose(R @ R.T, np.eye(3), atol=1e-5)
-        assert np.allclose(np.linalg.det(R), 1.0, atol=1e-5)
+        rot = transform[:3, :3]
+        assert np.allclose(rot @ rot.T, np.eye(3), atol=1e-5)
+        assert np.allclose(np.linalg.det(rot), 1.0, atol=1e-5)
 
 
 class TestEURDFParserFullRobot:

@@ -2,7 +2,7 @@
 
 import pytest
 
-from rosclaw.agent_runtime.ai_collaboration import DeepSeekConfig, DeepSeekClient
+from rosclaw.agent_runtime.ai_collaboration import DeepSeekClient, DeepSeekConfig
 
 
 class TestDeepSeekConfig:

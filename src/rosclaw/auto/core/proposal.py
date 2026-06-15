@@ -1,6 +1,6 @@
 """Proposal — 改进提案."""
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 
@@ -19,7 +19,7 @@ class Proposal:
     risk_level: Literal["low", "medium", "high"] = "low"
     required_gates: list[str] = field(default_factory=list)
     status: Literal["draft", "approved", "rejected", "pending"] = "draft"
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_dict(self) -> dict:
         return {

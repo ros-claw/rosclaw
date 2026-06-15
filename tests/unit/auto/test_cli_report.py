@@ -1,11 +1,10 @@
 """CLI report and demo tests."""
-from pathlib import Path
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
-import pytest
+from pathlib import Path
+
 
 # Resolve the rosclaw_auto checkout relative to this test file so the suite
 # works regardless of where the repository is cloned.

@@ -18,7 +18,6 @@ from typing import Any
 
 import pytest
 
-
 # Guard the entire module behind the rosclaw-know availability check;
 # CI environments without the package should skip cleanly instead of
 # erroring at import time.
@@ -31,7 +30,6 @@ from rosclaw.know.batch_engine import (  # noqa: E402
     _infer_event_type,
     _payload_to_robot_events,
 )
-
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ASSETS_DIR = REPO_ROOT / "data" / "knowledge_assets"

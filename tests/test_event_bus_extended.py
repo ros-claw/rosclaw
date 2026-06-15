@@ -7,8 +7,7 @@ import asyncio
 
 import pytest
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
-
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 
 # --- Input Validation (Lines 85, 87, 89, 98-106) ---
 

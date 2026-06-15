@@ -28,7 +28,6 @@ for LLM grounding. The e-URDF format adds to standard URDF:
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -83,14 +82,14 @@ class JointSpec:
 class LinkSpec:
     """Specification for a robot link."""
     name: str
-    visual_mesh: Optional[str] = None
-    collision_mesh: Optional[str] = None
+    visual_mesh: str | None = None
+    collision_mesh: str | None = None
     mass: float = 0.0
     inertia: np.ndarray = field(default_factory=lambda: np.eye(3))
     origin: np.ndarray = field(default_factory=lambda: np.eye(4))
     semantic_tags: list[str] = field(default_factory=list)
     grasp_points: list[dict] = field(default_factory=list)
-    material: Optional[str] = None
+    material: str | None = None
 
 
 @dataclass
@@ -136,7 +135,7 @@ class RobotModel:
                 limits[name] = (joint.limits["lower"], joint.limits["upper"])
         return limits
 
-    def get_end_effector_link(self) -> Optional[str]:
+    def get_end_effector_link(self) -> str | None:
         """Get the end effector link (last link in chain)."""
         # Find link with no children
         child_links = {j.child for j in self.joints.values()}
@@ -184,7 +183,7 @@ class EURDFParser:
 
     def __init__(self, model_path: str):
         self.model_path = Path(model_path)
-        self.model: Optional[RobotModel] = None
+        self.model: RobotModel | None = None
         self._parse()
 
     def _parse(self) -> None:
@@ -382,16 +381,16 @@ class EURDFParser:
         cp, sp = np.cos(pitch), np.sin(pitch)
         cy, sy = np.cos(yaw), np.sin(yaw)
 
-        R = np.array([  # noqa: E226
+        rot = np.array([  # noqa: N806
             [cy*cp, cy*sp*sr - sy*cr, cy*sp*cr + sy*sr],  # noqa: E226
             [sy*cp, sy*sp*sr + cy*cr, sy*sp*cr - cy*sr],  # noqa: E226
             [-sp, cp*sr, cp*cr],  # noqa: E226
         ])
 
-        T = np.eye(4)
-        T[:3, :3] = R
-        T[:3, 3] = [x, y, z]
-        return T
+        transform = np.eye(4)
+        transform[:3, :3] = rot
+        transform[:3, 3] = [x, y, z]
+        return transform
 
     def get_model(self) -> RobotModel:
         """Get the parsed robot model."""

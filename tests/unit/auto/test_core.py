@@ -1,8 +1,15 @@
 """Unit tests for rosclaw-auto core data models."""
-import pytest
-from rosclaw.auto.core import (AutoTask, FailureCase, Diagnosis, Hypothesis,
-                               Proposal, Patch, ExperimentSpec, EvaluationResult,
-                               Champion, DeadEnd, EvolutionReport, ChampionCard)
+from rosclaw.auto.core import (
+    AutoTask,
+    Champion,
+    ChampionCard,
+    DeadEnd,
+    Diagnosis,
+    ExperimentSpec,
+    FailureCase,
+    Patch,
+    Proposal,
+)
 
 
 def test_auto_task_roundtrip():

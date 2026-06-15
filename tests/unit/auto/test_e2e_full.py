@@ -1,9 +1,8 @@
 """E2E: Full self-evolution loop tests with real runners."""
 import shutil
-import pytest
-from rosclaw.auto.engine.auto_engine import AutoEngine
+
 from rosclaw.auto.config import AutoConfig
-from rosclaw.auto.patchers.patch_validator import PatchValidator
+from rosclaw.auto.engine.auto_engine import AutoEngine
 from rosclaw.auto.promotion.gate import PromotionGate
 
 

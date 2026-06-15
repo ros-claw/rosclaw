@@ -1,7 +1,7 @@
 """ROS2 Driver - Real robot control via ROS 2 / rclpy."""
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from rosclaw.mcp_drivers.base import BaseDriver, DriverState, TrajectoryCommand
 
@@ -19,18 +19,18 @@ class ROS2Driver(BaseDriver):
     def __init__(self, robot_id: str, joint_dof: int = 6, node_name: str = "rosclaw_driver"):
         super().__init__(robot_id, joint_dof)
         self._node_name = node_name
-        self._rclpy: Optional[Any] = None
-        self._node: Optional[Any] = None
-        self._pub_joint_cmd: Optional[Any] = None
-        self._sub_joint_state: Optional[Any] = None
-        self._latest_joint_state: Optional[dict] = None
+        self._rclpy: Any | None = None
+        self._node: Any | None = None
+        self._pub_joint_cmd: Any | None = None
+        self._sub_joint_state: Any | None = None
+        self._latest_joint_state: dict | None = None
 
     def _do_initialize(self) -> None:
         try:
             import rclpy
             from rclpy.node import Node
-            from trajectory_msgs.msg import JointTrajectory
             from sensor_msgs.msg import JointState
+            from trajectory_msgs.msg import JointTrajectory
 
             self._rclpy = rclpy
             if not rclpy.ok():
@@ -121,7 +121,7 @@ class ROS2Driver(BaseDriver):
 
         traj = JointTrajectory()
         traj.joint_names = [f"joint_{i}" for i in range(self.joint_dof)]
-        for wp, t in zip(trajectory.waypoints, trajectory.times):
+        for wp, t in zip(trajectory.waypoints, trajectory.times, strict=False):
             point = JointTrajectoryPoint()
             point.positions = wp
             point.time_from_start.sec = int(t)

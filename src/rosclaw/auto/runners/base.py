@@ -64,9 +64,8 @@ class BaseRunner(ABC):
         safety = getattr(experiment_spec, "safety", {}) if hasattr(experiment_spec, "safety") else {}
         violations = []
         # Only non-local runners reject sandbox_required mismatch
-        if safety.get("sandbox_required", False) and self.name not in ("sandbox", "darwin"):
-            if self.name != "local":
-                violations.append("Sandbox required but running on non-sandbox runner")
+        if safety.get("sandbox_required", False) and self.name not in ("sandbox", "darwin", "local"):
+            violations.append("Sandbox required but running on non-sandbox runner")
         if safety.get("max_force", 999) < 5:
             violations.append("Max force limit too restrictive for meaningful experiment")
         return violations

@@ -1,6 +1,6 @@
 """Diagnosis — 失败诊断结果."""
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 
@@ -19,7 +19,7 @@ class Diagnosis:
     confidence: float = 0.5
     risk_level: Literal["low", "medium", "high"] = "low"
     recommended_search_space: dict = field(default_factory=dict)
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_dict(self) -> dict:
         return {

@@ -1,13 +1,12 @@
 """Additional coverage tests for provider/core/registry.py."""
 
-import asyncio
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from rosclaw.provider.core.registry import ProviderRegistry
 from rosclaw.provider.core.errors import ProviderNotFoundError
 from rosclaw.provider.core.manifest import ProviderManifest
+from rosclaw.provider.core.registry import ProviderRegistry
 
 
 def _make_manifest(name: str = "test_provider", type_: str = "llm", capabilities=None):
@@ -34,7 +33,8 @@ class TestProviderRegistryRegister:
     def test_register_duplicate_raises(self):
         reg = ProviderRegistry()
         manifest = _make_manifest("dup")
-        factory = lambda m: _make_provider("dup")
+        def factory(m):
+            return _make_provider("dup")
 
         reg.register(manifest, factory)
         with pytest.raises(ProviderNotFoundError, match="already registered"):
@@ -44,7 +44,8 @@ class TestProviderRegistryRegister:
         reg = ProviderRegistry()
         manifest = _make_manifest("no_load")
         provider = _make_provider("no_load", healthy=False)
-        factory = lambda m: provider
+        def factory(m):
+            return provider
 
         result = reg.register(manifest, factory, auto_load=False)
 

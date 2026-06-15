@@ -7,9 +7,9 @@ The core module provides the foundational runtime infrastructure:
 - Lifecycle: Module initialization, startup, and shutdown coordination
 """
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
+from rosclaw.core.lifecycle import LifecycleMixin, LifecycleState
 from rosclaw.core.runtime import Runtime, RuntimeConfig
-from rosclaw.core.lifecycle import LifecycleState, LifecycleMixin
 
 __all__ = [
     "EventBus",

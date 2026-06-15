@@ -9,7 +9,7 @@ import pytest
 from rosclaw.core.runtime import Runtime, RuntimeConfig
 
 
-class TestV1_0IntegrationSprint:
+class TestV10IntegrationSprint:
     """Integration sprint acceptance tests."""
 
     @pytest.fixture

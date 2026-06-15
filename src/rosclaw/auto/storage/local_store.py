@@ -1,8 +1,8 @@
 """Local JSONL store for rosclaw-auto."""
 import json
-import os
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+
 
 class LocalStore:
     def __init__(self, base_path: str = "./.rosclaw.auto"):

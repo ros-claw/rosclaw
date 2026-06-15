@@ -10,16 +10,16 @@ This implements the "Event Bus" principle from the ROSClaw architecture:
 """
 
 import asyncio
-from collections import deque
 import fnmatch
 import logging
 import threading
 import time
-
 import uuid
+from collections import deque
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Coroutine, Optional
+from typing import Any, Optional
 
 logger = logging.getLogger("rosclaw.core.event_bus")
 
@@ -272,7 +272,7 @@ class EventBus:
         """Async version of publish for use in async contexts."""
         self.publish(event)
 
-    def get_history(self, topic: Optional[str] = None, limit: int = 100) -> list[Event]:
+    def get_history(self, topic: str | None = None, limit: int = 100) -> list[Event]:
         """Get recent event history, optionally filtered by topic."""
         if limit <= 0:
             return []
@@ -282,11 +282,13 @@ class EventBus:
             events = [e for e in events if e.topic == topic]
         return events[-limit:]
 
-    def clear_history(self, topic: Optional[str] = None) -> None:
+    def clear_history(self, topic: str | None = None) -> None:
         """Clear event history. If topic is given, clear only events for that topic."""
         with self._lock:
             if topic:
-                kept = [e for e in self._event_history if e.topic != topic]; self._event_history.clear(); self._event_history.extend(kept)
+                kept = [e for e in self._event_history if e.topic != topic]
+                self._event_history.clear()
+                self._event_history.extend(kept)
             else:
                 self._event_history.clear()
 
@@ -307,8 +309,8 @@ class EventBus:
         self,
         topic: str,
         timeout: float = 30.0,
-        filter_fn: Optional[Callable[[Event], bool]] = None,
-    ) -> Optional[Event]:
+        filter_fn: Callable[[Event], bool] | None = None,
+    ) -> Event | None:
         """
         Wait for an event on a topic with optional filtering.
 
@@ -327,14 +329,13 @@ class EventBus:
         future = loop.create_future()
 
         def handler(event: Event) -> None:
-            if not future.done():
-                if filter_fn is None or filter_fn(event):
-                    future.set_result(event)
+            if not future.done() and (filter_fn is None or filter_fn(event)):
+                future.set_result(event)
 
         self.subscribe(topic, handler)
         try:
             return await asyncio.wait_for(future, timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
         finally:
             self.unsubscribe(topic, handler)

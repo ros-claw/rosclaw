@@ -1,6 +1,6 @@
 """Artifact — 进化报告和冠军卡片."""
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 @dataclass
@@ -15,7 +15,7 @@ class EvolutionReport:
     baseline_metrics: dict = field(default_factory=dict)
     best_candidate_metrics: dict = field(default_factory=dict)
     improvement_delta: dict = field(default_factory=dict)
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_dict(self) -> dict:
         return {"id": self.id, "task_id": self.task_id, "summary": self.summary,
@@ -68,7 +68,7 @@ class ChampionCard:
         )
 
     def to_markdown(self) -> str:
-        lines = [f"# Champion Skill Card", "", f"Skill: {self.skill_id}",
+        lines = ["# Champion Skill Card", "", f"Skill: {self.skill_id}",
                  f"Previous Champion: {self.previous_champion}", f"Promotion Date: {self.promotion_date}", "", "## Improvement"]
         for k, v in self.improvement.items():
             lines.append(f"- {k}: {v}")

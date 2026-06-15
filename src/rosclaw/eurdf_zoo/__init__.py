@@ -2,14 +2,14 @@
 
 from rosclaw.runtime.eurdf_loader import (
     EURDFLoader,
-    RobotRegistry,
-    RobotEmbodimentProfile,
-    RobotSafetyProfile,
-    RobotCapabilityProfile,
-    RobotSimulationProfile,
-    RobotSemanticProfile,
     RobotBenchmarkProfile,
+    RobotCapabilityProfile,
     RobotCompleteProfile,
+    RobotEmbodimentProfile,
+    RobotRegistry,
+    RobotSafetyProfile,
+    RobotSemanticProfile,
+    RobotSimulationProfile,
 )
 
 __all__ = [

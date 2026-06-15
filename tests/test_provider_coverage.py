@@ -1,18 +1,18 @@
 """Provider coverage tests — fills gaps in generic adapter, loader, router."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from rosclaw.provider.adapters.generic import GenericProvider
 from rosclaw.provider.core.errors import ProviderNotFoundError, RuntimeAdapterError
 from rosclaw.provider.core.manifest import ProviderManifest, RuntimeSpec, SafetySpec
 from rosclaw.provider.core.provider import Provider
+from rosclaw.provider.core.registry import ProviderRegistry
 from rosclaw.provider.core.request import ProviderRequest
 from rosclaw.provider.core.response import ProviderResponse
-from rosclaw.provider.loader import ProviderLoader
-from rosclaw.provider.core.registry import ProviderRegistry
 from rosclaw.provider.core.router import CapabilityRouter
-
+from rosclaw.provider.loader import ProviderLoader
 
 # --- GenericProvider ---
 

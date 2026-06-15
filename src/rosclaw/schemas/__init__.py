@@ -6,6 +6,16 @@ depending on private module internals.
 """
 from __future__ import annotations
 
+# Auto
+from .auto_schemas import (
+    AutoPatch,
+    AutoProposal,
+    Champion,
+    DeadEnd,
+    EvaluationResult,
+    ExperimentSpec,
+)
+
 # Context
 from .context import AgentContext, RuntimeContext, TaskContext
 
@@ -21,15 +31,11 @@ from .intervention import (
     ObjectiveDirection,
 )
 
-# Auto
-from .auto_schemas import (
-    AutoPatch,
-    AutoProposal,
-    Champion,
-    DeadEnd,
-    EvaluationResult,
-    ExperimentSpec,
-)
+# Provider
+from .provider import ProviderRequest, ProviderResponse
+
+# Sandbox
+from .sandbox import SandboxDecision, SandboxSession
 
 # Skills
 from .skills import (
@@ -38,12 +44,6 @@ from .skills import (
     SkillLineage,
     SkillVersion,
 )
-
-# Provider
-from .provider import ProviderRequest, ProviderResponse
-
-# Sandbox
-from .sandbox import SandboxDecision, SandboxSession
 
 __all__ = [
     # context

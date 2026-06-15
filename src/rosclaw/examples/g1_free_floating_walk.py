@@ -11,7 +11,6 @@ Demonstrates:
 from __future__ import annotations
 
 import dataclasses
-from typing import Optional
 
 import numpy as np
 
@@ -155,7 +154,7 @@ class WalkState:
     distance_traveled: float = 0.0
     steps_taken: int = 0
     fall_detected: bool = False
-    fall_reason: Optional[str] = None
+    fall_reason: str | None = None
     target_distance: float = 3.0
     gait_phase: float = 0.0
     stance_width: float = 0.24
@@ -391,8 +390,9 @@ def compute_gait_control(
         roll_correction = np.clip(-roll_error * 6.0, -0.45, 0.45)
 
     # Determine stance leg from phase: sin<0 means foot on ground (stance)
-    left_is_stance = np.sin(left_phase) < 0
-    right_is_stance = np.sin(right_phase) < 0
+    # (Expressions kept for side-effect documentation; values unused in current logic.)
+    _ = np.sin(left_phase) < 0
+    _ = np.sin(right_phase) < 0
 
     # Lateral balance: ONLY use feedback correction, no stance-based hip_roll
     # This avoids introducing destabilizing lateral motion from gait

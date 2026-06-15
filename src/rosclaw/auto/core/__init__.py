@@ -1,15 +1,15 @@
 """rosclaw-auto core data models."""
-from .task import AutoTask
-from .failure import FailureCase
-from .diagnosis import Diagnosis
-from .hypothesis import Hypothesis
-from .proposal import Proposal
-from .patch import Patch
-from .experiment import ExperimentSpec
-from .evaluation import EvaluationResult
+from .artifact import ChampionCard, EvolutionReport
 from .champion import Champion
 from .deadend import DeadEnd
-from .artifact import EvolutionReport, ChampionCard
+from .diagnosis import Diagnosis
+from .evaluation import EvaluationResult
+from .experiment import ExperimentSpec
+from .failure import FailureCase
+from .hypothesis import Hypothesis
+from .patch import Patch
+from .proposal import Proposal
+from .task import AutoTask
 
 __all__ = ["AutoTask", "FailureCase", "Diagnosis", "Hypothesis", "Proposal",
            "Patch", "ExperimentSpec", "EvaluationResult", "Champion", "DeadEnd",

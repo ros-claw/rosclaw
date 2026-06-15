@@ -3,9 +3,9 @@
 import json
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from rosclaw.skill_manager.registry import SkillRegistry, SkillEntry
+from rosclaw.skill_manager.registry import SkillEntry, SkillRegistry
 
 logger = logging.getLogger("rosclaw.skill_manager.loader")
 
@@ -21,7 +21,7 @@ class SkillLoader:
     def __init__(self, registry: SkillRegistry):
         self.registry = registry
 
-    def load_from_json(self, path: Path) -> Optional[SkillEntry]:
+    def load_from_json(self, path: Path) -> SkillEntry | None:
         """Load a skill from a JSON definition file."""
         with open(path) as f:
             data = json.load(f)
@@ -54,8 +54,8 @@ class SkillLoader:
         name: str,
         description: str,
         handler: Any,
-        parameters: Optional[dict[str, Any]] = None,
-        preconditions: Optional[list[str]] = None,
+        parameters: dict[str, Any] | None = None,
+        preconditions: list[str] | None = None,
     ) -> SkillEntry:
         """Create and register a programmed skill."""
         entry = SkillEntry(

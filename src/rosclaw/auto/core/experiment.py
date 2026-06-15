@@ -1,6 +1,6 @@
 """ExperimentSpec — 实验规格定义."""
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 @dataclass
@@ -18,7 +18,7 @@ class ExperimentSpec:
     promotion: dict = field(default_factory=dict)
     patch_context: dict = field(default_factory=dict)
     status: str = "pending"
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_dict(self) -> dict:
         return {

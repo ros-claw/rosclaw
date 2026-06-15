@@ -37,9 +37,9 @@ class DarwinRunner(BaseRunner):
         if violations:
             return RunnerResult(success=False, error=f"Safety violations: {violations}")
 
-        task = getattr(experiment_spec, "task", "unknown")
+        getattr(experiment_spec, "task", "unknown")
         candidate = getattr(experiment_spec, "candidate_skill_id", "candidate")
-        baseline = getattr(experiment_spec, "baseline_skill_id", "baseline")
+        getattr(experiment_spec, "baseline_skill_id", "baseline")
         evaluation = getattr(experiment_spec, "evaluation", {})
         episodes = evaluation.get("episodes", 50)
         seeds = evaluation.get("seeds", [0])

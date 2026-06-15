@@ -1,12 +1,13 @@
 """End-to-end test: KNOW + HOW + Runtime integration."""
 
-import pytest
 import asyncio
 import time
 
-from rosclaw.core.runtime import Runtime, RuntimeConfig
-from rosclaw.core.event_bus import Event
+import pytest
+
 from rosclaw.agent_runtime.mcp_hub import MCPHub
+from rosclaw.core.event_bus import Event
+from rosclaw.core.runtime import Runtime, RuntimeConfig
 
 
 class TestKnowHowRuntimeE2E:

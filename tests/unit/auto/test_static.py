@@ -1,9 +1,6 @@
 """L0: Static checks and architecture boundary tests."""
 import ast
-import sys
 from pathlib import Path
-
-import pytest
 
 
 def test_no_forbidden_imports():
@@ -62,7 +59,7 @@ def test_all_core_models_have_to_dict():
 
 def test_dataclass_fields_not_empty():
     """AUTO-CORE-000b: Core models must have required fields."""
-    from rosclaw.auto.core import AutoTask, FailureCase, Proposal, Patch
+    from rosclaw.auto.core import AutoTask, FailureCase
     task = AutoTask(id="t1", name="pick", task_type="skill_tuning", robot_id="r1",
                     environment_id="e1", target_skill_id="s1")
     assert task.id == "t1"

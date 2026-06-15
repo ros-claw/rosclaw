@@ -1,7 +1,7 @@
 """FailureCase — 失败案例定义."""
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Literal
-from datetime import datetime, timezone
 
 
 @dataclass
@@ -17,7 +17,7 @@ class FailureCase:
     replay_uri: str | None = None
     mcap_uri: str | None = None
     diagnosis_id: str | None = None
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_dict(self) -> dict:
         return {

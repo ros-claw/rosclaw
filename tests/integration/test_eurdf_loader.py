@@ -4,12 +4,12 @@ import pytest
 
 from rosclaw.runtime import (
     EURDFLoader,
-    RobotRegistry,
-    RobotEmbodimentProfile,
-    RobotSafetyProfile,
     RobotCapabilityProfile,
-    RobotSimulationProfile,
+    RobotEmbodimentProfile,
+    RobotRegistry,
+    RobotSafetyProfile,
     RobotSemanticProfile,
+    RobotSimulationProfile,
 )
 
 

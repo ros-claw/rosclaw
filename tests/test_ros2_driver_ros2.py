@@ -29,12 +29,11 @@ for _mod in list(sys.modules.keys()):
 # Also remove top-level rclpy itself
 sys.modules.pop("rclpy", None)
 
-import rclpy
-from sensor_msgs.msg import JointState
-from trajectory_msgs.msg import JointTrajectory
+import rclpy  # noqa: E402
+from sensor_msgs.msg import JointState  # noqa: E402
 
-from rosclaw.mcp_drivers.ros2_driver import ROS2Driver
-from rosclaw.mcp_drivers.base import TrajectoryCommand
+from rosclaw.mcp_drivers.base import TrajectoryCommand  # noqa: E402
+from rosclaw.mcp_drivers.ros2_driver import ROS2Driver  # noqa: E402
 
 
 @pytest.fixture(scope="module", autouse=True)

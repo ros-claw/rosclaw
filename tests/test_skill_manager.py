@@ -2,10 +2,10 @@
 
 import pytest
 
-from rosclaw.core.event_bus import EventBus, Event
-from rosclaw.skill_manager.registry import SkillRegistry, SkillEntry
+from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.skill_manager.executor import SkillExecutor
 from rosclaw.skill_manager.loader import SkillLoader
+from rosclaw.skill_manager.registry import SkillEntry, SkillRegistry
 
 
 def test_skill_registry_register():

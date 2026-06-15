@@ -39,7 +39,7 @@ class DarwinBenchmarkCompletedEvent:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "DarwinBenchmarkCompletedEvent":
+    def from_dict(cls, d: dict[str, Any]) -> DarwinBenchmarkCompletedEvent:
         return cls(
             event_id=d.get("event_id", ""),
             benchmark_id=d.get("benchmark_id", ""),

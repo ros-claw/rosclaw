@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("rosclaw.how.recovery_loop")
 
@@ -55,13 +55,9 @@ class RecoveryLoop:
         # SeekDBMemoryClient auto-creates tables on insert; SQLite client
         # needs the table in SEEKDB_SCHEMAS.  We use a lightweight record
         # that fits the generic key-value pattern.
-        try:
-            # Probe whether retries table exists by doing a count
+        import contextlib
+        with contextlib.suppress(Exception):
             client.count(self._table)
-        except Exception:
-            # If the table doesn't exist, we fall back to storing retry
-            # state inside the failure metadata (handled in record_retry).
-            pass
 
     def subscribe(self) -> None:
         """Subscribe to recovery hint events on the EventBus."""
@@ -245,7 +241,7 @@ class RecoveryLoop:
 
     # ── internals ────────────────────────────────────────────────────────
 
-    def _get_retry(self, request_id: str) -> Optional[dict[str, Any]]:
+    def _get_retry(self, request_id: str) -> dict[str, Any] | None:
         """Fetch retry record by request_id."""
         if not self._memory:
             return None

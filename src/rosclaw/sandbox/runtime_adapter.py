@@ -8,10 +8,10 @@ through the Runtime's module registry.
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
-from rosclaw.core.lifecycle import LifecycleMixin
 from rosclaw.core.event_bus import EventBus
+from rosclaw.core.lifecycle import LifecycleMixin
 
 logger = logging.getLogger("rosclaw.sandbox.runtime_adapter")
 
@@ -33,13 +33,13 @@ class SandboxRuntimeAdapter(LifecycleMixin):
         self,
         config: dict[str, Any],
         event_bus: EventBus,
-        e_urdf_model: Optional[Any] = None,
+        e_urdf_model: Any | None = None,
     ):
         super().__init__()
         self._config = config
         self._event_bus = event_bus
         self._e_urdf_model = e_urdf_model
-        self._sandbox_service: Optional[Any] = None
+        self._sandbox_service: Any | None = None
         self._engine_name = config.get("engine", "mujoco")
         self._world_id = config.get("world_id", "empty")
         self._robot_id = config.get("robot_id", "")
@@ -49,8 +49,8 @@ class SandboxRuntimeAdapter(LifecycleMixin):
         logger.info("Initializing with engine=%s", self._engine_name)
 
         try:
-            from rosclaw.sandbox.sandbox_api import Sandbox
             from rosclaw.sandbox.events.publisher import RuntimePublisher
+            from rosclaw.sandbox.sandbox_api import Sandbox
 
             publisher = RuntimePublisher(self._event_bus)
             self._sandbox_service = Sandbox.create(

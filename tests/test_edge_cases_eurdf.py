@@ -1,12 +1,13 @@
 """Edge case tests for e-URDF modules — Sprint 2 release guard."""
 
-import pytest
-import numpy as np
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from rosclaw.e_urdf.parser import EURDFParser, RobotModel, JointSpec, LinkSpec
-from rosclaw.runtime.eurdf_loader import EURDFLoader, RobotRegistry
+import numpy as np
+import pytest
 
+from rosclaw.e_urdf.parser import EURDFParser, JointSpec, LinkSpec, RobotModel
+from rosclaw.runtime.eurdf_loader import EURDFLoader, RobotRegistry
 
 # ── parser edge cases ──
 
@@ -29,10 +30,10 @@ def test_joint_spec_limits_partial():
 
 def test_link_spec_defaults():
     """LinkSpec with minimal args defaults correctly."""
-    l = LinkSpec(name="l")
-    assert l.mass == 0.0
-    assert np.array_equal(l.inertia, np.eye(3))
-    assert l.semantic_tags == []
+    link = LinkSpec(name="l")
+    assert link.mass == 0.0
+    assert np.array_equal(link.inertia, np.eye(3))
+    assert link.semantic_tags == []
 
 
 def test_robot_model_empty_joints_end_effector():
@@ -55,7 +56,6 @@ def test_robot_model_joint_limits_incomplete():
 
 def test_eurdf_parser_non_robot_root():
     """Parser should reject non-robot root element."""
-    import xml.etree.ElementTree as ET
     bad = Path("/tmp/bad_robot.urdf")
     bad.write_text("<bad_root name='test'></bad_root>")
     with pytest.raises(ValueError, match="Expected root element 'robot'"):
@@ -66,7 +66,7 @@ def test_eurdf_parser_empty_file():
     """Parser should reject empty file."""
     empty = Path("/tmp/empty.urdf")
     empty.write_text("")
-    with pytest.raises(Exception):
+    with pytest.raises(ET.ParseError):  # noqa: B017
         EURDFParser(str(empty))
 
 

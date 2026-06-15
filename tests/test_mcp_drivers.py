@@ -2,8 +2,8 @@
 
 
 from rosclaw.mcp_drivers.base import DriverState, TrajectoryCommand
-from rosclaw.mcp_drivers.ros2_driver import ROS2Driver
 from rosclaw.mcp_drivers.mujoco_sim_driver import MuJoCoSimDriver
+from rosclaw.mcp_drivers.ros2_driver import ROS2Driver
 from rosclaw.mcp_drivers.serial_driver import SerialDriver
 
 
@@ -46,7 +46,7 @@ def test_ros2_driver_dof_mismatch():
     # _validate_joint_positions raises ValueError before connected check
     try:
         driver.move_joints([0.1] * 5)
-        assert False, "Should have raised ValueError"
+        raise AssertionError("Should have raised ValueError")
     except ValueError:
         pass
     driver.stop()

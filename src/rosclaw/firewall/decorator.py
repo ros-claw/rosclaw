@@ -8,14 +8,14 @@ a MuJoCo physics simulation before executing on real hardware.
 import functools
 import logging
 import time
-from typing import Any, Callable, Optional, TypeVar
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, TypeVar
 
-import numpy as np
 import mujoco
 import mujoco.viewer
-
+import numpy as np
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -76,8 +76,8 @@ class DigitalTwinFirewall:
     def __init__(
         self,
         model_path: str,
-        torque_limits: Optional[dict[str, float]] = None,
-        joint_limits: Optional[dict[str, tuple[float, float]]] = None,
+        torque_limits: dict[str, float] | None = None,
+        joint_limits: dict[str, tuple[float, float]] | None = None,
         safety_margin: float = 0.05,  # 5% safety margin
         sim_steps_per_check: int = 100,
     ):
@@ -106,9 +106,7 @@ class DigitalTwinFirewall:
     def _load_model(self) -> None:
         """Load MuJoCo model from file."""
         try:
-            if self.model_path.endswith(('.xml', '.mjcf')):
-                self.model = mujoco.MjModel.from_xml_path(self.model_path)
-            elif self.model_path.endswith('.urdf'):
+            if self.model_path.endswith(('.xml', '.mjcf')) or self.model_path.endswith('.urdf'):
                 self.model = mujoco.MjModel.from_xml_path(self.model_path)
             else:
                 raise ValueError(f"Unsupported model format: {self.model_path}")
@@ -261,7 +259,7 @@ class DigitalTwinFirewall:
     def validate_trajectory(
         self,
         trajectory: list[np.ndarray],
-        control_inputs: Optional[list[np.ndarray]] = None,
+        control_inputs: list[np.ndarray] | None = None,
         time_step: float = 0.001,
         safety_level: SafetyLevel = SafetyLevel.STRICT,
     ) -> ValidationResult:
@@ -374,7 +372,7 @@ class DigitalTwinFirewall:
     def decorator(
         self,
         safety_level: SafetyLevel = SafetyLevel.STRICT,
-        trajectory_extractor: Optional[Callable[..., list[np.ndarray]]] = None,
+        trajectory_extractor: Callable[..., list[np.ndarray]] | None = None,
     ) -> Callable[[F], F]:
         """
         Decorator factory for trajectory validation.

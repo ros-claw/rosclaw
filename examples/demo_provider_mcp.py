@@ -10,9 +10,10 @@ Demonstrates the semantic capability layer:
 """
 
 import asyncio
-from rosclaw.core.runtime import Runtime, RuntimeConfig
-from rosclaw.core.event_bus import EventBus
+
 from rosclaw.agent_runtime.mcp_hub import MCPHub
+from rosclaw.core.event_bus import EventBus
+from rosclaw.core.runtime import Runtime, RuntimeConfig
 
 
 async def demo_semantic_tools():
@@ -199,7 +200,7 @@ async def demo_capability_client():
     )
     print(f"Task: {result.task}")
     print(f"Status: {result.status}")
-    print(f"Steps:")
+    print("Steps:")
     for step in result.steps:
         print(f"  - {step['capability']}: {step['status']} (provider={step.get('provider', 'n/a')})")
     print(f"Trace ID: {result.trace['trace_id']}")
@@ -228,8 +229,9 @@ async def demo_provider_loader():
 
     import tempfile
     from pathlib import Path
-    from rosclaw.provider.loader import ProviderLoader
+
     from rosclaw.provider.core.registry import ProviderRegistry
+    from rosclaw.provider.loader import ProviderLoader
 
     registry = ProviderRegistry()
     loader = ProviderLoader(registry)

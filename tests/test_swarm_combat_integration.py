@@ -1,6 +1,6 @@
 """Integration test for Swarm multi-agent combat task."""
-from rosclaw.swarm.coordinator import SwarmCoordinator
 from rosclaw.core.event_bus import EventBus
+from rosclaw.swarm.coordinator import SwarmCoordinator
 
 
 class TestSwarmCombat:

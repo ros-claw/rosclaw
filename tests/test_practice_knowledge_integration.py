@@ -5,7 +5,7 @@ Task 3: Practice subscribes to knowledge.ingest_complete and logs KNOW processin
 
 import time
 
-from rosclaw.core.event_bus import EventBus, Event
+from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.practice.recorder import PracticeRecorder
 
 

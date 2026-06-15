@@ -29,7 +29,7 @@ class VerifierCard:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "VerifierCard":
+    def from_dict(cls, d: dict[str, Any]) -> VerifierCard:
         return cls(
             verifier_id=d.get("verifier_id", ""),
             metric_name=d.get("metric_name", ""),

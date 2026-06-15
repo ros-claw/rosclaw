@@ -11,13 +11,11 @@ Targets:
   - MCP end-to-end tool invocation works
 """
 
-import json
 import ast
-
+import json
 
 from rosclaw.forge.bundle_compiler import BundleCompiler
 from rosclaw.sdk_to_mcp import AssetCompiler, MCPManifestBuilder
-
 
 # ───────────────────────────────
 # Scenario F: Forge Bundle Generation
@@ -93,8 +91,9 @@ class TestScenarioFForgeBundle:
 
     def test_scenario_f_mcp_compile_asset_bundle_tool(self):
         """F5: MCP tool compile_asset_bundle works end-to-end."""
-        from rosclaw.mcp.minimal_server import ROSClawMinimalMCPServer
         import asyncio
+
+        from rosclaw.mcp.minimal_server import ROSClawMinimalMCPServer
 
         server = ROSClawMinimalMCPServer()
         result = asyncio.run(server._handle_system_tool("system.compile_asset_bundle", {

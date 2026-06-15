@@ -29,19 +29,19 @@ Usage:
 """
 
 import json
+import logging
+import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
-from typing import Optional, Callable, Dict, List, Any
-import threading
-import logging
+from typing import Any
 
 import numpy as np
 
 from .ring_buffer import MultiChannelRingBuffer
-
 
 logger = logging.getLogger(__name__)
 
@@ -74,10 +74,10 @@ class DataEvent:
     robot_id: str
     pre_event_duration: float = 5.0   # Seconds before event
     post_event_duration: float = 5.0  # Seconds after event
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    data_paths: Dict[str, Path] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    data_paths: dict[str, Path] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "event_id": self.event_id,
@@ -91,7 +91,7 @@ class DataEvent:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "DataEvent":
+    def from_dict(cls, data: dict[str, Any]) -> "DataEvent":
         """Create from dictionary."""
         return cls(
             event_id=data["event_id"],
@@ -116,8 +116,8 @@ class RobotState:
     joint_positions: np.ndarray     # Shape: (dof,)
     joint_velocities: np.ndarray    # Shape: (dof,)
     joint_torques: np.ndarray       # Shape: (dof,)
-    end_effector_pose: Optional[np.ndarray] = None  # Shape: (4, 4) homogeneous matrix
-    gripper_state: Optional[float] = None  # 0.0 = open, 1.0 = closed
+    end_effector_pose: np.ndarray | None = None  # Shape: (4, 4) homogeneous matrix
+    gripper_state: float | None = None  # 0.0 = open, 1.0 = closed
 
     def validate(self, expected_dof: int) -> bool:
         """Validate state dimensions."""
@@ -152,8 +152,8 @@ class DataFlywheel:
         joint_dof: int = 6,
         buffer_duration_sec: float = 60.0,
         sampling_rate_hz: int = 1000,
-        camera_topics: Optional[List[str]] = None,
-        storage_path: Optional[Path] = None,
+        camera_topics: list[str] | None = None,
+        storage_path: Path | None = None,
     ):
         """
         Initialize Data Flywheel.
@@ -189,7 +189,7 @@ class DataFlywheel:
         self._buffers = MultiChannelRingBuffer(**channels)
 
         # Event storage
-        self._events: List[DataEvent] = []
+        self._events: list[DataEvent] = []
         self._event_lock = threading.Lock()
 
         # Storage configuration
@@ -235,7 +235,7 @@ class DataFlywheel:
     def trigger_event(
         self,
         event_type: EventType,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
         pre_duration_sec: float = 5.0,
         post_duration_sec: float = 5.0,
     ) -> str:
@@ -292,7 +292,7 @@ class DataFlywheel:
     def _save_event_data(
         self,
         event: DataEvent,
-        data: Dict[str, tuple],
+        data: dict[str, tuple],
     ) -> None:
         """
         Save event data to storage (runs in background thread).
@@ -330,7 +330,7 @@ class DataFlywheel:
     def export_to_lerobot(
         self,
         output_path: Path,
-        filter_fn: Optional[Callable[[DataEvent], bool]] = None,
+        filter_fn: Callable[[DataEvent], bool] | None = None,
     ) -> Path:
         """
         Export all events to LeRobot dataset format.
@@ -388,7 +388,7 @@ class DataFlywheel:
         logger.info(f"Dataset exported to {dataset_path}")
         return dataset_path
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get flywheel statistics."""
         return {
             "robot_id": self.robot_id,

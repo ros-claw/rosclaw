@@ -1,8 +1,9 @@
 """Tests for provider runtimes with mocked external deps."""
 
 import sys
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from rosclaw.provider.runtimes.http_runtime import HTTPRuntime
 from rosclaw.provider.runtimes.ros2_runtime import ROS2Runtime
@@ -109,9 +110,9 @@ class TestROS2RuntimeMocked:
         mock_node = MagicMock()
         mock_rclpy = MagicMock()
         mock_rclpy.ok.return_value = True
-        mock_Node = MagicMock(return_value=mock_node)
+        mock_node_cls = MagicMock(return_value=mock_node)
         mock_rclpy_module = MagicMock()
-        mock_rclpy_module.Node = mock_Node
+        mock_rclpy_module.Node = mock_node_cls
         sys.modules["rclpy"] = mock_rclpy_module
         sys.modules["rclpy.node"] = mock_rclpy_module
         await rt.start()
@@ -125,10 +126,10 @@ class TestROS2RuntimeMocked:
     async def test_start_rclpy_not_ok(self):
         rt = ROS2Runtime("ros2_test")
         mock_node = MagicMock()
-        mock_Node = MagicMock(return_value=mock_node)
+        mock_node_cls = MagicMock(return_value=mock_node)
         mock_rclpy_module = MagicMock()
         mock_rclpy_module.ok.return_value = False
-        mock_rclpy_module.Node = mock_Node
+        mock_rclpy_module.Node = mock_node_cls
         sys.modules["rclpy"] = mock_rclpy_module
         sys.modules["rclpy.node"] = mock_rclpy_module
         await rt.start()

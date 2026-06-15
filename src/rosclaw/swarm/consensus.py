@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any
 
 
 @dataclass
@@ -34,14 +35,14 @@ class RaftLikeConsensus:
     - Committed on quorum
     """
 
-    def __init__(self, agent_id: str, peers: list[str], quorum: Optional[int] = None):
+    def __init__(self, agent_id: str, peers: list[str], quorum: int | None = None):
         self.agent_id = agent_id
         self.peers = peers
         self.quorum = quorum or (len(peers) // 2 + 1)
         self._entries: dict[str, ConsensusEntry] = {}
         self._term = 0
         self._is_leader = False
-        self._vote_callback: Optional[Callable] = None
+        self._vote_callback: Callable | None = None
 
     def set_leader(self, is_leader: bool) -> None:
         """Set leader status."""
@@ -106,7 +107,7 @@ class RaftLikeConsensus:
             return True
         return False
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         """Get agreed value for a key."""
         entry = self._entries.get(key)
         if entry and entry.agreed_value is not None:

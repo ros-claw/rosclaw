@@ -10,20 +10,17 @@ Demonstrates the core ROSClaw workflow:
     5. Use the EventBus for module communication
 """
 
-import sys
 from pathlib import Path
-
-# Add src to path if running from examples/ directly
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 import numpy as np
 
-from rosclaw.core import Runtime, RuntimeConfig, EventBus, Event, EventPriority
-from rosclaw.mcp_drivers import MuJoCoSimDriver
-from rosclaw.skill_manager import SkillRegistry, SkillEntry, SkillExecutor
-from rosclaw.practice import PracticeRecorder
+from rosclaw.core import Event, EventBus, EventPriority, Runtime, RuntimeConfig
 from rosclaw.core.types import PraxisEvent, RobotState
+from rosclaw.mcp_drivers import MuJoCoSimDriver
+from rosclaw.practice import PracticeRecorder
+from rosclaw.skill_manager import SkillEntry, SkillExecutor, SkillRegistry
+
+PROJECT_ROOT = Path(__file__).parent.parent
 
 
 def main() -> int:
@@ -143,4 +140,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    exit(main())

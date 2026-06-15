@@ -10,10 +10,9 @@ Covers:
 
 import pytest
 
+from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.memory.interface import MemoryInterface
-from rosclaw.memory.types import PraxisEvent, FailureMemory, ArtifactRef
-from rosclaw.core.event_bus import EventBus, Event
-
+from rosclaw.memory.types import ArtifactRef, FailureMemory, PraxisEvent
 
 # ---------------------------------------------------------------------------
 # Fixtures

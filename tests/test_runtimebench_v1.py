@@ -13,7 +13,6 @@ Usage:
     PYTHONPATH=src python -m pytest tests/test_runtimebench_v1.py -v
 """
 
-import json
 import subprocess
 import sys
 from pathlib import Path

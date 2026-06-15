@@ -19,7 +19,6 @@ import pytest
 
 from tests._ros2_env import ros2_available
 
-
 # ROS2 environment paths
 _ROS2_PYTHONPATH = (
     "/tmp/ros2-local/opt/ros/humble/local/lib/python3.10/dist-packages"

@@ -41,7 +41,7 @@ class SandboxDecision:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "SandboxDecision":
+    def from_dict(cls, d: dict[str, Any]) -> SandboxDecision:
         return cls(
             decision_id=d.get("decision_id", ""),
             action=d.get("action", "ALLOW"),
@@ -88,7 +88,7 @@ class SandboxSession:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "SandboxSession":
+    def from_dict(cls, d: dict[str, Any]) -> SandboxSession:
         return cls(
             session_id=d.get("session_id", ""),
             task_id=d.get("task_id", ""),

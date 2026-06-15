@@ -8,7 +8,6 @@ from typing import Any
 from rosclaw.core.event_bus import Event, EventPriority
 
 from .events import DarwinBenchmarkCompletedEvent
-from .metrics import BenchmarkMetrics
 from .runner import BenchmarkRunner
 from .scenarios import StressScenario, get_scenario
 

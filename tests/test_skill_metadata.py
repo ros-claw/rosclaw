@@ -15,7 +15,7 @@ import pytest
 from rosclaw.core.event_bus import EventBus
 from rosclaw.memory.seekdb_client import SeekDBMemoryClient
 from rosclaw.skill_manager.executor import SkillExecutor
-from rosclaw.skill_manager.registry import SkillRegistry, SkillEntry
+from rosclaw.skill_manager.registry import SkillEntry, SkillRegistry
 
 
 @pytest.fixture

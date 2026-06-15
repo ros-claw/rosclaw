@@ -15,14 +15,12 @@ Matrix coverage:
     Provider <-> Registry    Provider registered and discovered via Registry
 """
 
-import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.core.runtime import Runtime, RuntimeConfig
-
 
 # ------------------------------------------------------------------
 # Helper fixtures
@@ -285,9 +283,9 @@ class TestRuntimeHow:
 
 class TestEventBusProvider:
     def test_provider_request_routed_via_event_bus(self, event_bus):
-        from rosclaw.provider.core.registry import ProviderRegistry
-        from rosclaw.provider.core.manifest import ProviderManifest
         from rosclaw.provider.adapters.generic import GenericProvider
+        from rosclaw.provider.core.manifest import ProviderManifest
+        from rosclaw.provider.core.registry import ProviderRegistry
 
         reg = ProviderRegistry(event_bus=event_bus)
         manifest = ProviderManifest.from_dict({
@@ -341,8 +339,8 @@ class TestSandboxFirewall:
 
 class TestMemoryHow:
     def test_how_queries_memory_for_patterns(self, event_bus):
-        from rosclaw.memory.interface import MemoryInterface
         from rosclaw.how.engine import HeuristicEngine
+        from rosclaw.memory.interface import MemoryInterface
 
         mem = MemoryInterface(robot_id="test_bot", event_bus=event_bus)
         mem._do_initialize()
@@ -396,8 +394,8 @@ class TestMemoryHow:
 
 class TestProviderRegistry:
     def test_registry_discoverability(self):
-        from rosclaw.provider.core.registry import ProviderRegistry
         from rosclaw.provider.core.manifest import ProviderManifest
+        from rosclaw.provider.core.registry import ProviderRegistry
 
         reg = ProviderRegistry()
         manifest = ProviderManifest.from_dict({
@@ -411,8 +409,8 @@ class TestProviderRegistry:
         assert "discoverable" in reg.list_providers()
 
     def test_registry_capability_filtering(self):
-        from rosclaw.provider.core.registry import ProviderRegistry
         from rosclaw.provider.core.manifest import ProviderManifest
+        from rosclaw.provider.core.registry import ProviderRegistry
 
         reg = ProviderRegistry()
         m1 = ProviderManifest.from_dict({

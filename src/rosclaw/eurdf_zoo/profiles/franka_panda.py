@@ -4,13 +4,13 @@ Collaborative 7-DOF torque-controlled manipulator.
 """
 
 from rosclaw.runtime.eurdf_loader import (
+    RobotBenchmarkProfile,
+    RobotCapabilityProfile,
+    RobotCompleteProfile,
     RobotEmbodimentProfile,
     RobotSafetyProfile,
-    RobotCapabilityProfile,
-    RobotSimulationProfile,
     RobotSemanticProfile,
-    RobotBenchmarkProfile,
-    RobotCompleteProfile,
+    RobotSimulationProfile,
 )
 
 # ── RobotEmbodimentProfile ──

@@ -1,14 +1,21 @@
 """L2: Schema / Contract tests."""
-import pytest
-from rosclaw.auto.events.schemas import (
-    EventEnvelope, PraxisFailedEvent, BenchmarkCompletedEvent,
-    AutoProposalCreatedEvent, ChampionPromotedEvent, DeadEndRegisteredEvent,
-)
 from rosclaw.auto.core import (
-    AutoTask, FailureCase, Diagnosis, Hypothesis, Proposal,
-    Patch, ExperimentSpec, EvaluationResult, Champion, DeadEnd,
+    AutoTask,
+    Champion,
+    DeadEnd,
+    EvaluationResult,
+    FailureCase,
+    Patch,
+    Proposal,
 )
-
+from rosclaw.auto.events.schemas import (
+    AutoProposalCreatedEvent,
+    BenchmarkCompletedEvent,
+    ChampionPromotedEvent,
+    DeadEndRegisteredEvent,
+    EventEnvelope,
+    PraxisFailedEvent,
+)
 
 # ------------------------------------------------------------------
 # Event Schema Contract

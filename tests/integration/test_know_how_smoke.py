@@ -6,10 +6,9 @@ Run: pytest tests/integration/test_know_how_smoke.py -v
 import pytest
 
 from rosclaw.core import Runtime, RuntimeConfig
-from rosclaw.know import KnowledgeInterface
 from rosclaw.how import HeuristicEngine
+from rosclaw.know import KnowledgeInterface
 from rosclaw.memory.seekdb_client import SeekDBMemoryClient
-
 
 # ─────────────────────────────────────────────────────────────
 # KNOW Smoke Tests

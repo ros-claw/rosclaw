@@ -7,8 +7,7 @@ or race conditions in mixed sync/async usage.
 import asyncio
 import threading
 
-
-from rosclaw.core.event_bus import EventBus, Event
+from rosclaw.core.event_bus import Event, EventBus
 
 
 class TestEventBusThreadSafety:

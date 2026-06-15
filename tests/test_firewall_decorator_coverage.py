@@ -1,13 +1,14 @@
 """Coverage tests for firewall/decorator.py edge cases."""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
-from pathlib import Path
 
 from rosclaw.firewall.decorator import (
     DigitalTwinFirewall,
-    SafetyViolationError,
     SafetyLevel,
+    SafetyViolationError,
 )
 
 MODEL_PATH = Path(__file__).parent.parent / "src" / "rosclaw" / "specs" / "ur5e.xml"

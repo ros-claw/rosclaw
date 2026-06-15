@@ -16,10 +16,11 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import sys
 
-from mcp.server import Server, NotificationOptions
+from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
@@ -49,7 +50,7 @@ class ROSClawMinimalMCPServer:
         @self.server.list_tools()
         async def list_tools() -> list[Tool]:
             tools = []
-            for name, spec in self.hub._tools.items():
+            for _name, spec in self.hub._tools.items():
                 tools.append(
                     Tool(
                         name=spec["name"],
@@ -223,8 +224,8 @@ class ROSClawMinimalMCPServer:
         # Step 3: Record episode
         episode_id = f"ep_{int(time.time())}"
         try:
+            from rosclaw.core.event_bus import Event, EventBus
             from rosclaw.practice.episode_recorder import EpisodeRecorder
-            from rosclaw.core.event_bus import EventBus, Event
             bus = EventBus()
             recorder = EpisodeRecorder(robot_id, event_bus=bus)
             recorder._do_initialize()
@@ -342,10 +343,8 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\n[ROSClaw MCP] Shutdown complete", file=sys.stderr)
     finally:
-        try:
+        with contextlib.suppress(ValueError):
             server.hub.stop()
-        except ValueError:
-            pass  # stdout may be closed during teardown
 
 
 if __name__ == "__main__":

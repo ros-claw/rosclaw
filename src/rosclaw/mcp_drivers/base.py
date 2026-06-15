@@ -7,7 +7,6 @@ implement the BaseDriver interface for uniform control.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional
 
 from rosclaw.core.lifecycle import LifecycleMixin
 
@@ -19,8 +18,8 @@ class DriverState:
     joint_positions: list[float] = field(default_factory=list)
     joint_velocities: list[float] = field(default_factory=list)
     joint_torques: list[float] = field(default_factory=list)
-    end_effector_pose: Optional[list[float]] = None
-    gripper_state: Optional[float] = None
+    end_effector_pose: list[float] | None = None
+    gripper_state: float | None = None
     error_code: int = 0
     error_message: str = ""
 
@@ -46,8 +45,8 @@ class TrajectoryCommand:
     """Standard trajectory command."""
     waypoints: list[list[float]]
     times: list[float]
-    velocity_limits: Optional[list[float]] = None
-    acceleration_limits: Optional[list[float]] = None
+    velocity_limits: list[float] | None = None
+    acceleration_limits: list[float] | None = None
 
 
 class BaseDriver(LifecycleMixin, ABC):

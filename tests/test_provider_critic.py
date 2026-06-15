@@ -3,6 +3,7 @@
 import pytest
 
 from rosclaw.provider.builtins.critic import MockCriticProvider
+from rosclaw.provider.core.errors import CapabilityNotSupportedError
 from rosclaw.provider.core.manifest import ProviderManifest
 from rosclaw.provider.core.request import ProviderRequest
 
@@ -302,7 +303,7 @@ class TestMockCriticProviderUnsupportedCapability:
             capability="critic.unknown",
             inputs={},
         )
-        with pytest.raises(Exception):
+        with pytest.raises(CapabilityNotSupportedError):
             await provider.infer(req)
 
 

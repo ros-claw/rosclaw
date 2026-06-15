@@ -9,7 +9,7 @@ Tests that SandboxRuntimeAdapter can:
 import pytest
 
 from rosclaw.core.event_bus import EventBus
-from rosclaw.runtime import RobotRegistry, EURDFLoader
+from rosclaw.runtime import EURDFLoader, RobotRegistry
 from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
 
 

@@ -9,9 +9,8 @@ Covers:
 
 import pytest
 
-from rosclaw.memory.interface import MemoryInterface, KnowledgeGraphWrapper, HeuristicRuleWrapper
+from rosclaw.memory.interface import HeuristicRuleWrapper, KnowledgeGraphWrapper, MemoryInterface
 from rosclaw.memory.seekdb_client import SeekDBMemoryClient
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

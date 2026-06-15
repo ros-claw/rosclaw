@@ -15,23 +15,18 @@ Demonstrates the complete ROSClaw v1.0 closed-loop that Claude Code would execut
     9. Dashboard shows the full trace
 
 Usage:
-    PYTHONPATH=src python examples/demo_mcp_closed_loop.py
+    python examples/demo_mcp_closed_loop.py
 """
 
-import sys
+import asyncio
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
-
-import asyncio
 import numpy as np
 
-from rosclaw.core import Runtime, RuntimeConfig, EventBus, Event, EventPriority
+from rosclaw.core import Event, EventPriority, Runtime, RuntimeConfig
 from rosclaw.runtime.eurdf_loader import EURDFLoader
-from rosclaw.how.engine import HeuristicEngine
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient
-from rosclaw.practice.episode_recorder import EpisodeRecorder
+
+PROJECT_ROOT = Path(__file__).parent.parent
 
 
 def print_section(title: str) -> None:
@@ -68,7 +63,7 @@ async def main() -> int:
     from rosclaw.dashboard.web_server import DashboardWebServer
     dashboard = DashboardWebServer(host="0.0.0.0", port=8766)
     await dashboard.start()
-    print(f"  Dashboard: http://localhost:8766/health")
+    print("  Dashboard: http://localhost:8766/health")
 
     # ------------------------------------------------------------------
     # 4. Initialize Runtime with full grounding stack
@@ -91,10 +86,10 @@ async def main() -> int:
     runtime.start()
     dashboard.attach_to_event_bus(runtime.event_bus)
     print(f"  Runtime: {runtime.config.robot_id}")
-    print(f"  EventBus: active")
+    print("  EventBus: active")
     print(f"  How module: {'enabled' if runtime._how else 'disabled'}")
     print(f"  Memory: {'enabled' if runtime._memory else 'disabled'}")
-    print(f"  Dashboard: connected to EventBus")
+    print("  Dashboard: connected to EventBus")
 
     # ------------------------------------------------------------------
     # 5. Run a sandbox reach task (mock — MuJoCo simulation)
@@ -252,4 +247,4 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    exit(asyncio.run(main()))

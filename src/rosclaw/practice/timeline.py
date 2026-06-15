@@ -6,17 +6,17 @@ Assembles PraxisEvent from timeline entries on praxis.completed.
 Sprint 4 of DESIGN_SPRINT3_5.
 """
 
-from dataclasses import dataclass
-from enum import Enum
-from pathlib import Path
-from typing import Optional, Any
 import json
 import logging
 import time
+from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
 from rosclaw.core.types import PraxisEvent
 
@@ -42,7 +42,7 @@ class TimelineEntry:
     channel: TimelineChannel
     sequence: int
     data: dict
-    correlation_id: Optional[str] = None
+    correlation_id: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -84,9 +84,9 @@ class UnifiedTimeline(LifecycleMixin):
         self._buffer_size = buffer_size
 
         self._entries: list[TimelineEntry] = []
-        self._sequence_counters: dict[TimelineChannel, int] = {ch: 0 for ch in TimelineChannel}
+        self._sequence_counters: dict[TimelineChannel, int] = dict.fromkeys(TimelineChannel, 0)
         self._pending_praxis: dict[str, dict] = {}
-        self._mcap_writer: Optional[Any] = None
+        self._mcap_writer: Any | None = None
         self._sensorimotor_buffer: list[TimelineEntry] = []
         self._sensorimotor_max = 10_000
 
@@ -208,7 +208,7 @@ class UnifiedTimeline(LifecycleMixin):
         joint_positions: list[float],
         joint_velocities: list[float],
         joint_torques: list[float],
-        correlation_id: Optional[str] = None,
+        correlation_id: str | None = None,
     ) -> None:
         """Record sensorimotor data directly (1kHz, bypasses EventBus)."""
         entry = TimelineEntry(
@@ -244,7 +244,7 @@ class UnifiedTimeline(LifecycleMixin):
         self,
         action: str,
         joint_positions: list[float],
-        correlation_id: Optional[str] = None,
+        correlation_id: str | None = None,
     ) -> None:
         """Record an agent command on the timeline.
 
@@ -284,7 +284,7 @@ class UnifiedTimeline(LifecycleMixin):
         self,
         channel: TimelineChannel,
         data: dict,
-        correlation_id: Optional[str] = None,
+        correlation_id: str | None = None,
     ) -> None:
         entry = TimelineEntry(
             timestamp_ns=time.time_ns(),
@@ -352,16 +352,16 @@ class UnifiedTimeline(LifecycleMixin):
         ))
 
     def _flush_pending_praxis(self) -> None:
-        for cid, state in self._pending_praxis.items():
+        for cid, _state in self._pending_praxis.items():
             logger.info("Flushing incomplete praxis: %s", cid)
         self._pending_praxis.clear()
 
     def get_entries(
         self,
-        channel: Optional[TimelineChannel] = None,
-        correlation_id: Optional[str] = None,
-        start_ns: Optional[int] = None,
-        end_ns: Optional[int] = None,
+        channel: TimelineChannel | None = None,
+        correlation_id: str | None = None,
+        start_ns: int | None = None,
+        end_ns: int | None = None,
     ) -> list[TimelineEntry]:
         result = self._entries
         if channel:

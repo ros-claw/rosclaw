@@ -1,7 +1,7 @@
 """rosclaw.auto.events — Event Bus integration layer."""
-from .schemas import EventEnvelope, PraxisFailedEvent, BenchmarkCompletedEvent
-from .subscribers import AutoSubscriber
 from .publishers import AutoPublisher
+from .schemas import BenchmarkCompletedEvent, EventEnvelope, PraxisFailedEvent
+from .subscribers import AutoSubscriber
 
 __all__ = [
     "EventEnvelope",

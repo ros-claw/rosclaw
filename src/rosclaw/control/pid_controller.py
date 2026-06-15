@@ -5,7 +5,6 @@ Can operate in open-loop (mock) or closed-loop (with feedback) mode.
 """
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -27,7 +26,7 @@ class PIDController:
             robot.set_velocity(cmd)
     """
 
-    def __init__(self, gains: Optional[PIDGains] = None) -> None:
+    def __init__(self, gains: PIDGains | None = None) -> None:
         self.gains = gains or PIDGains()
         self._integral: float = 0.0
         self._prev_error: float = 0.0

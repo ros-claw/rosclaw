@@ -1,20 +1,20 @@
 """Tests for new e-URDF-Zoo robot profiles: Franka Panda, Unitree Go2, Fetch."""
 
 
-from rosclaw.runtime import (
-    EURDFLoader,
-    RobotRegistry,
-    RobotEmbodimentProfile,
-    RobotSafetyProfile,
-    RobotCapabilityProfile,
-    RobotSimulationProfile,
-    RobotSemanticProfile,
-    RobotBenchmarkProfile,
-)
 from rosclaw.eurdf_zoo.profiles import (
+    FETCH_ROBOT_PROFILE,
     FRANKA_PANDA_PROFILE,
     UNITREE_GO2_PROFILE,
-    FETCH_ROBOT_PROFILE,
+)
+from rosclaw.runtime import (
+    EURDFLoader,
+    RobotBenchmarkProfile,
+    RobotCapabilityProfile,
+    RobotEmbodimentProfile,
+    RobotRegistry,
+    RobotSafetyProfile,
+    RobotSemanticProfile,
+    RobotSimulationProfile,
 )
 
 

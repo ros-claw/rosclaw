@@ -75,8 +75,8 @@ class BenchmarkRunner:
             seed_results.append(sr)
 
         # Aggregate across seeds
-        total_success = sum(s.success_count for s in seed_results)
-        total_collisions = sum(s.collision_count for s in seed_results)
+        sum(s.success_count for s in seed_results)
+        sum(s.collision_count for s in seed_results)
         total_episodes = sum(s.total_episodes for s in seed_results)
         all_times = [t for s in seed_results for t in s.completion_times]
         total_safety = sum(s.safety_violations for s in seed_results)

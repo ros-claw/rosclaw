@@ -5,9 +5,8 @@ All communication goes through EventBus — no direct module calls.
 """
 
 import logging
-from typing import Optional
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
 
 logger = logging.getLogger("rosclaw.swarm.manager")
@@ -23,7 +22,7 @@ class SwarmRuntimeManager(LifecycleMixin):
     - Swarm-level event coordination
     """
 
-    def __init__(self, event_bus: Optional[EventBus] = None):
+    def __init__(self, event_bus: EventBus | None = None):
         super().__init__()
         self.event_bus = event_bus
         self._agents: dict[str, dict] = {}
@@ -93,7 +92,7 @@ class SwarmRuntimeManager(LifecycleMixin):
                 priority=EventPriority.NORMAL,
             ))
 
-    def allocate_task(self, task: dict) -> Optional[str]:
+    def allocate_task(self, task: dict) -> str | None:
         """Allocate a task to an available agent."""
         required = task.get("required_capabilities", [])
         for agent_id, agent in self._agents.items():
@@ -109,7 +108,7 @@ class SwarmRuntimeManager(LifecycleMixin):
                 return agent_id
         return None
 
-    def get_agent_status(self, agent_id: str) -> Optional[dict]:
+    def get_agent_status(self, agent_id: str) -> dict | None:
         """Get status of a registered agent."""
         return self._agents.get(agent_id)
 

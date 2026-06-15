@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 
 
 @dataclass
@@ -35,7 +35,7 @@ class SwarmCoordinator:
     - Achieves consensus on shared world state
     """
 
-    def __init__(self, event_bus: Optional[EventBus] = None):
+    def __init__(self, event_bus: EventBus | None = None):
         self.event_bus = event_bus
         self._agents: dict[str, dict] = {}
         self._tasks: dict[str, dict] = {}
@@ -44,7 +44,7 @@ class SwarmCoordinator:
 
     # ── Agent management ──
 
-    def register_agent(self, agent_id: str, capabilities: list[str], position: Optional[tuple[float, ...]] = None) -> None:
+    def register_agent(self, agent_id: str, capabilities: list[str], position: tuple[float, ...] | None = None) -> None:
         """Register an agent with the coordinator."""
         self._agents[agent_id] = {
             "id": agent_id,
@@ -111,7 +111,7 @@ class SwarmCoordinator:
                 import math
                 pos = agent["position"]
                 target = task["target_position"]
-                dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(pos, target)))
+                dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(pos, target, strict=False)))
                 cost += dist
 
             bids.append(AgentBid(
@@ -198,7 +198,7 @@ class SwarmCoordinator:
                     priority=EventPriority.HIGH,
                 ))
 
-    def get_consensus(self, key: str) -> Optional[Any]:
+    def get_consensus(self, key: str) -> Any | None:
         """Get agreed consensus value for a key."""
         return self._consensus_state.get(key, {}).get("agreed_value")
 

@@ -80,7 +80,7 @@ def _run_and_assert(cmd: str) -> None:
 
     result = _run_command(cmd)
 
-    stderr = result.stderr.lower()
+    result.stderr.lower()
     stdout = result.stdout
     combined = (stdout + result.stderr).lower()
 

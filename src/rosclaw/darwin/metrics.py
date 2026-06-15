@@ -35,7 +35,7 @@ class BenchmarkMetrics:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "BenchmarkMetrics":
+    def from_dict(cls, d: dict[str, Any]) -> BenchmarkMetrics:
         return cls(
             success_rate=d.get("success_rate", 0.0),
             success_rate_std=d.get("success_rate_std", 0.0),
@@ -53,12 +53,10 @@ class BenchmarkMetrics:
     def regression_threshold(self) -> float:
         return 0.05
 
-    def is_regression(self, baseline: "BenchmarkMetrics") -> bool:
+    def is_regression(self, baseline: BenchmarkMetrics) -> bool:
         """Detect regression vs baseline."""
         if self.success_rate < baseline.success_rate - self.regression_threshold:
             return True
         if self.collision_rate > baseline.collision_rate + self.regression_threshold:
             return True
-        if self.safety_violation_count > baseline.safety_violation_count:
-            return True
-        return False
+        return self.safety_violation_count > baseline.safety_violation_count

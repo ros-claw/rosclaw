@@ -2,13 +2,13 @@
 
 import pytest
 
-from rosclaw.core.event_bus import EventBus, Event
-from rosclaw.e_urdf.parser import RobotModel, JointSpec
+from rosclaw.core.event_bus import Event, EventBus
+from rosclaw.e_urdf.parser import JointSpec, RobotModel
 from rosclaw.firewall.validator import (
     FirewallValidator,
     SafetyEnvelope,
-    ValidationRequest,
     ValidationLayer,
+    ValidationRequest,
     ValidationResponse,
     ViolationDetail,
 )

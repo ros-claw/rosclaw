@@ -69,7 +69,7 @@ class AutoProposal:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "AutoProposal":
+    def from_dict(cls, d: dict[str, Any]) -> AutoProposal:
         return cls(
             proposal_id=d.get("proposal_id", ""),
             source=d.get("source", "failure_guided"),
@@ -118,7 +118,7 @@ class AutoPatch:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "AutoPatch":
+    def from_dict(cls, d: dict[str, Any]) -> AutoPatch:
         return cls(
             patch_id=d.get("patch_id", ""),
             proposal_id=d.get("proposal_id", ""),
@@ -175,7 +175,7 @@ class ExperimentSpec:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "ExperimentSpec":
+    def from_dict(cls, d: dict[str, Any]) -> ExperimentSpec:
         return cls(
             experiment_id=d.get("experiment_id", ""),
             proposal_id=d.get("proposal_id", ""),
@@ -223,7 +223,7 @@ class EvaluationResult:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "EvaluationResult":
+    def from_dict(cls, d: dict[str, Any]) -> EvaluationResult:
         return cls(
             result_id=d.get("result_id", ""),
             experiment_id=d.get("experiment_id", ""),
@@ -272,7 +272,7 @@ class Champion:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "Champion":
+    def from_dict(cls, d: dict[str, Any]) -> Champion:
         return cls(
             champion_id=d.get("champion_id", ""),
             skill_id=d.get("skill_id", ""),
@@ -317,7 +317,7 @@ class DeadEnd:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "DeadEnd":
+    def from_dict(cls, d: dict[str, Any]) -> DeadEnd:
         return cls(
             deadend_id=d.get("deadend_id", ""),
             task_id=d.get("task_id", ""),

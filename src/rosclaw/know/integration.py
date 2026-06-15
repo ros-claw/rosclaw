@@ -7,10 +7,10 @@ tracking.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.know.interface import KnowledgeInterface
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
 
 
 class KnowIntegration:
@@ -22,7 +22,7 @@ class KnowIntegration:
         # result contains capability match, safety limits, alternatives
     """
 
-    def __init__(self, robot_id: str, event_bus: Optional[EventBus] = None,
+    def __init__(self, robot_id: str, event_bus: EventBus | None = None,
                  seekdb_client: Any = None):
         self.robot_id = robot_id
         self.event_bus = event_bus

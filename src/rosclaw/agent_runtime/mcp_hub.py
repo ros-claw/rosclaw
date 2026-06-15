@@ -18,9 +18,9 @@ import asyncio
 import logging
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
 
 logger = logging.getLogger("rosclaw.agent_runtime.mcp_hub")
@@ -36,11 +36,11 @@ class AgentContext:
     """
     session_id: str
     robot_id: str
-    current_task: Optional[str] = None
+    current_task: str | None = None
     task_history: list[dict] = field(default_factory=list)
     robot_model_description: str = ""
     current_joint_positions: list[float] = field(default_factory=list)
-    current_end_effector_pose: Optional[list[float]] = None
+    current_end_effector_pose: list[float] | None = None
     active_skills: list[str] = field(default_factory=list)
     safety_level: str = "strict"
 
@@ -80,7 +80,7 @@ class MCPHub(LifecycleMixin):
         self,
         event_bus: EventBus,
         robot_id: str = "rosclaw_default",
-        runtime: Optional[Any] = None,
+        runtime: Any | None = None,
     ):
         super().__init__()
         self.event_bus = event_bus
@@ -91,7 +91,7 @@ class MCPHub(LifecycleMixin):
             robot_id=robot_id,
         )
         self._tools: dict[str, dict] = {}
-        self._server: Optional[Any] = None
+        self._server: Any | None = None
         self._pending_requests: dict[str, asyncio.Future] = {}
         self._default_timeout: float = 30.0
 
@@ -600,7 +600,7 @@ class MCPHub(LifecycleMixin):
         try:
             result = await asyncio.wait_for(future, timeout=self._default_timeout)
             return result
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return {
                 "status": "failed",
                 "capability": capability,
@@ -718,7 +718,7 @@ class MCPHub(LifecycleMixin):
         self,
         topic: str,
         payload: dict,
-        timeout: Optional[float] = None,
+        timeout: float | None = None,
     ) -> dict:
         """
         Send a command via EventBus and wait for response.
@@ -746,7 +746,7 @@ class MCPHub(LifecycleMixin):
         try:
             result = await asyncio.wait_for(future, timeout=timeout or self._default_timeout)
             return result
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return {
                 "status": "timeout",
                 "message": f"Command timed out after {timeout or self._default_timeout}s",

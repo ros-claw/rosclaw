@@ -3,7 +3,7 @@
 Task 1: Publish praxis.completed event after successful execution.
 """
 
-from rosclaw.core.event_bus import EventBus, Event
+from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.practice.recorder import PracticeRecorder
 
 

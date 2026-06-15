@@ -6,7 +6,7 @@ import tempfile
 
 import pytest
 
-from rosclaw.core.event_bus import EventBus, Event
+from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.practice.episode_recorder import EpisodeRecorder
 
 

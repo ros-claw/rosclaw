@@ -5,16 +5,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from rosclaw.agent_runtime.llm_provider import (
+    DeepSeekProvider,
     LLMConfig,
     LLMProvider,
-    DeepSeekProvider,
     OpenAIProvider,
     QwenProvider,
     get_provider,
     list_providers,
     register_provider,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

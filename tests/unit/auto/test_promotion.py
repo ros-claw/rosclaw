@@ -1,8 +1,6 @@
 """Tests for Sprint D: Champion/DeadEnd/Promotion Gate."""
-import pytest
-from rosclaw.auto.promotion import PromotionGate, ChampionStore, RollbackManager, LineageTracker
-from rosclaw.auto.promotion.gate import GateResult
 from rosclaw.auto.core.champion import Champion
+from rosclaw.auto.promotion import ChampionStore, LineageTracker, PromotionGate, RollbackManager
 from rosclaw.auto.storage.local_store import LocalStore
 
 

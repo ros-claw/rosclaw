@@ -1,9 +1,10 @@
 """Edge case tests for EventBus — Sprint 2 release guard."""
 
-import pytest
 import asyncio
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+import pytest
+
+from rosclaw.core.event_bus import Event, EventBus
 
 
 def test_subscribe_empty_topic():

@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("rosclaw.sandbox.sandbox_api")
 
@@ -32,15 +32,15 @@ class Sandbox:
         robot_id: str,
         world_id: str,
         engine: str = "mujoco",
-        publisher: Optional[Any] = None,
+        publisher: Any | None = None,
     ):
         self._robot_id = robot_id
         self._world_id = world_id
         self._engine = engine
         self._publisher = publisher
         self.session = SandboxSession(str(uuid.uuid4()))
-        self._model: Optional[Any] = None
-        self._data: Optional[Any] = None
+        self._model: Any | None = None
+        self._data: Any | None = None
         self._load_model()
 
     @classmethod
@@ -49,8 +49,8 @@ class Sandbox:
         robot_id: str,
         world_id: str,
         engine: str = "mujoco",
-        publisher: Optional[Any] = None,
-    ) -> "Sandbox":
+        publisher: Any | None = None,
+    ) -> Sandbox:
         """Factory method used by SandboxRuntimeAdapter."""
         return cls(robot_id, world_id, engine, publisher)
 
@@ -117,7 +117,7 @@ class Sandbox:
         self._model = None
         self._data = None
 
-    def step(self, joint_positions: list[float]) -> Optional[dict[str, Any]]:
+    def step(self, joint_positions: list[float]) -> dict[str, Any] | None:
         """Step physics with given joint positions (position control).
 
         Returns state dict with qpos, qvel, time or None if no model.
@@ -140,7 +140,7 @@ class Sandbox:
             "time": float(self._data.time),
         }
 
-    def get_state(self) -> Optional[dict[str, Any]]:
+    def get_state(self) -> dict[str, Any] | None:
         """Get current physics state without stepping."""
         if self._data is None or self._model is None:
             return None
@@ -150,7 +150,7 @@ class Sandbox:
             "time": float(self._data.time),
         }
 
-    def get_observation(self, normalize: bool = True) -> Optional[dict[str, Any]]:
+    def get_observation(self, normalize: bool = True) -> dict[str, Any] | None:
         """Get rich normalized observation from MuJoCo scene state.
 
         Returns a dict with:

@@ -9,9 +9,9 @@ from rosclaw.firewall.decorator import (
 from rosclaw.firewall.validator import (
     FirewallValidator,
     SafetyEnvelope,
+    ValidationLayer,
     ValidationRequest,
     ValidationResponse,
-    ValidationLayer,
     ViolationDetail,
 )
 

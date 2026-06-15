@@ -54,10 +54,10 @@ class Provider(ABC):
     # ------------------------------------------------------------------
     # Lifecycle hooks (optional overrides)
     # ------------------------------------------------------------------
-    async def load(self) -> None:
+    async def load(self) -> None:  # noqa: B027
         """Load model weights, connect to runtime, warm up."""
 
-    async def unload(self) -> None:
+    async def unload(self) -> None:  # noqa: B027
         """Release resources, disconnect."""
 
     # ------------------------------------------------------------------

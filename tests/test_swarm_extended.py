@@ -3,8 +3,8 @@
 import pytest
 
 from rosclaw.core.event_bus import EventBus
-from rosclaw.swarm.coordinator import SwarmCoordinator
 from rosclaw.swarm.consensus import RaftLikeConsensus
+from rosclaw.swarm.coordinator import SwarmCoordinator
 
 
 class TestSwarmCoordinatorExtended:

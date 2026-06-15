@@ -1,6 +1,6 @@
 """DashboardExporter — export Auto evolution data for rosclaw-dashboard."""
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -22,7 +22,7 @@ class DashboardExporter:
     def export(self, task_id: str | None = None) -> dict:
         """Export full dashboard dataset."""
         data = {
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "summary": self._build_summary(task_id),
             "tasks": self._build_tasks(task_id),
             "champions": self._build_champions(task_id),

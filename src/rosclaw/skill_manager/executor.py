@@ -2,11 +2,11 @@
 
 import logging
 import time
-from typing import Any, Optional
+from typing import Any
 
-from rosclaw.core.event_bus import EventBus, Event, EventPriority
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
-from rosclaw.skill_manager.registry import SkillRegistry, SkillEntry
+from rosclaw.skill_manager.registry import SkillEntry, SkillRegistry
 
 logger = logging.getLogger("rosclaw.skill_manager.executor")
 
@@ -30,18 +30,18 @@ class SkillExecutor(LifecycleMixin):
         self,
         event_bus: EventBus,
         registry: SkillRegistry,
-        seekdb_client: Optional[Any] = None,
+        seekdb_client: Any | None = None,
     ):
         super().__init__()
         self.event_bus = event_bus
         self.registry = registry
         self._seekdb = seekdb_client
-        self._current_skill: Optional[str] = None
+        self._current_skill: str | None = None
 
     def _do_initialize(self) -> None:
         logger.info("Initialized")
 
-    def execute(self, skill_name: str, parameters: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    def execute(self, skill_name: str, parameters: dict[str, Any] | None = None) -> dict[str, Any]:
         """
         Execute a skill by name.
 
@@ -175,5 +175,5 @@ class SkillExecutor(LifecycleMixin):
         return self._current_skill is not None
 
     @property
-    def current_skill(self) -> Optional[str]:
+    def current_skill(self) -> str | None:
         return self._current_skill

@@ -16,7 +16,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 import pytest  # noqa: E402
 
-from rosclaw.core import Runtime, RuntimeConfig, Event  # noqa: E402
+from rosclaw.core import Event, Runtime, RuntimeConfig  # noqa: E402
 from rosclaw.dashboard.web_server import DashboardWebServer  # noqa: E402
 
 
@@ -77,6 +77,7 @@ class TestFullPipeline:
     def test_firewall_blocks_over_limit(self, runtime):
         """DigitalTwinFirewall must BLOCK over-limit trajectories."""
         import numpy as np
+
         from rosclaw.firewall import DigitalTwinFirewall, SafetyLevel
 
         model_path = str(PROJECT_ROOT / "src" / "rosclaw" / "specs" / "ur5e.xml")
@@ -91,6 +92,7 @@ class TestFullPipeline:
     def test_firewall_allows_safe(self, runtime):
         """DigitalTwinFirewall must ALLOW safe trajectories."""
         import numpy as np
+
         from rosclaw.firewall import DigitalTwinFirewall, SafetyLevel
 
         model_path = str(PROJECT_ROOT / "src" / "rosclaw" / "specs" / "ur5e.xml")
@@ -162,6 +164,7 @@ class TestFullPipeline:
     def test_mcp_hub_eventbus_routing(self, runtime):
         """MCPHub must route capabilities through EventBus."""
         import asyncio
+
         from rosclaw.agent_runtime.mcp_hub import MCPHub
 
         hub = MCPHub(event_bus=runtime.event_bus, robot_id="ur5e", runtime=runtime)
