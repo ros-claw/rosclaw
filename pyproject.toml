@@ -34,6 +34,8 @@ dependencies = [
     "fastapi>=0.100.0",
     "uvicorn>=0.23.0",
     "websockets>=12.0",
+    "rosclaw-know>=1.5.0a1",
+    "rosclaw-how>=0.1.0",
 ]
 
 [project.optional-dependencies]

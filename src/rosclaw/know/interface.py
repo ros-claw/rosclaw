@@ -13,14 +13,14 @@ Design decisions for v1.0:
 from __future__ import annotations
 
 import json
-import time
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Any
 
-from rosclaw.core.lifecycle import LifecycleMixin
 from rosclaw.core.event_bus import Event, EventPriority
+from rosclaw.core.lifecycle import LifecycleMixin
 
 try:
     from rosclaw.core.event_bus import EventBus
@@ -28,6 +28,32 @@ except ImportError:
     EventBus = None
 
 logger = logging.getLogger("rosclaw.know.interface")
+
+
+def _validate_bridge_index(
+    data: dict[str, Any], code_patterns_dir: Path | None = None
+) -> dict[str, Any]:
+    """Validate a bridge_index dict using rosclaw_know schema if available.
+
+    This is a soft dependency: if the private ``rosclaw_know`` package is not
+    installed, validation is skipped and the runtime keeps working with its
+    local bridge loader.
+    """
+    try:
+        from rosclaw_know.bridge_schema import validate_bridge_index  # type: ignore[import-untyped]
+        return validate_bridge_index(data, code_patterns_dir)
+    except Exception:  # noqa: BLE001
+        return {"ok": True, "errors": [], "warnings": []}
+
+
+def _load_rosclaw_know_patterns() -> list[Any]:
+    """Load curated patterns from the private rosclaw_know registry.
+
+    Raises ImportError when ``rosclaw_know`` is not installed; callers should
+    catch that and continue with the hard-coded baseline patterns.
+    """
+    from rosclaw_know.curated_registry import load_curated_patterns  # type: ignore[import-untyped]
+    return load_curated_patterns()
 
 
 class KnowledgeInterface(LifecycleMixin):
@@ -157,6 +183,7 @@ class KnowledgeInterface(LifecycleMixin):
         seekdb_client: Any = None,
         assets_path: str = "data/knowledge_assets",
         similarity_floor: float = 0.5,
+        use_rosclaw_know_registry: bool = False,
     ):
         super().__init__()
         self.robot_id = robot_id
@@ -164,6 +191,7 @@ class KnowledgeInterface(LifecycleMixin):
         self.seekdb = seekdb_client
         self.assets_path = Path(assets_path)
         self.similarity_floor = similarity_floor
+        self.use_rosclaw_know_registry = use_rosclaw_know_registry
 
         # In-memory caches (populated at initialize())
         self._capabilities: dict[str, list[str]] = {}  # robot_id -> [capability, ...]
@@ -191,6 +219,13 @@ class KnowledgeInterface(LifecycleMixin):
                 self._load_bridge_index(bridge_path)
             except Exception as exc:
                 logger.warning("[Know] bridge_index load failed: %s", exc)
+
+        # 2b. Optional rosclaw_know integration: validate schema and enrich
+        #     with the private curated registry when enabled.
+        if bridge_path.exists():
+            self._maybe_validate_bridge(bridge_path)
+        if self.use_rosclaw_know_registry:
+            self._maybe_enrich_from_rosclaw_know()
 
         # 3. Always register curated safety patterns as baseline
         self._register_curated_patterns()
@@ -498,7 +533,7 @@ class KnowledgeInterface(LifecycleMixin):
         best_key: str | None = None
         best_score = 0.0
 
-        for pattern, steps in self._TASK_DECOMPOSITIONS.items():
+        for pattern, _steps in self._TASK_DECOMPOSITIONS.items():
             score = self._score_task_match(task_lower, pattern)
             if score > best_score:
                 best_score = score
@@ -773,8 +808,9 @@ class KnowledgeInterface(LifecycleMixin):
         Returns a summary dict with counts of joints, links, sensors,
         actuators, and capabilities loaded.
         """
-        import yaml
         from pathlib import Path
+
+        import yaml
 
         if self.seekdb is None:
             return {"loaded": False, "error": "No SeekDB client", "robot_id": robot_id}
@@ -783,7 +819,7 @@ class KnowledgeInterface(LifecycleMixin):
         if not path.exists():
             raise FileNotFoundError(f"e-URDF not found: {eurdf_path}")
 
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             eurdf = yaml.safe_load(f)
 
         counts = {"joints": 0, "links": 0, "sensors": 0, "actuators": 0, "capabilities": 0}
@@ -908,6 +944,63 @@ class KnowledgeInterface(LifecycleMixin):
                 reach = cap.get("constraints", {}).get("max_reach", 0.0)
                 return int(reach * 1000) if reach else 0
         return 0
+
+    def _maybe_validate_bridge(self, bridge_path: Path) -> None:
+        """Soft validation of bridge_index.json via rosclaw_know schema v2."""
+        try:
+            data = json.loads(bridge_path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[Know] bridge validation read failed: %s", exc)
+            return
+
+        code_patterns_dir = bridge_path.parent / "code_patterns"
+        try:
+            report = _validate_bridge_index(data, code_patterns_dir)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[Know] bridge validation skipped: %s", exc)
+            return
+
+        if not report.get("ok"):
+            for err in report.get("errors", []):
+                logger.error("[Know] bridge schema error: %s", err)
+        for warn in report.get("warnings", []):
+            logger.warning("[Know] bridge schema warning: %s", warn)
+
+    def _maybe_enrich_from_rosclaw_know(self) -> None:
+        """Load private curated patterns and merge into the in-memory index.
+
+        Patterns from the private registry override any existing entry with the
+        same ``pattern_id`` because the registry is the authoritative source.
+        """
+        try:
+            patterns = _load_rosclaw_know_patterns()
+        except ImportError:
+            logger.info(
+                "[Know] rosclaw_know not installed; curated registry enrichment skipped"
+            )
+            return
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[Know] rosclaw_know registry load failed: %s", exc)
+            return
+
+        for cp in patterns:
+            self._patterns[cp.pattern_id] = {
+                "symptom": cp.standard_name,
+                "domain": cp.domain,
+                "fix": cp.fix_pattern,
+                "anti_pattern": cp.failed_attempt,
+                "keywords": list(cp.matched_keywords),
+                "analogies": [dict(h) for h in cp.cross_domain_hints],
+            }
+            self._symptoms.append({
+                "id": cp.pattern_id,
+                "subject": self.robot_id,
+                "symptom": cp.standard_name,
+                "confidence": 1.0,
+            })
+        logger.info(
+            "[Know] Enriched %d patterns from rosclaw_know registry", len(patterns)
+        )
 
     # -- Internal loaders --
 

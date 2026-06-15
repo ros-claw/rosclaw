@@ -25,8 +25,9 @@ Architecture:
 """
 
 import logging
+import os
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from rosclaw.core.event_bus import EventBus, Event, EventPriority
@@ -83,6 +84,16 @@ class RuntimeConfig:
     gpu_minicpm_endpoint: Optional[str] = None   # e.g. "http://localhost:8003"
     gpu_cosmos_endpoint: Optional[str] = None    # e.g. "http://localhost:8004"
     event_bus: Optional[Any] = None              # External EventBus instance
+    # HOW service client (optional). When set, Runtime talks to a local/private
+    # rosclaw-how HTTP service instead of the built-in HeuristicEngine.
+    how_url: Optional[str] = field(default_factory=lambda: os.environ.get("ROSCLAW_HOW_URL"))
+    how_api_key: Optional[str] = field(default_factory=lambda: os.environ.get("ROSCLAW_HOW_API_KEY"))
+    how_timeout: float = 10.0
+    how_fallback_to_local: bool = True
+    # KNOW optional integration with private rosclaw_know curated registry.
+    know_curated_registry_enabled: bool = field(
+        default_factory=lambda: os.environ.get("ROSCLAW_KNOW_CURATED_REGISTRY_ENABLED", "").lower() in ("1", "true", "yes", "on")
+    )
 
 
 class Runtime(LifecycleMixin):
@@ -285,6 +296,7 @@ class Runtime(LifecycleMixin):
                     robot_id=self.config.robot_id,
                     event_bus=self.event_bus,
                     seekdb_client=seekdb,
+                    use_rosclaw_know_registry=self.config.know_curated_registry_enabled,
                 )
                 self._modules.append(self._knowledge)
                 logger.info("Knowledge Grounding (KnowledgeInterface) initialized")
@@ -323,32 +335,18 @@ class Runtime(LifecycleMixin):
             except ImportError as e:
                 logger.info(f"Knowledge module not available: {e}")
 
-        # Initialize Heuristic Grounding (HeuristicEngine) - depends on KNOW
+        # Initialize Heuristic Grounding (HeuristicEngine / HowClient) - depends on KNOW
         if self.config.enable_how:
             try:
-                from rosclaw.how.engine import HeuristicEngine
                 # Reuse Memory's SeekDB client if available
                 seekdb = None
                 if self._memory is not None:
                     seekdb = getattr(self._memory, "seekdb_client", None)
-                if seekdb is not None:
-                    self._how = HeuristicEngine(
-                        seekdb_client=seekdb,
-                        knowledge_interface=self._knowledge,
-                        event_bus=self.event_bus,
-                    )
+                self._how = self._create_how_engine(seekdb)
+                if self._how is not None:
                     self._modules.append(self._how)
-                    # HeuristicEngine is not a LifecycleMixin;
-                    # initialize and seed defaults explicitly here.
-                    self._run_async(self._how.initialize())
-                    self._run_async(self._how.seed_defaults())
-                    # Initialize EventBus subscriptions for active recovery
-                    self._run_async(self._how.initialize())
-                    logger.info("Heuristic Grounding (HeuristicEngine) initialized")
-                else:
-                    logger.info("HeuristicEngine skipped: no SeekDB client (memory not enabled)")
-            except ImportError as e:
-                logger.info(f"HeuristicEngine not available: {e}")
+            except Exception as e:  # noqa: BLE001
+                logger.info(f"Heuristic grounding not available: {e}")
 
         # Initialize Auto Self-Evolution Control Plane
         if self.config.enable_auto:
@@ -401,6 +399,40 @@ class Runtime(LifecycleMixin):
                 module.initialize()
 
         logger.info("Initialization complete")
+
+    def _create_how_engine(self, seekdb: Any | None) -> Any | None:
+        """Return a HOW engine: HowClient when configured, else HeuristicEngine."""
+        if self.config.how_url:
+            try:
+                from rosclaw.how.client import HowClient
+                client = HowClient(
+                    self.config.how_url,
+                    api_key=self.config.how_api_key,
+                    timeout=self.config.how_timeout,
+                )
+                self._run_async(client.initialize())
+                logger.info("Heuristic Grounding (HowClient) initialized at %s", self.config.how_url)
+                return client
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("HowClient initialization failed: %s", exc)
+                if not self.config.how_fallback_to_local:
+                    return None
+                logger.info("Falling back to local HeuristicEngine")
+
+        if seekdb is None:
+            logger.info("HeuristicEngine skipped: no SeekDB client (memory not enabled)")
+            return None
+
+        from rosclaw.how.engine import HeuristicEngine
+        engine = HeuristicEngine(
+            seekdb_client=seekdb,
+            knowledge_interface=self._knowledge,
+            event_bus=self.event_bus,
+        )
+        self._run_async(engine.initialize())
+        self._run_async(engine.seed_defaults())
+        logger.info("Heuristic Grounding (HeuristicEngine) initialized")
+        return engine
 
     def _do_start(self) -> None:
         """Start all modules."""

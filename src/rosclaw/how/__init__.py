@@ -29,6 +29,8 @@ Integration:
   RuntimeLoop-> proactive: _how.decide_recovery(InterventionRequest) ->
                 full decision + rule_id (when safety-attributable).
 """
+
+from .client import HowClient
 from .engine import HeuristicEngine
 from .intervention import (
     SAFETY_TAXONOMY,
@@ -37,6 +39,7 @@ from .intervention import (
     FeasibilityState,
     InterventionDecision,
     InterventionRequest,
+    InterventionStrategy,
     ObjectiveDirection,
     OptimizationContext,
     OptimizationState,
@@ -44,7 +47,6 @@ from .intervention import (
     SafetyContext,
     SafetySeverity,
     SafetyState,
-    InterventionStrategy,
     TaskContext,
     compose,
     decide_strategy,
@@ -58,6 +60,8 @@ from .recovery import RecoveryEngine, RecoveryFormatter, format_recovery_suggest
 from .recovery_loop import RecoveryLoop
 
 __all__ = [
+    # service client
+    "HowClient",
     # reactive
     "HeuristicEngine",
     "RecoveryEngine",
