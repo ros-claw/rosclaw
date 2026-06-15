@@ -7,7 +7,6 @@ without requiring an external model service.
 
 from __future__ import annotations
 
-
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -25,7 +24,7 @@ class _ArtifactRef:
     value: str = ""
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "_ArtifactRef":
+    def from_dict(cls, d: dict[str, Any]) -> _ArtifactRef:
         return cls(type=d.get("type", ""), uri=d.get("uri", ""), value=d.get("value", ""))
 
 
@@ -154,7 +153,7 @@ class MockVLMProvider(Provider):
             from PIL import Image
             with Image.open(image_path) as img:
                 img = img.convert("RGB")
-                pixels = list(img.getdata())
+                pixels = list(getattr(img, "get_flattened_data", img.getdata)())
                 w, h = img.size
 
             color = self._extract_color(query)
@@ -231,7 +230,7 @@ class MockVLMProvider(Provider):
             from PIL import Image
             with Image.open(image_path) as img:
                 img = img.convert("L")
-                pixels = list(img.getdata())
+                pixels = list(getattr(img, "get_flattened_data", img.getdata)())
             avg_brightness = sum(pixels) / len(pixels)
             if avg_brightness > 200:
                 return "bright_indoor"
