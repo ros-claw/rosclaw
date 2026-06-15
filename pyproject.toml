@@ -34,8 +34,8 @@ dependencies = [
     "fastapi>=0.100.0",
     "uvicorn>=0.23.0",
     "websockets>=12.0",
-    "rosclaw-know>=1.5.0a1",
-    "rosclaw-how>=0.1.0",
+    "rosclaw-know>=1.0.0",
+    "rosclaw-how>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -52,6 +52,8 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "ruff>=0.1.0",
     "mypy>=1.5.0",
+    "rank-bm25>=0.2",
+    "Pillow>=10.0",
 ]
 all = [
     "rosclaw[ros2,dev]",
