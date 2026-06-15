@@ -33,8 +33,8 @@ dependencies = [
     "fastapi>=0.100.0",
     "uvicorn>=0.23.0",
     "websockets>=12.0",
-    "rosclaw-know>=1.5.0a2",
-    "rosclaw-how>=0.1.1",
+    "rosclaw-know>=1.0.0",
+    "rosclaw-how>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -51,6 +51,8 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "ruff>=0.1.0",
     "mypy>=1.5.0",
+    "rank-bm25>=0.2",
+    "Pillow>=10.0",
 ]
 all = [
     "rosclaw[ros2,dev]",
@@ -79,7 +81,7 @@ include = [
 ]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 100
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
 ignore = ["E501"]
@@ -88,7 +90,7 @@ ignore = ["E501"]
 known-first-party = ["rosclaw"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 strict = true
 warn_return_any = true
 warn_unused_ignores = true
