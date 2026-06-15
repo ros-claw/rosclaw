@@ -18,13 +18,12 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Scientific/Engineering :: Physics",
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "jieba",
     "numpy>=1.24.0",
@@ -34,8 +33,8 @@ dependencies = [
     "fastapi>=0.100.0",
     "uvicorn>=0.23.0",
     "websockets>=12.0",
-    "rosclaw-know>=1.5.0a1",
-    "rosclaw-how>=0.1.0",
+    "rosclaw-know>=1.5.0a2",
+    "rosclaw-how>=0.1.1",
 ]
 
 [project.optional-dependencies]
