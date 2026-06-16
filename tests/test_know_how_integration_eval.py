@@ -96,24 +96,25 @@ HOW_TEST_CASES: list[tuple[str, str, str, str]] = [
         "CATALYST",
         "curated cluster in motion-blur-deblur",
     ),
-]
-
-# Known-gap cases: the correct curated cluster exists but the topic_group
-# fingerprint inference mis-classifies the query, so the hard-filter blocks
-# the match and /prompt/build ABSTAINs. These are intentionally marked xfail
-# until the fingerprint or admission logic is improved.
-HOW_KNOWN_GAPS: list[tuple[str, str, str]] = [
     (
         "entropy collapse ppo policy value loss degenerate episodes kl exploration",
         "ppo_entropy_collapse_guard",
-        "topic filter infers closed-loop-replanning instead of rl-training-stability",
+        "CATALYST",
+        "curated cluster in rl-training-stability",
     ),
     (
         "Gradient magnitude explodes during backprop causing weight overflow",
         "gradient_clipping",
-        "topic filter infers reliability-engineering instead of rl-training-stability",
+        "CATALYST",
+        "curated cluster in rl-training-stability",
     ),
 ]
+
+# Known-gap cases: the correct curated cluster exists but some part of the
+# pipeline (topic_group fingerprint, cluster similarity, etc.) currently blocks
+# the match and /prompt/build ABSTAINs. Add cases here when a new gap is found;
+# move them to HOW_TEST_CASES once the gap is closed.
+HOW_KNOWN_GAPS: list[tuple[str, str, str]] = []
 
 
 @pytest.mark.asyncio
