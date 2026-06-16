@@ -54,6 +54,7 @@ dev = [
     "mypy>=1.5.0",
     "rank-bm25>=0.2",
     "Pillow>=10.0",
+    "httpx2>=2.0.0",
 ]
 all = [
     "rosclaw[ros2,dev]",
