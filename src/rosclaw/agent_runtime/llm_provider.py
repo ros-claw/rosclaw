@@ -184,8 +184,8 @@ Generate a task plan."""
         # 1. Try heuristic first (fast, deterministic, free)
         if heuristic_engine is not None:
             try:
-                import asyncio
-                heuristic = asyncio.run(heuristic_engine.suggest_recovery(error_log))
+                from rosclaw.core.async_utils import run_sync
+                heuristic = run_sync(heuristic_engine.suggest_recovery(error_log))
                 if heuristic:
                     return {
                         "root_cause": "matched_heuristic",

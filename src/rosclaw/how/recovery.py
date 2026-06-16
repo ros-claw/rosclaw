@@ -132,10 +132,29 @@ class RecoveryEngine:
         previous_scores = payload.get("previous_scores")
         current_iteration = payload.get("current_iteration")
 
-        import asyncio
+        from rosclaw.core.async_utils import run_sync
 
+        run_sync(self._handle_failure_async(
+            failure_type=failure_type,
+            request_id=request_id,
+            source=source,
+            payload=payload,
+            previous_scores=previous_scores if isinstance(previous_scores, list) else None,
+            current_iteration=current_iteration if isinstance(current_iteration, int) else None,
+        ))
+
+    async def _handle_failure_async(
+        self,
+        failure_type: str,
+        request_id: str,
+        source: str,
+        payload: dict[str, Any],
+        previous_scores: list[float] | None,
+        current_iteration: int | None,
+    ) -> None:
+        """Async implementation of failure handling."""
         try:
-            hint = asyncio.run(self.generate_recovery_hint(
+            hint = await self.generate_recovery_hint(
                 failure_type,
                 context={
                     "request_id": request_id,
@@ -144,9 +163,9 @@ class RecoveryEngine:
                 },
                 sources=[source],
                 request_id=request_id,
-                previous_scores=previous_scores if isinstance(previous_scores, list) else None,
-                current_iteration=current_iteration if isinstance(current_iteration, int) else None,
-            ))
+                previous_scores=previous_scores,
+                current_iteration=current_iteration,
+            )
 
             if hint:
                 event_payload = self.format_for_eventbus(hint, request_id=request_id)

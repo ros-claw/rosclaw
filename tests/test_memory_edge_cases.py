@@ -220,7 +220,7 @@ class TestRecoveryLoopEdgeCases:
         rl.unsubscribe()
         mem.stop()
 
-    def test_executor_reused_across_calls(self):
+    def test_run_async_works_without_private_executor(self):
         bus = EventBus()
         mem = MemoryInterface("test_bot", event_bus=bus)
         mem.initialize()
@@ -251,10 +251,9 @@ class TestRecoveryLoopEdgeCases:
             source="test",
         ))
 
-        # Executor should be lazily created and reused
-        assert rl._executor is not None
+        # Private executor has been removed; _run_async should still work.
+        assert not hasattr(rl, "_executor")
         rl.unsubscribe()
-        assert rl._executor is None  # Shutdown on unsubscribe
         mem.stop()
 
     def test_unsubscribe_when_bus_is_none(self):

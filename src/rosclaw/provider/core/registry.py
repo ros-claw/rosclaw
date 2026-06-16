@@ -115,12 +115,13 @@ class ProviderRegistry:
 
     def _load_provider(self, provider: Provider) -> None:
         """Load a provider, handling both sync and async calling contexts."""
+        from rosclaw.core.async_utils import run_sync
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            # No running event loop — safe to run synchronously.
+            # No running event loop — load synchronously.
             try:
-                asyncio.run(provider.load())
+                run_sync(provider.load())
                 provider._healthy = True
                 self._publish_health_changed(provider.name, True, "load_success")
             except Exception as e:
@@ -148,13 +149,14 @@ class ProviderRegistry:
 
     def unregister(self, name: str) -> None:
         """Unregister and unload a provider."""
+        from rosclaw.core.async_utils import run_sync
         provider = self._providers.pop(name, None)
         if provider is not None:
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
                 with contextlib.suppress(Exception):
-                    asyncio.run(provider.unload())
+                    run_sync(provider.unload())
             else:
                 loop.create_task(provider.unload())
         self._factories.pop(name, None)

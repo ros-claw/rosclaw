@@ -139,14 +139,9 @@ class Runtime(LifecycleMixin):
         self._agent_runtime: Any | None = None
         self._modules: list[LifecycleMixin] = []
 
-        # Thread-safe async executor (created once, reused for _run_async)
-        import concurrent.futures
+        # Module lifecycle lock
         import threading
         self._module_lock = threading.RLock()
-        self._executor_shutdown = False
-        self._async_executor: concurrent.futures.ThreadPoolExecutor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="rosclaw_async"
-        )
 
     def _do_initialize(self) -> None:
         """Initialize all enabled grounding engines."""
@@ -464,10 +459,6 @@ class Runtime(LifecycleMixin):
             for module in reversed(self._modules):
                 if isinstance(module, LifecycleMixin):
                     module.stop()
-        # Shutdown async executor to prevent thread leaks
-        if not self._executor_shutdown:
-            self._executor_shutdown = True
-            self._async_executor.shutdown(wait=False)
         logger.info("Shutdown complete")
 
     def _setup_internal_subscriptions(self) -> None:
@@ -526,25 +517,11 @@ class Runtime(LifecycleMixin):
     def _run_async(self, coro):
         """Run an async coroutine from a sync context.
 
-        Uses the cached ThreadPoolExecutor for thread safety and avoids
-        creating a new executor on every call. Returns the synchronous result.
+        Delegates to ``rosclaw.core.async_utils.run_sync`` so we never call
+        ``asyncio.run`` from inside an already-running event loop.
         """
-        import asyncio
-        try:
-            asyncio.get_running_loop()
-            # Already inside an event loop — run in a background thread with a
-            # fresh event loop to avoid "cannot run nested event loop" errors.
-
-            def _run_with_fresh_loop():
-                new_loop = asyncio.new_event_loop()
-                try:
-                    return new_loop.run_until_complete(coro)
-                finally:
-                    new_loop.close()
-            future = self._async_executor.submit(_run_with_fresh_loop)
-            return future.result(timeout=30)
-        except RuntimeError:
-            return asyncio.run(coro)
+        from rosclaw.core.async_utils import run_sync
+        return run_sync(coro)
 
     def _on_sandbox_episode_failed(self, event: Event) -> None:
         """Handle sandbox episode failure: generate recovery hint."""

@@ -145,10 +145,10 @@ class BundleCompiler:
                 srv = {cap_name.title()}MCPServer()
                 assert srv.server is not None
 
-            def test_tool_schema():
+            @pytest.mark.asyncio
+            async def test_tool_schema():
                 srv = {cap_name.title()}MCPServer()
-                import asyncio
-                tools = asyncio.run(srv.server.list_tools())
+                tools = await srv.server.list_tools()
                 assert len(tools) >= 1
             ''')
 

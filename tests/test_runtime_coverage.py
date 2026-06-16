@@ -198,11 +198,10 @@ class TestRuntimeInit:
         rt = Runtime(config=cfg, event_bus=mock_event_bus)
         assert rt.event_bus is mock_event_bus
 
-    def test_init_creates_executor(self):
+    def test_init_creates_module_lock(self):
         rt = Runtime()
-        assert rt._async_executor is not None
-        assert rt._executor_shutdown is False
         assert isinstance(rt._module_lock, type(threading.RLock()))
+        assert not hasattr(rt, "_async_executor")
 
 
 # ---------------------------------------------------------------------------
@@ -507,22 +506,14 @@ class TestRuntimeLifecycle:
         rt.stop()
         assert order == ["second", "first"]
 
-    def test_stop_shuts_down_executor(self, fresh_runtime):
-        rt = fresh_runtime
-        rt.initialize()
-        rt.start()
-        assert rt._executor_shutdown is False
-        rt.stop()
-        assert rt._executor_shutdown is True
-
-    def test_stop_idempotent_executor_shutdown(self, fresh_runtime):
+    def test_stop_is_idempotent(self, fresh_runtime):
         rt = fresh_runtime
         rt.initialize()
         rt.start()
         rt.stop()
         # Second stop should not raise
         rt.stop()
-        assert rt._executor_shutdown is True
+        assert not hasattr(rt, "_async_executor")
 
     def test_start_publishes_runtime_status_event(self, fresh_runtime):
         rt = fresh_runtime

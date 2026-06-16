@@ -588,40 +588,32 @@ class HeuristicEngine:
         return retry_plan
 
     def _on_failure_sync_wrapper(self, event: Any) -> None:
-        """Sync wrapper that schedules async handler on the event loop."""
-        import asyncio
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._on_failure_event(event))
-        except RuntimeError:
-            # No running loop — fire and forget in a new loop
-            asyncio.run(self._on_failure_event(event))
+        """Sync EventBus callback that schedules async recovery handling."""
+        from rosclaw.core.async_utils import fire_and_forget
+        fire_and_forget(self._on_failure_async(event))
 
     # CRITICAL FIX: EventBus failure event handler for active recovery
-    def _on_failure_event(self, event: Any) -> None:
-        """Handle failure events from EventBus and generate recovery hints.
-
-        Note: This is a sync method because EventBus sync subscribers
-        do not await callbacks. Internally it schedules async work.
-        """
-        import asyncio
+    async def _on_failure_async(self, event: Any) -> None:
+        """Handle failure events from EventBus and generate recovery hints."""
         payload = event.payload if hasattr(event, "payload") else {}
         failure_type = payload.get("error_log", payload.get("reason", "unknown_failure"))
         from rosclaw.how.recovery import RecoveryEngine
         re = RecoveryEngine(self, event_bus=self._event_bus)
-        try:
-            loop = asyncio.get_running_loop()
-            # Only create coroutine when loop is available to avoid
-            # "never awaited" warnings on discarded coroutines.
-            coro = re.generate_recovery_hint(
-                failure_type,
-                context=payload,
-                request_id=payload.get("request_id", payload.get("episode_id", "")),
-            )
-            loop.create_task(coro)
-        except RuntimeError:
-            # No running event loop — fire and forget won't work here
-            pass
+        coro = re.generate_recovery_hint(
+            failure_type,
+            context=payload,
+            request_id=payload.get("request_id", payload.get("episode_id", "")),
+        )
+        hint = await coro
+        if hint and self._event_bus is not None:
+            event_payload = re.format_for_eventbus(hint, request_id=payload.get("request_id", payload.get("episode_id", "")))
+            from rosclaw.core.event_bus import Event, EventPriority
+            self._event_bus.publish(Event(
+                topic="rosclaw.how.recovery_hint.generated",
+                payload=event_payload,
+                source="heuristic_engine",
+                priority=EventPriority.HIGH,
+            ))
 
     # ── stats ────────────────────────────────────────────────────────────
 
