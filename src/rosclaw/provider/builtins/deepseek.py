@@ -155,6 +155,10 @@ class DeepSeekProvider(Provider):
         if not isinstance(message, dict):
             raise RuntimeError(f"DeepSeek message is not dict: {type(message)}")
         content = message.get("content", "")
+        # Some reasoning models (e.g. DeepSeek-R1, Nex-N2-Pro) place the
+        # response in ``reasoning_content`` and leave ``content`` empty.
+        if not content:
+            content = message.get("reasoning_content", "")
         if not content:
             raise RuntimeError("DeepSeek returned empty content")
 

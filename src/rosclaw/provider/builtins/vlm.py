@@ -131,6 +131,8 @@ class MockVLMProvider(Provider):
                 return Path(image_input.get("value", ""))
             return None
         if isinstance(image_input, str):
+            if not image_input or image_input == ".":
+                return None
             if image_input.startswith("artifact://"):
                 return _resolve_artifact(image_input)
             if image_input.startswith("file://"):
@@ -139,7 +141,7 @@ class MockVLMProvider(Provider):
         return None
 
     def _detect_by_color(self, image_path, query):
-        if image_path is None or not image_path.exists():
+        if image_path is None or not image_path.exists() or image_path.is_dir():
             color = self._extract_color(query)
             return {
                 "id": f"obj_{color or 'unknown'}",

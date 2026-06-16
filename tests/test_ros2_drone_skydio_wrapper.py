@@ -6,30 +6,21 @@ import sys
 
 import pytest
 
-from tests._ros2_env import ros2_available
+from tests._ros2_env import build_ros2_env, repo_root, ros2_available
 
 
 @pytest.mark.skipif(
-    sys.version_info[:2] != (3, 10) or not ros2_available(),
-    reason="Requires Python 3.10 and ROS2 environment",
+    not ros2_available(),
+    reason="ROS2 environment not available",
 )
 def test_ros2_drone_skydio():
     """Run Skydio X2 Drone ROS2 tests in subprocess."""
-    existing_pp = os.environ.get("PYTHONPATH", "")
-    ros2_paths = (
-        "/tmp/ros2-local/opt/ros/humble/local/lib/python3.10/dist-packages"
-        ":/opt/ros/humble/local/lib/python3.10/dist-packages"
-    )
-    pythonpath = f"{ros2_paths}:{existing_pp}:src" if existing_pp else f"{ros2_paths}:src"
-    env = {
-        "LD_LIBRARY_PATH": "/tmp/ros2-local/opt/ros/humble/lib:/opt/ros/humble/lib",
-        "PYTHONPATH": pythonpath,
-    }
+    env = build_ros2_env()
     result = subprocess.run(
-        ["/tmp/ros2-venv/bin/python", "scripts/test_ros2_drone_skydio.py"],
+        [sys.executable, "scripts/test_ros2_drone_skydio.py"],
         capture_output=True,
         text=True,
-        cwd="/home/dell/rosclaw-v1.0",
+        cwd=repo_root(),
         env={**dict(os.environ), **env},
         timeout=300,
     )

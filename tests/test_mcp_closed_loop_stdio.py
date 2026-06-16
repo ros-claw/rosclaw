@@ -127,6 +127,8 @@ def test_mcp_server_starts_and_lists_tools(server_path):
         stderr = proc.stderr.read()
         if stderr:
             print(f"[Server stderr]: {stderr[:500]}")
+        proc.stdout.close()
+        proc.stderr.close()
 
 
 if __name__ == "__main__":

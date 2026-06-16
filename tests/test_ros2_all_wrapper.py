@@ -11,20 +11,12 @@ Covered test files:
 - tests/test_ros2_e2e_wrapper.py (1 wrapper -> 16 E2E tests)
 """
 
-import os
 import subprocess
 import sys
 
 import pytest
 
-from tests._ros2_env import ros2_available
-
-# ROS2 environment paths
-_ROS2_PYTHONPATH = (
-    "/tmp/ros2-local/opt/ros/humble/local/lib/python3.10/dist-packages"
-    ":/opt/ros/humble/local/lib/python3.10/dist-packages"
-)
-_ROS2_LD_LIBRARY_PATH = "/tmp/ros2-local/opt/ros/humble/lib:/opt/ros/humble/lib"
+from tests._ros2_env import build_ros2_env, repo_root, ros2_available
 
 # Test files to run in subprocess
 _ROS2_TEST_FILES = [
@@ -34,28 +26,18 @@ _ROS2_TEST_FILES = [
 ]
 
 
-def _build_env():
-    """Build environment dict with ROS2 paths prepended."""
-    env = dict(os.environ)
-    existing_pp = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = f"{_ROS2_PYTHONPATH}:{existing_pp}:src" if existing_pp else f"{_ROS2_PYTHONPATH}:src"
-    existing_ld = env.get("LD_LIBRARY_PATH", "")
-    env["LD_LIBRARY_PATH"] = f"{_ROS2_LD_LIBRARY_PATH}:{existing_ld}" if existing_ld else _ROS2_LD_LIBRARY_PATH
-    return env
-
-
 @pytest.mark.skipif(
-    sys.version_info[:2] != (3, 10) or not ros2_available(),
-    reason="Requires Python 3.10 and ROS2 environment",
+    not ros2_available(),
+    reason="ROS2 environment not available",
 )
 def test_ros2_driver_unit():
     """Run test_ros2_driver_ros2.py in subprocess."""
     result = subprocess.run(
-        ["/tmp/ros2-venv/bin/python", "-m", "pytest", "tests/test_ros2_driver_ros2.py", "-q"],
+        [sys.executable, "-m", "pytest", "tests/test_ros2_driver_ros2.py", "-q"],
         capture_output=True,
         text=True,
-        cwd="/home/dell/rosclaw-v1.0",
-        env=_build_env(),
+        cwd=repo_root(),
+        env=build_ros2_env(),
         timeout=300,
     )
     print(result.stdout)
@@ -65,17 +47,17 @@ def test_ros2_driver_unit():
 
 
 @pytest.mark.skipif(
-    sys.version_info[:2] != (3, 10) or not ros2_available(),
-    reason="Requires Python 3.10 and ROS2 environment",
+    not ros2_available(),
+    reason="ROS2 environment not available",
 )
 def test_ros2_ur5_server_unit():
     """Run test_ur5_server_ros2.py in subprocess."""
     result = subprocess.run(
-        ["/tmp/ros2-venv/bin/python", "-m", "pytest", "tests/test_ur5_server_ros2.py", "-q"],
+        [sys.executable, "-m", "pytest", "tests/test_ur5_server_ros2.py", "-q"],
         capture_output=True,
         text=True,
-        cwd="/home/dell/rosclaw-v1.0",
-        env=_build_env(),
+        cwd=repo_root(),
+        env=build_ros2_env(),
         timeout=600,
     )
     print(result.stdout)
@@ -86,17 +68,17 @@ def test_ros2_ur5_server_unit():
 
 
 @pytest.mark.skipif(
-    sys.version_info[:2] != (3, 10) or not ros2_available(),
-    reason="Requires Python 3.10 and ROS2 environment",
+    not ros2_available(),
+    reason="ROS2 environment not available",
 )
 def test_ros2_mcp_drivers_init():
     """Run test_mcp_drivers_init_ros2.py in subprocess."""
     result = subprocess.run(
-        ["/tmp/ros2-venv/bin/python", "-m", "pytest", "tests/test_mcp_drivers_init_ros2.py", "-q"],
+        [sys.executable, "-m", "pytest", "tests/test_mcp_drivers_init_ros2.py", "-q"],
         capture_output=True,
         text=True,
-        cwd="/home/dell/rosclaw-v1.0",
-        env=_build_env(),
+        cwd=repo_root(),
+        env=build_ros2_env(),
         timeout=300,
     )
     print(result.stdout)

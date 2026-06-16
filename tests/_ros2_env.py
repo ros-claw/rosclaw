@@ -17,6 +17,76 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# ROS2 path helpers (used by subprocess wrappers)
+# ---------------------------------------------------------------------------
+
+def resolve_ros2_base() -> str:
+    """Resolve the active ROS2 installation base path.
+
+    Prefers $ROS_DISTRO, then the first distro found under /opt/ros,
+    and finally falls back to /opt/ros/humble.
+    """
+    distro = os.environ.get("ROS_DISTRO")
+    if distro:
+        return f"/opt/ros/{distro}"
+    opt_ros = Path("/opt/ros")
+    if opt_ros.is_dir():
+        distros = [d for d in opt_ros.iterdir() if d.is_dir()]
+        if distros:
+            return str(distros[0])
+    return "/opt/ros/humble"
+
+
+def build_ros2_env() -> dict:
+    """Build an environment dict with ROS2 paths prepended dynamically.
+
+    Uses the current Python version (e.g. python3.11) so tests are not
+    pinned to a specific ROS2 Python ABI.
+    """
+    env = dict(os.environ)
+    ros2_base = resolve_ros2_base()
+    py_version = f"python{sys.version_info.major}.{sys.version_info.minor}"
+
+    candidate_python_paths = [
+        f"/tmp/ros2-local{ros2_base}/local/lib/{py_version}/dist-packages",
+        f"{ros2_base}/local/lib/{py_version}/dist-packages",
+        f"/tmp/ros2-local{ros2_base}/lib/{py_version}/site-packages",
+        f"{ros2_base}/lib/{py_version}/site-packages",
+    ]
+    candidate_lib_paths = [
+        f"/tmp/ros2-local{ros2_base}/lib",
+        f"{ros2_base}/lib",
+    ]
+
+    existing_pp = env.get("PYTHONPATH", "")
+    ros2_python_paths = [p for p in candidate_python_paths if Path(p).exists()]
+    if ros2_python_paths:
+        env["PYTHONPATH"] = ":".join(
+            ros2_python_paths + ([existing_pp] if existing_pp else []) + ["src"]
+        )
+    else:
+        env["PYTHONPATH"] = f"{existing_pp}:src" if existing_pp else "src"
+
+    existing_ld = env.get("LD_LIBRARY_PATH", "")
+    ros2_lib_paths = [p for p in candidate_lib_paths if Path(p).exists()]
+    if ros2_lib_paths:
+        env["LD_LIBRARY_PATH"] = ":".join(
+            ros2_lib_paths + ([existing_ld] if existing_ld else [])
+        )
+    elif existing_ld:
+        env["LD_LIBRARY_PATH"] = existing_ld
+
+    return env
+
+
+def repo_root() -> str:
+    """Return the repository root directory (parent of tests/)."""
+    return str(Path(__file__).parent.parent)
+
 
 # ---------------------------------------------------------------------------
 # Individual level checks

@@ -5,18 +5,20 @@ Verifies that all drivers are available in a real ROS2 environment.
 Run with:
     source /opt/ros/humble/setup.bash
     export LD_LIBRARY_PATH="/tmp/ros2-local/opt/ros/humble/lib:$LD_LIBRARY_PATH"
-    export PYTHONPATH="/tmp/ros2-local/opt/ros/humble/local/lib/python3.10/dist-packages:$PYTHONPATH"
-    /tmp/ros2-venv/bin/pytest tests/test_mcp_drivers_init_ros2.py -v -p no:xdist
+    export PYTHONPATH="/tmp/ros2-local/opt/ros/humble/local/lib/python$(python3 --version | cut -d' ' -f2 | cut -d. -f1-2)/dist-packages:$PYTHONPATH"
+    pytest tests/test_mcp_drivers_init_ros2.py -v -p no:xdist
 """
 
 import sys
 
 import pytest
 
-# Skip entire module if not on Python 3.10 (rclpy ABI mismatch)
-if sys.version_info[:2] != (3, 10):
+from tests._ros2_env import ros2_available
+
+# Skip entire module if ROS2 is not available
+if not ros2_available():
     pytest.skip(
-        f"ROS2 tests require Python 3.10 (found {sys.version_info.major}.{sys.version_info.minor})",
+        "ROS2 environment not available",
         allow_module_level=True,
     )
 

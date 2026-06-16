@@ -4,34 +4,28 @@ Runs scripts/test_ros2_e2e.py in a subprocess to avoid pytest module
 reload conflicts with rclpy C extensions.
 """
 
+import os
 import subprocess
 import sys
 
 import pytest
 
-from tests._ros2_env import ros2_available
+from tests._ros2_env import build_ros2_env, repo_root, ros2_available
 
 
 @pytest.mark.skipif(
-    sys.version_info[:2] != (3, 10) or not ros2_available(),
-    reason="Requires Python 3.10 and ROS2 environment",
+    not ros2_available(),
+    reason="ROS2 environment not available",
 )
 def test_ros2_e2e_closed_loop():
     """Run the full ROS2 closed-loop integration test suite."""
-    import os
-    existing_pythonpath = os.environ.get("PYTHONPATH", "")
-    ros2_paths = "/opt/ros/humble/local/lib/python3.10/dist-packages:/tmp/ros2-local/opt/ros/humble/local/lib/python3.10/dist-packages"
-    pythonpath = f"{ros2_paths}:{existing_pythonpath}:src" if existing_pythonpath else f"{ros2_paths}:src"
-    env = {
-        "LD_LIBRARY_PATH": "/tmp/ros2-local/opt/ros/humble/lib:/opt/ros/humble/lib",
-        "PYTHONPATH": pythonpath,
-    }
+    env = build_ros2_env()
     result = subprocess.run(
-        ["/tmp/ros2-venv/bin/python", "scripts/test_ros2_e2e.py"],
+        [sys.executable, "scripts/test_ros2_e2e.py"],
         capture_output=True,
         text=True,
-        cwd="/home/dell/rosclaw-v1.0",
-        env={**dict(__import__("os").environ), **env},
+        cwd=repo_root(),
+        env={**dict(os.environ), **env},
         timeout=300,
     )
     print(result.stdout)

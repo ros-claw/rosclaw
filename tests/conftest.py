@@ -5,7 +5,7 @@ import os
 import sys
 
 # ------------------------------------------------------------------
-# ROS2 environment auto-detection (Python 3.10 only, opt-in via env var)
+# ROS2 environment auto-detection (opt-in via env var)
 # ------------------------------------------------------------------
 # NOTE: Auto-injecting ROS2 paths during pytest collection triggers
 # ROS2 pytest plugins (launch-testing-ros, ament-*) that conflict with
@@ -13,29 +13,33 @@ import sys
 # via wrapper tests; they do not need this auto-detection.
 # ------------------------------------------------------------------
 
-if sys.version_info[:2] == (3, 10) and os.environ.get("ROSCLAW_TEST_ROS2"):
+if os.environ.get("ROSCLAW_TEST_ROS2"):
+    _ros2_base = os.environ.get("ROS_DISTRO", "humble")
+    if not _ros2_base.startswith("/"):
+        _ros2_base = f"/opt/ros/{_ros2_base}"
+    _py_version = f"python{sys.version_info.major}.{sys.version_info.minor}"
     _ros2_local = "/tmp/ros2-local"
-    if os.path.isdir(_ros2_local):
-        _ros2_python_paths = [
-            "/tmp/ros2-local/opt/ros/humble/local/lib/python3.10/dist-packages",
-            "/opt/ros/humble/local/lib/python3.10/dist-packages",
-        ]
-        for _p in reversed(_ros2_python_paths):
-            if os.path.isdir(_p) and _p not in sys.path:
-                sys.path.insert(0, _p)
-        _existing = os.environ.get("PYTHONPATH", "")
-        _new_paths = [p for p in _ros2_python_paths if os.path.isdir(p) and p not in _existing]
-        if _new_paths:
-            os.environ["PYTHONPATH"] = ":".join(_new_paths + ([_existing] if _existing else []))
 
-        _ros2_lib_paths = [
-            "/tmp/ros2-local/opt/ros/humble/lib",
-            "/opt/ros/humble/lib",
-        ]
-        _existing_ld = os.environ.get("LD_LIBRARY_PATH", "")
-        _new_ld = [p for p in _ros2_lib_paths if os.path.isdir(p) and p not in _existing_ld]
-        if _new_ld:
-            os.environ["LD_LIBRARY_PATH"] = ":".join(_new_ld + ([_existing_ld] if _existing_ld else []))
+    _ros2_python_paths = [
+        f"{_ros2_local}{_ros2_base}/local/lib/{_py_version}/dist-packages",
+        f"{_ros2_base}/local/lib/{_py_version}/dist-packages",
+    ]
+    for _p in reversed(_ros2_python_paths):
+        if os.path.isdir(_p) and _p not in sys.path:
+            sys.path.insert(0, _p)
+    _existing = os.environ.get("PYTHONPATH", "")
+    _new_paths = [p for p in _ros2_python_paths if os.path.isdir(p) and p not in _existing]
+    if _new_paths:
+        os.environ["PYTHONPATH"] = ":".join(_new_paths + ([_existing] if _existing else []))
+
+    _ros2_lib_paths = [
+        f"{_ros2_local}{_ros2_base}/lib",
+        f"{_ros2_base}/lib",
+    ]
+    _existing_ld = os.environ.get("LD_LIBRARY_PATH", "")
+    _new_ld = [p for p in _ros2_lib_paths if os.path.isdir(p) and p not in _existing_ld]
+    if _new_ld:
+        os.environ["LD_LIBRARY_PATH"] = ":".join(_new_ld + ([_existing_ld] if _existing_ld else []))
 
 
 def pytest_runtest_setup(item):
