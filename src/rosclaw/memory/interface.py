@@ -378,6 +378,7 @@ class MemoryInterface(LifecycleMixin):
             try:
                 vectorizer = TfidfVectorizer(
                     tokenizer=self._tokenize,
+                    token_pattern=None,
                     lowercase=True,
                     stop_words="english",
                     min_df=1,

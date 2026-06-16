@@ -18,10 +18,14 @@ Configuration:
 """
 
 import json
+import logging
 import os
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
+
+logger = logging.getLogger("rosclaw.agent_runtime.llm_provider")
 
 
 @dataclass
@@ -105,6 +109,10 @@ class LLMProvider(ABC):
 
         Returns raw response content string.
         Subclasses may override for provider-specific quirks.
+
+        Includes a compatibility fallback for OpenAI-compatible backends
+        (e.g. SiliconFlow reasoning models) that return empty content when
+        ``response_format`` is combined with a tight ``max_tokens`` budget.
         """
         client = self._get_client()
         kwargs: dict[str, Any] = {
@@ -120,8 +128,55 @@ class LLMProvider(ABC):
             kwargs["response_format"] = response_format
 
         response = client.chat.completions.create(**kwargs)
-        content = response.choices[0].message.content
-        return content or ""
+        content = response.choices[0].message.content or ""
+        finish_reason = getattr(response.choices[0], "finish_reason", None)
+
+        # Some OpenAI-compatible providers (e.g. SiliconFlow reasoning models)
+        # either return empty content or truncate early when JSON mode is active
+        # with a tight token budget. Retry once without JSON mode and with more
+        # headroom so the caller gets a complete, parseable response.
+        if response_format and (not content or finish_reason == "length"):
+            logger.warning(
+                "JSON-mode response empty or truncated (finish_reason=%s); "
+                "retrying without response_format and increased max_tokens",
+                finish_reason,
+            )
+            kwargs.pop("response_format", None)
+            original_max_tokens = kwargs.get("max_tokens", 512)
+            kwargs["max_tokens"] = max(original_max_tokens, min(original_max_tokens * 2, 4096))
+            response = client.chat.completions.create(**kwargs)
+            content = response.choices[0].message.content or ""
+            finish_reason = getattr(response.choices[0], "finish_reason", None)
+
+        if finish_reason == "length":
+            logger.warning(
+                "Completion hit max_tokens limit (%s); response may be truncated",
+                kwargs.get("max_tokens"),
+            )
+
+        return content
+
+    @staticmethod
+    def _parse_json_response(content: str) -> dict[str, Any]:
+        """Parse a JSON response, with fallback for markdown code blocks."""
+        content = content.strip()
+        if not content:
+            return {"error": "empty response"}
+
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+
+        # Fallback: extract JSON from ```json ... ``` or ``` ... ``` blocks.
+        match = re.search(r"```(?:json)?\s*(.*?)```", content, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(1).strip())
+            except json.JSONDecodeError:
+                pass
+
+        return {"error": "invalid JSON", "raw": content}
 
     def plan_task(self, instruction: str, robot_context: dict) -> dict:
         """
@@ -164,7 +219,7 @@ Generate a task plan."""
                 user_prompt=user_prompt,
                 response_format={"type": "json_object"},
             )
-            return json.loads(content) if content else {"error": "empty response"}
+            return self._parse_json_response(content)
         except Exception as e:
             return {"error": str(e), "task_name": "failed", "steps": []}
 
@@ -226,7 +281,7 @@ Analyze this failure."""
                 max_tokens=2048,
                 response_format={"type": "json_object"},
             )
-            return json.loads(content) if content else {"error": "empty response"}
+            return self._parse_json_response(content)
         except Exception as e:
             return {"error": str(e), "root_cause": "analysis_failed"}
 
@@ -265,7 +320,7 @@ Synthesize a skill description."""
                 max_tokens=2048,
                 response_format={"type": "json_object"},
             )
-            return json.loads(content) if content else {"error": "empty response"}
+            return self._parse_json_response(content)
         except Exception as e:
             return {"error": str(e), "skill_name": "unknown"}
 
