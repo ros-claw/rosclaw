@@ -14,9 +14,13 @@ Configuration:
 """
 
 import json
+import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
+
+logger = logging.getLogger("rosclaw.agent_runtime.ai_collaboration")
 
 
 @dataclass
@@ -62,6 +66,80 @@ class DeepSeekClient:
                 ) from err
         return self._client
 
+    @staticmethod
+    def _parse_json_response(content: str) -> dict[str, Any]:
+        """Parse a JSON response, with fallback for markdown code blocks."""
+        content = content.strip()
+        if not content:
+            return {"error": "empty response"}
+
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+
+        match = re.search(r"```(?:json)?\s*(.*?)```", content, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(1).strip())
+            except json.JSONDecodeError:
+                pass
+
+        return {"error": "invalid JSON", "raw": content}
+
+    def _json_chat_completion(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        max_tokens: int,
+    ) -> dict[str, Any]:
+        """Create a chat completion and parse JSON, with JSON-mode fallback."""
+        client = self._get_client()
+        kwargs: dict[str, Any] = {
+            "model": self.config.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+
+        response = client.chat.completions.create(
+            **kwargs, response_format={"type": "json_object"}
+        )
+        content = response.choices[0].message.content or ""
+        finish_reason = getattr(response.choices[0], "finish_reason", None)
+
+        if not content or finish_reason == "length":
+            logger.warning(
+                "JSON-mode response empty or truncated (finish_reason=%s); "
+                "retrying without response_format and increased max_tokens",
+                finish_reason,
+            )
+            original_max_tokens = max_tokens
+            max_tokens = max(original_max_tokens, min(original_max_tokens * 2, 4096))
+            response = client.chat.completions.create(
+                model=self.config.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            content = response.choices[0].message.content or ""
+            finish_reason = getattr(response.choices[0], "finish_reason", None)
+
+        if finish_reason == "length":
+            logger.warning(
+                "Completion hit max_tokens limit (%s); response may be truncated",
+                max_tokens,
+            )
+
+        return self._parse_json_response(content)
+
     def plan_task(self, instruction: str, robot_context: dict) -> dict:
         """
         Generate a task plan from natural language instruction.
@@ -98,19 +176,12 @@ Robot Context:
 Generate a task plan."""
 
         try:
-            client = self._get_client()
-            response = client.chat.completions.create(
-                model=self.config.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
+            return self._json_chat_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
                 temperature=self.config.temperature,
                 max_tokens=self.config.max_tokens,
-                response_format={"type": "json_object"},
             )
-            content = response.choices[0].message.content
-            return json.loads(content) if content else {"error": "empty response"}
         except Exception as e:
             return {"error": str(e), "task_name": "failed", "steps": []}
 
@@ -165,19 +236,12 @@ Error Log:
 Analyze this failure."""
 
         try:
-            client = self._get_client()
-            response = client.chat.completions.create(
-                model=self.config.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
+            return self._json_chat_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
                 temperature=0.3,
                 max_tokens=2048,
-                response_format={"type": "json_object"},
             )
-            content = response.choices[0].message.content
-            return json.loads(content) if content else {"error": "empty response"}
         except Exception as e:
             return {"error": str(e), "root_cause": "analysis_failed"}
 
@@ -209,18 +273,11 @@ Respond in JSON format:
 Synthesize a skill description."""
 
         try:
-            client = self._get_client()
-            response = client.chat.completions.create(
-                model=self.config.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
+            return self._json_chat_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
                 temperature=0.5,
                 max_tokens=2048,
-                response_format={"type": "json_object"},
             )
-            content = response.choices[0].message.content
-            return json.loads(content) if content else {"error": "empty response"}
         except Exception as e:
             return {"error": str(e), "skill_name": "unknown"}
