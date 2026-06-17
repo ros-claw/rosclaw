@@ -21,7 +21,7 @@ Architecture:
     Physical World (Robot)
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 __author__ = "ROSClaw Team"
 
 # Enable namespace extension so rosclaw-sandbox and other

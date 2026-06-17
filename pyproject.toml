@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rosclaw"
-version = "1.0.0"
+version = "1.0.1"
 description = "The Universal Operating System for Software-Defined Embodied AI"
 readme = "README.md"
 license = {text = "MIT"}
@@ -35,8 +35,8 @@ dependencies = [
     "uvicorn>=0.23.0",
     "websockets>=12.0",
     "openai>=1.0.0",
-    "rosclaw-know>=1.0.1",
-    "rosclaw-how>=1.0.0",
+    "rosclaw-know>=1.0.2",
+    "rosclaw-how>=1.0.1",
 ]
 
 [project.optional-dependencies]
