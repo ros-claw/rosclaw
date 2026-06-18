@@ -1,0 +1,20 @@
+{
+  "schema_version": "rosclaw.ros_capability_request.v1",
+  "capability_id": "turtlesim.base.velocity_command",
+  "description": "Velocity command within turtlesim safety limits; should be ALLOWed by the safety contract.",
+  "endpoint": "ws://127.0.0.1:9090",
+  "robot_id": "turtlesim",
+  "args": {
+    "linear": {
+      "x": 0.1,
+      "y": 0.0,
+      "z": 0.0
+    },
+    "angular": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+    },
+    "duration": 0.5
+  }
+}

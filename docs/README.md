@@ -53,6 +53,7 @@ Welcome to the ROSClaw documentation index. This directory contains all project 
 - **[DEEP_USER_TEST.md](DEEP_USER_TEST.md)** — Deep user experience test report
 - **[FINAL_ACCEPTANCE.md](FINAL_ACCEPTANCE.md)** — Final acceptance criteria and results (9.2/10)
 - **[FINAL_VERIFICATION.md](FINAL_VERIFICATION.md)** — Final verification checklist
+- **[ROS_INTEGRATION_TESTING.md](ROS_INTEGRATION_TESTING.md)** — Cross-project ROS 1 / ROS 2 integration test matrix
 
 ---
 

@@ -1,4 +1,7 @@
-"""ROS2-native tests for mcp_drivers/__init__.py import behavior.
+"""
+This is part of the legacy rclpy-based ROS2 layer. The new rosbridge-based
+ROS connector lives in tests/connectors/ros/ and does not require rclpy.
+ROS2-native tests for mcp_drivers/__init__.py import behavior.
 
 Verifies that all drivers are available in a real ROS2 environment.
 
@@ -21,6 +24,8 @@ if not ros2_available():
         "ROS2 environment not available",
         allow_module_level=True,
     )
+
+pytestmark = pytest.mark.legacy_rclpy
 
 # Clean up sys.modules mocks from test_mcp_server.py so real ROS2 imports work.
 for _mod in list(sys.modules.keys()):

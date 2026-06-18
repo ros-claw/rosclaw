@@ -15,7 +15,7 @@ class TestVersion:
             main()
         assert exc.value.code == 0
         captured = capsys.readouterr()
-        assert "rosclaw 1.0.0" in captured.out
+        assert "rosclaw 1.0.1" in captured.out
 
 
 class TestInit:

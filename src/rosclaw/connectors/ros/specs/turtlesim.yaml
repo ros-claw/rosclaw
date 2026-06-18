@@ -1,0 +1,34 @@
+schema_version: rosclaw.embodiment_card.v1
+robot_id: turtlesim
+aliases: [turtlesim]
+body_type: differential_drive_mobile_base
+
+preferred_interfaces:
+  - capability_id: turtlesim.observe.pose
+    ros_kind: topic
+    ros_name: /turtle1/pose
+    ros_type: turtlesim/msg/Pose
+    reason: "Read-only pose observation for closed-loop control."
+    args_schema:
+      max_age_sec: float
+
+discouraged_interfaces:
+  - ros_kind: topic
+    ros_name: /turtle1/cmd_vel
+    reason: "Low-level velocity topic; requires strict stop guard and duration limits."
+
+safety_defaults:
+  max_linear_velocity: 0.2
+  max_angular_velocity: 0.5
+  max_motion_duration_sec: 1.0
+  require_stop_guard_for_velocity: true
+  require_obstacle_check_for_motion: false
+
+preconditions:
+  turtlesim.base.velocity_command:
+    - duration_sec <= 1.0
+    - linear.x in [-0.2, 0.2]
+    - angular.z in [-0.5, 0.5]
+
+recovery_capabilities:
+  - turtlesim.observe.pose

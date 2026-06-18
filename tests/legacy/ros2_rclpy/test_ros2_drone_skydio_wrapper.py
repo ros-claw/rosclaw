@@ -9,6 +9,7 @@ import pytest
 from tests._ros2_env import build_ros2_env, repo_root, ros2_available
 
 
+@pytest.mark.legacy_rclpy
 @pytest.mark.skipif(
     not ros2_available(),
     reason="ROS2 environment not available",
@@ -17,7 +18,7 @@ def test_ros2_drone_skydio():
     """Run Skydio X2 Drone ROS2 tests in subprocess."""
     env = build_ros2_env()
     result = subprocess.run(
-        [sys.executable, "scripts/test_ros2_drone_skydio.py"],
+        [sys.executable, "scripts/legacy/ros2_rclpy/test_ros2_drone_skydio.py"],
         capture_output=True,
         text=True,
         cwd=repo_root(),

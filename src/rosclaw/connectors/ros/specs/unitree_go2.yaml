@@ -1,0 +1,55 @@
+schema_version: rosclaw.embodiment_card.v1
+robot_id: unitree_go2
+aliases: [go2]
+body_type: quadruped
+
+preferred_interfaces:
+  - capability_id: go2.move
+    ros_kind: service
+    ros_name: /go2/move
+    ros_type: go2_interfaces/srv/Move
+    reason: "High-level service handles control loop and stopping automatically."
+    args_schema:
+      vx: float
+      vy: float
+      vyaw: float
+      distance: float
+
+  - capability_id: go2.stand_up
+    ros_kind: service
+    ros_name: /go2/stand_up
+    ros_type: std_srvs/srv/Trigger
+    reason: "Named posture service is safer than direct joint commands."
+
+  - capability_id: go2.sit
+    ros_kind: service
+    ros_name: /go2/sit
+    ros_type: std_srvs/srv/Trigger
+
+  - capability_id: go2.recovery
+    ros_kind: service
+    ros_name: /go2/recovery
+    ros_type: std_srvs/srv/Trigger
+
+discouraged_interfaces:
+  - ros_kind: topic
+    ros_name: /cmd_vel
+    reason: "Low-level velocity topic requires strict stop guard."
+
+safety_defaults:
+  max_linear_velocity: 0.2
+  max_angular_velocity: 0.5
+  max_motion_duration_sec: 1.0
+  require_stop_guard_for_velocity: true
+  require_obstacle_check_for_motion: true
+
+preconditions:
+  go2.move:
+    - robot_posture in ["standing", "balance"]
+    - not fallen
+    - obstacle_distance > 0.8
+
+recovery_capabilities:
+  - go2.recovery
+  - go2.balance
+  - go2.sit

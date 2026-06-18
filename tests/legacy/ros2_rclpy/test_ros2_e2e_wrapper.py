@@ -13,6 +13,7 @@ import pytest
 from tests._ros2_env import build_ros2_env, repo_root, ros2_available
 
 
+@pytest.mark.legacy_rclpy
 @pytest.mark.skipif(
     not ros2_available(),
     reason="ROS2 environment not available",
@@ -21,7 +22,7 @@ def test_ros2_e2e_closed_loop():
     """Run the full ROS2 closed-loop integration test suite."""
     env = build_ros2_env()
     result = subprocess.run(
-        [sys.executable, "scripts/test_ros2_e2e.py"],
+        [sys.executable, "scripts/legacy/ros2_rclpy/test_ros2_e2e.py"],
         capture_output=True,
         text=True,
         cwd=repo_root(),

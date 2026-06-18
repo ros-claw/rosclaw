@@ -33,23 +33,7 @@ from rosclaw.know.interface import KnowledgeInterface
 
 DEFAULT_HOW_URL = os.environ.get("ROSCLAW_HOW_ENDPOINT", "http://127.0.0.1:47820")
 
-
-def _how_reachable() -> bool:
-    """Best-effort probe: if the service is down, skip live tests."""
-    import urllib.error
-    import urllib.request
-
-    try:
-        with urllib.request.urlopen(f"{DEFAULT_HOW_URL}/healthz", timeout=2) as resp:
-            return resp.status == 200
-    except (urllib.error.URLError, TimeoutError, ConnectionError):
-        return False
-
-
-pytestmark = pytest.mark.skipif(
-    not _how_reachable(),
-    reason=f"rosclaw-how service not reachable at {DEFAULT_HOW_URL}",
-)
+pytestmark = pytest.mark.usefixtures("_rosclaw_how_service")
 
 
 # Canonical failure descriptions drawn from rosclaw-know routing_canary.json.

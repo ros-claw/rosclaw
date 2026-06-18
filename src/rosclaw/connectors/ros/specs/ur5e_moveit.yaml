@@ -1,0 +1,46 @@
+schema_version: rosclaw.embodiment_card.v1
+robot_id: ur5e_moveit
+aliases: [ur5e, ur5e_moveit]
+body_type: industrial_manipulator
+
+preferred_interfaces:
+  - capability_id: ur5e.move_group.plan_and_execute
+    ros_kind: action
+    ros_name: /move_action
+    ros_type: moveit_msgs/action/MoveGroup
+    reason: "MoveIt plans and executes collision-checked trajectories."
+    args_schema:
+      target_pose:
+        position: {x: float, y: float, z: float}
+        orientation: {x: float, y: float, z: float, w: float}
+
+  - capability_id: ur5e.gripper.close
+    ros_kind: service
+    ros_name: /gripper/close
+    ros_type: std_srvs/srv/Trigger
+
+  - capability_id: ur5e.gripper.open
+    ros_kind: service
+    ros_name: /gripper/open
+    ros_type: std_srvs/srv/Trigger
+
+discouraged_interfaces:
+  - ros_kind: topic
+    ros_name: /joint_command
+    reason: "Direct joint command bypasses MoveIt collision checking."
+
+safety_defaults:
+  max_linear_velocity: 0.1
+  max_angular_velocity: 0.2
+  max_motion_duration_sec: 10.0
+  require_stop_guard_for_velocity: false
+  require_workspace_check: true
+
+preconditions:
+  ur5e.move_group.plan_and_execute:
+    - moveit_ready
+    - robot_enabled
+    - e_stop_not_active
+
+recovery_capabilities:
+  - ur5e.gripper.open

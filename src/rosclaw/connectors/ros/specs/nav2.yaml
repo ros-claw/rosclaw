@@ -1,0 +1,42 @@
+schema_version: rosclaw.embodiment_card.v1
+robot_id: nav2
+aliases: [nav2, turtlebot_nav]
+body_type: differential_drive_mobile_base
+
+preferred_interfaces:
+  - capability_id: nav2.navigate_to_pose
+    ros_kind: action
+    ros_name: /navigate_to_pose
+    ros_type: nav2_msgs/action/NavigateToPose
+    reason: "High-level Nav2 action plans and executes collision-free paths."
+    args_schema:
+      pose:
+        position: {x: float, y: float, z: float}
+        orientation: {x: float, y: float, z: float, w: float}
+
+  - capability_id: nav2.clear_costmap
+    ros_kind: service
+    ros_name: /clear_costmap
+    ros_type: nav2_msgs/srv/ClearCostmap
+
+discouraged_interfaces:
+  - ros_kind: topic
+    ros_name: /cmd_vel
+    reason: "Nav2 publishes cmd_vel internally; external publishes can conflict."
+
+safety_defaults:
+  max_linear_velocity: 0.5
+  max_angular_velocity: 1.0
+  max_motion_duration_sec: 30.0
+  require_stop_guard_for_velocity: false
+  require_obstacle_check_for_motion: true
+
+preconditions:
+  nav2.navigate_to_pose:
+    - localization_active
+    - costmap_ready
+    - goal within map_bounds
+
+recovery_capabilities:
+  - nav2.clear_costmap
+  - nav2.navigate_to_pose

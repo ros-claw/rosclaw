@@ -103,9 +103,16 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+norecursedirs = ["tests/legacy"]
 pythonpath = ["src", "."]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
 addopts = "-p no:launch-testing-ros -p no:launch-testing -p no:ament-pep257 -p no:ament-lint -p no:ament-copyright -p no:ament-flake8 -p no:ament-xmllint"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as requiring external services (deselect with '-k not integration')",
+    "legacy_rclpy: marks tests that depend on the legacy rclpy-based ROS2 driver layer",
+    "deployment: marks tests that deploy the Docker ROS test stack (deselect with '-m \"not deployment\"')",
+]

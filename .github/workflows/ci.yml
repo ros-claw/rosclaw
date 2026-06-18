@@ -108,6 +108,29 @@ jobs:
       - name: Run integration tests
         run: python scripts/integration_test.py
 
+  deployment-test:
+    name: ROS Docker Deployment Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: 'latest'
+
+      - name: Install dependencies
+        run: uv pip install -e ".[dev]" --system
+
+      - name: Run ROS deployment smoke test
+        run: pytest tests/connectors/ros/integration/test_ros2_container_smoke.py -v
+
   build:
     name: Build Package
     runs-on: ubuntu-latest

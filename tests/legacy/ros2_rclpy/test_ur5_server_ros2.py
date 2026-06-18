@@ -1,4 +1,7 @@
-"""ROS2-native tests for ur5_server.py - runs in real rclpy environment.
+"""
+This is part of the legacy rclpy-based ROS2 layer. The new rosbridge-based
+ROS connector lives in tests/connectors/ros/ and does not require rclpy.
+ROS2-native tests for ur5_server.py - runs in real rclpy environment.
 
 These tests require a ROS2 environment with rclpy and message packages installed.
 Run with:
@@ -20,6 +23,8 @@ if not ros2_available():
         "ROS2 environment not available",
         allow_module_level=True,
     )
+
+pytestmark = pytest.mark.legacy_rclpy
 
 # Clean up sys.modules mocks from test_mcp_server.py so real ROS2 imports work.
 # Must run before ANY rosclaw or rclpy imports.

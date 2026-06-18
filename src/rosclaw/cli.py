@@ -28,6 +28,8 @@ import sys
 import time
 from pathlib import Path
 
+from rosclaw.connectors.ros.cli import add_ros_subparser, cmd_doctor_ros, dispatch_ros_command
+
 
 def _version() -> str:
     from rosclaw import __version__
@@ -2529,6 +2531,8 @@ def main() -> int:
     # doctor
     doctor_parser = subparsers.add_parser("doctor", help="Run health diagnosis")
     doctor_parser.add_argument("--ros2", action="store_true", help="Check ROS2 environment profile (L1-L5)")
+    doctor_parser.add_argument("--ros", action="store_true", help="Check rosbridge ROS connector profile (no rclpy)")
+    doctor_parser.add_argument("--endpoint", default="ws://127.0.0.1:9090", help="rosbridge endpoint for --ros check")
 
     # logs
     logs_parser = subparsers.add_parser("logs", help="Show runtime logs")
@@ -2554,6 +2558,7 @@ def main() -> int:
     events_parser.set_defaults(events_command=None)
 
     # robot subcommand
+    add_ros_subparser(subparsers)
     robot_parser = subparsers.add_parser("robot", help="Robot registry commands")
     robot_subparsers = robot_parser.add_subparsers(dest="robot_command")
 
@@ -2759,7 +2764,11 @@ def main() -> int:
     elif args.command == "dashboard":
         return cmd_dashboard(args)
     elif args.command == "doctor":
+        if getattr(args, "ros", False):
+            return cmd_doctor_ros(args)
         return cmd_doctor(args)
+    elif args.command == "ros":
+        return dispatch_ros_command(args)
     elif args.command == "logs":
         return cmd_logs(args)
     elif args.command == "robot":

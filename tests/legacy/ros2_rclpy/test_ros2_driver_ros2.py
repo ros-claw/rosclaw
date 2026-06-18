@@ -1,5 +1,8 @@
 """ROS2-native tests for mcp_drivers/ros2_driver.py - runs in real rclpy environment.
 
+This is part of the legacy rclpy-based ROS2 layer. The new rosbridge-based
+ROS connector lives in tests/connectors/ros/ and does not require rclpy.
+
 Run with:
     source /opt/ros/humble/setup.bash
     export LD_LIBRARY_PATH="/tmp/ros2-local/opt/ros/humble/lib:$LD_LIBRARY_PATH"
@@ -19,6 +22,8 @@ if not ros2_available():
         "ROS2 environment not available",
         allow_module_level=True,
     )
+
+pytestmark = pytest.mark.legacy_rclpy
 
 # Clean up sys.modules mocks from test_mcp_server.py so real ROS2 imports work.
 # Must run before ANY rosclaw or rclpy imports.

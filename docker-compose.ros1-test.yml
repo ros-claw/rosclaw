@@ -1,0 +1,44 @@
+# ROSClaw ROS 1 integration test stack
+#
+# Brings up ROS 1 Noetic + rosbridge + turtlesim so that ROSClaw tests can
+# run against a real rosbridge endpoint without requiring ROS on the host.
+#
+# IMPORTANT — ROS1 rosbridge Host header behavior:
+#   ROS1 rosbridge_websocket validates that the port in the HTTP Host header
+#   matches its listening port (9090). When the container port is mapped to a
+#   different host port (e.g. 9091), external clients connecting to
+#   ws://127.0.0.1:9091 are rejected with HTTP 400. To avoid this, connect
+#   from inside the Docker network using the container IP and port 9090, or
+#   use host networking for the service.
+#
+# Usage:
+#   docker compose -f docker-compose.ros1-test.yml up --build -d
+#   pytest tests/connectors/ros/test_turtlesim_integration.py -v \
+#       --endpoint ws://127.0.0.1:9091
+#   docker compose -f docker-compose.ros1-test.yml down
+#
+# Example connection via container network (avoids Host header mismatch):
+#   docker network inspect rosclaw-rosclaw-ros-test  # find ros-bridge IP
+#   pytest ... --endpoint ws://<container-ip>:9090
+
+services:
+  ros-bridge:
+    build:
+      context: .
+      dockerfile: docker/ros1-noetic-bridge.Dockerfile
+    image: rosclaw/ros1-noetic-bridge:latest
+    container_name: ${ROSBRIDGE_CONTAINER_NAME:-rosclaw-ros1-noetic-bridge}
+    ports:
+      - "${ROSBRIDGE_HOST_PORT:-9091}:9090"
+    networks:
+      - rosclaw-ros-test
+    healthcheck:
+      test: ["CMD", "bash", "-c", "source /opt/ros/noetic/setup.bash && rostopic list"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+networks:
+  rosclaw-ros-test:
+    driver: bridge

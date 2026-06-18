@@ -1,0 +1,33 @@
+# ROSClaw ROS integration test stack
+#
+# Brings up ROS 2 Humble + rosbridge + turtlesim so that ROSClaw tests can
+# run against a real rosbridge endpoint without requiring ROS to be installed
+# on the host.
+#
+# Usage:
+#   docker compose -f docker-compose.ros-test.yml up --build -d
+#   pytest tests/connectors/ros/test_turtlesim_integration.py -v
+#   docker compose -f docker-compose.ros-test.yml down
+
+services:
+  ros-bridge:
+    build:
+      context: .
+      dockerfile: docker/ros2-humble-bridge.Dockerfile
+    image: rosclaw/ros2-humble-bridge:latest
+    container_name: ${ROSBRIDGE_CONTAINER_NAME:-rosclaw-ros2-humble-bridge}
+    command: ["turtlesim"]
+    ports:
+      - "${ROSBRIDGE_HOST_PORT:-9090}:9090"
+    networks:
+      - rosclaw-ros-test
+    healthcheck:
+      test: ["CMD", "bash", "-c", "source /opt/ros/humble/setup.bash && ros2 topic list"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+networks:
+  rosclaw-ros-test:
+    driver: bridge
