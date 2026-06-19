@@ -1,0 +1,175 @@
+schema_version: "hub.asset.v1"
+asset:
+  type: "skill"
+  namespace: "rosclaw"
+  name: "g1-pick-place"
+  version: "1.2.0"
+  title: "G1 Pick and Place"
+  summary: "Tabletop pick-and-place skill for Unitree G1 humanoid."
+  description: "A behavior-tree-based manipulation skill for G1 with recovery logic and benchmark evidence."
+  tags: ["g1", "manipulation", "pick-place", "humanoid"]
+
+publisher:
+  id: "rosclaw"
+  display_name: "ROSClaw Team"
+  trust_level: "official"
+  contact: "security@rosclaw.io"
+
+visibility:
+  scope: "public"
+  allowed_orgs: []
+  allowed_users: []
+
+lifecycle:
+  status: "stable"
+  channel: "stable"
+  deprecated: false
+  yanked: false
+  replacement: null
+
+compatibility:
+  rosclaw:
+    min_version: "1.0.0"
+    max_version: null
+  os: ["linux", "macos"]
+  arch: ["x86_64", "aarch64"]
+  python:
+    requires: ">=3.11,<3.14"
+  ros:
+    distributions: ["humble", "jazzy"]
+    required: false
+  cuda:
+    required: false
+    min_version: null
+  robot:
+    eurdf_profiles: ["unitree/g1"]
+    body_kinds: ["humanoid"]
+  hardware:
+    required_devices: []
+  runtime_features: ["mcp", "sandbox"]
+
+dependencies:
+  assets: []
+  python: []
+  system: []
+  ros: []
+
+permissions:
+  hardware:
+    real_robot_execution: true
+    actuators: ["arms", "gripper"]
+    sensors: ["camera", "joint_state"]
+  ros:
+    topics_read: ["/joint_states", "/camera/color/image_raw"]
+    topics_write: ["/cmd_vel", "/arm_controller/command"]
+    services: []
+    actions: []
+  mcp:
+    tools: ["get_robot_state", "plan_grasp", "execute_grasp"]
+  filesystem:
+    read: ["$ROSCLAW_HOME/runtime"]
+    write: ["$ROSCLAW_HOME/runtime/mcp.d"]
+  network:
+    outbound: ["robot-local"]
+    inbound: ["localhost"]
+  modifies:
+    mcp_config: true
+    body_yaml: false
+    rosclaw_yaml: false
+    safety_config: false
+  requires_human_approval:
+    - "real_robot_execution"
+
+license:
+  spdx: "MIT"
+  license_file: "LICENSE"
+  commercial_use: true
+  redistribution: true
+  attribution_required: true
+  export_control: "none"
+
+data_rights:
+  contains_training_data: false
+  contains_robot_logs: false
+  contains_personal_data: false
+  allowed_usage: ["research", "commercial"]
+  restrictions: []
+
+security:
+  signing:
+    required: true
+    scheme: "sigstore"
+    certificate: "signatures/cert.pem"
+  checksums:
+    algorithm: "sha256"
+    file: "checksums.txt"
+  sbom: "SBOM.spdx.json"
+  provenance: "PROVENANCE.json"
+  sandbox_required: true
+  network_isolation_recommended: true
+
+artifacts:
+  - name: "behavior-tree"
+    kind: "xml"
+    path: "artifacts/skill/behavior_tree.xml"
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000001"
+    size_bytes: 4096
+  - name: "policy-weights"
+    kind: "safetensors"
+    path: "artifacts/models/policy.safetensors"
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000002"
+    size_bytes: 134217728
+
+install:
+  mode: "declarative"
+  entrypoints:
+    skill:
+      command: "python -m rosclaw_skill_g1_pick_place.register"
+      env: {}
+  registries:
+    skill: true
+    provider: false
+    hardware_mcp: false
+    digital_twin: false
+    cognitive_wiki: false
+  health_checks:
+    - name: "import"
+      type: "python_import"
+      target: "rosclaw_skill_g1_pick_place"
+
+special:
+  skill:
+    task_domain: "manipulation"
+    task_name: "g1_pick_place"
+    skill_api:
+      inputs:
+        - name: "target_object"
+          type: "string"
+        - name: "target_location"
+          type: "pose_or_region"
+      outputs:
+        - name: "success"
+          type: "bool"
+    required_capabilities:
+      - "perception.object_detection"
+      - "manipulation.grasp"
+      - "sandbox.trajectory_validation"
+    supported_bodies:
+      - eurdf_profile: "unitree/g1"
+        adaptation: "native"
+    components:
+      behavior_tree: "artifacts/skill/behavior_tree.xml"
+      prompt_card: "artifacts/skill/prompt.md"
+      recovery_tree: "artifacts/skill/recovery.xml"
+      policy_weights: "artifacts/models/policy.safetensors"
+      lora_weights: null
+    evaluation:
+      benchmark: "darwin/g1-tabletop"
+      metric: "success_rate"
+      baseline: 0.45
+      reported_score: 0.62
+      seeds: [0, 1, 2, 3, 4]
+      min_required_for_install: null
+    runtime:
+      entrypoint: "rosclaw_skill_g1_pick_place:register"
+      rollback_safe: true

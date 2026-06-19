@@ -31,7 +31,7 @@ class LifecycleMixin:
     consistent initialization and shutdown behavior.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._lifecycle_state = LifecycleState.UNINITIALIZED
         self._error_message: str | None = None
 

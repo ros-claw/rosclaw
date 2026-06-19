@@ -1,0 +1,174 @@
+schema_version: "hub.asset.v1"
+asset:
+  type: "provider"
+  namespace: "rosclaw"
+  name: "qwen3-vl-gr00t"
+  version: "0.3.1"
+  title: "Qwen3-VL-GR00T VLA Provider"
+  summary: "Vision-language-action provider for humanoid robot policy."
+  description: "A VLA provider serving action proposals and trajectories from visual and robot state inputs."
+  tags: ["vla", "vlm", "humanoid", "policy"]
+
+publisher:
+  id: "rosclaw"
+  display_name: "ROSClaw Team"
+  trust_level: "official"
+  contact: "security@rosclaw.io"
+
+visibility:
+  scope: "public"
+  allowed_orgs: []
+  allowed_users: []
+
+lifecycle:
+  status: "beta"
+  channel: "stable"
+  deprecated: false
+  yanked: false
+  replacement: null
+
+compatibility:
+  rosclaw:
+    min_version: "1.0.0"
+    max_version: null
+  os: ["linux"]
+  arch: ["x86_64", "aarch64"]
+  python:
+    requires: ">=3.11,<3.14"
+  ros:
+    distributions: ["humble", "jazzy"]
+    required: false
+  cuda:
+    required: true
+    min_version: "12.0"
+  robot:
+    eurdf_profiles: ["unitree/g1"]
+    body_kinds: ["humanoid"]
+  hardware:
+    required_devices: []
+  runtime_features: ["mcp", "provider-router"]
+
+dependencies:
+  assets: []
+  python: ["torch>=2.0", "transformers>=4.40"]
+  system: []
+  ros: []
+
+permissions:
+  hardware:
+    real_robot_execution: false
+    actuators: []
+    sensors: []
+  ros:
+    topics_read: ["/joint_states", "/camera/color/image_raw"]
+    topics_write: []
+    services: []
+    actions: []
+  mcp:
+    tools: ["vla_predict", "warmup"]
+  filesystem:
+    read: ["$ROSCLAW_HOME/runtime", "$ROSCLAW_HOME/models"]
+    write: []
+  network:
+    outbound: ["localhost"]
+    inbound: ["localhost"]
+  modifies:
+    mcp_config: true
+    body_yaml: false
+    rosclaw_yaml: false
+    safety_config: false
+  requires_human_approval: []
+
+license:
+  spdx: "MIT"
+  license_file: "LICENSE"
+  commercial_use: true
+  redistribution: true
+  attribution_required: true
+  export_control: "none"
+
+data_rights:
+  contains_training_data: false
+  contains_robot_logs: false
+  contains_personal_data: false
+  allowed_usage: ["research", "commercial"]
+  restrictions: []
+
+security:
+  signing:
+    required: true
+    scheme: "sigstore"
+    certificate: "signatures/cert.pem"
+  checksums:
+    algorithm: "sha256"
+    file: "checksums.txt"
+  sbom: "SBOM.spdx.json"
+  provenance: "PROVENANCE.json"
+  sandbox_required: false
+  network_isolation_recommended: true
+
+artifacts:
+  - name: "model-weights"
+    kind: "safetensors"
+    path: "artifacts/models/model.safetensors"
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000010"
+    size_bytes: 2147483648
+  - name: "tokenizer"
+    kind: "json"
+    path: "artifacts/models/tokenizer.json"
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000011"
+    size_bytes: 1048576
+
+install:
+  mode: "declarative"
+  entrypoints:
+    provider:
+      command: "python -m rosclaw_provider_qwen3_vl_gr00t.server"
+      env: {}
+  registries:
+    skill: false
+    provider: true
+    hardware_mcp: false
+    digital_twin: false
+    cognitive_wiki: false
+  health_checks:
+    - name: "import"
+      type: "python_import"
+      target: "rosclaw_provider_qwen3_vl_gr00t"
+    - name: "warmup"
+      type: "mcp_call"
+      tool: "warmup"
+      dry_run: true
+      timeout_sec: 30
+
+special:
+  provider:
+    provider_kind: "vla"
+    modalities:
+      input: ["text", "image", "robot_state"]
+      output: ["action_proposal", "trajectory"]
+    backend:
+      kind: "vllm"
+      alternative_backends: ["sglang", "transformers"]
+    model:
+      family: "qwen3-vl-gr00t"
+      parameter_count: "2B"
+      quantization: "bf16"
+      weights:
+        artifact: "artifacts/models/model.safetensors"
+      tokenizer:
+        artifact: "artifacts/models/tokenizer.json"
+    serving:
+      default_device: "cuda"
+      min_vram_gb: 16
+      tensor_parallel: 1
+      max_context_tokens: 32768
+    capability_routes:
+      - name: "manipulation.vla_policy"
+        priority: 50
+      - name: "vision.scene_understanding"
+        priority: 40
+    secrets:
+      required: []
+    health:
+      warmup_prompt: "describe the scene"

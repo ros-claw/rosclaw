@@ -1,0 +1,213 @@
+{
+  "$defs": {
+    "AssetIdentity": {
+      "description": "Identity section of an asset manifest.",
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/AssetType"
+        },
+        "namespace": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{1,63}$",
+          "title": "Namespace",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z0-9][a-z0-9_.-]{1,127}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "tags": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "namespace",
+        "name",
+        "version",
+        "title",
+        "summary"
+      ],
+      "title": "AssetIdentity",
+      "type": "object"
+    },
+    "AssetType": {
+      "description": "Canonical asset type enumeration.",
+      "enum": [
+        "skill",
+        "provider",
+        "hardware_mcp",
+        "digital_twin",
+        "cognitive_wiki"
+      ],
+      "title": "AssetType",
+      "type": "string"
+    },
+    "Publisher": {
+      "description": "Publisher metadata.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "display_name": {
+          "title": "Display Name",
+          "type": "string"
+        },
+        "trust_level": {
+          "$ref": "#/$defs/TrustLevel",
+          "default": "unknown"
+        },
+        "contact": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contact"
+        }
+      },
+      "required": [
+        "id",
+        "display_name"
+      ],
+      "title": "Publisher",
+      "type": "object"
+    },
+    "TrustLevel": {
+      "description": "Publisher trust level.",
+      "enum": [
+        "official",
+        "verified",
+        "community",
+        "private",
+        "unknown"
+      ],
+      "title": "TrustLevel",
+      "type": "string"
+    }
+  },
+  "description": "Unified ROSClaw Hub asset manifest.\n\nAll five asset types share this top-level structure. The ``special``\nsection is required to contain an entry matching ``asset.type``.",
+  "properties": {
+    "schema_version": {
+      "const": "hub.asset.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "asset": {
+      "$ref": "#/$defs/AssetIdentity"
+    },
+    "publisher": {
+      "$ref": "#/$defs/Publisher"
+    },
+    "visibility": {
+      "additionalProperties": true,
+      "title": "Visibility",
+      "type": "object"
+    },
+    "lifecycle": {
+      "additionalProperties": true,
+      "title": "Lifecycle",
+      "type": "object"
+    },
+    "compatibility": {
+      "additionalProperties": true,
+      "title": "Compatibility",
+      "type": "object"
+    },
+    "dependencies": {
+      "additionalProperties": true,
+      "default": {},
+      "title": "Dependencies",
+      "type": "object"
+    },
+    "permissions": {
+      "additionalProperties": true,
+      "title": "Permissions",
+      "type": "object"
+    },
+    "license": {
+      "additionalProperties": true,
+      "title": "License",
+      "type": "object"
+    },
+    "data_rights": {
+      "additionalProperties": true,
+      "title": "Data Rights",
+      "type": "object"
+    },
+    "security": {
+      "additionalProperties": true,
+      "title": "Security",
+      "type": "object"
+    },
+    "artifacts": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "install": {
+      "additionalProperties": true,
+      "title": "Install",
+      "type": "object"
+    },
+    "special": {
+      "additionalProperties": true,
+      "default": {},
+      "title": "Special",
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "asset",
+    "publisher",
+    "visibility",
+    "lifecycle",
+    "compatibility",
+    "permissions",
+    "license",
+    "data_rights",
+    "security",
+    "artifacts",
+    "install"
+  ],
+  "title": "AssetManifest",
+  "type": "object"
+}

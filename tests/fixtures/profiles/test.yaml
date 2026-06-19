@@ -1,0 +1,10 @@
+---
+robot:
+  id: test_robot
+mcp:
+  transport: http
+  host: 0.0.0.0
+  port: 8080
+sense:
+  collector: mock
+  update_hz: 10.0

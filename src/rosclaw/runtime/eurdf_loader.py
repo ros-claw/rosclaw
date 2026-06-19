@@ -10,10 +10,36 @@ Loads extended URDF directories and generates internal profiles:
 
 from __future__ import annotations
 
+import importlib.resources as resources
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+
+
+# ── Default zoo resolution ──
+
+def _packaged_zoo_path() -> Path | None:
+    """Return the path to e-urdf-zoo data shipped inside the rosclaw package, if any."""
+    try:
+        ref = resources.files("rosclaw") / "eurdf_zoo_data"
+        if ref.is_dir():
+            return Path(str(ref))
+    except (ImportError, ModuleNotFoundError, FileNotFoundError):
+        pass
+    return None
+
+
+def _default_zoo_path() -> Path:
+    """Default to project-root zoo; fall back to packaged data when installed."""
+    project_root_zoo = Path(__file__).parent.parent.parent.parent / "e-urdf-zoo"
+    if project_root_zoo.is_dir():
+        return project_root_zoo
+    packaged = _packaged_zoo_path()
+    if packaged is not None:
+        return packaged
+    # No packaged data available; keep the project-root path for error messages.
+    return project_root_zoo
 
 # ── Profile Data Classes ──
 
@@ -196,8 +222,8 @@ class EURDFLoader:
 
     def __init__(self, zoo_path: str | Path | None = None):
         if zoo_path is None:
-            # Default: look for e-urdf-zoo relative to project root
-            self.zoo_path = Path(__file__).parent.parent.parent.parent / "e-urdf-zoo"
+            # Default: project-root zoo when developing, packaged data when installed.
+            self.zoo_path = _default_zoo_path()
         else:
             self.zoo_path = Path(zoo_path)
 

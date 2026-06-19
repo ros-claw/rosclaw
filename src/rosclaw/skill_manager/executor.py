@@ -31,11 +31,13 @@ class SkillExecutor(LifecycleMixin):
         event_bus: EventBus,
         registry: SkillRegistry,
         seekdb_client: Any | None = None,
+        sense_interface: Any | None = None,
     ):
         super().__init__()
         self.event_bus = event_bus
         self.registry = registry
         self._seekdb = seekdb_client
+        self._sense_interface = sense_interface
         self._current_skill: str | None = None
 
     def _do_initialize(self) -> None:
@@ -56,6 +58,11 @@ class SkillExecutor(LifecycleMixin):
         if skill is None:
             return {"status": "error", "message": f"Skill not found: {skill_name}"}
 
+        # Body compatibility check (new P0)
+        body_check = self._check_body_compatibility(skill)
+        if body_check.get("status") == "blocked":
+            return {"status": "blocked", "message": body_check.get("reason", "Body compatibility check failed")}
+
         # Merge parameters
         params = {**skill.parameters, **(parameters or {})}
 
@@ -63,6 +70,37 @@ class SkillExecutor(LifecycleMixin):
         precheck = self._check_preconditions(skill)
         if not precheck["ok"]:
             return {"status": "precondition_failed", "message": precheck["reason"]}
+
+        # Body sense readiness gate (new)
+        sense_check = self._check_body_sense(skill)
+        if not sense_check["ok"]:
+            self.event_bus.publish(Event(
+                topic="rosclaw.sense.capability.blocked",
+                payload={
+                    "capability": skill.name,
+                    "reason": sense_check["reason"],
+                    "failed_requirements": sense_check.get("failed_requirements", []),
+                },
+                source="skill_executor",
+                priority=EventPriority.HIGH,
+            ))
+            self.event_bus.publish(Event(
+                topic="skill.execution.blocked",
+                payload={
+                    "skill_name": skill.name,
+                    "reason": "blocked_by_body_sense",
+                    "message": sense_check["reason"],
+                    "failed_requirements": sense_check.get("failed_requirements", []),
+                },
+                source="skill_executor",
+                priority=EventPriority.HIGH,
+            ))
+            return {
+                "status": "blocked",
+                "reason": "blocked_by_body_sense",
+                "message": sense_check["reason"],
+                "failed_requirements": sense_check.get("failed_requirements", []),
+            }
 
         self._current_skill = skill_name
 
@@ -79,7 +117,7 @@ class SkillExecutor(LifecycleMixin):
         ))
 
         # Execute handler if available
-        result = {"status": "executed", "skill": skill_name}
+        result: dict[str, Any] = {"status": "executed", "skill": skill_name}
         t0 = time.time()
         if skill.handler is not None:
             try:
@@ -160,6 +198,57 @@ class SkillExecutor(LifecycleMixin):
             "metadata": skill.metadata,
         }
         self._seekdb.insert("skill_metadata", record)
+
+    def _check_body_compatibility(self, skill: SkillEntry) -> dict[str, Any]:
+        """Check skill against the current effective body if body is linked."""
+        try:
+            from rosclaw.body.resolver import BodyResolver
+            resolver = BodyResolver()
+            if not resolver.is_linked():
+                return {"status": "ok"}  # no body linked — allow execution with backward compatibility
+            result = resolver.check_skill_compatibility(skill.name, skill.version)
+            if result.status == "blocked":
+                return {"status": "blocked", "reason": result.reason}
+            if result.status == "unknown":
+                return {"status": "blocked", "reason": "Skill compatibility unknown — run `rosclaw body inspect --skills`"}
+            return {"status": "ok", "result": result.to_dict()}
+        except Exception as exc:
+            logger.warning("Body compatibility check failed for %s: %s", skill.name, exc)
+            return {"status": "ok"}  # fail open on check error to preserve existing workflows
+
+    def _check_body_sense(self, skill: SkillEntry) -> dict[str, Any]:
+        """Check skill against body sense readiness if the skill declares requirements."""
+        requirements = skill.metadata.get("requires_body_sense") if skill.metadata else None
+        if not requirements:
+            return {"ok": True}
+        if self._sense_interface is None:
+            return {
+                "ok": False,
+                "reason": "Skill requires body sense but Sense module is not available",
+                "failed_requirements": [],
+            }
+        readiness = self._sense_interface.get_readiness(
+            task=skill.name,
+            requirements=requirements,
+        )
+        item = readiness.capabilities.get(skill.name)
+        if item is None or item.status == "ready":
+            return {"ok": True}
+        if item.status in ("degraded", "unknown"):
+            # Low-risk tasks may allow degraded; high-risk block.
+            safety_level = skill.metadata.get("safety_level", "MODERATE") if skill.metadata else "MODERATE"
+            if safety_level in ("HIGH", "CRITICAL"):
+                return {
+                    "ok": False,
+                    "reason": f"Body sense degraded for high-risk skill {skill.name}: {item.reasons}",
+                    "failed_requirements": [req.to_dict() for req in item.failed_requirements],
+                }
+            return {"ok": True, "note": f"Body sense degraded but allowed: {item.reasons}"}
+        return {
+            "ok": False,
+            "reason": f"Body sense not ready for {skill.name}: {item.reasons}",
+            "failed_requirements": [req.to_dict() for req in item.failed_requirements],
+        }
 
     def _check_preconditions(self, skill: SkillEntry) -> dict[str, Any]:
         """Check if skill preconditions are met."""

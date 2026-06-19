@@ -1,0 +1,22 @@
+{
+  "rosclaw": {
+    "project_root": "/rosclaw_golden_project",
+    "robot_id": null,
+    "schema_version": "p0.2025-06-19",
+    "transport": "stdio"
+  },
+  "servers": {
+    "rosclaw-p0": {
+      "args": [
+        "--transport",
+        "stdio"
+      ],
+      "command": "rosclaw-mcp-serve",
+      "env": {
+        "ROSCLAW_PROJECT_ROOT": "/rosclaw_golden_project",
+        "ROSCLAW_ROBOT_ID": ""
+      }
+    }
+  },
+  "version": "1.0.0"
+}

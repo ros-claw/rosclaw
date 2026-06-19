@@ -26,13 +26,15 @@ class SkillEntry:
     updated_at: float = field(default_factory=time.time)
     execution_count: int = 0
     success_rate: float = 0.0
-    handler: Callable | None = None
+    handler: Callable[..., Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     # v1.5 champion / versioning fields
     version: str = "1.0.0"
     lineage_id: str = ""
     parent_skill_id: str = ""
     champion_level: str = "baseline_champion"  # baseline | sim | sandbox | real_candidate | real | deprecated
+    # body-system compatibility requirements (optional)
+    requirements: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -51,6 +53,7 @@ class SkillEntry:
             "lineage_id": self.lineage_id,
             "parent_skill_id": self.parent_skill_id,
             "champion_level": self.champion_level,
+            "requirements": self.requirements,
         }
 
 

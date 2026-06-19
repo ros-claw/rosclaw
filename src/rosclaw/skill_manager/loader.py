@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from rosclaw.body.schema import SkillManifest
 from rosclaw.skill_manager.registry import SkillEntry, SkillRegistry
 
 logger = logging.getLogger("rosclaw.skill_manager.loader")
@@ -39,7 +40,7 @@ class SkillLoader:
         return entry
 
     def load_from_directory(self, directory: Path) -> int:
-        """Load all .json skill files from a directory."""
+        """Load all .json and .skill.yaml files from a directory."""
         count = 0
         for path in directory.glob("*.json"):
             try:
@@ -47,7 +48,30 @@ class SkillLoader:
                 count += 1
             except Exception as e:
                 logger.warning("Failed to load %s: %s", path, e)
+        for path in directory.glob("*.skill.yaml"):
+            try:
+                self.load_skill_manifest(path)
+                count += 1
+            except Exception as e:
+                logger.warning("Failed to load %s: %s", path, e)
         return count
+
+    def load_skill_manifest(self, path: Path) -> SkillEntry | None:
+        """Load a YAML skill manifest with body compatibility requirements."""
+        manifest = SkillManifest.from_yaml(path)
+        entry = SkillEntry(
+            name=manifest.skill_id,
+            description=manifest.display_name or manifest.skill_id,
+            skill_type="programmed",
+            parameters={},
+            preconditions=[],
+            success_criteria=[],
+            metadata={"manifest_path": str(path), "manifest": manifest.to_dict()},
+            version=manifest.skill_version,
+            requirements=manifest.requires,
+        )
+        self.registry.register(entry)
+        return entry
 
     def create_programmed_skill(
         self,

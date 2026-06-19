@@ -1,0 +1,25 @@
+schema_version: "rosclaw.skill.v1"
+skill_id: "walk_forward"
+skill_version: "1.0.0"
+display_name: "Walk Forward"
+
+requires:
+  robot_class:
+    - "humanoid"
+    - "quadruped"
+  capabilities:
+    all_of:
+      - "walk"
+      - "stand"
+  actuators:
+    all_of:
+      - group: "left_leg"
+        status: "available"
+      - group: "right_leg"
+        status: "available"
+  frames:
+    all_of:
+      - "base_link"
+
+degradation_policy:
+  allow_lower_speed: true

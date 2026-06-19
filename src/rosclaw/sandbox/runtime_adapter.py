@@ -34,11 +34,13 @@ class SandboxRuntimeAdapter(LifecycleMixin):
         config: dict[str, Any],
         event_bus: EventBus,
         e_urdf_model: Any | None = None,
+        runtime: Any | None = None,
     ):
         super().__init__()
         self._config = config
         self._event_bus = event_bus
         self._e_urdf_model = e_urdf_model
+        self._runtime = runtime
         self._sandbox_service: Any | None = None
         self._engine_name = config.get("engine", "mujoco")
         self._world_id = config.get("world_id", "empty")
@@ -125,6 +127,10 @@ class SandboxRuntimeAdapter(LifecycleMixin):
                 "type": "joint_position",
                 "values": trajectory[-1] if trajectory else [],
             }
+            # Inject body sense snapshot if available for sense-aware firewall rules
+            sense_snapshot = self._get_body_sense_snapshot()
+            if sense_snapshot is not None:
+                action["body_sense_snapshot"] = sense_snapshot
             decision = gate.check(action)
             # CRITICAL FIX: Publish firewall event for BOTH blocked AND allowed
             if self._event_bus:
@@ -217,3 +223,19 @@ class SandboxRuntimeAdapter(LifecycleMixin):
             "world": self._world_id,
             "session_id": self._sandbox_service.session.session_id if self._sandbox_service else None,
         }
+
+    def _get_body_sense_snapshot(self) -> dict[str, Any] | None:
+        """Return latest BodySense snapshot from the runtime if available."""
+        if self._runtime is None:
+            return None
+        sense = getattr(self._runtime, "sense", None)
+        if sense is None:
+            return None
+        try:
+            latest = sense.get_latest_sense()
+            if latest is None:
+                latest = sense.tick()
+            return latest.to_dict()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed to get body sense snapshot: %s", exc)
+            return None

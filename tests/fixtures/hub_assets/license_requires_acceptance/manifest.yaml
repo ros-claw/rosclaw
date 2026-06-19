@@ -1,0 +1,186 @@
+schema_version: hub.asset.v1
+asset:
+  type: hardware_mcp
+  namespace: rosclaw
+  name: unitree-g1
+  version: 1.0.0
+  title: Unitree G1 Hardware MCP
+  summary: MCP server and runtime binding for Unitree G1 humanoid robot.
+  description: Provides MCP tools for state, velocity commands, and emergency stop
+    on Unitree G1.
+  tags:
+  - unitree
+  - g1
+  - humanoid
+  - mcp
+publisher:
+  id: rosclaw
+  display_name: ROSClaw Team
+  trust_level: official
+  contact: security@rosclaw.io
+visibility:
+  scope: public
+  allowed_orgs: []
+  allowed_users: []
+lifecycle:
+  status: stable
+  channel: stable
+  deprecated: false
+  yanked: false
+  replacement: null
+compatibility:
+  rosclaw:
+    min_version: 1.0.0
+    max_version: null
+  os:
+  - linux
+  arch:
+  - x86_64
+  - aarch64
+  python:
+    requires: '>=3.11,<3.14'
+  ros:
+    distributions:
+    - humble
+    - jazzy
+    required: true
+  cuda:
+    required: false
+    min_version: null
+  robot:
+    eurdf_profiles:
+    - unitree/g1
+    body_kinds:
+    - humanoid
+  hardware:
+    required_devices:
+    - unitree-g1
+  runtime_features:
+  - mcp
+  - body.yaml
+  - sandbox
+dependencies:
+  assets: []
+  python:
+  - unitree_sdk2>=1.0.0
+  system: []
+  ros: []
+permissions:
+  hardware:
+    real_robot_execution: true
+    actuators:
+    - legs
+    - arms
+    - waist
+    sensors:
+    - imu
+    - joint_state
+    - camera
+  ros:
+    topics_read:
+    - /joint_states
+    - /imu
+    topics_write:
+    - /cmd_vel
+    services: []
+    actions: []
+  mcp:
+    tools:
+    - get_robot_state
+    - walk_velocity
+    - emergency_stop
+  filesystem:
+    read:
+    - $ROSCLAW_HOME/runtime
+    write:
+    - $ROSCLAW_HOME/runtime/mcp.d
+    - $ROSCLAW_HOME/runtime/registries
+  network:
+    outbound:
+    - robot-local
+    inbound:
+    - localhost
+  modifies:
+    mcp_config: true
+    body_yaml: true
+    rosclaw_yaml: false
+    safety_config: false
+  requires_human_approval:
+  - real_robot_execution
+  - body_yaml
+  - mcp_config
+license:
+  spdx: ROSCLAW-COMMERCIAL-1.0
+  license_file: LICENSE
+  commercial_use: false
+  redistribution: false
+  attribution_required: true
+  export_control: dual-use
+data_rights:
+  contains_training_data: false
+  contains_robot_logs: false
+  contains_personal_data: false
+  allowed_usage:
+  - internal-evaluation
+  restrictions: []
+security:
+  signing:
+    required: true
+    scheme: sigstore
+    certificate: signatures/cert.pem
+  checksums:
+    algorithm: sha256
+    file: checksums.txt
+  sbom: SBOM.spdx.json
+  provenance: PROVENANCE.json
+  sandbox_required: true
+  network_isolation_recommended: true
+artifacts:
+- name: mcp-server
+  kind: python_package
+  path: artifacts/mcp_server
+  digest: sha256:c315dcd71f924e436ae842110a5c40a6fe8b8b278ec55ab73dd1f5ba3f030a3a
+  size_bytes: 123456
+install:
+  mode: declarative
+  entrypoints:
+    mcp:
+      command: python -m rosclaw_unitree_g1_mcp.server
+      env: {}
+      transport: stdio
+  registries:
+    hardware_mcp: true
+    provider: false
+    skill: false
+    digital_twin: false
+    cognitive_wiki: false
+  health_checks:
+  - name: import
+    type: python_import
+    target: rosclaw_unitree_g1_mcp
+  - name: mcp_tools
+    type: mcp_list_tools
+    timeout_sec: 5
+  - name: dry_robot_state
+    type: mcp_call
+    tool: get_robot_state
+    dry_run: true
+    timeout_sec: 5
+special:
+  hardware_mcp:
+    vendor: Unitree
+    model: G1
+    sdk:
+      name: unitree_sdk2
+      version: '>=1.0.0'
+    transport:
+      kind: udp
+      default_host: null
+      default_port: null
+    eurdf_binding:
+      profile: unitree/g1
+      required: true
+    body_yaml_patch:
+      robot_model: unitree-g1
+      installed_hardware:
+      - unitree-g1-base

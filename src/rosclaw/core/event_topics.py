@@ -86,6 +86,14 @@ class EventTopics:
     ROBOT_TELEMETRY = "rosclaw.robot.telemetry"
     ROBOT_JOINT_STATES = "rosclaw.robot.joint_states"
 
+    # ── Sense / BodySense ──
+    SENSE_STATE_UPDATED = "rosclaw.sense.state.updated"
+    SENSE_BODY_UPDATED = "rosclaw.sense.body.updated"
+    SENSE_EVENT_DETECTED = "rosclaw.sense.event.detected"
+    SENSE_READINESS_UPDATED = "rosclaw.sense.readiness.updated"
+    SENSE_CAPABILITY_BLOCKED = "rosclaw.sense.capability.blocked"
+    SENSE_CAPABILITY_DEGRADED = "rosclaw.sense.capability.degraded"
+
 
 # ── Backward compatibility mapping ──
 # OLD_TOPIC → NEW_TOPIC

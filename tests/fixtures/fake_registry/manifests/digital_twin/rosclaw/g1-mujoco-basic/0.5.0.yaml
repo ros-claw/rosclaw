@@ -1,0 +1,169 @@
+schema_version: "hub.asset.v1"
+asset:
+  type: "digital_twin"
+  namespace: "rosclaw"
+  name: "g1-mujoco-basic"
+  version: "0.5.0"
+  title: "G1 MuJoCo Basic Twin"
+  summary: "MuJoCo simulation asset for Unitree G1 safety validation."
+  description: "Digital twin of Unitree G1 with lab scene, firewall config, and benchmark tasks."
+  tags: ["g1", "mujoco", "twin", "sandbox"]
+
+publisher:
+  id: "rosclaw"
+  display_name: "ROSClaw Team"
+  trust_level: "official"
+  contact: "security@rosclaw.io"
+
+visibility:
+  scope: "public"
+  allowed_orgs: []
+  allowed_users: []
+
+lifecycle:
+  status: "stable"
+  channel: "stable"
+  deprecated: false
+  yanked: false
+  replacement: null
+
+compatibility:
+  rosclaw:
+    min_version: "1.0.0"
+    max_version: null
+  os: ["linux", "macos"]
+  arch: ["x86_64", "aarch64"]
+  python:
+    requires: ">=3.11,<3.14"
+  ros:
+    distributions: []
+    required: false
+  cuda:
+    required: false
+    min_version: null
+  robot:
+    eurdf_profiles: ["unitree/g1"]
+    body_kinds: ["humanoid"]
+  hardware:
+    required_devices: []
+  runtime_features: ["sandbox", "mujoco"]
+
+dependencies:
+  assets: []
+  python: ["mujoco>=3.2.0"]
+  system: []
+  ros: []
+
+permissions:
+  hardware:
+    real_robot_execution: false
+    actuators: []
+    sensors: []
+  ros:
+    topics_read: []
+    topics_write: []
+    services: []
+    actions: []
+  mcp:
+    tools: []
+  filesystem:
+    read: ["$ROSCLAW_HOME/runtime"]
+    write: ["$ROSCLAW_HOME/runtime/registries"]
+  network:
+    outbound: []
+    inbound: []
+  modifies:
+    mcp_config: false
+    body_yaml: false
+    rosclaw_yaml: false
+    safety_config: false
+  requires_human_approval: []
+
+license:
+  spdx: "MIT"
+  license_file: "LICENSE"
+  commercial_use: true
+  redistribution: true
+  attribution_required: true
+  export_control: "none"
+
+data_rights:
+  contains_training_data: false
+  contains_robot_logs: false
+  contains_personal_data: false
+  allowed_usage: ["research", "commercial"]
+  restrictions: []
+
+security:
+  signing:
+    required: true
+    scheme: "sigstore"
+    certificate: "signatures/cert.pem"
+  checksums:
+    algorithm: "sha256"
+    file: "checksums.txt"
+  sbom: "SBOM.spdx.json"
+  provenance: "PROVENANCE.json"
+  sandbox_required: true
+  network_isolation_recommended: true
+
+artifacts:
+  - name: "model-xml"
+    kind: "mujoco_xml"
+    path: "artifacts/twin/g1.xml"
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000200"
+    size_bytes: 1048576
+  - name: "meshes"
+    kind: "directory"
+    path: "artifacts/twin/meshes"
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000201"
+    size_bytes: 52428800
+
+install:
+  mode: "declarative"
+  entrypoints:
+    twin:
+      command: "python -m rosclaw_twin_g1_mujoco.launch"
+      env: {}
+  registries:
+    digital_twin: true
+    provider: false
+    hardware_mcp: false
+    skill: false
+    cognitive_wiki: false
+  health_checks:
+    - name: "mujoco_import"
+      type: "python_import"
+      target: "mujoco"
+    - name: "load_xml"
+      type: "mujoco_load"
+      target: "artifacts/twin/g1.xml"
+
+special:
+  digital_twin:
+    simulator:
+      backend: "mujoco"
+      min_version: "3.2.0"
+    eurdf_binding:
+      profile: "unitree/g1"
+      required: true
+    assets:
+      model_xml: "artifacts/twin/g1.xml"
+      meshes_dir: "artifacts/twin/meshes"
+      textures_dir: "artifacts/twin/textures"
+      world: "artifacts/twin/worlds/lab_scene.xml"
+    calibration:
+      default_file: "artifacts/twin/calibration.yaml"
+      supports_instance_calibration: true
+    firewall:
+      enabled: true
+      config: "artifacts/twin/firewall.yaml"
+      max_preview_speed: 100
+      collision_check: true
+      joint_limit_check: true
+      stability_check: true
+    tasks:
+      - id: "g1_walk_safety"
+        path: "artifacts/twin/tasks/g1_walk_safety.yaml"
+      - id: "g1_pick_place"
+        path: "artifacts/twin/tasks/g1_pick_place.yaml"

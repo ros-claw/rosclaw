@@ -156,6 +156,7 @@ class MCPHub(LifecycleMixin):
         self._register_get_safety_heuristic_tool()
         self._register_get_recovery_strategy_tool()
         self._register_knowledge_compiler_tools()
+        self._register_sense_tools()
 
     def _register_observe_scene_tool(self) -> None:
         self._tools["observe_scene"] = {
@@ -253,6 +254,7 @@ class MCPHub(LifecycleMixin):
         self._register_get_scene_graph_tool()
         self._register_cognitive_search_tool()
         self._register_knowledge_compiler_tools()
+        self._register_sense_tools()
 
     def _register_move_tool(self) -> None:
         self._tools["move_joints"] = {
@@ -493,6 +495,11 @@ class MCPHub(LifecycleMixin):
             },
         }
 
+    def _register_sense_tools(self) -> None:
+        """Register body sense MCP tools when a SenseRuntime is available."""
+        from rosclaw.sense.mcp_tools import register_sense_tools
+        register_sense_tools(self._tools)
+
     # ------------------------------------------------------------------
     # Tool call dispatch
     # ------------------------------------------------------------------
@@ -548,6 +555,14 @@ class MCPHub(LifecycleMixin):
             return self._handle_rosclaw_task_pack(arguments)
         elif name == "rosclaw_match_symptom":
             return self._handle_rosclaw_match_symptom(arguments)
+
+        # Body sense tools
+        elif name == "get_body_sense":
+            return self._handle_get_body_sense(arguments)
+        elif name == "get_body_readiness":
+            return self._handle_get_body_readiness(arguments)
+        elif name == "explain_body_block":
+            return self._handle_explain_body_block(arguments)
 
         else:
             return {"error": f"Unknown tool: {name}"}
@@ -1101,6 +1116,21 @@ class MCPHub(LifecycleMixin):
             "matched": match is not None,
             "result": match,
         }
+
+    def _handle_get_body_sense(self, arguments: dict) -> dict:
+        """Handle get_body_sense tool call."""
+        from rosclaw.sense.mcp_tools import handle_get_body_sense
+        return handle_get_body_sense(self, arguments)
+
+    def _handle_get_body_readiness(self, arguments: dict) -> dict:
+        """Handle get_body_readiness tool call."""
+        from rosclaw.sense.mcp_tools import handle_get_body_readiness
+        return handle_get_body_readiness(self, arguments)
+
+    def _handle_explain_body_block(self, arguments: dict) -> dict:
+        """Handle explain_body_block tool call."""
+        from rosclaw.sense.mcp_tools import handle_explain_body_block
+        return handle_explain_body_block(self, arguments)
 
     @staticmethod
     def _world_object_to_dict(obj: Any) -> dict:

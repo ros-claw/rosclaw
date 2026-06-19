@@ -22,13 +22,47 @@ Commands:
 """
 
 import argparse
+import asyncio
+import contextlib
 import json
 import os
 import sys
 import time
 from pathlib import Path
 
+from rosclaw.agent.doctor import add_doctor_parser as _add_agent_doctor_parser
+from rosclaw.agent.init_claude_code import add_init_parser as _add_agent_init_parser
+from rosclaw.agent.test_claude_code import add_test_parser as _add_agent_test_parser
+from rosclaw.body.cli import add_body_subparser, dispatch_body_command
 from rosclaw.connectors.ros.cli import add_ros_subparser, cmd_doctor_ros, dispatch_ros_command
+from rosclaw.firstboot.wizard import run_firstboot
+from rosclaw.firstboot.workspace import resolve_home
+from rosclaw.hub.cli import add_hub_subparser, dispatch_hub_command
+from rosclaw.mcp.onboarding.cli import add_mcp_subparser
+from rosclaw.mcp.server import serve as _mcp_serve
+from rosclaw.sense.cli import (
+    cmd_sense_events,
+    cmd_sense_explain,
+    cmd_sense_now,
+    cmd_sense_readiness,
+    cmd_sense_state,
+    cmd_sense_watch,
+)
+
+
+def _cmd_mcp_serve(args: argparse.Namespace) -> int:
+    """Dispatch wrapper for `rosclaw mcp serve`."""
+    with contextlib.suppress(KeyboardInterrupt):
+        _mcp_serve(
+            transport=args.transport,
+            host=args.host,
+            port=args.port,
+            robot_id=args.robot_id,
+            project_root=args.project_root,
+            log_level=args.log_level,
+        )
+    return 0
+
 
 
 def _version() -> str:
@@ -250,6 +284,28 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     if getattr(args, "ros2", False):
         return _cmd_doctor_ros2()
 
+    # New structured firstboot doctor modes
+    if any(
+        getattr(args, flag, False)
+        for flag in ("bootstrap", "full", "fix", "json", "gpu", "network")
+    ):
+        from rosclaw.firstboot.doctor import FirstbootDoctor
+
+        doctor = FirstbootDoctor(resolve_home())
+        if getattr(args, "bootstrap", False):
+            result = doctor.run_bootstrap(
+                fix=getattr(args, "fix", False),
+                json_output=getattr(args, "json", False),
+            )
+        else:
+            result = doctor.run_full(
+                fix=getattr(args, "fix", False),
+                json_output=getattr(args, "json", False),
+                check_gpu=getattr(args, "gpu", False),
+                check_network=getattr(args, "network", False),
+            )
+        return result.exit_code
+
     import importlib
     import platform
 
@@ -351,6 +407,130 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
     print("\n✅ All checks passed. ROSClaw is healthy!")
     return 0
+
+
+def cmd_firstboot(args: argparse.Namespace) -> int:
+    """Run ROSClaw first boot wizard."""
+    return run_firstboot(args)
+
+
+def cmd_config(args: argparse.Namespace) -> int:
+    """Configuration commands."""
+    from rosclaw.firstboot.config import validate_config
+
+    home = resolve_home()
+    config_path = home / "config" / "rosclaw.yaml"
+
+    if args.config_command == "show":
+        if not config_path.exists():
+            print("[ROSClaw] No config found. Run `rosclaw firstboot`.")
+            return 1
+        print(config_path.read_text(encoding="utf-8"))
+        return 0
+
+    if args.config_command == "path":
+        print(config_path)
+        return 0
+
+    if args.config_command == "validate":
+        valid, errors = validate_config(home)
+        if valid:
+            print("[ROSClaw] Config is valid.")
+            return 0
+        print("[ROSClaw] Config validation failed:")
+        for err in errors:
+            print(f"  • {err}")
+        return 1
+
+    if args.config_command == "edit":
+        editor = args.editor or os.environ.get("EDITOR", "nano")
+        if not config_path.exists():
+            print("[ROSClaw] No config found. Run `rosclaw firstboot`.")
+            return 1
+        os.system(f"{editor} \"{config_path}\"")
+        return 0
+
+    return 0
+
+
+def cmd_profile(args: argparse.Namespace) -> int:
+    """Profile management commands."""
+    import yaml
+
+    home = resolve_home()
+    profiles_dir = home / "config" / "profiles"
+
+    if args.profile_command == "list":
+        if not profiles_dir.exists():
+            print("No profiles found.")
+            return 0
+        profiles = sorted(p.stem for p in profiles_dir.glob("*.yaml"))
+        print("Available profiles:")
+        for name in profiles:
+            print(f"  • {name}")
+        return 0
+
+    if args.profile_command == "current":
+        config_path = home / "config" / "rosclaw.yaml"
+        if config_path.exists():
+            try:
+                cfg = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+                print(cfg.get("workspace", {}).get("profile", "offline"))
+                return 0
+            except yaml.YAMLError as exc:
+                print(f"[ROSClaw] Error reading config: {exc}")
+                return 1
+        print("offline")
+        return 0
+
+    if args.profile_command == "use":
+        config_path = home / "config" / "rosclaw.yaml"
+        if not config_path.exists():
+            print("[ROSClaw] No config found. Run `rosclaw firstboot`.")
+            return 1
+        try:
+            cfg = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError as exc:
+            print(f"[ROSClaw] Error reading config: {exc}")
+            return 1
+
+        cfg.setdefault("workspace", {})["profile"] = args.profile_name
+        config_path.write_text(
+            yaml.safe_dump(cfg, default_flow_style=False, sort_keys=False, allow_unicode=True),
+            encoding="utf-8",
+        )
+        print(f"Profile set to: {args.profile_name}")
+        return 0
+
+    return 0
+
+
+def cmd_uninstall(args: argparse.Namespace) -> int:
+    """Uninstall ROSClaw CLI and optionally remove workspace data."""
+    import shutil
+
+    home = resolve_home()
+
+    if args.purge:
+        if home.exists():
+            shutil.rmtree(home)
+            print(f"[ROSClaw] Removed workspace: {home}")
+        print("[ROSClaw] To remove the CLI, run one of:")
+        print("  uv tool uninstall rosclaw")
+        print("  pipx uninstall rosclaw")
+        print(f"  rm -rf {home}/venv  # if venv backend was used")
+        return 0
+
+    if args.keep_data:
+        print("[ROSClaw] Workspace kept at:", home)
+        print("[ROSClaw] To remove the CLI, run one of:")
+        print("  uv tool uninstall rosclaw")
+        print("  pipx uninstall rosclaw")
+        print(f"  rm -rf {home}/venv  # if venv backend was used")
+        return 0
+
+    print("[ROSClaw] Use --keep-data to keep workspace, or --purge to remove everything.")
+    return 1
 
 
 class _MockSeekDB:
@@ -2533,6 +2713,56 @@ def main() -> int:
     doctor_parser.add_argument("--ros2", action="store_true", help="Check ROS2 environment profile (L1-L5)")
     doctor_parser.add_argument("--ros", action="store_true", help="Check rosbridge ROS connector profile (no rclpy)")
     doctor_parser.add_argument("--endpoint", default="ws://127.0.0.1:9090", help="rosbridge endpoint for --ros check")
+    doctor_parser.add_argument("--bootstrap", action="store_true", help="L0 bootstrap check only")
+    doctor_parser.add_argument("--full", action="store_true", help="Run L1-L3 full health check")
+    doctor_parser.add_argument("--fix", action="store_true", help="Auto-fix safe issues only")
+    doctor_parser.add_argument("--json", action="store_true", help="Output structured JSON")
+    doctor_parser.add_argument("--gpu", action="store_true", help="Include GPU/CUDA check")
+    doctor_parser.add_argument("--network", action="store_true", help="Include network reachability check")
+
+    # firstboot
+    firstboot_parser = subparsers.add_parser("firstboot", help="Run ROSClaw first boot wizard")
+    firstboot_parser.add_argument("--yes", action="store_true", help="Non-interactive mode with defaults")
+    firstboot_parser.add_argument("--workspace", default=None, help="Custom workspace path")
+    firstboot_parser.add_argument("--profile", choices=["offline", "cloud", "hybrid"], default="offline")
+    firstboot_parser.add_argument("--robot", default="sim_ur5e", help="Default robot profile")
+    firstboot_parser.add_argument("--safety", choices=["strict", "moderate", "relaxed"], default="strict")
+    firstboot_parser.add_argument("--enable-sandbox", action="store_true", help="Enable sandbox")
+    firstboot_parser.add_argument("--disable-sandbox", action="store_true", help="Disable sandbox")
+    firstboot_parser.add_argument("--enable-mcp", action="store_true", help="Enable MCP config generation")
+    firstboot_parser.add_argument("--disable-mcp", action="store_true", help="Disable MCP config generation")
+    firstboot_parser.add_argument("--enable-ros2", action="store_true", help="Enable ROS 2 mode")
+    firstboot_parser.add_argument("--enable-memory", action="store_true", help="Enable memory module")
+    firstboot_parser.add_argument("--enable-practice", action="store_true", help="Enable practice capture")
+    firstboot_parser.add_argument("--enable-auto", action="store_true", help="Enable auto evolution")
+    firstboot_parser.add_argument("--telemetry", action="store_true", help="Enable anonymous telemetry")
+    firstboot_parser.add_argument("--no-telemetry", action="store_true", help="Disable anonymous telemetry")
+    firstboot_parser.add_argument("--dev", action="store_true", help="Developer mode")
+    firstboot_parser.add_argument("--force", action="store_true", help="Re-run even if already initialized")
+    firstboot_parser.add_argument("--dry-run", action="store_true", help="Show what would be done without writing")
+    firstboot_parser.add_argument("--json", action="store_true", help="JSON output")
+
+    # config
+    config_parser = subparsers.add_parser("config", help="Configuration commands")
+    config_subparsers = config_parser.add_subparsers(dest="config_command")
+    config_subparsers.add_parser("show", help="Show current config")
+    config_subparsers.add_parser("path", help="Show config file path")
+    config_subparsers.add_parser("validate", help="Validate config schema")
+    config_edit_parser = config_subparsers.add_parser("edit", help="Open config in editor")
+    config_edit_parser.add_argument("--editor", default=None, help="Editor command (default: $EDITOR or nano)")
+
+    # profile
+    profile_parser = subparsers.add_parser("profile", help="Profile management")
+    profile_subparsers = profile_parser.add_subparsers(dest="profile_command")
+    profile_subparsers.add_parser("list", help="List available profiles")
+    profile_use_parser = profile_subparsers.add_parser("use", help="Activate a profile")
+    profile_use_parser.add_argument("profile_name", choices=["offline", "cloud", "hybrid", "ros2", "sim"])
+    profile_subparsers.add_parser("current", help="Show active profile")
+
+    # uninstall
+    uninstall_parser = subparsers.add_parser("uninstall", help="Uninstall ROSClaw")
+    uninstall_parser.add_argument("--keep-data", action="store_true", help="Keep ~/.rosclaw data")
+    uninstall_parser.add_argument("--purge", action="store_true", help="Remove everything including data")
 
     # logs
     logs_parser = subparsers.add_parser("logs", help="Show runtime logs")
@@ -2559,6 +2789,8 @@ def main() -> int:
 
     # robot subcommand
     add_ros_subparser(subparsers)
+    add_body_subparser(subparsers)
+    add_hub_subparser(subparsers)
     robot_parser = subparsers.add_parser("robot", help="Robot registry commands")
     robot_subparsers = robot_parser.add_subparsers(dest="robot_command")
 
@@ -2737,6 +2969,43 @@ def main() -> int:
     know_recommend_parser = know_subparsers.add_parser("recommend", help="Recommend robots for task")
     know_recommend_parser.add_argument("task", help="Task description")
 
+    # sense subcommand
+    sense_parser = subparsers.add_parser("sense", help="Body sense and readiness commands")
+    sense_subparsers = sense_parser.add_subparsers(dest="sense_command")
+
+    sense_now_parser = sense_subparsers.add_parser("now", help="Get current BodySense snapshot")
+    sense_now_parser.add_argument("--mock", default="normal", help="Mock scenario")
+    sense_now_parser.add_argument("--robot-id", default="g1_lab_01", help="Robot identifier")
+    sense_now_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    sense_state_parser = sense_subparsers.add_parser("state", help="Show detailed BodyState")
+    sense_state_parser.add_argument("--mock", default="normal", help="Mock scenario")
+    sense_state_parser.add_argument("--robot-id", default="g1_lab_01", help="Robot identifier")
+    sense_state_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    sense_readiness_parser = sense_subparsers.add_parser("readiness", help="Show body readiness")
+    sense_readiness_parser.add_argument("--task", required=True, help="Task/capability name")
+    sense_readiness_parser.add_argument("--mock", default="normal", help="Mock scenario")
+    sense_readiness_parser.add_argument("--robot-id", default="g1_lab_01", help="Robot identifier")
+    sense_readiness_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    sense_watch_parser = sense_subparsers.add_parser("watch", help="Watch body sense stream")
+    sense_watch_parser.add_argument("--mock", default="normal", help="Mock scenario")
+    sense_watch_parser.add_argument("--robot-id", default="g1_lab_01", help="Robot identifier")
+    sense_watch_parser.add_argument("--interval", type=float, default=1.0, help="Poll interval")
+    sense_watch_parser.add_argument("--limit", type=int, default=None, help="Max updates")
+
+    sense_events_parser = sense_subparsers.add_parser("events", help="Show recent body events")
+    sense_events_parser.add_argument("--mock", default="normal", help="Mock scenario")
+    sense_events_parser.add_argument("--robot-id", default="g1_lab_01", help="Robot identifier")
+    sense_events_parser.add_argument("--limit", type=int, default=20, help="Max events")
+    sense_events_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    sense_explain_parser = sense_subparsers.add_parser("explain", help="Explain task block")
+    sense_explain_parser.add_argument("--task", required=True, help="Task/capability name")
+    sense_explain_parser.add_argument("--mock", default="normal", help="Mock scenario")
+    sense_explain_parser.add_argument("--robot-id", default="g1_lab_01", help="Robot identifier")
+
     # demo subcommand
     demo_parser = subparsers.add_parser("demo", help="Run demonstration scenarios")
     demo_subparsers = demo_parser.add_subparsers(dest="demo_command")
@@ -2753,6 +3022,38 @@ def main() -> int:
     demo_grasp_parser.add_argument("--robot-id", default="ur5e", help="Robot identifier")
     demo_grasp_parser.add_argument("--object", default="red_cup", help="Object to grasp")
 
+    # agent (P0 onboarding)
+    agent_parser = subparsers.add_parser("agent", help="Agent onboarding and diagnostics")
+    agent_subparsers = agent_parser.add_subparsers(dest="agent_command")
+    _add_agent_init_parser(agent_subparsers)
+    _add_agent_doctor_parser(agent_subparsers)
+    _add_agent_test_parser(agent_subparsers)
+
+    # mcp (P0 MCP server)
+    mcp_parser = subparsers.add_parser("mcp", help="MCP server commands")
+    mcp_subparsers = mcp_parser.add_subparsers(dest="mcp_command")
+    mcp_serve_parser = mcp_subparsers.add_parser("serve", help="Start the P0 MCP server")
+    mcp_serve_parser.add_argument(
+        "--transport",
+        choices=["stdio", "http", "sse"],
+        default="stdio",
+        help="MCP transport",
+    )
+    mcp_serve_parser.add_argument("--host", default="127.0.0.1", help="HTTP/SSE host")
+    mcp_serve_parser.add_argument("--port", type=int, default=9090, help="HTTP/SSE port")
+    mcp_serve_parser.add_argument("--robot-id", default=None, help="Robot identifier")
+    mcp_serve_parser.add_argument("--project-root", default=".", help="Project root path")
+    mcp_serve_parser.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        default="INFO",
+        help="Logging level",
+    )
+    mcp_serve_parser.set_defaults(func=lambda args: asyncio.run(_cmd_mcp_serve(args)))
+
+    # Hardware MCP onboarding subcommands (install/list/health)
+    add_mcp_subparser(mcp_subparsers)
+
     args = parser.parse_args()
 
     if args.command == "init":
@@ -2767,8 +3068,24 @@ def main() -> int:
         if getattr(args, "ros", False):
             return cmd_doctor_ros(args)
         return cmd_doctor(args)
+    elif args.command == "firstboot":
+        return cmd_firstboot(args)
+    elif args.command == "config":
+        if getattr(args, "config_command", None):
+            return cmd_config(args)
+        config_parser.print_help()
+        return 1
+    elif args.command == "profile":
+        if getattr(args, "profile_command", None):
+            return cmd_profile(args)
+        profile_parser.print_help()
+        return 1
+    elif args.command == "uninstall":
+        return cmd_uninstall(args)
     elif args.command == "ros":
         return dispatch_ros_command(args)
+    elif args.command == "body":
+        return dispatch_body_command(args)
     elif args.command == "logs":
         return cmd_logs(args)
     elif args.command == "robot":
@@ -2915,6 +3232,22 @@ def main() -> int:
         else:
             know_parser.print_help()
             return 1
+    elif args.command == "sense":
+        if args.sense_command == "now":
+            return cmd_sense_now(args)
+        elif args.sense_command == "state":
+            return cmd_sense_state(args)
+        elif args.sense_command == "readiness":
+            return cmd_sense_readiness(args)
+        elif args.sense_command == "watch":
+            return cmd_sense_watch(args)
+        elif args.sense_command == "events":
+            return cmd_sense_events(args)
+        elif args.sense_command == "explain":
+            return cmd_sense_explain(args)
+        else:
+            sense_parser.print_help()
+            return 1
     elif args.command == "demo":
         if args.demo_command == "mobile-pid":
             return cmd_demo_mobile_pid(args)
@@ -2923,6 +3256,18 @@ def main() -> int:
         else:
             demo_parser.print_help()
             return 1
+    elif args.command == "hub":
+        return dispatch_hub_command(args)
+    elif args.command == "agent":
+        if getattr(args, "func", None):
+            return args.func(args)
+        agent_parser.print_help()
+        return 1
+    elif args.command == "mcp":
+        if getattr(args, "func", None):
+            return args.func(args)
+        mcp_parser.print_help()
+        return 1
     else:
         parser.print_help()
         return 1

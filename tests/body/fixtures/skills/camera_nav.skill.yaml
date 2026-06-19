@@ -1,0 +1,27 @@
+schema_version: "rosclaw.skill.v1"
+skill_id: "camera_nav"
+skill_version: "1.0.0"
+display_name: "Camera-based Navigation"
+
+requires:
+  robot_class:
+    - "humanoid"
+  capabilities:
+    all_of:
+      - "walk"
+      - "visual_navigation"
+  sensors:
+    all_of:
+      - id: "head_camera"
+        type: "rgb_camera"
+        status: "available"
+  actuators:
+    all_of:
+      - group: "left_leg"
+        status: "available"
+      - group: "right_leg"
+        status: "available"
+
+degradation_policy:
+  allow_uncalibrated_camera: false
+  allow_lower_speed: true

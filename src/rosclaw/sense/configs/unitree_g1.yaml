@@ -1,0 +1,49 @@
+robot_family: unitree_g1
+
+thresholds:
+  battery:
+    low: 30
+    critical: 12
+
+  joint_temperature_c:
+    warm: 65
+    hot: 75
+    overheat: 85
+
+  dds_latency_ms:
+    degraded: 30
+    bad: 80
+
+  perception:
+    target_confidence_min: 0.75
+    camera_fps_min: 15
+
+capabilities:
+  observe_scene:
+    camera_fps_min: 10
+    target_detector_confidence_min: 0.3
+    battery_percent_min: 5
+    dds_latency_ms_max: 200
+
+  walk_slow:
+    battery_percent_min: 20
+    max_leg_joint_temp_c: 80
+    dds_latency_ms_max: 50
+    fall_risk_max: medium
+
+  kick_ball:
+    battery_percent_min: 40
+    max_leg_joint_temp_c: 72
+    fall_risk_max: low
+    support_margin_min: 0.15
+    support_stability_sec_min: 0.8
+    target_detector_confidence_min: 0.80
+    dds_latency_ms_max: 25
+    sandbox_required: true
+    human_supervision_required: true
+
+  high_power_motion:
+    battery_percent_min: 50
+    max_leg_joint_temp_c: 70
+    fall_risk_max: low
+    dds_latency_ms_max: 20

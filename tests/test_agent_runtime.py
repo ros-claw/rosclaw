@@ -19,7 +19,7 @@ def test_mcp_hub_tools():
     hub = MCPHub(bus, robot_id="test")
     hub.initialize()
     tools = hub.tools
-    assert len(tools) == 10
+    assert len(tools) == 13
     names = [t["name"] for t in tools]
     assert "move_joints" in names
     assert "grasp" in names
@@ -29,6 +29,9 @@ def test_mcp_hub_tools():
     assert "cognitive_search" in names
     assert "rosclaw_task_pack" in names
     assert "rosclaw_match_symptom" in names
+    assert "get_body_sense" in names
+    assert "get_body_readiness" in names
+    assert "explain_body_block" in names
     hub.stop()
 
 

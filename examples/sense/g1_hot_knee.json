@@ -1,0 +1,12 @@
+{
+  "robot_id": "g1_lab_01",
+  "timestamp": 1700000000.0,
+  "source": "example:hot_knee",
+  "energy": {"battery_percent": 80.0, "power_mode": "normal"},
+  "joints": {
+    "right_knee": {"temperature_c": 78.2}
+  },
+  "balance": {"support_margin": 0.25, "stable_for_sec": 2.0},
+  "perception": {"front_camera_fps": 30.0, "target_detector_confidence": 0.92, "status": "ok"},
+  "communication": {"dds_latency_ms": 18.0, "heartbeat_ok": true}
+}

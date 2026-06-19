@@ -1,0 +1,6 @@
+{
+  "schema_version": "hub.registry.timestamp.v1",
+  "version": 1,
+  "expires": "2030-01-01T00:00:00Z",
+  "snapshot_digest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+}

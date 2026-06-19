@@ -95,6 +95,13 @@ class RuntimeConfig:
     know_curated_registry_enabled: bool = field(
         default_factory=lambda: os.environ.get("ROSCLAW_KNOW_CURATED_REGISTRY_ENABLED", "").lower() in ("1", "true", "yes", "on")
     )
+    # Sense / BodySense module configuration
+    enable_sense: bool = True
+    sense_collector: str = "mock"
+    sense_update_hz: float = 1.0
+    sense_robot_profile: str | None = None
+    sense_thresholds_path: str | None = None
+    sense_replay_path: str | None = None
 
 
 class Runtime(LifecycleMixin):
@@ -124,6 +131,7 @@ class Runtime(LifecycleMixin):
         self._knowledge_assets: Any | None = None
         self._how: Any | None = None
         self._auto: Any | None = None
+        self._sense: Any | None = None
         self._e_urdf: Any | None = None
         self._robot_profile: Any | None = None
         self._sandbox: Any | None = None
@@ -146,6 +154,9 @@ class Runtime(LifecycleMixin):
     def _do_initialize(self) -> None:
         """Initialize all enabled grounding engines."""
         logger.info(f"Initializing ROSClaw Runtime for {self.config.robot_id}")
+
+        # Shared SeekDB client reused by Memory, Knowledge, HOW, Auto, and SkillManager.
+        seekdb: Any | None = None
 
         # Initialize EventBus subscriptions for internal coordination
         self._setup_internal_subscriptions()
@@ -190,11 +201,33 @@ class Runtime(LifecycleMixin):
                 config=sandbox_config,
                 event_bus=self.event_bus,
                 e_urdf_model=self._e_urdf,
+                runtime=self,
             )
             self._modules.append(self._sandbox)
             logger.info("Sandbox (Digital Twin + Physics) initialized")
         except ImportError as e:
             logger.info(f"Sandbox not available: {e}")
+
+        # Initialize Body Sense (after e-URDF/Sandbox, before SkillManager)
+        if self.config.enable_sense:
+            try:
+                from rosclaw.sense.config import SenseConfig
+                from rosclaw.sense.runtime import SenseRuntime
+                self._sense = SenseRuntime(
+                    config=SenseConfig(
+                        robot_id=self.config.robot_id,
+                        collector=self.config.sense_collector,
+                        robot_profile=self.config.sense_robot_profile,
+                        thresholds_path=self.config.sense_thresholds_path,
+                        replay_path=self.config.sense_replay_path,
+                        update_hz=self.config.sense_update_hz,
+                    ),
+                    event_bus=self.event_bus,
+                )
+                self._modules.append(self._sense)
+                logger.info("Body Sense (SenseRuntime) initialized")
+            except ImportError as e:
+                logger.info(f"Sense module not available: {e}")
 
         # Initialize Experience Grounding (Memory)
         if self.config.enable_memory:
@@ -272,7 +305,12 @@ class Runtime(LifecycleMixin):
                 from rosclaw.skill_manager.executor import SkillExecutor
                 from rosclaw.skill_manager.registry import SkillRegistry
                 registry = SkillRegistry(event_bus=self.event_bus)
-                self._skill_manager = SkillExecutor(self.event_bus, registry)
+                self._skill_manager = SkillExecutor(
+                    self.event_bus,
+                    registry,
+                    seekdb_client=seekdb,
+                    sense_interface=self._sense,
+                )
                 self._modules.append(registry)
                 self._modules.append(self._skill_manager)
                 logger.info("Skill Grounding (SkillManager) initialized")
@@ -285,7 +323,6 @@ class Runtime(LifecycleMixin):
                 from rosclaw.know.interface import KnowledgeInterface
                 from rosclaw.know.storage import seed_knowledge_graph
                 # Reuse Memory's SeekDB client if available
-                seekdb = None
                 if self._memory is not None:
                     seekdb = getattr(self._memory, "seekdb_client", None)
                 self._knowledge = KnowledgeInterface(
@@ -335,7 +372,6 @@ class Runtime(LifecycleMixin):
         if self.config.enable_how:
             try:
                 # Reuse Memory's SeekDB client if available
-                seekdb = None
                 if self._memory is not None:
                     seekdb = getattr(self._memory, "seekdb_client", None)
                 self._how = self._create_how_engine(seekdb)
@@ -348,7 +384,7 @@ class Runtime(LifecycleMixin):
         if self.config.enable_auto:
             try:
                 from rosclaw.auto.plugin import AutoPlugin
-                seekdb = None
+                # Reuse Memory's SeekDB client if available
                 if self._memory is not None:
                     seekdb = getattr(self._memory, "seekdb_client", None)
                 self._auto = AutoPlugin(
@@ -762,6 +798,10 @@ class Runtime(LifecycleMixin):
     @property
     def auto(self) -> Any | None:
         return self._auto
+
+    @property
+    def sense(self) -> Any | None:
+        return self._sense
 
     @property
     def e_urdf(self) -> Any | None:
@@ -1668,6 +1708,17 @@ class Runtime(LifecycleMixin):
 
     def get_status(self) -> dict:
         """Get comprehensive runtime status."""
+        sense_status: dict[str, Any] = {"enabled": self.config.enable_sense, "available": self._sense is not None}
+        if self._sense is not None:
+            try:
+                latest = self._sense.get_body_sense()
+                if latest is not None:
+                    sense_status["overall_status"] = latest.overall_status
+                    sense_status["blocked_capabilities"] = latest.blocked_capabilities
+                    sense_status["degraded_capabilities"] = latest.degraded_capabilities
+            except Exception as exc:  # noqa: BLE001
+                sense_status["error"] = str(exc)
+
         return {
             "robot_id": self.config.robot_id,
             "runtime_state": self.state.name,
@@ -1684,7 +1735,9 @@ class Runtime(LifecycleMixin):
                 "e_urdf": self._e_urdf is not None,
                 "provider_layer": self._provider_registry is not None,
                 "auto": self._auto is not None,
+                "sense": self._sense is not None,
             },
+            "body_sense": sense_status,
             "embodied_memory": {
                 "attached": self.config.embodied_memory is not None,
                 "has_world_objects": (

@@ -1,0 +1,27 @@
+{
+  "schema_version": "hub.registry.root.v1",
+  "keys": [
+    {
+      "id": "fake-key",
+      "keytype": "ed25519",
+      "public": "fake-public-key"
+    }
+  ],
+  "roles": {
+    "timestamp": {
+      "keyids": [
+        "fake-key"
+      ]
+    },
+    "snapshot": {
+      "keyids": [
+        "fake-key"
+      ]
+    },
+    "catalog": {
+      "keyids": [
+        "fake-key"
+      ]
+    }
+  }
+}

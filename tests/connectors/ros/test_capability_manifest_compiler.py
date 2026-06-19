@@ -114,6 +114,35 @@ def test_action_compiled():
     assert cap.interface.ros_kind == "action"
 
 
+def test_discouraged_command_topic_disabled_when_no_preferred_service():
+    snapshot = _snapshot(topics=[
+        RosTopicInfo(name="/cmd_vel", msg_type="geometry_msgs/msg/Twist", is_command=True, risk_hint="high"),
+    ])
+    spec = {
+        "discouraged_interfaces": [{"ros_kind": "topic", "ros_name": "/cmd_vel"}],
+    }
+    compiler = CapabilityManifestCompiler(robot_id="go2", robot_spec=spec)
+    manifest = compiler.compile(snapshot)
+    cap = manifest.get_capability("go2.base.velocity_command")
+    assert cap is not None, "the only command interface should still appear in the manifest"
+    assert cap.enabled is False
+    assert "Disabled by robot spec" in cap.reason
+
+
+def test_discouraged_service_is_disabled():
+    snapshot = _snapshot(services=[
+        RosServiceInfo(name="/go2/stand_up", srv_type="std_srvs/srv/Trigger", risk_hint="medium"),
+    ])
+    spec = {
+        "discouraged_interfaces": [{"ros_kind": "service", "ros_name": "/go2/stand_up"}],
+    }
+    compiler = CapabilityManifestCompiler(robot_id="go2", robot_spec=spec)
+    manifest = compiler.compile(snapshot)
+    cap = manifest.get_capability("go2.go2.stand_up")
+    assert cap is not None
+    assert cap.enabled is False
+
+
 def test_manifest_to_dict_roundtrip():
     snapshot = _snapshot(topics=[
         RosTopicInfo(name="/turtle1/pose", msg_type="turtlesim/msg/Pose"),

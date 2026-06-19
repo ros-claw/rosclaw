@@ -16,6 +16,19 @@ from .auto_schemas import (
     ExperimentSpec,
 )
 
+# Hardware MCP onboarding
+from rosclaw.mcp.onboarding.schema import (
+    Artifact,
+    BodyBindingTemplate,
+    ClaudeMcpConfig,
+    HealthCheck,
+    McpConfig,
+    McpManifest,
+    PermissionDecl,
+    Permissions,
+    Publisher,
+)
+
 # Context
 from .context import AgentContext, RuntimeContext, TaskContext
 
@@ -76,4 +89,14 @@ __all__ = [
     # sandbox
     "SandboxDecision",
     "SandboxSession",
+    # hardware MCP onboarding
+    "Artifact",
+    "BodyBindingTemplate",
+    "ClaudeMcpConfig",
+    "HealthCheck",
+    "McpConfig",
+    "McpManifest",
+    "PermissionDecl",
+    "Permissions",
+    "Publisher",
 ]

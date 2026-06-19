@@ -215,6 +215,36 @@ actuators:
     type: electric_motor
     max_torque: 150.0
     max_velocity: 10.0
+  - name: left_leg
+    type: actuator_group
+    joints:
+      - left_hip_yaw_joint
+      - left_hip_roll_joint
+      - left_hip_pitch_joint
+      - left_knee_joint
+      - left_ankle_joint
+  - name: right_leg
+    type: actuator_group
+    joints:
+      - right_hip_yaw_joint
+      - right_hip_roll_joint
+      - right_hip_pitch_joint
+      - right_knee_joint
+      - right_ankle_joint
+  - name: left_arm
+    type: actuator_group
+    joints:
+      - left_shoulder_pitch_joint
+      - left_shoulder_roll_joint
+      - left_shoulder_yaw_joint
+      - left_elbow_joint
+  - name: right_arm
+    type: actuator_group
+    joints:
+      - right_shoulder_pitch_joint
+      - right_shoulder_roll_joint
+      - right_shoulder_yaw_joint
+      - right_elbow_joint
 
 capabilities:
   - name: walk

@@ -1,0 +1,26 @@
+schema_version: "rosclaw.skill.v1"
+skill_id: "dual_arm_lift"
+skill_version: "1.0.0"
+display_name: "Dual Arm Lift"
+
+requires:
+  robot_class:
+    - "humanoid"
+  capabilities:
+    all_of:
+      - "stand"
+      - "reach"
+      - "dual_arm_coordination"
+  actuators:
+    all_of:
+      - group: "left_arm"
+        status: "available"
+      - group: "right_arm"
+        status: "available"
+  calibration:
+    required_status:
+      - "validated"
+      - "factory_default"
+
+degradation_policy:
+  allow_uncalibrated_camera: true

@@ -1,0 +1,165 @@
+schema_version: hub.asset.v1
+asset:
+  type: cognitive_wiki
+  namespace: rosclaw
+  name: humanoid-locomotion-patterns
+  version: 2026.06.1
+  title: Humanoid Locomotion Patterns
+  summary: SeekDB knowledge bundle for humanoid locomotion, faults, and control.
+  description: Curated task cards, failure patterns, and control notes for humanoid
+    walking and balancing.
+  tags:
+  - humanoid
+  - locomotion
+  - wiki
+  - seekdb
+publisher:
+  id: rosclaw
+  display_name: ROSClaw Team
+  trust_level: official
+  contact: security@rosclaw.io
+visibility:
+  scope: public
+  allowed_orgs: []
+  allowed_users: []
+lifecycle:
+  status: stable
+  channel: stable
+  deprecated: false
+  yanked: false
+  replacement: null
+compatibility:
+  rosclaw:
+    min_version: 1.0.0
+    max_version: null
+  os:
+  - linux
+  - macos
+  arch:
+  - x86_64
+  - aarch64
+  python:
+    requires: '>=3.11,<3.14'
+  ros:
+    distributions: []
+    required: false
+  cuda:
+    required: false
+    min_version: null
+  robot:
+    eurdf_profiles: []
+    body_kinds: []
+  hardware:
+    required_devices: []
+  runtime_features:
+  - seekdb
+dependencies:
+  assets: []
+  python: []
+  system: []
+  ros: []
+permissions:
+  hardware:
+    real_robot_execution: false
+    actuators: []
+    sensors: []
+  ros:
+    topics_read: []
+    topics_write: []
+    services: []
+    actions: []
+  mcp:
+    tools: []
+  filesystem:
+    read:
+    - $ROSCLAW_HOME/seekdb
+    write:
+    - $ROSCLAW_HOME/seekdb
+  network:
+    outbound: []
+    inbound: []
+  modifies:
+    mcp_config: false
+    body_yaml: false
+    rosclaw_yaml: false
+    safety_config: false
+  requires_human_approval: []
+license:
+  spdx: CC-BY-SA-4.0
+  license_file: LICENSE
+  commercial_use: true
+  redistribution: true
+  attribution_required: true
+  export_control: none
+data_rights:
+  contains_training_data: false
+  contains_robot_logs: false
+  contains_personal_data: false
+  allowed_usage:
+  - research
+  - commercial
+  restrictions: []
+security:
+  signing:
+    required: true
+    scheme: sigstore
+    certificate: signatures/cert.pem
+  checksums:
+    algorithm: sha256
+    file: checksums.txt
+  sbom: SBOM.spdx.json
+  provenance: PROVENANCE.json
+  sandbox_required: false
+  network_isolation_recommended: true
+artifacts:
+- name: seekdb-bundle
+  kind: seekdb_bundle
+  path: artifacts/wiki/seekdb
+  digest: sha256:5a5641753ab7ae5cf50637ab514a9097b095ee26613bd6c14cc5cf4810fc9cdc
+  size_bytes: 16777216
+- name: graph-schema
+  kind: yaml
+  path: artifacts/wiki/schema.yaml
+  digest: sha256:035d61311da600bf7182f03414930f752e9f00fd4428177326a380de43aa84ea
+  size_bytes: 4096
+install:
+  mode: declarative
+  entrypoints:
+    wiki:
+      command: python -m rosclaw_wiki_humanoid_locomotion.ingest
+      env: {}
+  registries:
+    cognitive_wiki: true
+    provider: false
+    hardware_mcp: false
+    digital_twin: false
+    skill: false
+  health_checks:
+  - name: bundle_exists
+    type: file_exists
+    target: artifacts/wiki/seekdb
+special:
+  cognitive_wiki:
+    knowledge_format: seekdb_bundle
+    bundle_path: artifacts/wiki/seekdb
+    graph_schema: artifacts/wiki/schema.yaml
+    embedding:
+      model: bge-m3
+      dimension: 1024
+      built_at: '2026-06-01'
+    contents:
+      task_cards: 128
+      failure_patterns: 64
+      control_notes: 42
+      evidence_items: 310
+    domains:
+    - humanoid_locomotion
+    - manipulation
+    - mcp_integration
+    freshness:
+      valid_since: '2026-06-01'
+      stale_after_days: 180
+    runtime:
+      ingest_mode: merge
+      namespace: rosclaw/wiki/humanoid
+      conflict_strategy: keep_both_with_provenance

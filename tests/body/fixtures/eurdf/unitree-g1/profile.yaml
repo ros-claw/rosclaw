@@ -1,0 +1,120 @@
+schema_version: "eurdf.profile.v1"
+profile_id: "unitree-g1"
+profile_version: "1.0.0"
+vendor: "Unitree"
+model: "g1"
+display_name: "Unitree G1"
+description: "Generic e-URDF profile for Unitree G1 humanoid robot."
+
+assets:
+  urdf: "robot.urdf"
+  meshes_dir: "meshes/"
+
+identity:
+  robot_class: "humanoid"
+  locomotion_type: "biped"
+  manipulation_type: "dual_arm"
+
+frames:
+  root: "base_link"
+  world: "world"
+  torso: "torso_link"
+  head: "head_link"
+  left_hand: "left_wrist_link"
+  right_hand: "right_wrist_link"
+  left_foot: "left_ankle_link"
+  right_foot: "right_ankle_link"
+
+joints:
+  - name: "left_hip_pitch_joint"
+    type: "revolute"
+    group: "left_leg"
+    required: true
+    limits:
+      lower: -1.57
+      upper: 1.57
+      velocity: 3.0
+      effort: 80.0
+  - name: "right_hip_pitch_joint"
+    type: "revolute"
+    group: "right_leg"
+    required: true
+    limits:
+      lower: -1.57
+      upper: 1.57
+      velocity: 3.0
+      effort: 80.0
+
+sensors:
+  - name: "head_rgb_camera"
+    type: "rgb_camera"
+    frame: "head_camera_link"
+    required: false
+    default_mount: true
+    topics:
+      ros2_image: "/camera/color/image_raw"
+      ros2_info: "/camera/color/camera_info"
+  - name: "imu"
+    type: "imu"
+    frame: "imu_link"
+    required: true
+    default_mount: true
+    topics:
+      ros2_imu: "/imu/data"
+
+actuators:
+  - name: "left_leg_actuator_group"
+    type: "joint_group"
+    group: "left_leg"
+    required: true
+  - name: "right_leg_actuator_group"
+    type: "joint_group"
+    group: "right_leg"
+    required: true
+  - name: "left_arm_actuator_group"
+    type: "joint_group"
+    group: "left_arm"
+    required: true
+  - name: "right_arm_actuator_group"
+    type: "joint_group"
+    group: "right_arm"
+    required: true
+
+capability_hints:
+  locomotion:
+    - "stand"
+    - "walk"
+    - "turn"
+  manipulation:
+    - "reach"
+    - "grasp"
+  perception:
+    - "visual_navigation"
+    - "imu_balance"
+
+safety:
+  safety_level: "MODERATE"
+  max_base_speed_mps: 0.5
+  max_arm_endpoint_speed_mps: 0.3
+  min_human_distance_m: 1.0
+
+provider_interfaces:
+  state:
+    required:
+      - "joint_states"
+      - "imu"
+    optional:
+      - "battery"
+  command:
+    required:
+      - "joint_trajectory"
+    optional:
+      - "base_velocity"
+
+sandbox:
+  preferred_engine: "mujoco"
+  compatible_engines:
+    - "mujoco"
+    - "isaac_sim"
+  collision_policy: "strict"
+  self_collision_check: true

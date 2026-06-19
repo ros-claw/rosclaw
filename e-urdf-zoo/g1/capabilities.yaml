@@ -1,4 +1,30 @@
 capabilities:
+- name: walk
+  description: Bipedal walking capability
+  provider: skill.locomotion
+  requirements:
+  - balance_control
+  - ground_contact
+  safety_level: MODERATE
+- name: stand
+  description: Maintain upright standing posture
+  provider: skill.locomotion
+  requirements:
+  - balance_control
+  safety_level: LOW
+- name: visual_navigation
+  description: Navigate using visual perception
+  provider: vlm.scene_understanding
+  requirements:
+  - head_camera
+  safety_level: MODERATE
+- name: dual_arm_coordination
+  description: Coordinate both arms for manipulation tasks
+  provider: skill.manipulation
+  requirements:
+  - left_arm
+  - right_arm
+  safety_level: HIGH
 - name: walk_forward
   description: Walk forward at specified speed
   parameters:

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from rosclaw.connectors.ros.discovery.graph import (
@@ -85,7 +85,7 @@ class RosCapability:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "RosCapability":
+    def from_dict(cls, data: dict[str, Any]) -> RosCapability:
         iface_data = data.get("interface", {})
         risk_data = data.get("risk", {})
         return cls(
@@ -124,7 +124,7 @@ class CapabilityManifest:
     robot_id: str = "unknown"
     endpoint: dict[str, Any] = field(default_factory=dict)
     ros: dict[str, Any] = field(default_factory=dict)
-    generated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    generated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     capabilities: list[RosCapability] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -139,14 +139,14 @@ class CapabilityManifest:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "CapabilityManifest":
+    def from_dict(cls, data: dict[str, Any]) -> CapabilityManifest:
         manifest = cls(
             schema_version=data.get("schema_version", "rosclaw.capability_manifest.v1"),
             source=data.get("source", "ros_graph_discovery"),
             robot_id=data.get("robot_id", "unknown"),
             endpoint=data.get("endpoint", {}),
             ros=data.get("ros", {}),
-            generated_at=data.get("generated_at", datetime.now(timezone.utc).isoformat()),
+            generated_at=data.get("generated_at", datetime.now(UTC).isoformat()),
         )
         for cap_data in data.get("capabilities", []):
             manifest.capabilities.append(RosCapability.from_dict(cap_data))
@@ -352,6 +352,15 @@ class CapabilityManifestCompiler:
         preferred = self.robot_spec.get("preferred_interfaces", [])
         return {item.get("ros_name") for item in preferred if item.get("ros_name")}
 
+    def _discouraged_interfaces_from_spec(self) -> set[tuple[str, str]]:
+        """Return set of (ros_kind, ros_name) tuples declared as discouraged."""
+        discouraged = self.robot_spec.get("discouraged_interfaces", [])
+        return {
+            (item.get("ros_kind", ""), item.get("ros_name", ""))
+            for item in discouraged
+            if item.get("ros_name")
+        }
+
     def _has_preferred_service_for_command(
         self,
         topic: RosTopicInfo,
@@ -364,12 +373,20 @@ class CapabilityManifestCompiler:
         return bool(self._preferred_interfaces_from_spec() & set(service_by_name.keys()))
 
     def _apply_spec_overrides(self, manifest: CapabilityManifest) -> None:
+        """Apply robot spec overrides: disable discouraged interfaces and adjust safety defaults."""
         safety_defaults = self.robot_spec.get("safety_defaults", {})
         max_linear = safety_defaults.get("max_linear_velocity", 0.2)
         max_angular = safety_defaults.get("max_angular_velocity", 0.5)
         max_duration = safety_defaults.get("max_motion_duration_sec", 1.0)
+        discouraged = self._discouraged_interfaces_from_spec()
 
         for cap in manifest.capabilities:
+            if (cap.interface.ros_kind, cap.interface.name) in discouraged:
+                cap.enabled = False
+                cap.reason = (
+                    cap.reason + " " if cap.reason else ""
+                ) + "Disabled by robot spec (discouraged interface)."
+
             if cap.interface.ros_kind != "topic" or cap.risk.level != "high":
                 continue
             cap.safety.setdefault("constraints", {})
@@ -439,9 +456,9 @@ class CapabilityManifestCompiler:
                 return f"{self.robot_id}.observe.odom"
 
         if kind == "service":
-            return f"{self.robot_id}.{".".join(parts)}"
+            return f"{self.robot_id}." + ".".join(parts)
         if kind == "action":
-            return f"{self.robot_id}.action.{".".join(parts)}"
+            return f"{self.robot_id}.action." + ".".join(parts)
         if kind == "observe":
             return f"{self.robot_id}.observe.{'_'.join(parts[-2:])}"
         if kind == "state":

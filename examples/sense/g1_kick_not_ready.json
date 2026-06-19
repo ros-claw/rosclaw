@@ -1,0 +1,12 @@
+{
+  "robot_id": "g1_lab_01",
+  "timestamp": 1700000000.0,
+  "source": "example:kick_not_ready",
+  "energy": {"battery_percent": 33.0, "power_mode": "normal"},
+  "joints": {
+    "right_knee": {"temperature_c": 78.2}
+  },
+  "balance": {"support_margin": 0.09, "stable_for_sec": 0.3},
+  "perception": {"front_camera_fps": 30.0, "target_detector_confidence": 0.71, "status": "ok"},
+  "communication": {"dds_latency_ms": 18.0, "heartbeat_ok": true}
+}

@@ -1,0 +1,3 @@
+sha256:62a4f20f990dff421abe2e5a83239ade3bdb2a513ff1b32cb7477794f9b94ab1  manifest.yaml
+sha256:9ccbed6574ff303ba2dda8317f96d515ba8c0f39ebc66788e7bc6dee7cf98e50  artifacts/twin/g1.xml
+sha256:37205edcc03b85389326e7b9f593b9ec00564013663684420b5decab408ceaa7  artifacts/twin/meshes

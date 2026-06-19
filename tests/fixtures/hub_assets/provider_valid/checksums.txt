@@ -1,0 +1,3 @@
+sha256:16aff04658b77d7eef2d4d98bfc9ae0017921e230c5dcd072d1a577ba8c167d5  manifest.yaml
+sha256:fd39e2fa20beea28f6bd3ae3936b1193db2b7388fd67edeb930e66821cd7e36f  artifacts/models/model.safetensors
+sha256:54fa0f447be1e303583529fe6475ccc3604018b0b518524bcae9b987cbe7ec84  artifacts/models/tokenizer.json
