@@ -147,9 +147,7 @@ def verify_asset_dir(
                 continue
             algo, expected_hex = declared_digest.split(":", 1)
             if algo != "sha256":
-                result.add_error(
-                    f"Unsupported artifact digest algorithm for {rel_path}: {algo}"
-                )
+                result.add_error(f"Unsupported artifact digest algorithm for {rel_path}: {algo}")
                 continue
             actual_hex = _sha256_hex(file_path.read_bytes())
             if actual_hex != expected_hex:
@@ -165,13 +163,9 @@ def verify_asset_dir(
             tuple(manifest_artifact_paths)
         ):
             # Files nested under an artifact directory are allowed.
-            under_artifact = any(
-                rel_path.startswith(f"{p}/") for p in manifest_artifact_paths
-            )
+            under_artifact = any(rel_path.startswith(f"{p}/") for p in manifest_artifact_paths)
             if not under_artifact:
-                result.add_warning(
-                    f"File in checksums not declared as artifact: {rel_path}"
-                )
+                result.add_warning(f"File in checksums not declared as artifact: {rel_path}")
 
     # 5. Signature / certificate checks.
     signing = security.get("signing", {})

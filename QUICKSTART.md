@@ -65,6 +65,30 @@ If you use Claude Code or another MCP-compatible agent, the MCP config was writt
 
 Point your agent at this file to expose ROSClaw physical tools.
 
+## Hub Quick Start
+
+Discover, install, and publish physical-AI assets through the ROSClaw Hub.
+
+```bash
+# Validate a local asset
+rosclaw hub validate tests/fixtures/hub_assets/hardware_mcp_valid/manifest.yaml
+
+# Start a local fake registry (in a separate terminal)
+python -m tests.fixtures.fake_registry.server --port 8787
+
+# Login, sync, and search
+rosclaw hub login --registry http://localhost:8787 --token fake-valid-token --insecure-local
+rosclaw hub sync
+rosclaw hub search g1
+
+# Install and uninstall an asset
+rosclaw hub install rosclaw://hardware_mcp/rosclaw/unitree-g1@1.0.0 --yes
+rosclaw hub list --installed
+rosclaw hub uninstall rosclaw://hardware_mcp/rosclaw/unitree-g1@1.0.0 --yes
+```
+
+See [docs/hub/README.md](docs/hub/README.md) for the full Hub documentation.
+
 ## Developer Quick Start
 
 ```bash
@@ -79,3 +103,5 @@ make setup
 - Read [ARCHITECTURE.md](ARCHITECTURE.md) for the 14 Engineering Iron Rules.
 - Explore `rosclaw sandbox --help` for simulation options.
 - Check `rosclaw doctor --full` for optional capability gaps.
+- Browse [docs/hub/](docs/hub/) for the asset distribution workflow.
+- Publish your first asset with `rosclaw hub publish --dry-run`.

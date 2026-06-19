@@ -11,10 +11,12 @@ from typing import Any, cast
 from rosclaw.hub.auth import AuthStore
 from rosclaw.hub.cache import HubCache
 from rosclaw.hub.client import FakeRegistryClient
-from rosclaw.hub.errors import HubError
+from rosclaw.hub.errors import HubError, HubErrorCode
 from rosclaw.hub.index import CatalogIndex
+from rosclaw.hub.installer import Installer, InstallOptions
 from rosclaw.hub.licenses import check_license
 from rosclaw.hub.permissions import check_permissions
+from rosclaw.hub.publisher import Publisher, PublishOptions
 from rosclaw.hub.refs import AssetRef, parse_ref
 from rosclaw.hub.schema import dump_manifest_schema, load_manifest
 from rosclaw.hub.verifier import verify_asset_dir
@@ -30,9 +32,7 @@ def add_hub_subparser(
     hub_subparsers = hub_parser.add_subparsers(dest="hub_command")
 
     # validate
-    validate_parser = hub_subparsers.add_parser(
-        "validate", help="Validate an asset manifest.yaml"
-    )
+    validate_parser = hub_subparsers.add_parser("validate", help="Validate an asset manifest.yaml")
     validate_parser.add_argument("manifest", help="Path to manifest.yaml")
     validate_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -135,6 +135,142 @@ def add_hub_subparser(
     )
     policy_check_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
+    # install
+    install_parser = hub_subparsers.add_parser(
+        "install",
+        help="Install an asset from a local directory or registry reference",
+    )
+    install_parser.add_argument(
+        "asset_dir",
+        help="Path to asset directory or rosclaw:// reference",
+    )
+    install_parser.add_argument("--dry-run", action="store_true", help="Simulate without writing")
+    install_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Accept license and dangerous permissions automatically",
+    )
+    install_parser.add_argument(
+        "--accept-license", action="store_true", help="Explicitly accept the asset license"
+    )
+    install_parser.add_argument(
+        "--no-mcp-merge",
+        action="store_true",
+        help="Skip updating .mcp.json",
+    )
+    install_parser.add_argument(
+        "--skip-health",
+        action="store_true",
+        help="Skip post-install health checks",
+    )
+    install_parser.add_argument(
+        "--no-verify-signature",
+        dest="verify_signature",
+        action="store_false",
+        default=True,
+        help="Skip signature/certificate checks",
+    )
+    install_parser.add_argument(
+        "--allow-real-robot",
+        action="store_true",
+        help="Allow real robot execution",
+    )
+    install_parser.add_argument(
+        "--allow-safety-config-changes",
+        action="store_true",
+        help="Allow modifications to safety configuration",
+    )
+    install_parser.add_argument(
+        "--allow-network-inbound",
+        action="store_true",
+        help="Allow non-local inbound network access",
+    )
+    install_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    # uninstall
+    uninstall_parser = hub_subparsers.add_parser(
+        "uninstall", help="Uninstall an asset by reference"
+    )
+    uninstall_parser.add_argument("ref", help="Asset URI")
+    uninstall_parser.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
+    uninstall_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    # update
+    update_parser = hub_subparsers.add_parser(
+        "update", help="Update an installed asset from a local directory"
+    )
+    update_parser.add_argument("ref", help="Asset URI of the installed asset")
+    update_parser.add_argument("asset_dir", help="Path to new asset directory")
+    update_parser.add_argument("--dry-run", action="store_true", help="Simulate without writing")
+    update_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Accept license and dangerous permissions automatically",
+    )
+    update_parser.add_argument(
+        "--accept-license", action="store_true", help="Explicitly accept the asset license"
+    )
+    update_parser.add_argument(
+        "--no-mcp-merge",
+        action="store_true",
+        help="Skip updating .mcp.json",
+    )
+    update_parser.add_argument(
+        "--skip-health",
+        action="store_true",
+        help="Skip post-install health checks",
+    )
+    update_parser.add_argument(
+        "--no-verify-signature",
+        dest="verify_signature",
+        action="store_false",
+        default=True,
+        help="Skip signature/certificate checks",
+    )
+    update_parser.add_argument(
+        "--allow-real-robot",
+        action="store_true",
+        help="Allow real robot execution",
+    )
+    update_parser.add_argument(
+        "--allow-safety-config-changes",
+        action="store_true",
+        help="Allow modifications to safety configuration",
+    )
+    update_parser.add_argument(
+        "--allow-network-inbound",
+        action="store_true",
+        help="Allow non-local inbound network access",
+    )
+    update_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    # list
+    list_parser = hub_subparsers.add_parser("list", help="List installed assets")
+    list_parser.add_argument("--installed", action="store_true", help="Only show installed assets")
+    list_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    # publish
+    publish_parser = hub_subparsers.add_parser(
+        "publish", help="Prepare and publish a ROSClaw Hub asset"
+    )
+    publish_parser.add_argument("asset_dir", help="Path to asset directory")
+    publish_parser.add_argument(
+        "--dry-run", action="store_true", help="Validate and scan without writing"
+    )
+    publish_parser.add_argument("--private", action="store_true", help="Publish as a private asset")
+    publish_parser.add_argument("--public", action="store_true", help="Publish as a public asset")
+    publish_parser.add_argument("--sign", action="store_true", help="Create placeholder signature")
+    publish_parser.add_argument(
+        "--registry", default=None, help="Registry URL (defaults to active profile)"
+    )
+    publish_parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Write the bundle to this path or directory",
+    )
+    publish_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
     return hub_parser
 
 
@@ -173,9 +309,20 @@ def dispatch_hub_command(args: argparse.Namespace) -> int:
             return cmd_hub_policy_check(args)
         print("[ROSClaw] hub policy: no subcommand given. Use: check")
         return 1
+    if command == "install":
+        return cmd_hub_install(args)
+    if command == "uninstall":
+        return cmd_hub_uninstall(args)
+    if command == "update":
+        return cmd_hub_update(args)
+    if command == "list":
+        return cmd_hub_list(args)
+    if command == "publish":
+        return cmd_hub_publish(args)
     print(
         "[ROSClaw] hub: no subcommand given. Use: validate, ref, schema, "
-        "login, whoami, logout, sync, search, verify, policy"
+        "login, whoami, logout, sync, search, verify, policy, install, "
+        "uninstall, update, list, publish"
     )
     return 1
 
@@ -389,6 +536,26 @@ def cmd_hub_sync(args: argparse.Namespace) -> int:
     if args.clear:
         index.clear()
     index.index_entries(entries)
+
+    # Cache manifest YAMLs so the resolver can find them for install-by-ref.
+    for entry in entries:
+        asset = entry.get("asset", {})
+        version = asset.get("version")
+        if not version:
+            continue
+        ref = AssetRef(
+            type=asset.get("type", ""),
+            namespace=asset.get("namespace", ""),
+            name=asset.get("name", ""),
+            version=version,
+        )
+        try:
+            manifest_bytes = client.fetch_manifest(ref)
+            cache.put_manifest(ref, manifest_bytes)
+        except HubError:
+            # A catalog entry without a reachable manifest is not fatal for sync.
+            pass
+
     print(f"[ROSClaw] ✅ Synced {len(entries)} assets from {registry}")
     print(f"  Indexed: {index.count()}")
     return 0
@@ -433,7 +600,7 @@ def cmd_hub_search(args: argparse.Namespace) -> int:
             f"rosclaw://{asset.get('type')}/{asset.get('namespace')}/{asset.get('name')}@{asset.get('version')}"
         )
         print(f"    {asset.get('title')}")
-        summary = asset.get('summary') or ""
+        summary = asset.get("summary") or ""
         if summary:
             print(f"    {summary}")
     return 0
@@ -535,3 +702,291 @@ def cmd_hub_policy_check(args: argparse.Namespace) -> int:
         print(f"  ❌ License issue: {issue}")
 
     return 0 if ok else 1
+
+
+def _install_options_from_args(args: argparse.Namespace) -> InstallOptions:
+    """Build :class:`InstallOptions` from CLI args."""
+    return InstallOptions(
+        dry_run=args.dry_run,
+        accept_license=args.accept_license or args.yes,
+        allow_real_robot=True if args.allow_real_robot else None,
+        allow_safety_config_changes=args.allow_safety_config_changes,
+        allow_network_inbound=args.allow_network_inbound,
+        verify_signature=args.verify_signature,
+        skip_health=args.skip_health,
+        skip_mcp_merge=args.no_mcp_merge,
+    )
+
+
+def cmd_hub_install(args: argparse.Namespace) -> int:
+    """Install an asset from a local directory or a registry reference."""
+    options = _install_options_from_args(args)
+    installer = Installer()
+    asset_arg: str = args.asset_dir
+    is_ref = asset_arg.startswith("rosclaw://")
+    try:
+        if is_ref:
+            store = AuthStore(home=installer.cache.home)
+            profile = store.get_active_profile()
+            if not profile:
+                raise HubError(
+                    code=HubErrorCode.AUTH_REQUIRED,
+                    message="No active registry profile. Run `rosclaw hub login` first.",
+                )
+            registry = cast(str, profile["registry"])
+            token = store.get_token(registry)
+            client = FakeRegistryClient(registry, token=token)
+            result = installer.install_by_ref(asset_arg, options=options, registry_client=client)
+        else:
+            result = installer.install_local(asset_arg, options=options)
+    except HubError as exc:
+        if args.json:
+            print(
+                json.dumps(
+                    {"success": False, "error": exc.message, "code": exc.code.value},
+                    indent=2,
+                )
+            )
+        else:
+            print(f"[ROSClaw] ❌ Install failed: {exc}")
+        return 1
+
+    data = {
+        "success": result.success,
+        "ref": str(result.ref),
+        "asset_dir": str(result.asset_dir),
+        "lifecycle_status": result.lifecycle_status,
+        "health_status": result.health_status,
+        "dry_run": result.dry_run,
+        "messages": result.messages,
+    }
+    if result.registry_path:
+        data["registry_path"] = str(result.registry_path)
+    if result.mcp_server_name:
+        data["mcp_server_name"] = result.mcp_server_name
+
+    if args.json:
+        print(json.dumps(data, indent=2))
+    else:
+        label = "Dry-run" if result.dry_run else "Installed"
+        print(f"[ROSClaw] ✅ {label}: {result.ref}")
+        print(f"  Asset dir: {result.asset_dir}")
+        print(f"  Lifecycle: {result.lifecycle_status}")
+        print(f"  Health:    {result.health_status}")
+        if result.registry_path:
+            print(f"  Registry:  {result.registry_path}")
+        if result.mcp_server_name:
+            print(f"  MCP server: {result.mcp_server_name}")
+        for message in result.messages:
+            print(f"  ⚠️  {message}")
+    return 0
+
+
+def cmd_hub_uninstall(args: argparse.Namespace) -> int:
+    """Uninstall an asset by reference."""
+    try:
+        ref = parse_ref(args.ref)
+    except HubError as exc:
+        if args.json:
+            print(
+                json.dumps(
+                    {"success": False, "error": exc.message, "code": exc.code.value},
+                    indent=2,
+                )
+            )
+        else:
+            print(f"[ROSClaw] ❌ Invalid reference: {exc}")
+        return 1
+
+    installer = Installer()
+    try:
+        removed = installer.uninstall(ref)
+    except HubError as exc:
+        if args.json:
+            print(
+                json.dumps(
+                    {"success": False, "error": exc.message, "code": exc.code.value},
+                    indent=2,
+                )
+            )
+        else:
+            print(f"[ROSClaw] ❌ Uninstall failed: {exc}")
+        return 1
+
+    if not removed:
+        msg = f"Asset is not installed: {ref.canonical()}"
+        if args.json:
+            print(json.dumps({"success": False, "error": msg}, indent=2))
+        else:
+            print(f"[ROSClaw] ⚠️  {msg}")
+        return 1
+
+    if args.json:
+        print(json.dumps({"success": True, "ref": str(ref)}, indent=2))
+    else:
+        print(f"[ROSClaw] ✅ Uninstalled: {ref}")
+    return 0
+
+
+def cmd_hub_update(args: argparse.Namespace) -> int:
+    """Update an installed asset from a local directory."""
+    try:
+        ref = parse_ref(args.ref)
+    except HubError as exc:
+        if args.json:
+            print(
+                json.dumps(
+                    {"success": False, "error": exc.message, "code": exc.code.value},
+                    indent=2,
+                )
+            )
+        else:
+            print(f"[ROSClaw] ❌ Invalid reference: {exc}")
+        return 1
+
+    asset_dir = Path(args.asset_dir)
+    options = _install_options_from_args(args)
+    installer = Installer()
+    try:
+        result = installer.update(ref, asset_dir, options=options)
+    except HubError as exc:
+        if args.json:
+            print(
+                json.dumps(
+                    {"success": False, "error": exc.message, "code": exc.code.value},
+                    indent=2,
+                )
+            )
+        else:
+            print(f"[ROSClaw] ❌ Update failed: {exc}")
+        return 1
+
+    data = {
+        "success": result.success,
+        "ref": str(result.ref),
+        "asset_dir": str(result.asset_dir),
+        "lifecycle_status": result.lifecycle_status,
+        "health_status": result.health_status,
+        "dry_run": result.dry_run,
+        "messages": result.messages,
+    }
+    if args.json:
+        print(json.dumps(data, indent=2))
+    else:
+        label = "Dry-run" if result.dry_run else "Updated"
+        print(f"[ROSClaw] ✅ {label}: {result.ref}")
+        print(f"  Asset dir: {result.asset_dir}")
+        print(f"  Lifecycle: {result.lifecycle_status}")
+        print(f"  Health:    {result.health_status}")
+        for message in result.messages:
+            print(f"  ⚠️  {message}")
+    return 0
+
+
+def cmd_hub_list(args: argparse.Namespace) -> int:
+    """List installed assets from the lockfile."""
+    installer = Installer()
+    entries = installer.assets_lock.list_installed()
+
+    data = [
+        {
+            "ref": entry.ref,
+            "asset_dir": entry.asset_dir,
+            "lifecycle_status": entry.lifecycle_status,
+            "health_status": entry.health_status,
+            "installed_at": entry.installed_at,
+            "depends_on": entry.depends_on,
+        }
+        for entry in entries
+    ]
+
+    if args.json:
+        print(json.dumps(data, indent=2))
+        return 0
+
+    if not data:
+        print("[ROSClaw] No installed assets.")
+        return 0
+
+    print(f"[ROSClaw] {len(data)} installed asset(s)")
+    for entry in data:
+        print(f"  {entry['ref']}")
+        print(f"    lifecycle={entry['lifecycle_status']} health={entry['health_status']}")
+        if entry["depends_on"]:
+            print(f"    depends_on={', '.join(entry['depends_on'])}")
+    return 0
+
+
+def cmd_hub_publish(args: argparse.Namespace) -> int:
+    """Prepare and publish an asset."""
+    if args.private and args.public:
+        print("[ROSClaw] ❌ Cannot specify both --private and --public")
+        return 1
+
+    visibility: str | None = None
+    if args.private:
+        visibility = "private"
+    elif args.public:
+        visibility = "public"
+
+    registry: str | None = args.registry
+    if not registry and not args.dry_run:
+        store = AuthStore()
+        profile = store.get_active_profile()
+        if profile:
+            registry = cast(str, profile["registry"])
+        else:
+            print(
+                "[ROSClaw] ❌ No registry specified and no active profile. "
+                "Use --registry or run `rosclaw hub login`."
+            )
+            return 1
+
+    options = PublishOptions(
+        dry_run=args.dry_run,
+        visibility=visibility,
+        sign=args.sign,
+        registry=registry,
+        output=args.output,
+    )
+    publisher = Publisher(options)
+    try:
+        result = publisher.publish(args.asset_dir)
+    except HubError as exc:
+        if args.json:
+            print(
+                json.dumps(
+                    {"success": False, "error": exc.message, "code": exc.code.value},
+                    indent=2,
+                )
+            )
+        else:
+            print(f"[ROSClaw] ❌ Publish failed: {exc}")
+        return 1
+
+    data = {
+        "success": result.success,
+        "ref": str(result.ref),
+        "manifest_digest": result.manifest_digest,
+        "size_bytes": result.size_bytes,
+        "dry_run": result.dry_run,
+        "bundle_path": str(result.bundle_path) if result.bundle_path else None,
+        "messages": result.messages,
+        "warnings": result.warnings,
+    }
+
+    if args.json:
+        print(json.dumps(data, indent=2))
+        return 0
+
+    label = "Dry-run" if result.dry_run else "Published"
+    print(f"[ROSClaw] ✅ {label}: {result.ref}")
+    print(f"  Manifest digest: {result.manifest_digest}")
+    if result.bundle_path:
+        print(f"  Bundle path:     {result.bundle_path}")
+        print(f"  Size bytes:      {result.size_bytes}")
+    for message in result.messages:
+        print(f"  ℹ️  {message}")
+    for warning in result.warnings:
+        print(f"  ⚠️  {warning}")
+    return 0

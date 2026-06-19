@@ -106,9 +106,7 @@ def check_license(
     if allowed_usage and "commercial" not in allowed_usage:
         result.requires_acceptance = True
         if not accept_license:
-            result.reject(
-                "Data rights restrict usage categories; explicit acceptance required"
-            )
+            result.reject("Data rights restrict usage categories; explicit acceptance required")
 
     # Personal data requires acceptance.
     if data_rights.get("contains_personal_data", False):

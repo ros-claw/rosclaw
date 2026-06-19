@@ -19,6 +19,7 @@ Run with:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from functools import partial
 from http.server import HTTPServer, SimpleHTTPRequestHandler
@@ -43,6 +44,44 @@ class _AuthHandler(SimpleHTTPRequestHandler):
         if not self._authorize():
             return
         super().do_HEAD()
+
+    def do_POST(self) -> None:  # noqa: N802
+        if not self._authorize():
+            return
+        content_length = self.headers.get("Content-Length")
+        if content_length is None:
+            self.send_response(400)
+            self.end_headers()
+            self.wfile.write(b"Missing Content-Length")
+            return
+        try:
+            length = int(content_length)
+        except ValueError:
+            self.send_response(400)
+            self.end_headers()
+            self.wfile.write(b"Invalid Content-Length")
+            return
+
+        body = self.rfile.read(length)
+        target = Path(self.translate_path(self.path)).resolve()
+        registry_root = Path(self.directory).resolve()
+        try:
+            target.relative_to(registry_root)
+        except ValueError:
+            self.send_response(403)
+            self.end_headers()
+            self.wfile.write(b"Forbidden")
+            return
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(body)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        rel = target.relative_to(registry_root).as_posix()
+        self.wfile.write(
+            json.dumps({"manifest_url": rel, "size_bytes": len(body)}).encode("utf-8")
+        )
 
     def log_message(self, fmt: str, *args: object) -> None:
         # Keep test output quiet.

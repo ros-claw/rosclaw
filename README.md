@@ -221,6 +221,7 @@ graph TD
 | `rosclaw-auto` | The self-evolution control plane. Generates proposals, patches skills, runs experiments, evaluates candidates, promotes champions, and records dead ends. |
 | `rosclaw-darwin` | The evaluation and evolution arena. Provides benchmark pressure, multi-seed validation, regression tests, and skill evaluation. |
 | `rosclaw-forge` | The embodied asset compiler. Turns SDKs, ROS 2 interfaces, docs, and e-URDF profiles into MCP servers, skills, provider manifests, and asset bundles. |
+| `rosclaw-hub` | Asset distribution layer: validate, publish, sync, install, update, and uninstall skills, providers, hardware MCP servers, digital twins, and cognitive wikis. |
 | `rosclaw-dashboard` | The observability layer for runtime health, traces, sandbox replay, memory, interventions, and skill evolution. |
 
 ---
@@ -379,6 +380,41 @@ rosclaw doctor --full --json
 ```bash
 rosclaw sandbox run --robot sim_ur5e --world tabletop --task reach
 ```
+
+## Hub Quick Start
+
+The ROSClaw Hub discovers, validates, installs, and publishes physical-AI
+assets from a registry.
+
+### Validate a local asset
+
+```bash
+rosclaw hub validate tests/fixtures/hub_assets/hardware_mcp_valid/manifest.yaml
+```
+
+### Connect to a registry
+
+```bash
+python -m tests.fixtures.fake_registry.server --port 8787 &
+rosclaw hub login --registry http://localhost:8787 --token fake-valid-token --insecure-local
+```
+
+### Sync and search the catalog
+
+```bash
+rosclaw hub sync
+rosclaw hub search g1
+```
+
+### Install and manage an asset
+
+```bash
+rosclaw hub install rosclaw://hardware_mcp/rosclaw/unitree-g1@1.0.0 --yes
+rosclaw hub list --installed
+rosclaw hub uninstall rosclaw://hardware_mcp/rosclaw/unitree-g1@1.0.0 --yes
+```
+
+See the full Hub docs in [docs/hub/README.md](docs/hub/README.md).
 
 ### Developer Install
 
@@ -542,6 +578,7 @@ rosclaw/
 │   ├── auto/                 # Self-evolution control plane
 │   ├── darwin/               # Benchmark & evaluation arena
 │   ├── forge/                # Asset compiler
+│   ├── hub/                  # Asset distribution, registry, lifecycle
 │   ├── dashboard/            # Observability & WebSocket
 │   └── mcp/                  # MCP server implementation
 ├── e-urdf-zoo/               # Physical DNA registry

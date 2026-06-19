@@ -99,9 +99,7 @@ class AssetManifest(BaseModel):
     def validate_special_matches_type(self) -> AssetManifest:
         asset_type = self.asset.type.value
         if asset_type not in self.special:
-            raise ValueError(
-                f"special.{asset_type} is required for asset type {asset_type}"
-            )
+            raise ValueError(f"special.{asset_type} is required for asset type {asset_type}")
         return self
 
     @model_validator(mode="after")
@@ -126,9 +124,7 @@ class AssetManifest(BaseModel):
             if "digest" in artifact:
                 digest = artifact["digest"]
                 if not isinstance(digest, str) or ":" not in digest:
-                    raise ValueError(
-                        f"artifacts[{idx}].digest must be in the form algorithm:hash"
-                    )
+                    raise ValueError(f"artifacts[{idx}].digest must be in the form algorithm:hash")
         return self
 
     def to_json_schema(self) -> dict[str, Any]:
@@ -171,6 +167,31 @@ def load_manifest(path: str | Path) -> AssetManifest:
     try:
         return AssetManifest.model_validate(raw)
     except Exception as exc:  # noqa: BLE001 - Pydantic validation can raise many types
+        raise HubError(
+            code=HubErrorCode.MANIFEST_INVALID,
+            message=f"Manifest validation failed: {exc}",
+        ) from exc
+
+
+def load_manifest_from_bytes(data: bytes) -> AssetManifest:
+    """Load and validate a manifest from YAML bytes."""
+    try:
+        raw = yaml.safe_load(data.decode("utf-8"))
+    except yaml.YAMLError as exc:
+        raise HubError(
+            code=HubErrorCode.MANIFEST_INVALID,
+            message=f"Invalid YAML in manifest: {exc}",
+        ) from exc
+
+    if not isinstance(raw, dict):
+        raise HubError(
+            code=HubErrorCode.MANIFEST_INVALID,
+            message="Manifest must be a YAML mapping",
+        )
+
+    try:
+        return AssetManifest.model_validate(raw)
+    except Exception as exc:  # noqa: BLE001
         raise HubError(
             code=HubErrorCode.MANIFEST_INVALID,
             message=f"Manifest validation failed: {exc}",
