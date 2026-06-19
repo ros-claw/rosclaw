@@ -73,6 +73,7 @@ from rosclaw.firewall.decorator import (
 )
 
 # ROS message imports
+ROS_IMPORT_ERROR: str | None = None
 try:
     from control_msgs.action import FollowJointTrajectory
     from geometry_msgs.msg import Pose, Twist
@@ -80,8 +81,8 @@ try:
     from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
     ROS_IMPORTS_OK = True
 except ImportError as e:
-    print(f"[ERROR] ROS 2 message imports failed: {e}", file=sys.stderr)
     ROS_IMPORTS_OK = False
+    ROS_IMPORT_ERROR = str(e)
     # Stubs for type annotations when ROS 2 is not installed
 
     class Pose:
@@ -325,11 +326,22 @@ class UR5MCPServer:
     """
 
     def __init__(self, robot_ip: str = "192.168.1.100", firewall_model_path: str | None = None):
+        if not RCLPY_AVAILABLE:
+            raise RuntimeError(
+                "ROS 2 rclpy is not installed. "
+                "Install ROS 2 to use the UR5 MCP server."
+            )
+        if not ROS_IMPORTS_OK:
+            raise RuntimeError(
+                f"ROS 2 message imports failed: {ROS_IMPORT_ERROR}. "
+                f"Install the missing ROS 2 message packages to use the UR5 MCP server."
+            )
+
         self.robot_ip = robot_ip
         self.firewall_model_path = firewall_model_path or self._find_default_model()
 
         # Initialize ROS 2
-        if RCLPY_AVAILABLE and not rclpy.ok():
+        if not rclpy.ok():
             rclpy.init(args=None)
 
         # Create ROS node
