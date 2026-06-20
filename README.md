@@ -390,7 +390,7 @@ cd rosclaw
 make setup
 ```
 
-See [INSTALL.md](INSTALL.md) for detailed installation options.
+See [INSTALL.md](INSTALL.md) for detailed installation options and [docs/FIRSTBOOT.md](docs/FIRSTBOOT.md) for the full first boot guide.
 
 ---
 

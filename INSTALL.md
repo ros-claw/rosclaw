@@ -139,6 +139,8 @@ WSL is supported. The bootstrapper detects WSL and warns if you try to install u
 
 ---
 
+See [docs/FIRSTBOOT.md](docs/FIRSTBOOT.md) for the complete bootstrap and first boot reference.
+
 ## Verify Installation
 
 ```bash
