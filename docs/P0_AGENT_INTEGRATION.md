@@ -117,13 +117,14 @@ pytest tests/agent tests/mcp tests/security tests/practice
 Current follow-up status:
 
 - `ruff check src tests` — passing.
-- `pytest tests/agent tests/mcp tests/security tests/practice` — 56 passing.
+- `mypy --config-file .github/mypy-ci.ini src/rosclaw/mcp/adapters src/rosclaw/core/runtime.py` — passing.
+- `pytest tests/agent tests/mcp tests/security tests/practice` — 67 passing.
 - `mypy src` — pre-existing type errors across the wider codebase; changed modules compile and tests pass.
 
 ## Remaining gaps
 
-1. End-to-end MCP smoke tests over stdio/HTTP transport.
-2. Live `Runtime` integration tests for all seven tools in fixture or sim mode.
-3. Performance/load tests for `EventBus` synchronous dispatch under emergency-stop load.
-4. Continuous documentation refresh for `CLAUDE.md` and `ROSCLAW.md` managed blocks.
-5. CI enforcement of `ruff check src tests` and a focused `mypy` gate.
+1. ~~End-to-end MCP smoke tests over stdio/HTTP transport.~~ (Done in `tests/mcp/test_e2e.py`.)
+2. ~~Live `Runtime` integration tests for all seven tools in fixture or sim mode.~~ (Done in `tests/mcp/test_runtime_integration.py`.)
+3. ~~Performance/load tests for `EventBus` synchronous dispatch under emergency-stop load.~~ (Done in `tests/mcp/test_event_bus_emergency_perf.py`.)
+4. ~~CI enforcement of `ruff check src tests` and a focused `mypy` gate.~~ (Done in `.github/workflows/ci.yml` and `.github/mypy-ci.ini`.)
+5. Continuous documentation refresh for `CLAUDE.md` and `ROSCLAW.md` managed blocks.
