@@ -1289,6 +1289,80 @@ def cmd_skill_invoke(args: argparse.Namespace) -> int:
         print(f"[ROSClaw] Skill invocation failed: {exc}")
         return 1
 
+def cmd_skill_check(args: argparse.Namespace) -> int:
+    """Check skill compatibility against the current effective body."""
+    from rosclaw.body.resolver import BodyNotLinkedError, BodyRegistryError, BodyResolver
+
+    try:
+        resolver = BodyResolver(workspace=Path(args.workspace) if args.workspace else None)
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
+
+    try:
+        if not resolver.is_linked():
+            print("[ROSClaw] No body linked. Run: rosclaw body link-eurdf <profile_id>")
+            return 1
+    except BodyNotLinkedError:
+        print("[ROSClaw] No body linked. Run: rosclaw body link-eurdf <profile_id>")
+        return 1
+
+    if args.all:
+        try:
+            _effective, report = resolver.refresh_all_artifacts(reason="skill check --all")
+        except Exception as exc:
+            print(f"[ROSClaw] Skill check failed: {exc}")
+            return 1
+        if args.json:
+            print(json.dumps(report.to_dict(), indent=2, default=str))
+            return 0
+        print("=" * 60)
+        print("Skill compatibility")
+        print("=" * 60)
+        print(f"Body: {report.body_instance_id}")
+        print(f"Hash: {report.effective_body_hash}")
+        print("")
+        if report.skills:
+            print(f"{'Skill':<30} {'Status':<12} {'Reason'}")
+            print("-" * 60)
+            for key, result in sorted(report.skills.items()):
+                reason = result.reason or ""
+                print(f"{key:<30} {result.status:<12} {reason}")
+        else:
+            print("No skill manifests found in workspace.")
+        print("")
+        print("Summary:")
+        for status, count in sorted(report.summary.items()):
+            print(f"  {status}: {count}")
+        print("=" * 60)
+        return 0
+
+    if args.skill_id:
+        try:
+            result = resolver.check_skill_compatibility(args.skill_id)
+        except Exception as exc:
+            print(f"[ROSClaw] Skill check failed: {exc}")
+            return 1
+        if args.json:
+            print(json.dumps(result.to_dict(), indent=2, default=str))
+            return 0
+        print(f"{result.skill_id}@{result.skill_version}: {result.status}")
+        if result.reason:
+            print(f"  reason: {result.reason}")
+        if result.missing_requirements:
+            print("  missing requirements:")
+            for req in result.missing_requirements:
+                print(f"    - {req}")
+        if result.warnings:
+            print("  warnings:")
+            for warn in result.warnings:
+                print(f"    - {warn}")
+        return 0
+
+    print("[ROSClaw] skill check: specify a skill_id or --all")
+    return 1
+
+
 def cmd_skill_champions_list(_args: argparse.Namespace) -> int:
     """List current champion skills."""
     from rosclaw.skill_manager.registry import SkillRegistry
@@ -2881,6 +2955,13 @@ def main() -> int:
     skill_rollback_parser.add_argument("skill_id", help="Skill identifier")
     skill_rollback_parser.add_argument("--to", required=True, help="Target version to rollback to")
 
+    # skill check subcommand
+    skill_check_parser = skill_subparsers.add_parser("check", help="Check skill compatibility against current body")
+    skill_check_parser.add_argument("skill_id", nargs="?", default=None, help="Skill ID to check (omit with --all)")
+    skill_check_parser.add_argument("--all", action="store_true", help="Check all skill manifests in workspace")
+    skill_check_parser.add_argument("--json", action="store_true", help="Output JSON")
+    skill_check_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
+
     # sandbox subcommand
     sandbox_parser = subparsers.add_parser("sandbox", help="Sandbox commands")
     sandbox_subparsers = sandbox_parser.add_subparsers(dest="sandbox_command")
@@ -3123,6 +3204,8 @@ def main() -> int:
             return cmd_skill_lineage(args)
         elif args.skill_command == "rollback":
             return cmd_skill_rollback(args)
+        elif args.skill_command == "check":
+            return cmd_skill_check(args)
         else:
             skill_parser.print_help()
             return 1

@@ -15,6 +15,7 @@ from rosclaw.body.compiler import EffectiveBodyCompiler
 from rosclaw.body.diff import BodyDiffer
 from rosclaw.body.notes import MaintenanceLog
 from rosclaw.body.references import RosclawURI
+from rosclaw.body.registry import BodyRegistryError, BodyRegistryManager
 from rosclaw.body.renderer import EmbodimentRenderer
 from rosclaw.body.schema import (
     BodyYaml,
@@ -32,12 +33,44 @@ from rosclaw.eurdf.registry import RobotRegistry
 class BodyResolver:
     """Resolve rosclaw://body/... URIs and load effective body state."""
 
-    def __init__(self, workspace: Path | None = None):
+    def __init__(self, workspace: Path | None = None, body_id: str | None = None):
         self.workspace = workspace or Path.home() / ".rosclaw"
-        self.body_dir = self.workspace / "body"
+        self.registry_manager = BodyRegistryManager(self.workspace)
+        self.body_id, self.body_dir, self.is_legacy_single_body = self._resolve_body(body_id)
         self.compiler = EffectiveBodyCompiler()
         self.differ = BodyDiffer()
         self.renderer = EmbodimentRenderer()
+
+    def _resolve_body(self, body_id: str | None) -> tuple[str, Path, bool]:
+        """Resolve body_id and body_dir from registry, legacy layout, or defaults."""
+        registry = self.registry_manager.load()
+        has_registry = self.registry_manager.registry_path.exists()
+        has_legacy = (self.workspace / "body").exists() and (self.workspace / "body" / "body.yaml").exists()
+
+        if body_id:
+            normalized = body_id.strip().lower()
+            entry = registry.bodies.get(normalized)
+            if entry is None:
+                raise BodyRegistryError(f"Body not found: {body_id}")
+            if entry.path == "body":
+                return entry.body_id, self.workspace / "body", not has_registry
+            return entry.body_id, self.workspace / entry.path, False
+
+        if has_registry and registry.bodies:
+            current_id = self.registry_manager.get_current_body_id()
+            entry = registry.bodies[current_id]
+            if entry.path == "body":
+                return entry.body_id, self.workspace / "body", False
+            return entry.body_id, self.workspace / entry.path, False
+
+        # Legacy single-body workspace or empty default.
+        return "default", self.workspace / "body", has_legacy or not has_registry
+
+    @classmethod
+    def list_workspace_bodies(cls, workspace: Path) -> list[Any]:
+        """Return registry entries for bodies in the workspace."""
+        manager = BodyRegistryManager(workspace)
+        return manager.list_bodies()
 
     @property
     def body_yaml_path(self) -> Path:
@@ -382,7 +415,7 @@ class BodyResolver:
 
     def create_snapshot(self, effective: EffectiveBody) -> Path:
         from datetime import datetime
-        ts = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%S")
+        ts = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%S.%f")
         snap_path = self.snapshots_dir / f"body-{ts}.yaml"
         fingerprint_path = self.snapshots_dir / f"body-{ts}.fingerprint"
         with open(snap_path, "w", encoding="utf-8") as f:

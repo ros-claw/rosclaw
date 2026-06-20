@@ -156,7 +156,70 @@ class BodyDiffer:
                     requires_skill_recheck=True,
                 ))
 
+        # Structural changes (joints, frames, identity)
+        changes.extend(self._detect_structural_changes(old, new))
+
         return self._summarize(changes)
+
+    def _detect_structural_changes(
+        self, old: EffectiveBody, new: EffectiveBody
+    ) -> list[BodyChange]:
+        """Detect added/removed/changed joints, frames, and identity metadata."""
+        changes: list[BodyChange] = []
+
+        for field, label in (("joints", "joint"), ("frames", "frame")):
+            old_items = getattr(old, field) or {}
+            new_items = getattr(new, field) or {}
+            old_names = set(old_items.keys())
+            new_names = set(new_items.keys())
+
+            for name in new_names - old_names:
+                changes.append(BodyChange(
+                    path=f"{field}.{name}",
+                    old=None,
+                    new="present",
+                    category="structural",
+                    severity="critical",
+                    requires_skill_recheck=True,
+                    reason=f"{label} added",
+                ))
+            for name in old_names - new_names:
+                changes.append(BodyChange(
+                    path=f"{field}.{name}",
+                    old="present",
+                    new=None,
+                    category="structural",
+                    severity="critical",
+                    requires_skill_recheck=True,
+                    reason=f"{label} removed",
+                ))
+            for name in old_names & new_names:
+                if old_items[name] != new_items[name]:
+                    changes.append(BodyChange(
+                        path=f"{field}.{name}",
+                        old=old_items[name],
+                        new=new_items[name],
+                        category="structural",
+                        severity="warning",
+                        requires_skill_recheck=True,
+                        reason=f"{label} topology changed",
+                    ))
+
+        old_identity = old.identity or {}
+        new_identity = new.identity or {}
+        for key in set(old_identity) | set(new_identity):
+            if old_identity.get(key) != new_identity.get(key):
+                changes.append(BodyChange(
+                    path=f"identity.{key}",
+                    old=old_identity.get(key),
+                    new=new_identity.get(key),
+                    category="structural",
+                    severity="warning",
+                    requires_skill_recheck=True,
+                    reason="identity metadata changed",
+                ))
+
+        return changes
 
     def diff_against_snapshot(self, effective: EffectiveBody, snapshot_path: Path) -> BodyDiff:
         """Diff current effective body against a historical snapshot."""
@@ -192,6 +255,10 @@ class BodyDiffer:
                 affected_ids.add(change.path.split(".")[1])
             elif change.path.startswith("safety."):
                 affected_ids.add("safety")
+            elif change.path.startswith("joints.") or change.path.startswith("frames."):
+                affected_ids.add(change.path.split(".")[1])
+            elif change.path.startswith("identity."):
+                affected_ids.add("identity")
         affected = sorted({c.category for c in changes})
         return BodyDiff(
             changes=changes,

@@ -106,6 +106,57 @@ class EurdfProfile:
         return cls.from_dict(data)
 
 
+# ── Body Registry ──
+
+@dataclass
+class BodyRegistryEntry:
+    """One registered body in a workspace registry."""
+
+    body_id: str
+    profile_id: str
+    nickname: str = ""
+    profile_version: str = "latest"
+    created_at: str = field(default_factory=lambda: _utc_now())
+    updated_at: str = field(default_factory=lambda: _utc_now())
+    path: str = ""
+    tags: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> BodyRegistryEntry:
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+
+@dataclass
+class BodyRegistry:
+    """Workspace-level body registry — tracks bodies and the active body."""
+
+    schema: str = "rosclaw.body_registry.v1"
+    current_body_id: str = "default"
+    bodies: dict[str, BodyRegistryEntry] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema": self.schema,
+            "current_body_id": self.current_body_id,
+            "bodies": {k: v.to_dict() for k, v in self.bodies.items()},
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> BodyRegistry:
+        bodies = {
+            k: BodyRegistryEntry.from_dict(v) if isinstance(v, dict) else v
+            for k, v in data.get("bodies", {}).items()
+        }
+        return cls(
+            schema=data.get("schema", "rosclaw.body_registry.v1"),
+            current_body_id=data.get("current_body_id", "default"),
+            bodies=bodies,
+        )
+
+
 # ── Body Instance Ledger ──
 
 @dataclass
@@ -326,9 +377,15 @@ class EffectiveBody:
         )
 
     def compute_hash(self) -> str:
-        """Recompute SHA-256 hash of canonical representation (excluding the hash field itself)."""
+        """Recompute SHA-256 hash of canonical representation.
+
+        Excludes compile-time metadata (the hash field itself, ``compiled_at``,
+        and ``generation``) so the hash is stable for identical source inputs.
+        """
         data = self.to_dict()
         data["effective_body_hash"] = ""
+        data["compiled_at"] = ""
+        data["generation"] = 0
         canonical = json.dumps(data, sort_keys=True, separators=(",", ":"), default=str)
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
