@@ -6,6 +6,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from rosclaw.core.event_topics import EventTopics
+
 
 @dataclass
 class ProviderMetric:
@@ -42,20 +44,27 @@ class DashboardMetrics:
 
     # Known topics whitelist — prevents unbounded dict growth from rogue/invalid topics.
     _KNOWN_TOPICS: set[str] = {
-        "rosclaw.runtime.started",
-        "skill.execution.start",
-        "skill.execution.complete",
-        "praxis.completed",
-        "praxis.failed",
-        "rosclaw.practice.event.created",
-        "rosclaw.sandbox.episode.started",
-        "rosclaw.sandbox.episode.finished",
-        "rosclaw.sandbox.action.blocked",
-        "rosclaw.provider.inference.completed",
-        "rosclaw.critic.success.detected",
-        "rosclaw.dashboard.trace.updated",
-        "rosclaw.how.recovery_hint.generated",
-        "rosclaw.memory.write.completed",
+        EventTopics.RUNTIME_STARTED,
+        EventTopics.SKILL_EXECUTION_START,
+        EventTopics.SKILL_EXECUTION_COMPLETE,
+        EventTopics.PRAXIS_COMPLETED,
+        EventTopics.PRAXIS_FAILED,
+        EventTopics.PRACTICE_EVENT_CREATED,
+        EventTopics.SANDBOX_EPISODE_STARTED,
+        EventTopics.SANDBOX_EPISODE_FINISHED,
+        EventTopics.SANDBOX_ACTION_BLOCKED,
+        EventTopics.PROVIDER_INFERENCE_COMPLETED,
+        EventTopics.CRITIC_SUCCESS_DETECTED,
+        EventTopics.DASHBOARD_TRACE_UPDATED,
+        EventTopics.HOW_RECOVERY_HINT_GENERATED,
+        EventTopics.MEMORY_WRITE_COMPLETED,
+        EventTopics.SENSE_STATE_UPDATED,
+        EventTopics.SENSE_BODY_UPDATED,
+        EventTopics.SENSE_EVENT_DETECTED,
+        EventTopics.SENSE_READINESS_UPDATED,
+        EventTopics.SENSE_CAPABILITY_BLOCKED,
+        EventTopics.SENSE_CAPABILITY_DEGRADED,
+        # Legacy aliases and topics not yet in EventTopics
         "rosclaw.auto.proposal.created",
         "rosclaw.auto.champion.promoted",
         "rosclaw.auto.experiment.completed",
@@ -78,6 +87,8 @@ class DashboardMetrics:
         self._auto_champions: list[dict[str, Any]] = []
         self._auto_deadends: list[dict[str, Any]] = []
         self._evidence_traces: list[dict[str, Any]] = []
+        self._body_sense_history: list[dict[str, Any]] = []
+        self._latest_sense: dict[str, Any] | None = None
 
     # ── Provider metrics ──
 
@@ -184,6 +195,43 @@ class DashboardMetrics:
     def get_uptime_sec(self) -> float:
         return time.time() - self._start_time
 
+    # ── Body sense metrics ──
+
+    def record_body_sense(self, body_sense: dict[str, Any]) -> None:
+        """Record a BodySense snapshot from the sense runtime."""
+        if not isinstance(body_sense, dict):
+            return
+        self._latest_sense = body_sense
+        self._body_sense_history.append(body_sense)
+        self._trim(self._body_sense_history)
+
+    def get_body_sense_stats(self) -> dict[str, Any]:
+        """Return the latest sense snapshot plus rolling-window stats."""
+        if self._latest_sense is None:
+            return {
+                "available": False,
+                "robot_id": None,
+                "overall_status": "unknown",
+                "blocked_capabilities": [],
+                "degraded_capabilities": [],
+                "risk_summary": None,
+                "main_reasons": [],
+                "recommended_actions": [],
+                "history_count": len(self._body_sense_history),
+            }
+        return {
+            "available": True,
+            "robot_id": self._latest_sense.get("robot_id"),
+            "overall_status": self._latest_sense.get("overall_status"),
+            "blocked_capabilities": list(self._latest_sense.get("blocked_capabilities", [])),
+            "degraded_capabilities": list(self._latest_sense.get("degraded_capabilities", [])),
+            "risk_summary": self._latest_sense.get("risk_summary"),
+            "main_reasons": list(self._latest_sense.get("main_reasons", [])),
+            "recommended_actions": list(self._latest_sense.get("recommended_actions", [])),
+            "history_count": len(self._body_sense_history),
+            "timestamp": self._latest_sense.get("timestamp"),
+        }
+
     # ── Snapshot ──
 
     def snapshot(self) -> dict[str, Any]:
@@ -195,6 +243,7 @@ class DashboardMetrics:
             "episodes": self.get_episode_stats(),
             "event_counts": self.get_event_counts(),
             "traces": self.get_latest_traces(),
+            "sense": self.get_body_sense_stats(),
         }
 
     def record_trace(self, trace: dict[str, Any]) -> None:

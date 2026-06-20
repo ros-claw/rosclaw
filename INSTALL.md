@@ -69,8 +69,8 @@ make setup
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip wheel setuptools
-python -m pip install -e ".[dev]"
+python3 -m pip install --upgrade pip wheel setuptools
+python3 -m pip install -e ".[dev]"
 rosclaw firstboot --dev --workspace .rosclaw --profile offline --no-telemetry --yes
 rosclaw doctor --full
 ```

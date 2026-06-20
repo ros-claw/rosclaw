@@ -343,14 +343,7 @@ class InstallEngine:
             version=solved.version,
         )
 
-        # Preflight checks (dry-run reports success without executing).
-        try:
-            self.preflight_runner.run(manifest, dry_run=dry_run)
-        except PreflightError as exc:
-            result.errors.append(str(exc))
-            return result
-
-        # Permission effective state.
+        # Permission effective state and forbidden check before preflight.
         permissions = manifest.permissions
         permission_state: PermissionState = PermissionState()
         if permissions:
@@ -363,6 +356,13 @@ class InstallEngine:
                     f"Manifest requires forbidden permissions: {', '.join(forbidden)}"
                 )
             result.permission_state = permission_state
+
+        # Preflight checks (dry-run reports success without executing).
+        try:
+            self.preflight_runner.run(manifest, dry_run=dry_run)
+        except PreflightError as exc:
+            result.errors.append(str(exc))
+            return result
 
         if dry_run:
             # Simulate the remaining steps.
@@ -378,7 +378,7 @@ class InstallEngine:
             if manifest.claude and not skip_claude:
                 result.claude_result = ClaudeMergeResult(
                     path=mcp_json_path,
-                    server_name=server_name,
+                    server_name=manifest.claude_server_name,
                     action="dry-run:merge",
                 )
             result.installed_record = InstalledRecord(
@@ -437,8 +437,9 @@ class InstallEngine:
             # Claude .mcp.json merge.
             claude_result: ClaudeMergeResult | None = None
             if not skip_claude and manifest.claude and manifest.claude.mcp_json:
+                claude_server_name = manifest.claude_server_name
                 claude_result = self.claude_merge.merge(
-                    server_name=server_name,
+                    server_name=claude_server_name,
                     manifest_id=manifest_id,
                     version=solved.version,
                     mcp_json_fragment=manifest.claude.mcp_json,

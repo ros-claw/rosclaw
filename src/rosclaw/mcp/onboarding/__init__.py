@@ -39,6 +39,7 @@ from rosclaw.mcp.onboarding.schema import (
 
 __all__ = [
     "AliasResolver",
+    "AliasResolutionError",
     "Artifact",
     "ArtifactError",
     "BindingError",

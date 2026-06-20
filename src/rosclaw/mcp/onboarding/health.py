@@ -21,6 +21,7 @@ import yaml
 from rosclaw.firstboot.workspace import resolve_home
 from rosclaw.mcp.onboarding.binding import BodyBindingManager
 from rosclaw.mcp.onboarding.claude_merge import ClaudeMcpMerge
+from rosclaw.mcp.onboarding.errors import EurdfProfileMissingError
 from rosclaw.mcp.onboarding.hub_client import HubClient
 from rosclaw.mcp.onboarding.installed import InstalledRegistry
 from rosclaw.mcp.onboarding.permissions import PermissionStore
@@ -82,6 +83,13 @@ class HealthReport:
             "failed": failed,
         }
 
+    def _calculate_overall(self, checks: list[HealthResult]) -> str:
+        if any(not c.passed and c.required for c in checks):
+            return "failed"
+        if any(not c.passed for c in checks):
+            return "degraded"
+        return "ok"
+
 
 def _expand_command(cmd: str, env: dict[str, str] | None = None) -> str:
     """Expand environment variables in a command string."""
@@ -131,6 +139,22 @@ async def _handshake_stdio(
         return False, f"handshake timed out after {timeout_ms}ms"
     except Exception as exc:  # noqa: BLE001
         return False, f"handshake failed: {exc}"
+
+
+def _run_handshake_stdio(
+    command: str,
+    args: list[str],
+    env: dict[str, str],
+    timeout_ms: int,
+) -> tuple[bool, str]:
+    """Synchronous wrapper around ``_handshake_stdio`` for testability.
+
+    If ``_handshake_stdio`` has been replaced with a synchronous test double,
+    invoke it directly instead of running it through ``asyncio.run``.
+    """
+    if asyncio.iscoroutinefunction(_handshake_stdio):
+        return asyncio.run(_handshake_stdio(command, args, env, timeout_ms))
+    return _handshake_stdio(command, args, env, timeout_ms)
 
 
 class HealthRunner:
@@ -208,7 +232,7 @@ class HealthRunner:
             result = self._run_check(check, manifest, record, full=full)
             report.checks.append(result)
 
-        report.overall = self._overall(report.checks)
+        report.overall = report._calculate_overall(report.checks)
         return report
 
     def check_all(self, full: bool = False) -> list[HealthReport]:
@@ -217,13 +241,6 @@ class HealthRunner:
         for record in self.registry.list():
             reports.append(self.check(record.server_name, full=full))
         return reports
-
-    def _overall(self, checks: list[HealthResult]) -> str:
-        if any(not c.passed and c.required for c in checks):
-            return "failed"
-        if any(not c.passed for c in checks):
-            return "degraded"
-        return "ok"
 
     def _run_check(
         self,
@@ -305,9 +322,7 @@ class HealthRunner:
         env.update({k: os.path.expandvars(v) for k, v in transport.env.items()})
         timeout = (manifest.health.startup_timeout_ms if manifest.health else 5000)
         try:
-            passed, message = asyncio.run(
-                _handshake_stdio(resolved, args, env, timeout)
-            )
+            passed, message = _run_handshake_stdio(resolved, args, env, timeout)
         except Exception as exc:  # noqa: BLE001
             passed, message = False, f"handshake error: {exc}"
         return passed, message
@@ -320,6 +335,21 @@ class HealthRunner:
         binding = manifest.body_binding
         if binding is None:
             return True, "no body binding declared"
+
+        # e-URDF profile presence. Required missing profiles fail immediately;
+        # optional-only missing profiles are allowed to pass without a linked body.
+        eurdf = manifest.eurdf
+        if eurdf and eurdf.profiles:
+            try:
+                profile_id, _ = self.body_binding.ensure_eurdf(eurdf, dry_run=True)
+            except EurdfProfileMissingError:
+                return False, "required e-URDF profile not installed"
+            if profile_id is None:
+                has_required = any(p.required for p in eurdf.profiles)
+                if has_required:
+                    return False, "required e-URDF profile not installed"
+                return True, "optional e-URDF profile not installed"
+
         if not self.body_binding.resolver.is_linked():
             return False, f"body not linked at {self.body_binding.resolver.body_yaml_path}"
         body_path = self.body_binding.resolver.body_yaml_path
@@ -329,24 +359,18 @@ class HealthRunner:
         except Exception as exc:  # noqa: BLE001
             return False, f"cannot read body.yaml: {exc}"
 
-        # Walk to the binding key.
-        current: Any = data
-        for part in binding.binding_key.split("."):
-            if not isinstance(current, dict):
-                return False, f"binding key '{binding.binding_key}' not present"
-            current = current.get(part)
-        if current is None:
-            return False, f"binding key '{binding.binding_key}' not present"
-
-        # e-URDF profile presence.
-        eurdf = manifest.eurdf
-        if eurdf and eurdf.profiles:
-            profile_id, _ = self.body_binding.ensure_eurdf(eurdf, dry_run=True)
-            if profile_id is None:
-                required = any(p.required for p in eurdf.profiles)
-                if required:
-                    return False, "required e-URDF profile not installed"
-                return True, "optional e-URDF profile not installed"
+        # Verify every declared write path is present in body.yaml.
+        target_paths = list(binding.write_paths.values()) if binding.write_paths else []
+        if not target_paths:
+            target_paths = [binding.binding_key]
+        for target_path in target_paths:
+            current: Any = data
+            for part in target_path.split("."):
+                if not isinstance(current, dict):
+                    return False, f"binding key '{target_path}' not present"
+                current = current.get(part)
+            if current is None:
+                return False, f"binding key '{target_path}' not present"
 
         return True, "binding OK"
 
@@ -381,7 +405,8 @@ class HealthRunner:
         manifest: McpManifest,
     ) -> tuple[bool, str]:
         managed = self.claude_merge.list_managed_servers()
-        if manifest.server_name in managed:
+        claude_server_name = manifest.claude_server_name
+        if claude_server_name in managed:
             return True, "managed server present in .mcp.json"
         return False, "managed server not found in .mcp.json"
 

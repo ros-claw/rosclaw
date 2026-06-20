@@ -1289,6 +1289,80 @@ def cmd_skill_invoke(args: argparse.Namespace) -> int:
         print(f"[ROSClaw] Skill invocation failed: {exc}")
         return 1
 
+def cmd_skill_check(args: argparse.Namespace) -> int:
+    """Check skill compatibility against the current effective body."""
+    from rosclaw.body.resolver import BodyNotLinkedError, BodyRegistryError, BodyResolver
+
+    try:
+        resolver = BodyResolver(workspace=Path(args.workspace) if args.workspace else None)
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
+
+    try:
+        if not resolver.is_linked():
+            print("[ROSClaw] No body linked. Run: rosclaw body link-eurdf <profile_id>")
+            return 1
+    except BodyNotLinkedError:
+        print("[ROSClaw] No body linked. Run: rosclaw body link-eurdf <profile_id>")
+        return 1
+
+    if args.all:
+        try:
+            _effective, report = resolver.refresh_all_artifacts(reason="skill check --all")
+        except Exception as exc:
+            print(f"[ROSClaw] Skill check failed: {exc}")
+            return 1
+        if args.json:
+            print(json.dumps(report.to_dict(), indent=2, default=str))
+            return 0
+        print("=" * 60)
+        print("Skill compatibility")
+        print("=" * 60)
+        print(f"Body: {report.body_instance_id}")
+        print(f"Hash: {report.effective_body_hash}")
+        print("")
+        if report.skills:
+            print(f"{'Skill':<30} {'Status':<12} {'Reason'}")
+            print("-" * 60)
+            for key, result in sorted(report.skills.items()):
+                reason = result.reason or ""
+                print(f"{key:<30} {result.status:<12} {reason}")
+        else:
+            print("No skill manifests found in workspace.")
+        print("")
+        print("Summary:")
+        for status, count in sorted(report.summary.items()):
+            print(f"  {status}: {count}")
+        print("=" * 60)
+        return 0
+
+    if args.skill_id:
+        try:
+            result = resolver.check_skill_compatibility(args.skill_id)
+        except Exception as exc:
+            print(f"[ROSClaw] Skill check failed: {exc}")
+            return 1
+        if args.json:
+            print(json.dumps(result.to_dict(), indent=2, default=str))
+            return 0
+        print(f"{result.skill_id}@{result.skill_version}: {result.status}")
+        if result.reason:
+            print(f"  reason: {result.reason}")
+        if result.missing_requirements:
+            print("  missing requirements:")
+            for req in result.missing_requirements:
+                print(f"    - {req}")
+        if result.warnings:
+            print("  warnings:")
+            for warn in result.warnings:
+                print(f"    - {warn}")
+        return 0
+
+    print("[ROSClaw] skill check: specify a skill_id or --all")
+    return 1
+
+
 def cmd_skill_champions_list(_args: argparse.Namespace) -> int:
     """List current champion skills."""
     from rosclaw.skill_manager.registry import SkillRegistry
@@ -1912,6 +1986,60 @@ def cmd_know_recommend(args: argparse.Namespace) -> int:
         print(f"{rec['robot_id']:<20} {rec['score']:<8.2f} {matched}")
     print("=" * 60)
     return 0
+
+
+def cmd_know_compile(args: argparse.Namespace) -> int:
+    """Compile a task into a TaskCard via rosclaw-know."""
+    from rosclaw_know.taskcard.cli import main as taskcard_main
+
+    argv = ["compile", "--task", args.task]
+    if args.goal:
+        argv.extend(["--goal", args.goal])
+    if args.robot:
+        argv.extend(["--robot", args.robot])
+    if getattr(args, "robot_id", None):
+        argv.extend(["--robot-id", args.robot_id])
+    if getattr(args, "body", None):
+        argv.extend(["--body", args.body])
+    if getattr(args, "embodiment", None):
+        argv.extend(["--embodiment", args.embodiment])
+    if getattr(args, "eurdf", None):
+        argv.extend(["--eurdf", args.eurdf])
+    if getattr(args, "scene", None):
+        argv.extend(["--scene", args.scene])
+    if getattr(args, "scene_id", None):
+        argv.extend(["--scene-id", args.scene_id])
+    if getattr(args, "strict", False):
+        argv.append("--strict")
+    if getattr(args, "dry_run", False):
+        argv.append("--dry-run")
+    if getattr(args, "output_dir", None):
+        argv.extend(["--output-dir", args.output_dir])
+    return taskcard_main(argv)
+
+
+def cmd_know_validate(args: argparse.Namespace) -> int:
+    """Validate a TaskCard YAML file."""
+    from rosclaw_know.taskcard.cli import main as taskcard_main
+
+    return taskcard_main(["validate", "--taskcard", args.taskcard])
+
+
+def cmd_know_eval_taskcard(args: argparse.Namespace) -> int:
+    """Evaluate a TaskCard against a gold fixture."""
+    from rosclaw_know.taskcard.cli import main as taskcard_main
+
+    argv = ["eval-taskcard", "--taskcard", args.taskcard, "--gold", args.gold]
+    if getattr(args, "json", False):
+        argv.append("--json")
+    return taskcard_main(argv)
+
+
+def cmd_know_export_hooks(args: argparse.Namespace) -> int:
+    """Export hooks from a TaskCard."""
+    from rosclaw_know.taskcard.cli import main as taskcard_main
+
+    return taskcard_main(["export-hooks", "--taskcard", args.taskcard, "--out", args.out])
 
 
 # ------------------------------------------------------------------
@@ -2881,6 +3009,13 @@ def main() -> int:
     skill_rollback_parser.add_argument("skill_id", help="Skill identifier")
     skill_rollback_parser.add_argument("--to", required=True, help="Target version to rollback to")
 
+    # skill check subcommand
+    skill_check_parser = skill_subparsers.add_parser("check", help="Check skill compatibility against current body")
+    skill_check_parser.add_argument("skill_id", nargs="?", default=None, help="Skill ID to check (omit with --all)")
+    skill_check_parser.add_argument("--all", action="store_true", help="Check all skill manifests in workspace")
+    skill_check_parser.add_argument("--json", action="store_true", help="Output JSON")
+    skill_check_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
+
     # sandbox subcommand
     sandbox_parser = subparsers.add_parser("sandbox", help="Sandbox commands")
     sandbox_subparsers = sandbox_parser.add_subparsers(dest="sandbox_command")
@@ -2968,6 +3103,32 @@ def main() -> int:
 
     know_recommend_parser = know_subparsers.add_parser("recommend", help="Recommend robots for task")
     know_recommend_parser.add_argument("task", help="Task description")
+
+    know_compile_parser = know_subparsers.add_parser("compile", help="Compile a task into a TaskCard")
+    know_compile_parser.add_argument("--task", required=True, help="Task ID")
+    know_compile_parser.add_argument("--goal", default=None, help="Natural language goal")
+    know_compile_parser.add_argument("--robot", default="unitree_g1", help="Robot model")
+    know_compile_parser.add_argument("--robot-id", default=None, help="Robot instance ID")
+    know_compile_parser.add_argument("--body", default=None, help="body.yaml path")
+    know_compile_parser.add_argument("--embodiment", default=None, help="EMBODIMENT.md path")
+    know_compile_parser.add_argument("--eurdf", default=None, help="e-URDF path")
+    know_compile_parser.add_argument("--scene", default=None, help="Scene file path")
+    know_compile_parser.add_argument("--scene-id", default=None, help="Scene ID")
+    know_compile_parser.add_argument("--strict", action="store_true", help="Enable strict validation")
+    know_compile_parser.add_argument("--dry-run", action="store_true", help="Print TaskCard without writing files")
+    know_compile_parser.add_argument("--output-dir", default=".rosclaw/know/taskcards", help="Output directory")
+
+    know_validate_parser = know_subparsers.add_parser("validate", help="Validate a TaskCard YAML file")
+    know_validate_parser.add_argument("--taskcard", required=True, help="Path to TaskCard YAML")
+
+    know_eval_parser = know_subparsers.add_parser("eval-taskcard", help="Evaluate a TaskCard against a gold fixture")
+    know_eval_parser.add_argument("--taskcard", required=True, help="Path to generated TaskCard YAML")
+    know_eval_parser.add_argument("--gold", required=True, help="Path to gold YAML")
+    know_eval_parser.add_argument("--json", action="store_true", help="Output JSON report")
+
+    know_export_hooks_parser = know_subparsers.add_parser("export-hooks", help="Export hooks from a TaskCard")
+    know_export_hooks_parser.add_argument("--taskcard", required=True, help="Path to TaskCard YAML")
+    know_export_hooks_parser.add_argument("--out", required=True, help="Output directory")
 
     # sense subcommand
     sense_parser = subparsers.add_parser("sense", help="Body sense and readiness commands")
@@ -3123,6 +3284,8 @@ def main() -> int:
             return cmd_skill_lineage(args)
         elif args.skill_command == "rollback":
             return cmd_skill_rollback(args)
+        elif args.skill_command == "check":
+            return cmd_skill_check(args)
         else:
             skill_parser.print_help()
             return 1
@@ -3229,6 +3392,14 @@ def main() -> int:
             return cmd_know_robot(args)
         elif args.know_command == "recommend":
             return cmd_know_recommend(args)
+        elif args.know_command == "compile":
+            return cmd_know_compile(args)
+        elif args.know_command == "validate":
+            return cmd_know_validate(args)
+        elif args.know_command == "eval-taskcard":
+            return cmd_know_eval_taskcard(args)
+        elif args.know_command == "export-hooks":
+            return cmd_know_export_hooks(args)
         else:
             know_parser.print_help()
             return 1

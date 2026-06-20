@@ -196,7 +196,6 @@ def dispatch_mcp_list(args: argparse.Namespace) -> int:
     from rosclaw.mcp.onboarding.hub_client import HubClient
     from rosclaw.mcp.onboarding.installed import InstalledRegistry
 
-    _project_root(args)
     installed_registry = InstalledRegistry()
     installed = installed_registry.list()
 
@@ -307,7 +306,6 @@ def dispatch_mcp_health(args: argparse.Namespace) -> int:
     """Handle ``rosclaw mcp health``."""
     from rosclaw.mcp.onboarding.health import HealthRunner
 
-    _project_root(args)
     runner = HealthRunner()
 
     try:

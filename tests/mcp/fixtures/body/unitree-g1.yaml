@@ -1,0 +1,18 @@
+schema_version: rosclaw.body.v1
+schema: rosclaw.body.v1
+body_instance:
+  id: g1-001
+  robot_model: unitree-g1
+  serial_number: G1SN12345
+  eurdf_profile: unitree-g1
+  nickname: lab-g1
+  deployment_site: lab
+  owner: rosclaw
+robot:
+  model: unitree-g1
+  serial: G1SN12345
+  eurdf_profile: unitree-g1
+mcp_bindings:
+  unitree_g1:
+    server: rosclaw-unitree-g1
+    manifest_id: io.rosclaw.hardware.unitree-g1

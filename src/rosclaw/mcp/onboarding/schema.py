@@ -728,6 +728,20 @@ class McpManifest:
             return self.mcp.server_name
         return f"rosclaw-{self.name}"
 
+    @property
+    def claude_server_name(self) -> str:
+        """Return the server key declared in the Claude ``mcpJson`` fragment.
+
+        The fragment's ``mcpServers`` key is the name Claude Code uses in
+        ``.mcp.json``. It may differ from ``server_name`` (e.g. prefixed with
+        ``rosclaw-``).
+        """
+        if self.claude and self.claude.mcp_json:
+            servers = self.claude.mcp_json.get("mcpServers", {})
+            if servers:
+                return next(iter(servers.keys()))
+        return self.server_name
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dict matching the JSON manifest shape."""
         result: dict[str, Any] = {

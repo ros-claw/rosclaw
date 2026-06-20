@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import shutil
+import tarfile
+import uuid
 from datetime import UTC
 from pathlib import Path
 from typing import Any
+from zipfile import ZipFile
 
 import yaml
 
@@ -14,6 +19,7 @@ from rosclaw.body.compiler import compute_checksum
 from rosclaw.body.diff import BodyDiffer
 from rosclaw.body.notes import MaintenanceLog
 from rosclaw.body.query import BodyQueryEngine
+from rosclaw.body.registry import BodyRegistryError, BodyRegistryManager
 from rosclaw.body.renderer import EmbodimentRenderer
 from rosclaw.body.resolver import BodyNotLinkedError, BodyResolver
 from rosclaw.body.schema import (
@@ -25,6 +31,7 @@ from rosclaw.body.schema import (
 from rosclaw.body.validator import BodyValidator
 from rosclaw.body.validators import parse_set_expression, validate_update_path
 from rosclaw.eurdf.registry import RobotRegistry
+from rosclaw.memory.interface import MemoryInterface
 
 
 def add_body_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> argparse.ArgumentParser:
@@ -42,31 +49,57 @@ def add_body_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     init_parser.add_argument("--no-alias", action="store_true", help="Skip creating BODY.md alias")
     init_parser.add_argument("--render", action="store_true", default=True, help="Render EMBODIMENT.md (default)")
     init_parser.add_argument("--validate", action="store_true", help="Run validation after init")
+    _add_body_arg(init_parser)
+
+    # create
+    create_parser = body_subparsers.add_parser("create", help="Create a new body instance from an e-URDF profile")
+    create_parser.add_argument("--robot", required=True, help="Robot profile ID (e.g., unitree-g1)")
+    create_parser.add_argument("--name", required=True, help="Body instance ID")
+    create_parser.add_argument("--nickname", default=None, help="Human-readable nickname")
+    create_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    create_parser.add_argument("--force", action="store_true", help="Overwrite an existing body with the same ID")
+    create_parser.add_argument("--no-alias", action="store_true", help="Skip creating BODY.md alias")
+
+    # switch
+    switch_parser = body_subparsers.add_parser("switch", help="Switch the active body")
+    switch_parser.add_argument("body_id", help="Body ID to activate")
+    switch_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
+
+    # remove
+    remove_parser = body_subparsers.add_parser("remove", help="Remove a body instance")
+    remove_parser.add_argument("body_id", help="Body ID to remove")
+    remove_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    remove_parser.add_argument("--archive", action="store_true", help="Archive body data instead of deleting")
 
     # validate
     validate_parser = body_subparsers.add_parser("validate", help="Validate body workspace")
     validate_parser.add_argument("--json", action="store_true", help="Output JSON report")
     validate_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    _add_body_arg(validate_parser)
 
     # render
     render_parser = body_subparsers.add_parser("render", help="Force re-render of EMBODIMENT.md and summaries")
     render_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    _add_body_arg(render_parser)
 
     # show
     show_parser = body_subparsers.add_parser("show", help="Show body summary")
     show_parser.add_argument("--agent", action="store_true", help="Output agent-readable summary")
     show_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    _add_body_arg(show_parser)
 
     # state
     state_parser = body_subparsers.add_parser("state", help="Print unified body state")
     state_parser.add_argument("--json", action="store_true", help="Output JSON")
     state_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    _add_body_arg(state_parser)
 
     # query
     query_parser = body_subparsers.add_parser("query", help="Ask a question about the body")
     query_parser.add_argument("question", help="Question string")
     query_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
     query_parser.add_argument("--json", action="store_true", help="Output JSON")
+    _add_body_arg(query_parser)
 
     # fault
     fault_parser = body_subparsers.add_parser("fault", help="Manage known faults")
@@ -76,10 +109,12 @@ def add_body_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     fault_add.add_argument("--severity", required=True, choices=["low", "medium", "high", "critical"], help="Fault severity")
     fault_add.add_argument("--summary", required=True, help="Fault summary")
     fault_add.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    _add_body_arg(fault_add)
     fault_resolve = fault_subparsers.add_parser("resolve", help="Resolve a known fault")
     fault_resolve.add_argument("fault_id", help="Fault ID to resolve")
     fault_resolve.add_argument("--summary", default="", help="Resolution summary")
     fault_resolve.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    _add_body_arg(fault_resolve)
 
     # maintenance
     maint_parser = body_subparsers.add_parser("maintenance", help="Add maintenance event")
@@ -89,6 +124,7 @@ def add_body_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     maint_add.add_argument("--component", required=True, help="Affected component")
     maint_add.add_argument("--summary", required=True, help="Event summary")
     maint_add.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    _add_body_arg(maint_add)
 
     # calibration update
     cal_parser = body_subparsers.add_parser("calibration", help="Calibration commands")
@@ -96,6 +132,7 @@ def add_body_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     cal_update = cal_subparsers.add_parser("update", help="Update calibration from a YAML file")
     cal_update.add_argument("--file", required=True, help="Path to calibration YAML file")
     cal_update.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    _add_body_arg(cal_update)
 
     # retrofit
     retro_parser = body_subparsers.add_parser("retrofit", help="Record a hardware retrofit")
@@ -105,6 +142,7 @@ def add_body_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     retro_add.add_argument("--type", required=True, choices=["sensor_install", "tool_install", "actuator_swap", "structural_mod", "other"], help="Retrofit type")
     retro_add.add_argument("--summary", required=True, help="Summary of the change")
     retro_add.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    _add_body_arg(retro_add)
 
     # capability
     cap_parser = body_subparsers.add_parser("capability", help="Manage capabilities")
@@ -113,15 +151,18 @@ def add_body_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     cap_disable.add_argument("capability_id", help="Capability ID")
     cap_disable.add_argument("--reason", required=True, help="Reason")
     cap_disable.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    _add_body_arg(cap_disable)
     cap_degrade = cap_subparsers.add_parser("degrade", help="Degrade a capability")
     cap_degrade.add_argument("capability_id", help="Capability ID")
     cap_degrade.add_argument("--mode", default="sim_only", choices=["slow", "sim_only", "restricted_workspace", "human_supervised"], help="Degradation mode")
     cap_degrade.add_argument("--reason", required=True, help="Reason")
     cap_degrade.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    _add_body_arg(cap_degrade)
     cap_enable = cap_subparsers.add_parser("enable", help="Enable a capability")
     cap_enable.add_argument("capability_id", help="Capability ID")
     cap_enable.add_argument("--after-validation", default=None, help="Validation run ID or evidence")
     cap_enable.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    _add_body_arg(cap_enable)
 
     # link-eurdf
     link_parser = body_subparsers.add_parser("link-eurdf", help="Link current body to an e-URDF profile")
@@ -132,6 +173,7 @@ def add_body_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     link_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
     link_parser.add_argument("--force", action="store_true", help="Overwrite existing body link")
     link_parser.add_argument("--mode", default="copy", choices=["copy", "lock-only"], help="Link mode")
+    _add_body_arg(link_parser)
 
     # inspect
     inspect_parser = body_subparsers.add_parser("inspect", help="Inspect current body state")
@@ -141,12 +183,14 @@ def add_body_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     inspect_parser.add_argument("--capabilities", action="store_true", help="Show only capabilities")
     inspect_parser.add_argument("--components", action="store_true", help="Show only components")
     inspect_parser.add_argument("--skills", action="store_true", help="Show skill compatibility")
+    _add_body_arg(inspect_parser)
 
     # diff
     diff_parser = body_subparsers.add_parser("diff", help="Compare body states")
     diff_parser.add_argument("--against", default="eurdf", help="Compare against eurdf, snapshot:<name>, or live")
     diff_parser.add_argument("--format", default="text", choices=["text", "json", "patch"], help="Output format")
     diff_parser.add_argument("--only", default=None, help="Filter by category")
+    _add_body_arg(diff_parser)
 
     # update-state
     update_parser = body_subparsers.add_parser("update-state", help="Update body instance state")
@@ -159,6 +203,7 @@ def add_body_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     update_parser.add_argument("--source", default="human", help="Source of the update")
     update_parser.add_argument("--dry-run", action="store_true", help="Do not persist changes")
     update_parser.add_argument("--no-skill-check", action="store_true", help="Skip skill compatibility recheck")
+    _add_body_arg(update_parser)
 
     # note
     note_parser = body_subparsers.add_parser("note", help="Add a maintenance/incident note")
@@ -168,8 +213,37 @@ def add_body_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     note_parser.add_argument("--affects", default="", help="Comma-separated affected components/capabilities")
     note_parser.add_argument("--tags", default="", help="Comma-separated tags")
     note_parser.add_argument("--author", default="human", help="Author")
+    _add_body_arg(note_parser)
+
+    # history
+    history_parser = body_subparsers.add_parser("history", help="List body snapshots")
+    history_parser.add_argument("--json", action="store_true", help="Output JSON")
+    history_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    _add_body_arg(history_parser)
+
+    # export
+    export_parser = body_subparsers.add_parser("export", help="Export body directory as an archive")
+    export_parser.add_argument("dest", help="Destination file or directory")
+    export_parser.add_argument("--format", default="zip", choices=["zip", "tar"], help="Archive format")
+    export_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    _add_body_arg(export_parser)
 
     return body_parser
+
+
+def _add_body_arg(parser: argparse.ArgumentParser) -> None:
+    """Add the --body selector to a leaf body subcommand."""
+    parser.add_argument("--body", default=None, help="Target body ID (defaults to current body)")
+
+
+def _resolver_for(args: argparse.Namespace) -> BodyResolver:
+    """Create a BodyResolver honoring --workspace and --body."""
+    workspace = getattr(args, "workspace", None)
+    body_id = getattr(args, "body", None)
+    return BodyResolver(
+        workspace=Path(workspace) if workspace else None,
+        body_id=body_id if body_id else None,
+    )
 
 
 def dispatch_body_command(args: argparse.Namespace) -> int:
@@ -177,6 +251,12 @@ def dispatch_body_command(args: argparse.Namespace) -> int:
     command = getattr(args, "body_command", None)
     if command == "init":
         return cmd_body_init(args)
+    if command == "create":
+        return cmd_body_create(args)
+    if command == "switch":
+        return cmd_body_switch(args)
+    if command == "remove":
+        return cmd_body_remove(args)
     if command == "validate":
         return cmd_body_validate(args)
     if command == "render":
@@ -197,6 +277,10 @@ def dispatch_body_command(args: argparse.Namespace) -> int:
         return cmd_body_update_state(args)
     if command == "note":
         return cmd_body_note(args)
+    if command == "history":
+        return cmd_body_history(args)
+    if command == "export":
+        return cmd_body_export(args)
     if command == "fault":
         return cmd_body_fault(args)
     if command == "maintenance":
@@ -207,7 +291,7 @@ def dispatch_body_command(args: argparse.Namespace) -> int:
         return cmd_body_retrofit(args)
     if command == "capability":
         return cmd_body_capability(args)
-    print("[ROSClaw] body: no subcommand given. Use: init, validate, render, show, state, query, link-eurdf, inspect, diff, update-state, note, fault, maintenance, calibration, retrofit, capability")
+    print("[ROSClaw] body: no subcommand given. Use: init, create, switch, remove, validate, render, show, state, query, link-eurdf, inspect, diff, update-state, note, history, export, fault, maintenance, calibration, retrofit, capability")
     return 1
 
 
@@ -242,9 +326,76 @@ def cmd_body_init(args: argparse.Namespace) -> int:
     return cmd_body_link_eurdf(proxy)
 
 
+def cmd_body_create(args: argparse.Namespace) -> int:
+    """Create a new body instance and link it to an e-URDF profile."""
+    workspace = Path(args.workspace) if args.workspace else None
+    ws = workspace or Path.home() / ".rosclaw"
+    manager = BodyRegistryManager(ws)
+
+    body_id = args.name.strip().lower()
+    nickname = args.nickname or body_id
+
+    try:
+        manager.create_body(
+            body_id=body_id,
+            profile_id=args.robot,
+            nickname=nickname,
+            force=args.force,
+        )
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
+
+    proxy = argparse.Namespace(
+        profile_id=args.robot,
+        version="latest",
+        instance_id=body_id,
+        nickname=nickname,
+        workspace=args.workspace,
+        force=True,
+        mode="copy",
+    )
+    return cmd_body_link_eurdf(proxy)
+
+
+def cmd_body_switch(args: argparse.Namespace) -> int:
+    """Switch the active body."""
+    workspace = Path(args.workspace) if args.workspace else None
+    ws = workspace or Path.home() / ".rosclaw"
+    manager = BodyRegistryManager(ws)
+    try:
+        manager.set_current_body_id(args.body_id)
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
+    print(f"Switched to body: {args.body_id}")
+    return 0
+
+
+def cmd_body_remove(args: argparse.Namespace) -> int:
+    """Remove a body instance, optionally archiving its data."""
+    workspace = Path(args.workspace) if args.workspace else None
+    ws = workspace or Path.home() / ".rosclaw"
+    manager = BodyRegistryManager(ws)
+    try:
+        removal = manager.remove_body(args.body_id, archive=args.archive)
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
+    if removal.archived and removal.archive_path:
+        print(f"Removed body '{args.body_id}' and archived data to {removal.archive_path}")
+    else:
+        print(f"Removed body '{args.body_id}'")
+    return 0
+
+
 def cmd_body_validate(args: argparse.Namespace) -> int:
     """Run full body validation and print report."""
-    resolver = BodyResolver(workspace=Path(args.workspace) if args.workspace else None)
+    try:
+        resolver = _resolver_for(args)
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
     validator = BodyValidator(resolver)
     report = validator.validate_all()
     if args.json:
@@ -268,7 +419,11 @@ def cmd_body_validate(args: argparse.Namespace) -> int:
 
 def cmd_body_render(args: argparse.Namespace) -> int:
     """Force re-render EMBODIMENT.md and generated summaries."""
-    resolver = BodyResolver(workspace=Path(args.workspace) if args.workspace else None)
+    try:
+        resolver = _resolver_for(args)
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
     if not resolver.is_linked():
         print("[ROSClaw] No body linked. Run: rosclaw body init --robot <profile_id>")
         return 1
@@ -288,7 +443,11 @@ def cmd_body_render(args: argparse.Namespace) -> int:
 
 def cmd_body_show(args: argparse.Namespace) -> int:
     """Show body summary; --agent prints the agent-readable summary JSON."""
-    resolver = BodyResolver(workspace=Path(args.workspace) if args.workspace else None)
+    try:
+        resolver = _resolver_for(args)
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
     if not resolver.is_linked():
         print("[ROSClaw] No body linked. Run: rosclaw body init --robot <profile_id>")
         return 1
@@ -322,7 +481,11 @@ def cmd_body_show(args: argparse.Namespace) -> int:
 
 def cmd_body_state(args: argparse.Namespace) -> int:
     """Print unified body/calibration/maintenance state."""
-    resolver = BodyResolver(workspace=Path(args.workspace) if args.workspace else None)
+    try:
+        resolver = _resolver_for(args)
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
     if not resolver.is_linked():
         print("[ROSClaw] No body linked. Run: rosclaw body init --robot <profile_id>")
         return 1
@@ -367,7 +530,11 @@ def cmd_body_state(args: argparse.Namespace) -> int:
 
 def cmd_body_query(args: argparse.Namespace) -> int:
     """Answer a natural-language question about the body."""
-    resolver = BodyResolver(workspace=Path(args.workspace) if args.workspace else None)
+    try:
+        resolver = _resolver_for(args)
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
     if not resolver.is_linked():
         print("[ROSClaw] No body linked. Run: rosclaw body init --robot <profile_id>")
         return 1
@@ -393,7 +560,11 @@ def cmd_body_query(args: argparse.Namespace) -> int:
 
 def cmd_body_fault(args: argparse.Namespace) -> int:
     """Add or resolve a fault."""
-    resolver = BodyResolver(workspace=Path(args.workspace) if args.workspace else None)
+    try:
+        resolver = _resolver_for(args)
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
     if not resolver.is_linked():
         print("[ROSClaw] No body linked. Run: rosclaw body init --robot <profile_id>")
         return 1
@@ -442,7 +613,11 @@ def cmd_body_fault(args: argparse.Namespace) -> int:
 
 def cmd_body_maintenance(args: argparse.Namespace) -> int:
     """Add a generic maintenance event."""
-    resolver = BodyResolver(workspace=Path(args.workspace) if args.workspace else None)
+    try:
+        resolver = _resolver_for(args)
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
     if not resolver.is_linked():
         print("[ROSClaw] No body linked. Run: rosclaw body init --robot <profile_id>")
         return 1
@@ -466,7 +641,11 @@ def cmd_body_maintenance(args: argparse.Namespace) -> int:
 
 def cmd_body_calibration(args: argparse.Namespace) -> int:
     """Update calibration from a YAML file."""
-    resolver = BodyResolver(workspace=Path(args.workspace) if args.workspace else None)
+    try:
+        resolver = _resolver_for(args)
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
     if not resolver.is_linked():
         print("[ROSClaw] No body linked. Run: rosclaw body init --robot <profile_id>")
         return 1
@@ -476,7 +655,6 @@ def cmd_body_calibration(args: argparse.Namespace) -> int:
         print(f"[ROSClaw] Calibration file not found: {src}")
         return 1
 
-    import shutil
     shutil.copy2(src, resolver.calibration_yaml_path)
 
     body_yaml = resolver.get_current_body_yaml()
@@ -496,7 +674,11 @@ def cmd_body_calibration(args: argparse.Namespace) -> int:
 
 def cmd_body_retrofit(args: argparse.Namespace) -> int:
     """Record a hardware retrofit."""
-    resolver = BodyResolver(workspace=Path(args.workspace) if args.workspace else None)
+    try:
+        resolver = _resolver_for(args)
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
     if not resolver.is_linked():
         print("[ROSClaw] No body linked. Run: rosclaw body init --robot <profile_id>")
         return 1
@@ -525,7 +707,11 @@ def cmd_body_retrofit(args: argparse.Namespace) -> int:
 
 def cmd_body_capability(args: argparse.Namespace) -> int:
     """Disable, degrade, or enable a capability."""
-    resolver = BodyResolver(workspace=Path(args.workspace) if args.workspace else None)
+    try:
+        resolver = _resolver_for(args)
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
     if not resolver.is_linked():
         print("[ROSClaw] No body linked. Run: rosclaw body init --robot <profile_id>")
         return 1
@@ -588,7 +774,11 @@ def cmd_body_link_eurdf(args: argparse.Namespace) -> int:
     original_profile_id = args.profile_id
     profile_id = _resolve_profile_alias(args.profile_id)
     version = args.version if args.version != "latest" else "1.0.0"
-    resolver = BodyResolver(workspace=Path(args.workspace) if args.workspace else None)
+    try:
+        resolver = _resolver_for(args)
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
 
     if resolver.is_linked() and not args.force:
         print("[ROSClaw] Body already linked. Use --force to overwrite.")
@@ -753,9 +943,12 @@ def _default_installed_components(eurdf: Any) -> dict[str, Any]:
 def cmd_body_inspect(args: argparse.Namespace) -> int:
     """Show current effective body state."""
     try:
-        resolver = BodyResolver()
+        resolver = _resolver_for(args)
         body = resolver.get_effective_body()
         body_yaml = resolver.get_current_body_yaml()
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
     except BodyNotLinkedError as exc:
         print(f"[ROSClaw] {exc}")
         return 1
@@ -814,8 +1007,11 @@ def cmd_body_inspect(args: argparse.Namespace) -> int:
 def cmd_body_diff(args: argparse.Namespace) -> int:
     """Show differences against e-URDF base or a snapshot."""
     try:
-        resolver = BodyResolver()
+        resolver = _resolver_for(args)
         effective = resolver.get_effective_body()
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
     except BodyNotLinkedError as exc:
         print(f"[ROSClaw] {exc}")
         return 1
@@ -870,9 +1066,57 @@ def cmd_body_diff(args: argparse.Namespace) -> int:
     return 0
 
 
+def _record_body_change_events(
+    robot_id: str,
+    old_hash: str,
+    new_hash: str,
+    reason: str,
+    report: SkillCompatibilityReport | None,
+) -> None:
+    """Persist body_change and skill_compatibility_change events to memory."""
+    try:
+        memory = MemoryInterface(robot_id=robot_id)
+        memory._client.connect()
+    except Exception:
+        return
+
+    with contextlib.suppress(Exception):
+        memory.store_experience(
+            event_id=f"body-change-{uuid.uuid4().hex}",
+            event_type="body_change",
+            instruction=f"Body state changed: {reason}",
+            outcome="success",
+            metadata={
+                "effective_body_hash_before": old_hash,
+                "effective_body_hash_after": new_hash,
+                "reason": reason,
+            },
+        )
+
+    if report is None:
+        return
+    with contextlib.suppress(Exception):
+        memory.store_experience(
+            event_id=f"skill-compat-{uuid.uuid4().hex}",
+            event_type="skill_compatibility_change",
+            instruction="Skill compatibility rechecked after body change",
+            outcome="success",
+            metadata={
+                "effective_body_hash_before": old_hash,
+                "effective_body_hash_after": new_hash,
+                "skills": {key: result.status for key, result in report.skills.items()},
+                "summary": report.summary,
+            },
+        )
+
+
 def cmd_body_update_state(args: argparse.Namespace) -> int:
     """Apply a patch to body.yaml and recompile artifacts."""
-    resolver = BodyResolver()
+    try:
+        resolver = _resolver_for(args)
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
     if not resolver.is_linked():
         print("[ROSClaw] No body linked. Run: rosclaw body link-eurdf <profile_id>")
         return 1
@@ -971,6 +1215,13 @@ def cmd_body_update_state(args: argparse.Namespace) -> int:
         resolver.embodiment_md_path.write_text(md, encoding="utf-8")
 
     # Snapshot
+    _record_body_change_events(
+        robot_id=new_effective.body_instance_id,
+        old_hash=old_hash,
+        new_hash=new_hash,
+        reason=args.reason or "body update",
+        report=report,
+    )
     resolver.create_snapshot(new_effective)
 
     print("Updated body state.")
@@ -990,7 +1241,11 @@ def cmd_body_update_state(args: argparse.Namespace) -> int:
 
 def cmd_body_note(args: argparse.Namespace) -> int:
     """Append a maintenance note and optionally trigger skill recheck."""
-    resolver = BodyResolver()
+    try:
+        resolver = _resolver_for(args)
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
     if not resolver.is_linked():
         print("[ROSClaw] No body linked. Run: rosclaw body link-eurdf <profile_id>")
         return 1
@@ -1005,6 +1260,7 @@ def cmd_body_note(args: argparse.Namespace) -> int:
     )
 
     body_yaml = resolver.get_current_body_yaml()
+    old_hash = resolver.get_effective_body_hash()
     event = MaintenanceEvent(
         ts=_utc_now(),
         type=args.type,
@@ -1039,6 +1295,14 @@ def cmd_body_note(args: argparse.Namespace) -> int:
             md = renderer.render(effective, body_yaml, report, maintenance)
         resolver.embodiment_md_path.write_text(md, encoding="utf-8")
 
+    _record_body_change_events(
+        robot_id=effective.body_instance_id or body_yaml.body_instance.get("id", ""),
+        old_hash=old_hash,
+        new_hash=effective.effective_body_hash,
+        reason=args.message or f"{args.type} note",
+        report=report,
+    )
+
     print("Added body note.")
     print(f"Type:  {args.type}")
     print(f"Severity:  {args.severity}")
@@ -1048,6 +1312,98 @@ def cmd_body_note(args: argparse.Namespace) -> int:
     print(f"  {resolver.maintenance_log_path}")
     print(f"  {resolver.skill_compatibility_path}")
     print(f"  {resolver.embodiment_md_path}")
+    return 0
+
+
+def cmd_body_history(args: argparse.Namespace) -> int:
+    """List body snapshots."""
+    try:
+        resolver = _resolver_for(args)
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
+    if not resolver.is_linked():
+        print("[ROSClaw] No body linked. Run: rosclaw body link-eurdf <profile_id>")
+        return 1
+
+    snaps: list[dict[str, Any]] = []
+    for snap_path in sorted(resolver.snapshots_dir.glob("body-*.yaml")):
+        fingerprint_path = snap_path.with_suffix(".fingerprint")
+        if fingerprint_path.exists():
+            hash_value = fingerprint_path.read_text(encoding="utf-8").strip()
+        else:
+            hash_value = ""
+        stat = snap_path.stat()
+        snaps.append({
+            "timestamp": snap_path.stem.replace("body-", ""),
+            "hash": hash_value,
+            "snapshot": snap_path.name,
+            "size": stat.st_size,
+        })
+
+    if args.json:
+        print(json.dumps(snaps, indent=2, default=str))
+        return 0
+
+    print("=" * 60)
+    print("ROSClaw Body History")
+    print("=" * 60)
+    if not snaps:
+        print("No snapshots yet.")
+        print("Snapshots are created by body init, update-state, and note.")
+    else:
+        try:
+            current_hash = resolver.get_effective_body_hash()
+        except Exception:
+            current_hash = ""
+        print(f"Current hash: {current_hash}")
+        print(f"Snapshots: {len(snaps)}")
+        print("")
+        for snap in snaps:
+            print(f"  {snap['snapshot']}  hash={snap['hash'][:16]}...  size={snap['size']} bytes")
+    print("=" * 60)
+    return 0
+
+
+def cmd_body_export(args: argparse.Namespace) -> int:
+    """Export the current body directory as a zip or tar archive."""
+    try:
+        resolver = _resolver_for(args)
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
+    if not resolver.is_linked():
+        print("[ROSClaw] No body linked.")
+        return 1
+
+    dest = Path(args.dest)
+    fmt = args.format
+
+    body_id = resolver.body_id
+    if dest.is_dir() or args.dest.endswith("/"):
+        dest.mkdir(parents=True, exist_ok=True)
+        archive_path = dest / f"{body_id}.{fmt}"
+    else:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        archive_path = dest
+        if not archive_path.suffix:
+            archive_path = archive_path.with_suffix(f".{fmt}")
+
+    body_dir = resolver.body_dir
+    if fmt == "zip":
+        with ZipFile(archive_path, "w") as zf:
+            for path in body_dir.rglob("*"):
+                if path.is_file():
+                    arcname = f"{body_id}/{path.relative_to(body_dir)}"
+                    zf.write(path, arcname)
+    else:
+        with tarfile.open(archive_path, "w") as tf:
+            for path in body_dir.rglob("*"):
+                if path.is_file():
+                    arcname = f"{body_id}/{path.relative_to(body_dir)}"
+                    tf.add(path, arcname)
+
+    print(f"Exported body '{body_id}' to {archive_path}")
     return 0
 
 

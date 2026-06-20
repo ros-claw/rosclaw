@@ -132,15 +132,16 @@ class BodyBindingManager:
                             "(dry-run cannot install new profiles)"
                         )
                     continue
+                if not required:
+                    # Optional profiles are not auto-installed.
+                    continue
                 try:
                     self.registry.install(profile_id)
                     profile = self.registry.get(profile_id)
                 except FileNotFoundError as exc:
-                    if required:
-                        raise EurdfProfileMissingError(
-                            f"Required e-URDF profile '{profile_id}' not found: {exc}"
-                        ) from exc
-                    continue
+                    raise EurdfProfileMissingError(
+                        f"Required e-URDF profile '{profile_id}' not found: {exc}"
+                    ) from exc
 
             if profile_id == default_profile and profile is not None:
                 return profile_id, _compute_profile_hash(profile)
@@ -188,16 +189,6 @@ class BodyBindingManager:
 
         eurdf_profile, eurdf_hash = self.ensure_eurdf(manifest.eurdf, dry_run=dry_run)
 
-        if not dry_run and not self.resolver.is_linked():
-            raise OnboardingBodyNotLinkedError(
-                f"No body linked at {self.resolver.body_yaml_path}"
-            )
-
-        missing = self.check_required_fields(binding.required_fields or [])
-        if missing:
-            # Do not block installation; record missing fields for health/reporting.
-            pass
-
         patch = _build_body_patch(binding)
         patched_paths = sorted(patch.keys())
 
@@ -208,8 +199,18 @@ class BodyBindingManager:
                 eurdf_profile=eurdf_profile,
                 eurdf_hash=eurdf_hash,
                 patched_paths=patched_paths,
-                missing_required_fields=missing,
+                missing_required_fields=[],
             )
+
+        if not self.resolver.is_linked():
+            raise OnboardingBodyNotLinkedError(
+                f"No body linked at {self.resolver.body_yaml_path}"
+            )
+
+        missing = self.check_required_fields(binding.required_fields or [])
+        if missing:
+            # Do not block installation; record missing fields for health/reporting.
+            pass
 
         # Backup and mutate body.yaml atomically via BodyResolver.
         try:
