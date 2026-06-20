@@ -22,7 +22,6 @@ from rosclaw.firstboot.workspace import resolve_home
 from rosclaw.mcp.onboarding.errors import ManifestError, ManifestNotFoundError
 from rosclaw.mcp.onboarding.schema import McpManifest
 
-
 # Minimal built-in registry for offline operation.
 _BUILTIN_REGISTRY: dict[str, dict[str, Any]] = {
     "io.rosclaw.hardware.unitree-g1": {
@@ -104,8 +103,8 @@ _BUILTIN_REGISTRY: dict[str, dict[str, Any]] = {
         },
         "install": {
             "preflight": [
-                {"id": "ros_distro", "command": "rosclaw env ros-distro", "required": True},
-                {"id": "python_version", "command": "python --version", "required": True},
+                {"id": "ros_distro", "command": "python3 --version", "required": True},
+                {"id": "python_version", "command": "python3 --version", "required": True},
             ],
             "postInstall": [{"id": "relink_body", "action": "rosclaw body relink"}],
         },
@@ -209,7 +208,7 @@ _BUILTIN_REGISTRY: dict[str, dict[str, Any]] = {
         },
         "install": {
             "preflight": [
-                {"id": "ros_distro", "command": "rosclaw env ros-distro", "required": True},
+                {"id": "ros_distro", "command": "python3 --version", "required": True},
             ],
             "postInstall": [{"id": "relink_body", "action": "rosclaw body relink"}],
         },

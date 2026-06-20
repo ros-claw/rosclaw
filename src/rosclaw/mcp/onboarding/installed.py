@@ -57,7 +57,7 @@ class InstalledRecord:
         return result
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "InstalledRecord":
+    def from_dict(cls, data: dict[str, Any]) -> InstalledRecord:
         extra = {
             k: v
             for k, v in data.items()
