@@ -51,6 +51,9 @@ ros2 = [
     "trajectory-msgs",
     "control-msgs",
 ]
+practice = [
+    "rosclaw-practice @ git+https://github.com/ros-claw/rosclaw-practice.git@bfb4ac7",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
@@ -75,6 +78,9 @@ Homepage = "https://rosclaw.io"
 Repository = "https://github.com/ros-claw/rosclaw"
 Documentation = "https://docs.rosclaw.io"
 "Bug Tracker" = "https://github.com/ros-claw/rosclaw/issues"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rosclaw"]
