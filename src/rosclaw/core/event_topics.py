@@ -82,6 +82,15 @@ class EventTopics:
     # ── Dashboard ──
     DASHBOARD_TRACE_UPDATED = "rosclaw.dashboard.trace.updated"
 
+    # ── Auto / Research loop ──
+    AUTO_PROPOSAL_CREATED = "rosclaw.auto.proposal.created"
+    AUTO_CHAMPION_PROMOTED = "rosclaw.auto.champion.promoted"
+    AUTO_EXPERIMENT_COMPLETED = "rosclaw.auto.experiment.completed"
+    AUTO_DEADEND_REGISTERED = "rosclaw.auto.deadend.registered"
+
+    # ── How evidence ──
+    HOW_EVIDENCE_GENERATED = "rosclaw.how.evidence.generated"
+
     # ── Telemetry ──
     ROBOT_TELEMETRY = "rosclaw.robot.telemetry"
     ROBOT_JOINT_STATES = "rosclaw.robot.joint_states"

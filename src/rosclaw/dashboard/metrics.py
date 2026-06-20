@@ -87,7 +87,7 @@ class DashboardMetrics:
         self._auto_champions: list[dict[str, Any]] = []
         self._auto_deadends: list[dict[str, Any]] = []
         self._evidence_traces: list[dict[str, Any]] = []
-        self._sense_history: list[dict[str, Any]] = []
+        self._body_sense_history: list[dict[str, Any]] = []
         self._latest_sense: dict[str, Any] | None = None
 
     # ── Provider metrics ──
@@ -199,32 +199,36 @@ class DashboardMetrics:
 
     def record_body_sense(self, body_sense: dict[str, Any]) -> None:
         """Record a BodySense snapshot from the sense runtime."""
+        if not isinstance(body_sense, dict):
+            return
         self._latest_sense = body_sense
-        self._sense_history.append(body_sense)
-        self._trim(self._sense_history)
+        self._body_sense_history.append(body_sense)
+        self._trim(self._body_sense_history)
 
     def get_body_sense_stats(self) -> dict[str, Any]:
         """Return the latest sense snapshot plus rolling-window stats."""
         if self._latest_sense is None:
             return {
                 "available": False,
-                "overall_status": None,
+                "robot_id": None,
+                "overall_status": "unknown",
                 "blocked_capabilities": [],
                 "degraded_capabilities": [],
                 "risk_summary": None,
                 "main_reasons": [],
                 "recommended_actions": [],
-                "history_count": 0,
+                "history_count": len(self._body_sense_history),
             }
         return {
             "available": True,
+            "robot_id": self._latest_sense.get("robot_id"),
             "overall_status": self._latest_sense.get("overall_status"),
             "blocked_capabilities": list(self._latest_sense.get("blocked_capabilities", [])),
             "degraded_capabilities": list(self._latest_sense.get("degraded_capabilities", [])),
             "risk_summary": self._latest_sense.get("risk_summary"),
             "main_reasons": list(self._latest_sense.get("main_reasons", [])),
             "recommended_actions": list(self._latest_sense.get("recommended_actions", [])),
-            "history_count": len(self._sense_history),
+            "history_count": len(self._body_sense_history),
             "timestamp": self._latest_sense.get("timestamp"),
         }
 
