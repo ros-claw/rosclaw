@@ -194,6 +194,30 @@ def _interactive_telemetry() -> bool:
     return ask_yes_no("Enable anonymous diagnostics", False)
 
 
+def _print_summary(
+    home: Path,
+    profile: str,
+    robot: str,
+    safety: str,
+    telemetry_enabled: bool,
+    enable_mcp: bool,
+    use_cases: dict[str, bool],
+) -> None:
+    print("\n" + "=" * 62)
+    print(" First Boot Summary")
+    print("=" * 62)
+    print(f"Workspace:    {home}")
+    print(f"Profile:      {profile}")
+    print(f"Robot:        {robot}")
+    print(f"Safety:       {safety}")
+    print(f"Telemetry:    {'enabled' if telemetry_enabled else 'disabled'}")
+    print(f"MCP config:   {'enabled' if enable_mcp else 'disabled'}")
+    print("Use cases:")
+    for key, val in use_cases.items():
+        print(f"  • {key}: {'yes' if val else 'no'}")
+    print("=" * 62)
+
+
 def run_firstboot_interactive(args: argparse.Namespace) -> int:
     """Run the interactive firstboot wizard."""
     print(WELCOME_MESSAGE)
@@ -220,6 +244,20 @@ def run_firstboot_interactive(args: argparse.Namespace) -> int:
         enable_mcp = ask_yes_no("Generate MCP config sample", True)
 
     telemetry_enabled = _interactive_telemetry()
+
+    _print_summary(
+        home=home,
+        profile=profile,
+        robot=robot,
+        safety=safety,
+        telemetry_enabled=telemetry_enabled,
+        enable_mcp=enable_mcp,
+        use_cases=use_cases,
+    )
+
+    if not ask_yes_no("Apply these settings", True):
+        print("\nFirst boot cancelled. No changes were made.")
+        return 0
 
     if use_cases.get("real_robot", False):
         safety_path = home / "config" / "REAL_ROBOT_SAFETY.md"
@@ -322,6 +360,7 @@ def _write_firstboot(
 
     config.telemetry["enabled"] = telemetry_enabled
     config.telemetry["anonymous_install_ping"] = telemetry_enabled
+    config.mcp["enabled"] = enable_mcp
 
     generate_rosclaw_yaml(home, config)
     generate_telemetry_yaml(home, telemetry_enabled)

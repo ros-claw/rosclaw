@@ -5,10 +5,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from .workspace import backup_file
+
 
 def generate_mcp_config(home: Path) -> Path:
     """Generate the MCP client config sample at ~/.rosclaw/config/mcp.json."""
     path = home / "config" / "mcp.json"
+    backup_file(path)
     config = {
         "mcpServers": {
             "rosclaw": {

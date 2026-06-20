@@ -111,6 +111,57 @@ class TestFirstbootNonInteractive:
         assert not (home / "config" / "mcp.json").exists()
 
 
+class TestFirstbootInteractive:
+    def test_summary_helper_prints_expected_lines(self, tmp_path, capsys):
+        from rosclaw.firstboot.wizard import _print_summary
+
+        home = tmp_path / ".rosclaw"
+        _print_summary(
+            home=home,
+            profile="cloud",
+            robot="turtlebot",
+            safety="strict",
+            telemetry_enabled=True,
+            enable_mcp=False,
+            use_cases={"sandbox": True, "mcp": False},
+        )
+        captured = capsys.readouterr()
+        for label in ("Workspace:", "Profile:", "Robot:", "Safety:", "Telemetry:", "MCP config:", "sandbox:"):
+            assert label in captured.out
+
+    def test_interactive_summary_and_cancellation(self, tmp_path, monkeypatch):
+        home = tmp_path / ".rosclaw"
+        monkeypatch.setenv("ROSCLAW_HOME", str(home))
+        import argparse
+
+        from rosclaw.firstboot import wizard
+
+        calls = []
+
+        def fake_ask_yes_no(prompt: str, default: bool) -> bool:
+            calls.append(prompt)
+            if "Apply these settings" in prompt:
+                return False
+            return default
+
+        monkeypatch.setattr(wizard, "ask_yes_no", fake_ask_yes_no)
+
+        args = argparse.Namespace(
+            workspace=str(home),
+            profile="offline",
+            robot=None,
+            safety=None,
+            force=False,
+            json=False,
+            dev=False,
+        )
+        code = wizard.run_firstboot_interactive(args)
+
+        assert code == 0
+        assert not (home / "config" / "rosclaw.yaml").exists()
+        assert any("Apply these settings" in c for c in calls)
+
+
 class TestFirstbootDoctorIntegration:
     def test_firstboot_then_doctor_bootstrap(self, tmp_path, monkeypatch):
         home = tmp_path / ".rosclaw"
