@@ -1,21 +1,35 @@
-"""Adapter stub for skill_requirements integration.
-
-This module is a placeholder for Phase 1.  It defines the integration surface
-so that later phases can implement body-sense-aware behavior without changing
-import paths.
-"""
+"""Sense-aware adapter for skill requirement checks."""
 
 from __future__ import annotations
 
 from typing import Any
 
+from rosclaw.sense.adapters._base import SenseAdapterBase
 
-class SkillRequirementsAdapter:
-    """Stub adapter: skill_requirements."""
 
-    def __init__(self, sense_runtime: object | None = None):
-        self.sense_runtime = sense_runtime
+class SkillRequirementsAdapter(SenseAdapterBase):
+    """Enrich a skill-requirements context with a body-sense readiness check.
+
+    Input context is expected to contain a ``task`` key.  The adapter adds a
+    ``body_sense_check`` dictionary with the task's current readiness status
+    and blocking reasons.  If body sense is unavailable, the input context is
+    returned unchanged.
+    """
 
     def apply(self, context: dict[str, Any]) -> dict[str, Any]:
-        """No-op pass-through for Phase 1."""
-        return context
+        task = context.get("task")
+        if not task:
+            return context
+
+        sense = self._get_sense_dict()
+        if sense is None:
+            return context
+
+        readiness = sense.get("readiness", {})
+        item = readiness.get("capabilities", {}).get(task, {})
+        body_sense_check = {
+            "task": task,
+            "status": item.get("status", "unknown"),
+            "reasons": list(item.get("reasons", [])),
+        }
+        return {**context, "body_sense_check": body_sense_check}

@@ -7,6 +7,7 @@ import contextlib
 import json
 from typing import Any
 
+from rosclaw.core.event_topics import EventTopics
 from .metrics import DashboardMetrics
 
 
@@ -72,25 +73,31 @@ class DashboardServer:
         # Subscribe to all critical topics explicitly (EventBus uses exact-match).
         self._event_bus_subscriptions = []
         for topic in [
-            "rosclaw.runtime.started",
-            "skill.execution.start",
-            "skill.execution.complete",
-            "praxis.completed",
-            "praxis.failed",
-            "rosclaw.practice.event.created",
-            "rosclaw.sandbox.episode.started",
-            "rosclaw.sandbox.episode.finished",
-            "rosclaw.sandbox.action.blocked",
-            "rosclaw.provider.inference.completed",
-            "rosclaw.critic.success.detected",
-            "rosclaw.dashboard.trace.updated",
-            "rosclaw.how.recovery_hint.generated",
-            "rosclaw.memory.write.completed",
+            EventTopics.RUNTIME_STARTED,
+            EventTopics.SKILL_EXECUTION_START,
+            EventTopics.SKILL_EXECUTION_COMPLETE,
+            EventTopics.PRAXIS_COMPLETED,
+            EventTopics.PRAXIS_FAILED,
+            EventTopics.PRACTICE_EVENT_CREATED,
+            EventTopics.SANDBOX_EPISODE_STARTED,
+            EventTopics.SANDBOX_EPISODE_FINISHED,
+            EventTopics.SANDBOX_ACTION_BLOCKED,
+            EventTopics.PROVIDER_INFERENCE_COMPLETED,
+            EventTopics.CRITIC_SUCCESS_DETECTED,
+            EventTopics.DASHBOARD_TRACE_UPDATED,
+            EventTopics.HOW_RECOVERY_HINT_GENERATED,
+            EventTopics.MEMORY_WRITE_COMPLETED,
             "rosclaw.auto.proposal.created",
             "rosclaw.auto.champion.promoted",
             "rosclaw.auto.experiment.completed",
             "rosclaw.auto.deadend.registered",
             "rosclaw.how.evidence.generated",
+            EventTopics.SENSE_STATE_UPDATED,
+            EventTopics.SENSE_BODY_UPDATED,
+            EventTopics.SENSE_EVENT_DETECTED,
+            EventTopics.SENSE_READINESS_UPDATED,
+            EventTopics.SENSE_CAPABILITY_BLOCKED,
+            EventTopics.SENSE_CAPABILITY_DEGRADED,
         ]:
             self._event_bus_subscriptions.append(
                 event_bus.subscribe(topic, self._on_event_bus_message)
@@ -108,10 +115,16 @@ class DashboardServer:
         self.metrics.increment_event(topic, getattr(event, "payload", None))
 
         # Record full traces for dashboard display
-        if topic == "rosclaw.dashboard.trace.updated":
+        if topic == EventTopics.DASHBOARD_TRACE_UPDATED:
             payload = getattr(event, "payload", {})
             if isinstance(payload, dict):
                 self.metrics.record_trace(payload)
+
+        # Record BodySense snapshots so the dashboard exposes live body state
+        if topic == EventTopics.SENSE_BODY_UPDATED:
+            payload = getattr(event, "payload", None)
+            if isinstance(payload, dict):
+                self.metrics.record_body_sense(payload)
 
         # NOTE: Do NOT broadcast directly from sync callback.
         # The _broadcast_loop already pushes snapshots periodically.
@@ -132,6 +145,10 @@ class DashboardServer:
             "modules": health,
             "uptime_sec": round(self.metrics.get_uptime_sec(), 1),
         }
+
+    def get_sense(self) -> dict[str, Any]:
+        """Return current body sense stats (for HTTP polling)."""
+        return self.metrics.get_body_sense_stats()
 
     def get_robots(self, registry: Any) -> list[dict[str, Any]]:
         """Return robot registry summary."""

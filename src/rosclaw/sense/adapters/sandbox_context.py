@@ -1,21 +1,21 @@
-"""Adapter stub for sandbox_context integration.
-
-This module is a placeholder for Phase 1.  It defines the integration surface
-so that later phases can implement body-sense-aware behavior without changing
-import paths.
-"""
+"""Sense-aware adapter for sandbox action validation."""
 
 from __future__ import annotations
 
 from typing import Any
 
+from rosclaw.sense.adapters._base import SenseAdapterBase
 
-class SandboxContextAdapter:
-    """Stub adapter: sandbox_context."""
 
-    def __init__(self, sense_runtime: object | None = None):
-        self.sense_runtime = sense_runtime
+class SandboxContextAdapter(SenseAdapterBase):
+    """Inject a body-sense snapshot into sandbox action context.
+
+    Adds ``body_sense_snapshot`` when a current BodySense is available.
+    If sense is unavailable, the input context is returned unchanged.
+    """
 
     def apply(self, context: dict[str, Any]) -> dict[str, Any]:
-        """No-op pass-through for Phase 1."""
-        return context
+        sense = self._get_sense_dict()
+        if sense is None:
+            return context
+        return {**context, "body_sense_snapshot": sense}

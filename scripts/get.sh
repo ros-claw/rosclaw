@@ -167,13 +167,12 @@ install_cli() {
       ;;
     venv)
       "$PYTHON_BIN" -m venv "$ROSCLAW_HOME/venv"
-      # shellcheck disable=SC1091
-      . "$ROSCLAW_HOME/venv/bin/activate"
-      python -m pip install --upgrade pip wheel setuptools
+      VENV_PYTHON="$ROSCLAW_HOME/venv/bin/python"
+      "$VENV_PYTHON" -m pip install --upgrade pip wheel setuptools
       if [ "$ROSCLAW_CHANNEL" = "dev" ]; then
-        python -m pip install "git+https://github.com/ros-claw/rosclaw.git"
+        "$VENV_PYTHON" -m pip install "git+https://github.com/ros-claw/rosclaw.git"
       else
-        python -m pip install "$ROSCLAW_PIP_SPEC"
+        "$VENV_PYTHON" -m pip install "$ROSCLAW_PIP_SPEC"
       fi
 
       cat > "$ROSCLAW_HOME/bin/rosclaw" <<EOF

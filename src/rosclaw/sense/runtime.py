@@ -87,7 +87,8 @@ class SenseRuntime(LifecycleMixin):
     def _create_collector(self) -> BodyStateCollectorABC:
         collector_type = self.config.collector
         if collector_type == "mock":
-            return MockCollector(robot_id=self.robot_id)
+            scenario = self.config.extra.get("scenario", "normal")
+            return MockCollector(robot_id=self.robot_id, scenario=scenario)
         if collector_type == "file_replay":
             return FileReplayCollector(
                 replay_path=self.config.replay_path,

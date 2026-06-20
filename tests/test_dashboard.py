@@ -491,9 +491,9 @@ class TestDashboardServerEventBus:
         mock_bus.subscribe.return_value = mock_subscription
 
         server.attach_to_event_bus(mock_bus)
-        # CRITICAL FIX: wildcard '#' is no-op; now subscribes to 11 explicit topics
-        assert mock_bus.subscribe.call_count == 19
-        assert len(server._event_bus_subscriptions) == 19
+        # Subscribes to original topics plus rosclaw.sense.* topics.
+        assert mock_bus.subscribe.call_count == 25
+        assert len(server._event_bus_subscriptions) == 25
 
     def test_detach_from_event_bus(self):
         metrics = DashboardMetrics()

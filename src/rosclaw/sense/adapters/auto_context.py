@@ -1,21 +1,28 @@
-"""Adapter stub for auto_context integration.
-
-This module is a placeholder for Phase 1.  It defines the integration surface
-so that later phases can implement body-sense-aware behavior without changing
-import paths.
-"""
+"""Sense-aware adapter for auto/experiment failure context."""
 
 from __future__ import annotations
 
 from typing import Any
 
+from rosclaw.sense.adapters._base import SenseAdapterBase
 
-class AutoContextAdapter:
-    """Stub adapter: auto_context."""
 
-    def __init__(self, sense_runtime: object | None = None):
-        self.sense_runtime = sense_runtime
+class AutoContextAdapter(SenseAdapterBase):
+    """Flag body-condition failures and attach a sense snapshot.
+
+    Adds ``body_condition_failure`` (True when the robot is not ``ready``)
+    and ``body_sense_snapshot`` to the caller's context.  If body sense is
+    unavailable, the input context is returned unchanged.
+    """
 
     def apply(self, context: dict[str, Any]) -> dict[str, Any]:
-        """No-op pass-through for Phase 1."""
-        return context
+        sense = self._get_sense_dict()
+        if sense is None:
+            return context
+
+        is_failure = sense.get("overall_status") != "ready"
+        return {
+            **context,
+            "body_condition_failure": is_failure,
+            "body_sense_snapshot": sense,
+        }

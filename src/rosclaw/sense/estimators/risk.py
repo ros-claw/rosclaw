@@ -15,7 +15,11 @@ class RiskEstimator:
     def __init__(self, thresholds: dict[str, Any] | None = None):
         self.thresholds = thresholds or {}
 
-    def evaluate(self, state: BodyState) -> tuple[BodyRiskSummary, list[BodyEvent]]:
+    def evaluate(
+        self,
+        state: BodyState,
+        fatigue_risk: str = "unknown",
+    ) -> tuple[BodyRiskSummary, list[BodyEvent]]:
         """Return (BodyRiskSummary, list[BodyEvent]) for the given state."""
         events: list[BodyEvent] = []
 
@@ -52,6 +56,7 @@ class RiskEstimator:
             perception_risk,
             communication_risk,
             compute_risk,
+            fatigue_risk,
             "unknown",
         )
 
@@ -64,7 +69,7 @@ class RiskEstimator:
             perception_risk=perception_risk,
             communication_risk=communication_risk,
             compute_risk=compute_risk,
-            fatigue_risk="unknown",
+            fatigue_risk=fatigue_risk,
             overall_risk=overall,
         )
         return summary, events
