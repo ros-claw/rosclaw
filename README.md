@@ -562,6 +562,30 @@ Install to staging:
 
 ---
 
+## Hardware MCP Onboarding
+
+ROSClaw can auto-install hardware MCP servers from declarative manifests and keep
+them healthy.
+
+```bash
+# Preview installation
+./rosclaw mcp install unitree-g1 --dry-run --offline
+
+# Install
+./rosclaw mcp install unitree-g1 --offline
+
+# List available/installed servers
+./rosclaw mcp list --offline
+
+# Health-check
+./rosclaw mcp health unitree-g1
+```
+
+See [`docs/HARDWARE_MCP_ONBOARDING.md`](docs/HARDWARE_MCP_ONBOARDING.md) for the
+full lifecycle, state files, and troubleshooting.
+
+---
+
 ## Repository Structure
 
 ```text

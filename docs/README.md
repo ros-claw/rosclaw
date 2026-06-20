@@ -53,6 +53,8 @@ Welcome to the ROSClaw documentation index. This directory contains all project 
 - **[API_REFERENCE.md](API_REFERENCE.md)** — Complete public API reference for ROSClaw v1.0
 - **[API_IMPROVEMENTS.md](API_IMPROVEMENTS.md)** — Planned API enhancements for v1.1
 - **[E2E_TEST_FINDINGS.md](E2E_TEST_FINDINGS.md)** — End-to-end test results and discovered issues
+- **[MCP_USAGE.md](MCP_USAGE.md)** — Chinese-language guide to using MCP with ROSClaw
+- **[HARDWARE_MCP_ONBOARDING.md](HARDWARE_MCP_ONBOARDING.md)** — Auto-install, bind, and health-check hardware MCP servers
 
 ## Development
 

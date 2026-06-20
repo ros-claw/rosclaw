@@ -69,6 +69,60 @@ Providers / Skills / Sandbox / Runtime
 Physical Robot (ROS2 / MuJoCo / Mock)
 ```
 
+## 硬件 MCP 自动接入 (Hardware MCP Onboarding)
+
+ROSClaw 支持通过声明式清单自动接入硬件 MCP Server。内置 registry 包含
+`unitree-g1`、`realsense-d455` 等；离线时也可使用本地缓存。
+
+### 安装硬件 MCP Server
+
+```bash
+# 查看安装计划（不修改系统）
+rosclaw mcp install unitree-g1 --dry-run --offline
+
+# 以 JSON 输出计划
+rosclaw mcp install unitree-g1 --dry-run --offline --json
+
+# 实际安装
+rosclaw mcp install unitree-g1 --offline
+```
+
+完整流程：alias 解析 → 版本求解 → 权限生效检查 → preflight → artifact 安装 →
+runtime runner 注册 → `body.yaml` 绑定 → `.mcp.json` 合并。
+
+### 列出可用/已安装的服务器
+
+```bash
+rosclaw mcp list --offline
+rosclaw mcp list --offline --json
+```
+
+### 健康检查
+
+```bash
+# 检查单个服务器
+rosclaw mcp health unitree-g1
+
+# 检查所有已安装服务器
+rosclaw mcp health
+
+# JSON 输出与完整检查
+rosclaw mcp health unitree-g1 --json
+rosclaw mcp health unitree-g1 --full   # 包含 hardware/safety 检查
+```
+
+检查类别：`install`、`protocol`、`binding`、`permissions`、`agent`；
+`hardware` / `safety` 仅在 `--full` 时执行。
+
+### 相关文件
+
+- `~/.rosclaw/mcp/installed.yaml`：已安装服务器
+- `~/.rosclaw/mcp/permissions.yaml`：权限授权状态
+- `~/.rosclaw/mcp/lock.yaml`：版本锁定
+- `~/.rosclaw/mcp/runtime/<server>.yaml`：运行时配置
+- `~/.rosclaw/mcp/bin/rosclaw-mcp-run`：统一启动脚本
+- `<project-root>/.mcp.json`：Claude Code MCP 配置（ROSClaw managed）
+
 ## 故障排除
 
 | 问题 | 解决 |
@@ -76,3 +130,7 @@ Physical Robot (ROS2 / MuJoCo / Mock)
 | MCP tools 不显示 | 确认 providers 已注册：`rosclaw provider list` |
 | 调用失败 | 检查 firewall：`rosclaw firewall check --robot <robot> --action <action>` |
 | 无 episode 记录 | 确认 practice recorder 健康：`rosclaw status` |
+| `rosclaw mcp install` 报 preflight 失败 | 确认清单要求的命令在 PATH 中可执行 |
+| `rosclaw mcp health` protocol 失败 | 确认 transport command 可解析，或检查 runtime 配置 |
+| `rosclaw mcp health` binding 失败 | 确认 `body.yaml` 已链接且包含清单要求的 binding key |
+| `.mcp.json` agent 检查失败 | 确认项目根目录 `.mcp.json` 包含对应的 managed server |
