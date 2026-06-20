@@ -2,11 +2,11 @@
 
 import pytest
 
-from rosclaw.sense.estimators.envelope import OperationalEnvelopeEstimator
-from rosclaw.sense.explain import SenseExplainer
 from rosclaw.sense.collectors.mock_collector import MockCollector
-from rosclaw.sense.estimators.risk import RiskEstimator
+from rosclaw.sense.estimators.envelope import OperationalEnvelopeEstimator
 from rosclaw.sense.estimators.readiness import ReadinessEvaluator
+from rosclaw.sense.estimators.risk import RiskEstimator
+from rosclaw.sense.explain import SenseExplainer
 
 
 class TestOperationalEnvelopeEstimator:

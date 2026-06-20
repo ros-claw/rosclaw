@@ -255,9 +255,7 @@ class BodyDiffer:
                 affected_ids.add(change.path.split(".")[1])
             elif change.path.startswith("safety."):
                 affected_ids.add("safety")
-            elif change.path.startswith("joints."):
-                affected_ids.add(change.path.split(".")[1])
-            elif change.path.startswith("frames."):
+            elif change.path.startswith("joints.") or change.path.startswith("frames."):
                 affected_ids.add(change.path.split(".")[1])
             elif change.path.startswith("identity."):
                 affected_ids.add("identity")
