@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import shutil
 import tarfile
@@ -16,6 +17,7 @@ import yaml
 
 from rosclaw.body.compiler import compute_checksum
 from rosclaw.body.diff import BodyDiffer
+from rosclaw.body.fleet import FleetCompatibilityAggregator
 from rosclaw.body.notes import MaintenanceLog
 from rosclaw.body.query import BodyQueryEngine
 from rosclaw.body.registry import BodyRegistryError, BodyRegistryManager
@@ -26,6 +28,7 @@ from rosclaw.body.schema import (
     CalibrationYaml,
     MaintenanceEvent,
     SkillCompatibilityReport,
+    SkillManifest,
 )
 from rosclaw.body.validator import BodyValidator
 from rosclaw.body.validators import parse_set_expression, validate_update_path
@@ -232,6 +235,12 @@ def add_body_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     export_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
     _add_body_arg(export_parser)
 
+    # fleet-compat
+    fleet_compat_parser = body_subparsers.add_parser("fleet-compat", help="Aggregate skill compatibility across all bodies")
+    fleet_compat_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    fleet_compat_parser.add_argument("--json", action="store_true", help="Output JSON")
+    _add_body_arg(fleet_compat_parser)
+
     return body_parser
 
 
@@ -287,6 +296,8 @@ def dispatch_body_command(args: argparse.Namespace) -> int:
         return cmd_body_history(args)
     if command == "export":
         return cmd_body_export(args)
+    if command == "fleet-compat":
+        return cmd_body_fleet_compat(args)
     if command == "fault":
         return cmd_body_fault(args)
     if command == "maintenance":
@@ -297,7 +308,7 @@ def dispatch_body_command(args: argparse.Namespace) -> int:
         return cmd_body_retrofit(args)
     if command == "capability":
         return cmd_body_capability(args)
-    print("[ROSClaw] body: no subcommand given. Use: init, create, switch, remove, list, validate, render, show, state, query, link-eurdf, inspect, diff, update-state, note, history, export, fault, maintenance, calibration, retrofit, capability")
+    print("[ROSClaw] body: no subcommand given. Use: init, create, switch, remove, list, validate, render, show, state, query, link-eurdf, inspect, diff, update-state, note, history, export, fleet-compat, fault, maintenance, calibration, retrofit, capability")
     return 1
 
 
@@ -1462,6 +1473,52 @@ def cmd_body_export(args: argparse.Namespace) -> int:
 
     print(f"Exported body '{body_id}' to {archive_path}")
     return 0
+
+
+def cmd_body_fleet_compat(args: argparse.Namespace) -> int:
+    """Aggregate skill compatibility across all bodies in the workspace."""
+    workspace = Path(args.workspace) if args.workspace else Path.home() / ".rosclaw"
+    manifests = _discover_skill_manifests(workspace)
+    aggregator = FleetCompatibilityAggregator(workspace)
+    report = aggregator.aggregate(manifests)
+
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2, default=str))
+        return 0
+
+    summary = report.fleet_summary
+    print("Fleet compatibility summary")
+    print(f"  workspace: {report.workspace}")
+    print(f"  bodies:    {summary.get('total_bodies', 0)}")
+    print(f"  skills:    {summary.get('total_skills', 0)}")
+    print(f"  compatible: {summary.get('compatible_skills', 0)}")
+    print(f"  degraded:   {summary.get('degraded_skills', 0)}")
+    print(f"  blocked:    {summary.get('blocked_skills', 0)}")
+    print(f"  unknown:    {summary.get('unknown_skills', 0)}")
+
+    errors = summary.get("errors", [])
+    if errors:
+        print("\nErrors:")
+        for err in errors:
+            print(f"  - {err}")
+
+    for body_id, body_report in report.per_body.items():
+        print(f"\n{body_id}:")
+        for status, count in body_report.summary.items():
+            print(f"  {status}: {count}")
+    return 0
+
+
+def _discover_skill_manifests(workspace: Path) -> list[SkillManifest]:
+    """Discover skill manifests under workspace/skills."""
+    skills_dir = workspace / "skills"
+    if not skills_dir.exists():
+        return []
+    manifests: list[SkillManifest] = []
+    for path in skills_dir.rglob("*.skill.yaml"):
+        with contextlib.suppress(Exception):
+            manifests.append(SkillManifest.from_yaml(path))
+    return manifests
 
 
 def _utc_now() -> str:

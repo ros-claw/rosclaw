@@ -8,6 +8,7 @@ module persists a lightweight registry mapping body IDs to their storage
 from __future__ import annotations
 
 import re
+import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,8 +16,11 @@ from typing import Any
 
 import yaml
 
+from rosclaw.body.compiler import compute_checksum
+from rosclaw.body.notes import MaintenanceLog
 from rosclaw.body.schema import BodyRegistry as BodyRegistrySchema
-from rosclaw.body.schema import BodyRegistryEntry, _utc_now
+from rosclaw.body.schema import BodyRegistryEntry, BodyYaml, CalibrationYaml, EurdfProfile, _utc_now
+from rosclaw.eurdf.registry import RobotRegistry
 
 
 class BodyRegistryError(RuntimeError):
@@ -141,6 +145,7 @@ class BodyRegistryManager:
         profile_version: str = "",
         tags: list[str] | None = None,
         force: bool = False,
+        source: str = "builtin",
     ) -> BodyRegistryEntry:
         """Register a new body and create its directory scaffold.
 
@@ -167,30 +172,161 @@ class BodyRegistryManager:
         if existing is not None and not force:
             raise BodyRegistryError(f"Body already exists: {body_id}")
 
+        # Resolve the robot profile.
+        resolved_profile_id = self._resolve_profile_alias(profile_id)
+        version = profile_version or "latest"
+        if version == "latest":
+            version = "1.0.0"
+        profile = RobotRegistry().get(resolved_profile_id)
+        if profile is None:
+            raise BodyRegistryError(f"e-URDF profile not found: {profile_id}")
+
+        eurdf = EurdfProfile.from_robot_complete_profile(profile)
         now = _utc_now()
+
+        # Remove any existing data when forcing.
+        if existing is not None:
+            self._remove_body_data(body_id, archive=False)
+            registry = self.load()
+
+        body_dir = self._body_dir(body_id)
+        refs_dir = body_dir / "refs"
+        snapshots_dir = body_dir / "snapshots"
+        generated_dir = body_dir / "generated"
+        body_dir.mkdir(parents=True, exist_ok=True)
+        refs_dir.mkdir(exist_ok=True)
+        snapshots_dir.mkdir(exist_ok=True)
+        generated_dir.mkdir(exist_ok=True)
+
+        # Write normalized e-URDF profile.
+        eurdf_path = refs_dir / "eurdf.profile.yaml"
+        with open(eurdf_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(eurdf.to_dict(), f, sort_keys=False, allow_unicode=True)
+        checksum = compute_checksum(eurdf_path)
+
+        # Write lock file.
+        lock = {
+            "schema_version": "rosclaw.eurdf_lock.v1",
+            "profile_id": resolved_profile_id,
+            "profile_version": version,
+            "uri": f"rosclaw://eurdf/{profile_id}@{version}",
+            "source": source,
+            "checksum": checksum,
+            "locked_at": now,
+        }
+        with open(refs_dir / "eurdf.lock", "w", encoding="utf-8") as f:
+            yaml.safe_dump(lock, f, sort_keys=False, allow_unicode=True)
+
+        # Write body.yaml.
+        body_yaml = BodyYaml(
+            body_instance={
+                "id": body_id,
+                "nickname": nickname or body_id,
+                "robot_model": profile_id,
+                "serial_number": "UNKNOWN",
+                "owner": "local",
+                "deployment_site": "lab",
+                "created_at": now,
+                "updated_at": now,
+            },
+            model_ref={
+                "eurdf_uri": f"rosclaw://eurdf/{profile_id}@{version}",
+                "profile_id": profile_id,
+                "profile_version": version,
+                "profile_checksum": checksum,
+                "lock_file": "refs/eurdf.lock",
+            },
+            calibration={
+                "file": "calibration.yaml",
+                "checksum": "sha256:uninitialized",
+                "last_calibrated_at": None,
+                "status": "factory_default",
+            },
+            maintenance={
+                "log_file": "maintenance.log",
+                "last_event_at": None,
+                "safety_relevant_open_items": [],
+            },
+            installed_components=_default_installed_components(eurdf),
+            capabilities={"enabled": [], "disabled": [], "degraded": []},
+            prohibited_capabilities=[],
+            safety_overrides={},
+            runtime_state={
+                "battery_percent": None,
+                "last_seen_at": None,
+                "health": "unknown",
+                "online": False,
+            },
+            fingerprint={
+                "effective_body_hash": None,
+                "last_compiled_at": None,
+                "last_skill_check_at": None,
+            },
+            compatibility_summary={
+                "compatible_skills": 0,
+                "degraded_skills": 0,
+                "blocked_skills": 0,
+                "unknown_skills": 0,
+            },
+        )
+        with open(body_dir / "body.yaml", "w", encoding="utf-8") as f:
+            yaml.safe_dump(body_yaml.to_dict(), f, sort_keys=False, allow_unicode=True)
+
+        # Write calibration.yaml.
+        calibration = CalibrationYaml(
+            body_instance_id=body_id,
+            model_ref=f"rosclaw://eurdf/{resolved_profile_id}@{version}",
+            validation={
+                "status": "factory_default",
+                "last_validated_at": None,
+                "errors": [],
+                "warnings": [],
+            },
+        )
+        with open(body_dir / "calibration.yaml", "w", encoding="utf-8") as f:
+            yaml.safe_dump(calibration.to_dict(), f, sort_keys=False, allow_unicode=True)
+
+        # Write initial maintenance log.
+        MaintenanceLog(body_dir / "maintenance.log").write_init_event(
+            body_id, f"rosclaw://eurdf/{profile_id}@{version}"
+        )
+
         entry = BodyRegistryEntry(
             body_id=body_id,
             nickname=nickname or body_id,
             profile_id=profile_id,
-            profile_version=profile_version or "latest",
+            profile_version=version,
             created_at=now,
             updated_at=now,
             path=f"bodies/{body_id}",
+            source=source,
             tags=list(tags or []),
         )
         registry.bodies[body_id] = entry
         registry.current_body_id = body_id
         self.save(registry)
 
-        body_dir = self._body_dir(body_id)
-        body_dir.mkdir(parents=True, exist_ok=True)
-        (body_dir / "refs").mkdir(exist_ok=True)
-        (body_dir / "snapshots").mkdir(exist_ok=True)
-        (body_dir / "generated").mkdir(exist_ok=True)
-
         return entry
 
-    def remove_body(self, body_id: str, archive: bool = False) -> BodyRemoval:
+    # Common user-facing profile IDs → zoo directory names.
+    _PROFILE_ALIASES: dict[str, str] = {
+        "unitree-g1": "g1",
+        "unitree-go2": "unitree_go2",
+        "franka-panda": "franka_panda",
+        "fetch": "fetch_robot",
+    }
+
+    def _resolve_profile_alias(self, profile_id: str) -> str:
+        """Normalize and resolve a profile ID alias.
+
+        Maps common user-facing names (e.g. ``unitree-g1``) to the e-URDF zoo
+        directory name (``g1``). Unrecognized IDs are returned lower-cased and
+        stripped so that direct directory names still work.
+        """
+        normalized = profile_id.strip().lower()
+        return self._PROFILE_ALIASES.get(normalized, normalized)
+
+    def remove_body(self, body_id: str, archive: bool = True) -> BodyRemoval:
         """Remove a body from the registry and optionally archive its data."""
         body_id = self._normalize_id(body_id)
         registry = self.load()
@@ -206,26 +342,34 @@ class BodyRegistryManager:
 
         self.save(registry)
 
+        removal = self._remove_body_data(body_id, archive=archive)
+        # Reload cache so subsequent reads see the removal immediately.
+        self._cache = None
+        self._cache_mtime = None
+        return removal
+
+    def _remove_body_data(self, body_id: str, archive: bool = True) -> BodyRemoval:
+        """Delete or archive a body's on-disk data without touching the registry."""
+        body_id = self._normalize_id(body_id)
         body_dir = self._body_dir(body_id)
         archive_path: Path | None = None
+        archived = False
         if body_dir.exists():
             if archive:
                 self.archive_root.mkdir(parents=True, exist_ok=True)
                 ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
                 archive_path = self.archive_root / f"{body_id}-{ts}"
-                # Avoid collisions
+                # Avoid collisions when multiple removals share a timestamp.
                 counter = 0
                 original = archive_path
                 while archive_path.exists():
                     counter += 1
                     archive_path = original.parent / f"{original.name}_{counter}"
                 body_dir.rename(archive_path)
+                archived = True
             else:
-                import shutil
-
                 shutil.rmtree(body_dir)
-
-        return BodyRemoval(body_id=body_id, archived=archive, archive_path=archive_path)
+        return BodyRemoval(body_id=body_id, archived=archived, archive_path=archive_path)
 
     def migrate_legacy_body(self) -> BodyRegistryEntry | None:
         """Explicitly import a legacy ``workspace/body/`` directory.
@@ -314,3 +458,23 @@ class BodyRegistryManager:
             raise BodyRegistryError(
                 f"Invalid body ID: {body_id}. Use only letters, numbers, hyphens, and underscores."
             )
+
+
+def _default_installed_components(eurdf: EurdfProfile) -> dict[str, Any]:
+    """Build default installed_components from e-URDF sensors/actuators."""
+    sensors = {}
+    for sensor in eurdf.sensors:
+        name = sensor.get("name")
+        if name:
+            sensors[name] = {
+                "installed": True,
+                "status": "available",
+                "provider_ref": None,
+                "notes": [],
+            }
+    actuators = {}
+    for actuator in eurdf.actuators:
+        name = actuator.get("name")
+        if name:
+            actuators[name] = {"installed": True, "status": "available", "notes": []}
+    return {"sensors": sensors, "actuators": actuators}

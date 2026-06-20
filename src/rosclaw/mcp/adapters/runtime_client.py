@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from pathlib import Path
 from typing import Any
+
+from rosclaw.body.fleet import FleetCompatibilityAggregator
+from rosclaw.body.registry import BodyRegistryManager
+from rosclaw.body.resolver import BodyResolver
+from rosclaw.body.schema import SkillManifest
 
 logger = logging.getLogger("rosclaw.mcp.adapters.runtime_client")
 
@@ -240,6 +246,121 @@ class RuntimeClient:
         except Exception as exc:  # noqa: BLE001
             logger.debug("practice_query failed: %s", exc)
             return {"episodes": [], "count": 0, "mode": "fixture"}
+
+    # ------------------------------------------------------------------
+    # Body registry tools (P2)
+    # ------------------------------------------------------------------
+
+    def _body_workspace(self) -> Path:
+        """Return the ROSClaw workspace used by the body registry."""
+        return Path.home() / ".rosclaw"
+
+    def _discover_skill_manifests(self, workspace: Path) -> list[SkillManifest]:
+        """Discover skill manifests under workspace/skills."""
+        skills_dir = workspace / "skills"
+        if not skills_dir.exists():
+            return []
+        manifests: list[SkillManifest] = []
+        for path in skills_dir.rglob("*.skill.yaml"):
+            with contextlib.suppress(Exception):
+                manifests.append(SkillManifest.from_yaml(path))
+        return manifests
+
+    async def list_bodies(self) -> dict[str, Any]:
+        """List all registered bodies in the workspace."""
+        try:
+            workspace = self._body_workspace()
+            manager = BodyRegistryManager(workspace)
+            bodies = manager.list_bodies()
+            stats = manager.stats()
+            return {
+                "mode": "live",
+                "workspace": str(workspace),
+                "current": stats["current"],
+                "total": stats["total"],
+                "bodies": [b.to_dict() for b in bodies],
+                "by_profile": stats.get("by_profile", {}),
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("list_bodies failed: %s", exc)
+            return {"mode": "fixture", "bodies": [], "total": 0, "error": str(exc)}
+
+    async def get_body(self, body_id: str) -> dict[str, Any]:
+        """Return registry entry and effective body snapshot for one body."""
+        try:
+            workspace = self._body_workspace()
+            manager = BodyRegistryManager(workspace)
+            entry = manager.get_body(body_id)
+            if entry is None:
+                return {"mode": "fixture", "body_id": body_id, "error": "Body not found"}
+            resolver = BodyResolver(workspace, body_id=body_id)
+            effective = resolver.get_effective_body(recompile_if_stale=False)
+            return {
+                "mode": "live",
+                "body": entry.to_dict(),
+                "effective_body": effective.to_dict(),
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("get_body failed: %s", exc)
+            return {"mode": "fixture", "body_id": body_id, "error": str(exc)}
+
+    async def switch_body(self, body_id: str) -> dict[str, Any]:
+        """Switch the active body pointer in the registry."""
+        try:
+            workspace = self._body_workspace()
+            manager = BodyRegistryManager(workspace)
+            manager.set_current_body_id(body_id)
+            return {
+                "mode": "live",
+                "current_body_id": manager.get_current_body_id(),
+                "note": "Active body pointer updated; no hardware motion was performed.",
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("switch_body failed: %s", exc)
+            return {"mode": "fixture", "body_id": body_id, "error": str(exc)}
+
+    async def list_body_history(self, body_id: str) -> dict[str, Any]:
+        """List snapshot history for a body."""
+        try:
+            workspace = self._body_workspace()
+            resolver = BodyResolver(workspace, body_id=body_id)
+            snapshots = sorted(resolver.snapshots_dir.glob("body-*.yaml"), reverse=True)
+            return {
+                "mode": "live",
+                "body_id": body_id,
+                "snapshots": [
+                    {"path": str(p), "name": p.name} for p in snapshots
+                ],
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("list_body_history failed: %s", exc)
+            return {"mode": "fixture", "body_id": body_id, "error": str(exc)}
+
+    async def check_skill_compatibility(self) -> dict[str, Any]:
+        """Check skill compatibility for the current body."""
+        try:
+            from rosclaw.body.compatibility import SkillCompatibilityChecker
+
+            workspace = self._body_workspace()
+            manifests = self._discover_skill_manifests(workspace)
+            resolver = BodyResolver(workspace)
+            effective = resolver.get_effective_body(recompile_if_stale=False)
+            report = SkillCompatibilityChecker().check_all(manifests, effective)
+            return {"mode": "live", "report": report.to_dict()}
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("check_skill_compatibility failed: %s", exc)
+            return {"mode": "fixture", "report": {}, "error": str(exc)}
+
+    async def fleet_skill_compatibility(self) -> dict[str, Any]:
+        """Aggregate skill compatibility across all bodies in the workspace."""
+        try:
+            workspace = self._body_workspace()
+            manifests = self._discover_skill_manifests(workspace)
+            report = FleetCompatibilityAggregator(workspace).aggregate(manifests)
+            return {"mode": "live", "report": report.to_dict()}
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("fleet_skill_compatibility failed: %s", exc)
+            return {"mode": "fixture", "report": {}, "error": str(exc)}
 
     # ------------------------------------------------------------------
     # S4 emergency tool

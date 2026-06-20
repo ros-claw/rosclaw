@@ -119,6 +119,7 @@ class BodyRegistryEntry:
     created_at: str = field(default_factory=lambda: _utc_now())
     updated_at: str = field(default_factory=lambda: _utc_now())
     path: str = ""
+    source: str = "builtin"
     tags: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -535,6 +536,40 @@ class SkillCompatibilityReport:
             schema_version=data.get("schema_version", "rosclaw.skill_compatibility.v1"),
             skills=skills,
             summary=data.get("summary", {}),
+        )
+
+
+@dataclass
+class FleetCompatibilityReport:
+    """Aggregated skill compatibility report across all bodies in a workspace."""
+
+    workspace: str
+    checked_at: str = field(default_factory=lambda: _utc_now())
+    schema_version: str = "rosclaw.fleet_compatibility.v1"
+    per_body: dict[str, SkillCompatibilityReport] = field(default_factory=dict)
+    fleet_summary: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "workspace": self.workspace,
+            "checked_at": self.checked_at,
+            "per_body": {k: v.to_dict() for k, v in self.per_body.items()},
+            "fleet_summary": self.fleet_summary,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> FleetCompatibilityReport:
+        per_body = {
+            k: SkillCompatibilityReport.from_dict(v)
+            for k, v in data.get("per_body", {}).items()
+        }
+        return cls(
+            workspace=data.get("workspace", ""),
+            checked_at=data.get("checked_at", _utc_now()),
+            schema_version=data.get("schema_version", "rosclaw.fleet_compatibility.v1"),
+            per_body=per_body,
+            fleet_summary=data.get("fleet_summary", {}),
         )
 
 
