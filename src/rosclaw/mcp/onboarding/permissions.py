@@ -192,8 +192,12 @@ class PermissionStore:
         server_name: str,
         permissions: Permissions,
     ) -> list[str]:
-        """Return required permission IDs that are neither granted nor denied."""
-        state = self.get(server_name)
+        """Return required permission IDs that are not effectively granted.
+
+        Safe auto-grants are taken into account, so safe permissions do not
+        appear in the result unless they were explicitly denied.
+        """
+        state = self.compute_effective(server_name, permissions)
         return [
             decl.id
             for decl in permissions.required

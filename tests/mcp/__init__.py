@@ -1,0 +1,1 @@
+"""Hardware MCP onboarding tests."""

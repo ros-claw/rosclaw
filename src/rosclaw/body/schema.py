@@ -149,6 +149,7 @@ class BodyYaml:
     runtime_overlay: dict[str, Any] = field(default_factory=dict)
     agent_policy: dict[str, Any] = field(default_factory=dict)
     rendering: dict[str, Any] = field(default_factory=dict)
+    mcp_bindings: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BodyYaml:

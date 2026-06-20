@@ -1,0 +1,95 @@
+{
+  "$schema": "https://schemas.rosclaw.io/mcp/hardware-manifest.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "io.rosclaw.hardware.realsense-d455",
+  "name": "realsense-d455",
+  "displayName": "Intel RealSense D455",
+  "version": "1.0.0",
+  "channel": "stable",
+  "description": "ROSClaw Hardware MCP for Intel RealSense D455 depth camera.",
+  "tags": ["camera", "realsense", "sensor"],
+  "categories": ["hardware", "sensor"],
+  "license": "MIT",
+  "publisher": {
+    "name": "ROSClaw Project",
+    "namespace": "io.rosclaw.hardware",
+    "homepage": "https://rosclaw.io",
+    "support": "mcp@rosclaw.io",
+    "verified": true
+  },
+  "artifact": {
+    "type": "python",
+    "package": "rosclaw-mcp-realsense-d455",
+    "version": "1.0.0",
+    "entrypoint": "rosclaw_mcp_realsense_d455.server:main",
+    "install": "pip install rosclaw-mcp-realsense-d455==1.0.0"
+  },
+  "mcp": {
+    "serverName": "realsense-d455",
+    "transport": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "rosclaw_mcp_realsense_d455.server"]
+    },
+    "capabilities": {"tools": true, "resources": true}
+  },
+  "hardware": {
+    "type": "sensor",
+    "vendor": "Intel",
+    "models": ["RealSense D455"],
+    "connection": {"modes": ["ros2"], "defaultMode": "ros2"}
+  },
+  "eurdf": {
+    "profiles": [{"id": "realsense-d455", "version": "1.0.0", "required": false}],
+    "defaultProfile": "realsense-d455"
+  },
+  "bodyBinding": {
+    "bodyType": "sensor",
+    "bindingKey": "realsense_d455",
+    "writePaths": {"mcpBinding": "mcp_bindings.realsense_d455"},
+    "template": {
+      "mcp_bindings": {
+        "realsense_d455": {
+          "server": "rosclaw-realsense-d455",
+          "manifest_id": "io.rosclaw.hardware.realsense-d455"
+        }
+      }
+    }
+  },
+  "permissions": {
+    "required": [
+      {"id": "mcp:tools:read", "level": "safe", "description": "List and call MCP tools"},
+      {"id": "mcp:resources:read", "level": "safe", "description": "Read resource URIs"}
+    ],
+    "optional": [
+      {"id": "mcp:logging:write", "level": "safe", "description": "Forward server logs"}
+    ]
+  },
+  "install": {
+    "preflight": [
+      {"id": "python_version", "command": "python3 --version", "required": true}
+    ]
+  },
+  "health": {
+    "checks": [
+      {"id": "install_integrity", "category": "install", "required": true},
+      {"id": "protocol_stdio", "category": "protocol", "required": true},
+      {"id": "eurdf_binding", "category": "binding", "required": false}
+    ]
+  },
+  "claude": {
+    "scopeDefault": "project",
+    "mcpJson": {
+      "mcpServers": {
+        "realsense-d455": {
+          "type": "stdio",
+          "command": "${ROSCLAW_HOME:-${HOME}/.rosclaw}/mcp/bin/rosclaw-mcp-run",
+          "args": ["realsense-d455"],
+          "env": {"ROSCLAW_HOME": "${ROSCLAW_HOME:-${HOME}/.rosclaw}"}
+        }
+      }
+    }
+  },
+  "compatibility": {"rosDistros": ["humble", "jazzy"], "python": ">=3.10", "rosclaw": ">=1.0.0"},
+  "lifecycle": {"deprecated": false}
+}

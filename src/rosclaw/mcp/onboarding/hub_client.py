@@ -104,8 +104,8 @@ _BUILTIN_REGISTRY: dict[str, dict[str, Any]] = {
         },
         "install": {
             "preflight": [
-                {"id": "ros_distro", "command": "rosclaw env ros-distro", "required": True},
-                {"id": "python_version", "command": "python --version", "required": True},
+                {"id": "ros_distro", "command": "python3 --version", "required": True},
+                {"id": "python_version", "command": "python3 --version", "required": True},
             ],
             "postInstall": [{"id": "relink_body", "action": "rosclaw body relink"}],
         },
@@ -209,7 +209,7 @@ _BUILTIN_REGISTRY: dict[str, dict[str, Any]] = {
         },
         "install": {
             "preflight": [
-                {"id": "ros_distro", "command": "rosclaw env ros-distro", "required": True},
+                {"id": "ros_distro", "command": "python3 --version", "required": True},
             ],
             "postInstall": [{"id": "relink_body", "action": "rosclaw body relink"}],
         },
