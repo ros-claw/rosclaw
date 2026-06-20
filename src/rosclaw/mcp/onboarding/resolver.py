@@ -27,7 +27,6 @@ from rosclaw.mcp.onboarding.hub_client import HubClient
 from rosclaw.mcp.onboarding.lockfile import Lockfile
 from rosclaw.mcp.onboarding.schema import CompatibilityDecl, McpManifest
 
-
 # Canonical namespace prefix for ROSClaw hardware manifests.
 CANONICAL_PREFIX = "io.rosclaw.hardware."
 
@@ -200,7 +199,7 @@ class VersionSolver:
                 f"No {channel} versions found for {manifest_id}"
             )
 
-        for parsed, v in candidates:
+        for parsed, _v in candidates:
             manifest = self._fetch(manifest_id, str(parsed))
             if self._is_compatible(manifest.compatibility):
                 return manifest
@@ -214,15 +213,15 @@ class VersionSolver:
         if compatibility is None:
             return True
 
-        if compatibility.python:
-            if not _satisfies_python_constraint(compatibility.python):
-                return False
+        if compatibility.python and not _satisfies_python_constraint(
+            compatibility.python
+        ):
+            return False
 
-        if compatibility.rosclaw:
-            if not _satisfies_rosclaw_constraint(compatibility.rosclaw):
-                return False
-
-        return True
+        return not (
+            compatibility.rosclaw
+            and not _satisfies_rosclaw_constraint(compatibility.rosclaw)
+        )
 
 
 def _satisfies_python_constraint(spec: str) -> bool:

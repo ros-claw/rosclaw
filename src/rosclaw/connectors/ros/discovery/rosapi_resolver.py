@@ -8,15 +8,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
-
-from rosclaw.connectors.ros.transport.base import RosTransportResult
 
 logger = logging.getLogger("rosclaw.connectors.ros.discovery.rosapi_resolver")
 
 
-class RosVersion(str, Enum):
+class RosVersion(StrEnum):
     ROS1 = "ros1"
     ROS2 = "ros2"
     UNKNOWN = "unknown"

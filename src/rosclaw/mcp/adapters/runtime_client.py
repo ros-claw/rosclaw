@@ -6,6 +6,12 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from rosclaw.mcp.adapters.memory_client import MemoryClient
+from rosclaw.mcp.adapters.practice_client import PracticeClient
+from rosclaw.mcp.adapters.safety_client import SafetyClient
+from rosclaw.mcp.adapters.sandbox_client import SandboxClient
+from rosclaw.mcp.adapters.skill_registry_client import SkillRegistryClient
+
 logger = logging.getLogger("rosclaw.mcp.adapters.runtime_client")
 
 
@@ -15,6 +21,9 @@ class RuntimeClient:
     The client is intentionally defensive: if the runtime cannot be initialized
     (missing model, no ROS, etc.) the tools fall back to fixture responses so
     that the agent still receives a well-formed envelope.
+
+    Thin subsystem adapters (MemoryClient, SandboxClient, etc.) are used to keep
+    the Runtime surface small and to make the MCP layer easy to unit-test.
     """
 
     def __init__(
@@ -31,7 +40,7 @@ class RuntimeClient:
         self.fixture_mode = fixture_mode
         self._runtime: Any | None = None
         self._runtime_error: str | None = None
-        self._event_bus: Any | None = None
+        self._adapter_cache: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------
     # Runtime lifecycle
@@ -57,12 +66,33 @@ class RuntimeClient:
             rt = Runtime(cfg)
             rt.initialize()
             self._runtime = rt
-            self._event_bus = rt.event_bus
+            self._adapter_cache = None
             return rt
         except Exception as exc:  # noqa: BLE001
             self._runtime_error = str(exc)
             logger.debug("RuntimeClient could not initialize Runtime: %s", exc)
             return None
+
+    def _adapters(self) -> dict[str, Any]:
+        """Return a dict of thin adapters for the current runtime.
+
+        Adapters are rebuilt whenever the runtime instance changes so that tests
+        can reinitialize the client with different fixture or live runtimes.
+        """
+        rt = self._ensure_runtime()
+        if rt is None:
+            return {}
+        if self._adapter_cache is not None and self._adapter_cache.get("_runtime") is rt:
+            return self._adapter_cache
+        self._adapter_cache = {
+            "_runtime": rt,
+            "memory": MemoryClient(rt.memory) if rt.memory is not None else None,
+            "practice": PracticeClient(rt.episode_recorder) if rt.episode_recorder is not None else None,
+            "sandbox": SandboxClient(rt.sandbox) if rt.sandbox is not None else None,
+            "skill": SkillRegistryClient(rt.skill_manager) if rt.skill_manager is not None else None,
+            "safety": SafetyClient(rt),
+        }
+        return self._adapter_cache
 
     # ------------------------------------------------------------------
     # Helpers
@@ -84,6 +114,14 @@ class RuntimeClient:
             "age_ms": 0,
         }
 
+    @staticmethod
+    def _safe_dict(value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        if value is not None and hasattr(value, "to_dict"):
+            return value.to_dict()
+        return {}
+
     # ------------------------------------------------------------------
     # S0 read-only tools
     # ------------------------------------------------------------------
@@ -100,9 +138,9 @@ class RuntimeClient:
             return {
                 "robot_id": self.robot_id,
                 "mode": "live" if not sense.is_stale else "stale",
-                "body_state": latest.to_dict() if latest and hasattr(latest, "to_dict") else latest,
-                "body_sense": body_sense.to_dict() if body_sense and hasattr(body_sense, "to_dict") else body_sense,
-                "readiness": readiness.to_dict() if readiness and hasattr(readiness, "to_dict") else readiness,
+                "body_state": self._safe_dict(latest),
+                "body_sense": self._safe_dict(body_sense),
+                "readiness": self._safe_dict(readiness),
                 "is_stale": getattr(sense, "is_stale", True),
                 "age_ms": getattr(sense, "state_age_ms", 0),
             }
@@ -111,20 +149,11 @@ class RuntimeClient:
             return self._fixture_state()
 
     async def list_skills(self, *, skill_type: str | None = None, full_ids: bool = False) -> dict[str, Any]:
-        rt = self._ensure_runtime()
-        if rt is None or rt.skill_manager is None:
+        adapter = self._adapters().get("skill")
+        if adapter is None:
             return {"skills": [], "count": 0, "mode": "fixture"}
         try:
-            entries = rt.skill_manager.list_skills(
-                skill_type=skill_type,
-                return_entries=True,
-                full_ids=full_ids,
-            )
-            return {
-                "skills": [e.to_dict() if hasattr(e, "to_dict") else str(e) for e in entries],
-                "count": len(entries),
-                "mode": "live",
-            }
+            return adapter.list_skills(skill_type=skill_type, full_ids=full_ids)
         except Exception as exc:  # noqa: BLE001
             logger.debug("list_skills failed: %s", exc)
             return {"skills": [], "count": 0, "mode": "fixture"}
@@ -136,16 +165,15 @@ class RuntimeClient:
         limit: int = 5,
         outcome_filter: str | None = None,
     ) -> dict[str, Any]:
-        rt = self._ensure_runtime()
-        if rt is None or rt.memory is None:
+        adapter = self._adapters().get("memory")
+        if adapter is None:
             return {"experiences": [], "count": 0, "mode": "fixture"}
         try:
-            results = rt.memory.find_similar_experiences(
+            return adapter.find_similar_experiences(
                 instruction=instruction,
                 limit=limit,
                 outcome_filter=outcome_filter,
             )
-            return {"experiences": results, "count": len(results), "mode": "live"}
         except Exception as exc:  # noqa: BLE001
             logger.debug("query_memory failed: %s", exc)
             return {"experiences": [], "count": 0, "mode": "fixture"}
@@ -160,8 +188,8 @@ class RuntimeClient:
         *,
         safety_level: str = "MODERATE",
     ) -> dict[str, Any]:
-        rt = self._ensure_runtime()
-        if rt is None or rt.sandbox is None:
+        adapter = self._adapters().get("sandbox")
+        if adapter is None:
             return {
                 "is_safe": False,
                 "risk_score": 1.0,
@@ -170,19 +198,7 @@ class RuntimeClient:
                 "replay_id": None,
             }
         try:
-            result = rt.sandbox.validate_trajectory(
-                trajectory=trajectory,
-                safety_level=safety_level,
-            )
-            if isinstance(result, dict):
-                return result
-            return {
-                "is_safe": False,
-                "risk_score": 1.0,
-                "reason": "Sandbox returned an unexpected validation result.",
-                "violations": ["invalid_validation_result"],
-                "replay_id": None,
-            }
+            return adapter.validate_trajectory(trajectory=trajectory, safety_level=safety_level)
         except Exception as exc:  # noqa: BLE001
             logger.debug("validate_trajectory failed: %s", exc)
             return {
@@ -198,16 +214,15 @@ class RuntimeClient:
     # ------------------------------------------------------------------
 
     async def sandbox_run(self, joint_positions: list[float]) -> dict[str, Any]:
-        rt = self._ensure_runtime()
-        if rt is None or rt.sandbox is None:
+        adapter = self._adapters().get("sandbox")
+        if adapter is None:
             return {
                 "physics_state": {},
                 "mode": "fixture",
                 "note": "Sandbox runtime unavailable; returning empty fixture.",
             }
         try:
-            state = rt.sandbox.simulate_step(joint_positions)
-            return {"physics_state": state, "mode": "live"}
+            return adapter.simulate_step(joint_positions)
         except Exception as exc:  # noqa: BLE001
             logger.debug("sandbox_run failed: %s", exc)
             return {
@@ -226,17 +241,11 @@ class RuntimeClient:
         episode_id: str | None = None,
         limit: int = 10,
     ) -> dict[str, Any]:
-        rt = self._ensure_runtime()
-        if rt is None or rt._episode_recorder is None:
+        adapter = self._adapters().get("practice")
+        if adapter is None:
             return {"episodes": [], "count": 0, "mode": "fixture"}
         try:
-            recorder = rt._episode_recorder
-            if episode_id:
-                episode = recorder.get_episode(episode_id)
-                episodes = [episode] if episode else []
-            else:
-                episodes = recorder.list_episodes()[:limit]
-            return {"episodes": episodes, "count": len(episodes), "mode": "live"}
+            return adapter.query(episode_id=episode_id, limit=limit)
         except Exception as exc:  # noqa: BLE001
             logger.debug("practice_query failed: %s", exc)
             return {"episodes": [], "count": 0, "mode": "fixture"}
@@ -246,33 +255,21 @@ class RuntimeClient:
     # ------------------------------------------------------------------
 
     async def emergency_stop(self, reason: str) -> dict[str, Any]:
-        try:
-            rt = self._ensure_runtime()
-            if rt is not None:
-                from rosclaw.core.event_bus import Event, EventPriority
-
-                event = Event(
-                    topic="robot.emergency_stop",
-                    payload={"reason": reason, "source": "mcp.emergency_stop"},
-                    source="rosclaw.mcp.server",
-                    priority=EventPriority.CRITICAL,
-                )
-                rt.event_bus.publish(event)
-                # Also invoke the runtime handler directly for immediate effect.
-                rt._on_emergency_stop(event)
-                return {"stopped": True, "reason": reason, "mode": "live"}
-            # No runtime: still acknowledge and advise physical E-stop.
-            return {
-                "stopped": True,
-                "reason": reason,
-                "mode": "degraded",
-                "note": "Runtime not initialized. Emergency stop acknowledged; activate physical E-stop if needed.",
-            }
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("emergency_stop failed: %s", exc)
-            return {
-                "stopped": False,
-                "reason": reason,
-                "mode": "error",
-                "note": f"Could not confirm emergency stop: {exc}. Activate physical E-stop immediately.",
-            }
+        adapter = self._adapters().get("safety")
+        if adapter is not None:
+            try:
+                return adapter.emergency_stop(reason)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("emergency_stop failed: %s", exc)
+                return {
+                    "stopped": False,
+                    "reason": reason,
+                    "mode": "error",
+                    "note": f"Could not confirm emergency stop: {exc}. Activate physical E-stop immediately.",
+                }
+        return {
+            "stopped": True,
+            "reason": reason,
+            "mode": "degraded",
+            "note": "Runtime not initialized. Emergency stop acknowledged; activate physical E-stop if needed.",
+        }

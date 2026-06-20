@@ -9,7 +9,7 @@ requires ``rosclaw-practice`` to be installed (``pip install rosclaw[practice]``
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -21,6 +21,8 @@ try:
         CognitiveContext,
         DataPointers,
         PhysicalFeedback,
+    )
+    from rosclaw_practice.schemas import (
         PraxisEvent as PracticePraxisEvent,
     )
 except ImportError as exc:  # pragma: no cover - exercised by optional-deps tests
@@ -85,5 +87,5 @@ class SeekDBBridge:
 
 def _to_iso_utc(timestamp: float) -> str:
     """Format a Unix timestamp as an ISO 8601 UTC string."""
-    dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+    dt = datetime.fromtimestamp(timestamp, tz=UTC)
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")

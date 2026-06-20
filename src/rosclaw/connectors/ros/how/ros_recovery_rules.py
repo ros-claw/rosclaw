@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 ROS_RECOVERY_RULES: list[tuple[str, str, int]] = [
     (
         "rosbridge connection refused",

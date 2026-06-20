@@ -5,8 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-import pytest
-
 from rosclaw.connectors.ros.practice import RosPracticeAdapter
 from rosclaw.connectors.ros.provider import RosCapabilityProvider
 from rosclaw.provider.core.manifest import ProviderManifest
@@ -81,7 +79,13 @@ def test_ros_practice_adapter_publishes_failure_as_recorded():
 
 def test_ros_capability_provider_publishes_firewall_blocked_event():
     bus = FakeEventBus()
-    from rosclaw.connectors.ros.compiler import CapabilityManifest, RosCapability, RosCapabilityRisk, RosInterface, SafetyContractCompiler
+    from rosclaw.connectors.ros.compiler import (
+        CapabilityManifest,
+        RosCapability,
+        RosCapabilityRisk,
+        RosInterface,
+        SafetyContractCompiler,
+    )
 
     cap = RosCapability(
         id="turtlesim.base.velocity_command",
@@ -107,8 +111,9 @@ def test_ros_capability_provider_publishes_firewall_blocked_event():
     provider._contract = SafetyContractCompiler().compile(manifest)
     provider.capabilities = [cap.id]
 
-    from rosclaw.provider.core.request import ProviderRequest
     import asyncio
+
+    from rosclaw.provider.core.request import ProviderRequest
 
     request = ProviderRequest(
         request_id="test_block",

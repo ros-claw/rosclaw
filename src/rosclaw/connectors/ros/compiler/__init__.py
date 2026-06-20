@@ -10,9 +10,9 @@ from rosclaw.connectors.ros.compiler.capability_manifest import (
 from rosclaw.connectors.ros.compiler.safety_contract import (
     SafetyContract,
     SafetyContractCompiler,
+    SafetyLevel,
     SafetyRule,
     SandboxDecision,
-    SafetyLevel,
 )
 
 __all__ = [

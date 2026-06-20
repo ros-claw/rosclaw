@@ -40,7 +40,7 @@ class Publisher:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Publisher":
+    def from_dict(cls, data: dict[str, Any]) -> Publisher:
         return cls(
             name=data["name"],
             namespace=data["namespace"],
@@ -81,7 +81,7 @@ class Artifact:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Artifact":
+    def from_dict(cls, data: dict[str, Any]) -> Artifact:
         return cls(
             type=data.get("type", "pypi"),
             package=data.get("package"),
@@ -117,7 +117,7 @@ class McpTransport:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "McpTransport":
+    def from_dict(cls, data: dict[str, Any]) -> McpTransport:
         return cls(
             type=data.get("type", "stdio"),
             command=data.get("command", ""),
@@ -141,7 +141,7 @@ class McpCapabilities:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "McpCapabilities":
+    def from_dict(cls, data: dict[str, Any] | None) -> McpCapabilities:
         data = data or {}
         return cls(
             tools=bool(data.get("tools", True)),
@@ -164,7 +164,7 @@ class McpStartup:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "McpStartup":
+    def from_dict(cls, data: dict[str, Any] | None) -> McpStartup:
         data = data or {}
         return cls(
             timeout_ms=int(data.get("timeoutMs", 5000)),
@@ -199,7 +199,7 @@ class McpConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "McpConfig":
+    def from_dict(cls, data: dict[str, Any]) -> McpConfig:
         return cls(
             server_name=data["serverName"],
             protocol_version=data.get("protocolVersion", "2025-11-25"),
@@ -229,7 +229,7 @@ class HardwareConnection:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "HardwareConnection":
+    def from_dict(cls, data: dict[str, Any] | None) -> HardwareConnection:
         data = data or {}
         return cls(
             modes=_list(data.get("modes")),
@@ -252,7 +252,7 @@ class HardwareIdentity:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "HardwareIdentity":
+    def from_dict(cls, data: dict[str, Any] | None) -> HardwareIdentity:
         data = data or {}
         return cls(
             serial_required=bool(data.get("serialRequired", False)),
@@ -276,7 +276,7 @@ class Hardware:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Hardware":
+    def from_dict(cls, data: dict[str, Any]) -> Hardware:
         return cls(
             type=data.get("type", "robot"),
             vendor=data.get("vendor"),
@@ -304,7 +304,7 @@ class EurdfProfileRef:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "EurdfProfileRef":
+    def from_dict(cls, data: dict[str, Any]) -> EurdfProfileRef:
         return cls(
             id=data["id"],
             version=data.get("version", "1.0.0"),
@@ -332,7 +332,7 @@ class EurdfBinding:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "EurdfBinding":
+    def from_dict(cls, data: dict[str, Any] | None) -> EurdfBinding:
         data = data or {}
         return cls(
             profiles=[EurdfProfileRef.from_dict(p) for p in data.get("profiles", [])],
@@ -364,7 +364,7 @@ class BodyBindingTemplate:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "BodyBindingTemplate":
+    def from_dict(cls, data: dict[str, Any] | None) -> BodyBindingTemplate:
         data = data or {}
         return cls(
             body_type=data.get("bodyType", ""),
@@ -390,7 +390,7 @@ class PermissionDecl:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PermissionDecl":
+    def from_dict(cls, data: dict[str, Any]) -> PermissionDecl:
         return cls(
             id=data["id"],
             level=data["level"],
@@ -411,7 +411,7 @@ class DataAccessDecl:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DataAccessDecl":
+    def from_dict(cls, data: dict[str, Any]) -> DataAccessDecl:
         return cls(
             id=data["id"],
             classification=data.get("classification", "unknown"),
@@ -439,7 +439,7 @@ class Permissions:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "Permissions":
+    def from_dict(cls, data: dict[str, Any] | None) -> Permissions:
         data = data or {}
         return cls(
             default_mode=data.get("defaultMode", "least_privilege"),
@@ -464,7 +464,7 @@ class PreflightCheck:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PreflightCheck":
+    def from_dict(cls, data: dict[str, Any]) -> PreflightCheck:
         return cls(
             id=data["id"],
             command=data.get("command", ""),
@@ -485,7 +485,7 @@ class Runtime:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Runtime":
+    def from_dict(cls, data: dict[str, Any]) -> Runtime:
         return cls(
             type=data.get("type", "python"),
             python=data.get("python"),
@@ -506,7 +506,7 @@ class PostInstallStep:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PostInstallStep":
+    def from_dict(cls, data: dict[str, Any]) -> PostInstallStep:
         return cls(
             id=data["id"],
             action=data.get("action", ""),
@@ -534,7 +534,7 @@ class InstallDecl:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "InstallDecl":
+    def from_dict(cls, data: dict[str, Any] | None) -> InstallDecl:
         data = data or {}
         return cls(
             supported_platforms=_list(data.get("supportedPlatforms")),
@@ -560,7 +560,7 @@ class HealthCheck:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "HealthCheck":
+    def from_dict(cls, data: dict[str, Any]) -> HealthCheck:
         return cls(
             id=data["id"],
             category=data.get("category", "install"),
@@ -583,7 +583,7 @@ class HealthDecl:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "HealthDecl":
+    def from_dict(cls, data: dict[str, Any] | None) -> HealthDecl:
         data = data or {}
         return cls(
             startup_timeout_ms=int(data.get("startupTimeoutMs", 5000)),
@@ -609,7 +609,7 @@ class ClaudeMcpConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "ClaudeMcpConfig":
+    def from_dict(cls, data: dict[str, Any] | None) -> ClaudeMcpConfig:
         data = data or {}
         return cls(
             scope_default=data.get("scopeDefault", "project"),
@@ -632,7 +632,7 @@ class LifecycleDecl:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "LifecycleDecl":
+    def from_dict(cls, data: dict[str, Any] | None) -> LifecycleDecl:
         data = data or {}
         return cls(
             deprecated=bool(data.get("deprecated", False)),
@@ -653,7 +653,7 @@ class CompatibilityDecl:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "CompatibilityDecl":
+    def from_dict(cls, data: dict[str, Any] | None) -> CompatibilityDecl:
         data = data or {}
         return cls(
             ros_distros=_list(data.get("rosDistros")),
@@ -674,7 +674,7 @@ class SecurityDecl:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "SecurityDecl":
+    def from_dict(cls, data: dict[str, Any] | None) -> SecurityDecl:
         data = data or {}
         return cls(
             sandbox_required=bool(data.get("sandboxRequired", False)),
@@ -781,7 +781,7 @@ class McpManifest:
         return result
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "McpManifest":
+    def from_dict(cls, data: dict[str, Any]) -> McpManifest:
         """Deserialize from a dict, tolerating missing optional sections."""
         extra = {
             k: v

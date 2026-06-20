@@ -9,14 +9,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 import time
 from pathlib import Path
 from typing import Any
 
 from rosclaw.connectors.ros.compiler import (
-    CapabilityManifestCompiler,
     CapabilityManifest,
+    CapabilityManifestCompiler,
     SafetyContractCompiler,
 )
 from rosclaw.connectors.ros.discovery import RosGraphDiscovery
@@ -57,7 +56,7 @@ def _load_manifest(path: str | Path) -> CapabilityManifest:
     return CapabilityManifest.from_dict(data)
 
 
-def _load_graph(path: str | Path) -> "RosGraphSnapshot":
+def _load_graph(path: str | Path) -> Any:
     """Load a RosGraphSnapshot from disk."""
     from rosclaw.connectors.ros.discovery.graph import RosGraphSnapshot
 
@@ -91,11 +90,12 @@ def _make_provider(
         # provider can consume it without changing its internal API.
         import tempfile
 
-        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         import yaml
 
-        yaml.safe_dump(robot_spec, tmp)
-        tmp.close()
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as tmp:
+            yaml.safe_dump(robot_spec, tmp)
         manifest.extra["robot_spec_path"] = tmp.name
 
     return RosCapabilityProvider(manifest)
@@ -463,7 +463,7 @@ def cmd_ros_emergency_stop(args: argparse.Namespace) -> int:
                 if isinstance(values, dict):
                     topics = values.get("topics", [])
                     types = values.get("types", [])
-                    topics_types = dict(zip(topics, types))
+                    topics_types = dict(zip(topics, types, strict=False))
         except Exception:
             pass
 

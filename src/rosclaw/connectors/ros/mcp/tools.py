@@ -204,6 +204,7 @@ def register_ros_tools(mcp, runtime: Any | None = None) -> None:
             return {"ok": False, "error": "Provider registry not available"}
         try:
             import asyncio
+
             from rosclaw.provider.core.request import ProviderRequest
 
             provider = registry.get("ros_capability_provider")

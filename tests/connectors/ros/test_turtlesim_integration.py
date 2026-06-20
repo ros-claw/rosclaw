@@ -26,7 +26,6 @@ from rosclaw.connectors.ros.transport import RosbridgeEndpoint, RosbridgeTranspo
 from rosclaw.provider.core.manifest import ProviderManifest
 from rosclaw.provider.core.request import ProviderRequest
 
-
 ENDPOINT_URL = os.environ.get("ROSCLAW_ROS_TEST_ENDPOINT", "ws://127.0.0.1:9090")
 ROBOT_ID = "turtlesim"
 
@@ -167,7 +166,7 @@ def _get_pose_msg_type(transport: RosbridgeTransport) -> str:
         values = result.data.get("values", {})
         topics = values.get("topics", [])
         types = values.get("types", [])
-        for topic, msg_type in zip(topics, types):
+        for topic, msg_type in zip(topics, types, strict=False):
             if topic == "/turtle1/pose":
                 return msg_type
     # Fallback to ROS2 convention if the query fails.

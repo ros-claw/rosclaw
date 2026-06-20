@@ -22,7 +22,6 @@ from rosclaw.firstboot.workspace import resolve_home
 from rosclaw.mcp.onboarding.errors import ManifestError, ManifestNotFoundError
 from rosclaw.mcp.onboarding.schema import McpManifest
 
-
 # Minimal built-in registry for offline operation.
 _BUILTIN_REGISTRY: dict[str, dict[str, Any]] = {
     "io.rosclaw.hardware.unitree-g1": {

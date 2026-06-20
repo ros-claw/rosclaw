@@ -16,7 +16,6 @@ from pathlib import Path
 
 import yaml
 
-
 # ── Default zoo resolution ──
 
 def _packaged_zoo_path() -> Path | None:

@@ -8,7 +8,6 @@ and local state updates. Every mutating operation is tracked by a
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 import uuid
@@ -19,7 +18,7 @@ from typing import Any, Protocol
 
 from rosclaw.firstboot.workspace import resolve_home
 from rosclaw.mcp.onboarding.binding import BindingResult, BodyBindingManager
-from rosclaw.mcp.onboarding.claude_merge import ClaudeMergeResult, ClaudeMcpMerge
+from rosclaw.mcp.onboarding.claude_merge import ClaudeMcpMerge, ClaudeMergeResult
 from rosclaw.mcp.onboarding.errors import (
     InstallationError,
     OnboardingError,
@@ -29,7 +28,7 @@ from rosclaw.mcp.onboarding.errors import (
 )
 from rosclaw.mcp.onboarding.hub_client import HubClient
 from rosclaw.mcp.onboarding.installed import InstalledRecord, InstalledRegistry
-from rosclaw.mcp.onboarding.lockfile import Lockfile, LockedPackage
+from rosclaw.mcp.onboarding.lockfile import LockedPackage, Lockfile
 from rosclaw.mcp.onboarding.permissions import PermissionState, PermissionStore
 from rosclaw.mcp.onboarding.preflight import PreflightRunner
 from rosclaw.mcp.onboarding.resolver import AliasResolver, SolvedVersion, VersionSolver
@@ -121,10 +120,7 @@ class PythonPackageInstaller:
     ) -> dict[str, Any]:
         package = artifact.package or manifest.name
         version = artifact.version or manifest.version
-        if artifact.install:
-            cmd = artifact.install
-        else:
-            cmd = f"{sys.executable} -m pip install {package}=={version}"
+        cmd = artifact.install or f"{sys.executable} -m pip install {package}=={version}"
 
         if dry_run:
             return {

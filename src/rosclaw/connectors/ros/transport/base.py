@@ -24,7 +24,7 @@ class RosbridgeEndpoint:
         return f"{self.scheme}://{self.host}:{self.port}"
 
     @classmethod
-    def from_url(cls, url: str, timeout_sec: float = 5.0) -> "RosbridgeEndpoint":
+    def from_url(cls, url: str, timeout_sec: float = 5.0) -> RosbridgeEndpoint:
         """Parse a rosbridge URL like ``ws://host:port``."""
         scheme = "ws"
         rest = url
@@ -107,7 +107,7 @@ class RosbridgeMessage:
         return msg
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "RosbridgeMessage":
+    def from_dict(cls, data: dict[str, Any]) -> RosbridgeMessage:
         op = data.get("op", "")
         request_id = data.get("id")
         extra = {k: v for k, v in data.items() if k not in ("op", "id")}

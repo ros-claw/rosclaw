@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from rosclaw.connectors.ros.compiler import CapabilityManifest, RosCapability, RosCapabilityRisk, RosInterface
+from rosclaw.connectors.ros.compiler import (
+    CapabilityManifest,
+    RosCapability,
+    RosCapabilityRisk,
+    RosInterface,
+)
 from rosclaw.connectors.ros.provider import RosCapabilityProvider
 from rosclaw.connectors.ros.transport import MockTransport
 from rosclaw.provider.core.manifest import ProviderManifest
