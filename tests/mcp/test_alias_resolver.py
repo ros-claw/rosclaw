@@ -8,7 +8,7 @@ import pytest
 
 from rosclaw.mcp.onboarding.errors import AliasResolutionError
 from rosclaw.mcp.onboarding.hub_client import HubClient
-from rosclaw.mcp.onboarding.resolver import AliasResolver, CANONICAL_PREFIX
+from rosclaw.mcp.onboarding.resolver import CANONICAL_PREFIX, AliasResolver
 
 
 def test_canonical_id_passed_through() -> None:

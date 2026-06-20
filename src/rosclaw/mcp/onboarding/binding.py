@@ -15,11 +15,10 @@ from typing import Any
 import yaml
 
 from rosclaw.body.resolver import BodyNotLinkedError, BodyResolver
-from rosclaw.body.validators import apply_nested_update
 from rosclaw.mcp.onboarding.errors import (
-    BindingError,
     BodyNotLinkedError as OnboardingBodyNotLinkedError,
-    EurdfHashMismatchError,
+)
+from rosclaw.mcp.onboarding.errors import (
     EurdfProfileMissingError,
 )
 from rosclaw.mcp.onboarding.schema import BodyBindingTemplate, EurdfBinding, McpManifest
@@ -95,10 +94,7 @@ def _build_body_patch(binding: BodyBindingTemplate) -> dict[str, Any]:
 
 def _compute_profile_hash(profile: Any) -> str:
     """Compute a stable SHA-256 hash for an e-URDF profile."""
-    if hasattr(profile, "to_dict"):
-        data = profile.to_dict()
-    else:
-        data = dict(profile)
+    data = profile.to_dict() if hasattr(profile, "to_dict") else dict(profile)
     payload = json.dumps(data, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 

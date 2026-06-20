@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from rosclaw.mcp.onboarding.claude_merge import ClaudeMergeError, ClaudeMcpMerge, MANAGED_KEY
+from rosclaw.mcp.onboarding.claude_merge import MANAGED_KEY, ClaudeMcpMerge, ClaudeMergeError
 
 
 @pytest.fixture

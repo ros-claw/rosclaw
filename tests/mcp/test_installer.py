@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -139,8 +138,8 @@ def test_python_installer_dry_run_returns_command(unitree_manifest: McpManifest)
 
 
 def test_select_installer_unsupported_type() -> None:
-    from rosclaw.mcp.onboarding.installer import _select_installer
     from rosclaw.mcp.onboarding.errors import InstallationError
+    from rosclaw.mcp.onboarding.installer import _select_installer
 
     with pytest.raises(InstallationError):
         _select_installer(Artifact(type="unsupported"))

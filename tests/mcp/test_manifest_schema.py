@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from rosclaw.mcp.onboarding.schema import McpManifest
 
 

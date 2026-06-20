@@ -22,7 +22,6 @@ import yaml
 from rosclaw.firstboot.workspace import resolve_home
 from rosclaw.mcp.onboarding.schema import PermissionDecl, Permissions
 
-
 AUTO_GRANT_LEVELS = {"safe"}
 REQUIRES_CONFIRMATION_LEVELS = {"guarded", "sensitive"}
 REQUIRES_EXPLICIT_FLAG_LEVELS = {"dangerous"}
@@ -45,7 +44,7 @@ class PermissionState:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "PermissionState":
+    def from_dict(cls, data: dict[str, Any] | None) -> PermissionState:
         data = data or {}
         return cls(
             granted=list(data.get("granted", [])),

@@ -12,7 +12,6 @@ import yaml
 
 from rosclaw.mcp.onboarding.schema import McpManifest
 
-
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
@@ -150,7 +149,7 @@ def installed_unitree(
     unitree_manifest: McpManifest,
 ) -> None:
     """Record a fake installed unitree-g1 server and runtime artifacts."""
-    from rosclaw.mcp.onboarding.installed import InstalledRegistry, InstalledRecord
+    from rosclaw.mcp.onboarding.installed import InstalledRecord, InstalledRegistry
     from rosclaw.mcp.onboarding.runner import ensure_runner
 
     runtime_path, runner_path = ensure_runner(unitree_manifest, fake_home)

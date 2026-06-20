@@ -23,7 +23,7 @@ from rosclaw.mcp.onboarding.errors import (
 )
 from rosclaw.mcp.onboarding.hub_client import HubClient
 from rosclaw.mcp.onboarding.installed import InstalledRecord, InstalledRegistry
-from rosclaw.mcp.onboarding.lockfile import Lockfile, LockedPackage
+from rosclaw.mcp.onboarding.lockfile import LockedPackage, Lockfile
 from rosclaw.mcp.onboarding.permissions import PermissionState, PermissionStore
 from rosclaw.mcp.onboarding.resolver import AliasResolver, SolvedVersion, VersionSolver
 from rosclaw.mcp.onboarding.schema import (
@@ -40,6 +40,7 @@ from rosclaw.mcp.onboarding.schema import (
 
 __all__ = [
     "AliasResolver",
+    "AliasResolutionError",
     "Artifact",
     "ArtifactError",
     "BindingError",

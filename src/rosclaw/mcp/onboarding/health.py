@@ -25,7 +25,7 @@ from rosclaw.mcp.onboarding.errors import EurdfProfileMissingError
 from rosclaw.mcp.onboarding.hub_client import HubClient
 from rosclaw.mcp.onboarding.installed import InstalledRegistry
 from rosclaw.mcp.onboarding.permissions import PermissionStore
-from rosclaw.mcp.onboarding.schema import EurdfBinding, HealthCheck, McpManifest, Permissions
+from rosclaw.mcp.onboarding.schema import HealthCheck, McpManifest
 
 
 @dataclass
@@ -127,14 +127,13 @@ async def _handshake_stdio(
 
     params = StdioServerParameters(command=command, args=args, env=env)
     try:
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await asyncio.wait_for(
-                    session.initialize(),
-                    timeout=timeout_ms / 1000.0,
-                )
-                return True, "initialize OK"
-    except asyncio.TimeoutError:
+        async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+            await asyncio.wait_for(
+                session.initialize(),
+                timeout=timeout_ms / 1000.0,
+            )
+            return True, "initialize OK"
+    except TimeoutError:
         return False, f"handshake timed out after {timeout_ms}ms"
     except Exception as exc:  # noqa: BLE001
         return False, f"handshake failed: {exc}"

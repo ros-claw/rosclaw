@@ -10,7 +10,10 @@ import yaml
 
 from rosclaw.mcp.onboarding.binding import BindingResult, BodyBindingManager, _build_body_patch
 from rosclaw.mcp.onboarding.errors import BodyNotLinkedError, EurdfProfileMissingError
-from rosclaw.mcp.onboarding.schema import BodyBindingTemplate, EurdfBinding, EurdfProfileRef, McpManifest
+from rosclaw.mcp.onboarding.schema import (
+    BodyBindingTemplate,
+    McpManifest,
+)
 
 
 def test_build_body_patch_with_write_paths() -> None:

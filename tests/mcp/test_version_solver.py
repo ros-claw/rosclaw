@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from rosclaw.mcp.onboarding.errors import VersionResolutionError
 from rosclaw.mcp.onboarding.hub_client import HubClient
-from rosclaw.mcp.onboarding.lockfile import Lockfile, LockedPackage
+from rosclaw.mcp.onboarding.lockfile import LockedPackage, Lockfile
 from rosclaw.mcp.onboarding.resolver import VersionSolver
 from rosclaw.mcp.onboarding.schema import McpManifest
 
