@@ -6,12 +6,27 @@ Welcome to the ROSClaw documentation index. This directory contains all project 
 
 | Category | Documents |
 |----------|-----------|
+| [Installation & First Boot](#installation--first-boot) | Bootstrap, first boot, verification, troubleshooting |
 | [Architecture](#architecture) | Design decisions, reviews, audits |
 | [API](#api) | API reference, improvements, end-to-end findings |
 | [Development](#development) | Collaboration framework, contributing, benchmarks |
 | [Security](#security) | Security audits, gap analysis |
 | [Planning](#planning) | Roadmaps, sprints, release checklist |
 | [Testing](#testing) | Test reports, verification, deep user tests |
+
+---
+
+## Installation & First Boot
+
+- **[FIRSTBOOT.md](FIRSTBOOT.md)** — Complete bootstrap and first boot guide for end users, CI, and developers.
+
+---
+
+## Body / Embodiment
+
+- **[body/EMBODIMENT_FORMAT.md](body/EMBODIMENT_FORMAT.md)** — e-URDF / `body.yaml` / `EMBODIMENT.md` three-layer format.
+- **[body/TESTING.md](body/TESTING.md)** — Body subsystem testing guide.
+- **[body/MIGRATION.md](body/MIGRATION.md)** — Migration notes for body and embodiment changes.
 
 ---
 

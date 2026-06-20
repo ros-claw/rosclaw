@@ -75,6 +75,7 @@ make setup
 
 ## Next Steps
 
+- Read [docs/FIRSTBOOT.md](docs/FIRSTBOOT.md) for the complete bootstrap and first boot reference.
 - Read [ARCHITECTURE.md](ARCHITECTURE.md) for the 14 Engineering Iron Rules.
 - Explore `rosclaw sandbox --help` for simulation options.
 - Check `rosclaw doctor --full` for optional capability gaps.
