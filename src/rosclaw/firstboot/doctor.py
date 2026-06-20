@@ -14,6 +14,11 @@ from pathlib import Path
 
 from rosclaw import __version__
 
+from .config import FirstbootConfig, generate_rosclaw_yaml, load_rosclaw_yaml
+from .mcp import generate_mcp_config
+from .telemetry import generate_telemetry_yaml
+from .workspace import ensure_minimal_workspace
+
 
 class CheckStatus(StrEnum):
     PASS = "PASS"
@@ -113,8 +118,11 @@ class FirstbootDoctor:
             self._check_cli(),
             self._check_python(),
             self._check_workspace_writable(),
+            self._check_permissions(),
             self._check_install_json(),
             self._check_config_dir(),
+            self._check_mcp_config(),
+            self._check_telemetry_config(),
         ]
 
     # ------------------------------------------------------------------
@@ -213,6 +221,83 @@ class FirstbootDoctor:
             True,
             str(path),
             "Run `rosclaw firstboot`",
+        )
+
+    def _check_permissions(self) -> CheckResult:
+        try:
+            mode = self.home.stat().st_mode
+            if mode & 0o077:
+                return CheckResult(
+                    "core.permissions",
+                    "Workspace permissions",
+                    CheckStatus.WARN,
+                    False,
+                    oct(mode & 0o777),
+                    "Run `rosclaw doctor --fix`",
+                )
+        except OSError as exc:
+            return CheckResult(
+                "core.permissions",
+                "Workspace permissions",
+                CheckStatus.WARN,
+                False,
+                str(exc),
+                "Run `rosclaw doctor --fix`",
+            )
+        return CheckResult(
+            "core.permissions",
+            "Workspace permissions",
+            CheckStatus.PASS,
+            False,
+            "OK",
+        )
+
+    def _check_mcp_config(self) -> CheckResult:
+        cfg = load_rosclaw_yaml(self.home)
+        mcp_enabled = cfg.get("mcp", {}).get("enabled", True)
+        path = self.home / "config" / "mcp.json"
+        if path.exists():
+            return CheckResult(
+                "core.mcp_config",
+                "MCP config",
+                CheckStatus.PASS,
+                False,
+                str(path),
+            )
+        if not mcp_enabled:
+            return CheckResult(
+                "core.mcp_config",
+                "MCP config",
+                CheckStatus.SKIP,
+                False,
+                "MCP disabled",
+            )
+        return CheckResult(
+            "core.mcp_config",
+            "MCP config",
+            CheckStatus.WARN,
+            False,
+            "missing",
+            "Run `rosclaw doctor --fix`",
+        )
+
+    def _check_telemetry_config(self) -> CheckResult:
+        path = self.home / "config" / "telemetry.yaml"
+        if path.exists():
+            return CheckResult(
+                "core.telemetry_config",
+                "Telemetry config",
+                CheckStatus.PASS,
+                False,
+                str(path),
+            )
+        return CheckResult(
+            "core.telemetry_config",
+            "Telemetry config",
+            CheckStatus.WARN,
+            False,
+            "missing",
+            "Run `rosclaw doctor --fix`",
         )
 
     def _check_core_modules(self) -> list[CheckResult]:
@@ -657,6 +742,77 @@ class FirstbootDoctor:
                 check.status = CheckStatus.PASS
                 check.message = "created"
                 check.fix = None
+            elif check.id == "core.install_json":
+                ensure_minimal_workspace(self.home)
+                check.status = CheckStatus.PASS
+                check.message = "created"
+                check.fix = None
+            elif check.id == "core.config_schema":
+                config = FirstbootConfig(workspace={"home": str(self.home)})
+                config.apply_profile("offline")
+                generate_rosclaw_yaml(self.home, config)
+                check.status = CheckStatus.PASS
+                check.message = "regenerated"
+                check.fix = None
+            elif check.id == "core.mcp_config":
+                generate_mcp_config(self.home)
+                check.status = CheckStatus.PASS
+                check.message = "created"
+                check.fix = None
+            elif check.id == "core.telemetry_config":
+                generate_telemetry_yaml(self.home, enabled=False)
+                check.status = CheckStatus.PASS
+                check.message = "created"
+                check.fix = None
+            elif check.id == "core.cli":
+                self._create_path_shim(check)
+            elif check.id == "core.permissions":
+                self._tighten_permissions(check)
+
+    def _create_path_shim(self, check: CheckResult) -> None:
+        """Create a PATH shim so the rosclaw command is reachable."""
+        python = shutil.which("python3") or shutil.which("python")
+        if not python:
+            return
+        try:
+            subprocess.run(
+                [python, "-c", "import rosclaw"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except Exception:
+            return
+
+        shim_dir = self.home / "bin"
+        shim_dir.mkdir(parents=True, exist_ok=True)
+        shim = shim_dir / "rosclaw"
+        shim.write_text(
+            f'#!/usr/bin/env bash\nexec "{python}" -m rosclaw.cli "$@"\n',
+            encoding="utf-8",
+        )
+        shim.chmod(0o755)
+        if shutil.which("rosclaw") or shim.exists():
+            check.status = CheckStatus.PASS
+            check.message = "shim created"
+            check.fix = None
+
+    def _tighten_permissions(self, check: CheckResult) -> None:
+        """Restrict access to sensitive workspace directories."""
+        try:
+            for path in (
+                self.home,
+                self.home / "config",
+                self.home / "state",
+                self.home / "logs",
+            ):
+                if path.exists():
+                    path.chmod(0o700)
+            check.status = CheckStatus.PASS
+            check.message = "tightened"
+            check.fix = None
+        except OSError:
+            pass
 
     # ------------------------------------------------------------------
     # Compilation / output

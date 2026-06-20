@@ -104,6 +104,7 @@ class EpisodeRecorder(LifecycleMixin):
         robot_id: str,
         event_bus: EventBus,
         artifact_base_dir: str = "~/.rosclaw/artifacts",
+        seekdb_bridge: Any | None = None,
     ):
         super().__init__()
         self._robot_id = robot_id
@@ -111,6 +112,7 @@ class EpisodeRecorder(LifecycleMixin):
         self._artifact_base = Path(artifact_base_dir).expanduser()
         self._buffers: dict[str, _EpisodeBuffer] = {}
         self._counter_file = self._artifact_base / "episode_counter.json"
+        self._seekdb_bridge = seekdb_bridge
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -405,6 +407,7 @@ class EpisodeRecorder(LifecycleMixin):
             duration_sec=buf.duration_sec or 0.0,
             metadata={
                 "episode_id": episode_id,
+                "reward": reward,
                 "finalization_reason": reason,
                 "received_events": sorted(buf.received_events),
                 "is_complete": buf.is_complete(),
@@ -517,6 +520,14 @@ class EpisodeRecorder(LifecycleMixin):
                 "agent_request": agent_request,
                 "timestamp": time.time(),
             }, f, indent=2, default=str)
+
+        # Forward to SeekDB if configured; submission failures are non-fatal
+        # and must not prevent local persistence or praxis.recorded publication.
+        if self._seekdb_bridge is not None:
+            try:
+                self._seekdb_bridge.commit(praxis_event)
+            except Exception as e:
+                logger.error(f"SeekDB commit failed for {episode_id}: {e}")
 
         # Publish enriched praxis.recorded
         self._event_bus.publish(Event(

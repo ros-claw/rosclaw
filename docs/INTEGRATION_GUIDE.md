@@ -43,6 +43,8 @@ runtime.initialize()
 | `enable_practice` | bool | True | Enable practice recording |
 | `seekdb_backend` | str | "memory" | "memory" or "sqlite" |
 | `seekdb_path` | str | "./seekdb.sqlite" | SQLite file path |
+| `seekdb_url` | str \| None | `ROSCLAW_SEEKDB_URL` env var | Optional SeekDB endpoint for practice event persistence |
+| `seekdb_fallback_dir` | str | `ROSCLAW_SEEKDB_FALLBACK_DIR` or `/data/rosclaw/fallback` | Local JSON fallback when SeekDB is unreachable |
 
 ---
 
@@ -61,6 +63,54 @@ how = runtime.how
 import asyncio
 suggestion = asyncio.run(how.suggest_recovery("joint_limit_exceeded"))
 ```
+
+---
+
+## Enabling Practice / SeekDB Persistence
+
+When `enable_practice=True` and `seekdb_url` is configured, `Runtime` automatically
+assembles a `SeekDBBridge` and passes it to `EpisodeRecorder`. Every finalized
+practice episode is then forwarded to SeekDB in addition to the local artifact
+directory.
+
+### Minimal configuration
+
+```python
+config = RuntimeConfig(
+    robot_id="my_robot",
+    enable_practice=True,
+    seekdb_url="http://localhost:2881",
+    seekdb_fallback_dir="/data/rosclaw/fallback",
+)
+runtime = Runtime(config)
+runtime.initialize()
+```
+
+Or via environment variables:
+
+```bash
+export ROSCLAW_SEEKDB_URL=http://localhost:2881
+export ROSCLAW_SEEKDB_FALLBACK_DIR=/data/rosclaw/fallback
+```
+
+### Requirements
+
+Install the optional `rosclaw[practice]` extra so that `SeekDBBridge` can import
+`rosclaw_practice`:
+
+```bash
+pip install -e ".[practice]"
+```
+
+### Behavior notes
+
+- If `seekdb_url` is unset, no bridge is created and `EpisodeRecorder` behavior is unchanged.
+- If `rosclaw_practice` is not installed, `Runtime` logs an info message and disables SeekDB forwarding; initialization continues normally.
+- SeekDB submission failures are non-fatal: local artifact writes and `praxis.recorded` publication always complete.
+- Failed submissions are written as JSON files to `seekdb_fallback_dir`.
+
+See `docs/practice/SEEKDB_INTEGRATION.md` for the full data-mapping table and
+offline verification steps.
 
 ---
 

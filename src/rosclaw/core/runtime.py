@@ -77,6 +77,13 @@ class RuntimeConfig:
     enable_mcap: bool = False
     seekdb_backend: str = "memory"          # "memory" | "sqlite"
     seekdb_path: str = "./seekdb.sqlite"
+    # Optional SeekDB / rosclaw_practice integration for practice event persistence
+    seekdb_url: str | None = field(default_factory=lambda: os.environ.get("ROSCLAW_SEEKDB_URL"))
+    seekdb_fallback_dir: str = field(
+        default_factory=lambda: os.environ.get(
+            "ROSCLAW_SEEKDB_FALLBACK_DIR", "/data/rosclaw/fallback"
+        )
+    )
     embodied_memory: Any | None = None   # powermem.EmbodiedMemory instance
     providers_dir: str | None = None     # Directory to scan for provider.yaml files
     # GPU model microservice endpoints (auto-registered as HTTP providers)
@@ -265,12 +272,28 @@ class Runtime(LifecycleMixin):
             except ImportError as e:
                 logger.info(f"UnifiedTimeline not available: {e}")
 
+            # Optional SeekDB bridge for practice event persistence
+            seekdb_bridge = None
+            if self.config.seekdb_url:
+                try:
+                    from rosclaw.practice.seekdb_bridge import SeekDBBridge
+                    seekdb_bridge = SeekDBBridge(
+                        seekdb_url=self.config.seekdb_url,
+                        fallback_dir=self.config.seekdb_fallback_dir,
+                    )
+                    logger.info("SeekDBBridge initialized")
+                except ImportError as e:
+                    logger.info(f"rosclaw_practice not installed, SeekDB integration disabled: {e}")
+                except Exception as e:
+                    logger.warning(f"SeekDBBridge initialization failed: {e}")
+
             # Initialize EpisodeRecorder for artifact management
             try:
                 from rosclaw.practice.episode_recorder import EpisodeRecorder
                 self._episode_recorder = EpisodeRecorder(
                     robot_id=self.config.robot_id,
                     event_bus=self.event_bus,
+                    seekdb_bridge=seekdb_bridge,
                 )
                 self._modules.append(self._episode_recorder)
                 logger.info("EpisodeRecorder initialized")
