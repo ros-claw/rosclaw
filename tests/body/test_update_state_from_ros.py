@@ -51,13 +51,15 @@ def test_update_state_from_ros(linked_body):
         "node_count": 1,
     }
 
-    with patch("rosclaw.body.cli.introspect_ros", return_value=(snapshot, runtime_state)):
-        with patch.object(sys, "argv", [
+    with (
+        patch("rosclaw.body.cli.introspect_ros", return_value=(snapshot, runtime_state)),
+        patch.object(sys, "argv", [
             "rosclaw", "body", "update-state",
             "--from-ros",
             "--reason", "live ROS 2 introspection",
-        ]):
-            assert rosclaw_main() == 0
+        ]),
+    ):
+        assert rosclaw_main() == 0
 
     resolver = BodyResolver()
     body_yaml = resolver.get_current_body_yaml()
@@ -67,13 +69,15 @@ def test_update_state_from_ros(linked_body):
 
 
 def test_update_state_from_ros_failure(linked_body):
-    with patch("rosclaw.body.cli.introspect_ros", side_effect=RosIntrospectionError("no bridge")):
-        with patch.object(sys, "argv", [
+    with (
+        patch("rosclaw.body.cli.introspect_ros", side_effect=RosIntrospectionError("no bridge")),
+        patch.object(sys, "argv", [
             "rosclaw", "body", "update-state",
             "--from-ros",
             "--reason", "live ROS 2 introspection",
-        ]):
-            assert rosclaw_main() == 1
+        ]),
+    ):
+        assert rosclaw_main() == 1
 
 
 def test_update_state_from_ros_changes_hash(linked_body):
@@ -83,12 +87,14 @@ def test_update_state_from_ros_changes_hash(linked_body):
     resolver = BodyResolver()
     old_hash = resolver.get_effective_body_hash()
 
-    with patch("rosclaw.body.cli.introspect_ros", return_value=(snapshot, runtime_state)):
-        with patch.object(sys, "argv", [
+    with (
+        patch("rosclaw.body.cli.introspect_ros", return_value=(snapshot, runtime_state)),
+        patch.object(sys, "argv", [
             "rosclaw", "body", "update-state",
             "--from-ros",
             "--reason", "live ROS 2 introspection",
-        ]):
-            assert rosclaw_main() == 0
+        ]),
+    ):
+        assert rosclaw_main() == 0
 
     assert resolver.get_effective_body_hash() != old_hash
