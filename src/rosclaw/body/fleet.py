@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from typing import Any
 
 from rosclaw.body.compatibility import SkillCompatibilityChecker
-from rosclaw.body.compiler import EffectiveBodyCompiler
 from rosclaw.body.registry import BodyRegistryManager
 from rosclaw.body.resolver import BodyResolver
 from rosclaw.body.schema import (
@@ -14,6 +14,18 @@ from rosclaw.body.schema import (
     SkillCompatibilityReport,
     SkillManifest,
 )
+
+
+def discover_skill_manifests(workspace: Path | str) -> list[SkillManifest]:
+    """Discover skill manifests under workspace/skills."""
+    skills_dir = Path(workspace) / "skills"
+    if not skills_dir.exists():
+        return []
+    manifests: list[SkillManifest] = []
+    for path in skills_dir.rglob("*.skill.yaml"):
+        with contextlib.suppress(Exception):
+            manifests.append(SkillManifest.from_yaml(path))
+    return manifests
 
 
 class FleetCompatibilityError(RuntimeError):
@@ -27,7 +39,6 @@ class FleetCompatibilityAggregator:
         self.workspace = Path(workspace)
         self.registry = BodyRegistryManager(self.workspace)
         self.checker = SkillCompatibilityChecker()
-        self.compiler = EffectiveBodyCompiler()
 
     def aggregate(
         self,

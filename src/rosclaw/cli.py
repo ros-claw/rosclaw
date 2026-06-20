@@ -38,7 +38,7 @@ from rosclaw.body.cli import add_body_subparser, dispatch_body_command
 from rosclaw.body.registry import BodyRegistryManager
 from rosclaw.body.resolver import BodyResolver
 from rosclaw.connectors.ros.cli import add_ros_subparser, cmd_doctor_ros, dispatch_ros_command
-from rosclaw.core.event_bus import Event, EventBus, EventPriority
+from rosclaw.core.event_bus import Event, EventPriority
 from rosclaw.firstboot.wizard import run_firstboot
 from rosclaw.firstboot.workspace import resolve_home
 from rosclaw.hub.cli import add_hub_subparser, dispatch_hub_command
@@ -2827,8 +2827,10 @@ def cmd_fleet_stop(args: argparse.Namespace) -> int:
         return 0
 
     # Publish an event for each body. If the runtime is not running, the
-    # event bus will have no subscribers, so we still advise physical E-stop.
-    bus = EventBus()
+    # global bus will have no subscribers, so we still advise physical E-stop.
+    from rosclaw.core.event_bus import get_global_event_bus
+
+    bus = get_global_event_bus()
     for entry in bodies:
         event = Event(
             topic="robot.emergency_stop",

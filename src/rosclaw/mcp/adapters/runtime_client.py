@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import contextlib
 import logging
 from pathlib import Path
 from typing import Any
 
-from rosclaw.body.fleet import FleetCompatibilityAggregator
 from rosclaw.body.registry import BodyRegistryManager
 from rosclaw.body.resolver import BodyResolver
-from rosclaw.body.schema import SkillManifest
 
 logger = logging.getLogger("rosclaw.mcp.adapters.runtime_client")
 
@@ -255,17 +252,6 @@ class RuntimeClient:
         """Return the ROSClaw workspace used by the body registry."""
         return Path.home() / ".rosclaw"
 
-    def _discover_skill_manifests(self, workspace: Path) -> list[SkillManifest]:
-        """Discover skill manifests under workspace/skills."""
-        skills_dir = workspace / "skills"
-        if not skills_dir.exists():
-            return []
-        manifests: list[SkillManifest] = []
-        for path in skills_dir.rglob("*.skill.yaml"):
-            with contextlib.suppress(Exception):
-                manifests.append(SkillManifest.from_yaml(path))
-        return manifests
-
     async def list_bodies(self) -> dict[str, Any]:
         """List all registered bodies in the workspace."""
         try:
@@ -340,9 +326,10 @@ class RuntimeClient:
         """Check skill compatibility for the current body."""
         try:
             from rosclaw.body.compatibility import SkillCompatibilityChecker
+            from rosclaw.body.fleet import discover_skill_manifests
 
             workspace = self._body_workspace()
-            manifests = self._discover_skill_manifests(workspace)
+            manifests = discover_skill_manifests(workspace)
             resolver = BodyResolver(workspace)
             effective = resolver.get_effective_body(recompile_if_stale=False)
             report = SkillCompatibilityChecker().check_all(manifests, effective)
@@ -354,8 +341,10 @@ class RuntimeClient:
     async def fleet_skill_compatibility(self) -> dict[str, Any]:
         """Aggregate skill compatibility across all bodies in the workspace."""
         try:
+            from rosclaw.body.fleet import FleetCompatibilityAggregator, discover_skill_manifests
+
             workspace = self._body_workspace()
-            manifests = self._discover_skill_manifests(workspace)
+            manifests = discover_skill_manifests(workspace)
             report = FleetCompatibilityAggregator(workspace).aggregate(manifests)
             return {"mode": "live", "report": report.to_dict()}
         except Exception as exc:  # noqa: BLE001
