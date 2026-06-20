@@ -22,6 +22,7 @@ from rosclaw.body.query import BodyQueryEngine
 from rosclaw.body.registry import BodyRegistryError, BodyRegistryManager
 from rosclaw.body.renderer import EmbodimentRenderer
 from rosclaw.body.resolver import BodyNotLinkedError, BodyResolver
+from rosclaw.body.ros_introspection import RosIntrospectionError, introspect_ros
 from rosclaw.body.schema import (
     BodyYaml,
     CalibrationYaml,
@@ -30,6 +31,7 @@ from rosclaw.body.schema import (
 )
 from rosclaw.body.validator import BodyValidator
 from rosclaw.body.validators import parse_set_expression, validate_update_path
+from rosclaw.connectors.ros.transport.base import RosbridgeEndpoint
 from rosclaw.eurdf.registry import RobotRegistry
 from rosclaw.memory.interface import MemoryInterface
 
@@ -203,6 +205,8 @@ def add_body_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     update_parser.add_argument("--source", default="human", help="Source of the update")
     update_parser.add_argument("--dry-run", action="store_true", help="Do not persist changes")
     update_parser.add_argument("--no-skill-check", action="store_true", help="Skip skill compatibility recheck")
+    update_parser.add_argument("--from-ros", action="store_true", help="Introspect live ROS graph and update runtime_state")
+    update_parser.add_argument("--ros-endpoint", default=None, help="Rosbridge endpoint URL (ws://host:port); default ws://127.0.0.1:9090")
     _add_body_arg(update_parser)
 
     # note
@@ -1159,6 +1163,23 @@ def cmd_body_update_state(args: argparse.Namespace) -> int:
                 patch[key] = status
                 affects.append(comp_id)
                 break
+
+    if args.from_ros:
+        source = args.source if args.source != "human" else "ros"
+        endpoint = RosbridgeEndpoint.from_url(args.ros_endpoint) if args.ros_endpoint else None
+        try:
+            snapshot, runtime_state = introspect_ros(endpoint)
+        except RosIntrospectionError as exc:
+            print(f"[ROSClaw] {exc}")
+            return 1
+        for key, value in runtime_state.items():
+            patch[f"runtime_state.{key}"] = value
+        affects.append("runtime_state")
+        if args.dry_run:
+            print("[ROSClaw] Live ROS snapshot:")
+            print(json.dumps(snapshot.to_dict(), indent=2, default=str))
+            print("")
+        args.source = source
 
     if not patch:
         print("[ROSClaw] No updates specified.")
