@@ -1988,6 +1988,60 @@ def cmd_know_recommend(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_know_compile(args: argparse.Namespace) -> int:
+    """Compile a task into a TaskCard via rosclaw-know."""
+    from rosclaw_know.taskcard.cli import main as taskcard_main
+
+    argv = ["compile", "--task", args.task]
+    if args.goal:
+        argv.extend(["--goal", args.goal])
+    if args.robot:
+        argv.extend(["--robot", args.robot])
+    if getattr(args, "robot_id", None):
+        argv.extend(["--robot-id", args.robot_id])
+    if getattr(args, "body", None):
+        argv.extend(["--body", args.body])
+    if getattr(args, "embodiment", None):
+        argv.extend(["--embodiment", args.embodiment])
+    if getattr(args, "eurdf", None):
+        argv.extend(["--eurdf", args.eurdf])
+    if getattr(args, "scene", None):
+        argv.extend(["--scene", args.scene])
+    if getattr(args, "scene_id", None):
+        argv.extend(["--scene-id", args.scene_id])
+    if getattr(args, "strict", False):
+        argv.append("--strict")
+    if getattr(args, "dry_run", False):
+        argv.append("--dry-run")
+    if getattr(args, "output_dir", None):
+        argv.extend(["--output-dir", args.output_dir])
+    return taskcard_main(argv)
+
+
+def cmd_know_validate(args: argparse.Namespace) -> int:
+    """Validate a TaskCard YAML file."""
+    from rosclaw_know.taskcard.cli import main as taskcard_main
+
+    return taskcard_main(["validate", "--taskcard", args.taskcard])
+
+
+def cmd_know_eval_taskcard(args: argparse.Namespace) -> int:
+    """Evaluate a TaskCard against a gold fixture."""
+    from rosclaw_know.taskcard.cli import main as taskcard_main
+
+    argv = ["eval-taskcard", "--taskcard", args.taskcard, "--gold", args.gold]
+    if getattr(args, "json", False):
+        argv.append("--json")
+    return taskcard_main(argv)
+
+
+def cmd_know_export_hooks(args: argparse.Namespace) -> int:
+    """Export hooks from a TaskCard."""
+    from rosclaw_know.taskcard.cli import main as taskcard_main
+
+    return taskcard_main(["export-hooks", "--taskcard", args.taskcard, "--out", args.out])
+
+
 # ------------------------------------------------------------------
 # Demo subcommands
 # ------------------------------------------------------------------
@@ -3050,6 +3104,32 @@ def main() -> int:
     know_recommend_parser = know_subparsers.add_parser("recommend", help="Recommend robots for task")
     know_recommend_parser.add_argument("task", help="Task description")
 
+    know_compile_parser = know_subparsers.add_parser("compile", help="Compile a task into a TaskCard")
+    know_compile_parser.add_argument("--task", required=True, help="Task ID")
+    know_compile_parser.add_argument("--goal", default=None, help="Natural language goal")
+    know_compile_parser.add_argument("--robot", default="unitree_g1", help="Robot model")
+    know_compile_parser.add_argument("--robot-id", default=None, help="Robot instance ID")
+    know_compile_parser.add_argument("--body", default=None, help="body.yaml path")
+    know_compile_parser.add_argument("--embodiment", default=None, help="EMBODIMENT.md path")
+    know_compile_parser.add_argument("--eurdf", default=None, help="e-URDF path")
+    know_compile_parser.add_argument("--scene", default=None, help="Scene file path")
+    know_compile_parser.add_argument("--scene-id", default=None, help="Scene ID")
+    know_compile_parser.add_argument("--strict", action="store_true", help="Enable strict validation")
+    know_compile_parser.add_argument("--dry-run", action="store_true", help="Print TaskCard without writing files")
+    know_compile_parser.add_argument("--output-dir", default=".rosclaw/know/taskcards", help="Output directory")
+
+    know_validate_parser = know_subparsers.add_parser("validate", help="Validate a TaskCard YAML file")
+    know_validate_parser.add_argument("--taskcard", required=True, help="Path to TaskCard YAML")
+
+    know_eval_parser = know_subparsers.add_parser("eval-taskcard", help="Evaluate a TaskCard against a gold fixture")
+    know_eval_parser.add_argument("--taskcard", required=True, help="Path to generated TaskCard YAML")
+    know_eval_parser.add_argument("--gold", required=True, help="Path to gold YAML")
+    know_eval_parser.add_argument("--json", action="store_true", help="Output JSON report")
+
+    know_export_hooks_parser = know_subparsers.add_parser("export-hooks", help="Export hooks from a TaskCard")
+    know_export_hooks_parser.add_argument("--taskcard", required=True, help="Path to TaskCard YAML")
+    know_export_hooks_parser.add_argument("--out", required=True, help="Output directory")
+
     # sense subcommand
     sense_parser = subparsers.add_parser("sense", help="Body sense and readiness commands")
     sense_subparsers = sense_parser.add_subparsers(dest="sense_command")
@@ -3312,6 +3392,14 @@ def main() -> int:
             return cmd_know_robot(args)
         elif args.know_command == "recommend":
             return cmd_know_recommend(args)
+        elif args.know_command == "compile":
+            return cmd_know_compile(args)
+        elif args.know_command == "validate":
+            return cmd_know_validate(args)
+        elif args.know_command == "eval-taskcard":
+            return cmd_know_eval_taskcard(args)
+        elif args.know_command == "export-hooks":
+            return cmd_know_export_hooks(args)
         else:
             know_parser.print_help()
             return 1
