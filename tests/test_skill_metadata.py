@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 from pytest import MonkeyPatch
 
+from rosclaw.body.resolver import BodyResolver
 from rosclaw.core.event_bus import EventBus
 from rosclaw.memory.seekdb_client import SeekDBMemoryClient
 from rosclaw.skill_manager.executor import SkillExecutor
@@ -28,13 +29,16 @@ def isolated_home(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def env() -> Any:
+def env(tmp_path):
     """Test environment: EventBus + Registry + SeekDB + Executor."""
     bus = EventBus()
     registry = SkillRegistry(event_bus=bus)
     seekdb = SeekDBMemoryClient()
     seekdb.connect()
-    executor = SkillExecutor(event_bus=bus, registry=registry, seekdb_client=seekdb)
+    resolver = BodyResolver(workspace=tmp_path)
+    executor = SkillExecutor(
+        event_bus=bus, registry=registry, seekdb_client=seekdb, body_resolver=resolver
+    )
     registry.initialize()
     executor.initialize()
     yield bus, registry, seekdb, executor
@@ -43,8 +47,7 @@ def env() -> Any:
     seekdb.disconnect()
 
 
-def _make_skill(name="pick_up", handler=None, skill_type="programmed",
-                preconditions=None):
+def _make_skill(name="pick_up", handler=None, skill_type="programmed", preconditions=None):
     """Helper to create a SkillEntry."""
     return SkillEntry(
         name=name,
@@ -152,7 +155,8 @@ class TestSkillMetadataWriting:
         """Prerequisites should be stored in metadata."""
         bus, registry, seekdb, executor = env
         skill = _make_skill(
-            "pick_up", handler=lambda p: {"ok": True},
+            "pick_up",
+            handler=lambda p: {"ok": True},
             preconditions=["skill:locate"],
         )
         # Register the prerequisite skill first
@@ -165,11 +169,14 @@ class TestSkillMetadataWriting:
         assert isinstance(prereqs, list)
         assert "skill:locate" in prereqs
 
-    def test_no_seekdb_client_no_crash(self):
+    def test_no_seekdb_client_no_crash(self, tmp_path):
         """Executor without seekdb_client should work fine."""
         bus = EventBus()
         registry = SkillRegistry(event_bus=bus)
-        executor = SkillExecutor(event_bus=bus, registry=registry)  # no seekdb
+        resolver = BodyResolver(workspace=tmp_path)
+        executor = SkillExecutor(
+            event_bus=bus, registry=registry, body_resolver=resolver
+        )  # no seekdb
         registry.initialize()
         executor.initialize()
 

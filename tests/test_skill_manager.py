@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from pytest import MonkeyPatch
 
+from rosclaw.body.resolver import BodyResolver
 from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.sense.interface import SenseInterface
 from rosclaw.skill_manager.executor import SkillExecutor
@@ -78,22 +79,25 @@ def test_skill_registry_get_stats():
     reg.stop()
 
 
-def test_skill_executor_success():
+def test_skill_executor_success(tmp_path):
     bus = EventBus()
     reg = SkillRegistry()
     reg.initialize()
-    executor = SkillExecutor(bus, reg)
+    resolver = BodyResolver(workspace=tmp_path)
+    executor = SkillExecutor(bus, reg, body_resolver=resolver)
     executor.initialize()
 
     def handler(params):
         return {"done": True}
 
-    reg.register(SkillEntry(
-        name="test_skill",
-        description="Test",
-        skill_type="programmed",
-        handler=handler,
-    ))
+    reg.register(
+        SkillEntry(
+            name="test_skill",
+            description="Test",
+            skill_type="programmed",
+            handler=handler,
+        )
+    )
 
     result = executor.execute("test_skill")
     assert result["status"] == "success"
@@ -102,11 +106,12 @@ def test_skill_executor_success():
     reg.stop()
 
 
-def test_skill_executor_not_found():
+def test_skill_executor_not_found(tmp_path):
     bus = EventBus()
     reg = SkillRegistry()
     reg.initialize()
-    executor = SkillExecutor(bus, reg)
+    resolver = BodyResolver(workspace=tmp_path)
+    executor = SkillExecutor(bus, reg, body_resolver=resolver)
     executor.initialize()
     result = executor.execute("missing")
     assert result["status"] == "error"
@@ -120,7 +125,9 @@ def test_skill_loader_json(tmp_path):
     loader = SkillLoader(reg)
 
     skill_file = tmp_path / "test_skill.json"
-    skill_file.write_text('{"name": "push", "description": "Push object", "skill_type": "programmed"}')
+    skill_file.write_text(
+        '{"name": "push", "description": "Push object", "skill_type": "programmed"}'
+    )
 
     entry = loader.load_from_json(skill_file)
     assert entry.name == "push"
@@ -183,10 +190,12 @@ class TestSkillRegistryEventHandlers:
         reg = SkillRegistry(event_bus=bus)
         reg.initialize()
         reg.register(SkillEntry(name="pick", description="", skill_type="programmed"))
-        bus.publish(Event(
-            topic="skill.execution.complete",
-            payload={"skill_name": "pick", "result": {"status": "failure"}},
-        ))
+        bus.publish(
+            Event(
+                topic="skill.execution.complete",
+                payload={"skill_name": "pick", "result": {"status": "failure"}},
+            )
+        )
         skill = reg.get("pick")
         assert skill.execution_count == 1
         assert skill.success_rate == 0.0
@@ -197,7 +206,9 @@ class TestSkillRegistryEventHandlers:
         reg = SkillRegistry(event_bus=bus)
         reg.initialize()
         reg.register(SkillEntry(name="pick", description="", skill_type="programmed"))
-        bus.publish(Event(topic="skill.execution.complete", payload={"result": {"status": "success"}}))
+        bus.publish(
+            Event(topic="skill.execution.complete", payload={"result": {"status": "success"}})
+        )
         skill = reg.get("pick")
         assert skill.execution_count == 0
         reg.stop()
@@ -206,6 +217,7 @@ class TestSkillRegistryEventHandlers:
 class TestSkillRegistryRegister:
     def test_register_overwrite(self, caplog):
         import logging
+
         reg = SkillRegistry()
         reg.initialize()
         reg.register(SkillEntry(name="pick", description="First", skill_type="programmed"))
@@ -270,18 +282,22 @@ class TestSkillRegistryListAndFind:
     def test_find_by_precondition(self):
         reg = SkillRegistry()
         reg.initialize()
-        reg.register(SkillEntry(
-            name="pick",
-            description="",
-            skill_type="programmed",
-            preconditions=["object_visible", "gripper_empty"],
-        ))
-        reg.register(SkillEntry(
-            name="place",
-            description="",
-            skill_type="programmed",
-            preconditions=["gripper_full"],
-        ))
+        reg.register(
+            SkillEntry(
+                name="pick",
+                description="",
+                skill_type="programmed",
+                preconditions=["object_visible", "gripper_empty"],
+            )
+        )
+        reg.register(
+            SkillEntry(
+                name="place",
+                description="",
+                skill_type="programmed",
+                preconditions=["gripper_full"],
+            )
+        )
         found = reg.find_by_precondition("gripper_empty")
         assert len(found) == 1
         assert found[0].name == "pick"

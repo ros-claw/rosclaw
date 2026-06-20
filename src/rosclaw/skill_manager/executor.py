@@ -1,9 +1,12 @@
 """Skill Executor - Executes skills with parameter binding and validation."""
 
+from __future__ import annotations
+
 import logging
 import time
 from typing import Any
 
+from rosclaw.body.resolver import BodyResolver
 from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
 from rosclaw.skill_manager.registry import SkillEntry, SkillRegistry
@@ -32,6 +35,7 @@ class SkillExecutor(LifecycleMixin):
         registry: SkillRegistry,
         seekdb_client: Any | None = None,
         sense_interface: Any | None = None,
+        body_resolver: BodyResolver | None = None,
     ):
         super().__init__()
         self.event_bus = event_bus
@@ -45,7 +49,7 @@ class SkillExecutor(LifecycleMixin):
                 self._skill_requirements_adapter = SkillRequirementsAdapter(sense_interface)
             except Exception:
                 logger.warning("Failed to initialize SkillRequirementsAdapter", exc_info=True)
-        self._current_skill: str | None = None
+        self._body_resolver = body_resolver
 
     def _do_initialize(self) -> None:
         logger.info("Initialized")
@@ -68,7 +72,10 @@ class SkillExecutor(LifecycleMixin):
         # Body compatibility check (new P0)
         body_check = self._check_body_compatibility(skill)
         if body_check.get("status") == "blocked":
-            return {"status": "blocked", "message": body_check.get("reason", "Body compatibility check failed")}
+            return {
+                "status": "blocked",
+                "message": body_check.get("reason", "Body compatibility check failed"),
+            }
 
         # Merge parameters
         params = {**skill.parameters, **(parameters or {})}
@@ -81,27 +88,31 @@ class SkillExecutor(LifecycleMixin):
         # Body sense readiness gate (new)
         sense_check = self._check_body_sense(skill)
         if not sense_check["ok"]:
-            self.event_bus.publish(Event(
-                topic="rosclaw.sense.capability.blocked",
-                payload={
-                    "capability": skill.name,
-                    "reason": sense_check["reason"],
-                    "failed_requirements": sense_check.get("failed_requirements", []),
-                },
-                source="skill_executor",
-                priority=EventPriority.HIGH,
-            ))
-            self.event_bus.publish(Event(
-                topic="skill.execution.blocked",
-                payload={
-                    "skill_name": skill.name,
-                    "reason": "blocked_by_body_sense",
-                    "message": sense_check["reason"],
-                    "failed_requirements": sense_check.get("failed_requirements", []),
-                },
-                source="skill_executor",
-                priority=EventPriority.HIGH,
-            ))
+            self.event_bus.publish(
+                Event(
+                    topic="rosclaw.sense.capability.blocked",
+                    payload={
+                        "capability": skill.name,
+                        "reason": sense_check["reason"],
+                        "failed_requirements": sense_check.get("failed_requirements", []),
+                    },
+                    source="skill_executor",
+                    priority=EventPriority.HIGH,
+                )
+            )
+            self.event_bus.publish(
+                Event(
+                    topic="skill.execution.blocked",
+                    payload={
+                        "skill_name": skill.name,
+                        "reason": "blocked_by_body_sense",
+                        "message": sense_check["reason"],
+                        "failed_requirements": sense_check.get("failed_requirements", []),
+                    },
+                    source="skill_executor",
+                    priority=EventPriority.HIGH,
+                )
+            )
             return {
                 "status": "blocked",
                 "reason": "blocked_by_body_sense",
@@ -113,16 +124,18 @@ class SkillExecutor(LifecycleMixin):
         self._current_skill = skill_name
 
         # Publish skill execution event
-        self.event_bus.publish(Event(
-            topic="skill.execution.start",
-            payload={
-                "skill_name": skill_name,
-                "parameters": params,
-                "skill_type": skill.skill_type,
-            },
-            source="skill_executor",
-            priority=EventPriority.HIGH,
-        ))
+        self.event_bus.publish(
+            Event(
+                topic="skill.execution.start",
+                payload={
+                    "skill_name": skill_name,
+                    "parameters": params,
+                    "skill_type": skill.skill_type,
+                },
+                source="skill_executor",
+                priority=EventPriority.HIGH,
+            )
+        )
 
         # Execute handler if available
         result: dict[str, Any] = {
@@ -153,15 +166,17 @@ class SkillExecutor(LifecycleMixin):
         self._write_skill_metadata(skill, result, duration_sec)
 
         # Publish completion event
-        self.event_bus.publish(Event(
-            topic="skill.execution.complete",
-            payload={
-                "skill_name": skill_name,
-                "result": result,
-            },
-            source="skill_executor",
-            priority=EventPriority.NORMAL,
-        ))
+        self.event_bus.publish(
+            Event(
+                topic="skill.execution.complete",
+                payload={
+                    "skill_name": skill_name,
+                    "result": result,
+                },
+                source="skill_executor",
+                priority=EventPriority.NORMAL,
+            )
+        )
 
         self._current_skill = None
         return result
@@ -216,15 +231,19 @@ class SkillExecutor(LifecycleMixin):
     def _check_body_compatibility(self, skill: SkillEntry) -> dict[str, Any]:
         """Check skill against the current effective body if body is linked."""
         try:
-            from rosclaw.body.resolver import BodyResolver
-            resolver = BodyResolver()
+            resolver = self._body_resolver or BodyResolver()
             if not resolver.is_linked():
-                return {"status": "ok"}  # no body linked — allow execution with backward compatibility
+                return {
+                    "status": "ok"
+                }  # no body linked — allow execution with backward compatibility
             result = resolver.check_skill_compatibility(skill.name, skill.version)
             if result.status == "blocked":
                 return {"status": "blocked", "reason": result.reason}
             if result.status == "unknown":
-                return {"status": "blocked", "reason": "Skill compatibility unknown — run `rosclaw body inspect --skills`"}
+                return {
+                    "status": "blocked",
+                    "reason": "Skill compatibility unknown — run `rosclaw body inspect --skills`",
+                }
             return {"status": "ok", "result": result.to_dict()}
         except Exception as exc:
             logger.warning("Body compatibility check failed for %s: %s", skill.name, exc)
@@ -256,7 +275,9 @@ class SkillExecutor(LifecycleMixin):
             return self._enrich_with_body_sense_check(skill, result)
         if item.status in ("degraded", "unknown"):
             # Low-risk tasks may allow degraded; high-risk block.
-            safety_level = skill.metadata.get("safety_level", "MODERATE") if skill.metadata else "MODERATE"
+            safety_level = (
+                skill.metadata.get("safety_level", "MODERATE") if skill.metadata else "MODERATE"
+            )
             if safety_level in ("HIGH", "CRITICAL"):
                 result = {
                     "ok": False,
