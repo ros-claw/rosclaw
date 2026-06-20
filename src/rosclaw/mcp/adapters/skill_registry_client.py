@@ -17,7 +17,8 @@ class SkillRegistryClient:
         Falls back to the skill manager's own ``list_skills`` when no registry
         attribute is exposed.
         """
-        target = getattr(self._skill_manager, "registry", self._skill_manager)
+        registry = getattr(self._skill_manager, "registry", None)
+        target = registry if registry is not None else self._skill_manager
         entries = target.list_skills(
             skill_type=skill_type,
             return_entries=True,

@@ -13,12 +13,12 @@ import pytest
 
 from rosclaw.connectors.ros.cli.ros_cli import (
     cmd_doctor_ros,
+    cmd_ros_compile,
     cmd_ros_emergency_stop,
     cmd_ros_inspect_capability,
     cmd_ros_list_capabilities,
     cmd_ros_ping,
     cmd_ros_validate_capability,
-    cmd_ros_compile,
 )
 from rosclaw.connectors.ros.compiler import (
     CapabilityManifest,

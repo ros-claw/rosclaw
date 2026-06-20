@@ -9,11 +9,10 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from rosclaw.connectors.ros.discovery.normalizer import (
-    normalize_action_type,
     normalize_msg_type,
     normalize_srv_type,
 )
@@ -134,7 +133,7 @@ class RosGraphSnapshot:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "RosGraphSnapshot":
+    def from_dict(cls, data: dict[str, Any]) -> RosGraphSnapshot:
         topics = []
         for t in data.get("topics", []):
             topics.append(
@@ -222,7 +221,7 @@ class RosGraphDiscovery:
             actions=actions,
             nodes=nodes,
             params=params,
-            captured_at=datetime.now(timezone.utc).isoformat(),
+            captured_at=datetime.now(UTC).isoformat(),
         )
 
     def list_topics(self) -> list[RosTopicInfo]:
@@ -237,7 +236,7 @@ class RosGraphDiscovery:
 
         # rosapi/topics may return topics and types as parallel arrays.
         if len(topic_names) == len(topic_types):
-            self._topic_types = dict(zip(topic_names, topic_types))
+            self._topic_types = dict(zip(topic_names, topic_types, strict=True))
         else:
             self._topic_types = {}
 

@@ -127,7 +127,9 @@ async def _handshake_stdio(
 
     params = StdioServerParameters(command=command, args=args, env=env)
     try:
-        async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+        async with stdio_client(params) as (read, write), ClientSession(
+            read, write
+        ) as session:
             await asyncio.wait_for(
                 session.initialize(),
                 timeout=timeout_ms / 1000.0,

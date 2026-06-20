@@ -6,16 +6,6 @@ depending on private module internals.
 """
 from __future__ import annotations
 
-# Auto
-from .auto_schemas import (
-    AutoPatch,
-    AutoProposal,
-    Champion,
-    DeadEnd,
-    EvaluationResult,
-    ExperimentSpec,
-)
-
 # Hardware MCP onboarding
 from rosclaw.mcp.onboarding.schema import (
     Artifact,
@@ -27,6 +17,16 @@ from rosclaw.mcp.onboarding.schema import (
     PermissionDecl,
     Permissions,
     Publisher,
+)
+
+# Auto
+from .auto_schemas import (
+    AutoPatch,
+    AutoProposal,
+    Champion,
+    DeadEnd,
+    EvaluationResult,
+    ExperimentSpec,
 )
 
 # Context

@@ -7,7 +7,7 @@ from rosclaw.connectors.ros.discovery import (
     RosGraphDiscovery,
     RosVersion,
 )
-from rosclaw.connectors.ros.transport import MockTransport, RosTransportResult
+from rosclaw.connectors.ros.transport import MockTransport
 
 
 def _make_profile(version: RosVersion = RosVersion.ROS2, distro: str = "humble") -> RosApiProfile:

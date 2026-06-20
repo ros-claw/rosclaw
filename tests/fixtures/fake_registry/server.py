@@ -19,12 +19,10 @@ Run with:
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from functools import partial
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
-
 
 DEFAULT_TOKEN = "fake-valid-token"
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from rosclaw.mcp.onboarding.errors import (
-    AliasResolutionError,
     ArtifactError,
     BindingError,
     BodyNotLinkedError,

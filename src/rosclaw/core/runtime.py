@@ -824,6 +824,16 @@ class Runtime(LifecycleMixin):
     def guard_pipeline(self) -> Any | None:
         return self._guard_pipeline
 
+    @property
+    def sandbox(self) -> Any | None:
+        """Return the physics sandbox / digital-twin adapter."""
+        return self._sandbox
+
+    @property
+    def episode_recorder(self) -> Any | None:
+        """Return the practice episode recorder."""
+        return self._episode_recorder
+
     def _load_external_providers(self) -> None:
         """Scan providers_dir for provider.yaml files and load them."""
         if not self.config.providers_dir:

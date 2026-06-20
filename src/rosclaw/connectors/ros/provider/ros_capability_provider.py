@@ -11,7 +11,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -29,9 +29,9 @@ from rosclaw.connectors.ros.discovery import RosGraphDiscovery
 from rosclaw.connectors.ros.discovery.graph import RosGraphSnapshot
 from rosclaw.connectors.ros.transport import (
     MockTransport,
-    RosTransportResult,
     RosbridgeEndpoint,
     RosbridgeTransport,
+    RosTransportResult,
 )
 from rosclaw.provider.core.errors import CapabilityNotSupportedError, GuardBlockedError
 from rosclaw.provider.core.manifest import ProviderManifest
@@ -173,10 +173,10 @@ class RosCapabilityProvider(Provider):
 
     async def unload(self) -> None:
         if self._transport is not None:
-            try:
+            import contextlib
+
+            with contextlib.suppress(Exception):
                 self._transport.close()
-            except Exception:
-                pass
             self._transport = None
 
     async def health(self) -> dict[str, Any]:
@@ -276,7 +276,7 @@ class RosCapabilityProvider(Provider):
         dry_run: bool,
         context: dict[str, Any],
     ) -> RosCapabilityResult:
-        started_at = datetime.now(timezone.utc).isoformat()
+        started_at = datetime.now(UTC).isoformat()
         t0 = time.monotonic()
 
         if self._manifest is None or self._contract is None:
@@ -286,7 +286,7 @@ class RosCapabilityProvider(Provider):
                 ros_interface="",
                 ros_kind="",
                 started_at=started_at,
-                ended_at=datetime.now(timezone.utc).isoformat(),
+                ended_at=datetime.now(UTC).isoformat(),
                 duration_ms=0.0,
                 error="Manifest or safety contract not loaded",
             )
@@ -354,7 +354,7 @@ class RosCapabilityProvider(Provider):
             exec_error = str(exc)
             raw_response = None
 
-        ended_at = datetime.now(timezone.utc).isoformat()
+        ended_at = datetime.now(UTC).isoformat()
         duration_ms = (time.monotonic() - t0) * 1000
 
         result_data: dict[str, Any] = {

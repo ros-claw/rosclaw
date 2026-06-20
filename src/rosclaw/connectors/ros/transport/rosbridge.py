@@ -14,8 +14,8 @@ import uuid
 from typing import Any
 
 from rosclaw.connectors.ros.transport.base import (
-    RosTransportResult,
     RosbridgeEndpoint,
+    RosTransportResult,
 )
 
 logger = logging.getLogger("rosclaw.connectors.ros.transport.rosbridge")
@@ -183,7 +183,7 @@ class RosbridgeTransport:
             )
 
         last_error: str | None = None
-        for attempt in range(self._max_retries + 1):
+        for _attempt in range(self._max_retries + 1):
             send_result = self.send(message)
             if not send_result.ok:
                 last_error = send_result.error
@@ -292,19 +292,19 @@ class RosbridgeTransport:
             data = result.data or {}
             if data.get("op") == "publish" and data.get("topic") == topic:
                 # Best-effort unsubscribe; do not block result on it.
-                try:
+                import contextlib
+
+                with contextlib.suppress(Exception):
                     self.send({"op": "unsubscribe", "id": request_id, "topic": topic})
-                except Exception:
-                    pass
                 return RosTransportResult(
                     ok=True, data=data, raw=result.raw, request_id=request_id
                 )
 
         # Best-effort unsubscribe; do not block result on it.
-        try:
+        import contextlib
+
+        with contextlib.suppress(Exception):
             self.send({"op": "unsubscribe", "id": request_id, "topic": topic})
-        except Exception:
-            pass
         return RosTransportResult(
             ok=False,
             error=last_error or f"No message received on {topic} within {timeout_sec}s",
@@ -343,10 +343,10 @@ class RosbridgeTransport:
                 if data.get("op") == "publish" and data.get("topic") == topic:
                     messages.append(data.get("msg", {}))
 
-        try:
+        import contextlib
+
+        with contextlib.suppress(Exception):
             self.send({"op": "unsubscribe", "id": request_id, "topic": topic})
-        except Exception:
-            pass
 
         return RosTransportResult(
             ok=True,

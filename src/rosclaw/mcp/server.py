@@ -115,7 +115,10 @@ def serve(
         mcp.add_tool(tool_func)
 
     logger.info("Starting ROSClaw P0 MCP server (%s:%s via %s)", host, port, transport)
-    mcp.run(transport=transport)  # type: ignore[arg-type]
+    # FastMCP.run accepts "stdio", "sse", or "streamable-http"; map the CLI
+    # convenience name "http" to the official streamable HTTP transport.
+    mcp_transport = {"http": "streamable-http"}.get(transport, transport)
+    mcp.run(transport=mcp_transport)  # type: ignore[arg-type]
 
 
 def main(argv: list[str] | None = None) -> int:

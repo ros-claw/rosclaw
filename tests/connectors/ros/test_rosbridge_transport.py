@@ -6,9 +6,9 @@ import pytest
 
 from rosclaw.connectors.ros.transport import (
     MockTransport,
-    RosTransportResult,
     RosbridgeEndpoint,
     RosbridgeTransport,
+    RosTransportResult,
 )
 
 

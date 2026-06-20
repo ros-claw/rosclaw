@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from rosclaw.connectors.ros.compiler.capability_manifest import (
@@ -114,7 +114,7 @@ class SafetyContractCompiler:
     def compile(self, manifest: CapabilityManifest) -> SafetyContract:
         contract = SafetyContract(
             robot_id=manifest.robot_id,
-            generated_at=datetime.now(timezone.utc).isoformat(),
+            generated_at=datetime.now(UTC).isoformat(),
         )
         for cap in manifest.capabilities:
             contract.rules[cap.id] = self._compile_rule(cap)
