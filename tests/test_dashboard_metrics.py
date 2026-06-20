@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from rosclaw.core.event_topics import EventTopics
 from rosclaw.dashboard.metrics import DashboardMetrics
 

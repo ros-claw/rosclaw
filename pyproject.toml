@@ -83,6 +83,9 @@ Documentation = "https://docs.rosclaw.io"
 [tool.hatch.build.targets.wheel]
 packages = ["src/rosclaw"]
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.hatch.build.targets.wheel.force-include]
 "e-urdf-zoo" = "rosclaw/eurdf_zoo_data"
 
@@ -94,9 +97,6 @@ include = [
     "/bin",
     "/e-urdf-zoo",
 ]
-
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [tool.ruff]
 target-version = "py311"

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "rosclaw-unitree-g1": {
+      "type": "stdio",
+      "command": "custom-cmd",
+      "args": ["--flag"]
+    }
+  }
+}

@@ -16,7 +16,6 @@ from typing import Any
 
 from rosclaw.mcp.onboarding.errors import ClaudeMergeError
 
-
 MANAGED_KEY = "x-rosclaw.managed"
 
 

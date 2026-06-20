@@ -1,0 +1,98 @@
+{
+  "$schema": "https://schemas.rosclaw.io/mcp/hardware-manifest.schema.json",
+  "schemaVersion": "1.0.0",
+  "id": "io.rosclaw.hardware.unitree-g1",
+  "name": "unitree-g1",
+  "displayName": "Unitree G1 Humanoid",
+  "version": "1.0.0",
+  "channel": "stable",
+  "description": "ROSClaw Hardware MCP for Unitree G1 humanoid robot.",
+  "tags": ["humanoid", "unitree", "ros2"],
+  "categories": ["hardware"],
+  "license": "MIT",
+  "publisher": {
+    "name": "ROSClaw Project",
+    "namespace": "io.rosclaw.hardware",
+    "homepage": "https://rosclaw.io",
+    "support": "mcp@rosclaw.io",
+    "verified": true
+  },
+  "artifact": {
+    "type": "python",
+    "package": "rosclaw-mcp-unitree-g1",
+    "version": "1.0.0",
+    "entrypoint": "rosclaw_mcp_unitree_g1.server:main",
+    "install": "pip install rosclaw-mcp-unitree-g1==1.0.0"
+  },
+  "mcp": {
+    "serverName": "unitree-g1",
+    "transport": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "rosclaw_mcp_unitree_g1.server"]
+    },
+    "capabilities": {"tools": true, "resources": true}
+  },
+  "hardware": {
+    "type": "robot",
+    "vendor": "Unitree",
+    "models": ["G1"],
+    "connection": {"modes": ["ros2"], "defaultMode": "ros2"}
+  },
+  "eurdf": {
+    "profiles": [{"id": "unitree-g1", "version": "1.0.0", "required": true}],
+    "defaultProfile": "unitree-g1"
+  },
+  "bodyBinding": {
+    "bodyType": "unitree-g1",
+    "bindingKey": "unitree_g1",
+    "requiredFields": ["robot.model", "robot.serial", "robot.eurdf_profile"],
+    "writePaths": {"mcpBinding": "mcp_bindings.unitree_g1"},
+    "template": {
+      "mcp_bindings": {
+        "unitree_g1": {
+          "server": "rosclaw-unitree-g1",
+          "manifest_id": "io.rosclaw.hardware.unitree-g1"
+        }
+      }
+    }
+  },
+  "permissions": {
+    "required": [
+      {"id": "mcp:tools:read", "level": "safe", "description": "List and call MCP tools"},
+      {"id": "mcp:resources:read", "level": "safe", "description": "Read resource URIs"},
+      {"id": "mcp:prompts:read", "level": "guarded", "description": "Read safety prompts"}
+    ],
+    "optional": [
+      {"id": "mcp:logging:write", "level": "safe", "description": "Forward server logs"}
+    ]
+  },
+  "install": {
+    "preflight": [
+      {"id": "python_version", "command": "python3 --version", "required": true}
+    ],
+    "postInstall": [{"id": "relink_body", "action": "rosclaw body relink"}]
+  },
+  "health": {
+    "checks": [
+      {"id": "install_integrity", "category": "install", "required": true},
+      {"id": "protocol_stdio", "category": "protocol", "required": true},
+      {"id": "eurdf_binding", "category": "binding", "required": true}
+    ]
+  },
+  "claude": {
+    "scopeDefault": "project",
+    "mcpJson": {
+      "mcpServers": {
+        "unitree-g1": {
+          "type": "stdio",
+          "command": "${ROSCLAW_HOME:-${HOME}/.rosclaw}/mcp/bin/rosclaw-mcp-run",
+          "args": ["unitree-g1"],
+          "env": {"ROSCLAW_HOME": "${ROSCLAW_HOME:-${HOME}/.rosclaw}"}
+        }
+      }
+    }
+  },
+  "compatibility": {"rosDistros": ["humble", "jazzy"], "python": ">=3.10", "rosclaw": ">=1.0.0"},
+  "lifecycle": {"deprecated": false}
+}

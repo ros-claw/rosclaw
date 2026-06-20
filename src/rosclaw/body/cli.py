@@ -17,7 +17,7 @@ import yaml
 
 from rosclaw.body.compiler import compute_checksum
 from rosclaw.body.diff import BodyDiffer
-from rosclaw.body.fleet import FleetCompatibilityAggregator
+from rosclaw.body.fleet import FleetCompatibilityAggregator, discover_skill_manifests
 from rosclaw.body.notes import MaintenanceLog
 from rosclaw.body.query import BodyQueryEngine
 from rosclaw.body.registry import BodyRegistryError, BodyRegistryManager
@@ -28,7 +28,6 @@ from rosclaw.body.schema import (
     CalibrationYaml,
     MaintenanceEvent,
     SkillCompatibilityReport,
-    SkillManifest,
 )
 from rosclaw.body.validator import BodyValidator
 from rosclaw.body.validators import parse_set_expression, validate_update_path
@@ -1473,7 +1472,7 @@ def cmd_body_export(args: argparse.Namespace) -> int:
 def cmd_body_fleet_compat(args: argparse.Namespace) -> int:
     """Aggregate skill compatibility across all bodies in the workspace."""
     workspace = Path(args.workspace) if args.workspace else Path.home() / ".rosclaw"
-    manifests = _discover_skill_manifests(workspace)
+    manifests = discover_skill_manifests(workspace)
     aggregator = FleetCompatibilityAggregator(workspace)
     report = aggregator.aggregate(manifests)
 
@@ -1502,18 +1501,6 @@ def cmd_body_fleet_compat(args: argparse.Namespace) -> int:
         for status, count in body_report.summary.items():
             print(f"  {status}: {count}")
     return 0
-
-
-def _discover_skill_manifests(workspace: Path) -> list[SkillManifest]:
-    """Discover skill manifests under workspace/skills."""
-    skills_dir = workspace / "skills"
-    if not skills_dir.exists():
-        return []
-    manifests: list[SkillManifest] = []
-    for path in skills_dir.rglob("*.skill.yaml"):
-        with contextlib.suppress(Exception):
-            manifests.append(SkillManifest.from_yaml(path))
-    return manifests
 
 
 def _utc_now() -> str:

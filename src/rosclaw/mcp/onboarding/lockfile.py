@@ -42,7 +42,7 @@ class LockedPackage:
         return result
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "LockedPackage":
+    def from_dict(cls, data: dict[str, Any]) -> LockedPackage:
         extra = {
             k: v
             for k, v in data.items()

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "existing-server": {
+      "type": "stdio",
+      "command": "existing-cmd",
+      "args": []
+    }
+  }
+}

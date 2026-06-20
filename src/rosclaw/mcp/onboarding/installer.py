@@ -8,7 +8,6 @@ and local state updates. Every mutating operation is tracked by a
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 import uuid
@@ -19,7 +18,7 @@ from typing import Any, Protocol
 
 from rosclaw.firstboot.workspace import resolve_home
 from rosclaw.mcp.onboarding.binding import BindingResult, BodyBindingManager
-from rosclaw.mcp.onboarding.claude_merge import ClaudeMergeResult, ClaudeMcpMerge
+from rosclaw.mcp.onboarding.claude_merge import ClaudeMcpMerge, ClaudeMergeResult
 from rosclaw.mcp.onboarding.errors import (
     InstallationError,
     OnboardingError,
@@ -29,7 +28,7 @@ from rosclaw.mcp.onboarding.errors import (
 )
 from rosclaw.mcp.onboarding.hub_client import HubClient
 from rosclaw.mcp.onboarding.installed import InstalledRecord, InstalledRegistry
-from rosclaw.mcp.onboarding.lockfile import Lockfile, LockedPackage
+from rosclaw.mcp.onboarding.lockfile import LockedPackage, Lockfile
 from rosclaw.mcp.onboarding.permissions import PermissionState, PermissionStore
 from rosclaw.mcp.onboarding.preflight import PreflightRunner
 from rosclaw.mcp.onboarding.resolver import AliasResolver, SolvedVersion, VersionSolver
@@ -121,10 +120,7 @@ class PythonPackageInstaller:
     ) -> dict[str, Any]:
         package = artifact.package or manifest.name
         version = artifact.version or manifest.version
-        if artifact.install:
-            cmd = artifact.install
-        else:
-            cmd = f"{sys.executable} -m pip install {package}=={version}"
+        cmd = artifact.install or f"{sys.executable} -m pip install {package}=={version}"
 
         if dry_run:
             return {
@@ -347,14 +343,7 @@ class InstallEngine:
             version=solved.version,
         )
 
-        # Preflight checks (dry-run reports success without executing).
-        try:
-            self.preflight_runner.run(manifest, dry_run=dry_run)
-        except PreflightError as exc:
-            result.errors.append(str(exc))
-            return result
-
-        # Permission effective state.
+        # Permission effective state and forbidden check before preflight.
         permissions = manifest.permissions
         permission_state: PermissionState = PermissionState()
         if permissions:
@@ -367,6 +356,13 @@ class InstallEngine:
                     f"Manifest requires forbidden permissions: {', '.join(forbidden)}"
                 )
             result.permission_state = permission_state
+
+        # Preflight checks (dry-run reports success without executing).
+        try:
+            self.preflight_runner.run(manifest, dry_run=dry_run)
+        except PreflightError as exc:
+            result.errors.append(str(exc))
+            return result
 
         if dry_run:
             # Simulate the remaining steps.
@@ -382,7 +378,7 @@ class InstallEngine:
             if manifest.claude and not skip_claude:
                 result.claude_result = ClaudeMergeResult(
                     path=mcp_json_path,
-                    server_name=server_name,
+                    server_name=manifest.claude_server_name,
                     action="dry-run:merge",
                 )
             result.installed_record = InstalledRecord(
@@ -441,8 +437,9 @@ class InstallEngine:
             # Claude .mcp.json merge.
             claude_result: ClaudeMergeResult | None = None
             if not skip_claude and manifest.claude and manifest.claude.mcp_json:
+                claude_server_name = manifest.claude_server_name
                 claude_result = self.claude_merge.merge(
-                    server_name=server_name,
+                    server_name=claude_server_name,
                     manifest_id=manifest_id,
                     version=solved.version,
                     mcp_json_fragment=manifest.claude.mcp_json,

@@ -201,6 +201,7 @@ class BodyYaml:
     runtime_overlay: dict[str, Any] = field(default_factory=dict)
     agent_policy: dict[str, Any] = field(default_factory=dict)
     rendering: dict[str, Any] = field(default_factory=dict)
+    mcp_bindings: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BodyYaml:
@@ -361,6 +362,7 @@ class EffectiveBody:
     provider_interfaces: dict[str, Any] = field(default_factory=dict)
     sandbox: dict[str, Any] = field(default_factory=dict)
     source_trace: dict[str, str] = field(default_factory=dict)
+    readiness: dict[str, Any] = field(default_factory=dict)
     known_faults: list[dict[str, Any]] = field(default_factory=list)
     known_successes: list[dict[str, Any]] = field(default_factory=list)
     known_failures: list[dict[str, Any]] = field(default_factory=list)

@@ -11,6 +11,17 @@ from typing import Any
 
 from rosclaw.sense.schemas import BodyState
 
+DEFAULT_THERMAL_THRESHOLDS = {
+    "warm": 50.0,
+    "hot": 65.0,
+    "overheat": 80.0,
+}
+
+DEFAULT_COMPUTE_THRESHOLDS = {
+    "high": 85.0,
+    "critical": 95.0,
+}
+
 
 DEFAULT_THERMAL_THRESHOLDS = {
     "warm": 50.0,
