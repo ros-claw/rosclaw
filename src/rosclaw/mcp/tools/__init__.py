@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import functools
+import inspect
 import json
+import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -28,11 +31,17 @@ def _client() -> RuntimeClient:
 
 
 def _tool_wrapper(name: str, coro_factory: Callable[..., Any]) -> ToolFunc:
-    """Wrap a tool coroutine so it returns a JSON envelope and catches errors."""
-    import functools
-    import uuid
+    """Wrap a tool coroutine so it returns a JSON envelope and catches errors.
 
-    @functools.wraps(coro_factory)
+    The wrapper preserves the original tool signature so that FastMCP can expose
+    accurate input schemas, but declares a ``str`` return type so the JSON
+    envelope is treated as unstructured text content.
+    """
+
+    @functools.wraps(
+        coro_factory,
+        assigned=("__module__", "__name__", "__qualname__", "__doc__"),
+    )
     async def wrapper(*args: Any, **kwargs: Any) -> str:
         trace_id = str(uuid.uuid4())
         try:
@@ -48,8 +57,15 @@ def _tool_wrapper(name: str, coro_factory: Callable[..., Any]) -> ToolFunc:
             )
         return json.dumps(envelope, ensure_ascii=False, default=str)
 
+    # Preserve the original parameter schema for MCP discovery, but force the
+    # return annotation to ``str`` so FastMCP does not try to validate the JSON
+    # envelope as structured output. Remove ``__wrapped__`` so introspection does
+    # not follow the chain back to the original dict-returning signature.
+    original_sig = inspect.signature(coro_factory)
+    wrapper.__signature__ = original_sig.replace(return_annotation=str)
+    wrapper.__annotations__ = {**coro_factory.__annotations__, "return": str}
     wrapper.__name__ = name
-    wrapper.__doc__ = coro_factory.__doc__
+    wrapper.__dict__.pop("__wrapped__", None)
     return wrapper
 
 

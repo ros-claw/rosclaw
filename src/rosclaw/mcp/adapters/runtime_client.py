@@ -137,7 +137,7 @@ class RuntimeClient:
             readiness = sense.get_readiness()
             return {
                 "robot_id": self.robot_id,
-                "mode": "live" if not sense.is_stale else "stale",
+                "mode": "live" if not getattr(sense, "is_stale", True) else "stale",
                 "body_state": self._safe_dict(latest),
                 "body_sense": self._safe_dict(body_sense),
                 "readiness": self._safe_dict(readiness),
