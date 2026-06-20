@@ -79,6 +79,9 @@ Repository = "https://github.com/ros-claw/rosclaw"
 Documentation = "https://docs.rosclaw.io"
 "Bug Tracker" = "https://github.com/ros-claw/rosclaw/issues"
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/rosclaw"]
 
