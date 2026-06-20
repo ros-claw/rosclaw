@@ -118,7 +118,6 @@ def _run_with_capture(*argv: str) -> str:
     from io import StringIO
 
     out = StringIO()
-    with patch.object(sys, "argv", ["rosclaw", *argv]):
-        with patch("sys.stdout", new=out):
-            rosclaw_main()
+    with patch.object(sys, "argv", ["rosclaw", *argv]), patch("sys.stdout", new=out):
+        rosclaw_main()
     return out.getvalue()

@@ -21,6 +21,12 @@ async def test_p0_tools_contains_exactly_seven() -> None:
         "sandbox_run",
         "practice_query",
         "emergency_stop",
+        "list_bodies",
+        "get_body",
+        "switch_body",
+        "list_body_history",
+        "check_skill_compatibility",
+        "fleet_skill_compatibility",
     }
     assert names == expected
 

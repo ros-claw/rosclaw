@@ -29,12 +29,16 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 from rosclaw.agent.doctor import add_doctor_parser as _add_agent_doctor_parser
 from rosclaw.agent.init_claude_code import add_init_parser as _add_agent_init_parser
 from rosclaw.agent.test_claude_code import add_test_parser as _add_agent_test_parser
 from rosclaw.body.cli import add_body_subparser, dispatch_body_command
+from rosclaw.body.registry import BodyRegistryManager
+from rosclaw.body.resolver import BodyResolver
 from rosclaw.connectors.ros.cli import add_ros_subparser, cmd_doctor_ros, dispatch_ros_command
+from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.firstboot.wizard import run_firstboot
 from rosclaw.firstboot.workspace import resolve_home
 from rosclaw.hub.cli import add_hub_subparser, dispatch_hub_command
@@ -2721,6 +2725,77 @@ def cmd_stop(_args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_fleet_status(args: argparse.Namespace) -> int:
+    """Show fleet-wide body status and readiness summary."""
+    workspace = Path(args.workspace) if args.workspace else Path.home() / ".rosclaw"
+    manager = BodyRegistryManager(workspace)
+    bodies = manager.list_bodies()
+
+    rows: list[dict[str, Any]] = []
+    for entry in bodies:
+        row: dict[str, Any] = {
+            "body_id": entry.body_id,
+            "nickname": entry.nickname,
+            "profile_id": entry.profile_id,
+            "current": entry.body_id == manager.get_current_body_id(),
+            "linked": False,
+            "readiness": "unknown",
+        }
+        with contextlib.suppress(Exception):
+            resolver = BodyResolver(workspace, body_id=entry.body_id)
+            row["linked"] = resolver.is_linked()
+            if resolver.is_linked():
+                effective = resolver.get_effective_body(recompile_if_stale=False)
+                row["readiness"] = effective.readiness.get("overall", "unknown")
+        rows.append(row)
+
+    if args.json:
+        print(json.dumps({"current": manager.get_current_body_id(), "bodies": rows}, indent=2, default=str))
+        return 0
+
+    print(f"Fleet status ({len(rows)} bodies, current: {manager.get_current_body_id()})")
+    for row in rows:
+        marker = "*" if row["current"] else " "
+        print(
+            f" {marker} {row['body_id']:<20} {row['profile_id']:<20} "
+            f"linked={row['linked']:<5} readiness={row['readiness']}"
+        )
+    return 0
+
+
+def cmd_fleet_stop(args: argparse.Namespace) -> int:
+    """Broadcast an emergency stop event for every registered body."""
+    workspace = Path(args.workspace) if args.workspace else Path.home() / ".rosclaw"
+    manager = BodyRegistryManager(workspace)
+    bodies = manager.list_bodies()
+    if not bodies:
+        print("[ROSClaw] No bodies registered; nothing to stop.")
+        return 0
+
+    # Publish an event for each body. If the runtime is not running, the
+    # event bus will have no subscribers, so we still advise physical E-stop.
+    bus = EventBus()
+    for entry in bodies:
+        event = Event(
+            topic="robot.emergency_stop",
+            payload={
+                "reason": args.reason,
+                "source": "rosclaw.fleet.stop",
+                "body_id": entry.body_id,
+            },
+            source="rosclaw.cli",
+            priority=EventPriority.CRITICAL,
+        )
+        bus.publish(event)
+        print(f"[ROSClaw] Emergency stop event published for body '{entry.body_id}': {args.reason}")
+
+    print(
+        "[ROSClaw] Fleet stop broadcast complete. If the runtime is not running, "
+        "activate each robot's physical E-stop manually."
+    )
+    return 0
+
+
 def cmd_restart(args: argparse.Namespace) -> int:
     """Restart ROSClaw runtime."""
     print("[ROSClaw] Restarting runtime...")
@@ -3087,6 +3162,18 @@ def main() -> int:
     sense_explain_parser.add_argument("--mock", default="normal", help="Mock scenario")
     sense_explain_parser.add_argument("--robot-id", default="g1_lab_01", help="Robot identifier")
 
+    # fleet subcommand
+    fleet_parser = subparsers.add_parser("fleet", help="Fleet-wide body operations")
+    fleet_subparsers = fleet_parser.add_subparsers(dest="fleet_command")
+
+    fleet_status_parser = fleet_subparsers.add_parser("status", help="Show fleet status")
+    fleet_status_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    fleet_status_parser.add_argument("--json", action="store_true", help="Output JSON")
+
+    fleet_stop_parser = fleet_subparsers.add_parser("stop", help="Broadcast emergency stop to all bodies")
+    fleet_stop_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    fleet_stop_parser.add_argument("--reason", default="fleet emergency stop", help="Stop reason")
+
     # demo subcommand
     demo_parser = subparsers.add_parser("demo", help="Run demonstration scenarios")
     demo_subparsers = demo_parser.add_subparsers(dest="demo_command")
@@ -3351,6 +3438,14 @@ def main() -> int:
             return args.func(args)
         mcp_parser.print_help()
         return 1
+    elif args.command == "fleet":
+        if args.fleet_command == "status":
+            return cmd_fleet_status(args)
+        elif args.fleet_command == "stop":
+            return cmd_fleet_stop(args)
+        else:
+            fleet_parser.print_help()
+            return 1
     else:
         parser.print_help()
         return 1

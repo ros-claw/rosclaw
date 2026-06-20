@@ -92,6 +92,36 @@ async def _emergency_stop(reason: str) -> dict[str, Any]:
     return await _client().emergency_stop(reason)
 
 
+async def _list_bodies() -> dict[str, Any]:
+    """List all registered bodies in the workspace."""
+    return await _client().list_bodies()
+
+
+async def _get_body(body_id: str) -> dict[str, Any]:
+    """Get registry entry and effective body snapshot for a specific body."""
+    return await _client().get_body(body_id)
+
+
+async def _switch_body(body_id: str) -> dict[str, Any]:
+    """Switch the active body pointer (registry-only config change)."""
+    return await _client().switch_body(body_id)
+
+
+async def _list_body_history(body_id: str) -> dict[str, Any]:
+    """List snapshot history for a specific body."""
+    return await _client().list_body_history(body_id)
+
+
+async def _check_skill_compatibility() -> dict[str, Any]:
+    """Check skill compatibility for the current body."""
+    return await _client().check_skill_compatibility()
+
+
+async def _fleet_skill_compatibility() -> dict[str, Any]:
+    """Aggregate skill compatibility across all bodies in the workspace."""
+    return await _client().fleet_skill_compatibility()
+
+
 # Expose wrapped tool functions for FastMCP registration.
 get_robot_state = _tool_wrapper("get_robot_state", _get_robot_state)
 list_skills = _tool_wrapper("list_skills", _list_skills)
@@ -100,6 +130,12 @@ validate_trajectory = _tool_wrapper("validate_trajectory", _validate_trajectory)
 sandbox_run = _tool_wrapper("sandbox_run", _sandbox_run)
 practice_query = _tool_wrapper("practice_query", _practice_query)
 emergency_stop = _tool_wrapper("emergency_stop", _emergency_stop)
+list_bodies = _tool_wrapper("list_bodies", _list_bodies)
+get_body = _tool_wrapper("get_body", _get_body)
+switch_body = _tool_wrapper("switch_body", _switch_body)
+list_body_history = _tool_wrapper("list_body_history", _list_body_history)
+check_skill_compatibility = _tool_wrapper("check_skill_compatibility", _check_skill_compatibility)
+fleet_skill_compatibility = _tool_wrapper("fleet_skill_compatibility", _fleet_skill_compatibility)
 
 P0_TOOLS: list[ToolFunc] = [
     get_robot_state,
@@ -109,6 +145,12 @@ P0_TOOLS: list[ToolFunc] = [
     sandbox_run,
     practice_query,
     emergency_stop,
+    list_bodies,
+    get_body,
+    switch_body,
+    list_body_history,
+    check_skill_compatibility,
+    fleet_skill_compatibility,
 ]
 
 __all__ = ["P0_TOOLS", "set_client", "ToolFunc"]

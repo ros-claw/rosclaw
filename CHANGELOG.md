@@ -5,7 +5,7 @@ All notable changes to ROSClaw will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-06-20
+## [Unreleased] - 2026-06-21
 
 ### Added
 
@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - CLI commands: `rosclaw body link-eurdf`, `inspect`, `diff`, `update-state`, `note`.
   - Generated artifacts: `~/.rosclaw/body/EMBODIMENT.md`, `~/.rosclaw/body/skill_compatibility.yaml`, `generated/*.json` summaries, and historical snapshots.
 
+- **Body Module (P2 multi-body observability and fleet operations)**
+  - `BodyRegistryManager` with multi-body registry, legacy migration, and archive-on-remove.
+  - `BodyResolver` routing by `body_id` with `--body` CLI selector and legacy fallback.
+  - `FleetCompatibilityAggregator` in `src/rosclaw/body/fleet.py` for cross-body skill compatibility aggregation.
+  - New CLI commands: `rosclaw body fleet-compat`, `rosclaw fleet status`, `rosclaw fleet stop`.
+  - New MCP tools: `list_bodies`, `get_body`, `switch_body`, `list_body_history`, `check_skill_compatibility`, `fleet_skill_compatibility`.
+  - Dashboard `/api/body` endpoint, `/body` HTML page, and WebSocket body section.
+
 ### Changed
 
 - `SkillExecutor._check_body_compatibility()` is now **fail-closed**: resolver
@@ -31,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   diff, update-state, notes, skill compatibility, and cross-module references.
 - Added `TestSkillExecutorBodyCheck` to verify fail-closed behavior on resolver
   errors and unknown compatibility.
+- Added `tests/body/test_multi_body_registry.py`, `tests/body/test_fleet_compatibility.py`,
+  `tests/mcp/test_body_tools.py`, and `tests/dashboard/test_body_page.py`.
 
 ## [1.0.0] - 2026-05-28
 

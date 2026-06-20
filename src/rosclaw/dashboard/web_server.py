@@ -11,6 +11,69 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from .metrics import DashboardMetrics
 from .server import DashboardServer
 
+_BODY_PAGE_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ROSClaw Body</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; margin: 2rem; background: #0f172a; color: #e2e8f0; }
+    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    .card { background: #1e293b; border-radius: 0.5rem; padding: 1rem; margin: 1rem 0; }
+    .muted { color: #94a3b8; }
+    .status { font-weight: bold; }
+    ul { padding-left: 1.2rem; }
+    pre { background: #0f172a; padding: 0.75rem; border-radius: 0.25rem; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>ROSClaw Body Dashboard</h1>
+  <div id="current" class="card">Loading...</div>
+  <div id="bodies" class="card">
+    <h2>Registry</h2>
+    <ul id="bodies-list"></ul>
+  </div>
+  <div id="compatibility" class="card">
+    <h2>Compatibility</h2>
+    <pre id="compatibility-json">No compatibility data yet.</pre>
+  </div>
+
+  <script>
+    async function fetchBody() {
+      try {
+        const res = await fetch('/api/body');
+        const data = await res.json();
+        document.getElementById('current').innerHTML =
+          `<div>Current body: <span class="status">${data.current || 'none'}</span></div>` +
+          `<div class="muted">Workspace: ${data.workspace || ''}</div>`;
+        const list = document.getElementById('bodies-list');
+        list.innerHTML = (data.bodies || []).map(b =>
+          `<li><strong>${b.body_id}</strong> — ${b.nickname || b.body_id} (${b.profile_id || 'unknown'})</li>`
+        ).join('');
+        document.getElementById('compatibility-json').textContent =
+          JSON.stringify(data.compatibility || {}, null, 2);
+      } catch (err) {
+        document.getElementById('current').innerHTML = `<div class="muted">Error: ${err.message}</div>`;
+      }
+    }
+    fetchBody();
+    setInterval(fetchBody, 5000);
+
+    const ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'snapshot' && msg.data && msg.data.body) {
+        document.getElementById('compatibility-json').textContent =
+          JSON.stringify(msg.data.body.compatibility || {}, null, 2);
+      }
+    };
+    ws.onopen = () => ws.send(JSON.stringify({type: 'ping'}));
+  </script>
+</body>
+</html>
+"""
+
 
 class WebSocketClient:
     """Adapter to make FastAPI WebSocket look like DashboardServer client."""
@@ -64,6 +127,15 @@ class DashboardWebServer:
         @self.app.get("/snapshot")
         async def snapshot() -> dict[str, Any]:
             return self.server.get_snapshot()
+
+        @self.app.get("/api/body")
+        async def api_body() -> dict[str, Any]:
+            return self.server.get_body_summary()
+
+        @self.app.get("/body")
+        async def body_page() -> Any:
+            from fastapi.responses import HTMLResponse
+            return HTMLResponse(_BODY_PAGE_HTML)
 
         @self.app.get("/events/counts")
         async def event_counts() -> dict[str, int]:
@@ -124,6 +196,7 @@ class DashboardWebServer:
             try:
                 # Send initial snapshot
                 snapshot = self.server.get_snapshot()
+                snapshot["body"] = self.server.get_body_summary()
                 await websocket.send_text(json.dumps({"type": "snapshot", "data": snapshot}))
                 # Keep connection alive and handle incoming messages
                 while True:

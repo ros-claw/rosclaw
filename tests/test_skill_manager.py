@@ -1,11 +1,20 @@
 """Tests for Skill Manager."""
 
+from pathlib import Path
+
 import pytest
+from pytest import MonkeyPatch
 
 from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.skill_manager.executor import SkillExecutor
 from rosclaw.skill_manager.loader import SkillLoader
 from rosclaw.skill_manager.registry import SkillEntry, SkillRegistry
+
+
+@pytest.fixture(autouse=True)
+def isolated_home(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    """Isolate tests from the real ~/.rosclaw workspace."""
+    monkeypatch.setenv("HOME", str(tmp_path))
 
 
 def test_skill_registry_register():

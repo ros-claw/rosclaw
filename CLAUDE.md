@@ -27,6 +27,12 @@ Read-only / simulation / emergency tools only:
 | `validate_trajectory` | S2 validated-plan | Plan validation, never real motion |
 | `sandbox_run` | S1 simulation-only | MuJoCo simulation only |
 | `emergency_stop` | S4 emergency | Halt all motion immediately |
+| `list_bodies` | S0 read-only | List registered bodies in the workspace |
+| `get_body` | S0 read-only | Get registry entry and effective body snapshot |
+| `switch_body` | S0 config | Change the active body pointer (no motion) |
+| `list_body_history` | S0 read-only | List body snapshot history |
+| `check_skill_compatibility` | S0 read-only | Check skill compatibility for the current body |
+| `fleet_skill_compatibility` | S0 read-only | Aggregate skill compatibility across all bodies |
 
 There is **no real-execution tool** in P0. Any request to move the real robot
 must be refused or routed through `validate_trajectory` + operator confirmation.

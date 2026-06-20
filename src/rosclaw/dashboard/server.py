@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+from pathlib import Path
 from typing import Any
 
 from rosclaw.core.event_topics import EventTopics
+
 from .metrics import DashboardMetrics
 
 
@@ -165,6 +167,40 @@ class DashboardServer:
                 })
         return robots
 
+    def get_body_summary(self, workspace: Path | str | None = None) -> dict[str, Any]:
+        """Return body registry summary plus latest sense and compatibility."""
+        from rosclaw.body.registry import BodyRegistryManager
+        from rosclaw.body.resolver import BodyResolver
+
+        ws = Path(workspace) if workspace else Path.home() / ".rosclaw"
+        try:
+            manager = BodyRegistryManager(ws)
+            bodies = manager.list_bodies()
+            current_id = manager.get_current_body_id()
+        except Exception as exc:  # noqa: BLE001
+            return {"error": str(exc), "workspace": str(ws)}
+
+        current_body: dict[str, Any] | None = None
+        compatibility: dict[str, Any] | None = None
+        if current_id and manager.has_body(current_id):
+            with contextlib.suppress(Exception):
+                resolver = BodyResolver(ws, body_id=current_id)
+                current_body = {
+                    "body_id": resolver.body_id,
+                    "linked": resolver.is_linked(),
+                    "body_dir": str(resolver.body_dir),
+                }
+                compatibility = resolver.get_skill_compatibility().to_dict()
+
+        return {
+            "current": current_id,
+            "workspace": str(ws),
+            "bodies": [b.to_dict() for b in bodies],
+            "sense": self.metrics.get_body_sense_stats(),
+            "current_body": current_body,
+            "compatibility": compatibility,
+        }
+
 
     # ── Auto Evolution API ──
 
@@ -198,6 +234,7 @@ class DashboardServer:
         while self._running:
             try:
                 snapshot = self.metrics.snapshot()
+                snapshot["body"] = self.get_body_summary()
                 message = json.dumps({"type": "snapshot", "data": snapshot})
                 await self._broadcast(message)
                 await asyncio.sleep(self.update_interval_sec)

@@ -10,7 +10,6 @@ from rosclaw.body.compiler import EffectiveBodyCompiler
 from rosclaw.body.registry import BodyRegistryManager
 from rosclaw.body.resolver import BodyResolver
 from rosclaw.body.schema import (
-    EffectiveBody,
     FleetCompatibilityReport,
     SkillCompatibilityReport,
     SkillManifest,

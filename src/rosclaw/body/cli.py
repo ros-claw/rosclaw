@@ -718,7 +718,6 @@ def cmd_body_calibration(args: argparse.Namespace) -> int:
         print(f"[ROSClaw] Calibration file not found: {src}")
         return 1
 
-    import shutil
     shutil.copy2(src, resolver.calibration_yaml_path)
 
     body_yaml = resolver.get_current_body_yaml()
@@ -1144,7 +1143,7 @@ def _record_body_change_events(
     except Exception:
         return
 
-    try:
+    with contextlib.suppress(Exception):
         memory.store_experience(
             event_id=f"body-change-{uuid.uuid4().hex}",
             event_type="body_change",
@@ -1156,12 +1155,10 @@ def _record_body_change_events(
                 "reason": reason,
             },
         )
-    except Exception:
-        pass
 
     if report is None:
         return
-    try:
+    with contextlib.suppress(Exception):
         memory.store_experience(
             event_id=f"skill-compat-{uuid.uuid4().hex}",
             event_type="skill_compatibility_change",
@@ -1174,8 +1171,6 @@ def _record_body_change_events(
                 "summary": report.summary,
             },
         )
-    except Exception:
-        pass
 
 
 def cmd_body_update_state(args: argparse.Namespace) -> int:

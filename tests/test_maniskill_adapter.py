@@ -23,6 +23,8 @@ maniskill = pytest.importorskip(
     reason="ManiSkill not installed. Run: pip install mani-skill",
 )
 
+pytestmark = pytest.mark.integration
+
 from rosclaw.mcp_drivers.maniskill_adapter import ManiSkillAdapter  # noqa: E402
 
 

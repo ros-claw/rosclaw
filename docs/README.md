@@ -62,6 +62,7 @@ Welcome to the ROSClaw documentation index. This directory contains all project 
 - **[body/BODY_REGISTRY.md](body/BODY_REGISTRY.md)** — Multi-body registry, `list`/`create`/`switch`/`remove`, and `--body` routing
 - **[body/BODY_HISTORY_EXPORT.md](body/BODY_HISTORY_EXPORT.md)** — Body snapshots, `history`, `export`, and restoration workflow
 - **[body/SKILL_COMPATIBILITY.md](body/SKILL_COMPATIBILITY.md)** — Skill compatibility statuses and enforcement
+- **[body/FLEET_OPERATIONS.md](body/FLEET_OPERATIONS.md)** — Fleet-wide compatibility aggregation and fleet CLI commands
 - **[body/URI_SCHEME.md](body/URI_SCHEME.md)** — Stable `rosclaw://` references to body and e-URDF resources
 
 ## Practice

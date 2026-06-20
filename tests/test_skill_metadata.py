@@ -9,8 +9,11 @@ P1 Issue 4: https://github.com/ros-claw/rosclaw-v1.0/issues/XXX
 """
 
 import time
+from pathlib import Path
+from typing import Any
 
 import pytest
+from pytest import MonkeyPatch
 
 from rosclaw.core.event_bus import EventBus
 from rosclaw.memory.seekdb_client import SeekDBMemoryClient
@@ -18,8 +21,14 @@ from rosclaw.skill_manager.executor import SkillExecutor
 from rosclaw.skill_manager.registry import SkillEntry, SkillRegistry
 
 
+@pytest.fixture(autouse=True)
+def isolated_home(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    """Isolate tests from the real ~/.rosclaw workspace."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+
 @pytest.fixture
-def env():
+def env() -> Any:
     """Test environment: EventBus + Registry + SeekDB + Executor."""
     bus = EventBus()
     registry = SkillRegistry(event_bus=bus)

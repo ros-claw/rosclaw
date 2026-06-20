@@ -33,7 +33,7 @@ from rosclaw.know.interface import KnowledgeInterface
 
 DEFAULT_HOW_URL = os.environ.get("ROSCLAW_HOW_ENDPOINT", "http://127.0.0.1:47820")
 
-pytestmark = pytest.mark.usefixtures("_rosclaw_how_service")
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_rosclaw_how_service")]
 
 
 # Canonical failure descriptions drawn from rosclaw-know routing_canary.json.

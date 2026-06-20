@@ -40,6 +40,8 @@ async def test_mcp_hub_handle_move_joints_timeout():
     bus = EventBus()
     hub = MCPHub(bus, robot_id="test")
     hub.initialize()
+    # Use a short timeout so the no-response fallback is exercised quickly.
+    hub._default_timeout = 1.0
     # No response handler registered, so it should timeout and fallback
     result = await hub.handle_tool_call("move_joints", {"joint_positions": [0.1] * 6, "duration": 1.0})
     assert result["status"] == "command_issued"
@@ -80,6 +82,8 @@ async def test_mcp_hub_handle_grasp():
     bus = EventBus()
     hub = MCPHub(bus, robot_id="test")
     hub.initialize()
+    # Short timeout so the no-response fallback runs quickly.
+    hub._default_timeout = 1.0
     result = await hub.handle_tool_call("grasp", {"action": "close", "force": 0.8})
     assert result["status"] == "command_issued"
     hub.stop()
