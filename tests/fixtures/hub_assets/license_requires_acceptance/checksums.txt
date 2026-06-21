@@ -1,2 +1,2 @@
-sha256:b1db9fe66cda43abcdf24d644c29ba975f245c9df31c05d16e7dba95fed67575  manifest.yaml
+sha256:dc89ec847d82275da794a776f24e54620de6fd52da1d6b4af1de6f73517cda0e  manifest.yaml
 sha256:c315dcd71f924e436ae842110a5c40a6fe8b8b278ec55ab73dd1f5ba3f030a3a  artifacts/mcp_server

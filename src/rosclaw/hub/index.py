@@ -77,7 +77,9 @@ def _sanitize_registry(name: str) -> str:
 
 def _entry_id(entry: dict[str, Any]) -> str:
     asset = entry.get("asset", {})
-    return f"{asset.get('type')}:{asset.get('namespace')}:{asset.get('name')}:{asset.get('version')}"
+    return (
+        f"{asset.get('type')}:{asset.get('namespace')}:{asset.get('name')}:{asset.get('version')}"
+    )
 
 
 def _json_list(value: Any) -> str:
@@ -300,7 +302,7 @@ class CatalogIndex:
             sql = f"""
                 SELECT c.raw_json FROM catalog c
                 {where}
-                {conjunction} ({' OR '.join(like_filters)})
+                {conjunction} ({" OR ".join(like_filters)})
                 LIMIT :limit
             """
         else:
@@ -319,8 +321,8 @@ class CatalogIndex:
         platform = detect_platform()
         current_os = platform.os.lower()
         current_arch = platform.arch
-        params["current_os"] = f'%{current_os}%'
-        params["current_arch"] = f'%{current_arch}%'
+        params["current_os"] = f"%{current_os}%"
+        params["current_arch"] = f"%{current_arch}%"
         return "(c.os LIKE :current_os AND c.arch LIKE :current_arch)"
 
     def count(self) -> int:
@@ -333,7 +335,5 @@ class CatalogIndex:
         """Return a single catalog entry by its canonical reference."""
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            row = conn.execute(
-                "SELECT raw_json FROM catalog WHERE id = ?", (ref,)
-            ).fetchone()
+            row = conn.execute("SELECT raw_json FROM catalog WHERE id = ?", (ref,)).fetchone()
         return json.loads(row["raw_json"]) if row else None

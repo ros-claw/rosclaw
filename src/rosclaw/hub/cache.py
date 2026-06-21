@@ -29,7 +29,7 @@ class HubCache:
 
     def __init__(self, home: str | Path | None = None) -> None:
         home_arg = str(home) if isinstance(home, Path) else home
-        self.home = resolve_home(home_arg)
+        self.home = cast(Path, resolve_home(home_arg))
         self.hub_root = self.home / "hub"
         self.blobs_dir = self.hub_root / "blobs" / "sha256"
         self.manifests_dir = self.hub_root / "manifests"
@@ -65,13 +65,7 @@ class HubCache:
                 message="Cannot store a manifest without a version",
                 suggested_fix="Use a fully-qualified rosclaw:// reference with @version.",
             )
-        return (
-            self.manifests_dir
-            / ref.type
-            / ref.namespace
-            / ref.name
-            / f"{ref.version}.yaml"
-        )
+        return self.manifests_dir / ref.type / ref.namespace / ref.name / f"{ref.version}.yaml"
 
     def blob_path(self, digest: str) -> Path:
         """Return the blob storage path for a content digest."""
@@ -96,13 +90,7 @@ class HubCache:
                 code=HubErrorCode.MANIFEST_INVALID,
                 message="Installed state requires a version",
             )
-        return (
-            self.installed_dir
-            / ref.type
-            / ref.namespace
-            / ref.name
-            / f"{ref.version}.json"
-        )
+        return self.installed_dir / ref.type / ref.namespace / ref.name / f"{ref.version}.json"
 
     def staging_path(self, prefix: str | None = None) -> Path:
         """Create and return a unique staging directory."""

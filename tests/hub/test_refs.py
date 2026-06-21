@@ -86,9 +86,7 @@ class TestParseRefWithVersion:
     """Tests for parse_ref_with_version."""
 
     def test_overrides_version(self) -> None:
-        ref = parse_ref_with_version(
-            "rosclaw://skill/rosclaw/g1-pick-place", version="2.0.0"
-        )
+        ref = parse_ref_with_version("rosclaw://skill/rosclaw/g1-pick-place", version="2.0.0")
         assert ref.version == "2.0.0"
 
     def test_preserves_existing_version_when_no_override(self) -> None:

@@ -117,9 +117,7 @@ class AuthStore:
             return False
         return cast(
             bool,
-            self._data["profiles"]
-            .get(reg.rstrip("/"), {})
-            .get("insecure_local", False),
+            self._data["profiles"].get(reg.rstrip("/"), {}).get("insecure_local", False),
         )
 
     def list_profiles(self) -> list[dict[str, Any]]:

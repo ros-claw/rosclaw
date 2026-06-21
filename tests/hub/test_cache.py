@@ -89,13 +89,18 @@ def test_put_blob_rejects_bad_digest(cache: HubCache) -> None:
     """A mismatched digest raises an error."""
     data = b"hello fake blob"
     with pytest.raises(HubError) as exc_info:
-        cache.put_blob(data, digest="sha256:0000000000000000000000000000000000000000000000000000000000000000")
+        cache.put_blob(
+            data, digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        )
     assert exc_info.value.code == HubErrorCode.CHECKSUM_MISMATCH
 
 
 def test_get_missing_blob(cache: HubCache) -> None:
     """Missing blobs return None instead of raising."""
-    assert cache.get_blob("sha256:0000000000000000000000000000000000000000000000000000000000000000") is None
+    assert (
+        cache.get_blob("sha256:0000000000000000000000000000000000000000000000000000000000000000")
+        is None
+    )
 
 
 def test_installed_state_round_trip(cache: HubCache) -> None:
@@ -127,7 +132,9 @@ def test_list_installed(cache: HubCache) -> None:
     cache.set_installed(ref1, {})
     cache.set_installed(ref2, {})
     refs = cache.list_installed()
-    assert sorted(refs, key=lambda r: r.identity_tuple()) == sorted([ref1, ref2], key=lambda r: r.identity_tuple())
+    assert sorted(refs, key=lambda r: r.identity_tuple()) == sorted(
+        [ref1, ref2], key=lambda r: r.identity_tuple()
+    )
 
 
 def test_staging_path(cache: HubCache) -> None:

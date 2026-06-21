@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
+import jsonschema
 import pytest
 import yaml
 from pydantic import ValidationError
@@ -219,3 +221,58 @@ class TestSchemaExport:
             "digital_twin",
             "cognitive_wiki",
         ]
+
+
+class TestSchemaMetaValidation:
+    """Tests validating the exported JSON Schema and fixtures against it."""
+
+    def _exported_schema(self) -> dict[str, Any]:
+        return AssetManifest.model_json_schema()
+
+    def test_exported_schema_is_valid_json_schema(self) -> None:
+        schema = self._exported_schema()
+        jsonschema.Draft202012Validator.check_schema(schema)
+
+    @pytest.mark.parametrize(
+        "asset_dir",
+        [
+            "skill_valid",
+            "provider_valid",
+            "hardware_mcp_valid",
+            "digital_twin_valid",
+            "cognitive_wiki_valid",
+        ],
+    )
+    def test_valid_fixtures_validate_against_schema(self, asset_dir: str) -> None:
+        raw = yaml.safe_load(
+            (FIXTURES_DIR / asset_dir / "manifest.yaml").read_text(encoding="utf-8")
+        )
+        schema = self._exported_schema()
+        jsonschema.validate(raw, schema)
+
+    def test_invalid_fixture_fails_schema_validation(self) -> None:
+        schema = self._exported_schema()
+        bad = {
+            "schema_version": "hub.asset.v1",
+            "asset": {
+                "type": "not_a_real_type",
+                "namespace": "rosclaw",
+                "name": "minimal-asset",
+                "version": "1.0.0",
+                "title": "Minimal Asset",
+                "summary": "A minimal asset for testing",
+            },
+            "publisher": {"id": "test", "display_name": "Test Publisher"},
+            "visibility": {"scope": "public"},
+            "lifecycle": {"status": "stable"},
+            "compatibility": {},
+            "permissions": {},
+            "license": {},
+            "data_rights": {},
+            "security": {},
+            "artifacts": [],
+            "install": {},
+            "special": {},
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(bad, schema)

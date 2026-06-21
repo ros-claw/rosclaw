@@ -60,6 +60,7 @@ dev = [
     "pytest-cov>=4.0.0",
     "ruff>=0.1.0",
     "mypy>=1.5.0",
+    "jsonschema>=4.0.0",
     "rank-bm25>=0.2",
     "Pillow>=10.0",
     "httpx2>=2.0.0",
@@ -115,6 +116,15 @@ strict = true
 warn_return_any = true
 warn_unused_ignores = true
 ignore_missing_imports = true
+files = ["src/rosclaw/hub"]
+
+[[tool.mypy.overrides]]
+module = "rosclaw.*"
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = "rosclaw.hub.*"
+follow_imports = "normal"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -88,9 +88,7 @@ def check_permissions(
     non_local_inbound = [h for h in inbound if h != "localhost"]
     if non_local_inbound:
         if not allow_network_inbound:
-            result.block(
-                f"Asset requests non-local inbound network access: {non_local_inbound}"
-            )
+            result.block(f"Asset requests non-local inbound network access: {non_local_inbound}")
         result.dangerous_permissions.append("network.inbound")
 
     # Filesystem writes to sensitive areas.
