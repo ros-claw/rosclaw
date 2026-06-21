@@ -126,7 +126,7 @@ jobs:
         run: uv pip install -e ".[dev]" --system
 
       - name: Run ROS deployment smoke test
-        run: pytest tests/connectors/ros/integration/test_ros2_container_smoke.py -v
+        run: pytest tests/connectors/ros/integration/test_ros2_container_smoke.py -v -m deployment
 
   build:
     name: Build Package

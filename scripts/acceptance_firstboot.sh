@@ -7,11 +7,20 @@
 
 set -euo pipefail
 
-# Keep pip, venv, and mktemp build artifacts off the often-tiny /tmp filesystem.
-export TMPDIR="${TMPDIR:-/data/tmp}"
-mkdir -p "$TMPDIR"
+# Keep pip, venv, and mktemp build artifacts off the often-tiny /tmp filesystem
+# when /data is available (e.g. the rosclaw lab host); otherwise fall back to a
+# directory inside the temporary workspace.
+if [ -d /data ] && [ -w /data ]; then
+  export TMPDIR="${TMPDIR:-/data/tmp}"
+else
+  export TMPDIR=""
+fi
 
 TMP_HOME="$(mktemp -d)"
+if [ -z "${TMPDIR:-}" ]; then
+  export TMPDIR="$TMP_HOME/tmp"
+fi
+mkdir -p "$TMPDIR"
 export ROSCLAW_HOME="$TMP_HOME/.rosclaw"
 export ROSCLAW_CHANNEL="${ROSCLAW_CHANNEL:-dev}"
 export PIP_CACHE_DIR="$TMP_HOME/.pip-cache"
