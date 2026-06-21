@@ -5,9 +5,8 @@ from __future__ import annotations
 import sys
 import tarfile
 from pathlib import Path
-from typing import Union
 
-PathLike = Union[str, Path]
+PathLike = str | Path
 
 
 def extractall_tar(tar: tarfile.TarFile, path: PathLike) -> None:

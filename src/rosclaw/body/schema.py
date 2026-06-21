@@ -366,6 +366,7 @@ class EffectiveBody:
     known_faults: list[dict[str, Any]] = field(default_factory=list)
     known_successes: list[dict[str, Any]] = field(default_factory=list)
     known_failures: list[dict[str, Any]] = field(default_factory=list)
+    runtime_state: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

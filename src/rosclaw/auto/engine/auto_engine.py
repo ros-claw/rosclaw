@@ -96,10 +96,9 @@ class AutoEngine:
                             severity: str = "medium", evidence: dict | None = None) -> FailureCase:
         evidence = evidence or {}
         if self._auto_context_adapter is not None:
-            try:
+            import contextlib
+            with contextlib.suppress(Exception):
                 evidence = self._auto_context_adapter.apply(evidence)
-            except Exception:
-                pass
         fc = FailureCase(
             id=f"failure_{uuid.uuid4().hex[:8]}",
             praxis_event_id=praxis_event_id,

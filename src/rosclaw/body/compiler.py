@@ -114,6 +114,7 @@ class EffectiveBodyCompiler:
             known_successes=body.known_successes or [],
             known_failures=body.known_failures or [],
         )
+        effective.runtime_state = copy.deepcopy(runtime) if runtime else copy.deepcopy(body.runtime_state)
         effective.effective_body_hash = effective.compute_hash()
         return effective
 

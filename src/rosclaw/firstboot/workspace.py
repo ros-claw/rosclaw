@@ -182,4 +182,18 @@ def ensure_minimal_workspace(home: Path, platform: PlatformInfo | None = None) -
         "firstboot_completed": False,
         "last_doctor_status": "pending",
     }
-    return save_install_state(home, state)
+    install_state = save_install_state(home, state)
+
+    workspace_state = {
+        "schema_version": "1.0",
+        "install_id": install_id_path.read_text(encoding="utf-8").strip(),
+        "updated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "initialized": True,
+    }
+    workspace_state_path = home / "state" / "workspace.json"
+    workspace_state_path.write_text(
+        json.dumps(workspace_state, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    return install_state

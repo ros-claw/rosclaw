@@ -74,6 +74,12 @@ P0_TOOL_CALLS: list[tuple[str, dict[str, Any]]] = [
     ),
     ("sandbox_run", {"joint_positions": [0.1] * 6}),
     ("emergency_stop", {"reason": "e2e test halt"}),
+    ("list_bodies", {}),
+    ("get_body", {"body_id": "current"}),
+    ("switch_body", {"body_id": "current"}),
+    ("list_body_history", {"body_id": "current"}),
+    ("check_skill_compatibility", {}),
+    ("fleet_skill_compatibility", {}),
 ]
 
 EXPECTED_TOOLS = {name for name, _ in P0_TOOL_CALLS}

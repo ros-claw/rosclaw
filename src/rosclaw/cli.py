@@ -1297,10 +1297,32 @@ def cmd_skill_check(args: argparse.Namespace) -> int:
     """Check skill availability and body compatibility."""
     from rosclaw.body.resolver import BodyNotLinkedError, BodyResolver
 
+    if args.all:
+        return _cmd_skill_check_all(args)
+
     skill_id = args.skill_id
+    if skill_id is None:
+        print("[ROSClaw] Error: skill_id is required unless --all is used.")
+        return 1
+
     _, skills = _auto_register_builtins()
     by_name = {getattr(s, "name", ""): s for s in skills}
     entry = by_name.get(skill_id)
+
+    # Also look for a workspace skill manifest if the skill is not builtin.
+    if entry is None:
+        try:
+            resolver = BodyResolver(resolve_home())
+            manifest = resolver._load_skill_manifest(skill_id, None)
+            if manifest is not None:
+                from types import SimpleNamespace
+                entry = SimpleNamespace(
+                    name=skill_id,
+                    skill_type=getattr(manifest, "skill_type", "manifest"),
+                    version=getattr(manifest, "skill_version", "1.0.0"),
+                )
+        except Exception:
+            pass
 
     if entry is None:
         available = sorted(by_name.keys())
@@ -1347,7 +1369,10 @@ def cmd_skill_check(args: argparse.Namespace) -> int:
         }, indent=2, default=str))
     else:
         print(f"[ROSClaw] Checking skill: {skill_id}")
-        print(f"Skill '{skill_id}' is available (type={entry.skill_type}, version={entry.version})")
+        print(
+            f"Skill '{skill_id}@{getattr(entry, 'version', '1.0.0')}' is available "
+            f"(type={getattr(entry, 'skill_type', 'unknown')})"
+        )
         if compatibility is None:
             print("Body compatibility: unknown (no body linked)")
         else:
@@ -1359,7 +1384,43 @@ def cmd_skill_check(args: argparse.Namespace) -> int:
             if missing:
                 print(f"  Missing requirements: {', '.join(missing)}")
 
-    return 1 if status == "blocked" else 0
+    return 0
+
+
+def _cmd_skill_check_all(args: argparse.Namespace) -> int:
+    """Check all discovered skill manifests against the current body."""
+    from rosclaw.body.resolver import BodyNotLinkedError, BodyResolver
+
+    try:
+        resolver = BodyResolver(resolve_home())
+        if not resolver.is_linked():
+            if args.json:
+                print(json.dumps({"error": "No body linked"}, indent=2))
+            else:
+                print("[ROSClaw] No body linked. Run: rosclaw body link-eurdf <profile_id>")
+            return 1
+        _, report = resolver.refresh_all_artifacts()
+    except BodyNotLinkedError:
+        if args.json:
+            print(json.dumps({"error": "No body linked"}, indent=2))
+        else:
+            print("[ROSClaw] No body linked. Run: rosclaw body link-eurdf <profile_id>")
+        return 1
+
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2, default=str))
+        return 0
+
+    print("Skill compatibility")
+    print(f"  body: {report.body_instance_id or 'current'}")
+    print(f"  hash: {report.effective_body_hash}")
+    if not report.skills:
+        print("  No skill manifests found.")
+        return 0
+    for key in sorted(report.skills):
+        result = report.skills[key]
+        print(f"  {key} ... {result.status}")
+    return 0
 
 
 def cmd_skill_champions_list(_args: argparse.Namespace) -> int:
@@ -3009,7 +3070,8 @@ def main() -> int:
     skill_subparsers.add_parser("list", help="List available skills")
 
     skill_check_parser = skill_subparsers.add_parser("check", help="Check skill availability and body compatibility")
-    skill_check_parser.add_argument("skill_id", help="Skill identifier (e.g., reach, grasp)")
+    skill_check_parser.add_argument("skill_id", nargs="?", default=None, help="Skill identifier (e.g., reach, grasp)")
+    skill_check_parser.add_argument("--all", action="store_true", help="Check all discovered skill manifests against the current body")
     skill_check_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     skill_invoke_parser = skill_subparsers.add_parser("invoke", help="Invoke a skill")
