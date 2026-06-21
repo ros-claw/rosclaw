@@ -7,7 +7,7 @@ outside managed blocks are preserved by `rosclaw agent init claude-code`.
 <!-- ROSCLAW-MANAGED-BEGIN -->
 ## Runtime profile (managed)
 
-- **Project root:** `/home/ubuntu/rosclaw/rosclaw/rosclaw-v1.0`
+- **Project root:** `/home/ubuntu/rosclaw/rosclaw/p0-followup`
 - **MCP transport:** `stdio`
 - **Robot ID:** (none detected)
 

@@ -7,8 +7,8 @@ It is safe to edit the human sections below. Managed blocks are updated by
 <!-- ROSCLAW-MANAGED-BEGIN -->
 ## ROSClaw Runtime Boundary (managed)
 
-- Project: `rosclaw-v1.0`
-- Project root: `/home/ubuntu/rosclaw/rosclaw/rosclaw-v1.0`
+- Project: `p0-followup`
+- Project root: `/home/ubuntu/rosclaw/rosclaw/p0-followup`
 - Default robot: (none detected)
 - MCP transport: `stdio`
 
