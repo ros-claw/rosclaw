@@ -10,7 +10,6 @@ P1 Issue 4: https://github.com/ros-claw/rosclaw-v1.0/issues/XXX
 
 import time
 from pathlib import Path
-from typing import Any
 
 import pytest
 from pytest import MonkeyPatch

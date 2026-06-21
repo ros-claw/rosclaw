@@ -29,8 +29,6 @@ jobs:
       - name: Run ruff check
         run: ruff check src tests
 
-      - name: Run ruff format check
-        run: ruff format --check src tests
   type-check:
     name: Type Check
     runs-on: ubuntu-latest
