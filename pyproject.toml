@@ -116,6 +116,15 @@ strict = true
 warn_return_any = true
 warn_unused_ignores = true
 ignore_missing_imports = true
+files = ["src/rosclaw/hub"]
+
+[[tool.mypy.overrides]]
+module = "rosclaw.*"
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = "rosclaw.hub.*"
+follow_imports = "normal"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from filelock import FileLock
 
@@ -80,7 +80,7 @@ class AssetsLock:
     def default_path(cls, home: str | Path | None = None) -> Path:
         """Return the default lockfile path for a ROSClaw home."""
         home_str = str(home) if home is not None else None
-        return resolve_home(home_str) / "assets.lock"
+        return cast(Path, resolve_home(home_str)) / "assets.lock"
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> AssetsLock:

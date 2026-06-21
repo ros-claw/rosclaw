@@ -29,7 +29,7 @@ class HubCache:
 
     def __init__(self, home: str | Path | None = None) -> None:
         home_arg = str(home) if isinstance(home, Path) else home
-        self.home = resolve_home(home_arg)
+        self.home = cast(Path, resolve_home(home_arg))
         self.hub_root = self.home / "hub"
         self.blobs_dir = self.hub_root / "blobs" / "sha256"
         self.manifests_dir = self.hub_root / "manifests"
