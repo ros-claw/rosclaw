@@ -107,6 +107,7 @@ class SkillExecutor(LifecycleMixin):
                 "reason": "blocked_by_body_sense",
                 "message": sense_check["reason"],
                 "failed_requirements": sense_check.get("failed_requirements", []),
+                **({"body_sense_check": bsc} if (bsc := sense_check.get("body_sense_check")) else {}),
             }
 
         self._current_skill = skill_name
@@ -124,7 +125,13 @@ class SkillExecutor(LifecycleMixin):
         ))
 
         # Execute handler if available
-        result: dict[str, Any] = {"status": "executed", "skill": skill_name}
+        result: dict[str, Any] = {
+            "status": "executed",
+            "skill": skill_name,
+        }
+        bsc = sense_check.get("body_sense_check")
+        if bsc is not None:
+            result["body_sense_check"] = bsc
         t0 = time.time()
         if skill.handler is not None:
             try:

@@ -198,6 +198,15 @@ class FailedRequirement:
     severity: str = "medium"
     reason: str = ""
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "current": self.current,
+            "required": self.required,
+            "severity": self.severity,
+            "reason": self.reason,
+        }
+
 
 @dataclass
 class ReadinessItem:

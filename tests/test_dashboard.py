@@ -413,7 +413,13 @@ class TestDashboardServerBroadcast:
         server.register_client(client)
 
         await server.start()
-        await asyncio.sleep(0.12)
+        # Yield once so the broadcast task starts before we begin polling.
+        await asyncio.sleep(0)
+        # Wait for at least two snapshots to be broadcast, with a generous
+        # deadline so the test stays green under heavy parallel load.
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while client.send_text.await_count < 2 and asyncio.get_event_loop().time() < deadline:
+            await asyncio.sleep(0.05)
         await server.stop()
 
         assert client.send_text.await_count >= 2

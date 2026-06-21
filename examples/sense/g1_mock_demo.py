@@ -30,7 +30,7 @@ def main() -> None:
         collector = MockCollector(robot_id="g1_lab_01", scenario=scenario)
         state = collector.collect()
 
-        fatigue = fatigue_estimator.estimate(state, previous_state=None, dt=1.0)
+        fatigue = fatigue_estimator.estimate(state, prev_state=None, dt=1.0)
         risk_summary, _ = risk_estimator.evaluate(
             state, fatigue_risk=fatigue["fatigue_risk"]
         )

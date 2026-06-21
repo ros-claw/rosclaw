@@ -1,9 +1,46 @@
 """Integration tests for AutoEngine."""
 import tempfile
 
+import pytest
+
 from rosclaw.auto.config import AutoConfig
 from rosclaw.auto.engine import AutoEngine
 from rosclaw.auto.storage import LocalStore
+from rosclaw.core.event_bus import EventBus
+from rosclaw.sense.config import SenseConfig
+from rosclaw.sense.runtime import SenseRuntime
+
+
+@pytest.fixture
+def sense_runtime_kick_not_ready():
+    bus = EventBus()
+    cfg = SenseConfig(
+        robot_id="g1_lab_01",
+        collector="mock",
+        update_hz=0.0,
+        extra={"scenario": "kick_not_ready"},
+    )
+    runtime = SenseRuntime(cfg, event_bus=bus, robot_id="g1_lab_01")
+    runtime.initialize()
+    runtime.tick()
+    yield runtime
+    runtime.stop()
+
+
+@pytest.fixture
+def sense_runtime_normal():
+    bus = EventBus()
+    cfg = SenseConfig(
+        robot_id="g1_lab_01",
+        collector="mock",
+        update_hz=0.0,
+        extra={"scenario": "normal"},
+    )
+    runtime = SenseRuntime(cfg, event_bus=bus, robot_id="g1_lab_01")
+    runtime.initialize()
+    runtime.tick()
+    yield runtime
+    runtime.stop()
 
 
 def test_full_workflow():
@@ -56,3 +93,43 @@ def test_full_workflow():
         # 9. Run dry-run evolution
         report2 = engine.run(task.id, rounds=2, dry_run=True)
         assert report2.proposals_created >= 1
+
+
+class TestAutoEngineBodySense:
+    def test_create_failure_case_with_body_condition(self, sense_runtime_kick_not_ready):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = AutoConfig(local_store_path=tmp)
+            engine = AutoEngine(config, sense_runtime=sense_runtime_kick_not_ready)
+
+            fc = engine.create_failure_case(
+                "evt_sense_001", "task_001", "kick_ball",
+                phase="swing", failure_mode="overheat",
+            )
+            assert fc.evidence.get("body_condition_failure") is True
+            assert "body_sense_snapshot" in fc.evidence
+            assert fc.evidence["body_sense_snapshot"]["overall_status"] == "not_ready"
+
+    def test_create_failure_case_ready_state_not_flagged(self, sense_runtime_normal):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = AutoConfig(local_store_path=tmp)
+            engine = AutoEngine(config, sense_runtime=sense_runtime_normal)
+
+            fc = engine.create_failure_case(
+                "evt_sense_002", "task_002", "observe_scene",
+                phase="perceive", failure_mode="target_lost",
+            )
+            assert fc.evidence.get("body_condition_failure") is False
+            assert "body_sense_snapshot" in fc.evidence
+
+    def test_create_failure_case_without_sense_runtime(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = AutoConfig(local_store_path=tmp)
+            engine = AutoEngine(config)
+
+            fc = engine.create_failure_case(
+                "evt_sense_003", "task_003", "pick_v1",
+                phase="grasp", failure_mode="missed_grasp",
+                evidence={"custom": True},
+            )
+            assert "body_condition_failure" not in fc.evidence
+            assert fc.evidence.get("custom") is True

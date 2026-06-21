@@ -49,9 +49,21 @@ class SenseInterface:
         """Return a fresh BodySense snapshot."""
         return self._runtime.tick()
 
+    def tick(self) -> BodySense:
+        """Alias for :meth:`get_body_sense` used by sense-aware adapters."""
+        return self._runtime.tick()
+
     def get_body_state(self) -> BodyState:
         """Return the latest raw BodyState."""
         return self._runtime.get_latest_state() or self._runtime._collector.collect()
+
+    def get_latest_state(self) -> BodyState | None:
+        """Alias for :meth:`get_body_state`."""
+        return self.get_body_state()
+
+    def get_latest_sense(self) -> BodySense | None:
+        """Return the latest cached BodySense without forcing a tick."""
+        return self._runtime.get_latest_sense()
 
     def get_readiness(
         self,

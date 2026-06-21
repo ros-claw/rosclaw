@@ -6,6 +6,7 @@ import pytest
 from pytest import MonkeyPatch
 
 from rosclaw.core.event_bus import Event, EventBus
+from rosclaw.sense.interface import SenseInterface
 from rosclaw.skill_manager.executor import SkillExecutor
 from rosclaw.skill_manager.loader import SkillLoader
 from rosclaw.skill_manager.registry import SkillEntry, SkillRegistry
@@ -413,5 +414,101 @@ class TestSkillExecutorBodyCheck:
         result = executor.execute("body_test_skill")
         assert result["status"] == "blocked"
         assert "unknown" in result.get("message", "").lower()
+        executor.stop()
+        reg.stop()
+
+
+class TestSkillExecutorBodySense:
+    @pytest.fixture
+    def sense_interface_kick_not_ready(self):
+        iface = SenseInterface(
+            robot_id="g1_lab_01",
+            collector="mock",
+            scenario="kick_not_ready",
+        )
+        iface.initialize()
+        yield iface
+        iface.stop()
+
+    @pytest.fixture
+    def sense_interface_normal(self):
+        iface = SenseInterface(
+            robot_id="g1_lab_01",
+            collector="mock",
+            scenario="normal",
+        )
+        iface.initialize()
+        yield iface
+        iface.stop()
+
+    def test_skill_blocked_when_body_not_ready(self, sense_interface_kick_not_ready):
+        bus = EventBus()
+        reg = SkillRegistry()
+        reg.initialize()
+        executor = SkillExecutor(bus, reg, sense_interface=sense_interface_kick_not_ready)
+        executor.initialize()
+
+        blocked_events = []
+        bus.subscribe("rosclaw.sense.capability.blocked", lambda e: blocked_events.append(e.payload))
+
+        reg.register(SkillEntry(
+            name="kick_ball",
+            description="Kick the ball",
+            skill_type="programmed",
+            metadata={"requires_body_sense": {"battery_percent_min": 40.0}},
+        ))
+
+        result = executor.execute("kick_ball")
+        assert result["status"] == "blocked"
+        assert result["reason"] == "blocked_by_body_sense"
+        assert "body_sense_check" in result
+        assert result["body_sense_check"]["status"] == "not_ready"
+        assert len(blocked_events) == 1
+        assert blocked_events[0]["capability"] == "kick_ball"
+
+        executor.stop()
+        reg.stop()
+
+    def test_skill_allowed_when_body_ready(self, sense_interface_normal):
+        bus = EventBus()
+        reg = SkillRegistry()
+        reg.initialize()
+        executor = SkillExecutor(bus, reg, sense_interface=sense_interface_normal)
+        executor.initialize()
+
+        reg.register(SkillEntry(
+            name="observe_scene",
+            description="Observe the scene",
+            skill_type="programmed",
+            metadata={"requires_body_sense": {"camera_fps_min": 10.0}},
+        ))
+
+        result = executor.execute("observe_scene")
+        assert result["status"] in ("success", "dispatched")
+        assert "body_sense_check" in result
+        assert result["body_sense_check"]["status"] == "ready"
+
+        executor.stop()
+        reg.stop()
+
+    def test_skill_requires_body_sense_fails_closed_without_interface(self):
+        bus = EventBus()
+        reg = SkillRegistry()
+        reg.initialize()
+        executor = SkillExecutor(bus, reg, sense_interface=None)
+        executor.initialize()
+
+        reg.register(SkillEntry(
+            name="kick_ball",
+            description="Kick the ball",
+            skill_type="programmed",
+            metadata={"requires_body_sense": {"battery_percent_min": 40.0}},
+        ))
+
+        result = executor.execute("kick_ball")
+        assert result["status"] == "blocked"
+        assert "Sense module is not available" in result["message"]
+        assert "body_sense_check" not in result
+
         executor.stop()
         reg.stop()

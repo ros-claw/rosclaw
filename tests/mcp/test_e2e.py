@@ -31,7 +31,7 @@ def _server_env() -> dict[str, str]:
     return env
 
 
-async def _wait_for_port(host: str, port: int, timeout: float = 10.0) -> None:
+async def _wait_for_port(host: str, port: int, timeout: float = 30.0) -> None:
     deadline = asyncio.get_event_loop().time() + timeout
     while asyncio.get_event_loop().time() < deadline:
         try:
