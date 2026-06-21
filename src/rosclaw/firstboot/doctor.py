@@ -8,6 +8,7 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 from dataclasses import asdict, dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -771,7 +772,7 @@ class FirstbootDoctor:
 
     def _create_path_shim(self, check: CheckResult) -> None:
         """Create a PATH shim so the rosclaw command is reachable."""
-        python = shutil.which("python3") or shutil.which("python")
+        python = sys.executable or shutil.which("python3") or shutil.which("python")
         if not python:
             return
         try:
