@@ -168,3 +168,135 @@ def test_publish_secret_scan_fails(tmp_path: Path) -> None:
     with pytest.raises(HubError) as exc_info:
         publisher.publish(asset_dir)
     assert exc_info.value.code == HubErrorCode.PUBLISH_REJECTED
+
+
+# ---------------------------------------------------------------------------
+# Edge cases for low-coverage publisher branches
+# ---------------------------------------------------------------------------
+
+
+def test_scan_secrets_skips_binary_files(tmp_path: Path) -> None:
+    """Binary files are not scanned for secret-like patterns."""
+    binary_file = tmp_path / "secret.bin"
+    binary_file.write_bytes(b"BEGIN PRIVATE KEY\n" + b"\x00" * 32)
+    findings = scan_secrets(tmp_path)
+    assert not findings
+
+
+def test_prepare_warns_on_missing_artifact(tmp_path: Path) -> None:
+    """A declared artifact that is missing on disk produces a warning."""
+    home = tmp_path / "home"
+    publisher = Publisher(PublishOptions(home=home))
+    asset_dir = tmp_path / "asset"
+    asset_dir.mkdir()
+    manifest = _load_manifest_yaml(SKILL_VALID)
+    manifest["artifacts"].append(
+        {
+            "name": "missing",
+            "kind": "data",
+            "path": "artifacts/missing.bin",
+            "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "size_bytes": 0,
+        }
+    )
+    (asset_dir / "manifest.yaml").write_text(
+        yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8"
+    )
+
+    _prepared, _manifest, warnings = publisher.prepare(asset_dir)
+    assert any("Declared artifact missing on disk" in w for w in warnings)
+
+
+def test_publish_asset_dir_not_found(tmp_path: Path) -> None:
+    """Publishing a non-existent asset directory raises ASSET_NOT_FOUND."""
+    publisher = Publisher(PublishOptions(home=tmp_path / "home"))
+    with pytest.raises(HubError) as exc_info:
+        publisher.publish(tmp_path / "does_not_exist")
+    assert exc_info.value.code == HubErrorCode.ASSET_NOT_FOUND
+
+
+def test_prepare_visibility_override(tmp_path: Path) -> None:
+    """options.visibility overrides the manifest visibility scope."""
+    home = tmp_path / "home"
+    publisher = Publisher(PublishOptions(home=home, visibility="private"))
+    _prepared, manifest, _warnings = publisher.prepare(SKILL_VALID)
+    assert manifest.visibility["scope"] == "private"
+
+
+def test_prepare_signs_via_options(tmp_path: Path) -> None:
+    """Signing is performed when options.sign is True even if not required."""
+    home = tmp_path / "home"
+    asset_dir = tmp_path / "asset"
+    asset_dir.mkdir()
+    manifest = _load_manifest_yaml(SKILL_VALID)
+    manifest["security"]["signing"] = {"required": False}
+    (asset_dir / "manifest.yaml").write_text(
+        yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8"
+    )
+
+    publisher = Publisher(PublishOptions(home=home, sign=True))
+    prepared, _manifest, _warnings = publisher.prepare(asset_dir)
+    assert (prepared / "signatures" / "cert.pem").exists()
+    assert (prepared / "signatures" / "signature.bin").exists()
+
+
+def test_bundle_output_directory(tmp_path: Path) -> None:
+    """When output is a directory, the bundle is written inside it."""
+    home = tmp_path / "home"
+    output_dir = tmp_path / "bundles"
+    output_dir.mkdir()
+    publisher = Publisher(PublishOptions(home=home, output=output_dir))
+    prepared, manifest, _ = publisher.prepare(SKILL_VALID)
+    bundle_path, _digest, _size = publisher.bundle(prepared, manifest)
+
+    assert bundle_path.parent == output_dir
+    assert bundle_path.name.endswith(".rosclaw")
+
+
+def test_publish_uses_registry_client_from_auth_store(tmp_path: Path) -> None:
+    """Publishing to options.registry without an explicit client builds one."""
+    home = tmp_path / "home"
+    registry_dir = tmp_path / "registry"
+    registry_dir.mkdir()
+    (registry_dir / "catalog.jsonl").write_text("", encoding="utf-8")
+
+    publisher = Publisher(PublishOptions(registry=str(registry_dir), home=home))
+    result = publisher.publish(SKILL_VALID)
+
+    assert result.success
+    assert (
+        registry_dir / "manifests" / "skill" / "rosclaw" / "g1-pick-place" / "1.2.0.yaml"
+    ).exists()
+
+
+def test_publish_registry_upload_failure_re_raises_hub_error(tmp_path: Path) -> None:
+    """Registry upload failures that are HubError instances are re-raised."""
+    home = tmp_path / "home"
+    client = FakeRegistryClient("http://registry.example", token="bad-token")
+
+    def _raise(*_args, **_kwargs):
+        raise HubError(code=HubErrorCode.AUTH_FAILED, message="bad token")
+
+    client.publish_bundle = _raise
+
+    publisher = Publisher(PublishOptions(registry="http://registry.example", home=home))
+    with pytest.raises(HubError) as exc_info:
+        publisher.publish(SKILL_VALID, registry_client=client)
+    assert exc_info.value.code == HubErrorCode.AUTH_FAILED
+
+
+def test_publish_registry_upload_failure_wraps_generic_exception(tmp_path: Path) -> None:
+    """Unexpected registry upload exceptions are wrapped as REGISTRY_UNREACHABLE."""
+    home = tmp_path / "home"
+    client = FakeRegistryClient("http://registry.example")
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("network partition")
+
+    client.publish_bundle = _raise
+
+    publisher = Publisher(PublishOptions(registry="http://registry.example", home=home))
+    with pytest.raises(HubError) as exc_info:
+        publisher.publish(SKILL_VALID, registry_client=client)
+    assert exc_info.value.code == HubErrorCode.REGISTRY_UNREACHABLE
+    assert "network partition" in str(exc_info.value)

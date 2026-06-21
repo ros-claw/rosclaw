@@ -11,15 +11,16 @@ the master implementation plan.
 |---|-----------|--------|--------|
 | 1 | Code passes lint | `ruff check src/rosclaw/hub tests/hub` | PASS |
 | 2 | Code is formatted | `ruff format --check src/rosclaw/hub tests/hub` | PASS |
-| 3 | Unit + integration tests pass | `pytest tests/hub -q` | PASS (153 passed) |
+| 3 | Unit + integration tests pass | `pytest tests/hub -q` | PASS (287 passed) |
 | 4 | E2E lifecycle works | `tests/hub/test_e2e_fake_registry.py` | PASS |
 | 5 | Security regressions covered | `tests/hub/test_security_regression.py` | PASS |
-| 6 | Documentation written | `docs/hub/*.md` created | PASS |
-| 7 | Progress / validation reports written | `reports/hub_*.md` created | PASS |
-| 8 | README / QUICKSTART updated | Hub quickstart added | PASS |
-| 9 | CI updated | Dedicated `hub-test` job added to `.github/workflows/ci.yml` | PASS |
-| 10 | Installer transaction / rollback tests | `tests/hub/test_installer_transaction.py` | PASS |
-| 11 | MCP config merge tests | `tests/hub/test_mcp_merge.py` | PASS |
+| 6 | Client and publisher coverage | `tests/hub/test_client.py`, expanded `tests/hub/test_publisher.py` | PASS |
+| 7 | Documentation written | `docs/hub/*.md` created | PASS |
+| 8 | Progress / validation reports written | `reports/hub_*.md` created | PASS |
+| 9 | README / QUICKSTART updated | Hub quickstart added | PASS |
+| 10 | CI updated | Dedicated `hub-test` job added to `.github/workflows/ci.yml` | PASS |
+| 11 | Installer transaction / rollback tests | `tests/hub/test_installer_transaction.py` | PASS |
+| 12 | MCP config merge tests | `tests/hub/test_mcp_merge.py` | PASS |
 
 ## Commands run
 
@@ -47,10 +48,10 @@ after `lint` and `type-check` succeed.
 
 ### Tests
 
-- `pytest tests/hub -q` reports **153 passed**.
+- `pytest tests/hub -q` reports **287 passed**.
 - Test modules cover schema, refs, cache, index, CLI, verifier, permissions,
-  licenses, lockfile, installer transaction, MCP merge, publisher, E2E
-  lifecycle, and security regression.
+  licenses, lockfile, installer transaction, MCP merge, publisher, registry
+  client, E2E lifecycle, and security regression.
 
 ### Transaction and rollback
 
@@ -69,6 +70,46 @@ after `lint` and `type-check` succeed.
 A real bug was found and fixed during this work: `_rollback()` in
 `src/rosclaw/hub/installer.py` now removes the lockfile entry and saves the
 lockfile, preventing partial-install state leaks.
+
+### Client
+
+`tests/hub/test_client.py` (new) covers both local and HTTP branches of
+`FakeRegistryClient`:
+
+1. Registry URL normalization: trailing-slash stripping, `file://` conversion,
+   plain local paths.
+2. `sync()` parses valid JSONL catalog lines and raises `INDEX_VERIFY_FAILED`
+   for malformed lines.
+3. `fetch_manifest()` and `fetch_bundle()` require a versioned `AssetRef` and
+   return YAML/bytes for valid local references.
+4. `fetch_blob()` validates digest format (`sha256:<hex>`).
+5. `whoami()` returns the fake profile for `fake-valid-token` and raises
+   `AUTH_FAILED` otherwise.
+6. `publish_bundle()` writes manifests and catalog entries for local registries.
+7. HTTP `publish_bundle()` POSTs bytes, parses JSON responses, falls back to
+   the upload URL for empty bodies, and maps HTTP 401/409/500 plus `URLError`
+   to the correct `HubErrorCode`.
+8. HTTP GET error handling maps 404 to `ASSET_NOT_FOUND` and other errors to
+   `REGISTRY_UNREACHABLE`.
+
+### Publisher
+
+`tests/hub/test_publisher.py` is expanded with edge-case coverage for previously
+uncovered branches:
+
+1. `scan_secrets()` skips binary files.
+2. `prepare()` warns when a declared artifact is missing on disk.
+3. `publish()` raises `ASSET_NOT_FOUND` for non-existent asset directories.
+4. `options.visibility` overrides the manifest visibility scope.
+5. `options.sign=True` forces signing even when the manifest does not require it.
+6. `bundle()` writes into an existing output directory when `output` is a
+   directory.
+7. `publish()` builds a registry client from `options.registry` via the auth
+   store when no explicit client is passed.
+8. Registry upload failures that are `HubError` instances are re-raised with
+   their original code.
+9. Unexpected registry upload exceptions are wrapped as
+   `REGISTRY_UNREACHABLE`.
 
 ### MCP config merge
 
@@ -143,6 +184,9 @@ reference fails gracefully when the manifest has not been cached by `sync`.
   introduced by the Hub work and are tracked separately.
 - Placeholder signing material is present and must be replaced before
   production use.
+- Coverage gaps in `src/rosclaw/hub/client.py` and `src/rosclaw/hub/publisher.py`
+  have been filled by `tests/hub/test_client.py` and the expanded
+  `tests/hub/test_publisher.py`.
 
 ## Sign-off
 
