@@ -387,7 +387,7 @@ class TestSkillExecutorBodyCheck:
             raise RuntimeError("resolver exploded")
 
         monkeypatch.setattr(
-            "rosclaw.body.resolver.BodyResolver",
+            "rosclaw.skill_manager.executor.BodyResolver",
             _exploding_resolver,
         )
 
@@ -423,7 +423,7 @@ class TestSkillExecutorBodyCheck:
                 )
 
         monkeypatch.setattr(
-            "rosclaw.body.resolver.BodyResolver",
+            "rosclaw.skill_manager.executor.BodyResolver",
             _LinkedResolver,
         )
 
