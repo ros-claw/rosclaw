@@ -23,7 +23,7 @@ Running `rosclaw agent init claude-code` produces or updates the following files
 
 Merge behavior:
 
-- `CLAUDE.md` and `ROSCLAW.md` use managed blocks demarcated by `<!-- rosclaw-managed -->`. Hand-written sections outside those blocks are preserved.
+- `CLAUDE.md` and `ROSCLAW.md` use managed blocks demarcated by `<!-- ROSCLAW-MANAGED-BEGIN -->` / `<!-- ROSCLAW-MANAGED-END -->`. Hand-written sections outside those blocks are preserved.
 - `.mcp.json` and `.claude/settings.json` are merged with conflict detection. Collisions are reported and backed up; no data is silently overwritten.
 
 ## MCP tool surface
@@ -127,4 +127,4 @@ Current follow-up status:
 2. ~~Live `Runtime` integration tests for all seven tools in fixture or sim mode.~~ (Done in `tests/mcp/test_runtime_integration.py`.)
 3. ~~Performance/load tests for `EventBus` synchronous dispatch under emergency-stop load.~~ (Done in `tests/mcp/test_event_bus_emergency_perf.py`.)
 4. ~~CI enforcement of `ruff check src tests` and a focused `mypy` gate.~~ (Done in `.github/workflows/ci.yml` and `.github/mypy-ci.ini`.)
-5. Continuous documentation refresh for `CLAUDE.md` and `ROSCLAW.md` managed blocks.
+5. ~~Continuous documentation refresh for `CLAUDE.md` and `ROSCLAW.md` managed blocks.~~ Refreshed via `rosclaw agent init claude-code`; `doctor` and `test` pass.
