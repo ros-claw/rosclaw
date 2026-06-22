@@ -165,7 +165,7 @@ PYTHONPATH=src pytest tests -q
 | 路由能力 | `rosclaw provider route --capability <name>` | Planned |
 | 开始 Practice | `rosclaw practice start --sources <sources>` | Planned |
 | 故障建议 | `rosclaw how advise --task <id> --failure <id>` | Planned |
-| 运行 Auto 套件 | `rosclaw auto run --suite <suite>` | Planned |
+| 运行 Auto 进化 | `rosclaw auto run --task <id>` | Experimental |
 | Darwin 评测 | `rosclaw darwin eval --skill <id>` | Research |
 
 完整命令参考见 [docs/CLI.md](docs/CLI.md)。
