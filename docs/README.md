@@ -23,6 +23,7 @@ Welcome to the ROSClaw documentation index. This directory contains all project 
 - **[QUICKSTART.md](../QUICKSTART.md)** — 5-minute quick start with four paths.
 - **[INSTALL.md](../INSTALL.md)** — Detailed installation options and troubleshooting.
 - **[FIRSTBOOT.md](FIRSTBOOT.md)** — Bootstrap and first boot reference.
+- **[EXAMPLE_WORKFLOW.md](EXAMPLE_WORKFLOW.md)** — Desktop pick-and-place closed-loop example.
 - **[CLI.md](CLI.md)** — CLI command reference with Stable / Experimental / Planned / Research labels.
 - **[SAFETY.md](SAFETY.md)** — Safety model, hard rules, and deployment checklist.
 - **[ASSETS.md](ASSETS.md)** — Physical-AI Asset Hub and asset lifecycle.
