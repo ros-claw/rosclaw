@@ -24,22 +24,29 @@ cognitive wikis.
 
 ## One-page workflow
 
+Use a temporary copy of the fixture registry so publishes do not mutate the
+committed fixtures:
+
 ```bash
 # 1. Validate a local asset
 rosclaw hub validate tests/fixtures/hub_assets/hardware_mcp_valid/manifest.yaml
 
-# 2. Start a local fake registry (for testing)
-python -m tests.fixtures.fake_registry.server --port 8787
+# 2. Start a local fake registry from a temporary copy
+REGISTRY_DIR=$(mktemp -d)
+cp -r tests/fixtures/fake_registry/* "$REGISTRY_DIR/"
+python -m tests.fixtures.fake_registry.server --directory "$REGISTRY_DIR" --port 8787 &
 
-# 3. Login, sync, search
+# 3. Login, publish a skill, sync, and search
+export ROSCLAW_HOME=$(mktemp -d)
 rosclaw hub login --registry http://localhost:8787 --token fake-valid-token --insecure-local
+rosclaw hub publish tests/fixtures/hub_assets/skill_valid --private
 rosclaw hub sync
-rosclaw hub search g1
+rosclaw hub search g1-pick-place
 
-# 4. Install / uninstall
-rosclaw hub install rosclaw://hardware_mcp/rosclaw/unitree-g1@1.0.0 --yes
+# 4. Install / uninstall the published asset
+rosclaw hub install rosclaw://skill/rosclaw/g1-pick-place@1.2.0 --yes --skip-health
 rosclaw hub list --installed
-rosclaw hub uninstall rosclaw://hardware_mcp/rosclaw/unitree-g1@1.0.0 --yes
+rosclaw hub uninstall rosclaw://skill/rosclaw/g1-pick-place@1.2.0 --yes
 ```
 
 ## Reports
@@ -51,4 +58,5 @@ rosclaw hub uninstall rosclaw://hardware_mcp/rosclaw/unitree-g1@1.0.0 --yes
 
 - Signing uses placeholder material and must be replaced before production.
 - The fake registry is local/file-based; cloud registry client is stubbed.
-- `tarfile.extractall()` emits deprecation warnings on Python 3.12+.
+- `tarfile.extractall()` deprecation warnings are suppressed on Python 3.12+
+  via a compatibility helper that uses `filter='data'`.

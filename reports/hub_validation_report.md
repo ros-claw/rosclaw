@@ -9,8 +9,8 @@ the master implementation plan.
 
 | # | Criterion | Method | Result |
 |---|-----------|--------|--------|
-| 1 | Code passes lint | `ruff check src/rosclaw/hub tests/hub` | PASS |
-| 2 | Code is formatted | `ruff format --check src/rosclaw/hub tests/hub` | PASS |
+| 1 | Code passes lint | `ruff check src/rosclaw/hub tests/hub tests/fixtures/fake_registry/server.py` | PASS |
+| 2 | Code is formatted | `ruff format --check src/rosclaw/hub tests/hub tests/fixtures/fake_registry/server.py` | PASS |
 | 3 | Unit + integration tests pass | `pytest tests/hub -q` | PASS (287 passed) |
 | 4 | Type check on Hub code | `mypy src/rosclaw/hub` | PASS |
 | 5 | E2E lifecycle works | `tests/hub/test_e2e_fake_registry.py` | PASS |
@@ -22,12 +22,13 @@ the master implementation plan.
 | 11 | CI updated | Dedicated `hub-test` job added to `.github/workflows/ci.yml` | PASS |
 | 12 | Installer transaction / rollback tests | `tests/hub/test_installer_transaction.py` | PASS |
 | 13 | MCP config merge tests | `tests/hub/test_mcp_merge.py` | PASS |
+| 14 | Manual HTTP acceptance | Publish → sync → search → install → list → uninstall on latest `main` | PASS |
 
 ## Commands run
 
 ```bash
-ruff check src/rosclaw/hub tests/hub
-ruff format --check src/rosclaw/hub tests/hub
+ruff check src/rosclaw/hub tests/hub tests/fixtures/fake_registry/server.py
+ruff format --check src/rosclaw/hub tests/hub tests/fixtures/fake_registry/server.py
 pytest tests/hub -q
 mypy src/rosclaw/hub
 ```
@@ -44,7 +45,8 @@ after `lint` and `type-check` succeed.
 
 - **PR:** [#18 feat(hub): Phase 6 completion — installer transaction/rollback tests, MCP merge tests, and lockfile cleanup fix](https://github.com/ros-claw/rosclaw/pull/18)
 - **Branch:** `hub/phase6-completion` → `main`
-- **Status:** OPEN; CI checks in progress/queued at time of report
+- **Status:** MERGED (`2fcec56e` on 2026-06-21T19:54:52Z)
+- **Verification:** Latest `main` pulled locally; `pytest tests/hub` reports 287 passed.
 
 ## Detailed findings
 
@@ -146,6 +148,26 @@ uncovered branches:
 `test_install_by_ref_requires_cached_manifest` confirms that installing by
 reference fails gracefully when the manifest has not been cached by `sync`.
 
+### Manual HTTP acceptance
+
+The documented one-page workflow was run end-to-end against the HTTP fake
+registry on the latest `main`:
+
+1. Started `python -m tests.fixtures.fake_registry.server` from a temporary copy
+   of the fixture registry.
+2. `rosclaw hub login --registry http://localhost:8787 --token fake-valid-token --insecure-local`
+3. `rosclaw hub publish tests/fixtures/hub_assets/skill_valid --private`
+4. `rosclaw hub sync` (6 assets synced, 5 indexed).
+5. `rosclaw hub search g1-pick-place`
+6. `rosclaw hub install rosclaw://skill/rosclaw/g1-pick-place@1.2.0 --yes --skip-health`
+7. `rosclaw hub list --installed`
+8. `rosclaw hub uninstall rosclaw://skill/rosclaw/g1-pick-place@1.2.0 --yes`
+
+This works because `tests/fixtures/fake_registry/server.py` now ingests
+`.rosclaw` bundle uploads: it extracts the manifest, writes it to
+`manifests/...`, copies the bundle to `bundles/...`, content-addresses blobs,
+and appends a new entry to `catalog.jsonl`.
+
 ### Security regression coverage
 
 `tests/hub/test_security_regression.py` includes:
@@ -188,9 +210,14 @@ reference fails gracefully when the manifest has not been cached by `sync`.
 
 - Placeholder signing material is present and must be replaced before
   production use.
+
+## Resolved since the previous report
+
 - Coverage gaps in `src/rosclaw/hub/client.py` and `src/rosclaw/hub/publisher.py`
   have been filled by `tests/hub/test_client.py` and the expanded
   `tests/hub/test_publisher.py`.
+- `tarfile.extractall()` deprecation warnings are avoided on Python 3.12+ by the
+  `extractall_tar()` compatibility helper in `src/rosclaw/hub/_compat.py`.
 
 ## Sign-off
 

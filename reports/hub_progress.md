@@ -1,8 +1,8 @@
 # ROSClaw Hub Implementation Progress Report
 
-**Date:** 2026-06-19  
+**Date:** 2026-06-22  
 **Scope:** ROSClaw Hub subsystem (`src/rosclaw/hub/`, `tests/hub/`, `docs/hub/`)  
-**Status:** Phase 1–6 implemented, documented, and passing tests.
+**Status:** Phase 1–6 implemented, documented, passing tests, and merged to `main` via PR #18.
 
 ## Summary
 
@@ -88,7 +88,7 @@ assets from a registry. It supports five asset types: `skill`, `provider`,
 
 ```bash
 pytest tests/hub -q
-# 131 passed in <N>s
+# 287 passed
 ```
 
 ## Acceptance commands
@@ -98,15 +98,20 @@ rosclaw hub validate tests/fixtures/hub_assets/hardware_mcp_valid/manifest.yaml
 rosclaw hub ref parse rosclaw://hardware_mcp/rosclaw/unitree-g1@1.0.0
 rosclaw hub schema export --format json > /tmp/hub_asset.schema.json
 
-python -m tests.fixtures.fake_registry.server --port 8787 &
+# Use a temporary copy of the fixture registry so publishes do not mutate fixtures.
+REGISTRY_DIR=$(mktemp -d)
+cp -r tests/fixtures/fake_registry/* "$REGISTRY_DIR/"
+python -m tests.fixtures.fake_registry.server --directory "$REGISTRY_DIR" --port 8787 &
+
 export ROSCLAW_HOME=$(mktemp -d)
 rosclaw hub login --registry http://localhost:8787 --token fake-valid-token --insecure-local
 rosclaw hub whoami
+rosclaw hub publish tests/fixtures/hub_assets/skill_valid --private
 rosclaw hub sync
-rosclaw hub search g1
-rosclaw hub install rosclaw://hardware_mcp/rosclaw/unitree-g1@1.0.0 --yes
+rosclaw hub search g1-pick-place
+rosclaw hub install rosclaw://skill/rosclaw/g1-pick-place@1.2.0 --yes --skip-health
 rosclaw hub list --installed
-rosclaw hub uninstall rosclaw://hardware_mcp/rosclaw/unitree-g1@1.0.0 --yes
+rosclaw hub uninstall rosclaw://skill/rosclaw/g1-pick-place@1.2.0 --yes
 ```
 
 ## Known limitations / follow-up work
@@ -115,8 +120,9 @@ rosclaw hub uninstall rosclaw://hardware_mcp/rosclaw/unitree-g1@1.0.0 --yes
   Sigstore / cosign before production.
 - Fake registry is file/HTTP based. Cloud registry client is stubbed for later
   implementation.
-- `tarfile.extractall()` deprecation warnings appear on Python 3.12/3.14 but do
-  not block functionality.
+- `tarfile.extractall()` deprecation warnings are avoided on Python 3.12+ by
+  using a compatibility helper with `filter='data'`; older Python versions use
+  the legacy extraction path.
 - Large model-weight resume download is not implemented.
 - Deep `body.yaml` patch integration with `BodyResolver` is partial.
 
