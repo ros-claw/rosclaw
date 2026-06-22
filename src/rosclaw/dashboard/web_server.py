@@ -6,8 +6,9 @@ import asyncio
 import json
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 
+from .firstboot import FIRSTBOOT_PAGE_HTML, build_firstboot_command, preview_firstboot_config
 from .metrics import DashboardMetrics
 from .server import DashboardServer
 
@@ -136,6 +137,28 @@ class DashboardWebServer:
         async def body_page() -> Any:
             from fastapi.responses import HTMLResponse
             return HTMLResponse(_BODY_PAGE_HTML)
+
+        @self.app.get("/api/firstboot")
+        async def api_firstboot() -> dict[str, Any]:
+            return self.server.get_firstboot_state()
+
+        @self.app.post("/api/firstboot/preview")
+        async def firstboot_preview(request: Request) -> dict[str, Any]:
+            try:
+                choices = await request.json()
+                if not isinstance(choices, dict):
+                    raise HTTPException(status_code=400, detail="Expected JSON object")
+            except json.JSONDecodeError as exc:
+                raise HTTPException(status_code=400, detail=f"Invalid JSON: {exc}") from exc
+            return {
+                "preview": preview_firstboot_config(choices),
+                "command": build_firstboot_command(choices),
+            }
+
+        @self.app.get("/firstboot")
+        async def firstboot_page() -> Any:
+            from fastapi.responses import HTMLResponse
+            return HTMLResponse(FIRSTBOOT_PAGE_HTML)
 
         @self.app.get("/events/counts")
         async def event_counts() -> dict[str, int]:

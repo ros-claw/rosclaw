@@ -10,6 +10,7 @@ from typing import Any
 
 from rosclaw.core.event_topics import EventTopics
 
+from .firstboot import get_firstboot_state
 from .metrics import DashboardMetrics
 
 
@@ -200,6 +201,11 @@ class DashboardServer:
             "current_body": current_body,
             "compatibility": compatibility,
         }
+
+    def get_firstboot_state(self, workspace: Path | str | None = None) -> dict[str, Any]:
+        """Return First Boot state for the dashboard wizard."""
+        ws = Path(workspace) if workspace else None
+        return get_firstboot_state(ws)
 
 
     # ── Auto Evolution API ──
