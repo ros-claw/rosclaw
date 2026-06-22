@@ -64,7 +64,7 @@
 - [x] **Dashboard firstboot page** — 已实现，待 PR 合并。
 - [ ] **Homebrew tap**：需要单独仓库 `ros-claw/homebrew-tap`。
 - [ ] **签名 release artifacts**：需要 GPG/代码签名密钥决策。
-- [ ] **Offline wheel bundle**：可本地实现，建议作为下一个子项。
+- [ ] ~~**Offline wheel bundle**~~ — **已决定不做**。
 - [ ] **Cloud login**：需要后端 API 规范与 OAuth client。
 
 ---
@@ -86,8 +86,12 @@
 1. **help 文档是否随 PR 一起提交？**
    本文件放在 `docs/help/` 下，用户此前要求“名字要包含你的工作关键词，放到 docs 目录下的help目录下”。是否应在 PR 中提交？还是仅作为本地辅助文件？
 
-2. **是否继续 Phase 3 的 offline wheel bundle？**
-   Dashboard 页面合入后，Phase 3 中“无需外部依赖”的子项只剩下 offline wheel bundle。是否立即开始？
+2. **是否继续 Phase 3 的下一项？**
+   用户已明确 offline wheel bundle 不做。Phase 3 剩余项均需要外部资源：
+   - Homebrew tap（需要仓库）
+   - 签名 release artifacts（需要密钥）
+   - Cloud login（需要 API 规范）
+   请确认优先启动哪一项，或等资源到位后再继续。
 
 3. **过时分支如何清理？**
    本地和远程存在大量已合并分支（`feat/body-docs-and-fail-closed`、`feat/body-p2-postmerge-verify`、`feat/p0-claude-code-agent-*` 等）。是否可以批量删除？
@@ -101,7 +105,7 @@
 
 1. **rebase + push PR**：`git rebase origin/main`，切到 `feat/dashboard-firstboot-page`，`git push -u origin`，创建 PR。
 2. **等待 review 并修复反馈**。
-3. **Dashboard PR 合并后**：建议启动 offline wheel bundle，继续推进 Phase 3。
+3. **Dashboard PR 合并后**：Phase 3 剩余项均依赖外部资源，建议先确认优先级与可用资源，再启动下一项。
 4. **分支清理**：在 PR 合并后统一删除已合并分支。
 
 ---
