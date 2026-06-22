@@ -1,7 +1,9 @@
 """
-ROSClaw - The Universal Operating System for Software-Defined Embodied AI.
+ROSClaw - Self-Evolving Runtime Infrastructure for Physical AI & Embodied Agents.
 
-This package provides production-ready middleware for connecting LLMs to physical robots.
+This package provides an open runtime infrastructure layer for connecting AI agents
+to physical robots through embodiment grounding, sandbox safety, capability routing,
+praxis capture, physical memory, runtime intervention, and skill evolution.
 
 Architecture:
     Agent Runtime (LLM/MCP)
