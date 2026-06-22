@@ -121,7 +121,7 @@ rosclaw firstboot --yes --profile offline --no-telemetry
 3. 写入根据所选 profile 生成的 `rosclaw.yaml`。
 4. 如果启用 MCP，生成 `mcp.json`。
 5. 创建遥测偏好配置（默认关闭）。
-6. 在 `state/install.json` 记录安装元数据。
+6. 在 `~/.rosclaw/state/install.json` 记录安装元数据。
 7. 运行 `rosclaw doctor --bootstrap`。
 8. 打印下一步操作提示。
 9. 在明确选择加入之前，保持只读、不连接真实机器人。
