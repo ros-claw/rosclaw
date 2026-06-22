@@ -16,6 +16,9 @@ README_PATH = PROJECT_ROOT / "README.md"
 README_ZH_PATH = PROJECT_ROOT / "README.zh.md"
 
 
+_ROSCLAW_CMD_RE = re.compile(r"^(?:\./)?rosclaw\s+(.*)$")
+
+
 def _extract_commands(markdown: str) -> list[str]:
     """Extract shell commands from bash code blocks, skipping comments."""
     commands = []
@@ -30,20 +33,22 @@ def _extract_commands(markdown: str) -> list[str]:
             else:
                 current += line.strip()
                 cmd = current.strip()
-                if cmd.startswith("./rosclaw "):
+                if _ROSCLAW_CMD_RE.match(cmd):
                     commands.append(cmd)
                 current = ""
-        if current.strip() and current.strip().startswith("./rosclaw "):
+        if current.strip() and _ROSCLAW_CMD_RE.match(current.strip()):
             commands.append(current.strip())
     return commands
 
+
 def _run_command(cmd: str, timeout: int = 30) -> subprocess.CompletedProcess:
     """Run a README command through the CLI module."""
-    parts = cmd[len("./rosclaw "):].split()
+    match = _ROSCLAW_CMD_RE.match(cmd)
+    args = match.group(1).split() if match else []
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT / "src")
     return subprocess.run(
-        [sys.executable, "-m", "rosclaw.cli", *parts],
+        [sys.executable, "-m", "rosclaw.cli", *args],
         cwd=PROJECT_ROOT,
         env=env,
         capture_output=True,
