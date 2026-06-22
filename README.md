@@ -189,7 +189,7 @@ See [QUICKSTART.md](QUICKSTART.md) for four guided paths: local simulation, agen
 3. Writes `rosclaw.yaml` with chosen profile.
 4. Generates `mcp.json` if MCP is enabled.
 5. Creates telemetry preferences (default disabled).
-6. Records install metadata in `state/install.json`.
+6. Records install metadata in `~/.rosclaw/state/install.json`.
 7. Runs `rosclaw doctor --bootstrap`.
 8. Prints next-step instructions.
 9. Leaves the system read-only and robot-safe until you opt in.
