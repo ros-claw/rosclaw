@@ -1,8 +1,12 @@
-# ROSClaw v1.0 Installation Guide
+# ROSClaw Installation Guide
+
+For a guided first experience, see [QUICKSTART.md](QUICKSTART.md). This guide covers installation methods, platform-specific requirements, and troubleshooting.
+
+---
 
 ## Recommended User Install
 
-The fastest way to get ROSClaw is the official bootstrapper. It installs the CLI, creates a minimal workspace, and runs a bootstrap health check. No robot is moved, no cloud account is created, and no telemetry is sent unless you explicitly opt in later.
+The official bootstrapper installs the CLI, creates a minimal workspace, and runs a bootstrap health check. No robot is moved, no cloud account is created, and no telemetry is sent unless you explicitly opt in later.
 
 ```bash
 curl -sSL https://rosclaw.io/get | bash
@@ -139,6 +143,20 @@ WSL is supported. The bootstrapper detects WSL and warns if you try to install u
 
 ---
 
+## Configuration
+
+After `rosclaw firstboot`, the main config lives at `~/.rosclaw/config/rosclaw.yaml`. For a complete example, see [docs/FIRSTBOOT.md](docs/FIRSTBOOT.md).
+
+To inspect or edit the config:
+
+```bash
+rosclaw config show
+rosclaw config path
+rosclaw config edit
+```
+
+---
+
 ## Verify Installation
 
 ```bash
@@ -146,6 +164,24 @@ rosclaw --version
 rosclaw doctor --bootstrap
 rosclaw doctor --full --json
 ```
+
+---
+
+## Uninstall
+
+To remove the CLI and optionally the workspace:
+
+```bash
+rosclaw uninstall --purge
+```
+
+To keep workspace data:
+
+```bash
+rosclaw uninstall --keep-data
+```
+
+---
 
 ## Troubleshooting
 
@@ -156,3 +192,15 @@ rosclaw doctor --full --json
 | PEP 668 externally-managed environment | The bootstrapper will use a private venv automatically |
 | `rosclaw doctor` reports missing modules | Run `pip install -e .` from the repo root |
 | MuJoCo rendering fails | `sudo apt install libglfw3 libglew2.2` |
+| ROS 2 import errors | Source `/opt/ros/humble/setup.bash` before running ROS 2 features |
+| Permission denied during firstboot | Ensure `~/.rosclaw` is writable by your user |
+
+---
+
+## Next Steps
+
+- [Quick Start](QUICKSTART.md)
+- [Architecture](ARCHITECTURE.md)
+- [First Boot Details](docs/FIRSTBOOT.md)
+- [CLI Reference](docs/CLI.md)
+- [Safety Model](docs/SAFETY.md)
