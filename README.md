@@ -233,7 +233,7 @@ PYTHONPATH=src pytest tests -q
 | Route capability | `rosclaw provider route --capability <name>` | Planned |
 | Start practice | `rosclaw practice start --sources <sources>` | Planned |
 | Advise on failure | `rosclaw how advise --task <id> --failure <id>` | Planned |
-| Run auto suite | `rosclaw auto run --suite <suite>` | Planned |
+| Run auto evolution | `rosclaw auto run --task <id>` | Experimental |
 | Evaluate with Darwin | `rosclaw darwin eval --skill <id>` | Research |
 
 See [docs/CLI.md](docs/CLI.md) for the full command reference with status labels.

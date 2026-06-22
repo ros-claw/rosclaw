@@ -56,10 +56,10 @@ This document lists ROSClaw CLI commands and their implementation status.
 |---------|--------|-------------|
 | `rosclaw agent init claude-code` | Stable | Generate MCP config for Claude Code |
 | `rosclaw agent test claude-code` | Stable | Test the agent integration |
-| `rosclaw agent doctor` | Stable | Validate agent/MCP setup |
+| `rosclaw agent doctor claude-code` | Stable | Validate agent/MCP setup |
 | `rosclaw mcp serve` | Stable | Start the ROSClaw MCP server |
 | `rosclaw mcp serve --transport http --port 9000` | Stable | HTTP transport |
-| `rosclaw mcp onboard` | Stable | Hardware MCP onboarding flow |
+| `rosclaw mcp install <package>` | Stable | Install a hardware MCP server |
 
 ---
 
@@ -73,8 +73,8 @@ This document lists ROSClaw CLI commands and their implementation status.
 | `rosclaw body switch <id>` | Stable | Change active body |
 | `rosclaw body link-eurdf --body <id> --eurdf <path>` | Stable | Link an e-URDF model |
 | `rosclaw body history` | Stable | Show body snapshot history |
-| `rosclaw skill check --task <id>` | Stable | Check skill compatibility |
-| `rosclaw skill fleet-check --task <id>` | Stable | Fleet-wide compatibility |
+| `rosclaw skill check --task <id>` | Stable | Check skill compatibility for the current body |
+| `rosclaw body fleet-compat --task <id>` | Stable | Fleet-wide skill compatibility |
 
 ---
 
@@ -86,13 +86,13 @@ This document lists ROSClaw CLI commands and their implementation status.
 | `rosclaw hub login --registry <url> --token <token>` | Stable | Log in to a registry |
 | `rosclaw hub sync` | Stable | Sync registry metadata |
 | `rosclaw hub search <term>` | Stable | Search available assets |
-| `rosclaw hub info <uri>` | Stable | Show asset details |
+| `rosclaw hub verify <uri>` | Stable | Verify an asset bundle |
 | `rosclaw hub publish --dry-run` | Stable | Validate before publishing |
-| `rosclaw hub policy` | Stable | Show license/permission policy |
+| `rosclaw hub policy check <asset_dir>` | Stable | Check license/permission policy |
 | `rosclaw hub install <uri>` | Stable | Install an asset locally |
 | `rosclaw hub list --installed` | Stable | List installed assets |
 | `rosclaw hub uninstall <uri>` | Stable | Remove an installed asset |
-| `rosclaw hub update <uri>` | Stable | Update an installed asset from a local directory |
+| `rosclaw hub update <uri> <asset_dir>` | Stable | Update an installed asset from a local directory |
 
 ---
 
