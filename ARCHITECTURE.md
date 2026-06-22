@@ -2,9 +2,9 @@
 
 ## Mission
 
-**The Open Infrastructure for Physical Intelligence**
+**Self-Evolving Runtime Infrastructure for Physical AI & Embodied Agents**
 
-Grounding AI into the Physical World.
+Ground AI agents into robot bodies. Validate every action. Learn from every trace. Evolve every skill.
 
 ## Engineering Identity
 
