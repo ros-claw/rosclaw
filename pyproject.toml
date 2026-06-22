@@ -5,13 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "rosclaw"
 version = "1.0.1"
-description = "The Universal Operating System for Software-Defined Embodied AI"
+description = "Self-Evolving Runtime Infrastructure for Physical AI & Embodied Agents"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "ROSClaw Team", email = "team@rosclaw.io"},
+    {name = "ROSClaw Team", email = "ai@rosclaw.io"},
 ]
-keywords = ["robotics", "ros2", "mcp", "llm", "embodied-ai", "mujoco"]
+keywords = ["robotics", "ros2", "mcp", "llm", "embodied-ai", "physical-ai", "mujoco", "runtime", "eurdf"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
@@ -78,6 +78,7 @@ Homepage = "https://rosclaw.io"
 Repository = "https://github.com/ros-claw/rosclaw"
 Documentation = "https://docs.rosclaw.io"
 "Bug Tracker" = "https://github.com/ros-claw/rosclaw/issues"
+"Contact" = "mailto:ai@rosclaw.io"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rosclaw"]
