@@ -17,10 +17,10 @@
 
 <br/>
 
-```bash
-curl -sSL https://rosclaw.io/get | bash
-rosclaw firstboot
-```
+<p align="center">
+  <code>curl -sSL https://rosclaw.io/get | bash</code><br/>
+  <code>rosclaw firstboot</code>
+</p>
 
 </div>
 
