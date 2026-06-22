@@ -2787,7 +2787,7 @@ def cmd_restart(args: argparse.Namespace) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="rosclaw",
-        description="ROSClaw - Universal OS for Software-Defined Embodied AI",
+        description="ROSClaw - Self-Evolving Runtime Infrastructure for Physical AI & Embodied Agents",
     )
     parser.add_argument(
         "--version",
