@@ -15,14 +15,12 @@
 
 [Website](https://rosclaw.io) · [Quick Start](QUICKSTART.md) · [Architecture](ARCHITECTURE.md) · [Docs](docs/) · [Contact](mailto:ai@rosclaw.io)
 
-<br/>
-
-<p align="center">
-  <code>curl -sSL https://rosclaw.io/get | bash</code><br/>
-  <code>rosclaw firstboot</code>
-</p>
-
 </div>
+
+```bash
+curl -sSL https://rosclaw.io/get | bash
+rosclaw firstboot
+```
 
 ---
 

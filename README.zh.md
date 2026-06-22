@@ -15,14 +15,12 @@
 
 [English](README.md) • **中文** • [架构](ARCHITECTURE.md) • [快速开始](QUICKSTART.md) • [文档](docs/)
 
-<br/>
-
-<p align="center">
-  <code>curl -sSL https://rosclaw.io/get | bash</code><br/>
-  <code>rosclaw firstboot</code>
-</p>
-
 </div>
+
+```bash
+curl -sSL https://rosclaw.io/get | bash
+rosclaw firstboot
+```
 
 ---
 
