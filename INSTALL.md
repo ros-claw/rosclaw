@@ -1,4 +1,6 @@
-# ROSClaw v1.0 Installation Guide
+# ROSClaw Installation Guide
+
+For the fastest path, see [QUICKSTART.md](QUICKSTART.md).
 
 ## Recommended User Install
 
