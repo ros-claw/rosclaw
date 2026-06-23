@@ -25,6 +25,7 @@ import argparse
 import contextlib
 import json
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -43,6 +44,11 @@ from rosclaw.firstboot.workspace import resolve_home
 from rosclaw.hub.cli import add_hub_subparser, dispatch_hub_command
 from rosclaw.mcp.onboarding.cli import add_mcp_subparser
 from rosclaw.mcp.server import serve as _mcp_serve
+from rosclaw.practice.config import PracticeConfig, SourceConfig
+from rosclaw.practice.coordinator import PracticeCoordinator
+from rosclaw.practice.storage.catalog import PracticeCatalog
+from rosclaw.practice.storage.fallback_sync import FallbackSync
+from rosclaw.practice.storage.layout import PracticeLayout
 from rosclaw.sense.cli import (
     cmd_sense_events,
     cmd_sense_explain,
@@ -1183,7 +1189,29 @@ def cmd_practice_replay(args: argparse.Namespace) -> int:
 
 
 def cmd_practice_export(args: argparse.Namespace) -> int:
-    """Export episode metadata."""
+    """Export episode metadata or practice events JSONL."""
+    if args.format == "jsonl":
+        practice_id = args.practice_id or args.episode_id
+        layout = PracticeLayout(args.data_root)
+        jsonl_path = layout.events_jsonl_path(practice_id)
+        if not jsonl_path.exists():
+            # Fall back to catalog lookup
+            catalog = PracticeCatalog(layout.catalog_db_path)
+            record = catalog.get_practice(practice_id)
+            if record and record.get("events_jsonl_path"):
+                jsonl_path = Path(record["events_jsonl_path"])
+        if not jsonl_path.exists():
+            print(f"[ROSClaw] Practice '{practice_id}' events not found.", file=sys.stderr)
+            return 1
+        out_path = args.output
+        if out_path:
+            shutil.copyfile(jsonl_path, out_path)
+            print(f"[ROSClaw] Exported JSONL to {out_path}")
+        else:
+            with open(jsonl_path, encoding="utf-8") as f:
+                sys.stdout.write(f.read())
+        return 0
+
     from rosclaw.practice.episode_recorder import EpisodeRecorder
 
     recorder = EpisodeRecorder("cli", event_bus=None, artifact_base_dir=str(_practice_artifacts_dir()))
@@ -1202,9 +1230,211 @@ def cmd_practice_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_duration(value: str | None) -> float | None:
+    """Parse a human-readable duration into seconds."""
+    if value is None:
+        return None
+    value = value.strip()
+    if value.endswith("ms"):
+        seconds = float(value[:-2]) / 1000.0
+    elif value.endswith("s"):
+        seconds = float(value[:-1])
+    elif value.endswith("m"):
+        seconds = float(value[:-1]) * 60.0
+    elif value.endswith("h"):
+        seconds = float(value[:-1]) * 3600.0
+    else:
+        seconds = float(value)
+    if seconds <= 0:
+        raise ValueError(f"duration must be positive, got {value}")
+    return seconds
+
+
+def _parse_sources(value: str | None) -> SourceConfig:
+    sources = SourceConfig()
+    if not value:
+        return sources
+    for name in [p.strip() for p in value.split(",") if p.strip()]:
+        if hasattr(sources, name):
+            setattr(sources, name, True)
+    return sources
+
+
+def cmd_practice_init(args: argparse.Namespace) -> int:
+    """Initialize rosclaw-practice configuration for a robot."""
+    config_root = Path.home() / ".rosclaw" / "practice"
+    robot_id = args.robot
+    config_root.mkdir(parents=True, exist_ok=True)
+    (config_root / "robots" / robot_id).mkdir(parents=True, exist_ok=True)
+
+    config_path = config_root / "config.yaml"
+    content = """# rosclaw-practice global configuration
+data_root: /data/rosclaw/practice
+seekdb:
+  enabled: false
+  url: ""
+  fallback_dir: /data/rosclaw/practice/fallback
+"""
+    config_path.write_text(content, encoding="utf-8")
+
+    robot_config = config_root / "robots" / robot_id / "robot.yaml"
+    robot_config.write_text(
+        f"robot_id: {robot_id}\nrobot_type: unknown\n",
+        encoding="utf-8",
+    )
+    print(f"[rosclaw-practice] Initialized for robot '{robot_id}'")
+    print(f"  config: {config_path}")
+    print(f"  robot:  {robot_config}")
+    return 0
+
+
+def cmd_practice_start(args: argparse.Namespace) -> int:
+    """Start a practice session using PracticeCoordinator."""
+    import signal
+
+    seekdb_enabled = args.seekdb
+    seekdb_url = os.environ.get("ROSCLAW_SEEKDB_URL", "http://localhost:2881")
+    fallback_dir = os.environ.get("ROSCLAW_SEEKDB_FALLBACK_DIR", "/data/rosclaw/practice/fallback")
+
+    try:
+        duration_sec = _parse_duration(args.duration)
+    except ValueError as exc:
+        print(f"[rosclaw-practice] Invalid duration: {exc}", file=sys.stderr)
+        return 1
+
+    config = PracticeConfig(
+        robot_id=args.robot,
+        robot_type=args.robot_type,
+        task_id=args.task,
+        task_name=args.task,
+        skill_id=args.skill,
+        data_root=args.data_root,
+        sources=_parse_sources(args.sources),
+        mock=args.mock,
+        duration_sec=duration_sec,
+        publish_to_event_bus=True,
+    )
+    config.seekdb.enabled = seekdb_enabled
+    config.seekdb.url = seekdb_url if seekdb_enabled else None
+    config.seekdb.fallback_dir = fallback_dir
+
+    coordinator = PracticeCoordinator(config)
+    coordinator.initialize()
+
+    recorder = None
+    if seekdb_enabled:
+        try:
+            from rosclaw.practice.episode_recorder import EpisodeRecorder
+            from rosclaw.practice.seekdb_bridge import SeekDBBridge
+
+            bridge = SeekDBBridge(seekdb_url=seekdb_url, fallback_dir=fallback_dir)
+            recorder = EpisodeRecorder(
+                robot_id=args.robot,
+                event_bus=coordinator.event_bus,
+                seekdb_bridge=bridge,
+            )
+            recorder.initialize()
+        except Exception as exc:
+            print(f"[rosclaw-practice] SeekDB recorder unavailable: {exc}", file=sys.stderr)
+
+    coordinator.start()
+
+    practice_id = coordinator.session.practice_id if coordinator.session else "unknown"
+    pid_file = Path.home() / ".rosclaw" / "practice" / "coordinator.pid"
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_file.write_text(f"{os.getpid()}\n{practice_id}\n", encoding="utf-8")
+
+    print(f"[rosclaw-practice] Started session {practice_id}")
+
+    stop_requested = False
+
+    def _handle_signal(signum, frame):
+        nonlocal stop_requested
+        stop_requested = True
+
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
+
+    try:
+        if config.duration_sec:
+            deadline = time.time() + config.duration_sec
+            while not stop_requested and time.time() < deadline:
+                time.sleep(0.1)
+        else:
+            while not stop_requested:
+                time.sleep(0.1)
+    finally:
+        coordinator.stop()
+        if recorder is not None:
+            recorder.stop()
+        if pid_file.exists():
+            pid_file.unlink()
+
+    summary = coordinator.summary
+    if summary:
+        print(f"[rosclaw-practice] Stopped {summary.practice_id}")
+        print(f"  events:   {summary.event_count}")
+        print(f"  duration: {summary.duration_ms:.1f} ms")
+        print(f"  outcome:  {summary.outcome}")
+        print(f"  artifacts: {summary.artifact_dir}")
+    return 0
+
+
+def cmd_practice_stop(args: argparse.Namespace) -> int:
+    """Stop the running practice coordinator."""
+    import os
+    import signal
+
+    pid_file = Path.home() / ".rosclaw" / "practice" / "coordinator.pid"
+    if not pid_file.exists():
+        print("[rosclaw-practice] No running coordinator found.", file=sys.stderr)
+        return 1
+
+    lines = pid_file.read_text(encoding="utf-8").strip().splitlines()
+    try:
+        pid = int(lines[0])
+        running_practice_id = lines[1] if len(lines) > 1 else None
+    except (ValueError, IndexError):
+        print("[rosclaw-practice] Invalid PID file.", file=sys.stderr)
+        return 1
+
+    requested_id = getattr(args, "practice_id", None)
+    if requested_id and running_practice_id and requested_id != running_practice_id:
+        print(
+            f"[rosclaw-practice] Running session is {running_practice_id}, not {requested_id}.",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+        print(f"[rosclaw-practice] Sent stop signal to coordinator (PID {pid}).")
+    except ProcessLookupError:
+        print(f"[rosclaw-practice] Coordinator PID {pid} not found.", file=sys.stderr)
+        pid_file.unlink()
+        return 1
+    return 0
+
+
+def cmd_practice_sync_fallback(args: argparse.Namespace) -> int:
+    """Re-submit fallback JSON files to SeekDB."""
+    seekdb_url = args.seekdb_url or os.environ.get("ROSCLAW_SEEKDB_URL", "http://localhost:2881")
+    fallback_dir = args.fallback_dir or os.environ.get(
+        "ROSCLAW_SEEKDB_FALLBACK_DIR", "/data/rosclaw/practice/fallback"
+    )
+    sync = FallbackSync(seekdb_url=seekdb_url, fallback_dir=fallback_dir)
+    summary = sync.sync()
+    print(f"[rosclaw-practice] Fallback sync: attempted={summary['attempted']} "
+          f"success={summary['success']} failed={summary['failed']}")
+    for err in summary["errors"]:
+        print(f"  ERROR: {err}", file=sys.stderr)
+    return 0 if summary["failed"] == 0 else 1
+
+
+# Keep original export available; add jsonl support below.
+
 def cmd_provider_invoke(args: argparse.Namespace) -> int:
     """Invoke a provider capability."""
-
     provider_id = args.provider_id
     input_data = args.input
 
@@ -3173,16 +3403,42 @@ def main() -> int:
 
     practice_subparsers.add_parser("list", help="List recorded episodes")
 
-    practice_show_parser = practice_subparsers.add_parser("show", help="Show episode details")
-    practice_show_parser.add_argument("episode_id", help="Episode identifier (e.g., ep_0001)")
+    practice_init_parser = practice_subparsers.add_parser("init", help="Initialize practice configuration")
+    practice_init_parser.add_argument("--robot", required=True, help="Robot identifier")
+
+    practice_start_parser = practice_subparsers.add_parser("start", help="Start a practice session")
+    practice_start_parser.add_argument("--robot", required=True, help="Robot identifier")
+    practice_start_parser.add_argument("--robot-type", default=None, help="Robot type")
+    practice_start_parser.add_argument("--task", default=None, help="Task name / task_id")
+    practice_start_parser.add_argument("--skill", default=None, help="Skill identifier")
+    practice_start_parser.add_argument(
+        "--sources", default="agent,runtime", help="Comma-separated source list (e.g. agent,runtime,dds)"
+    )
+    practice_start_parser.add_argument("--mock", action="store_true", help="Use mock adapters")
+    practice_start_parser.add_argument("--duration", default=None, help="Duration like 5s, 2m, 1h")
+    practice_start_parser.add_argument("--seekdb", action="store_true", help="Enable SeekDB commit")
+    practice_start_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
+
+    practice_stop_parser = practice_subparsers.add_parser("stop", help="Stop the running practice coordinator")
+    practice_stop_parser.add_argument("--practice-id", default=None, help="Practice session identifier")
+
+    practice_sync_parser = practice_subparsers.add_parser("sync-fallback", help="Sync fallback JSON files to SeekDB")
+    practice_sync_parser.add_argument("--seekdb-url", default=None, help="SeekDB base URL")
+    practice_sync_parser.add_argument("--fallback-dir", default=None, help="Fallback directory")
+
+    practice_show_parser = practice_subparsers.add_parser("show", help="Show episode/practice details")
+    practice_show_parser.add_argument("episode_id", help="Episode or practice identifier")
     practice_show_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     practice_replay_parser = practice_subparsers.add_parser("replay", help="Replay episode trace")
     practice_replay_parser.add_argument("episode_id", help="Episode identifier")
 
-    practice_export_parser = practice_subparsers.add_parser("export", help="Export episode metadata")
-    practice_export_parser.add_argument("episode_id", help="Episode identifier")
-    practice_export_parser.add_argument("--format", choices=["json"], default="json", help="Export format")
+    practice_export_parser = practice_subparsers.add_parser("export", help="Export episode metadata or practice events")
+    practice_export_parser.add_argument("episode_id", help="Episode or practice identifier")
+    practice_export_parser.add_argument("--practice-id", default=None, help="Practice identifier (for jsonl)")
+    practice_export_parser.add_argument("--format", choices=["json", "jsonl"], default="json", help="Export format")
+    practice_export_parser.add_argument("--output", default=None, help="Output file (default stdout)")
+    practice_export_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
 
     # know subcommand
     know_parser = subparsers.add_parser("know", help="Knowledge base queries")
@@ -3457,6 +3713,14 @@ def main() -> int:
     elif args.command == "practice":
         if args.practice_command == "list":
             return cmd_practice_list(args)
+        elif args.practice_command == "init":
+            return cmd_practice_init(args)
+        elif args.practice_command == "start":
+            return cmd_practice_start(args)
+        elif args.practice_command == "stop":
+            return cmd_practice_stop(args)
+        elif args.practice_command == "sync-fallback":
+            return cmd_practice_sync_fallback(args)
         elif args.practice_command == "show":
             return cmd_practice_show(args)
         elif args.practice_command == "replay":

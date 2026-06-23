@@ -261,6 +261,67 @@ class TestPracticeCommands:
         captured = capsys.readouterr()
         assert "not found" in captured.out or code == 1
 
+    def test_practice_init(self, monkeypatch, tmp_path):
+        from rosclaw.cli import main
+        monkeypatch.setenv("HOME", str(tmp_path))
+        sys.argv = ["rosclaw", "practice", "init", "--robot", "test_bot"]
+        assert main() == 0
+        assert (tmp_path / ".rosclaw" / "practice" / "config.yaml").exists()
+
+    def test_practice_start_mock(self, monkeypatch, tmp_path, capsys):
+        from rosclaw.cli import main
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        data_root = tmp_path / "practice_data"
+        sys.argv = [
+            "rosclaw", "practice", "start",
+            "--robot", "test_bot",
+            "--task", "mock_task",
+            "--sources", "agent,runtime",
+            "--mock",
+            "--duration", "500ms",
+            "--data-root", str(data_root),
+        ]
+        assert main() == 0
+        captured = capsys.readouterr()
+        assert "Started session" in captured.out
+        assert "Stopped" in captured.out
+
+    def test_practice_export_jsonl(self, monkeypatch, tmp_path, capsys):
+        from rosclaw.cli import main
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        data_root = tmp_path / "practice_data"
+        sys.argv = [
+            "rosclaw", "practice", "start",
+            "--robot", "test_bot",
+            "--task", "mock_task",
+            "--sources", "agent",
+            "--mock",
+            "--duration", "300ms",
+            "--data-root", str(data_root),
+        ]
+        assert main() == 0
+        # Find the practice id from data root
+        sessions = [d for d in (data_root / "sessions").iterdir() if d.is_dir()]
+        assert sessions
+        practice_id = sessions[0].name
+        sys.argv = [
+            "rosclaw", "practice", "export",
+            practice_id,
+            "--format", "jsonl",
+            "--data-root", str(data_root),
+        ]
+        capsys.readouterr()  # clear output from start command
+        assert main() == 0
+        captured = capsys.readouterr()
+        lines = [line for line in captured.out.splitlines() if line.strip()]
+        assert len(lines) > 0
+        import json
+        assert json.loads(lines[0])["schema_version"] == "practice.event.v1"
+
 
 class TestDashboard:
     def test_dashboard(self, capsys):

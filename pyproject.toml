@@ -38,6 +38,7 @@ dependencies = [
     "rosclaw-know>=1.0.2",
     "rosclaw-how>=1.0.2",
     "pydantic>=2.0.0",
+    "requests>=2.25.0",
     "semver>=3.0.0",
     "filelock>=3.0.0",
 ]
