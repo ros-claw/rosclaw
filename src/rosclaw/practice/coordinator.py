@@ -109,6 +109,7 @@ class PracticeCoordinator(LifecycleMixin):
         self._session = PracticeSession(
             practice_id=practice_id,
             robot_id=self.config.robot_id,
+            robot_type=self.config.robot_type,
             task_id=self.config.task_id,
             task_name=self.config.task_name,
             skill_id=self.config.skill_id,

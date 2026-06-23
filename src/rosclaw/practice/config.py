@@ -115,6 +115,7 @@ class PracticeSession:
     session_dir: Path
     start_time_ns: int
     start_time_utc: str
+    robot_type: str | None = None
     session_id: str | None = None
     tags: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)

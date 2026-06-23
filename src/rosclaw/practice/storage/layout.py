@@ -87,7 +87,7 @@ class PracticeLayout:
             "practice_id": session.practice_id,
             "session_id": session.session_id,
             "robot_id": session.robot_id,
-            "robot_type": None,
+            "robot_type": session.robot_type,
             "task": {
                 "task_id": session.task_id,
                 "task_name": session.task_name,
