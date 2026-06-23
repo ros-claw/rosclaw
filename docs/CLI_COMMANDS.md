@@ -31,7 +31,7 @@
 | `how` | How recovery commands | `rosclaw how [-h] {explain,recover} ...` |
 | `provider` | Provider commands | `rosclaw provider [-h] {list,invoke} ...` |
 | `auto` | Auto self-evolution commands | `rosclaw auto [-h] {init,run,status,champion,deadends,report} ...` |
-| `skill` | Skill commands | `rosclaw skill [-h] {init,validate,mine,eval,promote,package,verify-package,upload} ...` |
+| `skill` | Skill commands | `rosclaw skill [-h] {list,check,invoke,champions,lineage,rollback,init,validate,mine,eval,promote,package,verify-package,upload} ...` |
 | `sandbox` | Sandbox commands | `rosclaw sandbox [-h] {list-worlds,validate,run,replay,check} ...` |
 | `runtime` | Runtime backend commands | `rosclaw runtime [-h] {backends} ...` |
 | `firewall` | Firewall safety checks | `rosclaw firewall [-h] {check} ...` |
@@ -96,6 +96,12 @@
 
 | Command | Description | Usage |
 |---------|-------------|-------|
+| `skill list` | List available skills | `rosclaw skill list [-h]` |
+| `skill check` | Check skill availability and body compatibility | `rosclaw skill check [-h] [--all] [--json] [skill_id]` |
+| `skill invoke` | Invoke a skill | `rosclaw skill invoke [-h] [--trace-id TRACE_ID] skill_id input` |
+| `skill champions` | Skill champion management | `rosclaw skill champions [-h] {list} ...` |
+| `skill lineage` | Show skill lineage | `rosclaw skill lineage [-h] skill_id` |
+| `skill rollback` | Rollback skill to version | `rosclaw skill rollback [-h] --to TO skill_id` |
 | `skill init` | Initialize a new skill package from a template | `rosclaw skill init [-h] [--robot ROBOT] [--category CATEGORY] [--namespace NAMESPACE] [--template TEMPLATE] [--output OUTPUT] [--force] name` |
 | `skill validate` | Validate a skill package against the ROSClaw Skill Hub schema | `rosclaw skill validate [-h] [--name NAME] [--workspace WORKSPACE] [--json] [skill_dir]` |
 | `skill mine` | Mine a candidate skill from a source artifact | `rosclaw skill mine [-h] --from SOURCE --task TASK [--robot ROBOT] [--output OUTPUT] [--candidate CANDIDATE] [--json]` |

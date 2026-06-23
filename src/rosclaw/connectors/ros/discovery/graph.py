@@ -327,7 +327,16 @@ class RosGraphDiscovery:
     def get_service_type(self, service: str) -> str:
         if service in self._service_types:
             return self._service_types[service]
-        result = self._call_rosapi("service_type", {"service": service})
+        # ROS2's /rosapi/service_type can stall for several seconds per service
+        # when the type is not cached. Use a tight timeout; the retry path in
+        # RosbridgeTransport still yields a fast empty response for unknown
+        # services and a quick correct response for known ones.
+        timeout = 0.5 if self._profile.version == RosVersion.ROS2 else None
+        result = self._transport.call_service(
+            self._profile.service("service_type"),
+            {"service": service},
+            timeout_sec=timeout,
+        )
         if result.ok:
             values = _extract_values(result.data)
             raw = values.get("type", "")
@@ -436,7 +445,14 @@ class RosGraphDiscovery:
         return values.get("subscribers") or []
 
     def _get_service_providers(self, service: str) -> list[str]:
-        result = self._call_rosapi("service_node", {"service": service})
+        # ROS2's /rosapi/service_node can stall when the providing node is not
+        # immediately discoverable. Use a tight timeout and fall back to empty.
+        timeout = 0.5 if self._profile.version == RosVersion.ROS2 else None
+        result = self._transport.call_service(
+            self._profile.service("service_node"),
+            {"service": service},
+            timeout_sec=timeout,
+        )
         if not result.ok:
             return []
         values = _extract_values(result.data)
