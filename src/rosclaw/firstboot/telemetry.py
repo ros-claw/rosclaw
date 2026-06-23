@@ -1,4 +1,4 @@
-"""Telemetry configuration generation for ROSClaw First Boot."""
+"""Telemetry and feedback configuration generation for ROSClaw First Boot."""
 
 from __future__ import annotations
 
@@ -6,78 +6,41 @@ from pathlib import Path
 
 import yaml
 
+from rosclaw.feedback.config import FeedbackConfig, TelemetryConfig
 
-def generate_telemetry_yaml(home: Path, enabled: bool = False) -> Path:
-    """Generate telemetry.yaml with everything disabled by default."""
+
+def generate_telemetry_yaml(home: Path, enabled: bool = True) -> Path:
+    """Generate telemetry.yaml with the full v1 product telemetry spec."""
+    config = TelemetryConfig()
+    config.mode["enabled"] = True
+    config.mode["product_telemetry"] = enabled
+    config.mode["diagnostics_upload"] = False
+    config.mode["rich_feedback_upload"] = False
+    config.product_telemetry["enabled"] = enabled
+    config.product_telemetry["opt_out"] = True
+    config.diagnostics["enabled"] = False
+    config.rich_feedback["enabled"] = False
+    return config.save(home)
+
+
+def generate_feedback_yaml(home: Path) -> Path:
+    """Generate feedback.yaml with the full v1 local feedback spec."""
+    return FeedbackConfig().save(home)
+
+
+def load_telemetry_yaml(home: Path) -> dict:
+    """Load telemetry.yaml if present, returning an empty dict on error."""
     path = home / "config" / "telemetry.yaml"
-    config = {
-        "schema_version": "1.0",
-        "telemetry": {
-            "enabled": enabled,
-            "anonymous_install_ping": enabled,
-            "anonymous_doctor_ping": False,
-            "endpoint": "https://api.rosclaw.io/v1/telemetry",
-        },
-        "privacy": {
-            "send_install_id": True,
-            "send_os": True,
-            "send_arch": True,
-            "send_python_version": True,
-            "send_error_code": True,
-            "send_hostname": False,
-            "send_username": False,
-            "send_ip": False,
-            "send_workspace_path": False,
-            "send_logs": False,
-        },
-    }
-    path.write_text(
-        yaml.safe_dump(config, default_flow_style=False, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
-    return path
+    if not path.exists():
+        return {}
+    try:
+        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (yaml.YAMLError, OSError):
+        return {}
 
 
-def build_install_ping_payload(
-    install_state: dict,
-    status: str = "success",
-    error_code: str | None = None,
-    duration_ms: int | None = None,
-) -> dict:
-    """Build an anonymous install ping payload.
-
-    This only includes non-identifying fields: hashed install_id, platform,
-    Python version, install backend/channel, and result status.
-    """
-    import hashlib
-
-    install_id = install_state.get("install_id", "")
-    install_id_hash = hashlib.sha256(install_id.encode("utf-8")).hexdigest()
-    platform = install_state.get("platform", {})
-    python = install_state.get("python", {})
-
-    return {
-        "event": "install_completed",
-        "schema_version": "1.0",
-        "anonymous": True,
-        "install_id_hash": f"sha256:{install_id_hash}",
-        "timestamp": install_state.get("installed_at"),
-        "rosclaw_version": install_state.get("rosclaw_version", "unknown"),
-        "installer_version": install_state.get("installer_version", "1.0.0"),
-        "platform": {
-            "os": platform.get("os"),
-            "arch": platform.get("arch"),
-            "is_wsl": platform.get("is_wsl", False),
-        },
-        "python": {
-            "major": python.get("version", "").split(".")[0] if python.get("version") else None,
-            "minor": python.get("version", "").split(".")[1] if python.get("version") else None,
-        },
-        "install_backend": install_state.get("install_backend"),
-        "install_channel": install_state.get("install_channel"),
-        "result": {
-            "status": status,
-            "error_code": error_code,
-            "duration_ms": duration_ms,
-        },
-    }
+def is_product_telemetry_enabled(home: Path) -> bool:
+    """Return whether product telemetry is currently enabled."""
+    cfg = load_telemetry_yaml(home)
+    mode = cfg.get("mode", {})
+    return bool(mode.get("enabled", True) and mode.get("product_telemetry", True))

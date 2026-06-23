@@ -22,6 +22,8 @@ def get_firstboot_state(home: Path | str | None = None) -> dict[str, Any]:
         "rosclaw_yaml_exists": False,
         "mcp_json_exists": False,
         "telemetry_yaml_exists": False,
+        "feedback_yaml_exists": False,
+        "installation_json_exists": False,
         "steps": {},
     }
 
@@ -32,6 +34,8 @@ def get_firstboot_state(home: Path | str | None = None) -> dict[str, Any]:
         state["rosclaw_yaml_exists"] = (home_path / "config" / "rosclaw.yaml").exists()
         state["mcp_json_exists"] = (home_path / "config" / "mcp.json").exists()
         state["telemetry_yaml_exists"] = (home_path / "config" / "telemetry.yaml").exists()
+        state["feedback_yaml_exists"] = (home_path / "config" / "feedback.yaml").exists()
+        state["installation_json_exists"] = (home_path / "config" / "installation.json").exists()
     except Exception as exc:  # noqa: BLE001
         state["error"] = str(exc)
 
@@ -42,6 +46,8 @@ def get_firstboot_state(home: Path | str | None = None) -> dict[str, Any]:
         "config": state["rosclaw_yaml_exists"],
         "mcp": state["mcp_json_exists"],
         "telemetry": state["telemetry_yaml_exists"],
+        "feedback": state["feedback_yaml_exists"],
+        "installation": state["installation_json_exists"],
         "firstboot": bool(install.get("firstboot_completed")),
         "doctor": install.get("last_doctor_status") == "ready",
     }
@@ -66,6 +72,16 @@ def build_firstboot_command(choices: dict[str, Any]) -> str:
         cmd.append("--telemetry")
     else:
         cmd.append("--no-telemetry")
+
+    if choices.get("diagnostics", False):
+        cmd.append("--diagnostics")
+    else:
+        cmd.append("--no-diagnostics")
+
+    if choices.get("rich_feedback", False):
+        cmd.append("--rich-feedback")
+    else:
+        cmd.append("--no-rich-feedback")
 
     if choices.get("mcp", True):
         cmd.append("--enable-mcp")
@@ -96,6 +112,8 @@ def preview_firstboot_config(choices: dict[str, Any]) -> dict[str, Any]:
         "robot": choices.get("robot", "sim_ur5e"),
         "safety": choices.get("safety", "strict"),
         "telemetry": bool(choices.get("telemetry", False)),
+        "diagnostics": bool(choices.get("diagnostics", False)),
+        "rich_feedback": bool(choices.get("rich_feedback", False)),
         "mcp": bool(choices.get("mcp", True)),
         "sandbox": bool(choices.get("sandbox", True)),
         "use_cases": {
@@ -196,7 +214,7 @@ FIRSTBOOT_PAGE_HTML = """<!DOCTYPE html>
   <div class="card">
     <h2>Run in Terminal</h2>
     <p class="muted">Copy this command and run it in your terminal to apply the configuration.</p>
-    <code id="command">rosclaw firstboot --yes --profile offline --robot sim_ur5e --safety strict --no-telemetry --enable-mcp --enable-sandbox</code>
+    <code id="command">rosclaw firstboot --yes --profile offline --robot sim_ur5e --safety strict --no-telemetry --no-diagnostics --no-rich-feedback --enable-mcp --enable-sandbox</code>
     <div class="actions">
       <button onclick="copyCommand()">Copy Command</button>
     </div>

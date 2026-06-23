@@ -10,10 +10,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from rosclaw.feedback.directories import ensure_feedback_dirs
+
 DEFAULT_DIRS = [
     "config/profiles",
     "logs",
-    "events",
     "cache/wheels",
     "cache/downloads",
     "cache/doctor",
@@ -32,6 +33,15 @@ DEFAULT_DIRS = [
     "providers/manifests",
     "robots/installed",
     "state/locks",
+    "telemetry/events",
+    "telemetry/heartbeat",
+    "telemetry/uploads",
+    "feedback/events",
+    "feedback/crashes",
+    "feedback/bundles",
+    "feedback/redacted",
+    "feedback/media/local_only",
+    "feedback/consent",
     "tmp",
 ]
 
@@ -84,6 +94,8 @@ def init_workspace(home: Path, force: bool = False) -> dict:
 
     for rel in DEFAULT_DIRS:
         (home / rel).mkdir(parents=True, exist_ok=True)
+
+    ensure_feedback_dirs(home)
 
     install_id_path = home / "state" / "install_id"
     if not install_id_path.exists() or force:
@@ -153,6 +165,8 @@ def ensure_minimal_workspace(home: Path, platform: PlatformInfo | None = None) -
     home.mkdir(parents=True, exist_ok=True)
     for rel in ("config", "logs", "cache", "state"):
         (home / rel).mkdir(parents=True, exist_ok=True)
+
+    ensure_feedback_dirs(home)
 
     install_id_path = home / "state" / "install_id"
     if not install_id_path.exists():

@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from rosclaw.feedback.directories import ensure_feedback_dirs
+from rosclaw.feedback.installation import InstallationManager
+from rosclaw.feedback.telemetry_client import TelemetryClient
+
 from .config import FirstbootConfig, generate_rosclaw_yaml
 from .doctor import FirstbootDoctor
 from .mcp import generate_mcp_config
-from .telemetry import generate_telemetry_yaml
+from .telemetry import generate_feedback_yaml, generate_telemetry_yaml
 from .workspace import (
     init_workspace,
     is_workspace_initialized,
@@ -187,11 +192,48 @@ def _interactive_safety() -> str:
 
 def _interactive_telemetry() -> bool:
     print(
-        "\nHelp improve ROSClaw by sending anonymous install diagnostics?\n"
-        "This sends: OS, architecture, Python version, ROSClaw version, install result.\n"
-        "This does NOT send: username, hostname, logs, workspace path, robot data, memory, code."
+        "\nHelp improve ROSClaw?\n\n"
+        "ROSClaw can send lightweight anonymous product telemetry:\n"
+        "  • install success\n"
+        "  • firstboot completion\n"
+        "  • version\n"
+        "  • OS / Python / ROS environment\n"
+        "  • command success/failure summary\n"
+        "  • module usage\n"
+        "  • daily active heartbeat\n\n"
+        "Never sent by default:\n"
+        "  • prompts\n"
+        "  • logs\n"
+        "  • camera/video/audio\n"
+        "  • local file paths\n"
+        "  • API keys\n"
+        "  • robot serial numbers\n"
+        "  • MCAP/raw traces\n\n"
+        "You can disable this anytime:\n"
+        "  rosclaw feedback telemetry off"
     )
-    return ask_yes_no("Enable anonymous diagnostics", False)
+    return ask_yes_no("Enable lightweight product telemetry", True)
+
+
+def _interactive_diagnostics() -> bool:
+    print(
+        "\nAllow ROSClaw to upload redacted diagnostic summaries when errors occur?\n"
+        "This may include:\n"
+        "  • crash type\n"
+        "  • failure type\n"
+        "  • sandbox block reason\n"
+        "  • provider latency bucket\n\n"
+        "This does NOT include full stacktraces, prompts, logs, or paths."
+    )
+    return ask_yes_no("Enable redacted diagnostics", False)
+
+
+def _interactive_rich_feedback() -> bool:
+    print(
+        "\nRich feedback bundles (logs, media, MCAP) are only uploaded manually.\n"
+        "Keep manual-only mode enabled for maximum privacy."
+    )
+    return ask_yes_no("Enable manual rich feedback upload", False)
 
 
 def _print_summary(
@@ -200,18 +242,22 @@ def _print_summary(
     robot: str,
     safety: str,
     telemetry_enabled: bool,
+    diagnostics_enabled: bool,
+    rich_feedback_enabled: bool,
     enable_mcp: bool,
     use_cases: dict[str, bool],
 ) -> None:
     print("\n" + "=" * 62)
     print(" First Boot Summary")
     print("=" * 62)
-    print(f"Workspace:    {home}")
-    print(f"Profile:      {profile}")
-    print(f"Robot:        {robot}")
-    print(f"Safety:       {safety}")
-    print(f"Telemetry:    {'enabled' if telemetry_enabled else 'disabled'}")
-    print(f"MCP config:   {'enabled' if enable_mcp else 'disabled'}")
+    print(f"Workspace:       {home}")
+    print(f"Profile:         {profile}")
+    print(f"Robot:           {robot}")
+    print(f"Safety:          {safety}")
+    print(f"Telemetry:       {'enabled' if telemetry_enabled else 'disabled'}")
+    print(f"Diagnostics:     {'enabled' if diagnostics_enabled else 'disabled'}")
+    print(f"Rich feedback:   {'enabled' if rich_feedback_enabled else 'disabled'}")
+    print(f"MCP config:      {'enabled' if enable_mcp else 'disabled'}")
     print("Use cases:")
     for key, val in use_cases.items():
         print(f"  • {key}: {'yes' if val else 'no'}")
@@ -244,6 +290,8 @@ def run_firstboot_interactive(args: argparse.Namespace) -> int:
         enable_mcp = ask_yes_no("Generate MCP config sample", True)
 
     telemetry_enabled = _interactive_telemetry()
+    diagnostics_enabled = _interactive_diagnostics()
+    rich_feedback_enabled = _interactive_rich_feedback()
 
     _print_summary(
         home=home,
@@ -251,6 +299,8 @@ def run_firstboot_interactive(args: argparse.Namespace) -> int:
         robot=robot,
         safety=safety,
         telemetry_enabled=telemetry_enabled,
+        diagnostics_enabled=diagnostics_enabled,
+        rich_feedback_enabled=rich_feedback_enabled,
         enable_mcp=enable_mcp,
         use_cases=use_cases,
     )
@@ -270,6 +320,8 @@ def run_firstboot_interactive(args: argparse.Namespace) -> int:
         robot=robot,
         safety=safety,
         telemetry_enabled=telemetry_enabled,
+        diagnostics_enabled=diagnostics_enabled,
+        rich_feedback_enabled=rich_feedback_enabled,
         enable_mcp=enable_mcp,
         use_cases=use_cases,
         force=args.force,
@@ -291,7 +343,9 @@ def run_firstboot_noninteractive(args: argparse.Namespace) -> int:
     robot = getattr(args, "robot", "sim_ur5e")
     safety = getattr(args, "safety", "strict")
 
-    telemetry_enabled = args.telemetry and not args.no_telemetry
+    telemetry_enabled = not args.no_telemetry if getattr(args, "no_telemetry", False) else True
+    diagnostics_enabled = getattr(args, "diagnostics", False) and not getattr(args, "no_diagnostics", False)
+    rich_feedback_enabled = getattr(args, "rich_feedback", False) and not getattr(args, "no_rich_feedback", False)
     enable_mcp = not args.disable_mcp if getattr(args, "disable_mcp", False) else True
 
     use_cases = {
@@ -310,6 +364,8 @@ def run_firstboot_noninteractive(args: argparse.Namespace) -> int:
         robot=robot,
         safety=safety,
         telemetry_enabled=telemetry_enabled,
+        diagnostics_enabled=diagnostics_enabled,
+        rich_feedback_enabled=rich_feedback_enabled,
         enable_mcp=enable_mcp,
         use_cases=use_cases,
         force=args.force,
@@ -329,6 +385,8 @@ def _write_firstboot(
     robot: str,
     safety: str,
     telemetry_enabled: bool,
+    diagnostics_enabled: bool,
+    rich_feedback_enabled: bool,
     enable_mcp: bool,
     use_cases: dict[str, bool],
     force: bool,
@@ -339,6 +397,7 @@ def _write_firstboot(
     _ = dev  # reserved for future dev-mode path handling
 
     init_workspace(home, force=force)
+    ensure_feedback_dirs(home)
 
     config = FirstbootConfig(
         workspace={"home": str(home), "profile": profile},
@@ -364,10 +423,12 @@ def _write_firstboot(
 
     generate_rosclaw_yaml(home, config)
     generate_telemetry_yaml(home, telemetry_enabled)
+    generate_feedback_yaml(home)
     if enable_mcp:
         generate_mcp_config(home)
 
     install_state = load_install_state(home) or {}
+    install_channel = install_state.get("install_channel", "stable")
     install_state["firstboot_completed"] = True
     install_state["firstboot_profile"] = profile
     install_state["firstboot_robot"] = robot
@@ -375,8 +436,28 @@ def _write_firstboot(
     install_state["firstboot_at"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     save_install_state(home, install_state)
 
+    InstallationManager(home).ensure_installation(
+        install_channel=install_channel,
+        telemetry_enabled=telemetry_enabled,
+        diagnostics_enabled=diagnostics_enabled,
+        rich_feedback_enabled=rich_feedback_enabled,
+    )
+
     doctor = FirstbootDoctor(home)
     result = doctor.run_full(fix=False, json_output=json_output)
+
+    if telemetry_enabled and not json_output:
+        with contextlib.suppress(Exception):
+            TelemetryClient(home).record_event(
+                event_type="firstboot_completed",
+                payload={
+                    "profile": profile,
+                    "robot": robot,
+                    "safety": safety,
+                    "doctor_status": result.status.value.lower(),
+                    "enabled_modules": [k for k, v in use_cases.items() if v],
+                },
+            )
 
     if not json_output:
         _print_success(home, profile, result.status.value, result.checks)

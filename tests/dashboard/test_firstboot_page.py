@@ -51,6 +51,8 @@ def test_firstboot_preview_default_command(client: TestClient) -> None:
     assert "--robot sim_ur5e" in command
     assert "--safety strict" in command
     assert "--no-telemetry" in command
+    assert "--no-diagnostics" in command
+    assert "--no-rich-feedback" in command
     assert "--enable-mcp" in command
     assert "--enable-sandbox" in command
 
@@ -58,6 +60,8 @@ def test_firstboot_preview_default_command(client: TestClient) -> None:
     assert preview["profile"] == "offline"
     assert preview["robot"] == "sim_ur5e"
     assert preview["telemetry"] is False
+    assert preview["diagnostics"] is False
+    assert preview["rich_feedback"] is False
 
 
 def test_firstboot_preview_custom_command(client: TestClient) -> None:
