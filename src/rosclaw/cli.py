@@ -3607,6 +3607,8 @@ def main() -> int:
             provider_parser.print_help()
             return 1
     elif args.command == "skill":
+        if getattr(args, "func", None):
+            return args.func(args)
         if args.skill_command == "list":
             return cmd_skill_list(args)
         elif args.skill_command == "check":
