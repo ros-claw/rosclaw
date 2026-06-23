@@ -4,26 +4,25 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
-import sys
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from rosclaw.firstboot.workspace import resolve_home
 from rosclaw.skill.eval import evaluate_skill
-from rosclaw.skill.hash import compute_skill_hashes
 from rosclaw.skill.mining import mine_skill_candidate
 from rosclaw.skill.models import SkillPackage, SkillRef
-from rosclaw.skill.package import package_skill, prepare_manifest, scan_forbidden_content, verify_package
+from rosclaw.skill.package import (
+    package_skill,
+    prepare_manifest,
+    scan_forbidden_content,
+    verify_package,
+)
 from rosclaw.skill.promote import promote_candidate
 from rosclaw.skill.registry import SkillLocalRegistry
 from rosclaw.skill.rollback import rollback_skill
 from rosclaw.skill.upload import upload_skill
 from rosclaw.skill.validators import validate_package
-
 
 # ---------------------------------------------------------------------------
 # Init

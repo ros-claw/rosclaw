@@ -339,7 +339,7 @@ class SafetyYaml(BaseModel):
     failure_policy: FailurePolicy = Field(default_factory=FailurePolicy)
 
     @model_validator(mode="after")
-    def _ensure_constraints_present(self) -> "SafetyYaml":
+    def _ensure_constraints_present(self) -> SafetyYaml:
         if not self.hard_constraints and not any(
             [self.robot.model_dump(exclude_defaults=True), self.action.model_dump(exclude_defaults=True), self.environment.model_dump(exclude_defaults=True)]
         ):
@@ -465,7 +465,7 @@ class SkillPackage:
         self.lineage: LineageYaml | None = None
 
     @classmethod
-    def load(cls, path: str | Path) -> "SkillPackage":
+    def load(cls, path: str | Path) -> SkillPackage:
         pkg = cls(path)
         pkg.skill = SkillYaml.model_validate(_load_yaml(pkg.root / "skill.yaml"))
         pkg.providers = ProvidersYaml.model_validate(_load_yaml(pkg.root / "providers.yaml"))
@@ -476,7 +476,7 @@ class SkillPackage:
         pkg.lineage = LineageYaml.model_validate(_load_yaml(pkg.root / "lineage.yaml"))
         return pkg
 
-    def try_load(self) -> "SkillPackage":
+    def try_load(self) -> SkillPackage:
         """Load whatever files exist; missing ones are left as None."""
         from pydantic import ValidationError
 

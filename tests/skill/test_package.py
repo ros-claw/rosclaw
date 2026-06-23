@@ -9,10 +9,13 @@ from pytest import MonkeyPatch
 from rosclaw.skill.cli import _copy_template, _init_context
 from rosclaw.skill.eval import evaluate_skill
 from rosclaw.skill.hash import compute_skill_hashes
-from rosclaw.skill.hub_client import SkillHubClient
 from rosclaw.skill.mining import mine_skill_candidate
 from rosclaw.skill.models import SkillPackage
-from rosclaw.skill.package import package_skill, prepare_manifest, scan_forbidden_content, verify_package
+from rosclaw.skill.package import (
+    package_skill,
+    scan_forbidden_content,
+    verify_package,
+)
 from rosclaw.skill.promote import promote_candidate
 from rosclaw.skill.upload import build_hub_payload, upload_skill
 

@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import re
-import shutil
 import tarfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,7 +13,6 @@ import yaml
 from rosclaw.hub.publisher import scan_secrets
 from rosclaw.skill.hash import compute_skill_hashes
 from rosclaw.skill.models import SkillPackage
-
 
 # ---------------------------------------------------------------------------
 # Secret and absolute-path scanning

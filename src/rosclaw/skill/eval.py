@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from rosclaw.body.resolver import BodyResolver
 from rosclaw.skill.evidence import load_eval_report_dict, write_eval_report
 from rosclaw.skill.hash import compute_skill_hashes
-from rosclaw.skill.models import EvalReport, SkillPackage, ValidationReport
+from rosclaw.skill.models import EvalReport, SkillPackage
 from rosclaw.skill.validators import validate_package
 
 
@@ -114,11 +113,9 @@ def _darwin_eval(pkg: SkillPackage) -> tuple[dict[str, Any], bool]:
 
         mining_path = pkg.root / "evidence" / "reports" / f"{pkg.candidate_id or 'default'}_mining.json"
         success_count = 0
-        total = 1
         if mining_path.exists():
             data = json.loads(mining_path.read_text(encoding="utf-8"))
             success_count = data.get("metrics", {}).get("success", 0)
-            total = max(data.get("metrics", {}).get("episodes", 1), 1)
 
         success_rate = round(0.75 + 0.05 * min(success_count, 5), 2)
         metrics = {

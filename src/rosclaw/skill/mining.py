@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -14,10 +13,10 @@ import yaml
 from rosclaw.skill.evidence import write_mining_report
 from rosclaw.skill.models import (
     LineageCandidate,
+    LineageYaml,
     MiningReport,
     SkillPackage,
 )
-
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -156,7 +155,6 @@ def _next_candidate_id(pkg: SkillPackage) -> str:
 def _segment_episode(episode: PracticeEpisode) -> list[dict[str, Any]]:
     phases = []
     current: dict[str, Any] = {"phase": "observe", "events": []}
-    phase_order = ["observe", "plan", "approach", "precheck", "execute", "verify", "recover", "writeback"]
     for ev in episode.events:
         if ev.event_type == "task_start" and not current["events"]:
             current["phase"] = "observe"
@@ -291,7 +289,7 @@ def mine_skill_candidate(
     params_yaml = {
         "source": {"mined_from": [e.episode_id for e in success_episodes[:5]]},
         "params": params,
-        "confidence": {k: 0.75 for k in ("approach", "kick")},
+        "confidence": dict.fromkeys(("approach", "kick"), 0.75),
         "failure_recovery_patterns": recovery_patterns,
     }
 

@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from rosclaw.skill.hash import compute_skill_hashes, sha256_file
+from rosclaw.skill.hash import sha256_file
 from rosclaw.skill.models import (
     DarwinEvalYaml,
     DojoYaml,
     EurdfCompatYaml,
-    EvalReport,
     LineageYaml,
     ProvidersYaml,
     SafetyYaml,
@@ -22,7 +20,6 @@ from rosclaw.skill.models import (
     SkillYaml,
     ValidationReport,
 )
-
 
 # ---------------------------------------------------------------------------
 # Schema validation
@@ -216,7 +213,6 @@ def validate_behavior_tree(path: Path) -> ValidationReport:
 
 def validate_package_integrity(pkg: SkillPackage) -> ValidationReport:
     report = ValidationReport()
-    lock_path = pkg.root / ".rosclaw" / "lock.yaml"
     hashes_path = pkg.root / ".rosclaw" / "hashes.json"
     if not hashes_path.exists():
         report.add_warning(".rosclaw/hashes.json missing; run `rosclaw skill package` first")
@@ -226,7 +222,6 @@ def validate_package_integrity(pkg: SkillPackage) -> ValidationReport:
         import json
 
         stored = json.loads(hashes_path.read_text(encoding="utf-8"))
-        current = compute_skill_hashes(pkg.root, include_evidence=False)
         mismatches = []
         for rel, expected in stored.get("files", {}).items():
             path = pkg.root / rel
