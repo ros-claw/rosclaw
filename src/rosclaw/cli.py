@@ -51,6 +51,7 @@ from rosclaw.sense.cli import (
     cmd_sense_state,
     cmd_sense_watch,
 )
+from rosclaw.skill.cli import add_skill_hub_parsers
 
 
 def _cmd_mcp_serve(args: argparse.Namespace) -> int:
@@ -1452,6 +1453,21 @@ def cmd_skill_lineage(args: argparse.Namespace) -> int:
 
 def cmd_skill_rollback(args: argparse.Namespace) -> int:
     """Rollback skill to a specific version."""
+    # Try new skill-hub rollback if a local package exists.
+    from rosclaw.skill.cli import _resolve_skill_dir
+    from rosclaw.skill.models import SkillPackage
+    from rosclaw.skill.rollback import rollback_skill
+    skill_dir = _resolve_skill_dir(args.skill_id)
+    if skill_dir.exists() and (skill_dir / "lineage.yaml").exists():
+        pkg = SkillPackage(skill_dir).try_load()
+        try:
+            result = rollback_skill(pkg, to_version=args.to, reason="")
+            print(f"Rolled back '{args.skill_id}' to version {args.to}")
+            print(f"  evidence: {result.get('evidence')}")
+            return 0
+        except ValueError as exc:
+            print(f"Skill hub rollback failed: {exc}; falling back to runtime registry")
+
     from rosclaw.skill_manager.registry import SkillRegistry
     registry = SkillRegistry()
     ok = registry.rollback(args.skill_id, args.to)
@@ -3090,7 +3106,10 @@ def main() -> int:
     # skill rollback subcommand
     skill_rollback_parser = skill_subparsers.add_parser("rollback", help="Rollback skill to version")
     skill_rollback_parser.add_argument("skill_id", help="Skill identifier")
-    skill_rollback_parser.add_argument("--to", required=True, help="Target version to rollback to")
+    skill_rollback_parser.add_argument("--to", "--to-version", dest="to", required=True, help="Target version to rollback to")
+
+    # Skill Hub lifecycle commands
+    add_skill_hub_parsers(skill_subparsers)
 
     # sandbox subcommand
     sandbox_parser = subparsers.add_parser("sandbox", help="Sandbox commands")

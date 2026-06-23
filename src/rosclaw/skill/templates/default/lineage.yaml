@@ -1,0 +1,22 @@
+schema_version: "rosclaw.lineage.v1"
+
+skill:
+  name: "{name}"
+  current_version: "0.1.0"
+  current_stage: "draft"
+
+origin:
+  created_by: "rosclaw skill init"
+  created_at: "{created_at}"
+  source_practice_sessions: []
+
+parents:
+  skill_versions: []
+  memory_records: []
+  how_interventions: []
+
+candidates: []
+
+versions: []
+
+rollbacks: []

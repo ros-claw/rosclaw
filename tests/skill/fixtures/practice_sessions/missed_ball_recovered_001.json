@@ -1,0 +1,13 @@
+{
+  "episode_id": "practice:g1:2026-06-22:003",
+  "task": "g1_kick_ball",
+  "robot": "unitree_g1",
+  "outcome": "failure_recovered",
+  "events": [
+    {"t": 0.0, "type": "task_start", "payload": {}},
+    {"t": 1.2, "type": "object_detected", "payload": {"object": "ball", "pose": [1.8, 0.4, 0.0]}},
+    {"t": 4.0, "type": "action_command", "payload": {"command": "approach_ball", "params": {"max_speed_mps": 0.28, "target_distance_m": 0.35}}},
+    {"t": 7.0, "type": "failure_event", "payload": {"type": "missed_ball_due_to_far_distance"}},
+    {"t": 8.0, "type": "outcome", "payload": {"ball_displacement": 0.1, "robot_no_fall": true}}
+  ]
+}

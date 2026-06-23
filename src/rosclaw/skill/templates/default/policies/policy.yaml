@@ -1,0 +1,29 @@
+schema_version: "rosclaw.policy.v1"
+
+policy:
+  name: "{name}_policy"
+  type: "hybrid"
+  modes:
+    - classical
+    - learned_policy
+    - llm_planned
+  default_mode: "hybrid"
+
+learned_policy:
+  framework: "torch"
+  checkpoint: null
+  adapter: "policies/adapters/{robot}_policy_adapter.py"
+  observation_space:
+    robot_state: "body_state.v1"
+  action_space:
+    type: "body_command.v1"
+    rate_hz: 50
+
+classical:
+  controller: "{name}_controller"
+  params: "policies/params/default.yaml"
+
+fallback:
+  on_policy_unavailable: "classical"
+  on_low_confidence: "request_how_intervention"
+  on_sandbox_block: "abort_or_replan"

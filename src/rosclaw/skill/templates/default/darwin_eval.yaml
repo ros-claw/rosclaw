@@ -1,0 +1,35 @@
+schema_version: "rosclaw.darwin_eval.v1"
+
+suite:
+  name: "{name}_eval"
+  mode: "sandbox"
+  robot: "{robot}"
+  tasks:
+    - name: "basic_execution"
+      episodes: 10
+
+metrics:
+  success_rate:
+    required: true
+    promote_threshold: 0.75
+  no_fall_rate:
+    required: true
+    promote_threshold: 1.0
+  sandbox_block_rate:
+    required: true
+    max_allowed: 0.15
+  recovery_success_rate:
+    required: true
+    promote_threshold: 0.60
+
+promotion_gates:
+  candidate_to_validated:
+    all_required_metrics_pass: true
+    min_total_episodes: 10
+    require_evidence_report: true
+    require_lineage: true
+    require_hash_lock: true
+
+regression:
+  compare_against: []
+  fail_if_safety_regression: true

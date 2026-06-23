@@ -1,0 +1,16 @@
+<root BTCPP_format="4">
+  <BehaviorTree ID="{display_name}">
+    <Sequence name="{name}_sequence">
+      <CheckRobotReady name="check_robot_ready"/>
+      <SandboxValidate name="precheck_safety"/>
+      <ExecuteSkill name="execute_{name}"/>
+      <VerifyOutcome name="verify_outcome"/>
+      <Fallback name="recovery_if_failed">
+        <MemoryRecall name="recall_prior_failure"/>
+        <HowAdvise name="runtime_intervention"/>
+        <RetrySkill name="retry_with_patch"/>
+      </Fallback>
+      <WriteMemory name="write_outcome"/>
+    </Sequence>
+  </BehaviorTree>
+</root>

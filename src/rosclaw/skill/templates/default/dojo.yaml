@@ -1,0 +1,41 @@
+schema_version: "rosclaw.dojo.v1"
+
+practice_sources:
+  default_query:
+    task: "{name}"
+    robot: "{robot}"
+    min_success: 0
+    include_failures: true
+  storage:
+    traces:
+      - "~/.rosclaw/practice/traces"
+    memory:
+      - "~/.rosclaw/memory"
+
+mining:
+  candidate_prefix: "candidate"
+  min_episodes: 10
+  min_success_episodes: 3
+  include_failure_recovery: true
+  segmentation:
+    method: "event_boundary_and_state_transition"
+    event_markers:
+      - task_start
+      - success_verified
+      - failure_event
+  clustering:
+    method: "effect_signature"
+    features:
+      - precondition
+      - outcome
+
+replay:
+  required: true
+  sample_episodes: 5
+  compare:
+    - state_transition
+    - outcome_metric
+
+training:
+  enabled: false
+  output_dir: "policies/checkpoints"

@@ -1,0 +1,12 @@
+# Default parameters for {name}
+
+approach:
+  target_distance_m: 0.5
+  max_speed_mps: 0.25
+  heading_tolerance_deg: 8
+
+stability:
+  min_support_margin: 0.12
+
+retry:
+  max_attempts: 2
