@@ -1,8 +1,6 @@
 """Entry point: python -m rosclaw.dashboard"""
 
-import uvicorn
-
-from .web_server import app
+from rosclaw.dashboard.launcher import serve_dashboard
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8765, log_level="info")
+    serve_dashboard(host="0.0.0.0", port=8765)

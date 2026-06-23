@@ -109,6 +109,8 @@ class RuntimeConfig:
     sense_robot_profile: str | None = None
     sense_thresholds_path: str | None = None
     sense_replay_path: str | None = None
+    # Persist all EventBus events to ~/.rosclaw/events/live.jsonl for dashboard tail
+    enable_event_persistence: bool = True
 
 
 class Runtime(LifecycleMixin):
@@ -126,6 +128,7 @@ class Runtime(LifecycleMixin):
 
         # Core infrastructure: accept external EventBus or create one
         self.event_bus = event_bus or self.config.event_bus or EventBus()
+        self._event_sink: Any | None = None
 
         # Grounding engines (initialized on demand)
         self._firewall: Any | None = None
@@ -167,6 +170,12 @@ class Runtime(LifecycleMixin):
 
         # Initialize EventBus subscriptions for internal coordination
         self._setup_internal_subscriptions()
+
+        # Attach persistent JSONL sink so dashboards can tail live events
+        if self.config.enable_event_persistence:
+            from rosclaw.core.event_sink import JsonlEventSink
+            self._event_sink = JsonlEventSink()
+            self._event_sink.attach(self.event_bus)
 
         # Initialize Physical Grounding (e-URDF)
         self._load_e_urdf()
@@ -512,6 +521,9 @@ class Runtime(LifecycleMixin):
     def _do_stop(self) -> None:
         """Stop all modules gracefully."""
         logger.info("Shutting down...")
+        if self._event_sink is not None:
+            self._event_sink.close()
+            self._event_sink = None
         self.event_bus.publish(Event(
             topic="runtime.status",
             payload={"state": "shutting_down", "robot_id": self.config.robot_id},

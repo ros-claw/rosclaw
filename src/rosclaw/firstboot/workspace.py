@@ -13,6 +13,7 @@ from pathlib import Path
 DEFAULT_DIRS = [
     "config/profiles",
     "logs",
+    "events",
     "cache/wheels",
     "cache/downloads",
     "cache/doctor",

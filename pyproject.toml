@@ -66,8 +66,11 @@ dev = [
     "Pillow>=10.0",
     "httpx2>=2.0.0",
 ]
+dashboard = [
+    "rosclaw-dashboard>=1.0.0",
+]
 all = [
-    "rosclaw[ros2,dev]",
+    "rosclaw[ros2,dev,dashboard]",
 ]
 
 [project.scripts]

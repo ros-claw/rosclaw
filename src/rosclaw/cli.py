@@ -782,19 +782,15 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
 
     if args.open:
         try:
-            import uvicorn
-
-            from rosclaw.dashboard.web_server import app
+            from rosclaw.dashboard.launcher import serve_dashboard
 
             print("[ROSClaw] Starting Dashboard Web Server...")
             print("[ROSClaw] Dashboard URL: http://localhost:8765")
-            print("[ROSClaw] Health:        http://localhost:8765/health")
-            print("[ROSClaw] Snapshot:      http://localhost:8765/snapshot")
-            print("[ROSClaw] WebSocket:     ws://localhost:8765/ws")
             print("[ROSClaw] Press Ctrl+C to stop")
-            uvicorn.run(app, host="0.0.0.0", port=8765, log_level="warning")
-        except ImportError:
-            print("[ROSClaw] ❌ uvicorn not installed. Run: pip install uvicorn")
+            serve_dashboard(host="0.0.0.0", port=8765)
+        except ImportError as exc:
+            print(f"[ROSClaw] ❌ Dashboard dependencies missing: {exc}")
+            print("[ROSClaw] Run: pip install 'rosclaw[dashboard]'")
             return 1
         except SystemExit as exc:
             # uvicorn calls sys.exit on error (e.g., port in use)
