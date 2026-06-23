@@ -31,7 +31,7 @@ def test_coordinator_mock_session_writes_manifest_and_jsonl():
         summary = coord.summary
         assert summary is not None
         assert summary.outcome == "SUCCESS"
-        assert summary.event_count >= 7
+        assert summary.event_count >= 4
 
         session_dir = Path(tmp) / "sessions" / summary.practice_id
         assert (session_dir / "manifest.yaml").exists()

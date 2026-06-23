@@ -1049,136 +1049,133 @@ def _practice_artifacts_dir() -> Path:
     return Path.home() / ".rosclaw" / "artifacts"
 
 
-def cmd_practice_list(_args: argparse.Namespace) -> int:
-    """List all recorded practice episodes."""
-    from rosclaw.practice.episode_recorder import EpisodeRecorder
+def cmd_practice_list(args: argparse.Namespace) -> int:
+    """List recorded practice sessions from the local catalog."""
+    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    layout = PracticeLayout(data_root)
+    catalog = PracticeCatalog(layout.catalog_db_path)
+    records = catalog.list_practices(limit=100)
 
-    recorder = EpisodeRecorder("cli", event_bus=None, artifact_base_dir=str(_practice_artifacts_dir()))
-    episodes = recorder.list_episodes()
-
-    if not episodes:
-        print("No practice episodes found.")
-        print(f"Artifact directory: {recorder.artifact_base}")
+    if not records:
+        print("No practice sessions found.")
+        print(f"Data root: {layout.data_root}")
         return 0
 
-    print("=" * 70)
-    print(f"Practice Episodes ({len(episodes)})")
-    print("=" * 70)
-    print(f"{'Episode ID':<12} {'Status':<12} {'Reward':<8} {'Robot':<15} {'Timestamp'}")
-    print("-" * 70)
-    for ep in episodes:
-        ts = ep.get("timestamp", "N/A")
-        if isinstance(ts, (int, float)):
-            from datetime import datetime
-            ts = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
-        reward = ep.get("reward")
-        reward_str = f"{reward:.2f}" if reward is not None else "N/A"
+    print("=" * 90)
+    print(f"Practice Sessions ({len(records)})")
+    print("=" * 90)
+    print(
+        f"{'Practice ID':<34} {'Status':<10} {'Events':<8} "
+        f"{'Robot':<15} {'Task':<20} {'Start Time'}"
+    )
+    print("-" * 90)
+    for rec in records:
+        event_count = catalog.count_events(rec["practice_id"])
+        start = rec.get("start_time", "N/A") or "N/A"
+        robot = rec.get("robot_id", "N/A") or "N/A"
+        task = rec.get("task_name") or rec.get("task_id") or "N/A"
         print(
-            f"{ep['episode_id']:<12} "
-            f"{ep.get('status', 'UNKNOWN'):<12} "
-            f"{reward_str:<8} "
-            f"{ep.get('robot_id', 'N/A'):<15} "
-            f"{ts}"
+            f"{rec['practice_id']:<34} "
+            f"{rec.get('outcome', 'UNKNOWN') or 'UNKNOWN':<10} "
+            f"{event_count:<8} "
+            f"{robot:<15} "
+            f"{task:<20} "
+            f"{start}"
         )
-    print("=" * 70)
+    print("=" * 90)
     print("\nCommands:")
-    print("  rosclaw practice show <episode_id>")
-    print("  rosclaw practice replay <episode_id>")
-    print("  rosclaw practice export <episode_id> --format json")
+    print("  rosclaw practice show <practice_id>")
+    print("  rosclaw practice replay <practice_id>")
+    print("  rosclaw practice export <practice_id> --format jsonl")
     return 0
 
 
 def cmd_practice_show(args: argparse.Namespace) -> int:
-    """Show episode details."""
-    from rosclaw.practice.episode_recorder import EpisodeRecorder
+    """Show practice session details from the local catalog."""
+    practice_id = args.episode_id
+    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    layout = PracticeLayout(data_root)
+    catalog = PracticeCatalog(layout.catalog_db_path)
+    record = catalog.get_practice(practice_id)
 
-    recorder = EpisodeRecorder("cli", event_bus=None, artifact_base_dir=str(_practice_artifacts_dir()))
-    meta = recorder.get_episode(args.episode_id)
-
-    if meta is None:
-        print(f"[ROSClaw] Episode '{args.episode_id}' not found.", file=sys.stderr)
+    if record is None:
+        print(f"[ROSClaw] Practice '{practice_id}' not found.", file=sys.stderr)
         return 1
 
+    event_count = catalog.count_events(practice_id)
     if args.json:
-        print(json.dumps(meta, indent=2, default=str))
+        record["event_count"] = event_count
+        print(json.dumps(record, indent=2, default=str))
         return 0
 
-    pe = meta.get("praxis_event", {})
     print("=" * 60)
-    print(f"Episode: {args.episode_id}")
+    print(f"Practice: {practice_id}")
     print("=" * 60)
-    print(f"Robot:     {meta.get('robot_id', 'N/A')}")
-    print(f"Status:    {meta.get('status', 'UNKNOWN')}")
-    print(f"Reward:    {meta.get('reward', 'N/A')}")
-    print(f"Complete:  {'Yes' if meta.get('is_complete') else 'No'}")
-    print(f"Duration:  {meta.get('duration_sec', 'N/A')}s")
-    print(f"Intent:    {pe.get('agent_instruction', 'N/A')}")
-    print(f"Events:    {', '.join(meta.get('received_events', []))}")
-    print(f"Artifact:  {recorder.artifact_base / 'episodes' / args.episode_id}")
+    print(f"Robot:        {record.get('robot_id', 'N/A')} ({record.get('robot_type', 'unknown')})")
+    print(f"Task:         {record.get('task_name') or record.get('task_id', 'N/A')}")
+    print(f"Status:       {record.get('outcome', 'UNKNOWN')}")
+    print(f"Reward:       {record.get('reward', 'N/A')}")
+    print(f"Duration:     {record.get('duration_ms', 'N/A')} ms")
+    print(f"Events:       {event_count}")
+    print(f"Start:        {record.get('start_time', 'N/A')}")
+    print(f"End:          {record.get('end_time', 'N/A')}")
+    print(f"Manifest:     {record.get('manifest_path', 'N/A')}")
+    print(f"Events JSONL: {record.get('events_jsonl_path', 'N/A')}")
     print("=" * 60)
     return 0
 
 
 def cmd_practice_replay(args: argparse.Namespace) -> int:
-    """Replay an episode showing all 6 acceptance criteria."""
-    from rosclaw.practice.episode_recorder import EpisodeRecorder
+    """Replay a practice session by reading its events.jsonl trace."""
+    practice_id = args.episode_id
+    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    layout = PracticeLayout(data_root)
+    catalog = PracticeCatalog(layout.catalog_db_path)
+    record = catalog.get_practice(practice_id)
 
-    recorder = EpisodeRecorder("cli", event_bus=None, artifact_base_dir=str(_practice_artifacts_dir()))
-    meta = recorder.get_episode(args.episode_id)
-
-    if meta is None:
-        print(f"[ROSClaw] Episode '{args.episode_id}' not found.", file=sys.stderr)
+    if record is None:
+        print(f"[ROSClaw] Practice '{practice_id}' not found.", file=sys.stderr)
         return 1
 
-    pe = meta.get("praxis_event", {})
+    jsonl_path = layout.events_jsonl_path(practice_id)
+    if not jsonl_path.exists() and record.get("events_jsonl_path"):
+        jsonl_path = Path(record["events_jsonl_path"])
+    if not jsonl_path.exists():
+        print(f"[ROSClaw] No event trace for practice '{practice_id}'.", file=sys.stderr)
+        return 1
+
+    events: list[dict[str, Any]] = []
+    with open(jsonl_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                events.append(json.loads(line))
+
+    source_counts: dict[str, int] = {}
+    type_counts: dict[str, int] = {}
+    for ev in events:
+        source = ev.get("source", "unknown")
+        source_counts[source] = source_counts.get(source, 0) + 1
+        event_type = ev.get("event_type", "unknown")
+        type_counts[event_type] = type_counts.get(event_type, 0) + 1
 
     print("\n" + "=" * 60)
-    print(f"REPLAY: Episode {args.episode_id}")
+    print(f"REPLAY: Practice {practice_id}")
     print("=" * 60)
+    print(f"Total events: {len(events)}")
 
-    # 1. Agent intent
-    print("\n1. AGENT INTENT:")
-    intent = pe.get("agent_instruction", "N/A")
-    print(f"   {intent}")
+    print("\nBy source:")
+    for source, count in sorted(source_counts.items()):
+        print(f"  {source}: {count}")
 
-    # 2. Provider capability
-    print("\n2. PROVIDER CAPABILITY SELECTION:")
-    trace_path = recorder.artifact_base / "episodes" / args.episode_id / "provider_trace.jsonl"
-    if trace_path.exists():
-        with open(trace_path, encoding="utf-8") as f:
-            traces = [json.loads(line) for line in f if line.strip()]
-        for t in traces:
-            print(f"   Status: {t.get('status')}, Safe: {t.get('is_safe')}")
-    else:
-        print("   No provider traces recorded")
+    print("\nBy event type:")
+    for event_type, count in sorted(type_counts.items()):
+        print(f"  {event_type}: {count}")
 
-    # 3. Sandbox block status
-    print("\n3. SANDBOX:")
-    if meta.get("sandbox_blocked"):
-        print(f"   BLOCKED: {meta.get('sandbox_block_reason', 'Unknown reason')}")
-    else:
-        print("   No blocks recorded")
-
-    # 4. Runtime execution
-    print("\n4. RUNTIME EXECUTION:")
-    print(f"   Status: {meta.get('status', 'UNKNOWN')}")
-    if meta.get("runtime_error"):
-        print(f"   Error:  {meta['runtime_error']}")
-    traj_path = recorder.artifact_base / "episodes" / args.episode_id / "trajectory.jsonl"
-    if traj_path.exists():
-        with open(traj_path, encoding="utf-8") as f:
-            traj = [json.loads(line) for line in f if line.strip()]
-        print(f"   Trajectory entries: {len(traj)}")
-
-    # 5. Critic judgment
-    print("\n5. CRITIC JUDGMENT:")
-    print(f"   Reward: {meta.get('reward', 'N/A')}")
-    print(f"   Status: {meta.get('status', 'UNKNOWN')}")
-
-    # 6. Memory write
-    print("\n6. MEMORY:")
-    print(f"   Artifact URI: rosclaw://artifacts/episodes/{args.episode_id}")
-    print("   SeekDB: Committed via ExperienceCommitter")
+    print("\nFirst 5 events:")
+    for ev in events[:5]:
+        ts = ev.get("timestamp_utc", "N/A")
+        print(f"  [{ts}] {ev.get('source', 'unknown')}:{ev.get('event_type', 'unknown')}")
 
     print("\n" + "=" * 60)
     return 0
@@ -3397,7 +3394,8 @@ def main() -> int:
     practice_parser = subparsers.add_parser("practice", help="Practice episode commands")
     practice_subparsers = practice_parser.add_subparsers(dest="practice_command")
 
-    practice_subparsers.add_parser("list", help="List recorded episodes")
+    practice_list_parser = practice_subparsers.add_parser("list", help="List recorded practice sessions")
+    practice_list_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
 
     practice_init_parser = practice_subparsers.add_parser("init", help="Initialize practice configuration")
     practice_init_parser.add_argument("--robot", required=True, help="Robot identifier")
@@ -3425,9 +3423,11 @@ def main() -> int:
     practice_show_parser = practice_subparsers.add_parser("show", help="Show episode/practice details")
     practice_show_parser.add_argument("episode_id", help="Episode or practice identifier")
     practice_show_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    practice_show_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
 
     practice_replay_parser = practice_subparsers.add_parser("replay", help="Replay episode trace")
     practice_replay_parser.add_argument("episode_id", help="Episode identifier")
+    practice_replay_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
 
     practice_export_parser = practice_subparsers.add_parser("export", help="Export episode metadata or practice events")
     practice_export_parser.add_argument("episode_id", help="Episode or practice identifier")
