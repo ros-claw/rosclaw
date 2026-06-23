@@ -145,6 +145,8 @@ class EpisodeRecorder(LifecycleMixin):
             "safety.violation": self._on_safety_violation,
             "agent.command": self._on_agent_command,
             "agent.response": self._on_agent_response,
+            "practice.session_started": self._on_practice_session_started,
+            "practice.session_finished": self._on_practice_session_finished,
             # Future topics — no-op stubs
             "rosclaw.provider.inference.completed": self._on_provider_inference,
             "rosclaw.critic.success.detected": self._on_critic_success,
@@ -338,6 +340,33 @@ class EpisodeRecorder(LifecycleMixin):
             "request_id": payload.get("request_id"),
         })
         buf.last_event_at = time.time()
+
+    def _on_practice_session_started(self, event: Event) -> None:
+        """Capture PracticeCoordinator session start."""
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        episode_id = self._extract_episode_id(payload)
+        buf = self._get_or_create_buffer(episode_id)
+        buf.received_events.add("practice.session_started")
+        buf.robot_id = payload.get("robot_id", self._robot_id)
+        buf.semantic_intent = payload.get("semantic_intent") or payload.get("task_name") or buf.semantic_intent
+        buf.initial_state = payload.get("initial_state", buf.initial_state)
+        buf.last_event_at = time.time()
+
+    def _on_practice_session_finished(self, event: Event) -> None:
+        """Capture PracticeCoordinator session end and finalize."""
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        episode_id = self._extract_episode_id(payload)
+        buf = self._get_or_create_buffer(episode_id)
+        buf.received_events.add("practice.session_finished")
+        buf.robot_id = payload.get("robot_id", buf.robot_id)
+        outcome = payload.get("outcome", "UNKNOWN")
+        buf.praxis_status = outcome.lower()
+        buf.praxis_reward = payload.get("reward", 0.0)
+        duration_ms = payload.get("duration_ms")
+        if duration_ms is not None:
+            buf.duration_sec = duration_ms / 1000.0
+        buf.last_event_at = time.time()
+        self._finalize_episode(episode_id)
 
     # ------------------------------------------------------------------
     # Event handlers — stub topics (future sprints)
@@ -554,24 +583,25 @@ class EpisodeRecorder(LifecycleMixin):
                 logger.error(f"SeekDB commit failed for {episode_id}: {e}")
 
         # Publish enriched praxis.recorded
-        self._event_bus.publish(Event(
-            topic="praxis.recorded",
-            payload={
-                "event_id": praxis_event.event_id,
-                "event_type": praxis_event.event_type,
-                "robot_id": praxis_event.robot_id,
-                "instruction": praxis_event.agent_instruction,
-                "duration_sec": praxis_event.duration_sec,
-                "outcome": status,
-                "trajectory_waypoints": len(buf.trajectory),
-                "cot_steps": len(praxis_event.cot_trace),
-                "artifact_dir": str(episode_dir),
-                "artifact_uri": f"rosclaw://artifacts/episodes/{episode_id}",
-                "episode_metadata": metadata,
-            },
-            source="episode_recorder",
-            priority=EventPriority.NORMAL,
-        ))
+        if self._event_bus is not None:
+            self._event_bus.publish(Event(
+                topic="praxis.recorded",
+                payload={
+                    "event_id": praxis_event.event_id,
+                    "event_type": praxis_event.event_type,
+                    "robot_id": praxis_event.robot_id,
+                    "instruction": praxis_event.agent_instruction,
+                    "duration_sec": praxis_event.duration_sec,
+                    "outcome": status,
+                    "trajectory_waypoints": len(buf.trajectory),
+                    "cot_steps": len(praxis_event.cot_trace),
+                    "artifact_dir": str(episode_dir),
+                    "artifact_uri": f"rosclaw://artifacts/episodes/{episode_id}",
+                    "episode_metadata": metadata,
+                },
+                source="episode_recorder",
+                priority=EventPriority.NORMAL,
+            ))
 
         print(f"[EpisodeRecorder] Finalized {episode_id}: status={status}, "
               f"reward={reward}, events={len(buf.received_events)}, "
