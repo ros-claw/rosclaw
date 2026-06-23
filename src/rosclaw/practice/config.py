@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_DATA_ROOT = "/data/rosclaw/practice"
 DEFAULT_FALLBACK_DIR = "/data/rosclaw/practice/fallback"
 DEFAULT_INDEX_DIR = "/data/rosclaw/practice/indexes"

@@ -5,8 +5,6 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections.abc import Iterable
-from typing import Any
 
 from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.core.lifecycle import LifecycleMixin

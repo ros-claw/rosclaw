@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from rosclaw.practice.adapters.mock_agent_adapter import MockAgentAdapter
 from rosclaw.practice.adapters.mock_runtime_adapter import MockRuntimeAdapter
-from rosclaw.practice.config import PracticeSession
 
 
 class _FakeSession:

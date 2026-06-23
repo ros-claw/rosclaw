@@ -7,6 +7,7 @@ file rename.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -34,7 +35,7 @@ class JsonlWriter:
         self._open()
 
     def _open(self) -> None:
-        self._file = open(self._path, "a", encoding="utf-8")
+        self._file = open(self._path, "a", encoding="utf-8")  # noqa: SIM115
 
     def write(self, record: dict[str, Any]) -> None:
         """Serialize *record* to one JSON line and append."""
@@ -92,10 +93,8 @@ class JsonlWriter:
                 os.fsync(f.fileno())
             os.replace(tmp, self._path)
         except Exception:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp)
-            except OSError:
-                pass
             raise
 
     def __enter__(self) -> JsonlWriter:

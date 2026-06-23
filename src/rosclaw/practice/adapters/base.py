@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Protocol
+from typing import Any, Protocol
 
 from rosclaw.practice.schemas import PracticeEventEnvelope
 

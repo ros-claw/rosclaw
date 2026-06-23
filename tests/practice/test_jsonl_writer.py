@@ -52,7 +52,7 @@ def test_rotation():
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "events.jsonl"
         writer = JsonlWriter(path, rotate_mb=0.001)  # ~1KB
-        for i in range(100):
+        for _ in range(100):
             writer.write({"payload": "x" * 100})
         writer.close()
         assert path.exists()

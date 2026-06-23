@@ -1267,7 +1267,7 @@ def cmd_practice_init(args: argparse.Namespace) -> int:
     (config_root / "robots" / robot_id).mkdir(parents=True, exist_ok=True)
 
     config_path = config_root / "config.yaml"
-    content = f"""# rosclaw-practice global configuration
+    content = """# rosclaw-practice global configuration
 data_root: /data/rosclaw/practice
 seekdb:
   enabled: false
