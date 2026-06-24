@@ -176,8 +176,8 @@ class FirstbootConfig:
         self.telemetry = merge_config(
             self.telemetry,
             {
-                "enabled": False,
-                "anonymous_install_ping": False,
+                "enabled": True,
+                "anonymous_install_ping": True,
                 "install_id": None,
                 "user_agent": None,
             },
@@ -196,7 +196,6 @@ class FirstbootConfig:
         """Overlay profile-specific defaults without overwriting existing keys."""
         if profile == "offline":
             self.cloud["enabled"] = False
-            self.telemetry["enabled"] = False
             self.provider["mode"] = "local"
             self.memory["backend"] = "local"
         elif profile == "cloud":

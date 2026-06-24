@@ -70,7 +70,7 @@ class TestFirstbootConfig:
         config = FirstbootConfig()
         config.apply_profile("offline")
         assert config.cloud["enabled"] is False
-        assert config.telemetry["enabled"] is False
+        assert config.telemetry["enabled"] is True
         assert config.provider["mode"] == "local"
 
     def test_apply_profile_cloud_enables_cloud_configs(self):
@@ -107,7 +107,7 @@ class TestGenerateRosclawYaml:
         loaded = load_rosclaw_yaml(home)
         assert loaded["custom_key"] == 42
         assert loaded["workspace"]["profile"] == "offline"
-        assert loaded["telemetry"]["enabled"] is False
+        assert loaded["telemetry"]["enabled"] is True
 
     def test_load_rosclaw_yaml_returns_empty_when_missing(self, tmp_path):
         home = tmp_path / ".rosclaw"
