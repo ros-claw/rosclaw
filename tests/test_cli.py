@@ -233,23 +233,26 @@ class TestRobotValidate:
 
 
 class TestPracticeCommands:
-    def test_practice_list_empty(self, capsys):
+    def test_practice_list_empty(self, tmp_path, capsys):
         from rosclaw.cli import main
-        sys.argv = ["rosclaw", "practice", "list"]
+        data_root = tmp_path / "practice_data"
+        sys.argv = ["rosclaw", "practice", "list", "--data-root", str(data_root)]
         assert main() == 0
         captured = capsys.readouterr()
-        assert "No practice episodes" in captured.out or "Episodes" in captured.out
+        assert "No practice sessions" in captured.out or "Sessions" in captured.out
 
-    def test_practice_show_not_found(self, capsys):
+    def test_practice_show_not_found(self, tmp_path, capsys):
         from rosclaw.cli import main
-        sys.argv = ["rosclaw", "practice", "show", "ep_nonexistent"]
+        data_root = tmp_path / "practice_data"
+        sys.argv = ["rosclaw", "practice", "show", "ep_nonexistent", "--data-root", str(data_root)]
         code = main()
         captured = capsys.readouterr()
         assert "not found" in captured.out or code == 1
 
-    def test_practice_replay_not_found(self, capsys):
+    def test_practice_replay_not_found(self, tmp_path, capsys):
         from rosclaw.cli import main
-        sys.argv = ["rosclaw", "practice", "replay", "ep_nonexistent"]
+        data_root = tmp_path / "practice_data"
+        sys.argv = ["rosclaw", "practice", "replay", "ep_nonexistent", "--data-root", str(data_root)]
         code = main()
         captured = capsys.readouterr()
         assert "not found" in captured.out or code == 1
@@ -322,9 +325,48 @@ class TestPracticeCommands:
         import json
         assert json.loads(lines[0])["schema_version"] == "practice.event.v1"
 
+    def test_practice_list_show_replay_with_session(self, monkeypatch, tmp_path, capsys):
+        from rosclaw.cli import main
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        data_root = tmp_path / "practice_data"
+        sys.argv = [
+            "rosclaw", "practice", "start",
+            "--robot", "test_bot",
+            "--task", "mock_task",
+            "--sources", "agent,runtime",
+            "--mock",
+            "--duration", "500ms",
+            "--data-root", str(data_root),
+        ]
+        assert main() == 0
+        sessions = [d for d in (data_root / "sessions").iterdir() if d.is_dir()]
+        assert sessions
+        practice_id = sessions[0].name
+        capsys.readouterr()  # clear start output
 
-class TestDashboard:
-    def test_dashboard(self, capsys):
+        sys.argv = ["rosclaw", "practice", "list", "--data-root", str(data_root)]
+        assert main() == 0
+        captured = capsys.readouterr()
+        assert practice_id in captured.out
+        assert "SUCCESS" in captured.out
+
+        sys.argv = ["rosclaw", "practice", "show", practice_id, "--data-root", str(data_root)]
+        capsys.readouterr()
+        assert main() == 0
+        captured = capsys.readouterr()
+        assert practice_id in captured.out
+        assert "Robot:" in captured.out
+
+        sys.argv = ["rosclaw", "practice", "replay", practice_id, "--data-root", str(data_root)]
+        capsys.readouterr()
+        assert main() == 0
+        captured = capsys.readouterr()
+        assert "REPLAY:" in captured.out
+        assert "Total events:" in captured.out
+        assert "agent" in captured.out
+
         from rosclaw.cli import main
         sys.argv = ["rosclaw", "dashboard"]
         code = main()
