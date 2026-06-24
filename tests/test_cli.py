@@ -233,23 +233,26 @@ class TestRobotValidate:
 
 
 class TestPracticeCommands:
-    def test_practice_list_empty(self, capsys):
+    def test_practice_list_empty(self, tmp_path, capsys):
         from rosclaw.cli import main
-        sys.argv = ["rosclaw", "practice", "list"]
+        data_root = tmp_path / "practice_data"
+        sys.argv = ["rosclaw", "practice", "list", "--data-root", str(data_root)]
         assert main() == 0
         captured = capsys.readouterr()
         assert "No practice sessions" in captured.out or "Sessions" in captured.out
 
-    def test_practice_show_not_found(self, capsys):
+    def test_practice_show_not_found(self, tmp_path, capsys):
         from rosclaw.cli import main
-        sys.argv = ["rosclaw", "practice", "show", "ep_nonexistent"]
+        data_root = tmp_path / "practice_data"
+        sys.argv = ["rosclaw", "practice", "show", "ep_nonexistent", "--data-root", str(data_root)]
         code = main()
         captured = capsys.readouterr()
         assert "not found" in captured.out or code == 1
 
-    def test_practice_replay_not_found(self, capsys):
+    def test_practice_replay_not_found(self, tmp_path, capsys):
         from rosclaw.cli import main
-        sys.argv = ["rosclaw", "practice", "replay", "ep_nonexistent"]
+        data_root = tmp_path / "practice_data"
+        sys.argv = ["rosclaw", "practice", "replay", "ep_nonexistent", "--data-root", str(data_root)]
         code = main()
         captured = capsys.readouterr()
         assert "not found" in captured.out or code == 1
