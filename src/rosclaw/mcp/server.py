@@ -123,9 +123,20 @@ def main(argv: list[str] | None = None) -> int:
         help="Robot identifier",
     )
     parser.add_argument(
+        "--profile",
+        default=os.environ.get("ROSCLAW_PROFILE", "default"),
+        help="ROSClaw runtime profile name",
+    )
+    parser.add_argument(
         "--project-root",
         default=os.environ.get("ROSCLAW_PROJECT_ROOT", "."),
         help="Project root path",
+    )
+    parser.add_argument(
+        "--project",
+        default=None,
+        dest="project_root",
+        help="Alias for --project-root",
     )
     parser.add_argument(
         "--log-level",
@@ -141,6 +152,7 @@ def main(argv: list[str] | None = None) -> int:
             host=args.host,
             port=args.port,
             robot_id=args.robot_id,
+            profile=args.profile,
             project_root=args.project_root,
             log_level=args.log_level,
         )
