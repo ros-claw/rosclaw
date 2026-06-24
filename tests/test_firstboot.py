@@ -122,6 +122,8 @@ class TestFirstbootInteractive:
             robot="turtlebot",
             safety="strict",
             telemetry_enabled=True,
+            diagnostics_enabled=False,
+            rich_feedback_enabled=False,
             enable_mcp=False,
             use_cases={"sandbox": True, "mcp": False},
         )

@@ -39,6 +39,8 @@ from rosclaw.body.registry import BodyRegistryManager
 from rosclaw.body.resolver import BodyResolver
 from rosclaw.connectors.ros.cli import add_ros_subparser, cmd_doctor_ros, dispatch_ros_command
 from rosclaw.core.event_bus import Event, EventPriority
+from rosclaw.feedback.cli import add_feedback_subparser, dispatch_feedback_command
+from rosclaw.feedback.hooks import telemetry_command_hook
 from rosclaw.firstboot.wizard import run_firstboot
 from rosclaw.firstboot.workspace import resolve_home
 from rosclaw.hub.cli import add_hub_subparser, dispatch_hub_command
@@ -3182,6 +3184,10 @@ def main() -> int:
     firstboot_parser.add_argument("--enable-auto", action="store_true", help="Enable auto evolution")
     firstboot_parser.add_argument("--telemetry", action="store_true", help="Enable anonymous telemetry")
     firstboot_parser.add_argument("--no-telemetry", action="store_true", help="Disable anonymous telemetry")
+    firstboot_parser.add_argument("--diagnostics", action="store_true", help="Allow redacted diagnostic upload")
+    firstboot_parser.add_argument("--no-diagnostics", action="store_true", help="Disallow redacted diagnostic upload")
+    firstboot_parser.add_argument("--rich-feedback", action="store_true", help="Allow manual rich feedback upload")
+    firstboot_parser.add_argument("--no-rich-feedback", action="store_true", help="Disallow manual rich feedback upload")
     firstboot_parser.add_argument("--dev", action="store_true", help="Developer mode")
     firstboot_parser.add_argument("--force", action="store_true", help="Re-run even if already initialized")
     firstboot_parser.add_argument("--dry-run", action="store_true", help="Show what would be done without writing")
@@ -3548,243 +3554,249 @@ def main() -> int:
     # Hardware MCP onboarding subcommands (install/list/health)
     add_mcp_subparser(mcp_subparsers)
 
-    args = parser.parse_args()
+    # feedback and telemetry
+    add_feedback_subparser(subparsers)
 
-    if args.command == "init":
-        return cmd_init(args)
-    elif args.command in ("run", "start"):
-        return cmd_run(args)
-    elif args.command == "status":
-        return cmd_status(args)
-    elif args.command == "dashboard":
-        return cmd_dashboard(args)
-    elif args.command == "doctor":
-        if getattr(args, "ros", False):
-            return cmd_doctor_ros(args)
-        return cmd_doctor(args)
-    elif args.command == "firstboot":
-        return cmd_firstboot(args)
-    elif args.command == "config":
-        if getattr(args, "config_command", None):
-            return cmd_config(args)
-        config_parser.print_help()
-        return 1
-    elif args.command == "profile":
-        if getattr(args, "profile_command", None):
-            return cmd_profile(args)
-        profile_parser.print_help()
-        return 1
-    elif args.command == "uninstall":
-        return cmd_uninstall(args)
-    elif args.command == "ros":
-        return dispatch_ros_command(args)
-    elif args.command == "body":
-        return dispatch_body_command(args)
-    elif args.command == "logs":
-        return cmd_logs(args)
-    elif args.command == "robot":
-        if args.robot_command == "list":
-            return cmd_robot_list(args)
-        elif args.robot_command == "install":
-            return cmd_robot_install(args)
-        elif args.robot_command == "inspect":
-            return cmd_robot_inspect(args)
-        elif args.robot_command == "validate":
-            return cmd_robot_validate(args)
-        else:
-            robot_parser.print_help()
+    args = parser.parse_args()
+    with telemetry_command_hook(args):
+
+        if args.command == "init":
+            return cmd_init(args)
+        elif args.command in ("run", "start"):
+            return cmd_run(args)
+        elif args.command == "status":
+            return cmd_status(args)
+        elif args.command == "dashboard":
+            return cmd_dashboard(args)
+        elif args.command == "doctor":
+            if getattr(args, "ros", False):
+                return cmd_doctor_ros(args)
+            return cmd_doctor(args)
+        elif args.command == "firstboot":
+            return cmd_firstboot(args)
+        elif args.command == "config":
+            if getattr(args, "config_command", None):
+                return cmd_config(args)
+            config_parser.print_help()
             return 1
-    elif args.command == "provider":
-        if args.provider_command == "list":
-            return cmd_provider_list(args)
-        elif args.provider_command == "invoke":
-            return cmd_provider_invoke(args)
-        else:
-            provider_parser.print_help()
+        elif args.command == "profile":
+            if getattr(args, "profile_command", None):
+                return cmd_profile(args)
+            profile_parser.print_help()
             return 1
-    elif args.command == "skill":
-        if getattr(args, "func", None):
-            return args.func(args)
-        if args.skill_command == "list":
-            return cmd_skill_list(args)
-        elif args.skill_command == "check":
-            return cmd_skill_check(args)
-        elif args.skill_command == "invoke":
-            return cmd_skill_invoke(args)
-        elif args.skill_command == "champions":
-            if args.skill_champions_command == "list":
-                return cmd_skill_champions_list(args)
+        elif args.command == "uninstall":
+            return cmd_uninstall(args)
+        elif args.command == "ros":
+            return dispatch_ros_command(args)
+        elif args.command == "body":
+            return dispatch_body_command(args)
+        elif args.command == "logs":
+            return cmd_logs(args)
+        elif args.command == "robot":
+            if args.robot_command == "list":
+                return cmd_robot_list(args)
+            elif args.robot_command == "install":
+                return cmd_robot_install(args)
+            elif args.robot_command == "inspect":
+                return cmd_robot_inspect(args)
+            elif args.robot_command == "validate":
+                return cmd_robot_validate(args)
             else:
-                skill_champions_parser.print_help()
+                robot_parser.print_help()
                 return 1
-        elif args.skill_command == "lineage":
-            return cmd_skill_lineage(args)
-        elif args.skill_command == "rollback":
-            return cmd_skill_rollback(args)
-        else:
-            skill_parser.print_help()
+        elif args.command == "provider":
+            if args.provider_command == "list":
+                return cmd_provider_list(args)
+            elif args.provider_command == "invoke":
+                return cmd_provider_invoke(args)
+            else:
+                provider_parser.print_help()
+                return 1
+        elif args.command == "skill":
+            if getattr(args, "func", None):
+                return args.func(args)
+            if args.skill_command == "list":
+                return cmd_skill_list(args)
+            elif args.skill_command == "check":
+                return cmd_skill_check(args)
+            elif args.skill_command == "invoke":
+                return cmd_skill_invoke(args)
+            elif args.skill_command == "champions":
+                if args.skill_champions_command == "list":
+                    return cmd_skill_champions_list(args)
+                else:
+                    skill_champions_parser.print_help()
+                    return 1
+            elif args.skill_command == "lineage":
+                return cmd_skill_lineage(args)
+            elif args.skill_command == "rollback":
+                return cmd_skill_rollback(args)
+            else:
+                skill_parser.print_help()
+                return 1
+        elif args.command == "how":
+            if args.how_command == "explain":
+                return cmd_how_explain(args)
+            elif args.how_command == "recover":
+                return cmd_how_recover(args)
+            else:
+                how_parser.print_help()
+                return 1
+        elif args.command == "auto":
+            if args.auto_command == "init":
+                return cmd_auto_init(args)
+            elif args.auto_command == "run":
+                return cmd_auto_run(args)
+            elif args.auto_command == "status":
+                return cmd_auto_status(args)
+            elif args.auto_command == "champion":
+                return cmd_auto_champion(args)
+            elif args.auto_command == "deadends":
+                return cmd_auto_deadends(args)
+            elif args.auto_command == "report":
+                return cmd_auto_report(args)
+            else:
+                auto_parser.print_help()
+                return 1
+        elif args.command == "sandbox":
+            if args.sandbox_command == "list-worlds":
+                return cmd_sandbox_list_worlds(args)
+            elif args.sandbox_command == "validate":
+                return cmd_sandbox_validate(args)
+            elif args.sandbox_command == "run":
+                return cmd_sandbox_run(args)
+            elif args.sandbox_command == "replay":
+                return cmd_sandbox_replay(args)
+            elif args.sandbox_command == "check":
+                return cmd_sandbox_check(args)
+            else:
+                sandbox_parser.print_help()
+                return 1
+        elif args.command == "firewall":
+            if args.firewall_command == "check":
+                return cmd_firewall_check(args)
+            else:
+                firewall_parser.print_help()
+                return 1
+        elif args.command == "forge":
+            if args.forge_command == "validate":
+                return cmd_forge_validate(args)
+            elif args.forge_command == "install":
+                return cmd_forge_install(args)
+            elif args.forge_command == "sdk-to-mcp":
+                return cmd_forge_sdk_to_mcp(args)
+            else:
+                forge_parser.print_help()
+                return 1
+        elif args.command == "memory":
+            if args.memory_command == "status":
+                return cmd_memory_status(args)
+            elif args.memory_command == "query":
+                return cmd_memory_query(args)
+            elif args.memory_command == "explain":
+                return cmd_memory_explain(args)
+            else:
+                memory_parser.print_help()
+                return 1
+        elif args.command == "events":
+            if getattr(args, "events_command", None) == "publish":
+                return cmd_events_publish(args)
+            elif getattr(args, "events_command", None) == "list":
+                return cmd_events_list(args)
+            elif getattr(args, "events_command", None) == "tail" or not args.events_command:
+                return cmd_events_tail(args)
+            else:
+                events_parser.print_help()
+                return 1
+        elif args.command == "runtime":
+            if args.runtime_command == "backends":
+                return cmd_runtime_backends(args)
+            else:
+                runtime_parser.print_help()
+                return 1
+        elif args.command == "stop":
+            return cmd_stop(args)
+        elif args.command == "restart":
+            return cmd_restart(args)
+        elif args.command == "practice":
+            if args.practice_command == "list":
+                return cmd_practice_list(args)
+            elif args.practice_command == "init":
+                return cmd_practice_init(args)
+            elif args.practice_command == "start":
+                return cmd_practice_start(args)
+            elif args.practice_command == "stop":
+                return cmd_practice_stop(args)
+            elif args.practice_command == "sync-fallback":
+                return cmd_practice_sync_fallback(args)
+            elif args.practice_command == "show":
+                return cmd_practice_show(args)
+            elif args.practice_command == "replay":
+                return cmd_practice_replay(args)
+            elif args.practice_command == "export":
+                return cmd_practice_export(args)
+            else:
+                practice_parser.print_help()
+                return 1
+        elif args.command == "know":
+            if args.know_command == "search":
+                return cmd_know_search(args)
+            elif args.know_command == "robot":
+                return cmd_know_robot(args)
+            elif args.know_command == "recommend":
+                return cmd_know_recommend(args)
+            else:
+                know_parser.print_help()
+                return 1
+        elif args.command == "sense":
+            if args.sense_command == "now":
+                return cmd_sense_now(args)
+            elif args.sense_command == "state":
+                return cmd_sense_state(args)
+            elif args.sense_command == "readiness":
+                return cmd_sense_readiness(args)
+            elif args.sense_command == "watch":
+                return cmd_sense_watch(args)
+            elif args.sense_command == "events":
+                return cmd_sense_events(args)
+            elif args.sense_command == "explain":
+                return cmd_sense_explain(args)
+            else:
+                sense_parser.print_help()
+                return 1
+        elif args.command == "demo":
+            if args.demo_command == "mobile-pid":
+                return cmd_demo_mobile_pid(args)
+            elif args.demo_command == "tabletop-grasp":
+                return cmd_demo_tabletop_grasp(args)
+            else:
+                demo_parser.print_help()
+                return 1
+        elif args.command == "hub":
+            return dispatch_hub_command(args)
+        elif args.command == "agent":
+            if getattr(args, "func", None):
+                return args.func(args)
+            agent_parser.print_help()
             return 1
-    elif args.command == "how":
-        if args.how_command == "explain":
-            return cmd_how_explain(args)
-        elif args.how_command == "recover":
-            return cmd_how_recover(args)
-        else:
-            how_parser.print_help()
+        elif args.command == "mcp":
+            if getattr(args, "func", None):
+                return args.func(args)
+            mcp_parser.print_help()
             return 1
-    elif args.command == "auto":
-        if args.auto_command == "init":
-            return cmd_auto_init(args)
-        elif args.auto_command == "run":
-            return cmd_auto_run(args)
-        elif args.auto_command == "status":
-            return cmd_auto_status(args)
-        elif args.auto_command == "champion":
-            return cmd_auto_champion(args)
-        elif args.auto_command == "deadends":
-            return cmd_auto_deadends(args)
-        elif args.auto_command == "report":
-            return cmd_auto_report(args)
+        elif args.command == "fleet":
+            if args.fleet_command == "status":
+                return cmd_fleet_status(args)
+            elif args.fleet_command == "stop":
+                return cmd_fleet_stop(args)
+            else:
+                fleet_parser.print_help()
+                return 1
+        elif args.command == "feedback":
+            return dispatch_feedback_command(args)
         else:
-            auto_parser.print_help()
+            parser.print_help()
             return 1
-    elif args.command == "sandbox":
-        if args.sandbox_command == "list-worlds":
-            return cmd_sandbox_list_worlds(args)
-        elif args.sandbox_command == "validate":
-            return cmd_sandbox_validate(args)
-        elif args.sandbox_command == "run":
-            return cmd_sandbox_run(args)
-        elif args.sandbox_command == "replay":
-            return cmd_sandbox_replay(args)
-        elif args.sandbox_command == "check":
-            return cmd_sandbox_check(args)
-        else:
-            sandbox_parser.print_help()
-            return 1
-    elif args.command == "firewall":
-        if args.firewall_command == "check":
-            return cmd_firewall_check(args)
-        else:
-            firewall_parser.print_help()
-            return 1
-    elif args.command == "forge":
-        if args.forge_command == "validate":
-            return cmd_forge_validate(args)
-        elif args.forge_command == "install":
-            return cmd_forge_install(args)
-        elif args.forge_command == "sdk-to-mcp":
-            return cmd_forge_sdk_to_mcp(args)
-        else:
-            forge_parser.print_help()
-            return 1
-    elif args.command == "memory":
-        if args.memory_command == "status":
-            return cmd_memory_status(args)
-        elif args.memory_command == "query":
-            return cmd_memory_query(args)
-        elif args.memory_command == "explain":
-            return cmd_memory_explain(args)
-        else:
-            memory_parser.print_help()
-            return 1
-    elif args.command == "events":
-        if getattr(args, "events_command", None) == "publish":
-            return cmd_events_publish(args)
-        elif getattr(args, "events_command", None) == "list":
-            return cmd_events_list(args)
-        elif getattr(args, "events_command", None) == "tail" or not args.events_command:
-            return cmd_events_tail(args)
-        else:
-            events_parser.print_help()
-            return 1
-    elif args.command == "runtime":
-        if args.runtime_command == "backends":
-            return cmd_runtime_backends(args)
-        else:
-            runtime_parser.print_help()
-            return 1
-    elif args.command == "stop":
-        return cmd_stop(args)
-    elif args.command == "restart":
-        return cmd_restart(args)
-    elif args.command == "practice":
-        if args.practice_command == "list":
-            return cmd_practice_list(args)
-        elif args.practice_command == "init":
-            return cmd_practice_init(args)
-        elif args.practice_command == "start":
-            return cmd_practice_start(args)
-        elif args.practice_command == "stop":
-            return cmd_practice_stop(args)
-        elif args.practice_command == "sync-fallback":
-            return cmd_practice_sync_fallback(args)
-        elif args.practice_command == "show":
-            return cmd_practice_show(args)
-        elif args.practice_command == "replay":
-            return cmd_practice_replay(args)
-        elif args.practice_command == "export":
-            return cmd_practice_export(args)
-        else:
-            practice_parser.print_help()
-            return 1
-    elif args.command == "know":
-        if args.know_command == "search":
-            return cmd_know_search(args)
-        elif args.know_command == "robot":
-            return cmd_know_robot(args)
-        elif args.know_command == "recommend":
-            return cmd_know_recommend(args)
-        else:
-            know_parser.print_help()
-            return 1
-    elif args.command == "sense":
-        if args.sense_command == "now":
-            return cmd_sense_now(args)
-        elif args.sense_command == "state":
-            return cmd_sense_state(args)
-        elif args.sense_command == "readiness":
-            return cmd_sense_readiness(args)
-        elif args.sense_command == "watch":
-            return cmd_sense_watch(args)
-        elif args.sense_command == "events":
-            return cmd_sense_events(args)
-        elif args.sense_command == "explain":
-            return cmd_sense_explain(args)
-        else:
-            sense_parser.print_help()
-            return 1
-    elif args.command == "demo":
-        if args.demo_command == "mobile-pid":
-            return cmd_demo_mobile_pid(args)
-        elif args.demo_command == "tabletop-grasp":
-            return cmd_demo_tabletop_grasp(args)
-        else:
-            demo_parser.print_help()
-            return 1
-    elif args.command == "hub":
-        return dispatch_hub_command(args)
-    elif args.command == "agent":
-        if getattr(args, "func", None):
-            return args.func(args)
-        agent_parser.print_help()
-        return 1
-    elif args.command == "mcp":
-        if getattr(args, "func", None):
-            return args.func(args)
-        mcp_parser.print_help()
-        return 1
-    elif args.command == "fleet":
-        if args.fleet_command == "status":
-            return cmd_fleet_status(args)
-        elif args.fleet_command == "stop":
-            return cmd_fleet_stop(args)
-        else:
-            fleet_parser.print_help()
-            return 1
-    else:
-        parser.print_help()
-        return 1
 
 
 if __name__ == "__main__":
