@@ -34,7 +34,7 @@ def _fixture_client() -> None:
 def _envelope(result: str) -> dict:
     payload = json.loads(result)
     assert "ok" in payload
-    assert payload["schema_version"].startswith("p0.")
+    assert payload["schema_version"] == "rosclaw.mcp.v1"
     assert "trace_id" in payload
     assert "timestamp" in payload
     return payload

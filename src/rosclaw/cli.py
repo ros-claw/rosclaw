@@ -70,6 +70,7 @@ def _cmd_mcp_serve(args: argparse.Namespace) -> int:
             host=args.host,
             port=args.port,
             robot_id=args.robot_id,
+            profile=args.profile,
             project_root=args.project_root,
             log_level=args.log_level,
         )
@@ -3542,7 +3543,9 @@ def main() -> int:
     mcp_serve_parser.add_argument("--host", default="127.0.0.1", help="HTTP/SSE host")
     mcp_serve_parser.add_argument("--port", type=int, default=9090, help="HTTP/SSE port")
     mcp_serve_parser.add_argument("--robot-id", default=None, help="Robot identifier")
+    mcp_serve_parser.add_argument("--profile", default="default", help="ROSClaw runtime profile name")
     mcp_serve_parser.add_argument("--project-root", default=".", help="Project root path")
+    mcp_serve_parser.add_argument("--project", default=None, dest="project_root", help="Alias for --project-root")
     mcp_serve_parser.add_argument(
         "--log-level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],

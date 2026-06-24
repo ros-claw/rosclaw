@@ -6,21 +6,26 @@ import time
 import uuid
 from typing import Any
 
-SCHEMA_VERSION = "p0.2025-06-19"
+SCHEMA_VERSION = "rosclaw.mcp.v1"
 
 
 def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def make_response(data: Any, *, trace_id: str | None = None, runtime_profile: dict[str, Any] | None = None) -> dict[str, Any]:
+def make_response(
+    data: Any,
+    *,
+    trace_id: str | None = None,
+    runtime_profile: str | None = None,
+) -> dict[str, Any]:
     """Build the standard P0 success envelope."""
     return {
         "ok": True,
         "schema_version": SCHEMA_VERSION,
         "trace_id": trace_id or str(uuid.uuid4()),
         "timestamp": _now_iso(),
-        "runtime_profile": runtime_profile or {},
+        "runtime_profile": runtime_profile or "default",
         "data": data,
     }
 
@@ -31,7 +36,7 @@ def make_error(
     *,
     trace_id: str | None = None,
     details: dict[str, Any] | None = None,
-    runtime_profile: dict[str, Any] | None = None,
+    runtime_profile: str | None = None,
 ) -> dict[str, Any]:
     """Build the standard P0 error envelope."""
     return {
@@ -39,7 +44,7 @@ def make_error(
         "schema_version": SCHEMA_VERSION,
         "trace_id": trace_id or str(uuid.uuid4()),
         "timestamp": _now_iso(),
-        "runtime_profile": runtime_profile or {},
+        "runtime_profile": runtime_profile or "default",
         "error": {
             "code": code,
             "message": message,
@@ -57,5 +62,5 @@ class MCPError(Exception):
         self.message = message
         self.details = details or {}
 
-    def to_envelope(self, trace_id: str | None = None) -> dict[str, Any]:
-        return make_error(self.code, self.message, trace_id=trace_id, details=self.details)
+    def to_envelope(self, trace_id: str | None = None, runtime_profile: str | None = None) -> dict[str, Any]:
+        return make_error(self.code, self.message, trace_id=trace_id, details=self.details, runtime_profile=runtime_profile)

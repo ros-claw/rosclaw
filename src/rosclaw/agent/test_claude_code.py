@@ -60,7 +60,7 @@ def cmd_agent_test_claude_code(args: argparse.Namespace) -> int:
         print(f"{name}: {status}")
 
     mcp_data = read_json_if_exists(generated_paths[".mcp.json"])
-    server_config = mcp_data.get("servers", {}).get("rosclaw-p0", {})
+    server_config = mcp_data.get("mcpServers", {}).get("rosclaw", {})
     transport = server_config.get("url") or server_config.get("command")
     print(f"MCP server config: {transport or 'not configured'}")
 

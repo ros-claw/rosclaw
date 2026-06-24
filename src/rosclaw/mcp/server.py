@@ -12,7 +12,6 @@ Supports stdio and streamable-http transports.
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
 import sys
@@ -23,8 +22,7 @@ from mcp.server.fastmcp import FastMCP
 
 from rosclaw.agent.detectors import build_project_profile
 from rosclaw.mcp.adapters.runtime_client import RuntimeClient
-from rosclaw.mcp.schemas.common import make_response
-from rosclaw.mcp.tools import P0_TOOLS, set_client
+from rosclaw.mcp.tools import P0_TOOLS, set_client, set_context
 
 logger = logging.getLogger("rosclaw.mcp.server")
 
@@ -37,43 +35,11 @@ def _setup_logging(level: str) -> None:
     )
 
 
-def _redact_for_audit(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Return a shallow copy of arguments safe for the audit log."""
-    sensitive = {"token", "password", "secret", "api_key", "apikey", "auth"}
-    out: dict[str, Any] = {}
-    for key, value in arguments.items():
-        if isinstance(key, str) and key.lower() in sensitive:
-            out[key] = "<REDACTED>"
-        else:
-            out[key] = value
-    return out
-
-
-def _audit(
-    trace_id: str,
-    tool: str,
-    arguments: dict[str, Any],
-    response: dict[str, Any],
-) -> None:
-    """Append one JSON line to ~/.rosclaw/logs/mcp/audit.jsonl."""
-    log_dir = Path.home() / ".rosclaw" / "logs" / "mcp"
-    try:
-        log_dir.mkdir(parents=True, exist_ok=True)
-        line = json.dumps(
-            {
-                "trace_id": trace_id,
-                "timestamp": make_response({})["timestamp"],
-                "tool": tool,
-                "arguments": _redact_for_audit(arguments),
-                "ok": response.get("ok", False),
-            },
-            ensure_ascii=False,
-            default=str,
-        )
-        with (log_dir / "audit.jsonl").open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("audit logging failed: %s", exc)
+def _profile_name(profile: Any) -> str:
+    """Derive a short runtime profile name for the response envelope."""
+    if profile.profile_path is not None:
+        return profile.profile_path.stem
+    return "default"
 
 
 def serve(
@@ -82,6 +48,7 @@ def serve(
     host: str,
     port: int,
     robot_id: str | None,
+    profile: str | None,
     project_root: str | None,
     log_level: str,
 ) -> None:
@@ -89,14 +56,21 @@ def serve(
     _setup_logging(log_level)
 
     root = Path(project_root) if project_root else Path.cwd()
-    profile = build_project_profile(project_root=root, robot=robot_id)
+    project_profile = build_project_profile(
+        project_root=root, profile=profile, robot=robot_id
+    )
 
     client = RuntimeClient(
         project_root=root,
-        robot_id=robot_id or profile.robot_id,
-        runtime_profile=profile.runtime_profile,
+        robot_id=robot_id or project_profile.robot_id,
+        runtime_profile=project_profile.runtime_profile,
     )
     set_client(client)
+    set_context(
+        project_root=str(root),
+        runtime_profile=_profile_name(project_profile),
+        agent_client=os.environ.get("ROSCLAW_AGENT_CLIENT", "claude-code"),
+    )
 
     instructions = (
         "ROSClaw P0 physical-AI runtime. Read-only, simulation, validated-plan, "
@@ -104,7 +78,7 @@ def serve(
     )
 
     mcp = FastMCP(
-        "rosclaw-p0",
+        "rosclaw",
         instructions=instructions,
         host=host,
         port=port,
@@ -149,9 +123,20 @@ def main(argv: list[str] | None = None) -> int:
         help="Robot identifier",
     )
     parser.add_argument(
+        "--profile",
+        default=os.environ.get("ROSCLAW_PROFILE", "default"),
+        help="ROSClaw runtime profile name",
+    )
+    parser.add_argument(
         "--project-root",
         default=os.environ.get("ROSCLAW_PROJECT_ROOT", "."),
         help="Project root path",
+    )
+    parser.add_argument(
+        "--project",
+        default=None,
+        dest="project_root",
+        help="Alias for --project-root",
     )
     parser.add_argument(
         "--log-level",
@@ -167,6 +152,7 @@ def main(argv: list[str] | None = None) -> int:
             host=args.host,
             port=args.port,
             robot_id=args.robot_id,
+            profile=args.profile,
             project_root=args.project_root,
             log_level=args.log_level,
         )

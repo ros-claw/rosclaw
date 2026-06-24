@@ -7,12 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from rosclaw.mcp.server import _audit, _redact_for_audit
-from rosclaw.mcp.tools import P0_TOOLS
+from rosclaw.mcp.tools import P0_TOOLS, _audit, _redact_for_audit
 
 
 async def test_p0_tools_contains_expected_set() -> None:
-    """P0_TOOLS must contain the original seven tools plus the six body tools."""
+    """P0_TOOLS must contain exactly the seven required P0 tools."""
     names = {t.__name__ for t in P0_TOOLS}
     expected = {
         "get_robot_state",
@@ -22,12 +21,6 @@ async def test_p0_tools_contains_expected_set() -> None:
         "sandbox_run",
         "practice_query",
         "emergency_stop",
-        "list_bodies",
-        "get_body",
-        "switch_body",
-        "list_body_history",
-        "check_skill_compatibility",
-        "fleet_skill_compatibility",
     }
     assert names == expected
 
@@ -48,7 +41,7 @@ async def test_audit_log_written(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     log_dir = tmp_path / ".rosclaw/logs/mcp"
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     response = {"ok": True, "data": {"robot_id": "test"}}
-    _audit("trace-123", "get_robot_state", {}, response)
+    _audit("trace-123", "get_robot_state", {}, response, 12.3)
     audit_file = log_dir / "audit.jsonl"
     assert audit_file.exists()
     lines = audit_file.read_text(encoding="utf-8").strip().splitlines()
