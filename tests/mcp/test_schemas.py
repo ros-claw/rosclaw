@@ -100,7 +100,7 @@ async def test_emergency_stop_schema() -> None:
 def test_common_envelope_fields() -> None:
     envelope = make_response({"ok": True})
     assert envelope["ok"] is True
-    assert envelope["schema_version"].startswith("p0.")
+    assert envelope["schema_version"] == "rosclaw.mcp.v1"
     assert "trace_id" in envelope
     assert "timestamp" in envelope
     assert "data" in envelope

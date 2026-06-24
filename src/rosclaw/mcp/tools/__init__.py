@@ -5,8 +5,11 @@ from __future__ import annotations
 import functools
 import inspect
 import json
+import os
+import time
 import uuid
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from rosclaw.mcp.adapters.runtime_client import RuntimeClient
@@ -17,6 +20,28 @@ ToolFunc = Callable[..., Any]
 # Populated by the server after building the RuntimeClient.
 _CLIENT: RuntimeClient | None = None
 
+# Populated by the server so audit logs can include project/runtime context.
+_PROJECT_ROOT: str | None = None
+_RUNTIME_PROFILE: str = "default"
+_AGENT_CLIENT: str = "claude-code"
+
+# Safety levels per the P0 agent guide.
+_SAFETY_LEVELS: dict[str, str] = {
+    "get_robot_state": "S0_READ_ONLY",
+    "list_skills": "S0_READ_ONLY",
+    "query_memory": "S0_READ_ONLY",
+    "validate_trajectory": "S2_VALIDATED_PLAN",
+    "sandbox_run": "S1_SIMULATION_ONLY",
+    "practice_query": "S0_READ_ONLY",
+    "emergency_stop": "S4_EMERGENCY",
+    "list_bodies": "S0_READ_ONLY",
+    "get_body": "S0_READ_ONLY",
+    "switch_body": "S0_CONFIG",
+    "list_body_history": "S0_READ_ONLY",
+    "check_skill_compatibility": "S0_READ_ONLY",
+    "fleet_skill_compatibility": "S0_READ_ONLY",
+}
+
 
 def set_client(client: RuntimeClient) -> None:
     """Inject the shared RuntimeClient before serving requests."""
@@ -24,10 +49,73 @@ def set_client(client: RuntimeClient) -> None:
     _CLIENT = client
 
 
+def set_context(
+    *,
+    project_root: str | None = None,
+    runtime_profile: str | None = None,
+    agent_client: str | None = None,
+) -> None:
+    """Inject server-level context used for audit logging."""
+    global _PROJECT_ROOT, _RUNTIME_PROFILE, _AGENT_CLIENT
+    if project_root is not None:
+        _PROJECT_ROOT = project_root
+    if runtime_profile is not None:
+        _RUNTIME_PROFILE = runtime_profile
+    if agent_client is not None:
+        _AGENT_CLIENT = agent_client
+
+
 def _client() -> RuntimeClient:
     if _CLIENT is None:
         raise MCPError("CLIENT_NOT_INITIALIZED", "RuntimeClient has not been set for MCP tools.")
     return _CLIENT
+
+
+def _redact_for_audit(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Return a shallow copy of arguments safe for the audit log."""
+    sensitive = {"token", "password", "secret", "api_key", "apikey", "auth", "key"}
+    out: dict[str, Any] = {}
+    for key, value in arguments.items():
+        if isinstance(key, str) and key.lower() in sensitive:
+            out[key] = "<REDACTED>"
+        else:
+            out[key] = value
+    return out
+
+
+def _audit(
+    trace_id: str,
+    tool: str,
+    arguments: dict[str, Any],
+    response: dict[str, Any],
+    latency_ms: float,
+) -> None:
+    """Append one JSON line to ~/.rosclaw/logs/mcp/audit.jsonl."""
+    home = os.environ.get("ROSCLAW_HOME", str(Path.home() / ".rosclaw"))
+    log_dir = Path(home) / "logs" / "mcp"
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(
+            {
+                "trace_id": trace_id,
+                "timestamp": make_response({})["timestamp"],
+                "agent_client": _AGENT_CLIENT,
+                "project_root": _PROJECT_ROOT or "",
+                "runtime_profile": _RUNTIME_PROFILE,
+                "tool": tool,
+                "input_redacted": _redact_for_audit(arguments),
+                "ok": response.get("ok", False),
+                "latency_ms": round(latency_ms, 3),
+                "safety_level": _SAFETY_LEVELS.get(tool, "UNKNOWN"),
+            },
+            ensure_ascii=False,
+            default=str,
+        )
+        with (log_dir / "audit.jsonl").open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        # Audit must never break a tool call.
+        pass
 
 
 def _tool_wrapper(name: str, coro_factory: Callable[..., Any]) -> ToolFunc:
@@ -44,17 +132,21 @@ def _tool_wrapper(name: str, coro_factory: Callable[..., Any]) -> ToolFunc:
     )
     async def wrapper(*args: Any, **kwargs: Any) -> str:
         trace_id = str(uuid.uuid4())
+        started = time.perf_counter()
         try:
             data = await coro_factory(*args, **kwargs)
-            envelope = make_response(data, trace_id=trace_id)
+            envelope = make_response(data, trace_id=trace_id, runtime_profile=_RUNTIME_PROFILE)
         except MCPError as exc:
-            envelope = exc.to_envelope(trace_id=trace_id)
+            envelope = exc.to_envelope(trace_id=trace_id, runtime_profile=_RUNTIME_PROFILE)
         except Exception as exc:  # noqa: BLE001
             envelope = make_error(
                 "RUNTIME_ERROR",
                 f"{name} failed: {exc}",
                 trace_id=trace_id,
+                runtime_profile=_RUNTIME_PROFILE,
             )
+        latency_ms = (time.perf_counter() - started) * 1000
+        _audit(trace_id, name, kwargs, envelope, latency_ms)
         return json.dumps(envelope, ensure_ascii=False, default=str)
 
     # Preserve the original parameter schema for MCP discovery, but force the
@@ -62,15 +154,16 @@ def _tool_wrapper(name: str, coro_factory: Callable[..., Any]) -> ToolFunc:
     # envelope as structured output. Remove ``__wrapped__`` so introspection does
     # not follow the chain back to the original dict-returning signature.
     original_sig = inspect.signature(coro_factory)
-    wrapper.__signature__ = original_sig.replace(return_annotation=str)
-    wrapper.__annotations__ = {**coro_factory.__annotations__, "return": str}
-    wrapper.__name__ = name
-    wrapper.__dict__.pop("__wrapped__", None)
+    wrapper_any: Any = wrapper
+    wrapper_any.__signature__ = original_sig.replace(return_annotation=str)
+    wrapper_any.__annotations__ = {**coro_factory.__annotations__, "return": str}
+    wrapper_any.__name__ = name
+    wrapper_any.__dict__.pop("__wrapped__", None)
     return wrapper
 
 
 # ---------------------------------------------------------------------------
-# Tool implementations
+# P0 tool implementations
 # ---------------------------------------------------------------------------
 
 async def _get_robot_state() -> dict[str, Any]:
@@ -107,6 +200,10 @@ async def _emergency_stop(reason: str) -> dict[str, Any]:
     """Trigger an emergency stop. This is the only destructive P0 tool."""
     return await _client().emergency_stop(reason)
 
+
+# ---------------------------------------------------------------------------
+# Body registry tools (P2 / body scope, not part of P0_TOOLS)
+# ---------------------------------------------------------------------------
 
 async def _list_bodies() -> dict[str, Any]:
     """List all registered bodies in the workspace."""
@@ -161,6 +258,9 @@ P0_TOOLS: list[ToolFunc] = [
     sandbox_run,
     practice_query,
     emergency_stop,
+]
+
+BODY_TOOLS: list[ToolFunc] = [
     list_bodies,
     get_body,
     switch_body,
@@ -169,4 +269,24 @@ P0_TOOLS: list[ToolFunc] = [
     fleet_skill_compatibility,
 ]
 
-__all__ = ["P0_TOOLS", "set_client", "ToolFunc"]
+__all__ = [
+    "P0_TOOLS",
+    "BODY_TOOLS",
+    "set_client",
+    "set_context",
+    "ToolFunc",
+    # Expose individual wrapped tools for tests and P2 registration.
+    "get_robot_state",
+    "list_skills",
+    "query_memory",
+    "validate_trajectory",
+    "sandbox_run",
+    "practice_query",
+    "emergency_stop",
+    "list_bodies",
+    "get_body",
+    "switch_body",
+    "list_body_history",
+    "check_skill_compatibility",
+    "fleet_skill_compatibility",
+]

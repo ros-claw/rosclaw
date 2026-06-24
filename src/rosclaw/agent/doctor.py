@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from rosclaw.agent.detectors import build_project_profile
 from rosclaw.agent.merge import read_json_if_exists
@@ -13,18 +14,20 @@ from rosclaw.agent.validate import validate_project
 
 def _check_server_reachable(profile: dict[str, Any]) -> tuple[bool, str]:
     """Best-effort check whether the configured MCP server is reachable."""
-    transport = profile.get("transport", "stdio")
+    transport = profile.get("type", "stdio")
     if transport == "stdio":
         return True, "stdio transport (no network reachability check)"
 
-    host = profile.get("host", "127.0.0.1")
-    port = profile.get("port", 9090)
+    url = profile.get("url", "http://127.0.0.1:9090/mcp")
+    parsed = urlparse(url)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 9090
     try:
         import urllib.request
 
-        url = f"http://{host}:{port}/health"
-        with urllib.request.urlopen(url, timeout=2.0) as resp:  # noqa: S310
-            return resp.status == 200, f"HTTP {resp.status} from {url}"
+        health_url = f"http://{host}:{port}/health"
+        with urllib.request.urlopen(health_url, timeout=2.0) as resp:  # noqa: S310
+            return resp.status == 200, f"HTTP {resp.status} from {health_url}"
     except Exception as e:  # noqa: BLE001
         return False, f"could not reach {host}:{port}: {e}"
 
@@ -66,7 +69,7 @@ def cmd_agent_doctor_claude_code(args: argparse.Namespace) -> int:
             print(f"  - {warn}")
 
     mcp_data = read_json_if_exists(generated_paths[".mcp.json"])
-    server_config = mcp_data.get("servers", {}).get("rosclaw-p0", {})
+    server_config = mcp_data.get("mcpServers", {}).get("rosclaw", {})
     reachable, message = _check_server_reachable(server_config)
     print(f"MCP server reachable: {'yes' if reachable else 'no'} ({message})")
 

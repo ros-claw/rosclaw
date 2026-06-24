@@ -90,11 +90,11 @@ def validate_mcp_json(path: Path) -> list[str]:
     if not isinstance(data, dict):
         errors.append(f"{path} must be a JSON object")
         return errors
-    servers = data.get("servers")
+    servers = data.get("mcpServers")
     if not isinstance(servers, dict) or not servers:
-        errors.append(f"{path} has no servers configured")
-    elif "rosclaw-p0" not in servers:
-        errors.append(f"{path} is missing the rosclaw-p0 server")
+        errors.append(f"{path} has no mcpServers configured")
+    elif "rosclaw" not in servers:
+        errors.append(f"{path} is missing the rosclaw server")
     return errors
 
 
@@ -124,7 +124,7 @@ def validate_context_snapshot(path: Path) -> list[str]:
     if not isinstance(data, dict):
         errors.append(f"{path} must be a JSON object")
         return errors
-    if data.get("schema_version") != "p0.2025-06-19":
+    if data.get("schema_version") != "rosclaw.agent.context.v1":
         errors.append(f"{path} has unexpected schema_version")
     tools = data.get("tools", {}).get("available", [])
     expected_tools = [

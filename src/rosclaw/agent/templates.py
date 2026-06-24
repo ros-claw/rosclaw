@@ -15,32 +15,52 @@ JSON_MANAGED_END = "/* ROSCLAW-MANAGED-END */"
 
 
 def render_mcp_json(profile: ProjectProfile, check: bool = False) -> dict[str, Any]:
-    """Render the .mcp.json configuration object."""
-    server_name = "rosclaw-p0"
+    """Render the .mcp.json configuration object.
+
+    Aligns with the Claude Code project-level MCP format documented in
+    ``rosclaw_agent接入优化.md``.
+    """
+    server_name = "rosclaw"
     transport = profile.default_transport
     if transport == "stdio":
         server = {
-            "command": "rosclaw-mcp-serve",
-            "args": ["--transport", "stdio"],
+            "type": "stdio",
+            "command": "rosclaw",
+            "args": [
+                "mcp",
+                "serve",
+                "--profile",
+                "${ROSCLAW_PROFILE:-default}",
+                "--project",
+                "${PWD}",
+            ],
             "env": {
-                "ROSCLAW_PROJECT_ROOT": str(profile.project_root),
-                "ROSCLAW_ROBOT_ID": profile.robot_id or "",
+                "ROSCLAW_HOME": "${ROSCLAW_HOME:-~/.rosclaw}",
+                "ROSCLAW_PROFILE": "${ROSCLAW_PROFILE:-default}",
+                "ROSCLAW_AGENT_CLIENT": "claude-code",
+                "ROSCLAW_MCP_AUDIT": "1",
             },
+            "timeout": 300000,
         }
     else:
         host = profile.runtime_profile.get("mcp", {}).get("host", "127.0.0.1")
         port = profile.runtime_profile.get("mcp", {}).get("port", 9090)
         server = {
-            "url": f"http://{host}:{port}/mcp",
+            "type": "http",
+            "url": "${ROSCLAW_MCP_URL:-http://" + f"{host}:{port}" + "/mcp}",
+            "headers": {
+                "X-ROSClaw-Agent": "claude-code",
+                "X-ROSClaw-Profile": "${ROSCLAW_PROFILE:-default}",
+            },
+            "timeout": 300000,
         }
 
     mcp_config: dict[str, Any] = {
-        "version": "1.0.0",
-        "servers": {
+        "mcpServers": {
             server_name: server,
         },
         "rosclaw": {
-            "schema_version": "p0.2025-06-19",
+            "schema_version": "rosclaw.agent.context.v1",
             "robot_id": profile.robot_id,
             "transport": transport,
             "project_root": str(profile.project_root),
@@ -169,7 +189,7 @@ def render_claude_settings_json(profile: ProjectProfile) -> dict[str, Any]:
 def render_context_snapshot(profile: ProjectProfile) -> dict[str, Any]:
     """Render the machine-readable .rosclaw/agent/context.snapshot.json."""
     return {
-        "schema_version": "p0.2025-06-19",
+        "schema_version": "rosclaw.agent.context.v1",
         "project": {
             "name": profile.project_root.name,
             "root": str(profile.project_root),

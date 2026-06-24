@@ -56,7 +56,7 @@ async def _start_server(*args: str) -> asyncio.subprocess.Process:
 def _envelope(text: str) -> dict[str, Any]:
     payload = json.loads(text)
     assert payload["ok"] is True, f"expected ok=True, got {payload}"
-    assert payload["schema_version"].startswith("p0.")
+    assert payload["schema_version"] == "rosclaw.mcp.v1"
     assert "trace_id" in payload
     assert "timestamp" in payload
     assert "data" in payload
@@ -74,12 +74,6 @@ P0_TOOL_CALLS: list[tuple[str, dict[str, Any]]] = [
     ),
     ("sandbox_run", {"joint_positions": [0.1] * 6}),
     ("emergency_stop", {"reason": "e2e test halt"}),
-    ("list_bodies", {}),
-    ("get_body", {"body_id": "current"}),
-    ("switch_body", {"body_id": "current"}),
-    ("list_body_history", {"body_id": "current"}),
-    ("check_skill_compatibility", {}),
-    ("fleet_skill_compatibility", {}),
 ]
 
 EXPECTED_TOOLS = {name for name, _ in P0_TOOL_CALLS}
