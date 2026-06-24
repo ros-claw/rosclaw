@@ -48,6 +48,7 @@ def serve(
     host: str,
     port: int,
     robot_id: str | None,
+    profile: str | None,
     project_root: str | None,
     log_level: str,
 ) -> None:
@@ -55,17 +56,19 @@ def serve(
     _setup_logging(log_level)
 
     root = Path(project_root) if project_root else Path.cwd()
-    profile = build_project_profile(project_root=root, robot=robot_id)
+    project_profile = build_project_profile(
+        project_root=root, profile=profile, robot=robot_id
+    )
 
     client = RuntimeClient(
         project_root=root,
-        robot_id=robot_id or profile.robot_id,
-        runtime_profile=profile.runtime_profile,
+        robot_id=robot_id or project_profile.robot_id,
+        runtime_profile=project_profile.runtime_profile,
     )
     set_client(client)
     set_context(
         project_root=str(root),
-        runtime_profile=_profile_name(profile),
+        runtime_profile=_profile_name(project_profile),
         agent_client=os.environ.get("ROSCLAW_AGENT_CLIENT", "claude-code"),
     )
 
