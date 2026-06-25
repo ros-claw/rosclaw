@@ -24,7 +24,7 @@ SUPPORTED_DOJO_SCHEMA = "rosclaw.dojo.v1"
 SUPPORTED_DARWIN_EVAL_SCHEMA = "rosclaw.darwin_eval.v1"
 SUPPORTED_LINEAGE_SCHEMA = "rosclaw.lineage.v1"
 
-STAGES = {"draft", "candidate", "validated", "deprecated", "revoked"}
+STAGES = {"draft", "candidate", "validated", "deprecated", "revoked", "source_verified", "ci_passed", "official_verified", "installable"}
 VALID_NAME_PATTERN = r"^[a-z0-9_\-]+$"
 VALID_NAMESPACE_PATTERN = r"^[a-z0-9][a-z0-9_-]{0,63}$"
 

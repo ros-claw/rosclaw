@@ -20,6 +20,7 @@ class SkillHubClient:
         return {
             "x-api-key": self.api_key,
             "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (compatible; rosclaw-cli/1.0)",
         }
 
     def _request(
