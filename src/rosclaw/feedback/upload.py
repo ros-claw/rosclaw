@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
+
+import requests
 
 from rosclaw import __version__ as rosclaw_version
 
@@ -67,41 +67,63 @@ class FeedbackUploader:
         if not endpoint:
             return {"ok": False, "error": "no_upload_endpoint"}
 
-        payload = {
+        return self._post_bundle(
+            endpoint,
+            bundle_path,
+            anonymous_id,
+            media_files,
+            days,
+        )
+
+    def _post_bundle(
+        self,
+        endpoint: str,
+        bundle_path: Path,
+        anonymous_id: str,
+        media_files: list[Path],
+        days: int,
+    ) -> dict[str, Any]:
+        timeout = self.config.upload.get("timeout_seconds", 10)
+        max_retries = self.config.upload.get("max_retries", 1)
+
+        metadata = {
             "schema_version": "rosclaw.feedback.upload.v1",
             "anonymous_installation_id": anonymous_id,
             "client_version": rosclaw_version,
             "redacted": True,
-            "bundle_path": str(bundle_path),
             "media_count": len(media_files),
             "days": days,
         }
-        response = self._post(endpoint, payload)
-        return response or {"ok": False, "error": "upload_failed"}
 
-    def _post(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any] | None:
-        timeout = self.config.upload.get("timeout_seconds", 10)
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        request = urllib.request.Request(
-            endpoint,
-            data=body,
-            headers={
-                "Content-Type": "application/json",
-                "User-Agent": f"rosclaw/{rosclaw_version}",
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                raw = response.read().decode("utf-8")
-                if raw:
-                    return json.loads(raw)
-                return {"ok": True}
-        except urllib.error.HTTPError as exc:
-            return {"ok": False, "error": "http_error", "status": exc.code}
-        except urllib.error.URLError as exc:
-            return {"ok": False, "error": "url_error", "reason": str(exc.reason)}
-        except TimeoutError:
-            return {"ok": False, "error": "timeout"}
-        except Exception:
-            return {"ok": False, "error": "unknown"}
+        headers = {"User-Agent": f"rosclaw/{rosclaw_version}"}
+
+        last_error: dict[str, Any] | None = None
+        for attempt in range(max_retries + 1):
+            try:
+                with bundle_path.open("rb") as bundle_file:
+                    files = {
+                        "bundle": (bundle_path.name, bundle_file, "application/gzip"),
+                    }
+                    response = requests.post(
+                        endpoint,
+                        data=metadata,
+                        files=files,
+                        headers=headers,
+                        timeout=timeout,
+                    )
+                    response.raise_for_status()
+                    return response.json() if response.text else {"ok": True}
+            except requests.exceptions.Timeout:
+                last_error = {"ok": False, "error": "timeout"}
+            except requests.exceptions.HTTPError as exc:
+                last_error = {
+                    "ok": False,
+                    "error": "http_error",
+                    "status": exc.response.status_code if exc.response else None,
+                }
+            except requests.exceptions.RequestException as exc:
+                last_error = {"ok": False, "error": "request_error", "reason": str(exc)}
+            except json.JSONDecodeError:
+                last_error = {"ok": False, "error": "invalid_json_response"}
+
+        return last_error or {"ok": False, "error": "upload_failed"}

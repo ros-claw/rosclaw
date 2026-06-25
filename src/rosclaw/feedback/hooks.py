@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -28,9 +29,23 @@ def telemetry_command_hook(args: Any) -> Generator[None, None, None]:
     finally:
         try:
             home = resolve_home(getattr(args, "workspace", None))
-            if home.exists():
+            command = getattr(args, "command", None)
+            if home.exists() and command not in ("firstboot", "doctor"):
                 duration_ms = int((time.monotonic() - start) * 1000)
                 status = "failure" if error is not None else "success"
-                TelemetryClient(home).record_command(args, status, duration_ms, error=error)
+                client = TelemetryClient(home)
+                client.record_command(args, status, duration_ms, error=error)
+                # Fire-and-forget daily heartbeat if it is due.
+                _run_heartbeat_async(client)
         except Exception:
             pass
+
+
+def _run_heartbeat_async(client: TelemetryClient) -> None:
+    """Trigger a daily heartbeat without blocking the CLI."""
+    def _heartbeat() -> None:
+        with __import__("contextlib").suppress(Exception):
+            client.heartbeat_if_due()
+
+    thread = threading.Thread(target=_heartbeat, daemon=True)
+    thread.start()

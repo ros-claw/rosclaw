@@ -136,6 +136,10 @@ class TelemetryClient:
         """Send a heartbeat event if the configured interval has elapsed."""
         if not self._should_upload():
             return None
+        if not self.home.exists():
+            return None
+        if self.installation.get_anonymous_installation_id() is None:
+            return None
 
         last_path = self.home / "telemetry" / "heartbeat" / "last_heartbeat.json"
         interval_hours = self.config.product_telemetry.get("heartbeat_interval_hours", 24)

@@ -293,6 +293,23 @@ def _cmd_doctor_ros2() -> int:
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     """Deep health diagnosis for ROSClaw runtime and dependencies."""
+    from rosclaw.feedback.telemetry_client import TelemetryClient
+
+    home = resolve_home()
+    client = TelemetryClient(home)
+    _record_doctor_event(client, "doctor_started")
+
+    exit_code = 0
+    try:
+        exit_code = _run_doctor(args)
+    finally:
+        status = "success" if exit_code == 0 else "failure"
+        _record_doctor_event(client, "doctor_completed", status)
+    return exit_code
+
+
+def _run_doctor(args: argparse.Namespace) -> int:
+    """Internal doctor implementation."""
     # --ros2 profile check: L1-L5 layered ROS2 environment validation
     if getattr(args, "ros2", False):
         return _cmd_doctor_ros2()
@@ -420,6 +437,18 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
     print("\n✅ All checks passed. ROSClaw is healthy!")
     return 0
+
+
+def _record_doctor_event(client: "TelemetryClient", event_type: str, status: str | None = None) -> None:
+    """Record a doctor_started / doctor_completed telemetry event."""
+    import contextlib
+
+    with contextlib.suppress(Exception):
+        client.record_event(
+            event_type=event_type,
+            command_name="doctor",
+            command_status=status,
+        )
 
 
 def cmd_firstboot(args: argparse.Namespace) -> int:

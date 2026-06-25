@@ -90,3 +90,49 @@ class TestTelemetryClientRecording:
 
         events = read_events(home / "telemetry" / "events" / f"{datetime.now(UTC).date().isoformat()}.jsonl")
         assert len(events) == 1
+
+
+class TestDoctorTelemetryEvents:
+    def test_doctor_records_started_and_completed_events(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / ".rosclaw"
+        InstallationManager(home).ensure_installation()
+        monkeypatch.setenv("ROSCLAW_HOME", str(home))
+
+        import sys
+        from rosclaw.cli import main
+
+        sys.argv = ["rosclaw", "doctor"]
+        main()
+
+        events = read_events(home / "telemetry" / "events" / f"{datetime.now(UTC).date().isoformat()}.jsonl")
+        types = [e["event_type"] for e in events]
+        assert "doctor_started" in types
+        assert "doctor_completed" in types
+        completed = [e for e in events if e["event_type"] == "doctor_completed"][0]
+        assert completed["command_name"] == "doctor"
+        assert completed["command_status"] in ("success", "failure")
+
+
+class TestHeartbeatTelemetry:
+    def test_heartbeat_if_due_writes_event_and_updates_last_heartbeat(self, tmp_path: Path) -> None:
+        home = tmp_path / ".rosclaw"
+        InstallationManager(home).ensure_installation()
+        client = TelemetryClient(home)
+
+        # Force an old last heartbeat so the next call is due.
+        last_path = home / "telemetry" / "heartbeat" / "last_heartbeat.json"
+        last_path.parent.mkdir(parents=True, exist_ok=True)
+        last_path.write_text('{"timestamp": "2020-01-01T00:00:00Z"}', encoding="utf-8")
+
+        result = client.heartbeat_if_due()
+        assert result is not None
+
+        events = read_events(home / "telemetry" / "events" / f"{datetime.now(UTC).date().isoformat()}.jsonl")
+        assert any(e["event_type"] == "heartbeat" for e in events)
+        assert last_path.exists()
+
+    def test_heartbeat_skipped_when_anonymous_id_missing(self, tmp_path: Path) -> None:
+        home = tmp_path / ".rosclaw"
+        client = TelemetryClient(home)
+        result = client.heartbeat_if_due()
+        assert result is None
