@@ -41,6 +41,7 @@ from rosclaw.connectors.ros.cli import add_ros_subparser, cmd_doctor_ros, dispat
 from rosclaw.core.event_bus import Event, EventPriority
 from rosclaw.feedback.cli import add_feedback_subparser, dispatch_feedback_command
 from rosclaw.feedback.hooks import telemetry_command_hook
+from rosclaw.feedback.telemetry_client import TelemetryClient
 from rosclaw.firstboot.wizard import run_firstboot
 from rosclaw.firstboot.workspace import resolve_home
 from rosclaw.hub.cli import add_hub_subparser, dispatch_hub_command

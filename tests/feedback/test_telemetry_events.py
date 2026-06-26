@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import sys
 import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
+from rosclaw.cli import main
 from rosclaw.feedback.installation import InstallationManager
 from rosclaw.feedback.store import read_events
 from rosclaw.feedback.telemetry_client import TelemetryClient, duration_bucket, error_class_bucket
@@ -97,9 +99,6 @@ class TestDoctorTelemetryEvents:
         home = tmp_path / ".rosclaw"
         InstallationManager(home).ensure_installation()
         monkeypatch.setenv("ROSCLAW_HOME", str(home))
-
-        import sys
-        from rosclaw.cli import main
 
         sys.argv = ["rosclaw", "doctor"]
         main()
