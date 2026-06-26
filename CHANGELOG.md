@@ -26,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New CLI commands: `rosclaw body fleet-compat`, `rosclaw fleet status`, `rosclaw fleet stop`.
   - New MCP tools: `list_bodies`, `get_body`, `switch_body`, `list_body_history`, `check_skill_compatibility`, `fleet_skill_compatibility`.
   - Dashboard `/api/body` endpoint, `/body` HTML page, and WebSocket body section.
+- Provider / Sandbox / Memory body adapters: `ProviderBodyBinder.diagnose()`, `SandboxBodyAdapter.to_mujoco_config()` / `to_isaac_config()`, and `BodyMemoryEventWriter.write_body_change()`.
+- New CLI commands: `rosclaw provider diagnose`, `rosclaw sandbox generate-config`, and `rosclaw body update-state --from-provider-health`.
+- Fleet compatibility cache (`FleetCompatibilityCache`) and switch-body runtime hooks (`BodySwitchHooks`).
+- Dashboard body sub-routes: `/api/body/effective`, `/api/body/skills`, `/api/body/history`, `/api/body/provider-health`.
+- Architecture contract test `tests/architecture/test_no_direct_body_yaml_access.py` forbidding non-body modules from reading `~/.rosclaw/body/body.yaml` directly.
 
 ### Changed
 
