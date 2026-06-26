@@ -136,3 +136,60 @@ class TestHeartbeatTelemetry:
         client = TelemetryClient(home)
         result = client.heartbeat_if_due()
         assert result is None
+
+
+class TestDeviceInfoTelemetry:
+    def test_event_includes_device_info_payload(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / ".rosclaw"
+        InstallationManager(home).ensure_installation()
+        monkeypatch.setenv("ROS_DISTRO", "humble")
+        # Reset module cache so the ROS probe re-runs.
+        from rosclaw.feedback import telemetry_client as tc_mod
+        tc_mod._CACHED_ROS_DISTROS = None
+
+        client = TelemetryClient(home)
+        client.record_event("command_completed", command_name="status", command_status="success")
+
+        events = read_events(home / "telemetry" / "events" / f"{datetime.now(UTC).date().isoformat()}.jsonl")
+        payload = events[0].get("payload", {})
+        assert "os_version" in payload
+        assert "cuda_available" in payload
+        assert payload.get("ros_distro_present") == "humble"
+        # Forbidden fields must never appear even in auto-collected device info.
+        assert "hostname" not in payload
+        assert "ip" not in payload
+        assert "username" not in payload
+
+    def test_robot_type_read_from_rosclaw_yaml(self, tmp_path: Path) -> None:
+        home = tmp_path / ".rosclaw"
+        InstallationManager(home).ensure_installation()
+        config_path = home / "config" / "rosclaw.yaml"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(
+            "runtime:\n  robot_id: sim_ur5e\n",
+            encoding="utf-8",
+        )
+
+        client = TelemetryClient(home)
+        client.record_event("command_completed", command_name="status", command_status="success")
+
+        events = read_events(home / "telemetry" / "events" / f"{datetime.now(UTC).date().isoformat()}.jsonl")
+        payload = events[0].get("payload", {})
+        assert payload.get("robot_type") == "sim_ur5e"
+
+    def test_sensor_types_read_from_body_yaml(self, tmp_path: Path) -> None:
+        home = tmp_path / ".rosclaw"
+        InstallationManager(home).ensure_installation()
+        body_path = home / "body" / "body.yaml"
+        body_path.parent.mkdir(parents=True, exist_ok=True)
+        body_path.write_text(
+            "installed_components:\n  sensors:\n    imu:\n    camera:\n",
+            encoding="utf-8",
+        )
+
+        client = TelemetryClient(home)
+        client.record_event("command_completed", command_name="status", command_status="success")
+
+        events = read_events(home / "telemetry" / "events" / f"{datetime.now(UTC).date().isoformat()}.jsonl")
+        payload = events[0].get("payload", {})
+        assert payload.get("sensor_types") == ["camera", "imu"]

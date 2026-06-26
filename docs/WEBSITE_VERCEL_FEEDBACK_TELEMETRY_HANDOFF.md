@@ -217,6 +217,33 @@ https://www.rosclaw.io/api/telemetry/event
 { "ok": false, "error": "payload_too_large" }
 ```
 
+#### Payload 中自动附带的设备/环境信息
+
+CLI 会在 `payload` 里自动附带以下**允许的**设备信息，方便后台做版本、机器人、传感器、GPU 分布分析：
+
+```json
+{
+  "payload": {
+    "os_version": "6.8.0-101-generic",
+    "ros_distro_present": "humble",
+    "ros_distros": ["humble"],
+    "cuda_available": true,
+    "gpu_info": "NVIDIA GeForce RTX 3080",
+    "robot_type": "sim_ur5e",
+    "sensor_types": ["camera", "imu"]
+  }
+}
+```
+
+说明：
+
+- `robot_type` 来自 `rosclaw.yaml` 的 `runtime.robot_id`。
+- `sensor_types` 来自 `body.yaml` 的 `installed_components.sensors` 键名列表。
+- 如果某项探测不到，则不会出现在 payload 中（不会传 `null`）。
+- 这些字段**不会**包含 hostname、username、ip、robot_serial 等敏感信息。
+
+服务端可以直接把 payload 整体存入 `telemetry_events.payload`（`jsonb`），dashboard 用 `payload->>'robot_type'` 等 SQL 查询。
+
 ### 6.2 `POST /api/telemetry/heartbeat`
 
 CLI 默认 endpoint：
