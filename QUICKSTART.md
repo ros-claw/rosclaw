@@ -49,7 +49,7 @@ Connect ROSClaw to Claude Code or any MCP-compatible agent.
 rosclaw agent init claude-code
 
 # 2. Review the generated config
-rosclaw agent doctor
+rosclaw agent doctor claude-code
 
 # 3. Start the MCP server manually (optional)
 rosclaw mcp serve --transport stdio
@@ -57,7 +57,7 @@ rosclaw mcp serve --transport stdio
 
 The MCP config is written to `~/.rosclaw/config/mcp.json`. Point your agent at this file to expose read-only / simulation / emergency tools.
 
-Expected: `rosclaw agent doctor` reports the config path and tool count.
+Expected: `rosclaw agent doctor claude-code` reports the config path and tool count.
 
 Common failures:
 
