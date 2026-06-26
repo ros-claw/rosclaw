@@ -83,6 +83,19 @@ binder = ProviderBodyBinder.from_effective_body(body)
 diagnosis = binder.diagnose(available={"/camera/color/image_raw", "/joint_states"})
 ```
 
+### CLI usage
+
+```bash
+# Generate a MuJoCo config for the active body
+rosclaw sandbox generate-config --engine mujoco
+
+# Diagnose provider interfaces for the active body
+rosclaw provider diagnose --body current --json
+
+# Update body state from provider health report
+rosclaw body update-state --from-provider-health --reason "provider check"
+```
+
 ## Memory integration
 
 `BodyMemoryEventWriter` records body change events to the memory subsystem.
@@ -92,7 +105,7 @@ diagnosis = binder.diagnose(available={"/camera/color/image_raw", "/joint_states
 - Memory writes are **best-effort**. Failure to write a memory event never
   blocks a body update.
 - If no memory client is configured, the writer is a no-op.
-- Each event stores the full `BodyDiff` dictionary.
+- Each event stores the full `BodyDiff` dictionary and affected skills.
 
 ### Event types
 
@@ -108,7 +121,13 @@ from rosclaw.memory.body_events import BodyMemoryEventWriter
 from rosclaw.body.diff import BodyDiff
 
 writer = BodyMemoryEventWriter(memory_client)
-writer.write_effective_changed(diff=BodyDiff(...))
+writer.write_body_change(
+    body_instance_id="g1-01",
+    old_hash="hash-old",
+    new_hash="hash-new",
+    diff=BodyDiff(changed_paths=["installed_components.sensors.head_camera.status"]),
+    affected_skills=["walk"],
+)
 ```
 
 ## Cross-module contract tests

@@ -2,9 +2,12 @@
 
 import json
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from rosclaw.body.service import BodyInstanceService
 
 
 class TestVersion:
@@ -515,13 +518,6 @@ class TestStopCommand:
             captured = capsys.readouterr()
             # 99999 won't exist so it should be ProcessLookupError
             assert "not found" in captured.out or code == 1
-
-
-from pathlib import Path
-
-import pytest
-
-from rosclaw.body.service import BodyInstanceService
 
 
 class TestProviderDiagnose:
