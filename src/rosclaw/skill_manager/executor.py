@@ -75,6 +75,7 @@ class SkillExecutor(LifecycleMixin):
             return {
                 "status": "blocked",
                 "message": body_check.get("reason", "Body compatibility check failed"),
+                "body_check": body_check,
             }
 
         # Merge parameters
@@ -141,6 +142,7 @@ class SkillExecutor(LifecycleMixin):
         result: dict[str, Any] = {
             "status": "executed",
             "skill": skill_name,
+            "body_check": body_check,
         }
         bsc = sense_check.get("body_sense_check")
         if bsc is not None:

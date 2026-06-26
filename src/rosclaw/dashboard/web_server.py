@@ -133,6 +133,22 @@ class DashboardWebServer:
         async def api_body() -> dict[str, Any]:
             return self.server.get_body_summary()
 
+        @self.app.get("/api/body/effective")
+        async def api_body_effective() -> dict[str, Any]:
+            return self.server.get_body_effective()
+
+        @self.app.get("/api/body/skills")
+        async def api_body_skills() -> dict[str, Any]:
+            return self.server.get_body_skills()
+
+        @self.app.get("/api/body/history")
+        async def api_body_history(limit: int = 20) -> dict[str, Any]:
+            return self.server.get_body_history(limit=limit)
+
+        @self.app.get("/api/body/provider-health")
+        async def api_body_provider_health() -> dict[str, Any]:
+            return self.server.get_body_provider_health()
+
         @self.app.get("/body")
         async def body_page() -> Any:
             from fastapi.responses import HTMLResponse
