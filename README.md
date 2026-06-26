@@ -311,6 +311,51 @@ Darwin evaluates the patch across 100 simulated seeds.
 Promotion gate moves the patch to champion if it improves success rate.
 ```
 
+## Hardware MCP Onboarding
+
+ROSClaw can auto-install hardware MCP servers from declarative manifests and keep
+them healthy. Manifests resolve in this order:
+
+1. Local cache under `~/.rosclaw/mcp/cache/`.
+2. Built-in offline registry (`unitree-g1`, `realsense-d455`, ...).
+3. Remote ROSClaw Hub at `https://www.rosclaw.io/api/registry`.
+
+If the network is unavailable, commands automatically fall back to the cache and
+built-ins.
+
+### Quick start
+
+```bash
+# Preview what an install would do (no changes written)
+./rosclaw mcp install unitree-g1 --dry-run --offline
+
+# Install a built-in hardware MCP without touching the network
+./rosclaw mcp install unitree-g1 --offline
+
+# Install from the public ROSClaw Hub (requires network)
+./rosclaw mcp install ros-claw/g1-mcp
+
+# Use a private/custom hub endpoint
+ROSCLAW_MCP_HUB=https://my-hub.example.com ./rosclaw mcp install ros-claw/g1-mcp
+
+# List installed and available servers
+./rosclaw mcp list
+./rosclaw mcp list --offline          # skip remote hub
+./rosclaw mcp list --json             # machine-readable output
+
+# Health-check installed servers
+./rosclaw mcp health                  # all installed
+./rosclaw mcp health unitree-g1
+./rosclaw mcp health unitree-g1 --full --json
+```
+
+Use `--dry-run` to inspect the resolved manifest, version, artifact, body patch,
+permissions, and Claude `.mcp.json` merge plan before writing anything. Use
+`--offline` to force local-only resolution (cache + built-ins).
+
+See [`docs/HARDWARE_MCP_ONBOARDING.md`](docs/HARDWARE_MCP_ONBOARDING.md) for the
+full lifecycle, state files, permissions, and troubleshooting.
+
 ---
 
 ## Safety Model

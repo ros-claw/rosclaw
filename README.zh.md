@@ -243,6 +243,46 @@ Darwin 在 100 个仿真种子上评测补丁。
 晋升门将补丁提升为 Champion，前提是成功率提高。
 ```
 
+## 硬件 MCP 自动接入
+
+ROSClaw 可以从声明式 manifest 自动安装硬件 MCP Server，并持续检查其健康状态。Manifest 按以下顺序解析：
+
+1. 本地缓存 `~/.rosclaw/mcp/cache/`。
+2. 内置离线 registry（`unitree-g1`、`realsense-d455` 等）。
+3. 远程 ROSClaw Hub：`https://www.rosclaw.io/api/registry`。
+
+网络不可用时自动回退到本地缓存和内置 registry。
+
+### 快速开始
+
+```bash
+# 预览安装计划（不写任何文件）
+./rosclaw mcp install unitree-g1 --dry-run --offline
+
+# 离线安装内置硬件 MCP
+./rosclaw mcp install unitree-g1 --offline
+
+# 从公共 ROSClaw Hub 安装（需要网络）
+./rosclaw mcp install ros-claw/g1-mcp
+
+# 使用自定义/私有 Hub 端点
+ROSCLAW_MCP_HUB=https://my-hub.example.com ./rosclaw mcp install ros-claw/g1-mcp
+
+# 列出已安装/可用 Server
+./rosclaw mcp list
+./rosclaw mcp list --offline          # 跳过远程 Hub
+./rosclaw mcp list --json             # 机器可读输出
+
+# 健康检查
+./rosclaw mcp health                  # 所有已安装 Server
+./rosclaw mcp health unitree-g1
+./rosclaw mcp health unitree-g1 --full --json
+```
+
+`--dry-run` 可以在写入前查看解析出的 manifest、版本、artifact、body patch、权限和 Claude `.mcp.json` 合并计划；`--offline` 强制只使用本地缓存和内置 registry。
+
+完整生命周期、状态文件、权限和排错指南见 `docs/HARDWARE_MCP_ONBOARDING.md`。
+
 ---
 
 ## 安全模型

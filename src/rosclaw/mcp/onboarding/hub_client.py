@@ -6,21 +6,32 @@ Supports three resolution sources, in order of preference when ``offline=True``:
 2. Built-in default registry (bundled with rosclaw).
 3. Remote HTTP hub (``ROSCLAW_MCP_HUB`` or explicit ``hub_url``).
 
-The built-in registry guarantees that common hardware servers can be installed
-without network access, which is important for robots operating in the field.
+When ``offline=False`` the client also consults the public ROSClaw Hub at
+``https://www.rosclaw.io/api/registry``.  Hub packages are returned as
+lightweight metadata and normalized into the same ``McpManifest`` model used by
+the built-in registry, so ``install --dry-run``, ``list``, and ``health`` all
+work uniformly.  If the network is unreachable or the remote endpoint returns an
+error, the client falls back to the cache and built-ins.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
-from typing import Any, cast
-from urllib.parse import urljoin
+from typing import Any
 
 from rosclaw.firstboot.workspace import resolve_home
 from rosclaw.mcp.onboarding.errors import ManifestError, ManifestNotFoundError
 from rosclaw.mcp.onboarding.schema import McpManifest
+
+# Public ROSClaw Hub endpoints.
+DEFAULT_HUB_URL = "https://www.rosclaw.io"
+REGISTRY_PATH = "/api/registry"
+PACKAGE_LIST_PATH = "/api/mcp-packages"
+REMOTE_CANONICAL_PREFIX = "io.rosclaw.hub."
+
 
 # Minimal built-in registry for offline operation.
 _BUILTIN_REGISTRY: dict[str, dict[str, Any]] = {
@@ -252,10 +263,110 @@ _BUILTIN_REGISTRY: dict[str, dict[str, Any]] = {
 }
 
 
+def _remote_canonical_id(pkg_name: str) -> str:
+    """Return a canonical manifest ID for a Hub package name."""
+    return f"{REMOTE_CANONICAL_PREFIX}{pkg_name.replace('/', '.')}"
+
+
+def _pkg_name_from_remote_canonical(manifest_id: str) -> str | None:
+    """Reverse a remote canonical ID back to ``owner/repo``."""
+    if not manifest_id.startswith(REMOTE_CANONICAL_PREFIX):
+        return None
+    suffix = manifest_id[len(REMOTE_CANONICAL_PREFIX) :]
+    if "." not in suffix:
+        return None
+    return suffix.replace(".", "/", 1)
+
+
+def _metadata_to_manifest(
+    metadata: dict[str, Any], pkg_name: str | None = None
+) -> dict[str, Any]:
+    """Convert a lightweight Hub package record into a full hardware manifest dict.
+
+    The remote registry only carries distribution metadata (git URL, entry point,
+    dependencies, etc.).  This helper fills in safe defaults for theHardware MCP
+    schema so that planning, listing, and dry-run health checks work out of the
+    box.  Real installation of remote/git artifacts still requires a remote
+    installer implementation.
+    """
+    name = metadata.get("name") or pkg_name or "unknown"
+    short_name = name.split("/")[-1]
+    version = metadata.get("version") or "1.0.0"
+    owner = name.split("/")[0] if "/" in name else "unknown"
+    author = metadata.get("author") or owner
+    git_url = metadata.get("git_url") or ""
+    entry_point = metadata.get("entry_point") or "server.py"
+    dependencies = list(metadata.get("dependencies") or [])
+    description = metadata.get("description") or ""
+
+    install_command: str | None = None
+    if dependencies:
+        install_command = f"{sys.executable} -m pip install {' '.join(dependencies)}"
+
+    return {
+        "$schema": "https://schemas.rosclaw.io/mcp/hardware-manifest.schema.json",
+        "schemaVersion": "1.0.0",
+        "id": _remote_canonical_id(name),
+        "name": short_name,
+        "displayName": description or short_name,
+        "version": version,
+        "channel": "stable",
+        "description": description,
+        "tags": list(metadata.get("tags") or []),
+        "categories": ["hardware"],
+        "publisher": {
+            "name": author,
+            "namespace": owner,
+            "verified": False,
+        },
+        "artifact": {
+            "type": "remote",
+            "url": git_url,
+            "package": name,
+            "entrypoint": entry_point,
+        },
+        "mcp": {
+            "serverName": short_name,
+            "transport": {
+                "type": "stdio",
+                "command": "python",
+                "args": [entry_point],
+            },
+            "capabilities": {"tools": True},
+        },
+        "install": {
+            "supportedPlatforms": [],
+            "preflight": [],
+            "runtimes": (
+                [{"type": "python", "installCommand": install_command}]
+                if install_command
+                else []
+            ),
+        },
+        "health": {
+            "checks": [
+                {"id": "install_integrity", "category": "install", "required": True}
+            ]
+        },
+        "permissions": {
+            "required": [
+                {
+                    "id": "mcp:tools:read",
+                    "level": "safe",
+                    "description": "List and call MCP tools",
+                }
+            ]
+        },
+        "hardware": {"type": "unknown"},
+        "compatibility": {},
+        "lifecycle": {"deprecated": False},
+    }
+
+
 class HubClient:
     """Client for discovering and fetching Hardware MCP manifests."""
 
-    DEFAULT_HUB_URL = "https://mcp.rosclaw.io"
+    DEFAULT_HUB_URL = DEFAULT_HUB_URL
 
     def __init__(
         self,
@@ -284,7 +395,7 @@ class HubClient:
             return None
         try:
             with open(path, encoding="utf-8") as f:
-                return cast(dict[str, Any] | None, json.load(f))
+                return json.load(f)
         except (json.JSONDecodeError, OSError):
             return None
 
@@ -296,7 +407,7 @@ class HubClient:
         tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         tmp.replace(path)
 
-    def _http_get(self, url: str) -> dict[str, Any]:
+    def _http_get(self, url: str) -> Any:
         """Fetch JSON from a remote hub."""
         try:
             import requests
@@ -308,7 +419,20 @@ class HubClient:
             self._session.headers.update({"Accept": "application/json"})
         response = self._session.get(url, timeout=30)
         response.raise_for_status()
-        return cast(dict[str, Any], response.json())
+        return response.json()
+
+    def _fetch_remote_metadata(self, pkg_name: str) -> dict[str, Any] | None:
+        """Query ``/api/registry?pkg=...`` and return metadata on success."""
+        if self.offline or not pkg_name:
+            return None
+        try:
+            url = f"{self.hub_url}{REGISTRY_PATH}?pkg={pkg_name}"
+            data = self._http_get(url)
+        except Exception:
+            return None
+        if not isinstance(data, dict) or data.get("status") != "success":
+            return None
+        return data
 
     def list_manifest_ids(self) -> list[str]:
         """Return all known manifest IDs from hub, cache, and built-ins."""
@@ -319,12 +443,12 @@ class HubClient:
                     ids.add(d.name.replace("--", "/"))
         if not self.offline:
             try:
-                url = urljoin(self.hub_url + "/", "v1/manifests")
+                url = f"{self.hub_url}{PACKAGE_LIST_PATH}"
                 data = self._http_get(url)
-                for item in data.get("manifests", []):
-                    item_id = item.get("id")
-                    if item_id:
-                        ids.add(item_id)
+                for item in data or []:
+                    pkg_name = item.get("name")
+                    if pkg_name:
+                        ids.add(_remote_canonical_id(pkg_name))
             except Exception:
                 pass
         return sorted(ids)
@@ -338,8 +462,14 @@ class HubClient:
 
         Resolution order:
         1. If version specified: cache, then built-in, then hub.
-        2. If version not specified: built-in latest stable, then hub index, then cache.
+        2. If version not specified: built-in latest stable, then hub registry, then cache.
+
+        Remote Hub packages are normalized from the lightweight registry
+        response into full ``McpManifest`` objects so the rest of the onboarding
+        pipeline can treat built-in and Hub manifests identically.
         """
+        data: dict[str, Any] | None = None
+
         if version:
             data = self._load_cache(manifest_id, version)
             if data is None:
@@ -347,20 +477,29 @@ class HubClient:
                 if builtin and builtin.get("version") == version:
                     data = builtin
             if data is None and not self.offline:
-                url = urljoin(
-                    self.hub_url + "/",
-                    f"v1/manifests/{manifest_id}/{version}",
-                )
-                data = self._http_get(url)
-                if data:
-                    self._save_cache(manifest_id, version, data)
+                pkg_name = _pkg_name_from_remote_canonical(manifest_id)
+                if pkg_name:
+                    metadata = self._fetch_remote_metadata(pkg_name)
+                    if metadata and metadata.get("version") == version:
+                        data = _metadata_to_manifest(metadata, pkg_name)
+                        self._save_cache(data["id"], version, data)
+                if data is None and ("/" in manifest_id or "-" in manifest_id):
+                    metadata = self._fetch_remote_metadata(manifest_id)
+                    if metadata and metadata.get("version") == version:
+                        data = _metadata_to_manifest(metadata, metadata.get("name"))
+                        self._save_cache(data["id"], version, data)
         else:
             builtin = _BUILTIN_REGISTRY.get(manifest_id)
             if builtin:
                 version = builtin["version"]
                 data = builtin
-            else:
-                data = None
+            elif not self.offline:
+                pkg_name = _pkg_name_from_remote_canonical(manifest_id) or manifest_id
+                metadata = self._fetch_remote_metadata(pkg_name)
+                if metadata:
+                    data = _metadata_to_manifest(metadata, metadata.get("name"))
+                    version = data["version"]
+                    self._save_cache(data["id"], version, data)
 
         if data is None:
             raise ManifestNotFoundError(
@@ -376,7 +515,8 @@ class HubClient:
         """Return a lightweight index of available versions per manifest ID."""
         index: dict[str, dict[str, Any]] = {}
         for manifest_id, data in _BUILTIN_REGISTRY.items():
-            index.setdefault(manifest_id, {"versions": []})["versions"].append(
+            entry = index.setdefault(manifest_id, {"versions": [], "aliases": []})
+            entry["versions"].append(
                 {
                     "version": data["version"],
                     "channel": data.get("channel", "stable"),
@@ -384,15 +524,23 @@ class HubClient:
             )
         if not self.offline:
             try:
-                url = urljoin(self.hub_url + "/", "v1/manifests")
+                url = f"{self.hub_url}{PACKAGE_LIST_PATH}"
                 data = self._http_get(url)
-                for item in data.get("manifests", []):
-                    manifest_id = item.get("id")
-                    if not manifest_id:
+                for item in data or []:
+                    pkg_name = item.get("name")
+                    if not pkg_name:
                         continue
-                    entry = index.setdefault(manifest_id, {"versions": []})
-                    for v in item.get("versions", []):
-                        entry["versions"].append(v)
+                    manifest_id = _remote_canonical_id(pkg_name)
+                    short_name = pkg_name.split("/")[-1]
+                    entry = index.setdefault(manifest_id, {"versions": [], "aliases": []})
+                    entry["aliases"] = [short_name, pkg_name]
+                    entry["pkg_name"] = pkg_name
+                    entry["versions"].append(
+                        {
+                            "version": item.get("version", "1.0.0"),
+                            "channel": "stable",
+                        }
+                    )
             except Exception:
                 pass
         return index

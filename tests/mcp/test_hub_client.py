@@ -71,3 +71,119 @@ def test_get_builtin_manifest_ids() -> None:
     ids = HubClient.get_builtin_manifest_ids()
     assert "io.rosclaw.hardware.unitree-g1" in ids
     assert "io.rosclaw.hardware.realsense-d455" in ids
+
+
+# ── Remote Hub fixtures/helpers ────────────────────────────────────────────────
+
+def _g1_remote_metadata() -> dict[str, object]:
+    return {
+        "status": "success",
+        "type": "mcp_server",
+        "name": "ros-claw/g1-mcp",
+        "git_url": "https://github.com/ros-claw/g1-mcp.git",
+        "description": "Unitree G1 humanoid robot MCP server",
+        "entry_point": "g1_mcp_server.py",
+        "version": "0.1.0",
+        "author": "ROSClaw Team",
+        "dependencies": ["unitree-sdk"],
+    }
+
+
+def _remote_package_list() -> list[dict[str, object]]:
+    return [{"name": "ros-claw/g1-mcp", "version": "0.1.0"}]
+
+
+# ── Remote Hub tests ───────────────────────────────────────────────────────────
+
+def test_fetch_remote_manifest_by_canonical_id(fake_home: Path, monkeypatch) -> None:
+    hub = HubClient(home=fake_home, offline=False)
+    def _fake_get(url: str):
+        if "registry" in url:
+            return _g1_remote_metadata()
+        if "mcp-packages" in url:
+            return _remote_package_list()
+        raise RuntimeError(url)
+    monkeypatch.setattr(hub, "_http_get", _fake_get)
+
+    manifest = hub.fetch_manifest("io.rosclaw.hub.ros-claw.g1-mcp")
+    assert manifest.id == "io.rosclaw.hub.ros-claw.g1-mcp"
+    assert manifest.name == "g1-mcp"
+    assert manifest.version == "0.1.0"
+    assert manifest.artifact is not None
+    assert manifest.artifact.type == "remote"
+    assert manifest.artifact.url == "https://github.com/ros-claw/g1-mcp.git"
+
+
+def test_fetch_remote_manifest_by_pkg_name(fake_home: Path, monkeypatch) -> None:
+    hub = HubClient(home=fake_home, offline=False)
+    monkeypatch.setattr(
+        hub,
+        "_http_get",
+        lambda url: _g1_remote_metadata() if "registry" in url else _remote_package_list(),
+    )
+
+    manifest = hub.fetch_manifest("ros-claw/g1-mcp")
+    assert manifest.id == "io.rosclaw.hub.ros-claw.g1-mcp"
+    assert manifest.display_name == "Unitree G1 humanoid robot MCP server"
+
+
+def test_fetch_remote_manifest_version_mismatch(fake_home: Path, monkeypatch) -> None:
+    hub = HubClient(home=fake_home, offline=False)
+    monkeypatch.setattr(
+        hub,
+        "_http_get",
+        lambda url: _g1_remote_metadata() if "registry" in url else _remote_package_list(),
+    )
+
+    with pytest.raises(ManifestNotFoundError):
+        hub.fetch_manifest("io.rosclaw.hub.ros-claw.g1-mcp", version="9.9.9")
+
+
+def test_list_manifest_ids_includes_remote(fake_home: Path, monkeypatch) -> None:
+    hub = HubClient(home=fake_home, offline=False)
+    monkeypatch.setattr(
+        hub,
+        "_http_get",
+        lambda url: _remote_package_list() if "mcp-packages" in url else [],
+    )
+
+    ids = hub.list_manifest_ids()
+    assert "io.rosclaw.hub.ros-claw.g1-mcp" in ids
+    assert "io.rosclaw.hardware.unitree-g1" in ids
+
+
+def test_fetch_index_includes_remote(fake_home: Path, monkeypatch) -> None:
+    hub = HubClient(home=fake_home, offline=False)
+    monkeypatch.setattr(
+        hub,
+        "_http_get",
+        lambda url: _remote_package_list() if "mcp-packages" in url else _g1_remote_metadata(),
+    )
+
+    index = hub.fetch_index()
+    assert "io.rosclaw.hub.ros-claw.g1-mcp" in index
+    entry = index["io.rosclaw.hub.ros-claw.g1-mcp"]
+    assert any(v["version"] == "0.1.0" for v in entry["versions"])
+    assert "g1-mcp" in entry.get("aliases", [])
+
+
+def test_offline_mode_skips_remote(fake_home: Path, monkeypatch) -> None:
+    hub = HubClient(home=fake_home, offline=True)
+    calls: list[str] = []
+    monkeypatch.setattr(hub, "_http_get", lambda url: calls.append(url) or [])
+
+    ids = hub.list_manifest_ids()
+    assert "io.rosclaw.hub.ros-claw.g1-mcp" not in ids
+    assert not calls
+
+
+def test_remote_hub_failure_falls_back_to_builtin(fake_home: Path, monkeypatch) -> None:
+    hub = HubClient(home=fake_home, offline=False)
+
+    def _boom(url: str) -> None:
+        raise ConnectionError("hub unavailable")
+
+    monkeypatch.setattr(hub, "_http_get", _boom)
+
+    manifest = hub.fetch_manifest("io.rosclaw.hardware.unitree-g1")
+    assert manifest.id == "io.rosclaw.hardware.unitree-g1"
