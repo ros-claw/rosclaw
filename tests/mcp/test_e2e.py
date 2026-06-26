@@ -74,6 +74,12 @@ P0_TOOL_CALLS: list[tuple[str, dict[str, Any]]] = [
     ),
     ("sandbox_run", {"joint_positions": [0.1] * 6}),
     ("emergency_stop", {"reason": "e2e test halt"}),
+    ("get_body_profile", {}),
+    ("get_body_state", {"include_runtime": True}),
+    ("list_body_capabilities", {"status": "all"}),
+    ("query_body", {"question": "What robot body is this?"}),
+    ("validate_body_action", {"action": "walk forward", "capability_id": "walk", "risk": "medium"}),
+    ("get_calibration_status", {"component": "head_rgb_camera"}),
 ]
 
 EXPECTED_TOOLS = {name for name, _ in P0_TOOL_CALLS}

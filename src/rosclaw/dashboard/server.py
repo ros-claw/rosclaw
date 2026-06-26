@@ -183,13 +183,30 @@ class DashboardServer:
 
         current_body: dict[str, Any] | None = None
         compatibility: dict[str, Any] | None = None
+        effective_body_hash: str | None = None
+        body_instance_id: str | None = None
+        readiness: dict[str, Any] | None = None
+        capabilities: dict[str, Any] | None = None
+        forbidden_capabilities: list[str] | None = None
         if current_id and manager.has_body(current_id):
             with contextlib.suppress(Exception):
                 resolver = BodyResolver(ws, body_id=current_id)
+                effective = resolver.get_effective_body(recompile_if_stale=False)
+                effective_body_hash = effective.effective_body_hash
+                body_instance_id = effective.body_instance_id
+                readiness = effective.readiness
+                capabilities = effective.capabilities
+                forbidden = [
+                    item.get("id", item.get("capability", "unknown"))
+                    for item in effective.forbidden_capabilities or []
+                ]
+                forbidden_capabilities = forbidden
                 current_body = {
                     "body_id": resolver.body_id,
                     "linked": resolver.is_linked(),
                     "body_dir": str(resolver.body_dir),
+                    "sensors": list(effective.sensors.keys()),
+                    "actuators": list(effective.actuators.keys()),
                 }
                 compatibility = resolver.get_skill_compatibility().to_dict()
 
@@ -200,7 +217,121 @@ class DashboardServer:
             "sense": self.metrics.get_body_sense_stats(),
             "current_body": current_body,
             "compatibility": compatibility,
+            "effective_body_hash": effective_body_hash,
+            "body_instance_id": body_instance_id,
+            "readiness": readiness,
+            "capabilities": capabilities,
+            "forbidden_capabilities": forbidden_capabilities,
         }
+
+    def get_body_effective(self, workspace: Path | str | None = None) -> dict[str, Any]:
+        """Return the current effective body as a dict."""
+        from rosclaw.body.registry import BodyRegistryManager
+        from rosclaw.body.resolver import BodyResolver
+
+        ws = Path(workspace) if workspace else Path.home() / ".rosclaw"
+        try:
+            manager = BodyRegistryManager(ws)
+            current_id = manager.get_current_body_id()
+            if not current_id or not manager.has_body(current_id):
+                return {"error": "No active body", "workspace": str(ws)}
+            resolver = BodyResolver(ws, body_id=current_id)
+            effective = resolver.get_effective_body(recompile_if_stale=False)
+            return {
+                "body_instance_id": effective.body_instance_id,
+                "effective_body_hash": effective.effective_body_hash,
+                "eurdf_uri": effective.eurdf_uri,
+                "compiled_at": effective.compiled_at,
+                "generation": effective.generation,
+                "frames": effective.frames,
+                "joints": effective.joints,
+                "sensors": effective.sensors,
+                "actuators": effective.actuators,
+                "capabilities": effective.capabilities,
+                "safety": effective.safety,
+                "readiness": effective.readiness,
+                "workspace": str(ws),
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {"error": str(exc), "workspace": str(ws)}
+
+    def get_body_skills(self, workspace: Path | str | None = None) -> dict[str, Any]:
+        """Return skill compatibility summary for the active body."""
+        from rosclaw.body.registry import BodyRegistryManager
+        from rosclaw.body.resolver import BodyResolver
+
+        ws = Path(workspace) if workspace else Path.home() / ".rosclaw"
+        try:
+            manager = BodyRegistryManager(ws)
+            current_id = manager.get_current_body_id()
+            if not current_id or not manager.has_body(current_id):
+                return {"error": "No active body", "workspace": str(ws)}
+            resolver = BodyResolver(ws, body_id=current_id)
+            report = resolver.get_skill_compatibility()
+            return {
+                "body_instance_id": report.body_instance_id,
+                "effective_body_hash": report.effective_body_hash,
+                "checked_at": report.checked_at,
+                "summary": report.summary,
+                "skills": {k: v.to_dict() for k, v in report.skills.items()},
+                "workspace": str(ws),
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {"error": str(exc), "workspace": str(ws)}
+
+    def get_body_history(
+        self,
+        workspace: Path | str | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Return recent maintenance events for the active body."""
+        from rosclaw.body.registry import BodyRegistryManager
+        from rosclaw.body.resolver import BodyResolver
+
+        ws = Path(workspace) if workspace else Path.home() / ".rosclaw"
+        try:
+            manager = BodyRegistryManager(ws)
+            current_id = manager.get_current_body_id()
+            if not current_id or not manager.has_body(current_id):
+                return {"error": "No active body", "workspace": str(ws)}
+            resolver = BodyResolver(ws, body_id=current_id)
+            events = resolver.get_maintenance_events()[-limit:]
+            return {
+                "body_instance_id": current_id,
+                "count": len(events),
+                "events": [e.to_dict() for e in events],
+                "workspace": str(ws),
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {"error": str(exc), "workspace": str(ws)}
+
+    def get_body_provider_health(self, workspace: Path | str | None = None) -> dict[str, Any]:
+        """Return provider diagnosis for the active body."""
+        from rosclaw.body.registry import BodyRegistryManager
+        from rosclaw.body.resolver import BodyResolver
+        from rosclaw.provider.body_binder import ProviderBodyBinder
+
+        ws = Path(workspace) if workspace else Path.home() / ".rosclaw"
+        try:
+            manager = BodyRegistryManager(ws)
+            current_id = manager.get_current_body_id()
+            if not current_id or not manager.has_body(current_id):
+                return {"error": "No active body", "workspace": str(ws)}
+            resolver = BodyResolver(ws, body_id=current_id)
+            effective = resolver.get_effective_body(recompile_if_stale=False)
+            binder = ProviderBodyBinder.from_effective_body(effective)
+            diagnosis = binder.diagnose()
+            return {
+                "body_instance_id": diagnosis.body_instance_id,
+                "effective_body_hash": diagnosis.effective_body_hash,
+                "status": diagnosis.status,
+                "interfaces": diagnosis.interfaces,
+                "summary": diagnosis.summary,
+                "timestamp": diagnosis.timestamp,
+                "workspace": str(ws),
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {"error": str(exc), "workspace": str(ws)}
 
     def get_firstboot_state(self, workspace: Path | str | None = None) -> dict[str, Any]:
         """Return First Boot state for the dashboard wizard."""

@@ -35,17 +35,22 @@ class EmbodimentRenderer:
             self._render_frontmatter(body, body_yaml),
             self._render_header(),
             self._render_identity(body, body_yaml),
+            self._render_eurdf_profile_reference(body, body_yaml),
+            self._render_effective_body_hash(body),
             self._render_body_structure(body, body_yaml),
+            self._render_important_frames(body),
             self._render_sensors(body),
             self._render_actuators_and_tools(body),
             self._render_capabilities(body),
+            self._render_degraded_capabilities(body),
             self._render_forbidden_capabilities(body, body_yaml),
             self._render_safety(body),
+            self._render_calibration(body_yaml, calibration),
             self._render_known_faults(body),
+            self._render_skill_compatibility(compatibility),
+            self._render_maintenance_history(maintenance_events),
             self._render_known_successes(body),
             self._render_known_failures(body),
-            self._render_calibration(body_yaml, calibration),
-            self._render_maintenance_history(maintenance_events),
             self._render_agent_instructions(body_yaml),
             self._render_machine_readable_summary(body, body_yaml, calibration),
             self._render_source_files(body),
@@ -167,11 +172,30 @@ class EmbodimentRenderer:
         ]
         return "\n".join(lines)
 
+    def _render_eurdf_profile_reference(self, body: EffectiveBody, body_yaml: BodyYaml) -> str:
+        return (
+            "## 2. e-URDF Profile Reference\n\n"
+            f"Profile ID: `{body_yaml.model_ref.get('profile_id', 'unknown')}`\n\n"
+            f"Version: `{body_yaml.model_ref.get('profile_version', 'unknown')}`\n\n"
+            f"e-URDF URI: `{body.eurdf_uri}`\n\n"
+            f"Checksum: `{body_yaml.model_ref.get('profile_checksum', '')}`\n\n"
+            "This profile defines the static Physical DNA of the robot model. "
+            "Instance-specific changes are recorded in `body.yaml`, not here.\n"
+        )
+
+    def _render_effective_body_hash(self, body: EffectiveBody) -> str:
+        return (
+            "## 3. Effective Body Hash\n\n"
+            f"`{body.effective_body_hash}`\n\n"
+            "This hash covers the compiled Effective Body Model (e-URDF + body.yaml + calibration + maintenance). "
+            "Any module consuming body state should verify it is reading the same hash.\n"
+        )
+
     def _render_body_structure(self, body: EffectiveBody, body_yaml: BodyYaml) -> str:
         lines = [
-            "## 2. Body Structure",
+            "## 4. Body Structure",
             "",
-            "### 2.1 Kinematic Tree Summary",
+            "### 4.1 Kinematic Tree Summary",
             "",
             "| Body Part | Links | Joints | Main Function | Notes |",
             "|---|---:|---:|---|---|",
@@ -191,24 +215,9 @@ class EmbodimentRenderer:
             lines.append("| _No body parts defined._ | | | | |")
         lines.append("")
 
-        # Important frames
-        lines.extend([
-            "### 2.2 Important Frames",
-            "",
-            "| Frame | Parent | Type | Purpose | Source |",
-            "|---|---|---|---|---|",
-        ])
-        frames = body.frames or {}
-        if frames:
-            for name, purpose in sorted(frames.items()):
-                lines.append(f"| `{name}` | — | — | {purpose} | e-URDF |")
-        else:
-            lines.append("| _No frames defined._ | | | | |")
-        lines.append("")
-
         # Joint groups
         lines.extend([
-            "### 2.3 Joint Groups",
+            "### 4.2 Joint Groups",
             "",
             "| Group | Joints | Status | Notes |",
             "|---|---|---|---|",
@@ -230,9 +239,25 @@ class EmbodimentRenderer:
         lines.append("")
         return "\n".join(lines)
 
+    def _render_important_frames(self, body: EffectiveBody) -> str:
+        lines = [
+            "## 5. Important Frames",
+            "",
+            "| Frame | Parent | Type | Purpose | Source |",
+            "|---|---|---|---|---|",
+        ]
+        frames = body.frames or {}
+        if frames:
+            for name, purpose in sorted(frames.items()):
+                lines.append(f"| `{name}` | — | — | {purpose} | e-URDF |")
+        else:
+            lines.append("| _No frames defined._ | | | | |")
+        lines.append("")
+        return "\n".join(lines)
+
     def _render_sensors(self, body: EffectiveBody) -> str:
         lines = [
-            "## 3. Installed Sensors",
+            "## 6. Installed Sensors",
             "",
             "| Sensor ID | Type | Mounted On | Frame | Status | Calibration | Notes |",
             "|---|---|---|---|---|---|---|",
@@ -266,7 +291,7 @@ class EmbodimentRenderer:
 
     def _render_actuators_and_tools(self, body: EffectiveBody) -> str:
         lines = [
-            "## 4. Installed Actuators and Tools",
+            "## 7. Installed Actuators / Tools",
             "",
             "| Tool / Actuator | Type | Mounted On | Frame | Status | Safety Class | Notes |",
             "|---|---|---|---|---|---|---|",
@@ -288,7 +313,7 @@ class EmbodimentRenderer:
 
     def _render_capabilities(self, body: EffectiveBody) -> str:
         lines = [
-            "## 5. Current Capabilities",
+            "## 8. Current Capabilities",
             "",
             "Capabilities listed here are **declared capabilities**, not automatic permission to execute.",
             "",
@@ -318,7 +343,7 @@ class EmbodimentRenderer:
 
         # Detailed YAML blocks
         lines.extend([
-            "### 5.1 Enabled Capabilities",
+            "### 8.1 Enabled Capabilities",
             "",
             "```yaml",
             "enabled:",
@@ -338,7 +363,7 @@ class EmbodimentRenderer:
         lines.append("")
 
         lines.extend([
-            "### 5.2 Degraded Capabilities",
+            "### 8.2 Degraded Capabilities",
             "",
             "```yaml",
             "degraded:",
@@ -354,7 +379,7 @@ class EmbodimentRenderer:
         lines.append("")
 
         lines.extend([
-            "### 5.3 Disabled Capabilities",
+            "### 8.3 Disabled Capabilities",
             "",
             "```yaml",
             "disabled:",
@@ -370,9 +395,32 @@ class EmbodimentRenderer:
         lines.append("")
         return "\n".join(lines)
 
+    def _render_degraded_capabilities(self, body: EffectiveBody) -> str:
+        degraded = body.capabilities.get("degraded", [])
+        lines = [
+            "## 9. Degraded Capabilities",
+            "",
+            "Degraded capabilities are still declared but must be treated conservatively.",
+            "",
+            "```yaml",
+            "degraded:",
+        ]
+        for cap in sorted(degraded):
+            lines.append(f"  - id: \"{cap}\"")
+            lines.append("    reason: \"calibration / maintenance / runtime\"")
+            lines.append("    allowed_mode: \"slow / constrained\"")
+            lines.append("    requires_human_approval: true")
+        if not degraded:
+            lines.append("  []")
+        lines.extend([
+            "```",
+            "",
+        ])
+        return "\n".join(lines)
+
     def _render_forbidden_capabilities(self, body: EffectiveBody, body_yaml: BodyYaml) -> str:
         lines = [
-            "## 6. Forbidden Capabilities",
+            "## 10. Disabled / Forbidden Capabilities",
             "",
             "The following actions must not be proposed or executed by an Agent unless a future explicitly approved body update removes them.",
             "",
@@ -411,9 +459,9 @@ class EmbodimentRenderer:
 
     def _render_safety(self, body: EffectiveBody) -> str:
         lines = [
-            "## 7. Safety Limits",
+            "## 11. Safety Limits",
             "",
-            "### 7.1 Global Safety Envelope",
+            "### 11.1 Global Safety Envelope",
             "",
             "```yaml",
         ]
@@ -442,7 +490,7 @@ class EmbodimentRenderer:
         lines.extend([
             "```",
             "",
-            "### 7.2 Workspace Limits",
+            "### 11.2 Workspace Limits",
             "",
             "| Workspace | Frame | Bounds | Allowed | Notes |",
             "|---|---|---|---|---|",
@@ -458,7 +506,7 @@ class EmbodimentRenderer:
         lines.append("")
 
         lines.extend([
-            "### 7.3 Contact / Force Limits",
+            "### 11.3 Contact / Force Limits",
             "",
             "| Body Part | Max Force | Max Torque | Contact Allowed | Notes |",
             "|---|--:|--:|---|---|",
@@ -475,7 +523,7 @@ class EmbodimentRenderer:
         lines.append("")
 
         lines.extend([
-            "### 7.4 Safety Gates",
+            "### 11.4 Safety Gates",
             "",
             "Before physical execution, the Agent must pass:",
             "",
@@ -494,7 +542,7 @@ class EmbodimentRenderer:
 
     def _render_known_faults(self, body: EffectiveBody) -> str:
         lines = [
-            "## 8. Known Faults",
+            "## 13. Known Faults",
             "",
             "| Fault ID | Component | Severity | Status | First Seen | Last Seen | Impact | Required Action |",
             "|---|---|---|---|---|---|---|---|",
@@ -534,9 +582,41 @@ class EmbodimentRenderer:
         ])
         return "\n".join(lines)
 
+    def _render_skill_compatibility(self, compatibility: SkillCompatibilityReport) -> str:
+        summary = compatibility.summary if compatibility else {}
+        skills = compatibility.skills if compatibility else {}
+        lines = [
+            "## 14. Skill Compatibility Summary",
+            "",
+            "Skill compatibility is derived from the Effective Body Model and each skill manifest.",
+            "A skill listed as compatible here still requires sandbox validation before physical execution.",
+            "",
+            "| Status | Count |",
+            "|---|---:|",
+            f"| compatible | {summary.get('compatible', 0)} |",
+            f"| degraded | {summary.get('degraded', 0)} |",
+            f"| blocked | {summary.get('blocked', 0)} |",
+            f"| unknown | {summary.get('unknown', 0)} |",
+            "",
+            "```yaml",
+            "skills:",
+        ]
+        for skill_id, result in sorted(skills.items()):
+            lines.append(f"  {skill_id}:")
+            lines.append(f"    status: {result.status}")
+            if result.reason:
+                lines.append(f"    reason: \"{result.reason}\"")
+        if not skills:
+            lines.append("  {}")
+        lines.extend([
+            "```",
+            "",
+        ])
+        return "\n".join(lines)
+
     def _render_known_successes(self, body: EffectiveBody) -> str:
         lines = [
-            "## 9. Known Successful Experiences",
+            "## 16. Known Successful Experiences",
             "",
             "These are not generic truths. They are references to practice / memory records that were successful on this body or a sufficiently similar body.",
             "",
@@ -569,7 +649,7 @@ class EmbodimentRenderer:
 
     def _render_known_failures(self, body: EffectiveBody) -> str:
         lines = [
-            "## 10. Known Failed Experiences",
+            "## 17. Known Failed Experiences",
             "",
             "| Failure ID | Task | Body Parts | Failure Mode | Root Cause | Avoidance |",
             "|---|---|---|---|---|---|",
@@ -589,7 +669,7 @@ class EmbodimentRenderer:
         cal = calibration or CalibrationYaml()
         overall = cal.overall_status()
         lines = [
-            "## 11. Calibration Summary",
+            "## 12. Calibration Summary",
             "",
             "| Calibration Item | Status | Last Updated | Confidence | Source |",
             "|---|---|---|---|---|",
@@ -628,7 +708,7 @@ class EmbodimentRenderer:
 
     def _render_maintenance_history(self, maintenance_events: list[MaintenanceEvent]) -> str:
         lines = [
-            "## 12. Maintenance and Modification History",
+            "## 15. Recent Maintenance Events",
             "",
             "Recent maintenance events are summarized here. Full append-only history is in `maintenance.log`.",
             "",
@@ -650,9 +730,9 @@ class EmbodimentRenderer:
     def _render_agent_instructions(self, body_yaml: BodyYaml) -> str:
         policy = body_yaml.agent_policy if body_yaml.agent_policy else {}
         lines = [
-            "## 13. Agent Operating Instructions",
+            "## 18. Agent Operating Instructions",
             "",
-            "### 13.1 Must Do",
+            "### 18.1 Must Do",
             "",
             "- Read this file before planning physical action.",
             "- Query current runtime state before action.",
@@ -662,7 +742,7 @@ class EmbodimentRenderer:
             "- Log physical attempts into Practice Timeline.",
             "- Write failures into Memory / Know / How / Auto loop.",
             "",
-            "### 13.2 Must Not Do",
+            "### 18.2 Must Not Do",
             "",
             "- Do not assume a capability is safe because it appears in this file.",
             "- Do not bypass sandbox validation.",
@@ -672,7 +752,7 @@ class EmbodimentRenderer:
             "- Do not overwrite maintenance history.",
             "- Do not treat stale calibration as valid.",
             "",
-            "### 13.3 When Unsure",
+            "### 18.3 When Unsure",
             "",
             "If body state, calibration, or capability status is unknown:",
             "",
@@ -684,7 +764,7 @@ class EmbodimentRenderer:
         ]
         if policy:
             lines.extend([
-                "### 13.4 Instance Policy",
+                "### 18.4 Instance Policy",
                 "",
                 "```yaml",
             ])
@@ -708,7 +788,7 @@ class EmbodimentRenderer:
         forbidden = [item.get("id", item.get("capability", "unknown")) for item in (body.forbidden_capabilities or body_yaml.forbidden_capabilities or [])]
         open_faults = [f.get("id", "unknown") for f in (body.known_faults or []) if f.get("status") == "open"]
         lines = [
-            "## 14. Machine-readable Summary",
+            "## 19. Machine-readable Summary",
             "",
             "```yaml",
             f"robot_instance_id: \"{body.body_instance_id}\"",
@@ -734,7 +814,7 @@ class EmbodimentRenderer:
 
     def _render_source_files(self, body: EffectiveBody) -> str:
         lines = [
-            "## 15. Source Files",
+            "## 20. Source Files",
             "",
             "| Source | Path | Role |",
             "|---|---|---|",
@@ -742,14 +822,14 @@ class EmbodimentRenderer:
             "| body.yaml | `./body.yaml` | Instance body state |",
             "| calibration.yaml | `./calibration.yaml` | Calibration parameters |",
             "| maintenance.log | `./maintenance.log` | Append-only history |",
-            "| generated JSON summary | `./generated/body.summary.json` | Agent / MCP compact summary |",
+            "| generated JSON summary | `./refs/generated/body.summary.json` | Agent / MCP compact summary |",
             "",
         ]
         return "\n".join(lines)
 
     def _render_regeneration(self) -> str:
         return (
-            "## 16. Regeneration\n\n"
+            "## 21. Regeneration Commands\n\n"
             "This file can be regenerated by:\n\n"
             "```bash\n"
             "rosclaw body render\n"

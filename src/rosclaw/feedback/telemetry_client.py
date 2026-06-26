@@ -373,10 +373,8 @@ def _detect_cuda() -> tuple[bool, str | None]:
         if torch.cuda.is_available():
             name: str | None = None
             if torch.cuda.device_count() > 0:
-                try:
+                with contextlib.suppress(Exception):
                     name = torch.cuda.get_device_name(0)
-                except Exception:
-                    pass
             _CACHED_CUDA = (True, name)
             return _CACHED_CUDA
         _CACHED_CUDA = (False, None)

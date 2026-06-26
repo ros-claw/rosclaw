@@ -11,7 +11,7 @@ from rosclaw.mcp.tools import P0_TOOLS, _audit, _redact_for_audit
 
 
 async def test_p0_tools_contains_expected_set() -> None:
-    """P0_TOOLS must contain exactly the seven required P0 tools."""
+    """P0_TOOLS must contain the original seven tools plus P0 body tools."""
     names = {t.__name__ for t in P0_TOOLS}
     expected = {
         "get_robot_state",
@@ -21,6 +21,12 @@ async def test_p0_tools_contains_expected_set() -> None:
         "sandbox_run",
         "practice_query",
         "emergency_stop",
+        "get_body_profile",
+        "get_body_state",
+        "list_body_capabilities",
+        "query_body",
+        "validate_body_action",
+        "get_calibration_status",
     }
     assert names == expected
 

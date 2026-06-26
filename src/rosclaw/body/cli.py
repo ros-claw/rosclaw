@@ -13,27 +13,25 @@ from pathlib import Path
 from typing import Any
 from zipfile import ZipFile
 
-import yaml
-
-from rosclaw.body.compiler import compute_checksum
 from rosclaw.body.diff import BodyDiffer
 from rosclaw.body.fleet import FleetCompatibilityAggregator, discover_skill_manifests
 from rosclaw.body.notes import MaintenanceLog
+from rosclaw.body.patch_validator import parse_set_expression, validate_update_path
 from rosclaw.body.query import BodyQueryEngine
 from rosclaw.body.registry import BodyRegistryError, BodyRegistryManager
 from rosclaw.body.renderer import EmbodimentRenderer
 from rosclaw.body.resolver import BodyNotLinkedError, BodyResolver
 from rosclaw.body.ros_introspection import RosIntrospectionError, introspect_ros
 from rosclaw.body.schema import (
-    BodyYaml,
-    CalibrationYaml,
+    BodyDiff,
+    EffectiveBody,
     MaintenanceEvent,
     SkillCompatibilityReport,
 )
-from rosclaw.body.validator import BodyValidator
-from rosclaw.body.validators import parse_set_expression, validate_update_path
+from rosclaw.body.service import BodyInstanceService
+from rosclaw.body.workspace_validator import BodyValidator
 from rosclaw.connectors.ros.transport.base import RosbridgeEndpoint
-from rosclaw.eurdf.registry import RobotRegistry
+from rosclaw.memory.body_events import BodyMemoryEventWriter
 from rosclaw.memory.interface import MemoryInterface
 
 
@@ -67,6 +65,9 @@ def add_body_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     switch_parser = body_subparsers.add_parser("switch", help="Switch the active body")
     switch_parser.add_argument("body_id", help="Body ID to activate")
     switch_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    switch_parser.add_argument(
+        "--strict-runtime", action="store_true", help="Fail switch if runtime hooks fail"
+    )
 
     # remove
     remove_parser = body_subparsers.add_parser("remove", help="Remove a body instance")
@@ -213,6 +214,7 @@ def add_body_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     update_parser.add_argument("--no-skill-check", action="store_true", help="Skip skill compatibility recheck")
     update_parser.add_argument("--from-ros", action="store_true", help="Introspect live ROS graph and update runtime_state")
     update_parser.add_argument("--ros-endpoint", default=None, help="Rosbridge endpoint URL (ws://host:port); default ws://127.0.0.1:9090")
+    update_parser.add_argument("--from-provider-health", action="store_true", dest="from_provider_health", help="Diagnose provider interfaces and update component statuses")
     _add_body_arg(update_parser)
 
     # note
@@ -327,67 +329,109 @@ def _resolve_profile_alias(profile_id: str) -> str:
 
 
 def cmd_body_init(args: argparse.Namespace) -> int:
-    """Initialize a body: wrapper around link-eurdf with --robot semantics."""
-    # Normalize --robot / --profile
+    """Initialize a body: unified wrapper around BodyInstanceService."""
     robot_id = args.robot or args.profile
     if not robot_id:
         print("[ROSClaw] --robot is required.")
         return 1
 
-    proxy = argparse.Namespace(
-        profile_id=robot_id,
-        version="latest",
-        instance_id=args.name,
-        nickname=args.name,
-        workspace=args.workspace,
-        force=args.force,
-        mode="copy",
-    )
-    return cmd_body_link_eurdf(proxy)
-
-
-def cmd_body_create(args: argparse.Namespace) -> int:
-    """Create a new body instance and link it to an e-URDF profile."""
     workspace = Path(args.workspace) if args.workspace else None
-    ws = workspace or Path.home() / ".rosclaw"
-    manager = BodyRegistryManager(ws)
-
-    body_id = args.name.strip().lower()
-    nickname = args.nickname or body_id
-
+    service = BodyInstanceService(workspace=workspace)
     try:
-        manager.create_body(
-            body_id=body_id,
-            profile_id=args.robot,
-            nickname=nickname,
+        result = service.create_or_init(
+            robot=robot_id,
+            name=args.name,
+            nickname=args.name,
+            mode="single",
+            update_registry=True,
+            switch_active=True,
+            render_agent_view=True,
             force=args.force,
         )
     except BodyRegistryError as exc:
         print(f"[ROSClaw] {exc}")
         return 1
 
-    proxy = argparse.Namespace(
-        profile_id=args.robot,
-        version="latest",
-        instance_id=body_id,
-        nickname=nickname,
-        workspace=args.workspace,
-        force=True,
-        mode="copy",
-    )
-    return cmd_body_link_eurdf(proxy)
+    print("Initialized body:")
+    print(f"  body: {result.body_id}")
+    print(f"  profile: {result.profile_id}@{result.profile_version}")
+    print(f"  uri: {result.eurdf_uri}")
+    print(f"  workspace: {result.workspace}")
+    if result.effective_body_hash:
+        print(f"  effective hash: {result.effective_body_hash}")
+    print("\nNext:\n  rosclaw body inspect")
+    return 0
+
+
+def cmd_body_create(args: argparse.Namespace) -> int:
+    """Create a new body instance via BodyInstanceService."""
+    workspace = Path(args.workspace) if args.workspace else None
+    service = BodyInstanceService(workspace=workspace)
+    try:
+        result = service.create_or_init(
+            robot=args.robot,
+            name=args.name,
+            nickname=args.nickname,
+            mode="registry",
+            update_registry=True,
+            switch_active=True,
+            render_agent_view=True,
+            force=args.force,
+        )
+    except BodyRegistryError as exc:
+        print(f"[ROSClaw] {exc}")
+        return 1
+
+    print("Created body:")
+    print(f"  body: {result.body_id}")
+    print(f"  profile: {result.profile_id}@{result.profile_version}")
+    print(f"  directory: {result.body_dir}")
+    if result.effective_body_hash:
+        print(f"  effective hash: {result.effective_body_hash}")
+    return 0
 
 
 def cmd_body_switch(args: argparse.Namespace) -> int:
-    """Switch the active body."""
+    """Switch the active body and dispatch runtime hooks."""
     workspace = Path(args.workspace) if args.workspace else None
     ws = workspace or Path.home() / ".rosclaw"
     manager = BodyRegistryManager(ws)
+    strict = getattr(args, "strict_runtime", False)
+
+    old_body: EffectiveBody | None = None
+    try:
+        resolver = BodyResolver(ws)
+        old_body = resolver.get_effective_body(recompile_if_stale=False)
+    except Exception:
+        old_body = None
+
     try:
         manager.set_current_body_id(args.body_id)
     except BodyRegistryError as exc:
         print(f"[ROSClaw] {exc}")
         return 1
+
+    new_body: EffectiveBody | None = None
+    try:
+        resolver = BodyResolver(ws)
+        new_body = resolver.get_effective_body(recompile_if_stale=False)
+    except Exception:
+        new_body = None
+
+    from rosclaw.body.hooks import get_default_hooks
+
+    hooks = get_default_hooks()
+    hook_result = hooks.on_active_body_switched(
+        workspace=ws,
+        body_instance_id=args.body_id,
+        old_body=old_body,
+        new_body=new_body,
+        strict=strict,
+        reason="rosclaw body switch",
+    )
+    if not hook_result["success"] and strict:
+        print(f"[ROSClaw] Switched to {args.body_id} but runtime hooks failed")
+        return 2
     print(f"Switched to body: {args.body_id}")
     return 0
 
@@ -836,156 +880,36 @@ def cmd_body_capability(args: argparse.Namespace) -> int:
 
 
 def cmd_body_link_eurdf(args: argparse.Namespace) -> int:
-    """Bind current body instance to an e-URDF profile."""
-    original_profile_id = args.profile_id
-    profile_id = _resolve_profile_alias(args.profile_id)
-    version = args.version if args.version != "latest" else "1.0.0"
+    """Bind current body instance to an e-URDF profile via BodyInstanceService."""
+    workspace = Path(args.workspace) if args.workspace else None
+    service = BodyInstanceService(workspace=workspace)
     try:
-        resolver = _resolver_for(args)
+        result = service.create_or_init(
+            robot=args.profile_id,
+            name=args.instance_id,
+            nickname=args.nickname,
+            mode="single",
+            version=args.version,
+            update_registry=False,
+            switch_active=False,
+            render_agent_view=True,
+            force=args.force,
+        )
     except BodyRegistryError as exc:
         print(f"[ROSClaw] {exc}")
         return 1
 
-    if resolver.is_linked() and not args.force:
-        print("[ROSClaw] Body already linked. Use --force to overwrite.")
-        return 1
-
-    # Resolve profile via existing RobotRegistry
-    registry = RobotRegistry()
-    profile = registry.get(profile_id)
-    if profile is None:
-        print(f"[ROSClaw] e-URDF profile not found: {args.profile_id}")
-        available = registry.list_available()
-        if available:
-            print(f"[ROSClaw] Available: {', '.join(available)}")
-        return 1
-
-    eurdf = profile  # RobotCompleteProfile
-    from rosclaw.body.schema import EurdfProfile
-    normalized = EurdfProfile.from_robot_complete_profile(eurdf)
-
-    instance_id = args.instance_id or f"body-{profile_id}-001"
-    nickname = args.nickname or instance_id
-    now = _utc_now()
-
-    resolver.ensure_body_dir()
-
-    # Write normalized profile reference
-    with open(resolver.eurdf_profile_path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(normalized.to_dict(), f, sort_keys=False, allow_unicode=True)
-
-    # Compute checksum of the written profile file
-    checksum = compute_checksum(resolver.eurdf_profile_path)
-
-    # Write lock file
-    lock = {
-        "schema_version": "rosclaw.eurdf_lock.v1",
-        "profile_id": profile_id,
-        "profile_version": version,
-        "uri": f"rosclaw://eurdf/{profile_id}@{version}",
-        "source": "builtin",
-        "checksum": checksum,
-        "locked_at": now,
-    }
-    with open(resolver.eurdf_lock_path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(lock, f, sort_keys=False, allow_unicode=True)
-
-    # Write body.yaml
-    body_yaml = BodyYaml(
-        body_instance={
-            "id": instance_id,
-            "nickname": nickname,
-            "robot_model": args.profile_id,
-            "serial_number": "UNKNOWN",
-            "owner": "local",
-            "deployment_site": "lab",
-            "created_at": now,
-            "updated_at": now,
-        },
-        model_ref={
-            "eurdf_uri": f"rosclaw://eurdf/{args.profile_id}@{version}",
-            "profile_id": args.profile_id,
-            "profile_version": version,
-            "profile_checksum": checksum,
-            "lock_file": "refs/eurdf.lock",
-        },
-        calibration={
-            "file": "calibration.yaml",
-            "checksum": "sha256:uninitialized",
-            "last_calibrated_at": None,
-            "status": "factory_default",
-        },
-        maintenance={
-            "log_file": "maintenance.log",
-            "last_event_at": None,
-            "safety_relevant_open_items": [],
-        },
-        installed_components=_default_installed_components(normalized),
-        capabilities={"enabled": [], "disabled": [], "degraded": []},
-        prohibited_capabilities=[],
-        safety_overrides={},
-        runtime_state={
-            "battery_percent": None,
-            "last_seen_at": None,
-            "health": "unknown",
-            "online": False,
-        },
-        fingerprint={
-            "effective_body_hash": None,
-            "last_compiled_at": None,
-            "last_skill_check_at": None,
-        },
-        compatibility_summary={
-            "compatible_skills": 0,
-            "degraded_skills": 0,
-            "blocked_skills": 0,
-            "unknown_skills": 0,
-        },
-    )
-    with open(resolver.body_yaml_path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(body_yaml.to_dict(), f, sort_keys=False, allow_unicode=True)
-
-    # Write calibration.yaml
-    calibration = CalibrationYaml(
-        body_instance_id=instance_id,
-        model_ref=f"rosclaw://eurdf/{profile_id}@{version}",
-        validation={"status": "factory_default", "last_validated_at": None, "errors": [], "warnings": []},
-    )
-    with open(resolver.calibration_yaml_path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(calibration.to_dict(), f, sort_keys=False, allow_unicode=True)
-
-    # Write initial maintenance log
-    MaintenanceLog(resolver.maintenance_log_path).write_init_event(instance_id, f"rosclaw://eurdf/{profile_id}@{version}")
-
-    # Compile effective body, check skills, render EMBODIMENT.md
-    try:
-        effective, report = resolver.refresh_all_artifacts(reason="link-eurdf")
-    except Exception as exc:
-        print(f"[ROSClaw] Warning: failed to refresh artifacts: {exc}")
-        effective = resolver.recompile_effective_body()
-        report = SkillCompatibilityReport(body_instance_id=instance_id, effective_body_hash=effective.effective_body_hash)
-
-    # Snapshot
-    resolver.create_snapshot(effective)
-
     print("Linked e-URDF profile:")
-    print(f"  profile: {original_profile_id}@{version}")
-    print(f"  uri: rosclaw://eurdf/{original_profile_id}@{version}")
-    print(f"  checksum: {checksum}")
+    print(f"  profile: {args.profile_id}@{result.profile_version}")
+    print(f"  uri: {result.eurdf_uri}")
+    print(f"  checksum: {result.checksum}")
     print("")
     print("Created/updated:")
-    print(f"  {resolver.body_yaml_path}")
-    print(f"  {resolver.calibration_yaml_path}")
-    print(f"  {resolver.maintenance_log_path}")
-    print(f"  {resolver.eurdf_lock_path}")
-    print(f"  {resolver.effective_body_path}")
-    print(f"  {resolver.embodiment_md_path}")
+    for path in result.created_files:
+        print(f"  {path}")
     print("")
-    print(f"Effective body hash:\n  {effective.effective_body_hash}")
-    print("")
-    print("Skill compatibility:")
-    for status, count in report.summary.items():
-        print(f"  {status}: {count}")
+    if result.effective_body_hash:
+        print(f"Effective body hash:\n  {result.effective_body_hash}")
     print("")
     print("Next:\n  rosclaw body inspect")
     return 0
@@ -1138,8 +1062,13 @@ def _record_body_change_events(
     new_hash: str,
     reason: str,
     report: SkillCompatibilityReport | None,
+    diff: BodyDiff | None = None,
 ) -> None:
-    """Persist body_change and skill_compatibility_change events to memory."""
+    """Persist body_change and skill_compatibility_change events to memory.
+
+    Uses both the high-level MemoryInterface experience store and the
+    BodyMemoryEventWriter for structured body-change events.
+    """
     try:
         memory = MemoryInterface(robot_id=robot_id)
         memory._client.connect()
@@ -1157,6 +1086,22 @@ def _record_body_change_events(
                 "effective_body_hash_after": new_hash,
                 "reason": reason,
             },
+        )
+
+    writer = BodyMemoryEventWriter(memory_client=memory._client)
+    affected_skills = []
+    if report is not None:
+        affected_skills = [
+            key for key, result in report.skills.items()
+            if result.status in ("blocked", "degraded", "unknown")
+        ]
+    with contextlib.suppress(Exception):
+        writer.write_body_change(
+            body_instance_id=robot_id,
+            old_hash=old_hash,
+            new_hash=new_hash,
+            diff=diff or BodyDiff(),
+            affected_skills=affected_skills,
         )
 
     if report is None:
@@ -1225,6 +1170,26 @@ def cmd_body_update_state(args: argparse.Namespace) -> int:
                 patch[key] = status
                 affects.append(comp_id)
                 break
+
+    if getattr(args, "from_provider_health", False):
+        from rosclaw.provider.body_binder import ProviderBodyBinder
+
+        effective_for_diagnosis = resolver.get_effective_body()
+        binder = ProviderBodyBinder.from_effective_body(effective_for_diagnosis)
+        diagnosis = binder.diagnose()
+        for name, iface in diagnosis.interfaces.items():
+            status = iface.get("status", "unknown")
+            if status in ("available", "unknown"):
+                continue
+            for category in ("sensors", "actuators"):
+                key = f"installed_components.{category}.{name}.status"
+                ok, reason = validate_update_path(key)
+                if ok:
+                    patch[key] = status
+                    affects.append(name)
+                    break
+        if args.source == "human":
+            args.source = "provider"
 
     if args.from_ros:
         source = args.source if args.source != "human" else "ros"
@@ -1304,6 +1269,7 @@ def cmd_body_update_state(args: argparse.Namespace) -> int:
         new_hash=new_hash,
         reason=args.reason or "body update",
         report=report,
+        diff=diff,
     )
     resolver.create_snapshot(new_effective)
 

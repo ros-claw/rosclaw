@@ -603,6 +603,11 @@ class BodyDiff:
     requires_skill_recheck: bool = False
     affected_categories: list[str] = field(default_factory=list)
     affected_ids: list[str] = field(default_factory=list)
+    changed_paths: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.changed_paths and self.changes:
+            self.changed_paths = [c.path for c in self.changes]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -611,6 +616,7 @@ class BodyDiff:
             "requires_skill_recheck": self.requires_skill_recheck,
             "affected_categories": self.affected_categories,
             "affected_ids": self.affected_ids,
+            "changed_paths": self.changed_paths,
         }
 
 
