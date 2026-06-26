@@ -25,6 +25,7 @@ class Installation:
     diagnostics_enabled: bool
     rich_feedback_enabled: bool
     schema_version: str = "rosclaw.installation.v1"
+    is_new: bool = False
 
 
 class InstallationManager:
@@ -49,7 +50,8 @@ class InstallationManager:
         self.audit_path.parent.mkdir(parents=True, exist_ok=True)
 
         data = self._load_raw()
-        if not data.get("installation_id"):
+        is_new = not data.get("installation_id")
+        if is_new:
             data["installation_id"] = str(uuid.uuid4())
             data["created_at"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         if not self.salt_path.exists():
@@ -71,7 +73,9 @@ class InstallationManager:
             "diagnostics_enabled": diagnostics_enabled,
             "rich_feedback_enabled": rich_feedback_enabled,
         })
-        return self._to_installation(data)
+        installation = self._to_installation(data)
+        installation.is_new = is_new
+        return installation
 
     def get_installation(self) -> Installation | None:
         data = self._load_raw()

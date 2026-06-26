@@ -25,7 +25,7 @@ class TestFirstbootTelemetryIntegration:
         assert (home / "config" / "feedback.yaml").exists()
         assert (home / "config" / "installation.json").exists()
 
-    def test_firstboot_records_firstboot_completed_event(self, tmp_path, monkeypatch) -> None:
+    def test_firstboot_records_started_and_completed_events(self, tmp_path, monkeypatch) -> None:
         home = tmp_path / ".rosclaw"
         monkeypatch.setenv("ROSCLAW_HOME", str(home))
         from rosclaw.cli import main
@@ -34,10 +34,12 @@ class TestFirstbootTelemetryIntegration:
         main()
 
         events_path = home / "telemetry" / "events" / f"{datetime.now(UTC).date().isoformat()}.jsonl"
-        if events_path.exists():
-            lines = [json.loads(line) for line in events_path.read_text(encoding="utf-8").strip().split("\n") if line.strip()]
-            types = [e["event_type"] for e in lines]
-            assert "firstboot_completed" in types
+        assert events_path.exists()
+        lines = [json.loads(line) for line in events_path.read_text(encoding="utf-8").strip().split("\n") if line.strip()]
+        types = [e["event_type"] for e in lines]
+        assert "firstboot_started" in types
+        assert "firstboot_completed" in types
+        assert "install_completed" in types
 
     def test_firstboot_telemetry_default_on(self, tmp_path, monkeypatch) -> None:
         home = tmp_path / ".rosclaw"

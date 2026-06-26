@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import platform
+import subprocess
 import sys
 import threading
 import urllib.error
@@ -12,6 +14,8 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from rosclaw import __version__ as rosclaw_version
 
@@ -72,6 +76,11 @@ ERROR_CLASS_BUCKETS = frozenset([
     "ValidationError",
     "RuntimeError",
 ])
+
+# Process-level caches for environment probes that do not change at runtime.
+_CACHED_CUDA: tuple[bool, str | None] | None = None
+_CACHED_ROS_DISTROS: list[str] | None = None
+_CACHED_OS_VERSION: str | None = None
 
 
 class TelemetryClient:
@@ -135,6 +144,10 @@ class TelemetryClient:
     def heartbeat_if_due(self) -> dict[str, Any] | None:
         """Send a heartbeat event if the configured interval has elapsed."""
         if not self._should_upload():
+            return None
+        if not self.home.exists():
+            return None
+        if self.installation.get_anonymous_installation_id() is None:
             return None
 
         last_path = self.home / "telemetry" / "heartbeat" / "last_heartbeat.json"
@@ -221,7 +234,10 @@ class TelemetryClient:
         if module_name is not None:
             event["module_name"] = module_name
 
-        payload = dict(payload or {})
+        # Merge privacy-safe device/environment metadata into payload.
+        device_info = _device_info(self.home)
+        payload = {**device_info, **dict(payload or {})}
+
         if error is not None:
             event["error_class_bucket"] = error_class_bucket(error)
             payload["error_class"] = error_class_bucket(error)
@@ -301,6 +317,123 @@ class TelemetryClient:
         if not command:
             return None
         return str(command)
+
+
+def _device_info(home: Path) -> dict[str, Any]:
+    """Collect privacy-safe device/environment metadata."""
+    ros_distros = _detect_ros_distros()
+    cuda_available, gpu_info = _detect_cuda()
+    robot_type = _robot_type(home)
+    sensor_types = _sensor_types(home)
+
+    info: dict[str, Any] = {
+        "os_version": _os_version(),
+        "ros_distro_present": ros_distros[0] if ros_distros else None,
+        "ros_distros": ros_distros or None,
+        "cuda_available": cuda_available,
+        "gpu_info": gpu_info,
+        "robot_type": robot_type,
+        "sensor_types": sensor_types,
+    }
+    return {k: v for k, v in info.items() if v is not None}
+
+
+def _os_version() -> str:
+    global _CACHED_OS_VERSION
+    if _CACHED_OS_VERSION is None:
+        _CACHED_OS_VERSION = platform.release() or "unknown"
+    return _CACHED_OS_VERSION
+
+
+def _detect_ros_distros() -> list[str]:
+    global _CACHED_ROS_DISTROS
+    if _CACHED_ROS_DISTROS is not None:
+        return _CACHED_ROS_DISTROS
+
+    distros: list[str] = []
+    ros_distro = os.environ.get("ROS_DISTRO")
+    if ros_distro:
+        distros.append(ros_distro)
+    opt_ros = Path("/opt/ros")
+    if opt_ros.exists():
+        for p in sorted(opt_ros.iterdir()):
+            if p.is_dir() and p.name not in distros:
+                distros.append(p.name)
+    _CACHED_ROS_DISTROS = distros
+    return distros
+
+
+def _detect_cuda() -> tuple[bool, str | None]:
+    global _CACHED_CUDA
+    if _CACHED_CUDA is not None:
+        return _CACHED_CUDA
+
+    try:
+        import torch
+        if torch.cuda.is_available():
+            name: str | None = None
+            if torch.cuda.device_count() > 0:
+                try:
+                    name = torch.cuda.get_device_name(0)
+                except Exception:
+                    pass
+            _CACHED_CUDA = (True, name)
+            return _CACHED_CUDA
+        _CACHED_CUDA = (False, None)
+        return _CACHED_CUDA
+    except Exception:
+        pass
+
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        if result.returncode == 0:
+            lines = [line.strip() for line in result.stdout.strip().splitlines() if line.strip()]
+            if lines:
+                _CACHED_CUDA = (True, lines[0])
+                return _CACHED_CUDA
+    except Exception:
+        pass
+
+    _CACHED_CUDA = (False, None)
+    return _CACHED_CUDA
+
+
+def _robot_type(home: Path) -> str | None:
+    data = _load_yaml(home / "config" / "rosclaw.yaml")
+    if not isinstance(data, dict):
+        return None
+    runtime = data.get("runtime")
+    if isinstance(runtime, dict):
+        return runtime.get("robot_id")
+    return None
+
+
+def _sensor_types(home: Path) -> list[str] | None:
+    data = _load_yaml(home / "body" / "body.yaml")
+    if not isinstance(data, dict):
+        return None
+    installed = data.get("installed_components")
+    if not isinstance(installed, dict):
+        return None
+    sensors = installed.get("sensors")
+    if isinstance(sensors, dict) and sensors:
+        return sorted(sensors.keys())
+    return None
+
+
+def _load_yaml(path: Path) -> Any:
+    if not path.exists():
+        return {}
+    try:
+        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return {}
 
 
 from datetime import timedelta  # noqa: E402

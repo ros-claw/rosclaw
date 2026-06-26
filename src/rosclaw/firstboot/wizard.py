@@ -436,19 +436,30 @@ def _write_firstboot(
     install_state["firstboot_at"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     save_install_state(home, install_state)
 
-    InstallationManager(home).ensure_installation(
+    installation = InstallationManager(home).ensure_installation(
         install_channel=install_channel,
         telemetry_enabled=telemetry_enabled,
         diagnostics_enabled=diagnostics_enabled,
         rich_feedback_enabled=rich_feedback_enabled,
     )
 
+    client = TelemetryClient(home)
+    if telemetry_enabled:
+        with contextlib.suppress(Exception):
+            client.record_event(event_type="firstboot_started")
+        if installation.is_new:
+            with contextlib.suppress(Exception):
+                client.record_event(
+                    event_type="install_completed",
+                    payload={"install_channel": install_channel},
+                )
+
     doctor = FirstbootDoctor(home)
     result = doctor.run_full(fix=False, json_output=json_output)
 
     if telemetry_enabled and not json_output:
         with contextlib.suppress(Exception):
-            TelemetryClient(home).record_event(
+            client.record_event(
                 event_type="firstboot_completed",
                 payload={
                     "profile": profile,
