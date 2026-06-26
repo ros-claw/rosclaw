@@ -98,7 +98,7 @@ class FeedbackUploader:
         headers = {"User-Agent": f"rosclaw/{rosclaw_version}"}
 
         last_error: dict[str, Any] | None = None
-        for attempt in range(max_retries + 1):
+        for _attempt in range(max_retries + 1):
             try:
                 with bundle_path.open("rb") as bundle_file:
                     files = {

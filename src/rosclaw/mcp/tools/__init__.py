@@ -40,6 +40,12 @@ _SAFETY_LEVELS: dict[str, str] = {
     "list_body_history": "S0_READ_ONLY",
     "check_skill_compatibility": "S0_READ_ONLY",
     "fleet_skill_compatibility": "S0_READ_ONLY",
+    "get_body_profile": "S0_READ_ONLY",
+    "get_body_state": "S0_READ_ONLY",
+    "list_body_capabilities": "S0_READ_ONLY",
+    "query_body": "S0_READ_ONLY",
+    "validate_body_action": "S0_READ_ONLY",
+    "get_calibration_status": "S0_READ_ONLY",
 }
 
 
@@ -202,6 +208,44 @@ async def _emergency_stop(reason: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# P0 body tools (e-URDF / Body Runtime)
+# ---------------------------------------------------------------------------
+
+async def _get_body_profile() -> dict[str, Any]:
+    """Return a static profile summary of the current body."""
+    return await _client().get_body_profile()
+
+
+async def _get_body_state(include_runtime: bool = True) -> dict[str, Any]:
+    """Return current body safety state and capability matrix."""
+    return await _client().get_body_state(include_runtime=include_runtime)
+
+
+async def _list_body_capabilities(status: str = "all") -> dict[str, Any]:
+    """List capabilities grouped by status."""
+    return await _client().list_body_capabilities(status=status)
+
+
+async def _query_body(question: str) -> dict[str, Any]:
+    """Answer a natural-language question about the current body."""
+    return await _client().query_body(question)
+
+
+async def _validate_body_action(
+    action: str,
+    capability_id: str,
+    risk: str = "medium",
+) -> dict[str, Any]:
+    """Validate a proposed physical action against the current body."""
+    return await _client().validate_body_action(action, capability_id, risk=risk)
+
+
+async def _get_calibration_status(component: str | None = None) -> dict[str, Any]:
+    """Return calibration status for the body or a named component."""
+    return await _client().get_calibration_status(component=component)
+
+
+# ---------------------------------------------------------------------------
 # Body registry tools (P2 / body scope, not part of P0_TOOLS)
 # ---------------------------------------------------------------------------
 
@@ -243,6 +287,12 @@ validate_trajectory = _tool_wrapper("validate_trajectory", _validate_trajectory)
 sandbox_run = _tool_wrapper("sandbox_run", _sandbox_run)
 practice_query = _tool_wrapper("practice_query", _practice_query)
 emergency_stop = _tool_wrapper("emergency_stop", _emergency_stop)
+get_body_profile = _tool_wrapper("get_body_profile", _get_body_profile)
+get_body_state = _tool_wrapper("get_body_state", _get_body_state)
+list_body_capabilities = _tool_wrapper("list_body_capabilities", _list_body_capabilities)
+query_body = _tool_wrapper("query_body", _query_body)
+validate_body_action = _tool_wrapper("validate_body_action", _validate_body_action)
+get_calibration_status = _tool_wrapper("get_calibration_status", _get_calibration_status)
 list_bodies = _tool_wrapper("list_bodies", _list_bodies)
 get_body = _tool_wrapper("get_body", _get_body)
 switch_body = _tool_wrapper("switch_body", _switch_body)
@@ -258,6 +308,12 @@ P0_TOOLS: list[ToolFunc] = [
     sandbox_run,
     practice_query,
     emergency_stop,
+    get_body_profile,
+    get_body_state,
+    list_body_capabilities,
+    query_body,
+    validate_body_action,
+    get_calibration_status,
 ]
 
 BODY_TOOLS: list[ToolFunc] = [
@@ -283,6 +339,12 @@ __all__ = [
     "sandbox_run",
     "practice_query",
     "emergency_stop",
+    "get_body_profile",
+    "get_body_state",
+    "list_body_capabilities",
+    "query_body",
+    "validate_body_action",
+    "get_calibration_status",
     "list_bodies",
     "get_body",
     "switch_body",

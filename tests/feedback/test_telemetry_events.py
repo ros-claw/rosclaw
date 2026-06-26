@@ -99,6 +99,7 @@ class TestDoctorTelemetryEvents:
         monkeypatch.setenv("ROSCLAW_HOME", str(home))
 
         import sys
+
         from rosclaw.cli import main
 
         sys.argv = ["rosclaw", "doctor"]

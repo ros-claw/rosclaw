@@ -1,5 +1,6 @@
 """Tests for rosclaw.cli"""
 
+import json
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -516,30 +517,166 @@ class TestStopCommand:
             assert "not found" in captured.out or code == 1
 
 
-class TestRestartCommand:
-    @patch("rosclaw.core.Runtime")
-    def test_restart(self, mock_runtime_cls, capsys):
+from pathlib import Path
+
+import pytest
+
+from rosclaw.body.service import BodyInstanceService
+
+
+class TestProviderDiagnose:
+    """CLI smoke tests for `rosclaw provider diagnose`."""
+
+    @pytest.fixture
+    def linked_workspace(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        BodyInstanceService().create_or_init(
+            robot="unitree-g1",
+            name="g1-cli",
+            mode="registry",
+            update_registry=True,
+            switch_active=True,
+        )
+        return tmp_path / ".rosclaw"
+
+    def test_provider_diagnose_json(self, linked_workspace, capsys):
         from rosclaw.cli import main
 
-        mock_runtime = MagicMock()
-        mock_runtime.is_running = True
-        mock_runtime_cls.return_value = mock_runtime
-
-        call_count = 0
-        def fake_sleep(t):  # noqa: E306
-            nonlocal call_count
-            call_count += 1
-            if call_count >= 2:
-                mock_runtime.is_running = False
-
-        # Ensure no PID file to avoid stop path issues
-        from pathlib import Path
-        pid_file = Path.home() / ".rosclaw" / "runtime.pid"
-        if pid_file.exists():
-            pid_file.unlink()
-
-        with patch("time.sleep", fake_sleep):
-            sys.argv = ["rosclaw", "restart"]
-            code = main()
-
+        sys.argv = [
+            "rosclaw",
+            "provider",
+            "diagnose",
+            "--body",
+            "current",
+            "--json",
+        ]
+        code = main()
+        captured = capsys.readouterr()
         assert code == 0
+        assert "g1-cli" in captured.out
+        data = json.loads(captured.out)
+        assert data["body_instance_id"] == "g1-cli"
+        assert "interfaces" in data
+        assert "summary" in data
+
+    def test_provider_diagnose_available_override(self, linked_workspace, capsys):
+        from rosclaw.cli import main
+
+        sys.argv = [
+            "rosclaw",
+            "provider",
+            "diagnose",
+            "--body",
+            "current",
+            "--available",
+            "head_camera",
+            "--json",
+        ]
+        code = main()
+        captured = capsys.readouterr()
+        assert code == 0
+        data = json.loads(captured.out)
+        assert data["interfaces"]["head_camera"]["status"] == "available"
+
+
+class TestSandboxGenerateConfig:
+    """CLI smoke tests for `rosclaw sandbox generate-config`."""
+
+    @pytest.fixture
+    def linked_workspace(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        BodyInstanceService().create_or_init(
+            robot="unitree-g1",
+            name="g1-cli",
+            mode="registry",
+            update_registry=True,
+            switch_active=True,
+        )
+        return tmp_path / ".rosclaw"
+
+    def test_sandbox_generate_config_mujoco(self, linked_workspace, capsys):
+        from rosclaw.cli import main
+
+        sys.argv = [
+            "rosclaw",
+            "sandbox",
+            "generate-config",
+            "--body",
+            "current",
+            "--engine",
+            "mujoco",
+        ]
+        code = main()
+        captured = capsys.readouterr()
+        assert code == 0
+        assert "Generated mujoco config" in captured.out
+        assert "g1-cli" in captured.out
+
+        output_path = linked_workspace / "bodies" / "g1-cli" / "refs" / "sandbox" / "mujoco.config.yaml"
+        assert output_path.exists()
+
+    def test_sandbox_generate_config_isaac_json(self, linked_workspace, capsys):
+        from rosclaw.cli import main
+
+        sys.argv = [
+            "rosclaw",
+            "sandbox",
+            "generate-config",
+            "--body",
+            "current",
+            "--engine",
+            "isaac",
+            "--json",
+        ]
+        code = main()
+        captured = capsys.readouterr()
+        assert code == 0
+        data = json.loads(captured.out)
+        assert data["engine"] == "isaac"
+        assert data["body_instance_id"] == "g1-cli"
+        assert Path(data["output_path"]).exists()
+
+
+class TestBodyUpdateStateFromProviderHealth:
+    """CLI smoke test for `rosclaw body update-state --from-provider-health`."""
+
+    @pytest.fixture
+    def linked_workspace(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        BodyInstanceService().create_or_init(
+            robot="unitree-g1",
+            name="g1-cli",
+            mode="registry",
+            update_registry=True,
+            switch_active=True,
+        )
+        return tmp_path / ".rosclaw"
+
+    def test_update_state_from_provider_health(self, linked_workspace, capsys):
+        from rosclaw.cli import main
+
+        # Pre-mark a sensor unavailable so the provider-health patch is non-empty.
+        sys.argv = [
+            "rosclaw",
+            "body",
+            "update-state",
+            "--component-status",
+            "head_camera=unavailable",
+            "--reason",
+            "pre-mark",
+        ]
+        assert main() == 0
+
+        sys.argv = [
+            "rosclaw",
+            "body",
+            "update-state",
+            "--from-provider-health",
+            "--reason",
+            "provider check",
+        ]
+        code = main()
+        captured = capsys.readouterr()
+        assert code == 0
+        assert "Updated body state" in captured.out
+

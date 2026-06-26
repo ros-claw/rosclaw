@@ -155,6 +155,33 @@ class MaintenanceLog:
         self.append(event)
         return event
 
+    def write_render_event(
+        self,
+        body_instance_id: str,
+        reason: str = "",
+        author: str = "rosclaw",
+    ) -> MaintenanceEvent:
+        """Write an EMBODIMENT.md render event."""
+        event = MaintenanceEvent(
+            ts=_utc_now(),
+            type="render",
+            severity="info",
+            author=author,
+            body_instance_id=body_instance_id,
+            message="EMBODIMENT.md rendered" + (f": {reason}" if reason else ""),
+            summary=reason or "EMBODIMENT.md rendered",
+            component="embodiment",
+            affects=["embodiment"],
+            tags=["render"],
+            requires_skill_recheck=False,
+            requires_render=True,
+            before={},
+            after={},
+            result={"status": "rendered"},
+        )
+        self.append(event)
+        return event
+
     def write_calibration_event(
         self,
         body_instance_id: str,

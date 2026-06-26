@@ -360,6 +360,82 @@ class RuntimeClient:
             return {"mode": "fixture", "report": {}, "error": str(exc)}
 
     # ------------------------------------------------------------------
+    # P0 body tools
+    # ------------------------------------------------------------------
+
+    async def get_body_profile(self) -> dict[str, Any]:
+        """Return a static profile summary of the current body."""
+        try:
+            from rosclaw.body.mcp_tools import BodyMcpTools
+
+            tools = BodyMcpTools(workspace=self._body_workspace())
+            return {"mode": "live", "profile": tools.get_body_profile()}
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("get_body_profile failed: %s", exc)
+            return {"mode": "fixture", "profile": {}, "error": str(exc)}
+
+    async def get_body_state(self, *, include_runtime: bool = True) -> dict[str, Any]:
+        """Return current body safety and capability state."""
+        try:
+            from rosclaw.body.mcp_tools import BodyMcpTools
+
+            tools = BodyMcpTools(workspace=self._body_workspace())
+            return {"mode": "live", "state": tools.get_body_state(include_runtime=include_runtime)}
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("get_body_state failed: %s", exc)
+            return {"mode": "fixture", "state": {}, "error": str(exc)}
+
+    async def list_body_capabilities(self, *, status: str = "all") -> dict[str, Any]:
+        """List capabilities grouped by status."""
+        try:
+            from rosclaw.body.mcp_tools import BodyMcpTools
+
+            tools = BodyMcpTools(workspace=self._body_workspace())
+            return {"mode": "live", "capabilities": tools.list_body_capabilities(status=status)}
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("list_body_capabilities failed: %s", exc)
+            return {"mode": "fixture", "capabilities": {}, "error": str(exc)}
+
+    async def query_body(self, question: str) -> dict[str, Any]:
+        """Answer a natural-language question about the body."""
+        try:
+            from rosclaw.body.mcp_tools import BodyMcpTools
+
+            tools = BodyMcpTools(workspace=self._body_workspace())
+            return {"mode": "live", "result": tools.query_body(question)}
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("query_body failed: %s", exc)
+            return {"mode": "fixture", "result": {"answer": str(exc), "decision": "unknown"}, "error": str(exc)}
+
+    async def validate_body_action(
+        self,
+        action: str,
+        capability_id: str,
+        *,
+        risk: str = "medium",
+    ) -> dict[str, Any]:
+        """Validate a proposed physical action against the current body."""
+        try:
+            from rosclaw.body.mcp_tools import BodyMcpTools
+
+            tools = BodyMcpTools(workspace=self._body_workspace())
+            return {"mode": "live", "validation": tools.validate_body_action(action, capability_id, risk=risk)}
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("validate_body_action failed: %s", exc)
+            return {"mode": "fixture", "validation": {"body_check": "unknown", "allowed_to_propose": False, "allowed_to_execute_real_robot": False, "reasons": [str(exc)]}, "error": str(exc)}
+
+    async def get_calibration_status(self, *, component: str | None = None) -> dict[str, Any]:
+        """Return calibration status for the body or a component."""
+        try:
+            from rosclaw.body.mcp_tools import BodyMcpTools
+
+            tools = BodyMcpTools(workspace=self._body_workspace())
+            return {"mode": "live", "calibration": tools.get_calibration_status(component=component)}
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("get_calibration_status failed: %s", exc)
+            return {"mode": "fixture", "calibration": {"component": component or "*", "status": "unknown", "confidence": 0.0, "blocks": [str(exc)]}, "error": str(exc)}
+
+    # ------------------------------------------------------------------
     # S4 emergency tool
     # ------------------------------------------------------------------
 

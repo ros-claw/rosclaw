@@ -41,6 +41,7 @@ from rosclaw.connectors.ros.cli import add_ros_subparser, cmd_doctor_ros, dispat
 from rosclaw.core.event_bus import Event, EventPriority
 from rosclaw.feedback.cli import add_feedback_subparser, dispatch_feedback_command
 from rosclaw.feedback.hooks import telemetry_command_hook
+from rosclaw.feedback.telemetry_client import TelemetryClient
 from rosclaw.firstboot.wizard import run_firstboot
 from rosclaw.firstboot.workspace import resolve_home
 from rosclaw.hub.cli import add_hub_subparser, dispatch_hub_command
@@ -293,8 +294,6 @@ def _cmd_doctor_ros2() -> int:
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     """Deep health diagnosis for ROSClaw runtime and dependencies."""
-    from rosclaw.feedback.telemetry_client import TelemetryClient
-
     home = resolve_home()
     client = TelemetryClient(home)
     _record_doctor_event(client, "doctor_started")
@@ -1506,6 +1505,62 @@ def cmd_provider_invoke(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_provider_diagnose(args: argparse.Namespace) -> int:
+    """Diagnose provider interfaces against the current effective body."""
+    from rosclaw.body.resolver import BodyNotLinkedError, BodyResolver
+    from rosclaw.firstboot.workspace import resolve_home
+    from rosclaw.provider.body_binder import ProviderBodyBinder
+
+    workspace = resolve_home(args.workspace)
+    body_id = args.body if args.body and args.body != "current" else None
+    try:
+        resolver = BodyResolver(workspace=workspace, body_id=body_id)
+        if not resolver.is_linked():
+            print("[ROSClaw] No body linked. Run: rosclaw body link-eurdf <profile_id>")
+            return 1
+        body = resolver.get_effective_body()
+    except BodyNotLinkedError:
+        print("[ROSClaw] No body linked. Run: rosclaw body link-eurdf <profile_id>")
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        print(f"[ROSClaw] Failed to load body: {exc}")
+        return 1
+
+    binder = ProviderBodyBinder.from_effective_body(body)
+    available = set(args.available) if getattr(args, "available", None) else None
+    diagnosis = binder.diagnose(available=available)
+    diagnosis_dict = diagnosis.to_dict()
+
+    if args.json:
+        print(json.dumps(diagnosis_dict, indent=2, default=str))
+        return 0
+
+    print("=" * 60)
+    print("ROSClaw Provider Diagnosis")
+    print("=" * 60)
+    print(f"Body instance: {diagnosis.body_instance_id}")
+    print(f"Effective body hash: {diagnosis.effective_body_hash}")
+    print(f"Status: {diagnosis.status}")
+    print("-" * 60)
+    print(f"{'Interface':<30} {'Required':<10} {'Status':<12} {'Error'}")
+    print("-" * 60)
+    for name, iface in sorted(diagnosis.interfaces.items()):
+        required = "yes" if iface.get("required") else "no"
+        status = iface.get("status", "unknown")
+        error = iface.get("error") or ""
+        print(f"{name:<30} {required:<10} {status:<12} {error}")
+    print("=" * 60)
+    summary = diagnosis.summary
+    if summary:
+        print(
+            f"Summary: available={summary.get('available', 0)} "
+            f"unavailable={summary.get('unavailable', 0)} "
+            f"degraded={summary.get('degraded', 0)} "
+            f"unknown={summary.get('unknown', 0)}"
+        )
+    return 0
+
+
 def cmd_skill_invoke(args: argparse.Namespace) -> int:
     """Invoke a skill."""
     skill_id = args.skill_id
@@ -2004,6 +2059,58 @@ def cmd_sandbox_validate(args: argparse.Namespace) -> int:
     except Exception as exc:
         print(f"[ROSClaw] ❌ Validation error: {exc}")
         return 1
+
+
+def cmd_sandbox_generate_config(args: argparse.Namespace) -> int:
+    """Generate a simulation engine config from the active EffectiveBody."""
+    import yaml as _yaml
+
+    from rosclaw.body.resolver import BodyNotLinkedError, BodyResolver
+    from rosclaw.firstboot.workspace import resolve_home
+    from rosclaw.sandbox.body_adapter import SandboxBodyAdapter
+
+    workspace = resolve_home(args.workspace)
+    body_id = args.body if args.body and args.body != "current" else None
+    try:
+        resolver = BodyResolver(workspace=workspace, body_id=body_id)
+        if not resolver.is_linked():
+            print("[ROSClaw] No body linked. Run: rosclaw body link-eurdf <profile_id>")
+            return 1
+        body = resolver.get_effective_body()
+    except BodyNotLinkedError:
+        print("[ROSClaw] No body linked. Run: rosclaw body link-eurdf <profile_id>")
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        print(f"[ROSClaw] Failed to load body: {exc}")
+        return 1
+
+    adapter = SandboxBodyAdapter.from_effective_body(body)
+    output_dir = Path(args.output_dir) if args.output_dir else resolver.body_dir / "refs" / "sandbox"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.engine == "mujoco":
+        config = adapter.to_mujoco_config()
+        output_path = output_dir / "mujoco.config.yaml"
+    else:
+        config = adapter.to_isaac_config()
+        output_path = output_dir / "isaac.config.yaml"
+
+    output_path.write_text(_yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    if args.json:
+        print(json.dumps({
+            "body_instance_id": body.body_instance_id,
+            "effective_body_hash": body.effective_body_hash,
+            "engine": args.engine,
+            "output_path": str(output_path),
+            "config": config,
+        }, indent=2, default=str))
+        return 0
+
+    print(f"[ROSClaw] Generated {args.engine} config for {body.body_instance_id}")
+    print(f"  effective_body_hash: {body.effective_body_hash}")
+    print(f"  output: {output_path}")
+    return 0
 
 
 def cmd_memory_status(_args: argparse.Namespace) -> int:
@@ -3308,6 +3415,12 @@ def main() -> int:
     provider_invoke_parser.add_argument("input", help="Input data (JSON string or text)")
     provider_invoke_parser.add_argument("--trace-id", default=None, help="Trace ID for the invocation")
 
+    provider_diagnose_parser = provider_subparsers.add_parser("diagnose", help="Diagnose provider interfaces against the active body")
+    provider_diagnose_parser.add_argument("--body", default="current", help="Body ID to diagnose (default: current)")
+    provider_diagnose_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    provider_diagnose_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    provider_diagnose_parser.add_argument("--available", action="append", default=[], help="Treat interface name as reported available")
+
     # auto subcommand (Self-Evolution Control Plane)
     auto_parser = subparsers.add_parser("auto", help="Auto self-evolution commands")
     auto_subparsers = auto_parser.add_subparsers(dest="auto_command")
@@ -3388,6 +3501,13 @@ def main() -> int:
     sandbox_check_parser.add_argument("--robot", required=True, help="Robot identifier")
     sandbox_check_parser.add_argument("--action", required=True, help="Action JSON or name")
     sandbox_check_parser.add_argument("--trace-id", default=None, help="Trace ID")
+
+    sandbox_generate_config_parser = sandbox_subparsers.add_parser("generate-config", help="Generate simulation config from the active body")
+    sandbox_generate_config_parser.add_argument("--body", default="current", help="Body ID (default: current)")
+    sandbox_generate_config_parser.add_argument("--engine", default="mujoco", choices=["mujoco", "isaac"], help="Simulation engine")
+    sandbox_generate_config_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
+    sandbox_generate_config_parser.add_argument("--output-dir", default=None, help="Output directory (default: <body>/refs/sandbox)")
+    sandbox_generate_config_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     # runtime subcommand
     runtime_parser = subparsers.add_parser("runtime", help="Runtime backend commands")
@@ -3641,6 +3761,8 @@ def main() -> int:
                 return cmd_provider_list(args)
             elif args.provider_command == "invoke":
                 return cmd_provider_invoke(args)
+            elif args.provider_command == "diagnose":
+                return cmd_provider_diagnose(args)
             else:
                 provider_parser.print_help()
                 return 1
@@ -3695,6 +3817,8 @@ def main() -> int:
                 return cmd_sandbox_list_worlds(args)
             elif args.sandbox_command == "validate":
                 return cmd_sandbox_validate(args)
+            elif args.sandbox_command == "generate-config":
+                return cmd_sandbox_generate_config(args)
             elif args.sandbox_command == "run":
                 return cmd_sandbox_run(args)
             elif args.sandbox_command == "replay":

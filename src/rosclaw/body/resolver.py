@@ -14,6 +14,7 @@ from rosclaw.body.compatibility import SkillCompatibilityChecker, SkillCompatibi
 from rosclaw.body.compiler import EffectiveBodyCompiler
 from rosclaw.body.diff import BodyDiffer
 from rosclaw.body.notes import MaintenanceLog
+from rosclaw.body.patch_validator import apply_nested_update
 from rosclaw.body.references import RosclawURI
 from rosclaw.body.registry import BodyRegistryError, BodyRegistryManager
 from rosclaw.body.renderer import EmbodimentRenderer
@@ -26,7 +27,6 @@ from rosclaw.body.schema import (
     SkillCompatibilityReport,
     SkillManifest,
 )
-from rosclaw.body.validators import apply_nested_update
 from rosclaw.eurdf.registry import RobotRegistry
 
 
@@ -114,7 +114,7 @@ class BodyResolver:
 
     @property
     def generated_dir(self) -> Path:
-        return self.body_dir / "generated"
+        return self.body_dir / "refs" / "generated"
 
     def ensure_body_dir(self) -> None:
         self.body_dir.mkdir(parents=True, exist_ok=True)
@@ -291,24 +291,18 @@ class BodyResolver:
         store = SkillCompatibilityStore(self.skill_compatibility_path)
         store.save(report)
 
-        # Render EMBODIMENT.md
-        existing_md = None
-        if self.embodiment_md_path.exists():
-            existing_md = self.embodiment_md_path.read_text(encoding="utf-8")
-        if existing_md:
-            md = self.renderer.render_into_existing(
-                existing_md, effective, body, report, maintenance, calibration
-            )
-        else:
-            md = self.renderer.render(effective, body, report, maintenance, calibration)
-        self.embodiment_md_path.write_text(md, encoding="utf-8")
+        # Render agent view artifacts through the dedicated Agent View layer.
+        from rosclaw.body.agent_view import BodyAgentViewRenderer
 
-        # BODY.md alias
-        if not no_body_alias:
-            self._refresh_body_md_alias()
-
-        # Generated JSON summaries
-        self.write_generated_summaries(effective, body, calibration, report, maintenance)
+        agent_renderer = BodyAgentViewRenderer(workspace=self.workspace, body_id=self.body_id)
+        agent_renderer.render_all(
+            effective=effective,
+            body=body,
+            calibration=calibration,
+            maintenance=maintenance,
+            report=report,
+            reason=reason,
+        )
 
         return effective, report
 
