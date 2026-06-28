@@ -181,6 +181,16 @@ class EmbodimentRenderer:
                 ]
             )
 
+        env = body.safety.get("environment", {})
+        if env.get("perception_only") or env.get("no_actuation"):
+            lines.extend(
+                [
+                    "> **📷 Perception-only body.**",
+                    "> This device has no actuators. Proposing or executing motion, gripper, or actuator commands is forbidden. Only sensor capture and perception actions are allowed.",
+                    "",
+                ]
+            )
+
         return "\n".join(lines)
 
     def _render_eurdf_profile_reference(self, body: EffectiveBody, body_yaml: BodyYaml) -> str:

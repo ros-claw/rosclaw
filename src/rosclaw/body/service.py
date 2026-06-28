@@ -57,6 +57,15 @@ def _resolve_profile_alias(profile_id: str) -> str:
         "unitree-go2": "unitree_go2",
         "franka-panda": "franka_panda",
         "fetch": "fetch_robot",
+        "realsense-d405": "realsense_d405",
+        "realsense_d405": "realsense_d405",
+        "d405": "realsense_d405",
+        "realsense-d435i": "realsense_d435i",
+        "realsense_d435i": "realsense_d435i",
+        "d435i": "realsense_d435i",
+        "realsense-dual": "realsense_dual",
+        "realsense_dual": "realsense_dual",
+        "dual": "realsense_dual",
     }
     return aliases.get(profile_id, profile_id)
 
@@ -276,6 +285,7 @@ class BodyInstanceService:
                 ),
                 "human_approval_required_for_high_risk": True,
             },
+            metadata=normalized.metadata or {},
             runtime_state={
                 "battery_percent": None,
                 "last_seen_at": None,

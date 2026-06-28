@@ -1,0 +1,29 @@
+schema_version: rosclaw.skill.v1
+skill_id: realsense_capture_rgbd
+skill_version: "1.0.0"
+display_name: RealSense RGB-D Capture
+description: |
+  Capture an aligned RGB-D frame from a RealSense D405/D435i camera via the
+  bound ``librealsense-mcp`` server and write color/depth artifacts.
+requires:
+  capabilities:
+    all_of:
+      - aligned_rgbd
+      - rgb_stream
+      - depth_stream
+  sensors:
+    all_of:
+      - id: color_camera
+      - id: depth_camera
+  robot_class:
+    - perception_only_camera
+    - realsense_d405
+    - realsense_d435i
+    - realsense_dual
+degradation_policy:
+  allow_uncalibrated_camera: true
+  allow_usb2_degraded: true
+runtime_policy:
+  timeout_ms: 15000
+  preferred_mcp: librealsense-mcp
+  fallback_mcp: realsense-ros-mcp

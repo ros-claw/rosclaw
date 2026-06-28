@@ -1,0 +1,35 @@
+semantic_version: "1.0"
+robot_id: realsense_d405
+semantic_tags:
+  - camera
+  - depth_camera
+  - realsense
+  - d405
+  - perception_only
+  - sensor
+  - close_range
+
+functional_regions:
+  - id: color_optical_axis
+    frame: color_frame
+    description: Optical axis of the color camera.
+  - id: depth_optical_axis
+    frame: depth_frame
+    description: Optical axis of the depth sensor.
+  - id: near_field_workspace
+    frame: camera_link
+    description: Reliable depth region from 5 cm to 50 cm.
+
+visual_features:
+  - id: color_sensor
+    type: sensor
+    frame: color_frame
+    description: 2D RGB sensor for scene understanding.
+  - id: depth_sensor
+    type: sensor
+    frame: depth_frame
+    description: Stereo depth sensor for 3D geometry.
+
+task_descriptions:
+  capture_rgbd: "Capture an aligned RGB-D frame from the RealSense D405."
+  inspect_workspace: "Inspect the near-field workspace using color and depth."

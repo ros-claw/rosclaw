@@ -1,0 +1,11 @@
+issue_id,title,phase,status,fix_commit_hint,evidence,verification_command
+#001,Hub requires login; mcp list times out with no registry,A,closed,src/rosclaw/mcp/onboarding/cli.py,`mcp list` returns built-in index instantly when ROSCLAW_MCP_HUB unset,rosclaw mcp list --json
+#010,mcp install cannot install external MCPs without active registry,A,closed,src/rosclaw/mcp/onboarding/source_installer.py,--from-git and --local-path installers record source/commit,rosclaw mcp install --local-path ./fake-mcp
+#003,No realsense-d405 e-URDF profile,B,closed,e-urdf-zoo/realsense_d405/,Perception-only profile with sensors/capabilities/safety,rosclaw body init --robot realsense-d405 --name d405_lab_01
+#005,Sandbox check fails for perception-only bodies,C,closed,src/rosclaw/cli.py cmd_sandbox_check,BLOCK move_base ALLOW capture_rgbd with evidence,rosclaw sandbox check --robot realsense-d405 --action '{"type":"move_base"}' --json
+#006,Practice records zero events and still reports SUCCESS,F,closed,src/rosclaw/practice/coordinator.py,event_count==0 yields FAILED + zero_events label,rosclaw practice run --robot d405_lab_01 --skill realsense_capture_rgbd --output-root /tmp/episode
+#007,Dashboard has no RealSense or practice-episode endpoints,G,closed,src/rosclaw/dashboard/web_server.py,/api/practice/episodes /api/realsense/status /realsense page,curl http://localhost:8765/api/realsense/status
+#008,memory ingest / how advise / know compile missing; memory query returns mock data,H,closed,src/rosclaw/memory/interface.py src/rosclaw/how/engine.py src/rosclaw/know/interface.py,Real evidence by default; --demo for mock fallback,rosclaw memory ingest --episode-id <id> --data-root /tmp/episode
+#009,doctor and bench realsense missing,I,closed,src/rosclaw/bench/realsense.py,doctor --realsense and bench realsense with pyrealsense2/rs-data-collect backends,rosclaw bench realsense --duration 1 --output /tmp/bench --json
+—,RealSense skill not discoverable / executable,D,closed,src/rosclaw/skill/builtins/,Builtin registry with realsense_capture_rgbd and scene_risk_scan,rosclaw skill search
+—,Provider CLI lacks image-path normalized output,E,closed,src/rosclaw/provider/normalizer.py,ProviderResultNormalizer with schema_valid fallback,rosclaw provider call cosmos-reason2-lan --image /tmp/color.png --capability vlm.risk_assessment

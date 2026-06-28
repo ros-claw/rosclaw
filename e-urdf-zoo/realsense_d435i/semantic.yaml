@@ -1,0 +1,33 @@
+semantic_version: "1.0"
+robot_id: realsense_d435i
+semantic_tags:
+  - camera
+  - depth_camera
+  - realsense
+  - d435i
+  - perception_only
+  - sensor
+  - imu
+
+functional_regions:
+  - id: color_optical_axis
+    frame: color_frame
+  - id: depth_optical_axis
+    frame: depth_frame
+  - id: imu_location
+    frame: imu_frame
+
+visual_features:
+  - id: color_sensor
+    type: sensor
+    frame: color_frame
+  - id: depth_sensor
+    type: sensor
+    frame: depth_frame
+  - id: imu_sensor
+    type: sensor
+    frame: imu_frame
+
+task_descriptions:
+  capture_rgbd: "Capture an aligned RGB-D frame from the RealSense D435i."
+  read_imu: "Read gyroscope and accelerometer from the integrated IMU."

@@ -1,0 +1,39 @@
+benchmark_version: "1.0"
+robot_id: realsense_d435i
+
+kinematic_benchmarks: []
+dynamic_benchmarks: []
+
+task_benchmarks:
+  - id: rgbd_capture_latency
+    name: RGB-D Capture Latency
+    capability: aligned_rgbd
+    metric: latency_ms
+    target:
+      mean: 50
+      max: 150
+    unit: ms
+
+  - id: imu_latency
+    name: IMU Latency
+    capability: imu_read
+    metric: latency_ms
+    target:
+      max: 10
+    unit: ms
+
+safety_benchmarks:
+  - id: no_actuator_commands_allowed
+    name: No Actuator Commands Allowed
+    description: Sandbox must block all actuator action types.
+    expectation: BLOCK
+
+simulation_benchmarks:
+  preferred_engine: null
+  note: "Perception-only camera; simulation is optional."
+
+baseline_hardware:
+  vendor: Intel
+  model: RealSense D435i
+  min_usb: USB2
+  recommended_usb: USB3

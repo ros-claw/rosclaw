@@ -20,6 +20,7 @@ Design:
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import time
 from typing import Any, Final
@@ -202,6 +203,67 @@ class HeuristicEngine:
             return await self._knowledge_fallback(error_log, context)
 
         return None
+
+    async def advise(
+        self,
+        body_id: str,
+        failure: str,
+        episode_id: str,
+        data_root: str | None = None,
+    ) -> dict[str, Any]:
+        """Return an evidence-backed intervention for a failed episode.
+
+        Loads the raw practice events from ``data_root`` and uses the
+        heuristic rule engine (plus optional knowledge analogy) to propose a
+        recovery action.  The returned dict includes the episode evidence so
+        the advice is traceable.
+        """
+        from pathlib import Path
+
+        from rosclaw.practice.storage.layout import PracticeLayout
+
+        root = Path(data_root or "/data/rosclaw/practice")
+        layout = PracticeLayout(root)
+        session_dir = layout.session_dir(episode_id)
+
+        events: list[dict[str, Any]] = []
+        if session_dir.exists():
+            events_path = layout.events_jsonl_path(episode_id)
+            if events_path.exists():
+                try:
+                    with open(events_path, encoding="utf-8") as f:
+                        events = [json.loads(line) for line in f if line.strip()]
+                except Exception as exc:
+                    logger.warning("Failed to read episode events for HOW advise: %s", exc)
+
+        error_log = f"{failure} on body {body_id} (episode {episode_id})"
+        recovery = await self.suggest_recovery(
+            error_log,
+            context={
+                "body_id": body_id,
+                "episode_id": episode_id,
+                "events": events,
+            },
+        )
+        if recovery is None:
+            recovery = {
+                "rule_id": "fallback",
+                "condition": failure,
+                "action": "Review episode artifacts and logs for root cause.",
+                "priority": 0,
+                "source": "fallback",
+            }
+
+        return {
+            "body_id": body_id,
+            "failure": failure,
+            "episode_id": episode_id,
+            "intervention": recovery,
+            "evidence": {
+                "event_count": len(events),
+                "sources": sorted({ev.get("source") for ev in events}),
+            },
+        }
 
     async def record_outcome(self, rule_id: str, success: bool) -> bool:
         """Increment success_count or failure_count for a rule.

@@ -1,0 +1,28 @@
+schema_version: rosclaw.skill.v1
+skill_id: scene_risk_scan
+skill_version: "1.0.0"
+display_name: Scene Risk Scan
+description: |
+  Capture a RealSense RGB-D frame and ask the configured VLM/reasoning provider
+  to assess physical risks in the scene. Returns a normalized risk result.
+requires:
+  capabilities:
+    any_of:
+      - aligned_rgbd
+      - rgb_stream
+  sensors:
+    any_of:
+      - id: color_camera
+      - id: depth_camera
+  robot_class:
+    - perception_only_camera
+    - realsense_d405
+    - realsense_d435i
+    - realsense_dual
+degradation_policy:
+  allow_uncalibrated_camera: true
+  allow_no_depth: true
+runtime_policy:
+  timeout_ms: 60000
+  capture_skill: realsense_capture_rgbd
+  provider_capability: vlm.risk_assessment

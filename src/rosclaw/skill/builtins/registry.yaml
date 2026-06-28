@@ -1,0 +1,8 @@
+schema_version: rosclaw.builtin_skill_registry.v1
+skills:
+  realsense_capture_rgbd:
+    path: realsense_capture_rgbd
+    builtin: true
+  scene_risk_scan:
+    path: scene_risk_scan
+    builtin: true

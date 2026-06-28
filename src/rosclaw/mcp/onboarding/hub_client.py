@@ -260,6 +260,118 @@ _BUILTIN_REGISTRY: dict[str, dict[str, Any]] = {
         },
         "lifecycle": {"deprecated": False},
     },
+    "io.rosclaw.hardware.librealsense-mcp": {
+        "$schema": "https://schemas.rosclaw.io/mcp/hardware-manifest.schema.json",
+        "schemaVersion": "1.0.0",
+        "id": "io.rosclaw.hardware.librealsense-mcp",
+        "name": "librealsense-mcp",
+        "displayName": "Intel RealSense (pyrealsense2) MCP",
+        "version": "1.0.0",
+        "channel": "stable",
+        "description": "MCP server for Intel RealSense via pyrealsense2 SDK. Install from source with --from-git.",
+        "tags": ["camera", "realsense", "sensor", "pyrealsense2"],
+        "categories": ["hardware", "sensor"],
+        "license": "MIT",
+        "publisher": {
+            "name": "ROSClaw Project",
+            "namespace": "io.rosclaw.hardware",
+            "homepage": "https://rosclaw.io",
+            "support": "mcp@rosclaw.io",
+            "verified": True,
+        },
+        "artifact": {
+            "type": "git",
+            "url": "https://github.com/ros-claw/librealsense-mcp",
+            "entrypoint": "mcp_server.py",
+        },
+        "mcp": {
+            "serverName": "librealsense-mcp",
+            "transport": {
+                "type": "stdio",
+                "command": "python",
+                "args": ["mcp_server.py"],
+            },
+            "capabilities": {"tools": True},
+        },
+        "hardware": {
+            "type": "sensor",
+            "vendor": "Intel",
+            "models": ["RealSense D400 Series"],
+            "connection": {"modes": ["usb"], "defaultMode": "usb"},
+        },
+        "permissions": {
+            "required": [
+                {"id": "mcp:tools:read", "level": "safe", "description": "List and call MCP tools"},
+            ],
+        },
+        "health": {
+            "checks": [
+                {"id": "install_integrity", "category": "install", "required": True},
+                {"id": "protocol_stdio", "category": "protocol", "required": True},
+            ],
+        },
+        "compatibility": {
+            "python": ">=3.10",
+            "rosclaw": ">=1.0.0",
+        },
+        "lifecycle": {"deprecated": False},
+    },
+    "io.rosclaw.hardware.realsense-ros-mcp": {
+        "$schema": "https://schemas.rosclaw.io/mcp/hardware-manifest.schema.json",
+        "schemaVersion": "1.0.0",
+        "id": "io.rosclaw.hardware.realsense-ros-mcp",
+        "name": "realsense-ros-mcp",
+        "displayName": "Intel RealSense ROS2 MCP",
+        "version": "1.0.0",
+        "channel": "stable",
+        "description": "MCP server for Intel RealSense via ROS2/realsense2_camera. Install from source with --from-git.",
+        "tags": ["camera", "realsense", "sensor", "ros2"],
+        "categories": ["hardware", "sensor"],
+        "license": "MIT",
+        "publisher": {
+            "name": "ROSClaw Project",
+            "namespace": "io.rosclaw.hardware",
+            "homepage": "https://rosclaw.io",
+            "support": "mcp@rosclaw.io",
+            "verified": True,
+        },
+        "artifact": {
+            "type": "git",
+            "url": "https://github.com/ros-claw/realsense-ros-mcp",
+            "entrypoint": "mcp_server.py",
+        },
+        "mcp": {
+            "serverName": "realsense-ros-mcp",
+            "transport": {
+                "type": "stdio",
+                "command": "python",
+                "args": ["mcp_server.py"],
+            },
+            "capabilities": {"tools": True},
+        },
+        "hardware": {
+            "type": "sensor",
+            "vendor": "Intel",
+            "models": ["RealSense D400 Series"],
+            "connection": {"modes": ["ros2"], "defaultMode": "ros2"},
+        },
+        "permissions": {
+            "required": [
+                {"id": "mcp:tools:read", "level": "safe", "description": "List and call MCP tools"},
+            ],
+        },
+        "health": {
+            "checks": [
+                {"id": "install_integrity", "category": "install", "required": True},
+                {"id": "protocol_stdio", "category": "protocol", "required": True},
+            ],
+        },
+        "compatibility": {
+            "python": ">=3.10",
+            "rosclaw": ">=1.0.0",
+        },
+        "lifecycle": {"deprecated": False},
+    },
 }
 
 

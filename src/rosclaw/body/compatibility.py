@@ -57,7 +57,7 @@ class SkillCompatibilityChecker:
             sensor = body.sensors.get(sensor_id) if sensor_id else None
             if not sensor:
                 missing.append(f"sensor:{sensor_id}")
-            elif sensor.get("status") != sensor_req.get("status", "available"):
+            elif sensor.get("status", "available") != sensor_req.get("status", "available"):
                 missing.append(f"sensor:{sensor_id}:{sensor.get('status')}")
 
         # Actuators
@@ -66,7 +66,7 @@ class SkillCompatibilityChecker:
             actuator = body.actuators.get(group) if group else None
             if not actuator:
                 missing.append(f"actuator_group:{group}")
-            elif actuator.get("status") != actuator_req.get("status", "available"):
+            elif actuator.get("status", "available") != actuator_req.get("status", "available"):
                 missing.append(f"actuator_group:{group}:{actuator.get('status')}")
 
         # Frames

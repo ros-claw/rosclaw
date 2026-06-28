@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import os
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse
+
+from rosclaw.practice.storage.layout import PracticeLayout
 
 from .firstboot import FIRSTBOOT_PAGE_HTML, build_firstboot_command, preview_firstboot_config
 from .metrics import DashboardMetrics
@@ -74,6 +80,162 @@ _BODY_PAGE_HTML = """<!DOCTYPE html>
 </body>
 </html>
 """
+
+
+_REALSENSE_PAGE_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ROSClaw RealSense</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; margin: 2rem; background: #0f172a; color: #e2e8f0; }
+    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    .card { background: #1e293b; border-radius: 0.5rem; padding: 1rem; margin: 1rem 0; }
+    .muted { color: #94a3b8; }
+    .status { font-weight: bold; }
+    .empty { color: #94a3b8; font-style: italic; }
+    pre { background: #0f172a; padding: 0.75rem; border-radius: 0.25rem; overflow-x: auto; }
+    img { max-width: 100%; border-radius: 0.25rem; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>ROSClaw RealSense Dashboard</h1>
+  <div id="status" class="card">Loading status...</div>
+  <div id="latest" class="card">
+    <h2>Latest Frame</h2>
+    <div id="frame-container" class="muted">Loading...</div>
+  </div>
+
+  <script>
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/realsense/status');
+        const data = await res.json();
+        document.getElementById('status').innerHTML =
+          `<div>Profile exists: <span class="status">${data.profile_exists}</span></div>` +
+          `<div>Body linked: <span class="status">${data.body_linked}</span></div>` +
+          `<div>Current body: <span class="status">${data.body_id || 'none'}</span></div>`;
+      } catch (err) {
+        document.getElementById('status').innerHTML = `<div class="muted">Error: ${err.message}</div>`;
+      }
+    }
+    async function fetchLatestFrame() {
+      try {
+        const res = await fetch('/api/realsense/latest-frame');
+        const data = await res.json();
+        const container = document.getElementById('frame-container');
+        if (data.found) {
+          container.innerHTML =
+            `<div class="muted">Episode: ${data.practice_id}</div>` +
+            `<img src="${data.frame_url}" alt="latest frame" />`;
+        } else {
+          container.innerHTML =
+            `<div class="empty">${data.message}</div>` +
+            `<pre>${data.command}</pre>`;
+        }
+      } catch (err) {
+        document.getElementById('frame-container').innerHTML = `<div class="muted">Error: ${err.message}</div>`;
+      }
+    }
+    fetchStatus();
+    fetchLatestFrame();
+    setInterval(fetchStatus, 5000);
+    setInterval(fetchLatestFrame, 5000);
+  </script>
+</body>
+</html>
+"""
+
+
+def _practice_data_root(query_root: str | None = None) -> Path:
+    """Resolve the practice data root from query param, env, or default."""
+    if query_root:
+        return Path(query_root)
+    return Path(os.environ.get("ROSCLAW_PRACTICE_DATA_ROOT", "/data/rosclaw/practice"))
+
+
+def _list_episodes(data_root: Path) -> list[dict[str, Any]]:
+    """Return practice episode summaries from disk, newest first."""
+    layout = PracticeLayout(data_root)
+    sessions_dir = layout.sessions_dir
+    if not sessions_dir.exists():
+        return []
+
+    episodes: list[dict[str, Any]] = []
+    for session_dir in sessions_dir.iterdir():
+        if not session_dir.is_dir():
+            continue
+        episode_path = session_dir / "episode.json"
+        if not episode_path.exists():
+            continue
+        try:
+            episode = json.loads(episode_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        episodes.append({
+            "practice_id": episode.get("practice_id", session_dir.name),
+            "robot_id": episode.get("robot_id"),
+            "robot_type": episode.get("robot_type"),
+            "outcome": episode.get("outcome", "UNKNOWN"),
+            "event_count": episode.get("event_count", 0),
+            "start_time": episode.get("start_time"),
+            "session_dir": str(session_dir),
+        })
+
+    episodes.sort(key=lambda e: e.get("start_time") or "", reverse=True)
+    return episodes
+
+
+def _episode_dir(data_root: Path, episode_id: str) -> Path:
+    """Resolve an episode session directory from id or direct path."""
+    layout = PracticeLayout(data_root)
+    session_dir = layout.session_dir(episode_id)
+    if session_dir.exists():
+        return session_dir
+    direct = Path(episode_id)
+    if direct.exists() and direct.is_dir():
+        return direct
+    raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    """Safely read a JSONL file."""
+    if not path.exists():
+        return []
+    try:
+        with open(path, encoding="utf-8") as f:
+            return [json.loads(line) for line in f if line.strip()]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to read {path}: {exc}") from exc
+
+
+async def _latest_frame_info(data_root: Path) -> dict[str, Any]:
+    """Find the most recently recorded RealSense RGB frame."""
+    layout = PracticeLayout(data_root)
+    command = (
+        "rosclaw practice run --robot d405_lab_01 "
+        "--skill realsense_capture_rgbd --provider cosmos-reason2-lan "
+        "--output-root ./episode"
+    )
+    for ep in _list_episodes(data_root):
+        timeline = _read_jsonl(layout.timeline_jsonl_path(ep["practice_id"]))
+        for ev in reversed(timeline):
+            if ev.get("source") == "camera" and ev.get("event_type") == "rgbd_frame":
+                payload = ev.get("payload", {})
+                rgb_ref = payload.get("rgb_ref")
+                if rgb_ref:
+                    return {
+                        "found": True,
+                        "practice_id": ep["practice_id"],
+                        "rgb_ref": rgb_ref,
+                        "frame_url": f"/api/artifacts/{ep['practice_id']}/{rgb_ref}",
+                    }
+    return {
+        "found": False,
+        "message": "No RealSense frames recorded yet.",
+        "command": command,
+    }
 
 
 class WebSocketClient:
@@ -226,6 +388,142 @@ class DashboardWebServer:
         async def set_module_health(module: str, status: str) -> dict[str, str]:
             self.metrics.set_module_health(module, status)
             return {"status": "updated"}
+
+        # ── Practice episode API ────────────────────────────────────────
+
+        @self.app.get("/api/practice/episodes")
+        async def api_practice_episodes(data_root: str | None = None) -> dict[str, Any]:
+            root = _practice_data_root(data_root)
+            episodes = _list_episodes(root)
+            return {
+                "data_root": str(root),
+                "count": len(episodes),
+                "episodes": episodes,
+                "command": (
+                    "rosclaw practice run --robot d405_lab_01 "
+                    "--skill realsense_capture_rgbd --provider cosmos-reason2-lan "
+                    "--output-root ./episode"
+                ),
+            }
+
+        @self.app.get("/api/practice/episodes/{episode_id}")
+        async def api_practice_episode(episode_id: str, data_root: str | None = None) -> dict[str, Any]:
+            root = _practice_data_root(data_root)
+            session_dir = _episode_dir(root, episode_id)
+            episode_path = session_dir / "episode.json"
+            if not episode_path.exists():
+                raise HTTPException(status_code=404, detail=f"episode.json not found for {episode_id}")
+            try:
+                episode = json.loads(episode_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=f"Failed to read episode.json: {exc}") from exc
+            return {
+                "episode": episode,
+                "session_dir": str(session_dir),
+            }
+
+        @self.app.get("/api/practice/episodes/{episode_id}/timeline")
+        async def api_practice_timeline(episode_id: str, data_root: str | None = None) -> dict[str, Any]:
+            root = _practice_data_root(data_root)
+            session_dir = _episode_dir(root, episode_id)
+            layout = PracticeLayout(root)
+            timeline = _read_jsonl(layout.timeline_jsonl_path(session_dir.name))
+            return {"practice_id": session_dir.name, "count": len(timeline), "timeline": timeline}
+
+        @self.app.get("/api/practice/episodes/{episode_id}/artifacts")
+        async def api_practice_artifacts(episode_id: str, data_root: str | None = None) -> dict[str, Any]:
+            root = _practice_data_root(data_root)
+            session_dir = _episode_dir(root, episode_id)
+            files: list[str] = []
+            for item in session_dir.rglob("*"):
+                if item.is_file():
+                    with contextlib.suppress(ValueError):
+                        files.append(str(item.relative_to(session_dir)))
+            files.sort()
+            return {"practice_id": session_dir.name, "count": len(files), "artifacts": files}
+
+        @self.app.get("/api/practice/episodes/{episode_id}/provider")
+        async def api_practice_provider(episode_id: str, data_root: str | None = None) -> dict[str, Any]:
+            root = _practice_data_root(data_root)
+            session_dir = _episode_dir(root, episode_id)
+            provider_path = session_dir / "provider" / "provider_result.json"
+            if not provider_path.exists():
+                raise HTTPException(status_code=404, detail="No provider result for this episode")
+            try:
+                provider_data = json.loads(provider_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=f"Failed to read provider result: {exc}") from exc
+            return {"practice_id": session_dir.name, "provider": provider_data}
+
+        @self.app.get("/api/practice/episodes/{episode_id}/sandbox")
+        async def api_practice_sandbox(episode_id: str, data_root: str | None = None) -> dict[str, Any]:
+            root = _practice_data_root(data_root)
+            session_dir = _episode_dir(root, episode_id)
+            layout = PracticeLayout(root)
+            events = _read_jsonl(layout.events_jsonl_path(session_dir.name))
+            sandbox_events = [ev for ev in events if ev.get("source") == "sandbox"]
+            return {
+                "practice_id": session_dir.name,
+                "count": len(sandbox_events),
+                "decisions": sandbox_events,
+            }
+
+        @self.app.get("/api/artifacts/{path:path}")
+        async def serve_artifact(path: str, data_root: str | None = None) -> Any:
+            root = _practice_data_root(data_root)
+            base = (root / "sessions").resolve()
+            artifact_path = (base / path).resolve()
+            try:
+                artifact_path.relative_to(base)
+            except ValueError as exc:
+                raise HTTPException(status_code=403, detail="Access denied") from exc
+            if not artifact_path.exists() or not artifact_path.is_file():
+                raise HTTPException(status_code=404, detail="Artifact not found")
+            return FileResponse(artifact_path)
+
+        # ── RealSense page and API ──────────────────────────────────────
+
+        @self.app.get("/realsense")
+        async def realsense_page() -> Any:
+            return HTMLResponse(_REALSENSE_PAGE_HTML)
+
+        @self.app.get("/api/realsense/status")
+        async def api_realsense_status(data_root: str | None = None) -> dict[str, Any]:
+            from rosclaw.body.resolver import BodyResolver
+            from rosclaw.runtime import RobotRegistry
+
+            profile_exists = False
+            try:
+                registry = RobotRegistry()
+                profile_exists = registry.get("realsense_d405") is not None
+            except Exception:
+                pass
+
+            body_linked = False
+            body_id: str | None = None
+            try:
+                resolver = BodyResolver()
+                body_linked = resolver.is_linked()
+                body_id = resolver.get_current_body_id()
+            except Exception:
+                pass
+
+            latest = await _latest_frame_info(_practice_data_root(data_root))
+            return {
+                "profile_exists": profile_exists,
+                "body_linked": body_linked,
+                "body_id": body_id,
+                "latest_frame": latest,
+                "command": (
+                    "rosclaw practice run --robot d405_lab_01 "
+                    "--skill realsense_capture_rgbd --provider cosmos-reason2-lan "
+                    "--output-root ./episode"
+                ),
+            }
+
+        @self.app.get("/api/realsense/latest-frame")
+        async def api_realsense_latest_frame(data_root: str | None = None) -> dict[str, Any]:
+            return await _latest_frame_info(_practice_data_root(data_root))
 
         @self.app.websocket("/ws")
         async def websocket_endpoint(websocket: WebSocket) -> None:

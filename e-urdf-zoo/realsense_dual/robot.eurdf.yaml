@@ -1,0 +1,89 @@
+robot_id: realsense_dual
+name: Intel RealSense Dual Camera Rig (D405 + D435i)
+vendor: Intel
+version: "1.0"
+description: >
+  Perception-only camera rig combining a RealSense D405 close-range sensor
+  and a RealSense D435i wide-field sensor with IMU. No actuators.
+
+type: perception_only_camera_rig
+dof: 0
+
+identity:
+  robot_class: perception_only_camera
+
+links:
+  - name: rig_base
+    type: base
+    mass: 0.15
+  - name: d405_camera_link
+    type: base
+    mass: 0.058
+  - name: d435i_camera_link
+    type: base
+    mass: 0.072
+
+joints: []
+
+sensors:
+  - name: d405_color_camera
+    type: camera
+    parent_link: d405_camera_link
+    frame: d405_color_frame
+    role: close_range_rgb
+    parameters:
+      resolution: [1280, 720]
+      fps: 30
+      min_range_m: 0.05
+      max_range_m: 7.5
+      usb_profile: "USB3"
+  - name: d405_depth_camera
+    type: depth_camera
+    parent_link: d405_camera_link
+    frame: d405_depth_frame
+    role: close_range_depth
+    parameters:
+      resolution: [1280, 720]
+      fps: 30
+      min_range_m: 0.05
+      max_range_m: 7.5
+  - name: d435i_color_camera
+    type: camera
+    parent_link: d435i_camera_link
+    frame: d435i_color_frame
+    role: wide_field_rgb
+    parameters:
+      resolution: [1280, 720]
+      fps: 30
+      min_range_m: 0.1
+      max_range_m: 10.0
+  - name: d435i_depth_camera
+    type: depth_camera
+    parent_link: d435i_camera_link
+    frame: d435i_depth_frame
+    role: wide_field_depth
+    parameters:
+      resolution: [1280, 720]
+      fps: 30
+      min_range_m: 0.1
+      max_range_m: 10.0
+  - name: d435i_imu
+    type: imu
+    parent_link: d435i_camera_link
+    frame: d435i_imu_frame
+    parameters:
+      rate_hz: 200
+
+actuators: []
+
+metadata:
+  perception_only: true
+  no_actuation: true
+  recommended_mcps:
+    - librealsense-mcp
+    - realsense-ros-mcp
+  components:
+    - profile: realsense_d405
+      role: close_range
+    - profile: realsense_d435i
+      role: wide_field_and_imu

@@ -281,6 +281,56 @@ class KnowledgeInterface(LifecycleMixin):
         self._patterns.clear()
         self._initialized = False
 
+    def compile_task_card(
+        self,
+        task: str,
+        episode_id: str,
+        data_root: str | None = None,
+    ) -> dict[str, Any]:
+        """Compile a TaskCard for ``task`` grounded in a recorded episode.
+
+        The card combines the canonical task decomposition and capability
+        requirements with real episode evidence (event count, sources, outcome).
+        """
+        from rosclaw.practice.storage.layout import PracticeLayout
+
+        root = Path(data_root or "/data/rosclaw/practice")
+        layout = PracticeLayout(root)
+        session_dir = layout.session_dir(episode_id)
+
+        episode: dict[str, Any] = {}
+        if session_dir.exists():
+            episode_path = session_dir / "episode.json"
+            if episode_path.exists():
+                try:
+                    episode = json.loads(episode_path.read_text(encoding="utf-8"))
+                except Exception as exc:
+                    logger.warning("[Know] Failed to read episode.json: %s", exc)
+
+        events_path = layout.events_jsonl_path(episode_id)
+        events: list[dict[str, Any]] = []
+        if events_path.exists():
+            try:
+                with open(events_path, encoding="utf-8") as f:
+                    events = [json.loads(line) for line in f if line.strip()]
+            except Exception as exc:
+                logger.warning("[Know] Failed to read events.jsonl: %s", exc)
+
+        task_key = task.lower().strip()
+        return {
+            "schema_version": "rosclaw.task_card.v1",
+            "task": task,
+            "episode_id": episode_id,
+            "robot_id": episode.get("robot_id"),
+            "outcome": episode.get("outcome"),
+            "capabilities": self._TASK_CAPABILITY_REQUIREMENTS.get(task_key, []),
+            "steps": self._TASK_DECOMPOSITIONS.get(task_key, []),
+            "evidence": {
+                "event_count": len(events),
+                "sources": sorted({ev.get("source") for ev in events}),
+            },
+        }
+
     # -- EventBus handlers --
 
     def _on_provider_inference_requested(self, event: Event) -> None:

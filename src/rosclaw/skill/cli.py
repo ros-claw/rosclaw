@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from rosclaw.firstboot.workspace import resolve_home
+from rosclaw.skill.builtins import get_builtin_skill, list_builtin_skills
 from rosclaw.skill.eval import evaluate_skill
 from rosclaw.skill.mining import mine_skill_candidate
 from rosclaw.skill.models import SkillPackage, SkillRef
@@ -371,12 +372,98 @@ def cmd_skill_rollback(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_skill_search(args: argparse.Namespace) -> int:
+    """List builtin skills and local skill-hub packages."""
+    builtins = list_builtin_skills()
+    registry = SkillLocalRegistry()
+    local = registry.list_skills()
+    if args.json:
+        print(json.dumps({"builtin": builtins, "local": local}, indent=2, ensure_ascii=False))
+        return 0
+    print("[ROSClaw] Builtin skills")
+    for s in builtins:
+        print(f"  {s['name']:<30} {s.get('display_name', '')}")
+    print("[ROSClaw] Local skill-hub packages")
+    for s in local:
+        print(f"  {s.get('name', 'unknown')}")
+    return 0
+
+
+def cmd_skill_install(args: argparse.Namespace) -> int:
+    """Install a builtin skill reference into the local registry.
+
+    For builtin skills this is effectively a no-op registration; the skill
+    remains in-package and is executed from ``rosclaw.skill.builtins``.
+    """
+    name = args.name
+    entry = get_builtin_skill(name)
+    if entry is None:
+        print(f"[ROSClaw] Builtin skill not found: {name}")
+        print("[ROSClaw] Run `rosclaw skill search` to list available skills")
+        return 1
+
+    registry = SkillLocalRegistry()
+    data = {
+        "local_path": str(Path(__file__).parent / "builtins" / name),
+        "current_version": entry.version,
+        "current_stage": "installable",
+        "last_eval_report": None,
+        "builtin": True,
+    }
+    registry._data["skills"][name] = data
+    registry._save()
+    print(f"[ROSClaw] Installed builtin skill: {name}@{entry.version}")
+    return 0
+
+
+def cmd_skill_inspect(args: argparse.Namespace) -> int:
+    """Show details for a builtin or local skill."""
+    name = args.name
+    entry = get_builtin_skill(name)
+    if entry is not None:
+        info = {
+            "name": entry.name,
+            "description": entry.description,
+            "version": entry.version,
+            "skill_type": entry.skill_type,
+            "requirements": entry.requirements,
+            "metadata": entry.metadata,
+            "builtin": True,
+        }
+    else:
+        registry = SkillLocalRegistry()
+        local = {s.get("name"): s for s in registry.list_skills()}
+        if name not in local:
+            print(f"[ROSClaw] Skill not found: {name}")
+            return 1
+        info = {"name": name, "local": local[name]}
+    if args.json:
+        print(json.dumps(info, indent=2, ensure_ascii=False, default=str))
+    else:
+        print(json.dumps(info, indent=2, ensure_ascii=False, default=str))
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Argument helpers
 # ---------------------------------------------------------------------------
 
 
 def add_skill_hub_parsers(skill_subparsers: Any) -> None:
+    search_parser = skill_subparsers.add_parser("search", help="Search builtin and local skills")
+    search_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    search_parser.set_defaults(func=cmd_skill_search)
+
+    install_parser = skill_subparsers.add_parser("install", help="Install a builtin skill reference")
+    install_parser.add_argument("name", help="Skill name")
+    install_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    install_parser.set_defaults(func=cmd_skill_install)
+
+    inspect_parser = skill_subparsers.add_parser("inspect", help="Inspect a skill")
+    inspect_parser.add_argument("name", help="Skill name")
+    inspect_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    inspect_parser.set_defaults(func=cmd_skill_inspect)
+
     init_parser = skill_subparsers.add_parser("init", help="Create a local skill package skeleton")
     init_parser.add_argument("name", help="Skill name")
     init_parser.add_argument("--robot", default=None, help="Default robot")

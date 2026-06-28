@@ -1,0 +1,39 @@
+benchmark_version: "1.0"
+robot_id: realsense_dual
+
+kinematic_benchmarks: []
+dynamic_benchmarks: []
+
+task_benchmarks:
+  - id: dual_rgbd_capture_latency
+    name: Dual RGB-D Capture Latency
+    capability: aligned_rgbd
+    metric: latency_ms
+    target:
+      mean: 80
+      max: 200
+    unit: ms
+
+  - id: multi_view_fusion_latency
+    name: Multi-View Fusion Latency
+    capability: multi_view_fusion
+    metric: latency_ms
+    target:
+      max: 300
+    unit: ms
+
+safety_benchmarks:
+  - id: no_actuator_commands_allowed
+    name: No Actuator Commands Allowed
+    description: Sandbox must block all actuator action types.
+    expectation: BLOCK
+
+simulation_benchmarks:
+  preferred_engine: null
+  note: "Perception-only camera rig; simulation is optional."
+
+baseline_hardware:
+  vendor: Intel
+  model: "RealSense D405 + D435i"
+  min_usb: USB3
+  recommended_usb: USB3

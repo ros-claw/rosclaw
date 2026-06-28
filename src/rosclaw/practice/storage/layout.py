@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -65,12 +66,48 @@ class PracticeLayout:
     def events_jsonl_path(self, practice_id: str) -> Path:
         return self.raw_dir(practice_id) / "events.jsonl"
 
+    def timeline_jsonl_path(self, practice_id: str) -> Path:
+        return self.session_dir(practice_id) / "timeline.jsonl"
+
+    def episode_json_path(self, practice_id: str) -> Path:
+        return self.session_dir(practice_id) / "episode.json"
+
     def manifest_path(self, practice_id: str) -> Path:
         return self.session_dir(practice_id) / "manifest.yaml"
 
+    def artifacts_dir(self, practice_id: str) -> Path:
+        return self.session_dir(practice_id) / "artifacts"
+
+    def provider_dir(self, practice_id: str) -> Path:
+        return self.session_dir(practice_id) / "provider"
+
+    def sandbox_dir(self, practice_id: str) -> Path:
+        return self.session_dir(practice_id) / "sandbox"
+
+    def runtime_dir(self, practice_id: str) -> Path:
+        return self.session_dir(practice_id) / "runtime"
+
+    def metrics_dir(self, practice_id: str) -> Path:
+        return self.session_dir(practice_id) / "metrics"
+
     def create_session_dirs(self, practice_id: str) -> Path:
         session = self.session_dir(practice_id)
-        for sub in ("raw", "frames/rgb", "frames/depth", "derived", "exports", "replay", "reports", "index"):
+        for sub in (
+            "raw",
+            "frames/rgb",
+            "frames/depth",
+            "artifacts/frames",
+            "artifacts/skill",
+            "provider",
+            "sandbox",
+            "runtime",
+            "metrics",
+            "derived",
+            "exports",
+            "replay",
+            "reports",
+            "index",
+        ):
             (session / sub).mkdir(parents=True, exist_ok=True)
         return session
 
@@ -99,6 +136,14 @@ class PracticeLayout:
             "sources": sources or {},
             "artifacts": {
                 "events_jsonl": str(self.events_jsonl_path(session.practice_id)),
+                "timeline_jsonl": str(self.timeline_jsonl_path(session.practice_id)),
+                "episode_json": str(self.episode_json_path(session.practice_id)),
+                "frames": str(self.session_dir(session.practice_id) / "frames"),
+                "artifacts": str(self.artifacts_dir(session.practice_id)),
+                "provider": str(self.provider_dir(session.practice_id)),
+                "sandbox": str(self.sandbox_dir(session.practice_id)),
+                "runtime": str(self.runtime_dir(session.practice_id)),
+                "metrics": str(self.metrics_dir(session.practice_id)),
             },
             "seekdb": {
                 "enabled": seekdb_enabled,
@@ -135,6 +180,77 @@ class PracticeLayout:
         except Exception as e:
             logger.warning("Failed to read manifest %s: %s", path, e)
             return None
+
+    def write_episode_json(
+        self,
+        practice_id: str,
+        session: PracticeSession,
+        summary: PracticeSummary,
+        sources: dict[str, bool] | None = None,
+    ) -> None:
+        """Write a top-level episode.json summary for dashboards and exports."""
+        path = self.episode_json_path(practice_id)
+        payload: dict[str, Any] = {
+            "schema_version": "practice.episode.v1",
+            "practice_id": practice_id,
+            "session_id": session.session_id,
+            "robot_id": session.robot_id,
+            "robot_type": session.robot_type,
+            "task": {
+                "task_id": session.task_id,
+                "task_name": session.task_name,
+                "skill_id": session.skill_id,
+            },
+            "sources": sources or {},
+            "start_time": session.start_time_utc,
+            "end_time": _utc_now_iso() if summary else None,
+            "duration_ms": summary.duration_ms if summary else None,
+            "outcome": summary.outcome if summary else "UNKNOWN",
+            "reward": summary.reward if summary else None,
+            "event_count": summary.event_count if summary else 0,
+            "failure_labels": summary.failure_labels if summary else [],
+            "artifacts": {
+                "events_jsonl": str(self.events_jsonl_path(practice_id)),
+                "timeline_jsonl": str(self.timeline_jsonl_path(practice_id)),
+                "manifest": str(self.manifest_path(practice_id)),
+                "frames": str(self.session_dir(practice_id) / "frames"),
+                "artifacts": str(self.artifacts_dir(practice_id)),
+                "provider": str(self.provider_dir(practice_id)),
+                "sandbox": str(self.sandbox_dir(practice_id)),
+                "runtime": str(self.runtime_dir(practice_id)),
+                "metrics": str(self.metrics_dir(practice_id)),
+            },
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2, ensure_ascii=False)
+
+    def write_timeline_jsonl(self, practice_id: str, events: list[dict[str, Any]]) -> None:
+        """Write the ordered timeline JSONL derived from raw events."""
+        path = self.timeline_jsonl_path(practice_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            for ev in events:
+                f.write(json.dumps(ev, ensure_ascii=False) + "\n")
+
+    def finalize_session(
+        self,
+        practice_id: str,
+        session: PracticeSession,
+        summary: PracticeSummary,
+        sources: dict[str, bool] | None = None,
+    ) -> None:
+        """Write episode.json and timeline.jsonl from raw events."""
+        self.write_episode_json(practice_id, session, summary, sources=sources)
+        events: list[dict[str, Any]] = []
+        jsonl_path = self.events_jsonl_path(practice_id)
+        if jsonl_path.exists():
+            try:
+                with open(jsonl_path, encoding="utf-8") as f:
+                    events = [json.loads(line) for line in f if line.strip()]
+            except Exception as e:
+                logger.warning("Failed to read events for timeline %s: %s", practice_id, e)
+        self.write_timeline_jsonl(practice_id, events)
 
 
 def _utc_now_iso() -> str:

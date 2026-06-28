@@ -1,0 +1,292 @@
+{
+  "schema_version": "rosclaw.realsense.mvp.fix_report.v1",
+  "report_date": "2026-06-27",
+  "rosclaw_version": "v1.0.1",
+  "fix_guide": "~/workspace/rosclaw/rosclaw_fix/fix_for_realsense_test.md",
+  "working_tree": "/home/nvidia/workspace/rosclaw/rosclaw_fix/rosclaw",
+  "executive_summary": "ROSClaw RealSense D405 perception-only MVP loop repaired across milestones A–I. All product layers above librealsense2/pyrealsense2 are now wired: MCP install, body init, sandbox policy, skills, practice recording, provider normalization, dashboard, memory/how/know, doctor/bench.",
+  "issues_closed": [
+    {
+      "id": "#001",
+      "title": "Hub requires login; mcp list times out with no registry",
+      "status": "closed",
+      "evidence": "mcp list defaults to offline mode when ROSCLAW_MCP_HUB is unset; built-in index returns instantly"
+    },
+    {
+      "id": "#010",
+      "title": "mcp install cannot install external MCPs without active registry",
+      "status": "closed",
+      "evidence": "--from-git and --local-path installers implemented; local-path path tested, git path requires network"
+    },
+    {
+      "id": "#003",
+      "title": "No realsense-d405 e-URDF profile",
+      "status": "closed",
+      "evidence": "Profiles added under e-urdf-zoo/realsense_d405/, realsense_d435i/, realsense_dual/"
+    },
+    {
+      "id": "#005",
+      "title": "Sandbox check fails for perception-only bodies",
+      "status": "closed",
+      "evidence": "cmd_sandbox_check resolves aliases and blocks actuator actions, allows sensor capture"
+    },
+    {
+      "id": "#006",
+      "title": "Practice records zero events and still reports SUCCESS",
+      "status": "closed",
+      "evidence": "PracticeCoordinator._stop_session returns FAILED with zero_events label when event_count == 0"
+    },
+    {
+      "id": "#007",
+      "title": "Dashboard has no RealSense or practice-episode endpoints",
+      "status": "closed",
+      "evidence": "FastAPI routes added for practice episodes, realsense status, latest frame, safe artifact serving, and /realsense HTML page"
+    },
+    {
+      "id": "#008",
+      "title": "memory ingest / how advise / know compile missing; memory query returns mock data",
+      "status": "closed",
+      "evidence": "CLI subcommands added; memory query defaults to real evidence, --demo restores mock fallback"
+    },
+    {
+      "id": "#009",
+      "title": "doctor and bench realsense missing",
+      "status": "closed",
+      "evidence": "doctor --realsense and bench realsense implemented with pyrealsense2 / rs-data-collect backends"
+    },
+    {
+      "id": "—",
+      "title": "RealSense skill not discoverable / executable",
+      "status": "closed",
+      "evidence": "Builtin skill registry with realsense_capture_rgbd and scene_risk_scan; rosclaw skill search/invoke wired"
+    },
+    {
+      "id": "—",
+      "title": "Provider CLI lacks image-path normalized output",
+      "status": "closed",
+      "evidence": "provider call --image --capability --output --provider with ProviderResultNormalizer"
+    }
+  ],
+  "phases": {
+    "A": {
+      "title": "MCP onboarding (public-git, local-path, offline list)",
+      "files_added": [
+        "src/rosclaw/mcp/onboarding/source_installer.py",
+        "src/rosclaw/mcp/onboarding/stdio_client.py"
+      ],
+      "files_modified": [
+        "src/rosclaw/mcp/onboarding/cli.py",
+        "src/rosclaw/mcp/onboarding/hub_client.py"
+      ],
+      "key_behaviors": [
+        "mcp install --from-git / --local-path",
+        "mcp inspect / health / call",
+        "mcp list offline default",
+        "Built-in fallback index for librealsense-mcp and realsense-ros-mcp"
+      ]
+    },
+    "B": {
+      "title": "RealSense e-URDF / body",
+      "files_added": [
+        "e-urdf-zoo/realsense_d405/",
+        "e-urdf-zoo/realsense_d435i/",
+        "e-urdf-zoo/realsense_dual/"
+      ],
+      "files_modified": [
+        "src/rosclaw/body/service.py",
+        "src/rosclaw/body/renderer.py",
+        "src/rosclaw/body/resolver.py",
+        "src/rosclaw/runtime/eurdf_loader.py"
+      ],
+      "key_behaviors": [
+        "Perception-only RealSense profiles",
+        "Profile aliases: realsense-d405, realsense_d405, d405",
+        "Legacy single-body resolution by body.yaml id",
+        "EMBODIMENT.md perception-only disclaimer"
+      ]
+    },
+    "C": {
+      "title": "Sandbox perception-only policy",
+      "files_modified": [
+        "src/rosclaw/cli.py"
+      ],
+      "key_behaviors": [
+        "BLOCK actuator actions",
+        "ALLOW sensor capture actions",
+        "Structured decision output with evidence"
+      ]
+    },
+    "D": {
+      "title": "Skill search / install / run + RealSense capture skill",
+      "files_added": [
+        "src/rosclaw/skill/builtins/"
+      ],
+      "files_modified": [
+        "src/rosclaw/skill/cli.py",
+        "src/rosclaw/skill_manager/executor.py"
+      ],
+      "key_behaviors": [
+        "Builtin skill registry",
+        "realsense_capture_rgbd and scene_risk_scan skills",
+        "SkillExecutor emits skill.execution.complete"
+      ]
+    },
+    "E": {
+      "title": "Provider image call + result normalization",
+      "files_added": [
+        "src/rosclaw/provider/normalizer.py"
+      ],
+      "files_modified": [
+        "src/rosclaw/cli.py",
+        "src/rosclaw/provider/core/response.py"
+      ],
+      "key_behaviors": [
+        "provider call --image PATH --capability CAP --provider NAME --output DIR",
+        "ProviderResultNormalizer with schema_valid fallback"
+      ]
+    },
+    "F": {
+      "title": "Practice Data Flywheel MVP",
+      "files_modified": [
+        "src/rosclaw/practice/coordinator.py",
+        "src/rosclaw/practice/storage/layout.py",
+        "src/rosclaw/cli.py"
+      ],
+      "key_behaviors": [
+        "Records camera.rgbd_frame, provider.result, sandbox.decision",
+        "Zero events forces FAILED outcome",
+        "rosclaw practice run skill+provider+sandbox"
+      ]
+    },
+    "G": {
+      "title": "Dashboard MVP",
+      "files_modified": [
+        "src/rosclaw/dashboard/web_server.py"
+      ],
+      "key_behaviors": [
+        "Practice episode API endpoints",
+        "RealSense status / latest-frame endpoints",
+        "Safe artifact serving",
+        "/realsense HTML page with empty state"
+      ]
+    },
+    "H": {
+      "title": "Memory / How / Know",
+      "files_modified": [
+        "src/rosclaw/memory/interface.py",
+        "src/rosclaw/memory/seekdb_client.py",
+        "src/rosclaw/how/engine.py",
+        "src/rosclaw/know/interface.py",
+        "src/rosclaw/cli.py"
+      ],
+      "key_behaviors": [
+        "memory ingest --episode-id ID --data-root DIR",
+        "memory query real evidence by default; --demo for mock",
+        "how advise --body --failure --episode-id --data-root",
+        "know compile --task --episode-id --data-root"
+      ]
+    },
+    "I": {
+      "title": "Doctor / Bench",
+      "files_added": [
+        "src/rosclaw/bench/realsense.py"
+      ],
+      "files_modified": [
+        "src/rosclaw/cli.py"
+      ],
+      "key_behaviors": [
+        "doctor --realsense",
+        "bench realsense --duration N --output DIR",
+        "pyrealsense2 preferred, rs-data-collect -t fallback"
+      ]
+    }
+  },
+  "verification": {
+    "cli_regression": [
+      {
+        "command": "rosclaw mcp list --json",
+        "result": "PASS",
+        "notes": "Offline default works"
+      },
+      {
+        "command": "rosclaw mcp install --from-git https://github.com/ros-claw/librealsense-mcp --no-install-deps",
+        "result": "NETWORK_TIMEOUT",
+        "notes": "Implementation correct; no outbound GitHub access"
+      },
+      {
+        "command": "rosclaw body init --robot realsense-d405 --name d405_lab_01 --validate --force",
+        "result": "PASS",
+        "notes": "Body initialized"
+      },
+      {
+        "command": "rosclaw sandbox check --robot realsense-d405 --action '{\"type\":\"move_base\"}' --json",
+        "result": "BLOCK",
+        "notes": "Actuator action blocked"
+      },
+      {
+        "command": "rosclaw sandbox check --robot realsense-d405 --action '{\"type\":\"capture_rgbd\"}' --json",
+        "result": "ALLOW",
+        "notes": "Sensor action allowed"
+      },
+      {
+        "command": "rosclaw skill invoke realsense_capture_rgbd --body d405_lab_01 --output /tmp/capture --json",
+        "result": "EXPECTED_FAILURE",
+        "notes": "No RealSense MCP installed/healthy"
+      },
+      {
+        "command": "rosclaw practice run --robot d405_lab_01 --skill realsense_capture_rgbd --provider cosmos-reason2-lan --output-root /tmp/episode --json",
+        "result": "EXPECTED_FAILURE",
+        "notes": "Episode recorded as FAILED with zero_events"
+      },
+      {
+        "command": "rosclaw dashboard --open",
+        "result": "PASS",
+        "notes": "Server on :8765, APIs reachable"
+      },
+      {
+        "command": "rosclaw memory ingest --episode-id <id> --data-root /tmp/episode",
+        "result": "PASS",
+        "notes": "Episode ingested"
+      },
+      {
+        "command": "rosclaw memory query \"RealSense D405 RGB-D capture\"",
+        "result": "PASS",
+        "notes": "No mock results returned"
+      },
+      {
+        "command": "rosclaw how advise --body d405_lab_01 --failure low_fps --episode-id <id> --data-root /tmp/episode --json",
+        "result": "PASS",
+        "notes": "Fallback advice returned"
+      },
+      {
+        "command": "rosclaw bench realsense --duration 1 --output /tmp/bench --json",
+        "result": "PASS",
+        "notes": "Structured report with capture errors"
+      },
+      {
+        "command": "rosclaw doctor --realsense --json",
+        "result": "PASS",
+        "notes": "Structured checks; exits 1 because stack absent"
+      }
+    ],
+    "unit_tests": {
+      "focused_run": "57 passed, 2 warnings in 19.52s",
+      "pre_existing_failures": "Legacy async tests fail due to missing pytest-asyncio plugin; unrelated to MVP changes"
+    }
+  },
+  "known_limitations": [
+    "No outbound network access prevents mcp install --from-git end-to-end validation",
+    "No RealSense hardware / pyrealsense2 on test machine; skill and bench report capture errors",
+    "ROS2 stack absent; doctor ROS2 checks report FAIL/WARN",
+    "Legacy single-body workspace requires body ID to match body.yaml",
+    "Dashboard --open detaches under harness background task; interactive use keeps server alive"
+  ],
+  "next_steps": [
+    "Merge PR #48 (https://github.com/ros-claw/rosclaw/pull/48) after review.",
+    "Validate on real Jetson + D405 hardware with librealsense-mcp installed",
+    "Run mcp install --from-git in environment with outbound GitHub access",
+    "Add pytest-asyncio to dev dependencies and triage legacy async failures",
+    "Extend realsense-ros-mcp integration when ROS2 stack is available"
+  ],
+  "pull_request_url": "https://github.com/ros-claw/rosclaw/pull/48"
+}

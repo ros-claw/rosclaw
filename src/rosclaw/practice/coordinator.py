@@ -189,9 +189,14 @@ class PracticeCoordinator(LifecycleMixin):
         if self._session is not None:
             duration_ms = (time.monotonic_ns() - self._session.start_time_ns) / 1_000_000.0
 
-        outcome = "SUCCESS"
-        reward = 0.0
-        failure_labels: list[str] = []
+        if self._event_count == 0:
+            outcome = "FAILED"
+            reward = 0.0
+            failure_labels = ["zero_events"]
+        else:
+            outcome = "SUCCESS"
+            reward = 0.0
+            failure_labels = []
 
         self._summary = PracticeSummary(
             practice_id=self._session.practice_id if self._session else "unknown",
@@ -224,6 +229,12 @@ class PracticeCoordinator(LifecycleMixin):
                 summary=self._summary,
                 sources=self._sources_dict(),
                 seekdb_enabled=bool(self.config.seekdb.url),
+            )
+            self.layout.finalize_session(
+                self._session.practice_id,
+                self._session,
+                self._summary,
+                sources=self._sources_dict(),
             )
 
         if self.config.publish_to_event_bus and self._session is not None:

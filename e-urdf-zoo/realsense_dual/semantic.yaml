@@ -1,0 +1,35 @@
+semantic_version: "1.0"
+robot_id: realsense_dual
+semantic_tags:
+  - camera
+  - depth_camera
+  - realsense
+  - d405
+  - d435i
+  - perception_only
+  - sensor
+  - rig
+  - multi_view
+
+functional_regions:
+  - id: d405_close_range_field
+    frame: d405_camera_link
+    description: Close-range depth field from the D405.
+  - id: d435i_wide_field
+    frame: d435i_camera_link
+    description: Wide-field depth and color from the D435i.
+
+visual_features:
+  - id: d405_depth_sensor
+    type: sensor
+    frame: d405_depth_frame
+  - id: d435i_depth_sensor
+    type: sensor
+    frame: d435i_depth_frame
+  - id: d435i_imu_sensor
+    type: sensor
+    frame: d435i_imu_frame
+
+task_descriptions:
+  capture_rgbd: "Capture aligned RGB-D frames from both RealSense cameras."
+  multi_view_inspection: "Combine close-range and wide-field views for inspection."

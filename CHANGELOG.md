@@ -45,6 +45,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New tests: `tests/eurdf/`, `tests/body/test_body_init_from_zoo.py`, and
     `tests/body/test_dexhand_agent_safety.py`.
 
+- **RealSense D405 perception-only MVP (PR #48)**
+  - `rosclaw bench realsense` command with device discovery, snapshot capture,
+    and `RSDataCollector` / `CameraEvidence` parsing.
+  - `realsense_capture_rgbd` builtin skill that routes to an installed
+    RealSense MCP server (`capture_aligned_rgbd`, `capture_color_image`,
+    `capture_frames`) and persists artifacts to an output directory.
+  - `scene_risk_scan` perception-only builtin skill placeholder.
+  - `rosclaw mcp` onboarding helpers: `source_installer`, `hub_client`, and
+    `stdio_client` health/tool-call utilities.
+  - Perception-only e-URDF-Zoo fixtures under `e-urdf-zoo/realsense_d405/`,
+    `realsense_d435i/`, and `realsense_dual/`.
+  - Dashboard practice, memory, and provider-image APIs wired to RealSense
+    evidence paths.
+  - Extensive unit-test coverage under `tests/test_*realsense*.py` and
+    `tests/test_bench_realsense_rs_data_collect_parser.py`.
+
 ### Changed
 
 - `SkillExecutor._check_body_compatibility()` is now **fail-closed**: resolver

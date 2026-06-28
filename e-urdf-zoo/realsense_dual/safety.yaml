@@ -1,0 +1,33 @@
+safety_level: STRICT
+
+workspace_boundaries:
+  type: bounding_box
+  center: [0, 0, 0]
+  dimensions: [0, 0, 0]
+  note: "Workspace is defined by the combined camera frusta."
+
+interaction:
+  protective_stop_on_contact: false
+  speed_slider_max: 0.0
+
+environment:
+  ambient_temp_min: 0.0
+  ambient_temp_max: 35.0
+  humidity_max: 80.0
+  ip_rating: IP54
+  perception_only: true
+  no_actuation: true
+  real_robot_execution_allowed: true
+  forbidden_actions:
+    - move_base
+    - cmd_vel
+    - joint_trajectory
+    - gripper_command
+    - actuator_write
+    - ros_topic_pub:/cmd_vel
+    - ros_service_call:/controller_manager/switch_controller
+
+safety_limits:
+  velocity_limits: {}
+  force_limits: {}
+  workspace: {type: frustum, sources: [d405_depth_camera, d435i_depth_camera]}

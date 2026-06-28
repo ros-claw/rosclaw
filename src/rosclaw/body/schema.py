@@ -39,6 +39,7 @@ class EurdfProfile:
     safety: dict[str, Any] = field(default_factory=dict)
     provider_interfaces: dict[str, Any] = field(default_factory=dict)
     sandbox: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_robot_complete_profile(cls, profile: RobotCompleteProfile) -> EurdfProfile:
@@ -51,7 +52,7 @@ class EurdfProfile:
         capability_hints: dict[str, list[str]] = {}
         if capability.capabilities:
             capability_hints["all"] = sorted(
-                {c.get("name", "") for c in capability.capabilities if c.get("name")}
+                {c.get("id") or c.get("name", "") for c in capability.capabilities if c.get("id") or c.get("name")}
             )
 
         forbidden_capabilities: list[dict[str, Any]] = []
@@ -69,6 +70,13 @@ class EurdfProfile:
         if simulation.backends:
             sandbox["preferred_engine"] = next(iter(simulation.backends.keys()))
 
+        robot_class = _infer_robot_class(
+            profile.robot_id, embodiment.dof, capability.capabilities
+        )
+        identity = getattr(profile, "identity", {}) or {}
+        if identity.get("robot_class"):
+            robot_class = identity["robot_class"]
+
         return cls(
             profile_id=profile.robot_id,
             profile_version=str(profile.version),
@@ -78,9 +86,8 @@ class EurdfProfile:
             description=profile.description.strip(),
             assets={"urdf": "robot.urdf", "mjcf": "robot.mjcf.xml"},
             identity={
-                "robot_class": _infer_robot_class(
-                    profile.robot_id, embodiment.dof, capability.capabilities
-                ),
+                "robot_class": robot_class,
+                **{k: v for k, v in identity.items() if k != "robot_class"},
             },
             frames={"root": "base_link", "world": "world"},
             joints=embodiment.joints,
@@ -101,6 +108,7 @@ class EurdfProfile:
             },
             provider_interfaces=provider_interfaces,
             sandbox=sandbox,
+            metadata=embodiment.metadata or {},
         )
 
     def to_dict(self) -> dict[str, Any]:

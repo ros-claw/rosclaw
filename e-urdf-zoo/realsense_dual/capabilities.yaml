@@ -1,0 +1,57 @@
+capability_version: "1.0"
+robot_id: realsense_dual
+capabilities:
+  - id: rgb_stream
+    name: RGB Stream
+    category: perception
+    description: Stream color images from both RealSense cameras.
+    skill_type: programmed
+    required_sensors: [d405_color_camera, d435i_color_camera]
+
+  - id: depth_stream
+    name: Depth Stream
+    category: perception
+    description: Stream depth images from both RealSense depth sensors.
+    skill_type: programmed
+    required_sensors: [d405_depth_camera, d435i_depth_camera]
+
+  - id: aligned_rgbd
+    name: Aligned RGB-D
+    category: perception
+    description: Capture aligned RGB-D frames from each sensor.
+    skill_type: programmed
+    required_sensors: [d405_color_camera, d405_depth_camera, d435i_color_camera, d435i_depth_camera]
+
+  - id: pointcloud
+    name: Point Cloud
+    category: perception
+    description: Generate point clouds from each depth sensor.
+    skill_type: programmed
+    required_sensors: [d405_depth_camera, d435i_depth_camera]
+
+  - id: imu_read
+    name: IMU Read
+    category: perception
+    description: Read IMU data from the D435i.
+    skill_type: programmed
+    required_sensors: [d435i_imu]
+
+  - id: multi_view_fusion
+    name: Multi-View Fusion
+    category: perception
+    description: Fuse close-range and wide-field depth into a combined view.
+    skill_type: learned
+    required_sensors: [d405_depth_camera, d435i_depth_camera]
+
+skill_registry:
+  forbidden_capabilities:
+    - id: move_base
+      reason: "Rig has no locomotion actuators."
+    - id: cmd_vel
+      reason: "Rig has no locomotion actuators."
+    - id: joint_trajectory
+      reason: "Rig has no joints or actuators."
+    - id: gripper_command
+      reason: "Rig has no gripper."
+    - id: actuator_write
+      reason: "Rig has no actuators."

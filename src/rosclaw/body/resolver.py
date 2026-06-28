@@ -51,6 +51,16 @@ class BodyResolver:
             normalized = body_id.strip().lower()
             entry = registry.bodies.get(normalized)
             if entry is None:
+                # Fallback: legacy single-body workspace whose body.yaml id matches.
+                if has_legacy:
+                    body_yaml_path = self.workspace / "body" / "body.yaml"
+                    try:
+                        body_data = yaml.safe_load(body_yaml_path.read_text(encoding="utf-8"))
+                        legacy_id = (body_data.get("body_instance", {}).get("id") or "").strip().lower()
+                        if legacy_id == normalized:
+                            return body_id, self.workspace / "body", True
+                    except Exception:
+                        pass
                 raise BodyRegistryError(f"Body not found: {body_id}")
             if entry.path == "body":
                 return entry.body_id, self.workspace / "body", not has_registry
@@ -262,6 +272,11 @@ class BodyResolver:
         for path in candidates:
             if path.exists():
                 return SkillManifest.from_yaml(path)
+        # Builtin skill manifests shipped with rosclaw.
+        builtin_dir = Path(__file__).parent.parent / "skill" / "builtins" / skill_id
+        builtin_manifest = builtin_dir / "skill.yaml"
+        if builtin_manifest.exists():
+            return SkillManifest.from_yaml(builtin_manifest)
         return None
 
     def refresh_all_artifacts(
@@ -386,12 +401,17 @@ class BodyResolver:
 
     def _discover_skill_manifests(self) -> list[SkillManifest]:
         skills_dir = self.workspace / "skills"
-        if not skills_dir.exists():
-            return []
         manifests: list[SkillManifest] = []
-        for path in skills_dir.rglob("*.skill.yaml"):
-            with contextlib.suppress(Exception):
-                manifests.append(SkillManifest.from_yaml(path))
+        if skills_dir.exists():
+            for path in skills_dir.rglob("*.skill.yaml"):
+                with contextlib.suppress(Exception):
+                    manifests.append(SkillManifest.from_yaml(path))
+        # Always include builtin skill manifests shipped with rosclaw.
+        builtin_dir = Path(__file__).parent.parent / "skill" / "builtins"
+        if builtin_dir.exists():
+            for path in builtin_dir.rglob("*/skill.yaml"):
+                with contextlib.suppress(Exception):
+                    manifests.append(SkillManifest.from_yaml(path))
         return manifests
 
     def update_body_yaml(self, patch: dict[str, Any]) -> BodyYaml:

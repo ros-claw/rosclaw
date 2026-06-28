@@ -1,0 +1,57 @@
+capability_version: "1.0"
+robot_id: realsense_d435i
+capabilities:
+  - id: rgb_stream
+    name: RGB Stream
+    category: perception
+    description: Stream color images from the RealSense color camera.
+    skill_type: programmed
+    required_sensors: [color_camera]
+
+  - id: depth_stream
+    name: Depth Stream
+    category: perception
+    description: Stream depth images from the RealSense depth sensor.
+    skill_type: programmed
+    required_sensors: [depth_camera]
+
+  - id: aligned_rgbd
+    name: Aligned RGB-D
+    category: perception
+    description: Capture temporally aligned color and depth frames.
+    skill_type: programmed
+    required_sensors: [color_camera, depth_camera]
+
+  - id: pointcloud
+    name: Point Cloud
+    category: perception
+    description: Generate an organized point cloud from depth.
+    skill_type: programmed
+    required_sensors: [depth_camera]
+
+  - id: imu_read
+    name: IMU Read
+    category: perception
+    description: Read gyroscope and accelerometer data from the integrated IMU.
+    skill_type: programmed
+    required_sensors: [imu]
+
+  - id: visual_inertial_odometry
+    name: Visual-Inertial Odometry
+    category: perception
+    description: Fuse RGB and IMU data for ego-motion estimation.
+    skill_type: learned
+    required_sensors: [color_camera, imu]
+
+skill_registry:
+  forbidden_capabilities:
+    - id: move_base
+      reason: "Device has no locomotion actuators."
+    - id: cmd_vel
+      reason: "Device has no locomotion actuators."
+    - id: joint_trajectory
+      reason: "Device has no joints or actuators."
+    - id: gripper_command
+      reason: "Device has no gripper."
+    - id: actuator_write
+      reason: "Device has no actuators."

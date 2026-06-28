@@ -1,0 +1,87 @@
+robot_id: realsense_d435i
+name: Intel RealSense D435i
+vendor: Intel
+version: "1.0"
+description: >
+  Intel RealSense D435i depth camera with integrated IMU.
+  Perception-only device with no actuators.
+
+type: perception_only_camera
+dof: 0
+
+identity:
+  robot_class: perception_only_camera
+
+links:
+  - name: camera_link
+    type: base
+    mass: 0.072
+  - name: color_frame
+    type: optical_frame
+    mass: 0.0
+  - name: depth_frame
+    type: optical_frame
+    mass: 0.0
+  - name: aligned_depth_frame
+    type: optical_frame
+    mass: 0.0
+  - name: imu_frame
+    type: inertial_frame
+    mass: 0.0
+
+joints: []
+
+sensors:
+  - name: color_camera
+    type: camera
+    parent_link: camera_link
+    frame: color_frame
+    parameters:
+      resolution: [1280, 720]
+      fps: 30
+      fov_horizontal: 87
+      fov_vertical: 58
+      usb_profile: "USB3"
+  - name: depth_camera
+    type: depth_camera
+    parent_link: camera_link
+    frame: depth_frame
+    parameters:
+      resolution: [1280, 720]
+      fps: 30
+      min_range_m: 0.1
+      max_range_m: 10.0
+      usb_profile: "USB3"
+  - name: aligned_depth
+    type: aligned_rgbd
+    parent_link: camera_link
+    frame: aligned_depth_frame
+    parameters:
+      color_resolution: [1280, 720]
+      depth_resolution: [1280, 720]
+      align_depth_to_color: true
+  - name: pointcloud
+    type: pointcloud
+    parent_link: camera_link
+    frame: camera_link
+    parameters:
+      source: "depth_camera"
+      organized: true
+  - name: imu
+    type: imu
+    parent_link: camera_link
+    frame: imu_frame
+    parameters:
+      rate_hz: 200
+      angular_velocity: true
+      linear_acceleration: true
+      orientation: false
+
+actuators: []
+
+metadata:
+  perception_only: true
+  no_actuation: true
+  recommended_mcps:
+    - librealsense-mcp
+    - realsense-ros-mcp

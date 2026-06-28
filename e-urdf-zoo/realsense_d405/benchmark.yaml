@@ -1,0 +1,39 @@
+benchmark_version: "1.0"
+robot_id: realsense_d405
+
+kinematic_benchmarks: []
+dynamic_benchmarks: []
+
+task_benchmarks:
+  - id: rgbd_capture_latency
+    name: RGB-D Capture Latency
+    capability: aligned_rgbd
+    metric: latency_ms
+    target:
+      mean: 50
+      max: 150
+    unit: ms
+
+  - id: depth_accuracy_close_range
+    name: Close-Range Depth Accuracy
+    capability: close_range_inspection
+    metric: rmse_m
+    target:
+      max: 0.01
+    unit: m
+
+safety_benchmarks:
+  - id: no_actuator_commands_allowed
+    name: No Actuator Commands Allowed
+    description: Sandbox must block all actuator action types.
+    expectation: BLOCK
+
+simulation_benchmarks:
+  preferred_engine: null
+  note: "Perception-only camera; simulation is optional and not required for operation."
+
+baseline_hardware:
+  vendor: Intel
+  model: RealSense D405
+  min_usb: USB2
+  recommended_usb: USB3

@@ -152,8 +152,9 @@ class SkillExecutor(LifecycleMixin):
             try:
                 handler_result = skill.handler(params)
                 result["handler_result"] = handler_result
-                result["status"] = "success"
-                self.registry.update_stats(skill_name, success=True)
+                handler_status = handler_result.get("status") if isinstance(handler_result, dict) else None
+                result["status"] = handler_status if handler_status in ("success", "error", "blocked", "degraded") else "success"
+                self.registry.update_stats(skill_name, success=(result["status"] == "success"))
             except Exception as e:
                 result["status"] = "error"
                 result["error"] = str(e)

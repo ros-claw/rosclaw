@@ -1,0 +1,68 @@
+capability_version: "1.0"
+robot_id: realsense_d405
+capabilities:
+  - id: rgb_stream
+    name: RGB Stream
+    category: perception
+    description: Stream color images from the RealSense color camera.
+    skill_type: programmed
+    inputs:
+      - {name: resolution, type: list, default: [1280, 720]}
+      - {name: fps, type: int, default: 30}
+    constraints: {usb_min: "USB2"}
+    required_sensors: [color_camera]
+
+  - id: depth_stream
+    name: Depth Stream
+    category: perception
+    description: Stream depth images from the RealSense depth sensor.
+    skill_type: programmed
+    inputs:
+      - {name: resolution, type: list, default: [1280, 720]}
+      - {name: fps, type: int, default: 30}
+    constraints: {min_range_m: 0.05, max_range_m: 7.5}
+    required_sensors: [depth_camera]
+
+  - id: aligned_rgbd
+    name: Aligned RGB-D
+    category: perception
+    description: Capture temporally aligned color and depth frames.
+    skill_type: programmed
+    inputs:
+      - {name: resolution, type: list, default: [1280, 720]}
+      - {name: fps, type: int, default: 30}
+    constraints: {align_depth_to_color: true}
+    required_sensors: [color_camera, depth_camera]
+
+  - id: pointcloud
+    name: Point Cloud
+    category: perception
+    description: Generate an organized point cloud from depth.
+    skill_type: programmed
+    inputs:
+      - {name: organized, type: bool, default: true}
+    required_sensors: [depth_camera]
+
+  - id: close_range_inspection
+    name: Close-Range Inspection
+    category: perception
+    description: Inspect objects at 5 cm to 50 cm using the D405 close-range optics.
+    skill_type: programmed
+    inputs:
+      - {name: min_distance_m, type: float, default: 0.05}
+      - {name: max_distance_m, type: float, default: 0.5}
+    constraints: {min_range_m: 0.05}
+    required_sensors: [color_camera, depth_camera]
+
+skill_registry:
+  forbidden_capabilities:
+    - id: move_base
+      reason: "Device has no locomotion actuators."
+    - id: cmd_vel
+      reason: "Device has no locomotion actuators."
+    - id: joint_trajectory
+      reason: "Device has no joints or actuators."
+    - id: gripper_command
+      reason: "Device has no gripper."
+    - id: actuator_write
+      reason: "Device has no actuators."

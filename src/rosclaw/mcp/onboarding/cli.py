@@ -1,17 +1,21 @@
 """Hardware MCP onboarding CLI commands.
 
-Implements ``rosclaw mcp install``, ``rosclaw mcp list``, and
-``rosclaw mcp health`` on top of the onboarding engine.
+Implements ``rosclaw mcp install``, ``rosclaw mcp list``,
+``rosclaw mcp health``, ``rosclaw mcp inspect``, and ``rosclaw mcp call``
+on top of the onboarding engine.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
+
+from rosclaw.mcp.onboarding import source_installer, stdio_client
 
 
 def _project_root(args: argparse.Namespace) -> Path:
@@ -23,12 +27,27 @@ def _print_json(data: dict[str, Any] | list[Any]) -> None:
 
 
 def add_mcp_subparser(mcp_subparsers: Any) -> None:
-    """Register ``install``, ``list``, and ``health`` under ``rosclaw mcp``."""
+    """Register ``install``, ``list``, ``health``, ``inspect``, and ``call`` under ``rosclaw mcp``."""
     install_parser = mcp_subparsers.add_parser(
         "install", help="Install/register a Hardware MCP server"
     )
-    install_parser.add_argument("alias", help="Short name, alias, or canonical manifest ID")
+    install_parser.add_argument("alias", nargs="?", default=None, help="Short name, alias, or canonical manifest ID")
     install_parser.add_argument("--version", default=None, help="Exact version to install")
+    install_parser.add_argument(
+        "--from-git", dest="from_git", default=None, help="Install from a public git URL"
+    )
+    install_parser.add_argument(
+        "--local-path", dest="local_path", default=None, help="Install from a local directory path"
+    )
+    install_parser.add_argument(
+        "--python", dest="python", default=None, help="Python interpreter to use for dependency installation"
+    )
+    install_parser.add_argument(
+        "--venv", dest="venv", default=None, help="Path to a virtualenv to use for the server"
+    )
+    install_parser.add_argument(
+        "--no-install-deps", dest="no_install_deps", action="store_true", help="Skip dependency installation"
+    )
     install_parser.add_argument(
         "--dry-run", action="store_true", help="Show plan without writing files"
     )
@@ -86,6 +105,26 @@ def add_mcp_subparser(mcp_subparsers: Any) -> None:
     health_parser.add_argument("--project-root", default=".", help="Project root path")
     health_parser.set_defaults(func=lambda args: dispatch_mcp_health(args))
 
+    inspect_parser = mcp_subparsers.add_parser(
+        "inspect", help="Show details for an installed MCP server"
+    )
+    inspect_parser.add_argument("server_name", help="Installed server name")
+    inspect_parser.add_argument("--json", action="store_true", help="Output structured JSON")
+    inspect_parser.add_argument("--project-root", default=".", help="Project root path")
+    inspect_parser.set_defaults(func=lambda args: dispatch_mcp_inspect(args))
+
+    call_parser = mcp_subparsers.add_parser(
+        "call", help="Call a tool on an installed MCP server"
+    )
+    call_parser.add_argument("server_name", help="Installed server name")
+    call_parser.add_argument("tool_name", help="Tool name to call")
+    call_parser.add_argument(
+        "--args", dest="tool_args", default="{}", help="JSON-encoded tool arguments"
+    )
+    call_parser.add_argument("--json", action="store_true", help="Output structured JSON")
+    call_parser.add_argument("--project-root", default=".", help="Project root path")
+    call_parser.set_defaults(func=lambda args: dispatch_mcp_call(args))
+
 
 def dispatch_mcp_command(args: argparse.Namespace) -> int:
     """Dispatch ``rosclaw mcp <subcommand>``.
@@ -106,6 +145,84 @@ def dispatch_mcp_install(args: argparse.Namespace) -> int:
     """Handle ``rosclaw mcp install``."""
     from rosclaw.mcp.onboarding.errors import OnboardingError
     from rosclaw.mcp.onboarding.installer import InstallEngine
+
+    # Source-based installs bypass the package registry.
+    if args.from_git or args.local_path:
+        if args.dry_run:
+            plan = {
+                "source_type": "git" if args.from_git else "local_path",
+                "source_url": args.from_git or args.local_path,
+                "server_name": args.alias or source_installer._default_name(
+                    args.from_git or args.local_path
+                ),
+                "python": _resolve_python(args),
+                "install_deps": not args.no_install_deps,
+                "dry_run": True,
+            }
+            if args.json:
+                _print_json(plan)
+            else:
+                print("=" * 60)
+                print("Hardware MCP Source Install Plan")
+                print("=" * 60)
+                for key, value in plan.items():
+                    print(f"{key:20} {value}")
+                print("-" * 60)
+                print("Dry run: no changes will be written.")
+                print("=" * 60)
+            return 0
+
+        try:
+            if args.from_git:
+                result = source_installer.install_from_git(
+                    url=args.from_git,
+                    server_name=args.alias,
+                    python=_resolve_python(args),
+                    no_install_deps=args.no_install_deps,
+                )
+            else:
+                result = source_installer.install_from_local_path(
+                    path=Path(args.local_path),
+                    server_name=args.alias,
+                    python=_resolve_python(args),
+                    no_install_deps=args.no_install_deps,
+                )
+        except Exception as exc:  # noqa: BLE001
+            print(f"[ROSClaw MCP] ❌ Source install failed: {exc}", file=sys.stderr)
+            return 1
+
+        if args.json:
+            _print_json(result.to_dict())
+            return 0 if result.success else 1
+
+        print("=" * 60)
+        print("Hardware MCP Source Installation")
+        print("=" * 60)
+        print(f"Server name:  {result.server_name}")
+        print(f"Manifest:     {result.manifest_id}")
+        print(f"Version:      {result.version}")
+        print(f"Source:       {result.source_url}")
+        print(f"Local path:   {result.local_path}")
+        if result.commit:
+            print(f"Commit:       {result.commit}")
+        print(f"Runtime:      {result.runtime_config_path}")
+        print(f"Status:       {'installed' if result.success else 'failed'}")
+        if result.errors:
+            for error in result.errors:
+                print(f"  • {error}")
+        print("=" * 60)
+        return 0 if result.success else 1
+
+    if not args.alias:
+        print(
+            "[ROSClaw MCP] ❌ An alias or manifest ID is required for registry installs.",
+            file=sys.stderr,
+        )
+        print(
+            "Hint: use --from-git URL or --local-path PATH to install from source.",
+            file=sys.stderr,
+        )
+        return 1
 
     engine = InstallEngine(project_root=_project_root(args))
 
@@ -206,6 +323,23 @@ def dispatch_mcp_install(args: argparse.Namespace) -> int:
     return 1
 
 
+def _resolve_python(args: argparse.Namespace) -> str | None:
+    """Return the effective Python interpreter for source installs."""
+    if args.venv:
+        venv_python = Path(args.venv) / "bin" / "python"
+        if venv_python.exists():
+            return str(venv_python)
+        # Also allow a Windows Scripts directory if present.
+        venv_python_win = Path(args.venv) / "Scripts" / "python.exe"
+        if venv_python_win.exists():
+            return str(venv_python_win)
+        print(
+            f"[ROSClaw MCP] ⚠️  Venv not found at {args.venv}; falling back to system Python.",
+            file=sys.stderr,
+        )
+    return args.python
+
+
 def dispatch_mcp_list(args: argparse.Namespace) -> int:
     """Handle ``rosclaw mcp list``."""
     from rosclaw.mcp.onboarding.hub_client import HubClient
@@ -216,6 +350,10 @@ def dispatch_mcp_list(args: argparse.Namespace) -> int:
 
     show_installed = not args.available or args.installed
     show_available = not args.installed or args.available
+
+    # Avoid remote network timeouts when no registry is explicitly configured.
+    # Users can still set ROSCLAW_MCP_HUB or pass --online to fetch remote index.
+    offline = args.offline or not os.environ.get("ROSCLAW_MCP_HUB")
 
     # Build installed entries.
     installed_entries: list[dict[str, Any]] = []
@@ -232,12 +370,14 @@ def dispatch_mcp_list(args: argparse.Namespace) -> int:
             "artifact_type": record.artifact_type,
             "status": record.status,
             "bound": bound,
+            "source_type": record.extra.get("source_type"),
+            "source_url": record.extra.get("source_url"),
         }
         if args.type_filter is None:
             installed_entries.append(entry)
         else:
             try:
-                hub = HubClient(offline=args.offline)
+                hub = HubClient(offline=offline)
                 manifest = hub.fetch_manifest(record.manifest_id, record.version)
                 hw_type = manifest.hardware.type if manifest.hardware else None
             except Exception:  # noqa: BLE001
@@ -247,40 +387,46 @@ def dispatch_mcp_list(args: argparse.Namespace) -> int:
 
     # Build available entries.
     available_entries: list[dict[str, Any]] = []
+    hub_error: str | None = None
     if show_available:
-        hub = HubClient(offline=args.offline)
-        index = hub.fetch_index()
-        installed_ids = {r.manifest_id for r in installed}
-        for manifest_id, meta in index.items():
-            if manifest_id in installed_ids:
-                continue
-            try:
-                manifest = hub.fetch_manifest(manifest_id)
-            except Exception:  # noqa: BLE001
-                continue
-            if args.type_filter:
-                hw_type = manifest.hardware.type if manifest.hardware else None
-                if hw_type != args.type_filter:
+        try:
+            hub = HubClient(offline=offline)
+            index = hub.fetch_index()
+            installed_ids = {r.manifest_id for r in installed}
+            for manifest_id, meta in index.items():
+                if manifest_id in installed_ids:
                     continue
-            available_entries.append(
-                {
-                    "manifest_id": manifest_id,
-                    "name": manifest.name,
-                    "display_name": manifest.display_name,
-                    "version": manifest.version,
-                    "description": manifest.description,
-                    "hardware_type": manifest.hardware.type if manifest.hardware else None,
-                    "versions": [v.get("version") for v in meta.get("versions", [])],
-                }
-            )
+                try:
+                    manifest = hub.fetch_manifest(manifest_id)
+                except Exception:  # noqa: BLE001
+                    continue
+                if args.type_filter:
+                    hw_type = manifest.hardware.type if manifest.hardware else None
+                    if hw_type != args.type_filter:
+                        continue
+                available_entries.append(
+                    {
+                        "manifest_id": manifest_id,
+                        "name": manifest.name,
+                        "display_name": manifest.display_name,
+                        "version": manifest.version,
+                        "description": manifest.description,
+                        "hardware_type": manifest.hardware.type if manifest.hardware else None,
+                        "versions": [v.get("version") for v in meta.get("versions", [])],
+                    }
+                )
+        except Exception as exc:  # noqa: BLE001
+            hub_error = str(exc)
+            available_entries = []
 
     if args.json:
-        _print_json(
-            {
-                "installed": installed_entries,
-                "available": available_entries,
-            }
-        )
+        payload: dict[str, Any] = {
+            "installed": installed_entries,
+            "available": available_entries,
+        }
+        if hub_error:
+            payload["available_error"] = hub_error
+        _print_json(payload)
         return 0
 
     print("=" * 60)
@@ -292,12 +438,13 @@ def dispatch_mcp_list(args: argparse.Namespace) -> int:
         if installed_entries:
             for entry in installed_entries:
                 bound_marker = "bound" if entry["bound"] else "unbound"
+                source_marker = f" ({entry.get('source_type')})" if entry.get("source_type") else ""
                 print(
                     f"  {entry['server_name']:20} "
                     f"{entry['manifest_id']:40} "
                     f"{entry['version']:10} "
                     f"{entry['artifact_type']:10} "
-                    f"{bound_marker}"
+                    f"{bound_marker}{source_marker}"
                 )
         else:
             print("  (none)")
@@ -314,6 +461,14 @@ def dispatch_mcp_list(args: argparse.Namespace) -> int:
                 )
                 if entry.get("description"):
                     print(f"    {entry['description']}")
+        elif hub_error:
+            print(
+                f"  (registry unavailable: {hub_error})"
+            )
+            print(
+                "  Hint: install from source with "
+                "rosclaw mcp install --from-git <url>"
+            )
         else:
             print("  (none)")
 
@@ -324,36 +479,135 @@ def dispatch_mcp_list(args: argparse.Namespace) -> int:
 def dispatch_mcp_health(args: argparse.Namespace) -> int:
     """Handle ``rosclaw mcp health``."""
     from rosclaw.mcp.onboarding.health import HealthRunner
+    from rosclaw.mcp.onboarding.installed import InstalledRegistry
 
-    runner = HealthRunner()
+    registry = InstalledRegistry()
+
+    def _check_server(server_name: str) -> dict[str, Any]:
+        record = registry.get(server_name)
+        source_type = record.extra.get("source_type") if record else None
+        if source_type in ("git", "local_path"):
+            return stdio_client.health_smoke(server_name, timeout=10.0)
+        runner = HealthRunner()
+        report = runner.check(server_name, full=args.full)
+        return {
+            "server_name": report.server_name,
+            "overall": report.overall,
+            "manifest_id": report.manifest_id,
+            "version": report.version,
+            "checks": [c.to_dict() for c in report.checks],
+            "skipped": report.skipped,
+        }
 
     try:
         if args.server_name:
-            reports = [runner.check(args.server_name, full=args.full)]
+            reports = [_check_server(args.server_name)]
         else:
-            reports = runner.check_all(full=args.full)
+            reports = [_check_server(r.server_name) for r in registry.list()]
     except Exception as exc:  # noqa: BLE001
         print(f"[ROSClaw MCP] ❌ Health check failed: {exc}", file=sys.stderr)
         return 1
 
     if args.json:
-        _print_json([r.to_dict() for r in reports])
-        return 1 if any(r.overall == "failed" for r in reports) else 0
+        _print_json(reports)
+        return 1 if any(r.get("overall") == "failed" or not r.get("healthy", True) for r in reports) else 0
 
     failed_any = False
     for report in reports:
+        overall = report.get("overall")
+        if overall is None:
+            overall = "healthy" if report.get("healthy") else "failed"
         print("=" * 60)
-        print(f"{report.server_name} — {report.overall.upper()}")
-        if report.manifest_id:
-            print(f"  manifest: {report.manifest_id} @ {report.version}")
-        for check in report.checks:
-            status = "PASS" if check.passed else "FAIL"
-            req = "required" if check.required else "optional"
-            print(f"  [{status}] {check.category:12} {check.check_id:24} ({req}) {check.message}")
-        if report.skipped:
-            print(f"  skipped: {', '.join(report.skipped)}")
-        if report.overall == "failed":
+        print(f"{report.get('server_name')} — {overall.upper()}")
+        if report.get("manifest_id"):
+            print(f"  manifest: {report['manifest_id']} @ {report.get('version')}")
+        if "tools_count" in report:
+            print(f"  tools: {report['tools_count']}")
+            if report.get("tools"):
+                print(f"    {', '.join(report['tools'])}")
+        if report.get("error"):
+            print(f"  error: {report['error']}")
+            failed_any = True
+        for check in report.get("checks", []):
+            status = "PASS" if check.get("passed") else "FAIL"
+            req = "required" if check.get("required") else "optional"
+            print(
+                f"  [{status}] {check.get('category', ''):12} "
+                f"{check.get('check_id', ''):24} ({req}) {check.get('message', '')}"
+            )
+        if report.get("skipped"):
+            print(f"  skipped: {', '.join(report['skipped'])}")
+        if overall == "failed":
             failed_any = True
         print("=" * 60)
 
     return 1 if failed_any else 0
+
+
+def dispatch_mcp_inspect(args: argparse.Namespace) -> int:
+    """Handle ``rosclaw mcp inspect``."""
+    from rosclaw.mcp.onboarding.installed import InstalledRegistry
+
+    record = InstalledRegistry().get(args.server_name)
+    if record is None:
+        print(f"[ROSClaw MCP] ❌ Server not installed: {args.server_name}", file=sys.stderr)
+        return 1
+
+    data = record.to_dict()
+    if args.json:
+        _print_json(data)
+        return 0
+
+    print("=" * 60)
+    print(f"MCP Server: {record.server_name}")
+    print("=" * 60)
+    print(f"  manifest_id:      {record.manifest_id}")
+    print(f"  name:             {record.name}")
+    print(f"  version:          {record.version}")
+    print(f"  artifact_type:    {record.artifact_type}")
+    print(f"  status:           {record.status}")
+    print(f"  installed_at:     {record.installed_at}")
+    print(f"  server_dir:       {record.server_dir}")
+    if record.runtime_config_path:
+        print(f"  runtime_config:   {record.runtime_config_path}")
+    if record.body_binding_key:
+        print(f"  body_binding_key: {record.body_binding_key}")
+    if record.eurdf_profile:
+        print(f"  eurdf_profile:    {record.eurdf_profile}")
+    if record.extra:
+        print("  extra:")
+        for key, value in record.extra.items():
+            print(f"    {key}: {value}")
+    print("=" * 60)
+    return 0
+
+
+def dispatch_mcp_call(args: argparse.Namespace) -> int:
+    """Handle ``rosclaw mcp call``."""
+    try:
+        tool_args = json.loads(args.tool_args)
+    except json.JSONDecodeError as exc:
+        print(f"[ROSClaw MCP] ❌ Invalid --args JSON: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        result = stdio_client.call_server_tool(
+            server_name=args.server_name,
+            tool_name=args.tool_name,
+            arguments=tool_args,
+            timeout=30.0,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"[ROSClaw MCP] ❌ Tool call failed: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        _print_json(result)
+        return 0
+
+    print("=" * 60)
+    print(f"MCP Tool Result: {args.server_name}/{args.tool_name}")
+    print("=" * 60)
+    print(json.dumps(result, indent=2, default=str, ensure_ascii=False))
+    print("=" * 60)
+    return 0

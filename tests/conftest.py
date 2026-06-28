@@ -239,3 +239,81 @@ def pytest_runtest_call(item):
         if isinstance(logger, logging.Logger):
             logger.propagate = True
     logging.getLogger().propagate = True
+
+
+@pytest.fixture
+def linked_realsense_workspace(tmp_path: Path) -> Path:
+    """Create a temporary workspace with a linked RealSense D405 body."""
+    from rosclaw.body.service import BodyInstanceService
+
+    workspace = tmp_path / "rosclaw_ws"
+    service = BodyInstanceService(workspace=workspace)
+    service.create_or_init(
+        robot="realsense_d405",
+        name="d405_lab_01",
+        mode="registry",
+        force=True,
+        switch_active=True,
+        update_registry=True,
+    )
+    return workspace
+
+
+@pytest.fixture
+def dummy_png(tmp_path: Path) -> Path:
+    """Return a tiny PNG file path (valid enough for CLI image input)."""
+    img = tmp_path / "frame.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 32)
+    return img
+
+
+@pytest.fixture
+def fake_realsense_skill(monkeypatch, dummy_png):
+    """Replace the builtin ``realsense_capture_rgbd`` skill with a fast stub.
+
+    The real builtin is loaded dynamically by ``load_builtins`` as a separate
+    module object, so monkeypatching the dotted import path used by the tests
+    does not take effect.  Instead we patch ``load_builtins`` itself and inject
+    a ``SkillEntry`` whose handler writes a color (and optional depth) artifact.
+    """
+    import shutil
+
+    from rosclaw.skill_manager.registry import SkillEntry, SkillRegistry
+
+    depth_png = dummy_png.parent / "depth.png"
+    depth_png.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00")
+
+    def _fake_run(params):
+        output_dir = Path(params.get("output_dir") or "./capture")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        color = output_dir / "color.png"
+        depth = output_dir / "depth.png"
+        shutil.copy(dummy_png, color)
+        shutil.copy(depth_png, depth)
+        return {
+            "status": "success",
+            "skill": "realsense_capture_rgbd",
+            "artifacts": {
+                "color": str(color),
+                "depth": str(depth),
+            },
+            "metrics": {"latency_ms": 10.0, "usb_mode": "USB3", "degraded": False},
+        }
+
+    def _fake_load_builtins(registry=None):
+        if registry is None:
+            registry = SkillRegistry()
+        registry.register(
+            SkillEntry(
+                name="realsense_capture_rgbd",
+                description="Fake RealSense RGB-D capture skill",
+                skill_type="programmed",
+                handler=_fake_run,
+                metadata={"builtin": True},
+                version="1.0.0",
+            )
+        )
+        return registry, []
+
+    monkeypatch.setattr("rosclaw.skill.builtins.load_builtins", _fake_load_builtins)
+    monkeypatch.setattr("rosclaw.cli._image_dimensions", lambda _path: (640, 480))
