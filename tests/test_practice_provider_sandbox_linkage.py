@@ -78,11 +78,13 @@ class TestPracticeProviderSandboxLinkage:
         ]
 
         camera = next(ev for ev in events if ev["source"] == "camera")
-        provider = next(ev for ev in events if ev["source"] == "provider")
         sandbox = next(ev for ev in events if ev["source"] == "sandbox")
 
         rgb_ref = camera["payload"]["rgb_ref"]
-        assert rgb_ref.endswith("color.png")
+        assert rgb_ref.endswith("color_000001.png")
+        provider = next(
+            ev for ev in events if ev["source"] == "provider" and ev["event_type"] == "provider.result"
+        )
         assert provider["payload"]["input_summary"]["image"] == rgb_ref
         assert provider["payload"]["provider_id"] == "cosmos-reason2-lan"
 

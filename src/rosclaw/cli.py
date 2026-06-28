@@ -1407,7 +1407,22 @@ def _image_dimensions(path: str) -> tuple[int, int]:
         with Image.open(path) as im:
             return im.size
     except Exception:
-        return (0, 0)
+        pass
+    # Fallback: parse PNG IHDR chunk.
+    try:
+        with open(path, "rb") as fh:
+            header = fh.read(24)
+        if (
+            len(header) == 24
+            and header[:8] == b"\x89PNG\r\n\x1a\n"
+            and header[12:16] == b"IHDR"
+        ):
+            width = int.from_bytes(header[16:20], "big")
+            height = int.from_bytes(header[20:24], "big")
+            return (width, height)
+    except Exception:
+        pass
+    return (0, 0)
 
 
 def _relative_artifact_ref(path: str | None, base_dir: Path) -> str | None:
@@ -1422,6 +1437,13 @@ def _relative_artifact_ref(path: str | None, base_dir: Path) -> str | None:
         return str(Path(path).resolve())
 
 
+def _utc_now_iso() -> str:
+    """Return the current UTC timestamp as an ISO-8601 string."""
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
+
+
 def cmd_practice_run(args: argparse.Namespace) -> int:
     """Run a single skill+provider practice episode and record real events.
 
@@ -1431,6 +1453,8 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
             --provider cosmos-reason2-lan \
             --output-root ./episode
     """
+    from pathlib import Path
+
     from rosclaw.body.resolver import BodyNotLinkedError, BodyResolver
     from rosclaw.core.event_bus import Event
     from rosclaw.firstboot.workspace import resolve_home
@@ -1456,7 +1480,9 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
     try:
         resolver = BodyResolver(workspace=home, body_id=robot_id)
         if not resolver.is_linked():
-            raise BodyNotLinkedError(f"Body '{robot_id}' is not linked. Run: rosclaw body init --robot realsense-d405 --name {robot_id}")
+            raise BodyNotLinkedError(
+                f"Body '{robot_id}' is not linked. Run: rosclaw body init --robot realsense-d405 --name {robot_id}"
+            )
     except Exception as exc:
         print(f"[rosclaw-practice] Body check failed: {exc}", file=sys.stderr)
         return 1
@@ -1464,6 +1490,7 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
     # Resolve the canonical e-URDF profile id for sandbox/policy checks.
     try:
         from rosclaw.body.schema import EurdfProfile
+
         eurdf_profile = EurdfProfile.from_yaml(resolver.eurdf_profile_path)
         profile_id = eurdf_profile.profile_id
     except Exception as exc:
@@ -1498,7 +1525,30 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
     skill_output_dir = session_dir / "artifacts" / "skill"
     skill_output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Load builtins and execute the requested skill.
+    def _emit(
+        source: str,
+        event_type: str,
+        payload: dict[str, Any],
+        tags: list[str] | None = None,
+        parent_event_id: str | None = None,
+    ) -> str:
+        event = PracticeEventEnvelope(
+            practice_id=practice_id,
+            robot_id=robot_id,
+            source=source,
+            event_type=event_type,
+            skill_id=skill_id,
+            trace_id=practice_id,
+            payload=payload,
+            tags=tags or [],
+            parent_event_id=parent_event_id,
+        )
+        coordinator.emit_event(event)
+        return event.event_id
+
+    # Load builtins and execute the requested skill before recording events.
+    # If execution fails, stop the session with zero recorded events so the
+    # coordinator marks the episode FAILED instead of SUCCESS.
     registry = SkillRegistry(event_bus=coordinator.event_bus)
     load_builtins(registry)
     if registry.get(skill_id) is None:
@@ -1516,6 +1566,7 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
         "workspace": str(home),
         "output_dir": str(skill_output_dir),
     }
+
     print(f"[rosclaw-practice] Running skill: {skill_id}")
     skill_result = executor.execute(skill_id, parameters=skill_params)
     skill_status = skill_result.get("status") if isinstance(skill_result, dict) else "error"
@@ -1538,44 +1589,123 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
         coordinator.stop()
         return 1
 
-    # Emit camera.rgbd_frame event when artifacts exist.
+    # ------------------------------------------------------------------
+    # runtime.start
+    # ------------------------------------------------------------------
+    _emit(
+        "runtime",
+        "runtime.start",
+        {
+            "phase": "start",
+            "data_root": str(data_root),
+            "sources": {
+                k: getattr(sources, k)
+                for k in dir(sources)
+                if not k.startswith("_") and not callable(getattr(sources, k))
+            },
+        },
+        tags=["runtime", "start"],
+    )
+
+    # ------------------------------------------------------------------
+    # skill.start
+    # ------------------------------------------------------------------
+    _emit(
+        "runtime",
+        "skill.start",
+        {"skill": skill_id, "params": skill_params},
+        tags=["skill", "start", skill_id],
+    )
+
+    # ------------------------------------------------------------------
+    # skill.result
+    # ------------------------------------------------------------------
+    _emit(
+        "runtime",
+        "skill.result",
+        {
+            "skill": skill_id,
+            "status": skill_status,
+            "artifacts": artifacts,
+            "metrics": handler_result.get("metrics", {}) if handler_result else {},
+            "server_name": handler_result.get("server_name") if handler_result else None,
+            "tool": handler_result.get("tool") if handler_result else None,
+        },
+        tags=["skill", "result", skill_id, skill_status],
+    )
+
+    # ------------------------------------------------------------------
+    # Copy artifacts into episode/artifacts/frames
+    # ------------------------------------------------------------------
+    frames_dir = session_dir / "artifacts" / "frames"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    sequence = 1
+
+    def _copy_frame(src: str | None, suffix: str) -> str | None:
+        if not src:
+            return None
+        src_path = Path(src)
+        if not src_path.exists():
+            return None
+        dst = frames_dir / f"{suffix}_{sequence:06d}.png"
+        import shutil
+
+        shutil.copy2(src_path, dst)
+        return _relative_artifact_ref(str(dst), session_dir)
+
+    color_ref = _copy_frame(color_path, "color")
+    depth_ref = _copy_frame(depth_path, "depth") if depth_path else None
+
+    # ------------------------------------------------------------------
+    # camera.rgbd_frame
+    # ------------------------------------------------------------------
     width, height = _image_dimensions(color_path)
-    rgb_ref = _relative_artifact_ref(color_path, session_dir)
-    depth_ref = _relative_artifact_ref(depth_path, session_dir)
     frame_payload = RGBDFramePayload(
         camera_id=robot_id,
         width=width,
         height=height,
         rgb_encoding="png",
         depth_encoding="png16" if depth_ref else "none",
-        rgb_ref=rgb_ref or str(Path(color_path).resolve()),
+        rgb_ref=color_ref or _relative_artifact_ref(color_path, session_dir) or str(Path(color_path).resolve()),
         depth_ref=depth_ref,
     )
-    coordinator.emit_event(
-        PracticeEventEnvelope(
-            practice_id=practice_id,
-            robot_id=robot_id,
-            source="camera",
-            event_type="rgbd_frame",
-            skill_id=skill_id,
-            trace_id=practice_id,
-            payload=frame_payload.model_dump(),
-            tags=["rgbd", "realsense", skill_id],
-        )
+    frame_event_id = _emit(
+        "camera",
+        "rgbd_frame",
+        frame_payload.model_dump(),
+        tags=["rgbd", "realsense", skill_id],
     )
-    print(f"[rosclaw-practice] Captured frame: {rgb_ref}")
+    print(f"[rosclaw-practice] Captured frame: {color_ref}")
 
-    # Optionally invoke provider on the color frame.
+    # ------------------------------------------------------------------
+    # Provider inference on the color frame
+    # ------------------------------------------------------------------
+    provider_event_id: str | None = None
     if provider_id and color_path and Path(color_path).exists():
         provider_dir = session_dir / "provider"
         provider_dir.mkdir(parents=True, exist_ok=True)
         provider_out = provider_dir / "provider_result.json"
+        requests_jsonl = provider_dir / "requests.jsonl"
+        responses_jsonl = provider_dir / "responses.jsonl"
+        capability = getattr(args, "capability", "vlm.risk_assessment")
+        question = "Analyze physical risks in this RealSense image."
+
+        request_record = {
+            "event_id": f"{practice_id}_provider_request",
+            "provider": provider_id,
+            "capability": capability,
+            "input_artifact": color_ref,
+            "question": question,
+            "timestamp": _utc_now_iso(),
+        }
+        requests_jsonl.write_text(json.dumps(request_record) + "\n", encoding="utf-8")
+
         prov_args = argparse.Namespace(
             provider_id=provider_id,
             provider_id_opt=None,
             input="{}",
-            capability=getattr(args, "capability", "vlm.risk_assessment"),
-            question=None,
+            capability=capability,
+            question=question,
             image_path=str(color_path),
             output_path=str(provider_out),
             json=True,
@@ -1587,33 +1717,53 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
             provider_data = json.loads(provider_out.read_text(encoding="utf-8"))
         except Exception as exc:
             provider_data = {"normalized": {}, "latency_ms": 0, "errors": [str(exc)]}
+
+        response_record = {
+            "event_id": f"{practice_id}_provider_response",
+            "provider": provider_id,
+            "input_artifact": color_ref,
+            "request_event_id": request_record["event_id"],
+            "response_path": _relative_artifact_ref(str(provider_out), session_dir),
+            "timestamp": _utc_now_iso(),
+            "result": provider_data,
+        }
+        responses_jsonl.write_text(json.dumps(response_record) + "\n", encoding="utf-8")
+
         normalized = provider_data.get("normalized", {})
-        provider_payload = ProviderOutputPayload(
-            provider_id=provider_id,
-            provider_type="vlm",
-            model=provider_id,
-            route_reason="practice_run",
-            input_summary={"image": rgb_ref},
-            output_summary=normalized,
-            latency_ms=provider_data.get("latency_ms", 0),
-            token_usage=None,
-            confidence=None,
-            status="fallback" if normalized.get("fallback_parse") else "success",
+        provider_event_id = _emit(
+            "provider",
+            "provider.request",
+            {
+                "provider": provider_id,
+                "capability": capability,
+                "input_artifact": color_ref,
+                "question": question,
+                "request_event_id": request_record["event_id"],
+            },
+            tags=["provider", "request", provider_id, skill_id],
         )
-        coordinator.emit_event(
-            PracticeEventEnvelope(
-                practice_id=practice_id,
-                robot_id=robot_id,
-                source="provider",
-                event_type="result",
-                skill_id=skill_id,
-                trace_id=practice_id,
-                payload=provider_payload.model_dump(),
-                tags=["provider", provider_id, skill_id],
-            )
+        provider_event_id = _emit(
+            "provider",
+            "provider.result",
+            ProviderOutputPayload(
+                provider_id=provider_id,
+                provider_type="vlm",
+                model=provider_id,
+                route_reason="practice_run",
+                input_summary={"image": color_ref},
+                output_summary=normalized,
+                latency_ms=provider_data.get("latency_ms", 0),
+                token_usage=None,
+                confidence=None,
+                status="fallback" if normalized.get("fallback_parse") else "success",
+            ).model_dump(),
+            tags=["provider", "result", provider_id, skill_id],
+            parent_event_id=provider_event_id,
         )
 
-    # Sandbox decision for the executed action.
+    # ------------------------------------------------------------------
+    # Sandbox decision
+    # ------------------------------------------------------------------
     sandbox_action = {"type": "provider_reasoning" if provider_id else "capture_rgbd"}
     sandbox_result = _evaluate_sandbox_policy(profile_id, sandbox_action)
     sandbox_payload = SandboxDecisionPayload(
@@ -1629,17 +1779,22 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
         policy_version="perception_only_v1",
         latency_ms=0.0,
     )
-    coordinator.emit_event(
-        PracticeEventEnvelope(
-            practice_id=practice_id,
-            robot_id=robot_id,
-            source="sandbox",
-            event_type="decision",
-            skill_id=skill_id,
-            trace_id=practice_id,
-            payload=sandbox_payload.model_dump(),
-            tags=["sandbox", sandbox_result["decision"], skill_id],
-        )
+    _emit(
+        "sandbox",
+        "decision",
+        sandbox_payload.model_dump(),
+        tags=["sandbox", sandbox_result["decision"], skill_id],
+        parent_event_id=provider_event_id,
+    )
+
+    # ------------------------------------------------------------------
+    # runtime.stop
+    # ------------------------------------------------------------------
+    _emit(
+        "runtime",
+        "runtime.stop",
+        {"phase": "stop"},
+        tags=["runtime", "stop"],
     )
 
     coordinator.stop()

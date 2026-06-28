@@ -63,7 +63,7 @@ class TestPracticeRecordsMcpArtifacts:
 
         camera_events = [ev for ev in events if ev["source"] == "camera"]
         assert camera_events[0]["event_type"] == "rgbd_frame"
-        assert camera_events[0]["payload"]["rgb_ref"].endswith("color.png")
+        assert camera_events[0]["payload"]["rgb_ref"].endswith("color_000001.png")
 
         # Provider artifact was written.
         provider_result = session_dir / "provider" / "provider_result.json"

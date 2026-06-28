@@ -561,12 +561,125 @@ def cmd_hub_sync(args: argparse.Namespace) -> int:
     return 0
 
 
+def _builtin_catalog_entries() -> list[dict[str, Any]]:
+    """Return a small offline catalog of official ROSClaw RealSense assets.
+
+    These entries are used when no Hub registry is configured so that
+    ``rosclaw hub search realsense`` still offers installable pointers.
+    """
+    return [
+        {
+            "asset": {
+                "type": "mcp",
+                "namespace": "ros-claw",
+                "name": "librealsense-mcp",
+                "version": "1.0.0",
+                "title": "librealsense-mcp",
+                "summary": "RealSense RGB-D capture via the pyrealsense2 SDK.",
+                "description": (
+                    "MCP server that exposes list_devices, start_pipeline, "
+                    "capture_aligned_rgbd, and stop_pipeline for Intel RealSense cameras."
+                ),
+                "tags": ["realsense", "mcp", "rgbd", "d405", "d435i"],
+            },
+            "publisher": {
+                "id": "ros-claw",
+                "display_name": "ROSClaw Project",
+                "trust_level": "official",
+            },
+            "visibility": {"scope": "public"},
+            "lifecycle": {"status": "stable"},
+            "license": {"spdx": "MIT"},
+            "compatibility": {
+                "hardware": {"required_devices": ["realsense_d405", "realsense_d435i"]},
+                "robot": {
+                    "eurdf_profiles": ["realsense_d405", "realsense_d435i", "realsense_dual"],
+                    "body_kinds": ["perception_only_camera"],
+                },
+            },
+            "manifest_url": "https://github.com/ros-claw/librealsense-mcp",
+            "size_bytes": 0,
+        },
+        {
+            "asset": {
+                "type": "mcp",
+                "namespace": "ros-claw",
+                "name": "realsense-ros-mcp",
+                "version": "1.0.0",
+                "title": "realsense-ros-mcp",
+                "summary": "RealSense integration via ROS 2 / realsense2_camera.",
+                "description": (
+                    "MCP server that exposes RealSense tools through the ROS2 "
+                    "realsense2_camera node."
+                ),
+                "tags": ["realsense", "mcp", "ros2", "rgbd", "d405"],
+            },
+            "publisher": {
+                "id": "ros-claw",
+                "display_name": "ROSClaw Project",
+                "trust_level": "official",
+            },
+            "visibility": {"scope": "public"},
+            "lifecycle": {"status": "stable"},
+            "license": {"spdx": "MIT"},
+            "compatibility": {
+                "hardware": {"required_devices": ["realsense_d405"]},
+                "robot": {
+                    "eurdf_profiles": ["realsense_d405", "realsense_dual"],
+                    "body_kinds": ["perception_only_camera"],
+                },
+            },
+            "manifest_url": "https://github.com/ros-claw/realsense-ros-mcp",
+            "size_bytes": 0,
+        },
+        {
+            "asset": {
+                "type": "eurdf",
+                "namespace": "ros-claw",
+                "name": "realsense_d405",
+                "version": "1.0.0",
+                "title": "realsense_d405 e-URDF profile",
+                "summary": "Perception-only Intel RealSense D405 body profile.",
+                "description": (
+                    "e-URDF profile for the Intel RealSense D405 depth camera "
+                    "with no actuation and RGB-D capabilities."
+                ),
+                "tags": ["realsense", "d405", "eurdf", "perception-only"],
+            },
+            "publisher": {
+                "id": "ros-claw",
+                "display_name": "ROSClaw Project",
+                "trust_level": "official",
+            },
+            "visibility": {"scope": "public"},
+            "lifecycle": {"status": "stable"},
+            "license": {"spdx": "MIT"},
+            "compatibility": {
+                "robot": {
+                    "eurdf_profiles": ["realsense_d405"],
+                    "body_kinds": ["perception_only_camera"],
+                },
+            },
+            "manifest_url": "rosclaw://eurdf/realsense_d405@1.0.0",
+            "size_bytes": 0,
+        },
+    ]
+
+
 def cmd_hub_search(args: argparse.Namespace) -> int:
-    """Search the local catalog index."""
+    """Search the local catalog index, falling back to a built-in offline catalog."""
     store = AuthStore()
-    registry = _active_registry_or_fail(store, None)
+    profile = store.get_active_profile()
+    registry: str | None = profile.get("registry") if profile else None
+
     cache = HubCache()
-    index = CatalogIndex(registry, cache)
+    if registry:
+        index = CatalogIndex(registry, cache)
+    else:
+        # Offline fallback: seed built-in official pointers once.
+        index = CatalogIndex("__builtin__", cache)
+        if index.count() == 0:
+            index.index_entries(_builtin_catalog_entries())
 
     if index.count() == 0:
         print("[ROSClaw] ⚠️  Local catalog is empty. Run `rosclaw hub sync` first.")
