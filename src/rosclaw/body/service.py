@@ -51,7 +51,7 @@ class BodyCreateResult:
 
 
 def _resolve_profile_alias(profile_id: str) -> str:
-    """Map common user-facing profile IDs to zoo directory names."""
+    """Map common user-facing profile IDs to registry names."""
     aliases = {
         "unitree-g1": "g1",
         "unitree-go2": "unitree_go2",

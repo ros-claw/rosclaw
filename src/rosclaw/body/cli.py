@@ -319,12 +319,15 @@ def dispatch_body_command(args: argparse.Namespace) -> int:
 
 
 def _resolve_profile_alias(profile_id: str) -> str:
-    """Map common user-facing profile IDs to zoo directory names."""
+    """Map common user-facing profile IDs to registry names."""
     aliases = {
         "unitree-g1": "g1",
         "unitree-go2": "unitree_go2",
         "franka-panda": "franka_panda",
         "fetch": "fetch_robot",
+        "realsense-d405": "realsense_d405",
+        "realsense-d435i": "realsense_d435i",
+        "realsense-dual": "realsense_dual",
     }
     return aliases.get(profile_id, profile_id)
 

@@ -55,7 +55,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `rosclaw mcp` onboarding helpers: `source_installer`, `hub_client`, and
     `stdio_client` health/tool-call utilities.
   - Perception-only e-URDF-Zoo fixtures under `e-urdf-zoo/realsense_d405/`,
-    `realsense_d435i/`, and `realsense_dual/`.
+    `realsense_d435i/`, and `realsense_dual/` (later superseded by builtin
+    Python profiles in PR #49).
   - Dashboard practice, memory, and provider-image APIs wired to RealSense
     evidence paths.
   - Extensive unit-test coverage under `tests/test_*realsense*.py` and
@@ -63,6 +64,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Memory CLI (`rosclaw memory ingest/query`) now persists real practice
     evidence and returns actual SeekDB results by default; `--demo` re-enables
     the mock fallback.
+
+- **Builtin RealSense e-URDF profiles (PR #49)**
+  - Added `rosclaw.eurdf_zoo.profiles.realsense_d405`,
+    `realsense_d435i`, and `realsense_dual` as builtin Python profiles.
+  - `RobotRegistry` falls back to builtin Python profiles when a profile is
+    not found in the e-URDF-Zoo directory layout.
+  - Wired hyphenated aliases (`realsense-d405`, `realsense-d435i`,
+    `realsense-dual`) through `body/cli.py`, `body/registry.py`, and
+    `body/service.py`.
+  - Added `tests/integration/test_realsense_profiles.py` covering embodiment,
+    safety, capability, simulation, semantic, and benchmark profiles.
+  - Kept PR #48 RealSense skills compatible by aligning builtin profile
+    capabilities with the `realsense_capture_rgbd` skill manifest.
 
 ### Changed
 

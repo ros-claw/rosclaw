@@ -308,12 +308,15 @@ class BodyRegistryManager:
 
         return entry
 
-    # Common user-facing profile IDs → zoo directory names.
+    # Common user-facing profile IDs → registry names.
     _PROFILE_ALIASES: dict[str, str] = {
         "unitree-g1": "g1",
         "unitree-go2": "unitree_go2",
         "franka-panda": "franka_panda",
         "fetch": "fetch_robot",
+        "realsense-d405": "realsense_d405",
+        "realsense-d435i": "realsense_d435i",
+        "realsense-dual": "realsense_dual",
     }
 
     def _resolve_profile_alias(self, profile_id: str) -> str:

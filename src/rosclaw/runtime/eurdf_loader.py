@@ -416,17 +416,73 @@ class EURDFLoader:
 # ── Registry ──
 
 class RobotRegistry:
-    """In-memory registry of loaded robot profiles."""
+    """In-memory registry of loaded robot profiles.
+
+    Falls back to builtin Python profile modules when a profile is not found in
+    the e-URDF-Zoo directory layout.
+    """
 
     def __init__(self, loader: EURDFLoader | None = None):
         self.loader = loader or EURDFLoader()
         self._profiles: dict[str, RobotCompleteProfile] = {}
 
+    @staticmethod
+    def _profile_aliases() -> dict[str, str]:
+        """User-facing aliases -> canonical registry IDs."""
+        return {
+            "unitree-g1": "g1",
+            "unitree-go2": "unitree_go2",
+            "franka-panda": "franka_panda",
+            "fetch": "fetch_robot",
+            "realsense-d405": "realsense_d405",
+            "realsense-d435i": "realsense_d435i",
+            "realsense-dual": "realsense_dual",
+        }
+
+    @classmethod
+    def _canonical_id(cls, robot_id: str) -> str:
+        """Resolve a user-facing alias to the canonical registry ID."""
+        normalized = robot_id.strip().lower()
+        return cls._profile_aliases().get(normalized, normalized)
+
+    @staticmethod
+    def _builtin_profiles() -> dict[str, RobotCompleteProfile]:
+        """Discover profile constants exported by ``rosclaw.eurdf_zoo.profiles``."""
+        try:
+            from rosclaw.eurdf_zoo import profiles as profile_modules
+        except Exception:  # pragma: no cover - optional fallback
+            return {}
+
+        builtins: dict[str, RobotCompleteProfile] = {}
+        for attr_name in getattr(profile_modules, "__all__", []):
+            if not attr_name.endswith("_PROFILE"):
+                continue
+            try:
+                profile = getattr(profile_modules, attr_name)
+            except AttributeError:
+                continue
+            if isinstance(profile, RobotCompleteProfile):
+                builtins[profile.robot_id] = profile
+                # Also register under the module-level alias name for convenience.
+                builtins[attr_name[:-8].lower()] = profile
+        return builtins
+
     def install(self, robot_id: str) -> RobotCompleteProfile:
         """Load and register a robot profile."""
-        profile = self.loader.load(robot_id)
-        # Store under both the directory name and the canonical robot_id
+        canonical = self._canonical_id(robot_id)
+
+        # Try directory-based e-URDF first.
+        try:
+            profile = self.loader.load(canonical)
+        except FileNotFoundError:
+            builtins = self._builtin_profiles()
+            profile = builtins.get(canonical)
+            if profile is None:
+                raise FileNotFoundError(f"Robot '{robot_id}' not found") from None
+
+        # Store under both the requested name and the canonical robot_id.
         self._profiles[robot_id] = profile
+        self._profiles[canonical] = profile
         self._profiles[profile.robot_id] = profile
         return profile
 
@@ -444,8 +500,16 @@ class RobotRegistry:
         return list(self._profiles.keys())
 
     def list_available(self) -> list[str]:
-        """List all available robots in the zoo."""
-        return self.loader.list_robots()
+        """List all available robots in the zoo and builtin Python profiles."""
+        available: set[str] = set(self.loader.list_robots())
+        builtins = self._builtin_profiles()
+        available.update(builtins.keys())
+        # Also expose user-facing aliases.
+        aliases = self._profile_aliases()
+        for alias, canonical in aliases.items():
+            if canonical in available:
+                available.add(alias)
+        return sorted(available)
 
     def validate(self, robot_id: str) -> dict:
         """Validate a robot's e-URDF."""

@@ -82,16 +82,23 @@ def test_optional_profile_missing_does_not_fail(
 
 
 def test_required_profile_missing_fails(
-    unitree_manifest: McpManifest,
+    unitree_manifest_dict: dict[str, Any],
     fake_home: Path,
     project_root: Path,
     body_yaml_empty: Path,
 ) -> None:
+    # Use a manifest that references a profile which definitely does not exist.
+    data = dict(unitree_manifest_dict)
+    data["eurdf"] = {
+        "profiles": [{"id": "missing-robot-xyz", "version": "1.0.0", "required": True}],
+        "defaultProfile": "missing-robot-xyz",
+    }
+    manifest = McpManifest.from_dict(data)
     runner = HealthRunner(
         home=fake_home,
         claude_merge=ClaudeMcpMerge(project_root=project_root),
     )
-    report = runner.check(unitree_manifest.server_name, manifest=unitree_manifest)
+    report = runner.check(manifest.server_name, manifest=manifest)
     binding = next(c for c in report.checks if c.category == "binding")
     assert not binding.passed
     assert "required e-URDF profile not installed" in binding.message

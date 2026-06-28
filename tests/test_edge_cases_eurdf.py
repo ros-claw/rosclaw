@@ -86,9 +86,13 @@ def test_registry_empty_robot_id():
 
 
 def test_registry_list_available_empty_zoo():
-    """Registry with empty zoo returns empty list."""
+    """Registry with empty zoo still exposes builtin Python profiles."""
     reg = RobotRegistry(loader=EURDFLoader(zoo_path="/tmp/nonexistent_zoo"))
-    assert reg.list_available() == []
+    available = reg.list_available()
+    assert "franka_panda" in available
+    assert "realsense-d405" in available
+    assert "realsense-d435i" in available
+    assert "realsense-dual" in available
 
 
 def test_loader_validate_empty_robot_id(tmp_path):

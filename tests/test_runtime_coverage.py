@@ -1074,7 +1074,12 @@ class TestRobotRegistry:
 
         reg = RobotRegistry(loader=EURDFLoader(str(zoo)))
         available = reg.list_available()
-        assert sorted(available) == ["panda", "ur5e", "xarm"]
+        for name in ["panda", "ur5e", "xarm"]:
+            assert name in available
+        # Builtin Python profiles are also discoverable.
+        assert "realsense-d405" in available
+        assert "realsense-d435i" in available
+        assert "realsense-dual" in available
 
     def test_list_empty(self, tmp_path):
         from rosclaw.runtime.eurdf_loader import EURDFLoader, RobotRegistry
@@ -1082,7 +1087,11 @@ class TestRobotRegistry:
         zoo = tmp_path / "zoo"
         zoo.mkdir(parents=True)
         reg = RobotRegistry(loader=EURDFLoader(str(zoo)))
-        assert reg.list_available() == []
+        available = reg.list_available()
+        # Builtin Python profiles are still exposed when the zoo is empty.
+        assert "realsense-d405" in available
+        assert "realsense-d435i" in available
+        assert "realsense-dual" in available
         assert reg.list() == []
 
     def test_validate(self, tmp_path):
