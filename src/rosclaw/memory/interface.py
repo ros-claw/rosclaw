@@ -461,7 +461,9 @@ class MemoryInterface(LifecycleMixin):
             if sim > 0
         ]
         if not scored:
-            return []
+            return self._keyword_search(
+                experiences, self._tokenize(query), limit
+            )
 
         scored.sort(key=lambda x: x[0], reverse=True)
         return [exp for _, exp in scored[:limit]]
@@ -628,7 +630,9 @@ class MemoryInterface(LifecycleMixin):
             if sim > 0
         ]
         if not scored:
-            return []
+            return self._keyword_search(
+                experiences, self._tokenize(query), limit
+            )
 
         scored.sort(key=lambda x: x[0], reverse=True)
         return [exp for _, exp in scored[:limit]]
@@ -1009,8 +1013,9 @@ class MemoryInterface(LifecycleMixin):
     ) -> dict[str, Any]:
         """Ingest a recorded practice episode into memory.
 
-        Reads the episode.json, raw events, and provider result from disk and
-        stores a summary experience plus artifact records in SeekDB.
+        Reads the episode.json (or manifest.yaml fallback), raw events, and
+        provider result from disk and stores a summary experience plus artifact
+        records in SeekDB.
         """
         from rosclaw.practice.storage.layout import PracticeLayout
 
@@ -1021,6 +1026,7 @@ class MemoryInterface(LifecycleMixin):
             return {"status": "error", "reason": f"session not found: {session_dir}"}
 
         episode_path = session_dir / "episode.json"
+        manifest_path = layout.manifest_path(episode_id)
         events_path = layout.events_jsonl_path(episode_id)
         provider_path = session_dir / "provider" / "provider_result.json"
 
@@ -1030,6 +1036,13 @@ class MemoryInterface(LifecycleMixin):
                 episode = json.loads(episode_path.read_text(encoding="utf-8"))
             except Exception as exc:
                 return {"status": "error", "reason": f"failed to parse episode.json: {exc}"}
+        elif manifest_path.exists():
+            try:
+                import yaml
+
+                episode = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+            except Exception as exc:
+                return {"status": "error", "reason": f"failed to parse manifest.yaml: {exc}"}
 
         events: list[dict[str, Any]] = []
         if events_path.exists():
@@ -1046,14 +1059,23 @@ class MemoryInterface(LifecycleMixin):
             except Exception as exc:
                 logger.warning("Failed to parse provider result for %s: %s", episode_id, exc)
 
-        task = episode.get("task", {})
-        instruction = (
-            f"Practice episode {episode_id}: "
-            f"{task.get('task_id') or task.get('task_name') or 'unknown'}"
+        task = episode.get("task", {}) or {}
+        task_label = (
+            task.get("skill_id")
+            or task.get("task_name")
+            or task.get("task_id")
+            or "unknown"
         )
-        outcome = str(episode.get("outcome", "unknown")).lower()
-        duration_ms = episode.get("duration_ms") or 0
+        instruction = f"Practice episode {episode_id}: {task_label}"
+        outcome = str(episode.get("outcome", episode.get("status", {}).get("outcome", "unknown"))).lower()
+        duration_ms = episode.get("duration_ms", 0)
         duration_sec = duration_ms / 1000.0 if isinstance(duration_ms, (int, float)) else 0.0
+
+        robot_type = str(episode.get("robot_type") or "unknown")
+        robot_id = str(episode.get("robot_id") or "unknown")
+        tags = ["practice", robot_type, robot_id]
+        if task.get("skill_id"):
+            tags.append(str(task["skill_id"]))
 
         record_id = self.store_experience(
             event_id=episode_id,
@@ -1061,11 +1083,7 @@ class MemoryInterface(LifecycleMixin):
             instruction=instruction,
             outcome=outcome,
             duration_sec=duration_sec,
-            tags=[
-                "practice",
-                str(episode.get("robot_type") or "unknown"),
-                str(episode.get("robot_id") or "unknown"),
-            ],
+            tags=tags,
             metadata={
                 "episode": episode,
                 "events": events,

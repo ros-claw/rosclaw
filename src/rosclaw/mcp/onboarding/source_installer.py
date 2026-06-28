@@ -384,7 +384,7 @@ def install_from_git(
 
     _install_dependencies(source_dir, python, no_install_deps, errors)
 
-    py = python or sys.executable
+    py = str(Path(python or sys.executable).expanduser().resolve())
     entrypoint = manifest.artifact.entrypoint if (manifest.artifact and manifest.artifact.entrypoint) else "mcp_server.py"
     wrapper = _write_wrapper(source_dir, installed_dir, py, entrypoint)
     runtime_config_path = _write_runtime_config(manifest, home, wrapper)
@@ -460,7 +460,7 @@ def install_from_local_path(
 
     _install_dependencies(source_dir, python, no_install_deps, errors)
 
-    py = python or sys.executable
+    py = str(Path(python or sys.executable).expanduser().resolve())
     entrypoint = manifest.artifact.entrypoint if (manifest.artifact and manifest.artifact.entrypoint) else "mcp_server.py"
     wrapper = _write_wrapper(source_dir, installed_dir, py, entrypoint)
     runtime_config_path = _write_runtime_config(manifest, home, wrapper)

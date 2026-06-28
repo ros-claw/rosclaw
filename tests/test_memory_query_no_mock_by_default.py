@@ -16,8 +16,8 @@ class TestMemoryQueryNoMockByDefault:
 
     def test_query_without_real_experiences_returns_empty(self, capsys, monkeypatch, tmp_path):
         """Without --demo, an empty memory must not fall back to artifact mock data."""
-        # Force artifact fallback to look in an empty temp directory so there
-        # are no episode artifacts either.
+        # Isolate the persistent memory DB and artifact fallback directories.
+        monkeypatch.setattr("rosclaw.cli._memory_db_path", lambda: tmp_path / "seekdb.sqlite")
         monkeypatch.setattr(
             "rosclaw.cli._practice_artifacts_dir", lambda: tmp_path / "practice"
         )
@@ -30,6 +30,8 @@ class TestMemoryQueryNoMockByDefault:
 
     def test_query_with_demo_uses_artifact_fallback(self, capsys, monkeypatch, tmp_path):
         """With --demo, the artifact fallback may return matching episodes."""
+        monkeypatch.setattr("rosclaw.cli._memory_db_path", lambda: tmp_path / "seekdb.sqlite")
+
         practice_root = tmp_path / "practice"
         episodes_dir = practice_root / "episodes" / "ep_demo_01"
         episodes_dir.mkdir(parents=True, exist_ok=True)

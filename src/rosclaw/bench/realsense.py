@@ -7,10 +7,13 @@ a structured ``report.json`` to the requested output directory.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import os
 import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -148,11 +151,24 @@ def _capture_with_rs_data_collect(duration_sec: float) -> dict[str, Any]:
     if not binary:
         raise RuntimeError("rs-data-collect not found on PATH")
 
-    cmd = [binary, "-t", str(int(duration_sec))]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=duration_sec + 5.0)
-    if proc.returncode != 0:
-        raise RuntimeError(f"rs-data-collect failed: {proc.stderr or proc.stdout}")
-    return parse_rs_data_collect(proc.stdout)
+    # rs-data-collect requires a profile configuration file. Provide a sensible
+    # default for RealSense D405/D435/D455 (640x480 @ 30fps depth + color).
+    # Format: STREAM_TYPE,WIDTH,HEIGHT,FPS,FORMAT,STREAM_INDEX
+    config_lines = [
+        "DEPTH,640,480,30,Z16,0",
+        "COLOR,640,480,30,RGB8,0",
+    ]
+    config_path = Path(tempfile.gettempdir()) / f"rosclaw_rs_data_collect_{os.getpid()}.cfg"
+    config_path.write_text("\n".join(config_lines) + "\n", encoding="utf-8")
+    try:
+        cmd = [binary, "-c", str(config_path), "-t", str(int(duration_sec))]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=duration_sec + 10.0)
+        if proc.returncode != 0:
+            raise RuntimeError(f"rs-data-collect failed: {proc.stderr or proc.stdout}")
+        return parse_rs_data_collect(proc.stdout)
+    finally:
+        with contextlib.suppress(OSError):
+            config_path.unlink()
 
 
 def bench_realsense(duration_sec: float, output_dir: str | Path) -> dict[str, Any]:
@@ -199,7 +215,9 @@ def bench_realsense(duration_sec: float, output_dir: str | Path) -> dict[str, An
             report["errors"].append(f"rs-data-collect capture failed: {exc}")
             logger.debug("rs-data-collect capture failed: %s", exc)
 
-    report["finished_at"] = _utc_now_iso()
+    # Derive FPS from frame count and duration if the parser did not provide it.
+    if report["fps"] == 0.0 and report["color_frames"] > 0 and duration_sec > 0:
+        report["fps"] = round(report["color_frames"] / duration_sec, 2)
     (output_path / "report.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False),
         encoding="utf-8",

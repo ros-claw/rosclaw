@@ -260,3 +260,46 @@ def health_smoke(server_name: str, home: Path | str | None = None, timeout: floa
             "server_name": server_name,
             "error": str(exc),
         }
+
+
+class McpServerSession:
+    """Stateful session with an installed MCP stdio server.
+
+    Some tools (e.g. ``start_pipeline`` followed by ``capture_aligned_rgbd``)
+    require state to persist across calls. This context manager keeps one
+    server process alive for the duration of the ``with`` block.
+    """
+
+    def __init__(self, server_name: str, home: Path | str | None = None, start_timeout: float = 10.0):
+        config = load_runtime_config(server_name, home=home)
+        transport = config.get("transport", {})
+        self.command = transport.get("command")
+        self.args = list(transport.get("args", []))
+        self.env = transport.get("env", {})
+        self.start_timeout = start_timeout
+        self._client: McpStdioClient | None = None
+
+    def __enter__(self) -> "McpServerSession":
+        if not self.command:
+            raise McpStdioError("No transport command configured")
+        self._client = McpStdioClient(self.command, self.args, env=self.env)
+        self._client.start(timeout=self.start_timeout)
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        if self._client is not None:
+            self._client.stop()
+            self._client = None
+
+    def call(self, tool_name: str, arguments: dict[str, Any] | None = None, timeout: float = 30.0) -> dict[str, Any]:
+        if self._client is None:
+            raise McpStdioError("Session not started")
+        response = self._client.call_tool(tool_name, arguments or {}, timeout=timeout)
+        if "error" in response:
+            raise McpStdioError(f"Tool error: {response['error']}")
+        return response.get("result", {})
+
+    def list_tools(self, timeout: float = 10.0) -> list[dict[str, Any]]:
+        if self._client is None:
+            raise McpStdioError("Session not started")
+        return self._client.list_tools(timeout=timeout)

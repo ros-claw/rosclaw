@@ -149,7 +149,7 @@ def _copy_artifact(src: str, dst_dir: Path) -> Path | None:
 
 def run(params: dict[str, Any]) -> dict[str, Any]:
     """Execute the RealSense RGB-D capture skill."""
-    from rosclaw.mcp.onboarding.stdio_client import McpStdioError, call_server_tool
+    from rosclaw.mcp.onboarding.stdio_client import McpServerSession, McpStdioError
 
     t0 = time.time()
     home, body_id, body = _load_body(params)
@@ -187,18 +187,36 @@ def run(params: dict[str, Any]) -> dict[str, Any]:
     depth_path = str(output_dir / "depth.png")
 
     try:
-        if tool_name == "capture_aligned_rgbd":
-            arguments = {
-                "serial": serial,
-                "color_path": color_path,
-                "depth_path": depth_path,
-            }
-        elif tool_name == "capture_color_image":
-            arguments = {"serial": serial, "save_path": color_path}
-        else:
-            arguments = {"serial": serial, "align_depth": True}
+        # Ensure the device pipeline is active before capturing. Both calls must
+        # happen in the same stdio session because pipeline state lives in the
+        # MCP server process.
+        from rosclaw.mcp.onboarding.stdio_client import McpServerSession
 
-        raw = call_server_tool(server_name, tool_name, arguments, home=home, timeout=30.0)
+        with McpServerSession(server_name, home=home, start_timeout=15.0) as session:
+            start_result = session.call("start_pipeline", {"serial": serial}, timeout=60.0)
+            if isinstance(start_result, dict) and start_result.get("error"):
+                if "already" not in str(start_result.get("error", "")).lower():
+                    return {
+                        "status": "error",
+                        "reason": f"Failed to start pipeline: {start_result['error']}",
+                        "server_name": server_name,
+                        "body_id": body_id,
+                        "mcp_result": start_result,
+                    }
+
+            if tool_name == "capture_aligned_rgbd":
+                arguments = {
+                    "serial": serial,
+                    "color_path": color_path,
+                    "depth_path": depth_path,
+                }
+            elif tool_name == "capture_color_image":
+                arguments = {"serial": serial, "save_path": color_path}
+            else:
+                arguments = {"serial": serial, "align_depth": True}
+
+            raw = session.call(tool_name, arguments, timeout=60.0)
+
         content = raw.get("content", [])
         text = content[0].get("text", "{}") if content else "{}"
         mcp_result = json.loads(text) if isinstance(text, str) else text

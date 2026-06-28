@@ -1070,6 +1070,11 @@ def _practice_artifacts_dir() -> Path:
     return Path.home() / ".rosclaw" / "artifacts"
 
 
+def _memory_db_path() -> Path:
+    """Return the default SQLite path for persistent SeekDB memory."""
+    return Path.home() / ".rosclaw" / "memory" / "seekdb.sqlite"
+
+
 def cmd_practice_list(args: argparse.Namespace) -> int:
     """List recorded practice sessions from the local catalog."""
     data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
@@ -2851,8 +2856,12 @@ def _search_episode_artifacts(query: str, limit: int = 5) -> list[dict]:
 def cmd_memory_query(args: argparse.Namespace) -> int:
     """Query memory for similar experiences."""
     from rosclaw.memory.interface import MemoryInterface
+    from rosclaw.memory.seekdb_client import SeekDBSQLiteClient
 
-    mem = MemoryInterface("cli")
+    db_path = _memory_db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    mem = MemoryInterface("cli", seekdb_client=SeekDBSQLiteClient(str(db_path)))
     mem._do_initialize()
     results = mem.find_similar_experiences(args.query, limit=args.limit)
 
@@ -2916,8 +2925,12 @@ def _find_last_failure_from_artifacts(task_id: str | None = None) -> dict | None
 def cmd_memory_explain(args: argparse.Namespace) -> int:
     """Explain the most recent failure."""
     from rosclaw.memory.interface import MemoryInterface
+    from rosclaw.memory.seekdb_client import SeekDBSQLiteClient
 
-    mem = MemoryInterface("cli")
+    db_path = _memory_db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    mem = MemoryInterface("cli", seekdb_client=SeekDBSQLiteClient(str(db_path)))
     mem._do_initialize()
     failure = mem.explain_last_failure(task_id=args.task_id)
 
@@ -2945,11 +2958,14 @@ def cmd_memory_explain(args: argparse.Namespace) -> int:
 def cmd_memory_ingest(args: argparse.Namespace) -> int:
     """Ingest a practice episode into memory."""
     from rosclaw.memory.interface import MemoryInterface
+    from rosclaw.memory.seekdb_client import SeekDBSQLiteClient
 
     episode_id = args.episode_id
     data_root = getattr(args, "data_root", None) or "/data/rosclaw/practice"
+    db_path = _memory_db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    mem = MemoryInterface("cli")
+    mem = MemoryInterface("cli", seekdb_client=SeekDBSQLiteClient(str(db_path)))
     mem._do_initialize()
     result = mem.ingest_episode(episode_id, data_root=data_root)
 
