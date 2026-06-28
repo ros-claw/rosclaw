@@ -3,7 +3,8 @@
 **Report date:** 2026-06-27  
 **ROSClaw version:** v1.0.1  
 **Fix guide:** `~/workspace/rosclaw/rosclaw_fix/fix_for_realsense_test.md`  
-**Branch / working tree:** `/home/nvidia/workspace/rosclaw/rosclaw_fix/rosclaw`
+**Branch / working tree:** `/home/nvidia/workspace/rosclaw/rosclaw_fix/rosclaw`  
+**Pull request:** https://github.com/ros-claw/rosclaw/pull/48
 
 ---
 
@@ -262,11 +263,11 @@ A broader run of legacy MCP/skill/provider tests surfaced pre-existing failures 
 
 ## 7. Next Steps
 
-1. **Validate on real hardware:** Run `rosclaw skill invoke realsense_capture_rgbd --body d405_lab_01 --output ./capture` on a Jetson + D405 with `librealsense-mcp` installed.
-2. **Enable `mcp install --from-git` end-to-end** in an environment with outbound GitHub access.
-3. **Add `pytest-asyncio`** to dev dependencies and triage legacy async test failures.
-4. **Extend `realsense-ros-mcp`** integration once the ROS2 RealSense stack is available.
-5. **Populate `reports/issue_closure_table.csv`** and `reports/ROSClaw_RealSense_MVP_Fix_Report.json` as machine-readable companions to this report.
+1. **Merge PR #48** (`https://github.com/ros-claw/rosclaw/pull/48`) after review.
+2. **Validate on real hardware:** Run `rosclaw skill invoke realsense_capture_rgbd --body d405_lab_01 --output ./capture` on a Jetson + D405 with `librealsense-mcp` installed.
+3. **Enable `mcp install --from-git` end-to-end** in an environment with outbound GitHub access.
+4. **Add `pytest-asyncio`** to dev dependencies and triage legacy async test failures.
+5. **Extend `realsense-ros-mcp`** integration once the ROS2 RealSense stack is available.
 
 ---
 

@@ -203,19 +203,71 @@
   },
   "verification": {
     "cli_regression": [
-      {"command": "rosclaw mcp list --json", "result": "PASS", "notes": "Offline default works"},
-      {"command": "rosclaw mcp install --from-git https://github.com/ros-claw/librealsense-mcp --no-install-deps", "result": "NETWORK_TIMEOUT", "notes": "Implementation correct; no outbound GitHub access"},
-      {"command": "rosclaw body init --robot realsense-d405 --name d405_lab_01 --validate --force", "result": "PASS", "notes": "Body initialized"},
-      {"command": "rosclaw sandbox check --robot realsense-d405 --action '{\"type\":\"move_base\"}' --json", "result": "BLOCK", "notes": "Actuator action blocked"},
-      {"command": "rosclaw sandbox check --robot realsense-d405 --action '{\"type\":\"capture_rgbd\"}' --json", "result": "ALLOW", "notes": "Sensor action allowed"},
-      {"command": "rosclaw skill invoke realsense_capture_rgbd --body d405_lab_01 --output /tmp/capture --json", "result": "EXPECTED_FAILURE", "notes": "No RealSense MCP installed/healthy"},
-      {"command": "rosclaw practice run --robot d405_lab_01 --skill realsense_capture_rgbd --provider cosmos-reason2-lan --output-root /tmp/episode --json", "result": "EXPECTED_FAILURE", "notes": "Episode recorded as FAILED with zero_events"},
-      {"command": "rosclaw dashboard --open", "result": "PASS", "notes": "Server on :8765, APIs reachable"},
-      {"command": "rosclaw memory ingest --episode-id <id> --data-root /tmp/episode", "result": "PASS", "notes": "Episode ingested"},
-      {"command": "rosclaw memory query \"RealSense D405 RGB-D capture\"", "result": "PASS", "notes": "No mock results returned"},
-      {"command": "rosclaw how advise --body d405_lab_01 --failure low_fps --episode-id <id> --data-root /tmp/episode --json", "result": "PASS", "notes": "Fallback advice returned"},
-      {"command": "rosclaw bench realsense --duration 1 --output /tmp/bench --json", "result": "PASS", "notes": "Structured report with capture errors"},
-      {"command": "rosclaw doctor --realsense --json", "result": "PASS", "notes": "Structured checks; exits 1 because stack absent"}
+      {
+        "command": "rosclaw mcp list --json",
+        "result": "PASS",
+        "notes": "Offline default works"
+      },
+      {
+        "command": "rosclaw mcp install --from-git https://github.com/ros-claw/librealsense-mcp --no-install-deps",
+        "result": "NETWORK_TIMEOUT",
+        "notes": "Implementation correct; no outbound GitHub access"
+      },
+      {
+        "command": "rosclaw body init --robot realsense-d405 --name d405_lab_01 --validate --force",
+        "result": "PASS",
+        "notes": "Body initialized"
+      },
+      {
+        "command": "rosclaw sandbox check --robot realsense-d405 --action '{\"type\":\"move_base\"}' --json",
+        "result": "BLOCK",
+        "notes": "Actuator action blocked"
+      },
+      {
+        "command": "rosclaw sandbox check --robot realsense-d405 --action '{\"type\":\"capture_rgbd\"}' --json",
+        "result": "ALLOW",
+        "notes": "Sensor action allowed"
+      },
+      {
+        "command": "rosclaw skill invoke realsense_capture_rgbd --body d405_lab_01 --output /tmp/capture --json",
+        "result": "EXPECTED_FAILURE",
+        "notes": "No RealSense MCP installed/healthy"
+      },
+      {
+        "command": "rosclaw practice run --robot d405_lab_01 --skill realsense_capture_rgbd --provider cosmos-reason2-lan --output-root /tmp/episode --json",
+        "result": "EXPECTED_FAILURE",
+        "notes": "Episode recorded as FAILED with zero_events"
+      },
+      {
+        "command": "rosclaw dashboard --open",
+        "result": "PASS",
+        "notes": "Server on :8765, APIs reachable"
+      },
+      {
+        "command": "rosclaw memory ingest --episode-id <id> --data-root /tmp/episode",
+        "result": "PASS",
+        "notes": "Episode ingested"
+      },
+      {
+        "command": "rosclaw memory query \"RealSense D405 RGB-D capture\"",
+        "result": "PASS",
+        "notes": "No mock results returned"
+      },
+      {
+        "command": "rosclaw how advise --body d405_lab_01 --failure low_fps --episode-id <id> --data-root /tmp/episode --json",
+        "result": "PASS",
+        "notes": "Fallback advice returned"
+      },
+      {
+        "command": "rosclaw bench realsense --duration 1 --output /tmp/bench --json",
+        "result": "PASS",
+        "notes": "Structured report with capture errors"
+      },
+      {
+        "command": "rosclaw doctor --realsense --json",
+        "result": "PASS",
+        "notes": "Structured checks; exits 1 because stack absent"
+      }
     ],
     "unit_tests": {
       "focused_run": "57 passed, 2 warnings in 19.52s",
@@ -230,9 +282,11 @@
     "Dashboard --open detaches under harness background task; interactive use keeps server alive"
   ],
   "next_steps": [
+    "Merge PR #48 (https://github.com/ros-claw/rosclaw/pull/48) after review.",
     "Validate on real Jetson + D405 hardware with librealsense-mcp installed",
     "Run mcp install --from-git in environment with outbound GitHub access",
     "Add pytest-asyncio to dev dependencies and triage legacy async failures",
     "Extend realsense-ros-mcp integration when ROS2 stack is available"
-  ]
+  ],
+  "pull_request_url": "https://github.com/ros-claw/rosclaw/pull/48"
 }
