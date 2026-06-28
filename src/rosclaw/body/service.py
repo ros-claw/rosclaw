@@ -32,6 +32,7 @@ from rosclaw.body.schema import (
     EurdfProfile,
 )
 from rosclaw.eurdf.registry import RobotRegistry
+from rosclaw.firstboot.workspace import get_rosclaw_home
 from rosclaw.eurdf.zoo_client import EurdfZooClient, EurdfZooClientError
 
 
@@ -101,7 +102,7 @@ class BodyInstanceService:
     """Unified service for creating or re-initializing a body instance."""
 
     def __init__(self, workspace: Path | None = None):
-        self.workspace = workspace or Path.home() / ".rosclaw"
+        self.workspace = workspace or get_rosclaw_home()
         self.registry_manager = BodyRegistryManager(self.workspace)
 
     def create_or_init(

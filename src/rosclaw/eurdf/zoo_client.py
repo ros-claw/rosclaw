@@ -21,6 +21,7 @@ from typing import Any
 import yaml
 
 from rosclaw.body.schema import EurdfProfile
+from rosclaw.firstboot.workspace import get_rosclaw_home
 from rosclaw.runtime.eurdf_loader import (
     RobotBenchmarkProfile,
     RobotCapabilityProfile,
@@ -78,7 +79,7 @@ class EurdfZooClient:
 
         self.zoo_path = Path(zoo_path) if zoo_path else None
         if cache_dir is None:
-            cache_dir = Path.home() / ".rosclaw" / "cache" / "e-urdf-zoo"
+            cache_dir = get_rosclaw_home() / "cache" / "e-urdf-zoo"
         self.cache_dir = Path(cache_dir)
         self._loader: AssetLoader | None = None
 

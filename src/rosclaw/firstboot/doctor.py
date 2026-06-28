@@ -15,6 +15,8 @@ from pathlib import Path
 
 from rosclaw import __version__
 
+from rosclaw.firstboot.workspace import get_rosclaw_home
+
 from .config import FirstbootConfig, generate_rosclaw_yaml, load_rosclaw_yaml
 from .mcp import generate_mcp_config
 from .telemetry import generate_telemetry_yaml
@@ -67,7 +69,7 @@ class FirstbootDoctor:
     """Doctor implementation supporting bootstrap, full, fix and JSON output modes."""
 
     def __init__(self, home: Path | None = None) -> None:
-        self.home = home or Path.home() / ".rosclaw"
+        self.home = home or get_rosclaw_home()
 
     def run_bootstrap(
         self,

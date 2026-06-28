@@ -63,6 +63,16 @@ def resolve_home(path: str | None = None) -> Path:
     return Path(raw).expanduser().resolve()
 
 
+def get_rosclaw_home() -> Path:
+    """Return the active ROSClaw workspace root.
+
+    Uses ``ROSCLAW_HOME`` when set, otherwise ``~/.rosclaw``.
+    All modules that write persistent ROSClaw state should resolve paths
+    relative to this directory instead of hard-coding ``Path.home() / '.rosclaw'``.
+    """
+    return resolve_home()
+
+
 def detect_platform() -> PlatformInfo:
     """Detect current platform."""
     import platform as _platform

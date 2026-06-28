@@ -31,6 +31,7 @@ from rosclaw.body.schema import (
 from rosclaw.body.service import BodyInstanceService
 from rosclaw.body.workspace_validator import BodyValidator
 from rosclaw.connectors.ros.transport.base import RosbridgeEndpoint
+from rosclaw.firstboot.workspace import get_rosclaw_home
 from rosclaw.memory.body_events import BodyMemoryEventWriter
 from rosclaw.memory.interface import MemoryInterface
 
@@ -396,7 +397,7 @@ def cmd_body_create(args: argparse.Namespace) -> int:
 def cmd_body_switch(args: argparse.Namespace) -> int:
     """Switch the active body and dispatch runtime hooks."""
     workspace = Path(args.workspace) if args.workspace else None
-    ws = workspace or Path.home() / ".rosclaw"
+    ws = workspace or get_rosclaw_home()
     manager = BodyRegistryManager(ws)
     strict = getattr(args, "strict_runtime", False)
 
@@ -441,7 +442,7 @@ def cmd_body_switch(args: argparse.Namespace) -> int:
 def cmd_body_remove(args: argparse.Namespace) -> int:
     """Remove a body instance, optionally archiving its data."""
     workspace = Path(args.workspace) if args.workspace else None
-    ws = workspace or Path.home() / ".rosclaw"
+    ws = workspace or get_rosclaw_home()
     manager = BodyRegistryManager(ws)
     try:
         removal = manager.remove_body(args.body_id, archive=args.archive)
@@ -458,7 +459,7 @@ def cmd_body_remove(args: argparse.Namespace) -> int:
 def cmd_body_list(args: argparse.Namespace) -> int:
     """List registered bodies in the workspace."""
     workspace = Path(args.workspace) if args.workspace else None
-    ws = workspace or Path.home() / ".rosclaw"
+    ws = workspace or get_rosclaw_home()
     manager = BodyRegistryManager(ws)
     bodies = manager.list_bodies()
     stats = manager.stats()
@@ -1460,7 +1461,7 @@ def cmd_body_export(args: argparse.Namespace) -> int:
 
 def cmd_body_fleet_compat(args: argparse.Namespace) -> int:
     """Aggregate skill compatibility across all bodies in the workspace."""
-    workspace = Path(args.workspace) if args.workspace else Path.home() / ".rosclaw"
+    workspace = Path(args.workspace) if args.workspace else get_rosclaw_home()
     manifests = discover_skill_manifests(workspace)
     aggregator = FleetCompatibilityAggregator(workspace)
     report = aggregator.aggregate(manifests)

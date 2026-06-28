@@ -44,7 +44,7 @@ from rosclaw.feedback.cli import add_feedback_subparser, dispatch_feedback_comma
 from rosclaw.feedback.hooks import telemetry_command_hook
 from rosclaw.feedback.telemetry_client import TelemetryClient
 from rosclaw.firstboot.wizard import run_firstboot
-from rosclaw.firstboot.workspace import resolve_home
+from rosclaw.firstboot.workspace import get_rosclaw_home, resolve_home
 from rosclaw.hub.cli import add_hub_subparser, dispatch_hub_command
 from rosclaw.mcp.onboarding.cli import add_mcp_subparser
 from rosclaw.mcp.server import serve as _mcp_serve
@@ -159,7 +159,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     runtime = Runtime(config)
 
     # PID file for daemon management
-    pid_file = Path.home() / ".rosclaw" / "runtime.pid"
+    pid_file = get_rosclaw_home() / "runtime.pid"
     pid_file.parent.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -415,6 +415,11 @@ def _run_doctor(args: argparse.Namespace) -> int:
     except ImportError:
         checks.append(("MuJoCo", "Not installed", True))
 
+    # 8. RealSense D405 stack (always reported; default doctor stays passable)
+    rs_checks, rs_warnings, rs_issues = _collect_realsense_checks(args)
+    checks.extend(rs_checks)
+    recommendations = rs_warnings + rs_issues
+
     # Output
     print("=" * 60)
     print("ROSClaw v1.0 — Doctor")
@@ -426,6 +431,11 @@ def _run_doctor(args: argparse.Namespace) -> int:
 
     # Auto-register builtin providers and skills if missing
     _providers, _skills = _auto_register_builtins()
+
+    if recommendations:
+        print(f"\n💡 RealSense recommendations ({len(recommendations)}):")
+        for r in recommendations:
+            print(f"  • {r}")
 
     if issues:
         print(f"\n⚠️  Issues found ({len(issues)}):")
@@ -673,7 +683,7 @@ def cmd_logs(args: argparse.Namespace) -> int:
     import os
     from datetime import datetime
 
-    log_dir = Path.home() / ".rosclaw" / "logs"
+    log_dir = get_rosclaw_home() / "logs"
     if not log_dir.exists():
         print(f"[ROSClaw] Log directory not found: {log_dir}")
         print("[ROSClaw] No logs available yet. Start runtime with `rosclaw run`.")
@@ -780,7 +790,7 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
     episode_count = 0
     try:
         from rosclaw.practice.episode_recorder import EpisodeRecorder
-        recorder = EpisodeRecorder("cli", event_bus=None, artifact_base_dir=str(Path.home() / ".rosclaw" / "artifacts"))
+        recorder = EpisodeRecorder("cli", event_bus=None, artifact_base_dir=str(get_rosclaw_home() / "artifacts"))
         episodes = recorder.list_episodes()
         episode_count = len(episodes)
     except Exception:
@@ -1067,12 +1077,12 @@ def cmd_robot_validate(args: argparse.Namespace) -> int:
 # ------------------------------------------------------------------
 
 def _practice_artifacts_dir() -> Path:
-    return Path.home() / ".rosclaw" / "artifacts"
+    return get_rosclaw_home() / "artifacts"
 
 
 def _memory_db_path() -> Path:
     """Return the default SQLite path for persistent SeekDB memory."""
-    return Path.home() / ".rosclaw" / "memory" / "seekdb.sqlite"
+    return get_rosclaw_home() / "memory" / "seekdb.sqlite"
 
 
 def cmd_practice_list(args: argparse.Namespace) -> int:
@@ -1281,7 +1291,7 @@ def _parse_sources(value: str | None) -> SourceConfig:
 
 def cmd_practice_init(args: argparse.Namespace) -> int:
     """Initialize rosclaw-practice configuration for a robot."""
-    config_root = Path.home() / ".rosclaw" / "practice"
+    config_root = get_rosclaw_home() / "practice"
     robot_id = args.robot
     config_root.mkdir(parents=True, exist_ok=True)
     (config_root / "robots" / robot_id).mkdir(parents=True, exist_ok=True)
@@ -1308,12 +1318,23 @@ seekdb:
 
 
 def cmd_practice_start(args: argparse.Namespace) -> int:
-    """Start a practice session using PracticeCoordinator."""
+    """Start a practice session using PracticeCoordinator.
+
+    When ``--skill`` is provided, the session immediately executes one skill
+    iteration and records real events (``runtime.start``, ``skill.start``,
+    ``skill.result``, ``camera.rgbd_frame``, provider request/result,
+    ``sandbox.decision``).  The session then keeps running until the requested
+    duration expires or a signal is received.  Without ``--skill`` the session
+    remains passive and will record zero events.
+    """
     import signal
 
     seekdb_enabled = args.seekdb
     seekdb_url = os.environ.get("ROSCLAW_SEEKDB_URL", "http://localhost:2881")
     fallback_dir = os.environ.get("ROSCLAW_SEEKDB_FALLBACK_DIR", "/data/rosclaw/practice/fallback")
+    skill_id = getattr(args, "skill", None)
+    provider_id = getattr(args, "provider", None)
+    capability = getattr(args, "capability", "vlm.risk_assessment")
 
     try:
         duration_sec = _parse_duration(args.duration)
@@ -1321,14 +1342,26 @@ def cmd_practice_start(args: argparse.Namespace) -> int:
         print(f"[rosclaw-practice] Invalid duration: {exc}", file=sys.stderr)
         return 1
 
+    # If a skill is requested, force the sources that record real evidence.
+    if skill_id:
+        sources = SourceConfig(
+            camera=True,
+            provider=bool(provider_id),
+            sandbox=True,
+            runtime=True,
+            agent=False,
+        )
+    else:
+        sources = _parse_sources(args.sources)
+
     config = PracticeConfig(
         robot_id=args.robot,
         robot_type=args.robot_type,
         task_id=args.task,
         task_name=args.task,
-        skill_id=args.skill,
+        skill_id=skill_id,
         data_root=args.data_root,
-        sources=_parse_sources(args.sources),
+        sources=sources,
         mock=args.mock,
         duration_sec=duration_sec,
         publish_to_event_bus=True,
@@ -1359,11 +1392,33 @@ def cmd_practice_start(args: argparse.Namespace) -> int:
     coordinator.start()
 
     practice_id = coordinator.session.practice_id if coordinator.session else "unknown"
-    pid_file = Path.home() / ".rosclaw" / "practice" / "coordinator.pid"
+    pid_file = get_rosclaw_home() / "practice" / "coordinator.pid"
     pid_file.parent.mkdir(parents=True, exist_ok=True)
     pid_file.write_text(f"{os.getpid()}\n{practice_id}\n", encoding="utf-8")
 
     print(f"[rosclaw-practice] Started session {practice_id}")
+
+    # Execute a single skill iteration up-front when --skill is given.
+    if skill_id:
+        home = get_rosclaw_home()
+        result = _run_practice_skill_iteration(
+            coordinator,
+            home=home,
+            robot_id=args.robot,
+            skill_id=skill_id,
+            provider_id=provider_id,
+            capability=capability,
+            task_id=args.task,
+            robot_type=args.robot_type,
+            data_root=args.data_root,
+        )
+        if result != 0:
+            coordinator.stop()
+            if recorder is not None:
+                recorder.stop()
+            if pid_file.exists():
+                pid_file.unlink()
+            return 1
 
     stop_requested = False
 
@@ -1444,22 +1499,31 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def cmd_practice_run(args: argparse.Namespace) -> int:
-    """Run a single skill+provider practice episode and record real events.
+def _run_practice_skill_iteration(
+    coordinator: "PracticeCoordinator",
+    home: Path,
+    robot_id: str,
+    skill_id: str,
+    provider_id: str | None = None,
+    capability: str = "vlm.risk_assessment",
+    task_id: str | None = None,
+    robot_type: str | None = None,
+    data_root: str = "/data/rosclaw/practice",
+) -> int:
+    """Execute one skill iteration and emit practice events into a live session.
 
-    Example:
-        rosclaw practice run --robot d405_lab_01 \
-            --skill realsense_capture_rgbd \
-            --provider cosmos-reason2-lan \
-            --output-root ./episode
+    The coordinator session must already be started.  This helper emits
+    ``runtime.start``, ``skill.start``, ``skill.result``, ``camera.rgbd_frame``,
+    provider request/result (when ``provider_id`` is given), and ``sandbox.decision``
+    events.  It does **not** emit ``runtime.stop`` or stop the coordinator, so the
+    caller can keep the session open (``practice start``) or finalize it
+    immediately (``practice run``).
+
+    Returns 0 on success, 1 on failure.
     """
     from pathlib import Path
 
     from rosclaw.body.resolver import BodyNotLinkedError, BodyResolver
-    from rosclaw.core.event_bus import Event
-    from rosclaw.firstboot.workspace import resolve_home
-    from rosclaw.practice.config import PracticeConfig, SourceConfig
-    from rosclaw.practice.coordinator import PracticeCoordinator
     from rosclaw.practice.schemas import (
         PracticeEventEnvelope,
         ProviderOutputPayload,
@@ -1470,13 +1534,6 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
     from rosclaw.skill_manager.executor import SkillExecutor
     from rosclaw.skill_manager.registry import SkillRegistry
 
-    home = resolve_home(getattr(args, "workspace", None))
-    robot_id = args.robot
-    skill_id = args.skill
-    provider_id = getattr(args, "provider", None)
-    data_root = getattr(args, "output_root", None) or getattr(args, "data_root", None) or "/data/rosclaw/practice"
-
-    # Body must be linked.
     try:
         resolver = BodyResolver(workspace=home, body_id=robot_id)
         if not resolver.is_linked():
@@ -1487,7 +1544,6 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
         print(f"[rosclaw-practice] Body check failed: {exc}", file=sys.stderr)
         return 1
 
-    # Resolve the canonical e-URDF profile id for sandbox/policy checks.
     try:
         from rosclaw.body.schema import EurdfProfile
 
@@ -1497,29 +1553,10 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
         print(f"[rosclaw-practice] Failed to resolve body profile: {exc}", file=sys.stderr)
         return 1
 
-    sources = SourceConfig(
-        camera=True,
-        provider=bool(provider_id),
-        sandbox=True,
-        runtime=True,
-        agent=False,
-    )
-    config = PracticeConfig(
-        robot_id=robot_id,
-        robot_type=getattr(args, "robot_type", None),
-        task_id=getattr(args, "task", None),
-        task_name=getattr(args, "task", None),
-        skill_id=skill_id,
-        data_root=data_root,
-        sources=sources,
-        mock=False,
-        publish_to_event_bus=True,
-    )
+    if coordinator.session is None:
+        print("[rosclaw-practice] Session not started.", file=sys.stderr)
+        return 1
 
-    coordinator = PracticeCoordinator(config)
-    coordinator.initialize()
-    coordinator.start()
-    assert coordinator.session is not None
     practice_id = coordinator.session.practice_id
     session_dir = coordinator.session.session_dir
     skill_output_dir = session_dir / "artifacts" / "skill"
@@ -1546,14 +1583,10 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
         coordinator.emit_event(event)
         return event.event_id
 
-    # Load builtins and execute the requested skill before recording events.
-    # If execution fails, stop the session with zero recorded events so the
-    # coordinator marks the episode FAILED instead of SUCCESS.
     registry = SkillRegistry(event_bus=coordinator.event_bus)
     load_builtins(registry)
     if registry.get(skill_id) is None:
         print(f"[rosclaw-practice] Skill not found: {skill_id}", file=sys.stderr)
-        coordinator.stop()
         return 1
 
     executor = SkillExecutor(
@@ -1576,7 +1609,6 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
             f"[rosclaw-practice] Skill failed: {skill_id} ({skill_status}){f' — {reason}' if reason else ''}",
             file=sys.stderr,
         )
-        coordinator.stop()
         return 1
 
     handler_result = skill_result.get("handler_result") if isinstance(skill_result, dict) else None
@@ -1586,7 +1618,6 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
 
     if not color_path or not Path(color_path).exists():
         print("[rosclaw-practice] No color frame artifact captured.", file=sys.stderr)
-        coordinator.stop()
         return 1
 
     # ------------------------------------------------------------------
@@ -1599,9 +1630,10 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
             "phase": "start",
             "data_root": str(data_root),
             "sources": {
-                k: getattr(sources, k)
-                for k in dir(sources)
-                if not k.startswith("_") and not callable(getattr(sources, k))
+                "camera": True,
+                "provider": bool(provider_id),
+                "sandbox": True,
+                "runtime": True,
             },
         },
         tags=["runtime", "start"],
@@ -1675,7 +1707,6 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
         frame_payload.model_dump(),
         tags=["rgbd", "realsense", skill_id],
     )
-    print(f"[rosclaw-practice] Captured frame: {color_ref}")
 
     # ------------------------------------------------------------------
     # Provider inference on the color frame
@@ -1687,7 +1718,6 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
         provider_out = provider_dir / "provider_result.json"
         requests_jsonl = provider_dir / "requests.jsonl"
         responses_jsonl = provider_dir / "responses.jsonl"
-        capability = getattr(args, "capability", "vlm.risk_assessment")
         question = "Analyze physical risks in this RealSense image."
 
         request_record = {
@@ -1787,17 +1817,85 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
         parent_event_id=provider_event_id,
     )
 
-    # ------------------------------------------------------------------
-    # runtime.stop
-    # ------------------------------------------------------------------
-    _emit(
-        "runtime",
-        "runtime.stop",
-        {"phase": "stop"},
-        tags=["runtime", "stop"],
+    print(f"[rosclaw-practice] Captured frame: {color_ref}")
+    return 0
+
+
+def cmd_practice_run(args: argparse.Namespace) -> int:
+    """Run a single skill+provider practice episode and record real events.
+
+    Example:
+        rosclaw practice run --robot d405_lab_01 \
+            --skill realsense_capture_rgbd \
+            --provider cosmos-reason2-lan \
+            --output-root ./episode
+    """
+    from rosclaw.firstboot.workspace import resolve_home
+    from rosclaw.practice.config import PracticeConfig, SourceConfig
+    from rosclaw.practice.coordinator import PracticeCoordinator
+    from rosclaw.practice.schemas import PracticeEventEnvelope
+
+    home = resolve_home(getattr(args, "workspace", None))
+    robot_id = args.robot
+    skill_id = args.skill
+    provider_id = getattr(args, "provider", None)
+    capability = getattr(args, "capability", "vlm.risk_assessment")
+    data_root = getattr(args, "output_root", None) or getattr(args, "data_root", None) or "/data/rosclaw/practice"
+
+    sources = SourceConfig(
+        camera=True,
+        provider=bool(provider_id),
+        sandbox=True,
+        runtime=True,
+        agent=False,
+    )
+    config = PracticeConfig(
+        robot_id=robot_id,
+        robot_type=getattr(args, "robot_type", None),
+        task_id=getattr(args, "task", None),
+        task_name=getattr(args, "task", None),
+        skill_id=skill_id,
+        data_root=data_root,
+        sources=sources,
+        mock=False,
+        publish_to_event_bus=True,
     )
 
+    coordinator = PracticeCoordinator(config)
+    coordinator.initialize()
+    coordinator.start()
+
+    result = _run_practice_skill_iteration(
+        coordinator,
+        home=home,
+        robot_id=robot_id,
+        skill_id=skill_id,
+        provider_id=provider_id,
+        capability=capability,
+        task_id=getattr(args, "task", None),
+        robot_type=getattr(args, "robot_type", None),
+        data_root=data_root,
+    )
+
+    if result != 0:
+        coordinator.stop()
+        return 1
+
+    # Finalize the single-shot episode.
+    coordinator.emit_event(
+        PracticeEventEnvelope(
+            practice_id=coordinator.session.practice_id,
+            robot_id=robot_id,
+            source="runtime",
+            event_type="runtime.stop",
+            skill_id=skill_id,
+            trace_id=coordinator.session.practice_id,
+            payload={"phase": "stop"},
+            tags=["runtime", "stop"],
+        )
+    )
     coordinator.stop()
+
     summary = coordinator.summary
     outcome = summary.outcome if summary else "UNKNOWN"
 
@@ -1969,7 +2067,7 @@ def cmd_practice_stop(args: argparse.Namespace) -> int:
     import os
     import signal
 
-    pid_file = Path.home() / ".rosclaw" / "practice" / "coordinator.pid"
+    pid_file = get_rosclaw_home() / "practice" / "coordinator.pid"
     if not pid_file.exists():
         print("[rosclaw-practice] No running coordinator found.", file=sys.stderr)
         return 1
@@ -3504,7 +3602,7 @@ def cmd_demo_tabletop_grasp(args: argparse.Namespace) -> int:
 
 
 # Shared event history file for cross-CLI-process persistence
-_EVENT_HISTORY_FILE = Path.home() / ".rosclaw" / "event_history.jsonl"
+_EVENT_HISTORY_FILE = get_rosclaw_home() / "event_history.jsonl"
 _EVENT_HISTORY_MAX = 10000
 
 
@@ -4027,8 +4125,8 @@ def _print_sandbox_result(args: argparse.Namespace, result: dict[str, Any]) -> i
     return 1 if result["decision"] == "BLOCK" else 0
 
 
-def _run_doctor_realsense(args: argparse.Namespace) -> int:
-    """Run RealSense D405 health checks."""
+def _collect_realsense_checks(args: argparse.Namespace) -> tuple[list[tuple[str, str, bool]], list[str], list[str]]:
+    """Collect RealSense D405 health checks without formatting output."""
     import importlib
     import shutil
     import subprocess
@@ -4143,6 +4241,13 @@ def _run_doctor_realsense(args: argparse.Namespace) -> int:
     except Exception:
         pass
     checks.append(("Cosmos endpoint", "reachable" if cosmos_reachable else "not reachable", True))
+
+    return checks, warnings, issues
+
+
+def _run_doctor_realsense(args: argparse.Namespace) -> int:
+    """Run RealSense D405 health checks."""
+    checks, warnings, issues = _collect_realsense_checks(args)
 
     result = {
         "profile": "realsense",
@@ -4360,7 +4465,7 @@ def cmd_stop(_args: argparse.Namespace) -> int:
     import os
     import signal
 
-    pid_file = Path.home() / ".rosclaw" / "runtime.pid"
+    pid_file = get_rosclaw_home() / "runtime.pid"
     if pid_file.exists():
         pid = int(pid_file.read_text().strip())
         try:
@@ -4379,7 +4484,7 @@ def cmd_stop(_args: argparse.Namespace) -> int:
 
 def cmd_fleet_status(args: argparse.Namespace) -> int:
     """Show fleet-wide body status and readiness summary."""
-    workspace = Path(args.workspace) if args.workspace else Path.home() / ".rosclaw"
+    workspace = Path(args.workspace) if args.workspace else get_rosclaw_home()
     manager = BodyRegistryManager(workspace)
     bodies = manager.list_bodies()
 
@@ -4417,7 +4522,7 @@ def cmd_fleet_status(args: argparse.Namespace) -> int:
 
 def cmd_fleet_stop(args: argparse.Namespace) -> int:
     """Broadcast an emergency stop event for every registered body."""
-    workspace = Path(args.workspace) if args.workspace else Path.home() / ".rosclaw"
+    workspace = Path(args.workspace) if args.workspace else get_rosclaw_home()
     manager = BodyRegistryManager(workspace)
     bodies = manager.list_bodies()
     if not bodies:
@@ -4805,6 +4910,8 @@ def main() -> int:
     practice_start_parser.add_argument("--robot-type", default=None, help="Robot type")
     practice_start_parser.add_argument("--task", default=None, help="Task name / task_id")
     practice_start_parser.add_argument("--skill", default=None, help="Skill identifier")
+    practice_start_parser.add_argument("--provider", default=None, help="Provider identifier (optional)")
+    practice_start_parser.add_argument("--capability", default="vlm.risk_assessment", help="Provider capability")
     practice_start_parser.add_argument(
         "--sources", default="agent,runtime", help="Comma-separated source list (e.g. agent,runtime,dds)"
     )

@@ -8,6 +8,7 @@ from typing import Any
 
 from rosclaw.body.registry import BodyRegistryManager
 from rosclaw.body.resolver import BodyResolver
+from rosclaw.firstboot.workspace import get_rosclaw_home
 from rosclaw.mcp.adapters.memory_client import MemoryClient
 from rosclaw.mcp.adapters.practice_client import PracticeClient
 from rosclaw.mcp.adapters.safety_client import SafetyClient
@@ -258,7 +259,7 @@ class RuntimeClient:
 
     def _body_workspace(self) -> Path:
         """Return the ROSClaw workspace used by the body registry."""
-        return Path.home() / ".rosclaw"
+        return get_rosclaw_home()
 
     async def list_bodies(self) -> dict[str, Any]:
         """List all registered bodies in the workspace."""

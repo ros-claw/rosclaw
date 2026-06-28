@@ -2,9 +2,11 @@
 import json
 from pathlib import Path
 
+from rosclaw.firstboot.workspace import get_rosclaw_home
+
 
 def _artifact_dir() -> Path:
-    return Path.home() / ".rosclaw" / "artifacts" / "episodes"
+    return get_rosclaw_home() / "artifacts" / "episodes"
 
 
 def list_episodes():

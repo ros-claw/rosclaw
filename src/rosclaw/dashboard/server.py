@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from rosclaw.core.event_topics import EventTopics
+from rosclaw.firstboot.workspace import get_rosclaw_home
 
 from .firstboot import get_firstboot_state
 from .metrics import DashboardMetrics
@@ -173,7 +174,7 @@ class DashboardServer:
         from rosclaw.body.registry import BodyRegistryManager
         from rosclaw.body.resolver import BodyResolver
 
-        ws = Path(workspace) if workspace else Path.home() / ".rosclaw"
+        ws = Path(workspace) if workspace else get_rosclaw_home()
         try:
             manager = BodyRegistryManager(ws)
             bodies = manager.list_bodies()
@@ -229,7 +230,7 @@ class DashboardServer:
         from rosclaw.body.registry import BodyRegistryManager
         from rosclaw.body.resolver import BodyResolver
 
-        ws = Path(workspace) if workspace else Path.home() / ".rosclaw"
+        ws = Path(workspace) if workspace else get_rosclaw_home()
         try:
             manager = BodyRegistryManager(ws)
             current_id = manager.get_current_body_id()
@@ -260,7 +261,7 @@ class DashboardServer:
         from rosclaw.body.registry import BodyRegistryManager
         from rosclaw.body.resolver import BodyResolver
 
-        ws = Path(workspace) if workspace else Path.home() / ".rosclaw"
+        ws = Path(workspace) if workspace else get_rosclaw_home()
         try:
             manager = BodyRegistryManager(ws)
             current_id = manager.get_current_body_id()
@@ -288,7 +289,7 @@ class DashboardServer:
         from rosclaw.body.registry import BodyRegistryManager
         from rosclaw.body.resolver import BodyResolver
 
-        ws = Path(workspace) if workspace else Path.home() / ".rosclaw"
+        ws = Path(workspace) if workspace else get_rosclaw_home()
         try:
             manager = BodyRegistryManager(ws)
             current_id = manager.get_current_body_id()
@@ -311,7 +312,7 @@ class DashboardServer:
         from rosclaw.body.resolver import BodyResolver
         from rosclaw.provider.body_binder import ProviderBodyBinder
 
-        ws = Path(workspace) if workspace else Path.home() / ".rosclaw"
+        ws = Path(workspace) if workspace else get_rosclaw_home()
         try:
             manager = BodyRegistryManager(ws)
             current_id = manager.get_current_body_id()

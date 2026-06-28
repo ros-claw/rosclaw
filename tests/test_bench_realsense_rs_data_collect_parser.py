@@ -73,6 +73,17 @@ class TestBenchRealSenseNoStub:
         saved = json.loads((output_dir / "report.json").read_text(encoding="utf-8"))
         assert saved["schema_version"] == report["schema_version"]
 
+    def test_bench_report_includes_device_and_status_keys(self, tmp_path):
+        """The benchmark report must expose camera/serial/usb/profile/status."""
+        output_dir = tmp_path / "bench_keys"
+        report = bench_realsense(duration_sec=0.05, output_dir=str(output_dir))
+
+        for key in ("camera", "serial", "firmware", "usb_speed", "profile", "status"):
+            assert key in report, f"missing key: {key}"
+        assert report["status"] in ("success", "degraded", "failed", "no_data")
+        saved = json.loads((output_dir / "report.json").read_text(encoding="utf-8"))
+        assert saved["status"] == report["status"]
+
     def test_cli_bench_realsense(self, tmp_path, capsys):
         output_dir = tmp_path / "bench_cli"
         args = SimpleNamespace(duration=0.1, output=str(output_dir), json=False)

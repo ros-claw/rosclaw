@@ -7,10 +7,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from rosclaw.firstboot.workspace import get_rosclaw_home
+
 DEFAULT_DATA_ROOT = "/data/rosclaw/practice"
 DEFAULT_FALLBACK_DIR = "/data/rosclaw/practice/fallback"
 DEFAULT_INDEX_DIR = "/data/rosclaw/practice/indexes"
-DEFAULT_CONFIG_ROOT = Path.home() / ".rosclaw" / "practice"
+DEFAULT_CONFIG_ROOT = get_rosclaw_home() / "practice"
 
 
 @dataclass
@@ -72,7 +74,7 @@ class PracticeConfig:
     session_name: str | None = None
 
     data_root: str = DEFAULT_DATA_ROOT
-    config_root: Path = field(default_factory=lambda: DEFAULT_CONFIG_ROOT)
+    config_root: Path = field(default_factory=lambda: get_rosclaw_home() / "practice")
     sources: SourceConfig = field(default_factory=SourceConfig)
     recorder: RecorderConfig = field(default_factory=RecorderConfig)
     seekdb: SeekDBConfig = field(default_factory=SeekDBConfig)

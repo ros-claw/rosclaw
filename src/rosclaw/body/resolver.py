@@ -28,13 +28,14 @@ from rosclaw.body.schema import (
     SkillManifest,
 )
 from rosclaw.eurdf.registry import RobotRegistry
+from rosclaw.firstboot.workspace import get_rosclaw_home
 
 
 class BodyResolver:
     """Resolve rosclaw://body/... URIs and load effective body state."""
 
     def __init__(self, workspace: Path | None = None, body_id: str | None = None):
-        self.workspace = workspace or Path.home() / ".rosclaw"
+        self.workspace = workspace or get_rosclaw_home()
         self.registry_manager = BodyRegistryManager(self.workspace)
         self.body_id, self.body_dir, self.is_legacy_single_body = self._resolve_body(body_id)
         self.compiler = EffectiveBodyCompiler()

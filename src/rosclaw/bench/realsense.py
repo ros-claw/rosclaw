@@ -39,6 +39,31 @@ def _detect_usb_mode(profile: Any) -> str:
     return str(usb)
 
 
+def _detect_device_info(profile: Any) -> dict[str, str]:
+    """Extract camera name, serial, firmware, and USB speed from a device."""
+    info: dict[str, str] = {
+        "camera": "unknown",
+        "serial": "unknown",
+        "firmware": "unknown",
+        "usb_speed": "unknown",
+        "profile": "unknown",
+    }
+    try:
+        device = profile.get_device()
+        with contextlib.suppress(Exception):
+            info["camera"] = device.get_info(device.camera_info_name)
+        with contextlib.suppress(Exception):
+            info["serial"] = device.get_info(device.camera_info_serial_number)
+        with contextlib.suppress(Exception):
+            info["firmware"] = device.get_info(device.camera_info_firmware_version)
+        with contextlib.suppress(Exception):
+            info["usb_speed"] = device.get_info(device.camera_info_usb_type_descriptor)
+        info["profile"] = str(profile.get_streams())
+    except Exception:
+        pass
+    return info
+
+
 def _capture_with_pyrealsense2(duration_sec: float) -> dict[str, Any]:
     """Capture frames using pyrealsense2 and return report fields."""
     import pyrealsense2 as rs
@@ -49,7 +74,8 @@ def _capture_with_pyrealsense2(duration_sec: float) -> dict[str, Any]:
 
     pipeline = rs.pipeline()
     profile = pipeline.start(config)
-    usb_mode = _detect_usb_mode(profile)
+    device_info = _detect_device_info(profile)
+    usb_mode = device_info.get("usb_speed") or _detect_usb_mode(profile)
 
     color_frames = 0
     depth_frames = 0
@@ -77,6 +103,7 @@ def _capture_with_pyrealsense2(duration_sec: float) -> dict[str, Any]:
         "drops": dropped,
         "usb_mode": usb_mode,
         "degraded": "USB2" in str(usb_mode).upper(),
+        **device_info,
     }
 
 
@@ -171,6 +198,47 @@ def _capture_with_rs_data_collect(duration_sec: float) -> dict[str, Any]:
             config_path.unlink()
 
 
+def _enumerate_device_info() -> dict[str, str]:
+    """Best-effort device metadata from ``rs-enumerate-devices``."""
+    info: dict[str, str] = {
+        "camera": "unknown",
+        "serial": "unknown",
+        "firmware": "unknown",
+        "usb_speed": "unknown",
+        "profile": "640x480@30 (color+depth)",
+    }
+    binary = shutil.which("rs-enumerate-devices")
+    if not binary:
+        return info
+    try:
+        proc = subprocess.run(
+            [binary, "--compact"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if proc.returncode != 0:
+            return info
+        text = proc.stdout
+        import re
+
+        name_match = re.search(r"Name\s*:\s*(.+)", text, re.IGNORECASE)
+        if name_match:
+            info["camera"] = name_match.group(1).strip()
+        serial_match = re.search(r"Serial Number\s*:\s*(\S+)", text, re.IGNORECASE)
+        if serial_match:
+            info["serial"] = serial_match.group(1).strip()
+        fw_match = re.search(r"Firmware Version\s*:\s*(\S+)", text, re.IGNORECASE)
+        if fw_match:
+            info["firmware"] = fw_match.group(1).strip()
+        usb_match = re.search(r"USB Type Descriptor\s*:\s*(\S+)", text, re.IGNORECASE)
+        if usb_match:
+            info["usb_speed"] = usb_match.group(1).strip()
+    except Exception:
+        pass
+    return info
+
+
 def bench_realsense(duration_sec: float, output_dir: str | Path) -> dict[str, Any]:
     """Run a RealSense capture benchmark and write ``report.json``.
 
@@ -188,6 +256,11 @@ def bench_realsense(duration_sec: float, output_dir: str | Path) -> dict[str, An
         "schema_version": "rosclaw.bench.realsense.v1",
         "started_at": _utc_now_iso(),
         "duration_requested_sec": duration_sec,
+        "camera": "unknown",
+        "serial": "unknown",
+        "firmware": "unknown",
+        "usb_speed": "unknown",
+        "profile": "unknown",
         "color_frames": 0,
         "depth_frames": 0,
         "fps": 0.0,
@@ -195,6 +268,7 @@ def bench_realsense(duration_sec: float, output_dir: str | Path) -> dict[str, An
         "usb_mode": "unknown",
         "degraded": False,
         "backend": None,
+        "status": "pending",
         "errors": [],
     }
 
@@ -218,6 +292,21 @@ def bench_realsense(duration_sec: float, output_dir: str | Path) -> dict[str, An
     # Derive FPS from frame count and duration if the parser did not provide it.
     if report["fps"] == 0.0 and report["color_frames"] > 0 and duration_sec > 0:
         report["fps"] = round(report["color_frames"] / duration_sec, 2)
+
+    if report["camera"] == "unknown":
+        report.update(_enumerate_device_info())
+
+    if report["errors"]:
+        report["status"] = "failed" if report["color_frames"] == 0 else "degraded"
+    elif report["color_frames"] > 0:
+        report["status"] = "success"
+    else:
+        report["status"] = "no_data"
+
+    # Normalize usb_speed from usb_mode if still unknown.
+    if report["usb_speed"] == "unknown" and report["usb_mode"] != "unknown":
+        report["usb_speed"] = report["usb_mode"]
+
     (output_path / "report.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False),
         encoding="utf-8",

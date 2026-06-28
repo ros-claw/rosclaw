@@ -14,6 +14,7 @@ from typing import Any
 
 from rosclaw.mcp.adapters.runtime_client import RuntimeClient
 from rosclaw.mcp.schemas.common import MCPError, make_error, make_response
+from rosclaw.firstboot.workspace import get_rosclaw_home
 
 ToolFunc = Callable[..., Any]
 
@@ -97,7 +98,7 @@ def _audit(
     latency_ms: float,
 ) -> None:
     """Append one JSON line to ~/.rosclaw/logs/mcp/audit.jsonl."""
-    home = os.environ.get("ROSCLAW_HOME", str(Path.home() / ".rosclaw"))
+    home = os.environ.get("ROSCLAW_HOME", str(get_rosclaw_home()))
     log_dir = Path(home) / "logs" / "mcp"
     try:
         log_dir.mkdir(parents=True, exist_ok=True)

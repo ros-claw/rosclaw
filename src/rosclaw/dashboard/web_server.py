@@ -238,6 +238,91 @@ async def _latest_frame_info(data_root: Path) -> dict[str, Any]:
     }
 
 
+def _list_realsense_frames(data_root: Path, limit: int = 50) -> dict[str, Any]:
+    """Return the most recent RealSense RGB-D frame events across episodes."""
+    layout = PracticeLayout(data_root)
+    command = (
+        "rosclaw practice run --robot d405_lab_01 "
+        "--skill realsense_capture_rgbd --provider cosmos-reason2-lan "
+        "--output-root ./episode"
+    )
+    frames: list[dict[str, Any]] = []
+    for ep in _list_episodes(data_root):
+        timeline = _read_jsonl(layout.timeline_jsonl_path(ep["practice_id"]))
+        for ev in reversed(timeline):
+            if ev.get("source") == "camera" and ev.get("event_type") == "rgbd_frame":
+                payload = ev.get("payload", {})
+                rgb_ref = payload.get("rgb_ref")
+                if not rgb_ref:
+                    continue
+                depth_ref = payload.get("depth_ref")
+                frames.append({
+                    "practice_id": ep["practice_id"],
+                    "event_id": ev.get("event_id"),
+                    "timestamp_utc": ev.get("timestamp_utc"),
+                    "rgb_ref": rgb_ref,
+                    "depth_ref": depth_ref,
+                    "width": payload.get("width"),
+                    "height": payload.get("height"),
+                    "rgb_url": f"/api/artifacts/{ep['practice_id']}/{rgb_ref}",
+                    "depth_url": f"/api/artifacts/{ep['practice_id']}/{depth_ref}" if depth_ref else None,
+                })
+                if len(frames) >= limit:
+                    break
+        if len(frames) >= limit:
+            break
+
+    if frames:
+        return {"found": True, "count": len(frames), "frames": frames}
+    return {"found": False, "message": "No RealSense frames recorded yet.", "command": command}
+
+
+def _list_realsense_streams(data_root: Path) -> dict[str, Any]:
+    """Infer available RealSense streams from the latest recorded frame."""
+    layout = PracticeLayout(data_root)
+    command = (
+        "rosclaw practice run --robot d405_lab_01 "
+        "--skill realsense_capture_rgbd --provider cosmos-reason2-lan "
+        "--output-root ./episode"
+    )
+    for ep in _list_episodes(data_root):
+        timeline = _read_jsonl(layout.timeline_jsonl_path(ep["practice_id"]))
+        for ev in reversed(timeline):
+            if ev.get("source") == "camera" and ev.get("event_type") == "rgbd_frame":
+                payload = ev.get("payload", {})
+                rgb_ref = payload.get("rgb_ref")
+                depth_ref = payload.get("depth_ref")
+                if not rgb_ref:
+                    continue
+                streams = [
+                    {
+                        "name": "color",
+                        "type": "rgb",
+                        "encoding": payload.get("rgb_encoding", "png"),
+                        "ref": rgb_ref,
+                        "url": f"/api/artifacts/{ep['practice_id']}/{rgb_ref}",
+                    }
+                ]
+                if depth_ref:
+                    streams.append({
+                        "name": "depth",
+                        "type": "depth",
+                        "encoding": payload.get("depth_encoding", "png16"),
+                        "ref": depth_ref,
+                        "url": f"/api/artifacts/{ep['practice_id']}/{depth_ref}",
+                    })
+                return {
+                    "found": True,
+                    "practice_id": ep["practice_id"],
+                    "streams": streams,
+                }
+    return {
+        "found": False,
+        "message": "No RealSense streams recorded yet.",
+        "command": command,
+    }
+
+
 class WebSocketClient:
     """Adapter to make FastAPI WebSocket look like DashboardServer client."""
 
@@ -526,6 +611,16 @@ class DashboardWebServer:
         @self.app.get("/api/realsense/latest-frame")
         async def api_realsense_latest_frame(data_root: str | None = None) -> dict[str, Any]:
             return await _latest_frame_info(_practice_data_root(data_root))
+
+        @self.app.get("/api/realsense/streams")
+        async def api_realsense_streams(data_root: str | None = None) -> dict[str, Any]:
+            return _list_realsense_streams(_practice_data_root(data_root))
+
+        @self.app.get("/api/realsense/frames")
+        async def api_realsense_frames(
+            data_root: str | None = None, limit: int = 50
+        ) -> dict[str, Any]:
+            return _list_realsense_frames(_practice_data_root(data_root), limit=limit)
 
         @self.app.websocket("/ws")
         async def websocket_endpoint(websocket: WebSocket) -> None:

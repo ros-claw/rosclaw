@@ -17,11 +17,16 @@ from typing import Any, cast
 
 from filelock import FileLock
 
-from rosclaw.firstboot.workspace import resolve_home
+from rosclaw.firstboot.workspace import get_rosclaw_home, resolve_home
 from rosclaw.hub.errors import HubError, HubErrorCode
 from rosclaw.hub.refs import AssetRef, parse_ref
 
-DEFAULT_LOCKFILE_PATH = Path.home() / ".rosclaw" / "assets.lock"
+
+def __getattr__(name: str) -> Any:
+    """Lazy module-level constants that re-evaluate with the active ROSCLAW_HOME."""
+    if name == "DEFAULT_LOCKFILE_PATH":
+        return get_rosclaw_home() / "assets.lock"
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 @dataclass
