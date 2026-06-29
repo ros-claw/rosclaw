@@ -122,15 +122,23 @@ def _discover_realsense_mcp(home: Path | None) -> tuple[str, str] | tuple[None, 
     return None, None
 
 
-def _resolve_serial(body: dict[str, Any], params: dict[str, Any], home: Path | None = None) -> str | None:
-    """Pick a RealSense serial number."""
+def _resolve_serial(body: dict[str, Any], params: dict[str, Any], home: Path | None = None, profile: dict[str, Any] | None = None) -> str | None:
+    """Pick a RealSense serial number.
+
+    The explicit ``--serial`` parameter wins, then the linked body's
+    ``serial_number``.  If the body has no serial (or it is ``UNKNOWN``), ask
+    the MCP to enumerate devices and pick one that matches the e-URDF profile
+    when possible.  This avoids grabbing the wrong camera on a multi-RealSense
+    rig (e.g. D435I when the body is a D405).
+    """
     serial = params.get("serial")
     if serial:
         return serial
     serial = body.get("body_instance", {}).get("serial_number")
     if serial and serial != "UNKNOWN":
         return serial
-    # Ask the MCP to enumerate devices.
+
+    # Ask the MCP to enumerate devices and match against the profile.
     from rosclaw.firstboot.workspace import resolve_home
     from rosclaw.mcp.onboarding.installed import InstalledRegistry
     from rosclaw.mcp.onboarding.stdio_client import call_server_tool
@@ -146,11 +154,35 @@ def _resolve_serial(body: dict[str, Any], params: dict[str, Any], home: Path | N
             text = content[0].get("text", "{}") if content else "{}"
             data = json.loads(text)
             devices = data.get("devices", [])
-            if devices:
-                return str(devices[0].get("serial", devices[0].get("serial_number")))
+            if not devices:
+                continue
+            # Prefer a device whose product line matches the e-URDF profile.
+            matched = [d for d in devices if _device_matches_profile(d, profile)]
+            chosen = matched[0] if matched else devices[0]
+            return str(chosen.get("serial", chosen.get("serial_number")))
         except Exception:
             continue
     return None
+
+
+def _device_matches_profile(device: dict[str, Any], profile: dict[str, Any] | None) -> bool:
+    """Return True if a RealSense device matches the e-URDF profile."""
+    if not profile:
+        return False
+    name = (device.get("name") or "").lower()
+    identity = profile.get("identity", {}) if isinstance(profile, dict) else {}
+    robot_class = (identity.get("robot_class") or profile.get("profile_id") or "").lower()
+    if not robot_class:
+        return False
+    if "d405" in robot_class and "d405" in name:
+        return True
+    if "d435i" in robot_class and "d435i" in name:
+        return True
+    if "d435" in robot_class and ("d435" in name or "d435i" in name):
+        return True
+    if "dual" in robot_class:
+        return "realsense" in name
+    return False
 
 
 def _copy_artifact(src: str, dst_dir: Path) -> Path | None:
@@ -198,7 +230,7 @@ def run(params: dict[str, Any]) -> dict[str, Any]:
             "artifacts": {},
         }
 
-    serial = _resolve_serial(body, params, home=home)
+    serial = _resolve_serial(body, params, home=home, profile=profile)
     if not serial:
         return {
             "status": "error",

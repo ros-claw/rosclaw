@@ -107,8 +107,13 @@ class McpStdioClient:
         if self._proc is None:
             return
         try:
+            # The server may have already exited (e.g. after a tool crash or
+            # natural shutdown). Writing to a closed stdin raises BrokenPipe;
+            # that is expected and should not pollute stderr.
             self._proc.stdin.write("\n")
             self._proc.stdin.flush()
+        except BrokenPipeError:
+            pass
         except Exception:
             pass
         try:
@@ -117,6 +122,15 @@ class McpStdioClient:
         except subprocess.TimeoutExpired:
             self._proc.kill()
             self._proc.wait()
+        except Exception:
+            pass
+        # Explicitly close stdio streams so the Popen finalizer does not emit
+        # BrokenPipe warnings when the server has already exited.
+        for stream_name in ("stdin", "stdout", "stderr"):
+            stream = getattr(self._proc, stream_name, None)
+            if stream is not None:
+                with contextlib.suppress(BrokenPipeError, OSError, ValueError):
+                    stream.close()
         self._proc = None
 
     def _next_id(self) -> int:

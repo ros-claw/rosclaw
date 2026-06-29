@@ -1810,15 +1810,19 @@ def _run_practice_skill_iteration(
     print(f"[rosclaw-practice] Running skill: {skill_id}")
     skill_result = executor.execute(skill_id, parameters=skill_params)
     skill_status = skill_result.get("status") if isinstance(skill_result, dict) else "error"
+    handler_result = skill_result.get("handler_result") if isinstance(skill_result, dict) else None
     if skill_status not in ("success", "degraded"):
-        reason = skill_result.get("reason") if isinstance(skill_result, dict) else None
+        reason = None
+        if isinstance(skill_result, dict):
+            reason = skill_result.get("reason") or (
+                handler_result.get("reason") if isinstance(handler_result, dict) else None
+            )
         print(
             f"[rosclaw-practice] Skill failed: {skill_id} ({skill_status}){f' — {reason}' if reason else ''}",
             file=sys.stderr,
         )
         return 1
 
-    handler_result = skill_result.get("handler_result") if isinstance(skill_result, dict) else None
     artifacts = handler_result.get("artifacts", {}) if isinstance(handler_result, dict) else {}
     color_path = artifacts.get("color") or artifacts.get("color_path") or artifacts.get("save_path")
     depth_path = artifacts.get("depth") or artifacts.get("depth_path")
