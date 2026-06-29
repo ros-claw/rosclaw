@@ -10,6 +10,7 @@ from typing import Any
 
 from rosclaw.firstboot.workspace import resolve_home
 from rosclaw.skill.builtins import get_builtin_skill, list_builtin_skills
+from rosclaw.skill.catalog import submit_to_catalog
 from rosclaw.skill.eval import evaluate_skill
 from rosclaw.skill.mining import mine_skill_candidate
 from rosclaw.skill.models import SkillPackage, SkillRef
@@ -348,6 +349,48 @@ def cmd_skill_upload(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Submit catalog
+# ---------------------------------------------------------------------------
+
+
+def cmd_skill_submit_catalog(args: argparse.Namespace) -> int:
+    skill_dir = _load_skill_dir_arg(args)
+    if not skill_dir.exists():
+        print(f"[ROSClaw] Skill not found: {skill_dir}")
+        return 1
+    pkg = SkillPackage(skill_dir).try_load()
+
+    try:
+        result = submit_to_catalog(
+            pkg,
+            dry_run=args.dry_run,
+            catalog_repo=args.catalog_repo,
+            base_branch=args.base_branch,
+            branch_prefix=args.branch_prefix,
+        )
+    except RuntimeError as exc:
+        print(f"[ROSClaw] Submit to catalog failed: {exc}")
+        return 1
+
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        if result["dry_run"]:
+            print("[ROSClaw] Submit to catalog: DRY-RUN")
+            print(f"  skill: {result['skill_name']}")
+            print(f"  version: {result['version']}")
+            print(f"  target repo: {result['catalog_repo']}")
+            print(f"  base branch: {result['base_branch']}")
+            print(f"  proposed branch: {result['branch']}")
+        else:
+            print("[ROSClaw] Submit to catalog: PR created")
+            print(f"  skill: {result['skill_name']}")
+            print(f"  version: {result['version']}")
+            print(f"  PR: {result.get('pr_url', 'unknown')}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Rollback
 # ---------------------------------------------------------------------------
 
@@ -523,7 +566,7 @@ def add_skill_hub_parsers(skill_subparsers: Any) -> None:
     verify_pkg_parser.add_argument("--json", action="store_true", help="Output JSON")
     verify_pkg_parser.set_defaults(func=cmd_skill_verify_package)
 
-    upload_parser = skill_subparsers.add_parser("upload", help="Upload skill metadata to ROSClaw Hub")
+    upload_parser = skill_subparsers.add_parser("upload", help="Upload skill metadata to ROSClaw Hub (admin only)")
     upload_parser.add_argument("skill_dir", nargs="?", help="Skill directory")
     upload_parser.add_argument("--name", default=None, help="Skill name")
     upload_parser.add_argument("--visibility", default="private", choices=["public", "private", "org", "unlisted"], help="Visibility")
@@ -534,3 +577,17 @@ def add_skill_hub_parsers(skill_subparsers: Any) -> None:
     upload_parser.add_argument("--workspace", default=None, help="Workspace root")
     upload_parser.add_argument("--json", action="store_true", help="Output JSON")
     upload_parser.set_defaults(func=cmd_skill_upload)
+
+    submit_catalog_parser = skill_subparsers.add_parser(
+        "submit-catalog",
+        help="Submit a local skill to the official ros-claw/skills catalog via GitHub PR",
+    )
+    submit_catalog_parser.add_argument("skill_dir", nargs="?", help="Skill directory")
+    submit_catalog_parser.add_argument("--name", default=None, help="Skill name")
+    submit_catalog_parser.add_argument("--catalog-repo", default="ros-claw/skills", help="Upstream catalog repo")
+    submit_catalog_parser.add_argument("--base-branch", default="main", help="Base branch in upstream repo")
+    submit_catalog_parser.add_argument("--branch-prefix", default="add", help="Feature branch prefix")
+    submit_catalog_parser.add_argument("--workspace", default=None, help="Workspace root")
+    submit_catalog_parser.add_argument("--dry-run", action="store_true", help="Dry run")
+    submit_catalog_parser.add_argument("--json", action="store_true", help="Output JSON")
+    submit_catalog_parser.set_defaults(func=cmd_skill_submit_catalog)

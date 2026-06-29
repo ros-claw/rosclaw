@@ -21,7 +21,9 @@ identity:
   skill_id: "{namespace}/{name}"
   package_name: "{namespace}/{name}"
   canonical_uri: "rosclaw://skills/{namespace}/{name}"
-  git_repo: "https://github.com/{namespace}/{name}"
+  git_repo: "https://github.com/ros-claw/skills"
+  git_ref: "main"
+  source_subdir: "skills/{name}"
   git_commit: null
 
 task:
