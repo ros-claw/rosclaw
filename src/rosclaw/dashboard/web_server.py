@@ -533,9 +533,13 @@ class DashboardWebServer:
         async def api_practice_provider(episode_id: str, data_root: str | None = None) -> dict[str, Any]:
             root = _practice_data_root(data_root)
             session_dir = _episode_dir(root, episode_id)
-            provider_path = session_dir / "provider" / "provider_result.json"
-            if not provider_path.exists():
+            provider_files = sorted(
+                (session_dir / "provider").glob("provider_result_*.json"),
+                key=lambda p: p.name,
+            )
+            if not provider_files:
                 raise HTTPException(status_code=404, detail="No provider result for this episode")
+            provider_path = provider_files[-1]
             try:
                 provider_data = json.loads(provider_path.read_text(encoding="utf-8"))
             except Exception as exc:

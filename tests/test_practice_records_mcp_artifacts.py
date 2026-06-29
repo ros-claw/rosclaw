@@ -65,8 +65,10 @@ class TestPracticeRecordsMcpArtifacts:
         assert camera_events[0]["event_type"] == "rgbd_frame"
         assert camera_events[0]["payload"]["rgb_ref"].endswith("color_000001.png")
 
-        # Provider artifact was written.
-        provider_result = session_dir / "provider" / "provider_result.json"
+        # Provider artifact was written (iterations are zero-padded).
+        provider_files = sorted((session_dir / "provider").glob("provider_result_*.json"))
+        assert provider_files, "expected provider_result_*.json file"
+        provider_result = provider_files[-1]
         assert provider_result.exists()
         provider_data = json.loads(provider_result.read_text())
         assert provider_data["provider_id"] == "cosmos-reason2-lan"

@@ -20,11 +20,17 @@ class TestPracticeValidateCli:
         session_dir = tmp_path / "sessions" / "prac_20260101T000000Z_abcdef"
         session_dir.mkdir(parents=True)
         (session_dir / "raw").mkdir()
+        frames_dir = session_dir / "artifacts" / "frames"
+        frames_dir.mkdir(parents=True)
+        (frames_dir / "color_000001.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 20)
+        (frames_dir / "depth_000001.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 20)
 
         events = [
+            {"source": "runtime", "event_type": "runtime.start", "practice_id": session_dir.name},
             {"source": "camera", "event_type": "rgbd_frame", "practice_id": session_dir.name},
-            {"source": "provider", "event_type": "result", "practice_id": session_dir.name},
+            {"source": "provider", "event_type": "provider.result", "practice_id": session_dir.name},
             {"source": "sandbox", "event_type": "decision", "practice_id": session_dir.name},
+            {"source": "runtime", "event_type": "runtime.stop", "practice_id": session_dir.name},
         ]
         events_jsonl = session_dir / "raw" / "events.jsonl"
         events_jsonl.write_text("\n".join(json.dumps(ev) for ev in events) + "\n")
@@ -39,6 +45,7 @@ class TestPracticeValidateCli:
             "outcome": "SUCCESS",
             "event_count": len(events),
             "failure_labels": [],
+            "sources": {"camera": True, "provider": True, "sandbox": True, "runtime": True},
         }
         (session_dir / "episode.json").write_text(json.dumps(episode))
         (session_dir / "manifest.yaml").write_text("status:\n  outcome: SUCCESS\n")

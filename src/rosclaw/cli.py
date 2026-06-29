@@ -1175,6 +1175,7 @@ def cmd_practice_show(args: argparse.Namespace) -> int:
     print(f"Episode: {practice_id}")
     print("=" * 60)
     print(f"Outcome:           {episode.get('outcome', 'UNKNOWN')}")
+    print(f"Robot:             {episode.get('robot_id', 'UNKNOWN')}")
     print(f"Events:            {episode.get('event_count', len(timeline))}")
     print(f"Camera frames:     {camera_frames}")
     print(f"Provider results:  {provider_results}")
@@ -1363,6 +1364,40 @@ def _resolve_practice_body_id(home: Path, robot: str) -> str:
     return robot
 
 
+def _resolve_default_provider(home: Path, capability: str) -> str | None:
+    """Resolve a default provider for the requested capability.
+
+    Resolution order:
+    1. ``ROSCLAW_PRACTICE_DEFAULT_PROVIDER`` environment variable.
+    2. First provider found in the workspace ``providers/`` directory or GPU
+       environment config that advertises ``capability``.
+
+    Returns the provider id, or ``None`` if no default can be found.
+    """
+    import os
+
+    env_default = os.environ.get("ROSCLAW_PRACTICE_DEFAULT_PROVIDER")
+    if env_default:
+        return env_default
+
+    try:
+        from rosclaw.provider.core.registry import ProviderRegistry
+        from rosclaw.provider.loader import ProviderLoader
+
+        registry = ProviderRegistry()
+        loader = ProviderLoader(registry)
+        loader.scan_directory(home / "providers")
+        _register_gpu_providers(registry)
+
+        candidates = registry.find_by_capability(capability, healthy_only=False)
+        if candidates:
+            return candidates[0].manifest.name
+    except Exception:
+        pass
+
+    return None
+
+
 # Default camera skill when a RealSense source is requested without --skill.
 _DEFAULT_CAMERA_SKILL_BY_ROBOT: dict[str, str] = {
     "realsense-d405": "realsense_capture_rgbd",
@@ -1472,6 +1507,25 @@ def cmd_practice_start(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+
+    # Default provider selection when provider source is enabled.
+    if provider_id:
+        sources.provider = True
+    elif sources.provider:
+        provider_id = _resolve_default_provider(home, capability)
+        if provider_id:
+            print(
+                f"[rosclaw-practice] No --provider provided; using default provider "
+                f"'{provider_id}' for capability '{capability}'."
+            )
+        else:
+            print(
+                "[rosclaw-practice] provider source requires --provider, "
+                "ROSCLAW_PRACTICE_DEFAULT_PROVIDER, or a registered provider "
+                f"supporting '{capability}'.",
+                file=sys.stderr,
+            )
+            return 1
 
     config = PracticeConfig(
         robot_id=resolved_body_id,
