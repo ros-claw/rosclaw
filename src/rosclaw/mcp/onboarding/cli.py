@@ -174,14 +174,14 @@ def dispatch_mcp_install(args: argparse.Namespace) -> int:
 
         try:
             if args.from_git:
-                result = source_installer.install_from_git(
+                source_result = source_installer.install_from_git(
                     url=args.from_git,
                     server_name=args.alias,
                     python=_resolve_python(args),
                     no_install_deps=args.no_install_deps,
                 )
             else:
-                result = source_installer.install_from_local_path(
+                source_result = source_installer.install_from_local_path(
                     path=Path(args.local_path),
                     server_name=args.alias,
                     python=_resolve_python(args),
@@ -192,26 +192,26 @@ def dispatch_mcp_install(args: argparse.Namespace) -> int:
             return 1
 
         if args.json:
-            _print_json(result.to_dict())
-            return 0 if result.success else 1
+            _print_json(source_result.to_dict())
+            return 0 if source_result.success else 1
 
         print("=" * 60)
         print("Hardware MCP Source Installation")
         print("=" * 60)
-        print(f"Server name:  {result.server_name}")
-        print(f"Manifest:     {result.manifest_id}")
-        print(f"Version:      {result.version}")
-        print(f"Source:       {result.source_url}")
-        print(f"Local path:   {result.local_path}")
-        if result.commit:
-            print(f"Commit:       {result.commit}")
-        print(f"Runtime:      {result.runtime_config_path}")
-        print(f"Status:       {'installed' if result.success else 'failed'}")
-        if result.errors:
-            for error in result.errors:
+        print(f"Server name:  {source_result.server_name}")
+        print(f"Manifest:     {source_result.manifest_id}")
+        print(f"Version:      {source_result.version}")
+        print(f"Source:       {source_result.source_url}")
+        print(f"Local path:   {source_result.local_path}")
+        if source_result.commit:
+            print(f"Commit:       {source_result.commit}")
+        print(f"Runtime:      {source_result.runtime_config_path}")
+        print(f"Status:       {'installed' if source_result.success else 'failed'}")
+        if source_result.errors:
+            for error in source_result.errors:
                 print(f"  • {error}")
         print("=" * 60)
-        return 0 if result.success else 1
+        return 0 if source_result.success else 1
 
     if not args.alias:
         print(
@@ -228,7 +228,7 @@ def dispatch_mcp_install(args: argparse.Namespace) -> int:
 
     if args.dry_run:
         try:
-            plan = engine.plan(args.alias, version=args.version)
+            install_plan = engine.plan(args.alias, version=args.version)
         except OnboardingError as exc:
             print(f"[ROSClaw MCP] ❌ Cannot plan install: {exc}", file=sys.stderr)
             return 1
@@ -237,10 +237,10 @@ def dispatch_mcp_install(args: argparse.Namespace) -> int:
             return 1
 
         if args.json:
-            _print_json(plan.to_dict())
+            _print_json(install_plan.to_dict())
             return 0
 
-        solved = plan.solved
+        solved = install_plan.solved
         print("=" * 60)
         print("Hardware MCP Install Plan")
         print("=" * 60)
@@ -248,27 +248,27 @@ def dispatch_mcp_install(args: argparse.Namespace) -> int:
         print(f"Manifest:     {solved.manifest_id}")
         print(f"Version:      {solved.version}")
         print(f"Source:       {solved.source}")
-        print(f"Server name:  {plan.manifest.server_name}")
-        print(f"Artifact:     {plan.installer_type}")
-        print(f"Command:      {plan.install_command or 'N/A'}")
-        if plan.body_patch:
+        print(f"Server name:  {install_plan.manifest.server_name}")
+        print(f"Artifact:     {install_plan.installer_type}")
+        print(f"Command:      {install_plan.install_command or 'N/A'}")
+        if install_plan.body_patch:
             print("Body patch:")
-            for key in sorted(plan.body_patch):
-                print(f"  {key}: {plan.body_patch[key]}")
-        if plan.permission_state:
+            for key in sorted(install_plan.body_patch):
+                print(f"  {key}: {install_plan.body_patch[key]}")
+        if install_plan.permission_state:
             print("Permissions:")
-            if plan.permission_state.granted:
-                print(f"  granted: {', '.join(plan.permission_state.granted)}")
-            if plan.permission_state.denied:
-                print(f"  denied:  {', '.join(plan.permission_state.denied)}")
-        print(f"Claude merge: {plan.claude_action}")
+            if install_plan.permission_state.granted:
+                print(f"  granted: {', '.join(install_plan.permission_state.granted)}")
+            if install_plan.permission_state.denied:
+                print(f"  denied:  {', '.join(install_plan.permission_state.denied)}")
+        print(f"Claude merge: {install_plan.claude_action}")
         print("-" * 60)
         print("Dry run: no changes will be written.")
         print("=" * 60)
         return 0
 
     try:
-        result = engine.install(
+        install_result = engine.install(
             args.alias,
             version=args.version,
             dry_run=False,
@@ -286,26 +286,26 @@ def dispatch_mcp_install(args: argparse.Namespace) -> int:
         return 1
 
     if args.json:
-        _print_json(result.to_dict())
-        return 0 if result.success else 1
+        _print_json(install_result.to_dict())
+        return 0 if install_result.success else 1
 
-    if result.success:
+    if install_result.success:
         print("=" * 60)
         print("Hardware MCP Installation")
         print("=" * 60)
-        print(f"Server name:  {result.server_name}")
-        print(f"Manifest:     {result.manifest_id}")
-        print(f"Version:      {result.version}")
-        if result.runtime_config_path:
-            print(f"Runtime config: {result.runtime_config_path}")
-        if result.runner_script_path:
-            print(f"Runner script:  {result.runner_script_path}")
-        if result.binding_result:
-            print(f"Body binding:   {result.binding_result.binding_key}")
-            if result.binding_result.patched_paths:
-                print(f"  paths:        {', '.join(result.binding_result.patched_paths)}")
-        if result.claude_result:
-            print(f"Claude merge:   {result.claude_result.action}")
+        print(f"Server name:  {install_result.server_name}")
+        print(f"Manifest:     {install_result.manifest_id}")
+        print(f"Version:      {install_result.version}")
+        if install_result.runtime_config_path:
+            print(f"Runtime config: {install_result.runtime_config_path}")
+        if install_result.runner_script_path:
+            print(f"Runner script:  {install_result.runner_script_path}")
+        if install_result.binding_result:
+            print(f"Body binding:   {install_result.binding_result.binding_key}")
+            if install_result.binding_result.patched_paths:
+                print(f"  paths:        {', '.join(install_result.binding_result.patched_paths)}")
+        if install_result.claude_result:
+            print(f"Claude merge:   {install_result.claude_result.action}")
         print("Status:       installed")
         print("=" * 60)
         return 0
@@ -313,11 +313,11 @@ def dispatch_mcp_install(args: argparse.Namespace) -> int:
     print("=" * 60)
     print("Hardware MCP Installation")
     print("=" * 60)
-    print(f"Server name:  {result.server_name}")
-    print(f"Manifest:     {result.manifest_id}")
-    print(f"Version:      {result.version}")
+    print(f"Server name:  {install_result.server_name}")
+    print(f"Manifest:     {install_result.manifest_id}")
+    print(f"Version:      {install_result.version}")
     print("Status:       failed")
-    for error in result.errors:
+    for error in install_result.errors:
         print(f"  • {error}")
     print("=" * 60)
     return 1
@@ -337,7 +337,7 @@ def _resolve_python(args: argparse.Namespace) -> str | None:
             f"[ROSClaw MCP] ⚠️  Venv not found at {args.venv}; falling back to system Python.",
             file=sys.stderr,
         )
-    return args.python
+    return cast(str | None, args.python)
 
 
 def dispatch_mcp_list(args: argparse.Namespace) -> int:

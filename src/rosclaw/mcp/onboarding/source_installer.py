@@ -334,9 +334,9 @@ def install_from_git(
     no_install_deps: bool = False,
 ) -> SourceInstallResult:
     """Clone a git repository and register it as an installed MCP server."""
-    home = resolve_home(str(home) if home else None)
+    home_path: Path = resolve_home(str(home) if home else None)
     name = server_name or _default_name(url)
-    installed_dir = home / "mcp" / "installed" / name
+    installed_dir = home_path / "mcp" / "installed" / name
     source_dir = installed_dir / "source"
 
     errors: list[str] = []
@@ -358,7 +358,7 @@ def install_from_git(
             local_path=source_dir,
             commit=None,
             manifest_path=source_dir / "manifest.yaml",
-            runtime_config_path=home / "mcp" / "runtime" / f"{name}.yaml",
+            runtime_config_path=home_path / "mcp" / "runtime" / f"{name}.yaml",
             errors=errors,
         )
 
@@ -371,8 +371,8 @@ def install_from_git(
     py = str(Path(python or sys.executable).expanduser().resolve())
     entrypoint = manifest.artifact.entrypoint if (manifest.artifact and manifest.artifact.entrypoint) else "mcp_server.py"
     wrapper = _write_wrapper(source_dir, installed_dir, py, entrypoint)
-    runtime_config_path = _write_runtime_config(manifest, home, wrapper)
-    write_runner_script(home / "mcp" / "bin")
+    runtime_config_path = _write_runtime_config(manifest, home_path, wrapper)
+    write_runner_script(home_path / "mcp" / "bin")
 
     record = InstalledRecord(
         server_name=manifest.server_name,
@@ -391,7 +391,7 @@ def install_from_git(
             "transport_command": f"{sys.executable} {wrapper}",
         },
     )
-    InstalledRegistry(home=home).add(record)
+    InstalledRegistry(home=home_path).add(record)
 
     return SourceInstallResult(
         success=len([e for e in errors if "failed" in e.lower()]) == 0,
@@ -416,7 +416,7 @@ def install_from_local_path(
     no_install_deps: bool = False,
 ) -> SourceInstallResult:
     """Register a local directory as an installed MCP server without moving it."""
-    home = resolve_home(str(home) if home else None)
+    home_path: Path = resolve_home(str(home) if home else None)
     source_dir = Path(path).resolve()
     if not source_dir.exists():
         return SourceInstallResult(
@@ -429,12 +429,12 @@ def install_from_local_path(
             local_path=source_dir,
             commit=None,
             manifest_path=source_dir / "manifest.yaml",
-            runtime_config_path=home / "mcp" / "runtime" / f"{server_name or source_dir.name}.yaml",
+            runtime_config_path=home_path / "mcp" / "runtime" / f"{server_name or source_dir.name}.yaml",
             errors=[f"Local path does not exist: {source_dir}"],
         )
 
     name = server_name or source_dir.name
-    installed_dir = home / "mcp" / "installed" / name
+    installed_dir = home_path / "mcp" / "installed" / name
     installed_dir.mkdir(parents=True, exist_ok=True)
 
     errors: list[str] = []
@@ -447,8 +447,8 @@ def install_from_local_path(
     py = str(Path(python or sys.executable).expanduser().resolve())
     entrypoint = manifest.artifact.entrypoint if (manifest.artifact and manifest.artifact.entrypoint) else "mcp_server.py"
     wrapper = _write_wrapper(source_dir, installed_dir, py, entrypoint)
-    runtime_config_path = _write_runtime_config(manifest, home, wrapper)
-    write_runner_script(home / "mcp" / "bin")
+    runtime_config_path = _write_runtime_config(manifest, home_path, wrapper)
+    write_runner_script(home_path / "mcp" / "bin")
 
     record = InstalledRecord(
         server_name=manifest.server_name,
@@ -467,7 +467,7 @@ def install_from_local_path(
             "transport_command": f"{sys.executable} {wrapper}",
         },
     )
-    InstalledRegistry(home=home).add(record)
+    InstalledRegistry(home=home_path).add(record)
 
     return SourceInstallResult(
         success=len([e for e in errors if "failed" in e.lower()]) == 0,
@@ -486,4 +486,5 @@ def install_from_local_path(
 
 def get_installed_record(server_name: str, home: Path | str | None = None) -> InstalledRecord | None:
     """Fetch a single installed record including source metadata."""
-    return InstalledRegistry(home=home).get(server_name)
+    home_path: Path = resolve_home(str(home) if home else None)
+    return InstalledRegistry(home=home_path).get(server_name)

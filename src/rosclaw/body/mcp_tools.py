@@ -108,7 +108,7 @@ class BodyMcpTools:
             if fault.get("status") == "open"
         ]
 
-        state = {
+        state: dict[str, Any] = {
             "body_instance_id": body.body_instance_id,
             "effective_body_hash": body.effective_body_hash,
             "safety_status": body_yaml.get_safety_status(),

@@ -99,7 +99,7 @@ class InstalledRegistry:
 
     FILENAME = "installed.yaml"
 
-    def __init__(self, home: Path | None = None) -> None:
+    def __init__(self, home: Path | str | None = None) -> None:
         self.home = resolve_home(str(home) if home else None)
         self.path = self.home / "mcp" / self.FILENAME
 

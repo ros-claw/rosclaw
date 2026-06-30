@@ -12,7 +12,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -106,11 +106,13 @@ class McpStdioClient:
         """Stop the server subprocess."""
         if self._proc is None:
             return
-        try:
-            self._proc.stdin.write("\n")
-            self._proc.stdin.flush()
-        except Exception:
-            pass
+        stdin = self._proc.stdin
+        if stdin is not None:
+            try:
+                stdin.write("\n")
+                stdin.flush()
+            except Exception:
+                pass
         try:
             self._proc.terminate()
             self._proc.wait(timeout=timeout)
@@ -126,14 +128,18 @@ class McpStdioClient:
     def _send(self, message: dict[str, Any]) -> None:
         if self._proc is None or self._proc.stdin is None:
             raise McpStdioError("MCP server not started")
+        stdin = self._proc.stdin
         try:
-            self._proc.stdin.write(json.dumps(message) + "\n")
-            self._proc.stdin.flush()
+            stdin.write(json.dumps(message) + "\n")
+            stdin.flush()
         except Exception as exc:
             raise McpStdioError(f"Failed to send MCP request: {exc}") from exc
 
     def _read_response(self, expected_id: int, timeout: float) -> dict[str, Any]:
-        if self._proc is None or self._proc.stdout is None:
+        if self._proc is None:
+            raise McpStdioError("MCP server not started")
+        stdout = self._proc.stdout
+        if stdout is None:
             raise McpStdioError("MCP server not started")
 
         import threading
@@ -144,7 +150,7 @@ class McpStdioClient:
         def _read() -> None:
             nonlocal result, error
             try:
-                for line in self._proc.stdout:
+                for line in stdout:
                     line = line.strip()
                     if not line or not line.startswith("{"):
                         continue
@@ -170,7 +176,7 @@ class McpStdioClient:
             stderr = ""
             if self._proc.stderr is not None:
                 with contextlib.suppress(Exception):
-                    stderr = self._proc.stderr.read1(4096).decode("utf-8", errors="ignore")
+                    stderr = self._proc.stderr.read(4096)
             raise McpStdioError(
                 f"Timeout waiting for MCP response (id={expected_id}).{f' stderr: {stderr}' if stderr else ''}"
             )
@@ -179,8 +185,8 @@ class McpStdioClient:
 
 def load_runtime_config(server_name: str, home: Path | str | None = None) -> dict[str, Any]:
     """Load the runtime YAML for an installed MCP server."""
-    home = resolve_home(str(home) if home else None)
-    path = home / "mcp" / "runtime" / f"{server_name}.yaml"
+    home_path = resolve_home(str(home) if home else None)
+    path = home_path / "mcp" / "runtime" / f"{server_name}.yaml"
     if not path.exists():
         raise McpStdioError(f"Runtime config not found for server: {server_name}")
     with open(path, encoding="utf-8") as f:
@@ -211,7 +217,7 @@ def call_server_tool(
         response = client.call_tool(tool_name, arguments or {}, timeout=timeout)
         if "error" in response:
             raise McpStdioError(f"Tool error: {response['error']}")
-        return response.get("result", {})
+        return cast(dict[str, Any], response.get("result", {}))
     finally:
         if client is not None:
             client.stop()
@@ -295,7 +301,7 @@ class McpServerSession:
         response = self._client.call_tool(tool_name, arguments or {}, timeout=timeout)
         if "error" in response:
             raise McpStdioError(f"Tool error: {response['error']}")
-        return response.get("result", {})
+        return cast(dict[str, Any], response.get("result", {}))
 
     def list_tools(self, timeout: float = 10.0) -> list[dict[str, Any]]:
         if self._client is None:

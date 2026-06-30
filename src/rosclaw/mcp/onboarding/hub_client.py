@@ -20,7 +20,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from rosclaw.firstboot.workspace import resolve_home
 from rosclaw.mcp.onboarding.errors import ManifestError, ManifestNotFoundError
@@ -507,7 +507,7 @@ class HubClient:
             return None
         try:
             with open(path, encoding="utf-8") as f:
-                return json.load(f)
+                return cast(dict[str, Any], json.load(f))
         except (json.JSONDecodeError, OSError):
             return None
 
