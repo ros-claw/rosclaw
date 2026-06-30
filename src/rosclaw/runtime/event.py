@@ -61,7 +61,7 @@ class RuntimeEvent(BaseModel):
     @classmethod
     def from_event_bus_payload(
         cls, payload: dict[str, Any], topic: str = ""
-    ) -> "RuntimeEvent":
+    ) -> RuntimeEvent:
         """Reconstruct a RuntimeEvent from a legacy EventBus payload dict."""
         data = dict(payload)
         ts = data.get("timestamp")

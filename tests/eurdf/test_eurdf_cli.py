@@ -13,6 +13,12 @@ from rosclaw.eurdf.cli import (
     cmd_eurdf_pull,
     dispatch_eurdf_command,
 )
+from rosclaw.eurdf.zoo_client import E_URDF_ZOO_AVAILABLE
+
+pytestmark = pytest.mark.skipif(
+    not E_URDF_ZOO_AVAILABLE,
+    reason="e_urdf_zoo package is not installed",
+)
 
 
 @pytest.fixture

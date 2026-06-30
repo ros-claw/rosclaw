@@ -23,10 +23,9 @@ from pathlib import Path
 from typing import Any
 
 from rosclaw.core.event_bus import Event, EventBus, EventPriority
-from rosclaw.core.lifecycle import LifecycleMixin
 from rosclaw.data.flywheel import DataFlywheel, EventType
 from rosclaw.practice.config import DEFAULT_DATA_ROOT, PracticeSession, PracticeSummary
-from rosclaw.practice.schemas import PracticeEventEnvelope, SCHEMA_VERSION
+from rosclaw.practice.schemas import SCHEMA_VERSION, PracticeEventEnvelope
 from rosclaw.practice.storage.catalog import PracticeCatalog
 from rosclaw.practice.storage.layout import PracticeLayout, generate_practice_id
 from rosclaw.practice.writers.jsonl_writer import JsonlWriter

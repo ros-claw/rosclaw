@@ -9,13 +9,14 @@ The RuntimeBus adds:
 
 from __future__ import annotations
 
-import asyncio
 import fnmatch
 import logging
 from collections.abc import Callable, Coroutine
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel
 
 from rosclaw.core.event_bus import Event, EventBus, get_global_event_bus
 from rosclaw.core.event_sink import JsonlEventSink
@@ -48,7 +49,7 @@ class RuntimeBus:
     ):
         self._bus = event_bus or get_global_event_bus()
         self._sink = event_sink
-        self._schemas: dict[str, Callable[[Any], Any]] = {}
+        self._schemas: dict[str, type[BaseModel]] = {}
         self._aliases: dict[str, str] = {
             # Backward-compatible aliases: legacy event name -> canonical v2 type.
             "skill.execution.complete": "skill.complete",
@@ -63,8 +64,8 @@ class RuntimeBus:
     # ------------------------------------------------------------------
     # Schema registry
     # ------------------------------------------------------------------
-    def register_schema(self, event_type: str, schema_cls: Callable[[Any], Any]) -> None:
-        """Register a schema callable (e.g. Pydantic model) for an event type."""
+    def register_schema(self, event_type: str, schema_cls: type[BaseModel]) -> None:
+        """Register a Pydantic model class for an event type."""
         self._schemas[event_type] = schema_cls
 
     def register_alias(self, alias: str, canonical_type: str) -> None:
@@ -197,10 +198,7 @@ class RuntimeBus:
         wrapper = self._wrapped.pop(callback, None)
         if wrapper is None:
             return
-        if is_prefix:
-            topic = self._prefix_topic(event_type)
-        else:
-            topic = self._topic(event_type)
+        topic = self._prefix_topic(event_type) if is_prefix else self._topic(event_type)
         self._bus.unsubscribe(topic, wrapper)
 
     # ------------------------------------------------------------------

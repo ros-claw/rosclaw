@@ -7,6 +7,12 @@ from pathlib import Path
 import pytest
 
 from rosclaw.body.service import BodyInstanceService
+from rosclaw.eurdf.zoo_client import E_URDF_ZOO_AVAILABLE
+
+pytestmark = pytest.mark.skipif(
+    not E_URDF_ZOO_AVAILABLE,
+    reason="e_urdf_zoo package is not installed",
+)
 
 
 @pytest.fixture

@@ -151,7 +151,7 @@ class TestRobotRegistry:
     def test_list_registered(self):
         reg = RobotRegistry()
         reg.install("ur5e")
-        registered = reg.list()
+        registered = reg.list_installed()
         assert "ur5e" in registered
         assert "universal_robots_ur5e" in registered
 

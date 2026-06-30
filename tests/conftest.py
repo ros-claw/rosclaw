@@ -267,6 +267,20 @@ def dummy_png(tmp_path: Path) -> Path:
     return img
 
 
+@pytest.fixture(autouse=True)
+def _isolate_runtime_plugin() -> None:
+    """Reset the global runtime skill plugin registry before every test.
+
+    Runtime handlers are registered at module-import time (e.g. by
+    ``rosclaw.runtime.handlers.camera``).  Without isolation, a handler
+    registered by an earlier test can shadow the legacy handler that a
+    later test expects, causing misleading failures in the full suite.
+    """
+    from rosclaw.runtime.plugin import get_runtime_plugin
+
+    get_runtime_plugin().clear()
+
+
 @pytest.fixture
 def fake_realsense_skill(monkeypatch, dummy_png):
     """Replace the builtin ``realsense_capture_rgbd`` skill with a fast stub.

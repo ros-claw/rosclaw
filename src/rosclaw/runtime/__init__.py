@@ -18,8 +18,8 @@ from rosclaw.runtime.eurdf_loader import (
     RobotSimulationProfile,
 )
 from rosclaw.runtime.event import RuntimeEvent
-from rosclaw.runtime.registry import RuntimeComponentRegistry
 from rosclaw.runtime.query import RuntimeQueryAPI
+from rosclaw.runtime.registry import RuntimeComponentRegistry
 from rosclaw.runtime.replay import RuntimeReplay
 from rosclaw.runtime.service import RuntimeKernelService
 

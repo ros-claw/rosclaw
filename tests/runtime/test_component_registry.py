@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from rosclaw.core.event_bus import EventBus
 from rosclaw.runtime.bus import RuntimeBus
 from rosclaw.runtime.component import RuntimeConsumer, RuntimeProducer

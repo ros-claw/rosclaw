@@ -7,7 +7,6 @@ import pytest
 from rosclaw.core.event_bus import EventBus
 from rosclaw.runtime import (
     RuntimeBus,
-    RuntimeComponent,
     RuntimeConsumer,
     RuntimeEvent,
     RuntimeKernelService,

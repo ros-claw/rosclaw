@@ -6,7 +6,13 @@ from pathlib import Path
 
 from rosclaw.body.compatibility import SkillCompatibilityChecker
 from rosclaw.body.compiler import EffectiveBodyCompiler
-from rosclaw.body.schema import BodyYaml, CalibrationYaml, EffectiveBody, EurdfProfile, SkillManifest
+from rosclaw.body.schema import (
+    BodyYaml,
+    CalibrationYaml,
+    EffectiveBody,
+    EurdfProfile,
+    SkillManifest,
+)
 from rosclaw.runtime import RobotRegistry
 
 

@@ -62,7 +62,7 @@ def _robot_registry_count() -> int | None:
         from rosclaw.runtime.eurdf_loader import RobotRegistry
 
         reg = RobotRegistry()
-        return len(reg.list())
+        return len(reg.list_installed())
     except Exception:
         return None
 

@@ -18,7 +18,6 @@ from rosclaw.practice.schemas import PracticeEventEnvelope
 from rosclaw.practice.storage.catalog import PracticeCatalog
 from rosclaw.practice.storage.layout import PracticeLayout, generate_practice_id
 from rosclaw.practice.writers.jsonl_writer import JsonlWriter
-
 from rosclaw.runtime.bus import RuntimeBus
 from rosclaw.runtime.event import RuntimeEvent
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
 from rosclaw.runtime.bus import RuntimeBus
 from rosclaw.runtime.event import RuntimeEvent
@@ -49,9 +48,10 @@ class RuntimeReplay:
         results: list[RuntimeEvent] = []
         events = self.bus.replay(trace_id=episode_id, limit=limit) if episode_id else self.bus.replay(limit=limit)
         for ev in events:
-            if ev.type in ("provider.request", "provider.result"):
-                if request_id is None or ev.payload.get("request_id") == request_id:
-                    results.append(ev)
+            if ev.type in ("provider.request", "provider.result") and (
+                request_id is None or ev.payload.get("request_id") == request_id
+            ):
+                results.append(ev)
         return results
 
     def replay_time_range(

@@ -13,7 +13,7 @@ from __future__ import annotations
 import importlib.resources as resources
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -52,13 +52,13 @@ class RobotEmbodimentProfile:
     version: str
     description: str
     dof: int
-    links: list[dict] = field(default_factory=list)
-    joints: list[dict] = field(default_factory=list)
-    sensors: list[dict] = field(default_factory=list)
-    actuators: list[dict] = field(default_factory=list)
-    metadata: dict = field(default_factory=dict)
+    links: list[dict[str, Any]] = field(default_factory=list)
+    joints: list[dict[str, Any]] = field(default_factory=list)
+    sensors: list[dict[str, Any]] = field(default_factory=list)
+    actuators: list[dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "robot_id": self.robot_id,
             "name": self.name,
@@ -79,16 +79,16 @@ class RobotSafetyProfile:
     """Safety constraints: limits, PFL, collision, e-stop."""
     robot_id: str
     safety_level: str
-    safety_limits: dict = field(default_factory=dict)
-    joint_soft_limits: dict = field(default_factory=dict)
-    pfl: dict = field(default_factory=dict)
-    collision_detection: dict = field(default_factory=dict)
-    emergency_stop: dict = field(default_factory=dict)
-    workspace_boundaries: dict = field(default_factory=dict)
-    interaction: dict = field(default_factory=dict)
-    environment: dict = field(default_factory=dict)
+    safety_limits: dict[str, Any] = field(default_factory=dict)
+    joint_soft_limits: dict[str, Any] = field(default_factory=dict)
+    pfl: dict[str, Any] = field(default_factory=dict)
+    collision_detection: dict[str, Any] = field(default_factory=dict)
+    emergency_stop: dict[str, Any] = field(default_factory=dict)
+    workspace_boundaries: dict[str, Any] = field(default_factory=dict)
+    interaction: dict[str, Any] = field(default_factory=dict)
+    environment: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "robot_id": self.robot_id,
             "safety_level": self.safety_level,
@@ -107,11 +107,11 @@ class RobotSafetyProfile:
 class RobotCapabilityProfile:
     """What the robot can do: skills, preconditions, metrics."""
     robot_id: str
-    capabilities: list[dict] = field(default_factory=list)
-    skill_registry: dict = field(default_factory=dict)
-    precondition_checks: dict = field(default_factory=dict)
+    capabilities: list[dict[str, Any]] = field(default_factory=list)
+    skill_registry: dict[str, Any] = field(default_factory=dict)
+    precondition_checks: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "robot_id": self.robot_id,
             "capabilities": self.capabilities,
@@ -124,9 +124,9 @@ class RobotCapabilityProfile:
 class RobotSimulationProfile:
     """Simulation backend configurations."""
     robot_id: str
-    backends: dict = field(default_factory=dict)
+    backends: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {"robot_id": self.robot_id, "backends": self.backends}
 
 
@@ -135,13 +135,13 @@ class RobotSemanticProfile:
     """Semantic annotations for LLM/VLM grounding."""
     robot_id: str
     semantic_version: str = "1.0"
-    functional_regions: list[dict] = field(default_factory=list)
-    grasp_points: list[dict] = field(default_factory=list)
-    visual_features: list[dict] = field(default_factory=list)
-    task_descriptions: dict = field(default_factory=dict)
+    functional_regions: list[dict[str, Any]] = field(default_factory=list)
+    grasp_points: list[dict[str, Any]] = field(default_factory=list)
+    visual_features: list[dict[str, Any]] = field(default_factory=list)
+    task_descriptions: dict[str, Any] = field(default_factory=dict)
     semantic_tags: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "robot_id": self.robot_id,
             "semantic_version": self.semantic_version,
@@ -157,14 +157,14 @@ class RobotSemanticProfile:
 class RobotBenchmarkProfile:
     """Benchmark configurations for regression testing."""
     robot_id: str
-    kinematic_benchmarks: list[dict] = field(default_factory=list)
-    dynamic_benchmarks: list[dict] = field(default_factory=list)
-    simulation_benchmarks: dict = field(default_factory=dict)
-    task_benchmarks: list[dict] = field(default_factory=list)
-    safety_benchmarks: list[dict] = field(default_factory=list)
-    baseline_hardware: dict = field(default_factory=dict)
+    kinematic_benchmarks: list[dict[str, Any]] = field(default_factory=list)
+    dynamic_benchmarks: list[dict[str, Any]] = field(default_factory=list)
+    simulation_benchmarks: dict[str, Any] = field(default_factory=dict)
+    task_benchmarks: list[dict[str, Any]] = field(default_factory=list)
+    safety_benchmarks: list[dict[str, Any]] = field(default_factory=list)
+    baseline_hardware: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "robot_id": self.robot_id,
             "kinematic_benchmarks": self.kinematic_benchmarks,
@@ -192,7 +192,7 @@ class RobotCompleteProfile:
     benchmark: RobotBenchmarkProfile
     identity: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "robot_id": self.robot_id,
             "name": self.name,
@@ -335,10 +335,10 @@ class EURDFLoader:
             benchmark=benchmark_profile,
         )
 
-    def validate(self, robot_id: str) -> dict:
+    def validate(self, robot_id: str) -> dict[str, Any]:
         """Validate e-URDF completeness for a robot."""
         robot_dir = self.zoo_path / robot_id
-        result = {
+        result: dict[str, Any] = {
             "robot_id": robot_id,
             "valid": True,
             "errors": [],
@@ -398,7 +398,7 @@ class EURDFLoader:
         return result
 
     @staticmethod
-    def _load_yaml(path: Path) -> dict | None:
+    def _load_yaml(path: Path) -> dict[str, Any] | None:
         """Load a YAML file if it exists, otherwise return None.
 
         Args:
@@ -410,7 +410,7 @@ class EURDFLoader:
         if not path.exists():
             return None
         with open(path, encoding="utf-8") as f:
-            return yaml.safe_load(f)
+            return cast(dict[str, Any], yaml.safe_load(f))
 
 
 # ── Registry ──
@@ -472,6 +472,7 @@ class RobotRegistry:
         canonical = self._canonical_id(robot_id)
 
         # Try directory-based e-URDF first.
+        profile: RobotCompleteProfile | None = None
         try:
             profile = self.loader.load(canonical)
         except FileNotFoundError:
@@ -495,7 +496,7 @@ class RobotRegistry:
                 return None
         return self._profiles.get(robot_id)
 
-    def list(self) -> list[str]:
+    def list_installed(self) -> list[str]:
         """List all registered robot IDs."""
         return list(self._profiles.keys())
 
@@ -511,11 +512,11 @@ class RobotRegistry:
                 available.add(alias)
         return sorted(available)
 
-    def validate(self, robot_id: str) -> dict:
+    def validate(self, robot_id: str) -> dict[str, Any]:
         """Validate a robot's e-URDF."""
         return self.loader.validate(robot_id)
 
-    def inspect(self, robot_id: str) -> dict:
+    def inspect(self, robot_id: str) -> dict[str, Any]:
         """Return complete profile as a dictionary."""
         profile = self.get(robot_id)
         if profile is None:

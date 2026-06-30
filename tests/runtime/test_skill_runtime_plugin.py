@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from rosclaw.core.event_bus import EventBus
-from rosclaw.runtime.handlers import camera  # noqa: F401 - registers handlers
 from rosclaw.runtime.plugin import get_runtime_plugin, runtime_handler
 from rosclaw.skill_manager.executor import SkillExecutor
 from rosclaw.skill_manager.registry import SkillEntry, SkillRegistry
@@ -70,6 +69,14 @@ def test_legacy_handler_falls_back_when_no_runtime_handler() -> None:
 
 
 def test_builtin_camera_handlers_are_registered() -> None:
+    # The autouse fixture clears the global plugin before each test, so
+    # re-import the camera handler module to re-register its decorators.
+    import importlib
+
+    from rosclaw.runtime.handlers import camera
+
+    importlib.reload(camera)
+
     plugin = get_runtime_plugin()
     assert "realsense_capture_rgbd" in plugin.list_handlers()
     assert "scene_risk_scan" in plugin.list_handlers()

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from rosclaw.core.event_bus import EventBus
 from rosclaw.runtime.bus import RuntimeBus
@@ -23,7 +23,7 @@ def _event(
 ) -> RuntimeEvent:
     return RuntimeEvent(
         id=event_id,
-        timestamp=timestamp or datetime.now(tz=timezone.utc),
+        timestamp=timestamp or datetime.now(tz=UTC),
         source="test",
         robot="test_bot",
         body_id="test_body",
@@ -83,7 +83,7 @@ def test_replay_provider_filters_by_request_id() -> None:
 def test_replay_time_range() -> None:
     bus = _make_bus()
     replay = RuntimeReplay(bus)
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     bus.publish(_event("ev_1", "camera.frame", {}, timestamp=now - timedelta(seconds=10)))
     bus.publish(_event("ev_2", "camera.frame", {}, timestamp=now))
     bus.publish(_event("ev_3", "camera.frame", {}, timestamp=now + timedelta(seconds=10)))

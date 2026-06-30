@@ -34,8 +34,7 @@ class RuntimeDoctorPlugin:
 
     def check(self) -> Iterable[DoctorCheck]:
         """Yield health checks for this plugin."""
-        return []
-        yield
+        yield from ()
 
 
 class RuntimeDoctor:

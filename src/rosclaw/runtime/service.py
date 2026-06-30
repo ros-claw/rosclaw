@@ -16,7 +16,7 @@ from rosclaw.runtime.registry import RuntimeComponentRegistry
 logger = logging.getLogger("rosclaw.runtime.service")
 
 
-class RuntimeKernelService(LifecycleMixin):
+class RuntimeKernelService(LifecycleMixin):  # type: ignore[misc]
     """Top-level service that owns the RuntimeBus, registry, and event sink.
 
     Usage:

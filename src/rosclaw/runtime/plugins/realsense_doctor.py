@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any
 
 from rosclaw.runtime.doctor import DoctorCheck, RuntimeDoctorPlugin
 
@@ -15,7 +14,7 @@ class RealSenseDoctor(RuntimeDoctorPlugin):
 
     def check(self) -> Iterable[DoctorCheck]:
         try:
-            import pyrealsense2 as rs  # type: ignore[import-untyped]
+            import pyrealsense2 as rs
         except Exception as exc:
             yield DoctorCheck(
                 plugin=self.name,

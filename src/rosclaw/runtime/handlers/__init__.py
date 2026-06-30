@@ -7,9 +7,8 @@ manipulation skills through the runtime plugin registry.
 
 from __future__ import annotations
 
-from rosclaw.runtime.plugin import get_runtime_plugin
-
 # Import each handler module so its decorators run and register handlers.
 from rosclaw.runtime.handlers import camera, manipulation, navigation, provider, sandbox
+from rosclaw.runtime.plugin import get_runtime_plugin
 
 __all__ = ["get_runtime_plugin", "camera", "manipulation", "navigation", "provider", "sandbox"]

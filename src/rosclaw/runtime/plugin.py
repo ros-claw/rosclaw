@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 logger = logging.getLogger("rosclaw.runtime.plugin")
@@ -40,6 +40,10 @@ class RuntimeSkillPlugin:
         """Return all skill names with a registered runtime handler."""
         return list(self._handlers.keys())
 
+    def clear(self) -> None:
+        """Remove all registered handlers."""
+        self._handlers.clear()
+
     def discover_handlers(self, entry_point_group: str = "rosclaw.runtime_handlers") -> None:
         """Load handlers from package entry points.
 
@@ -48,15 +52,19 @@ class RuntimeSkillPlugin:
         """
         try:
             eps = importlib.metadata.entry_points()
+            group: Iterable[Any] | None
             if hasattr(eps, "select"):
                 group = eps.select(group=entry_point_group)
             else:
-                group = eps.get(entry_point_group, [])
+                group = eps.get(entry_point_group)
+                if group is None:
+                    return
         except Exception as exc:
             logger.warning("Failed to discover runtime handlers: %s", exc)
             return
 
-        for ep in group:
+        group_iter: Iterable[Any] = group
+        for ep in group_iter:
             try:
                 ep.load()
                 logger.debug("Loaded runtime handler module: %s", ep.value)

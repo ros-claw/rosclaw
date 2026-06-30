@@ -13,7 +13,7 @@ from rosclaw.runtime.event import RuntimeEvent
 logger = logging.getLogger("rosclaw.runtime.component")
 
 
-class RuntimeComponent(LifecycleMixin):
+class RuntimeComponent(LifecycleMixin):  # type: ignore[misc]
     """Base class for all Runtime Kernel components.
 
     Components are lifecycle-aware and hold a reference to the RuntimeBus.

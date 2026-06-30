@@ -922,7 +922,7 @@ def cmd_robot_list(_args: argparse.Namespace) -> int:
 
     registry = RobotRegistry()
     available = registry.list_available()
-    registered = registry.list()
+    registered = registry.list_installed()
 
     print("=" * 50)
     print("ROSClaw e-URDF-Zoo — Robot Registry")
@@ -2411,7 +2411,6 @@ def cmd_provider_invoke(args: argparse.Namespace) -> int:
         else:
             # PhysicalReasoner abstraction: works for Cosmos/Gemini/Qwen and
             # falls back gracefully when the endpoint is not reachable.
-            from rosclaw.provider.reasoner import get_reasoner
 
             reasoner = registry.get_reasoner(provider_id)
             response = reasoner.reason(
@@ -2421,19 +2420,22 @@ def cmd_provider_invoke(args: argparse.Namespace) -> int:
                 capability=args.capability or "vlm.risk_assessment",
             )
             raw_text = json.dumps(response.result, ensure_ascii=False) if response.result else ""
-            if response.errors:
-                error = "; ".join(response.errors)
     except Exception as exc:
         error = str(exc)
-        raw_text = json.dumps({
-            "scene": "unknown",
-            "objects": [],
-            "physical_risks": [{"description": f"Provider invocation failed: {exc}", "severity": "error"}],
-            "risk_score": None,
-            "executable": False,
-            "requires_guard": True,
-            "reasoning": str(exc),
-        }, ensure_ascii=False)
+        raw_text = json.dumps(
+            {
+                "scene": "unknown",
+                "objects": [],
+                "physical_risks": [
+                    {"description": f"Provider invocation failed: {exc}", "severity": "error"}
+                ],
+                "risk_score": None,
+                "executable": False,
+                "requires_guard": True,
+                "reasoning": str(exc),
+            },
+            ensure_ascii=False,
+        )
 
     latency_ms = int((time.time() - t0) * 1000)
     normalized = ProviderResultNormalizer.normalize(raw_text, capability=args.capability or "vlm.risk_assessment")
@@ -2445,7 +2447,7 @@ def cmd_provider_invoke(args: argparse.Namespace) -> int:
         "image": bool(image_b64),
         "status": "failed" if error else (response.status if response else "ok"),
         "errors": [error] if error else (response.errors if response else []),
-        "latency_ms": response.latency_ms if response else latency_ms,
+        "latency_ms": response.latency_ms if response and response.latency_ms is not None else latency_ms,
         "raw": raw_text,
         "normalized": normalized.to_dict(),
         "trace_id": args.trace_id or f"trace_{provider_id}_{int(time.time())}",
@@ -4614,6 +4616,7 @@ def _is_process_alive(pid: int) -> bool:
 def cmd_runtime_start(args: argparse.Namespace) -> int:
     """Start the ROSClaw Runtime Kernel in the foreground."""
     import signal
+
     from rosclaw.runtime.service import RuntimeKernelService
 
     pid_file = _runtime_pid_file()

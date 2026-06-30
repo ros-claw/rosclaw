@@ -1092,7 +1092,7 @@ class TestRobotRegistry:
         assert "realsense-d405" in available
         assert "realsense-d435i" in available
         assert "realsense-dual" in available
-        assert reg.list() == []
+        assert reg.list_installed() == []
 
     def test_validate(self, tmp_path):
         from rosclaw.runtime.eurdf_loader import EURDFLoader, RobotRegistry
