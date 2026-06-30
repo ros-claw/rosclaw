@@ -106,12 +106,18 @@ class GenericProvider(Provider):
                 provider=self.name,
             )
 
-        payload = {
-            "capability": request.capability,
-            "inputs": request.inputs,
-            "context": request.context,
-            "constraints": request.constraints,
-        }
+        # If the caller already supplied an OpenAI-compatible chat-completion
+        # payload (e.g. ``vlm.risk_assessment`` with image), pass it through
+        # directly so HTTP-based VLMs receive the expected top-level fields.
+        if "messages" in request.inputs:
+            payload = dict(request.inputs)
+        else:
+            payload = {
+                "capability": request.capability,
+                "inputs": request.inputs,
+                "context": request.context,
+                "constraints": request.constraints,
+            }
 
         try:
             raw = await self._runtime.invoke(payload)
@@ -138,4 +144,11 @@ class GenericProvider(Provider):
         base = await super().health()
         if self._runtime is not None:
             base["runtime_started"] = self._runtime._started
+            if isinstance(self._runtime, HTTPRuntime):
+                runtime_health = await self._runtime.health(
+                    check_config=self.manifest.health_check,
+                    model_id=self.manifest.model.model_id or self.manifest.model.name,
+                )
+                base["runtime_health"] = runtime_health
+                base["ok"] = runtime_health.get("ok", False) and base.get("ok", False)
         return base

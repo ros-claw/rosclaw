@@ -119,6 +119,56 @@ class ObservabilitySpec:
 
 
 @dataclass
+class HealthCheckEndpoint:
+    """A single HTTP endpoint to probe for provider health."""
+
+    name: str = ""
+    method: str = "GET"                # GET or POST
+    url: str = ""
+    timeout_ms: int = 5000
+    optional: bool = True
+    payload: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "HealthCheckEndpoint":
+        return cls(
+            name=d.get("name", ""),
+            method=d.get("method", "GET").upper(),
+            url=d.get("url", ""),
+            timeout_ms=d.get("timeout_ms", 5000),
+            optional=d.get("optional", True),
+            payload=d.get("payload", {}),
+        )
+
+
+@dataclass
+class HealthCheckSpec:
+    """Provider health-check configuration.
+
+    Allows manifests to declare one or more HTTP probes.  Optional probes that
+    fail are recorded as warnings; required probes that fail make the provider
+    UNHEALTHY.
+    """
+
+    strategy: str = "http"             # Only "http" is supported today
+    endpoints: list[HealthCheckEndpoint] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "HealthCheckSpec":
+        if not isinstance(d, dict):
+            return cls()
+        endpoints = [
+            HealthCheckEndpoint.from_dict(e)
+            for e in d.get("endpoints", [])
+            if isinstance(e, dict)
+        ]
+        return cls(
+            strategy=d.get("strategy", "http"),
+            endpoints=endpoints,
+        )
+
+
+@dataclass
 class ProviderManifest:
     """Complete provider manifest loaded from provider.yaml.
 
@@ -140,6 +190,7 @@ class ProviderManifest:
     embodiment: EmbodimentSpec = field(default_factory=EmbodimentSpec)
     safety: SafetySpec = field(default_factory=SafetySpec)
     observability: ObservabilitySpec = field(default_factory=ObservabilitySpec)
+    health_check: HealthCheckSpec = field(default_factory=HealthCheckSpec)
     extra: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -172,9 +223,11 @@ class ProviderManifest:
             embodiment=EmbodimentSpec.from_dict(d.get("embodiment", {})),
             safety=SafetySpec.from_dict(d.get("safety", {})),
             observability=ObservabilitySpec.from_dict(d.get("observability", {})),
+            health_check=HealthCheckSpec.from_dict(d.get("health_check", {})),
             extra={k: v for k, v in d.items() if k not in {
                 "name", "version", "type", "description", "capabilities",
                 "modalities", "runtime", "model", "embodiment", "safety", "observability",
+                "health_check",
             }},
         )
 
@@ -216,5 +269,18 @@ class ProviderManifest:
                 "executable": self.safety.executable,
                 "requires_guard": self.safety.requires_guard,
                 "fallback_provider": self.safety.fallback_provider,
+            },
+            "health_check": {
+                "strategy": self.health_check.strategy,
+                "endpoints": [
+                    {
+                        "name": e.name,
+                        "method": e.method,
+                        "url": e.url,
+                        "timeout_ms": e.timeout_ms,
+                        "optional": e.optional,
+                    }
+                    for e in self.health_check.endpoints
+                ],
             },
         }

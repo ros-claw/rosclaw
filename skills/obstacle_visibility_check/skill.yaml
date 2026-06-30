@@ -1,0 +1,80 @@
+schema_version: "rosclaw.skill.v1"
+kind: "Skill"
+
+metadata:
+  name: "obstacle_visibility_check"
+  display_name: "Obstacle Visibility Check"
+  namespace: "rosclaw-realsense"
+  version: "0.1.0"
+  stage: "draft"
+  category: "perception"
+  tags:
+    - realsense-d435i
+    - realsense-dual
+    - physical-ai
+    - perception-only
+  description: "Verify that obstacles are visible in the depth stream."
+  license: "MIT"
+  authors:
+    - name: "ROSClaw Team"
+      url: "https://github.com/ros-claw"
+
+identity:
+  skill_id: "rosclaw-realsense/obstacle_visibility_check"
+  package_name: "rosclaw-realsense/obstacle_visibility_check"
+  canonical_uri: "rosclaw://skills/rosclaw-realsense/obstacle_visibility_check"
+  git_repo: "https://github.com/rosclaw/realsense-skills"
+  git_commit: null
+
+task:
+  intent: "obstacle_visibility_check"
+  natural_language:
+    en: "Execute the obstacle_visibility_check skill."
+  input_contract:
+    required:
+      - robot_state
+    optional: []
+  output_contract:
+    success_condition:
+      - "task_completed == true"
+    artifacts:
+      - trace
+      - runtime_events
+
+execution:
+  entrypoint:
+    type: "behavior_tree"
+    file: "behavior_tree.xml"
+  runtime_adapter: "rosclaw.runtime.skill_executor"
+  policy:
+    type: "hybrid"
+    config: "policies/policy.yaml"
+  prompts:
+    planner: "prompts/planner.md"
+    executor: "prompts/executor.md"
+    verifier: "prompts/verifier.md"
+    recovery: "prompts/recovery.md"
+    safety: "prompts/safety.md"
+
+compatibility:
+  eurdf: "e-urdf-compat.yaml"
+  providers: "providers.yaml"
+  safety: "safety.yaml"
+
+evaluation:
+  dojo: "dojo.yaml"
+  darwin: "darwin_eval.yaml"
+  tests: "tests/"
+
+lineage:
+  file: "lineage.yaml"
+
+evidence:
+  directory: "evidence/"
+  latest_eval_report: null
+
+status:
+  promotion_state: "draft"
+  last_eval_passed: false
+  safe_to_run_on_real_robot: false
+  recommended_runtime_mode: "sandbox_first"

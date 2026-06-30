@@ -77,6 +77,12 @@ class PracticeConfig:
     recorder: RecorderConfig = field(default_factory=RecorderConfig)
     seekdb: SeekDBConfig = field(default_factory=SeekDBConfig)
 
+    # ROS2 topic configuration
+    ros2_topics: list[str] = field(default_factory=list)
+    sample_camera_hz: float = 5.0
+    sample_imu_hz: float = 50.0
+    output_root: str | None = None
+
     # Runtime knobs
     mock: bool = False
     duration_sec: float | None = None

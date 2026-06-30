@@ -11,6 +11,9 @@ from rosclaw.core.lifecycle import LifecycleMixin
 from rosclaw.practice.adapters.base import SourceAdapter
 from rosclaw.practice.adapters.mock_agent_adapter import MockAgentAdapter
 from rosclaw.practice.adapters.mock_runtime_adapter import MockRuntimeAdapter
+from rosclaw.practice.adapters.provider_trace_adapter import ProviderTraceAdapter
+from rosclaw.practice.adapters.ros2_topic_adapter import Ros2TopicAdapter
+from rosclaw.practice.adapters.sandbox_trace_adapter import SandboxTraceAdapter
 from rosclaw.practice.adapters.sense_adapter import SenseAdapter
 from rosclaw.practice.config import PracticeConfig, PracticeSession, PracticeSummary
 from rosclaw.practice.schemas import PracticeEventEnvelope
@@ -82,13 +85,63 @@ class PracticeCoordinator(LifecycleMixin):
                 )
             return
 
-        # Non-mock P0: only DDS via SenseRuntime if available
+        # Non-mock P0: DDS via SenseRuntime if available
         if sources.dds:
             self._adapters.append(
                 SenseAdapter(
                     self.config.robot_id,
                     sense_runtime=getattr(self.config, "sense_runtime", None),
                     scenario="normal",
+                )
+            )
+
+        # ROS2 / camera / IMU topics
+        if sources.ros2 or sources.camera or sources.imu:
+            ros2_topics = getattr(self.config, "ros2_topics", []) or []
+            topic_specs: list[dict[str, Any]] = []
+            try:
+                from sensor_msgs.msg import CameraInfo, Image, Imu
+
+                for t in ros2_topics:
+                    if isinstance(t, dict):
+                        spec = t
+                    else:
+                        # string topic heuristic
+                        topic_str = str(t)
+                        if "camera_info" in topic_str:
+                            spec = {"topic": topic_str, "msg_type": CameraInfo}
+                        elif "imu" in topic_str:
+                            spec = {"topic": topic_str, "msg_type": Imu}
+                        else:
+                            spec = {"topic": topic_str, "msg_type": Image}
+                    topic_specs.append(spec)
+            except Exception as e:
+                logger.warning("Failed to build ROS2 topic specs: %s", e)
+            self._adapters.append(
+                Ros2TopicAdapter(
+                    self.config.robot_id,
+                    ros2_topics=topic_specs,
+                    sample_camera_hz=self.config.sample_camera_hz,
+                    sample_imu_hz=self.config.sample_imu_hz,
+                    output_root=getattr(self.config, "output_root", None),
+                )
+            )
+
+        if sources.provider:
+            self._adapters.append(
+                ProviderTraceAdapter(
+                    self.config.robot_id,
+                    event_bus=self._event_bus,
+                    output_root=getattr(self.config, "output_root", None),
+                )
+            )
+
+        if sources.sandbox:
+            self._adapters.append(
+                SandboxTraceAdapter(
+                    self.config.robot_id,
+                    event_bus=self._event_bus,
+                    output_root=getattr(self.config, "output_root", None),
                 )
             )
 

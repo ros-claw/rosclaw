@@ -89,3 +89,59 @@ def replay_episode(episode_id):
         print(f"  Blocked: {data.get('blocked', False)}")
         print(f"  Reason: {data.get('block_reason', 'N/A')}")
         print()
+
+
+def validate_episode(session_dir: Path) -> dict:
+    """Validate a practice session directory.
+
+    Checks:
+    - events.jsonl exists and is parseable
+    - timestamps are monotonically increasing
+    - artifact references in payload_ref exist on disk
+    """
+    events_path = session_dir / "raw" / "events.jsonl"
+    result = {
+        "valid": False,
+        "errors": [],
+        "event_count": 0,
+        "missing_refs": [],
+    }
+    if not events_path.exists():
+        result["errors"].append(f"events.jsonl not found: {events_path}")
+        return result
+
+    last_ts = -1
+    with open(events_path, encoding="utf-8") as f:
+        for line_no, line in enumerate(f, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError as e:
+                result["errors"].append(f"Line {line_no}: JSON decode error: {e}")
+                continue
+            result["event_count"] += 1
+            ts = event.get("timestamp_ns")
+            if ts is not None and last_ts is not None and ts < last_ts:
+                result["errors"].append(f"Line {line_no}: timestamp non-monotonic ({ts} < {last_ts})")
+            if ts is not None:
+                last_ts = ts
+            for ref_key, ref_path in event.get("payload_ref", {}).items():
+                full = session_dir / ref_path
+                if not full.exists():
+                    result["missing_refs"].append(f"Line {line_no}: {ref_key} -> {ref_path}")
+    if result["missing_refs"]:
+        result["errors"].extend(result["missing_refs"])
+    result["valid"] = not result["errors"]
+    return result
+
+
+def export_episode(session_dir: Path, output_dir: Path) -> Path:
+    """Export a validated session directory to a portable archive."""
+    import shutil
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    export_path = output_dir / f"{session_dir.name}.tar.gz"
+    shutil.make_archive(str(export_path.with_suffix("")), "gztar", root_dir=str(session_dir))
+    return export_path

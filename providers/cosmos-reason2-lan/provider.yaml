@@ -1,0 +1,82 @@
+name: cosmos-reason2-lan
+version: "1.0.0"
+type: vlm
+description: |
+  LAN VLM provider backed by the local vLLM/OpenAI-compatible server at
+  192.168.1.105:8009.  The server advertises the Cosmos-Reason2-2B model
+  path, but the running checkpoint is Qwen3-VL-2B, so this manifest is
+  configured to treat it as a generic vision-language model.
+capabilities:
+  - vlm.object_grounding
+  - vlm.scene_understanding
+  - vlm.image_caption
+  - vlm.visual_qa
+  - vlm.risk_assessment
+modalities:
+  input:
+    - text
+    - image
+  output:
+    - text
+runtime:
+  backend: http
+  protocol: http
+  endpoint: http://192.168.1.105:8009/v1/chat/completions
+  device: cuda
+  min_vram_gb: 4.0
+  env:
+    timeout_sec: "60"
+    retries: "2"
+    headers: "Content-Type: application/json\nAccept: application/json"
+model:
+  name: "/home/nvidia/models/nv-community_Cosmos-Reason2-2B/model"
+  source: local
+  model_id: /home/nvidia/models/nv-community_Cosmos-Reason2-2B/model
+  precision: bf16
+  quantization: none
+embodiment:
+  supported_robots:
+    - realsense-d405
+    - realsense-d435i
+    - realsense-dual
+  camera_setup:
+    - rgb
+    - depth
+    - rgbd
+  action_space: []
+  control_frequency_hz: 0
+  requires_calibration: false
+safety:
+  executable: false
+  requires_guard: true
+  requires_collision_check: false
+  requires_workspace_check: false
+  max_action_norm: 0.0
+  fallback_provider: ""
+health_check:
+  strategy: http
+  endpoints:
+    - name: wrapper_health
+      method: GET
+      url: http://192.168.1.105:8004/health
+      timeout_ms: 3000
+      optional: true
+    - name: openai_models
+      method: GET
+      url: http://192.168.1.105:8009/v1/models
+      timeout_ms: 3000
+      optional: true
+    - name: minimal_completion
+      method: POST
+      url: http://192.168.1.105:8009/v1/chat/completions
+      timeout_ms: 8000
+      optional: false
+observability:
+  log_inputs: false
+  log_outputs: true
+  trace_level: standard
+extra:
+  notes: |
+    ROS2 Humble is unavailable on Ubuntu 24.04; this provider is tested
+    alongside ROS2 Jazzy.  Keep the vLLM server on the same LAN segment
+    and verify with `rosclaw provider health cosmos-reason2-lan`.

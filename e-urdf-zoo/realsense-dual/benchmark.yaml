@@ -1,0 +1,31 @@
+benchmark_version: "1.0"
+robot_id: realsense_dual
+
+kinematic_benchmarks: []
+
+dynamic_benchmarks: []
+
+simulation_benchmarks:
+  mock:
+    - {name: real_time_factor, target: 1.0, tolerance: 0.1}
+
+safety_benchmarks:
+  - name: no_actuation_enforced
+    description: All actuator-type actions are blocked by sandbox/compatibility layers.
+    target: 1.0
+    unit: ratio
+
+task_benchmarks:
+  - name: dual_topic_namespace_isolation
+    description: D405 and D435i ROS namespaces do not collide.
+    target: 1.0
+    unit: ratio
+  - name: dual_camera_frame_id_isolation
+    description: Frame IDs from both cameras are distinct.
+    target: 1.0
+    unit: ratio
+
+baseline_hardware:
+  sensors:
+    close_range: Intel RealSense D405
+    world_eye_imu: Intel RealSense D435i

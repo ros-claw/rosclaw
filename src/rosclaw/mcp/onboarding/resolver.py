@@ -42,6 +42,10 @@ class AliasResolver:
         "realsense-d455": "io.rosclaw.hardware.realsense-d455",
         "realsense": "io.rosclaw.hardware.realsense-d455",
         "d455": "io.rosclaw.hardware.realsense-d455",
+        "realsense-d405": "io.rosclaw.hardware.realsense-d405",
+        "d405": "io.rosclaw.hardware.realsense-d405",
+        "realsense-d435i": "io.rosclaw.hardware.realsense-d435i",
+        "d435i": "io.rosclaw.hardware.realsense-d435i",
     }
 
     def __init__(self, hub: HubClient | None = None, home: Path | None = None) -> None:

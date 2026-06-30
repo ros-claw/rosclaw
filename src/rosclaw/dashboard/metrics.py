@@ -89,6 +89,11 @@ class DashboardMetrics:
         self._evidence_traces: list[dict[str, Any]] = []
         self._body_sense_history: list[dict[str, Any]] = []
         self._latest_sense: dict[str, Any] | None = None
+        self._realsense_state: dict[str, dict[str, Any]] = {
+            "d405": {"online": False, "last_frame_at": None, "frame_count": 0, "fps": 0.0},
+            "d435i": {"online": False, "last_frame_at": None, "frame_count": 0, "fps": 0.0},
+        }
+        self._realsense_frame_times: dict[str, list[float]] = {"d405": [], "d435i": []}
 
     # ── Provider metrics ──
 
@@ -232,6 +237,62 @@ class DashboardMetrics:
             "timestamp": self._latest_sense.get("timestamp"),
         }
 
+    # ── RealSense stream metrics ──
+
+    def set_realsense_online(self, camera_key: str, online: bool, info: dict[str, Any] | None = None) -> None:
+        """Update online status and metadata for a RealSense camera."""
+        camera_key = camera_key.lower()
+        if camera_key not in self._realsense_state:
+            return
+        self._realsense_state[camera_key]["online"] = online
+        if info:
+            self._realsense_state[camera_key].update(info)
+
+    def record_realsense_frame(
+        self,
+        camera_key: str,
+        frame_type: str,
+        path: str,
+        latency_ms: float | None = None,
+        drop_count: int | None = None,
+    ) -> None:
+        """Record arrival of a RealSense frame and compute rolling FPS."""
+        camera_key = camera_key.lower()
+        if camera_key not in self._realsense_state:
+            return
+        now = time.time()
+        state = self._realsense_state[camera_key]
+        state["last_frame_at"] = now
+        state["last_frame_type"] = frame_type
+        state["last_frame_path"] = path
+        state["frame_count"] = state.get("frame_count", 0) + 1
+        if latency_ms is not None:
+            state["last_latency_ms"] = latency_ms
+        if drop_count is not None:
+            state["drop_count"] = drop_count
+
+        times = self._realsense_frame_times.setdefault(camera_key, [])
+        times.append(now)
+        # Keep a 2-second window for FPS estimation.
+        cutoff = now - 2.0
+        while times and times[0] < cutoff:
+            times.pop(0)
+        if len(times) > 1:
+            elapsed = now - times[0]
+            state["fps"] = round((len(times) - 1) / elapsed, 2) if elapsed > 0 else 0.0
+        else:
+            state["fps"] = 0.0
+
+    def get_realsense_state(self) -> dict[str, Any]:
+        """Return current RealSense stream state for dashboard."""
+        return {
+            "cameras": dict(self._realsense_state),
+            "dual_online": (
+                self._realsense_state.get("d405", {}).get("online", False)
+                and self._realsense_state.get("d435i", {}).get("online", False)
+            ),
+        }
+
     # ── Snapshot ──
 
     def snapshot(self) -> dict[str, Any]:
@@ -244,6 +305,7 @@ class DashboardMetrics:
             "event_counts": self.get_event_counts(),
             "traces": self.get_latest_traces(),
             "sense": self.get_body_sense_stats(),
+            "realsense": self.get_realsense_state(),
         }
 
     def record_trace(self, trace: dict[str, Any]) -> None:

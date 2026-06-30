@@ -159,6 +159,29 @@ def cmd_skill_validate(args: argparse.Namespace) -> int:
     return 0 if report.ok else 1
 
 
+def cmd_skill_install(args: argparse.Namespace) -> int:
+    """Install a local skill package into the workspace registry."""
+    skill_dir = _load_skill_dir_arg(args)
+    if not skill_dir.exists():
+        print(f"[ROSClaw] Skill not found: {skill_dir}")
+        return 1
+
+    pkg = SkillPackage(skill_dir).try_load()
+    report = validate_package(pkg)
+    if not report.ok:
+        print(f"[ROSClaw] Skill validation failed for {skill_dir.name}")
+        for e in report.errors:
+            print(f"  ✗ {e}")
+        return 1
+
+    registry = SkillLocalRegistry(getattr(args, "workspace", None))
+    registry.add(pkg)
+
+    print(f"[ROSClaw] Installed skill '{pkg.skill_id}' @ {pkg.version}")
+    print(f"[ROSClaw] Path: {pkg.root}")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Mine
 # ---------------------------------------------------------------------------
@@ -393,6 +416,12 @@ def add_skill_hub_parsers(skill_subparsers: Any) -> None:
     validate_parser.add_argument("--workspace", default=None, help="Workspace root")
     validate_parser.add_argument("--json", action="store_true", help="Output JSON")
     validate_parser.set_defaults(func=cmd_skill_validate)
+
+    install_parser = skill_subparsers.add_parser("install", help="Install a local skill package")
+    install_parser.add_argument("skill_dir", nargs="?", help="Skill directory")
+    install_parser.add_argument("--name", default=None, help="Skill name (used to resolve dir)")
+    install_parser.add_argument("--workspace", default=None, help="Workspace root")
+    install_parser.set_defaults(func=cmd_skill_install)
 
     mine_parser = skill_subparsers.add_parser("mine", help="Mine skill candidate from practice episodes")
     mine_parser.add_argument("--from", dest="source", required=True, help="Practice episodes directory")

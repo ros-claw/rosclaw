@@ -51,6 +51,7 @@ from rosclaw.practice.coordinator import PracticeCoordinator
 from rosclaw.practice.storage.catalog import PracticeCatalog
 from rosclaw.practice.storage.fallback_sync import FallbackSync
 from rosclaw.practice.storage.layout import PracticeLayout
+from rosclaw.provider.cli_call import call_provider
 from rosclaw.sense.cli import (
     cmd_sense_events,
     cmd_sense_explain,
@@ -60,6 +61,33 @@ from rosclaw.sense.cli import (
     cmd_sense_watch,
 )
 from rosclaw.skill.cli import add_skill_hub_parsers
+
+
+def _seekdb_client_from_args(args: argparse.Namespace):
+    """Return a SeekDB client based on optional --seekdb-path argument.
+
+    When no persistent path is supplied, a single in-memory client is shared
+    for the lifetime of the process.  This keeps CLI subcommands consistent
+    within one invocation and lets tests monkeypatch the backing class.
+    """
+    path = getattr(args, "seekdb_path", None)
+    if path:
+        from rosclaw.memory.seekdb_client import SeekDBSQLiteClient
+
+        client = SeekDBSQLiteClient(db_path=str(path))
+        client.connect()
+        return client
+
+    global _SEEKDB_MEM_CLIENT
+    if _SEEKDB_MEM_CLIENT is None:
+        from rosclaw.memory.interface import SeekDBMemoryClient
+
+        _SEEKDB_MEM_CLIENT = SeekDBMemoryClient()
+        _SEEKDB_MEM_CLIENT.connect()
+    return _SEEKDB_MEM_CLIENT
+
+
+_SEEKDB_MEM_CLIENT = None
 
 
 def _cmd_mcp_serve(args: argparse.Namespace) -> int:
@@ -1309,6 +1337,10 @@ def cmd_practice_start(args: argparse.Namespace) -> int:
         mock=args.mock,
         duration_sec=duration_sec,
         publish_to_event_bus=True,
+        ros2_topics=args.ros2_topic or [],
+        sample_camera_hz=args.sample_camera_hz,
+        sample_imu_hz=args.sample_imu_hz,
+        output_root=args.output_root,
     )
     config.seekdb.enabled = seekdb_enabled
     config.seekdb.url = seekdb_url if seekdb_enabled else None
@@ -1891,6 +1923,73 @@ def cmd_how_recover(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_how_advise(args: argparse.Namespace) -> int:
+    """Generate actionable recovery advice grounded in real episode evidence."""
+    import asyncio
+
+    from rosclaw.how.engine import HeuristicEngine
+    from rosclaw.memory.interface import MemoryInterface
+
+    body_id = args.body
+    failure_type = args.failure
+    episode_id = args.episode
+
+    async def _advise() -> dict[str, Any]:
+        seekdb_client = _seekdb_client_from_args(args)
+        mem = MemoryInterface(body_id, seekdb_client=seekdb_client)
+        mem._do_initialize()
+        artifacts = mem.find_artifacts_by_episode(episode_id)
+        evidence_uris = [a.uri for a in artifacts]
+
+        how = HeuristicEngine(seekdb_client=seekdb_client)
+        await how.initialize()
+        await how.seed_defaults()
+
+        rule = await how.suggest_recovery(
+            failure_type,
+            context={
+                "episode_id": episode_id,
+                "body_id": body_id,
+                "artifact_count": len(artifacts),
+                "evidence_uris": evidence_uris,
+            },
+        )
+        analogy = mem.find_analogy(failure_type)
+
+        advice = {
+            "body_id": body_id,
+            "failure_type": failure_type,
+            "episode_id": episode_id,
+            "evidence_uris": evidence_uris,
+            "advice": rule.get("action", "No matching heuristic rule.") if rule else "No matching heuristic rule.",
+            "rule": rule,
+            "analogy": analogy,
+        }
+        return advice
+
+    try:
+        result = asyncio.run(_advise())
+    except Exception as exc:
+        print(f"[ROSClaw] HOW advise failed: {exc}")
+        return 1
+
+    if args.json:
+        print(json.dumps(result, indent=2, default=str))
+    else:
+        print("=" * 60)
+        print("ROSClaw HOW — Evidence-Based Advice")
+        print("=" * 60)
+        print(f"Body:        {result['body_id']}")
+        print(f"Failure:     {result['failure_type']}")
+        print(f"Episode:     {result['episode_id']}")
+        print(f"Evidence:    {len(result['evidence_uris'])} artifact(s)")
+        print(f"Advice:      {result['advice']}")
+        if result["analogy"]:
+            print(f"Analogy:     {result['analogy'].get('action_suggestion', '')}")
+        print("=" * 60)
+    return 0
+
+
 def cmd_provider_list(_args: argparse.Namespace) -> int:
     """List all registered providers."""
     providers, _ = _auto_register_builtins()
@@ -1912,6 +2011,151 @@ def cmd_provider_list(_args: argparse.Namespace) -> int:
         print("Builtin providers: llm, vlm, vla, vln, world, skill, critic, embedding")
     print("=" * 60)
     return 0
+
+
+def cmd_provider_install(args: argparse.Namespace) -> int:
+    """Install/register a provider from a provider.yaml manifest."""
+    from rosclaw.provider.adapters.generic import GenericProvider
+    from rosclaw.provider.core.manifest import ProviderManifest
+    from rosclaw.provider.core.registry import ProviderRegistry
+
+    manifest_path = Path(args.manifest).expanduser().resolve()
+    if not manifest_path.exists():
+        print(f"[ROSClaw] Provider manifest not found: {manifest_path}")
+        return 1
+
+    try:
+        manifest = ProviderManifest.from_yaml(manifest_path)
+    except Exception as exc:
+        print(f"[ROSClaw] Failed to parse provider manifest: {exc}")
+        return 1
+
+    registry = ProviderRegistry()
+    if args.replace:
+        with contextlib.suppress(Exception):
+            registry.unregister(manifest.name)
+
+    try:
+        registry.register(manifest, GenericProvider, auto_load=False)
+    except Exception as exc:
+        print(f"[ROSClaw] Provider registration failed: {exc}")
+        return 1
+
+    home = Path(resolve_home())
+    provider_dir = home / "providers"
+    provider_dir.mkdir(parents=True, exist_ok=True)
+    dest = provider_dir / f"{manifest.name}.yaml"
+    shutil.copyfile(manifest_path, dest)
+
+    print(f"[ROSClaw] Installed provider '{manifest.name}' v{manifest.version}")
+    print(f"[ROSClaw] Manifest copied to: {dest}")
+    print(f"[ROSClaw] Capabilities: {', '.join(manifest.capabilities) or 'none'}")
+    print(f"[ROSClaw] Backend: {manifest.runtime.backend} ({manifest.runtime.endpoint or 'n/a'})")
+    return 0
+
+
+def cmd_provider_call(args: argparse.Namespace) -> int:
+    """Call a provider capability with a real image."""
+    import asyncio
+
+    image_path = Path(args.image)
+    if not image_path.exists():
+        print(f"[ROSClaw] Image not found: {image_path}", file=sys.stderr)
+        return 1
+
+    try:
+        result = asyncio.run(
+            call_provider(
+                provider_id=args.provider_id,
+                capability=args.capability,
+                image_path=image_path,
+                prompt=args.prompt,
+                robot_id=args.robot,
+                task_id=args.task,
+                timeout_ms=args.timeout_ms,
+            )
+        )
+    except Exception as exc:
+        print(f"[ROSClaw] Provider call failed: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+    else:
+        print("=" * 60)
+        print(f"Provider Call: {result.get('provider')} / {result.get('capability')}")
+        print("=" * 60)
+        print(f"Status:        {result.get('status')}")
+        print(f"Request ID:    {result.get('request_id')}")
+        print(f"Input frame:   {result.get('input_frame_uri')}")
+        print(f"Latency:       {result.get('latency_ms')} ms")
+        print(f"Scene:         {result.get('scene')}")
+        print(f"Risk score:    {result.get('normalized_risk')}")
+        print(f"Executable:    {result.get('executable')}")
+        print(f"Requires guard:{result.get('requires_guard')}")
+        if result.get("risks"):
+            print("Risks:")
+            for risk in result["risks"]:
+                print(f"  • {risk.get('category')} ({risk.get('severity')}): {risk.get('description')}")
+        if result.get("errors"):
+            print("Errors:")
+            for err in result["errors"]:
+                print(f"  • {err}")
+        print("=" * 60)
+
+    return 0 if result.get("status") in ("ok", "degraded") else 1
+
+
+def cmd_provider_health(args: argparse.Namespace) -> int:
+    """Check health of a registered provider."""
+    import asyncio
+
+    from rosclaw.provider.adapters.generic import GenericProvider
+    from rosclaw.provider.core.manifest import ProviderManifest
+    from rosclaw.provider.core.registry import ProviderRegistry
+
+    name = args.provider_id
+    registry = ProviderRegistry()
+
+    if name not in registry.list_providers():
+        home = Path(resolve_home())
+        manifest_path = home / "providers" / f"{name}.yaml"
+        if not manifest_path.exists():
+            print(f"[ROSClaw] Provider '{name}' is not installed (manifest not found at {manifest_path})")
+            return 1
+        try:
+            manifest = ProviderManifest.from_yaml(manifest_path)
+            registry.register(manifest, GenericProvider, auto_load=False)
+        except Exception as exc:
+            print(f"[ROSClaw] Failed to load provider '{name}': {exc}")
+            return 1
+
+    provider = registry.get(name)
+
+    async def _health() -> dict[str, Any]:
+        await provider.load()
+        try:
+            return await provider.health()
+        finally:
+            await provider.unload()
+
+    try:
+        result = asyncio.run(_health())
+    except Exception as exc:
+        print(f"[ROSClaw] Health check failed: {exc}")
+        return 1
+
+    ok = result.get("ok", False)
+    if args.json:
+        print(json.dumps(result, indent=2, default=str))
+    else:
+        print(f"[ROSClaw] Provider health: {name}")
+        print(f"  Status: {'HEALTHY' if ok else 'UNHEALTHY'}")
+        if not ok and result.get("error"):
+            print(f"  Error: {result['error']}")
+        if result.get("load_error"):
+            print(f"  Load error: {result['load_error']}")
+    return 0 if ok else 1
 
 
 def cmd_skill_list(_args: argparse.Namespace) -> int:
@@ -2054,7 +2298,7 @@ def cmd_memory_query(args: argparse.Namespace) -> int:
     """Query memory for similar experiences."""
     from rosclaw.memory.interface import MemoryInterface
 
-    mem = MemoryInterface("cli")
+    mem = MemoryInterface("cli", seekdb_client=_seekdb_client_from_args(args))
     mem._do_initialize()
     results = mem.find_similar_experiences(args.query, limit=args.limit)
 
@@ -2141,6 +2385,161 @@ def cmd_memory_explain(args: argparse.Namespace) -> int:
     print(f"Sandbox Intervention: {failure.get('sandbox_intervened', False)}")
     print(f"Timestamp:     {failure.get('timestamp', 'N/A')}")
     print("=" * 60)
+    return 0
+
+
+def _episode_date_str(manifest: dict[str, Any]) -> str:
+    """Extract YYYY-MM-DD date from manifest start_time or current time."""
+    from datetime import UTC, datetime
+
+    start = manifest.get("start_time")
+    if start:
+        try:
+            # Handles ISO strings with Z suffix
+            return datetime.fromisoformat(str(start).replace("Z", "+00:00")).astimezone(UTC).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    return datetime.now(UTC).strftime("%Y-%m-%d")
+
+
+def _collect_episode_artifact_files(session_dir: Path) -> list[tuple[str, Path]]:
+    """Collect artifact files from a practice session directory.
+
+    Returns list of (artifact_type, path) tuples.
+    """
+    artifacts: list[tuple[str, Path]] = []
+    artifact_dirs = {
+        "frames/d405": "rgb",
+        "frames/d435i": "rgb",
+        "frames/camera": "rgb",
+        "imu": "imu",
+        "provider": "provider_trace",
+        "sandbox": "sandbox_trace",
+        "runtime": "runtime_trace",
+        "metrics": "metrics",
+    }
+    for subdir, default_type in artifact_dirs.items():
+        dir_path = session_dir / subdir
+        if not dir_path.exists():
+            continue
+        for file_path in sorted(dir_path.rglob("*")):
+            if not file_path.is_file():
+                continue
+            name_lower = file_path.name.lower()
+            if "depth" in name_lower or name_lower.endswith(".png16"):
+                artifact_type = "depth"
+            elif name_lower.endswith((".jpg", ".jpeg", ".png")) and default_type == "rgb":
+                artifact_type = "rgb"
+            else:
+                artifact_type = default_type
+            artifacts.append((artifact_type, file_path))
+    return artifacts
+
+
+def cmd_memory_ingest(args: argparse.Namespace) -> int:
+    """Ingest a practice episode's artifacts into memory as evidence."""
+    from datetime import UTC, datetime
+
+    from rosclaw.memory.interface import MemoryInterface
+    from rosclaw.memory.types import ArtifactRef
+
+    episode_id = args.episode
+    data_root = Path(args.data_root)
+    layout = PracticeLayout(data_root)
+    session_dir = layout.session_dir(episode_id)
+
+    if not session_dir.exists():
+        print(f"[ROSClaw] Episode not found: {session_dir}")
+        return 1
+
+    manifest = layout.read_manifest(episode_id) or {}
+    robot_id = manifest.get("robot_id") or args.robot or "rosclaw_default"
+    task_name = (
+        manifest.get("task", {}).get("task_name")
+        or manifest.get("task", {}).get("task_id")
+        or episode_id
+    )
+    outcome = manifest.get("status", {}).get("outcome", "unknown")
+    duration_ms = manifest.get("duration_ms")
+    sources = manifest.get("sources", {})
+
+    mem = MemoryInterface(robot_id, seekdb_client=_seekdb_client_from_args(args))
+    mem._do_initialize()
+
+    artifact_records: list[dict[str, Any]] = []
+    date_str = _episode_date_str(manifest)
+    for idx, (artifact_type, file_path) in enumerate(_collect_episode_artifact_files(session_dir)):
+        artifact_id = f"{episode_id}_{artifact_type}_{idx:04d}"
+        # Use a logical artifact URI; metadata keeps the concrete filesystem path.
+        relative = file_path.relative_to(session_dir).as_posix()
+        uri = ArtifactRef.build_uri(
+            artifact_type="episode",
+            date_str=date_str,
+            episode_id=episode_id,
+            filename=relative,
+        )
+        size = file_path.stat().st_size if file_path.exists() else None
+        artifact = ArtifactRef(
+            artifact_id=artifact_id,
+            artifact_type=artifact_type,
+            uri=uri,
+            episode_id=episode_id,
+            size_bytes=size,
+            metadata={
+                "robot_id": robot_id,
+                "task_name": task_name,
+                "local_path": str(file_path.resolve()),
+                "relative_path": relative,
+                "ingested_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            },
+        )
+        mem.store_artifact(artifact)
+        artifact_records.append({
+            "artifact_id": artifact_id,
+            "artifact_type": artifact_type,
+            "uri": uri,
+            "size_bytes": size,
+        })
+
+    # Summarize the episode as an experience so it is searchable.
+    tags = [robot_id, *sources.keys()]
+    experience_id = mem.store_experience(
+        event_id=episode_id,
+        event_type="practice_episode",
+        instruction=task_name,
+        outcome="success" if outcome in ("success", "passed") else outcome,
+        duration_sec=(duration_ms / 1000.0) if duration_ms is not None else 0.0,
+        tags=tags,
+        metadata={
+            "episode_id": episode_id,
+            "robot_id": robot_id,
+            "sources": sources,
+            "manifest": manifest,
+            "artifact_count": len(artifact_records),
+            "artifact_summary": artifact_records,
+        },
+    )
+
+    summary = {
+        "episode_id": episode_id,
+        "robot_id": robot_id,
+        "experience_id": experience_id,
+        "artifact_count": len(artifact_records),
+        "artifacts": artifact_records,
+    }
+    if args.json:
+        print(json.dumps(summary, indent=2, default=str))
+    else:
+        print("=" * 60)
+        print("ROSClaw Memory — Episode Ingested")
+        print("=" * 60)
+        print(f"Episode:       {episode_id}")
+        print(f"Robot:         {robot_id}")
+        print(f"Experience ID: {experience_id}")
+        print(f"Artifacts:     {len(artifact_records)}")
+        for rec in artifact_records:
+            print(f"  [{rec['artifact_type']}] {rec['uri']}")
+        print("=" * 60)
     return 0
 
 
@@ -2287,6 +2686,183 @@ def cmd_know_recommend(args: argparse.Namespace) -> int:
         print(f"{rec['robot_id']:<20} {rec['score']:<8.2f} {matched}")
     print("=" * 60)
     return 0
+
+
+def cmd_know_compile(args: argparse.Namespace) -> int:
+    """Compile a TaskCard from a real practice episode."""
+    import asyncio
+
+    from rosclaw.how.engine import HeuristicEngine
+    from rosclaw.know.interface import KnowledgeInterface
+    from rosclaw.know.task_card import TaskCard
+
+    episode_id = args.from_episode
+    task = args.task
+    data_root = Path(args.data_root)
+    layout = PracticeLayout(data_root)
+
+    if not layout.session_dir(episode_id).exists():
+        print(f"[ROSClaw] Episode not found: {episode_id}")
+        return 1
+
+    manifest = layout.read_manifest(episode_id) or {}
+    robot_id = args.body or manifest.get("robot_id") or "rosclaw_default"
+    robot_type = manifest.get("robot_type") or "perception_only"
+    task_meta = manifest.get("task", {})
+    task_name = task_meta.get("task_name") or task_meta.get("task_id") or task
+    status = manifest.get("status", {})
+    failure_labels = status.get("failure_labels", []) or []
+    sources = manifest.get("sources", {})
+
+    seekdb_client = _seekdb_client_from_args(args)
+    seekdb_client.connect()
+    know = KnowledgeInterface(robot_id=robot_id, seekdb_client=seekdb_client)
+    know._do_initialize()
+
+    async def _build_card() -> TaskCard:
+        how = HeuristicEngine(seekdb_client=know.seekdb)
+        await how.initialize()
+        await how.seed_defaults()
+
+        common_failures: list[dict[str, Any]] = []
+        for label in failure_labels or ["unknown_failure"]:
+            rule = await how.suggest_recovery(label, context={"episode_id": episode_id, "body_id": robot_id})
+            retry = await how.get_retry_plan(label, context={"episode_id": episode_id, "body_id": robot_id})
+            common_failures.append({
+                "failure_type": label,
+                "root_cause": rule.get("condition", label) if rule else label,
+                "recovery_hint": rule.get("action", "Review episode evidence") if rule else "Review episode evidence",
+                "retry_plan": retry,
+            })
+
+        # If no failures were declared but the episode has risk evidence, derive one.
+        provider_dir = layout.provider_dir(episode_id)
+        if not common_failures and provider_dir.exists():
+            for trace_file in sorted(provider_dir.glob("*.jsonl")):
+                try:
+                    with open(trace_file, encoding="utf-8") as f:
+                        for line in f:
+                            record = json.loads(line)
+                            result = record.get("result", {})
+                            for risk in result.get("risks", []):
+                                common_failures.append({
+                                    "failure_type": risk.get("category", "provider_risk"),
+                                    "root_cause": risk.get("description", "VLM reported risk"),
+                                    "recovery_hint": "Re-assess scene with clearer view or guard intervention",
+                                    "risk_score": record.get("normalized_risk"),
+                                })
+                            break  # one sample is enough for the card
+                except Exception:
+                    pass
+
+        return TaskCard(
+            task_id=task,
+            task_family=args.task_family or "perception",
+            domain="perception",
+            embodiment_type=robot_type,
+            objective_direction="minimize",
+            metric_name="risk_score",
+            prerequisites=[
+                "realsense_d405",
+                "realsense_d435i",
+                "vlm_provider",
+                "sandbox_guard",
+            ],
+            common_failures=common_failures,
+            verified_patterns=[f"source:{k}" for k in sources.keys()] or ["agent", "runtime"],
+            source_manifest={
+                "episode_id": episode_id,
+                "robot_id": robot_id,
+                "task_name": task_name,
+                "outcome": status.get("outcome", "unknown"),
+                "failure_labels": failure_labels,
+                "sources": sources,
+            },
+        )
+
+    try:
+        card = asyncio.run(_build_card())
+    except Exception as exc:
+        print(f"[ROSClaw] KNOW compile failed: {exc}")
+        return 1
+
+    card_dict = card.to_dict()
+
+    # Persist to workspace task_cards directory or explicit output directory.
+    if args.output:
+        cards_dir = Path(args.output)
+    else:
+        cards_dir = Path(resolve_home(None)) / "know" / "task_cards"
+    cards_dir.mkdir(parents=True, exist_ok=True)
+    card_path = cards_dir / f"{task}.json"
+    card_path.write_text(json.dumps(card_dict, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    # Also store in SeekDB tasks table for runtime lookup.
+    if know.seekdb is not None:
+        try:
+            know.seekdb.insert("tasks", {
+                "id": f"task_card_{task}",
+                "name": task,
+                "description": f"Compiled TaskCard for {task}",
+                "robot_id": robot_id,
+                "status": "compiled",
+                "created_at": time.time(),
+                "metadata": card_dict,
+            })
+        except Exception as exc:
+            print(f"[ROSClaw] Warning: failed to store TaskCard in SeekDB: {exc}")
+
+    if args.json:
+        print(json.dumps(card_dict, indent=2, default=str))
+    else:
+        print("=" * 60)
+        print("ROSClaw KNOW — TaskCard Compiled")
+        print("=" * 60)
+        print(f"Task:        {card.task_id}")
+        print(f"Family:      {card.task_family}")
+        print(f"Domain:      {card.domain}")
+        print(f"Embodiment:  {card.embodiment_type}")
+        print(f"Metric:      {card.metric_name}")
+        print(f"Failures:    {len(card.common_failures)}")
+        for f in card.common_failures:
+            print(f"  • {f['failure_type']}: {f['recovery_hint']}")
+        print(f"Saved:       {card_path}")
+        print("=" * 60)
+    return 0
+
+
+def cmd_bench_realsense(args: argparse.Namespace) -> int:
+    """Run the RealSense perception benchmark."""
+    from rosclaw.bench.realsense import run_realsense_bench
+
+    duration = getattr(args, "duration", 600.0)
+    data_root = getattr(args, "data_root", "/data/rosclaw/practice")
+    output_dir = getattr(args, "output", None)
+    robot_id = getattr(args, "robot", "dual_lab_01")
+
+    report = run_realsense_bench(
+        duration_sec=duration,
+        data_root=data_root,
+        output_dir=output_dir,
+        robot_id=robot_id,
+    )
+
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2, default=str))
+    else:
+        print("=" * 60)
+        print("ROSClaw Bench — RealSense Perception")
+        print("=" * 60)
+        print(f"Status:      {report.status.upper()}")
+        print(f"Duration:    {report.duration_sec:.1f}s")
+        print(f"D405:        {report.d405}")
+        print(f"D435i:       {report.d435i}")
+        if report.errors:
+            print("Errors:")
+            for err in report.errors:
+                print(f"  • {err}")
+        print("=" * 60)
+    return 0 if report.status in ("pass", "skip") else 1
 
 
 # ------------------------------------------------------------------
@@ -2783,77 +3359,196 @@ def cmd_sandbox_replay(args: argparse.Namespace) -> int:
     return 0
 
 
+_SANDBOX_TRACE_MAX_BYTES = 50 * 1024 * 1024
+_SANDBOX_TRACE_BACKUPS = 5
+
+
+def _write_sandbox_trace(record: dict[str, Any]) -> None:
+    """Append a sandbox decision trace to ~/.rosclaw/logs/sandbox/traces.jsonl.
+
+    The trace file is rotated when it exceeds ``_SANDBOX_TRACE_MAX_BYTES`` to
+    prevent unbounded disk growth on long-running nodes.
+    """
+    trace_dir = Path.home() / ".rosclaw" / "logs" / "sandbox"
+    trace_dir.mkdir(parents=True, exist_ok=True)
+    trace_file = trace_dir / "traces.jsonl"
+    with open(trace_file, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    # Simple size-based rotation.
+    try:
+        if trace_file.stat().st_size > _SANDBOX_TRACE_MAX_BYTES:
+            for i in range(_SANDBOX_TRACE_BACKUPS - 1, 0, -1):
+                src = trace_dir / f"traces.jsonl.{i}"
+                dst = trace_dir / f"traces.jsonl.{i + 1}"
+                if src.exists():
+                    src.replace(dst)
+            trace_file.replace(trace_dir / "traces.jsonl.1")
+    except OSError:
+        pass
+
+
 def cmd_sandbox_check(args: argparse.Namespace) -> int:
-    """Check action safety via sandbox firewall."""
+    """Check action safety via sandbox firewall.
+
+    Perception-only bodies (``no_actuation: true`` or ``perception_only`` tag)
+    always block actuator/control actions.  Prompt-injection fields such as
+    ``prompt`` / ``instruction`` / ``user_prompt`` are intentionally ignored;
+    the decision is based solely on the declared action type and the body's
+    declared capabilities.
+    """
     from rosclaw.runtime import RobotRegistry
 
-    print(f"[ROSClaw] Sandbox check: robot={args.robot}, action={args.action}")
+    if not getattr(args, "json", False):
+        print(f"[ROSClaw] Sandbox check: robot={args.robot}, action={args.action}")
     registry = RobotRegistry()
     profile = registry.get(args.robot)
     if profile is None:
-        print(f"[ROSClaw] ❌ Robot '{args.robot}' not found")
+        msg = f"[ROSClaw] ❌ Robot '{args.robot}' not found"
+        if getattr(args, "json", False):
+            print(json.dumps({"error": msg}, ensure_ascii=False))
+        else:
+            print(msg)
         return 1
 
-    # Parse action
+    # Parse action.  Only ``type`` and concrete physical fields (target,
+    # values, force, torque) are used; textual prompts are deliberately not
+    # parsed for capability decisions.
+    raw_action = args.action.strip()
     try:
-        action = json.loads(args.action) if args.action.startswith("{") else {"type": args.action}
+        action = json.loads(raw_action) if raw_action.startswith("{") else {"type": raw_action}
     except json.JSONDecodeError:
-        print(f"[ROSClaw] ❌ Invalid action JSON: {args.action}")
+        if not getattr(args, "json", False):
+            print(f"[ROSClaw] ❌ Invalid action JSON: {args.action}")
         return 1
 
     target = action.get("target", [0, 0, 0])
     if not isinstance(target, list) or len(target) < 3:
         target = [0, 0, 0]
 
-    # Get workspace boundaries from robot safety
-    safety = profile.safety if hasattr(profile, 'safety') else {}
-    if hasattr(safety, 'workspace_boundaries'):
-        wb = safety.workspace_boundaries
-    elif isinstance(safety, dict):
-        wb = safety.get("workspace_boundaries", {})
-    else:
-        wb = {}
+    action_type = action.get("type", "")
+    actuator_types = {
+        "actuator", "control", "move_base", "move", "grasp", "reach", "joint_position",
+        "set_joint", "trajectory", "gripper", "velocity", "effort",
+        "torque", "wrench",
+    }
+    is_perception_only = (
+        profile.embodiment.metadata.get("no_actuation") is True
+        or "perception_only" in profile.semantic.semantic_tags
+        or (profile.safety.safety_level == "STRICT" and not profile.embodiment.actuators)
+    )
 
-    # Handle both x/y/z dict and bounding_box formats
-    if wb.get("type") == "bounding_box":
-        center = wb.get("center", [0, 0, 0])
-        dims = wb.get("dimensions", [0, 0, 0])
-        x_range = [center[0] - dims[0] / 2, center[0] + dims[0] / 2]
-        y_range = [center[1] - dims[1] / 2, center[1] + dims[1] / 2]
-        z_range = [center[2] - dims[2] / 2, center[2] + dims[2] / 2]
-    else:
-        x_range = wb.get("x", [-10, 10])
-        y_range = wb.get("y", [-10, 10])
-        z_range = wb.get("z", [-10, 10])
+    decision = "ALLOW"
+    risk = 0.0
+    reason = "within workspace boundaries"
+    violations: list[str] = []
+    gate_replay_id: str | None = None
 
-    # Check boundaries
-    violated = []
-    if target[0] < x_range[0] or target[0] > x_range[1]:
-        violated.append(f"workspace_boundary_x ({target[0]:.2f} not in [{x_range[0]:.2f}, {x_range[1]:.2f}])")
-    if target[1] < y_range[0] or target[1] > y_range[1]:
-        violated.append(f"workspace_boundary_y ({target[1]:.2f} not in [{y_range[0]:.2f}, {y_range[1]:.2f}])")
-    if target[2] < z_range[0] or target[2] > z_range[1]:
-        violated.append(f"workspace_boundary_z ({target[2]:.2f} not in [{z_range[0]:.2f}, {z_range[1]:.2f}])")
-
-    if violated:
-        risk = 0.85
+    # Perception-only bodies must never accept actuator actions.
+    if is_perception_only and action_type in actuator_types:
         decision = "BLOCK"
-        reason = ", ".join(violated)
-    else:
-        risk = 0.0
-        decision = "ALLOW"
-        reason = "within workspace boundaries"
+        risk = 1.0
+        reason = f"actuator action '{action_type}' blocked on perception-only body '{args.robot}'"
+        violations.append("perception_only_actuator_blocked")
+    elif getattr(args, "full", False):
+        from rosclaw.sandbox.firewall.gate import FirewallGate
 
-    print("=" * 60)
-    print("Sandbox Safety Check")
-    print("=" * 60)
-    print(f"Robot:      {args.robot}")
-    print(f"Action:     {action}")
-    print(f"Decision:   {decision}")
-    print(f"Risk Score: {risk:.2f}")
-    print(f"Reason:     {reason}")
-    print("=" * 60)
-    return 1 if decision == "BLOCK" else 0
+        gate = FirewallGate(
+            robot_id=args.robot,
+            world_id=getattr(args, "world", "empty"),
+        )
+        gate_decision = gate.check(action)
+        gate_replay_id = gate_decision.replay_id
+        decision = gate_decision.action
+        risk = gate_decision.risk_score
+        reason = gate_decision.reason
+        violations = list(gate_decision.violated_constraints)
+    else:
+        # Perception-only bodies allow all non-actuator (sensor/read-only) actions.
+        if is_perception_only and action_type not in actuator_types:
+            decision = "ALLOW"
+            risk = 0.0
+            reason = "perception-only sensor/read action allowed"
+            violations = []
+        else:
+            # Static boundary check
+            safety = profile.safety if hasattr(profile, 'safety') else {}
+            if hasattr(safety, 'workspace_boundaries'):
+                wb = safety.workspace_boundaries
+            elif isinstance(safety, dict):
+                wb = safety.get("workspace_boundaries", {})
+            else:
+                wb = {}
+
+            # Handle both x/y/z dict and bounding_box formats
+            if wb.get("type") == "bounding_box":
+                center = wb.get("center", [0, 0, 0])
+                dims = wb.get("dimensions", [0, 0, 0])
+                x_range = [center[0] - dims[0] / 2, center[0] + dims[0] / 2]
+                y_range = [center[1] - dims[1] / 2, center[1] + dims[1] / 2]
+                z_range = [center[2] - dims[2] / 2, center[2] + dims[2] / 2]
+            else:
+                x_range = wb.get("x", [-10, 10])
+                y_range = wb.get("y", [-10, 10])
+                z_range = wb.get("z", [-10, 10])
+
+            # Check boundaries
+            if target[0] < x_range[0] or target[0] > x_range[1]:
+                violations.append(f"workspace_boundary_x ({target[0]:.2f} not in [{x_range[0]:.2f}, {x_range[1]:.2f}])")
+            if target[1] < y_range[0] or target[1] > y_range[1]:
+                violations.append(f"workspace_boundary_y ({target[1]:.2f} not in [{y_range[0]:.2f}, {y_range[1]:.2f}])")
+            if target[2] < z_range[0] or target[2] > z_range[1]:
+                violations.append(f"workspace_boundary_z ({target[2]:.2f} not in [{z_range[0]:.2f}, {z_range[1]:.2f}])")
+
+            if violations:
+                risk = 0.85
+                decision = "BLOCK"
+                reason = ", ".join(violations)
+
+    trace_record = {
+        "timestamp_utc": time.time(),
+        "trace_id": args.trace_id or f"sb_{args.robot}_{int(time.time()*1000)}",
+        "robot_id": args.robot,
+        "action": action,
+        "action_type": action_type,
+        "perception_only": is_perception_only,
+        "full_mode": getattr(args, "full", False),
+        "decision": decision,
+        "risk_score": risk,
+        "reason": reason,
+        "violations": violations,
+        "replay_id": gate_replay_id,
+    }
+    _write_sandbox_trace(trace_record)
+
+    result = {
+        "robot": args.robot,
+        "action": action,
+        "action_type": action_type,
+        "decision": decision,
+        "risk_score": risk,
+        "reason": reason,
+        "violations": violations,
+        "perception_only": is_perception_only,
+        "full_mode": getattr(args, "full", False),
+        "replay_id": gate_replay_id,
+    }
+
+    if getattr(args, "json", False):
+        print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+    else:
+        print("=" * 60)
+        print("Sandbox Safety Check")
+        print("=" * 60)
+        print(f"Robot:      {args.robot}")
+        print(f"Action:     {action}")
+        print(f"Decision:   {decision}")
+        print(f"Risk Score: {risk:.2f}")
+        print(f"Reason:     {reason}")
+        if violations and not (is_perception_only and action_type in actuator_types):
+            print(f"Violations: {', '.join(violations)}")
+        print("=" * 60)
+    return 1 if decision != "ALLOW" else 0
 
 
 def cmd_runtime_backends(_args: argparse.Namespace) -> int:
@@ -3152,6 +3847,24 @@ def main() -> int:
     restart_parser.add_argument("--practice", action="store_true", default=True, help="Enable Practice recorder")
     restart_parser.add_argument("--swarm", action="store_true", default=False, help="Enable Swarm coordination")
 
+    # run skill alias (rosclaw run skill <skill_id>)
+    # Only add if not already present (the loop above adds 'run' for runtime)
+    existing = getattr(subparsers, '_name_parser_map', {})
+    if 'run' not in existing:
+        run_parser = subparsers.add_parser('run', help='Run a skill or the runtime')
+    else:
+        run_parser = existing['run']
+    run_subparsers = run_parser.add_subparsers(dest='run_command')
+    run_skill_parser = run_subparsers.add_parser('skill', help='Run a skill by ID')
+    run_skill_parser.add_argument('skill_id', help='Skill identifier (e.g., realsense_capture_rgbd)')
+    run_skill_parser.add_argument('--body', default=None, help='Body instance ID')
+    run_skill_parser.add_argument('--output', default=None, help='Output directory or file')
+    run_skill_parser.add_argument('--duration-sec', type=float, default=None, help='Duration in seconds')
+    run_skill_parser.add_argument('--provider', default=None, help='Provider ID for VLM etc.')
+    run_skill_parser.add_argument('--image', default=None, help='Input image path')
+    run_skill_parser.add_argument('--json', action='store_true', help='Output structured JSON')
+    run_skill_parser.set_defaults(func=cmd_run_skill)
+
     # dashboard
     dashboard_parser = subparsers.add_parser("dashboard", help="Open/show dashboard")
     dashboard_parser.add_argument("--open", action="store_true", help="Open dashboard in browser")
@@ -3269,10 +3982,39 @@ def main() -> int:
     how_recover_parser.add_argument("episode_id", help="Episode identifier")
     how_recover_parser.add_argument("--output", default=None, help="Output file for recovery plan")
 
+    how_advise_parser = how_subparsers.add_parser("advise", help="Advise based on real episode evidence")
+    how_advise_parser.add_argument("--body", required=True, help="Body/robot identifier")
+    how_advise_parser.add_argument("--failure", required=True, help="Failure type or symptom")
+    how_advise_parser.add_argument("--episode", required=True, help="Episode identifier used as evidence")
+    how_advise_parser.add_argument("--seekdb-path", default=None, help="Path to persistent SeekDB SQLite database")
+    how_advise_parser.add_argument("--json", action="store_true", help="Output structured JSON")
+
     # provider subcommand
     provider_parser = subparsers.add_parser("provider", help="Provider commands")
     provider_subparsers = provider_parser.add_subparsers(dest="provider_command")
     provider_subparsers.add_parser("list", help="List registered providers")
+
+    provider_install_parser = provider_subparsers.add_parser("install", help="Install/register a provider from a manifest")
+    provider_install_parser.add_argument("manifest", help="Path to provider.yaml")
+    provider_install_parser.add_argument("--replace", action="store_true", help="Replace an existing provider of the same name")
+    provider_install_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    provider_install_parser.set_defaults(func=cmd_provider_install)
+
+    provider_health_parser = provider_subparsers.add_parser("health", help="Check provider health")
+    provider_health_parser.add_argument("provider_id", help="Provider name")
+    provider_health_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    provider_health_parser.set_defaults(func=cmd_provider_health)
+
+    provider_call_parser = provider_subparsers.add_parser("call", help="Call a provider capability with an image")
+    provider_call_parser.add_argument("provider_id", help="Provider name (e.g., cosmos-reason2-lan)")
+    provider_call_parser.add_argument("--capability", default="vlm.risk_assessment", help="Capability to invoke")
+    provider_call_parser.add_argument("--image", required=True, help="Path to input image")
+    provider_call_parser.add_argument("--prompt", default=None, help="User prompt override")
+    provider_call_parser.add_argument("--robot", default=None, help="Robot/body instance ID")
+    provider_call_parser.add_argument("--task", default=None, help="Task ID for trace context")
+    provider_call_parser.add_argument("--timeout-ms", type=int, default=None, help="Latency budget in ms")
+    provider_call_parser.add_argument("--json", action="store_true", help="Output structured JSON")
+    provider_call_parser.set_defaults(func=cmd_provider_call)
 
     provider_invoke_parser = provider_subparsers.add_parser("invoke", help="Invoke a provider capability")
     provider_invoke_parser.add_argument("provider_id", help="Provider identifier (e.g., llm, skill)")
@@ -3324,6 +4066,17 @@ def main() -> int:
     skill_invoke_parser.add_argument("input", help="Input data (JSON string)")
     skill_invoke_parser.add_argument("--trace-id", default=None, help="Trace ID for the invocation")
 
+    # skill run subcommand
+    skill_run_parser = skill_subparsers.add_parser("run", help="Run a skill by ID")
+    skill_run_parser.add_argument("skill_id", help="Skill identifier (e.g., realsense_capture_rgbd)")
+    skill_run_parser.add_argument("--body", default=None, help="Body instance ID")
+    skill_run_parser.add_argument("--output", default=None, help="Output directory or file")
+    skill_run_parser.add_argument("--duration-sec", type=float, default=None, help="Duration in seconds")
+    skill_run_parser.add_argument("--provider", default=None, help="Provider ID for VLM etc.")
+    skill_run_parser.add_argument("--image", default=None, help="Input image path")
+    skill_run_parser.add_argument("--json", action="store_true", help="Output structured JSON")
+    skill_run_parser.set_defaults(func=cmd_run_skill)
+
     # skill champions subcommand
     skill_champions_parser = skill_subparsers.add_parser("champions", help="Skill champion management")
     skill_champions_sub = skill_champions_parser.add_subparsers(dest="skill_champions_command")
@@ -3359,6 +4112,9 @@ def main() -> int:
     sandbox_check_parser.add_argument("--robot", required=True, help="Robot identifier")
     sandbox_check_parser.add_argument("--action", required=True, help="Action JSON or name")
     sandbox_check_parser.add_argument("--trace-id", default=None, help="Trace ID")
+    sandbox_check_parser.add_argument("--full", action="store_true", help="Run full FirewallGate dynamic check")
+    sandbox_check_parser.add_argument("--world", default="empty", help="Sandbox world for full check")
+    sandbox_check_parser.add_argument("--json", action="store_true", help="Output decision as JSON")
 
     # runtime subcommand
     runtime_parser = subparsers.add_parser("runtime", help="Runtime backend commands")
@@ -3394,8 +4150,16 @@ def main() -> int:
     memory_query_parser = memory_subparsers.add_parser("query", help="Query memory")
     memory_query_parser.add_argument("query", help="Query text")
     memory_query_parser.add_argument("--limit", type=int, default=5, help="Max results")
+    memory_query_parser.add_argument("--seekdb-path", type=Path, default=None, help="Path to persistent SeekDB SQLite database")
     memory_explain_parser = memory_subparsers.add_parser("explain", help="Explain last failure")
     memory_explain_parser.add_argument("--task-id", default=None, help="Filter by task ID")
+
+    memory_ingest_parser = memory_subparsers.add_parser("ingest", help="Ingest a practice episode into memory")
+    memory_ingest_parser.add_argument("--episode", required=True, help="Episode/practice identifier")
+    memory_ingest_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
+    memory_ingest_parser.add_argument("--robot", default=None, help="Override robot/body ID")
+    memory_ingest_parser.add_argument("--seekdb-path", default=None, help="Path to persistent SeekDB SQLite database")
+    memory_ingest_parser.add_argument("--json", action="store_true", help="Output structured JSON")
 
     # practice subcommand
     practice_parser = subparsers.add_parser("practice", help="Practice episode commands")
@@ -3413,8 +4177,12 @@ def main() -> int:
     practice_start_parser.add_argument("--task", default=None, help="Task name / task_id")
     practice_start_parser.add_argument("--skill", default=None, help="Skill identifier")
     practice_start_parser.add_argument(
-        "--sources", default="agent,runtime", help="Comma-separated source list (e.g. agent,runtime,dds)"
+        "--sources", default="agent,runtime", help="Comma-separated source list (e.g. agent,runtime,dds,ros2,camera,imu,provider,sandbox)"
     )
+    practice_start_parser.add_argument("--ros2-topic", action="append", default=None, help="ROS2 topic to subscribe to (can be repeated)")
+    practice_start_parser.add_argument("--sample-camera-hz", type=float, default=5.0, help="Camera sampling rate")
+    practice_start_parser.add_argument("--sample-imu-hz", type=float, default=50.0, help="IMU sampling rate")
+    practice_start_parser.add_argument("--output-root", default=None, help="Override session output root")
     practice_start_parser.add_argument("--mock", action="store_true", help="Use mock adapters")
     practice_start_parser.add_argument("--duration", default=None, help="Duration like 5s, 2m, 1h")
     practice_start_parser.add_argument("--seekdb", action="store_true", help="Enable SeekDB commit")
@@ -3457,6 +4225,28 @@ def main() -> int:
 
     know_recommend_parser = know_subparsers.add_parser("recommend", help="Recommend robots for task")
     know_recommend_parser.add_argument("task", help="Task description")
+
+    know_compile_parser = know_subparsers.add_parser("compile", help="Compile a TaskCard from a practice episode")
+    know_compile_parser.add_argument("--from-episode", required=True, help="Source episode identifier")
+    know_compile_parser.add_argument("--task", required=True, help="Task identifier for the card")
+    know_compile_parser.add_argument("--body", default=None, help="Body/robot identifier")
+    know_compile_parser.add_argument("--task-family", default="perception", help="Task family")
+    know_compile_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
+    know_compile_parser.add_argument("--output", default=None, help="Output directory for the card")
+    know_compile_parser.add_argument("--seekdb-path", default=None, help="Path to persistent SeekDB SQLite database")
+    know_compile_parser.add_argument("--json", action="store_true", help="Output structured JSON")
+
+    # bench subcommand
+    bench_parser = subparsers.add_parser("bench", help="Benchmark commands")
+    bench_subparsers = bench_parser.add_subparsers(dest="bench_command")
+
+    bench_realsense_parser = bench_subparsers.add_parser("realsense", help="Run RealSense perception benchmark")
+    bench_realsense_parser.add_argument("--duration", type=float, default=600.0, help="Benchmark duration in seconds")
+    bench_realsense_parser.add_argument("--robot", default="dual_lab_01", help="Robot/body identifier")
+    bench_realsense_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
+    bench_realsense_parser.add_argument("--output", default=None, help="Report output directory")
+    bench_realsense_parser.add_argument("--json", action="store_true", help="Output structured JSON")
+    bench_realsense_parser.set_defaults(func=cmd_bench_realsense)
 
     # sense subcommand
     sense_parser = subparsers.add_parser("sense", help="Body sense and readiness commands")
@@ -3560,7 +4350,14 @@ def main() -> int:
     # feedback and telemetry
     add_feedback_subparser(subparsers)
 
-    args = parser.parse_args()
+    # Allow free-form --key value arguments for `rosclaw mcp call` while
+    # keeping strict parsing for all other commands.
+    if len(sys.argv) >= 3 and sys.argv[1] == "mcp" and sys.argv[2] == "call":
+        args, unknown = parser.parse_known_args()
+        args.extra = unknown
+    else:
+        args = parser.parse_args()
+        args.extra = []
     with telemetry_command_hook(args):
 
         if args.command == "init":
@@ -3608,8 +4405,16 @@ def main() -> int:
                 robot_parser.print_help()
                 return 1
         elif args.command == "provider":
+            if getattr(args, "func", None):
+                return args.func(args)
             if args.provider_command == "list":
                 return cmd_provider_list(args)
+            elif args.provider_command == "install":
+                return cmd_provider_install(args)
+            elif args.provider_command == "health":
+                return cmd_provider_health(args)
+            elif args.provider_command == "call":
+                return cmd_provider_call(args)
             elif args.provider_command == "invoke":
                 return cmd_provider_invoke(args)
             else:
@@ -3624,6 +4429,8 @@ def main() -> int:
                 return cmd_skill_check(args)
             elif args.skill_command == "invoke":
                 return cmd_skill_invoke(args)
+            elif args.skill_command == "run":
+                return cmd_run_skill(args)
             elif args.skill_command == "champions":
                 if args.skill_champions_command == "list":
                     return cmd_skill_champions_list(args)
@@ -3637,11 +4444,21 @@ def main() -> int:
             else:
                 skill_parser.print_help()
                 return 1
+        elif args.command == "run":
+            if getattr(args, "func", None):
+                return args.func(args)
+            if getattr(args, "run_command", None) == "skill":
+                return cmd_run_skill(args)
+            else:
+                run_parser.print_help()
+                return 1
         elif args.command == "how":
             if args.how_command == "explain":
                 return cmd_how_explain(args)
             elif args.how_command == "recover":
                 return cmd_how_recover(args)
+            elif args.how_command == "advise":
+                return cmd_how_advise(args)
             else:
                 how_parser.print_help()
                 return 1
@@ -3698,6 +4515,8 @@ def main() -> int:
                 return cmd_memory_query(args)
             elif args.memory_command == "explain":
                 return cmd_memory_explain(args)
+            elif args.memory_command == "ingest":
+                return cmd_memory_ingest(args)
             else:
                 memory_parser.print_help()
                 return 1
@@ -3748,8 +4567,18 @@ def main() -> int:
                 return cmd_know_robot(args)
             elif args.know_command == "recommend":
                 return cmd_know_recommend(args)
+            elif args.know_command == "compile":
+                return cmd_know_compile(args)
             else:
                 know_parser.print_help()
+                return 1
+        elif args.command == "bench":
+            if getattr(args, "func", None):
+                return args.func(args)
+            if args.bench_command == "realsense":
+                return cmd_bench_realsense(args)
+            else:
+                bench_parser.print_help()
                 return 1
         elif args.command == "sense":
             if args.sense_command == "now":
@@ -3800,6 +4629,42 @@ def main() -> int:
         else:
             parser.print_help()
             return 1
+
+
+def cmd_run_skill(args: argparse.Namespace) -> int:
+    """Run a skill by ID using SkillRunner."""
+    from rosclaw.skill.skill_runner import SkillRunner
+
+    runner = SkillRunner()
+    skill_id = args.skill_id
+    kwargs: dict[str, Any] = {}
+    if getattr(args, "body", None):
+        kwargs["body"] = args.body
+    if getattr(args, "output", None):
+        kwargs["output_dir"] = args.output
+    if getattr(args, "duration_sec", None) is not None:
+        kwargs["duration_sec"] = args.duration_sec
+    if getattr(args, "provider", None):
+        kwargs["provider"] = args.provider
+    if getattr(args, "image", None):
+        kwargs["image_path"] = args.image
+
+    result = runner.run(skill_id, **kwargs)
+    if args.json:
+        print(json.dumps({
+            "skill_id": result.skill_id,
+            "success": result.success,
+            "duration_ms": result.duration_ms,
+            "recorded": result.recorded,
+            "payload": result.payload,
+        }, indent=2, default=str))
+    else:
+        print(f"[ROSClaw] Skill run: {result.skill_id}")
+        print(f"  success: {result.success}")
+        print(f"  duration_ms: {result.duration_ms:.1f}")
+        print(f"  recorded: {result.recorded}")
+        print(json.dumps(result.payload, indent=2, default=str))
+    return 0 if result.success else 1
 
 
 if __name__ == "__main__":

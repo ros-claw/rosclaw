@@ -1,0 +1,40 @@
+schema_version: "rosclaw.safety.v1"
+
+runtime_mode:
+  default: "sandbox_first"
+  allowed:
+    - dry_run
+    - replay
+    - sandbox
+
+hard_constraints:
+  perception_only: true
+  robot:
+    min_battery_percent: 0
+    require_estop_ready: false
+  action:
+    max_linear_velocity_mps: 0.0
+  environment:
+    disallow_unknown_obstacles: false
+
+robot:
+  min_battery_percent: 0
+  require_estop_ready: false
+
+action:
+  max_linear_velocity_mps: 0.0
+
+environment:
+  disallow_unknown_obstacles: false
+
+sandbox:
+  required_checks:
+    - perception_only_check
+  block_on:
+    - actuator_action_requested
+
+failure_policy:
+  on_sandbox_block: "abort_and_explain"
+  on_low_confidence: "verify_or_abort"
+  on_repeated_failure: "write_memory_and_stop"
+  max_runtime_retries: 2

@@ -1,0 +1,25 @@
+schema_version: "rosclaw.providers.v1"
+
+required_capabilities:
+  vlm.object_grounding:
+    primary: "cosmos-reason2-lan"
+    fallback: []
+    timeout_ms: 5000
+  vlm.scene_understanding:
+    primary: "cosmos-reason2-lan"
+    fallback: []
+    timeout_ms: 5000
+
+providers:
+  cosmos-reason2-lan:
+    type: "vlm"
+    endpoint: "http://192.168.1.105:8009/v1/chat/completions"
+    health_check: "rosclaw provider health cosmos-reason2-lan"
+
+routing_policy:
+  default: "capability_first"
+  prefer_local: true
+  require_health_check: false
+  fallback_on:
+    - timeout
+    - unavailable

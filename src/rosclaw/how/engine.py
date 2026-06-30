@@ -264,6 +264,7 @@ class HeuristicEngine:
             ("unstable grasp", "Add support point and change grasp pose", 2),
             ("path blocked", "Request obstacle clearance or replan path", 1),
             ("sensor failure", "Switch to backup sensor and verify calibration", 2),
+            ("depth_invalid", "Check RealSense USB mode, clean lens, verify depth profile and emitter power", 2),
             ("communication lost", "Retry connection and fallback to local control", 3),
         ]
         inserted = 0

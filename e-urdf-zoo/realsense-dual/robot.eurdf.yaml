@@ -1,0 +1,162 @@
+robot_id: realsense_dual
+name: RealSense Dual-Camera Perception Body
+vendor: ROSClaw
+version: "1.0"
+description: >
+  Dual RealSense perception body: D405 for close-range inspection and
+  D435i for mid-range / world observation + IMU. No actuators.
+
+dof: 0
+
+links:
+  - name: dual_base
+    type: base
+    mass: 0.15
+
+joints: []
+
+sensors:
+  - name: d405_color_camera
+    type: camera
+    parent_link: dual_base
+    frame: d405_color_optical_frame
+    resolution: [1280, 720]
+    fov_horizontal_deg: 74.0
+    fov_vertical_deg: 46.0
+    topic: /camera/d405/color/image_raw
+    role: close_range_eye
+  - name: d405_depth_camera
+    type: depth_camera
+    parent_link: dual_base
+    frame: d405_depth_optical_frame
+    resolution: [1280, 720]
+    min_range_m: 0.07
+    max_range_m: 0.50
+    topic: /camera/d405/depth/image_rect_raw
+    role: close_range_eye
+  - name: d405_aligned_depth
+    type: depth_camera
+    parent_link: dual_base
+    frame: d405_color_optical_frame
+    resolution: [1280, 720]
+    min_range_m: 0.07
+    max_range_m: 0.50
+    topic: /camera/d405/aligned_depth_to_color/image_raw
+    role: close_range_eye
+  - name: d405_pointcloud
+    type: pointcloud
+    parent_link: dual_base
+    frame: d405_depth_optical_frame
+    topic: /camera/d405/depth/color/points
+    role: close_range_eye
+  - name: d435i_color_camera
+    type: camera
+    parent_link: dual_base
+    frame: d435i_color_optical_frame
+    resolution: [1280, 720]
+    fov_horizontal_deg: 69.0
+    fov_vertical_deg: 42.0
+    topic: /camera/d435i/color/image_raw
+    role: world_eye_imu
+  - name: d435i_depth_camera
+    type: depth_camera
+    parent_link: dual_base
+    frame: d435i_depth_optical_frame
+    resolution: [1280, 720]
+    min_range_m: 0.30
+    max_range_m: 3.00
+    topic: /camera/d435i/depth/image_rect_raw
+    role: world_eye_imu
+  - name: d435i_aligned_depth
+    type: depth_camera
+    parent_link: dual_base
+    frame: d435i_color_optical_frame
+    resolution: [1280, 720]
+    min_range_m: 0.30
+    max_range_m: 3.00
+    topic: /camera/d435i/aligned_depth_to_color/image_raw
+    role: world_eye_imu
+  - name: d435i_pointcloud
+    type: pointcloud
+    parent_link: dual_base
+    frame: d435i_depth_optical_frame
+    topic: /camera/d435i/depth/color/points
+    role: world_eye_imu
+  - name: d435i_imu
+    type: imu
+    parent_link: dual_base
+    frame: d435i_imu_frame
+    topic: /camera/d435i/imu
+    angular_velocity: true
+    linear_acceleration: true
+    orientation: false
+    role: world_eye_imu
+
+actuators: []
+
+safety_limits:
+  depth_range_m:
+    min: 0.07
+    max: 3.00
+  temperature_c:
+    min: 0.0
+    max: 50.0
+
+capabilities:
+  - id: rgb_stream
+    name: rgb_stream
+    category: perception
+    skill_type: sensor
+    inputs: []
+    constraints: {}
+  - id: depth_stream
+    name: depth_stream
+    category: perception
+    skill_type: sensor
+    inputs: []
+    constraints:
+      sensors:
+        d405: {min_range_m: 0.07, max_range_m: 0.50}
+        d435i: {min_range_m: 0.30, max_range_m: 3.00}
+  - id: aligned_rgbd
+    name: aligned_rgbd
+    category: perception
+    skill_type: sensor
+    inputs: []
+    constraints:
+      sensors:
+        d405: {min_range_m: 0.07, max_range_m: 0.50}
+        d435i: {min_range_m: 0.30, max_range_m: 3.00}
+  - id: pointcloud
+    name: pointcloud
+    category: perception
+    skill_type: sensor
+    inputs: []
+    constraints:
+      sensors:
+        d405: {min_range_m: 0.07, max_range_m: 0.50}
+        d435i: {min_range_m: 0.30, max_range_m: 3.00}
+  - id: imu
+    name: imu
+    category: perception
+    skill_type: sensor
+    inputs: []
+    constraints: {}
+
+simulation_backends:
+  mujoco:
+    enabled: false
+
+semantic_tags:
+  - perception_only
+  - dual_camera
+  - close_range
+  - mid_range
+  - rgbd_imu
+  - no_actuation
+
+metadata:
+  no_actuation: true
+  composition:
+    close_range_eye: realsense_d405
+    world_eye_imu: realsense_d435i

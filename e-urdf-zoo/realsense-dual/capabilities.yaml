@@ -1,0 +1,66 @@
+capability_version: "1.0"
+robot_id: realsense_dual
+
+capabilities:
+  - id: rgb_stream
+    name: rgb_stream
+    category: perception
+    skill_type: sensor
+    description: Stream color images from both RealSense cameras.
+    inputs: []
+    required_hardware: [d405_color_camera, d435i_color_camera]
+    constraints: {}
+
+  - id: depth_stream
+    name: depth_stream
+    category: perception
+    skill_type: sensor
+    description: Stream depth images from both RealSense cameras.
+    inputs: []
+    required_hardware: [d405_depth_camera, d435i_depth_camera]
+    constraints:
+      sensors:
+        d405: {min_range_m: 0.07, max_range_m: 0.50}
+        d435i: {min_range_m: 0.30, max_range_m: 3.00}
+
+  - id: aligned_rgbd
+    name: aligned_rgbd
+    category: perception
+    skill_type: sensor
+    description: Stream aligned RGB-D from both cameras.
+    inputs: []
+    required_hardware: [d405_color_camera, d405_depth_camera, d435i_color_camera, d435i_depth_camera]
+    constraints:
+      sensors:
+        d405: {min_range_m: 0.07, max_range_m: 0.50}
+        d435i: {min_range_m: 0.30, max_range_m: 3.00}
+
+  - id: pointcloud
+    name: pointcloud
+    category: perception
+    skill_type: sensor
+    description: Stream colored point clouds from both cameras.
+    inputs: []
+    required_hardware: [d405_color_camera, d405_depth_camera, d435i_color_camera, d435i_depth_camera]
+    constraints:
+      sensors:
+        d405: {min_range_m: 0.07, max_range_m: 0.50}
+        d435i: {min_range_m: 0.30, max_range_m: 3.00}
+
+  - id: imu
+    name: imu
+    category: perception
+    skill_type: sensor
+    description: Stream IMU data from D435i.
+    inputs: []
+    required_hardware: [d435i_imu]
+    constraints: {}
+
+skill_registry:
+  realsense_dual_perception:
+    version: "1.0"
+    skills: [realsense_capture_frame, realsense_capture_rgbd, realsense_depth_health_check, realsense_imu_check, scene_risk_scan, obstacle_visibility_check]
+
+precondition_checks:
+  cameras_connected:
+    description: Both RealSense cameras are enumerated on USB3.

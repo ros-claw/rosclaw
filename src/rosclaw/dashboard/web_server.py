@@ -75,6 +75,142 @@ _BODY_PAGE_HTML = """<!DOCTYPE html>
 </html>
 """
 
+_REALSENSE_PAGE_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ROSClaw RealSense</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; margin: 2rem; background: #0f172a; color: #e2e8f0; }
+    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    .card { background: #1e293b; border-radius: 0.5rem; padding: 1rem; margin: 1rem 0; }
+    .muted { color: #94a3b8; }
+    .status { font-weight: bold; }
+    .online { color: #4ade80; }
+    .offline { color: #f87171; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+    ul { padding-left: 1.2rem; }
+    pre { background: #0f172a; padding: 0.75rem; border-radius: 0.25rem; overflow-x: auto; }
+    .preview { background: #0f172a; min-height: 120px; border-radius: 0.25rem; display: flex; align-items: center; justify-content: center; color: #64748b; }
+  </style>
+</head>
+<body>
+  <h1>ROSClaw RealSense Dashboard</h1>
+  <div class="card">
+    <div>Current body: <span class="status" id="body-id">dual_lab_01</span></div>
+    <div class="muted">Dual D405 + D435i perception-only embodiment</div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>D405</h2>
+      <div>Status: <span id="d405-status" class="offline">offline</span></div>
+      <div class="muted">RGB/depth preview</div>
+      <div class="preview" id="d405-preview">No frame</div>
+      <pre id="d405-meta">{}</pre>
+    </div>
+    <div class="card">
+      <h2>D435i</h2>
+      <div>Status: <span id="d435i-status" class="offline">offline</span></div>
+      <div class="muted">RGB/depth preview + IMU</div>
+      <div class="preview" id="d435i-preview">No frame</div>
+      <pre id="d435i-meta">{}</pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>D435i IMU</h2>
+    <pre id="imu-sample">No IMU sample yet.</pre>
+  </div>
+
+  <div class="card">
+    <h2>Practice Timeline</h2>
+    <pre id="timeline">No practice events yet.</pre>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Latest Provider Response</h2>
+      <pre id="provider-response">No provider inference yet.</pre>
+    </div>
+    <div class="card">
+      <h2>Latest Sandbox Decision</h2>
+      <pre id="sandbox-decision">No sandbox decision yet.</pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Metrics</h2>
+    <pre id="metrics">{}</pre>
+  </div>
+
+  <script>
+    async function fetchStreams() {
+      try {
+        const res = await fetch('/api/realsense/streams');
+        const data = await res.json();
+        for (const key of ['d405', 'd435i']) {
+          const cam = data.cameras[key] || {};
+          const el = document.getElementById(key + '-status');
+          el.textContent = cam.online ? 'online' : 'offline';
+          el.className = cam.online ? 'online' : 'offline';
+          document.getElementById(key + '-meta').textContent = JSON.stringify(cam, null, 2);
+          if (cam.last_frame_path) {
+            document.getElementById(key + '-preview').textContent = cam.last_frame_path;
+          }
+        }
+      } catch (err) {
+        console.error('streams fetch failed', err);
+      }
+    }
+
+    async function fetchSnapshot() {
+      try {
+        const res = await fetch('/snapshot');
+        const data = await res.json();
+        document.getElementById('metrics').textContent = JSON.stringify({
+          provider: data.provider,
+          sandbox: data.sandbox,
+          realsense: data.realsense,
+        }, null, 2);
+        if (data.traces && data.traces.length) {
+          const latest = data.traces[0];
+          if (latest.provider) {
+            document.getElementById('provider-response').textContent = JSON.stringify(latest.provider, null, 2);
+          }
+          if (latest.sandbox) {
+            document.getElementById('sandbox-decision').textContent = JSON.stringify(latest.sandbox, null, 2);
+          }
+        }
+      } catch (err) {
+        console.error('snapshot fetch failed', err);
+      }
+    }
+
+    fetchStreams();
+    fetchSnapshot();
+    setInterval(fetchStreams, 2000);
+    setInterval(fetchSnapshot, 5000);
+
+    const ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'snapshot' && msg.data && msg.data.realsense) {
+        const rs = msg.data.realsense;
+        for (const key of ['d405', 'd435i']) {
+          const cam = rs.cameras[key] || {};
+          const el = document.getElementById(key + '-status');
+          el.textContent = cam.online ? 'online' : 'offline';
+          el.className = cam.online ? 'online' : 'offline';
+        }
+      }
+    };
+    ws.onopen = () => ws.send(JSON.stringify({type: 'ping'}));
+  </script>
+</body>
+</html>
+"""
 
 class WebSocketClient:
     """Adapter to make FastAPI WebSocket look like DashboardServer client."""
@@ -132,6 +268,56 @@ class DashboardWebServer:
         @self.app.get("/api/body")
         async def api_body() -> dict[str, Any]:
             return self.server.get_body_summary()
+
+        @self.app.get("/realsense")
+        async def realsense_page() -> Any:
+            from fastapi.responses import HTMLResponse
+            return HTMLResponse(_REALSENSE_PAGE_HTML)
+
+        @self.app.get("/api/realsense/streams")
+        async def api_realsense_streams() -> dict[str, Any]:
+            return self.metrics.get_realsense_state()
+
+        @self.app.get("/api/realsense/frames")
+        async def api_realsense_frames(camera: str) -> dict[str, Any]:
+            state = self.metrics.get_realsense_state()
+            camera_key = camera.lower()
+            if camera_key not in state["cameras"]:
+                raise HTTPException(status_code=404, detail=f"Unknown camera: {camera}")
+            cam = state["cameras"][camera_key]
+            if not cam.get("last_frame_path"):
+                raise HTTPException(status_code=404, detail=f"No frame available for {camera}")
+            return {
+                "camera": camera_key,
+                "frame_type": cam.get("last_frame_type"),
+                "path": cam.get("last_frame_path"),
+                "timestamp": cam.get("last_frame_at"),
+                "fps": cam.get("fps"),
+                "latency_ms": cam.get("last_latency_ms"),
+                "drop_count": cam.get("drop_count"),
+            }
+
+        @self.app.get("/metrics/realsense")
+        async def realsense_metrics() -> dict[str, Any]:
+            return self.metrics.get_realsense_state()
+
+        @self.app.post("/metrics/realsense/record")
+        async def realsense_record(request: Request) -> dict[str, Any]:
+            try:
+                payload = await request.json()
+            except json.JSONDecodeError as exc:
+                raise HTTPException(status_code=400, detail=f"Invalid JSON: {exc}") from exc
+            camera = payload.get("camera", "")
+            self.metrics.set_realsense_online(camera, bool(payload.get("online", False)), info=payload.get("info"))
+            if payload.get("frame_path"):
+                self.metrics.record_realsense_frame(
+                    camera,
+                    frame_type=payload.get("frame_type", "color"),
+                    path=payload["frame_path"],
+                    latency_ms=payload.get("latency_ms"),
+                    drop_count=payload.get("drop_count"),
+                )
+            return {"ok": True, "camera": camera, "state": self.metrics.get_realsense_state()}
 
         @self.app.get("/body")
         async def body_page() -> Any:
@@ -224,7 +410,10 @@ class DashboardWebServer:
                 # Keep connection alive and handle incoming messages
                 while True:
                     msg = await websocket.receive_text()
-                    data = json.loads(msg)
+                    try:
+                        data = json.loads(msg)
+                    except json.JSONDecodeError:
+                        continue
                     if data.get("type") == "ping":
                         await websocket.send_text(json.dumps({"type": "pong"}))
             except WebSocketDisconnect:

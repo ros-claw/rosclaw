@@ -1,0 +1,30 @@
+benchmark_version: "1.0"
+robot_id: realsense_d405
+
+kinematic_benchmarks: []
+
+dynamic_benchmarks: []
+
+simulation_benchmarks:
+  mock:
+    - {name: real_time_factor, target: 1.0, tolerance: 0.1}
+
+safety_benchmarks:
+  - name: no_actuation_enforced
+    description: All actuator-type actions are blocked by sandbox/compatibility layers.
+    target: 1.0
+    unit: ratio
+
+task_benchmarks:
+  - name: valid_depth_ratio_at_20cm
+    description: Valid depth ratio on a planar target at 0.20 m.
+    target: 0.90
+    unit: ratio
+  - name: valid_depth_ratio_at_40cm
+    description: Valid depth ratio on a planar target at 0.40 m.
+    target: 0.90
+    unit: ratio
+
+baseline_hardware:
+  sensor: Intel RealSense D405
+  ideal_range_m: [0.07, 0.50]

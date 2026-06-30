@@ -18,5 +18,37 @@
       }
     }
   },
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "mcpServers": {
+    "rosclaw-realsense-d405": {
+      "type": "stdio",
+      "command": "${ROSCLAW_HOME:-${HOME}/.rosclaw}/mcp/bin/rosclaw-mcp-run",
+      "args": [
+        "realsense-d405"
+      ],
+      "env": {
+        "ROSCLAW_HOME": "${ROSCLAW_HOME:-${HOME}/.rosclaw}"
+      },
+      "x-rosclaw.managed": {
+        "manifest_id": "io.rosclaw.hardware.realsense-d405",
+        "version": "1.0.0",
+        "managed_at": "2026-06-25T21:30:51.293437Z"
+      }
+    },
+    "rosclaw-realsense-d435i": {
+      "type": "stdio",
+      "command": "${ROSCLAW_HOME:-${HOME}/.rosclaw}/mcp/bin/rosclaw-mcp-run",
+      "args": [
+        "realsense-d435i"
+      ],
+      "env": {
+        "ROSCLAW_HOME": "${ROSCLAW_HOME:-${HOME}/.rosclaw}"
+      },
+      "x-rosclaw.managed": {
+        "manifest_id": "io.rosclaw.hardware.realsense-d435i",
+        "version": "1.0.0",
+        "managed_at": "2026-06-25T13:56:04.556489Z"
+      }
+    }
+  }
 }

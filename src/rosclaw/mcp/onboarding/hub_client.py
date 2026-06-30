@@ -249,6 +249,218 @@ _BUILTIN_REGISTRY: dict[str, dict[str, Any]] = {
         },
         "lifecycle": {"deprecated": False},
     },
+    "io.rosclaw.hardware.realsense-d405": {
+        "$schema": "https://schemas.rosclaw.io/mcp/hardware-manifest.schema.json",
+        "schemaVersion": "1.0.0",
+        "id": "io.rosclaw.hardware.realsense-d405",
+        "name": "realsense-d405",
+        "displayName": "Intel RealSense D405",
+        "version": "1.0.0",
+        "channel": "stable",
+        "description": "ROSClaw Hardware MCP for Intel RealSense D405 close-range depth camera.",
+        "tags": ["camera", "realsense", "sensor"],
+        "categories": ["hardware", "sensor"],
+        "license": "MIT",
+        "publisher": {
+            "name": "ROSClaw Project",
+            "namespace": "io.rosclaw.hardware",
+            "homepage": "https://rosclaw.io",
+            "support": "mcp@rosclaw.io",
+            "verified": True,
+        },
+        "artifact": {
+            "type": "python",
+            "package": "rosclaw.mcp.servers.realsense_d405",
+            "version": "1.0.0",
+            "entrypoint": "rosclaw.mcp.servers.realsense_d405",
+            "install": "true"
+        },
+        "mcp": {
+            "serverName": "realsense-d405",
+            "transport": {
+                "type": "stdio",
+                "command": "/usr/bin/python3",
+                "args": ["-m", "rosclaw.mcp.servers.realsense_d405"],
+            },
+            "capabilities": {"tools": True, "resources": True},
+        },
+        "hardware": {
+            "type": "sensor",
+            "vendor": "Intel",
+            "models": ["RealSense D405"],
+            "connection": {"modes": ["ros2"], "defaultMode": "ros2"},
+        },
+        "eurdf": {
+            "profiles": [
+                {"id": "realsense-d405", "version": "1.0.0", "required": False},
+            ],
+            "defaultProfile": "realsense-d405",
+        },
+        "bodyBinding": {
+            "bodyType": "sensor",
+            "bindingKey": "realsense_d405",
+            "writePaths": {
+                "mcpBinding": "mcp_bindings.realsense_d405",
+            },
+            "template": {
+                "mcp_bindings": {
+                    "realsense_d405": {
+                        "server": "rosclaw-realsense-d405",
+                        "manifest_id": "io.rosclaw.hardware.realsense-d405",
+                    }
+                }
+            },
+        },
+        "permissions": {
+            "required": [
+                {"id": "mcp:tools:read", "level": "safe", "description": "List and call MCP tools"},
+                {"id": "mcp:resources:read", "level": "safe", "description": "Read resource URIs"},
+            ],
+            "optional": [
+                {"id": "mcp:logging:write", "level": "safe", "description": "Forward server logs"},
+            ],
+        },
+        "install": {
+            "preflight": [
+                {"id": "ros_distro", "command": "python3 --version", "required": True},
+            ],
+            "postInstall": [{"id": "relink_body", "action": "rosclaw body relink"}],
+        },
+        "health": {
+            "checks": [
+                {"id": "install_integrity", "category": "install", "required": True},
+                {"id": "protocol_stdio", "category": "protocol", "required": True},
+                {"id": "eurdf_binding", "category": "binding", "required": False},
+            ],
+        },
+        "claude": {
+            "scopeDefault": "project",
+            "mcpJson": {
+                "mcpServers": {
+                    "rosclaw-realsense-d405": {
+                        "type": "stdio",
+                        "command": "${ROSCLAW_HOME:-${HOME}/.rosclaw}/mcp/bin/rosclaw-mcp-run",
+                        "args": ["realsense-d405"],
+                        "env": {
+                            "ROSCLAW_HOME": "${ROSCLAW_HOME:-${HOME}/.rosclaw}",
+                        },
+                    }
+                }
+            },
+        },
+        "compatibility": {
+            "rosDistros": ["humble", "jazzy"],
+            "python": ">=3.10",
+            "rosclaw": ">=1.0.0",
+        },
+        "lifecycle": {"deprecated": False},
+    },
+    "io.rosclaw.hardware.realsense-d435i": {
+        "$schema": "https://schemas.rosclaw.io/mcp/hardware-manifest.schema.json",
+        "schemaVersion": "1.0.0",
+        "id": "io.rosclaw.hardware.realsense-d435i",
+        "name": "realsense-d435i",
+        "displayName": "Intel RealSense D435i",
+        "version": "1.0.0",
+        "channel": "stable",
+        "description": "ROSClaw Hardware MCP for Intel RealSense D435i RGB-D + IMU camera.",
+        "tags": ["camera", "realsense", "sensor", "imu"],
+        "categories": ["hardware", "sensor"],
+        "license": "MIT",
+        "publisher": {
+            "name": "ROSClaw Project",
+            "namespace": "io.rosclaw.hardware",
+            "homepage": "https://rosclaw.io",
+            "support": "mcp@rosclaw.io",
+            "verified": True,
+        },
+        "artifact": {
+            "type": "python",
+            "package": "rosclaw.mcp.servers.realsense_d435i",
+            "version": "1.0.0",
+            "entrypoint": "rosclaw.mcp.servers.realsense_d435i",
+            "install": "true"
+        },
+        "mcp": {
+            "serverName": "realsense-d435i",
+            "transport": {
+                "type": "stdio",
+                "command": "/usr/bin/python3",
+                "args": ["-m", "rosclaw.mcp.servers.realsense_d435i"],
+            },
+            "capabilities": {"tools": True, "resources": True},
+        },
+        "hardware": {
+            "type": "sensor",
+            "vendor": "Intel",
+            "models": ["RealSense D435i"],
+            "connection": {"modes": ["ros2"], "defaultMode": "ros2"},
+        },
+        "eurdf": {
+            "profiles": [
+                {"id": "realsense-d435i", "version": "1.0.0", "required": False},
+            ],
+            "defaultProfile": "realsense-d435i",
+        },
+        "bodyBinding": {
+            "bodyType": "sensor",
+            "bindingKey": "realsense_d435i",
+            "writePaths": {
+                "mcpBinding": "mcp_bindings.realsense_d435i",
+            },
+            "template": {
+                "mcp_bindings": {
+                    "realsense_d435i": {
+                        "server": "rosclaw-realsense-d435i",
+                        "manifest_id": "io.rosclaw.hardware.realsense-d435i",
+                    }
+                }
+            },
+        },
+        "permissions": {
+            "required": [
+                {"id": "mcp:tools:read", "level": "safe", "description": "List and call MCP tools"},
+                {"id": "mcp:resources:read", "level": "safe", "description": "Read resource URIs"},
+            ],
+            "optional": [
+                {"id": "mcp:logging:write", "level": "safe", "description": "Forward server logs"},
+            ],
+        },
+        "install": {
+            "preflight": [
+                {"id": "ros_distro", "command": "python3 --version", "required": True},
+            ],
+            "postInstall": [{"id": "relink_body", "action": "rosclaw body relink"}],
+        },
+        "health": {
+            "checks": [
+                {"id": "install_integrity", "category": "install", "required": True},
+                {"id": "protocol_stdio", "category": "protocol", "required": True},
+                {"id": "eurdf_binding", "category": "binding", "required": False},
+            ],
+        },
+        "claude": {
+            "scopeDefault": "project",
+            "mcpJson": {
+                "mcpServers": {
+                    "rosclaw-realsense-d435i": {
+                        "type": "stdio",
+                        "command": "${ROSCLAW_HOME:-${HOME}/.rosclaw}/mcp/bin/rosclaw-mcp-run",
+                        "args": ["realsense-d435i"],
+                        "env": {
+                            "ROSCLAW_HOME": "${ROSCLAW_HOME:-${HOME}/.rosclaw}",
+                        },
+                    }
+                }
+            },
+        },
+        "compatibility": {
+            "rosDistros": ["humble", "jazzy"],
+            "python": ">=3.10",
+            "rosclaw": ">=1.0.0",
+        },
+        "lifecycle": {"deprecated": False},
+    },
 }
 
 

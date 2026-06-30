@@ -430,9 +430,7 @@ class InstallEngine:
 
             # Artifact installation.
             install_info = installer.install(manifest, artifact, dry_run=False)
-            server_dir = install_info.get("server_dir") or str(
-                self.home / "mcp" / "servers" / server_name
-            )
+            server_dir = install_info.get("server_dir") or ""
 
             # Runtime runner.
             runtime_path, runner_path = ensure_runner(manifest, self.home)

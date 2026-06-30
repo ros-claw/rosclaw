@@ -1,0 +1,39 @@
+safety_level: STRICT
+
+no_actuation: true
+
+safety_limits:
+  depth_range_m:
+    min: 0.07
+    max: 3.00
+  temperature_c:
+    min: 0.0
+    max: 50.0
+
+workspace_boundaries:
+  type: composite_frustum
+  description: D405 close-range frustum + D435i mid-range frustum
+
+emergency_stop:
+  category: 0
+  stop_time_ms: 0
+  description: no physical motion possible; e-stop not applicable
+
+interaction:
+  hand_guiding: false
+  speed_slider_max: 0.0
+
+environment:
+  ambient_temp_min: 0.0
+  ambient_temp_max: 50.0
+
+forbidden_actions:
+  - move_base
+  - joint_trajectory
+  - gripper_command
+  - actuator_write
+  - cmd_vel_publish
+  - joint_control
+  - arbitrary_ros_service_call
+  - shell_exec
+  - network_write_except_provider

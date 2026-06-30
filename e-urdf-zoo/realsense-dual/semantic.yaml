@@ -1,0 +1,31 @@
+robot_id: realsense_dual
+semantic_version: "1.0"
+
+functional_regions:
+  - name: close_range_field_of_view
+    frame: d405_color_optical_frame
+    type: frustum
+    range_m:
+      min: 0.07
+      max: 0.50
+    description: D405 close-range tabletop / manipulation inspection volume.
+  - name: mid_range_field_of_view
+    frame: d435i_color_optical_frame
+    type: frustum
+    range_m:
+      min: 0.30
+      max: 3.00
+    description: D435i room-scale / obstacle observation volume.
+
+task_descriptions:
+  dual_camera_scene_check: >
+    Use D405 for close-range object inspection and D435i for mid-range
+    obstacle/world observation in a single task.
+
+semantic_tags:
+  - perception_only
+  - dual_camera
+  - close_range
+  - mid_range
+  - rgbd_imu
+  - no_actuation

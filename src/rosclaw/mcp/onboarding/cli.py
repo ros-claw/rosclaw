@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -86,6 +87,18 @@ def add_mcp_subparser(mcp_subparsers: Any) -> None:
     health_parser.add_argument("--project-root", default=".", help="Project root path")
     health_parser.set_defaults(func=lambda args: dispatch_mcp_health(args))
 
+    # mcp call subcommand
+    call_parser = mcp_subparsers.add_parser(
+        "call", help="Call an MCP tool on a built-in server directly"
+    )
+    call_parser.add_argument("server", help="Server name (e.g., realsense-d405, realsense-d435i)")
+    call_parser.add_argument("tool", help="Tool name to call")
+    call_parser.add_argument(
+        "--arg", action="append", default=[], help="Tool argument as key=value (repeatable)"
+    )
+    call_parser.add_argument("--json", action="store_true", help="Output structured JSON")
+    call_parser.set_defaults(func=lambda args: dispatch_mcp_call(args))
+
 
 def dispatch_mcp_command(args: argparse.Namespace) -> int:
     """Dispatch ``rosclaw mcp <subcommand>``.
@@ -102,6 +115,210 @@ def dispatch_mcp_command(args: argparse.Namespace) -> int:
     return 1
 
 
+def _infer_value(v: str) -> Any:
+    """Infer bool/int/float from a string argument value."""
+    if v.lower() in ("true", "false"):
+        return v.lower() == "true"
+    try:
+        return int(v)
+    except ValueError:
+        try:
+            return float(v)
+        except ValueError:
+            return v
+
+
+def _collect_tool_args(args: argparse.Namespace) -> dict[str, Any] | None:
+    """Collect tool arguments from --arg key=value and free-form --key value pairs."""
+    tool_args: dict[str, Any] = {}
+    for raw in getattr(args, "arg", []):
+        if "=" not in raw:
+            print(f"[ROSClaw MCP] Invalid --arg (expected key=value): {raw}", file=sys.stderr)
+            return None
+        k, v = raw.split("=", 1)
+        tool_args[k] = _infer_value(v)
+
+    extra = getattr(args, "extra", [])
+    i = 0
+    while i < len(extra):
+        token = extra[i]
+        if token.startswith("--"):
+            key = token[2:]
+            if "=" in key:
+                k, v = key.split("=", 1)
+                tool_args[k] = _infer_value(v)
+                i += 1
+                continue
+            if i + 1 >= len(extra):
+                print(f"[ROSClaw MCP] Missing value for argument --{key}", file=sys.stderr)
+                return None
+            tool_args[key] = _infer_value(extra[i + 1])
+            i += 2
+        elif token.startswith("-") and len(token) == 2 and token[1].isalnum():
+            # short option -k value
+            key = token[1:]
+            if i + 1 >= len(extra):
+                print(f"[ROSClaw MCP] Missing value for argument -{key}", file=sys.stderr)
+                return None
+            tool_args[key] = _infer_value(extra[i + 1])
+            i += 2
+        else:
+            print(f"[ROSClaw MCP] Unexpected argument: {token}", file=sys.stderr)
+            return None
+    return tool_args
+
+
+def dispatch_mcp_call(args: argparse.Namespace) -> int:
+    """Handle ``rosclaw mcp call <server> <tool>``.
+
+    Supports both ``--arg key=value`` and free-form ``--key value`` arguments.
+    For built-in RealSense servers, resolves the server name to the Python
+    module and invokes ``run_tool`` directly (no subprocess).  For external
+    servers, falls back to spawning the transport command and speaking JSON-RPC
+    over stdio.
+    """
+    server_name: str = args.server
+    tool_name: str = args.tool
+    tool_args = _collect_tool_args(args)
+    if tool_args is None:
+        return 1
+
+    # Built-in server short-cut
+    builtin_map = {
+        "realsense-d405": "rosclaw.mcp.servers.realsense_d405",
+        "realsense_d405": "rosclaw.mcp.servers.realsense_d405",
+        "realsense-d435i": "rosclaw.mcp.servers.realsense_d435i",
+        "realsense_d435i": "rosclaw.mcp.servers.realsense_d435i",
+    }
+    module_name = builtin_map.get(server_name)
+    if module_name:
+        # Normalize server alias (realsense-d435i -> realsense_d435i) so
+        # built-in helpers can resolve the correct CameraSpec.
+        normalized_key = server_name.replace("-", "_")
+        tool_args.setdefault("camera_key", normalized_key)
+        try:
+            import importlib
+
+            mod = importlib.import_module(module_name)
+            run_tool = getattr(mod, "run_tool", None)
+            if run_tool is None:
+                # Fallback to the shared helper in servers.__init__
+                from rosclaw.mcp.servers import run_tool as _run_tool
+
+                run_tool = _run_tool
+            result = run_tool(tool_name, **tool_args)
+        except Exception as exc:
+            print(f"[ROSClaw MCP] Tool call failed: {exc}", file=sys.stderr)
+            return 1
+        if args.json:
+            _print_json(result if isinstance(result, dict) else {"result": result})
+        else:
+            print(json.dumps(result, indent=2, default=str, ensure_ascii=False))
+        return 0
+
+    # External server: read runtime config and speak JSON-RPC over stdio
+    from rosclaw.mcp.onboarding.installed import InstalledRegistry
+
+    registry = InstalledRegistry()
+    record = registry.get(server_name)
+    if record is None or not record.runtime_config_path:
+        print(f"[ROSClaw MCP] Server '{server_name}' not installed or has no runtime config.", file=sys.stderr)
+        return 1
+
+    config_path = Path(record.runtime_config_path)
+    if not config_path.exists():
+        print(f"[ROSClaw MCP] Runtime config not found: {config_path}", file=sys.stderr)
+        return 1
+
+    import yaml
+
+    try:
+        runtime_cfg = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"[ROSClaw MCP] Failed to read runtime config: {exc}", file=sys.stderr)
+        return 1
+
+    transport = runtime_cfg.get("transport", {})
+    cmd = transport.get("command")
+    cmd_args = transport.get("args", [])
+    env = transport.get("env", {})
+    if not cmd:
+        print(f"[ROSClaw MCP] No transport command in runtime config.", file=sys.stderr)
+        return 1
+
+    import subprocess
+
+    full_env = {**os.environ, **env}
+    try:
+        proc = subprocess.Popen(
+            [cmd] + cmd_args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=full_env,
+        )
+    except Exception as exc:
+        print(f"[ROSClaw MCP] Failed to spawn server: {exc}", file=sys.stderr)
+        return 1
+
+    # JSON-RPC helpers
+    def _send(obj: dict[str, Any]) -> None:
+        assert proc.stdin is not None
+        proc.stdin.write(json.dumps(obj) + "\n")
+        proc.stdin.flush()
+
+    def _recv() -> dict[str, Any] | None:
+        assert proc.stdout is not None
+        line = proc.stdout.readline()
+        if not line:
+            return None
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError:
+            return None
+
+    # initialize
+    _send({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+    init_resp = _recv()
+    if init_resp is None or "error" in init_resp:
+        print(f"[ROSClaw MCP] Initialize failed: {init_resp}", file=sys.stderr)
+        proc.terminate()
+        return 1
+
+    # tools/list
+    _send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+    list_resp = _recv()
+    if list_resp is None or "error" in list_resp:
+        print(f"[ROSClaw MCP] tools/list failed: {list_resp}", file=sys.stderr)
+        proc.terminate()
+        return 1
+
+    # tools/call
+    _send(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {"name": tool_name, "arguments": tool_args},
+        }
+    )
+    call_resp = _recv()
+    proc.stdin.close()
+    proc.terminate()
+
+    if call_resp is None or "error" in call_resp:
+        print(f"[ROSClaw MCP] Tool call failed: {call_resp}", file=sys.stderr)
+        return 1
+
+    result = call_resp.get("result", {})
+    if args.json:
+        _print_json(result if isinstance(result, dict) else {"result": result})
+    else:
+        print(json.dumps(result, indent=2, default=str, ensure_ascii=False))
+    return 0
+
+
 def dispatch_mcp_install(args: argparse.Namespace) -> int:
     """Handle ``rosclaw mcp install``."""
     from rosclaw.mcp.onboarding.errors import OnboardingError
@@ -113,10 +330,10 @@ def dispatch_mcp_install(args: argparse.Namespace) -> int:
         try:
             plan = engine.plan(args.alias, version=args.version)
         except OnboardingError as exc:
-            print(f"[ROSClaw MCP] ❌ Cannot plan install: {exc}", file=sys.stderr)
+            print(f"[ROSClaw MCP] Cannot plan install: {exc}", file=sys.stderr)
             return 1
         except Exception as exc:  # noqa: BLE001
-            print(f"[ROSClaw MCP] ❌ Unexpected error: {exc}", file=sys.stderr)
+            print(f"[ROSClaw MCP] Unexpected error: {exc}", file=sys.stderr)
             return 1
 
         if args.json:
@@ -162,10 +379,10 @@ def dispatch_mcp_install(args: argparse.Namespace) -> int:
             skip_claude=args.skip_claude,
         )
     except OnboardingError as exc:
-        print(f"[ROSClaw MCP] ❌ Installation failed: {exc}", file=sys.stderr)
+        print(f"[ROSClaw MCP] Installation failed: {exc}", file=sys.stderr)
         return 1
     except Exception as exc:  # noqa: BLE001
-        print(f"[ROSClaw MCP] ❌ Unexpected error: {exc}", file=sys.stderr)
+        print(f"[ROSClaw MCP] Unexpected error: {exc}", file=sys.stderr)
         return 1
 
     if args.json:
@@ -333,7 +550,7 @@ def dispatch_mcp_health(args: argparse.Namespace) -> int:
         else:
             reports = runner.check_all(full=args.full)
     except Exception as exc:  # noqa: BLE001
-        print(f"[ROSClaw MCP] ❌ Health check failed: {exc}", file=sys.stderr)
+        print(f"[ROSClaw MCP] Health check failed: {exc}", file=sys.stderr)
         return 1
 
     if args.json:

@@ -1,0 +1,104 @@
+robot_id: realsense_d405
+name: Intel RealSense D405
+vendor: Intel
+version: "1.0"
+description: >
+  Close-range RGB-D perception body. Official ideal range 7 cm – 50 cm.
+  No actuators; read-only sensor embodiment.
+
+dof: 0
+
+links:
+  - name: camera_base
+    type: base
+    mass: 0.05
+
+joints: []
+
+sensors:
+  - name: color_camera
+    type: camera
+    parent_link: camera_base
+    frame: d405_color_optical_frame
+    resolution: [1280, 720]
+    fov_horizontal_deg: 74.0
+    fov_vertical_deg: 46.0
+    topic: /camera/d405/color/image_raw
+  - name: depth_camera
+    type: depth_camera
+    parent_link: camera_base
+    frame: d405_depth_optical_frame
+    resolution: [1280, 720]
+    min_range_m: 0.07
+    max_range_m: 0.50
+    topic: /camera/d405/depth/image_rect_raw
+  - name: aligned_depth
+    type: depth_camera
+    parent_link: camera_base
+    frame: d405_color_optical_frame
+    resolution: [1280, 720]
+    min_range_m: 0.07
+    max_range_m: 0.50
+    topic: /camera/d405/aligned_depth_to_color/image_raw
+  - name: pointcloud
+    type: pointcloud
+    parent_link: camera_base
+    frame: d405_depth_optical_frame
+    topic: /camera/d405/depth/color/points
+
+actuators: []
+
+safety_limits:
+  depth_range_m:
+    min: 0.07
+    max: 0.50
+  temperature_c:
+    min: 0.0
+    max: 50.0
+
+capabilities:
+  - id: rgb_stream
+    name: rgb_stream
+    category: perception
+    skill_type: sensor
+    inputs: []
+    constraints: {}
+  - id: depth_stream
+    name: depth_stream
+    category: perception
+    skill_type: sensor
+    inputs: []
+    constraints:
+      min_range_m: 0.07
+      max_range_m: 0.50
+  - id: aligned_rgbd
+    name: aligned_rgbd
+    category: perception
+    skill_type: sensor
+    inputs: []
+    constraints:
+      min_range_m: 0.07
+      max_range_m: 0.50
+  - id: pointcloud
+    name: pointcloud
+    category: perception
+    skill_type: sensor
+    inputs: []
+    constraints:
+      min_range_m: 0.07
+      max_range_m: 0.50
+
+simulation_backends:
+  mujoco:
+    enabled: false
+
+semantic_tags:
+  - perception_only
+  - close_range
+  - tabletop
+
+metadata:
+  no_actuation: true
+  official_range_m:
+    min: 0.07
+    max: 0.50

@@ -1,0 +1,66 @@
+capability_version: "1.0"
+robot_id: realsense_d435i
+
+capabilities:
+  - id: rgb_stream
+    name: rgb_stream
+    category: perception
+    skill_type: sensor
+    description: Stream color images from the RealSense D435i.
+    inputs: []
+    required_hardware: [color_camera]
+    constraints:
+      resolution: [1280, 720]
+
+  - id: depth_stream
+    name: depth_stream
+    category: perception
+    skill_type: sensor
+    description: Stream depth images from the RealSense D435i.
+    inputs: []
+    required_hardware: [depth_camera]
+    constraints:
+      min_range_m: 0.30
+      max_range_m: 3.00
+
+  - id: aligned_rgbd
+    name: aligned_rgbd
+    category: perception
+    skill_type: sensor
+    description: Stream depth aligned to color frame.
+    inputs: []
+    required_hardware: [color_camera, depth_camera]
+    constraints:
+      min_range_m: 0.30
+      max_range_m: 3.00
+
+  - id: pointcloud
+    name: pointcloud
+    category: perception
+    skill_type: sensor
+    description: Stream colored point cloud.
+    inputs: []
+    required_hardware: [color_camera, depth_camera]
+    constraints:
+      min_range_m: 0.30
+      max_range_m: 3.00
+
+  - id: imu
+    name: imu
+    category: perception
+    skill_type: sensor
+    description: Stream angular velocity and linear acceleration.
+    inputs: []
+    required_hardware: [imu]
+    constraints: {}
+
+skill_registry:
+  realsense_d435i_perception:
+    version: "1.0"
+    skills: [realsense_capture_frame, realsense_capture_rgbd, realsense_depth_health_check, realsense_imu_check, scene_risk_scan, obstacle_visibility_check]
+
+precondition_checks:
+  camera_connected:
+    description: RealSense D435i is enumerated on USB3.
+  imu_present:
+    description: D435i IMU streams non-NaN samples.

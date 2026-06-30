@@ -1,0 +1,118 @@
+robot_id: realsense_d435i
+name: Intel RealSense D435i
+vendor: Intel
+version: "1.0"
+description: >
+  Mid-range RGB-D + IMU perception body. Official ideal depth range ~0.3 m – 3 m.
+  No actuators; read-only sensor embodiment.
+
+dof: 0
+
+links:
+  - name: camera_base
+    type: base
+    mass: 0.07
+
+joints: []
+
+sensors:
+  - name: color_camera
+    type: camera
+    parent_link: camera_base
+    frame: d435i_color_optical_frame
+    resolution: [1280, 720]
+    fov_horizontal_deg: 69.0
+    fov_vertical_deg: 42.0
+    topic: /camera/d435i/color/image_raw
+  - name: depth_camera
+    type: depth_camera
+    parent_link: camera_base
+    frame: d435i_depth_optical_frame
+    resolution: [1280, 720]
+    min_range_m: 0.30
+    max_range_m: 3.00
+    topic: /camera/d435i/depth/image_rect_raw
+  - name: aligned_depth
+    type: depth_camera
+    parent_link: camera_base
+    frame: d435i_color_optical_frame
+    resolution: [1280, 720]
+    min_range_m: 0.30
+    max_range_m: 3.00
+    topic: /camera/d435i/aligned_depth_to_color/image_raw
+  - name: pointcloud
+    type: pointcloud
+    parent_link: camera_base
+    frame: d435i_depth_optical_frame
+    topic: /camera/d435i/depth/color/points
+  - name: imu
+    type: imu
+    parent_link: camera_base
+    frame: d435i_imu_frame
+    topic: /camera/d435i/imu
+    angular_velocity: true
+    linear_acceleration: true
+    orientation: false
+
+actuators: []
+
+safety_limits:
+  depth_range_m:
+    min: 0.30
+    max: 3.00
+  temperature_c:
+    min: 0.0
+    max: 50.0
+
+capabilities:
+  - id: rgb_stream
+    name: rgb_stream
+    category: perception
+    skill_type: sensor
+    inputs: []
+    constraints: {}
+  - id: depth_stream
+    name: depth_stream
+    category: perception
+    skill_type: sensor
+    inputs: []
+    constraints:
+      min_range_m: 0.30
+      max_range_m: 3.00
+  - id: aligned_rgbd
+    name: aligned_rgbd
+    category: perception
+    skill_type: sensor
+    inputs: []
+    constraints:
+      min_range_m: 0.30
+      max_range_m: 3.00
+  - id: pointcloud
+    name: pointcloud
+    category: perception
+    skill_type: sensor
+    inputs: []
+    constraints:
+      min_range_m: 0.30
+      max_range_m: 3.00
+  - id: imu
+    name: imu
+    category: perception
+    skill_type: sensor
+    inputs: []
+    constraints: {}
+
+simulation_backends:
+  mujoco:
+    enabled: false
+
+semantic_tags:
+  - perception_only
+  - mid_range
+  - rgbd_imu
+
+metadata:
+  no_actuation: true
+  official_range_m:
+    min: 0.30
+    max: 3.00

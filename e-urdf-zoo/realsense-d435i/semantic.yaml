@@ -1,0 +1,33 @@
+robot_id: realsense_d435i
+semantic_version: "1.0"
+
+functional_regions:
+  - name: mid_range_field_of_view
+    frame: d435i_color_optical_frame
+    type: frustum
+    range_m:
+      min: 0.30
+      max: 3.00
+    description: >
+      Primary mid-range sensing volume for room / obstacle observation.
+
+visual_features:
+  - name: rgb_optical_center
+    frame: d435i_color_optical_frame
+    description: Center of the color camera optical axis.
+  - name: depth_optical_center
+    frame: d435i_depth_optical_frame
+    description: Center of the depth camera optical axis.
+
+task_descriptions:
+  mid_range_obstacle_imu_scene_scan: >
+    Capture RGB-D and IMU data from the D435i and reason about obstacles
+    and scene risks within 0.3–3 m.
+  world_observation: >
+    Use D435i as a world-view camera for navigation and obstacle monitoring.
+
+semantic_tags:
+  - perception_only
+  - mid_range
+  - rgbd_imu
+  - no_actuation

@@ -70,9 +70,41 @@ class PracticeLayout:
 
     def create_session_dirs(self, practice_id: str) -> Path:
         session = self.session_dir(practice_id)
-        for sub in ("raw", "frames/rgb", "frames/depth", "derived", "exports", "replay", "reports", "index"):
+        for sub in (
+            "raw",
+            "frames/d405",
+            "frames/d435i",
+            "imu",
+            "provider",
+            "sandbox",
+            "runtime",
+            "metrics",
+            "derived",
+            "exports",
+            "replay",
+            "reports",
+            "index",
+        ):
             (session / sub).mkdir(parents=True, exist_ok=True)
         return session
+
+    def frames_dir(self, practice_id: str, camera_id: str = "d405") -> Path:
+        return self.session_dir(practice_id) / "frames" / camera_id
+
+    def imu_dir(self, practice_id: str) -> Path:
+        return self.session_dir(practice_id) / "imu"
+
+    def provider_dir(self, practice_id: str) -> Path:
+        return self.session_dir(practice_id) / "provider"
+
+    def sandbox_dir(self, practice_id: str) -> Path:
+        return self.session_dir(practice_id) / "sandbox"
+
+    def runtime_dir(self, practice_id: str) -> Path:
+        return self.session_dir(practice_id) / "runtime"
+
+    def metrics_dir(self, practice_id: str) -> Path:
+        return self.session_dir(practice_id) / "metrics"
 
     def write_manifest(
         self,
