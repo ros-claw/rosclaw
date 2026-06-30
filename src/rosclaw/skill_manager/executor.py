@@ -9,6 +9,7 @@ from typing import Any
 from rosclaw.body.resolver import BodyResolver
 from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
+from rosclaw.runtime.plugin import get_runtime_plugin
 from rosclaw.skill_manager.registry import SkillEntry, SkillRegistry
 
 logger = logging.getLogger("rosclaw.skill_manager.executor")
@@ -148,9 +149,10 @@ class SkillExecutor(LifecycleMixin):
         if bsc is not None:
             result["body_sense_check"] = bsc
         t0 = time.time()
-        if skill.handler is not None:
+        handler = self._resolve_handler(skill)
+        if handler is not None:
             try:
-                handler_result = skill.handler(params)
+                handler_result = handler(params)
                 result["handler_result"] = handler_result
                 handler_status = handler_result.get("status") if isinstance(handler_result, dict) else None
                 result["status"] = handler_status if handler_status in ("success", "error", "blocked", "degraded") else "success"
@@ -319,6 +321,18 @@ class SkillExecutor(LifecycleMixin):
                 if self.registry.get(required) is None:
                     return {"ok": False, "reason": f"Required skill not available: {required}"}
         return {"ok": True}
+
+    def _resolve_handler(self, skill: SkillEntry) -> Any:
+        """Resolve the executable handler for a skill.
+
+        Resolution order:
+            1. Runtime skill plugin registry (new EventBus-native path).
+            2. Legacy ``SkillEntry.handler``.
+        """
+        runtime_handler = get_runtime_plugin().get_handler(skill.name)
+        if runtime_handler is not None:
+            return runtime_handler
+        return skill.handler
 
     def is_executing(self) -> bool:
         return self._current_skill is not None

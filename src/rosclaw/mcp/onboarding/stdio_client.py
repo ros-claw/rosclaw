@@ -109,8 +109,13 @@ class McpStdioClient:
         stdin = self._proc.stdin
         if stdin is not None:
             try:
+                # The server may have already exited (e.g. after a tool crash or
+                # natural shutdown). Writing to a closed stdin raises BrokenPipe;
+                # that is expected and should not pollute stderr.
                 stdin.write("\n")
                 stdin.flush()
+            except BrokenPipeError:
+                pass
             except Exception:
                 pass
         try:
@@ -119,6 +124,15 @@ class McpStdioClient:
         except subprocess.TimeoutExpired:
             self._proc.kill()
             self._proc.wait()
+        except Exception:
+            pass
+        # Explicitly close stdio streams so the Popen finalizer does not emit
+        # BrokenPipe warnings when the server has already exited.
+        for stream_name in ("stdin", "stdout", "stderr"):
+            stream = getattr(self._proc, stream_name, None)
+            if stream is not None:
+                with contextlib.suppress(BrokenPipeError, OSError, ValueError):
+                    stream.close()
         self._proc = None
 
     def _next_id(self) -> int:
@@ -213,7 +227,7 @@ def call_server_tool(
     client: McpStdioClient | None = None
     try:
         client = McpStdioClient(command, args, env=env)
-        client.start(timeout=min(timeout, 10.0))
+        client.start(timeout=min(timeout, 20.0))
         response = client.call_tool(tool_name, arguments or {}, timeout=timeout)
         if "error" in response:
             raise McpStdioError(f"Tool error: {response['error']}")
@@ -226,7 +240,7 @@ def call_server_tool(
 def list_server_tools(
     server_name: str,
     home: Path | str | None = None,
-    timeout: float = 10.0,
+    timeout: float = 20.0,
 ) -> list[dict[str, Any]]:
     """List tools advertised by an installed MCP server."""
     config = load_runtime_config(server_name, home=home)
@@ -248,7 +262,7 @@ def list_server_tools(
             client.stop()
 
 
-def health_smoke(server_name: str, home: Path | str | None = None, timeout: float = 10.0) -> dict[str, Any]:
+def health_smoke(server_name: str, home: Path | str | None = None, timeout: float = 20.0) -> dict[str, Any]:
     """Run a lightweight health smoke test: handshake and list tools."""
     try:
         tools = list_server_tools(server_name, home=home, timeout=timeout)

@@ -13,6 +13,7 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.responses import FileResponse, HTMLResponse
 
 from rosclaw.practice.storage.layout import PracticeLayout
+from rosclaw.runtime import RuntimeBus, RuntimeQueryAPI
 
 from .firstboot import FIRSTBOOT_PAGE_HTML, build_firstboot_command, preview_firstboot_config
 from .metrics import DashboardMetrics
@@ -210,15 +211,36 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
         raise HTTPException(status_code=500, detail=f"Failed to read {path}: {exc}") from exc
 
 
-async def _latest_frame_info(data_root: Path) -> dict[str, Any]:
-    """Find the most recently recorded RealSense RGB frame."""
-    layout = PracticeLayout(data_root)
+async def _latest_frame_info(
+    query_api: RuntimeQueryAPI | None = None,
+    data_root: Path | None = None,
+) -> dict[str, Any]:
+    """Find the most recently recorded RealSense RGB frame.
+
+    Uses the RuntimeQueryAPI when available; otherwise scans disk.
+    """
     command = (
         "rosclaw practice run --robot d405_lab_01 "
         "--skill realsense_capture_rgbd --provider cosmos-reason2-lan "
         "--output-root ./episode"
     )
-    for ep in _list_episodes(data_root):
+
+    if query_api is not None:
+        ev = query_api.latest("camera.rgbd_frame")
+        if ev is not None:
+            payload = ev.payload or {}
+            rgb_ref = payload.get("rgb_ref")
+            if rgb_ref:
+                episode_id = ev.metadata.get("trace_id") or ev.metadata.get("episode_id") or "unknown"
+                return {
+                    "found": True,
+                    "practice_id": episode_id,
+                    "rgb_ref": rgb_ref,
+                    "frame_url": f"/api/artifacts/{episode_id}/{rgb_ref}",
+                }
+
+    layout = PracticeLayout(data_root or _practice_data_root())
+    for ep in _list_episodes(layout.data_root):
         timeline = _read_jsonl(layout.timeline_jsonl_path(ep["practice_id"]))
         for ev in reversed(timeline):
             if ev.get("source") == "camera" and ev.get("event_type") == "rgbd_frame":
@@ -238,16 +260,45 @@ async def _latest_frame_info(data_root: Path) -> dict[str, Any]:
     }
 
 
-def _list_realsense_frames(data_root: Path, limit: int = 50) -> dict[str, Any]:
+def _list_realsense_frames(
+    query_api: RuntimeQueryAPI | None = None,
+    data_root: Path | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
     """Return the most recent RealSense RGB-D frame events across episodes."""
-    layout = PracticeLayout(data_root)
     command = (
         "rosclaw practice run --robot d405_lab_01 "
         "--skill realsense_capture_rgbd --provider cosmos-reason2-lan "
         "--output-root ./episode"
     )
+
+    if query_api is not None:
+        events = query_api.latest_n("camera.rgbd_frame", n=limit)
+        frames = []
+        for ev in events:
+            payload = ev.payload or {}
+            rgb_ref = payload.get("rgb_ref")
+            if not rgb_ref:
+                continue
+            episode_id = ev.metadata.get("trace_id") or ev.metadata.get("episode_id") or "unknown"
+            depth_ref = payload.get("depth_ref")
+            frames.append({
+                "practice_id": episode_id,
+                "event_id": ev.id,
+                "timestamp_utc": ev.timestamp.isoformat().replace("+00:00", "Z"),
+                "rgb_ref": rgb_ref,
+                "depth_ref": depth_ref,
+                "width": payload.get("width"),
+                "height": payload.get("height"),
+                "rgb_url": f"/api/artifacts/{episode_id}/{rgb_ref}",
+                "depth_url": f"/api/artifacts/{episode_id}/{depth_ref}" if depth_ref else None,
+            })
+        if frames:
+            return {"found": True, "count": len(frames), "frames": frames}
+
+    layout = PracticeLayout(data_root or _practice_data_root())
     frames: list[dict[str, Any]] = []
-    for ep in _list_episodes(data_root):
+    for ep in _list_episodes(layout.data_root):
         timeline = _read_jsonl(layout.timeline_jsonl_path(ep["practice_id"]))
         for ev in reversed(timeline):
             if ev.get("source") == "camera" and ev.get("event_type") == "rgbd_frame":
@@ -277,15 +328,50 @@ def _list_realsense_frames(data_root: Path, limit: int = 50) -> dict[str, Any]:
     return {"found": False, "message": "No RealSense frames recorded yet.", "command": command}
 
 
-def _list_realsense_streams(data_root: Path) -> dict[str, Any]:
+def _list_realsense_streams(
+    query_api: RuntimeQueryAPI | None = None,
+    data_root: Path | None = None,
+) -> dict[str, Any]:
     """Infer available RealSense streams from the latest recorded frame."""
-    layout = PracticeLayout(data_root)
     command = (
         "rosclaw practice run --robot d405_lab_01 "
         "--skill realsense_capture_rgbd --provider cosmos-reason2-lan "
         "--output-root ./episode"
     )
-    for ep in _list_episodes(data_root):
+
+    if query_api is not None:
+        ev = query_api.latest("camera.rgbd_frame")
+        if ev is not None:
+            payload = ev.payload or {}
+            rgb_ref = payload.get("rgb_ref")
+            if rgb_ref:
+                episode_id = ev.metadata.get("trace_id") or ev.metadata.get("episode_id") or "unknown"
+                depth_ref = payload.get("depth_ref")
+                streams = [
+                    {
+                        "name": "color",
+                        "type": "rgb",
+                        "encoding": payload.get("rgb_encoding", "png"),
+                        "ref": rgb_ref,
+                        "url": f"/api/artifacts/{episode_id}/{rgb_ref}",
+                    }
+                ]
+                if depth_ref:
+                    streams.append({
+                        "name": "depth",
+                        "type": "depth",
+                        "encoding": payload.get("depth_encoding", "png16"),
+                        "ref": depth_ref,
+                        "url": f"/api/artifacts/{episode_id}/{depth_ref}",
+                    })
+                return {
+                    "found": True,
+                    "practice_id": episode_id,
+                    "streams": streams,
+                }
+
+    layout = PracticeLayout(data_root or _practice_data_root())
+    for ep in _list_episodes(layout.data_root):
         timeline = _read_jsonl(layout.timeline_jsonl_path(ep["practice_id"]))
         for ev in reversed(timeline):
             if ev.get("source") == "camera" and ev.get("event_type") == "rgbd_frame":
@@ -339,15 +425,34 @@ class WebSocketClient:
 class DashboardWebServer:
     """FastAPI + WebSocket server wrapping DashboardServer."""
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 8765) -> None:
+    def __init__(
+        self,
+        host: str = "0.0.0.0",
+        port: int = 8765,
+        runtime_bus: RuntimeBus | None = None,
+    ) -> None:
         self.metrics = DashboardMetrics()
         self.server = DashboardServer(self.metrics, host=host, port=port)
         self.app = FastAPI(title="ROSClaw Dashboard", version="1.0.0")
+        self._runtime_bus = runtime_bus
+        self._query_api = RuntimeQueryAPI(runtime_bus) if runtime_bus is not None else None
         self._setup_routes()
 
     def attach_to_event_bus(self, event_bus: Any) -> None:
-        """Subscribe to episode/praxis events for live metrics updates."""
-        self.server.attach_to_event_bus(event_bus)
+        """Subscribe to episode/praxis events for live metrics updates.
+
+        Accepts either a legacy ``EventBus`` or a ``RuntimeBus``. When a
+        ``RuntimeBus`` is supplied, the dashboard also exposes a query API over
+        runtime history so RealSense endpoints can avoid scanning disk.
+        """
+        from rosclaw.runtime import RuntimeBus as _RuntimeBus
+
+        if isinstance(event_bus, _RuntimeBus):
+            self._runtime_bus = event_bus
+            self._query_api = RuntimeQueryAPI(event_bus)
+            self.server.attach_to_event_bus(event_bus.event_bus)
+        else:
+            self.server.attach_to_event_bus(event_bus)
 
         # Subscribe to episode completion events
         def on_episode_complete(event: Any) -> None:
@@ -584,7 +689,10 @@ class DashboardWebServer:
             except Exception:
                 pass
 
-            latest = await _latest_frame_info(_practice_data_root(data_root))
+            latest = await _latest_frame_info(
+                query_api=self._query_api,
+                data_root=_practice_data_root(data_root),
+            )
             return {
                 "profile_exists": profile_exists,
                 "body_linked": body_linked,
@@ -599,17 +707,27 @@ class DashboardWebServer:
 
         @self.app.get("/api/realsense/latest-frame")
         async def api_realsense_latest_frame(data_root: str | None = None) -> dict[str, Any]:
-            return await _latest_frame_info(_practice_data_root(data_root))
+            return await _latest_frame_info(
+                query_api=self._query_api,
+                data_root=_practice_data_root(data_root),
+            )
 
         @self.app.get("/api/realsense/streams")
         async def api_realsense_streams(data_root: str | None = None) -> dict[str, Any]:
-            return _list_realsense_streams(_practice_data_root(data_root))
+            return _list_realsense_streams(
+                query_api=self._query_api,
+                data_root=_practice_data_root(data_root),
+            )
 
         @self.app.get("/api/realsense/frames")
         async def api_realsense_frames(
             data_root: str | None = None, limit: int = 50
         ) -> dict[str, Any]:
-            return _list_realsense_frames(_practice_data_root(data_root), limit=limit)
+            return _list_realsense_frames(
+                query_api=self._query_api,
+                data_root=_practice_data_root(data_root),
+                limit=limit,
+            )
 
         # ── Artifact serving ────────────────────────────────────────────
         # Registered AFTER the RealSense routes so the greedy {path:path}

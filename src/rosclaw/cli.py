@@ -1810,15 +1810,19 @@ def _run_practice_skill_iteration(
     print(f"[rosclaw-practice] Running skill: {skill_id}")
     skill_result = executor.execute(skill_id, parameters=skill_params)
     skill_status = skill_result.get("status") if isinstance(skill_result, dict) else "error"
+    handler_result = skill_result.get("handler_result") if isinstance(skill_result, dict) else None
     if skill_status not in ("success", "degraded"):
-        reason = skill_result.get("reason") if isinstance(skill_result, dict) else None
+        reason = None
+        if isinstance(skill_result, dict):
+            reason = skill_result.get("reason") or (
+                handler_result.get("reason") if isinstance(handler_result, dict) else None
+            )
         print(
             f"[rosclaw-practice] Skill failed: {skill_id} ({skill_status}){f' — {reason}' if reason else ''}",
             file=sys.stderr,
         )
         return 1
 
-    handler_result = skill_result.get("handler_result") if isinstance(skill_result, dict) else None
     artifacts = handler_result.get("artifacts", {}) if isinstance(handler_result, dict) else {}
     color_path = artifacts.get("color") or artifacts.get("color_path") or artifacts.get("save_path")
     depth_path = artifacts.get("depth") or artifacts.get("depth_path")
@@ -2405,23 +2409,20 @@ def cmd_provider_invoke(args: argparse.Namespace) -> int:
             response = run_sync(provider.infer(request))
             raw_text = json.dumps(response.result, ensure_ascii=False) if response.result else ""
         else:
-            # Direct HTTP fallback using COSMOS_ENDPOINT / VGGT_ENDPOINT / env endpoint.
-            endpoint = _resolve_provider_endpoint(provider_id)
-            if endpoint:
-                raw_text = _call_provider_http(endpoint, provider_id, args.capability, input_payload, image_b64, image_mime)
-            else:
-                raw_text = json.dumps({
-                    "scene": "unknown",
-                    "objects": [],
-                    "physical_risks": [{
-                        "description": f"Provider '{provider_id}' is not registered and no endpoint is configured.",
-                        "severity": "info",
-                    }],
-                    "risk_score": 0.0,
-                    "executable": False,
-                    "requires_guard": True,
-                    "reasoning": "No provider runtime available; returning safe fallback.",
-                }, ensure_ascii=False)
+            # PhysicalReasoner abstraction: works for Cosmos/Gemini/Qwen and
+            # falls back gracefully when the endpoint is not reachable.
+            from rosclaw.provider.reasoner import get_reasoner
+
+            reasoner = registry.get_reasoner(provider_id)
+            response = reasoner.reason(
+                question=input_payload.get("question", ""),
+                image=image_b64,
+                image_mime=image_mime,
+                capability=args.capability or "vlm.risk_assessment",
+            )
+            raw_text = json.dumps(response.result, ensure_ascii=False) if response.result else ""
+            if response.errors:
+                error = "; ".join(response.errors)
     except Exception as exc:
         error = str(exc)
         raw_text = json.dumps({
@@ -4561,6 +4562,137 @@ def cmd_runtime_backends(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_runtime_doctor(args: argparse.Namespace) -> int:
+    """Run runtime health checks and print the report."""
+    from rosclaw.runtime.doctor import RuntimeDoctor
+    from rosclaw.runtime.plugins import (
+        DexHandDoctor,
+        RealSenseDoctor,
+        UnitreeDoctor,
+        URDoctor,
+    )
+
+    doctor = RuntimeDoctor()
+    doctor.register_plugin(RealSenseDoctor())
+    doctor.register_plugin(UnitreeDoctor())
+    doctor.register_plugin(URDoctor())
+    doctor.register_plugin(DexHandDoctor())
+
+    summary = doctor.summary()
+    if getattr(args, "json", False):
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+    else:
+        print("=" * 60)
+        print("ROSClaw Runtime Doctor")
+        print("=" * 60)
+        for check in summary["checks"]:
+            icon = {"ok": "✅", "warn": "⚠️", "error": "❌"}.get(check["status"], "❓")
+            print(f"{icon} [{check['plugin']}/{check['check']}] {check['status']}")
+            print(f"   {check['message']}")
+        print("=" * 60)
+        print(
+            f"Summary: {summary['ok']} ok, {summary['warn']} warn, "
+            f"{summary['error']} error ({summary['total']} total)"
+        )
+    return 0 if summary["error"] == 0 else 1
+
+
+def _runtime_pid_file() -> Path:
+    from rosclaw.firstboot.workspace import resolve_home
+    return Path(resolve_home()) / "runtime.pid"
+
+
+def _is_process_alive(pid: int) -> bool:
+    try:
+        import os
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return False
+
+
+def cmd_runtime_start(args: argparse.Namespace) -> int:
+    """Start the ROSClaw Runtime Kernel in the foreground."""
+    import signal
+    from rosclaw.runtime.service import RuntimeKernelService
+
+    pid_file = _runtime_pid_file()
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    if pid_file.exists():
+        try:
+            old_pid = int(pid_file.read_text(encoding="utf-8").strip() or "0")
+        except Exception:
+            old_pid = 0
+        if old_pid and _is_process_alive(old_pid):
+            print(f"[ROSClaw] Runtime already running (pid {old_pid}).")
+            return 0
+
+    service = RuntimeKernelService(home=getattr(args, "home", None))
+    service.initialize()
+    service.start()
+    pid_file.write_text(str(os.getpid()), encoding="utf-8")
+    print("[ROSClaw] Runtime Kernel started.")
+    print(f"[ROSClaw] Components: {service.registry.names()}")
+
+    def _shutdown(signum: int, frame: Any) -> None:
+        print("\n[ROSClaw] Stopping Runtime Kernel...")
+        service.stop()
+        pid_file.unlink(missing_ok=True)
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
+    try:
+        while True:
+            import time
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        service.stop()
+        pid_file.unlink(missing_ok=True)
+    return 0
+
+
+def cmd_runtime_stop(_args: argparse.Namespace) -> int:
+    """Stop the ROSClaw Runtime Kernel."""
+    pid_file = _runtime_pid_file()
+    if not pid_file.exists():
+        print("[ROSClaw] Runtime is not running.")
+        return 0
+    try:
+        pid = int(pid_file.read_text(encoding="utf-8").strip() or "0")
+    except Exception:
+        pid = 0
+    pid_file.unlink(missing_ok=True)
+    if pid and _is_process_alive(pid):
+        import os
+        import signal
+        os.kill(pid, signal.SIGTERM)
+        print(f"[ROSClaw] Sent stop signal to runtime (pid {pid}).")
+    else:
+        print("[ROSClaw] Runtime stopped.")
+    return 0
+
+
+def cmd_runtime_status(_args: argparse.Namespace) -> int:
+    """Show the ROSClaw Runtime Kernel status."""
+    pid_file = _runtime_pid_file()
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text(encoding="utf-8").strip() or "0")
+        except Exception:
+            pid = 0
+        if pid and _is_process_alive(pid):
+            print(f"[ROSClaw] Runtime is running (pid {pid}).")
+            return 0
+        print("[ROSClaw] Runtime pid file exists but process is not alive.")
+        return 1
+    print("[ROSClaw] Runtime is stopped.")
+    return 0
+
+
 def cmd_forge_sdk_to_mcp(args: argparse.Namespace) -> int:
     """Convert an SDK description to an MCP bundle."""
     from rosclaw.forge.bundle_compiler import BundleCompiler
@@ -5079,6 +5211,12 @@ def main() -> int:
     runtime_parser = subparsers.add_parser("runtime", help="Runtime backend commands")
     runtime_subparsers = runtime_parser.add_subparsers(dest="runtime_command")
     runtime_subparsers.add_parser("backends", help="List available runtime backends")
+    runtime_start_parser = runtime_subparsers.add_parser("start", help="Start the Runtime Kernel")
+    runtime_start_parser.add_argument("--home", default=None, help="ROSClaw workspace home")
+    runtime_subparsers.add_parser("stop", help="Stop the Runtime Kernel")
+    runtime_subparsers.add_parser("status", help="Show Runtime Kernel status")
+    doctor_parser = runtime_subparsers.add_parser("doctor", help="Run runtime health checks")
+    doctor_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     # firewall subcommand
     firewall_parser = subparsers.add_parser("firewall", help="Firewall safety checks")
@@ -5480,6 +5618,14 @@ def main() -> int:
         elif args.command == "runtime":
             if args.runtime_command == "backends":
                 return cmd_runtime_backends(args)
+            elif args.runtime_command == "doctor":
+                return cmd_runtime_doctor(args)
+            elif args.runtime_command == "start":
+                return cmd_runtime_start(args)
+            elif args.runtime_command == "stop":
+                return cmd_runtime_stop(args)
+            elif args.runtime_command == "status":
+                return cmd_runtime_status(args)
             else:
                 runtime_parser.print_help()
                 return 1

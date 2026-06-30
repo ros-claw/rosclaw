@@ -191,7 +191,7 @@ SEEKDB_SCHEMAS = {
             "created_at": "REAL",
             "metadata": "TEXT",
         },
-        "indices": ["episode_id", "artifact_type", "created_at"],
+        "indices": ["episode_id", "artifact_type", "created_at", "uri"],
     },
     "retries": {
         "columns": {

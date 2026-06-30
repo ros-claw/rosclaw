@@ -24,8 +24,8 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
-def _load_body(params: dict[str, Any]) -> tuple[Path | None, str | None, dict[str, Any]]:
-    """Resolve body workspace and id from parameters."""
+def _load_body(params: dict[str, Any]) -> tuple[Path | None, str | None, dict[str, Any], dict[str, Any]]:
+    """Resolve body workspace, id, body yaml, and eurdf profile from parameters."""
     from rosclaw.body.resolver import BodyResolver
     from rosclaw.firstboot.workspace import resolve_home
 
@@ -41,26 +41,51 @@ def _load_body(params: dict[str, Any]) -> tuple[Path | None, str | None, dict[st
     if resolver is None:
         resolver = BodyResolver(workspace=home)
     if not resolver.is_linked():
-        return home, body_id, {}
+        return home, body_id, {}, {}
     try:
         body = resolver.get_current_body_yaml().to_dict()
     except Exception:
         body = {}
-    return home, body_id, body
+    profile: dict[str, Any] = {}
+    try:
+        import yaml
+
+        profile_text = resolver.eurdf_profile_path.read_text(encoding="utf-8")
+        profile = yaml.safe_load(profile_text) or {}
+    except Exception:
+        profile = {}
+    return home, body_id, body, profile
 
 
-def _is_perception_only(body: dict[str, Any]) -> bool:
-    """Check whether the active body is a perception-only camera rig."""
+def _is_perception_only(body: dict[str, Any], profile: dict[str, Any] | None = None) -> bool:
+    """Check whether the active body is a perception-only camera rig.
+
+    The body yaml may not carry the perception-only marker if it was generated
+    from an older body service; fall back to the linked e-URDF profile.
+    """
     safety = body.get("safety", {})
     if isinstance(safety, dict):
         env = safety.get("environment", {})
         if env.get("perception_only") or env.get("no_actuation"):
             return True
+        limits = safety.get("safety_limits", {})
+        if limits.get("perception_only") or limits.get("no_actuation"):
+            return True
     meta = body.get("metadata", {})
     if meta.get("perception_only") or meta.get("no_actuation"):
         return True
     forbidden = body.get("forbidden_capabilities", []) or []
-    return "actuation" in forbidden or "motion" in forbidden
+    if "actuation" in forbidden or "motion" in forbidden:
+        return True
+    if profile:
+        identity = profile.get("identity", {})
+        if identity.get("robot_class") in ("perception_only_camera", "realsense_d405", "realsense_d435i"):
+            return True
+        profile_safety = profile.get("safety", {})
+        limits = profile_safety.get("safety_limits", {}) if isinstance(profile_safety, dict) else {}
+        if limits.get("perception_only") or limits.get("no_actuation"):
+            return True
+    return False
 
 
 def _discover_realsense_mcp(home: Path | None) -> tuple[str, str] | tuple[None, None]:
@@ -83,7 +108,7 @@ def _discover_realsense_mcp(home: Path | None) -> tuple[str, str] | tuple[None, 
 
     for _prio, server_name in candidates:
         try:
-            tools = list_server_tools(server_name, home=home, timeout=5.0)
+            tools = list_server_tools(server_name, home=home, timeout=20.0)
             tool_names = {t.get("name") for t in tools}
             if "capture_aligned_rgbd" in tool_names:
                 return server_name, "capture_aligned_rgbd"
@@ -97,15 +122,23 @@ def _discover_realsense_mcp(home: Path | None) -> tuple[str, str] | tuple[None, 
     return None, None
 
 
-def _resolve_serial(body: dict[str, Any], params: dict[str, Any], home: Path | None = None) -> str | None:
-    """Pick a RealSense serial number."""
+def _resolve_serial(body: dict[str, Any], params: dict[str, Any], home: Path | None = None, profile: dict[str, Any] | None = None) -> str | None:
+    """Pick a RealSense serial number.
+
+    The explicit ``--serial`` parameter wins, then the linked body's
+    ``serial_number``.  If the body has no serial (or it is ``UNKNOWN``), ask
+    the MCP to enumerate devices and pick one that matches the e-URDF profile
+    when possible.  This avoids grabbing the wrong camera on a multi-RealSense
+    rig (e.g. D435I when the body is a D405).
+    """
     serial = params.get("serial")
     if serial:
         return serial
     serial = body.get("body_instance", {}).get("serial_number")
     if serial and serial != "UNKNOWN":
         return serial
-    # Ask the MCP to enumerate devices.
+
+    # Ask the MCP to enumerate devices and match against the profile.
     from rosclaw.firstboot.workspace import resolve_home
     from rosclaw.mcp.onboarding.installed import InstalledRegistry
     from rosclaw.mcp.onboarding.stdio_client import call_server_tool
@@ -116,16 +149,40 @@ def _resolve_serial(body: dict[str, Any], params: dict[str, Any], home: Path | N
         if "realsense" not in rec.server_name.lower():
             continue
         try:
-            result = call_server_tool(rec.server_name, "list_devices", {}, home=resolved_home, timeout=10.0)
+            result = call_server_tool(rec.server_name, "list_devices", {}, home=resolved_home, timeout=20.0)
             content = result.get("content", [])
             text = content[0].get("text", "{}") if content else "{}"
             data = json.loads(text)
             devices = data.get("devices", [])
-            if devices:
-                return str(devices[0].get("serial", devices[0].get("serial_number")))
+            if not devices:
+                continue
+            # Prefer a device whose product line matches the e-URDF profile.
+            matched = [d for d in devices if _device_matches_profile(d, profile)]
+            chosen = matched[0] if matched else devices[0]
+            return str(chosen.get("serial", chosen.get("serial_number")))
         except Exception:
             continue
     return None
+
+
+def _device_matches_profile(device: dict[str, Any], profile: dict[str, Any] | None) -> bool:
+    """Return True if a RealSense device matches the e-URDF profile."""
+    if not profile:
+        return False
+    name = (device.get("name") or "").lower()
+    identity = profile.get("identity", {}) if isinstance(profile, dict) else {}
+    robot_class = (identity.get("robot_class") or profile.get("profile_id") or "").lower()
+    if not robot_class:
+        return False
+    if "d405" in robot_class and "d405" in name:
+        return True
+    if "d435i" in robot_class and "d435i" in name:
+        return True
+    if "d435" in robot_class and ("d435" in name or "d435i" in name):
+        return True
+    if "dual" in robot_class:
+        return "realsense" in name
+    return False
 
 
 def _copy_artifact(src: str, dst_dir: Path) -> Path | None:
@@ -151,9 +208,9 @@ def run(params: dict[str, Any]) -> dict[str, Any]:
     from rosclaw.mcp.onboarding.stdio_client import McpServerSession, McpStdioError
 
     t0 = time.time()
-    home, body_id, body = _load_body(params)
+    home, body_id, body, profile = _load_body(params)
 
-    if body_id and not _is_perception_only(body):
+    if body_id and not _is_perception_only(body, profile):
         return {
             "status": "blocked",
             "reason": "Skill requires a perception-only RealSense body",
@@ -173,7 +230,7 @@ def run(params: dict[str, Any]) -> dict[str, Any]:
             "artifacts": {},
         }
 
-    serial = _resolve_serial(body, params, home=home)
+    serial = _resolve_serial(body, params, home=home, profile=profile)
     if not serial:
         return {
             "status": "error",

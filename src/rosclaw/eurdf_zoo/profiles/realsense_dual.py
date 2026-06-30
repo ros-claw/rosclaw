@@ -86,15 +86,12 @@ SAFETY = RobotSafetyProfile(
 CAPABILITY = RobotCapabilityProfile(
     robot_id="realsense_dual",
     capabilities=[
-        {"id": "head_rgb_observation", "name": "head_rgb_observation", "category": "perception", "skill_type": "programmed", "risk": "low"},
-        {"id": "head_depth_observation", "name": "head_depth_observation", "category": "perception", "skill_type": "programmed", "risk": "medium", "calibration_required": True},
-        {"id": "wrist_rgb_observation", "name": "wrist_rgb_observation", "category": "perception", "skill_type": "programmed", "risk": "low"},
-        {"id": "wrist_depth_observation", "name": "wrist_depth_observation", "category": "perception", "skill_type": "programmed", "risk": "medium", "calibration_required": True},
-        {"id": "wrist_imu_observation", "name": "wrist_imu_observation", "category": "perception", "skill_type": "programmed", "risk": "low"},
+        {"id": "rgb_camera", "name": "rgb_observation", "category": "perception", "skill_type": "programmed", "risk": "low"},
+        {"id": "depth_camera", "name": "depth_observation", "category": "perception", "skill_type": "programmed", "risk": "medium", "calibration_required": True},
+        {"id": "stereo_infrared", "name": "infrared_observation", "category": "perception", "skill_type": "programmed", "risk": "medium"},
+        {"id": "imu", "name": "imu_observation", "category": "perception", "skill_type": "programmed", "risk": "low"},
+        {"id": "dual_rgbd", "name": "dual_rgbd_observation", "category": "perception", "skill_type": "composed", "risk": "medium", "calibration_required": True},
         {"id": "hand_eye_visual_servo", "name": "hand_eye_visual_servo", "category": "manipulation", "skill_type": "composed", "risk": "high", "calibration_required": True, "sandbox_required": True},
-        {"id": "rgb_stream", "name": "rgb_stream", "category": "perception", "skill_type": "programmed", "risk": "low"},
-        {"id": "depth_stream", "name": "depth_stream", "category": "perception", "skill_type": "programmed", "risk": "medium", "calibration_required": True},
-        {"id": "aligned_rgbd", "name": "aligned_rgbd", "category": "perception", "skill_type": "composed", "risk": "medium", "calibration_required": True},
     ],
     skill_registry={
         "forbidden_capabilities": [

@@ -19,18 +19,28 @@ from rosclaw.practice.storage.catalog import PracticeCatalog
 from rosclaw.practice.storage.layout import PracticeLayout, generate_practice_id
 from rosclaw.practice.writers.jsonl_writer import JsonlWriter
 
+from rosclaw.runtime.bus import RuntimeBus
+from rosclaw.runtime.event import RuntimeEvent
+
 logger = logging.getLogger("rosclaw.practice.coordinator")
 
 
 class PracticeCoordinator(LifecycleMixin):
     """Coordinates a practice session: adapters, writers, catalog, SeekDB."""
 
-    def __init__(self, config: PracticeConfig | None = None):
+    def __init__(
+        self,
+        config: PracticeConfig | None = None,
+        runtime_bus: RuntimeBus | None = None,
+        recorder=None,
+    ):
         super().__init__()
         self.config = config or PracticeConfig()
         self.layout = PracticeLayout(self.config.data_root)
         self.catalog = PracticeCatalog(self.layout.catalog_db_path)
         self._event_bus = self.config.event_bus or EventBus()
+        self._runtime_bus = runtime_bus or RuntimeBus(event_bus=self._event_bus)
+        self._recorder = recorder
         self._adapters: list[SourceAdapter] = []
         self._writer: JsonlWriter | None = None
         self._session: PracticeSession | None = None
@@ -47,6 +57,11 @@ class PracticeCoordinator(LifecycleMixin):
     def event_bus(self) -> EventBus:
         """Public access to the coordinator's event bus for subscribers."""
         return self._event_bus
+
+    @property
+    def runtime_bus(self) -> RuntimeBus:
+        """Public access to the RuntimeBus."""
+        return self._runtime_bus
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -120,33 +135,54 @@ class PracticeCoordinator(LifecycleMixin):
             start_time_ns=start_ns,
             start_time_utc=start_utc,
         )
-        self._writer = JsonlWriter(
-            self.layout.events_jsonl_path(practice_id),
-            rotate_mb=self.config.recorder.jsonl_rotate_mb if self.config.recorder.jsonl_rotate_mb > 0 else None,
-        )
         self._event_count = 0
         self._summary = None
 
-        self.catalog.insert_practice(
-            {
-                "practice_id": practice_id,
-                "robot_id": self.config.robot_id,
-                "robot_type": self.config.robot_type,
-                "task_id": self.config.task_id,
-                "task_name": self.config.task_name,
-                "skill_id": self.config.skill_id,
-                "start_time": start_utc,
-                "manifest_path": str(self.layout.manifest_path(practice_id)),
-                "events_jsonl_path": str(self.layout.events_jsonl_path(practice_id)),
-                "outcome": "running",
-            }
-        )
-
-        self.layout.write_manifest(
-            self._session,
-            sources=self._sources_dict(),
-            seekdb_enabled=bool(self.config.seekdb.url),
-        )
+        if self._recorder is None:
+            self._writer = JsonlWriter(
+                self.layout.events_jsonl_path(practice_id),
+                rotate_mb=self.config.recorder.jsonl_rotate_mb if self.config.recorder.jsonl_rotate_mb > 0 else None,
+            )
+            self.catalog.insert_practice(
+                {
+                    "practice_id": practice_id,
+                    "robot_id": self.config.robot_id,
+                    "robot_type": self.config.robot_type,
+                    "task_id": self.config.task_id,
+                    "task_name": self.config.task_name,
+                    "skill_id": self.config.skill_id,
+                    "start_time": start_utc,
+                    "manifest_path": str(self.layout.manifest_path(practice_id)),
+                    "events_jsonl_path": str(self.layout.events_jsonl_path(practice_id)),
+                    "outcome": "running",
+                }
+            )
+            self.layout.write_manifest(
+                self._session,
+                sources=self._sources_dict(),
+                seekdb_enabled=bool(self.config.seekdb.url),
+            )
+        else:
+            self._runtime_bus.publish(
+                RuntimeEvent(
+                    type="practice.start",
+                    source="practice_coordinator",
+                    robot=self.config.robot_id,
+                    payload={
+                        "practice_id": practice_id,
+                        "robot_id": self.config.robot_id,
+                        "robot_type": self.config.robot_type,
+                        "task_id": self.config.task_id,
+                        "task_name": self.config.task_name,
+                        "skill_id": self.config.skill_id,
+                        "session_id": practice_id,
+                        "session_dir": str(session_dir),
+                        "sources": self._sources_dict(),
+                        "seekdb_enabled": bool(self.config.seekdb.url),
+                    },
+                    metadata={"trace_id": practice_id},
+                )
+            )
 
         for adapter in self._adapters:
             try:
@@ -256,49 +292,85 @@ class PracticeCoordinator(LifecycleMixin):
             failure_labels=failure_labels,
         )
 
-        self.catalog.update_practice(
-            self._session.practice_id if self._session else "unknown",
-            {
-                "end_time": _utc_now_iso(),
-                "duration_ms": duration_ms,
-                "outcome": outcome,
-                "reward": reward,
-            },
-        )
-
-        if self._writer is not None:
-            self._writer.close()
-            self._writer = None
-
-        if self._session is not None:
-            self.layout.write_manifest(
-                self._session,
-                summary=self._summary,
-                sources=self._sources_dict(),
-                seekdb_enabled=bool(self.config.seekdb.url),
-            )
-            self.layout.finalize_session(
-                self._session.practice_id,
-                self._session,
-                self._summary,
-                sources=self._sources_dict(),
+        if self._recorder is None:
+            self.catalog.update_practice(
+                self._session.practice_id if self._session else "unknown",
+                {
+                    "end_time": _utc_now_iso(),
+                    "duration_ms": duration_ms,
+                    "outcome": outcome,
+                    "reward": reward,
+                },
             )
 
-        if self.config.publish_to_event_bus and self._session is not None:
-            self._event_bus.publish(
-                Event(
-                    topic="practice.session_finished",
-                    payload={
-                        "practice_id": self._session.practice_id,
-                        "robot_id": self.config.robot_id,
-                        "outcome": outcome,
-                        "reward": reward,
-                        "duration_ms": duration_ms,
-                        "event_count": self._event_count,
-                    },
-                    source="practice_coordinator",
+            if self._writer is not None:
+                self._writer.close()
+                self._writer = None
+
+            if self._session is not None:
+                self.layout.write_manifest(
+                    self._session,
+                    summary=self._summary,
+                    sources=self._sources_dict(),
+                    seekdb_enabled=bool(self.config.seekdb.url),
                 )
-            )
+                self.layout.finalize_session(
+                    self._session.practice_id,
+                    self._session,
+                    self._summary,
+                    sources=self._sources_dict(),
+                )
+
+            if self.config.publish_to_event_bus and self._session is not None:
+                self._event_bus.publish(
+                    Event(
+                        topic="practice.session_finished",
+                        payload={
+                            "practice_id": self._session.practice_id,
+                            "robot_id": self.config.robot_id,
+                            "outcome": outcome,
+                            "reward": reward,
+                            "duration_ms": duration_ms,
+                            "event_count": self._event_count,
+                        },
+                        source="practice_coordinator",
+                    )
+                )
+        else:
+            if self._session is not None:
+                self._runtime_bus.publish(
+                    RuntimeEvent(
+                        type="practice.stop",
+                        source="practice_coordinator",
+                        robot=self.config.robot_id,
+                        payload={
+                            "practice_id": self._session.practice_id,
+                            "outcome": outcome,
+                            "reward": reward,
+                            "duration_ms": duration_ms,
+                            "event_count": self._event_count,
+                            "failure_labels": failure_labels,
+                            "sources": self._sources_dict(),
+                            "seekdb_enabled": bool(self.config.seekdb.url),
+                        },
+                        metadata={"trace_id": self._session.practice_id},
+                    )
+                )
+            if self.config.publish_to_event_bus and self._session is not None:
+                self._event_bus.publish(
+                    Event(
+                        topic="practice.session_finished",
+                        payload={
+                            "practice_id": self._session.practice_id,
+                            "robot_id": self.config.robot_id,
+                            "outcome": outcome,
+                            "reward": reward,
+                            "duration_ms": duration_ms,
+                            "event_count": self._event_count,
+                        },
+                        source="practice_coordinator",
+                    )
+                )
 
         logger.info("Practice session stopped: %s", self._session.practice_id if self._session else "unknown")
 
@@ -341,45 +413,73 @@ class PracticeCoordinator(LifecycleMixin):
             if event.event_type not in {"runtime.start", "runtime.stop"}:
                 self._source_event_count += 1
 
-        # Local JSONL
-        if self._writer is not None:
+        if self._recorder is None:
+            # Legacy file-backed path.
+            # Local JSONL
+            if self._writer is not None:
+                try:
+                    self._writer.write(event.model_dump(mode="json"))
+                except Exception as e:
+                    logger.error("Failed to write event to JSONL: %s", e)
+
+            # Local catalog
             try:
-                self._writer.write(event.model_dump(mode="json"))
+                self.catalog.insert_event(
+                    {
+                        "event_id": event.event_id,
+                        "practice_id": event.practice_id,
+                        "source": event.source,
+                        "event_type": event.event_type,
+                        "timestamp_ns": event.timestamp_ns,
+                        "timestamp_utc": event.timestamp_utc,
+                        "action_id": event.action_id,
+                        "task_id": event.task_id,
+                        "skill_id": event.skill_id,
+                        "payload_ref": json.dumps(event.payload_ref) if event.payload_ref else None,
+                        "tags": ",".join(event.tags),
+                    }
+                )
             except Exception as e:
-                logger.error("Failed to write event to JSONL: %s", e)
+                logger.error("Failed to insert event into catalog: %s", e)
 
-        # Local catalog
-        try:
-            self.catalog.insert_event(
-                {
-                    "event_id": event.event_id,
-                    "practice_id": event.practice_id,
-                    "source": event.source,
-                    "event_type": event.event_type,
-                    "timestamp_ns": event.timestamp_ns,
-                    "timestamp_utc": event.timestamp_utc,
-                    "action_id": event.action_id,
-                    "task_id": event.task_id,
-                    "skill_id": event.skill_id,
-                    "payload_ref": json.dumps(event.payload_ref) if event.payload_ref else None,
-                    "tags": ",".join(event.tags),
-                }
-            )
-        except Exception as e:
-            logger.error("Failed to insert event into catalog: %s", e)
-
-        # EventBus
-        if self.config.publish_to_event_bus:
+            # EventBus
+            if self.config.publish_to_event_bus:
+                try:
+                    self._event_bus.publish(
+                        Event(
+                            topic="practice.event",
+                            payload=event.model_dump(mode="json"),
+                            source=f"practice_coordinator:{event.source}",
+                        )
+                    )
+                except Exception as e:
+                    logger.error("Failed to publish practice.event: %s", e)
+        else:
+            # Runtime Kernel v2 path: publish a RuntimeEvent for the recorder.
             try:
-                self._event_bus.publish(
-                    Event(
-                        topic="practice.event",
+                self._runtime_bus.publish(
+                    RuntimeEvent(
+                        type=event.event_type,
+                        source=event.source,
+                        robot=event.robot_id,
                         payload=event.model_dump(mode="json"),
-                        source=f"practice_coordinator:{event.source}",
+                        metadata={
+                            "trace_id": event.trace_id or event.practice_id,
+                            "source": event.source,
+                            "task_id": event.task_id,
+                            "skill_id": event.skill_id,
+                            "action_id": event.action_id,
+                            "frame_id": event.frame_id,
+                            "tags": event.tags,
+                            "quality": event.quality,
+                            "payload_ref": event.payload_ref,
+                            "parent_event_id": event.parent_event_id,
+                            "source_timestamp_ns": event.source_timestamp_ns,
+                        },
                     )
                 )
             except Exception as e:
-                logger.error("Failed to publish practice.event: %s", e)
+                logger.error("Failed to publish runtime event: %s", e)
 
     # ------------------------------------------------------------------
     # Utilities

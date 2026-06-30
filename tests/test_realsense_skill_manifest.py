@@ -29,7 +29,8 @@ class TestRealsenseSkillManifest:
         )
         manifest = SkillManifest.from_yaml(manifest_path)
         assert manifest.skill_id == "realsense_capture_rgbd"
-        assert "aligned_rgbd" in manifest.requires.get("capabilities", {}).get("all_of", [])
+        assert "rgb_camera" in manifest.requires.get("capabilities", {}).get("all_of", [])
+        assert "depth_camera" in manifest.requires.get("capabilities", {}).get("all_of", [])
         assert "perception_only_camera" in manifest.requires.get("robot_class", [])
 
     def test_resolver_discovers_builtin_manifests(self, tmp_path):

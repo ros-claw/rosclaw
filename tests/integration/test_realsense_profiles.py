@@ -65,7 +65,11 @@ class TestRealSenseD405:
         profile = REALSENSE_D405_PROFILE
         cap = profile.capability
         assert isinstance(cap, RobotCapabilityProfile)
-        assert len(cap.capabilities) == 4
+        assert len(cap.capabilities) == 3
+        cap_ids = {c["id"] for c in cap.capabilities}
+        assert "rgb_camera" in cap_ids
+        assert "depth_camera" in cap_ids
+        assert "stereo_infrared" in cap_ids
         cap_names = {c["name"] for c in cap.capabilities}
         assert "rgb_observation" in cap_names
         assert "depth_observation" in cap_names

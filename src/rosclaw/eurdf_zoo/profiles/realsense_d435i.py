@@ -89,11 +89,10 @@ SAFETY = RobotSafetyProfile(
 CAPABILITY = RobotCapabilityProfile(
     robot_id="realsense_d435i",
     capabilities=[
-        {"id": "rgb_stream", "name": "rgb_observation", "category": "perception", "skill_type": "programmed", "risk": "low"},
-        {"id": "depth_stream", "name": "depth_observation", "category": "perception", "skill_type": "programmed", "risk": "medium", "calibration_required": True},
-        {"id": "aligned_rgbd", "name": "rgbd_scene_understanding", "category": "perception", "skill_type": "composed", "risk": "medium", "calibration_required": True},
-        {"id": "infrared_observation", "name": "infrared_observation", "category": "perception", "skill_type": "programmed", "risk": "medium"},
-        {"id": "imu_observation", "name": "imu_observation", "category": "perception", "skill_type": "programmed", "risk": "low"},
+        {"id": "rgb_camera", "name": "rgb_observation", "category": "perception", "skill_type": "programmed", "risk": "low"},
+        {"id": "depth_camera", "name": "depth_observation", "category": "perception", "skill_type": "programmed", "risk": "medium", "calibration_required": True},
+        {"id": "stereo_infrared", "name": "infrared_observation", "category": "perception", "skill_type": "programmed", "risk": "medium"},
+        {"id": "imu", "name": "imu_observation", "category": "perception", "skill_type": "programmed", "risk": "low"},
     ],
     skill_registry={
         "forbidden_capabilities": [

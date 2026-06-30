@@ -199,13 +199,28 @@ class EffectiveBodyCompiler:
                     degraded.add(cap)
                     enabled.discard(cap)
 
-        # Experimental / real-robot-blocked assets keep manipulation capabilities
-        # as simulation-only until the safety policy explicitly allows real execution.
+        # Experimental / real-robot-blocked assets keep read-only / perception
+        # capabilities enabled; only motion/actuation capabilities are degraded
+        # to simulation-only.
         real_allowed = eurdf.safety.get("environment", {}).get("real_robot_execution_allowed", True)
         if not real_allowed:
+            read_only_caps = {
+                "get_state",
+                "read_state",
+                "list_joints",
+                "report_faults",
+                # Generic sensor/perception capabilities remain enabled for
+                # perception-only bodies (e.g. RealSense cameras).
+                "rgb_camera",
+                "depth_camera",
+                "stereo_infrared",
+                "imu",
+                "lidar",
+                "microphone",
+                "speaker",
+            }
             for cap in list(enabled):
-                # Leave read-only / introspection capabilities enabled; degrade motion capabilities.
-                if cap.lower() in {"get_state", "read_state", "list_joints", "report_faults"}:
+                if cap.lower() in read_only_caps:
                     continue
                 degraded.add(cap)
                 enabled.discard(cap)

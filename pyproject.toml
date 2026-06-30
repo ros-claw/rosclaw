@@ -80,6 +80,9 @@ rosclaw-ur5-mcp = "rosclaw.mcp.ur5_server:main"
 rosclaw-mcp = "rosclaw.mcp.minimal_server:main"
 rosclaw-mcp-serve = "rosclaw.mcp.server:main"
 
+[project.entry-points."rosclaw.runtime_handlers"]
+rosclaw_builtin = "rosclaw.runtime.handlers"
+
 [project.urls]
 Homepage = "https://rosclaw.io"
 Repository = "https://github.com/ros-claw/rosclaw"

@@ -8,14 +8,15 @@ description: |
 requires:
   capabilities:
     any_of:
-      - aligned_rgbd
-      - rgb_stream
+      - rgb_camera
+      - depth_camera
   sensors:
     any_of:
       - id: color_camera
       - id: depth_camera
   robot_class:
     - perception_only_camera
+    - rgbd_camera
     - realsense_d405
     - realsense_d435i
     - realsense_dual

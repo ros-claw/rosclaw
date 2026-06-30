@@ -324,3 +324,19 @@ class ProviderRegistry:
             "unhealthy_providers": total - healthy,
             "by_type": by_type,
         }
+
+    def get_reasoner(self, provider_id: str | None = None) -> Any:
+        """Return a ``PhysicalReasoner`` facade for the requested provider.
+
+        Falls back to the provider factory abstraction (``rosclaw.provider.reasoner``)
+        when no registered provider matches ``provider_id``.
+        """
+        from rosclaw.provider.reasoner import get_reasoner
+
+        if provider_id:
+            try:
+                manifest = self.get_manifest(provider_id)
+                return get_reasoner(manifest.type or provider_id)
+            except ProviderNotFoundError:
+                pass
+        return get_reasoner(provider_id)

@@ -487,7 +487,7 @@ def dispatch_mcp_health(args: argparse.Namespace) -> int:
         record = registry.get(server_name)
         source_type = record.extra.get("source_type") if record else None
         if source_type in ("git", "local_path"):
-            return stdio_client.health_smoke(server_name, timeout=10.0)
+            return stdio_client.health_smoke(server_name, timeout=20.0)
         runner = HealthRunner()
         report = runner.check(server_name, full=args.full)
         return {

@@ -8,18 +8,15 @@ description: |
 requires:
   capabilities:
     all_of:
-      - aligned_rgbd
-      - rgb_stream
-      - depth_stream
+      - rgb_camera
+      - depth_camera
   sensors:
     all_of:
       - id: color_camera
       - id: depth_camera
   robot_class:
     - perception_only_camera
-    - realsense_d405
-    - realsense_d435i
-    - realsense_dual
+    - rgbd_camera
 degradation_policy:
   allow_uncalibrated_camera: true
   allow_usb2_degraded: true

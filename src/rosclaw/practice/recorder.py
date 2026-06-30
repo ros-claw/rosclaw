@@ -1,81 +1,434 @@
-"""Practice Recorder - Timeline Grounding
+"""PracticeRecorder — runtime consumer + legacy DataFlywheel recorder.
 
-Records robot execution traces using the DataFlywheel.
-All communication goes through EventBus — no direct module calls.
+In Runtime Kernel v2 the recorder is a first-class RuntimeBus consumer: it
+subscribes to runtime events, builds a practice session on ``practice.start``,
+writes events to the local filesystem layout, and finalizes the episode on
+``practice.stop``.
 
-v1.0 EventBus Integration:
-- Publishes praxis.completed / praxis.failed events
-- Subscribes to knowledge.ingest_complete
-- Publishes heuristic.recovery_executed outcomes
+The legacy EventBus/DataFlywheel API is preserved for existing callers and
+tests. When constructed with a robot id string and an optional EventBus, the
+recorder creates an internal RuntimeBus wrapper and continues to publish
+``praxis.completed`` / ``praxis.failed`` / ``heuristic.recovery_executed`` on
+that EventBus.
 """
 
+from __future__ import annotations
+
+import json
 import logging
+import threading
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
 from rosclaw.data.flywheel import DataFlywheel, EventType
+from rosclaw.practice.config import DEFAULT_DATA_ROOT, PracticeSession, PracticeSummary
+from rosclaw.practice.schemas import PracticeEventEnvelope, SCHEMA_VERSION
+from rosclaw.practice.storage.catalog import PracticeCatalog
+from rosclaw.practice.storage.layout import PracticeLayout, generate_practice_id
+from rosclaw.practice.writers.jsonl_writer import JsonlWriter
+from rosclaw.runtime.bus import RuntimeBus
+from rosclaw.runtime.component import RuntimeConsumer
+from rosclaw.runtime.event import RuntimeEvent
 
 logger = logging.getLogger("rosclaw.practice.recorder")
 
+_ALLOWED_SOURCES = {
+    "dds",
+    "ros2",
+    "camera",
+    "agent",
+    "provider",
+    "sandbox",
+    "runtime",
+    "human",
+    "system",
+}
 
-class PracticeRecorder(LifecycleMixin):
+
+class PracticeRecorder(RuntimeConsumer):
+    """Records runtime events and preserves the legacy EventBus/DataFlywheel API.
+
+    Two construction styles are supported:
+
+    1. Runtime Kernel v2::
+
+           bus = RuntimeBus()
+           recorder = PracticeRecorder(bus, data_root="/data/rosclaw/practice")
+           recorder.initialize(); recorder.start()
+
+    2. Legacy style (preserved for compatibility)::
+
+           recorder = PracticeRecorder("ur5e_01", joint_dof=6, event_bus=bus)
+           recorder.initialize(); recorder.start_recording()
     """
-    Records robot practice sessions and execution traces.
 
-    Uses the DataFlywheel for high-frequency capture
-    and event-triggered persistence.
+    def __init__(
+        self,
+        runtime_bus_or_robot_id: RuntimeBus | str,
+        joint_dof: int = 6,
+        event_bus: EventBus | None = None,
+        data_root: str | Path = DEFAULT_DATA_ROOT,
+        publish_to_event_bus: bool = True,
+    ) -> None:
+        # Resolve the RuntimeBus and robot id from the first argument.
+        if isinstance(runtime_bus_or_robot_id, RuntimeBus):
+            runtime_bus = runtime_bus_or_robot_id
+            self.robot_id = getattr(runtime_bus, "robot_id", None) or "default_robot"
+        else:
+            self.robot_id = runtime_bus_or_robot_id
+            runtime_bus = RuntimeBus(event_bus=event_bus or EventBus())
 
-    Subscribes to agent.command via EventBus to auto-record
-    all robot actions.
-
-    EventBus Integration (v1.0):
-    - Publishes praxis.completed after successful execution
-    - Publishes praxis.failed on failure (with error context)
-    - Subscribes to knowledge.ingest_complete for KNOW tracking
-    - Publishes heuristic.recovery_executed after recovery attempts
-    """
-
-    def __init__(self, robot_id: str, joint_dof: int = 6, event_bus: EventBus | None = None):
-        super().__init__()
-        self.robot_id = robot_id
+        super().__init__("practice_recorder", runtime_bus)
         self.joint_dof = joint_dof
-        self.event_bus = event_bus
+        self._legacy_event_bus = event_bus
+        self._publish_to_event_bus = publish_to_event_bus
+
+        # Runtime Kernel v2 recording state.
+        self.layout = PracticeLayout(data_root)
+        self._catalog: PracticeCatalog | None = None
+        self._writer: JsonlWriter | None = None
+        self._session: PracticeSession | None = None
+        self._summary: PracticeSummary | None = None
+        self._event_count = 0
+        self._source_event_count = 0
+        self._failure_labels: list[str] = []
+        self._lock = threading.RLock()
+
+        # Legacy state.
         self._flywheel: DataFlywheel | None = None
         self._recording = False
-
-        # Failure context tracking for praxis.failed events
         self._failure_context: dict[str, Any] = {
             "previous_scores": [],
             "current_iteration": 0,
             "last_error": "",
         }
-
-        # Knowledge ingest tracking
         self._knowledge_ingest_log: list[dict] = []
+        self._legacy_subscriptions: list[tuple[str, Any]] = []
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
 
     def _do_initialize(self) -> None:
-        """Initialize the practice recorder (flywheel + EventBus subscription)."""
-        self._flywheel = DataFlywheel(
-            robot_id=self.robot_id,
-            joint_dof=self.joint_dof,
-        )
-        if self.event_bus is not None:
-            self.event_bus.subscribe("skill.execution.complete", self._on_skill_complete)
-            self.event_bus.subscribe("knowledge.ingest_complete", self._on_knowledge_ingest_complete)
+        """Initialize the file layout and legacy DataFlywheel."""
+        self.layout.ensure_directories()
+        try:
+            self._flywheel = DataFlywheel(
+                robot_id=self.robot_id,
+                joint_dof=self.joint_dof,
+            )
+        except Exception as exc:
+            logger.warning("Failed to initialize DataFlywheel: %s", exc)
+            self._flywheel = None
+
+        # Legacy subscriptions on the raw EventBus.
+        if self._legacy_event_bus is not None:
+            self._legacy_event_bus.subscribe("skill.execution.complete", self._on_skill_complete)
+            self._legacy_event_bus.subscribe("knowledge.ingest_complete", self._on_knowledge_ingest_complete)
+            self._legacy_subscriptions = [
+                ("skill.execution.complete", self._on_skill_complete),
+                ("knowledge.ingest_complete", self._on_knowledge_ingest_complete),
+            ]
+
         logger.info("Recorder initialized for %s (flywheel mode)", self.robot_id)
 
+    def _do_start(self) -> None:
+        """Start runtime subscriptions."""
+        # Runtime Kernel v2: subscribe to all runtime events.
+        super()._do_start()
+
     def _do_stop(self) -> None:
-        """Stop the recorder and unsubscribe from EventBus."""
-        if self.event_bus is not None:
-            self.event_bus.unsubscribe("skill.execution.complete", self._on_skill_complete)
-            self.event_bus.unsubscribe("knowledge.ingest_complete", self._on_knowledge_ingest_complete)
+        """Stop legacy and runtime subscriptions, finalize any open session."""
+        # Unsubscribe legacy callbacks first.
+        if self._legacy_event_bus is not None:
+            for topic, callback in self._legacy_subscriptions:
+                try:
+                    self._legacy_event_bus.unsubscribe(topic, callback)
+                except Exception as exc:
+                    logger.debug("Legacy unsubscribe failed: %s", exc)
+            self._legacy_subscriptions.clear()
+
+        # Finalize an open runtime session if the stop event was missed.
+        if self._session is not None:
+            self._finalize_runtime_session("UNKNOWN")
+
+        super()._do_stop()
+
+    # ------------------------------------------------------------------
+    # Runtime Kernel v2 consumer API
+    # ------------------------------------------------------------------
+
+    def on_event(self, event: RuntimeEvent) -> None:
+        """Handle every runtime event."""
+        if event.type == "practice.start":
+            self._on_practice_start(event)
+        elif event.type == "practice.stop":
+            self._on_practice_stop(event)
+        elif self._session is not None:
+            self._record_event(event)
+
+    def _on_practice_start(self, event: RuntimeEvent) -> None:
+        if self._session is not None:
+            logger.warning(
+                "PracticeRecorder received practice.start while already recording %s; ignoring",
+                self._session.practice_id,
+            )
+            return
+
+        payload = event.payload or {}
+        practice_id = payload.get("practice_id") or generate_practice_id()
+        robot_id = payload.get("robot_id") or event.robot or self.robot_id
+        robot_type = payload.get("robot_type") or event.metadata.get("robot_type")
+        task_id = payload.get("task_id") or event.metadata.get("task_id")
+        task_name = payload.get("task_name") or event.metadata.get("task_name")
+        skill_id = payload.get("skill_id") or event.metadata.get("skill_id")
+        session_id = payload.get("session_id") or event.id
+
+        session_dir = (
+            Path(payload["session_dir"])
+            if payload.get("session_dir")
+            else self.layout.create_session_dirs(practice_id)
+        )
+        start_time_utc = _format_utc(event.timestamp)
+        start_time_ns = _datetime_to_ns(event.timestamp)
+
+        self._session = PracticeSession(
+            practice_id=practice_id,
+            robot_id=robot_id,
+            task_id=task_id,
+            task_name=task_name,
+            skill_id=skill_id,
+            session_dir=session_dir,
+            start_time_ns=start_time_ns,
+            start_time_utc=start_time_utc,
+            robot_type=robot_type,
+            session_id=session_id,
+            tags=list(event.metadata.get("tags", [])),
+            metadata=dict(event.metadata.get("session_metadata", {})),
+        )
+
+        self._event_count = 0
+        self._source_event_count = 0
+        self._failure_labels = []
+
+        self._writer = JsonlWriter(self.layout.events_jsonl_path(practice_id), rotate_mb=None)
+        self._catalog = PracticeCatalog(self.layout.catalog_db_path)
+
+        self._catalog.insert_practice(
+            {
+                "practice_id": practice_id,
+                "session_id": session_id,
+                "robot_id": robot_id,
+                "robot_type": robot_type,
+                "task_id": task_id,
+                "task_name": task_name,
+                "skill_id": skill_id,
+                "start_time": start_time_utc,
+                "manifest_path": str(self.layout.manifest_path(practice_id)),
+                "events_jsonl_path": str(self.layout.events_jsonl_path(practice_id)),
+                "outcome": "running",
+            }
+        )
+
+        self.layout.write_manifest(
+            self._session,
+            sources=payload.get("sources", {}),
+            seekdb_enabled=payload.get("seekdb_enabled", False),
+        )
+
+        logger.info("PracticeRecorder started session: %s", practice_id)
+
+    def _on_practice_stop(self, event: RuntimeEvent) -> None:
+        if self._session is None:
+            logger.warning("PracticeRecorder received practice.stop with no active session")
+            return
+
+        payload = event.payload or {}
+        duration_ms = payload.get("duration_ms")
+        if duration_ms is None:
+            duration_ms = (_datetime_to_ns(event.timestamp) - self._session.start_time_ns) / 1_000_000.0
+
+        outcome = payload.get("outcome", "UNKNOWN")
+        reward = payload.get("reward")
+        failure_labels = payload.get("failure_labels", [])
+        event_count = payload.get("event_count", self._event_count)
+
+        self._summary = PracticeSummary(
+            practice_id=self._session.practice_id,
+            robot_id=self._session.robot_id,
+            outcome=outcome,
+            reward=reward,
+            duration_ms=duration_ms,
+            event_count=event_count,
+            artifact_dir=self._session.session_dir,
+            failure_labels=failure_labels,
+        )
+
+        self._finalize_runtime_session(outcome, reward=reward, duration_ms=duration_ms, event_count=event_count)
+
+    def _finalize_runtime_session(
+        self,
+        outcome: str,
+        reward: float | None = None,
+        duration_ms: float | None = None,
+        event_count: int | None = None,
+        failure_labels: list[str] | None = None,
+    ) -> None:
+        if self._session is None:
+            return
+
+        if duration_ms is None:
+            duration_ms = (time.monotonic_ns() - self._session.start_time_ns) / 1_000_000.0
+        if event_count is None:
+            event_count = self._event_count
+
+        self._summary = PracticeSummary(
+            practice_id=self._session.practice_id,
+            robot_id=self._session.robot_id,
+            outcome=outcome,
+            reward=reward,
+            duration_ms=duration_ms,
+            event_count=event_count,
+            artifact_dir=self._session.session_dir,
+            failure_labels=failure_labels or list(self._failure_labels),
+        )
+
+        if self._catalog is not None:
+            self._catalog.update_practice(
+                self._session.practice_id,
+                {
+                    "end_time": _utc_now_iso(),
+                    "duration_ms": duration_ms,
+                    "outcome": outcome,
+                    "reward": reward,
+                },
+            )
+
+        if self._writer is not None:
+            self._writer.close()
+            self._writer = None
+
+        sources = self._session.metadata.get("sources", {}) if self._session.metadata else {}
+        seekdb_enabled = self._session.metadata.get("seekdb_enabled", False) if self._session.metadata else False
+
+        self.layout.write_manifest(self._session, summary=self._summary, sources=sources, seekdb_enabled=seekdb_enabled)
+        self.layout.finalize_session(
+            self._session.practice_id,
+            self._session,
+            self._summary,
+            sources=sources,
+        )
+
+        logger.info("PracticeRecorder stopped session: %s (%s)", self._session.practice_id, outcome)
+
+        self._session = None
+        self._summary = None
+        if self._catalog is not None:
+            self._catalog.close()
+            self._catalog = None
+
+    def _record_event(self, event: RuntimeEvent) -> None:
+        envelope = self._runtime_to_envelope(event)
+
+        with self._lock:
+            self._event_count += 1
+            envelope.sequence_id = self._event_count
+            if envelope.event_type not in {"runtime.start", "runtime.stop"}:
+                self._source_event_count += 1
+
+        if self._writer is not None:
+            try:
+                self._writer.write(envelope.model_dump(mode="json"))
+            except Exception as e:
+                logger.error("Failed to write event to JSONL: %s", e)
+
+        if self._catalog is not None:
+            try:
+                self._catalog.insert_event(
+                    {
+                        "event_id": envelope.event_id,
+                        "practice_id": envelope.practice_id,
+                        "source": envelope.source,
+                        "event_type": envelope.event_type,
+                        "timestamp_ns": envelope.timestamp_ns,
+                        "timestamp_utc": envelope.timestamp_utc,
+                        "action_id": envelope.action_id,
+                        "task_id": envelope.task_id,
+                        "skill_id": envelope.skill_id,
+                        "payload_ref": json.dumps(envelope.payload_ref) if envelope.payload_ref else None,
+                        "tags": ",".join(envelope.tags),
+                    }
+                )
+            except Exception as e:
+                logger.error("Failed to insert event into catalog: %s", e)
+
+        if self._publish_to_event_bus and self._legacy_event_bus is not None:
+            try:
+                self._legacy_event_bus.publish(
+                    Event(
+                        topic="practice.event",
+                        payload=envelope.model_dump(mode="json"),
+                        source=f"practice_recorder:{envelope.source}",
+                    )
+                )
+            except Exception as e:
+                logger.error("Failed to publish practice.event: %s", e)
+
+    def _runtime_to_envelope(self, event: RuntimeEvent) -> PracticeEventEnvelope:
+        payload = event.payload or {}
+
+        # If a producer already embedded a full PracticeEventEnvelope, reuse it.
+        if payload.get("schema_version") == SCHEMA_VERSION and "practice_id" in payload:
+            return PracticeEventEnvelope(**payload)
+
+        md = event.metadata or {}
+        source = md.get("source", event.source)
+        if source not in _ALLOWED_SOURCES:
+            source = "system"
+
+        ts_ns = _datetime_to_ns(event.timestamp)
+        ts_utc = _format_utc(event.timestamp)
+
+        return PracticeEventEnvelope(
+            practice_id=self._session.practice_id,
+            session_id=self._session.session_id,
+            robot_id=event.robot or self._session.robot_id,
+            source=source,
+            event_type=event.type,
+            timestamp_ns=ts_ns,
+            timestamp_utc=ts_utc,
+            source_timestamp_ns=md.get("source_timestamp_ns"),
+            trace_id=md.get("trace_id") or self._session.practice_id,
+            parent_event_id=md.get("parent_event_id"),
+            frame_id=md.get("frame_id"),
+            task_id=md.get("task_id") or self._session.task_id,
+            skill_id=md.get("skill_id") or self._session.skill_id,
+            action_id=md.get("action_id"),
+            payload=payload,
+            payload_ref=md.get("payload_ref", {}),
+            quality=md.get("quality", {}),
+            tags=list(md.get("tags", [])),
+        )
+
+    @property
+    def session(self) -> PracticeSession | None:
+        return self._session
+
+    @property
+    def summary(self) -> PracticeSummary | None:
+        return self._summary
+
+    # ------------------------------------------------------------------
+    # Legacy DataFlywheel / EventBus API (preserved for compatibility)
+    # ------------------------------------------------------------------
 
     def _on_skill_complete(self, event) -> None:
         """Handle skill.execution.complete and publish praxis.completed/failed."""
-        if self.event_bus is None:
+        if self._legacy_event_bus is None:
             return
         payload = event.payload if hasattr(event, "payload") else {}
         if not isinstance(payload, dict):
@@ -84,93 +437,96 @@ class PracticeRecorder(LifecycleMixin):
         status = result.get("status")
         correlation_id = payload.get("correlation_id", "")
         skill_name = payload.get("skill_name", "")
-        # Update failure context tracking
+
         self._failure_context["current_iteration"] += 1
         iteration = self._failure_context["current_iteration"]
+
         if status == "success":
             self._failure_context["previous_scores"].append(result.get("reward", 1.0))
-            self.event_bus.publish(Event(
-                topic="praxis.completed",
-                payload={
-                    "practice_id": correlation_id,
-                    "event_type": "praxis.completed",
-                    "robot_id": self.robot_id,
-                    "outcome": {
-                        "status": "success",
-                        "reward": result.get("reward", 1.0),
-                        "skill_name": skill_name,
-                        "details": {"details": result.get("details", {})},
+            self._legacy_event_bus.publish(
+                Event(
+                    topic="praxis.completed",
+                    payload={
+                        "practice_id": correlation_id,
+                        "event_type": "praxis.completed",
+                        "robot_id": self.robot_id,
+                        "outcome": {
+                            "status": "success",
+                            "reward": result.get("reward", 1.0),
+                            "skill_name": skill_name,
+                            "details": {"details": result.get("details", {})},
+                        },
+                        "current_iteration": iteration,
+                        "previous_scores": list(self._failure_context["previous_scores"]),
+                        "timestamp": time.time(),
                     },
-                    "current_iteration": iteration,
-                    "previous_scores": list(self._failure_context["previous_scores"]),
-                    "timestamp": time.time(),
-                },
-                source="practice_recorder",
-                priority=EventPriority.NORMAL,
-            ))
+                    source="practice_recorder",
+                    priority=EventPriority.NORMAL,
+                )
+            )
         elif status == "failure":
             error = result.get("error", "")
             self._failure_context["last_error"] = error
             self._failure_context["previous_scores"].append(result.get("reward", -1.0))
-            self.event_bus.publish(Event(
-                topic="praxis.failed",
-                payload={
-                    "practice_id": correlation_id,
-                    "event_type": "praxis.failed",
-                    "robot_id": self.robot_id,
-                    "outcome": {
-                        "status": "failure",
-                        "reward": result.get("reward", -1.0),
-                        "skill_name": skill_name,
-                        "details": {"details": result.get("details", {})},
+            self._legacy_event_bus.publish(
+                Event(
+                    topic="praxis.failed",
+                    payload={
+                        "practice_id": correlation_id,
+                        "event_type": "praxis.failed",
+                        "robot_id": self.robot_id,
+                        "outcome": {
+                            "status": "failure",
+                            "reward": result.get("reward", -1.0),
+                            "skill_name": skill_name,
+                            "details": {"details": result.get("details", {})},
+                        },
+                        "error_log": error,
+                        "current_iteration": iteration,
+                        "previous_scores": list(self._failure_context["previous_scores"]),
+                        "timestamp": time.time(),
                     },
-                    "error_log": error,
-                    "current_iteration": iteration,
-                    "previous_scores": list(self._failure_context["previous_scores"]),
-                    "timestamp": time.time(),
-                },
-                source="practice_recorder",
-                priority=EventPriority.HIGH,
-            ))
-
-    def record_recovery_outcome(self, rule_id: str, success: bool, duration: float, correlation_id: str = "") -> None:
-        """Record heuristic recovery outcome and publish event. Subscribers: HOW.
-
-        Args:
-            rule_id: Identifier of the heuristic rule that was applied
-            success: Whether the recovery was successful
-            duration: Time taken for recovery in seconds
-            correlation_id: Optional correlation ID linking to the original praxis
-        """
-        if self.event_bus is None:
-            return
-
-        self.event_bus.publish(Event(
-            topic="heuristic.recovery_executed",
-            payload={
-                "rule_id": rule_id,
-                "success": success,
-                "duration": duration,
-                "robot_id": self.robot_id,
-                "timestamp": time.time(),
-                "correlation_id": correlation_id,
-            },
-            source="practice_recorder",
-            priority=EventPriority.NORMAL,
-        ))
-        logger.info("Published heuristic.recovery_executed for rule %s", rule_id)
+                    source="practice_recorder",
+                    priority=EventPriority.HIGH,
+                )
+            )
 
     def _on_knowledge_ingest_complete(self, event) -> None:
         """Handle knowledge.ingest_complete and log to knowledge_ingest_log."""
         payload = event.payload if hasattr(event, "payload") else {}
         if not isinstance(payload, dict):
             return
-        self._knowledge_ingest_log.append({
-            "practice_id": payload.get("practice_id", "unknown"),
-            "knowledge_version": payload.get("knowledge_version", "unknown"),
-            "status": payload.get("status", "unknown"),
-            "ingest_timestamp": payload.get("timestamp", time.time()),
-        })
+        self._knowledge_ingest_log.append(
+            {
+                "practice_id": payload.get("practice_id", "unknown"),
+                "knowledge_version": payload.get("knowledge_version", "unknown"),
+                "status": payload.get("status", "unknown"),
+                "ingest_timestamp": payload.get("timestamp", time.time()),
+            }
+        )
+
+    def record_recovery_outcome(
+        self, rule_id: str, success: bool, duration: float, correlation_id: str = ""
+    ) -> None:
+        """Record heuristic recovery outcome and publish event."""
+        if self._legacy_event_bus is None:
+            return
+        self._legacy_event_bus.publish(
+            Event(
+                topic="heuristic.recovery_executed",
+                payload={
+                    "rule_id": rule_id,
+                    "success": success,
+                    "duration": duration,
+                    "robot_id": self.robot_id,
+                    "timestamp": time.time(),
+                    "correlation_id": correlation_id,
+                },
+                source="practice_recorder",
+                priority=EventPriority.NORMAL,
+            )
+        )
+        logger.info("Published heuristic.recovery_executed for rule %s", rule_id)
 
     def start_recording(self) -> None:
         """Start a recording session."""
@@ -189,6 +545,7 @@ class PracticeRecorder(LifecycleMixin):
         import numpy as np
 
         from rosclaw.data.flywheel import RobotState as FlywheelRobotState
+
         state = FlywheelRobotState(
             timestamp=timestamp,
             joint_positions=np.array(joint_positions),
@@ -209,19 +566,15 @@ class PracticeRecorder(LifecycleMixin):
             raise RuntimeError("Flywheel not initialized")
         return self._flywheel.export_to_lerobot(output_path)
 
-    def record_praxis_event(self, event=None, event_id: str = "", event_type: str = "", instruction: str = "", metadata: dict | None = None) -> str:
-        """Record a praxis event on the timeline.
-
-        Args:
-            event: A PraxisEvent dataclass instance (alternative to individual args)
-            event_id: Unique event identifier (ignored if event is provided)
-            event_type: Event classification (success, failure, milestone)
-            instruction: Natural language instruction that triggered this event
-            metadata: Additional context data
-
-        Returns:
-            Event marker ID
-        """
+    def record_praxis_event(
+        self,
+        event=None,
+        event_id: str = "",
+        event_type: str = "",
+        instruction: str = "",
+        metadata: dict | None = None,
+    ) -> str:
+        """Record a praxis event on the timeline."""
         if not self._recording or self._flywheel is None:
             return ""
 
@@ -263,10 +616,31 @@ class PracticeRecorder(LifecycleMixin):
 
     @property
     def failure_context(self) -> dict:
-        """Get current failure context (for testing/inspection)."""
+        """Get current failure context."""
         return self._failure_context.copy()
 
     @property
     def knowledge_ingest_log(self) -> list[dict]:
-        """Get knowledge ingest completion log (for testing/inspection)."""
+        """Get knowledge ingest completion log."""
         return self._knowledge_ingest_log.copy()
+
+
+# ------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------
+
+
+def _format_utc(dt: datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _datetime_to_ns(dt: datetime) -> int:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return int(dt.timestamp() * 1_000_000_000)
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
