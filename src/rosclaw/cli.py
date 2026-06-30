@@ -2555,13 +2555,14 @@ def _call_provider_http(
     import urllib.error
     import urllib.request
 
+    inputs = dict(input_payload)
     payload = {
         "provider": provider_id,
         "capability": capability,
-        "inputs": input_payload,
+        "inputs": inputs,
     }
     if image_b64:
-        payload["inputs"]["image"] = f"data:{image_mime};base64,{image_b64}"
+        inputs["image"] = f"data:{image_mime};base64,{image_b64}"
 
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(

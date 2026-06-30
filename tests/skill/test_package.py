@@ -110,6 +110,7 @@ def test_upload_receipt_written(tmp_path: Path, monkeypatch: MonkeyPatch):
     pkg = _validated_pkg(tmp_path)
     monkeypatch.setenv("ROSCLAW_ADMIN_API_KEY", "test-key")
     monkeypatch.setattr("rosclaw.skill.upload.SkillHubClient", FakeHubClient)
+    monkeypatch.setattr("rosclaw.skill.upload._verify_repo_url", lambda _url: True)
     result = upload_skill(pkg)
     assert result["ok"] is True
     receipt_path = pkg.root / ".rosclaw" / "upload_receipt.json"

@@ -166,6 +166,8 @@ class SkillIdentity(BaseModel):
     package_name: str | None = None
     canonical_uri: str | None = None
     git_repo: str | None = None
+    git_ref: str | None = None
+    source_subdir: str | None = None
     git_commit: str | None = None
 
 
