@@ -4597,6 +4597,102 @@ def cmd_runtime_doctor(args: argparse.Namespace) -> int:
     return 0 if summary["error"] == 0 else 1
 
 
+def _runtime_pid_file() -> Path:
+    from rosclaw.firstboot.workspace import resolve_home
+    return Path(resolve_home()) / "runtime.pid"
+
+
+def _is_process_alive(pid: int) -> bool:
+    try:
+        import os
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return False
+
+
+def cmd_runtime_start(args: argparse.Namespace) -> int:
+    """Start the ROSClaw Runtime Kernel in the foreground."""
+    import signal
+    from rosclaw.runtime.service import RuntimeKernelService
+
+    pid_file = _runtime_pid_file()
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    if pid_file.exists():
+        try:
+            old_pid = int(pid_file.read_text(encoding="utf-8").strip() or "0")
+        except Exception:
+            old_pid = 0
+        if old_pid and _is_process_alive(old_pid):
+            print(f"[ROSClaw] Runtime already running (pid {old_pid}).")
+            return 0
+
+    service = RuntimeKernelService(home=getattr(args, "home", None))
+    service.initialize()
+    service.start()
+    pid_file.write_text(str(os.getpid()), encoding="utf-8")
+    print("[ROSClaw] Runtime Kernel started.")
+    print(f"[ROSClaw] Components: {service.registry.names()}")
+
+    def _shutdown(signum: int, frame: Any) -> None:
+        print("\n[ROSClaw] Stopping Runtime Kernel...")
+        service.stop()
+        pid_file.unlink(missing_ok=True)
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
+    try:
+        while True:
+            import time
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        service.stop()
+        pid_file.unlink(missing_ok=True)
+    return 0
+
+
+def cmd_runtime_stop(_args: argparse.Namespace) -> int:
+    """Stop the ROSClaw Runtime Kernel."""
+    pid_file = _runtime_pid_file()
+    if not pid_file.exists():
+        print("[ROSClaw] Runtime is not running.")
+        return 0
+    try:
+        pid = int(pid_file.read_text(encoding="utf-8").strip() or "0")
+    except Exception:
+        pid = 0
+    pid_file.unlink(missing_ok=True)
+    if pid and _is_process_alive(pid):
+        import os
+        import signal
+        os.kill(pid, signal.SIGTERM)
+        print(f"[ROSClaw] Sent stop signal to runtime (pid {pid}).")
+    else:
+        print("[ROSClaw] Runtime stopped.")
+    return 0
+
+
+def cmd_runtime_status(_args: argparse.Namespace) -> int:
+    """Show the ROSClaw Runtime Kernel status."""
+    pid_file = _runtime_pid_file()
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text(encoding="utf-8").strip() or "0")
+        except Exception:
+            pid = 0
+        if pid and _is_process_alive(pid):
+            print(f"[ROSClaw] Runtime is running (pid {pid}).")
+            return 0
+        print("[ROSClaw] Runtime pid file exists but process is not alive.")
+        return 1
+    print("[ROSClaw] Runtime is stopped.")
+    return 0
+
+
 def cmd_forge_sdk_to_mcp(args: argparse.Namespace) -> int:
     """Convert an SDK description to an MCP bundle."""
     from rosclaw.forge.bundle_compiler import BundleCompiler
@@ -5115,6 +5211,10 @@ def main() -> int:
     runtime_parser = subparsers.add_parser("runtime", help="Runtime backend commands")
     runtime_subparsers = runtime_parser.add_subparsers(dest="runtime_command")
     runtime_subparsers.add_parser("backends", help="List available runtime backends")
+    runtime_start_parser = runtime_subparsers.add_parser("start", help="Start the Runtime Kernel")
+    runtime_start_parser.add_argument("--home", default=None, help="ROSClaw workspace home")
+    runtime_subparsers.add_parser("stop", help="Stop the Runtime Kernel")
+    runtime_subparsers.add_parser("status", help="Show Runtime Kernel status")
     doctor_parser = runtime_subparsers.add_parser("doctor", help="Run runtime health checks")
     doctor_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -5520,6 +5620,12 @@ def main() -> int:
                 return cmd_runtime_backends(args)
             elif args.runtime_command == "doctor":
                 return cmd_runtime_doctor(args)
+            elif args.runtime_command == "start":
+                return cmd_runtime_start(args)
+            elif args.runtime_command == "stop":
+                return cmd_runtime_stop(args)
+            elif args.runtime_command == "status":
+                return cmd_runtime_status(args)
             else:
                 runtime_parser.print_help()
                 return 1
