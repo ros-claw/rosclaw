@@ -332,7 +332,7 @@ class TestDashboardEdgeCases:
     @patch("importlib.import_module", side_effect=ImportError("no module"))
     def test_dashboard_all_degraded(self, mock_import, capsys):
         from rosclaw.cli import main
-        sys.argv = ["rosclaw", "dashboard"]
+        sys.argv = ["rosclaw", "dashboard", "--status"]
         code = main()
         captured = capsys.readouterr()
         assert "Dashboard" in captured.out

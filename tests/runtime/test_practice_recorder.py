@@ -265,3 +265,103 @@ def test_coordinator_delegates_recording_to_recorder(tmp_path):
     assert (session_dir / "episode.json").exists()
     assert coordinator.summary is not None
     assert coordinator.summary.outcome == "SUCCESS"
+
+
+def test_recorder_auto_starts_session_on_skill_execution_start(tmp_path):
+    """A skill.execution.start event creates a default practice session if none is active."""
+    event_bus = EventBus(normalize_topics=False)
+    bus = RuntimeBus(event_bus=event_bus)
+    recorder = PracticeRecorder(bus, data_root=str(tmp_path), auto_start_on_skill=True)
+    recorder.initialize()
+    recorder.start()
+
+    bus.publish(
+        RuntimeEvent(
+            type="skill.execution.start",
+            source="skill_executor",
+            robot="realsense-d405",
+            body_id="d405_lab_01",
+            payload={"skill_name": "realsense_capture_rgbd"},
+            metadata={"trace_id": "auto_001"},
+        )
+    )
+    bus.publish(
+        RuntimeEvent(
+            type="camera.rgbd_frame",
+            source="realsense_camera",
+            robot="realsense-d405",
+            payload={"camera_id": "d405"},
+            metadata={"trace_id": "auto_001"},
+        )
+    )
+    bus.publish(
+        RuntimeEvent(
+            type="skill.execution.complete",
+            source="skill_executor",
+            robot="realsense-d405",
+            payload={"skill_name": "realsense_capture_rgbd", "result": {"status": "success"}},
+            metadata={"trace_id": "auto_001"},
+        )
+    )
+
+    # Capture the auto-generated practice id before practice.stop finalizes.
+    practice_id = recorder._session.practice_id if recorder._session else None
+
+    bus.publish(
+        RuntimeEvent(
+            type="practice.stop",
+            source="runtime",
+            robot="realsense-d405",
+            payload={"outcome": "SUCCESS"},
+            metadata={"trace_id": "auto_001"},
+        )
+    )
+
+    recorder.stop()
+
+    assert practice_id is not None
+    session_dir = tmp_path / "sessions" / practice_id
+    events_path = session_dir / "raw" / "events.jsonl"
+    assert events_path.exists()
+    lines = events_path.read_text(encoding="utf-8").strip().splitlines()
+    event_types = [json.loads(line)["event_type"] for line in lines]
+    # RuntimeBus canonicalizes skill.execution.start -> skill.invoke.
+    assert "skill.invoke" in event_types
+    assert "camera.rgbd_frame" in event_types
+
+    episode_path = session_dir / "episode.json"
+    assert episode_path.exists()
+    episode = json.loads(episode_path.read_text(encoding="utf-8"))
+    assert episode["outcome"] == "SUCCESS"
+    assert episode["event_count"] >= 2
+
+
+def test_recorder_does_not_auto_start_when_disabled(tmp_path):
+    """With auto_start_on_skill=False, skill events are dropped when no session exists."""
+    event_bus = EventBus(normalize_topics=False)
+    bus = RuntimeBus(event_bus=event_bus)
+    recorder = PracticeRecorder(bus, data_root=str(tmp_path), auto_start_on_skill=False)
+    recorder.initialize()
+    recorder.start()
+
+    bus.publish(
+        RuntimeEvent(
+            type="skill.execution.start",
+            source="skill_executor",
+            robot="realsense-d405",
+            payload={"skill_name": "realsense_capture_rgbd"},
+        )
+    )
+    bus.publish(
+        RuntimeEvent(
+            type="camera.rgbd_frame",
+            source="realsense_camera",
+            robot="realsense-d405",
+            payload={"camera_id": "d405"},
+        )
+    )
+
+    recorder.stop()
+
+    assert recorder.session is None
+    assert recorder.summary is None
