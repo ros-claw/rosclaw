@@ -772,7 +772,33 @@ def cmd_logs(args: argparse.Namespace) -> int:
 
 
 def cmd_dashboard(args: argparse.Namespace) -> int:
-    """Show ROSClaw dashboard or open it in browser."""
+    """Show ROSClaw dashboard status or start the web server."""
+    if getattr(args, "status", False):
+        return _print_dashboard_status()
+
+    try:
+        from rosclaw.dashboard.launcher import serve_dashboard
+
+        host = getattr(args, "host", "0.0.0.0")
+        port = getattr(args, "port", 8765)
+        print("[ROSClaw] Starting Dashboard Web Server...")
+        print(f"[ROSClaw] Dashboard URL: http://localhost:{port}")
+        print("[ROSClaw] Press Ctrl+C to stop")
+        serve_dashboard(host=host, port=port)
+    except ImportError as exc:
+        print(f"[ROSClaw] ❌ Dashboard dependencies missing: {exc}")
+        print("[ROSClaw] Run: pip install 'rosclaw[dashboard]'")
+        return 1
+    except SystemExit as exc:
+        # uvicorn calls sys.exit on error (e.g., port in use)
+        if exc.code != 0:
+            print(f"[ROSClaw] Server exited (code={exc.code}). Port may be in use.")
+        return 0
+    return 0
+
+
+def _print_dashboard_status() -> int:
+    """Print the text-only dashboard status summary."""
     import importlib
 
     config_path = Path("rosclaw.yaml")
@@ -802,8 +828,6 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
             health.append((mod_name, "DEGRADED"))
 
     # Provider/Skill registration status
-    # Use _auto_register_builtins() return values since ProviderRegistry
-    # is not a singleton — each instance has its own state.
     registered_providers, registered_skills = _auto_register_builtins()
     provider_count = len(registered_providers)
     skill_count = len(registered_skills)
@@ -812,6 +836,7 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
     episode_count = 0
     try:
         from rosclaw.practice.episode_recorder import EpisodeRecorder
+
         recorder = EpisodeRecorder("cli", event_bus=None, artifact_base_dir=str(get_rosclaw_home() / "artifacts"))
         episodes = recorder.list_episodes()
         episode_count = len(episodes)
@@ -832,24 +857,6 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
         icon = "✅" if status == "HEALTHY" else "❌"
         print(f"  {icon} {mod_name:<30} {status}")
     print("=" * 60)
-
-    if args.open:
-        try:
-            from rosclaw.dashboard.launcher import serve_dashboard
-
-            print("[ROSClaw] Starting Dashboard Web Server...")
-            print("[ROSClaw] Dashboard URL: http://localhost:8765")
-            print("[ROSClaw] Press Ctrl+C to stop")
-            serve_dashboard(host="0.0.0.0", port=8765)
-        except ImportError as exc:
-            print(f"[ROSClaw] ❌ Dashboard dependencies missing: {exc}")
-            print("[ROSClaw] Run: pip install 'rosclaw[dashboard]'")
-            return 1
-        except SystemExit as exc:
-            # uvicorn calls sys.exit on error (e.g., port in use)
-            if exc.code != 0:
-                print(f"[ROSClaw] Server exited (code={exc.code}). Port may be in use.")
-            return 0
     return 0
 
 
@@ -4696,6 +4703,100 @@ def cmd_runtime_status(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_test_realsense(args: argparse.Namespace) -> int:
+    """Run a RealSense RGB-D E2E smoke test.
+
+    The smoke test is read-only: it initializes/links a RealSense body (if
+    requested), invokes the ``realsense_capture_rgbd`` skill, and validates
+    that color/depth artifacts were produced.
+    """
+    import time
+
+    from rosclaw.body.resolver import BodyResolver
+    from rosclaw.core.event_bus import get_global_event_bus
+    from rosclaw.firstboot.workspace import resolve_home
+    from rosclaw.skill.builtins import load_builtins
+    from rosclaw.skill_manager.executor import SkillExecutor
+    from rosclaw.skill_manager.registry import SkillRegistry
+
+    home = resolve_home(args.workspace)
+    resolver = BodyResolver(workspace=home)
+
+    # Auto-initialize a RealSense body if the workspace has none linked.
+    if not resolver.is_linked() and args.init:
+        from rosclaw.body.registry import BodyRegistryManager
+
+        body_id = args.body or f"{args.profile.replace('-', '_')}_smoke"
+        manager = BodyRegistryManager(home)
+        manager.create_body(
+            body_id=body_id,
+            profile_id=args.profile,
+            nickname="RealSense smoke test body",
+            force=False,
+        )
+        resolver = BodyResolver(workspace=home)
+
+    if not resolver.is_linked():
+        print("[ROSClaw] No body linked. Run with --init to auto-initialize a RealSense body.")
+        return 1
+
+    body_id = args.body or resolver.get_current_body_yaml().body_instance.get("id")
+
+    output_dir = Path(args.output_dir) if args.output_dir else home / "smoke" / f"realsense_{int(time.time())}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    skill_id = "realsense_capture_rgbd"
+    print(f"[ROSClaw] RealSense E2E smoke test: {skill_id}")
+    print(f"[ROSClaw] Body: {body_id}")
+    print(f"[ROSClaw] Output: {output_dir}")
+
+    registry = SkillRegistry()
+    load_builtins(registry)
+    event_bus = get_global_event_bus()
+    executor = SkillExecutor(event_bus=event_bus, registry=registry, body_resolver=None)
+    parameters: dict[str, Any] = {
+        "body_id": body_id,
+        "output_dir": str(output_dir),
+    }
+    if args.camera:
+        parameters["camera_name"] = args.camera
+
+    result = executor.execute(skill_id, parameters=parameters)
+    handler_result = result.get("handler_result") or result
+
+    if result.get("status") != "success" or handler_result.get("status") != "success":
+        print("[ROSClaw] ❌ RealSense smoke test FAILED")
+        print(json.dumps(result, indent=2, default=str))
+        return 1
+
+    frames = handler_result.get("frames", {})
+    color_path = (
+        frames.get("color", {}).get("path")
+        or handler_result.get("color")
+        or handler_result.get("color_artifact")
+    )
+    depth_path = (
+        frames.get("depth", {}).get("path")
+        or handler_result.get("depth")
+        or handler_result.get("depth_artifact")
+    )
+
+    missing: list[str] = []
+    for label, path in (("color", color_path), ("depth", depth_path)):
+        if not path or not Path(path).exists():
+            missing.append(label)
+
+    if missing:
+        print(f"[ROSClaw] ❌ RealSense smoke test FAILED: missing {', '.join(missing)} artifacts")
+        print(json.dumps(handler_result, indent=2, default=str))
+        return 1
+
+    print("[ROSClaw] ✅ RealSense smoke test PASSED")
+    print(f"  color: {color_path}")
+    print(f"  depth: {depth_path}")
+    return 0
+
+
 def cmd_forge_sdk_to_mcp(args: argparse.Namespace) -> int:
     """Convert an SDK description to an MCP bundle."""
     from rosclaw.forge.bundle_compiler import BundleCompiler
@@ -4970,8 +5071,15 @@ def main() -> int:
     restart_parser.add_argument("--swarm", action="store_true", default=False, help="Enable Swarm coordination")
 
     # dashboard
-    dashboard_parser = subparsers.add_parser("dashboard", help="Open/show dashboard")
-    dashboard_parser.add_argument("--open", action="store_true", help="Open dashboard in browser")
+    dashboard_parser = subparsers.add_parser("dashboard", help="Start the ROSClaw dashboard web server")
+    dashboard_parser.add_argument(
+        "--status", action="store_true", help="Show dashboard status summary instead of starting the server"
+    )
+    dashboard_parser.add_argument(
+        "--open", action="store_true", help="Deprecated: dashboard now starts the server by default"
+    )
+    dashboard_parser.add_argument("--host", default="0.0.0.0", help="Host to bind the dashboard server")
+    dashboard_parser.add_argument("--port", type=int, default=8765, help="Port to bind the dashboard server")
 
     # doctor
     doctor_parser = subparsers.add_parser("doctor", help="Run health diagnosis")
@@ -5166,6 +5274,14 @@ def main() -> int:
     skill_invoke_parser.add_argument("--trace-id", default=None, help="Trace ID for the invocation")
     skill_invoke_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
+    # `run` is a backward-compatible alias for `invoke`.
+    skill_subparsers.add_parser(
+        "run",
+        parents=[skill_invoke_parser],
+        add_help=False,
+        help="Run a skill (alias for invoke)",
+    )
+
     # skill champions subcommand
     skill_champions_parser = skill_subparsers.add_parser("champions", help="Skill champion management")
     skill_champions_sub = skill_champions_parser.add_subparsers(dest="skill_champions_command")
@@ -5220,6 +5336,23 @@ def main() -> int:
     runtime_subparsers.add_parser("status", help="Show Runtime Kernel status")
     doctor_parser = runtime_subparsers.add_parser("doctor", help="Run runtime health checks")
     doctor_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    # test subcommand (E2E smoke tests)
+    test_parser = subparsers.add_parser("test", help="End-to-end smoke tests")
+    test_subparsers = test_parser.add_subparsers(dest="test_command")
+    test_realsense_parser = test_subparsers.add_parser(
+        "realsense", help="Run RealSense RGB-D E2E smoke test"
+    )
+    test_realsense_parser.add_argument(
+        "--profile", default="realsense-d405", help="Robot profile ID (default: realsense-d405)"
+    )
+    test_realsense_parser.add_argument("--body", default=None, help="Body instance ID")
+    test_realsense_parser.add_argument("--camera", default=None, help="Camera namespace")
+    test_realsense_parser.add_argument(
+        "--init", action="store_true", help="Auto-initialize a body if none is linked"
+    )
+    test_realsense_parser.add_argument("--output-dir", default=None, help="Output directory for captures")
+    test_realsense_parser.add_argument("--workspace", default=None, help="ROSClaw workspace")
 
     # firewall subcommand
     firewall_parser = subparsers.add_parser("firewall", help="Firewall safety checks")
@@ -5523,7 +5656,7 @@ def main() -> int:
                 return cmd_skill_list(args)
             elif args.skill_command == "check":
                 return cmd_skill_check(args)
-            elif args.skill_command == "invoke":
+            elif args.skill_command in ("invoke", "run"):
                 return cmd_skill_invoke(args)
             elif args.skill_command == "champions":
                 if args.skill_champions_command == "list":
@@ -5631,6 +5764,12 @@ def main() -> int:
                 return cmd_runtime_status(args)
             else:
                 runtime_parser.print_help()
+                return 1
+        elif args.command == "test":
+            if args.test_command == "realsense":
+                return cmd_test_realsense(args)
+            else:
+                test_parser.print_help()
                 return 1
         elif args.command == "stop":
             return cmd_stop(args)

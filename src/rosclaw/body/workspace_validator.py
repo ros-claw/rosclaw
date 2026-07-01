@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
+from dataclasses import asdict
 from typing import Any
 
-from rosclaw.body.compiler import compute_checksum
+from rosclaw.body.compiler import canonical_json, compute_checksum
 from rosclaw.body.renderer import EmbodimentRenderer
 from rosclaw.body.resolver import BodyResolver
 from rosclaw.body.safety import SafetyInvariantEngine
-from rosclaw.body.schema import BodyValidationReport, ValidationResult
+from rosclaw.body.schema import BodyValidationReport, EurdfProfile, ValidationResult
+from rosclaw.runtime.eurdf_loader import RobotRegistry
 
 
 class BodyValidator:
@@ -39,6 +42,9 @@ class BodyValidator:
 
         # 2. e-URDF profile loads and checksum matches (best effort)
         _ = self._load_eurdf(body, checks)
+
+        # 2a. Detect stale cached profile relative to current e-URDF source.
+        self._check_eurdf_source_stale(body, checks)
 
         # 3. calibration.yaml loads
         calibration = self._load_calibration(checks)
@@ -133,6 +139,74 @@ class BodyValidator:
                 )
             )
             return None
+
+    def _eurdf_fingerprint(self, eurdf: EurdfProfile) -> str:
+        """Return a stable content fingerprint for an e-URDF profile."""
+        return f"sha256:{hashlib.sha256(canonical_json(asdict(eurdf)).encode('utf-8')).hexdigest()}"
+
+    def _check_eurdf_source_stale(self, body: Any, checks: list[ValidationResult]) -> None:
+        """Compare cached e-URDF profile against the current source profile."""
+        if body is None:
+            return
+        profile_id = body.model_ref.get("profile_id")
+        if not profile_id:
+            return
+        if not self.resolver.eurdf_profile_path.exists():
+            return
+
+        try:
+            cached = EurdfProfile.from_yaml(self.resolver.eurdf_profile_path)
+            cached_fp = self._eurdf_fingerprint(cached)
+        except Exception as exc:
+            checks.append(
+                ValidationResult(
+                    check_id="eurdf-source-stale",
+                    status="warn",
+                    message=f"Could not fingerprint cached e-URDF profile: {exc}",
+                    category="schema",
+                )
+            )
+            return
+
+        try:
+            source_profile = RobotRegistry().get(profile_id)
+            if source_profile is None:
+                return
+            source_eurdf = EurdfProfile.from_robot_complete_profile(source_profile)
+            source_fp = self._eurdf_fingerprint(source_eurdf)
+        except Exception as exc:
+            checks.append(
+                ValidationResult(
+                    check_id="eurdf-source-stale",
+                    status="warn",
+                    message=f"Could not load source e-URDF profile '{profile_id}': {exc}",
+                    category="schema",
+                )
+            )
+            return
+
+        if cached_fp != source_fp:
+            checks.append(
+                ValidationResult(
+                    check_id="eurdf-source-stale",
+                    status="warn",
+                    message=(
+                        f"Cached e-URDF profile is stale: source profile '{profile_id}' "
+                        "has changed since the body was initialized. "
+                        "Run 'rosclaw body render' or 'rosclaw body init --force' to refresh."
+                    ),
+                    category="schema",
+                )
+            )
+        else:
+            checks.append(
+                ValidationResult(
+                    check_id="eurdf-source-stale",
+                    status="pass",
+                    message="Cached e-URDF profile matches the current source profile.",
+                    category="schema",
+                )
+            )
 
     def _load_calibration(self, checks: list[ValidationResult]) -> Any:
         try:

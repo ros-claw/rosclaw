@@ -72,6 +72,7 @@ class PracticeRecorder(RuntimeConsumer):
         event_bus: EventBus | None = None,
         data_root: str | Path = DEFAULT_DATA_ROOT,
         publish_to_event_bus: bool = True,
+        auto_start_on_skill: bool = True,
     ) -> None:
         # Resolve the RuntimeBus and robot id from the first argument.
         if isinstance(runtime_bus_or_robot_id, RuntimeBus):
@@ -85,6 +86,7 @@ class PracticeRecorder(RuntimeConsumer):
         self.joint_dof = joint_dof
         self._legacy_event_bus = event_bus
         self._publish_to_event_bus = publish_to_event_bus
+        self._auto_start_on_skill = auto_start_on_skill
 
         # Runtime Kernel v2 recording state.
         self.layout = PracticeLayout(data_root)
@@ -162,13 +164,55 @@ class PracticeRecorder(RuntimeConsumer):
     # ------------------------------------------------------------------
 
     def on_event(self, event: RuntimeEvent) -> None:
-        """Handle every runtime event."""
-        if event.type == "practice.start":
+        """Handle every runtime event.
+
+        ``RuntimeBus`` canonicalizes legacy topic aliases (e.g.
+        ``skill.execution.start`` -> ``skill.invoke``), so the recorder listens
+        for both forms.
+        """
+        canonical = event.type
+        if canonical == "practice.start":
             self._on_practice_start(event)
-        elif event.type == "practice.stop":
+        elif canonical == "practice.stop":
             self._on_practice_stop(event)
+        elif canonical in ("skill.execution.start", "skill.invoke"):
+            if self._session is None and self._auto_start_on_skill:
+                self._auto_start_session_from_skill(event)
+            if self._session is not None:
+                self._record_event(event)
         elif self._session is not None:
             self._record_event(event)
+
+    def _auto_start_session_from_skill(self, event: RuntimeEvent) -> None:
+        """Create a default practice session when a skill starts without one."""
+        payload = event.payload or {}
+        skill_id = payload.get("skill_name") or payload.get("skill_id") or event.metadata.get("skill_id") or "unknown"
+        robot_id = event.robot or event.metadata.get("robot_id") or self.robot_id
+        practice_id = generate_practice_id()
+        logger.info(
+            "Auto-starting practice session %s for skill %s (robot %s)",
+            practice_id,
+            skill_id,
+            robot_id,
+        )
+        self._on_practice_start(
+            RuntimeEvent(
+                id=practice_id,
+                timestamp=event.timestamp,
+                source="practice_recorder",
+                robot=robot_id,
+                body_id=event.body_id,
+                type="practice.start",
+                payload={
+                    "practice_id": practice_id,
+                    "robot_id": robot_id,
+                    "skill_id": skill_id,
+                    "sources": {"runtime": True, "skill": True},
+                    "auto_started": True,
+                },
+                metadata={"trigger_event_id": event.id},
+            )
+        )
 
     def _on_practice_start(self, event: RuntimeEvent) -> None:
         if self._session is not None:

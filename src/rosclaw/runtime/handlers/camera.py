@@ -127,7 +127,10 @@ def _handle_realsense_capture_rgbd(params: dict[str, Any]) -> dict[str, Any]:
         return {
             "status": "error",
             "skill": "realsense_capture_rgbd",
-            "reason": "No realsense-ros-mcp server installed or healthy.",
+            "reason": (
+                "No realsense-ros-mcp server installed or healthy. "
+                "Install with: rosclaw mcp install --from-git https://github.com/ros-claw/realsense-ros-mcp"
+            ),
             "camera_name": camera_name,
         }
 
