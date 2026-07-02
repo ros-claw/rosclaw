@@ -25,7 +25,7 @@ identity:
   skill_id: "rosclaw/realsense_camera_usage"
   package_name: "rosclaw/realsense_camera_usage"
   canonical_uri: "rosclaw://skills/rosclaw/realsense_camera_usage"
-  git_repo: "https://github.com/ros-claw/rosclaw"
+  git_repo: "https://github.com/ros-claw/skills"
   git_ref: "main"
   source_subdir: "skills/realsense_camera_usage"
   git_commit: null
