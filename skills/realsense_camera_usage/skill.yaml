@@ -1,0 +1,91 @@
+schema_version: "rosclaw.skill.v1"
+kind: "Skill"
+
+metadata:
+  name: "realsense_camera_usage"
+  display_name: "Realsense Camera Usage"
+  namespace: "rosclaw"
+  version: "0.1.0"
+  stage: "draft"
+  category: "perception"
+  tags:
+    - realsense
+    - realsense_d405
+    - realsense_d435i
+    - realsense_dual
+    - perception
+    - physical-ai
+  description: "RealSense camera usage skill: enumerate cameras, check status, capture RGB/depth frames, and report basic health for D405 / D435i setups."
+  license: "MIT"
+  authors:
+    - name: "ROSClaw Team"
+      url: "https://github.com/ros-claw"
+
+identity:
+  skill_id: "rosclaw/realsense_camera_usage"
+  package_name: "rosclaw/realsense_camera_usage"
+  canonical_uri: "rosclaw://skills/rosclaw/realsense_camera_usage"
+  git_repo: "https://github.com/ros-claw/skills"
+  git_ref: "main"
+  source_subdir: "skills/realsense_camera_usage"
+  git_commit: null
+
+task:
+  intent: "realsense_camera_usage"
+  natural_language:
+    en: "Use the RealSense cameras on this body: verify both D405 and D435i are online, capture a synchronized RGB-D frame, and return camera status and frame paths."
+    zh: "使用本体上的 RealSense 相机：验证 D405 与 D435i 在线，捕获同步 RGB-D 帧，返回相机状态与帧路径。"
+  input_contract:
+    required:
+      - camera_name
+    optional:
+      - output_dir
+      - timeout_sec
+  output_contract:
+    success_condition:
+      - "camera_status.online == true"
+      - "color_frame_path exists"
+      - "depth_frame_path exists"
+    artifacts:
+      - camera_status
+      - color_frame
+      - depth_frame
+      - trace
+
+execution:
+  entrypoint:
+    type: "behavior_tree"
+    file: "behavior_tree.xml"
+  runtime_adapter: "rosclaw.runtime.skill_executor"
+  policy:
+    type: "hybrid"
+    config: "policies/policy.yaml"
+  prompts:
+    planner: "prompts/planner.md"
+    executor: "prompts/executor.md"
+    verifier: "prompts/verifier.md"
+    recovery: "prompts/recovery.md"
+    safety: "prompts/safety.md"
+
+compatibility:
+  eurdf: "e-urdf-compat.yaml"
+  providers: "providers.yaml"
+  safety: "safety.yaml"
+
+evaluation:
+  dojo: "dojo.yaml"
+  darwin: "darwin_eval.yaml"
+  tests: "tests/"
+
+lineage:
+  file: "lineage.yaml"
+
+evidence:
+  directory: "evidence/"
+  latest_eval_report: null
+
+status:
+  promotion_state: "draft"
+  last_eval_passed: false
+  safe_to_run_on_real_robot: false
+  recommended_runtime_mode: "sandbox_first"

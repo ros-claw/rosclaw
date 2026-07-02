@@ -1,0 +1,22 @@
+schema_version: "rosclaw.lineage.v1"
+
+skill:
+  name: "realsense_camera_usage"
+  current_version: "0.1.0"
+  current_stage: "draft"
+
+origin:
+  created_by: "rosclaw skill init"
+  created_at: "2026-07-02T06:02:45.563811Z"
+  source_practice_sessions: []
+
+parents:
+  skill_versions: []
+  memory_records: []
+  how_interventions: []
+
+candidates: []
+
+versions: []
+
+rollbacks: []

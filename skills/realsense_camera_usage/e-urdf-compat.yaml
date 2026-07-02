@@ -1,0 +1,61 @@
+schema_version: "rosclaw.eurdf_compat.v1"
+
+compatible_robots:
+  - robot: "realsense_dual"
+    eurdf_profile: "rosclaw/realsense_dual@>=1.0.0"
+    body_profile:
+      min_dof: 0
+    required_limbs: []
+    required_sensors:
+      - color_camera
+      - depth_camera
+    optional_sensors:
+      - imu
+    required_frames:
+      - base_link
+      - camera_link
+    action_interfaces:
+      - body_command.v1
+    physical_limits:
+      min_battery_percent: 0
+    environment_assumptions:
+      indoor: true
+
+  - robot: "realsense_d405"
+    eurdf_profile: "rosclaw/realsense_d405@>=1.0.0"
+    body_profile:
+      min_dof: 0
+    required_limbs: []
+    required_sensors:
+      - color_camera
+      - depth_camera
+    optional_sensors: []
+    required_frames:
+      - camera_link
+    action_interfaces:
+      - body_command.v1
+    physical_limits:
+      min_battery_percent: 0
+    environment_assumptions:
+      indoor: true
+
+  - robot: "realsense_d435i"
+    eurdf_profile: "rosclaw/realsense_d435i@>=1.0.0"
+    body_profile:
+      min_dof: 0
+    required_limbs: []
+    required_sensors:
+      - color_camera
+      - depth_camera
+      - imu
+    optional_sensors: []
+    required_frames:
+      - camera_link
+    action_interfaces:
+      - body_command.v1
+    physical_limits:
+      min_battery_percent: 0
+    environment_assumptions:
+      indoor: true
+
+incompatible: []

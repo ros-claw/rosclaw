@@ -1,0 +1,21 @@
+schema_version: "rosclaw.providers.v1"
+
+required_capabilities:
+  planning.skill_params:
+    primary: "local_rule_planner"
+    fallback: []
+    timeout_ms: 1500
+
+providers:
+  local_rule_planner:
+    type: "rosclaw_provider"
+    endpoint: "local://planning/skill_params"
+    health_check: "rosclaw provider health local_rule_planner"
+
+routing_policy:
+  default: "capability_first"
+  prefer_local: true
+  require_health_check: false
+  fallback_on:
+    - timeout
+    - unavailable
