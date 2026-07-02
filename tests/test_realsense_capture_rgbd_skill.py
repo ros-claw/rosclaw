@@ -59,8 +59,53 @@ def fake_mcp_script(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def workspace_with_realsense_body(tmp_path: Path, fake_mcp_script: Path) -> Path:
-    """Create a temporary workspace with a perception-only body and fake MCP."""
+def fake_ros_mcp_script(tmp_path: Path) -> Path:
+    """Create a tiny MCP stdio server that pretends to be realsense-ros-mcp."""
+    script = tmp_path / "fake_realsense_ros_mcp.py"
+    script.write_text(
+        '\n'.join([
+            "import json, sys, pathlib",
+            "",
+            "def send(msg):",
+            "    print(json.dumps(msg), flush=True)",
+            "",
+            "for line in sys.stdin:",
+            "    line = line.strip()",
+            "    if not line or not line.startswith('{'): continue",
+            "    req = json.loads(line)",
+            "    req_id = req.get('id')",
+            "    method = req.get('method', '')",
+            "    if method == 'initialize':",
+            "        send({'jsonrpc': '2.0', 'id': req_id, 'result': {'protocolVersion': '2024-11-05'}})",
+            "    elif method == 'notifications/initialized':",
+            "        continue",
+            "    elif method == 'tools/list':",
+            "        send({'jsonrpc': '2.0', 'id': req_id, 'result': {'tools': [{'name': 'capture_rgbd'}, {'name': 'list_camera_topics'}]}})",
+            "    elif method == 'tools/call':",
+            "        args = req['params']['arguments']",
+            "        name = req['params']['name']",
+            "        if name == 'capture_rgbd':",
+            "            pathlib.Path(args['color_path']).write_bytes(b'PNG')",
+            "            pathlib.Path(args['depth_path']).write_bytes(b'PNG')",
+            "            payload = {",
+            "                'success': True,",
+            "                'color': {'success': True, 'path': args['color_path'], 'width': 640, 'height': 480, 'topic': f'/camera/{args.get(\"camera_name\", \"d405\")}/color/image_raw'},",
+            "                'depth': {'success': True, 'path': args['depth_path'], 'width': 640, 'height': 480, 'topic': f'/camera/{args.get(\"camera_name\", \"d405\")}/depth/image_rect_raw'},",
+            "            }",
+            "            text = json.dumps(payload)",
+            "            send({'jsonrpc': '2.0', 'id': req_id, 'result': {'content': [{'type': 'text', 'text': text}]}})",
+            "        elif name == 'list_camera_topics':",
+            "            text = json.dumps({'success': True, 'topics': []})",
+            "            send({'jsonrpc': '2.0', 'id': req_id, 'result': {'content': [{'type': 'text', 'text': text}]}})",
+        ]),
+        encoding="utf-8",
+    )
+    return script
+
+
+@pytest.fixture
+def workspace_with_realsense_body(tmp_path: Path, fake_mcp_script: Path, fake_ros_mcp_script: Path) -> Path:
+    """Create a temporary workspace with a perception-only body and fake MCPs."""
     workspace = tmp_path / "ws"
     body_dir = workspace / "body"
     body_dir.mkdir(parents=True)
@@ -107,6 +152,34 @@ safety:
                 "transport": {
                     "command": sys.executable,
                     "args": [str(fake_mcp_script)],
+                    "env": {},
+                }
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    ros_record = InstalledRecord(
+        server_name="realsense-ros-mcp",
+        manifest_id="realsense-ros-mcp",
+        name="realsense-ros-mcp",
+        version="1.0.0",
+        installed_at="2026-01-01T00:00:00Z",
+        artifact_type="git",
+        server_dir=str(workspace / "mcp" / "installed" / "realsense-ros-mcp"),
+        runtime_config_path=str(workspace / "mcp" / "runtime" / "realsense-ros-mcp.yaml"),
+    )
+    registry.add(ros_record)
+
+    ros_runtime_config = workspace / "mcp" / "runtime" / "realsense-ros-mcp.yaml"
+    ros_runtime_config.parent.mkdir(parents=True, exist_ok=True)
+    ros_runtime_config.write_text(
+        json.dumps(
+            {
+                "transport": {
+                    "command": sys.executable,
+                    "args": [str(fake_ros_mcp_script)],
                     "env": {},
                 }
             },

@@ -38,7 +38,8 @@ def _camera_name_from_body(params: dict[str, Any]) -> str:
         from rosclaw.firstboot.workspace import resolve_home
 
         home = resolve_home(params.get("workspace"))
-        resolver = BodyResolver(workspace=home)
+        body_id_arg = params.get("body_id")
+        resolver = BodyResolver(workspace=home, body_id=body_id_arg)
         if resolver.is_linked():
             body = resolver.get_current_body_yaml().to_dict()
             body_id = body.get("body_instance", {}).get("id", "")

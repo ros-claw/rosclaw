@@ -2643,7 +2643,9 @@ def cmd_provider_diagnose(args: argparse.Namespace) -> int:
 
 def cmd_skill_invoke(args: argparse.Namespace) -> int:
     """Invoke a skill through SkillExecutor with builtin handler injection."""
+    from rosclaw.body.resolver import BodyResolver
     from rosclaw.core.event_bus import get_global_event_bus
+    from rosclaw.firstboot.workspace import resolve_home
     from rosclaw.skill.builtins import load_builtins
     from rosclaw.skill_manager.executor import SkillExecutor
     from rosclaw.skill_manager.registry import SkillRegistry
@@ -2683,11 +2685,15 @@ def cmd_skill_invoke(args: argparse.Namespace) -> int:
             print(f"[ROSClaw] Available: {', '.join(available) if available else 'none'}")
             return 1
 
+        workspace = resolve_home(args.workspace)
+        body_id = args.body_id if args.body_id and args.body_id != "current" else None
+        body_resolver = BodyResolver(workspace=workspace, body_id=body_id)
+
         event_bus = get_global_event_bus()
         executor = SkillExecutor(
             event_bus=event_bus,
             registry=registry,
-            body_resolver=None,
+            body_resolver=body_resolver,
         )
         result = executor.execute(skill_id, parameters=input_payload)
 
