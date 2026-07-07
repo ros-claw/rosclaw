@@ -1281,7 +1281,7 @@ def cmd_practice_replay(args: argparse.Namespace) -> int:
 
 
 def cmd_practice_export(args: argparse.Namespace) -> int:
-    """Export episode metadata or practice events JSONL."""
+    """Export episode metadata or practice events to requested format."""
     if args.format == "jsonl":
         practice_id = args.practice_id or args.episode_id
         layout = PracticeLayout(args.data_root)
@@ -1303,6 +1303,32 @@ def cmd_practice_export(args: argparse.Namespace) -> int:
             with open(jsonl_path, encoding="utf-8") as f:
                 sys.stdout.write(f.read())
         return 0
+
+    if args.format == "parquet":
+        from rosclaw.practice.exporters import ParquetExporter
+
+        practice_id = args.practice_id or args.episode_id
+        exporter = ParquetExporter(args.data_root)
+        try:
+            out = exporter.export(practice_id, output_path=args.output)
+            print(f"[ROSClaw] Exported Parquet to {out}")
+            return 0
+        except Exception as e:
+            print(f"[ROSClaw] Parquet export failed: {e}", file=sys.stderr)
+            return 1
+
+    if args.format == "lerobot":
+        from rosclaw.practice.exporters import LeRobotExporter
+
+        practice_id = args.practice_id or args.episode_id
+        exporter = LeRobotExporter(args.data_root)
+        try:
+            out = exporter.export(practice_id, output_path=args.output)
+            print(f"[ROSClaw] Exported LeRobot dataset to {out}")
+            return 0
+        except Exception as e:
+            print(f"[ROSClaw] LeRobot export failed: {e}", file=sys.stderr)
+            return 1
 
     from rosclaw.practice.episode_recorder import EpisodeRecorder
 
@@ -2287,6 +2313,221 @@ def _print_practice_validate(args: argparse.Namespace, result: dict[str, Any]) -
         print(f"\nWarnings ({len(result['warnings'])}):")
         for warn in result["warnings"]:
             print(f"  ⚠️  {warn}")
+    print("=" * 60)
+
+
+def cmd_practice_verify(args: argparse.Namespace) -> int:
+    """Verify closed-loop integrity of a practice session."""
+    from rosclaw.practice.verifier import PracticeVerifier, format_report
+
+    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    practice_id = args.practice_id
+    strict = getattr(args, "strict", False)
+
+    verifier = PracticeVerifier(data_root)
+    report = verifier.verify(practice_id, strict=strict)
+
+    if getattr(args, "json", False):
+        print(
+            json.dumps(
+                {
+                    "practice_id": report.practice_id,
+                    "passed": report.passed,
+                    "strict": report.strict,
+                    "checked": report.checked,
+                    "issues": [
+                        {"level": i.level, "scope": i.scope, "message": i.message}
+                        for i in report.issues
+                    ],
+                },
+                indent=2,
+                default=str,
+            )
+        )
+    else:
+        print(format_report(report))
+
+    return 0 if report.passed else 1
+
+
+def cmd_practice_distill(args: argparse.Namespace) -> int:
+    """Distill raw practice events into knowledge artifacts."""
+    from rosclaw.practice.distiller import PracticeDistiller
+
+    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    practice_id = args.practice_id
+    body_id = getattr(args, "body_id", None)
+    write_artifacts = not getattr(args, "no_artifacts", False)
+
+    distiller = PracticeDistiller(data_root)
+    try:
+        result = distiller.distill(practice_id, body_id=body_id, write_artifacts=write_artifacts)
+    except ValueError as e:
+        print(f"[rosclaw-practice] Distillation failed: {e}", file=sys.stderr)
+        return 1
+
+    summary = {
+        "practice_id": result.practice_id,
+        "session_id": result.session_id,
+        "episode_id": result.episode_id,
+        "body_cognition_traits": result.body_cognition.get("known_traits", []),
+        "failure_count": len(result.failures),
+        "how_intervention_count": len(result.how_interventions),
+        "candidate_count": len(result.candidates),
+        "promotion_result_count": len(result.promotion_results),
+        "sim2real_delta_count": len(result.sim2real_deltas),
+        "artifact_refs": result.artifact_refs,
+    }
+
+    if getattr(args, "json", False):
+        print(json.dumps(summary, indent=2, default=str))
+    else:
+        print("=" * 60)
+        print("Practice Distillation")
+        print("=" * 60)
+        for key, value in summary.items():
+            print(f"  {key}: {value}")
+        print("=" * 60)
+
+    return 0
+
+
+def cmd_practice_ingest_seekdb(args: argparse.Namespace) -> int:
+    """Ingest a distilled practice session into SeekDB."""
+    from rosclaw.memory.seekdb_client import SeekDBSQLiteClient
+    from rosclaw.practice.seekdb_ingestor import SeekDBIngestor
+
+    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    practice_id = args.practice_id
+    db_path = Path(getattr(args, "seekdb_path", _memory_db_path()))
+
+    client = SeekDBSQLiteClient(str(db_path))
+    ingestor = SeekDBIngestor(data_root, seekdb_client=client)
+    try:
+        report = ingestor.ingest_practice(practice_id)
+    except ValueError as e:
+        print(f"[rosclaw-practice] Ingest failed: {e}", file=sys.stderr)
+        return 1
+    finally:
+        ingestor.close()
+
+    summary = {
+        "practice_id": report.practice_id,
+        "episode_id": report.episode_id,
+        "success": report.success,
+        "table_counts": report.table_counts,
+        "total_records": report.total_records,
+        "errors": report.errors,
+    }
+
+    if getattr(args, "json", False):
+        print(json.dumps(summary, indent=2, default=str))
+    else:
+        print("=" * 60)
+        print("SeekDB Ingestion Report")
+        print("=" * 60)
+        print(f"  practice_id: {report.practice_id}")
+        print(f"  episode_id: {report.episode_id}")
+        print(f"  success: {report.success}")
+        print(f"  total_records: {report.total_records}")
+        print("  table_counts:")
+        for table, count in report.table_counts.items():
+            print(f"    {table}: {count}")
+        if report.errors:
+            print("  errors:")
+            for err in report.errors:
+                print(f"    - {err}")
+        print("=" * 60)
+
+    return 0 if report.success else 1
+
+
+def cmd_practice_query(args: argparse.Namespace) -> int:
+    """Query practice episodes, failures, body cognition, sim2real, candidates, and interventions."""
+    from rosclaw.memory.seekdb_client import SeekDBSQLiteClient
+    from rosclaw.practice.query import PracticeQuery
+
+    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    db_path = Path(getattr(args, "seekdb_path", _memory_db_path()))
+
+    client = SeekDBSQLiteClient(str(db_path))
+    query = PracticeQuery(data_root, seekdb_client=client)
+    try:
+        command = args.query_command
+        if command == "episodes":
+            results = query.list_episodes(
+                body_id=getattr(args, "body_id", None),
+                skill_id=getattr(args, "skill_id", None),
+                outcome=getattr(args, "outcome", None),
+                limit=getattr(args, "limit", 100),
+            )
+        elif command == "failures":
+            results = query.list_failures(
+                body_id=getattr(args, "body_id", None),
+                failure_type=getattr(args, "failure_type", None),
+                robot_id=getattr(args, "robot_id", None),
+                limit=getattr(args, "limit", 100),
+            )
+        elif command == "body-cognition":
+            results = query.list_body_cognition(
+                body_id=getattr(args, "body_id", None),
+                cognition_type=getattr(args, "cognition_type", None),
+                limit=getattr(args, "limit", 100),
+            )
+        elif command == "sim2real":
+            results = query.list_sim2real_deltas(
+                body_id=getattr(args, "body_id", None),
+                limit=getattr(args, "limit", 100),
+            )
+        elif command == "candidates":
+            results = query.list_candidates(
+                skill_id=getattr(args, "skill_id", None),
+                status=getattr(args, "status", None),
+                policy_id=getattr(args, "policy_id", None),
+                limit=getattr(args, "limit", 100),
+            )
+        elif command == "interventions":
+            results = query.list_how_interventions(
+                failure_type=getattr(args, "failure_type", None),
+                failure_id=getattr(args, "failure_id", None),
+                outcome=getattr(args, "outcome", None),
+                limit=getattr(args, "limit", 100),
+            )
+        elif command == "explain-episode":
+            results = query.explain_episode(args.episode_id)
+        elif command == "explain-failure":
+            results = query.explain_failure(args.failure_id)
+        else:
+            print("Unknown query command.", file=sys.stderr)
+            return 1
+    finally:
+        query.close()
+
+    if getattr(args, "json", False):
+        print(json.dumps(results, indent=2, default=str))
+    else:
+        _print_query_results(results, command)
+
+    return 0
+
+
+def _print_query_results(results: Any, command: str) -> None:
+    if isinstance(results, dict):
+        print("=" * 60)
+        print(f"Query result: {command}")
+        print("=" * 60)
+        print(json.dumps(results, indent=2, default=str))
+        return
+
+    print("=" * 60)
+    print(f"Query results: {command} ({len(results)})")
+    print("=" * 60)
+    for i, record in enumerate(results, 1):
+        print(f"[{i}] {record.get('id') or record.get('episode_id')}")
+        for key, value in record.items():
+            if key in ("metadata", "data", "payload"):
+                continue
+            print(f"    {key}: {value}")
     print("=" * 60)
 
 
@@ -5441,6 +5682,90 @@ def main() -> int:
     practice_validate_parser.add_argument("--strict", action="store_true", help="Require camera, provider, and sandbox events")
     practice_validate_parser.add_argument("--json", action="store_true", help="Output validation report as JSON")
 
+    practice_verify_parser = practice_subparsers.add_parser("verify", help="Verify closed-loop integrity of a practice session")
+    practice_verify_parser.add_argument("practice_id", help="Practice session identifier")
+    practice_verify_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
+    practice_verify_parser.add_argument("--strict", action="store_true", help="Treat warnings as failures")
+    practice_verify_parser.add_argument("--json", action="store_true", help="Output verification report as JSON")
+
+    practice_distill_parser = practice_subparsers.add_parser("distill", help="Distill raw practice events into knowledge artifacts")
+    practice_distill_parser.add_argument("practice_id", help="Practice session identifier")
+    practice_distill_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
+    practice_distill_parser.add_argument("--body-id", default=None, help="Override body_id for distilled cognition")
+    practice_distill_parser.add_argument("--no-artifacts", action="store_true", help="Return result without writing artifact files")
+    practice_distill_parser.add_argument("--json", action="store_true", help="Output distillation result as JSON")
+
+    practice_ingest_seekdb_parser = practice_subparsers.add_parser("ingest-seekdb", help="Ingest a distilled practice session into SeekDB")
+    practice_ingest_seekdb_parser.add_argument("practice_id", help="Practice session identifier")
+    practice_ingest_seekdb_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
+    practice_ingest_seekdb_parser.add_argument("--seekdb-path", default=None, help="Path to SeekDB SQLite file (default: rosclaw home)")
+    practice_ingest_seekdb_parser.add_argument("--json", action="store_true", help="Output ingestion report as JSON")
+
+    practice_query_parser = practice_subparsers.add_parser("query", help="Query practice episodes, failures, and distilled knowledge")
+    query_subparsers = practice_query_parser.add_subparsers(dest="query_command")
+
+    query_episodes_parser = query_subparsers.add_parser("episodes", help="List practice episodes")
+    query_episodes_parser.add_argument("--body-id", default=None, help="Filter by body_id")
+    query_episodes_parser.add_argument("--skill-id", default=None, help="Filter by skill_id")
+    query_episodes_parser.add_argument("--outcome", default=None, help="Filter by outcome")
+    query_episodes_parser.add_argument("--limit", type=int, default=100, help="Max results")
+    query_episodes_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
+    query_episodes_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    query_failures_parser = query_subparsers.add_parser("failures", help="List distilled failure records")
+    query_failures_parser.add_argument("--body-id", default=None, help="Filter by body_id")
+    query_failures_parser.add_argument("--failure-type", default=None, help="Filter by failure_type")
+    query_failures_parser.add_argument("--robot-id", default=None, help="Filter by robot_id")
+    query_failures_parser.add_argument("--limit", type=int, default=100, help="Max results")
+    query_failures_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
+    query_failures_parser.add_argument("--seekdb-path", default=None, help="Path to SeekDB SQLite file")
+    query_failures_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    query_body_cognition_parser = query_subparsers.add_parser("body-cognition", help="List distilled body cognition records")
+    query_body_cognition_parser.add_argument("--body-id", default=None, help="Filter by body_id")
+    query_body_cognition_parser.add_argument("--cognition-type", default=None, help="Filter by cognition_type")
+    query_body_cognition_parser.add_argument("--limit", type=int, default=100, help="Max results")
+    query_body_cognition_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
+    query_body_cognition_parser.add_argument("--seekdb-path", default=None, help="Path to SeekDB SQLite file")
+    query_body_cognition_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    query_sim2real_parser = query_subparsers.add_parser("sim2real", help="List sim2real delta records")
+    query_sim2real_parser.add_argument("--body-id", default=None, help="Filter by body_id")
+    query_sim2real_parser.add_argument("--limit", type=int, default=100, help="Max results")
+    query_sim2real_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
+    query_sim2real_parser.add_argument("--seekdb-path", default=None, help="Path to SeekDB SQLite file")
+    query_sim2real_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    query_candidates_parser = query_subparsers.add_parser("candidates", help="List candidate policy records")
+    query_candidates_parser.add_argument("--skill-id", default=None, help="Filter by skill_id")
+    query_candidates_parser.add_argument("--status", default=None, help="Filter by status")
+    query_candidates_parser.add_argument("--policy-id", default=None, help="Filter by policy_id")
+    query_candidates_parser.add_argument("--limit", type=int, default=100, help="Max results")
+    query_candidates_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
+    query_candidates_parser.add_argument("--seekdb-path", default=None, help="Path to SeekDB SQLite file")
+    query_candidates_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    query_interventions_parser = query_subparsers.add_parser("interventions", help="List how-intervention records")
+    query_interventions_parser.add_argument("--failure-type", default=None, help="Filter by linked failure type")
+    query_interventions_parser.add_argument("--failure-id", default=None, help="Filter by failure_id")
+    query_interventions_parser.add_argument("--outcome", default=None, help="Filter by outcome")
+    query_interventions_parser.add_argument("--limit", type=int, default=100, help="Max results")
+    query_interventions_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
+    query_interventions_parser.add_argument("--seekdb-path", default=None, help="Path to SeekDB SQLite file")
+    query_interventions_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    query_explain_episode_parser = query_subparsers.add_parser("explain-episode", help="Explain everything known about an episode")
+    query_explain_episode_parser.add_argument("episode_id", help="Episode identifier")
+    query_explain_episode_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
+    query_explain_episode_parser.add_argument("--seekdb-path", default=None, help="Path to SeekDB SQLite file")
+    query_explain_episode_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    query_explain_failure_parser = query_subparsers.add_parser("explain-failure", help="Explain a failure and its interventions")
+    query_explain_failure_parser.add_argument("failure_id", help="Failure identifier")
+    query_explain_failure_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
+    query_explain_failure_parser.add_argument("--seekdb-path", default=None, help="Path to SeekDB SQLite file")
+    query_explain_failure_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
     practice_stop_parser = practice_subparsers.add_parser("stop", help="Stop the running practice coordinator")
     practice_stop_parser.add_argument("--practice-id", default=None, help="Practice session identifier")
 
@@ -5460,8 +5785,8 @@ def main() -> int:
     practice_export_parser = practice_subparsers.add_parser("export", help="Export episode metadata or practice events")
     practice_export_parser.add_argument("episode_id", help="Episode or practice identifier")
     practice_export_parser.add_argument("--practice-id", default=None, help="Practice identifier (for jsonl)")
-    practice_export_parser.add_argument("--format", choices=["json", "jsonl"], default="json", help="Export format")
-    practice_export_parser.add_argument("--output", default=None, help="Output file (default stdout)")
+    practice_export_parser.add_argument("--format", choices=["json", "jsonl", "parquet", "lerobot"], default="json", help="Export format")
+    practice_export_parser.add_argument("--output", default=None, help="Output file or directory (default stdout / auto path)")
     practice_export_parser.add_argument("--data-root", default="/data/rosclaw/practice", help="Practice data root")
 
     # know subcommand
@@ -5792,6 +6117,14 @@ def main() -> int:
                 return cmd_practice_run(args)
             elif args.practice_command == "validate":
                 return cmd_practice_validate(args)
+            elif args.practice_command == "verify":
+                return cmd_practice_verify(args)
+            elif args.practice_command == "distill":
+                return cmd_practice_distill(args)
+            elif args.practice_command == "ingest-seekdb":
+                return cmd_practice_ingest_seekdb(args)
+            elif args.practice_command == "query":
+                return cmd_practice_query(args)
             elif args.practice_command == "stop":
                 return cmd_practice_stop(args)
             elif args.practice_command == "sync-fallback":
