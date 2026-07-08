@@ -1,6 +1,6 @@
 ---
 name: rosclaw
-description: Use when an agent operates, validates, or changes the ROSClaw project, especially CLI workflows, Practice evidence loops, body/runtime checks, and safe ROS/hardware boundaries.
+description: Use when operating, validating, or changing ROSClaw physical-AI runtime workflows, especially CLI smoke tests, Practice evidence loops, body/runtime checks, MCP integration, and safe ROS or hardware boundaries.
 ---
 
 # ROSClaw Agent Skill
@@ -74,7 +74,7 @@ Do not use command endpoints or publish topic messages without explicit user con
 
 ## When Changing Code
 
-- Keep changes close to the module boundary already implied by the command.
+- Keep changes close to the module interface implied by the command.
 - Add regression tests for any CLI-visible behavior or cross-module contract.
 - For Practice layout changes, verify both old `sessions/{episode_id}` and v2 catalog-backed `episode_id -> session_id -> practice_id` evidence resolution.
 - Re-run the focused test plus the broader gate that covers the touched subsystem.
