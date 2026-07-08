@@ -52,7 +52,7 @@ def test_write_yaml_snapshot(tmp_store: ArtifactStore):
 
 
 def test_write_parquet_from_records(tmp_store: ArtifactStore):
-    pyarrow = pytest.importorskip("pyarrow")
+    pytest.importorskip("pyarrow")
     pq = pytest.importorskip("pyarrow.parquet")
     records = [
         {"timestamp": 1.0, "thumb_force": 100.0, "meta": {"ok": True}},
