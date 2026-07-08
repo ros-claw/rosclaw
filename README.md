@@ -178,6 +178,21 @@ full lifecycle, state files, permissions, and troubleshooting.
 
 ---
 
+## Agent Plugin Install
+
+Tell any agent framework one sentence:
+
+```bash
+rosclaw agent install --project-root . --skip-secrets
+```
+
+This writes the cross-agent MCP config and guidance files used by Codex, Claude
+Code, OpenClaw, and other MCP-aware agents: `.mcp.json`, `AGENTS.md`,
+`ROSCLAW.md`, `CLAUDE.md`, `.agents/skills/rosclaw/SKILL.md`, and
+`.rosclaw/agent/context.snapshot.json`.
+
+---
+
 ## Safety Model
 
 ROSClaw's core safety rule:

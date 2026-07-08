@@ -10,6 +10,7 @@ from typing import Any
 
 from rosclaw.agent.merge import MergeConflictError, json_merge_with_conflict_detection
 from rosclaw.agent.templates import MANAGED_BEGIN, MANAGED_END
+from rosclaw.agent.tool_catalog import P0_AGENT_MCP_TOOLS
 
 
 @dataclass
@@ -127,16 +128,7 @@ def validate_context_snapshot(path: Path) -> list[str]:
     if data.get("schema_version") != "rosclaw.agent.context.v1":
         errors.append(f"{path} has unexpected schema_version")
     tools = data.get("tools", {}).get("available", [])
-    expected_tools = [
-        "get_robot_state",
-        "list_skills",
-        "query_memory",
-        "validate_trajectory",
-        "sandbox_run",
-        "practice_query",
-        "emergency_stop",
-    ]
-    missing = [t for t in expected_tools if t not in tools]
+    missing = [t for t in P0_AGENT_MCP_TOOLS if t not in tools]
     if missing:
         errors.append(f"{path} is missing tools: {missing}")
     return errors

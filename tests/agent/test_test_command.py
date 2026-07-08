@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import rosclaw.agent.test_claude_code as test_module
 from rosclaw.agent.init_claude_code import cmd_agent_init_claude_code
 from rosclaw.agent.test_claude_code import cmd_agent_test_claude_code
 
@@ -26,12 +27,13 @@ def _make_init_args(tmp_path: Path) -> argparse.Namespace:
 
 
 def _make_test_args(
-    tmp_path: Path, *, quick: bool = True, verbose: bool = False
+    tmp_path: Path, *, quick: bool = True, verbose: bool = False, mcp_probe: bool = False
 ) -> argparse.Namespace:
     return argparse.Namespace(
         project_root=str(tmp_path),
         quick=quick,
         verbose=verbose,
+        mcp_probe=mcp_probe,
     )
 
 
@@ -48,7 +50,7 @@ async def test_test_command_quick_passes_after_init(
     assert cmd_agent_test_claude_code(_make_test_args(tmp_path)) == 0
     captured = capsys.readouterr()
     assert ".mcp.json: OK" in captured.out
-    assert "Tools advertised: 7" in captured.out
+    assert "Tools advertised: 13" in captured.out
 
 
 async def test_test_command_quick_fails_without_init(
@@ -59,3 +61,26 @@ async def test_test_command_quick_fails_without_init(
     assert cmd_agent_test_claude_code(_make_test_args(tmp_path)) == 1
     captured = capsys.readouterr()
     assert ".mcp.json: MISSING" in captured.out
+
+
+async def test_test_command_mcp_probe_runs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _bootstrap_project(tmp_path)
+    assert cmd_agent_init_claude_code(_make_init_args(tmp_path)) == 0
+
+    monkeypatch.setattr(
+        test_module,
+        "_run_mcp_probe",
+        lambda _server_config, *, project_root: test_module.McpProbeResult(
+            True,
+            tools=["get_robot_state", "sandbox_run"],
+        ),
+    )
+
+    assert cmd_agent_test_claude_code(_make_test_args(tmp_path, mcp_probe=True)) == 0
+    captured = capsys.readouterr()
+    assert "MCP stdio probe: OK" in captured.out
+    assert "MCP tools discovered: 2" in captured.out

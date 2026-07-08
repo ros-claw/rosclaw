@@ -17,25 +17,43 @@ from rosclaw.agent.merge import (
     read_json_if_exists,
 )
 from rosclaw.agent.templates import (
+    render_agents_md,
     render_claude_md,
     render_claude_settings_json,
     render_context_snapshot,
     render_mcp_json,
     render_rosclaw_md,
+    render_rosclaw_skill_md,
 )
 from rosclaw.agent.validate import validate_project
 
 _AGENT_DIR = Path(".rosclaw") / "agent"
 
 
-def _write_markdown(path: Path, content: str, *, backup: bool = True) -> None:
+def _write_markdown(
+    path: Path,
+    content: str,
+    *,
+    backup: bool = True,
+    preserve_unmanaged: bool = False,
+) -> None:
     if path.exists() and backup:
         backup_file(path)
     if path.exists():
         existing = path.read_text(encoding="utf-8")
-        merged = managed_block_merge(
-            existing, content, "<!-- ROSCLAW-MANAGED-BEGIN -->", "<!-- ROSCLAW-MANAGED-END -->"
-        )
+        if (
+            preserve_unmanaged
+            and "<!-- ROSCLAW-MANAGED-BEGIN -->" not in existing
+            and "<!-- ROSCLAW-MANAGED-END -->" not in existing
+        ):
+            merged = existing.rstrip() + "\n\n" + content
+        else:
+            merged = managed_block_merge(
+                existing,
+                content,
+                "<!-- ROSCLAW-MANAGED-BEGIN -->",
+                "<!-- ROSCLAW-MANAGED-END -->",
+            )
     else:
         merged = content
     atomic_write_text(path, merged)
@@ -85,21 +103,31 @@ def _generate_files(
     *,
     check_mode: bool = False,
     dry_run: bool = False,
+    include_universal: bool = False,
 ) -> dict[str, Path]:
     """Generate or update all onboarding files. Returns a mapping of logical
     names to written paths.
     """
-    mcp_json = render_mcp_json(profile, check=check_mode)
+    agent_client = "universal-agent" if include_universal else "claude-code"
+    mcp_json = render_mcp_json(profile, check=check_mode, agent_client=agent_client)
     claude_md = render_claude_md(profile)
     rosclaw_md = render_rosclaw_md(profile)
     snapshot = render_context_snapshot(profile)
+    agents_md = render_agents_md(profile) if include_universal else ""
+    skill_md = render_rosclaw_skill_md(profile) if include_universal else ""
 
     generated: dict[str, Path] = {}
 
     paths = {
         ".mcp.json": project_root / ".mcp.json",
+        "AGENTS.md": project_root / "AGENTS.md",
         "CLAUDE.md": project_root / "CLAUDE.md",
         "ROSCLAW.md": project_root / "ROSCLAW.md",
+        ".agents/skills/rosclaw/SKILL.md": project_root
+        / ".agents"
+        / "skills"
+        / "rosclaw"
+        / "SKILL.md",
         ".claude/settings.json": project_root / ".claude" / "settings.json",
         "context.snapshot.json": project_root / ".rosclaw" / "agent" / "context.snapshot.json",
     }
@@ -110,6 +138,15 @@ def _generate_files(
     # .mcp.json
     _write_json_file(paths[".mcp.json"], mcp_json)
     generated[".mcp.json"] = paths[".mcp.json"]
+
+    if include_universal:
+        _write_markdown(paths["AGENTS.md"], agents_md, preserve_unmanaged=True)
+        generated["AGENTS.md"] = paths["AGENTS.md"]
+
+        skill_path = paths[".agents/skills/rosclaw/SKILL.md"]
+        skill_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_markdown(skill_path, skill_md)
+        generated[".agents/skills/rosclaw/SKILL.md"] = skill_path
 
     # CLAUDE.md
     _write_markdown(paths["CLAUDE.md"], claude_md)

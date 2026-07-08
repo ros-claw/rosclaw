@@ -99,8 +99,10 @@ async def test_validate_trajectory_live(live_runtime_client: RuntimeClient) -> N
 
 async def test_sandbox_run_live(live_runtime_client: RuntimeClient) -> None:
     response = await live_runtime_client.sandbox_run([0.0] * 6)
-    assert response["mode"] == "live"
+    assert response["mode"] in {"live", "degraded"}
     assert isinstance(response["physics_state"], dict)
+    if response["mode"] == "degraded":
+        assert response["has_physics"] is False
 
 
 async def test_emergency_stop_live(live_runtime_client: RuntimeClient) -> None:

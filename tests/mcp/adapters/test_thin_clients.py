@@ -82,11 +82,24 @@ def test_sandbox_client_normalizes_non_dict_result() -> None:
 
 def test_sandbox_client_simulate_step() -> None:
     sandbox = MagicMock()
+    sandbox.has_physics = True
     sandbox.simulate_step.return_value = {"qpos": [0.1] * 6}
     client = SandboxClient(sandbox)
     response = client.simulate_step([0.1] * 6)
     assert response["mode"] == "live"
+    assert response["has_physics"] is True
     assert response["physics_state"]["qpos"] == [0.1] * 6
+
+
+def test_sandbox_client_simulate_step_degraded_when_empty() -> None:
+    sandbox = MagicMock()
+    sandbox.has_physics = False
+    sandbox.simulate_step.return_value = {}
+    client = SandboxClient(sandbox)
+    response = client.simulate_step([0.1] * 6)
+    assert response["mode"] == "degraded"
+    assert response["has_physics"] is False
+    assert response["physics_state"] == {}
 
 
 def test_skill_registry_client_uses_registry_when_present() -> None:

@@ -33,9 +33,20 @@ rosclaw runtime backends
 rosclaw body init --robot unitree-g1 --workspace "$TMP/ws" --force --validate --render
 rosclaw provider list
 rosclaw sandbox list-worlds
+rosclaw sandbox verify --case ur5e-joint-preview --json
 rosclaw hub search realsense
 rosclaw mcp list
 rosclaw skill list
+```
+
+## Agent Integration
+
+For a project that should expose ROSClaw to Codex, Claude Code, OpenClaw, or
+another MCP-aware agent, use the cross-agent installer:
+
+```bash
+rosclaw agent install --project-root . --skip-secrets
+rosclaw agent test claude-code --project-root . --quick --mcp-probe
 ```
 
 ## Practice Evidence Loop

@@ -503,7 +503,21 @@ def dispatch_mcp_health(args: argparse.Namespace) -> int:
         if args.server_name:
             reports = [_check_server(args.server_name)]
         else:
-            reports = [_check_server(r.server_name) for r in registry.list()]
+            installed = registry.list()
+            if not installed:
+                if args.json:
+                    _print_json(
+                        {
+                            "servers": [],
+                            "count": 0,
+                            "message": "No installed Hardware MCP servers.",
+                        }
+                    )
+                else:
+                    print("[ROSClaw MCP] No installed Hardware MCP servers.")
+                    print("Install one with `rosclaw mcp install <alias>` or inspect options with `rosclaw mcp list`.")
+                return 0
+            reports = [_check_server(r.server_name) for r in installed]
     except Exception as exc:  # noqa: BLE001
         print(f"[ROSClaw MCP] ❌ Health check failed: {exc}", file=sys.stderr)
         return 1

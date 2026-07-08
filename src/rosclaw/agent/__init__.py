@@ -8,10 +8,12 @@ from __future__ import annotations
 
 from rosclaw.agent.doctor import cmd_agent_doctor_claude_code
 from rosclaw.agent.init_claude_code import cmd_agent_init_claude_code
+from rosclaw.agent.install import cmd_agent_install
 from rosclaw.agent.test_claude_code import cmd_agent_test_claude_code
 
 __all__ = [
     "cmd_agent_init_claude_code",
+    "cmd_agent_install",
     "cmd_agent_doctor_claude_code",
     "cmd_agent_test_claude_code",
 ]

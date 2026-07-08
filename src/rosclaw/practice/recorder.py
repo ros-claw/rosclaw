@@ -400,7 +400,7 @@ class PracticeRecorder(RuntimeConsumer):
         self._summary = PracticeSummary(
             practice_id=self._session.practice_id,
             robot_id=self._session.robot_id,
-            outcome=_normalize_outcome(outcome),
+            outcome=outcome,
             reward=reward,
             duration_ms=duration_ms,
             event_count=event_count,

@@ -42,7 +42,7 @@
 | `sense` | Body sense and readiness commands | `rosclaw sense [-h] {now,state,readiness,watch,events,explain} ...` |
 | `fleet` | Fleet-wide body operations | `rosclaw fleet [-h] {status,stop} ...` |
 | `demo` | Run demonstration scenarios | `rosclaw demo [-h] {mobile-pid,tabletop-grasp} ...` |
-| `agent` | Agent onboarding and diagnostics | `rosclaw agent [-h] {init,doctor,test} ...` |
+| `agent` | Agent onboarding and diagnostics | `rosclaw agent [-h] {install,init,doctor,test} ...` |
 | `mcp` | MCP server commands | `rosclaw mcp [-h] {serve,install,list,health} ...` |
 
 ## Body commands
@@ -125,6 +125,7 @@
 | Command | Description | Usage |
 |---------|-------------|-------|
 | `sandbox list-worlds` | List available sandbox worlds | `rosclaw sandbox list-worlds [-h]` |
+| `sandbox verify` | Run deterministic MuJoCo sandbox verification | `rosclaw sandbox verify [-h] [--case {ur5e-joint-preview}] [--robot ROBOT] [--world WORLD] [--steps STEPS] [--json]` |
 | `sandbox validate` | Validate robot in sandbox | `rosclaw sandbox validate [-h] robot_id` |
 | `sandbox run` | Run a sandbox episode | `rosclaw sandbox run [-h] --robot ROBOT [--world WORLD] --task TASK [--backend BACKEND] [--trace-id TRACE_ID]` |
 | `sandbox replay` | Replay a sandbox episode | `rosclaw sandbox replay [-h] episode_id` |
@@ -244,9 +245,10 @@
 
 | Command | Description | Usage |
 |---------|-------------|-------|
+| `agent install` | Install cross-agent ROSClaw onboarding files. | `rosclaw agent install [-h] [--project-root PROJECT_ROOT] [--profile PROFILE] [--robot ROBOT] [--transport {stdio,http,sse}] [--host HOST] [--port PORT] [--check] [--dry-run] [--skip-secrets] [{universal,all,claude-code,codex,openclaw}]` |
 | `agent init` | Initialize agent onboarding files for Claude Code. | `rosclaw agent init [-h] [--project-root PROJECT_ROOT] [--profile PROFILE] [--robot ROBOT] [--transport {stdio,http,sse}] [--host HOST] [--port PORT] [--check] [--dry-run] [--skip-secrets] {claude-code}` |
 | `agent doctor` | Diagnose Claude Code / ROSClaw onboarding configuration. | `rosclaw agent doctor [-h] [--project-root PROJECT_ROOT] [--skip-secrets] {claude-code}` |
-| `agent test` | Run onboarding and MCP tests for Claude Code. | `rosclaw agent test [-h] [--project-root PROJECT_ROOT] [--quick] [--verbose] {claude-code}` |
+| `agent test` | Run onboarding and MCP tests for Claude Code. | `rosclaw agent test [-h] [--project-root PROJECT_ROOT] [--quick] [--verbose] [--mcp-probe] {claude-code}` |
 
 ## Config commands
 

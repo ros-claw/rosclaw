@@ -1,10 +1,10 @@
 """P0 ROSClaw MCP server.
 
-Exposes seven safety-gated tools:
-  S0 read-only      : get_robot_state, list_skills, query_memory, practice_query
-  S1 simulation-only: sandbox_run
-  S2 validated-plan : validate_trajectory
-  S4 emergency      : emergency_stop
+Exposes the P0 safety-gated tool surface:
+  S0 read-only/body-context: robot state, skills, memory, practice, body context
+  S1 simulation-only       : sandbox_run
+  S2 validated-plan        : validate_trajectory
+  S4 emergency             : emergency_stop
 
 Supports stdio and streamable-http transports.
 """

@@ -34,6 +34,7 @@ from typing import Any
 
 from rosclaw.agent.doctor import add_doctor_parser as _add_agent_doctor_parser
 from rosclaw.agent.init_claude_code import add_init_parser as _add_agent_init_parser
+from rosclaw.agent.install import add_install_parser as _add_agent_install_parser
 from rosclaw.agent.test_claude_code import add_test_parser as _add_agent_test_parser
 from rosclaw.body.cli import add_body_subparser, dispatch_body_command
 from rosclaw.body.registry import BodyRegistryManager
@@ -3741,6 +3742,53 @@ def cmd_sandbox_list_worlds(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_sandbox_verify(args: argparse.Namespace) -> int:
+    """Run a deterministic sandbox physics verification case."""
+    from rosclaw.sandbox.verification import run_verification_case
+
+    try:
+        result = run_verification_case(
+            args.case,
+            robot_id=args.robot,
+            world_id=args.world,
+            steps=args.steps,
+        )
+    except Exception as exc:  # noqa: BLE001
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "case": args.case,
+                        "passed": False,
+                        "error": str(exc),
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            print(f"[ROSClaw] Sandbox verification failed: {exc}", file=sys.stderr)
+        return 1
+
+    payload = result.to_dict()
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    else:
+        status = "PASS" if result.passed else "FAIL"
+        print("=" * 60)
+        print(f"Sandbox Verification — {result.case}")
+        print("=" * 60)
+        print(f"Status:      {status}")
+        print(f"Robot:       {result.robot_id}")
+        print(f"World:       {result.world_id}")
+        print(f"Has physics: {result.has_physics}")
+        print(f"Steps:       {result.steps}")
+        print(f"qpos/qvel:   {result.qpos_size}/{result.qvel_size}")
+        print(f"Final time:  {result.final_time:.6f}")
+        print(f"Reason:      {result.reason}")
+        print("=" * 60)
+    return 0 if result.passed else 1
+
+
 def cmd_sandbox_validate(args: argparse.Namespace) -> int:
     """Validate a robot in sandbox."""
     from rosclaw.runtime import RobotRegistry
@@ -6049,6 +6097,23 @@ def main() -> int:
     sandbox_parser = subparsers.add_parser("sandbox", help="Sandbox commands")
     sandbox_subparsers = sandbox_parser.add_subparsers(dest="sandbox_command")
     sandbox_subparsers.add_parser("list-worlds", help="List available sandbox worlds")
+    sandbox_verify_parser = sandbox_subparsers.add_parser(
+        "verify", help="Run a deterministic MuJoCo sandbox verification case"
+    )
+    sandbox_verify_parser.add_argument(
+        "--case",
+        default="ur5e-joint-preview",
+        choices=["ur5e-joint-preview"],
+        help="Verification case to run",
+    )
+    sandbox_verify_parser.add_argument(
+        "--robot",
+        default=None,
+        help="Robot identifier override (default: universal_robots_ur5e)",
+    )
+    sandbox_verify_parser.add_argument("--world", default="empty", help="Sandbox world")
+    sandbox_verify_parser.add_argument("--steps", type=int, default=5, help="MuJoCo steps")
+    sandbox_verify_parser.add_argument("--json", action="store_true", help="Output as JSON")
     sandbox_validate_parser = sandbox_subparsers.add_parser(
         "validate", help="Validate robot in sandbox"
     )
@@ -6609,6 +6674,7 @@ def main() -> int:
     # agent (P0 onboarding)
     agent_parser = subparsers.add_parser("agent", help="Agent onboarding and diagnostics")
     agent_subparsers = agent_parser.add_subparsers(dest="agent_command")
+    _add_agent_install_parser(agent_subparsers)
     _add_agent_init_parser(agent_subparsers)
     _add_agent_doctor_parser(agent_subparsers)
     _add_agent_test_parser(agent_subparsers)
@@ -6756,6 +6822,8 @@ def main() -> int:
         elif args.command == "sandbox":
             if args.sandbox_command == "list-worlds":
                 return cmd_sandbox_list_worlds(args)
+            elif args.sandbox_command == "verify":
+                return cmd_sandbox_verify(args)
             elif args.sandbox_command == "validate":
                 return cmd_sandbox_validate(args)
             elif args.sandbox_command == "generate-config":

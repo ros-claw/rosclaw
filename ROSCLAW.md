@@ -7,9 +7,15 @@ outside managed blocks are preserved by `rosclaw agent init claude-code`.
 <!-- ROSCLAW-MANAGED-BEGIN -->
 ## Runtime profile (managed)
 
-- **Project root:** `/home/ubuntu/rosclaw/rosclaw/p0-followup`
+- **Project root:** `/home/ubuntu/rosclaw/rosclaw/rosclaw-v1.0`
 - **MCP transport:** `stdio`
 - **Robot ID:** (none detected)
+
+## Agent tool surface
+
+The MCP server exposes 13 tools: `get_robot_state`, `list_skills`, `query_memory`, `validate_trajectory`, `sandbox_run`, `practice_query`, `emergency_stop`, `get_body_profile`, `get_body_state`, `list_body_capabilities`, `query_body`, `validate_body_action`, `get_calibration_status`.
+Core safety tools: `get_robot_state`, `list_skills`, `query_memory`, `validate_trajectory`, `sandbox_run`, `practice_query`, `emergency_stop`.
+Body context tools: `get_body_profile`, `get_body_state`, `list_body_capabilities`, `query_body`, `validate_body_action`, `get_calibration_status`.
 
 ## Validate-before-motion workflow
 

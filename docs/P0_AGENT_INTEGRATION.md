@@ -1,6 +1,6 @@
-# ROSClaw P0 Claude Code Agent Integration
+# ROSClaw P0 Agent Integration
 
-This document describes the P0 integration between Claude Code and the ROSClaw physical-AI runtime. It covers the generated project files, the MCP tool surface, the adapter architecture, and how to validate an installation.
+This document describes the P0 integration between agent frameworks and the ROSClaw physical-AI runtime. It covers the generated project files, the MCP tool surface, the adapter architecture, and how to validate an installation.
 
 ## Goals
 
@@ -11,24 +11,34 @@ This document describes the P0 integration between Claude Code and the ROSClaw p
 
 ## Generated project files
 
-Running `rosclaw agent init claude-code` produces or updates the following files in the project root:
+For any agent framework, use the universal installer:
+
+```bash
+rosclaw agent install --project-root . --skip-secrets
+```
+
+Running `rosclaw agent install` produces or updates the following files in the project root:
 
 | File | Purpose |
 |------|---------|
-| `.mcp.json` | Claude Code MCP server configuration (stdio or HTTP transport) |
+| `.mcp.json` | MCP server configuration (stdio or HTTP transport) |
+| `AGENTS.md` | Cross-agent safety and operating guidance for Codex and other readers |
+| `.agents/skills/rosclaw/SKILL.md` | Repo-local ROSClaw skill for agent workflows |
 | `.claude/settings.json` | Workspace deny/allow rules and model context settings |
-| `CLAUDE.md` | Human-readable onboarding with a managed safety-contract block |
+| `CLAUDE.md` | Claude Code onboarding with a managed safety-contract block |
 | `ROSCLAW.md` | Extended onboarding and troubleshooting for the agent |
 | `.rosclaw/agent/context.snapshot.json` | Machine-readable snapshot of detected robot, runtime, and environment |
 
 Merge behavior:
 
-- `CLAUDE.md` and `ROSCLAW.md` use managed blocks demarcated by `<!-- ROSCLAW-MANAGED-BEGIN -->` / `<!-- ROSCLAW-MANAGED-END -->`. Hand-written sections outside those blocks are preserved.
+- `AGENTS.md`, `CLAUDE.md`, and `ROSCLAW.md` use managed blocks demarcated by `<!-- ROSCLAW-MANAGED-BEGIN -->` / `<!-- ROSCLAW-MANAGED-END -->`.
+- If `AGENTS.md` already exists without a ROSClaw managed block, `rosclaw agent install` preserves the existing content and appends the ROSClaw section.
+- Hand-written sections outside existing managed blocks are preserved on later runs.
 - `.mcp.json` and `.claude/settings.json` are merged with conflict detection. Collisions are reported and backed up; no data is silently overwritten.
 
 ## MCP tool surface
 
-The P0 server exposes seven tools via `src/rosclaw/mcp/server.py`:
+The P0 server exposes 13 tools via `src/rosclaw/mcp/server.py`:
 
 | Tool | Safety level | Purpose |
 |------|--------------|---------|
@@ -36,8 +46,14 @@ The P0 server exposes seven tools via `src/rosclaw/mcp/server.py`:
 | `list_skills` | S0 read-only | Skills available to the runtime |
 | `query_memory` | S0 read-only | Retrieve similar past experiences from `MemoryInterface` |
 | `practice_query` | S0 read-only | Query practice episodes from `EpisodeRecorder` |
+| `get_body_profile` | S0 read-only | Static effective body profile |
+| `get_body_state` | S0 read-only | Body safety state and capability matrix |
+| `list_body_capabilities` | S0 read-only | Capabilities grouped by status |
+| `query_body` | S0 read-only | Answer questions about the current body |
+| `validate_body_action` | S0 read-only | Validate a proposed body-level action |
+| `get_calibration_status` | S0 read-only | Calibration status for body components |
 | `validate_trajectory` | S2 validated-plan | Validate a trajectory through the sandbox/firewall; never executes real motion |
-| `sandbox_run` | S1 simulation-only | Run one MuJoCo simulation step |
+| `sandbox_run` | S1 simulation-only | Run one MuJoCo simulation step; reports `mode: degraded` if no physics state is available |
 | `emergency_stop` | S4 emergency | Publish `robot.emergency_stop` on the `EventBus` to halt all motion |
 
 All tool responses share a common envelope defined in `src/rosclaw/mcp/schemas/common.py` with `ok`, `timestamp`, `trace_id`, and an optional structured `error` field.
@@ -67,20 +83,22 @@ Each adapter is small, independently unit-testable, and translates a subsystem A
 ### Initialize a project
 
 ```bash
-rosclaw agent init claude-code --check
+rosclaw agent install --project-root . --skip-secrets
 ```
 
-Add `--check` to validate the generated files without writing them. Use `--project-root <path>` to target a directory other than the current working directory.
+Use `rosclaw agent init claude-code` when you only want the legacy Claude Code file set. Use `--project-root <path>` to target a directory other than the current working directory.
 
 ### Validate the installation
 
 ```bash
 rosclaw agent doctor claude-code
-rosclaw agent test claude-code
+rosclaw agent test claude-code --mcp-probe
+rosclaw sandbox verify --case ur5e-joint-preview --json
 ```
 
 - `doctor` checks file presence, transport reachability, and safety-contract completeness.
-- `test` runs a short sequence of MCP tool calls against the configured server and verifies envelope shape.
+- `test --mcp-probe` starts the configured stdio server, lists MCP tools, and verifies key envelope shapes.
+- `sandbox verify` loads the UR5e MuJoCo model and confirms physics state advances with non-empty qpos/qvel.
 
 ### Start the MCP server manually
 
@@ -124,7 +142,7 @@ Current follow-up status:
 ## Remaining gaps
 
 1. ~~End-to-end MCP smoke tests over stdio/HTTP transport.~~ (Done in `tests/mcp/test_e2e.py`.)
-2. ~~Live `Runtime` integration tests for all seven tools in fixture or sim mode.~~ (Done in `tests/mcp/test_runtime_integration.py`.)
+2. ~~Live `Runtime` integration tests for all 13 P0 tools in fixture or sim mode.~~ (Done in `tests/mcp/test_runtime_integration.py`.)
 3. ~~Performance/load tests for `EventBus` synchronous dispatch under emergency-stop load.~~ (Done in `tests/mcp/test_event_bus_emergency_perf.py`.)
 4. ~~CI enforcement of `ruff check src tests` and a focused `mypy` gate.~~ (Done in `.github/workflows/ci.yml` and `.github/mypy-ci.ini`.)
-5. ~~Continuous documentation refresh for `CLAUDE.md` and `ROSCLAW.md` managed blocks.~~ Refreshed via `rosclaw agent init claude-code`; `doctor` and `test` pass.
+5. ~~Continuous documentation refresh for `AGENTS.md`, `CLAUDE.md`, and `ROSCLAW.md` managed blocks.~~ Refreshed via `rosclaw agent install`; `doctor` and `test` pass.

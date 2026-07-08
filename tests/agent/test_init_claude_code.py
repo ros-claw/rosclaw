@@ -8,6 +8,7 @@ from pathlib import Path
 
 from rosclaw.agent.init_claude_code import cmd_agent_init_claude_code
 from rosclaw.agent.merge import managed_block_merge
+from rosclaw.agent.tool_catalog import P0_AGENT_MCP_TOOLS
 from rosclaw.agent.validate import validate_project
 
 
@@ -60,15 +61,7 @@ async def test_init_generates_all_files(tmp_path: Path) -> None:
     snapshot = json.loads((tmp_path / ".rosclaw/agent/context.snapshot.json").read_text())
     assert snapshot["schema_version"] == "rosclaw.agent.context.v1"
     available = snapshot["tools"]["available"]
-    for tool in (
-        "get_robot_state",
-        "list_skills",
-        "query_memory",
-        "validate_trajectory",
-        "sandbox_run",
-        "practice_query",
-        "emergency_stop",
-    ):
+    for tool in P0_AGENT_MCP_TOOLS:
         assert tool in available
 
 

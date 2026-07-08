@@ -170,3 +170,44 @@ class TestMcpHealth:
         assert "unitree-g1" in captured.out
         assert "PASS" in captured.out
         assert "FAIL" not in captured.out
+
+    def test_cli_health_no_installed_servers_is_explicit(
+        self,
+        fake_home: Path,
+        project_root: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        from rosclaw.cli import main
+
+        sys.argv = [
+            "rosclaw",
+            "mcp",
+            "health",
+            "--project-root",
+            str(project_root),
+        ]
+        assert main() == 0
+        captured = capsys.readouterr()
+        assert "No installed Hardware MCP servers" in captured.out
+
+    def test_cli_health_no_installed_servers_json(
+        self,
+        fake_home: Path,
+        project_root: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        from rosclaw.cli import main
+
+        sys.argv = [
+            "rosclaw",
+            "mcp",
+            "health",
+            "--json",
+            "--project-root",
+            str(project_root),
+        ]
+        assert main() == 0
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["count"] == 0
+        assert data["servers"] == []

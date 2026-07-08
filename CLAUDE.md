@@ -7,8 +7,8 @@ It is safe to edit the human sections below. Managed blocks are updated by
 <!-- ROSCLAW-MANAGED-BEGIN -->
 ## ROSClaw Runtime Boundary (managed)
 
-- Project: `p0-followup`
-- Project root: `/home/ubuntu/rosclaw/rosclaw/p0-followup`
+- Project: `rosclaw-v1.0`
+- Project root: `/home/ubuntu/rosclaw/rosclaw/rosclaw-v1.0`
 - Default robot: (none detected)
 - MCP transport: `stdio`
 
@@ -16,23 +16,23 @@ This project exposes a P0 ROSClaw MCP server. Connect via the configured `stdio`
 
 ### Safety contract (P0)
 
-Read-only / simulation / emergency tools only:
+Read-only / body-context / simulation / emergency tools only:
 
 | Tool | Safety level | Purpose |
 |------|--------------|---------|
-| `get_robot_state` | S0 read-only | Current body state and readiness |
-| `list_skills` | S0 read-only | Skills available to the runtime |
-| `query_memory` | S0 read-only | Retrieve similar past experiences |
-| `practice_query` | S0 read-only | Query practice episodes |
-| `validate_trajectory` | S2 validated-plan | Plan validation, never real motion |
-| `sandbox_run` | S1 simulation-only | MuJoCo simulation only |
-| `emergency_stop` | S4 emergency | Halt all motion immediately |
-| `list_bodies` | S0 read-only | List registered bodies in the workspace |
-| `get_body` | S0 read-only | Get registry entry and effective body snapshot |
-| `switch_body` | S0 config | Change the active body pointer (no motion) |
-| `list_body_history` | S0 read-only | List body snapshot history |
-| `check_skill_compatibility` | S0 read-only | Check skill compatibility for the current body |
-| `fleet_skill_compatibility` | S0 read-only | Aggregate skill compatibility across all bodies |
+| `get_robot_state` | S0 | Current body state and readiness |
+| `list_skills` | S0 | Skills available to the runtime |
+| `query_memory` | S0 | Retrieve similar past experiences |
+| `validate_trajectory` | S2 | Plan validation, never real motion |
+| `sandbox_run` | S1 | MuJoCo simulation preview only |
+| `practice_query` | S0 | Query practice episodes |
+| `emergency_stop` | S4 | Halt all motion immediately |
+| `get_body_profile` | S0 | Static effective body profile |
+| `get_body_state` | S0 | Body safety state and capability matrix |
+| `list_body_capabilities` | S0 | Capabilities grouped by status |
+| `query_body` | S0 | Answer questions about the current body |
+| `validate_body_action` | S0 | Validate proposed body-level action |
+| `get_calibration_status` | S0 | Calibration status for body components |
 
 There is **no real-execution tool** in P0. Any request to move the real robot
 must be refused or routed through `validate_trajectory` + operator confirmation.

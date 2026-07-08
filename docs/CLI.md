@@ -54,12 +54,14 @@ This document lists ROSClaw CLI commands and their implementation status.
 
 | Command | Status | Description |
 |---------|--------|-------------|
+| `rosclaw agent install` | Stable | Generate cross-agent MCP config, AGENTS.md, ROSCLAW.md, and repo skill |
 | `rosclaw agent init claude-code` | Stable | Generate MCP config for Claude Code |
-| `rosclaw agent test claude-code` | Stable | Test the agent integration |
+| `rosclaw agent test claude-code --mcp-probe` | Stable | Test files plus live stdio MCP discovery/envelopes |
 | `rosclaw agent doctor claude-code` | Stable | Validate agent/MCP setup |
 | `rosclaw mcp serve` | Stable | Start the ROSClaw MCP server |
 | `rosclaw mcp serve --transport http --port 9000` | Stable | HTTP transport |
 | `rosclaw mcp install <package>` | Stable | Install a hardware MCP server |
+| `rosclaw sandbox verify --case ur5e-joint-preview` | Stable | Run deterministic MuJoCo physics verification |
 
 ---
 

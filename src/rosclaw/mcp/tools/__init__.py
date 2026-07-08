@@ -12,6 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from rosclaw.agent.tool_catalog import MCP_TOOL_SAFETY_LEVELS
 from rosclaw.firstboot.workspace import get_rosclaw_home
 from rosclaw.mcp.adapters.runtime_client import RuntimeClient
 from rosclaw.mcp.schemas.common import MCPError, make_error, make_response
@@ -25,30 +26,6 @@ _CLIENT: RuntimeClient | None = None
 _PROJECT_ROOT: str | None = None
 _RUNTIME_PROFILE: str = "default"
 _AGENT_CLIENT: str = "claude-code"
-
-# Safety levels per the P0 agent guide.
-_SAFETY_LEVELS: dict[str, str] = {
-    "get_robot_state": "S0_READ_ONLY",
-    "list_skills": "S0_READ_ONLY",
-    "query_memory": "S0_READ_ONLY",
-    "validate_trajectory": "S2_VALIDATED_PLAN",
-    "sandbox_run": "S1_SIMULATION_ONLY",
-    "practice_query": "S0_READ_ONLY",
-    "emergency_stop": "S4_EMERGENCY",
-    "list_bodies": "S0_READ_ONLY",
-    "get_body": "S0_READ_ONLY",
-    "switch_body": "S0_CONFIG",
-    "list_body_history": "S0_READ_ONLY",
-    "check_skill_compatibility": "S0_READ_ONLY",
-    "fleet_skill_compatibility": "S0_READ_ONLY",
-    "get_body_profile": "S0_READ_ONLY",
-    "get_body_state": "S0_READ_ONLY",
-    "list_body_capabilities": "S0_READ_ONLY",
-    "query_body": "S0_READ_ONLY",
-    "validate_body_action": "S0_READ_ONLY",
-    "get_calibration_status": "S0_READ_ONLY",
-}
-
 
 def set_client(client: RuntimeClient) -> None:
     """Inject the shared RuntimeClient before serving requests."""
@@ -113,7 +90,7 @@ def _audit(
                 "input_redacted": _redact_for_audit(arguments),
                 "ok": response.get("ok", False),
                 "latency_ms": round(latency_ms, 3),
-                "safety_level": _SAFETY_LEVELS.get(tool, "UNKNOWN"),
+                "safety_level": MCP_TOOL_SAFETY_LEVELS.get(tool, "UNKNOWN"),
             },
             ensure_ascii=False,
             default=str,

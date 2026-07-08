@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 from rosclaw.agent.detectors import build_project_profile
 from rosclaw.agent.merge import read_json_if_exists
+from rosclaw.agent.tool_catalog import P0_AGENT_MCP_TOOLS
 from rosclaw.agent.validate import validate_project
 
 
@@ -81,16 +82,7 @@ def cmd_agent_doctor_claude_code(args: argparse.Namespace) -> int:
         snapshot = read_json_if_exists(snapshot_path)
         tools = snapshot.get("tools", {}).get("available", [])
         print(f"Expected tools: {len(tools)}")
-        expected = [
-            "get_robot_state",
-            "list_skills",
-            "query_memory",
-            "validate_trajectory",
-            "sandbox_run",
-            "practice_query",
-            "emergency_stop",
-        ]
-        missing = [t for t in expected if t not in tools]
+        missing = [t for t in P0_AGENT_MCP_TOOLS if t not in tools]
         if missing:
             print(f"Missing tools: {missing}")
 
