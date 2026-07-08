@@ -13,6 +13,7 @@ import logging
 import sqlite3
 import uuid
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -589,6 +590,7 @@ class SeekDBSQLiteClient(SeekDBClient):
     def connect(self) -> None:
         if self._conn is not None:
             return
+        Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(self._db_path)
         self._conn.row_factory = sqlite3.Row
         self._create_tables()

@@ -1460,7 +1460,13 @@ def cmd_practice_record(args: argparse.Namespace) -> int:
     reward = fixture.get("reward", 0.0)
     failure_labels = fixture.get("failure_labels", [])
     fixture_sources = sorted(
-        {event.get("source") for event in events if isinstance(event, dict) and event.get("source")}
+        {
+            source
+            for event in events
+            if isinstance(event, dict)
+            and (source := event.get("source"))
+            and isinstance(source, str)
+        }
     )
     sources = fixture.get("sources") or dict.fromkeys(fixture_sources, True)
 
