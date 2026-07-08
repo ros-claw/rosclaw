@@ -461,11 +461,13 @@ class SeekDBMemoryClient(SeekDBClient):
                 self._tables[table] = {}
                 self._indices[table] = {}
             record_id = record.get("id") or str(uuid.uuid4())
-            self._tables[table][record_id] = dict(record)
+            stored = dict(record)
+            stored["id"] = record_id
+            self._tables[table][record_id] = stored
             # Update inverted indexes
             if table in self._indices:
                 for col, idx in self._indices[table].items():
-                    val = record.get(col)
+                    val = stored.get(col)
                     if val is not None:
                         if val not in idx:
                             idx[val] = set()

@@ -371,7 +371,10 @@ class TestPracticeCommands:
         assert "Total events:" in captured.out
         assert "agent" in captured.out
 
+        import uvicorn
+
         from rosclaw.cli import main
+        monkeypatch.setattr(uvicorn, "run", lambda *a, **kw: None)
         sys.argv = ["rosclaw", "dashboard"]
         code = main()
         captured = capsys.readouterr()
@@ -675,4 +678,3 @@ class TestBodyUpdateStateFromProviderHealth:
         captured = capsys.readouterr()
         assert code == 0
         assert "Updated body state" in captured.out
-

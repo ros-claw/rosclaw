@@ -95,6 +95,7 @@ def test_builtin_camera_handlers_are_registered(tmp_path) -> None:
     import rosclaw.mcp.onboarding.stdio_client as stdio_client
 
     original_call = stdio_client.call_server_tool
+    original_discover = camera._discover_realsense_ros_mcp
 
     def _fake_call(server_name, tool_name, arguments, home=None, timeout=None):
         return {
@@ -120,6 +121,7 @@ def test_builtin_camera_handlers_are_registered(tmp_path) -> None:
         }
 
     stdio_client.call_server_tool = _fake_call
+    camera._discover_realsense_ros_mcp = lambda home: "realsense-ros-mcp"
     try:
         result = handler({"output_dir": str(tmp_path / "out")})
         assert result["status"] == "success"
@@ -127,6 +129,7 @@ def test_builtin_camera_handlers_are_registered(tmp_path) -> None:
         assert "artifacts" in result
     finally:
         stdio_client.call_server_tool = original_call
+        camera._discover_realsense_ros_mcp = original_discover
 
 
 def test_runtime_handler_failure_is_recorded() -> None:

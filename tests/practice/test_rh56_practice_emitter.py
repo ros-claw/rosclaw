@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
+import pytest
 
-RH56_SRC = Path("/home/nvidia/workspace/rosclaw_rh56_real/rosclaw-rh56-runtime/src")
-if str(RH56_SRC) not in sys.path:
-    sys.path.insert(0, str(RH56_SRC))
+pytest.importorskip("rosclaw_rh56", reason="requires optional rosclaw-rh56-runtime package")
 
 from rosclaw_rh56.body.body_state import RH56BodyState  # noqa: E402
 from rosclaw_rh56.body.contact_event_detector import ContactEventRecord  # noqa: E402

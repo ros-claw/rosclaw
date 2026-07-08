@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -117,3 +118,31 @@ def test_verifier_event_count_mismatch():
         report = verifier.verify(practice_id)
         assert not report.passed
         assert any("event count" in i.message for i in report.issues)
+
+
+def test_verifier_strict_detects_missing_envelope_fields():
+    with tempfile.TemporaryDirectory() as tmp:
+        coord = _run_coordinator_with_recorder(tmp)
+        practice_id = coord.summary.practice_id
+        layout = PracticeLayout(tmp)
+        events_path = layout.events_jsonl_path(practice_id)
+
+        events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+        events[0].pop("event_id", None)
+        events[0].pop("trace_id", None)
+        events[0].pop("timestamp_ns", None)
+        events_path.write_text(
+            "\n".join(json.dumps(event) for event in events) + "\n",
+            encoding="utf-8",
+        )
+
+        verifier = PracticeVerifier(tmp)
+        normal_report = verifier.verify(practice_id)
+        assert normal_report.passed
+        assert any(i.level == "warning" and "event_id" in i.message for i in normal_report.issues)
+
+        strict_report = verifier.verify(practice_id, strict=True)
+        assert not strict_report.passed
+        assert any(i.level == "error" and "event_id" in i.message for i in strict_report.issues)
+        assert any(i.level == "error" and "trace_id" in i.message for i in strict_report.issues)
+        assert any(i.level == "error" and "timestamp_ns" in i.message for i in strict_report.issues)

@@ -41,6 +41,10 @@ def test_referenced_files_exist(md_file: Path) -> None:
     text = md_file.read_text(encoding="utf-8")
     missing = []
     for rel_path in _extract_relative_paths(text):
+        # Root-level MCP config files are local agent/runtime state and are
+        # intentionally ignored by .gitignore.
+        if rel_path in {".mcp.json", "mcp.json"}:
+            continue
         # Skip generated output directories
         if rel_path.startswith("generated/") or rel_path.startswith("./generated/"):
             continue

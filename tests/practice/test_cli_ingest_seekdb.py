@@ -137,3 +137,27 @@ def test_cli_practice_ingest_seekdb_missing(capsys, monkeypatch, tmp_path):
         assert rc == 1
         captured = capsys.readouterr()
         assert "Ingest failed" in captured.err
+
+
+def test_cli_practice_ingest_seekdb_connection_error_is_clear(capsys, monkeypatch, tmp_path):
+    seekdb_path = tmp_path / "seekdb_dir"
+    seekdb_path.mkdir()
+    with tempfile.TemporaryDirectory() as tmp:
+        practice_id = _run_session(tmp)
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "rosclaw",
+                "practice",
+                "ingest-seekdb",
+                practice_id,
+                "--data-root",
+                tmp,
+                "--seekdb-path",
+                str(seekdb_path),
+            ],
+        )
+        rc = main()
+        assert rc == 1
+        captured = capsys.readouterr()
+        assert "SeekDB connection failed" in captured.err

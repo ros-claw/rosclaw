@@ -240,10 +240,32 @@ class PracticeVerifier:
                 if not line.strip():
                     continue
                 try:
-                    json.loads(line)
+                    event = json.loads(line)
                 except json.JSONDecodeError as e:
                     report.add("error", "events_jsonl", f"line {i}: {e}")
                     break
+                if not isinstance(event, dict):
+                    report.add("error", "events_jsonl", f"line {i}: event is not an object")
+                    continue
+
+                required_fields = (
+                    "event_id",
+                    "event_type",
+                    "trace_id",
+                    "timestamp_ns",
+                    "timestamp_utc",
+                )
+                for field_name in required_fields:
+                    if event.get(field_name) in (None, ""):
+                        level = "error" if report.strict else "warning"
+                        report.add(
+                            level,
+                            "event_envelope",
+                            f"line {i}: missing required field: {field_name}",
+                        )
+                if "timestamp_ns" in event and not isinstance(event.get("timestamp_ns"), int):
+                    level = "error" if report.strict else "warning"
+                    report.add(level, "event_envelope", f"line {i}: timestamp_ns must be an integer")
 
 
 def format_report(report: VerificationReport) -> str:

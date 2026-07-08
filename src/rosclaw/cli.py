@@ -781,6 +781,7 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
 
         host = getattr(args, "host", "0.0.0.0")
         port = getattr(args, "port", 8765)
+        print("ROSClaw v1.0 Dashboard")
         print("[ROSClaw] Starting Dashboard Web Server...")
         print(f"[ROSClaw] Dashboard URL: http://localhost:{port}")
         print("[ROSClaw] Press Ctrl+C to stop")
@@ -1345,6 +1346,187 @@ def cmd_practice_export(args: argparse.Namespace) -> int:
         print(f"Unknown format: {args.format}", file=sys.stderr)
         return 1
 
+    return 0
+
+
+def _fixture_event_datetime(event: dict[str, Any]):
+    """Return the RuntimeEvent timestamp represented by a fixture event."""
+    from datetime import datetime
+
+    ts_utc = event.get("timestamp_utc")
+    if isinstance(ts_utc, str) and ts_utc:
+        try:
+            return datetime.fromisoformat(ts_utc.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+    ts_ns = event.get("timestamp_ns")
+    if isinstance(ts_ns, int):
+        return datetime.fromtimestamp(ts_ns / 1_000_000_000, tz=UTC)
+    return datetime.now(UTC)
+
+
+def cmd_practice_record(args: argparse.Namespace) -> int:
+    """Record a deterministic practice session from a JSON fixture."""
+    from rosclaw.practice.recorder import PracticeRecorder
+    from rosclaw.runtime.bus import RuntimeBus
+    from rosclaw.runtime.event import RuntimeEvent
+
+    fixture_path = Path(args.fixture)
+    data_root_arg = getattr(args, "out", None) or getattr(args, "data_root", None)
+    data_root = Path(data_root_arg or "/data/rosclaw/practice")
+
+    try:
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"[rosclaw-practice] Failed to read fixture {fixture_path}: {exc}", file=sys.stderr)
+        return 1
+
+    events = fixture.get("events")
+    if not isinstance(events, list) or not events:
+        print("[rosclaw-practice] Fixture must contain a non-empty events list.", file=sys.stderr)
+        return 1
+
+    practice_id = fixture.get("practice_id") or f"practice_{int(time.time() * 1000)}"
+    session_id = fixture.get("session_id") or practice_id
+    episode_id = fixture.get("episode_id")
+    robot_id = fixture.get("robot_id") or "fixture_robot"
+    robot_type = fixture.get("robot_type")
+    body_id = fixture.get("body_id")
+    task_id = fixture.get("task_id")
+    task_name = fixture.get("task_name") or task_id
+    skill_id = fixture.get("skill_id")
+    policy_id = fixture.get("policy_id")
+    trace_id = fixture.get("trace_id") or practice_id
+    outcome = fixture.get("outcome", "SUCCESS")
+    reward = fixture.get("reward", 0.0)
+    failure_labels = fixture.get("failure_labels", [])
+    fixture_sources = sorted(
+        {event.get("source") for event in events if isinstance(event, dict) and event.get("source")}
+    )
+    sources = fixture.get("sources") or dict.fromkeys(fixture_sources, True)
+
+    required_fields = ("event_id", "event_type", "trace_id", "timestamp_ns", "timestamp_utc")
+    for idx, event in enumerate(events, 1):
+        if not isinstance(event, dict):
+            print(f"[rosclaw-practice] Fixture event {idx} is not an object.", file=sys.stderr)
+            return 1
+        missing = [field for field in required_fields if event.get(field) in (None, "")]
+        if missing:
+            print(
+                f"[rosclaw-practice] Fixture event {idx} missing required fields: {', '.join(missing)}",
+                file=sys.stderr,
+            )
+            return 1
+
+    bus = RuntimeBus()
+    recorder = PracticeRecorder(bus, data_root=data_root, publish_to_event_bus=False)
+    recorder.initialize()
+    recorder.start()
+
+    start_ts = _fixture_event_datetime(events[0])
+    bus.publish(
+        RuntimeEvent(
+            id=session_id,
+            timestamp=start_ts,
+            source="practice_fixture",
+            robot=robot_id,
+            body_id=body_id,
+            type="practice.start",
+            payload={
+                "practice_id": practice_id,
+                "session_id": session_id,
+                "episode_id": episode_id,
+                "robot_id": robot_id,
+                "robot_type": robot_type,
+                "task_id": task_id,
+                "task_name": task_name,
+                "skill_id": skill_id,
+                "sources": sources,
+                "seekdb_enabled": False,
+            },
+            metadata={
+                "trace_id": trace_id,
+                "session_metadata": {
+                    "body_id": body_id,
+                    "policy_id": policy_id,
+                    "fixture": str(fixture_path),
+                },
+            },
+        )
+    )
+
+    for raw_event in events:
+        event = dict(raw_event)
+        event.setdefault("schema_version", "practice.event.v1")
+        event.setdefault("practice_id", practice_id)
+        event.setdefault("session_id", session_id)
+        event.setdefault("episode_id", episode_id)
+        event.setdefault("robot_id", robot_id)
+        event.setdefault("body_id", body_id)
+        event.setdefault("task_id", task_id)
+        event.setdefault("skill_id", skill_id)
+
+        bus.publish(
+            RuntimeEvent(
+                id=str(event["event_id"]),
+                timestamp=_fixture_event_datetime(event),
+                source=event.get("source") or "system",
+                robot=event.get("robot_id") or robot_id,
+                body_id=event.get("body_id") or body_id,
+                type=event["event_type"],
+                payload=event,
+                metadata={
+                    "trace_id": event.get("trace_id") or trace_id,
+                    "source": event.get("source") or "system",
+                    "task_id": event.get("task_id") or task_id,
+                    "skill_id": event.get("skill_id") or skill_id,
+                    "action_id": event.get("action_id"),
+                    "frame_id": event.get("frame_id"),
+                    "tags": event.get("tags", []),
+                    "quality": event.get("quality", {}),
+                    "payload_ref": event.get("payload_ref", {}),
+                    "parent_event_id": event.get("parent_event_id"),
+                    "source_timestamp_ns": event.get("source_timestamp_ns"),
+                },
+            )
+        )
+
+    stop_ts = _fixture_event_datetime(events[-1])
+    bus.publish(
+        RuntimeEvent(
+            timestamp=stop_ts,
+            source="practice_fixture",
+            robot=robot_id,
+            body_id=body_id,
+            type="practice.stop",
+            payload={
+                "practice_id": practice_id,
+                "outcome": outcome,
+                "reward": reward,
+                "event_count": len(events),
+                "failure_labels": failure_labels,
+                "sources": sources,
+                "seekdb_enabled": False,
+            },
+            metadata={"trace_id": trace_id},
+        )
+    )
+    recorder.stop()
+
+    summary = {
+        "practice_id": practice_id,
+        "session_id": session_id,
+        "episode_id": episode_id,
+        "event_count": len(events),
+        "data_root": str(data_root),
+        "events_jsonl": str(PracticeLayout(data_root).events_jsonl_path(practice_id)),
+    }
+    if getattr(args, "json", False):
+        print(json.dumps(summary, indent=2))
+    else:
+        print("[rosclaw-practice] Recorded fixture practice")
+        for key, value in summary.items():
+            print(f"  {key}: {value}")
     return 0
 
 
@@ -2401,8 +2583,13 @@ def cmd_practice_ingest_seekdb(args: argparse.Namespace) -> int:
     practice_id = args.practice_id
     db_path = Path(getattr(args, "seekdb_path", _memory_db_path()))
 
-    client = SeekDBSQLiteClient(str(db_path))
-    ingestor = SeekDBIngestor(data_root, seekdb_client=client)
+    try:
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        client = SeekDBSQLiteClient(str(db_path))
+        ingestor = SeekDBIngestor(data_root, seekdb_client=client)
+    except Exception as e:
+        print(f"[rosclaw-practice] SeekDB connection failed: {e}", file=sys.stderr)
+        return 1
     try:
         report = ingestor.ingest_practice(practice_id)
     except ValueError as e:
@@ -2450,8 +2637,12 @@ def cmd_practice_query(args: argparse.Namespace) -> int:
     data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
     db_path = Path(getattr(args, "seekdb_path", _memory_db_path()))
 
-    client = SeekDBSQLiteClient(str(db_path))
-    query = PracticeQuery(data_root, seekdb_client=client)
+    try:
+        client = SeekDBSQLiteClient(str(db_path))
+        query = PracticeQuery(data_root, seekdb_client=client)
+    except Exception as e:
+        print(f"[rosclaw-practice] Query backend unavailable: {e}", file=sys.stderr)
+        return 1
     try:
         command = args.query_command
         if command == "episodes":
@@ -5648,6 +5839,12 @@ def main() -> int:
     practice_init_parser = practice_subparsers.add_parser("init", help="Initialize practice configuration")
     practice_init_parser.add_argument("--robot", required=True, help="Robot identifier")
 
+    practice_record_parser = practice_subparsers.add_parser("record", help="Record a practice session from a JSON fixture")
+    practice_record_parser.add_argument("--fixture", required=True, help="Path to a JSON fixture")
+    practice_record_parser.add_argument("--out", default=None, help="Practice data root for generated artifacts")
+    practice_record_parser.add_argument("--data-root", default=None, help="Alias for --out")
+    practice_record_parser.add_argument("--json", action="store_true", help="Output summary as JSON")
+
     practice_start_parser = practice_subparsers.add_parser("start", help="Start a practice session")
     practice_start_parser.add_argument("--robot", required=True, help="Robot identifier")
     practice_start_parser.add_argument("--robot-type", default=None, help="Robot type")
@@ -6111,6 +6308,8 @@ def main() -> int:
                 return cmd_practice_list(args)
             elif args.practice_command == "init":
                 return cmd_practice_init(args)
+            elif args.practice_command == "record":
+                return cmd_practice_record(args)
             elif args.practice_command == "start":
                 return cmd_practice_start(args)
             elif args.practice_command == "run":

@@ -21,11 +21,11 @@ class TestStoreExperienceEdgeCases:
     def test_empty_event_id(self):
         mem = MemoryInterface("test_bot")
         mem.initialize()
-        # Empty string event_id is allowed but potentially dangerous
+        # Empty string event_id is normalized to a generated id.
         rid = mem.store_experience(event_id="", event_type="praxis",
                                     instruction="task", outcome="success")
-        assert rid == ""
-        exp = mem.get_experience("")
+        assert rid
+        exp = mem.get_experience(rid)
         assert exp is not None
         assert exp["instruction"] == "task"
         mem.stop()

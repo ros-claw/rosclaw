@@ -194,3 +194,26 @@ def test_cli_query_episodes(capsys, monkeypatch, tmp_path):
         assert rc == 0
         captured = capsys.readouterr()
         assert "Query results: episodes" in captured.out
+
+
+def test_cli_query_backend_error_is_clear(capsys, monkeypatch, tmp_path):
+    seekdb_path = tmp_path / "seekdb_dir"
+    seekdb_path.mkdir()
+    with tempfile.TemporaryDirectory() as tmp:
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "rosclaw",
+                "practice",
+                "query",
+                "failures",
+                "--data-root",
+                tmp,
+                "--seekdb-path",
+                str(seekdb_path),
+            ],
+        )
+        rc = main()
+        assert rc == 1
+        captured = capsys.readouterr()
+        assert "Query backend unavailable" in captured.err

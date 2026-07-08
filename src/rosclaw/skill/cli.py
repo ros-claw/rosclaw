@@ -46,6 +46,8 @@ def _copy_template(template_dir: Path, dest: Path, context: dict[str, str]) -> N
     for src_path in sorted(template_dir.rglob("*")):
         if not src_path.is_file():
             continue
+        if "__pycache__" in src_path.parts or src_path.suffix in {".pyc", ".pyo"}:
+            continue
         rel = src_path.relative_to(template_dir)
         dst_path = dest / rel
         dst_path.parent.mkdir(parents=True, exist_ok=True)
