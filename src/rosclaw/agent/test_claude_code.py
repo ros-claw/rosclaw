@@ -1,4 +1,4 @@
-"""Command handler for `rosclaw agent test claude-code`."""
+"""Command handler for `rosclaw agent test`."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from rosclaw.agent.detectors import build_project_profile
+from rosclaw.agent.install import AGENT_TARGETS
 from rosclaw.agent.merge import read_json_if_exists
 from rosclaw.agent.tool_catalog import P0_AGENT_MCP_TOOLS
 
@@ -133,10 +134,11 @@ def _run_pytest(test_dirs: list[Path], *, verbose: bool = False) -> int:
 
 
 def cmd_agent_test_claude_code(args: argparse.Namespace) -> int:
-    """Implementation of `rosclaw agent test claude-code`."""
+    """Implementation of `rosclaw agent test`."""
     project_root = Path(args.project_root) if args.project_root else None
     profile = build_project_profile(project_root=project_root)
 
+    print(f"Agent target: {getattr(args, 'agent', 'claude-code')}")
     print(f"Project root: {profile.project_root}")
     print(f"Robot ID: {profile.robot_id or '(none detected)'}")
     print(f"MCP transport: {profile.default_transport}")
@@ -203,9 +205,9 @@ def cmd_agent_test_claude_code(args: argparse.Namespace) -> int:
 def add_test_parser(subparsers: Any) -> None:
     parser = subparsers.add_parser(
         "test",
-        help="Run onboarding and MCP tests for Claude Code.",
+        help="Run onboarding and MCP tests for ROSClaw agent integrations.",
     )
-    parser.add_argument("agent", choices=["claude-code"], help="Agent target.")
+    parser.add_argument("agent", choices=AGENT_TARGETS, help="Agent target.")
     parser.add_argument("--project-root", type=str, default=None, help="Project root path.")
     parser.add_argument(
         "--quick",

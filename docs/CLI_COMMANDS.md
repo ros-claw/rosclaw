@@ -247,8 +247,8 @@
 |---------|-------------|-------|
 | `agent install` | Install cross-agent ROSClaw onboarding files. | `rosclaw agent install [-h] [--project-root PROJECT_ROOT] [--profile PROFILE] [--robot ROBOT] [--transport {stdio,http,sse}] [--host HOST] [--port PORT] [--check] [--dry-run] [--skip-secrets] [{universal,all,claude-code,codex,openclaw}]` |
 | `agent init` | Initialize agent onboarding files for Claude Code. | `rosclaw agent init [-h] [--project-root PROJECT_ROOT] [--profile PROFILE] [--robot ROBOT] [--transport {stdio,http,sse}] [--host HOST] [--port PORT] [--check] [--dry-run] [--skip-secrets] {claude-code}` |
-| `agent doctor` | Diagnose Claude Code / ROSClaw onboarding configuration. | `rosclaw agent doctor [-h] [--project-root PROJECT_ROOT] [--skip-secrets] {claude-code}` |
-| `agent test` | Run onboarding and MCP tests for Claude Code. | `rosclaw agent test [-h] [--project-root PROJECT_ROOT] [--quick] [--verbose] [--mcp-probe] {claude-code}` |
+| `agent doctor` | Diagnose ROSClaw agent onboarding configuration. | `rosclaw agent doctor [-h] [--project-root PROJECT_ROOT] [--skip-secrets] {universal,all,claude-code,codex,openclaw}` |
+| `agent test` | Run onboarding and MCP tests for ROSClaw agent integrations. | `rosclaw agent test [-h] [--project-root PROJECT_ROOT] [--quick] [--verbose] [--mcp-probe] {universal,all,claude-code,codex,openclaw}` |
 
 ## Config commands
 

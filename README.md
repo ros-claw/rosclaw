@@ -178,18 +178,34 @@ full lifecycle, state files, permissions, and troubleshooting.
 
 ---
 
-## Agent Plugin Install
+## Install ROSClaw Agent Integration
 
-Tell any agent framework one sentence:
+Paste this setup prompt into Codex, Claude Code, OpenClaw, or another
+MCP-aware agent:
+
+> Install and configure ROSClaw for this repository. Run
+> `rosclaw agent install --project-root . --skip-secrets`, then read
+> `ROSCLAW.md`, `AGENTS.md`, and `.agents/skills/rosclaw/SKILL.md`. Validate
+> the setup with `rosclaw agent test universal --project-root . --quick
+> --mcp-probe`. After that, use ROSClaw through its CLI and MCP tools for robot
+> state, skills, memory, sandbox simulation, practice records, and safety
+> checks.
+
+If you are doing the setup yourself, the core install command is:
 
 ```bash
 rosclaw agent install --project-root . --skip-secrets
 ```
 
-This writes the cross-agent MCP config and guidance files used by Codex, Claude
-Code, OpenClaw, and other MCP-aware agents: `.mcp.json`, `AGENTS.md`,
-`ROSCLAW.md`, `CLAUDE.md`, `.agents/skills/rosclaw/SKILL.md`, and
+This installs and configures the agent-facing ROSClaw integration files:
+`.mcp.json`, `AGENTS.md`, `ROSCLAW.md`, `CLAUDE.md`,
+`.agents/skills/rosclaw/SKILL.md`, and
 `.rosclaw/agent/context.snapshot.json`.
+
+It does not install ROSClaw itself and does not install a native plugin for one
+specific agent framework. ROSClaw remains an independent CLI, Python package,
+MCP server, and robotics infrastructure layer; this command teaches agent
+harnesses how to discover and use it.
 
 ---
 

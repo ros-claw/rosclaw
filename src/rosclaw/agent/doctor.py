@@ -1,4 +1,4 @@
-"""Command handler for `rosclaw agent doctor claude-code`."""
+"""Command handler for `rosclaw agent doctor`."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from rosclaw.agent.detectors import build_project_profile
+from rosclaw.agent.install import AGENT_TARGETS
 from rosclaw.agent.merge import read_json_if_exists
 from rosclaw.agent.tool_catalog import P0_AGENT_MCP_TOOLS
 from rosclaw.agent.validate import validate_project
@@ -34,7 +35,7 @@ def _check_server_reachable(profile: dict[str, Any]) -> tuple[bool, str]:
 
 
 def cmd_agent_doctor_claude_code(args: argparse.Namespace) -> int:
-    """Implementation of `rosclaw agent doctor claude-code`."""
+    """Implementation of `rosclaw agent doctor`."""
     project_root = Path(args.project_root) if args.project_root else None
     profile = build_project_profile(project_root=project_root)
 
@@ -55,6 +56,7 @@ def cmd_agent_doctor_claude_code(args: argparse.Namespace) -> int:
         skip_secrets=args.skip_secrets,
     )
 
+    print(f"Agent target: {getattr(args, 'agent', 'claude-code')}")
     print(f"Project root: {profile.project_root}")
     print(f"Robot ID: {profile.robot_id or '(none detected)'}")
     print(f"MCP transport: {profile.default_transport}")
@@ -92,9 +94,9 @@ def cmd_agent_doctor_claude_code(args: argparse.Namespace) -> int:
 def add_doctor_parser(subparsers: Any) -> None:
     parser = subparsers.add_parser(
         "doctor",
-        help="Diagnose Claude Code / ROSClaw onboarding configuration.",
+        help="Diagnose ROSClaw agent onboarding configuration.",
     )
-    parser.add_argument("agent", choices=["claude-code"], help="Agent target.")
+    parser.add_argument("agent", choices=AGENT_TARGETS, help="Agent target.")
     parser.add_argument("--project-root", type=str, default=None, help="Project root path.")
     parser.add_argument(
         "--skip-secrets",

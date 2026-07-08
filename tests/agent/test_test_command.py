@@ -1,4 +1,4 @@
-"""Tests for `rosclaw agent test claude-code`."""
+"""Tests for `rosclaw agent test`."""
 
 from __future__ import annotations
 
@@ -27,9 +27,15 @@ def _make_init_args(tmp_path: Path) -> argparse.Namespace:
 
 
 def _make_test_args(
-    tmp_path: Path, *, quick: bool = True, verbose: bool = False, mcp_probe: bool = False
+    tmp_path: Path,
+    *,
+    agent: str = "claude-code",
+    quick: bool = True,
+    verbose: bool = False,
+    mcp_probe: bool = False,
 ) -> argparse.Namespace:
     return argparse.Namespace(
+        agent=agent,
         project_root=str(tmp_path),
         quick=quick,
         verbose=verbose,
@@ -51,6 +57,21 @@ async def test_test_command_quick_passes_after_init(
     captured = capsys.readouterr()
     assert ".mcp.json: OK" in captured.out
     assert "Tools advertised: 13" in captured.out
+
+
+async def test_test_command_accepts_cross_agent_targets(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _bootstrap_project(tmp_path)
+    assert cmd_agent_init_claude_code(_make_init_args(tmp_path)) == 0
+
+    assert cmd_agent_test_claude_code(_make_test_args(tmp_path, agent="codex")) == 0
+    assert cmd_agent_test_claude_code(_make_test_args(tmp_path, agent="openclaw")) == 0
+
+    captured = capsys.readouterr()
+    assert "Agent target: codex" in captured.out
+    assert "Agent target: openclaw" in captured.out
 
 
 async def test_test_command_quick_fails_without_init(

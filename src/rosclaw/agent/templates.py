@@ -274,8 +274,8 @@ description: Use when operating, validating, or changing ROSClaw physical-AI run
 ```bash
 rosclaw doctor --json
 rosclaw runtime backends
-rosclaw agent doctor claude-code --project-root {profile.project_root}
-rosclaw agent test claude-code --project-root {profile.project_root} --quick --mcp-probe
+rosclaw agent doctor universal --project-root {profile.project_root}
+rosclaw agent test universal --project-root {profile.project_root} --quick --mcp-probe
 rosclaw sandbox verify --case ur5e-joint-preview --json
 ```
 

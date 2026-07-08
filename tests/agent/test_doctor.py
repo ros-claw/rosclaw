@@ -1,4 +1,4 @@
-"""Tests for `rosclaw agent doctor claude-code`."""
+"""Tests for `rosclaw agent doctor`."""
 
 from __future__ import annotations
 
@@ -25,8 +25,14 @@ def _make_init_args(tmp_path: Path) -> argparse.Namespace:
     )
 
 
-def _make_doctor_args(tmp_path: Path, *, skip_secrets: bool = True) -> argparse.Namespace:
+def _make_doctor_args(
+    tmp_path: Path,
+    *,
+    agent: str = "claude-code",
+    skip_secrets: bool = True,
+) -> argparse.Namespace:
     return argparse.Namespace(
+        agent=agent,
         project_root=str(tmp_path),
         skip_secrets=skip_secrets,
     )
@@ -42,6 +48,21 @@ async def test_doctor_passes_after_init(tmp_path: Path, capsys: pytest.CaptureFi
     assert cmd_agent_doctor_claude_code(_make_doctor_args(tmp_path)) == 0
     captured = capsys.readouterr()
     assert "Onboarding files: OK" in captured.out
+
+
+async def test_doctor_accepts_cross_agent_targets(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _bootstrap_project(tmp_path)
+    assert cmd_agent_init_claude_code(_make_init_args(tmp_path)) == 0
+
+    assert cmd_agent_doctor_claude_code(_make_doctor_args(tmp_path, agent="codex")) == 0
+    assert cmd_agent_doctor_claude_code(_make_doctor_args(tmp_path, agent="openclaw")) == 0
+
+    captured = capsys.readouterr()
+    assert "Agent target: codex" in captured.out
+    assert "Agent target: openclaw" in captured.out
 
 
 async def test_doctor_fails_without_init(

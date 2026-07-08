@@ -91,8 +91,8 @@ Use `rosclaw agent init claude-code` when you only want the legacy Claude Code f
 ### Validate the installation
 
 ```bash
-rosclaw agent doctor claude-code
-rosclaw agent test claude-code --mcp-probe
+rosclaw agent doctor universal
+rosclaw agent test universal --mcp-probe
 rosclaw sandbox verify --case ur5e-joint-preview --json
 ```
 

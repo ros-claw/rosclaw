@@ -172,6 +172,32 @@ ROSCLAW_MCP_HUB=https://my-hub.example.com ./rosclaw mcp install ros-claw/g1-mcp
 
 ---
 
+## 安装 ROSClaw Agent 集成
+
+把下面这段 setup prompt 粘贴给 Codex、Claude Code、OpenClaw 或其他支持 MCP 的 Agent：
+
+> 为这个仓库安装并配置 ROSClaw Agent 集成。请运行
+> `rosclaw agent install --project-root . --skip-secrets`，然后阅读
+> `ROSCLAW.md`、`AGENTS.md` 和 `.agents/skills/rosclaw/SKILL.md`。再用
+> `rosclaw agent test universal --project-root . --quick --mcp-probe` 验证配置。
+> 之后通过 ROSClaw 的 CLI 和 MCP tools 使用机器人状态、技能、记忆、
+> sandbox 仿真、practice 记录和安全检查能力。
+
+如果你自己手动操作，核心安装命令是：
+
+```bash
+rosclaw agent install --project-root . --skip-secrets
+```
+
+这会安装并配置 ROSClaw 面向 Agent 的集成文件：`.mcp.json`、`AGENTS.md`、
+`ROSCLAW.md`、`CLAUDE.md`、`.agents/skills/rosclaw/SKILL.md` 和
+`.rosclaw/agent/context.snapshot.json`。
+
+它不会安装 ROSClaw 本体，也不是把 ROSClaw 作为某个 Agent 框架的原生插件安装进去。
+ROSClaw 仍然是独立的 CLI、Python package、MCP server 和机器人基础设施层；这个命令的作用是让 Agent harness 能发现并使用它。
+
+---
+
 ## 安全模型
 
 ROSClaw 的核心安全规则：
