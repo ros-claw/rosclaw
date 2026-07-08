@@ -14,7 +14,7 @@ def _utc_timestamp() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
-def _short_hash(length: int = 6) -> str:
+def _short_hash(length: int = 12) -> str:
     return uuid.uuid4().hex[:length]
 
 

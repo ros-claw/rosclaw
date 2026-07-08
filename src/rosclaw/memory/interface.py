@@ -12,7 +12,6 @@ Optional integration with powermem.EmbodiedMemory for:
 Sprint 5 of DESIGN_SPRINT3_5.
 """
 
-import json
 import logging
 import threading
 import time
@@ -1036,47 +1035,17 @@ class MemoryInterface(LifecycleMixin):
         provider result from disk and stores a summary experience plus artifact
         records in SeekDB.
         """
-        from rosclaw.practice.storage.layout import PracticeLayout
+        from rosclaw.practice.evidence import load_episode_evidence
 
-        root = Path(data_root or "/data/rosclaw/practice")
-        layout = PracticeLayout(root)
-        session_dir = layout.session_dir(episode_id)
-        if not session_dir.exists():
-            return {"status": "error", "reason": f"session not found: {session_dir}"}
+        evidence = load_episode_evidence(episode_id, data_root)
+        if not evidence.found:
+            return {"status": "error", "reason": evidence.reason or "session not found"}
+        if evidence.errors:
+            return {"status": "error", "reason": evidence.errors[0]}
 
-        episode_path = session_dir / "episode.json"
-        manifest_path = layout.manifest_path(episode_id)
-        events_path = layout.events_jsonl_path(episode_id)
-        provider_path = session_dir / "provider" / "provider_result.json"
-
-        episode: dict[str, Any] = {}
-        if episode_path.exists():
-            try:
-                episode = json.loads(episode_path.read_text(encoding="utf-8"))
-            except Exception as exc:
-                return {"status": "error", "reason": f"failed to parse episode.json: {exc}"}
-        elif manifest_path.exists():
-            try:
-                import yaml
-
-                episode = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
-            except Exception as exc:
-                return {"status": "error", "reason": f"failed to parse manifest.yaml: {exc}"}
-
-        events: list[dict[str, Any]] = []
-        if events_path.exists():
-            try:
-                with open(events_path, encoding="utf-8") as f:
-                    events = [json.loads(line) for line in f if line.strip()]
-            except Exception as exc:
-                return {"status": "error", "reason": f"failed to parse events.jsonl: {exc}"}
-
-        provider_data: dict[str, Any] | None = None
-        if provider_path.exists():
-            try:
-                provider_data = json.loads(provider_path.read_text(encoding="utf-8"))
-            except Exception as exc:
-                logger.warning("Failed to parse provider result for %s: %s", episode_id, exc)
+        episode = evidence.episode
+        events = evidence.events
+        provider_data = evidence.provider
 
         task = episode.get("task", {}) or {}
         task_label = (

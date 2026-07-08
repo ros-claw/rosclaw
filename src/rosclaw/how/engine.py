@@ -21,7 +21,6 @@ Design:
 from __future__ import annotations
 
 import contextlib
-import json
 import logging
 import time
 from typing import Any, Final
@@ -226,33 +225,24 @@ class HeuristicEngine:
         recovery action.  The returned dict includes the episode evidence so
         the advice is traceable.
         """
-        from pathlib import Path
+        from rosclaw.practice.evidence import load_episode_evidence
 
-        from rosclaw.practice.storage.layout import PracticeLayout
-
-        root = Path(data_root or "/data/rosclaw/practice")
-        layout = PracticeLayout(root)
-        session_dir = layout.session_dir(episode_id)
-
-        events: list[dict[str, Any]] = []
-        if session_dir.exists():
-            events_path = layout.events_jsonl_path(episode_id)
-            if events_path.exists():
-                try:
-                    with open(events_path, encoding="utf-8") as f:
-                        events = [json.loads(line) for line in f if line.strip()]
-                except Exception as exc:
-                    logger.warning("Failed to read episode events for HOW advise: %s", exc)
+        evidence = load_episode_evidence(episode_id, data_root)
+        if evidence.errors:
+            logger.warning("Failed to read episode evidence for HOW advise: %s", evidence.errors)
+        events = evidence.events if evidence.found else []
 
         error_log = f"{failure} on body {body_id} (episode {episode_id})"
-        recovery = await self.suggest_recovery(
-            error_log,
-            context={
-                "body_id": body_id,
-                "episode_id": episode_id,
-                "events": events,
-            },
-        )
+        recovery = self._practice_how_intervention(failure, events)
+        if recovery is None:
+            recovery = await self.suggest_recovery(
+                error_log,
+                context={
+                    "body_id": body_id,
+                    "episode_id": episode_id,
+                    "events": events,
+                },
+            )
         if recovery is None:
             recovery = {
                 "rule_id": "fallback",
@@ -269,8 +259,54 @@ class HeuristicEngine:
             "intervention": recovery,
             "evidence": {
                 "event_count": len(events),
-                "sources": sorted({ev.get("source") for ev in events}),
+                "sources": evidence.sources if evidence.found else [],
             },
+        }
+
+    def _practice_how_intervention(
+        self,
+        failure: str,
+        events: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Return a recorded HOW intervention from episode evidence if available."""
+        candidates: list[dict[str, Any]] = []
+        for event in events:
+            if event.get("event_type") != "how_intervention_event":
+                continue
+            payload = event.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            candidates.append({"event": event, "payload": payload})
+
+        if not candidates:
+            return None
+
+        selected = candidates[0]
+        normalized_failure = failure.lower().replace(" ", "_")
+        for candidate in candidates:
+            payload = candidate["payload"]
+            haystack = " ".join(
+                str(payload.get(key, ""))
+                for key in ("failure_id", "description", "intervention_id", "outcome")
+            ).lower()
+            if normalized_failure in haystack.replace(" ", "_") or failure.lower() in haystack:
+                selected = candidate
+                break
+
+        event = selected["event"]
+        payload = selected["payload"]
+        action = str(payload.get("description") or "Apply recorded HOW intervention.")
+        rule_id = str(payload.get("intervention_id") or event.get("event_id") or "practice_how")
+        return {
+            "rule_id": rule_id,
+            "condition": failure,
+            "action": action,
+            "action_taken": payload.get("action_taken"),
+            "priority": 10,
+            "source": "practice_how_intervention",
+            "outcome": payload.get("outcome"),
+            "evidence_refs": payload.get("evidence_refs", []),
+            "event_id": event.get("event_id"),
         }
 
     async def record_outcome(self, rule_id: str, success: bool) -> bool:

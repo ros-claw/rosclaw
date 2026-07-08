@@ -424,29 +424,12 @@ class KnowledgeInterface(LifecycleMixin):
         The card combines the canonical task decomposition and capability
         requirements with real episode evidence (event count, sources, outcome).
         """
-        from rosclaw.practice.storage.layout import PracticeLayout
+        from rosclaw.practice.evidence import load_episode_evidence
 
-        root = Path(data_root or "/data/rosclaw/practice")
-        layout = PracticeLayout(root)
-        session_dir = layout.session_dir(episode_id)
-
-        episode: dict[str, Any] = {}
-        if session_dir.exists():
-            episode_path = session_dir / "episode.json"
-            if episode_path.exists():
-                try:
-                    episode = json.loads(episode_path.read_text(encoding="utf-8"))
-                except Exception as exc:
-                    logger.warning("[Know] Failed to read episode.json: %s", exc)
-
-        events_path = layout.events_jsonl_path(episode_id)
-        events: list[dict[str, Any]] = []
-        if events_path.exists():
-            try:
-                with open(events_path, encoding="utf-8") as f:
-                    events = [json.loads(line) for line in f if line.strip()]
-            except Exception as exc:
-                logger.warning("[Know] Failed to read events.jsonl: %s", exc)
+        evidence = load_episode_evidence(episode_id, data_root)
+        if evidence.errors:
+            logger.warning("[Know] Failed to read episode evidence: %s", "; ".join(evidence.errors))
+        episode = evidence.episode if evidence.found else {}
 
         task_key = task.lower().strip()
         return {
@@ -458,8 +441,8 @@ class KnowledgeInterface(LifecycleMixin):
             "capabilities": self._TASK_CAPABILITY_REQUIREMENTS.get(task_key, []),
             "steps": self._TASK_DECOMPOSITIONS.get(task_key, []),
             "evidence": {
-                "event_count": len(events),
-                "sources": sorted({ev.get("source") for ev in events}),
+                "event_count": evidence.event_count if evidence.found else 0,
+                "sources": evidence.sources if evidence.found else [],
             },
         }
 
@@ -819,7 +802,7 @@ class KnowledgeInterface(LifecycleMixin):
             except Exception:
                 pass
 
-        recommendations = []
+        recommendations: list[dict[str, Any]] = []
         for rid in all_robots:
             caps = set(self._capabilities.get(rid, []))
             # Also query SeekDB for this robot's capabilities
@@ -847,7 +830,9 @@ class KnowledgeInterface(LifecycleMixin):
                 }
             )
 
-        recommendations.sort(key=lambda x: (-x["score"], x["robot_id"]))
+        recommendations.sort(
+            key=lambda x: (-float(x.get("score", 0.0)), str(x.get("robot_id", "")))
+        )
         return recommendations
 
     def match_robot_to_task(
@@ -1191,8 +1176,13 @@ class KnowledgeInterface(LifecycleMixin):
         if not report.get("ok"):
             for err in report.get("errors", []):
                 logger.error("[Know] bridge schema error: %s", err)
-        for warn in report.get("warnings", []):
-            logger.warning("[Know] bridge schema warning: %s", warn)
+        warnings = report.get("warnings", [])
+        if warnings:
+            logger.debug(
+                "[Know] bridge schema validation emitted %d warning(s); first: %s",
+                len(warnings),
+                warnings[0],
+            )
 
     def _maybe_enrich_from_rosclaw_know(self) -> None:
         """Load private curated patterns and merge into the in-memory index.
