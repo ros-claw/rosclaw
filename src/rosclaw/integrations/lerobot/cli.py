@@ -10,6 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from rosclaw.integrations.lerobot.capabilities import get_lerobot_capabilities
+from rosclaw.integrations.lerobot.compatibility import (
+    build_compatibility_report,
+    format_compatibility_text,
+)
 from rosclaw.integrations.lerobot.config import (
     get_configured_lerobot_runtime,
 )
@@ -89,7 +93,7 @@ def cmd_lerobot_doctor(args: argparse.Namespace) -> int:
             "dataset_export_lerobot": True,
         }
     )
-    validation = get_validation_status()
+    validation = report.validation_status or get_validation_status()
     if args.json:
         payload: dict[str, Any] = {
             "name": report.name,
@@ -165,15 +169,29 @@ def cmd_lerobot_doctor(args: argparse.Namespace) -> int:
 
     print()
     print("Real Policy Smoke Validation")
-    if validation["validated"]:
-        print(f"  Status:            validated")
+    state = validation.get("state", "not_configured")
+    print(f"  Status:            {state}")
+    if validation.get("last_policy"):
         print(f"  Last policy:       {validation['last_policy']}")
+    if validation.get("policy_type"):
+        print(f"  Policy type:       {validation['policy_type']}")
+    if validation.get("lerobot_version"):
+        print(f"  LeRobot version:   {validation['lerobot_version']}")
+    if validation.get("device"):
+        print(f"  Device:            {validation['device']}")
+    if validation.get("action_shape") is not None:
         print(f"  Action shape:      {validation['action_shape']}")
+    if validation.get("time"):
         print(f"  Time:              {validation['time']}")
-    else:
-        print("  Status:            not validated")
-        if validation["last_policy"]:
-            print(f"  Last attempt:      {validation['last_policy']} ({validation['last_status']})")
+    if validation.get("safety"):
+        print(f"  Safety labels:     {', '.join(validation['safety'])}")
+    perf = validation.get("performance_warning")
+    if perf:
+        print(f"  Performance:       {perf}")
+    for reason in validation.get("stale_reasons", []):
+        print(f"  Stale reason:      {reason}")
+    if state == "not_configured":
+        print("  Hint: Run `rosclaw lerobot smoke-policy` to validate a real policy.")
 
     print()
     print(f"Status: {report.status.upper()}")
@@ -520,3 +538,16 @@ def cmd_smoke_policy_lerobot(args: argparse.Namespace) -> int:
 
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 0 if report.status == "ok" else 1
+
+
+def cmd_lerobot_compatibility(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot compatibility`."""
+    policy_type: str | None = getattr(args, "policy_type", None) or None
+    report = build_compatibility_report(policy_type=policy_type)
+
+    if args.json:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        return 0
+
+    print(format_compatibility_text(report))
+    return 0

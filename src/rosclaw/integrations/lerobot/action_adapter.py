@@ -28,6 +28,10 @@ def adapt_action_to_proposal(action: WorkerAction | dict[str, Any] | None) -> di
             "dtype": "float32",
             "executable": False,
             "requires_sandbox": True,
+            "not_executed": True,
+            "body_mapping_required": True,
+            "body_compatible": False,
+            "body_name": None,
         }
 
     if isinstance(action, dict):
@@ -48,6 +52,10 @@ def adapt_action_to_proposal(action: WorkerAction | dict[str, Any] | None) -> di
         "dtype": dtype,
         "executable": False,
         "requires_sandbox": True,
+        "not_executed": True,
+        "body_mapping_required": True,
+        "body_compatible": False,
+        "body_name": None,
     }
 
     # Preserve chunk metadata when the policy emits action chunks.

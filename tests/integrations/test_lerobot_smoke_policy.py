@@ -154,7 +154,7 @@ def test_smoke_policy_rejects_uncached_hf_repo_without_allow_network(
     report = run_smoke_policy_sync(options)
 
     assert report.status == "error"
-    assert report.stages.get("materialize") == "error"
+    assert report.stages.get("materialize", {}).get("status") == "error"
     assert report.error is not None
     assert report.error["code"] == "network_disabled"
 
@@ -186,11 +186,11 @@ def test_smoke_policy_uses_local_policy_path(
     report = run_smoke_policy_sync(options)
 
     assert report.status == "ok"
-    assert report.stages["runtime_check"] == "ok"
-    assert report.stages["materialize"] == "ok"
-    assert report.stages["inspect"] == "ok"
-    assert report.stages["load_test"] == "ok"
-    assert report.stages["infer"] == "ok"
+    assert report.stages["runtime_check"]["status"] == "ok"
+    assert report.stages["materialize"]["status"] == "ok"
+    assert report.stages["inspect"]["status"] == "ok"
+    assert report.stages["load_test"]["status"] == "ok"
+    assert report.stages["infer"]["status"] == "ok"
     assert report.policy["local_path"] == str(local_policy_dir.resolve())
     assert report.features["input_features"]["observation.images.top"] == [3, 480, 640]
     assert report.features["input_features"]["observation.state"] == [14]
@@ -212,7 +212,7 @@ def test_smoke_policy_skip_infer(fake_runtime_check, fake_lerobot_worker, local_
     report = run_smoke_policy_sync(options)
 
     assert report.status == "ok"
-    assert report.stages["infer"] == "skipped"
+    assert report.stages["infer"].get("status") == "skipped"
     assert report.action_proposal is None
 
 

@@ -18,6 +18,10 @@ from rosclaw.integrations.lerobot.runtime import (
     inspect_lerobot_runtime,
 )
 from rosclaw.integrations.lerobot.schemas import LeRobotDoctorReport
+from rosclaw.integrations.lerobot.smoke_report import (
+    get_validation_status,
+    read_latest_smoke_report,
+)
 from rosclaw.integrations.lerobot.subprocess_runner import run_command, which
 from rosclaw.integrations.registry import IntegrationCapability
 
@@ -117,6 +121,17 @@ class LeRobotDoctor:
             worker_in_process_available,
         )
 
+        current_lerobot_version = lerobot_runtime.lerobot_version if lerobot_runtime else None
+        current_python_executable = (
+            str(lerobot_runtime.python_executable) if lerobot_runtime else None
+        )
+        latest_report = read_latest_smoke_report()
+        validation_status = get_validation_status(
+            report=latest_report,
+            current_lerobot_version=current_lerobot_version,
+            current_python_executable=current_python_executable,
+        )
+
         message = self._build_message(
             status,
             rosclaw_runtime,
@@ -175,6 +190,7 @@ class LeRobotDoctor:
             worker_subprocess_available=worker_subprocess_available,
             worker_in_process_available=worker_in_process_available,
             status_detail=self._status_detail(status, lerobot_runtime),
+            validation_status=validation_status,
         )
 
     @staticmethod

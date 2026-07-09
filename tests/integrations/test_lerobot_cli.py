@@ -76,6 +76,27 @@ def test_capability_list(capsys):
     assert "lerobot" in out.lower()
 
 
+def test_lerobot_compatibility(capsys):
+    """Compatibility command should print the matrix."""
+    with patch.object(sys, "argv", ["rosclaw", "lerobot", "compatibility"]):
+        rc = main()
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "act" in out.lower()
+    assert "LeRobot Policy Compatibility Matrix" in out
+
+
+def test_lerobot_compatibility_json(capsys):
+    """Compatibility --json should return a parseable report."""
+    with patch.object(sys, "argv", ["rosclaw", "lerobot", "compatibility", "--json"]):
+        rc = main()
+    assert rc == 0
+    out = capsys.readouterr().out
+    report = json.loads(out)
+    assert "matrix" in report
+    assert "levels" in report
+
+
 def test_provider_infer_dry_run(capsys, sample_manifest, sample_input):
     """Provider infer dry-run should return sample action."""
     with patch.object(

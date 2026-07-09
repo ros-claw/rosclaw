@@ -103,3 +103,4 @@ class LeRobotDoctorReport(IntegrationReport):
     worker_subprocess_available: bool = False
     worker_in_process_available: bool = False
     status_detail: str | None = None
+    validation_status: dict[str, Any] = field(default_factory=dict)

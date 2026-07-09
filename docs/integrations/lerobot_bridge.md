@@ -35,9 +35,10 @@ When ROSClaw runs on Python 3.10/3.11, use isolated or external LeRobot runtime.
 - `rosclaw provider load-test --type lerobot_policy --manifest ... --policy.path <dir>` — load policy weights as a runtime smoke test.
 - `rosclaw provider infer --type lerobot_policy --manifest ... --input ... --policy.path <dir>` — run one real policy inference via the LeRobot worker.
 - `rosclaw provider infer --type lerobot_policy --manifest ... --input ... --dry-run` — returns a sample action with safety metadata.
+- `rosclaw lerobot compatibility` — show the P1.1 policy compatibility matrix.
 - `rosclaw practice export --format lerobot --episode <dir> --output <dir>` — creates a LeRobotDataset v3 skeleton.
 
-All provider commands that perform real inference still return **action proposals** only: `not_executed=true`, `requires_sandbox=true`, `executable=false`. The provider never executes actions on hardware.
+All provider commands that perform real inference still return **action proposals** only: `not_executed=true`, `requires_sandbox=true`, `executable=false`. Every proposal also carries `body_mapping_required=true`, `body_compatible=false`, and `body_name=null` to make it explicit that LeRobot actions are not mapped to a ROSClaw body in P1.1. The provider never executes actions on hardware.
 
 All commands degrade gracefully when LeRobot is not installed.
 
@@ -249,24 +250,50 @@ rosclaw lerobot smoke-policy \
 
 ### Smoke report and validation
 
-A successful run writes a report to
+A successful run writes a v1.1 report to
 `~/.rosclaw/lerobot/smoke_reports/<timestamp>_<policy>.json` and updates
-`latest.json`. `rosclaw lerobot doctor` then reports:
+`latest.json`. The report schema includes `sample_observation`, `warnings`, a
+`validation` block, and summarized action proposals (`preview_values` + shape,
+not full tensors).
+
+`rosclaw lerobot doctor` renders the validation state:
 
 ```text
 Real Policy Smoke Validation
-  Status:            validated
+  Status:            validated        # or not_configured / available_not_validated / stale / failed
   Last policy:       lerobot/act_aloha_sim_transfer_cube_human
+  Policy type:       act
+  LeRobot version:   0.6.1
+  Device:            cpu
   Action shape:      [100, 14]
+  Time:              2026-07-09T12:34:56.789123Z
+  Safety labels:     proposal_only, sandbox_required, body_mapping_required
 ```
+
+States:
+
+| State | Meaning |
+|-------|---------|
+| `not_configured` | No smoke report exists. |
+| `available_not_validated` | A report exists but the policy did not pass. |
+| `validated` | The latest report is `ok` and not stale. |
+| `stale` | The report is older than 30 days, or the LeRobot version/Python executable changed. |
+| `failed` | The latest smoke run ended with `status=error`. |
+
+If inference, load, or the whole pipeline is slow, the report also includes
+performance warnings such as `slow_one_shot_worker`, `slow_policy_load`, or
+`slow_smoke_pipeline`. These are informational; the validation can still be
+`validated`.
 
 ### What `smoke-policy` is not
 
+- It is **not** a benchmark.
 - It is **not** a rollout.
 - It does **not** control real hardware.
 - It does **not** call MCP tools.
 - The inference output is always an `action_proposal` with
-  `not_executed=true`, `requires_sandbox=true`, `executable=false`.
+  `not_executed=true`, `requires_sandbox=true`, `executable=false`,
+  `body_mapping_required=true`, `body_compatible=false`.
 
 ### Provider import smoke (P0.1 legacy)
 
@@ -294,12 +321,15 @@ src/rosclaw/integrations/
     __init__.py               # Public API
     capabilities.py           # Capability registration
     cli.py                    # CLI dispatchers
+    compatibility.py          # Policy compatibility matrix
     config.py                 # Config read/write and v0→v1 migration
     doctor.py                 # Environment diagnostics (dual runtime)
     env_manager.py            # Isolated venv creation
     installer.py              # Setup / dry-run installer (runtime-aware)
     provider.py               # LeRobotPolicyProvider (inspect/load-test/infer)
     runtime.py                # Python/LeRobot runtime discovery
+    smoke_policy.py           # Real-policy smoke workflow
+    smoke_report.py           # v1.1 report persistence and validation state
     worker_main.py            # LeRobot-runtime-side worker (no rosclaw import)
     worker_runner.py          # ROSClaw-side subprocess runner
     worker_schema.py          # JSON request/response dataclasses

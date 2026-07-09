@@ -7,6 +7,13 @@ from rosclaw.integrations.lerobot.capabilities import (
     LeRobotIntegration,
     register_lerobot_capabilities,
 )
+from rosclaw.integrations.lerobot.compatibility import (
+    POLICY_COMPATIBILITY_MATRIX,
+    PolicyCompatibility,
+    build_compatibility_report,
+    classify_compatibility_level,
+    get_policy_compatibility,
+)
 from rosclaw.integrations.lerobot.config import (
     build_lerobot_config,
     get_configured_lerobot_runtime,
@@ -21,6 +28,7 @@ from rosclaw.integrations.lerobot.env_manager import LeRobotEnvManager
 from rosclaw.integrations.lerobot.installer import LeRobotInstaller
 from rosclaw.integrations.lerobot.observation_adapter import adapt_observation_for_worker
 from rosclaw.integrations.lerobot.policy_cache import (
+    MaterializationResult,
     PolicyMaterializationError,
     get_policy_cache_dir,
     materialize_policy_path,
@@ -100,6 +108,7 @@ __all__ = [
     "adapt_action_to_proposal",
     "load_policy_manifest",
     "materialize_policy_path",
+    "MaterializationResult",
     "PolicyMaterializationError",
     "get_policy_cache_dir",
     "SmokePolicyOptions",
@@ -111,4 +120,9 @@ __all__ = [
     "read_latest_smoke_report",
     "write_smoke_report",
     "get_validation_status",
+    "POLICY_COMPATIBILITY_MATRIX",
+    "PolicyCompatibility",
+    "build_compatibility_report",
+    "classify_compatibility_level",
+    "get_policy_compatibility",
 ]

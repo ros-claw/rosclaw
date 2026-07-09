@@ -118,6 +118,10 @@ class LeRobotPolicyProvider(Provider):
                 "dtype": "float32",
                 "executable": False,
                 "requires_sandbox": True,
+                "not_executed": True,
+                "body_mapping_required": True,
+                "body_compatible": False,
+                "body_name": None,
             },
             "action_space": self.manifest.embodiment.action_space or [],
             "safety": self._safety_dict(),
@@ -285,6 +289,8 @@ class LeRobotPolicyProvider(Provider):
             "requires_collision_check": True,
             "sandbox_required": True,
             "requires_sandbox": True,
+            "body_mapping_required": True,
+            "body_compatible": False,
             "max_action_norm": self.manifest.safety.max_action_norm,
         }
 

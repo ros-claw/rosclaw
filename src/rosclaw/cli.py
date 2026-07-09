@@ -55,6 +55,7 @@ from rosclaw.integrations.lerobot.smoke_policy import DEFAULT_SMOKE_POLICY
 from rosclaw.integrations.lerobot.cli import (
     cmd_capability_list,
     cmd_lerobot_capabilities,
+    cmd_lerobot_compatibility,
     cmd_lerobot_doctor,
     cmd_lerobot_info,
     cmd_provider_infer_lerobot,
@@ -6206,6 +6207,14 @@ def main() -> int:
     )
     lerobot_smoke_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
+    lerobot_compatibility_parser = lerobot_subparsers.add_parser(
+        "compatibility", help="Show LeRobot policy compatibility matrix"
+    )
+    lerobot_compatibility_parser.add_argument(
+        "--policy-type", default=None, help="Focus on a single policy type (e.g., act, diffusion)"
+    )
+    lerobot_compatibility_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
     # auto subcommand (Self-Evolution Control Plane)
     auto_parser = subparsers.add_parser("auto", help="Auto self-evolution commands")
     auto_subparsers = auto_parser.add_subparsers(dest="auto_command")
@@ -7026,6 +7035,8 @@ def main() -> int:
                 return cmd_lerobot_capabilities(args)
             elif args.lerobot_command == "smoke-policy":
                 return cmd_smoke_policy_lerobot(args)
+            elif args.lerobot_command == "compatibility":
+                return cmd_lerobot_compatibility(args)
             else:
                 lerobot_parser.print_help()
                 return 1

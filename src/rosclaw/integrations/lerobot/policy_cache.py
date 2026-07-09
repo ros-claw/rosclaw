@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,15 @@ from rosclaw.firstboot.workspace import get_rosclaw_home
 
 
 DEFAULT_CACHE_SUBDIR = "cache/lerobot/policies"
+
+
+@dataclass
+class MaterializationResult:
+    """Result of resolving a policy path to a local directory."""
+
+    local_path: Path
+    network_used: bool = False
+    cache_hit: bool = False
 
 
 class PolicyMaterializationError(Exception):
@@ -39,7 +49,7 @@ def materialize_policy_path(
     revision: str = "main",
     allow_network: bool = False,
     force_download: bool = False,
-) -> Path:
+) -> MaterializationResult:
     """Return a local directory containing the policy artifacts.
 
     ``policy_path`` may be a local directory or a Hugging Face repo id
@@ -54,7 +64,11 @@ def materialize_policy_path(
     local_path = Path(policy_path)
     if local_path.is_dir():
         _validate_local_policy_dir(local_path)
-        return local_path.resolve()
+        return MaterializationResult(
+            local_path=local_path.resolve(),
+            network_used=False,
+            cache_hit=True,
+        )
 
     # Treat as Hugging Face repo id.
     if "/" not in policy_path:
@@ -95,7 +109,7 @@ def _materialize_hf_repo(
     revision: str,
     allow_network: bool,
     force_download: bool,
-) -> Path:
+) -> MaterializationResult:
     """Resolve a HF repo id to a local directory."""
     try:
         import huggingface_hub as hf_hub
@@ -112,13 +126,21 @@ def _materialize_hf_repo(
 
     # If we already have a cached copy and are not forcing a re-download, reuse it.
     if target_dir.exists() and not force_download and _looks_like_policy_dir(target_dir):
-        return target_dir
+        return MaterializationResult(
+            local_path=target_dir,
+            network_used=False,
+            cache_hit=True,
+        )
 
     if not allow_network:
         # Try the HF cache before giving up.
         cached_path = _find_in_hf_cache(hf_hub, repo_id, revision)
         if cached_path is not None:
-            return cached_path
+            return MaterializationResult(
+                local_path=cached_path,
+                network_used=False,
+                cache_hit=True,
+            )
         raise PolicyMaterializationError(
             "network_disabled",
             f"Policy '{repo_id}' is not cached locally and allow_network=false.",
@@ -152,7 +174,11 @@ def _materialize_hf_repo(
             "policy_config_not_found",
             f"Downloaded policy directory does not contain a config: {local_path}",
         )
-    return local_path
+    return MaterializationResult(
+        local_path=local_path,
+        network_used=True,
+        cache_hit=False,
+    )
 
 
 def _find_in_hf_cache(hf_hub: Any, repo_id: str, revision: str) -> Path | None:
