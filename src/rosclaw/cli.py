@@ -49,6 +49,16 @@ from rosclaw.feedback.telemetry_client import TelemetryClient
 from rosclaw.firstboot.wizard import run_firstboot
 from rosclaw.firstboot.workspace import get_rosclaw_home, resolve_home
 from rosclaw.hub.cli import add_hub_subparser, dispatch_hub_command
+from rosclaw.integrations import GLOBAL_INTEGRATION_REGISTRY
+from rosclaw.integrations.lerobot import register_lerobot_capabilities
+from rosclaw.integrations.lerobot.cli import (
+    cmd_capability_list,
+    cmd_lerobot_capabilities,
+    cmd_lerobot_doctor,
+    cmd_lerobot_info,
+    cmd_provider_infer_lerobot,
+    cmd_setup_lerobot,
+)
 from rosclaw.mcp.onboarding.cli import add_mcp_subparser
 from rosclaw.mcp.server import serve as _mcp_serve
 from rosclaw.practice.config import PracticeConfig, SourceConfig
@@ -1341,8 +1351,10 @@ def cmd_practice_replay(args: argparse.Namespace) -> int:
 
 def cmd_practice_export(args: argparse.Namespace) -> int:
     """Export episode metadata or practice events to requested format."""
+    episode_id = args.episode_dir or args.episode_id
+
     if args.format == "jsonl":
-        practice_id = args.practice_id or args.episode_id
+        practice_id = args.practice_id or episode_id
         layout = PracticeLayout(args.data_root)
         jsonl_path = layout.events_jsonl_path(practice_id)
         if not jsonl_path.exists():
@@ -1366,7 +1378,7 @@ def cmd_practice_export(args: argparse.Namespace) -> int:
     if args.format == "parquet":
         from rosclaw.practice.exporters import ParquetExporter
 
-        practice_id = args.practice_id or args.episode_id
+        practice_id = args.practice_id or episode_id
         exporter = ParquetExporter(args.data_root)
         try:
             out = exporter.export(practice_id, output_path=args.output)
@@ -1377,9 +1389,22 @@ def cmd_practice_export(args: argparse.Namespace) -> int:
             return 1
 
     if args.format == "lerobot":
+        practice_id = args.practice_id or episode_id
+        episode_dir = Path(args.data_root) / practice_id
+        if episode_dir.is_dir():
+            from rosclaw.practice.exporters import LeRobotSkeletonExporter
+
+            exporter = LeRobotSkeletonExporter(args.data_root)
+            try:
+                out = exporter.export(practice_id, output_path=args.output)
+                print(f"[ROSClaw] Exported LeRobot dataset skeleton to {out}")
+                return 0
+            except Exception as e:
+                print(f"[ROSClaw] LeRobot skeleton export failed: {e}", file=sys.stderr)
+                return 1
+
         from rosclaw.practice.exporters import LeRobotExporter
 
-        practice_id = args.practice_id or args.episode_id
         exporter = LeRobotExporter(args.data_root)
         try:
             out = exporter.export(practice_id, output_path=args.output)
@@ -1394,7 +1419,7 @@ def cmd_practice_export(args: argparse.Namespace) -> int:
     recorder = EpisodeRecorder(
         "cli", event_bus=None, artifact_base_dir=str(_practice_artifacts_dir())
     )
-    meta = recorder.get_episode(args.episode_id)
+    meta = recorder.get_episode(episode_id)
 
     if meta is None:
         print(f"[ROSClaw] Episode '{args.episode_id}' not found.", file=sys.stderr)
@@ -5694,10 +5719,26 @@ def main() -> int:
     )
     subparsers = parser.add_subparsers(dest="command")
 
+    # Register optional integrations (LeRobot, etc.) so their provider types
+    # and exporters are available to CLI commands without hard dependencies.
+    register_lerobot_capabilities(GLOBAL_INTEGRATION_REGISTRY)
+
     # init
     init_parser = subparsers.add_parser("init", help="Initialize a ROSClaw workspace")
     init_parser.add_argument("dir", nargs="?", default=".", help="Target directory")
     init_parser.add_argument("--force", action="store_true", help="Overwrite existing config")
+
+    # setup (optional integrations)
+    setup_parser = subparsers.add_parser("setup", help="Setup optional integrations")
+    setup_subparsers = setup_parser.add_subparsers(dest="setup_command")
+
+    setup_lerobot_parser = setup_subparsers.add_parser("lerobot", help="Setup LeRobot integration")
+    setup_lerobot_parser.add_argument(
+        "--profile", default="core", help="Installation profile (core, dataset, train, eval, rollout, reward, all)"
+    )
+    setup_lerobot_parser.add_argument("--dry-run", action="store_true", help="Show what would be installed")
+    setup_lerobot_parser.add_argument("--upgrade", action="store_true", help="Upgrade packages")
+    setup_lerobot_parser.add_argument("--json", action="store_true", help="Output JSON details")
 
     # run / start
     for name in ("run", "start"):
@@ -5971,6 +6012,26 @@ def main() -> int:
     )
     provider_invoke_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
+    provider_infer_parser = provider_subparsers.add_parser(
+        "infer", help="Infer from a provider manifest"
+    )
+    provider_infer_parser.add_argument(
+        "--type", required=True, help="Provider type (e.g., lerobot_policy)"
+    )
+    provider_infer_parser.add_argument(
+        "--manifest", required=True, help="Path to provider.yaml manifest"
+    )
+    provider_infer_parser.add_argument(
+        "--input", required=True, help="Path to input JSON file"
+    )
+    provider_infer_parser.add_argument(
+        "--output", default=None, help="Output JSON file"
+    )
+    provider_infer_parser.add_argument(
+        "--dry-run", action="store_true", help="Dry-run mode"
+    )
+    provider_infer_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
     provider_diagnose_parser = provider_subparsers.add_parser(
         "diagnose", help="Diagnose provider interfaces against the active body"
     )
@@ -5985,6 +6046,26 @@ def main() -> int:
         default=[],
         help="Treat interface name as reported available",
     )
+
+    # capability subcommand
+    capability_parser = subparsers.add_parser("capability", help="Capability registry commands")
+    capability_subparsers = capability_parser.add_subparsers(dest="capability_command")
+    capability_list_parser = capability_subparsers.add_parser("list", help="List all capabilities")
+    capability_list_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    # lerobot subcommand
+    lerobot_parser = subparsers.add_parser("lerobot", help="LeRobot integration commands")
+    lerobot_subparsers = lerobot_parser.add_subparsers(dest="lerobot_command")
+    lerobot_doctor_parser = lerobot_subparsers.add_parser("doctor", help="Diagnose LeRobot integration")
+    lerobot_doctor_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    lerobot_info_parser = lerobot_subparsers.add_parser("info", help="Run lerobot-info")
+    lerobot_info_parser.add_argument(
+        "args", nargs="*", help="Additional arguments passed to lerobot-info"
+    )
+    lerobot_capabilities_parser = lerobot_subparsers.add_parser(
+        "capabilities", help="List LeRobot capabilities"
+    )
+    lerobot_capabilities_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     # auto subcommand (Self-Evolution Control Plane)
     auto_parser = subparsers.add_parser("auto", help="Auto self-evolution commands")
@@ -6543,7 +6624,12 @@ def main() -> int:
     practice_export_parser = practice_subparsers.add_parser(
         "export", help="Export episode metadata or practice events"
     )
-    practice_export_parser.add_argument("episode_id", help="Episode or practice identifier")
+    practice_export_parser.add_argument(
+        "episode_id", nargs="?", default=None, help="Episode or practice identifier"
+    )
+    practice_export_parser.add_argument(
+        "--episode", dest="episode_dir", default=None, help="Alias for episode_id"
+    )
     practice_export_parser.add_argument(
         "--practice-id", default=None, help="Practice identifier (for jsonl)"
     )
@@ -6766,10 +6852,37 @@ def main() -> int:
                 return cmd_provider_list(args)
             elif args.provider_command == "invoke":
                 return cmd_provider_invoke(args)
+            elif args.provider_command == "infer":
+                if args.type == "lerobot_policy":
+                    return cmd_provider_infer_lerobot(args)
+                print(f"[ROSClaw] Unknown provider type for infer: {args.type}", file=sys.stderr)
+                return 1
             elif args.provider_command == "diagnose":
                 return cmd_provider_diagnose(args)
             else:
                 provider_parser.print_help()
+                return 1
+        elif args.command == "capability":
+            if args.capability_command == "list":
+                return cmd_capability_list(args, GLOBAL_INTEGRATION_REGISTRY)
+            else:
+                capability_parser.print_help()
+                return 1
+        elif args.command == "lerobot":
+            if args.lerobot_command == "doctor":
+                return cmd_lerobot_doctor(args)
+            elif args.lerobot_command == "info":
+                return cmd_lerobot_info(args)
+            elif args.lerobot_command == "capabilities":
+                return cmd_lerobot_capabilities(args)
+            else:
+                lerobot_parser.print_help()
+                return 1
+        elif args.command == "setup":
+            if args.setup_command == "lerobot":
+                return cmd_setup_lerobot(args)
+            else:
+                setup_parser.print_help()
                 return 1
         elif args.command == "skill":
             if getattr(args, "func", None):

@@ -61,6 +61,9 @@ practice-export = [
     "pandas>=2.0.0",
     "pyarrow>=15.0.0",
 ]
+lerobot = [
+    "lerobot",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
@@ -76,7 +79,7 @@ dashboard = [
     "rosclaw-dashboard>=1.0.0",
 ]
 all = [
-    "rosclaw[ros2,dev,dashboard]",
+    "rosclaw[ros2,dev,dashboard,lerobot]",
 ]
 
 [project.scripts]
