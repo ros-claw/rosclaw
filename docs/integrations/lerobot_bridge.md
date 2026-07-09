@@ -30,7 +30,8 @@ pip install -e ".[lerobot]"
 # Or use the CLI setup helper (dry-run)
 rosclaw setup lerobot --profile core --dry-run
 
-# Real install
+# Real install. LeRobot 0.6.1 requires Python 3.12+; if LeRobot is already
+# importable in the active interpreter, setup skips the pip install step.
 rosclaw setup lerobot --profile core
 ```
 
