@@ -109,6 +109,22 @@ class LeRobotInstaller:
             )
             details["pip_install"] = {"skipped": True, "reason": reason}
         else:
+            # LeRobot 0.6.1 (and many recent versions) require Python 3.12+.
+            if sys.version_info < (3, 12):
+                return InstallReport(
+                    ok=False,
+                    profile=profile_name,
+                    dry_run=False,
+                    message=(
+                        "LeRobot 0.6.1 requires Python 3.12+. "
+                        f"Current interpreter is {sys.version_info.major}.{sys.version_info.minor}. "
+                        "Please run `rosclaw setup lerobot` from a Python 3.12+ virtual environment."
+                    ),
+                    python_executable=self.python_executable,
+                    pip_executable=self.pip_executable,
+                    details=details,
+                )
+
             # Install packages.
             install_cmd = [self.pip_executable, "install"]
             if upgrade:
