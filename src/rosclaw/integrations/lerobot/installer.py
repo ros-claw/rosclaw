@@ -88,33 +88,58 @@ class LeRobotInstaller:
                 details=details,
             )
 
-        # Install packages.
-        install_cmd = [self.pip_executable, "install"]
-        if upgrade:
-            install_cmd.append("--upgrade")
-        install_cmd.extend(profile.pip)
-        pip_result = run_command(install_cmd, env=env, timeout=600.0)
-        details["pip_install"] = {
-            "ok": pip_result.ok,
-            "returncode": pip_result.returncode,
-            "stderr": pip_result.stderr,
-        }
+        # Fast path: skip pip install when LeRobot is already importable and the
+        # caller is not requesting an upgrade. This avoids blocking on PyPI when
+        # a local/venv installation is already present.
+        skip_pip = env.get("ROSCLAW_LEROBOT_SKIP_PIP_INSTALL", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        already_importable = self._is_lerobot_importable(env)
+        if not skip_pip and already_importable and not upgrade:
+            skip_pip = True
 
-        if not pip_result.ok:
-            return InstallReport(
-                ok=False,
-                profile=profile_name,
-                dry_run=False,
-                message=f"pip install failed: {pip_result.stderr}",
-                python_executable=self.python_executable,
-                pip_executable=self.pip_executable,
-                details=details,
+        if skip_pip:
+            reason = (
+                "ROSCLAW_LEROBOT_SKIP_PIP_INSTALL is set"
+                if env.get("ROSCLAW_LEROBOT_SKIP_PIP_INSTALL", "").lower()
+                in ("1", "true", "yes")
+                else "LeRobot is already importable and --upgrade was not set"
             )
+            details["pip_install"] = {"skipped": True, "reason": reason}
+        else:
+            # Install packages.
+            install_cmd = [self.pip_executable, "install"]
+            if upgrade:
+                install_cmd.append("--upgrade")
+            install_cmd.extend(profile.pip)
+            pip_result = run_command(install_cmd, env=env, timeout=600.0)
+            details["pip_install"] = {
+                "ok": pip_result.ok,
+                "returncode": pip_result.returncode,
+                "stderr": pip_result.stderr,
+            }
+
+            if not pip_result.ok:
+                return InstallReport(
+                    ok=False,
+                    profile=profile_name,
+                    dry_run=False,
+                    message=f"pip install failed: {pip_result.stderr}",
+                    python_executable=self.python_executable,
+                    pip_executable=self.pip_executable,
+                    details=details,
+                )
 
         # Run post-install checks.
         check_results: list[CommandResult] = []
         for check in profile.checks:
-            result = run_command([self.python_executable, "-m", check], env=env)
+            check_path = which(check)
+            if check_path:
+                result = run_command([check_path], env=env, timeout=60.0)
+            else:
+                result = run_command([self.python_executable, "-m", check], env=env, timeout=60.0)
             check_results.append(result)
             if not result.ok:
                 return InstallReport(
@@ -165,6 +190,21 @@ class LeRobotInstaller:
             pip_executable=self.pip_executable,
             details=details,
         )
+
+    def _is_lerobot_importable(self, env: dict[str, str]) -> bool:
+        """Check whether ``lerobot`` can be imported without importing it directly."""
+        result = run_command(
+            [
+                self.python_executable,
+                "-c",
+                "import importlib.util; import sys; "
+                "spec = importlib.util.find_spec('lerobot'); "
+                "sys.exit(0 if spec is not None else 1)",
+            ],
+            env=env,
+            timeout=30.0,
+        )
+        return result.ok
 
     def _probe_lerobot_version(self, env: dict[str, str]) -> str | None:
         """Probe the installed LeRobot version without importing it directly."""

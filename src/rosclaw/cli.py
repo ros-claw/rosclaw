@@ -1390,13 +1390,20 @@ def cmd_practice_export(args: argparse.Namespace) -> int:
 
     if args.format == "lerobot":
         practice_id = args.practice_id or episode_id
-        episode_dir = Path(args.data_root) / practice_id
+        # If the identifier is itself an existing directory, export from it
+        # directly; otherwise fall back to the practice data-root layout.
+        if practice_id:
+            episode_dir = Path(practice_id)
+            if not episode_dir.is_dir():
+                episode_dir = Path(args.data_root) / practice_id
+        else:
+            episode_dir = Path(args.data_root)
         if episode_dir.is_dir():
             from rosclaw.practice.exporters import LeRobotSkeletonExporter
 
             exporter = LeRobotSkeletonExporter(args.data_root)
             try:
-                out = exporter.export(practice_id, output_path=args.output)
+                out = exporter.export(str(episode_dir.resolve()), output_path=args.output)
                 print(f"[ROSClaw] Exported LeRobot dataset skeleton to {out}")
                 return 0
             except Exception as e:
