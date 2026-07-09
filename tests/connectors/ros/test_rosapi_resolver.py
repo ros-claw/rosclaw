@@ -72,6 +72,16 @@ def test_ros1_distro_from_path_value():
     assert profile.distro == "noetic"
 
 
+def test_ros1_distro_decodes_json_encoded_param_value():
+    transport = MockTransport()
+    transport.queue_response(RosTransportResult(ok=False, error="not found"))
+    transport.queue_response(RosTransportResult(ok=False, error="not found"))
+    transport.queue_json({"op": "service_response", "values": {"value": '"noetic\\n"'}})
+    resolver = RosApiResolver(transport)
+    profile = resolver.resolve()
+    assert profile.distro == "noetic"
+
+
 def test_cache_used():
     transport = MockTransport()
     transport.queue_json({"op": "service_response", "values": {"version": 2, "distro": "humble"}})

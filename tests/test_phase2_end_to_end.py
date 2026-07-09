@@ -504,6 +504,16 @@ class TestPhase2Scenarios:
                 source="scenario_b",
             )
         )
+        bus.publish(
+            Event(
+                topic="praxis.failed",
+                payload={
+                    "episode_id": "ep_b",
+                    "outcome": {"reward": -1.0, "status": "BLOCKED"},
+                },
+                source="scenario_b",
+            )
+        )
 
         ep_dir = tmp_path / "episodes" / "ep_b"
         assert (ep_dir / "metadata.json").exists()

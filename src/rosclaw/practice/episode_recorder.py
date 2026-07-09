@@ -303,7 +303,8 @@ class EpisodeRecorder(LifecycleMixin):
             }
         )
         buf.last_event_at = time.time()
-        self._finalize_episode(episode_id)
+        # The block is evidence, not the terminal event. Runtime publishes
+        # skill completion, critic, and praxis.failed after this point.
 
     def _on_safety_violation(self, event: Event) -> None:
         payload = event.payload if isinstance(event.payload, dict) else {}
@@ -316,7 +317,8 @@ class EpisodeRecorder(LifecycleMixin):
             "; ".join(violations) if isinstance(violations, list) else str(violations)
         ) or "safety violation"
         buf.last_event_at = time.time()
-        self._finalize_episode(episode_id)
+        # Wait for the terminal praxis event so the artifact retains the
+        # complete safety, critic, and execution context.
 
     def _on_agent_command(self, event: Event) -> None:
         """Capture agent command for episode semantic intent."""

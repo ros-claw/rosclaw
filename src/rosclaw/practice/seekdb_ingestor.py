@@ -311,13 +311,19 @@ class SeekDBIngestor:
         session_id: str | None,
         episode_id: str | None,
     ) -> str:
+        body_id = cognition.get("body_id") or "unknown"
+        cognition_type = cognition.get("cognition_type") or "body_model"
+        cognition_id = f"cog:{body_id}:{episode_id or session_id or 'unknown'}:{cognition_type}"
+        metadata = dict(cognition.get("metadata", {}))
+        if cognition.get("cognition_id"):
+            metadata["source_cognition_id"] = cognition["cognition_id"]
         record = {
-            "id": cognition.get("cognition_id") or f"cog_{int(time.time() * 1000)}",
-            "body_id": cognition.get("body_id") or "unknown",
+            "id": cognition_id,
+            "body_id": body_id,
             "robot_id": robot_id,
             "episode_id": episode_id,
             "session_id": session_id,
-            "cognition_type": cognition.get("cognition_type") or "body_model",
+            "cognition_type": cognition_type,
             "data": cognition.get("data")
             or {
                 "known_traits": cognition.get("known_traits", []),
@@ -328,7 +334,7 @@ class SeekDBIngestor:
             "timestamp": _iso_to_timestamp(
                 cognition.get("updated_at") or cognition.get("timestamp")
             ),
-            "metadata": cognition.get("metadata", {}),
+            "metadata": metadata,
         }
         return self._client.insert("body_cognition", record)
 

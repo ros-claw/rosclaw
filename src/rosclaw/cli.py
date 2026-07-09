@@ -642,6 +642,109 @@ class _MockSeekDB:
         ]
 
 
+def _builtin_provider_catalog() -> list[dict[str, Any]]:
+    """Return the safe built-in provider catalog used by provider smoke commands."""
+    return [
+        {
+            "name": "llm",
+            "type": "llm",
+            "status": "registered",
+            "description": "LLM provider for text generation and task planning",
+            "capabilities": ["llm.chat", "llm.plan", "text.generate", "reasoning.task"],
+            "modalities": {"input": ["text"], "output": ["text", "plan"]},
+        },
+        {
+            "name": "vlm",
+            "type": "vlm",
+            "status": "registered",
+            "description": "Vision-Language Model for object grounding and perception",
+            "capabilities": [
+                "vlm.vqa",
+                "vlm.scene_graph",
+                "vlm.object_grounding",
+                "vlm.risk_assessment",
+            ],
+            "modalities": {"input": ["image", "text"], "output": ["text", "scene_graph"]},
+        },
+        {
+            "name": "vla",
+            "type": "vla",
+            "status": "registered",
+            "description": "Vision-Language-Action model for guarded action proposals",
+            "capabilities": ["vla.plan", "vla.action_proposal", "control.proposal"],
+            "modalities": {"input": ["image", "text", "state"], "output": ["action_plan"]},
+        },
+        {
+            "name": "vln",
+            "type": "vln",
+            "status": "registered",
+            "description": "Vision-Language-Navigation for mobile robot path planning",
+            "capabilities": ["vln.navigate", "navigation.plan", "navigation.waypoint"],
+            "modalities": {"input": ["image", "text", "map"], "output": ["path"]},
+        },
+        {
+            "name": "world",
+            "type": "world",
+            "status": "registered",
+            "description": "World state provider for scene understanding",
+            "capabilities": ["world.state", "world.scene_graph", "vlm.scene_graph"],
+            "modalities": {"input": ["state", "image", "text"], "output": ["scene_graph"]},
+        },
+        {
+            "name": "skill",
+            "type": "skill",
+            "status": "registered",
+            "description": "Skill execution provider for robot actions",
+            "capabilities": ["skill.invoke", "skill.plan", "skill.validate"],
+            "modalities": {"input": ["task", "state"], "output": ["skill_result"]},
+        },
+        {
+            "name": "critic",
+            "type": "critic",
+            "status": "registered",
+            "description": "Critic provider for success/failure judgment",
+            "capabilities": ["critic.risk", "critic.success", "critic.regression"],
+            "modalities": {"input": ["trace", "state", "text"], "output": ["judgement"]},
+        },
+        {
+            "name": "embedding",
+            "type": "embedding",
+            "status": "registered",
+            "description": "Embedding provider for semantic search",
+            "capabilities": ["embedding.encode", "embedding.search", "memory.retrieve"],
+            "modalities": {"input": ["text"], "output": ["embedding", "matches"]},
+        },
+    ]
+
+
+def _provider_contract(record: dict[str, Any]) -> dict[str, Any]:
+    """Add runtime and safety fields shared by provider contract commands."""
+    payload = dict(record)
+    payload.setdefault(
+        "runtime",
+        {
+            "backend": "builtin",
+            "protocol": "in_process",
+            "endpoint": None,
+            "dry_run_safe": True,
+        },
+    )
+    payload.setdefault(
+        "safety",
+        {
+            "executable": False,
+            "requires_guard": True,
+            "requires_human_gate": record.get("type") in {"vla", "skill"},
+        },
+    )
+    return payload
+
+
+def _builtin_provider_contracts() -> list[dict[str, Any]]:
+    """Return built-in provider records with explicit runtime/safety contracts."""
+    return [_provider_contract(record) for record in _builtin_provider_catalog()]
+
+
 def _auto_register_builtins() -> tuple[list, list]:
     """Auto-register builtin providers and skills if registry is empty.
 
@@ -660,35 +763,22 @@ def _auto_register_builtins() -> tuple[list, list]:
         reg = ProviderRegistry()
         providers = list(reg.list_providers()) if hasattr(reg, "list_providers") else []
         if not providers:
-            builtins = [
-                ("llm", "LLM provider for text generation and task planning"),
-                ("vlm", "Vision-Language Model for object grounding and perception"),
-                ("vla", "Vision-Language-Action model for end-to-end control"),
-                ("vln", "Vision-Language-Navigation for mobile robot path planning"),
-                ("world", "World state provider for scene understanding"),
-                ("skill", "Skill execution provider for robot actions"),
-                ("critic", "Critic provider for success/failure judgment"),
-                ("embedding", "Embedding provider for semantic search"),
-            ]
-            for name, description in builtins:
+            for record in _builtin_provider_contracts():
                 try:
                     manifest = ProviderManifest.from_dict(
                         {
-                            "name": name,
+                            "name": record["name"],
                             "version": "1.0.0",
-                            "type": name,
-                            "description": description,
+                            "type": record["type"],
+                            "description": record["description"],
+                            "capabilities": record["capabilities"],
+                            "modalities": record["modalities"],
+                            "runtime": record["runtime"],
+                            "safety": record["safety"],
                         }
                     )
                     reg.register(manifest, GenericProvider, auto_load=False)
-                    registered_providers.append(
-                        {
-                            "name": name,
-                            "type": name,
-                            "status": "registered",
-                            "description": description,
-                        }
-                    )
+                    registered_providers.append(record)
                 except Exception:
                     pass
             if registered_providers:
@@ -1181,6 +1271,19 @@ def _practice_artifacts_dir() -> Path:
 def _memory_db_path() -> Path:
     """Return the default SQLite path for persistent SeekDB memory."""
     return get_rosclaw_home() / "memory" / "seekdb.sqlite"
+
+
+def _practice_seekdb_client(args: argparse.Namespace) -> Any:
+    """Build the configured Practice SeekDB backend."""
+    from rosclaw.memory.seekdb_client import SeekDBMySQLClient, SeekDBSQLiteClient
+
+    seekdb_url = getattr(args, "seekdb_url", None)
+    if seekdb_url:
+        return SeekDBMySQLClient(seekdb_url)
+
+    db_path = Path(getattr(args, "seekdb_path", None) or _memory_db_path())
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    return SeekDBSQLiteClient(str(db_path))
 
 
 def cmd_practice_list(args: argparse.Namespace) -> int:
@@ -2678,16 +2781,13 @@ def cmd_practice_distill(args: argparse.Namespace) -> int:
 
 def cmd_practice_ingest_seekdb(args: argparse.Namespace) -> int:
     """Ingest a distilled practice session into SeekDB."""
-    from rosclaw.memory.seekdb_client import SeekDBSQLiteClient
     from rosclaw.practice.seekdb_ingestor import SeekDBIngestor
 
     data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
     practice_id = args.practice_id
-    db_path = Path(getattr(args, "seekdb_path", _memory_db_path()))
 
     try:
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        client = SeekDBSQLiteClient(str(db_path))
+        client = _practice_seekdb_client(args)
         ingestor = SeekDBIngestor(data_root, seekdb_client=client)
     except Exception as e:
         print(f"[rosclaw-practice] SeekDB connection failed: {e}", file=sys.stderr)
@@ -2733,14 +2833,12 @@ def cmd_practice_ingest_seekdb(args: argparse.Namespace) -> int:
 
 def cmd_practice_query(args: argparse.Namespace) -> int:
     """Query practice episodes, failures, body cognition, sim2real, candidates, and interventions."""
-    from rosclaw.memory.seekdb_client import SeekDBSQLiteClient
     from rosclaw.practice.query import PracticeQuery
 
     data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
-    db_path = Path(getattr(args, "seekdb_path", _memory_db_path()))
 
     try:
-        client = SeekDBSQLiteClient(str(db_path))
+        client = _practice_seekdb_client(args)
         query = PracticeQuery(data_root, seekdb_client=client)
     except Exception as e:
         print(f"[rosclaw-practice] Query backend unavailable: {e}", file=sys.stderr)
@@ -2880,6 +2978,35 @@ def cmd_practice_sync_fallback(args: argparse.Namespace) -> int:
 # Keep original export available; add jsonl support below.
 
 
+def _register_cli_builtin_provider(registry: Any, provider_id: str) -> None:
+    """Register a directly invokable built-in provider for the CLI."""
+    if provider_id.lower() != "deepseek":
+        return
+
+    from rosclaw.provider.builtins.deepseek import DeepSeekProvider
+    from rosclaw.provider.core.manifest import ProviderManifest
+
+    manifest = ProviderManifest.from_dict(
+        {
+            "name": "deepseek",
+            "version": "1.0.0",
+            "type": "llm",
+            "capabilities": ["llm.task_planning", "llm.summary", "llm.chat"],
+            "modalities": {"input": ["text"], "output": ["text"]},
+            "runtime": {
+                "backend": "http",
+                "protocol": "openai-compatible",
+                "endpoint": os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+            },
+            "safety": {
+                "executable": False,
+                "requires_guard": False,
+            },
+        }
+    )
+    registry.register(manifest, lambda item: DeepSeekProvider(item), auto_load=False)
+
+
 def cmd_provider_invoke(args: argparse.Namespace) -> int:
     """Invoke a provider capability with optional image and normalization."""
     import base64
@@ -2928,6 +3055,7 @@ def cmd_provider_invoke(args: argparse.Namespace) -> int:
 
     try:
         registry = ProviderRegistry()
+        _register_cli_builtin_provider(registry, provider_id)
         try:
             provider = registry.get(provider_id)
         except ProviderNotFoundError:
@@ -2941,7 +3069,7 @@ def cmd_provider_invoke(args: argparse.Namespace) -> int:
             except ProviderNotFoundError:
                 provider = None
 
-        if provider is not None and getattr(provider, "_runtime", None) is not None:
+        if provider is not None:
             request = ProviderRequest(
                 request_id=args.trace_id or f"provider_{provider_id}_{int(t0)}",
                 capability=args.capability or "invoke",
@@ -2952,6 +3080,12 @@ def cmd_provider_invoke(args: argparse.Namespace) -> int:
             )
             response = run_sync(provider.infer(request))
             raw_text = json.dumps(response.result, ensure_ascii=False) if response.result else ""
+            if not response.is_ok:
+                error = (
+                    response.errors[0]
+                    if response.errors
+                    else str(response.result.get("error", f"provider status: {response.status}"))
+                )
         else:
             # PhysicalReasoner abstraction: works for Cosmos/Gemini/Qwen and
             # falls back gracefully when the endpoint is not reachable.
@@ -2991,7 +3125,7 @@ def cmd_provider_invoke(args: argparse.Namespace) -> int:
         "capability": args.capability,
         "input": input_payload,
         "image": bool(image_b64),
-        "status": "failed" if error else (response.status if response else "ok"),
+        "status": response.status if response is not None else ("failed" if error else "ok"),
         "errors": [error] if error else (response.errors if response else []),
         "latency_ms": response.latency_ms
         if response and response.latency_ms is not None
@@ -3704,6 +3838,172 @@ def cmd_how_advise(args: argparse.Namespace) -> int:
         print(f"Rule:        {intervention.get('rule_id', 'N/A')}")
         print(f"Action:      {intervention.get('action', 'N/A')}")
         print(f"Priority:    {intervention.get('priority', 'N/A')}")
+        print("=" * 60)
+    return 0
+
+
+def cmd_provider_health(args: argparse.Namespace) -> int:
+    """Report the safe built-in provider catalog health contract."""
+    providers = _builtin_provider_contracts()
+    provider_id = getattr(args, "provider_id", None)
+    if provider_id:
+        providers = [provider for provider in providers if provider["name"] == provider_id]
+
+    payload = {
+        "ok": bool(providers),
+        "status": "ok" if providers else "not_found",
+        "source": "builtin_provider_contract",
+        "provider_count": len(providers),
+        "providers": providers,
+    }
+    if provider_id and not providers:
+        payload["error"] = f"provider not found: {provider_id}"
+
+    if args.json:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print("=" * 60)
+        print("ROSClaw Provider Health")
+        print("=" * 60)
+        if providers:
+            print(f"{'Name':<16} {'Type':<12} {'Status':<12} {'Capabilities'}")
+            print("-" * 60)
+            for provider in providers:
+                print(
+                    f"{provider['name']:<16} {provider['type']:<12} "
+                    f"{provider['status']:<12} {len(provider['capabilities'])}"
+                )
+        else:
+            print(payload["error"])
+        print("=" * 60)
+    return 0 if providers else 1
+
+
+def cmd_provider_route(args: argparse.Namespace) -> int:
+    """Explain how a capability would route through the built-in provider catalog."""
+    capability = args.capability
+    providers = _builtin_provider_contracts()
+    candidates = [provider for provider in providers if capability in provider["capabilities"]]
+
+    if not candidates:
+        payload = {
+            "ok": False,
+            "capability": capability,
+            "selected_provider": None,
+            "fallbacks": [],
+            "reason": f"No built-in provider declares capability '{capability}'",
+        }
+        if args.json:
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+        else:
+            print(f"[ROSClaw] {payload['reason']}")
+        return 1
+
+    selected = candidates[0]
+    fallbacks = [provider["name"] for provider in candidates[1:3]]
+    payload = {
+        "ok": True,
+        "capability": capability,
+        "selected_provider": selected["name"],
+        "selected_type": selected["type"],
+        "fallbacks": fallbacks,
+        "reason": (
+            f"{selected['name']} declares capability '{capability}' in the built-in "
+            "provider contract"
+        ),
+        "score": 1.0,
+        "executable": selected["safety"]["executable"],
+        "requires_guard": selected["safety"]["requires_guard"],
+        "requires_human_gate": selected["safety"]["requires_human_gate"],
+        "dry_run_safe": True,
+        "candidates": [
+            {
+                "name": provider["name"],
+                "type": provider["type"],
+                "capabilities": provider["capabilities"],
+            }
+            for provider in candidates
+        ],
+    }
+
+    if args.json:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print("=" * 60)
+        print("ROSClaw Provider Route")
+        print("=" * 60)
+        print(f"Capability: {capability}")
+        print(f"Selected:   {payload['selected_provider']}")
+        print(f"Reason:     {payload['reason']}")
+        print(f"Fallbacks:  {', '.join(fallbacks) if fallbacks else 'none'}")
+        print(f"Guard:      {'required' if payload['requires_guard'] else 'not required'}")
+        print("=" * 60)
+    return 0
+
+
+def cmd_provider_benchmark(args: argparse.Namespace) -> int:
+    """Produce a dry-run provider benchmark plan without invoking providers."""
+    if not args.dry_run:
+        message = "provider benchmark currently requires --dry-run to avoid external model calls"
+        if args.json:
+            print(json.dumps({"ok": False, "error": message}, indent=2, ensure_ascii=False))
+        else:
+            print(f"[ROSClaw] {message}")
+        return 1
+
+    capabilities = args.capability or [
+        "llm.chat",
+        "vlm.scene_graph",
+        "vla.plan",
+        "critic.risk",
+    ]
+    providers = _builtin_provider_contracts()
+    selected_names = set(args.provider or [])
+    if selected_names:
+        providers = [provider for provider in providers if provider["name"] in selected_names]
+
+    route_plan = []
+    for capability in capabilities:
+        candidates = [
+            provider["name"] for provider in providers if capability in provider["capabilities"]
+        ]
+        route_plan.append(
+            {
+                "capability": capability,
+                "selected_provider": candidates[0] if candidates else None,
+                "fallbacks": candidates[1:3],
+                "status": "planned" if candidates else "unroutable",
+            }
+        )
+
+    payload = {
+        "ok": True,
+        "status": "dry_run",
+        "dry_run": True,
+        "iterations": args.iterations,
+        "provider_count": len(providers),
+        "capabilities": capabilities,
+        "route_plan": route_plan,
+        "metrics": [
+            "route_success",
+            "latency_ms",
+            "normalized_result_schema",
+            "guard_required",
+        ],
+        "note": "No provider was invoked; this validates benchmark wiring and route coverage only.",
+    }
+
+    if args.json:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print("=" * 60)
+        print("ROSClaw Provider Benchmark Plan")
+        print("=" * 60)
+        print(f"Status:     {payload['status']}")
+        print(f"Iterations: {payload['iterations']}")
+        for item in route_plan:
+            selected = item["selected_provider"] or "unroutable"
+            print(f"  {item['capability']:<24} -> {selected}")
         print("=" * 60)
     return 0
 
@@ -6012,6 +6312,47 @@ def main() -> int:
     provider_subparsers = provider_parser.add_subparsers(dest="provider_command")
     provider_subparsers.add_parser("list", help="List registered providers")
 
+    provider_health_parser = provider_subparsers.add_parser(
+        "health", help="Show provider health and capability contracts"
+    )
+    provider_health_parser.add_argument(
+        "provider_id", nargs="?", default=None, help="Optional provider identifier"
+    )
+    provider_health_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    provider_route_parser = provider_subparsers.add_parser(
+        "route", help="Explain provider route selection for a capability"
+    )
+    provider_route_parser.add_argument(
+        "--capability",
+        required=True,
+        help="Capability to route, e.g. vlm.scene_graph",
+    )
+    provider_route_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    provider_benchmark_parser = provider_subparsers.add_parser(
+        "benchmark", help="Plan a provider benchmark without invoking external models"
+    )
+    provider_benchmark_parser.add_argument(
+        "--dry-run", action="store_true", help="Generate a benchmark plan only"
+    )
+    provider_benchmark_parser.add_argument(
+        "--capability",
+        action="append",
+        default=[],
+        help="Capability to include; repeat for multiple capabilities",
+    )
+    provider_benchmark_parser.add_argument(
+        "--provider",
+        action="append",
+        default=[],
+        help="Provider to include; repeat for multiple providers",
+    )
+    provider_benchmark_parser.add_argument(
+        "--iterations", type=int, default=1, help="Planned iterations per capability"
+    )
+    provider_benchmark_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
     provider_invoke_parser = provider_subparsers.add_parser(
         "invoke", help="Invoke a provider capability"
     )
@@ -6489,6 +6830,19 @@ def main() -> int:
         "--json", action="store_true", help="Output distillation result as JSON"
     )
 
+    def add_practice_seekdb_backend_args(command_parser: argparse.ArgumentParser) -> None:
+        backend_group = command_parser.add_mutually_exclusive_group()
+        backend_group.add_argument(
+            "--seekdb-path",
+            default=None,
+            help="Path to a local SeekDB SQLite file (default: rosclaw home)",
+        )
+        backend_group.add_argument(
+            "--seekdb-url",
+            default=None,
+            help=("SeekDB MySQL-compatible DSN, e.g. mysql://root@127.0.0.1:2881/rosclaw"),
+        )
+
     practice_ingest_seekdb_parser = practice_subparsers.add_parser(
         "ingest-seekdb", help="Ingest a distilled practice session into SeekDB"
     )
@@ -6496,9 +6850,7 @@ def main() -> int:
     practice_ingest_seekdb_parser.add_argument(
         "--data-root", default="/data/rosclaw/practice", help="Practice data root"
     )
-    practice_ingest_seekdb_parser.add_argument(
-        "--seekdb-path", default=None, help="Path to SeekDB SQLite file (default: rosclaw home)"
-    )
+    add_practice_seekdb_backend_args(practice_ingest_seekdb_parser)
     practice_ingest_seekdb_parser.add_argument(
         "--json", action="store_true", help="Output ingestion report as JSON"
     )
@@ -6530,9 +6882,7 @@ def main() -> int:
     query_failures_parser.add_argument(
         "--data-root", default="/data/rosclaw/practice", help="Practice data root"
     )
-    query_failures_parser.add_argument(
-        "--seekdb-path", default=None, help="Path to SeekDB SQLite file"
-    )
+    add_practice_seekdb_backend_args(query_failures_parser)
     query_failures_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     query_body_cognition_parser = query_subparsers.add_parser(
@@ -6546,9 +6896,7 @@ def main() -> int:
     query_body_cognition_parser.add_argument(
         "--data-root", default="/data/rosclaw/practice", help="Practice data root"
     )
-    query_body_cognition_parser.add_argument(
-        "--seekdb-path", default=None, help="Path to SeekDB SQLite file"
-    )
+    add_practice_seekdb_backend_args(query_body_cognition_parser)
     query_body_cognition_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     query_sim2real_parser = query_subparsers.add_parser(
@@ -6559,9 +6907,7 @@ def main() -> int:
     query_sim2real_parser.add_argument(
         "--data-root", default="/data/rosclaw/practice", help="Practice data root"
     )
-    query_sim2real_parser.add_argument(
-        "--seekdb-path", default=None, help="Path to SeekDB SQLite file"
-    )
+    add_practice_seekdb_backend_args(query_sim2real_parser)
     query_sim2real_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     query_candidates_parser = query_subparsers.add_parser(
@@ -6574,9 +6920,7 @@ def main() -> int:
     query_candidates_parser.add_argument(
         "--data-root", default="/data/rosclaw/practice", help="Practice data root"
     )
-    query_candidates_parser.add_argument(
-        "--seekdb-path", default=None, help="Path to SeekDB SQLite file"
-    )
+    add_practice_seekdb_backend_args(query_candidates_parser)
     query_candidates_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     query_interventions_parser = query_subparsers.add_parser(
@@ -6593,9 +6937,7 @@ def main() -> int:
     query_interventions_parser.add_argument(
         "--data-root", default="/data/rosclaw/practice", help="Practice data root"
     )
-    query_interventions_parser.add_argument(
-        "--seekdb-path", default=None, help="Path to SeekDB SQLite file"
-    )
+    add_practice_seekdb_backend_args(query_interventions_parser)
     query_interventions_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     query_explain_episode_parser = query_subparsers.add_parser(
@@ -6605,9 +6947,7 @@ def main() -> int:
     query_explain_episode_parser.add_argument(
         "--data-root", default="/data/rosclaw/practice", help="Practice data root"
     )
-    query_explain_episode_parser.add_argument(
-        "--seekdb-path", default=None, help="Path to SeekDB SQLite file"
-    )
+    add_practice_seekdb_backend_args(query_explain_episode_parser)
     query_explain_episode_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     query_explain_failure_parser = query_subparsers.add_parser(
@@ -6617,9 +6957,7 @@ def main() -> int:
     query_explain_failure_parser.add_argument(
         "--data-root", default="/data/rosclaw/practice", help="Practice data root"
     )
-    query_explain_failure_parser.add_argument(
-        "--seekdb-path", default=None, help="Path to SeekDB SQLite file"
-    )
+    add_practice_seekdb_backend_args(query_explain_failure_parser)
     query_explain_failure_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     practice_stop_parser = practice_subparsers.add_parser(
@@ -6879,6 +7217,12 @@ def main() -> int:
         elif args.command == "provider":
             if args.provider_command == "list":
                 return cmd_provider_list(args)
+            elif args.provider_command == "health":
+                return cmd_provider_health(args)
+            elif args.provider_command == "route":
+                return cmd_provider_route(args)
+            elif args.provider_command == "benchmark":
+                return cmd_provider_benchmark(args)
             elif args.provider_command == "invoke":
                 return cmd_provider_invoke(args)
             elif args.provider_command == "infer":

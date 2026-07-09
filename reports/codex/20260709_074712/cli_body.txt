@@ -1,0 +1,32 @@
+usage: rosclaw body [-h]
+                    {init,create,switch,remove,list,validate,render,show,state,query,fault,maintenance,calibration,retrofit,capability,link-eurdf,inspect,diff,update-state,note,history,export,fleet-compat}
+                    ...
+
+positional arguments:
+  {init,create,switch,remove,list,validate,render,show,state,query,fault,maintenance,calibration,retrofit,capability,link-eurdf,inspect,diff,update-state,note,history,export,fleet-compat}
+    init                Initialize a new body instance from an e-URDF profile
+    create              Create a new body instance from an e-URDF profile
+    switch              Switch the active body
+    remove              Remove a body instance
+    list                List registered bodies
+    validate            Validate body workspace
+    render              Force re-render of EMBODIMENT.md and summaries
+    show                Show body summary
+    state               Print unified body state
+    query               Ask a question about the body
+    fault               Manage known faults
+    maintenance         Add maintenance event
+    calibration         Calibration commands
+    retrofit            Record a hardware retrofit
+    capability          Manage capabilities
+    link-eurdf          Link current body to an e-URDF profile
+    inspect             Inspect current body state
+    diff                Compare body states
+    update-state        Update body instance state
+    note                Add a maintenance/incident note
+    history             List body snapshots
+    export              Export body directory as an archive
+    fleet-compat        Aggregate skill compatibility across all bodies
+
+options:
+  -h, --help            show this help message and exit
