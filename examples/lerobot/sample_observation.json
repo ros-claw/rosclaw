@@ -1,0 +1,12 @@
+{
+  "task": "Pick up the red cup and place it in the green bowl",
+  "observation": {
+    "state": [0.1, -0.2, 0.3, 0.0, 0.1, -0.05, 0.02],
+    "images": {
+      "front": "examples/lerobot/front.png"
+    },
+    "ee_pose": [0.25, 0.0, 0.15, 0.0, 0.0, 0.0, 1.0]
+  },
+  "robot": "ur5e_lab_01",
+  "sandbox": false
+}

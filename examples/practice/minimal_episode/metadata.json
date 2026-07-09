@@ -1,0 +1,6 @@
+{
+  "robot_id": "ur5e_lab_01",
+  "task_name": "Pick up the red cup and place it in the green bowl",
+  "sampling_rate": 30.0,
+  "dof_names": ["joint_0", "joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "gripper"]
+}

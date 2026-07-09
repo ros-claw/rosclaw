@@ -1,0 +1,14 @@
+core:
+  requires_python: ">=3.12"
+  pip:
+    - "lerobot>=0.6,<0.7"
+  checks:
+    - "lerobot-info"
+  enabled_capabilities:
+    - "provider_type_lerobot_policy"
+    - "dataset_export_lerobot"
+  capabilities:
+    provider_type_lerobot_policy: true
+    dataset_export_lerobot: true
+    worker_subprocess: true
+    worker_in_process: auto
