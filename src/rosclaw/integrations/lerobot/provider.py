@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from rosclaw.integrations.lerobot.config import get_configured_lerobot_runtime
+from rosclaw.integrations.lerobot.runtime import inspect_lerobot_runtime
 from rosclaw.provider.core.errors import CapabilityNotSupportedError
 from rosclaw.provider.core.manifest import ProviderManifest
 from rosclaw.provider.core.provider import Provider
@@ -14,11 +16,13 @@ from rosclaw.provider.core.response import ProviderResponse
 class LeRobotPolicyProvider(Provider):
     """ROSClaw provider adapter for LeRobot policies.
 
-    P0 implementation:
-    - Dry-run returns a deterministic sample action and reports what the real
-      inference path would do.
-    - If LeRobot is installed and ``dry_run=False``, it attempts a lightweight
-      smoke import to validate the environment but still returns a sample action.
+    P0.1 semantics:
+    - ``--dry-run`` returns a deterministic sample action and explicitly marks
+      ``real_inference=False`` and ``not_executed=True``.
+    - Non-dry-run performs a lightweight import smoke test against the
+      configured LeRobot runtime (or the current interpreter if LeRobot is
+      importable in-process) and returns ``action=None``. Real policy inference
+      is intentionally not implemented in P0.1.
     """
 
     name = "lerobot_policy_provider"
@@ -42,11 +46,11 @@ class LeRobotPolicyProvider(Provider):
         return 7
 
     async def load(self) -> None:
-        """No heavy loading in P0."""
+        """No heavy loading in P0.1."""
         self._healthy = True
 
     async def unload(self) -> None:
-        """No resources to release in P0."""
+        """No resources to release in P0.1."""
         self._healthy = False
 
     async def health(self) -> dict[str, Any]:
@@ -60,7 +64,7 @@ class LeRobotPolicyProvider(Provider):
         }
 
     async def infer(self, request: ProviderRequest) -> ProviderResponse:
-        """Run LeRobot policy inference (dry-run or smoke)."""
+        """Run LeRobot policy inference (dry-run or import smoke only)."""
         capability = request.capability or "lerobot.policy.infer"
         if capability not in self.capabilities:
             raise CapabilityNotSupportedError(
@@ -71,9 +75,63 @@ class LeRobotPolicyProvider(Provider):
         inputs = request.inputs or {}
         dry_run = inputs.get("dry_run", False)
 
-        # Optional real-import smoke when LeRobot is installed and not dry-run.
+        if dry_run:
+            return self._dry_run_response(request)
+
+        return self._import_smoke_response(request)
+
+    def _dry_run_response(self, request: ProviderRequest) -> ProviderResponse:
+        result = {
+            "provider": self.name,
+            "capability": request.capability,
+            "mode": "dry_run",
+            "dry_run": True,
+            "real_inference": False,
+            "not_executed": True,
+            "action": self._sample_action(),
+            "action_space": self.manifest.embodiment.action_space or [],
+            "safety": {
+                "executable": False,
+                "requires_guard": True,
+                "requires_workspace_check": True,
+                "requires_collision_check": True,
+                "sandbox_required": True,
+                "max_action_norm": self.manifest.safety.max_action_norm,
+            },
+            "message": (
+                "Dry-run returned a sample action. "
+                "Real LeRobot policy inference is not yet implemented."
+            ),
+        }
+        return ProviderResponse(
+            request_id=request.request_id,
+            provider=self.name,
+            capability=request.capability,
+            status="ok",
+            result=result,
+            latency_ms=0,
+        )
+
+    def _import_smoke_response(self, request: ProviderRequest) -> ProviderResponse:
+        runtime_cfg = get_configured_lerobot_runtime()
         lerobot_smoke: dict[str, Any] = {"import_ok": False}
-        if not dry_run:
+
+        if runtime_cfg and runtime_cfg.get("python_executable"):
+            runtime = inspect_lerobot_runtime(
+                runtime_cfg["python_executable"],
+                mode=runtime_cfg.get("mode", "external"),
+                runtime_path=runtime_cfg.get("runtime_path"),
+            )
+            lerobot_smoke = {
+                "runtime_mode": runtime.mode,
+                "python_executable": str(runtime.python_executable),
+                "import_ok": runtime.state != "error" and runtime.lerobot_version is not None,
+                "version": runtime.lerobot_version,
+                "torch_version": runtime.torch_version,
+                "cuda_available": runtime.cuda_available,
+            }
+        else:
+            # Fallback to current interpreter if no runtime configured.
             try:
                 import importlib.util
 
@@ -81,38 +139,39 @@ class LeRobotPolicyProvider(Provider):
                     import lerobot
 
                     lerobot_smoke = {
+                        "runtime_mode": "current-env",
+                        "python_executable": "",
                         "import_ok": True,
                         "version": getattr(lerobot, "__version__", None),
-                        "note": "Real policy inference is not implemented in P0.",
                     }
             except Exception as exc:  # noqa: BLE001
                 lerobot_smoke = {"import_ok": False, "error": str(exc)}
 
-        sample_action = self._sample_action()
         result = {
             "provider": self.name,
-            "capability": capability,
-            "dry_run": dry_run,
-            "action": sample_action,
+            "capability": request.capability,
+            "mode": "import_smoke",
+            "real_inference": False,
+            "action": None,
             "action_space": self.manifest.embodiment.action_space or [],
             "safety": {
                 "executable": False,
                 "requires_guard": True,
                 "requires_workspace_check": True,
                 "requires_collision_check": True,
+                "sandbox_required": True,
                 "max_action_norm": self.manifest.safety.max_action_norm,
             },
             "lerobot_smoke": lerobot_smoke,
-            "note": (
-                "Dry-run returned a sample action. "
-                "Real LeRobot policy inference is not yet implemented."
+            "message": (
+                "P0.1 verifies LeRobot runtime availability only. "
+                "Real policy inference is planned for P1."
             ),
         }
-
         return ProviderResponse(
             request_id=request.request_id,
             provider=self.name,
-            capability=capability,
+            capability=request.capability,
             status="ok",
             result=result,
             latency_ms=0,

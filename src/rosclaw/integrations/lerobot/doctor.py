@@ -1,16 +1,22 @@
-"""LeRobot integration doctor."""
+"""LeRobot integration doctor with dual-runtime awareness."""
 
 from __future__ import annotations
 
-import importlib.util
 import os
-import platform
 import sys
+from pathlib import Path
+from typing import Any
 
-import yaml
-
-from rosclaw.firstboot.workspace import get_rosclaw_home
+from rosclaw.integrations.lerobot.config import (
+    get_lerobot_config_path,
+    load_lerobot_config,
+)
 from rosclaw.integrations.lerobot.profiles import list_profile_names
+from rosclaw.integrations.lerobot.runtime import (
+    LeRobotRuntime,
+    current_rosclaw_runtime,
+    inspect_lerobot_runtime,
+)
 from rosclaw.integrations.lerobot.schemas import LeRobotDoctorReport
 from rosclaw.integrations.lerobot.subprocess_runner import run_command, which
 from rosclaw.integrations.registry import IntegrationCapability
@@ -19,76 +25,70 @@ from rosclaw.integrations.registry import IntegrationCapability
 class LeRobotDoctor:
     """Diagnose the LeRobot integration environment."""
 
-    def __init__(self, python_executable: str | None = None):
-        self.python_executable = python_executable or sys.executable
-
     def run(
         self,
         *,
         registry_check: dict[str, bool] | None = None,
     ) -> LeRobotDoctorReport:
-        """Return a diagnostic report."""
+        """Return a diagnostic report distinguishing ROSClaw and LeRobot runtimes."""
         registry_check = registry_check or {}
 
-        python_version = platform.python_version()
-        python_executable = self.python_executable
+        rosclaw_runtime = current_rosclaw_runtime()
+        rosclaw_python_version = rosclaw_runtime.version
+        rosclaw_python_executable = str(rosclaw_runtime.executable)
 
-        # LeRobot import probe.
-        lerobot_spec = importlib.util.find_spec("lerobot")
-        lerobot_importable = lerobot_spec is not None
-        lerobot_version: str | None = None
-        if lerobot_importable:
-            try:
-                import lerobot
+        # In-process LeRobot availability in the current interpreter.
+        in_process_importable = self._is_lerobot_importable_current()
 
-                lerobot_version = getattr(lerobot, "__version__", None)
-            except Exception:
-                lerobot_importable = False
+        # Load stored config (if any) and inspect configured LeRobot runtime.
+        config = load_lerobot_config()
+        config_path = get_lerobot_config_path()
+        config_enabled = bool(config.get("enabled"))
+        lerobot_runtime: LeRobotRuntime | None = None
+        worker_subprocess_available = False
+        worker_in_process_available = in_process_importable
 
-        # torch probe.
-        torch_available = importlib.util.find_spec("torch") is not None
-        torch_version: str | None = None
-        cuda_available: bool | None = None
-        if torch_available:
-            try:
-                import torch
+        if config_enabled and config.get("lerobot_runtime"):
+            runtime_cfg = config["lerobot_runtime"]
+            python_exe = runtime_cfg.get("python_executable")
+            if python_exe:
+                mode = runtime_cfg.get("mode", "external")
+                runtime_path = runtime_cfg.get("runtime_path")
+                lerobot_runtime = inspect_lerobot_runtime(
+                    python_exe,
+                    mode=mode,
+                    runtime_path=runtime_path,
+                )
+                worker_subprocess_available = lerobot_runtime.subprocess_available
 
-                torch_version = getattr(torch, "__version__", None)
-                cuda_available = torch.cuda.is_available()
-            except Exception:
-                torch_available = False
+        # Fallback: if no config but LeRobot is importable in-process, describe it.
+        if lerobot_runtime is None and in_process_importable:
+            lerobot_runtime = inspect_lerobot_runtime(sys.executable, mode="current-env")
+            worker_subprocess_available = lerobot_runtime.subprocess_available
 
-        # lerobot-info probe.
-        lerobot_info_path = which("lerobot-info")
-        lerobot_info_output = ""
-        lerobot_info_ok = False
-        if lerobot_info_path:
-            result = run_command([lerobot_info_path], timeout=60.0)
-            lerobot_info_output = result.stdout
-            lerobot_info_ok = result.ok
-
-        # HuggingFace environment.
-        hf_endpoint = os.environ.get("HF_ENDPOINT", "https://huggingface.co")
-        hf_cache_dir = os.environ.get("HF_HOME") or os.environ.get("HUGGINGFACE_HUB_CACHE")
-
-        # Integration config.
-        config_path = get_rosclaw_home() / "integrations" / "lerobot.yaml"
-        config_enabled = False
-        if config_path.exists():
-            try:
-                with open(config_path, encoding="utf-8") as f:
-                    cfg = yaml.safe_load(f) or {}
-                config_enabled = bool(cfg.get("enabled"))
-            except Exception:
-                pass
+        # Fallback PATH probe for lerobot-info when nothing else is configured.
+        info_path_fallback: str | None = None
+        info_output_fallback = ""
+        info_ok_fallback = False
+        if lerobot_runtime is None:
+            info_path_fallback = which("lerobot-info")
+            if info_path_fallback:
+                result = run_command([info_path_fallback], timeout=60.0)
+                info_output_fallback = result.stdout
+                info_ok_fallback = result.ok
 
         # Determine status.
-        if lerobot_importable and config_enabled:
+        if lerobot_runtime is None:
+            status = "not_installed"
+        elif lerobot_runtime.state == "ready":
             status = "installed"
-        elif lerobot_importable or config_enabled:
+        elif lerobot_runtime.state in ("degraded", "error"):
             status = "degraded"
         else:
             status = "not_installed"
+
+        if not config_enabled and lerobot_runtime is not None:
+            status = "degraded"
 
         capabilities = [
             IntegrationCapability(
@@ -96,66 +96,146 @@ class LeRobotDoctor:
                 kind="provider",
                 enabled=registry_check.get("provider_type_lerobot_policy", False),
                 experimental=True,
-                description="LeRobot policy provider dry-run support",
+                description="LeRobot policy provider (dry-run in P0; import smoke in P0.1)",
             ),
             IntegrationCapability(
                 name="dataset_export_lerobot",
                 kind="exporter",
                 enabled=registry_check.get("dataset_export_lerobot", False),
                 experimental=True,
-                description="LeRobot dataset skeleton export",
+                description="Export ROSClaw practice episodes to LeRobot dataset skeleton",
+            ),
+            IntegrationCapability(
+                name="worker_subprocess",
+                kind="worker",
+                enabled=worker_subprocess_available,
+                experimental=True,
+                description="Run LeRobot tasks in a configured subprocess runtime",
+            ),
+            IntegrationCapability(
+                name="worker_in_process",
+                kind="worker",
+                enabled=worker_in_process_available,
+                experimental=True,
+                description="Run LeRobot tasks in the current ROSClaw interpreter",
             ),
         ]
 
-        message = self._build_message(status, lerobot_importable, config_enabled)
+        message = self._build_message(
+            status,
+            rosclaw_runtime,
+            lerobot_runtime,
+            config_enabled,
+        )
+
+        # Preserve legacy fields for consumers that expect them.
+        legacy_python_version = rosclaw_python_version
+        legacy_python_executable = rosclaw_python_executable
+        legacy_lerobot_importable = in_process_importable
+        legacy_lerobot_version = lerobot_runtime.lerobot_version if lerobot_runtime else None
+        legacy_info_path = (
+            str(lerobot_runtime.lerobot_info_executable)
+            if lerobot_runtime and lerobot_runtime.lerobot_info_executable
+            else info_path_fallback
+        )
+        legacy_info_ok = (
+            lerobot_runtime.subprocess_available
+            if lerobot_runtime
+            else info_ok_fallback
+        )
+        legacy_info_output = (
+            lerobot_runtime.lerobot_info_output
+            if lerobot_runtime
+            else info_output_fallback
+        )
+        legacy_torch = lerobot_runtime.torch_version if lerobot_runtime else None
+        legacy_cuda = lerobot_runtime.cuda_available if lerobot_runtime else None
 
         return LeRobotDoctorReport(
             name="lerobot",
             status=status,
-            version=lerobot_version,
+            version=legacy_lerobot_version,
             capabilities=capabilities,
             message=message,
-            python_version=python_version,
-            python_executable=python_executable,
-            lerobot_importable=lerobot_importable,
-            lerobot_version=lerobot_version,
-            lerobot_info_path=lerobot_info_path,
-            lerobot_info_ok=lerobot_info_ok,
-            lerobot_info_output=lerobot_info_output,
-            torch_available=torch_available,
-            torch_version=torch_version,
-            cuda_available=cuda_available,
-            hf_endpoint=hf_endpoint,
-            hf_cache_dir=hf_cache_dir,
+            python_version=legacy_python_version,
+            python_executable=legacy_python_executable,
+            lerobot_importable=legacy_lerobot_importable,
+            lerobot_version=legacy_lerobot_version,
+            lerobot_info_path=legacy_info_path,
+            lerobot_info_ok=legacy_info_ok,
+            lerobot_info_output=legacy_info_output or "",
+            torch_available=bool(legacy_torch),
+            torch_version=legacy_torch,
+            cuda_available=legacy_cuda,
+            hf_endpoint=os.environ.get("HF_ENDPOINT", "https://huggingface.co"),
+            hf_cache_dir=os.environ.get("HF_HOME") or os.environ.get("HUGGINGFACE_HUB_CACHE"),
             config_path=config_path,
             config_enabled=config_enabled,
             provider_type_registered=registry_check.get("provider_type_lerobot_policy", False),
             exporter_registered=registry_check.get("dataset_export_lerobot", False),
+            rosclaw_python_version=rosclaw_python_version,
+            rosclaw_python_executable=rosclaw_python_executable,
+            lerobot_runtime=lerobot_runtime,
+            worker_subprocess_available=worker_subprocess_available,
+            worker_in_process_available=worker_in_process_available,
+            status_detail=self._status_detail(status, lerobot_runtime),
         )
+
+    @staticmethod
+    def _is_lerobot_importable_current() -> bool:
+        try:
+            import importlib.util
+
+            return importlib.util.find_spec("lerobot") is not None
+        except Exception:
+            return False
 
     @staticmethod
     def _build_message(
         status: str,
-        lerobot_importable: bool,
+        rosclaw_runtime: Any,
+        lerobot_runtime: LeRobotRuntime | None,
         config_enabled: bool,
     ) -> str:
-        if status == "installed":
-            return "LeRobot is installed and enabled."
-        if lerobot_importable and not config_enabled:
+        if status == "installed" and lerobot_runtime is not None:
             return (
-                "LeRobot is importable but not enabled in ROSClaw. "
-                "Run `rosclaw setup lerobot --profile core` to enable it."
+                f"LeRobot runtime is ready ({lerobot_runtime.mode}).\n"
+                f"ROSClaw Python: {rosclaw_runtime.version}\n"
+                f"LeRobot Python: {lerobot_runtime.python_version}"
             )
-        if config_enabled and not lerobot_importable:
+
+        if lerobot_runtime is not None and lerobot_runtime.state == "degraded":
             return (
-                "LeRobot is enabled in ROSClaw config but the Python package is not importable. "
+                f"LeRobot runtime is degraded ({lerobot_runtime.mode}).\n"
+                f"Reason: {lerobot_runtime.error or 'unknown'}\n"
+                "Run `rosclaw setup lerobot --profile core` to repair."
+            )
+
+        if config_enabled and lerobot_runtime is None:
+            return (
+                "LeRobot is enabled in ROSClaw config but no runtime information is available.\n"
                 "Re-run `rosclaw setup lerobot --profile core` or check your environment."
             )
-        profiles = ", ".join(list_profile_names()) or "core, dataset, train"
-        return (
-            "LeRobot is not installed. "
-            f"Run `rosclaw setup lerobot --profile <{profiles}>` to install it."
+
+        profiles = ", ".join(list_profile_names()) or "core"
+        message = (
+            f"LeRobot is not configured.\n"
+            f"Current ROSClaw Python: {rosclaw_runtime.version}\n"
+            f"LeRobot requires Python >= 3.12.\n\n"
+            "Run one of:\n"
+            f"  rosclaw setup lerobot --profile <{profiles}>\n"
+            "  rosclaw setup lerobot --profile core --mode isolated\n"
+            "  rosclaw setup lerobot --profile core --mode external --python /path/to/python3.12"
         )
+        return message
+
+    @staticmethod
+    def _status_detail(status: str, lerobot_runtime: LeRobotRuntime | None) -> str | None:
+        if status == "installed":
+            return "LeRobot runtime ready"
+        if lerobot_runtime is None:
+            return "No LeRobot runtime configured"
+        return lerobot_runtime.error or "LeRobot runtime not ready"
 
 
 def run_lerobot_doctor(registry_check: dict[str, bool] | None = None) -> LeRobotDoctorReport:

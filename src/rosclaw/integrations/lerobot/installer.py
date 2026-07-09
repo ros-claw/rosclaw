@@ -1,55 +1,60 @@
-"""LeRobot integration installer."""
+"""LeRobot integration installer with runtime-aware install modes."""
 
 from __future__ import annotations
 
 import os
 import sys
-from datetime import UTC
 from pathlib import Path
 from typing import Any
 
-import yaml
-
-from rosclaw.firstboot.workspace import get_rosclaw_home
-from rosclaw.integrations.lerobot.profiles import load_profile
-from rosclaw.integrations.lerobot.schemas import InstallReport
-from rosclaw.integrations.lerobot.subprocess_runner import (
-    CommandResult,
-    run_command,
-    which,
+from rosclaw.integrations.lerobot.config import (
+    build_lerobot_config,
+    get_default_runtime_path,
+    load_lerobot_config,
+    save_lerobot_config,
 )
+from rosclaw.integrations.lerobot.env_manager import LeRobotEnvManager
+from rosclaw.integrations.lerobot.profiles import load_profile
+from rosclaw.integrations.lerobot.runtime import (
+    LeRobotRuntime,
+    RuntimeMode,
+    current_rosclaw_runtime,
+    find_python312,
+    inspect_lerobot_runtime,
+    resolve_lerobot_info,
+)
+from rosclaw.integrations.lerobot.schemas import InstallReport, LeRobotSetupErrorCode
+from rosclaw.integrations.lerobot.subprocess_runner import run_command, which
 
 
 class LeRobotInstaller:
-    """Install or dry-run the LeRobot integration."""
+    """Install, register, or dry-run the LeRobot integration."""
 
     def __init__(
         self,
-        python_executable: str | None = None,
-        pip_executable: str | None = None,
         config_dir: Path | None = None,
     ):
-        self.python_executable = python_executable or sys.executable
-        self.pip_executable = pip_executable or self._find_pip()
-        self.config_dir = config_dir or get_rosclaw_home() / "integrations"
+        self.config_dir = config_dir
+        self.env_manager = LeRobotEnvManager()
 
-    @staticmethod
-    def _find_pip() -> str:
-        for candidate in ("pip", "pip3"):
-            path = which(candidate)
-            if path:
-                return path
-        return "pip"
-
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
     def install(
         self,
-        profile_name: str,
+        profile_name: str = "core",
         *,
-        dry_run: bool = False,
+        mode: str = "auto",
+        python: Path | str | None = None,
+        runtime_path: Path | str | None = None,
         upgrade: bool = False,
+        force: bool = False,
+        dry_run: bool = False,
+        index_url: str | None = None,
+        extra_index_url: str | None = None,
         env: dict[str, str] | None = None,
     ) -> InstallReport:
-        """Install LeRobot for the requested profile."""
+        """Install or register LeRobot for the requested profile and mode."""
         try:
             profile = load_profile(profile_name)
         except FileNotFoundError as exc:
@@ -58,47 +63,140 @@ class LeRobotInstaller:
                 profile=profile_name,
                 dry_run=dry_run,
                 message=f"Profile '{profile_name}' not found: {exc}",
+                error_code=None,
+                mode=mode,
             )
 
-        env = env or {}
-        env = {**os.environ, **env}
-        if "HF_ENDPOINT" not in env:
-            env["HF_ENDPOINT"] = "https://hf-mirror.com"
+        merged_env = self._prepare_env(env)
+        current = current_rosclaw_runtime()
+        resolved_mode = self._resolve_mode(mode, current)
 
         details: dict[str, Any] = {
             "profile": profile_name,
-            "python": self.python_executable,
-            "pip": self.pip_executable,
-            "packages": profile.pip,
-            "checks": profile.checks,
+            "mode": resolved_mode,
+            "rosclaw_python": str(current.executable),
+            "rosclaw_python_version": current.version,
         }
 
         if dry_run:
-            details["dry_run"] = True
+            plan = self._build_plan(
+                resolved_mode,
+                profile,
+                current,
+                python=python,
+                runtime_path=runtime_path,
+            )
+            details["plan"] = plan
             return InstallReport(
                 ok=True,
                 profile=profile_name,
                 dry_run=True,
-                message=(
-                    f"Dry-run: would install profile '{profile_name}' "
-                    f"with packages {profile.pip} and run checks {profile.checks}."
-                ),
-                python_executable=self.python_executable,
-                pip_executable=self.pip_executable,
+                message=f"Dry-run: resolved mode='{resolved_mode}'. Planned steps:\n" + "\n".join(f"  - {step}" for step in plan),
+                mode=resolved_mode,
                 details=details,
             )
 
-        # Fast path: skip pip install when LeRobot is already importable and the
-        # caller is not requesting an upgrade. This avoids blocking on PyPI when
-        # a local/venv installation is already present.
+        if resolved_mode == "current-env":
+            return self._install_current_env(
+                profile_name,
+                profile,
+                current,
+                upgrade=upgrade,
+                index_url=index_url,
+                extra_index_url=extra_index_url,
+                env=merged_env,
+            )
+
+        if resolved_mode == "isolated":
+            return self._install_isolated(
+                profile_name,
+                profile,
+                current,
+                python=python,
+                runtime_path=runtime_path,
+                upgrade=upgrade,
+                force=force,
+                index_url=index_url,
+                extra_index_url=extra_index_url,
+                env=merged_env,
+            )
+
+        if resolved_mode == "external":
+            return self._register_external(
+                profile_name,
+                profile,
+                current,
+                python=python,
+                env=merged_env,
+            )
+
+        return InstallReport(
+            ok=False,
+            profile=profile_name,
+            dry_run=False,
+            message=f"Unknown install mode: {resolved_mode}",
+            error_code=None,
+            mode=resolved_mode,
+            details=details,
+        )
+
+    # ------------------------------------------------------------------
+    # Mode resolution
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _resolve_mode(mode: str, current: Any) -> RuntimeMode:
+        if mode != "auto":
+            return mode  # type: ignore[return-value]
+        if current.major == 3 and current.minor is not None and current.minor >= 12:
+            return "current-env"
+        return "isolated"
+
+    # ------------------------------------------------------------------
+    # current-env
+    # ------------------------------------------------------------------
+    def _install_current_env(
+        self,
+        profile_name: str,
+        profile: Any,
+        current: Any,
+        *,
+        upgrade: bool,
+        index_url: str | None,
+        extra_index_url: str | None,
+        env: dict[str, str],
+    ) -> InstallReport:
+        if current.major != 3 or (current.minor is not None and current.minor < 12):
+            message = (
+                f"ERROR: current-env mode requires Python >= 3.12.\n"
+                f"Current Python: {current.version or f'{current.major}.{current.minor}'}\n\n"
+                "Use one of:\n"
+                "  rosclaw setup lerobot --profile core --mode isolated\n"
+                "  rosclaw setup lerobot --profile core --mode external --python /path/to/python3.12"
+            )
+            return InstallReport(
+                ok=False,
+                profile=profile_name,
+                dry_run=False,
+                message=message,
+                error_code=LeRobotSetupErrorCode.PYTHON_TOO_OLD,
+                mode="current-env",
+                python_executable=str(current.executable),
+            )
+
         skip_pip = env.get("ROSCLAW_LEROBOT_SKIP_PIP_INSTALL", "").lower() in (
             "1",
             "true",
             "yes",
         )
-        already_importable = self._is_lerobot_importable(env)
+        already_importable = self._is_lerobot_importable(current.executable, env)
         if not skip_pip and already_importable and not upgrade:
             skip_pip = True
+
+        details: dict[str, Any] = {
+            "profile": profile_name,
+            "mode": "current-env",
+            "python": str(current.executable),
+        }
 
         if skip_pip:
             reason = (
@@ -109,109 +207,291 @@ class LeRobotInstaller:
             )
             details["pip_install"] = {"skipped": True, "reason": reason}
         else:
-            # LeRobot 0.6.1 (and many recent versions) require Python 3.12+.
-            if sys.version_info < (3, 12):
-                return InstallReport(
-                    ok=False,
-                    profile=profile_name,
-                    dry_run=False,
-                    message=(
-                        "LeRobot 0.6.1 requires Python 3.12+. "
-                        f"Current interpreter is {sys.version_info.major}.{sys.version_info.minor}. "
-                        "Please run `rosclaw setup lerobot` from a Python 3.12+ virtual environment."
-                    ),
-                    python_executable=self.python_executable,
-                    pip_executable=self.pip_executable,
-                    details=details,
-                )
-
-            # Install packages.
-            install_cmd = [self.pip_executable, "install"]
+            pip_cmd = [self._find_pip_for(current.executable), "install"]
             if upgrade:
-                install_cmd.append("--upgrade")
-            install_cmd.extend(profile.pip)
-            pip_result = run_command(install_cmd, env=env, timeout=600.0)
+                pip_cmd.append("--upgrade")
+            if index_url:
+                pip_cmd.extend(["--index-url", index_url])
+            if extra_index_url:
+                pip_cmd.extend(["--extra-index-url", extra_index_url])
+            pip_cmd.extend(profile.pip)
+
+            pip_result = run_command(pip_cmd, env=env, timeout=600.0)
             details["pip_install"] = {
                 "ok": pip_result.ok,
                 "returncode": pip_result.returncode,
                 "stderr": pip_result.stderr,
             }
-
             if not pip_result.ok:
                 return InstallReport(
                     ok=False,
                     profile=profile_name,
                     dry_run=False,
                     message=f"pip install failed: {pip_result.stderr}",
-                    python_executable=self.python_executable,
-                    pip_executable=self.pip_executable,
+                    error_code=LeRobotSetupErrorCode.PIP_INSTALL_FAILED,
+                    mode="current-env",
+                    python_executable=str(current.executable),
                     details=details,
                 )
 
-        # Run post-install checks.
-        check_results: list[CommandResult] = []
-        for check in profile.checks:
-            check_path = which(check)
-            if check_path:
-                result = run_command([check_path], env=env, timeout=60.0)
-            else:
-                result = run_command([self.python_executable, "-m", check], env=env, timeout=60.0)
-            check_results.append(result)
-            if not result.ok:
-                return InstallReport(
-                    ok=False,
-                    profile=profile_name,
-                    dry_run=False,
-                    message=f"Post-install check '{check}' failed: {result.stderr}",
-                    python_executable=self.python_executable,
-                    pip_executable=self.pip_executable,
-                    details=details,
-                )
+        runtime = inspect_lerobot_runtime(
+            current.executable,
+            mode="current-env",
+        )
+        if runtime.state == "error":
+            return InstallReport(
+                ok=False,
+                profile=profile_name,
+                dry_run=False,
+                message=runtime.error or "LeRobot runtime inspection failed",
+                error_code=LeRobotSetupErrorCode.LEROBOT_IMPORT_FAILED,
+                mode="current-env",
+                runtime=runtime,
+                details=details,
+            )
 
-        details["checks"] = [
-            {"command": r.command, "ok": r.ok, "returncode": r.returncode}
-            for r in check_results
-        ]
+        report = self._run_post_install_checks(profile, runtime, env, details)
+        if report is not None:
+            return report
 
-        # Write integration config.
-        self.config_dir.mkdir(parents=True, exist_ok=True)
-        config_path = self.config_dir / "lerobot.yaml"
-        config = {
-            "enabled": True,
-            "profile": profile_name,
-            "python": self.python_executable,
-            "pip": self.pip_executable,
-            "installed_at": None,
-            "capabilities": profile.enabled_capabilities,
-        }
-        try:
-            from datetime import datetime
-
-            config["installed_at"] = datetime.now(UTC).isoformat()
-        except Exception:
-            pass
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(config, f, sort_keys=False)
-
-        # Probe LeRobot version.
-        lerobot_version = self._probe_lerobot_version(env)
+        self._write_config(profile_name, "current-env", runtime, details)
 
         return InstallReport(
             ok=True,
             profile=profile_name,
             dry_run=False,
-            message=f"LeRobot profile '{profile_name}' installed successfully.",
-            lerobot_version=lerobot_version,
-            python_executable=self.python_executable,
-            pip_executable=self.pip_executable,
+            message=f"LeRobot profile '{profile_name}' installed in current environment.",
+            mode="current-env",
+            runtime=runtime,
+            lerobot_version=runtime.lerobot_version,
+            python_executable=str(runtime.python_executable),
+            pip_executable=str(runtime.pip_executable) if runtime.pip_executable else None,
             details=details,
         )
 
-    def _is_lerobot_importable(self, env: dict[str, str]) -> bool:
-        """Check whether ``lerobot`` can be imported without importing it directly."""
+    # ------------------------------------------------------------------
+    # isolated
+    # ------------------------------------------------------------------
+    def _install_isolated(
+        self,
+        profile_name: str,
+        profile: Any,
+        current: Any,
+        *,
+        python: Path | str | None,
+        runtime_path: Path | str | None,
+        upgrade: bool,
+        force: bool,
+        index_url: str | None,
+        extra_index_url: str | None,
+        env: dict[str, str],
+    ) -> InstallReport:
+        target_path = Path(runtime_path) if runtime_path else get_default_runtime_path()
+        python312 = find_python312(python)
+
+        if python312 is None:
+            message = (
+                "ERROR: Cannot create isolated LeRobot runtime because python3.12 was not found.\n\n"
+                "Please install Python 3.12 or provide an existing runtime:\n\n"
+                "  rosclaw setup lerobot --profile core --mode external --python /path/to/python3.12"
+            )
+            return InstallReport(
+                ok=False,
+                profile=profile_name,
+                dry_run=False,
+                message=message,
+                error_code=LeRobotSetupErrorCode.PYTHON312_NOT_FOUND,
+                mode="isolated",
+                details={"runtime_path": str(target_path)},
+            )
+
+        details: dict[str, Any] = {
+            "profile": profile_name,
+            "mode": "isolated",
+            "python312": str(python312),
+            "runtime_path": str(target_path),
+        }
+
+        try:
+            runtime = self.env_manager.create_isolated_env(
+                target_path,
+                python_executable=python312,
+                force=force,
+            )
+        except RuntimeError as exc:
+            return InstallReport(
+                ok=False,
+                profile=profile_name,
+                dry_run=False,
+                message=str(exc),
+                error_code=LeRobotSetupErrorCode.VENV_CREATE_FAILED,
+                mode="isolated",
+                details=details,
+            )
+
+        if runtime.state in ("ready", "degraded") and runtime.lerobot_version is not None:
+            if not upgrade:
+                details["pip_install"] = {"skipped": True, "reason": "LeRobot already importable and --upgrade not set"}
+        else:
+            install_report = self.env_manager.install_lerobot(
+                runtime,
+                profile=profile_name,
+                upgrade=upgrade,
+                index_url=index_url,
+                extra_index_url=extra_index_url,
+                packages=profile.pip,
+            )
+            details["pip_install"] = install_report.details.get("pip_install", install_report.details)
+            if not install_report.ok:
+                return InstallReport(
+                    ok=False,
+                    profile=profile_name,
+                    dry_run=False,
+                    message=install_report.message,
+                    error_code=LeRobotSetupErrorCode.PIP_INSTALL_FAILED,
+                    mode="isolated",
+                    runtime=runtime,
+                    details=details,
+                )
+            runtime = install_report.runtime or runtime
+
+        report = self._run_post_install_checks(profile, runtime, env, details)
+        if report is not None:
+            return report
+
+        self._write_config(profile_name, "isolated", runtime, details)
+
+        return InstallReport(
+            ok=True,
+            profile=profile_name,
+            dry_run=False,
+            message=f"LeRobot isolated runtime created at {target_path}.",
+            mode="isolated",
+            runtime=runtime,
+            lerobot_version=runtime.lerobot_version,
+            python_executable=str(runtime.python_executable),
+            pip_executable=str(runtime.pip_executable) if runtime.pip_executable else None,
+            details=details,
+        )
+
+    # ------------------------------------------------------------------
+    # external
+    # ------------------------------------------------------------------
+    def _register_external(
+        self,
+        profile_name: str,
+        profile: Any,
+        current: Any,
+        *,
+        python: Path | str | None,
+        env: dict[str, str],
+    ) -> InstallReport:
+        if python is None:
+            return InstallReport(
+                ok=False,
+                profile=profile_name,
+                dry_run=False,
+                message="external mode requires --python /path/to/python3.12",
+                error_code=LeRobotSetupErrorCode.EXTERNAL_PYTHON_NOT_FOUND,
+                mode="external",
+            )
+
+        python_path = Path(python)
+        if not python_path.exists():
+            return InstallReport(
+                ok=False,
+                profile=profile_name,
+                dry_run=False,
+                message=f"External Python executable not found: {python_path}",
+                error_code=LeRobotSetupErrorCode.EXTERNAL_PYTHON_NOT_FOUND,
+                mode="external",
+            )
+
+        runtime = inspect_lerobot_runtime(python_path, mode="external")
+        if runtime.state == "error":
+            error_code = (
+                LeRobotSetupErrorCode.EXTERNAL_PYTHON_TOO_OLD
+                if "requires Python" in (runtime.error or "")
+                else LeRobotSetupErrorCode.LEROBOT_IMPORT_FAILED
+            )
+            return InstallReport(
+                ok=False,
+                profile=profile_name,
+                dry_run=False,
+                message=runtime.error or "External runtime inspection failed",
+                error_code=error_code,
+                mode="external",
+                runtime=runtime,
+            )
+
+        details: dict[str, Any] = {
+            "profile": profile_name,
+            "mode": "external",
+            "python": str(runtime.python_executable),
+        }
+
+        report = self._run_post_install_checks(profile, runtime, env, details)
+        if report is not None:
+            return report
+
+        self._write_config(profile_name, "external", runtime, details)
+
+        return InstallReport(
+            ok=True,
+            profile=profile_name,
+            dry_run=False,
+            message=f"LeRobot external runtime registered: {runtime.python_executable}",
+            mode="external",
+            runtime=runtime,
+            lerobot_version=runtime.lerobot_version,
+            python_executable=str(runtime.python_executable),
+            pip_executable=str(runtime.pip_executable) if runtime.pip_executable else None,
+            details=details,
+        )
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    def _prepare_env(self, env: dict[str, str] | None) -> dict[str, str]:
+        merged = {**os.environ, **(env or {})}
+        if "HF_ENDPOINT" not in merged:
+            merged["HF_ENDPOINT"] = "https://hf-mirror.com"
+        return merged
+
+    def _build_plan(
+        self,
+        mode: RuntimeMode,
+        profile: Any,
+        current: Any,
+        *,
+        python: Path | str | None,
+        runtime_path: Path | str | None,
+    ) -> list[str]:
+        plan: list[str] = []
+        if mode == "current-env":
+            plan.append(f"Verify current Python >= 3.12 ({current.version})")
+            plan.append(f"pip install {' '.join(profile.pip)}")
+            plan.append("Run post-install checks: " + ", ".join(profile.checks))
+            plan.append("Write config with install_mode=current-env")
+        elif mode == "isolated":
+            target = runtime_path or get_default_runtime_path()
+            plan.append(f"Find Python 3.12 executable (preferred: {python or 'auto'})")
+            plan.append(f"Create isolated venv at {target}")
+            plan.append("Upgrade pip in isolated runtime")
+            plan.append(f"pip install {' '.join(profile.pip)} in isolated runtime")
+            plan.append("Run lerobot-info smoke test")
+            plan.append("Write config with install_mode=isolated")
+        elif mode == "external":
+            plan.append(f"Inspect external Python: {python or 'MISSING'}")
+            plan.append("Verify Python >= 3.12 and import lerobot")
+            plan.append("Run lerobot-info smoke test")
+            plan.append("Write config with install_mode=external")
+        return plan
+
+    def _is_lerobot_importable(self, python_executable: Path | str, env: dict[str, str]) -> bool:
         result = run_command(
             [
-                self.python_executable,
+                str(python_executable),
                 "-c",
                 "import importlib.util; import sys; "
                 "spec = importlib.util.find_spec('lerobot'); "
@@ -222,27 +502,124 @@ class LeRobotInstaller:
         )
         return result.ok
 
-    def _probe_lerobot_version(self, env: dict[str, str]) -> str | None:
-        """Probe the installed LeRobot version without importing it directly."""
-        result = run_command(
-            [
-                self.python_executable,
-                "-c",
-                "import importlib; m = importlib.import_module('lerobot'); print(getattr(m, '__version__', 'unknown'))",
-            ],
-            env=env,
-            timeout=30.0,
+    def _run_post_install_checks(
+        self,
+        profile: Any,
+        runtime: LeRobotRuntime,
+        env: dict[str, str],
+        details: dict[str, Any],
+    ) -> InstallReport | None:
+        check_results: list[dict[str, Any]] = []
+        for check in profile.checks:
+            if check == "lerobot-info":
+                info_exe = runtime.lerobot_info_executable
+                if info_exe is not None:
+                    if info_exe == runtime.python_executable:
+                        result = run_command(
+                            [str(runtime.python_executable), "-m", "lerobot_info"],
+                            env=env,
+                            timeout=60.0,
+                        )
+                    else:
+                        result = run_command([str(info_exe)], env=env, timeout=60.0)
+                else:
+                    result = run_command(
+                        ["lerobot-info"],
+                        env=env,
+                        timeout=60.0,
+                    )
+            else:
+                check_path = which(check)
+                if check_path:
+                    result = run_command([check_path], env=env, timeout=60.0)
+                else:
+                    result = run_command(
+                        [str(runtime.python_executable), "-m", check],
+                        env=env,
+                        timeout=60.0,
+                    )
+
+            check_results.append(
+                {
+                    "command": result.command,
+                    "ok": result.ok,
+                    "returncode": result.returncode,
+                    "stderr": result.stderr,
+                }
+            )
+            if not result.ok:
+                details["checks"] = check_results
+                return InstallReport(
+                    ok=False,
+                    profile=profile.name,
+                    dry_run=False,
+                    message=f"Post-install check '{check}' failed: {result.stderr}",
+                    error_code=LeRobotSetupErrorCode.LEROBOT_INFO_FAILED,
+                    mode=runtime.mode,
+                    runtime=runtime,
+                    details=details,
+                )
+
+        details["checks"] = check_results
+        return None
+
+    def _write_config(
+        self,
+        profile_name: str,
+        mode: RuntimeMode,
+        runtime: LeRobotRuntime,
+        details: dict[str, Any],
+    ) -> None:
+        current = current_rosclaw_runtime()
+        config = build_lerobot_config(
+            profile=profile_name,
+            mode=mode,
+            runtime=runtime,
+            rosclaw_python=str(current.executable),
+            rosclaw_version=current.version or "",
         )
-        return result.stdout if result.ok else None
+        try:
+            save_lerobot_config(config)
+        except Exception as exc:
+            details["config_write_error"] = str(exc)
+
+    @staticmethod
+    def _find_pip_for(python_executable: Path | str) -> str:
+        python_path = Path(python_executable)
+        pip = python_path.with_name("pip")
+        if pip.exists():
+            return str(pip)
+        pip3 = python_path.with_name("pip3")
+        if pip3.exists():
+            return str(pip3)
+        fallback = which("pip") or which("pip3") or "pip"
+        return fallback
 
 
 def install_lerobot(
     profile: str = "core",
     *,
-    dry_run: bool = False,
+    mode: str = "auto",
+    python: Path | str | None = None,
+    runtime_path: Path | str | None = None,
     upgrade: bool = False,
+    force: bool = False,
+    dry_run: bool = False,
+    index_url: str | None = None,
+    extra_index_url: str | None = None,
     env: dict[str, str] | None = None,
 ) -> InstallReport:
     """Convenience entry point used by the CLI."""
     installer = LeRobotInstaller()
-    return installer.install(profile, dry_run=dry_run, upgrade=upgrade, env=env)
+    return installer.install(
+        profile,
+        mode=mode,
+        python=python,
+        runtime_path=runtime_path,
+        upgrade=upgrade,
+        force=force,
+        dry_run=dry_run,
+        index_url=index_url,
+        extra_index_url=extra_index_url,
+        env=env,
+    )

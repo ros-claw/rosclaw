@@ -54,7 +54,7 @@ def get_lerobot_capabilities() -> list[IntegrationCapability]:
             kind="provider",
             enabled=True,
             experimental=True,
-            description="LeRobot policy provider (dry-run in P0)",
+            description="LeRobot policy provider (dry-run in P0; import smoke in P0.1)",
         ),
         IntegrationCapability(
             name="dataset_export_lerobot",
@@ -62,6 +62,20 @@ def get_lerobot_capabilities() -> list[IntegrationCapability]:
             enabled=True,
             experimental=True,
             description="Export ROSClaw practice episodes to LeRobot dataset skeleton",
+        ),
+        IntegrationCapability(
+            name="worker_subprocess",
+            kind="worker",
+            enabled=False,
+            experimental=True,
+            description="Run LeRobot tasks in a configured subprocess runtime",
+        ),
+        IntegrationCapability(
+            name="worker_in_process",
+            kind="worker",
+            enabled=False,
+            experimental=True,
+            description="Run LeRobot tasks in the current ROSClaw interpreter",
         ),
         IntegrationCapability(
             name="train",

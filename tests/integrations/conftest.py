@@ -9,6 +9,19 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(scope="session", autouse=True)
+def isolated_rosclaw_home(tmp_path_factory):
+    """Use a per-session temporary ROSClAW_HOME so tests never see real config."""
+    home = tmp_path_factory.mktemp("rosclaw_home")
+    old = os.environ.get("ROSCLAW_HOME")
+    os.environ["ROSCLAW_HOME"] = str(home)
+    yield home
+    if old is None:
+        os.environ.pop("ROSCLAW_HOME", None)
+    else:
+        os.environ["ROSCLAW_HOME"] = old
+
+
 @pytest.fixture
 def fake_lerobot_info(tmp_path: Path, monkeypatch):
     """Create a fake `lerobot-info` executable on PATH."""

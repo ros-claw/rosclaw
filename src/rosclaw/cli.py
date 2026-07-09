@@ -5743,8 +5743,30 @@ def main() -> int:
     setup_lerobot_parser.add_argument(
         "--profile", default="core", help="Installation profile (core, dataset, train, eval, rollout, reward, all)"
     )
+    setup_lerobot_parser.add_argument(
+        "--mode",
+        default="auto",
+        choices=["auto", "current-env", "isolated", "external"],
+        help=(
+            "Install mode: auto (default), current-env, isolated, or external. "
+            "auto uses current env if Python >=3.12, otherwise creates an isolated runtime."
+        ),
+    )
+    setup_lerobot_parser.add_argument(
+        "--python",
+        default=None,
+        help="Python executable for external mode or Python 3.12 executable for isolated mode",
+    )
+    setup_lerobot_parser.add_argument(
+        "--runtime-path",
+        default=None,
+        help="Target path for isolated runtime (default: ~/.rosclaw/envs/lerobot)",
+    )
     setup_lerobot_parser.add_argument("--dry-run", action="store_true", help="Show what would be installed")
     setup_lerobot_parser.add_argument("--upgrade", action="store_true", help="Upgrade packages")
+    setup_lerobot_parser.add_argument("--force", action="store_true", help="Recreate isolated runtime or overwrite existing config")
+    setup_lerobot_parser.add_argument("--index-url", default=None, help="Base URL of Python package index")
+    setup_lerobot_parser.add_argument("--extra-index-url", default=None, help="Extra URL of Python package index")
     setup_lerobot_parser.add_argument("--json", action="store_true", help="Output JSON details")
 
     # run / start

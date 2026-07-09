@@ -3,10 +3,29 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rosclaw.integrations.registry import IntegrationReport
+
+if TYPE_CHECKING:
+    from rosclaw.integrations.lerobot.runtime import LeRobotRuntime
+
+
+class LeRobotSetupErrorCode(str, Enum):
+    """Structured error codes for LeRobot setup failures."""
+
+    PYTHON_TOO_OLD = "python_too_old"
+    PYTHON312_NOT_FOUND = "python312_not_found"
+    EXTERNAL_PYTHON_NOT_FOUND = "external_python_not_found"
+    EXTERNAL_PYTHON_TOO_OLD = "external_python_too_old"
+    VENV_CREATE_FAILED = "venv_create_failed"
+    PIP_INSTALL_FAILED = "pip_install_failed"
+    LEROBOT_IMPORT_FAILED = "lerobot_import_failed"
+    LEROBOT_INFO_FAILED = "lerobot_info_failed"
+    CONFIG_WRITE_FAILED = "config_write_failed"
+    PIP_NOT_FOUND = "pip_not_found"
 
 
 @dataclass
@@ -17,6 +36,8 @@ class ProfileSpec:
     pip: list[str] = field(default_factory=list)
     checks: list[str] = field(default_factory=list)
     enabled_capabilities: list[str] = field(default_factory=list)
+    requires_python: str = ">=3.12"
+    capabilities: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -30,6 +51,9 @@ class InstallReport:
     lerobot_version: str | None = None
     python_executable: str | None = None
     pip_executable: str | None = None
+    error_code: str | None = None
+    mode: str | None = None
+    runtime: LeRobotRuntime | None = None
     details: dict[str, Any] = field(default_factory=dict)
 
 
@@ -53,3 +77,9 @@ class LeRobotDoctorReport(IntegrationReport):
     config_enabled: bool = False
     provider_type_registered: bool = False
     exporter_registered: bool = False
+    rosclaw_python_version: str | None = None
+    rosclaw_python_executable: str | None = None
+    lerobot_runtime: LeRobotRuntime | None = None
+    worker_subprocess_available: bool = False
+    worker_in_process_available: bool = False
+    status_detail: str | None = None

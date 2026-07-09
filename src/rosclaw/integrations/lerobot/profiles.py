@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -24,6 +25,8 @@ def load_profile(name: str) -> ProfileSpec:
         pip=spec.get("pip", []),
         checks=spec.get("checks", []),
         enabled_capabilities=spec.get("enabled_capabilities", []),
+        requires_python=spec.get("requires_python", ">=3.12"),
+        capabilities=spec.get("capabilities", {}),
     )
 
 

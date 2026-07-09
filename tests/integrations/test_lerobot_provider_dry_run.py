@@ -1,4 +1,4 @@
-"""Test LeRobot policy provider dry-run."""
+"""Test LeRobot policy provider dry-run and import smoke semantics."""
 
 from __future__ import annotations
 
@@ -38,16 +38,35 @@ async def test_provider_dry_run_returns_sample_action(sample_manifest):
     response = await provider.infer(request)
     assert response.status == "ok"
     assert response.result["action"] == [0.0] * 7
+    assert response.result["mode"] == "dry_run"
     assert response.result["dry_run"] is True
+    assert response.result["real_inference"] is False
+    assert response.result["not_executed"] is True
     assert response.result["safety"]["requires_guard"] is True
     assert response.result["safety"]["executable"] is False
+
+
+async def test_provider_non_dry_run_returns_import_smoke_without_action(sample_manifest):
+    """Non-dry-run should perform import smoke and not return a sample action."""
+    provider = LeRobotPolicyProvider(sample_manifest)
+    request = ProviderRequest(
+        request_id="test_002",
+        capability="lerobot.policy.infer",
+        inputs={"dry_run": False, "observation": {"state": [0.0] * 7}},
+    )
+    response = await provider.infer(request)
+    assert response.status == "ok"
+    assert response.result["action"] is None
+    assert response.result["mode"] == "import_smoke"
+    assert response.result["real_inference"] is False
+    assert "lerobot_smoke" in response.result
 
 
 async def test_provider_rejects_unknown_capability(sample_manifest):
     """Provider should reject unsupported capabilities."""
     provider = LeRobotPolicyProvider(sample_manifest)
     request = ProviderRequest(
-        request_id="test_002",
+        request_id="test_003",
         capability="unknown.capability",
         inputs={},
     )
