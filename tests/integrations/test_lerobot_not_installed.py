@@ -9,7 +9,6 @@ import pytest
 from rosclaw.integrations.lerobot import LeRobotIntegration
 from rosclaw.integrations.lerobot.doctor import run_lerobot_doctor
 
-
 _LEROBOT_INSTALLED = importlib.util.find_spec("lerobot") is not None
 
 

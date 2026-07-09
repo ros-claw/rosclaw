@@ -63,7 +63,7 @@ practice-export = [
     "pyarrow>=15.0.0",
 ]
 lerobot = [
-    "lerobot",
+    "lerobot>=0.6,<0.7",
 ]
 dev = [
     "pytest>=7.0.0",

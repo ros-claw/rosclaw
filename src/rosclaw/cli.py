@@ -1454,7 +1454,8 @@ def cmd_practice_replay(args: argparse.Namespace) -> int:
 
 def cmd_practice_export(args: argparse.Namespace) -> int:
     """Export episode metadata or practice events to requested format."""
-    episode_id = args.episode_dir or args.episode_id
+    episode_dir_arg = getattr(args, "episode_dir", None)
+    episode_id = episode_dir_arg or args.episode_id
 
     if args.format == "jsonl":
         practice_id = args.practice_id or episode_id
@@ -1493,20 +1494,14 @@ def cmd_practice_export(args: argparse.Namespace) -> int:
 
     if args.format == "lerobot":
         practice_id = args.practice_id or episode_id
-        # If the identifier is itself an existing directory, export from it
-        # directly; otherwise fall back to the practice data-root layout.
-        if practice_id:
-            episode_dir = Path(practice_id)
-            if not episode_dir.is_dir():
-                episode_dir = Path(args.data_root) / practice_id
-        else:
-            episode_dir = Path(args.data_root)
-        if episode_dir.is_dir():
+        # --episode explicitly requests the metadata-only skeleton exporter.
+        # Positional practice IDs retain the established real Parquet exporter.
+        if episode_dir_arg:
             from rosclaw.practice.exporters import LeRobotSkeletonExporter
 
             exporter = LeRobotSkeletonExporter(args.data_root)
             try:
-                out = exporter.export(str(episode_dir.resolve()), output_path=args.output)
+                out = exporter.export(episode_dir_arg, output_path=args.output)
                 print(f"[ROSClaw] Exported LeRobot dataset skeleton to {out}")
                 return 0
             except Exception as e:
@@ -6041,7 +6036,7 @@ def main() -> int:
 
     setup_lerobot_parser = setup_subparsers.add_parser("lerobot", help="Setup LeRobot integration")
     setup_lerobot_parser.add_argument(
-        "--profile", default="core", help="Installation profile (core, dataset, train, eval, rollout, reward, all)"
+        "--profile", default="core", choices=["core"], help="Installation profile (P0.1: core)"
     )
     setup_lerobot_parser.add_argument(
         "--mode",

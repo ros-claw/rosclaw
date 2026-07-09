@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
 from rosclaw.integrations.lerobot.config import (
     build_lerobot_config,
     get_default_runtime_path,
-    load_lerobot_config,
     save_lerobot_config,
 )
 from rosclaw.integrations.lerobot.env_manager import LeRobotEnvManager
@@ -21,7 +19,6 @@ from rosclaw.integrations.lerobot.runtime import (
     current_rosclaw_runtime,
     find_python312,
     inspect_lerobot_runtime,
-    resolve_lerobot_info,
 )
 from rosclaw.integrations.lerobot.schemas import InstallReport, LeRobotSetupErrorCode
 from rosclaw.integrations.lerobot.subprocess_runner import run_command, which
@@ -207,7 +204,7 @@ class LeRobotInstaller:
             )
             details["pip_install"] = {"skipped": True, "reason": reason}
         else:
-            pip_cmd = [self._find_pip_for(current.executable), "install"]
+            pip_cmd = [str(current.executable), "-m", "pip", "install"]
             if upgrade:
                 pip_cmd.append("--upgrade")
             if index_url:
@@ -239,12 +236,17 @@ class LeRobotInstaller:
             mode="current-env",
         )
         if runtime.state == "error":
+            error_code = (
+                LeRobotSetupErrorCode.LEROBOT_VERSION_UNSUPPORTED
+                if "Unsupported LeRobot version" in (runtime.error or "")
+                else LeRobotSetupErrorCode.LEROBOT_IMPORT_FAILED
+            )
             return InstallReport(
                 ok=False,
                 profile=profile_name,
                 dry_run=False,
                 message=runtime.error or "LeRobot runtime inspection failed",
-                error_code=LeRobotSetupErrorCode.LEROBOT_IMPORT_FAILED,
+                error_code=error_code,
                 mode="current-env",
                 runtime=runtime,
                 details=details,
@@ -254,7 +256,11 @@ class LeRobotInstaller:
         if report is not None:
             return report
 
-        self._write_config(profile_name, "current-env", runtime, details)
+        config_error = self._write_config(profile_name, "current-env", runtime, details)
+        if config_error:
+            return self._config_write_failure(
+                profile_name, "current-env", runtime, details, config_error
+            )
 
         return InstallReport(
             ok=True,
@@ -359,7 +365,11 @@ class LeRobotInstaller:
         if report is not None:
             return report
 
-        self._write_config(profile_name, "isolated", runtime, details)
+        config_error = self._write_config(profile_name, "isolated", runtime, details)
+        if config_error:
+            return self._config_write_failure(
+                profile_name, "isolated", runtime, details, config_error
+            )
 
         return InstallReport(
             ok=True,
@@ -412,7 +422,11 @@ class LeRobotInstaller:
             error_code = (
                 LeRobotSetupErrorCode.EXTERNAL_PYTHON_TOO_OLD
                 if "requires Python" in (runtime.error or "")
-                else LeRobotSetupErrorCode.LEROBOT_IMPORT_FAILED
+                else (
+                    LeRobotSetupErrorCode.LEROBOT_VERSION_UNSUPPORTED
+                    if "Unsupported LeRobot version" in (runtime.error or "")
+                    else LeRobotSetupErrorCode.LEROBOT_IMPORT_FAILED
+                )
             )
             return InstallReport(
                 ok=False,
@@ -434,7 +448,11 @@ class LeRobotInstaller:
         if report is not None:
             return report
 
-        self._write_config(profile_name, "external", runtime, details)
+        config_error = self._write_config(profile_name, "external", runtime, details)
+        if config_error:
+            return self._config_write_failure(
+                profile_name, "external", runtime, details, config_error
+            )
 
         return InstallReport(
             ok=True,
@@ -453,10 +471,7 @@ class LeRobotInstaller:
     # Helpers
     # ------------------------------------------------------------------
     def _prepare_env(self, env: dict[str, str] | None) -> dict[str, str]:
-        merged = {**os.environ, **(env or {})}
-        if "HF_ENDPOINT" not in merged:
-            merged["HF_ENDPOINT"] = "https://hf-mirror.com"
-        return merged
+        return {**os.environ, **(env or {})}
 
     def _build_plan(
         self,
@@ -493,9 +508,9 @@ class LeRobotInstaller:
             [
                 str(python_executable),
                 "-c",
-                "import importlib.util; import sys; "
-                "spec = importlib.util.find_spec('lerobot'); "
-                "sys.exit(0 if spec is not None else 1)",
+                "from importlib.metadata import version; import sys; "
+                "parts = tuple(int(p) for p in version('lerobot').split('.')[:2]); "
+                "sys.exit(0 if parts == (0, 6) else 1)",
             ],
             env=env,
             timeout=30.0,
@@ -516,7 +531,11 @@ class LeRobotInstaller:
                 if info_exe is not None:
                     if info_exe == runtime.python_executable:
                         result = run_command(
-                            [str(runtime.python_executable), "-m", "lerobot_info"],
+                            [
+                                str(runtime.python_executable),
+                                "-m",
+                                "lerobot.scripts.lerobot_info",
+                            ],
                             env=env,
                             timeout=60.0,
                         )
@@ -569,7 +588,7 @@ class LeRobotInstaller:
         mode: RuntimeMode,
         runtime: LeRobotRuntime,
         details: dict[str, Any],
-    ) -> None:
+    ) -> str | None:
         current = current_rosclaw_runtime()
         config = build_lerobot_config(
             profile=profile_name,
@@ -582,18 +601,27 @@ class LeRobotInstaller:
             save_lerobot_config(config)
         except Exception as exc:
             details["config_write_error"] = str(exc)
+            return str(exc)
+        return None
 
     @staticmethod
-    def _find_pip_for(python_executable: Path | str) -> str:
-        python_path = Path(python_executable)
-        pip = python_path.with_name("pip")
-        if pip.exists():
-            return str(pip)
-        pip3 = python_path.with_name("pip3")
-        if pip3.exists():
-            return str(pip3)
-        fallback = which("pip") or which("pip3") or "pip"
-        return fallback
+    def _config_write_failure(
+        profile_name: str,
+        mode: RuntimeMode,
+        runtime: LeRobotRuntime,
+        details: dict[str, Any],
+        error: str,
+    ) -> InstallReport:
+        return InstallReport(
+            ok=False,
+            profile=profile_name,
+            dry_run=False,
+            message=f"LeRobot installed but config write failed: {error}",
+            error_code=LeRobotSetupErrorCode.CONFIG_WRITE_FAILED,
+            mode=mode,
+            runtime=runtime,
+            details=details,
+        )
 
 
 def install_lerobot(

@@ -16,7 +16,7 @@ from rosclaw.integrations.lerobot.config import (
 from rosclaw.integrations.lerobot.doctor import run_lerobot_doctor
 from rosclaw.integrations.lerobot.installer import install_lerobot
 from rosclaw.integrations.lerobot.provider import LeRobotPolicyProvider
-from rosclaw.integrations.lerobot.runtime import LeRobotRuntime
+from rosclaw.integrations.lerobot.runtime import LEROBOT_INFO_MODULE, LeRobotRuntime
 from rosclaw.integrations.lerobot.subprocess_runner import run_command, which
 from rosclaw.provider.core.manifest import ProviderManifest
 from rosclaw.provider.core.request import ProviderRequest
@@ -35,18 +35,32 @@ def cmd_setup_lerobot(args: argparse.Namespace) -> int:
         index_url=args.index_url,
         extra_index_url=args.extra_index_url,
     )
-    print(f"[rosclaw-lerobot] Profile: {report.profile}")
-    print(f"[rosclaw-lerobot] Mode: {report.mode or 'N/A'}")
-    print(f"[rosclaw-lerobot] OK: {report.ok}")
-    print(f"[rosclaw-lerobot] Message: {report.message}")
-    if report.lerobot_version:
-        print(f"[rosclaw-lerobot] LeRobot version: {report.lerobot_version}")
-    if report.runtime and report.runtime.python_executable:
-        print(f"[rosclaw-lerobot] Runtime Python: {report.runtime.python_executable}")
-    if report.error_code:
-        print(f"[rosclaw-lerobot] Error code: {report.error_code}")
     if args.json:
-        print(json.dumps(report.details, indent=2, default=str))
+        payload = {
+            "ok": report.ok,
+            "profile": report.profile,
+            "dry_run": report.dry_run,
+            "mode": report.mode,
+            "message": report.message,
+            "error_code": report.error_code,
+            "lerobot_version": report.lerobot_version,
+            "python_executable": report.python_executable,
+            "pip_executable": report.pip_executable,
+            "runtime": _serialize_runtime(report.runtime),
+            "details": report.details,
+        }
+        print(json.dumps(payload, indent=2, default=str))
+    else:
+        print(f"[rosclaw-lerobot] Profile: {report.profile}")
+        print(f"[rosclaw-lerobot] Mode: {report.mode or 'N/A'}")
+        print(f"[rosclaw-lerobot] OK: {report.ok}")
+        print(f"[rosclaw-lerobot] Message: {report.message}")
+        if report.lerobot_version:
+            print(f"[rosclaw-lerobot] LeRobot version: {report.lerobot_version}")
+        if report.runtime and report.runtime.python_executable:
+            print(f"[rosclaw-lerobot] Runtime Python: {report.runtime.python_executable}")
+        if report.error_code:
+            print(f"[rosclaw-lerobot] Error code: {report.error_code}")
 
     if report.ok:
         return 0
@@ -56,6 +70,7 @@ def cmd_setup_lerobot(args: argparse.Namespace) -> int:
         "python312_not_found",
         "external_python_not_found",
         "external_python_too_old",
+        "lerobot_version_unsupported",
     }:
         return 2
     return 1
@@ -182,7 +197,7 @@ def cmd_lerobot_info(args: argparse.Namespace) -> int:
         else:
             # If the stored executable is the python interpreter itself, use
             # python -m lerobot_info as a fallback.
-            info_path = runtime_cfg.get("python_executable")
+            info_path = Path(runtime_cfg["python_executable"])
 
     if info_path is None:
         from_path = which("lerobot-info")
@@ -199,7 +214,7 @@ def cmd_lerobot_info(args: argparse.Namespace) -> int:
 
     cmd: list[str]
     if isinstance(info_path, Path) and info_path.name.startswith("python"):
-        cmd = [str(info_path), "-m", "lerobot_info"]
+        cmd = [str(info_path), "-m", LEROBOT_INFO_MODULE]
     else:
         cmd = [str(info_path)]
     if args.args:

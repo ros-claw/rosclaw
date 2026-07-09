@@ -168,13 +168,15 @@ class LeRobotPolicyProvider(Provider):
                 "Real policy inference is planned for P1."
             ),
         }
+        import_ok = bool(lerobot_smoke.get("import_ok"))
         return ProviderResponse(
             request_id=request.request_id,
             provider=self.name,
             capability=request.capability,
-            status="ok",
+            status="ok" if import_ok else "failed",
             result=result,
             latency_ms=0,
+            errors=[] if import_ok else ["LeRobot runtime is unavailable or unsupported"],
         )
 
     def _sample_action(self) -> list[float]:

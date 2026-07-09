@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from rosclaw.integrations.lerobot.provider import LeRobotPolicyProvider
@@ -47,18 +49,27 @@ async def test_provider_dry_run_returns_sample_action(sample_manifest):
 
 
 async def test_provider_non_dry_run_returns_import_smoke_without_action(sample_manifest):
-    """Non-dry-run should perform import smoke and not return a sample action."""
+    """Unavailable LeRobot must not be reported as a successful inference."""
     provider = LeRobotPolicyProvider(sample_manifest)
     request = ProviderRequest(
         request_id="test_002",
         capability="lerobot.policy.infer",
         inputs={"dry_run": False, "observation": {"state": [0.0] * 7}},
     )
-    response = await provider.infer(request)
-    assert response.status == "ok"
+    with (
+        patch(
+            "rosclaw.integrations.lerobot.provider.get_configured_lerobot_runtime",
+            return_value=None,
+        ),
+        patch("importlib.util.find_spec", return_value=None),
+    ):
+        response = await provider.infer(request)
+    assert response.status == "failed"
+    assert response.errors
     assert response.result["action"] is None
     assert response.result["mode"] == "import_smoke"
     assert response.result["real_inference"] is False
+    assert response.result["lerobot_smoke"]["import_ok"] is False
     assert "lerobot_smoke" in response.result
 
 

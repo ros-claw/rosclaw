@@ -37,7 +37,7 @@ class LeRobotSkeletonExporter:
             Path to the exported dataset directory.
         """
         episode_dir = Path(practice_id)
-        if not episode_dir.is_absolute():
+        if not episode_dir.is_absolute() and not episode_dir.exists():
             episode_dir = self._data_root / practice_id
         if not episode_dir.exists():
             raise ValueError(f"Episode directory not found: {episode_dir}")
