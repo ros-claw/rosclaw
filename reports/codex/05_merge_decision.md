@@ -7,7 +7,7 @@ PR #55 merged into `main` as
 
 ## Evidence
 
-- Full test suite: 3704 passed, 30 skipped, 15 deselected.
+- Full test suite: 3712 passed, 30 skipped, 15 deselected.
 - Ruff lint and format gates pass.
 - Full ROSClaw mypy gate passes.
 - All required top-level CLI help commands pass, including Darwin.
@@ -19,11 +19,15 @@ PR #55 merged into `main` as
 - The no-hardware physical-AI acceptance chain reaches a simulated Skill
   Registry champion only after sandbox and three-seed Darwin evaluation.
 - `scripts/codex/validate_full_runtime.sh` finishes with `FAILURES=0`.
+- ROS1 Noetic and both ROS2 bridges pass required read-only integration tests.
+- Public Hub owner/repo resolution passes and dry-run writes zero files.
+- The isolated `.venv-codex` mypy gate passes all 457 source files.
 
 ## Non-Blocking Residual Risk
 
-- ROS1 port 9091 needs container websocket port configuration repair.
-- External provider endpoints, remote Hub credentials, and real hardware were not exercised.
-- The `.venv-codex` copy of mypy has a local `mcap` package mapping issue, while the repository mypy gate passes.
+- The supplied DeepSeek account reaches the official endpoint but has
+  insufficient balance; the local real-HTTP success path is covered.
+- Authenticated Hub publishing requires a write token that was not supplied.
+- Real hardware remains intentionally outside this acceptance run.
 
 The current follow-up is suitable for direct commit and push to `main`.

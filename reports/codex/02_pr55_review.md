@@ -10,7 +10,7 @@ The final pre-merge fix commit was
 
 - Practice v2 artifacts, catalog, strict verification, distillation, query, and export behavior remain intact.
 - The SQLite parent-directory fix works in clean environments.
-- Focused and full mypy gates pass outside the local `.venv-codex` package-discovery anomaly.
+- Focused and full mypy gates pass, including the isolated `.venv-codex`.
 - Darwin CLI, universal agent installation, MCP probe, and real MuJoCo verification are present.
 - Provider contract commands now meet the task's required health/route/benchmark smoke.
 - A native MySQL-compatible SeekDB client now supports the real SeekDB/OceanBase server on port 2881.
@@ -19,7 +19,7 @@ The final pre-merge fix commit was
 
 ## Verification
 
-- `pytest -q`: 3704 passed, 30 skipped, 15 deselected.
+- `pytest -q`: 3712 passed, 30 skipped, 15 deselected.
 - `ruff check .`: pass.
 - `ruff format --check .`: pass.
 - `mypy src/rosclaw`: pass.

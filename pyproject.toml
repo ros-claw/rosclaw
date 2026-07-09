@@ -158,6 +158,11 @@ module = "rosclaw.hub.*"
 follow_imports = "normal"
 ignore_errors = true
 
+[[tool.mypy.overrides]]
+module = ["mcap", "mcap.*"]
+follow_imports = "skip"
+ignore_errors = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = ["tests/legacy"]

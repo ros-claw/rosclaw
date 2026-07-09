@@ -1,10 +1,5 @@
 # Regression Plan
 
-## P1: Environment Hygiene
-
-- Fix the `.venv-codex` `mcap` duplicate-module mapping so the script's mypy step can become required.
-- Fix the ROS1 rosbridge container so external port 9091 is accepted by its websocket Host validation.
-
 ## P1: SeekDB Operations
 
 - Add a deployment integration job that starts `oceanbase/seekdb` and runs the real MySQL DSN Practice loop.
@@ -13,8 +8,15 @@
 
 ## P2: Provider Reality
 
-- Run provider invoke/latency/schema benchmarks against configured VLM/VLA/world-model endpoints.
+- Re-run the official DeepSeek invocation after the account has balance.
+- Run latency/schema benchmarks against configured VLM/VLA/world-model endpoints.
 - Record endpoint health and benchmark evidence in Practice rather than treating the built-in catalog as runtime health.
+
+## P2: Hub Authentication
+
+- Exercise authenticated publish/verify/install when a non-production Hub test
+  token is available.
+- Keep public Hub dry-run as a zero-write regression gate.
 
 ## P2: Evolution Hardening
 

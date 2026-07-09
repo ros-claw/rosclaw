@@ -1,0 +1,25 @@
+usage: rosclaw practice [-h]
+                        {list,init,record,start,run,validate,verify,distill,ingest-seekdb,query,stop,sync-fallback,show,replay,export}
+                        ...
+
+positional arguments:
+  {list,init,record,start,run,validate,verify,distill,ingest-seekdb,query,stop,sync-fallback,show,replay,export}
+    list                List recorded practice sessions
+    init                Initialize practice configuration
+    record              Record a practice session from a JSON fixture
+    start               Start a practice session
+    run                 Run a single skill+provider practice episode
+    validate            Validate a recorded practice episode
+    verify              Verify closed-loop integrity of a practice session
+    distill             Distill raw practice events into knowledge artifacts
+    ingest-seekdb       Ingest a distilled practice session into SeekDB
+    query               Query practice episodes, failures, and distilled
+                        knowledge
+    stop                Stop the running practice coordinator
+    sync-fallback       Sync fallback JSON files to SeekDB
+    show                Show episode/practice details
+    replay              Replay episode trace
+    export              Export episode metadata or practice events
+
+options:
+  -h, --help            show this help message and exit

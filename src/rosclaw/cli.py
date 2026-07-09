@@ -2946,6 +2946,35 @@ def cmd_practice_sync_fallback(args: argparse.Namespace) -> int:
 # Keep original export available; add jsonl support below.
 
 
+def _register_cli_builtin_provider(registry: Any, provider_id: str) -> None:
+    """Register a directly invokable built-in provider for the CLI."""
+    if provider_id.lower() != "deepseek":
+        return
+
+    from rosclaw.provider.builtins.deepseek import DeepSeekProvider
+    from rosclaw.provider.core.manifest import ProviderManifest
+
+    manifest = ProviderManifest.from_dict(
+        {
+            "name": "deepseek",
+            "version": "1.0.0",
+            "type": "llm",
+            "capabilities": ["llm.task_planning", "llm.summary", "llm.chat"],
+            "modalities": {"input": ["text"], "output": ["text"]},
+            "runtime": {
+                "backend": "http",
+                "protocol": "openai-compatible",
+                "endpoint": os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+            },
+            "safety": {
+                "executable": False,
+                "requires_guard": False,
+            },
+        }
+    )
+    registry.register(manifest, lambda item: DeepSeekProvider(item), auto_load=False)
+
+
 def cmd_provider_invoke(args: argparse.Namespace) -> int:
     """Invoke a provider capability with optional image and normalization."""
     import base64
@@ -2994,6 +3023,7 @@ def cmd_provider_invoke(args: argparse.Namespace) -> int:
 
     try:
         registry = ProviderRegistry()
+        _register_cli_builtin_provider(registry, provider_id)
         try:
             provider = registry.get(provider_id)
         except ProviderNotFoundError:
@@ -3007,7 +3037,7 @@ def cmd_provider_invoke(args: argparse.Namespace) -> int:
             except ProviderNotFoundError:
                 provider = None
 
-        if provider is not None and getattr(provider, "_runtime", None) is not None:
+        if provider is not None:
             request = ProviderRequest(
                 request_id=args.trace_id or f"provider_{provider_id}_{int(t0)}",
                 capability=args.capability or "invoke",
@@ -3018,6 +3048,12 @@ def cmd_provider_invoke(args: argparse.Namespace) -> int:
             )
             response = run_sync(provider.infer(request))
             raw_text = json.dumps(response.result, ensure_ascii=False) if response.result else ""
+            if not response.is_ok:
+                error = (
+                    response.errors[0]
+                    if response.errors
+                    else str(response.result.get("error", f"provider status: {response.status}"))
+                )
         else:
             # PhysicalReasoner abstraction: works for Cosmos/Gemini/Qwen and
             # falls back gracefully when the endpoint is not reachable.
@@ -3057,7 +3093,7 @@ def cmd_provider_invoke(args: argparse.Namespace) -> int:
         "capability": args.capability,
         "input": input_payload,
         "image": bool(image_b64),
-        "status": "failed" if error else (response.status if response else "ok"),
+        "status": response.status if response is not None else ("failed" if error else "ok"),
         "errors": [error] if error else (response.errors if response else []),
         "latency_ms": response.latency_ms
         if response and response.latency_ms is not None

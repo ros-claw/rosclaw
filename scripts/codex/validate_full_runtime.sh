@@ -41,20 +41,12 @@ run_required() {
   return 0
 }
 
-run_optional() {
-  echo "===== OPTIONAL $* =====" | tee -a "$REPORT_DIR/commands.log"
-  "$@" 2>&1 | tee -a "$REPORT_DIR/commands.log"
-  local rc=${PIPESTATUS[0]}
-  echo "----- rc=$rc" | tee -a "$REPORT_DIR/commands.log"
-  return 0
-}
-
 run_required "$PYTHON" --version
 run_required "$PIP" check
 run_required "$PYTHON" -m compileall -q src tests
 run_required "$RUFF" check .
 run_required "$RUFF" format --check .
-run_optional "$MYPY" src/rosclaw
+run_required "$MYPY" src/rosclaw
 run_required "$PYTEST" -q
 run_required "$PYTEST" -q tests/integration/test_physical_ai_agent_acceptance.py
 
@@ -112,9 +104,25 @@ sys.exit(1 if failures else 0)
 PY
 
 for endpoint in ws://127.0.0.1:9090 ws://127.0.0.1:9091 ws://127.0.0.1:32887; do
-  run_optional "${ROSCLAW_CMD[@]}" ros ping --endpoint "$endpoint" --json
-  run_optional "${ROSCLAW_CMD[@]}" ros discover --endpoint "$endpoint" --json
+  run_required "${ROSCLAW_CMD[@]}" ros ping --endpoint "$endpoint" --json
+  run_required "${ROSCLAW_CMD[@]}" ros discover --endpoint "$endpoint" --json
+  run_required env ROSCLAW_ROS_TEST_ENDPOINT="$endpoint" "$PYTEST" -q -m integration \
+    tests/connectors/ros/test_turtlesim_integration.py \
+    -k "ping_reaches or discovery_finds or compile_manifest or subscribe_once"
 done
+
+if [[ "${ROSCLAW_VALIDATE_REMOTE_HUB:-0}" == "1" ]]; then
+  REMOTE_HUB_ROOT="$(mktemp -d /tmp/rosclaw-codex-remote-hub.XXXXXX)"
+  run_required env \
+    ROSCLAW_HOME="$REMOTE_HUB_ROOT/home" \
+    ROSCLAW_MCP_HUB="${ROSCLAW_MCP_HUB:-https://www.rosclaw.io}" \
+    "${ROSCLAW_CMD[@]}" mcp install ros-claw/g1-mcp \
+    --dry-run \
+    --project-root "$REMOTE_HUB_ROOT/project"
+  run_required "$PYTHON" -c \
+    'import pathlib, sys; root = pathlib.Path(sys.argv[1]); files = [p for p in root.rglob("*") if p.is_file()]; print(f"REMOTE HUB DRY-RUN FILES: {files}"); raise SystemExit(1 if files else 0)' \
+    "$REMOTE_HUB_ROOT"
+fi
 
 run_required "$PYTHON" - <<'PY'
 from pathlib import Path

@@ -150,6 +150,7 @@ def dispatch_mcp_command(args: argparse.Namespace) -> int:
 def dispatch_mcp_install(args: argparse.Namespace) -> int:
     """Handle ``rosclaw mcp install``."""
     from rosclaw.mcp.onboarding.errors import OnboardingError
+    from rosclaw.mcp.onboarding.hub_client import HubClient
     from rosclaw.mcp.onboarding.installer import InstallEngine
 
     # Source-based installs bypass the package registry.
@@ -229,7 +230,8 @@ def dispatch_mcp_install(args: argparse.Namespace) -> int:
         )
         return 1
 
-    engine = InstallEngine(project_root=_project_root(args))
+    hub = HubClient(offline=args.offline, cache_writes=not args.dry_run)
+    engine = InstallEngine(project_root=_project_root(args), hub=hub)
 
     if args.dry_run:
         try:
