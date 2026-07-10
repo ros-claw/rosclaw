@@ -107,7 +107,7 @@ def get_lerobot_capabilities() -> list[IntegrationCapability]:
             kind="exporter",
             enabled=True,
             experimental=True,
-            description="Export ROSClaw practice episodes to LeRobot dataset skeleton",
+            description="Export ROSClaw practice episodes to a real LeRobotDataset v3 via isolated worker",
         ),
         IntegrationCapability(
             name="worker_subprocess",

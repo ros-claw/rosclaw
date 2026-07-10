@@ -56,8 +56,13 @@ from rosclaw.integrations.lerobot.cli import (
     cmd_capability_list,
     cmd_lerobot_capabilities,
     cmd_lerobot_compatibility,
+    cmd_lerobot_dataset_api,
+    cmd_lerobot_dataset_compatibility,
     cmd_lerobot_doctor,
+    cmd_lerobot_export_dataset,
     cmd_lerobot_info,
+    cmd_lerobot_smoke_dataloader,
+    cmd_lerobot_validate_dataset,
     cmd_provider_infer_lerobot,
     cmd_provider_inspect_lerobot,
     cmd_provider_load_test_lerobot,
@@ -1395,36 +1400,82 @@ def cmd_practice_export(args: argparse.Namespace) -> int:
 
     if args.format == "lerobot":
         practice_id = args.practice_id or episode_id
-        # If the identifier is itself an existing directory, export from it
-        # directly; otherwise fall back to the practice data-root layout.
         if practice_id:
             episode_dir = Path(practice_id)
             if not episode_dir.is_dir():
                 episode_dir = Path(args.data_root) / practice_id
         else:
             episode_dir = Path(args.data_root)
-        if episode_dir.is_dir():
-            from rosclaw.practice.exporters import LeRobotSkeletonExporter
 
-            exporter = LeRobotSkeletonExporter(args.data_root)
+        writer = args.writer
+        if writer is None:
+            from rosclaw.integrations.lerobot.config import get_configured_lerobot_runtime
+            runtime = get_configured_lerobot_runtime()
+            if runtime and runtime.get("subprocess_available"):
+                writer = "real"
+            else:
+                writer = "skeleton"
+                print(
+                    "[ROSClaw] No LeRobot runtime available; falling back to skeleton writer. "
+                    "Use --writer real after `rosclaw setup lerobot`.",
+                    file=sys.stderr,
+                )
+
+        if writer == "skeleton":
+            if episode_dir.is_dir():
+                from rosclaw.practice.exporters import LeRobotSkeletonExporter
+
+                exporter = LeRobotSkeletonExporter(args.data_root)
+                try:
+                    out = exporter.export(str(episode_dir.resolve()), output_path=args.output)
+                    print(f"[ROSClaw] Exported LeRobot dataset skeleton to {out}")
+                    return 0
+                except Exception as e:
+                    print(f"[ROSClaw] LeRobot skeleton export failed: {e}", file=sys.stderr)
+                    return 1
+
+            from rosclaw.practice.exporters import LeRobotExporter
+
+            exporter = LeRobotExporter(args.data_root)
             try:
-                out = exporter.export(str(episode_dir.resolve()), output_path=args.output)
-                print(f"[ROSClaw] Exported LeRobot dataset skeleton to {out}")
+                out = exporter.export(practice_id, output_path=args.output)
+                print(f"[ROSClaw] Exported LeRobot dataset to {out}")
                 return 0
             except Exception as e:
-                print(f"[ROSClaw] LeRobot skeleton export failed: {e}", file=sys.stderr)
+                print(f"[ROSClaw] LeRobot export failed: {e}", file=sys.stderr)
                 return 1
 
-        from rosclaw.practice.exporters import LeRobotExporter
-
-        exporter = LeRobotExporter(args.data_root)
-        try:
-            out = exporter.export(practice_id, output_path=args.output)
-            print(f"[ROSClaw] Exported LeRobot dataset to {out}")
-            return 0
-        except Exception as e:
-            print(f"[ROSClaw] LeRobot export failed: {e}", file=sys.stderr)
+        # real writer path
+        if not args.output:
+            print("[ROSClaw] --output is required for real LeRobot dataset export.", file=sys.stderr)
             return 1
+        repo_id = args.repo_id or f"local/rosclaw_{episode_dir.name or 'episode'}"
+        include_groups = None
+        if getattr(args, "include_groups", None):
+            include_groups = [g.strip() for g in args.include_groups.split(",") if g.strip()]
+        export_args = argparse.Namespace(
+            episode_id=str(episode_dir),
+            episode_dir=str(episode_dir),
+            output=args.output,
+            repo_id=repo_id,
+            fps=args.fps if args.fps is not None else 10.0,
+            task=args.task,
+            robot_id=args.robot_id,
+            body_profile=args.body_profile,
+            use_videos=args.use_videos,
+            visual_storage_mode=getattr(args, "visual_storage_mode", "auto"),
+            profile=getattr(args, "profile", "minimal"),
+            include_groups=include_groups,
+            include_body_snapshot=getattr(args, "include_body_snapshot", False),
+            body_snapshot_mode=getattr(args, "body_snapshot_mode", "sanitized"),
+            acknowledge_sensitive_body_data=getattr(args, "acknowledge_sensitive_body_data", False),
+            dataloader=getattr(args, "dataloader", False),
+            dry_run=getattr(args, "dry_run", False),
+            allow_partial=getattr(args, "allow_partial", False),
+            timeout_sec=args.timeout_sec,
+            json=args.json if hasattr(args, "json") else False,
+        )
+        return cmd_lerobot_export_dataset(export_args)
 
     from rosclaw.practice.episode_recorder import EpisodeRecorder
 
@@ -6215,6 +6266,127 @@ def main() -> int:
     )
     lerobot_compatibility_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
+    lerobot_export_dataset_parser = lerobot_subparsers.add_parser(
+        "export-dataset", help="Export a ROSClaw Practice episode to a real LeRobotDataset"
+    )
+    lerobot_export_dataset_parser.add_argument(
+        "--episode", dest="episode_dir", required=True, help="Path to the Practice episode directory"
+    )
+    lerobot_export_dataset_parser.add_argument(
+        "--output", required=True, help="Output directory for the LeRobotDataset"
+    )
+    lerobot_export_dataset_parser.add_argument(
+        "--repo-id", required=True, help="Dataset repo id (e.g., local/rosclaw_minimal)"
+    )
+    lerobot_export_dataset_parser.add_argument(
+        "--fps", type=float, default=10.0, help="Frames per second (default: 10)"
+    )
+    lerobot_export_dataset_parser.add_argument(
+        "--task", default=None, help="Override task text for the exported episode"
+    )
+    lerobot_export_dataset_parser.add_argument(
+        "--robot-id", default=None, help="Override robot id metadata"
+    )
+    lerobot_export_dataset_parser.add_argument(
+        "--body-profile", default=None, help="Override body profile metadata"
+    )
+    lerobot_export_dataset_parser.add_argument(
+        "--use-videos", action="store_true", help="Encode camera frames as MP4 videos (default: images)"
+    )
+    lerobot_export_dataset_parser.add_argument(
+        "--visual-storage-mode",
+        choices=["auto", "images", "videos"],
+        default="auto",
+        help="Visual storage mode (default: auto resolves to images for short episodes)",
+    )
+    lerobot_export_dataset_parser.add_argument(
+        "--profile",
+        choices=["minimal", "safety", "physical", "safety-rich"],
+        default="minimal",
+        help="ROSClaw feature profile (default: minimal)",
+    )
+    lerobot_export_dataset_parser.add_argument(
+        "--include", dest="include_groups", default=None,
+        help="Comma-separated extra feature groups to include (e.g. safety,failure)"
+    )
+    lerobot_export_dataset_parser.add_argument(
+        "--include-body-snapshot", action="store_true", help="Copy body YAML snapshot into meta/rosclaw/body_snapshot/"
+    )
+    lerobot_export_dataset_parser.add_argument(
+        "--body-snapshot-mode",
+        choices=["none", "sanitized", "full"],
+        default="sanitized",
+        help="Body snapshot sanitization mode (default: sanitized)"
+    )
+    lerobot_export_dataset_parser.add_argument(
+        "--acknowledge-sensitive-body-data",
+        action="store_true",
+        help="Required when --body-snapshot-mode=full to confirm export of sensitive body data",
+    )
+    lerobot_export_dataset_parser.add_argument(
+        "--dataloader", action="store_true", help="Also run a DataLoader smoke test after export"
+    )
+    lerobot_export_dataset_parser.add_argument(
+        "--dry-run", action="store_true", help="Preview features without writing the dataset"
+    )
+    lerobot_export_dataset_parser.add_argument(
+        "--timeout-sec", type=int, default=300, help="Worker timeout in seconds (default: 300)"
+    )
+    lerobot_export_dataset_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    lerobot_validate_dataset_parser = lerobot_subparsers.add_parser(
+        "validate-dataset", help="Validate an existing LeRobotDataset"
+    )
+    lerobot_validate_dataset_parser.add_argument(
+        "--dataset", required=True, help="Path to the LeRobotDataset directory"
+    )
+    lerobot_validate_dataset_parser.add_argument(
+        "--repo-id", required=True, help="Dataset repo id"
+    )
+    lerobot_validate_dataset_parser.add_argument(
+        "--level",
+        choices=["structural", "load", "dataloader", "rich"],
+        default="load",
+        help="Validation level (default: load)",
+    )
+    lerobot_validate_dataset_parser.add_argument(
+        "--timeout-sec", type=int, default=300, help="Worker timeout in seconds (default: 300)"
+    )
+    lerobot_validate_dataset_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    lerobot_dataset_api_parser = lerobot_subparsers.add_parser(
+        "dataset-api", help="Introspect the LeRobotDataset API in the configured runtime"
+    )
+    lerobot_dataset_api_parser.add_argument(
+        "--timeout-sec", type=int, default=120, help="Worker timeout in seconds (default: 120)"
+    )
+    lerobot_dataset_api_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    lerobot_smoke_dataloader_parser = lerobot_subparsers.add_parser(
+        "smoke-dataloader", help="Run a DataLoader smoke test on a LeRobotDataset"
+    )
+    lerobot_smoke_dataloader_parser.add_argument(
+        "--dataset", required=True, help="Path to the LeRobotDataset directory"
+    )
+    lerobot_smoke_dataloader_parser.add_argument(
+        "--repo-id", required=True, help="Dataset repo id"
+    )
+    lerobot_smoke_dataloader_parser.add_argument(
+        "--batch-size", type=int, default=2, help="DataLoader batch size (default: 2)"
+    )
+    lerobot_smoke_dataloader_parser.add_argument(
+        "--num-workers", type=int, default=0, help="DataLoader workers (default: 0)"
+    )
+    lerobot_smoke_dataloader_parser.add_argument(
+        "--timeout-sec", type=int, default=300, help="Worker timeout in seconds (default: 300)"
+    )
+    lerobot_smoke_dataloader_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    lerobot_dataset_compatibility_parser = lerobot_subparsers.add_parser(
+        "dataset-compatibility", help="Show ROSClaw × LeRobot dataset feature compatibility matrix"
+    )
+    lerobot_dataset_compatibility_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
     # auto subcommand (Self-Evolution Control Plane)
     auto_parser = subparsers.add_parser("auto", help="Auto self-evolution commands")
     auto_subparsers = auto_parser.add_subparsers(dest="auto_command")
@@ -6793,6 +6965,75 @@ def main() -> int:
     practice_export_parser.add_argument(
         "--data-root", default="/data/rosclaw/practice", help="Practice data root"
     )
+    practice_export_parser.add_argument(
+        "--writer",
+        choices=["real", "skeleton"],
+        default=None,
+        help="LeRobot export mode: real dataset writer or legacy skeleton (default: real if runtime available)",
+    )
+    practice_export_parser.add_argument(
+        "--repo-id", default=None, help="Dataset repo id for real writer (default: local/rosclaw_<episode>)"
+    )
+    practice_export_parser.add_argument(
+        "--fps", type=float, default=None, help="Frames per second for real writer (default: inferred or 10)"
+    )
+    practice_export_parser.add_argument(
+        "--task", default=None, help="Override task text for the exported episode"
+    )
+    practice_export_parser.add_argument(
+        "--robot-id", default=None, help="Override robot id metadata"
+    )
+    practice_export_parser.add_argument(
+        "--body-profile", default=None, help="Override body profile metadata"
+    )
+    practice_export_parser.add_argument(
+        "--use-videos", action="store_true", help="Encode camera frames as MP4 videos (default: images)"
+    )
+    practice_export_parser.add_argument(
+        "--visual-storage-mode",
+        choices=["auto", "images", "videos"],
+        default="auto",
+        help="Visual storage mode (default: auto resolves to images)",
+    )
+    practice_export_parser.add_argument(
+        "--profile",
+        choices=["minimal", "safety", "physical", "safety-rich"],
+        default="minimal",
+        help="ROSClaw feature profile (default: minimal)",
+    )
+    practice_export_parser.add_argument(
+        "--allow-partial",
+        action="store_true",
+        help="Allow export when the requested profile cannot be fully satisfied",
+    )
+    practice_export_parser.add_argument(
+        "--include", dest="include_groups", default=None,
+        help="Comma-separated extra feature groups to include"
+    )
+    practice_export_parser.add_argument(
+        "--include-body-snapshot", action="store_true", help="Copy body YAML snapshot into meta/rosclaw/body_snapshot/"
+    )
+    practice_export_parser.add_argument(
+        "--body-snapshot-mode",
+        choices=["none", "sanitized", "full"],
+        default="sanitized",
+        help="Body snapshot sanitization mode (default: sanitized)"
+    )
+    practice_export_parser.add_argument(
+        "--acknowledge-sensitive-body-data",
+        action="store_true",
+        help="Required when --body-snapshot-mode=full to confirm export of sensitive body data",
+    )
+    practice_export_parser.add_argument(
+        "--dataloader", action="store_true", help="Also run a DataLoader smoke test after export"
+    )
+    practice_export_parser.add_argument(
+        "--dry-run", action="store_true", help="Preview features without writing the dataset"
+    )
+    practice_export_parser.add_argument(
+        "--timeout-sec", type=int, default=300, help="Worker timeout in seconds (default: 300)"
+    )
+    practice_export_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     # know subcommand
     know_parser = subparsers.add_parser("know", help="Knowledge base queries")
@@ -7037,6 +7278,16 @@ def main() -> int:
                 return cmd_smoke_policy_lerobot(args)
             elif args.lerobot_command == "compatibility":
                 return cmd_lerobot_compatibility(args)
+            elif args.lerobot_command == "export-dataset":
+                return cmd_lerobot_export_dataset(args)
+            elif args.lerobot_command == "validate-dataset":
+                return cmd_lerobot_validate_dataset(args)
+            elif args.lerobot_command == "dataset-api":
+                return cmd_lerobot_dataset_api(args)
+            elif args.lerobot_command == "smoke-dataloader":
+                return cmd_lerobot_smoke_dataloader(args)
+            elif args.lerobot_command == "dataset-compatibility":
+                return cmd_lerobot_dataset_compatibility(args)
             else:
                 lerobot_parser.print_help()
                 return 1

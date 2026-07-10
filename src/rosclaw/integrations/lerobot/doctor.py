@@ -18,6 +18,9 @@ from rosclaw.integrations.lerobot.runtime import (
     inspect_lerobot_runtime,
 )
 from rosclaw.integrations.lerobot.schemas import LeRobotDoctorReport
+from rosclaw.integrations.lerobot.dataset_report import (
+    get_dataset_export_validation_status,
+)
 from rosclaw.integrations.lerobot.smoke_report import (
     get_validation_status,
     read_latest_smoke_report,
@@ -131,6 +134,10 @@ class LeRobotDoctor:
             current_lerobot_version=current_lerobot_version,
             current_python_executable=current_python_executable,
         )
+        dataset_export_status = get_dataset_export_validation_status(
+            current_lerobot_version=current_lerobot_version,
+            current_python_executable=current_python_executable,
+        )
 
         message = self._build_message(
             status,
@@ -191,6 +198,7 @@ class LeRobotDoctor:
             worker_in_process_available=worker_in_process_available,
             status_detail=self._status_detail(status, lerobot_runtime),
             validation_status=validation_status,
+            dataset_export_status=dataset_export_status,
         )
 
     @staticmethod
