@@ -57,17 +57,60 @@ class PracticeQuery:
         outcome: str | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
-        """Query recorded practice episodes from the local catalog."""
+        """Query recorded practice episodes from the local catalog or SeekDB.
+
+        The catalog v2 ``practice_episodes`` table is authoritative when present.
+        If it is empty or unavailable, fall back to the SeekDB ``episodes`` table
+        so that ingested sessions remain queryable without catalog v2 writes.
+        """
         catalog = PracticeCatalog(self._layout.catalog_db_path)
         try:
-            return catalog.list_episodes(
+            rows = catalog.list_episodes(
                 body_id=body_id,
                 skill_id=skill_id,
                 outcome=outcome,
                 limit=limit,
             )
+            if rows:
+                return rows
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Catalog episode query failed: %s", exc)
         finally:
             catalog.close()
+
+        # Fallback: SeekDB episodes table stores body_id/skill_id in JSON metadata.
+        filters: dict[str, Any] = {}
+        if outcome:
+            filters["outcome"] = outcome
+        candidates = self._client.query(
+            "episodes",
+            filters=filters if filters else None,
+            order_by="-started_at",
+            limit=limit * 4,
+        )
+        results: list[dict[str, Any]] = []
+        for ep in candidates:
+            meta = ep.get("metadata") or {}
+            if isinstance(meta, str):
+                import json
+
+                try:
+                    meta = json.loads(meta)
+                except Exception:
+                    meta = {}
+            if body_id and meta.get("body_id") != body_id:
+                continue
+            if skill_id and meta.get("skill_id") != skill_id:
+                continue
+            merged = dict(ep)
+            merged.update(meta)
+            merged.setdefault("episode_id", ep.get("id"))
+            merged.setdefault("body_id", meta.get("body_id"))
+            merged.setdefault("skill_id", meta.get("skill_id"))
+            results.append(merged)
+            if len(results) >= limit:
+                break
+        return results
 
     # ------------------------------------------------------------------
     # SeekDB (L2) queries

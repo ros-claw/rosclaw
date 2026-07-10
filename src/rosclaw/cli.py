@@ -6982,6 +6982,7 @@ def main() -> int:
     query_episodes_parser.add_argument(
         "--data-root", default="/data/rosclaw/practice", help="Practice data root"
     )
+    add_practice_seekdb_backend_args(query_episodes_parser)
     query_episodes_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     query_failures_parser = query_subparsers.add_parser(

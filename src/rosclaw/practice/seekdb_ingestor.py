@@ -114,8 +114,9 @@ class SeekDBIngestor:
             )
 
             # Episode summary
+            body_id = distillation_result.body_cognition.get("body_id")
             try:
-                self._ingest_episode_summary(practice, robot_id, task_id)
+                self._ingest_episode_summary(practice, robot_id, task_id, body_id=body_id)
                 report.table_counts["episodes"] = 1
             except Exception as exc:
                 logger.warning("Failed to ingest episode summary: %s", exc)
@@ -228,6 +229,7 @@ class SeekDBIngestor:
         practice: dict[str, Any],
         robot_id: str,
         task_id: str | None,
+        body_id: str | None = None,
     ) -> str:
         episode_id = practice.get("episode_id") or practice.get("practice_id")
         started_at = practice.get("start_time")
@@ -247,6 +249,7 @@ class SeekDBIngestor:
                 "robot_type": practice.get("robot_type"),
                 "task_name": practice.get("task_name"),
                 "skill_id": practice.get("skill_id"),
+                "body_id": body_id,
                 "duration_ms": practice.get("duration_ms"),
                 "reward": practice.get("reward"),
             },

@@ -6,16 +6,20 @@ import json
 import logging
 import threading
 import time
+from typing import Any
 
 from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.core.lifecycle import LifecycleMixin
+from rosclaw.memory.seekdb_client import SeekDBClient, SeekDBMySQLClient, SeekDBSQLiteClient
 from rosclaw.practice.adapters.base import SourceAdapter
 from rosclaw.practice.adapters.mock_agent_adapter import MockAgentAdapter
 from rosclaw.practice.adapters.mock_runtime_adapter import MockRuntimeAdapter
 from rosclaw.practice.adapters.sense_adapter import SenseAdapter
+from rosclaw.practice.artifact_store import ArtifactStore
 from rosclaw.practice.config import PracticeConfig, PracticeSession, PracticeSummary
 from rosclaw.practice.ids import generate_episode_id, generate_session_id
 from rosclaw.practice.schemas import PracticeEventEnvelope
+from rosclaw.practice.seekdb_ingestor import SeekDBIngestor
 from rosclaw.practice.storage.catalog import PracticeCatalog
 from rosclaw.practice.storage.layout import PracticeLayout, generate_practice_id
 from rosclaw.practice.writers.jsonl_writer import JsonlWriter
@@ -141,6 +145,11 @@ class PracticeCoordinator(LifecycleMixin):
             start_time_ns=start_ns,
             start_time_utc=start_utc,
         )
+        # Capture body_id from config so catalog v2 and episode metadata can be
+        # indexed by body even when the caller sets it after constructing config.
+        body_id = getattr(self.config, "body_id", None)
+        if body_id:
+            self._session.metadata["body_id"] = body_id
         self._event_count = 0
         self._summary = None
 
@@ -321,18 +330,109 @@ class PracticeCoordinator(LifecycleMixin):
                 self._writer = None
 
             if self._session is not None:
-                self.layout.write_manifest(
-                    self._session,
-                    summary=self._summary,
-                    sources=self._sources_dict(),
-                    seekdb_enabled=bool(self.config.seekdb.url),
-                )
+                seekdb_enabled = self.config.seekdb.enabled or bool(self.config.seekdb.url)
+
+                # Finalize the session files (episode.json, timeline.jsonl).
                 self.layout.finalize_session(
                     self._session.practice_id,
                     self._session,
                     self._summary,
                     sources=self._sources_dict(),
                 )
+
+                # Backfill catalog v2 session/episode records for the legacy
+                # file-backed path so ``practice query`` and ``verify`` work.
+                try:
+                    self.catalog.insert_session(
+                        {
+                            "session_id": self._session.session_id,
+                            "practice_id": self._session.practice_id,
+                            "body_id": self._session.metadata.get("body_id"),
+                            "task_name": self._session.task_name,
+                            "started_at": self._session.start_time_utc,
+                            "ended_at": _utc_now_iso(),
+                            "status": "closed",
+                            "outcome": outcome,
+                            "event_count": self._event_count,
+                            "artifact_count": 0,
+                            "metadata_json": json.dumps(self._session.metadata),
+                        }
+                    )
+                except Exception as e:
+                    logger.error("Failed to insert session into catalog v2: %s", e)
+
+                try:
+                    self.catalog.insert_episode(
+                        {
+                            "episode_id": self._session.episode_id,
+                            "session_id": self._session.session_id,
+                            "body_id": self._session.metadata.get("body_id"),
+                            "skill_id": self._session.skill_id,
+                            "policy_id": self._session.metadata.get("policy_id"),
+                            "started_at": self._session.start_time_utc,
+                            "ended_at": _utc_now_iso(),
+                            "outcome": outcome,
+                            "success": 1 if outcome == "SUCCESS" else 0,
+                            "failure_labels_json": json.dumps(failure_labels),
+                            "metrics_json": json.dumps(
+                                {
+                                    "reward": reward,
+                                    "duration_ms": duration_ms,
+                                    "source_event_count": self._source_event_count,
+                                }
+                            ),
+                        }
+                    )
+                except Exception as e:
+                    logger.error("Failed to insert episode into catalog v2: %s", e)
+
+                # Auto-ingest into SeekDB when enabled so the Knowledge Plane is
+                # populated immediately after a session finishes.
+                if seekdb_enabled:
+                    try:
+                        report = self._ingest_seekdb()
+                        if report.success:
+                            self._summary.seekdb_committed = True
+                            self.catalog.update_practice(
+                                self._session.practice_id,
+                                {"seekdb_committed": 1},
+                            )
+                    except Exception as e:
+                        logger.error("Failed to auto-ingest into SeekDB: %s", e)
+
+                # Write the final manifest *after* SeekDB ingestion so the
+                # committed flag is stable, then compute artifact hashes from the
+                # final files.  This prevents strict verify from seeing a stale
+                # manifest sha256.
+                self.layout.write_manifest(
+                    self._session,
+                    summary=self._summary,
+                    sources=self._sources_dict(),
+                    seekdb_enabled=seekdb_enabled,
+                )
+
+                # Backfill catalog v2 artifact records for the files we just
+                # wrote, so ``practice verify`` does not warn about missing v2
+                # artifact entries.
+                try:
+                    artifact_entries = self._build_v2_artifact_records(self._session)
+                    session_id = self._session.session_id
+                    assert session_id is not None
+                    for record in artifact_entries:
+                        try:
+                            self.catalog.insert_artifact_v2(record)
+                        except Exception as e:
+                            logger.error(
+                                "Failed to insert artifact %s into catalog v2: %s",
+                                record.get("artifact_id"),
+                                e,
+                            )
+                    self.catalog.update_session(
+                        session_id,
+                        {"artifact_count": len(artifact_entries)},
+                    )
+                except Exception as e:
+                    logger.error("Failed to backfill catalog v2 artifacts: %s", e)
 
             if self.config.publish_to_event_bus and self._session is not None:
                 self._event_bus.publish(
@@ -428,6 +528,10 @@ class PracticeCoordinator(LifecycleMixin):
                 event.session_id = self._session.session_id
             if event.episode_id is None:
                 event.episode_id = self._session.episode_id
+            if event.trace_id is None:
+                event.trace_id = self._session.practice_id
+            if event.body_id is None:
+                event.body_id = getattr(self.config, "body_id", None)
         with self._lock:
             self._event_count += 1
             event.sequence_id = self._event_count
@@ -506,6 +610,103 @@ class PracticeCoordinator(LifecycleMixin):
     # ------------------------------------------------------------------
     # Utilities
     # ------------------------------------------------------------------
+
+    def _build_v2_artifact_records(self, session: PracticeSession) -> list[dict[str, Any]]:
+        """Build catalog v2 artifact records for files written by finalize_session."""
+        practice_id = session.practice_id
+        records: list[dict[str, Any]] = []
+        entries = [
+            (
+                f"{practice_id}_events_jsonl",
+                "events_jsonl",
+                self.layout.events_jsonl_path(practice_id),
+                "jsonl.event.stream",
+            ),
+            (
+                f"{practice_id}_timeline_jsonl",
+                "timeline_jsonl",
+                self.layout.timeline_jsonl_path(practice_id),
+                "jsonl.timeline",
+            ),
+            (
+                f"{practice_id}_episode_json",
+                "episode_json",
+                self.layout.episode_json_path(practice_id),
+                "json.episode_summary",
+            ),
+            (
+                f"{practice_id}_manifest",
+                "manifest",
+                self.layout.manifest_path(practice_id),
+                "yaml.snapshot",
+            ),
+        ]
+        for artifact_id, artifact_type, path, schema_name in entries:
+            if not path.exists():
+                continue
+            stat = path.stat()
+            records.append(
+                {
+                    "artifact_id": artifact_id,
+                    "session_id": session.session_id,
+                    "episode_id": session.episode_id,
+                    "artifact_type": artifact_type,
+                    "path": str(path),
+                    "sha256": ArtifactStore._compute_sha256(path),
+                    "size_bytes": stat.st_size,
+                    "schema_name": schema_name,
+                    "created_at": _utc_now_iso(),
+                    "metadata_json": json.dumps(
+                        {"practice_id": practice_id, "artifact_type": artifact_type}
+                    ),
+                }
+            )
+        return records
+
+    def _make_seekdb_client(self) -> SeekDBClient | None:
+        """Create a SeekDB client from the configured URL."""
+        url = self.config.seekdb.url
+        if not url:
+            return None
+        parsed = str(url).lower()
+        if parsed.startswith(("mysql://", "mysql+pymysql://", "seekdb://")):
+            return SeekDBMySQLClient(str(url))
+        # Default to SQLite for bare paths or sqlite:// prefixes.
+        db_path = str(url)
+        if db_path.startswith("sqlite://"):
+            db_path = db_path[len("sqlite://") :]
+        return SeekDBSQLiteClient(db_path)
+
+    def _ingest_seekdb(self) -> Any:
+        """Distill and ingest the current session into SeekDB."""
+        from rosclaw.practice.distiller import PracticeDistiller
+
+        client = self._make_seekdb_client()
+        if client is None:
+            raise ValueError("SeekDB enabled but no URL configured")
+        if self._session is None:
+            raise ValueError("No active session to ingest")
+        distiller = PracticeDistiller(self.config.data_root)
+        ingestor = SeekDBIngestor(
+            self.config.data_root,
+            seekdb_client=client,
+            layout=self.layout,
+        )
+        try:
+            distillation = distiller.distill(
+                self._session.practice_id,
+                body_id=self._session.metadata.get("body_id")
+                or getattr(self.config, "body_id", None),
+                write_artifacts=False,
+            )
+            return ingestor.ingest_practice(
+                self._session.practice_id,
+                distillation_result=distillation,
+                robot_id=self.config.robot_id,
+                task_id=self.config.task_id or self.config.task_name,
+            )
+        finally:
+            ingestor.close()
 
     def _sources_dict(self) -> dict[str, bool]:
         return {
