@@ -1,0 +1,54 @@
+name: lerobot_policy_p1
+version: 0.2.0
+type: skill
+description: Sample LeRobot policy provider manifest for P1 (real inspect/load-test/infer via worker).
+capabilities:
+  - lerobot.policy.inspect
+  - lerobot.policy.load_test
+  - lerobot.policy.infer
+modalities:
+  input:
+    - image
+    - state
+  output:
+    - action
+runtime:
+  backend: python
+  protocol: subprocess_worker
+  device: cpu
+  min_vram_gb: 0
+model:
+  name: lerobot_act_p1
+  source: local
+  model_id: /path/to/policy
+embodiment:
+  supported_robots:
+    - ur5e_lab_01
+  camera_setup:
+    - front
+  action_space:
+    - joint_0
+    - joint_1
+    - joint_2
+    - joint_3
+    - joint_4
+    - joint_5
+    - gripper
+  control_frequency_hz: 30
+  requires_calibration: true
+safety:
+  executable: false
+  requires_guard: true
+  requires_collision_check: true
+  requires_workspace_check: true
+  max_action_norm: 0.5
+observability:
+  log_inputs: false
+  log_outputs: true
+  trace_level: standard
+extra:
+  action_shape: [7]
+  worker:
+    mode: auto
+    timeout_sec: 120
+    allow_network: false

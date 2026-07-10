@@ -1,0 +1,9 @@
+{
+  "task": "transfer the cube",
+  "observation": {
+    "state": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    "images": {
+      "top": "aloha_top_480x640.png"
+    }
+  }
+}
