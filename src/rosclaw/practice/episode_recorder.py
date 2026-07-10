@@ -12,6 +12,7 @@ later sprints.
 import json
 import logging
 import os
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -188,10 +189,26 @@ class EpisodeRecorder(LifecycleMixin):
             json.dump(counter, f)
         return f"ep_{seq:04d}"
 
+    _EPISODE_ID_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9_-]")
+    _EPISODE_ID_MAX_LEN = 128
+
+    @classmethod
+    def _sanitize_episode_id(cls, value: str) -> str:
+        """Strip any characters that could enable path traversal (CWE-22).
+
+        Episode IDs are used as directory names under the artifact base;
+        untrusted event payloads may attempt "../" escapes or absolute paths.
+        Only allow a conservative alphanumeric/underscore/hyphen alphabet.
+        """
+        cleaned = cls._EPISODE_ID_SANITIZE_RE.sub("", value)[: cls._EPISODE_ID_MAX_LEN]
+        return cleaned
+
     def _extract_episode_id(self, payload: dict) -> str:
         for key in ("episode_id", "correlation_id", "practice_id", "request_id"):
             if key in payload and payload[key]:
-                return str(payload[key])
+                sanitized = self._sanitize_episode_id(str(payload[key]))
+                if sanitized:
+                    return sanitized
         return self._next_episode_id()
 
     def _get_or_create_buffer(self, episode_id: str) -> _EpisodeBuffer:
@@ -479,8 +496,20 @@ class EpisodeRecorder(LifecycleMixin):
             },
         )
 
-        # Write artifact directory
-        episode_dir = self._artifact_base / "episodes" / episode_id
+        # Write artifact directory. Defense in depth: even though episode_id
+        # is sanitized on ingest via _sanitize_episode_id, verify the resolved
+        # path stays under the artifact base to prevent path traversal (CWE-22).
+        episodes_root = (self._artifact_base / "episodes").resolve()
+        episode_dir = (episodes_root / episode_id).resolve()
+        try:
+            episode_dir.relative_to(episodes_root)
+        except ValueError:
+            logger.error(
+                "Refusing to finalize episode with unsafe id %r (escapes artifact base)",
+                episode_id,
+            )
+            self._buffers.pop(episode_id, None)
+            return
         episode_dir.mkdir(parents=True, exist_ok=True)
 
         # An episode is "complete" if either all expected events arrived,
