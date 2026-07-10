@@ -409,3 +409,23 @@ class Sim2RealDeltaPayload(BaseModel):
     unit: str = ""
     source_event_ids: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class HardwareTransportErrorPayload(BaseModel):
+    """Payload for ``hardware_transport_error``.
+
+    Records a low-level transport failure (USB/serial/CH340 drop, EIO,
+    re-enumeration, lock conflict, etc.) so the Practice flywheel can
+    distinguish hardware-link failures from policy failures.
+    """
+
+    transport: str
+    port: str | None = None
+    health_state: str = "UNKNOWN"
+    errno: int | None = None
+    errno_name: str | None = None
+    description: str
+    action: str = "stop_motion_and_require_manual_ack"
+    dmesg_excerpt: str | None = None
+    related_action_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
