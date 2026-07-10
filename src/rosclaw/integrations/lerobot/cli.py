@@ -10,6 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from rosclaw.integrations.lerobot.capabilities import get_lerobot_capabilities
+from rosclaw.integrations.lerobot.compatibility import (
+    build_compatibility_report,
+    format_compatibility_text,
+)
 from rosclaw.integrations.lerobot.config import (
     get_configured_lerobot_runtime,
 )
@@ -17,9 +21,29 @@ from rosclaw.integrations.lerobot.doctor import run_lerobot_doctor
 from rosclaw.integrations.lerobot.installer import install_lerobot
 from rosclaw.integrations.lerobot.provider import LeRobotPolicyProvider
 from rosclaw.integrations.lerobot.runtime import LEROBOT_INFO_MODULE, LeRobotRuntime
+from rosclaw.integrations.lerobot.smoke_policy import (
+    DEFAULT_SMOKE_POLICY,
+    SmokePolicyOptions,
+    run_smoke_policy_sync,
+)
+from rosclaw.integrations.lerobot.smoke_report import get_validation_status
 from rosclaw.integrations.lerobot.subprocess_runner import run_command, which
 from rosclaw.provider.core.manifest import ProviderManifest
 from rosclaw.provider.core.request import ProviderRequest
+
+
+def _build_lerobot_provider_inputs(args: argparse.Namespace) -> dict[str, Any]:
+    """Map CLI args to provider inputs."""
+    inputs: dict[str, Any] = {
+        "policy.path": getattr(args, "policy_path", None) or getattr(args, "policy_path", None),
+        "revision": getattr(args, "revision", "main"),
+        "device": getattr(args, "device", "cpu"),
+        "allow_network": getattr(args, "allow_network", False),
+        "timeout_sec": getattr(args, "timeout_sec", 120),
+    }
+    if getattr(args, "dry_run", False):
+        inputs["dry_run"] = True
+    return {k: v for k, v in inputs.items() if v is not None}
 
 
 def cmd_setup_lerobot(args: argparse.Namespace) -> int:
@@ -84,6 +108,7 @@ def cmd_lerobot_doctor(args: argparse.Namespace) -> int:
             "dataset_export_lerobot": True,
         }
     )
+    validation = report.validation_status or get_validation_status()
     if args.json:
         payload: dict[str, Any] = {
             "name": report.name,
@@ -112,6 +137,7 @@ def cmd_lerobot_doctor(args: argparse.Namespace) -> int:
                 "worker_subprocess": report.worker_subprocess_available,
                 "worker_in_process": report.worker_in_process_available,
             },
+            "validation": validation,
             "hf_endpoint": report.hf_endpoint,
             "config_enabled": report.config_enabled,
         }
@@ -155,6 +181,32 @@ def cmd_lerobot_doctor(args: argparse.Namespace) -> int:
         flag = "enabled" if cap.enabled else "disabled"
         exp = " (experimental)" if cap.experimental else ""
         print(f"  {cap.name + ':':<34} {flag}{exp}")
+
+    print()
+    print("Real Policy Smoke Validation")
+    state = validation.get("state", "not_configured")
+    print(f"  Status:            {state}")
+    if validation.get("last_policy"):
+        print(f"  Last policy:       {validation['last_policy']}")
+    if validation.get("policy_type"):
+        print(f"  Policy type:       {validation['policy_type']}")
+    if validation.get("lerobot_version"):
+        print(f"  LeRobot version:   {validation['lerobot_version']}")
+    if validation.get("device"):
+        print(f"  Device:            {validation['device']}")
+    if validation.get("action_shape") is not None:
+        print(f"  Action shape:      {validation['action_shape']}")
+    if validation.get("time"):
+        print(f"  Time:              {validation['time']}")
+    if validation.get("safety"):
+        print(f"  Safety labels:     {', '.join(validation['safety'])}")
+    perf = validation.get("performance_warning")
+    if perf:
+        print(f"  Performance:       {perf}")
+    for reason in validation.get("stale_reasons", []):
+        print(f"  Stale reason:      {reason}")
+    if state == "not_configured":
+        print("  Hint: Run `rosclaw lerobot smoke-policy` to validate a real policy.")
 
     print()
     print(f"Status: {report.status.upper()}")
@@ -310,6 +362,108 @@ def cmd_capability_list(args: argparse.Namespace, registry: Any) -> int:
     return 0
 
 
+def cmd_provider_inspect_lerobot(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw provider inspect --type lerobot_policy ...`."""
+    from rosclaw.core.async_utils import run_sync
+
+    manifest_path = Path(args.manifest)
+    if not manifest_path.exists():
+        print(f"[rosclaw-lerobot] Manifest not found: {manifest_path}", file=sys.stderr)
+        return 1
+
+    try:
+        manifest = ProviderManifest.from_yaml(manifest_path)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[rosclaw-lerobot] Failed to load manifest: {exc}", file=sys.stderr)
+        return 1
+
+    if not getattr(args, "policy_path", None):
+        print("[rosclaw-lerobot] --policy.path is required.", file=sys.stderr)
+        return 1
+
+    provider = LeRobotPolicyProvider(manifest)
+    request = ProviderRequest(
+        request_id=f"lerobot_policy_inspect_{int(time.time())}",
+        capability="lerobot.policy.inspect",
+        inputs=_build_lerobot_provider_inputs(args),
+        context={"manifest": str(manifest_path)},
+    )
+
+    try:
+        response = run_sync(provider.infer(request))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[rosclaw-lerobot] Inspect failed: {exc}", file=sys.stderr)
+        return 1
+
+    result = {
+        "provider": response.provider,
+        "capability": response.capability,
+        "status": response.status,
+        "result": response.result,
+        "latency_ms": response.latency_ms,
+    }
+
+    if args.output:
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"[rosclaw-lerobot] Result written to {out_path}")
+
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0 if response.status == "ok" else 1
+
+
+def cmd_provider_load_test_lerobot(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw provider load-test --type lerobot_policy ...`."""
+    from rosclaw.core.async_utils import run_sync
+
+    manifest_path = Path(args.manifest)
+    if not manifest_path.exists():
+        print(f"[rosclaw-lerobot] Manifest not found: {manifest_path}", file=sys.stderr)
+        return 1
+
+    try:
+        manifest = ProviderManifest.from_yaml(manifest_path)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[rosclaw-lerobot] Failed to load manifest: {exc}", file=sys.stderr)
+        return 1
+
+    if not getattr(args, "policy_path", None):
+        print("[rosclaw-lerobot] --policy.path is required.", file=sys.stderr)
+        return 1
+
+    provider = LeRobotPolicyProvider(manifest)
+    request = ProviderRequest(
+        request_id=f"lerobot_policy_load_test_{int(time.time())}",
+        capability="lerobot.policy.load_test",
+        inputs=_build_lerobot_provider_inputs(args),
+        context={"manifest": str(manifest_path)},
+    )
+
+    try:
+        response = run_sync(provider.infer(request))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[rosclaw-lerobot] Load-test failed: {exc}", file=sys.stderr)
+        return 1
+
+    result = {
+        "provider": response.provider,
+        "capability": response.capability,
+        "status": response.status,
+        "result": response.result,
+        "latency_ms": response.latency_ms,
+    }
+
+    if args.output:
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"[rosclaw-lerobot] Result written to {out_path}")
+
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0 if response.status == "ok" else 1
+
+
 def cmd_provider_infer_lerobot(args: argparse.Namespace) -> int:
     """Dispatch `rosclaw provider infer --type lerobot_policy ...`."""
     from rosclaw.core.async_utils import run_sync
@@ -335,9 +489,10 @@ def cmd_provider_infer_lerobot(args: argparse.Namespace) -> int:
     except json.JSONDecodeError as exc:
         print(f"[rosclaw-lerobot] Invalid input JSON: {exc}", file=sys.stderr)
         return 1
+    if isinstance(inputs, dict):
+        inputs.setdefault("_base_dir", str(input_path.parent))
 
-    dry_run = getattr(args, "dry_run", False)
-    inputs["dry_run"] = dry_run
+    inputs.update(_build_lerobot_provider_inputs(args))
 
     provider = LeRobotPolicyProvider(manifest)
     request = ProviderRequest(
@@ -369,3 +524,47 @@ def cmd_provider_infer_lerobot(args: argparse.Namespace) -> int:
 
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0 if response.status == "ok" else 1
+
+
+def cmd_smoke_policy_lerobot(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot smoke-policy`."""
+    options = SmokePolicyOptions(
+        policy_path=getattr(args, "policy_path", DEFAULT_SMOKE_POLICY) or DEFAULT_SMOKE_POLICY,
+        revision=getattr(args, "revision", "main"),
+        device=getattr(args, "device", "cpu"),
+        dtype=getattr(args, "dtype", "auto"),
+        allow_network=getattr(args, "allow_network", False),
+        timeout_sec=getattr(args, "timeout_sec", 300),
+        output=Path(args.output) if getattr(args, "output", None) else None,
+        keep_worker_files=getattr(args, "keep_worker_files", False),
+        force_download=getattr(args, "force_download", False),
+        skip_infer=getattr(args, "skip_infer", False),
+        observation_file=Path(args.observation_file) if getattr(args, "observation_file", None) else None,
+        json_output=getattr(args, "json", False),
+    )
+
+    report = run_smoke_policy_sync(options)
+    payload = report.to_dict()
+
+    if args.output:
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        if not args.json:
+            print(f"[rosclaw-lerobot] Smoke report written to {out_path}")
+
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+    return 0 if report.status == "ok" else 1
+
+
+def cmd_lerobot_compatibility(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot compatibility`."""
+    policy_type: str | None = getattr(args, "policy_type", None) or None
+    report = build_compatibility_report(policy_type=policy_type)
+
+    if args.json:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        return 0
+
+    print(format_compatibility_text(report))
+    return 0

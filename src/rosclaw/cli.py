@@ -54,11 +54,16 @@ from rosclaw.integrations.lerobot import register_lerobot_capabilities
 from rosclaw.integrations.lerobot.cli import (
     cmd_capability_list,
     cmd_lerobot_capabilities,
+    cmd_lerobot_compatibility,
     cmd_lerobot_doctor,
     cmd_lerobot_info,
     cmd_provider_infer_lerobot,
+    cmd_provider_inspect_lerobot,
+    cmd_provider_load_test_lerobot,
     cmd_setup_lerobot,
+    cmd_smoke_policy_lerobot,
 )
+from rosclaw.integrations.lerobot.smoke_policy import DEFAULT_SMOKE_POLICY
 from rosclaw.mcp.onboarding.cli import add_mcp_subparser
 from rosclaw.mcp.server import serve as _mcp_serve
 from rosclaw.practice.config import PracticeConfig, SourceConfig
@@ -6390,12 +6395,80 @@ def main() -> int:
         "--input", required=True, help="Path to input JSON file"
     )
     provider_infer_parser.add_argument(
+        "--policy.path", dest="policy_path", default=None, help="Policy directory or HF repo id"
+    )
+    provider_infer_parser.add_argument(
+        "--worker", choices=["auto", "subprocess", "in-process"], default="auto",
+        help="Worker execution mode (default: auto)"
+    )
+    provider_infer_parser.add_argument(
+        "--device", default="cpu", help="Device for inference (default: cpu)"
+    )
+    provider_infer_parser.add_argument(
+        "--allow-network", action="store_true", help="Allow network access for HF downloads"
+    )
+    provider_infer_parser.add_argument(
+        "--timeout-sec", type=int, default=120, help="Worker timeout in seconds (default: 120)"
+    )
+    provider_infer_parser.add_argument(
         "--output", default=None, help="Output JSON file"
     )
     provider_infer_parser.add_argument(
         "--dry-run", action="store_true", help="Dry-run mode"
     )
     provider_infer_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    provider_inspect_parser = provider_subparsers.add_parser(
+        "inspect", help="Inspect a LeRobot policy manifest/config"
+    )
+    provider_inspect_parser.add_argument(
+        "--type", required=True, help="Provider type (e.g., lerobot_policy)"
+    )
+    provider_inspect_parser.add_argument(
+        "--manifest", required=True, help="Path to provider.yaml manifest"
+    )
+    provider_inspect_parser.add_argument(
+        "--policy.path", dest="policy_path", required=True, help="Policy directory or HF repo id"
+    )
+    provider_inspect_parser.add_argument(
+        "--revision", default="main", help="HF revision if policy.path is a repo id"
+    )
+    provider_inspect_parser.add_argument(
+        "--allow-network", action="store_true", help="Allow network access for HF downloads"
+    )
+    provider_inspect_parser.add_argument(
+        "--timeout-sec", type=int, default=60, help="Worker timeout in seconds (default: 60)"
+    )
+    provider_inspect_parser.add_argument(
+        "--output", default=None, help="Output JSON file"
+    )
+    provider_inspect_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    provider_load_test_parser = provider_subparsers.add_parser(
+        "load-test", help="Load-test a LeRobot policy (load weights, no inference)"
+    )
+    provider_load_test_parser.add_argument(
+        "--type", required=True, help="Provider type (e.g., lerobot_policy)"
+    )
+    provider_load_test_parser.add_argument(
+        "--manifest", required=True, help="Path to provider.yaml manifest"
+    )
+    provider_load_test_parser.add_argument(
+        "--policy.path", dest="policy_path", required=True, help="Policy directory or HF repo id"
+    )
+    provider_load_test_parser.add_argument(
+        "--device", default="cpu", help="Device for loading (default: cpu)"
+    )
+    provider_load_test_parser.add_argument(
+        "--allow-network", action="store_true", help="Allow network access for HF downloads"
+    )
+    provider_load_test_parser.add_argument(
+        "--timeout-sec", type=int, default=120, help="Worker timeout in seconds (default: 120)"
+    )
+    provider_load_test_parser.add_argument(
+        "--output", default=None, help="Output JSON file"
+    )
+    provider_load_test_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     provider_diagnose_parser = provider_subparsers.add_parser(
         "diagnose", help="Diagnose provider interfaces against the active body"
@@ -6431,6 +6504,52 @@ def main() -> int:
         "capabilities", help="List LeRobot capabilities"
     )
     lerobot_capabilities_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    lerobot_smoke_parser = lerobot_subparsers.add_parser(
+        "smoke-policy", help="Run a real LeRobot policy smoke test"
+    )
+    lerobot_smoke_parser.add_argument(
+        "--policy.path", dest="policy_path", default=DEFAULT_SMOKE_POLICY,
+        help=f"Policy directory or HF repo id (default: {DEFAULT_SMOKE_POLICY})"
+    )
+    lerobot_smoke_parser.add_argument("--revision", default="main", help="HF revision")
+    lerobot_smoke_parser.add_argument(
+        "--device", default="cpu", help="Device for inference (default: cpu)"
+    )
+    lerobot_smoke_parser.add_argument(
+        "--dtype", default="auto", choices=["auto", "fp32", "fp16", "bf16"],
+        help="Model dtype (default: auto)"
+    )
+    lerobot_smoke_parser.add_argument(
+        "--allow-network", action="store_true", help="Allow network access for HF downloads"
+    )
+    lerobot_smoke_parser.add_argument(
+        "--timeout-sec", type=int, default=300, help="Worker timeout in seconds (default: 300)"
+    )
+    lerobot_smoke_parser.add_argument(
+        "--output", default=None, help="Output JSON file"
+    )
+    lerobot_smoke_parser.add_argument(
+        "--keep-worker-files", action="store_true", help="Keep worker temp files"
+    )
+    lerobot_smoke_parser.add_argument(
+        "--force-download", action="store_true", help="Force re-download of cached policy"
+    )
+    lerobot_smoke_parser.add_argument(
+        "--skip-infer", action="store_true", help="Skip inference stage"
+    )
+    lerobot_smoke_parser.add_argument(
+        "--observation-file", default=None, help="Path to observation JSON file"
+    )
+    lerobot_smoke_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    lerobot_compatibility_parser = lerobot_subparsers.add_parser(
+        "compatibility", help="Show LeRobot policy compatibility matrix"
+    )
+    lerobot_compatibility_parser.add_argument(
+        "--policy-type", default=None, help="Focus on a single policy type (e.g., act, diffusion)"
+    )
+    lerobot_compatibility_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     # auto subcommand (Self-Evolution Control Plane)
     auto_parser = subparsers.add_parser("auto", help="Auto self-evolution commands")
@@ -7220,6 +7339,16 @@ def main() -> int:
                 return cmd_provider_benchmark(args)
             elif args.provider_command == "invoke":
                 return cmd_provider_invoke(args)
+            elif args.provider_command == "inspect":
+                if args.type == "lerobot_policy":
+                    return cmd_provider_inspect_lerobot(args)
+                print(f"[ROSClaw] Unknown provider type for inspect: {args.type}", file=sys.stderr)
+                return 1
+            elif args.provider_command == "load-test":
+                if args.type == "lerobot_policy":
+                    return cmd_provider_load_test_lerobot(args)
+                print(f"[ROSClaw] Unknown provider type for load-test: {args.type}", file=sys.stderr)
+                return 1
             elif args.provider_command == "infer":
                 if args.type == "lerobot_policy":
                     return cmd_provider_infer_lerobot(args)
@@ -7243,6 +7372,10 @@ def main() -> int:
                 return cmd_lerobot_info(args)
             elif args.lerobot_command == "capabilities":
                 return cmd_lerobot_capabilities(args)
+            elif args.lerobot_command == "smoke-policy":
+                return cmd_smoke_policy_lerobot(args)
+            elif args.lerobot_command == "compatibility":
+                return cmd_lerobot_compatibility(args)
             else:
                 lerobot_parser.print_help()
                 return 1

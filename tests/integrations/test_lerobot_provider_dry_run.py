@@ -1,11 +1,10 @@
-"""Test LeRobot policy provider dry-run and import smoke semantics."""
+"""Test LeRobot policy provider dry-run and P1 safety contract."""
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pytest
 
+from rosclaw.core.async_utils import run_sync
 from rosclaw.integrations.lerobot.provider import LeRobotPolicyProvider
 from rosclaw.provider.core.manifest import ProviderManifest
 from rosclaw.provider.core.request import ProviderRequest
@@ -29,51 +28,41 @@ def sample_manifest():
     )
 
 
-async def test_provider_dry_run_returns_sample_action(sample_manifest):
-    """Dry-run should return a zero action and safety metadata."""
+def test_provider_dry_run_returns_sample_action(sample_manifest):
+    """Dry-run should return a zero action proposal and safety metadata."""
     provider = LeRobotPolicyProvider(sample_manifest)
     request = ProviderRequest(
         request_id="test_001",
         capability="lerobot.policy.infer",
         inputs={"dry_run": True, "observation": {"state": [0.0] * 7}},
     )
-    response = await provider.infer(request)
+    response = run_sync(provider.infer(request))
     assert response.status == "ok"
-    assert response.result["action"] == [0.0] * 7
+    assert response.result["action_proposal"]["values"] == [0.0] * 7
     assert response.result["mode"] == "dry_run"
     assert response.result["dry_run"] is True
     assert response.result["real_inference"] is False
     assert response.result["not_executed"] is True
+    assert response.result["requires_sandbox"] is True
     assert response.result["safety"]["requires_guard"] is True
     assert response.result["safety"]["executable"] is False
 
 
-async def test_provider_non_dry_run_returns_import_smoke_without_action(sample_manifest):
-    """Unavailable LeRobot must not be reported as a successful inference."""
+def test_provider_non_dry_run_without_runtime_or_policy_path_fails(sample_manifest):
+    """Non-dry-run infer now requires an explicit policy.path."""
     provider = LeRobotPolicyProvider(sample_manifest)
     request = ProviderRequest(
         request_id="test_002",
         capability="lerobot.policy.infer",
         inputs={"dry_run": False, "observation": {"state": [0.0] * 7}},
     )
-    with (
-        patch(
-            "rosclaw.integrations.lerobot.provider.get_configured_lerobot_runtime",
-            return_value=None,
-        ),
-        patch("importlib.util.find_spec", return_value=None),
-    ):
-        response = await provider.infer(request)
+    response = run_sync(provider.infer(request))
     assert response.status == "failed"
-    assert response.errors
-    assert response.result["action"] is None
-    assert response.result["mode"] == "import_smoke"
-    assert response.result["real_inference"] is False
-    assert response.result["lerobot_smoke"]["import_ok"] is False
-    assert "lerobot_smoke" in response.result
+    assert response.result["action_proposal"] is None
+    assert response.result["error_code"] == "policy_config_not_found"
 
 
-async def test_provider_rejects_unknown_capability(sample_manifest):
+def test_provider_rejects_unknown_capability(sample_manifest):
     """Provider should reject unsupported capabilities."""
     provider = LeRobotPolicyProvider(sample_manifest)
     request = ProviderRequest(
@@ -84,4 +73,4 @@ async def test_provider_rejects_unknown_capability(sample_manifest):
     from rosclaw.provider.core.errors import CapabilityNotSupportedError
 
     with pytest.raises(CapabilityNotSupportedError):
-        await provider.infer(request)
+        run_sync(provider.infer(request))

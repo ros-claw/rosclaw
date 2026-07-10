@@ -1,0 +1,15 @@
+{
+  "schema_version": "rosclaw.lerobot.worker.v1",
+  "op": "infer",
+  "policy_path": "/path/to/policy",
+  "revision": "main",
+  "device": "cpu",
+  "dtype": "auto",
+  "allow_network": false,
+  "timeout_sec": 120,
+  "observation": {
+    "task": "pick the red cube and place it in the blue bin",
+    "observation.state": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+    "observation.images.front": "/tmp/front.jpg"
+  }
+}

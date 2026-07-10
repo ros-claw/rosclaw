@@ -1,0 +1,11 @@
+{
+  "schema_version": "rosclaw.lerobot.worker.v1",
+  "op": "inspect",
+  "policy_path": "/path/to/policy",
+  "revision": "main",
+  "device": "cpu",
+  "dtype": "auto",
+  "allow_network": false,
+  "timeout_sec": 60,
+  "observation": {}
+}

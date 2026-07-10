@@ -1,0 +1,29 @@
+{
+  "policy_type": "act",
+  "input_features": {
+    "observation.state": {
+      "shape": [6],
+      "dtype": "float32"
+    },
+    "observation.images.front": {
+      "shape": [3, 96, 96],
+      "dtype": "float32"
+    }
+  },
+  "output_features": {
+    "action": {
+      "shape": [7],
+      "dtype": "float32"
+    }
+  },
+  "policy": {
+    "name": "act",
+    "input_features": {
+      "observation.state": {"shape": [6], "dtype": "float32"},
+      "observation.images.front": {"shape": [3, 96, 96], "dtype": "float32"}
+    },
+    "output_features": {
+      "action": {"shape": [7], "dtype": "float32"}
+    }
+  }
+}
