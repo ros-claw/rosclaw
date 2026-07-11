@@ -154,7 +154,7 @@ def get_lerobot_capabilities() -> list[IntegrationCapability]:
         IntegrationCapability(
             name="sync_quality_gates",
             kind="exporter",
-            enabled=False,
+            enabled=True,
             experimental=True,
             description="Synchronization quality thresholds and pass/warn/fail actions (Gate B.1)",
         ),

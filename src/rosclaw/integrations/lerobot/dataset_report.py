@@ -17,8 +17,11 @@ from typing import Any
 from rosclaw.firstboot.workspace import get_rosclaw_home
 
 
-DATASET_EXPORT_SCHEMA_VERSION = "rosclaw.lerobot.dataset_export.v1.1"
-LEGACY_SCHEMA_VERSION = "rosclaw.lerobot.dataset_export.v1"
+DATASET_EXPORT_SCHEMA_VERSION = "rosclaw.lerobot.dataset_export.v1.2"
+LEGACY_SCHEMA_VERSIONS = [
+    "rosclaw.lerobot.dataset_export.v1",
+    "rosclaw.lerobot.dataset_export.v1.1",
+]
 DEFAULT_EXPORT_SUBDIR = "lerobot/dataset_exports"
 
 # Feature groups implemented in Gate B. Groups outside this set are planned for Gate C.
@@ -54,10 +57,12 @@ class DatasetExportReport:
     visual: dict[str, Any] = field(default_factory=dict)
     lerobot_dataset_api: dict[str, Any] = field(default_factory=dict)
     quality_gates: dict[str, Any] = field(default_factory=dict)
+    synchronization: dict[str, Any] = field(default_factory=dict)
+    missingness: dict[str, Any] = field(default_factory=dict)
     extension_schema: str = ""
     feature_groups: list[str] = field(default_factory=list)
     profile: dict[str, Any] = field(default_factory=dict)
-    extension_gate: str = "P2.1 Gate B"
+    extension_gate: str = "P2.1 Gate B.1"
     error: dict[str, Any] | None = None
 
     def __post_init__(self):
@@ -85,6 +90,8 @@ class DatasetExportReport:
             out["lerobot_dataset_api"] = self.lerobot_dataset_api
         if self.quality_gates:
             out["quality_gates"] = self.quality_gates
+        out["synchronization"] = self.synchronization
+        out["missingness"] = self.missingness
         if self.extension_schema:
             out["extension_schema"] = self.extension_schema
         if self.feature_groups:
@@ -100,7 +107,7 @@ class DatasetExportReport:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "DatasetExportReport":
         return cls(
-            schema_version=data.get("schema_version", LEGACY_SCHEMA_VERSION),
+            schema_version=data.get("schema_version", LEGACY_SCHEMA_VERSIONS[0]),
             created_at=data.get("created_at", ""),
             status=data.get("status", "error"),
             source=data.get("source", {}),
@@ -114,6 +121,8 @@ class DatasetExportReport:
             visual=data.get("visual", {}),
             lerobot_dataset_api=data.get("lerobot_dataset_api", {}),
             quality_gates=data.get("quality_gates", {}),
+            synchronization=data.get("synchronization", {}),
+            missingness=data.get("missingness", {}),
             extension_schema=data.get("extension_schema", ""),
             feature_groups=list(data.get("feature_groups", [])),
             profile=data.get("profile", {}),
@@ -252,7 +261,7 @@ def get_dataset_export_validation_status(
         if report.lerobot_dataset_api["create_signature"] != current_api_signature:
             stale_reasons.append("LeRobotDataset API signature changed since last export.")
 
-    if report.schema_version == LEGACY_SCHEMA_VERSION:
+    if report.schema_version in LEGACY_SCHEMA_VERSIONS:
         stale_reasons.append(f"Report schema is older than current ({DATASET_EXPORT_SCHEMA_VERSION}).")
 
     if _report_age_days(report) > 30:
@@ -268,6 +277,8 @@ def get_dataset_export_validation_status(
             "features": list(report.dataset.get("features", {}).keys()),
             "visual": report.visual,
             "quality_gates": report.quality_gates,
+            "synchronization": report.synchronization,
+            "missingness": report.missingness,
             "profile": report.profile,
             "extension_gate": report.extension_gate,
             "stale_reasons": stale_reasons,
@@ -282,6 +293,8 @@ def get_dataset_export_validation_status(
         "features": list(report.dataset.get("features", {}).keys()),
         "visual": report.visual,
         "quality_gates": report.quality_gates,
+        "synchronization": report.synchronization,
+        "missingness": report.missingness,
         "profile": report.profile,
         "extension_gate": report.extension_gate,
         "load_ok": report.validation.get("load_ok", False),
@@ -411,7 +424,7 @@ def report_from_worker_response(
 
 __all__ = [
     "DATASET_EXPORT_SCHEMA_VERSION",
-    "LEGACY_SCHEMA_VERSION",
+    "LEGACY_SCHEMA_VERSIONS",
     "DatasetExportReport",
     "build_limitations_block",
     "build_safety_block",

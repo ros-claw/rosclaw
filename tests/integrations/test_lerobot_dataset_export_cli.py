@@ -66,7 +66,7 @@ def test_lerobot_export_dataset_cli(
     report = out_dir / "rosclaw_export_report.json"
     assert report.exists()
     data = json.loads(report.read_text(encoding="utf-8"))
-    assert data["schema_version"] == "rosclaw.lerobot.dataset_export.v1.1"
+    assert data["schema_version"] == "rosclaw.lerobot.dataset_export.v1.2"
     assert data["status"] == "ok"
 
 

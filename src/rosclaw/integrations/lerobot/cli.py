@@ -151,6 +151,8 @@ def cmd_lerobot_doctor(args: argparse.Namespace) -> int:
             },
             "validation": validation,
             "dataset_export_status": report.dataset_export_status,
+            "synchronization": ds_status.get("synchronization", {}),
+            "missingness": ds_status.get("missingness", {}),
             "hf_endpoint": report.hf_endpoint,
             "config_enabled": report.config_enabled,
         }
@@ -262,6 +264,32 @@ def cmd_lerobot_doctor(args: argparse.Namespace) -> int:
         print("  Hint: Run `rosclaw lerobot export-dataset` to validate a real dataset export.")
     for reason in ds_status.get("stale_reasons", []):
         print(f"  Stale reason:      {reason}")
+
+    sync_block = ds_status.get("synchronization", {})
+    if sync_block:
+        print()
+        print("Synchronization")
+        print(f"  Input mode:        {sync_block.get('input_mode', 'unknown')}")
+        print(f"  Status:            {sync_block.get('level', 'unknown')}")
+        print(f"  Target FPS:        {sync_block.get('target_fps', 'N/A')}")
+        print(f"  Canonical frames:  {sync_block.get('canonical_frames', 'N/A')}")
+        print(f"  Written frames:    {sync_block.get('written_frames', 'N/A')}")
+        print(f"  Dropped frames:    {sync_block.get('dropped_frames', 'N/A')}")
+        if sync_block.get("clock_domains"):
+            print(f"  Clock domains:     {', '.join(sync_block['clock_domains'])}")
+        print(f"  Clock mappings:    {'valid' if sync_block.get('clock_mappings_valid') else 'invalid'}")
+        print(f"  Quality profile:   {sync_block.get('quality_profile', 'N/A')}")
+        print(f"  Quality gates:     {'passed' if sync_block.get('quality_passed') else 'failed'}")
+        for warning in sync_block.get("warnings", []):
+            print(f"  Warning:           {warning}")
+
+    missingness = ds_status.get("missingness", {})
+    if missingness:
+        print()
+        print("Missingness")
+        print(f"  Policy:            {missingness.get('policy', 'unknown')}")
+        print(f"  Unknown float:     {missingness.get('unknown_float_encoding', 'NaN')}")
+        print(f"  Unknown bool:      {missingness.get('unknown_bool_encoding', -1)}")
 
     print()
     print(f"Status: {report.status.upper()}")
@@ -917,7 +945,7 @@ _DATASET_COMPATIBILITY_MATRIX = [
     },
     {
         "feature": "Synchronization quality gates",
-        "status": "planned",
+        "status": "supported",
         "since": "P2.1 Gate B.1-3",
         "notes": "Coverage/skew/hold-age thresholds with fail/warn/partial actions.",
     },

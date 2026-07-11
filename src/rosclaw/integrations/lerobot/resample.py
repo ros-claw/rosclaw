@@ -378,24 +378,25 @@ def resample_stream(
     samples = _samples_with_target_sec(stream, mapping_result)
 
     if policy.method == "linear":
-        return resample_linear(samples, timestamps_sec, policy.max_gap_ms)
-    if policy.method == "previous":
-        return resample_previous(samples, timestamps_sec, policy.max_age_ms)
-    if policy.method == "nearest":
-        return resample_nearest(samples, timestamps_sec, policy.max_skew_ms)
-    if policy.method == "interval_mean":
+        result = resample_linear(samples, timestamps_sec, policy.max_gap_ms)
+    elif policy.method == "previous":
+        result = resample_previous(samples, timestamps_sec, policy.max_age_ms)
+    elif policy.method == "nearest":
+        result = resample_nearest(samples, timestamps_sec, policy.max_skew_ms)
+    elif policy.method == "interval_mean":
         result = resample_interval_mean(
             samples, timestamps_sec, 1.0 / (timestamps_sec[1] - timestamps_sec[0]) if len(timestamps_sec) > 1 else 10.0,
             emit_peak_abs=policy.emit_peak_abs or policy.emit_peak,
         )
-        return result
-    if policy.method == "interval_any":
-        return resample_interval_any(
+    elif policy.method == "interval_any":
+        result = resample_interval_any(
             samples, timestamps_sec, 1.0 / (timestamps_sec[1] - timestamps_sec[0]) if len(timestamps_sec) > 1 else 10.0
         )
+    else:
+        result = resample_previous(samples, timestamps_sec, policy.max_age_ms)
 
-    # Fallback to previous.
-    return resample_previous(samples, timestamps_sec, policy.max_age_ms)
+    result.key = stream.key
+    return result
 
 
 __all__ = [
