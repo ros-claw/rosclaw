@@ -159,15 +159,6 @@ def feature_summary(features: dict[str, dict[str, Any]]) -> dict[str, list[int]]
     return summary
 
 
-def __all__() -> list[str]:
-    return [
-        "FeatureInferenceError",
-        "ROSCLAW_FEATURE_SPECS",
-        "feature_summary",
-        "infer_features",
-    ]
-
-
 __all__ = [
     "FeatureInferenceError",
     "ROSCLAW_FEATURE_SPECS",

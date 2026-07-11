@@ -18,9 +18,8 @@ from rosclaw.integrations.lerobot.config import (
     get_configured_lerobot_runtime,
 )
 from rosclaw.integrations.lerobot.dataset_feature_infer import infer_features
-from rosclaw.integrations.lerobot.dataset_profile import PROFILE_NAMES, resolve_profile
+from rosclaw.integrations.lerobot.dataset_profile import resolve_profile
 from rosclaw.integrations.lerobot.dataset_report import (
-    DatasetExportReport,
     report_from_worker_response,
     write_dataset_export_report,
 )
@@ -34,18 +33,13 @@ from rosclaw.integrations.lerobot.dataset_worker_runner import (
     run_dataset_dataloader_smoke,
     run_dataset_export,
 )
-from rosclaw.integrations.lerobot.dataset_worker_schema import (
-    DatasetValidationConfig,
-    DatasetWorkerRequest,
-    DatasetWriterConfig,
-)
+from rosclaw.integrations.lerobot.doctor import run_lerobot_doctor
+from rosclaw.integrations.lerobot.installer import install_lerobot
 from rosclaw.integrations.lerobot.practice_normalizer import (
     NormalizationError,
     normalize_practice_episode,
     write_normalized_episode,
 )
-from rosclaw.integrations.lerobot.doctor import run_lerobot_doctor
-from rosclaw.integrations.lerobot.installer import install_lerobot
 from rosclaw.integrations.lerobot.provider import LeRobotPolicyProvider
 from rosclaw.integrations.lerobot.runtime import LEROBOT_INFO_MODULE, LeRobotRuntime
 from rosclaw.integrations.lerobot.smoke_policy import (
@@ -677,7 +671,7 @@ def cmd_lerobot_export_dataset(args: argparse.Namespace) -> int:
                 print(f"  Profile:       {profile}")
                 print(f"  Feature groups: {', '.join(sorted(prof.feature_groups)) or '(none)'}")
                 print(f"  Frames:        {len(normalized.frames)}")
-                print(f"  Features:")
+                print("  Features:")
                 for key, value in features.items():
                     print(f"    {key}: dtype={value['dtype']}, shape={value['shape']}")
                 if warnings:
@@ -966,3 +960,8 @@ def cmd_lerobot_compatibility(args: argparse.Namespace) -> int:
 
     print(format_compatibility_text(report))
     return 0
+
+
+__all__ = [
+    "LeRobotDatasetWorkerRunner",
+]

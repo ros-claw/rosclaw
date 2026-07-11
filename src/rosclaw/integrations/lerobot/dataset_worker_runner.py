@@ -18,22 +18,20 @@ from typing import Any
 
 from rosclaw.integrations.lerobot.body_snapshot import include_body_snapshot
 from rosclaw.integrations.lerobot.config import get_configured_lerobot_runtime
-from rosclaw.integrations.lerobot.dataset_profile import resolve_profile
+from rosclaw.integrations.lerobot.dataset_events import write_events_parquet
 from rosclaw.integrations.lerobot.dataset_extension_schema import (
     ROSCLAW_EXTENSION_SCHEMA_VERSION,
     ExtensionSchema,
     write_extension_schema,
 )
+from rosclaw.integrations.lerobot.dataset_profile import resolve_profile
 from rosclaw.integrations.lerobot.dataset_sidecar import write_episodes_parquet
-from rosclaw.integrations.lerobot.dataset_events import write_events_parquet
 from rosclaw.integrations.lerobot.dataset_vocab import build_rosclaw_vocab
 from rosclaw.integrations.lerobot.dataset_worker_schema import (
-    DATASET_WORKER_SCHEMA_VERSION,
     DatasetValidationConfig,
     DatasetWorkerError,
     DatasetWorkerRequest,
     DatasetWorkerResponse,
-    DatasetWorkerTiming,
     DatasetWriterConfig,
 )
 from rosclaw.integrations.lerobot.runtime import inspect_lerobot_runtime
@@ -237,7 +235,11 @@ class LeRobotDatasetWorkerRunner:
                     schema_version=ROSCLAW_EXTENSION_SCHEMA_VERSION,
                     required_features=["observation.state", "action"],
                     optional_feature_groups=feature_groups,
-                    rosclaw_fields=[k for k in request.features.keys() if not k.startswith("include_body") and k != "body_snapshot_mode"],
+                    rosclaw_fields=[
+                        k
+                        for k in request.features
+                        if not k.startswith("include_body") and k != "body_snapshot_mode"
+                    ],
                     dataset_format="lerobot_v3",
                 ),
                 output_root,
@@ -326,7 +328,7 @@ class LeRobotDatasetWorkerRunner:
                 base_dir = candidate
         for frame in data.get("frames", []):
             images = frame.get("observation", {}).get("images", {})
-            for camera_name, rel_path in images.items():
+            for _camera_name, rel_path in images.items():
                 src_image = base_dir / rel_path
                 if src_image.exists():
                     dest_image = self._temp_dir / rel_path
@@ -410,7 +412,7 @@ def run_dataset_worker_op(
     """Convenience helper to build a dataset request and run it in one call."""
     # Enforce profile availability before building the request.
     try:
-        resolved_profile = resolve_profile(profile)
+        resolve_profile(profile)
     except ValueError as exc:
         request = DatasetWorkerRequest(
             op=op,  # type: ignore[arg-type]

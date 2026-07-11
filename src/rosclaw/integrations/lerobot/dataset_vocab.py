@@ -12,7 +12,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-
 VOCAB_SCHEMA_VERSION = "rosclaw.lerobot.vocab.v1"
 
 # 0 is always reserved for unknown/inactive so that missing data has a stable code.
@@ -73,7 +72,7 @@ class RosclawVocab:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "RosclawVocab":
+    def from_dict(cls, data: dict[str, Any]) -> RosclawVocab:
         return cls(
             schema_version=data.get("schema_version", VOCAB_SCHEMA_VERSION),
             vocabularies={

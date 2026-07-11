@@ -9,7 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-
 PROFILE_NAMES = {"minimal", "safety", "physical", "safety-rich"}
 AVAILABLE_PROFILE_NAMES = {"minimal", "safety", "safety-rich"}
 PLANNED_PROFILE_NAMES = {"physical"}

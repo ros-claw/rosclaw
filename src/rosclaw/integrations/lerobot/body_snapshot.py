@@ -13,7 +13,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-
 # Patterns used to strip sensitive values in sanitized mode.
 _SENSITIVE_PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
     ("serial_number", re.compile(r"serial[_]?number\s*[:=]\s*[^\s]+", re.IGNORECASE), "serial_number"),
@@ -39,7 +38,7 @@ class SensitiveBodyDataError(ValueError):
 
 def _sanitize_text(text: str) -> tuple[str, list[str]]:
     redacted_fields: list[str] = []
-    for label, pattern, canonical in _SENSITIVE_PATTERNS:
+    for _label, pattern, canonical in _SENSITIVE_PATTERNS:
         if pattern.search(text):
             redacted_fields.append(canonical)
         text = pattern.sub(lambda m: m.group(0).split(":", 1)[0] + ": <redacted>", text)

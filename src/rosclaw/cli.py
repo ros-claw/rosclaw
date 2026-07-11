@@ -1511,7 +1511,32 @@ def cmd_practice_export(args: argparse.Namespace) -> int:
         else:
             episode_dir = Path(args.data_root)
 
-        writer = args.writer
+        has_writer_arg = hasattr(args, "writer")
+        if not has_writer_arg:
+            if episode_dir_arg:
+                from rosclaw.practice.exporters import LeRobotSkeletonExporter
+
+                exporter = LeRobotSkeletonExporter(args.data_root)
+                try:
+                    out = exporter.export(episode_dir_arg, output_path=args.output)
+                    print(f"[ROSClaw] Exported LeRobot dataset skeleton to {out}")
+                    return 0
+                except Exception as e:
+                    print(f"[ROSClaw] LeRobot skeleton export failed: {e}", file=sys.stderr)
+                    return 1
+
+            from rosclaw.practice.exporters import LeRobotExporter
+
+            exporter = LeRobotExporter(args.data_root)
+            try:
+                out = exporter.export(practice_id, output_path=args.output)
+                print(f"[ROSClaw] Exported LeRobot dataset to {out}")
+                return 0
+            except Exception as e:
+                print(f"[ROSClaw] LeRobot export failed: {e}", file=sys.stderr)
+                return 1
+
+        writer = getattr(args, "writer", None)
         if writer is None:
             # Preserve the legacy --episode contract: it explicitly requests
             # the metadata-only skeleton exporter unless the caller asks for

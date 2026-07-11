@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from rosclaw.integrations.lerobot.practice_normalizer import (
     NORMALIZED_SCHEMA_VERSION,
-    NormalizationError,
     NormalizedActionContext,
     NormalizedFailure,
     NormalizedFrame,
@@ -17,9 +14,7 @@ from rosclaw.integrations.lerobot.practice_normalizer import (
     NormalizedRobot,
     NormalizedSafety,
     normalize_practice_episode,
-    write_normalized_episode,
 )
-
 
 MINIMAL_EPISODE = Path(__file__).parent.parent.parent / "examples" / "practice" / "minimal_lerobot_episode"
 RICH_EPISODE = Path(__file__).parent.parent.parent / "examples" / "practice" / "rich_lerobot_episode"

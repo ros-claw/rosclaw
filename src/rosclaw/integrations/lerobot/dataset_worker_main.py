@@ -834,9 +834,9 @@ def _validate_dataset(
                 continue
             sample = dataset[idx]
             if not result["sample_keys"]:
-                result["sample_keys"] = sorted(str(k) for k in sample.keys())
+                result["sample_keys"] = sorted(str(k) for k in sample)
                 result["sample_image_keys"] = sorted(
-                    str(k) for k in sample.keys() if k.startswith("observation.images.")
+                    str(k) for k in sample if k.startswith("observation.images.")
                 )
         result["index_ok"] = True
     except Exception as exc:  # noqa: BLE001
@@ -866,7 +866,7 @@ def _run_dataloader_smoke(dataset: Any, validation_cfg: dict[str, Any]) -> dict[
     try:
         loader = DataLoader(dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False)
         for batch in loader:
-            result["batch_keys"] = sorted(str(k) for k in batch.keys())
+            result["batch_keys"] = sorted(str(k) for k in batch)
             result["batch_shapes"] = {
                 str(k): list(v.shape) for k, v in batch.items() if hasattr(v, "shape")
             }
@@ -930,11 +930,6 @@ def _op_validate_dataset(request: dict[str, Any]) -> dict[str, Any]:
 
     files = _collect_file_list(output_root)
 
-    if validation.get("load_ok") and validation.get("index_ok"):
-        status = "ok"
-    else:
-        status = "error"
-
     return _ok_response(
         "validate_dataset",
         output_dir=str(output_root),
@@ -968,8 +963,9 @@ def _op_smoke_dataloader(request: dict[str, Any]) -> dict[str, Any]:
         )
 
     try:
-        from lerobot.datasets.lerobot_dataset import LeRobotDataset
         import os
+
+        from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
         os.environ["HF_HUB_OFFLINE"] = "1"
         dataset = LeRobotDataset(repo_id, root=str(output_root))

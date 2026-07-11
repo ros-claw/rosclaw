@@ -173,6 +173,7 @@ def fake_dataset_worker_script(tmp_path: Path) -> Path:
 def real_lerobot_runtime_config(isolated_rosclaw_home):
     """If a real LeRobot runtime exists, register it in the isolated home."""
     import sys
+
     from rosclaw.integrations.lerobot.config import (
         build_lerobot_config,
         save_lerobot_config,

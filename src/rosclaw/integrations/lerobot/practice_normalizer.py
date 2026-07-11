@@ -14,7 +14,6 @@ from typing import Any
 
 from PIL import Image
 
-
 NORMALIZED_SCHEMA_VERSION = "rosclaw.practice.normalized.v2"
 LEGACY_NORMALIZED_SCHEMA_VERSION = "rosclaw.practice.normalized.v1"
 
@@ -59,7 +58,7 @@ class NormalizedRobot:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "NormalizedRobot":
+    def from_dict(cls, data: dict[str, Any]) -> NormalizedRobot:
         return cls(
             robot_id=data.get("robot_id") or "unknown",
             body_profile=data.get("body_profile"),
@@ -85,7 +84,7 @@ class NormalizedTask:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | str) -> "NormalizedTask":
+    def from_dict(cls, data: dict[str, Any] | str) -> NormalizedTask:
         if isinstance(data, str):
             return cls(text=data)
         return cls(text=data.get("text", ""), task_id=data.get("task_id"))
@@ -111,14 +110,11 @@ class NormalizedSafety:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "NormalizedSafety":
+    def from_dict(cls, data: dict[str, Any] | None) -> NormalizedSafety:
         if not data:
             return cls()
         modified = data.get("modified")
-        if modified is None:
-            modified = None
-        else:
-            modified = bool(modified)
+        modified = None if modified is None else bool(modified)
         return cls(
             decision=data.get("decision") or "UNKNOWN",
             modified=modified,
@@ -144,14 +140,11 @@ class NormalizedFailure:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "NormalizedFailure":
+    def from_dict(cls, data: dict[str, Any] | None) -> NormalizedFailure:
         if not data:
             return cls()
         active = data.get("active")
-        if active is None:
-            active = None
-        else:
-            active = bool(active)
+        active = None if active is None else bool(active)
         return cls(
             active=active,
             code=data.get("code"),
@@ -178,14 +171,11 @@ class NormalizedIntervention:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "NormalizedIntervention":
+    def from_dict(cls, data: dict[str, Any] | None) -> NormalizedIntervention:
         if not data:
             return cls()
         active = data.get("active")
-        if active is None:
-            active = None
-        else:
-            active = bool(active)
+        active = None if active is None else bool(active)
         return cls(
             active=active,
             source=data.get("source"),
@@ -207,14 +197,11 @@ class NormalizedActionContext:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "NormalizedActionContext":
+    def from_dict(cls, data: dict[str, Any] | None) -> NormalizedActionContext:
         if not data:
             return cls()
         was_clamped = data.get("was_clamped")
-        if was_clamped is None:
-            was_clamped = None
-        else:
-            was_clamped = bool(was_clamped)
+        was_clamped = None if was_clamped is None else bool(was_clamped)
         return cls(
             source=data.get("source") or "UNKNOWN",
             was_clamped=was_clamped,
@@ -280,7 +267,7 @@ class NormalizedFrame:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "NormalizedFrame":
+    def from_dict(cls, data: dict[str, Any]) -> NormalizedFrame:
         obs = data.get("observation", {})
 
         def _optional_bool(value: Any) -> bool | None:
@@ -335,7 +322,7 @@ class NormalizedPracticeEpisode:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "NormalizedPracticeEpisode":
+    def from_dict(cls, data: dict[str, Any]) -> NormalizedPracticeEpisode:
         return cls(
             schema_version=data.get("schema_version", LEGACY_NORMALIZED_SCHEMA_VERSION),
             episode_id=data.get("episode_id", ""),
