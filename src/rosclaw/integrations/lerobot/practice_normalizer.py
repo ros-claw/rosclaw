@@ -1,8 +1,8 @@
 """Normalize a ROSClaw Practice episode into a LeRobot-ready intermediate format.
 
-This module lives in the ROSClaw core Python and must not import torch or
-lerobot.  It validates frame consistency, image sizes, and dimensions before the
-LeRobot runtime worker ever sees the data.
+This module lives in the ROSClaw core Python and must not import torch,
+lerobot, or PIL at module import time.  It validates frame consistency, image
+sizes, and dimensions before the LeRobot runtime worker ever sees the data.
 """
 
 from __future__ import annotations
@@ -11,8 +11,6 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
-from PIL import Image
 
 NORMALIZED_SCHEMA_VERSION = "rosclaw.practice.normalized.v2"
 LEGACY_NORMALIZED_SCHEMA_VERSION = "rosclaw.practice.normalized.v1"
@@ -26,6 +24,27 @@ class NormalizationError(Exception):
         self.code = code
         self.message = message
         self.details = details
+
+
+def _read_image_size(image_path: Path, camera_name: str) -> tuple[int, int]:
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise NormalizationError(
+            "image_reader_unavailable",
+            "Pillow is required to validate practice episode images.",
+            f"Could not import PIL while reading camera '{camera_name}' at {image_path}.",
+        ) from exc
+
+    try:
+        with Image.open(image_path) as img:
+            img = img.convert("RGB")
+            return (img.width, img.height)
+    except Exception as exc:  # noqa: BLE001
+        raise NormalizationError(
+            "image_file_not_found",
+            f"Could not read image '{camera_name}' at {image_path}: {exc}",
+        ) from exc
 
 
 @dataclass
@@ -461,15 +480,7 @@ def _validate_frames(episode: NormalizedPracticeEpisode, base_dir: Path) -> None
                     "image_file_not_found",
                     f"Image file not found for camera '{camera_name}': {image_path}",
                 )
-            try:
-                with Image.open(image_path) as img:
-                    img = img.convert("RGB")
-                    size = (img.width, img.height)
-            except Exception as exc:  # noqa: BLE001
-                raise NormalizationError(
-                    "image_file_not_found",
-                    f"Could not read image '{camera_name}' at {image_path}: {exc}",
-                ) from exc
+            size = _read_image_size(image_path, camera_name)
 
             if image_size is None:
                 image_size = size
