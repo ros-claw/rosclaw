@@ -26,6 +26,11 @@ from rosclaw.integrations.lerobot.dataset_extension_schema import (
 )
 from rosclaw.integrations.lerobot.dataset_sidecar import write_episodes_parquet
 from rosclaw.integrations.lerobot.dataset_events import write_events_parquet
+from rosclaw.integrations.lerobot.dataset_sync import write_sync_stats_parquet
+from rosclaw.integrations.lerobot.dataset_units import (
+    write_feature_names_json,
+    write_units_json,
+)
 from rosclaw.integrations.lerobot.dataset_vocab import build_rosclaw_vocab
 from rosclaw.integrations.lerobot.dataset_worker_schema import (
     DATASET_WORKER_SCHEMA_VERSION,
@@ -123,7 +128,7 @@ class LeRobotDatasetWorkerRunner:
                 check=False,
             )
 
-            if result.returncode != 0:
+            if not response_path.exists() and result.returncode != 0:
                 details = result.stderr.strip() or result.stdout.strip()
                 return _runtime_error_response(
                     request,
@@ -132,39 +137,49 @@ class LeRobotDatasetWorkerRunner:
                     details,
                 )
 
-            if not response_path.exists():
-                return _runtime_error_response(
-                    request,
-                    LeRobotWorkerErrorCode.WORKER_INVALID_JSON,
-                    "Worker did not write a response JSON file.",
-                    result.stderr.strip(),
-                )
+            if response_path.exists():
+                try:
+                    raw = json.loads(response_path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError as exc:
+                    return _runtime_error_response(
+                        request,
+                        LeRobotWorkerErrorCode.WORKER_INVALID_JSON,
+                        f"Worker response is not valid JSON: {exc}",
+                        response_path.read_text(encoding="utf-8")[:2000],
+                    )
 
-            try:
-                raw = json.loads(response_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError as exc:
-                return _runtime_error_response(
-                    request,
-                    LeRobotWorkerErrorCode.WORKER_INVALID_JSON,
-                    f"Worker response is not valid JSON: {exc}",
-                    response_path.read_text(encoding="utf-8")[:2000],
-                )
+                if not isinstance(raw, dict):
+                    return _runtime_error_response(
+                        request,
+                        LeRobotWorkerErrorCode.WORKER_INVALID_JSON,
+                        "Worker response is not a JSON object.",
+                        str(raw)[:2000],
+                    )
 
-            if not isinstance(raw, dict):
-                return _runtime_error_response(
-                    request,
-                    LeRobotWorkerErrorCode.WORKER_INVALID_JSON,
-                    "Worker response is not a JSON object.",
-                    str(raw)[:2000],
-                )
+                response = DatasetWorkerResponse.from_dict(raw)
+                if result.returncode != 0 and response.ok:
+                    # Worker returned an error exit code but a structurally ok
+                    # response: treat it as an error so callers do not ignore it.
+                    response.status = "error"
+                    if response.error is None:
+                        response.error = DatasetWorkerError(
+                            code="worker_process_failed",
+                            message=f"Worker process exited with code {result.returncode}.",
+                            details=result.stderr.strip() or result.stdout.strip(),
+                        )
+                if response.ok and request.op == "export_dataset":
+                    response = self._enforce_profile_completeness(request, response)
+                    if not response.ok:
+                        return response
+                    response = self._write_sidecars(request, response)
+                return response
 
-            response = DatasetWorkerResponse.from_dict(raw)
-            if response.ok and request.op == "export_dataset":
-                response = self._enforce_profile_completeness(request, response)
-                if not response.ok:
-                    return response
-                response = self._write_sidecars(request, response)
-            return response
+            return _runtime_error_response(
+                request,
+                LeRobotWorkerErrorCode.WORKER_INVALID_JSON,
+                "Worker did not write a response JSON file.",
+                result.stderr.strip(),
+            )
         except subprocess.TimeoutExpired:
             return _runtime_error_response(
                 request,
@@ -272,6 +287,23 @@ class LeRobotDatasetWorkerRunner:
             sidecar_files.append("meta/rosclaw/events.parquet")
         except Exception as exc:  # noqa: BLE001
             response.warnings.append(f"Could not write events sidecar: {exc}")
+
+        try:
+            from rosclaw.integrations.lerobot.practice_normalizer import NormalizedPracticeEpisode
+
+            episode = NormalizedPracticeEpisode.from_dict(episode_data)
+            write_sync_stats_parquet([episode], output_root)
+            sidecar_files.append("meta/rosclaw/sync_stats.parquet")
+        except Exception as exc:  # noqa: BLE001
+            response.warnings.append(f"Could not write sync_stats sidecar: {exc}")
+
+        try:
+            feature_keys = sorted(response.dataset.features.keys())
+            write_units_json(feature_keys, output_root)
+            write_feature_names_json(feature_keys, output_root)
+            sidecar_files.extend(["meta/rosclaw/units.json", "meta/rosclaw/feature_names.json"])
+        except Exception as exc:  # noqa: BLE001
+            response.warnings.append(f"Could not write units/feature_names sidecars: {exc}")
 
         body_yaml_path = episode_data.get("robot", {}).get("body_yaml_path")
         if request.features.get("include_body_snapshot") and body_yaml_path:
@@ -406,6 +438,7 @@ def run_dataset_worker_op(
     dataloader_num_workers: int = 0,
     timeout_sec: int = 300,
     allow_partial: bool = False,
+    missing_policy: str = "nan",
 ) -> DatasetWorkerResponse:
     """Convenience helper to build a dataset request and run it in one call."""
     # Enforce profile availability before building the request.
@@ -431,6 +464,7 @@ def run_dataset_worker_op(
         features["include_body_snapshot"] = True
         features["body_snapshot_mode"] = body_snapshot_mode
         features["acknowledge_sensitive_body_data"] = acknowledge_sensitive_body_data
+    features["missing_policy"] = missing_policy
 
     request = DatasetWorkerRequest(
         op=op,  # type: ignore[arg-type]
@@ -478,6 +512,7 @@ def run_dataset_export(
     dataloader_num_workers: int = 0,
     timeout_sec: int = 300,
     allow_partial: bool = False,
+    missing_policy: str = "nan",
 ) -> DatasetWorkerResponse:
     """Export a normalized episode to a real LeRobotDataset."""
     return run_dataset_worker_op(
@@ -498,6 +533,7 @@ def run_dataset_export(
         dataloader_num_workers=dataloader_num_workers,
         timeout_sec=timeout_sec,
         allow_partial=allow_partial,
+        missing_policy=missing_policy,
     )
 
 

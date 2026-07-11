@@ -23,9 +23,11 @@ P2.1 accepts either:
 
 The `episode.json` schema is the ROSClaw Practice normalized format
 (`rosclaw.practice.normalized.v2`). See
-`examples/practice/minimal_lerobot_episode/episode.json` for a minimal example
-and `examples/practice/rich_lerobot_episode/episode.json` for a Gate A rich
-example with safety/failure/intervention metadata.
+`examples/practice/minimal_lerobot_episode/episode.json` for a minimal example,
+`examples/practice/rich_lerobot_episode/episode.json` for a Gate A rich example
+with safety/failure/intervention metadata, and
+`examples/practice/physical_lerobot_episode/episode.json` for a Gate B example
+with physical telemetry.
 
 ## NormalizedPracticeEpisode schema (v2)
 
@@ -117,7 +119,7 @@ rosclaw practice export \
 |---------|----------------|----------|
 | `minimal` (default) | none | P2 backward compatibility. |
 | `safety` | `safety` | Sandbox decision / risk metadata. |
-| `physical` | `safety`, `action` | Action provenance + safety. |
+| `physical` | `safety`, `action`, `physical_telemetry` | Physical telemetry + action provenance + safety. |
 | `safety-rich` | `safety`, `failure`, `intervention`, `action`, `outcome` | Full Gate A metadata. |
 
 Add individual groups on top of a profile with `--include <groups>`:
@@ -129,6 +131,11 @@ rosclaw practice export --format lerobot --writer real --profile safety \
 
 ### Optional flags
 
+- `--allow-partial`: allow export when the requested profile cannot be fully
+  satisfied.
+- `--missing-policy {error,drop-frame,fill-last,nan}`: how to handle missing
+  physical telemetry values. Default `nan` fills missing float readings with
+  `NaN` and missing contact flags with `0`.
 - `--visual-storage-mode {auto,images,videos}`: control image storage. Default
   `auto` uses per-frame images for short episodes and videos for long ones.
 - `--use-videos`: legacy alias for `--visual-storage-mode videos`.
@@ -150,27 +157,48 @@ rosclaw practice export --format lerobot --writer real --profile safety \
 | `task.text` | `task` | supported |
 | `frame.timestamp` | timestamp / index metadata | supported |
 | `frame.observation.images.<camera>` | `observation.images.<camera>` | supported |
-| `frame.safety.decision` | `rosclaw.sandbox.decision` | supported |
-| `frame.safety.modified` | `rosclaw.sandbox.modified` | supported |
-| `frame.safety.risk_score` | `rosclaw.sandbox.risk_score` | supported |
-| `frame.failure.active` | `rosclaw.failure.active` | supported |
-| `frame.failure.code` | `rosclaw.failure.code` | supported |
-| `frame.intervention.active` | `rosclaw.intervention.active` | supported |
-| `frame.intervention.source` | `rosclaw.intervention.source` | supported |
-| `frame.action_context.source` | `rosclaw.action.source` | supported |
-| `frame.action_context.was_clamped` | `rosclaw.action.was_clamped` | supported |
-| `frame.done` | `rosclaw.done` | supported |
-| `frame.success` | `rosclaw.success` | supported |
-| motor current | `observation.motor_current` | planned (Gate B) |
-| joint temperature | `observation.joint_temperature` | planned (Gate B) |
-| force/contact | `observation.force_torque`, `observation.contact` | planned (Gate B) |
+| `frame.safety.*` | `rosclaw.sandbox.*` | supported |
+| `frame.failure.*` | `rosclaw.failure.*` | supported |
+| `frame.intervention.*` | `rosclaw.intervention.*` | supported |
+| `frame.action_context.*` | `rosclaw.action.*` | supported |
+| `frame.done` / `frame.success` | `rosclaw.done` / `rosclaw.success` | supported |
+| `frame.observation.motor_current` | `observation.motor_current` | supported (Gate B) |
+| `frame.observation.joint_temperature` | `observation.joint_temperature` | supported (Gate B) |
+| `frame.observation.force_torque` | `observation.force_torque` | supported (Gate B) |
+| `frame.observation.contact` | `observation.contact` | supported (Gate B) |
+| `frame.observation.joint_velocity` | `observation.joint_velocity` | supported (Gate B) |
+| `frame.observation.joint_effort` | `observation.joint_effort` | supported (Gate B) |
 | depth | `observation.depth.<camera>` | planned (Gate C) |
 | memory/how annotations | metadata | planned (P3) |
 
 Categorical string fields (`decision`, `source`, `code`) are encoded as `int8` /
 `int16` and mapped back to labels through `meta/rosclaw/vocab.json`.
 
-## Validation commands
+## ROSClaw sidecars
+
+Every ROSClaw-rich export writes the following files under `meta/rosclaw/`:
+
+| Sidecar | Purpose |
+|---------|---------|
+| `schema.json` | Extension schema and exported feature keys. |
+| `vocab.json` | Integer-to-label vocabularies for categorical features. |
+| `episodes.parquet` | Episode-level summary (success, failure code, intervention counts). |
+| `events.parquet` | One row per event per frame for decisions, failures, interventions, outcomes. |
+| `sync_stats.parquet` | Per-episode timing/sync quality statistics (Gate B). |
+| `units.json` | SI units for telemetry features (Gate B). |
+| `feature_names.json` | Human-readable names and axis semantics (Gate B). |
+| `body_snapshots/manifest.json` + `body.yaml` | Body snapshot manifest and sanitized body data. |
+
+## Time sync (Gate B)
+
+Frames may include the following optional timing fields:
+
+- `source_timestamp_ns`: sensor-source timestamp in nanoseconds.
+- `clock_domain`: clock domain label (e.g. `ros_time`, `realtime`).
+- `episode_time_sec`: monotonic episode-relative time in seconds.
+
+`sync_stats.parquet` reports the clock domain, start/end source timestamps,
+frame deltas, and missing timestamp counts for each episode.
 
 Load and index validation:
 

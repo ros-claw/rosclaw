@@ -11,8 +11,8 @@ from typing import Any
 
 
 PROFILE_NAMES = {"minimal", "safety", "physical", "safety-rich"}
-AVAILABLE_PROFILE_NAMES = {"minimal", "safety", "safety-rich"}
-PLANNED_PROFILE_NAMES = {"physical"}
+AVAILABLE_PROFILE_NAMES = {"minimal", "safety", "physical", "safety-rich"}
+PLANNED_PROFILE_NAMES: set[str] = set()
 
 
 @dataclass
@@ -44,8 +44,8 @@ PROFILE_DEFINITIONS: dict[str, DatasetExportProfile] = {
     "safety": _base("safety", {"safety"}),
     "physical": DatasetExportProfile(
         name="physical",
-        feature_groups={"safety", "action"},
-        available=False,
+        feature_groups={"safety", "action", "physical_telemetry"},
+        available=True,
     ),
     "safety-rich": _base("safety-rich", {"safety", "failure", "intervention", "action", "outcome"}),
 }

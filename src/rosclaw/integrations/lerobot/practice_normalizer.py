@@ -235,6 +235,17 @@ class NormalizedFrame:
     intervention: NormalizedIntervention | None = None
     action_context: NormalizedActionContext | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Time sync (Gate B)
+    source_timestamp_ns: int | None = None
+    clock_domain: str | None = None
+    episode_time_sec: float | None = None
+    # Physical telemetry (Gate B)
+    motor_current: list[float] | None = None
+    joint_temperature: list[float] | None = None
+    force_torque: list[float] | None = None
+    contact: list[bool] | None = None
+    joint_velocity: list[float] | None = None
+    joint_effort: list[float] | None = None
 
     def __post_init__(self):
         if self.safety is None:
@@ -246,14 +257,30 @@ class NormalizedFrame:
         if self.action_context is None:
             self.action_context = NormalizedActionContext()
 
+    def _observation_dict(self) -> dict[str, Any]:
+        obs: dict[str, Any] = {
+            "state": self.observation_state,
+            "images": self.observation_images,
+        }
+        if self.motor_current is not None:
+            obs["motor_current"] = self.motor_current
+        if self.joint_temperature is not None:
+            obs["joint_temperature"] = self.joint_temperature
+        if self.force_torque is not None:
+            obs["force_torque"] = self.force_torque
+        if self.contact is not None:
+            obs["contact"] = self.contact
+        if self.joint_velocity is not None:
+            obs["joint_velocity"] = self.joint_velocity
+        if self.joint_effort is not None:
+            obs["joint_effort"] = self.joint_effort
+        return obs
+
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
             "frame_index": self.frame_index,
             "timestamp": self.timestamp,
-            "observation": {
-                "state": self.observation_state,
-                "images": self.observation_images,
-            },
+            "observation": self._observation_dict(),
             "action": self.action,
             "metadata": self.metadata,
         }
@@ -261,6 +288,12 @@ class NormalizedFrame:
             out["done"] = self.done
         if self.success is not None:
             out["success"] = self.success
+        if self.source_timestamp_ns is not None:
+            out["source_timestamp_ns"] = self.source_timestamp_ns
+        if self.clock_domain is not None:
+            out["clock_domain"] = self.clock_domain
+        if self.episode_time_sec is not None:
+            out["episode_time_sec"] = self.episode_time_sec
         if self.safety:
             safety_dict = self.safety.to_dict()
             if safety_dict.get("decision") != "UNKNOWN" or safety_dict.get("modified") is not None:
@@ -288,6 +321,16 @@ class NormalizedFrame:
                 return None
             return bool(value)
 
+        def _float_list(value: Any) -> list[float] | None:
+            if value is None:
+                return None
+            return [float(v) for v in value]
+
+        def _bool_list(value: Any) -> list[bool] | None:
+            if value is None:
+                return None
+            return [bool(v) for v in value]
+
         return cls(
             frame_index=int(data.get("frame_index", 0)),
             timestamp=float(data.get("timestamp", 0.0)),
@@ -296,11 +339,20 @@ class NormalizedFrame:
             action=list(data.get("action", [])),
             done=_optional_bool(data.get("done")),
             success=_optional_bool(data.get("success")),
+            source_timestamp_ns=data.get("source_timestamp_ns"),
+            clock_domain=data.get("clock_domain"),
+            episode_time_sec=data.get("episode_time_sec"),
             safety=NormalizedSafety.from_dict(data.get("safety")),
             failure=NormalizedFailure.from_dict(data.get("failure")),
             intervention=NormalizedIntervention.from_dict(data.get("intervention")),
             action_context=NormalizedActionContext.from_dict(data.get("action_context")),
             metadata=dict(data.get("metadata", {})),
+            motor_current=_float_list(obs.get("motor_current")),
+            joint_temperature=_float_list(obs.get("joint_temperature")),
+            force_torque=_float_list(obs.get("force_torque")),
+            contact=_bool_list(obs.get("contact")),
+            joint_velocity=_float_list(obs.get("joint_velocity")),
+            joint_effort=_float_list(obs.get("joint_effort")),
         )
 
 
@@ -426,6 +478,31 @@ def normalize_practice_episode(
     return episode
 
 
+def _validate_telemetry_dimensions(frame: NormalizedFrame, dims: dict[str, int]) -> None:
+    """Ensure telemetry arrays have consistent dimensions across frames."""
+    telemetry_fields = {
+        "motor_current": frame.motor_current,
+        "joint_temperature": frame.joint_temperature,
+        "force_torque": frame.force_torque,
+        "contact": frame.contact,
+        "joint_velocity": frame.joint_velocity,
+        "joint_effort": frame.joint_effort,
+    }
+    for name, values in telemetry_fields.items():
+        if values is None:
+            continue
+        length = len(values)
+        expected = dims.get(name)
+        if expected is None:
+            dims[name] = length
+        elif length != expected:
+            raise NormalizationError(
+                f"{name}_dim_mismatch",
+                f"{name} dimension mismatch: expected {expected}, got {length} "
+                f"at frame {frame.frame_index}",
+            )
+
+
 def _validate_frames(episode: NormalizedPracticeEpisode, base_dir: Path) -> None:
     """Validate frame indexing, timestamps, dimensions, and image files."""
     frames = episode.frames
@@ -447,6 +524,7 @@ def _validate_frames(episode: NormalizedPracticeEpisode, base_dir: Path) -> None
     state_dim: int | None = None
     action_dim: int | None = None
     image_size: tuple[int, int] | None = None
+    telemetry_dims: dict[str, int] = {}
 
     for frame in frames:
         if state_dim is None:
@@ -466,6 +544,8 @@ def _validate_frames(episode: NormalizedPracticeEpisode, base_dir: Path) -> None
                 f"Action dimension mismatch: expected {action_dim}, got {len(frame.action)} "
                 f"at frame {frame.frame_index}",
             )
+
+        _validate_telemetry_dimensions(frame, telemetry_dims)
 
         for camera_name, image_rel in frame.observation_images.items():
             image_path = base_dir / image_rel

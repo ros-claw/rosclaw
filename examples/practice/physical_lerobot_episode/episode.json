@@ -1,0 +1,108 @@
+{
+  "schema_version": "rosclaw.practice.normalized.v2",
+  "episode_id": "physical_lerobot_episode",
+  "robot": {
+    "robot_id": "sim_ur5e",
+    "body_profile": "sim_ur5e"
+  },
+  "task": {
+    "text": "pick and place with telemetry"
+  },
+  "fps": 10.0,
+  "environment": "sim_ur5e_pick_place",
+  "frames": [
+    {
+      "frame_index": 0,
+      "timestamp": 0.0,
+      "source_timestamp_ns": 1000000000,
+      "clock_domain": "ros_time",
+      "episode_time_sec": 0.0,
+      "observation": {
+        "state": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+        "images": {
+          "front": "../minimal_lerobot_episode/frames/front_000000.png"
+        },
+        "motor_current": [0.5, 0.6, 0.4, 0.7, 0.5, 0.6],
+        "joint_temperature": [35.0, 36.0, 35.5, 36.2, 35.8, 36.1],
+        "force_torque": [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+        "contact": [false, false, true, false, false, false],
+        "joint_velocity": [0.01, 0.02, -0.01, 0.0, 0.01, 0.0],
+        "joint_effort": [0.1, 0.2, 0.1, 0.15, 0.1, 0.12]
+      },
+      "action": [0.11, 0.21, 0.31, 0.41, 0.51, 0.61],
+      "done": false,
+      "success": false,
+      "safety": {
+        "decision": "ALLOW",
+        "modified": false,
+        "risk_score": 0.1
+      },
+      "action_context": {
+        "source": "policy",
+        "was_clamped": false
+      }
+    },
+    {
+      "frame_index": 1,
+      "timestamp": 0.1,
+      "source_timestamp_ns": 1100000000,
+      "clock_domain": "ros_time",
+      "episode_time_sec": 0.1,
+      "observation": {
+        "state": [0.15, 0.25, 0.35, 0.45, 0.55, 0.65],
+        "images": {
+          "front": "../minimal_lerobot_episode/frames/front_000001.png"
+        },
+        "motor_current": [0.55, 0.65, 0.45, 0.75, 0.55, 0.65],
+        "joint_temperature": [35.2, 36.1, 35.6, 36.3, 35.9, 36.2],
+        "force_torque": [0.0, 0.0, 1.2, 0.0, 0.0, 0.0],
+        "contact": [false, false, true, false, false, false],
+        "joint_velocity": [0.02, 0.01, -0.02, 0.01, 0.0, 0.0],
+        "joint_effort": [0.12, 0.22, 0.11, 0.16, 0.11, 0.13]
+      },
+      "action": [0.16, 0.26, 0.36, 0.46, 0.56, 0.66],
+      "done": false,
+      "success": false,
+      "safety": {
+        "decision": "ALLOW",
+        "modified": false,
+        "risk_score": 0.1
+      },
+      "action_context": {
+        "source": "policy",
+        "was_clamped": false
+      }
+    },
+    {
+      "frame_index": 2,
+      "timestamp": 0.2,
+      "source_timestamp_ns": 1200000000,
+      "clock_domain": "ros_time",
+      "episode_time_sec": 0.2,
+      "observation": {
+        "state": [0.2, 0.3, 0.4, 0.5, 0.6, 0.7],
+        "images": {
+          "front": "../minimal_lerobot_episode/frames/front_000002.png"
+        },
+        "motor_current": [0.6, 0.7, 0.5, 0.8, 0.6, 0.7],
+        "joint_temperature": [35.5, 36.3, 35.8, 36.5, 36.0, 36.4],
+        "force_torque": [0.0, 0.0, 0.8, 0.0, 0.0, 0.0],
+        "contact": [false, false, false, false, false, false],
+        "joint_velocity": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        "joint_effort": [0.1, 0.2, 0.1, 0.15, 0.1, 0.12]
+      },
+      "action": [0.21, 0.31, 0.41, 0.51, 0.61, 0.71],
+      "done": true,
+      "success": true,
+      "safety": {
+        "decision": "ALLOW",
+        "modified": false,
+        "risk_score": 0.05
+      },
+      "action_context": {
+        "source": "policy",
+        "was_clamped": false
+      }
+    }
+  ]
+}

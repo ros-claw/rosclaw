@@ -47,3 +47,25 @@ def test_infer_features_empty_episode() -> None:
         raise AssertionError("Expected FeatureInferenceError")
     except FeatureInferenceError as exc:
         assert exc.code == "normalized_episode_invalid"
+
+
+PHYSICAL_EPISODE = Path(__file__).parent.parent.parent / "examples" / "practice" / "physical_lerobot_episode"
+
+
+def test_infer_features_physical_telemetry() -> None:
+    episode = normalize_practice_episode(PHYSICAL_EPISODE)
+    features = infer_features(episode, feature_groups=["physical_telemetry"])
+    assert "observation.motor_current" in features
+    assert features["observation.motor_current"]["shape"] == [6]
+    assert features["observation.motor_current"]["dtype"] == "float32"
+    assert features["observation.contact"]["dtype"] == "int8"
+    assert features["observation.force_torque"]["shape"] == [6]
+
+
+def test_infer_features_physical_profile() -> None:
+    episode = normalize_practice_episode(PHYSICAL_EPISODE)
+    features = infer_features(episode, feature_groups=["safety", "action", "physical_telemetry"])
+    assert "rosclaw.sandbox.decision" in features
+    assert "rosclaw.action.source" in features
+    assert "observation.motor_current" in features
+    assert "observation.joint_effort" in features

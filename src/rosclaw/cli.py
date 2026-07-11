@@ -1472,6 +1472,7 @@ def cmd_practice_export(args: argparse.Namespace) -> int:
             dataloader=getattr(args, "dataloader", False),
             dry_run=getattr(args, "dry_run", False),
             allow_partial=getattr(args, "allow_partial", False),
+            missing_policy=getattr(args, "missing_policy", "nan"),
             timeout_sec=args.timeout_sec,
             json=args.json if hasattr(args, "json") else False,
         )
@@ -6332,6 +6333,17 @@ def main() -> int:
     lerobot_export_dataset_parser.add_argument(
         "--timeout-sec", type=int, default=300, help="Worker timeout in seconds (default: 300)"
     )
+    lerobot_export_dataset_parser.add_argument(
+        "--allow-partial",
+        action="store_true",
+        help="Allow export when the requested profile cannot be fully satisfied",
+    )
+    lerobot_export_dataset_parser.add_argument(
+        "--missing-policy",
+        choices=["error", "drop-frame", "fill-last", "nan"],
+        default="nan",
+        help="How to handle missing physical telemetry values (default: nan)",
+    )
     lerobot_export_dataset_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     lerobot_validate_dataset_parser = lerobot_subparsers.add_parser(
@@ -7005,6 +7017,12 @@ def main() -> int:
         "--allow-partial",
         action="store_true",
         help="Allow export when the requested profile cannot be fully satisfied",
+    )
+    practice_export_parser.add_argument(
+        "--missing-policy",
+        choices=["error", "drop-frame", "fill-last", "nan"],
+        default="nan",
+        help="How to handle missing physical telemetry values (default: nan)",
     )
     practice_export_parser.add_argument(
         "--include", dest="include_groups", default=None,

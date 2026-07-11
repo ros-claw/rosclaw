@@ -21,8 +21,8 @@ DATASET_EXPORT_SCHEMA_VERSION = "rosclaw.lerobot.dataset_export.v1.1"
 LEGACY_SCHEMA_VERSION = "rosclaw.lerobot.dataset_export.v1"
 DEFAULT_EXPORT_SUBDIR = "lerobot/dataset_exports"
 
-# Feature groups implemented in Gate A. Groups outside this set are planned for Gate B/C.
-IMPLEMENTED_FEATURE_GROUPS = {"safety", "failure", "intervention", "action", "outcome"}
+# Feature groups implemented in Gate B. Groups outside this set are planned for Gate C.
+IMPLEMENTED_FEATURE_GROUPS = {"safety", "failure", "intervention", "action", "outcome", "physical_telemetry"}
 
 
 def _profile_scope(requested: list[str], written: list[str]) -> dict[str, list[str]]:
@@ -57,7 +57,7 @@ class DatasetExportReport:
     extension_schema: str = ""
     feature_groups: list[str] = field(default_factory=list)
     profile: dict[str, Any] = field(default_factory=dict)
-    extension_gate: str = "P2.1 Gate A"
+    extension_gate: str = "P2.1 Gate B"
     error: dict[str, Any] | None = None
 
     def __post_init__(self):

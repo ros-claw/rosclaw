@@ -116,3 +116,69 @@ def test_robot_fields_round_trip() -> None:
     loaded = NormalizedRobot.from_dict(data)
     assert loaded.body_hash == "abc"
     assert loaded.eurdf_repo == "repo"
+
+
+def test_telemetry_round_trip() -> None:
+    frame = NormalizedFrame(
+        frame_index=0,
+        timestamp=0.0,
+        observation_state=[0.0],
+        action=[0.0],
+        source_timestamp_ns=1_000_000_000,
+        clock_domain="ros_time",
+        episode_time_sec=0.0,
+        motor_current=[0.1, 0.2],
+        joint_temperature=[30.0, 31.0],
+        force_torque=[0.0] * 6,
+        contact=[True, False],
+        joint_velocity=[0.01, -0.01],
+        joint_effort=[0.1, 0.2],
+    )
+    data = frame.to_dict()
+    assert data["source_timestamp_ns"] == 1_000_000_000
+    assert data["clock_domain"] == "ros_time"
+    assert data["episode_time_sec"] == 0.0
+    obs = data["observation"]
+    assert obs["motor_current"] == [0.1, 0.2]
+    assert obs["contact"] == [True, False]
+
+    loaded = NormalizedFrame.from_dict(data)
+    assert loaded.source_timestamp_ns == 1_000_000_000
+    assert loaded.clock_domain == "ros_time"
+    assert loaded.episode_time_sec == 0.0
+    assert loaded.motor_current == [0.1, 0.2]
+    assert loaded.joint_temperature == [30.0, 31.0]
+    assert loaded.force_torque == [0.0] * 6
+    assert loaded.contact == [True, False]
+    assert loaded.joint_velocity == [0.01, -0.01]
+    assert loaded.joint_effort == [0.1, 0.2]
+
+
+def test_telemetry_dimension_validation(tmp_path: Path) -> None:
+    episode_dir = tmp_path / "bad_telemetry"
+    episode_dir.mkdir()
+    episode = NormalizedPracticeEpisode(
+        episode_id="bad",
+        fps=10.0,
+        frames=[
+            NormalizedFrame(
+                frame_index=0,
+                timestamp=0.0,
+                observation_state=[0.0],
+                action=[0.0],
+                motor_current=[0.1, 0.2],
+            ),
+            NormalizedFrame(
+                frame_index=1,
+                timestamp=0.1,
+                observation_state=[0.0],
+                action=[0.0],
+                motor_current=[0.1],
+            ),
+        ],
+    )
+    episode_path = episode_dir / "episode.json"
+    write_normalized_episode(episode, episode_path)
+    with pytest.raises(NormalizationError) as exc_info:
+        normalize_practice_episode(episode_path)
+    assert exc_info.value.code == "motor_current_dim_mismatch"

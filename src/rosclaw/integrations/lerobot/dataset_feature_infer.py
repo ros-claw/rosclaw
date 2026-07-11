@@ -47,7 +47,42 @@ ROSCLAW_FEATURE_SPECS: dict[str, dict[str, dict[str, Any]]] = {
         "rosclaw.done": {"dtype": "int8", "shape": [1], "names": None},
         "rosclaw.success": {"dtype": "int8", "shape": [1], "names": None},
     },
+    "physical_telemetry": {
+        "observation.motor_current": {"dtype": "float32", "shape": [1], "names": ["motor"]},
+        "observation.joint_temperature": {"dtype": "float32", "shape": [1], "names": ["joint"]},
+        "observation.force_torque": {"dtype": "float32", "shape": [1], "names": ["axis"]},
+        "observation.contact": {"dtype": "int8", "shape": [1], "names": ["contact"]},
+        "observation.joint_velocity": {"dtype": "float32", "shape": [1], "names": ["joint"]},
+        "observation.joint_effort": {"dtype": "float32", "shape": [1], "names": ["joint"]},
+    },
 }
+
+
+def _infer_telemetry_features(
+    episode: NormalizedPracticeEpisode,
+) -> dict[str, dict[str, Any]]:
+    """Infer physical telemetry feature shapes from the first non-empty frame."""
+    features: dict[str, dict[str, Any]] = {}
+    telemetry_fields = [
+        ("observation.motor_current", "motor_current"),
+        ("observation.joint_temperature", "joint_temperature"),
+        ("observation.force_torque", "force_torque"),
+        ("observation.contact", "contact"),
+        ("observation.joint_velocity", "joint_velocity"),
+        ("observation.joint_effort", "joint_effort"),
+    ]
+    for feature_key, attr_name in telemetry_fields:
+        dim: int | None = None
+        for frame in episode.frames:
+            values = getattr(frame, attr_name)
+            if values:
+                dim = len(values)
+                break
+        if dim is not None and dim > 0:
+            spec = dict(ROSCLAW_FEATURE_SPECS["physical_telemetry"][feature_key])
+            spec["shape"] = [dim]
+            features[feature_key] = spec
+    return features
 
 
 def infer_features(
@@ -145,6 +180,9 @@ def infer_features(
         }
 
     for group in feature_groups:
+        if group == "physical_telemetry":
+            features.update(_infer_telemetry_features(episode))
+            continue
         for key, spec in ROSCLAW_FEATURE_SPECS.get(group, {}).items():
             features[key] = dict(spec)
 

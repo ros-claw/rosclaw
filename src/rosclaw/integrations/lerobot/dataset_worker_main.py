@@ -48,6 +48,14 @@ ROSCLAW_FEATURE_SPECS: dict[str, dict[str, dict[str, Any]]] = {
         "rosclaw.done": {"dtype": "int8", "shape": [1], "names": None},
         "rosclaw.success": {"dtype": "int8", "shape": [1], "names": None},
     },
+    "physical_telemetry": {
+        "observation.motor_current": {"dtype": "float32", "shape": [1], "names": ["motor"]},
+        "observation.joint_temperature": {"dtype": "float32", "shape": [1], "names": ["joint"]},
+        "observation.force_torque": {"dtype": "float32", "shape": [1], "names": ["axis"]},
+        "observation.contact": {"dtype": "int8", "shape": [1], "names": ["contact"]},
+        "observation.joint_velocity": {"dtype": "float32", "shape": [1], "names": ["joint"]},
+        "observation.joint_effort": {"dtype": "float32", "shape": [1], "names": ["joint"]},
+    },
 }
 
 DEFAULT_VOCAB: dict[str, dict[str, int]] = {
@@ -304,6 +312,8 @@ def _op_export_dataset(request: dict[str, Any]) -> dict[str, Any]:
     profile = request.get("profile", "minimal")
     feature_groups = _resolve_feature_groups(request)
     vocab = request.get("vocab") or {}
+    features_meta = request.get("features") or {}
+    missing_policy = str(features_meta.get("missing_policy", "nan"))
 
     if not normalized_path:
         return _error_response("export_dataset", "normalized_episode_invalid", "normalized_episode_path is empty", "")
@@ -417,7 +427,10 @@ def _op_export_dataset(request: dict[str, Any]) -> dict[str, Any]:
     warnings: list[str] = []
     try:
         for frame_data in frames_data:
-            frame = _build_lerobot_frame(frame_data, base_dir, features, task_text, use_videos, feature_groups, vocab)
+            frame = _build_lerobot_frame(
+                frame_data, base_dir, features, task_text, use_videos, feature_groups, vocab,
+                missing_policy=missing_policy,
+            )
             dataset.add_frame(frame)
     except Exception as exc:  # noqa: BLE001
         return _error_response(
@@ -538,7 +551,7 @@ def _resolve_feature_groups(request: dict[str, Any]) -> list[str]:
     mapping: dict[str, list[str]] = {
         "minimal": [],
         "safety": ["safety"],
-        "physical": ["safety", "action"],
+        "physical": ["safety", "action", "physical_telemetry"],
         "safety-rich": ["safety", "failure", "intervention", "action", "outcome"],
     }
     return mapping.get(profile, [])
@@ -571,6 +584,15 @@ def _infer_features(
     action_dim: int | None = None
     image_size: tuple[int, int] | None = None
     image_camera: str | None = None
+    telemetry_dims: dict[str, int] = {}
+    telemetry_fields = [
+        ("observation.motor_current", "motor_current"),
+        ("observation.joint_temperature", "joint_temperature"),
+        ("observation.force_torque", "force_torque"),
+        ("observation.contact", "contact"),
+        ("observation.joint_velocity", "joint_velocity"),
+        ("observation.joint_effort", "joint_effort"),
+    ]
 
     for idx, frame in enumerate(frames):
         obs = frame.get("observation", {})
@@ -592,6 +614,11 @@ def _infer_features(
                 "action_dim_mismatch",
                 f"Action dimension mismatch at frame {idx}: expected {action_dim}, got {len(action)}.",
             )
+
+        for feature_key, attr_name in telemetry_fields:
+            values = obs.get(attr_name)
+            if values:
+                telemetry_dims.setdefault(feature_key, len(values))
 
         images = obs.get("images", {})
         for camera_name, image_rel in images.items():
@@ -645,6 +672,12 @@ def _infer_features(
         }
 
     for group in feature_groups:
+        if group == "physical_telemetry":
+            for key, spec in ROSCLAW_FEATURE_SPECS.get(group, {}).items():
+                dim = telemetry_dims.get(key)
+                if dim is not None and dim > 0:
+                    features[key] = {**spec, "shape": [dim]}
+            continue
         for key, spec in ROSCLAW_FEATURE_SPECS.get(group, {}).items():
             features[key] = dict(spec)
 
@@ -680,6 +713,7 @@ def _build_lerobot_frame(
     use_videos: bool,  # noqa: ARG001
     feature_groups: list[str],
     vocab: dict[str, dict[str, int]],
+    missing_policy: str = "nan",
 ) -> dict[str, Any]:
     import numpy as np
 
@@ -772,6 +806,38 @@ def _build_lerobot_frame(
         frame["rosclaw.done"] = np.array([_encode_bool(frame_data.get("done"))], dtype=np.int8)
     if "rosclaw.success" in features:
         frame["rosclaw.success"] = np.array([_encode_bool(frame_data.get("success"))], dtype=np.int8)
+
+    obs = frame_data.get("observation", {})
+    telemetry_specs: dict[str, tuple[str, Any]] = {
+        "observation.motor_current": ("float32", float("nan")),
+        "observation.joint_temperature": ("float32", float("nan")),
+        "observation.force_torque": ("float32", float("nan")),
+        "observation.contact": ("int8", 0),
+        "observation.joint_velocity": ("float32", float("nan")),
+        "observation.joint_effort": ("float32", float("nan")),
+    }
+    for key, (dtype, fill_value) in telemetry_specs.items():
+        if key not in features:
+            continue
+        expected_dim = int(features[key].get("shape", [1])[0])
+        attr_name = key.split(".", 1)[1]
+        raw = obs.get(attr_name)
+        if raw is None or len(raw) == 0:
+            if missing_policy == "error":
+                raise _WorkerError(
+                    "telemetry_missing",
+                    f"Missing {attr_name} at frame {frame_data.get('frame_index')} "
+                    f"but missing_policy=error.",
+                )
+            raw = []
+        if len(raw) < expected_dim:
+            raw = list(raw) + [fill_value] * (expected_dim - len(raw))
+        elif len(raw) > expected_dim:
+            raw = list(raw)[:expected_dim]
+        if dtype == "int8":
+            frame[key] = np.array([int(bool(v)) for v in raw], dtype=np.int8)
+        else:
+            frame[key] = np.array([float(v) for v in raw], dtype=np.float32)
 
     return frame
 
