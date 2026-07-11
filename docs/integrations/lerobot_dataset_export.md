@@ -189,9 +189,13 @@ Every ROSClaw-rich export writes the following files under `meta/rosclaw/`:
 | `feature_names.json` | Human-readable names and axis semantics (Gate B). |
 | `body_snapshots/manifest.json` + `body.yaml` | Body snapshot manifest and sanitized body data. |
 
-## Time sync (Gate B)
+## Timing metadata and basic synchronization diagnostics (Gate B)
 
 Frames may include the following optional timing fields:
+
+> This section covers the timing metadata recorded in Gate B.  Full multi-rate
+> canonical timeline construction, per-feature resampling, provenance, and
+> synchronization quality gates are implemented in Gate B.1.
 
 - `source_timestamp_ns`: sensor-source timestamp in nanoseconds.
 - `clock_domain`: clock domain label (e.g. `ros_time`, `realtime`).

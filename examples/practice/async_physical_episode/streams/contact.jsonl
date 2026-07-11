@@ -1,0 +1,3 @@
+{"sequence": 0, "source_timestamp_ns": 0, "clock_domain": "monotonic", "value": [false], "valid": true}
+{"sequence": 1, "source_timestamp_ns": 450000000, "clock_domain": "monotonic", "value": [true], "valid": true}
+{"sequence": 2, "source_timestamp_ns": 550000000, "clock_domain": "monotonic", "value": [false], "valid": true}

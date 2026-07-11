@@ -1,0 +1,11 @@
+{"sequence": 0, "source_timestamp_ns": 0, "clock_domain": "monotonic", "value": [0], "valid": true}
+{"sequence": 1, "source_timestamp_ns": 100000000, "clock_domain": "monotonic", "value": [1], "valid": true}
+{"sequence": 2, "source_timestamp_ns": 200000000, "clock_domain": "monotonic", "value": [2], "valid": true}
+{"sequence": 3, "source_timestamp_ns": 300000000, "clock_domain": "monotonic", "value": [3], "valid": true}
+{"sequence": 4, "source_timestamp_ns": 400000000, "clock_domain": "monotonic", "value": [4], "valid": true}
+{"sequence": 5, "source_timestamp_ns": 500000000, "clock_domain": "monotonic", "value": [5], "valid": true}
+{"sequence": 6, "source_timestamp_ns": 600000000, "clock_domain": "monotonic", "value": [6], "valid": true}
+{"sequence": 7, "source_timestamp_ns": 700000000, "clock_domain": "monotonic", "value": [7], "valid": true}
+{"sequence": 8, "source_timestamp_ns": 800000000, "clock_domain": "monotonic", "value": [8], "valid": true}
+{"sequence": 9, "source_timestamp_ns": 900000000, "clock_domain": "monotonic", "value": [9], "valid": true}
+{"sequence": 10, "source_timestamp_ns": 1000000000, "clock_domain": "monotonic", "value": [10], "valid": true}

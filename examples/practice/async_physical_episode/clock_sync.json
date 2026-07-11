@@ -1,0 +1,5 @@
+{
+  "schema_version": "rosclaw.clock_sync.v1",
+  "target_clock": "episode_time",
+  "mappings": []
+}

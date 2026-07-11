@@ -1,0 +1,19 @@
+{
+  "schema_version": "rosclaw.practice.source_bundle.v1",
+  "episode_id": "async_physical_episode_000001",
+  "fps": 10,
+  "robot": {
+    "robot_id": "mock_async_robot",
+    "body_profile": "mock_body"
+  },
+  "task": {
+    "text": "async physical synchronization demo",
+    "task_id": "async_sync"
+  },
+  "environment": "mock_tabletop",
+  "operator": "test_operator",
+  "frames": [],
+  "metadata": {
+    "source_dir": "/code/rosclaw/rosclaw_lerobot/rosclaw_repo/examples/practice/async_physical_episode"
+  }
+}

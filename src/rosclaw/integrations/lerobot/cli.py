@@ -130,6 +130,7 @@ def cmd_lerobot_doctor(args: argparse.Namespace) -> int:
         }
     )
     validation = report.validation_status or get_validation_status()
+    ds_status = report.dataset_export_status or {"state": "not_configured"}
     if args.json:
         payload: dict[str, Any] = {
             "name": report.name,
@@ -159,7 +160,9 @@ def cmd_lerobot_doctor(args: argparse.Namespace) -> int:
                 "worker_in_process": report.worker_in_process_available,
             },
             "validation": validation,
-            "dataset_export_status": report.dataset_export_status,
+            "dataset_export_status": ds_status,
+            "synchronization": ds_status.get("synchronization", {}),
+            "missingness": ds_status.get("missingness", {}),
             "hf_endpoint": report.hf_endpoint,
             "config_enabled": report.config_enabled,
         }
@@ -232,7 +235,6 @@ def cmd_lerobot_doctor(args: argparse.Namespace) -> int:
 
     print()
     print("Dataset Export Validation")
-    ds_status = report.dataset_export_status or {"state": "not_configured"}
     ds_state = ds_status.get("state", "not_configured")
     print(f"  Status:            {ds_state}")
     if ds_status.get("last_output_dir"):
@@ -271,6 +273,32 @@ def cmd_lerobot_doctor(args: argparse.Namespace) -> int:
         print("  Hint: Run `rosclaw lerobot export-dataset` to validate a real dataset export.")
     for reason in ds_status.get("stale_reasons", []):
         print(f"  Stale reason:      {reason}")
+
+    sync_block = ds_status.get("synchronization", {})
+    if sync_block:
+        print()
+        print("Synchronization")
+        print(f"  Input mode:        {sync_block.get('input_mode', 'unknown')}")
+        print(f"  Status:            {sync_block.get('level', 'unknown')}")
+        print(f"  Target FPS:        {sync_block.get('target_fps', 'N/A')}")
+        print(f"  Canonical frames:  {sync_block.get('canonical_frames', 'N/A')}")
+        print(f"  Written frames:    {sync_block.get('written_frames', 'N/A')}")
+        print(f"  Dropped frames:    {sync_block.get('dropped_frames', 'N/A')}")
+        if sync_block.get("clock_domains"):
+            print(f"  Clock domains:     {', '.join(sync_block['clock_domains'])}")
+        print(f"  Clock mappings:    {'valid' if sync_block.get('clock_mappings_valid') else 'invalid'}")
+        print(f"  Quality profile:   {sync_block.get('quality_profile', 'N/A')}")
+        print(f"  Quality gates:     {'passed' if sync_block.get('quality_passed') else 'failed'}")
+        for warning in sync_block.get("warnings", []):
+            print(f"  Warning:           {warning}")
+
+    missingness = ds_status.get("missingness", {})
+    if missingness:
+        print()
+        print("Missingness")
+        print(f"  Policy:            {missingness.get('policy', 'unknown')}")
+        print(f"  Unknown float:     {missingness.get('unknown_float_encoding', 'NaN')}")
+        print(f"  Unknown bool:      {missingness.get('unknown_bool_encoding', -1)}")
 
     print()
     print(f"Status: {report.status.upper()}")
@@ -897,10 +925,40 @@ _DATASET_COMPATIBILITY_MATRIX = [
         "notes": "Multiple RGB/depth cameras.",
     },
     {
-        "feature": "Physical telemetry (current/force/temp)",
-        "status": "planned",
+        "feature": "Physical telemetry schema",
+        "status": "supported",
         "since": "P2.1 Gate B",
-        "notes": "Motor current, force/torque, temperature.",
+        "notes": "Motor current, force/torque, temperature, velocity, effort, contact.",
+    },
+    {
+        "feature": "Physical telemetry export",
+        "status": "supported",
+        "since": "P2.1 Gate B",
+        "notes": "Aligned-frame export with units/feature-names sidecars.",
+    },
+    {
+        "feature": "Timing metadata and basic synchronization diagnostics",
+        "status": "supported",
+        "since": "P2.1 Gate B",
+        "notes": "source_timestamp_ns, clock_domain, sync_stats.parquet.",
+    },
+    {
+        "feature": "Canonical timeline",
+        "status": "supported",
+        "since": "P2.1 Gate B.1-1",
+        "notes": "Fixed-FPS frame grid from asynchronous source streams.",
+    },
+    {
+        "feature": "Per-feature resampling",
+        "status": "supported",
+        "since": "P2.1 Gate B.1-2",
+        "notes": "Linear/previous/nearest/interval_mean/interval_any strategies with missingness policies.",
+    },
+    {
+        "feature": "Synchronization quality gates",
+        "status": "supported",
+        "since": "P2.1 Gate B.1-3",
+        "notes": "Coverage/skew/hold-age thresholds with fail/warn/partial actions.",
     },
 ]
 
