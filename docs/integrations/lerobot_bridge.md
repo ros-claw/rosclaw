@@ -36,7 +36,8 @@ When ROSClaw runs on Python 3.11, use an isolated or external LeRobot runtime.
 - `rosclaw provider infer --type lerobot_policy --manifest ... --input ... --policy.path <dir>` — run one real policy inference via the LeRobot worker.
 - `rosclaw provider infer --type lerobot_policy --manifest ... --input ... --dry-run` — returns a sample action with safety metadata.
 - `rosclaw lerobot compatibility` — show the P1.1 policy compatibility matrix.
-- `rosclaw practice export --format lerobot --episode <dir> --output <dir>` — creates a LeRobotDataset v3 skeleton.
+- `rosclaw lerobot dataset-compatibility` — show the P2/P2.1 dataset feature compatibility matrix.
+- `rosclaw practice export --format lerobot --writer real|skeleton --episode <dir> --output <dir>` — exports a ROSClaw Practice episode to a real LeRobotDataset v3 or a legacy skeleton.
 
 All provider commands that perform real inference still return **action proposals** only: `not_executed=true`, `requires_sandbox=true`, `executable=false`. Every proposal also carries `body_mapping_required=true`, `body_compatible=false`, and `body_name=null` to make it explicit that LeRobot actions are not mapped to a ROSClaw body in P1.1. The provider never executes actions on hardware.
 
@@ -336,7 +337,19 @@ src/rosclaw/integrations/
     observation_adapter.py    # ROSClaw input → worker observation dict
     action_adapter.py         # Worker action → ROSClaw action proposal
     policy_manifest.py        # Minimal LeRobot config.json parser
-    dataset_exporter.py       # Skeleton exporter
+    dataset_exporter.py       # Skeleton exporter (legacy)
+    practice_normalizer.py    # Practice episode -> NormalizedPracticeEpisode
+    dataset_worker_main.py    # LeRobot-runtime-side dataset worker (no rosclaw import)
+    dataset_worker_runner.py  # ROSClaw-side subprocess runner for dataset ops
+    dataset_worker_schema.py  # Dataset worker JSON request/response dataclasses
+    dataset_feature_infer.py  # Feature schema inference from normalized episodes
+    dataset_validator.py      # LeRobotDataset load/index validation via worker
+    dataset_report.py         # Export report persistence and validation state
+    dataset_extension_schema.py # ROSClaw extension schema sidecar
+    dataset_vocab.py          # Categorical vocabulary encoding sidecar
+    dataset_profile.py        # Export profile resolver
+    dataset_sidecar.py        # Episode-level parquet sidecar
+    body_snapshot.py          # Optional sanitized body config snapshot
     subprocess_runner.py      # Safe subprocess wrapper
     schemas.py                # Dataclasses and error codes
     feature_mapping.py        # ROSClaw ↔ LeRobot field maps
@@ -459,3 +472,102 @@ lerobot_runtime:
   subprocess_available: true
   in_process_available: false
 ```
+
+## P2: Practice to Real LeRobotDataset Writer
+
+P2 adds a real data export path: ROSClaw Practice episodes can be written as
+loadable `LeRobotDataset` v3 by an isolated LeRobot worker, then validated and
+re-loaded with `LeRobotDataset(...)`.
+
+### Skeleton writer vs real writer
+
+The P0 skeleton writer only creates metadata, mapping, and placeholder files.
+The P2 real writer uses the configured LeRobot runtime to create a dataset that
+`LeRobotDataset.create(...)` / `add_frame(...)` / `save_episode(...)` /
+`finalize()` can actually load.
+
+```bash
+# Legacy skeleton writer
+rosclaw practice export \
+  --format lerobot \
+  --writer skeleton \
+  --episode examples/practice/minimal_lerobot_episode \
+  --output /tmp/rosclaw_lerobot_skeleton
+
+# Real dataset writer
+rosclaw practice export \
+  --format lerobot \
+  --writer real \
+  --episode examples/practice/minimal_lerobot_episode \
+  --output /tmp/rosclaw_lerobot_dataset \
+  --repo-id local/rosclaw_minimal \
+  --fps 10
+
+# Equivalent dedicated command
+rosclaw lerobot export-dataset \
+  --episode examples/practice/minimal_lerobot_episode \
+  --output /tmp/rosclaw_lerobot_dataset \
+  --repo-id local/rosclaw_minimal \
+  --fps 10
+```
+
+If `--writer` is omitted, `rosclaw practice export --format lerobot` chooses
+`real` when a LeRobot subprocess runtime is available, otherwise falls back to
+`skeleton` with a warning.
+
+### Supported fields in P2 / P2.1 Gate A
+
+| ROSClaw Practice | LeRobotDataset | Status |
+|------------------|----------------|--------|
+| `frame.observation.state` | `observation.state` | supported (P2) |
+| `frame.action` | `action` | supported (P2) |
+| `task.text` | `task` | supported (P2) |
+| `frame.timestamp` | timestamp / index metadata | supported (P2) |
+| `frame.observation.images.<camera>` | `observation.images.<camera>` | supported (P2) |
+| `frame.done` | `rosclaw.done` | supported (P2.1 Gate A, `safety-rich`) |
+| `frame.success` | `rosclaw.success` | supported (P2.1 Gate A, `safety-rich`) |
+| `frame.safety.*` | `rosclaw.sandbox.*` | supported (P2.1 Gate A, `safety`+) |
+| `frame.failure.*` | `rosclaw.failure.*` | supported (P2.1 Gate A, `safety-rich`) |
+| `frame.intervention.*` | `rosclaw.intervention.*` | supported (P2.1 Gate A, `safety-rich`) |
+| `frame.action_context.*` | `rosclaw.action.*` | supported (P2.1 Gate A, `physical`+) |
+
+P2.1 also writes ROSClaw sidecars under `meta/rosclaw/` (`schema.json`,
+`vocab.json`, `episodes.parquet`, optional `body_snapshots/`) and supports
+DataLoader smoke tests. Use `--profile minimal` to keep exact P2 behavior.
+
+### Validation
+
+```bash
+rosclaw lerobot validate-dataset \
+  --dataset /tmp/rosclaw_lerobot_dataset \
+  --repo-id local/rosclaw_minimal
+```
+
+This loads the dataset in the isolated LeRobot runtime and indexes `dataset[0]`.
+
+### LeRobotDataset API introspection
+
+```bash
+rosclaw lerobot dataset-api
+```
+
+Prints the runtime's `LeRobotDataset.create` signature and whether
+`add_frame`, `save_episode`, `consolidate`, and `finalize` are available.
+
+### Export report
+
+A successful export writes `rosclaw_export_report.json` inside the output
+directory and updates `~/.rosclaw/lerobot/dataset_exports/latest.json`.
+`rosclaw lerobot doctor` surfaces the latest dataset export validation state.
+
+### Limitations
+
+- Single RGB camera is the default stable path in P2 / P2.1 Gate A.
+- Depth, force/current, and multi-camera CLI are reserved for Gate B / Gate C.
+- Sandbox decisions, failure labels, intervention markers, and action provenance
+  are exported as ROSClaw-rich `int8`/`int16` features under `rosclaw.*` keys
+  (P2.1 Gate A).
+- Video encoding (`--use-videos` / `--visual-storage-mode videos`) is supported
+  but the default stable path uses `dtype="image"` and frame files under `images/`.
+- No push-to-Hub in Gate A.
+

@@ -1,0 +1,21 @@
+{
+  "schema_version": "rosclaw.lerobot.dataset_worker.v1",
+  "op": "export_dataset",
+  "normalized_episode_path": "examples/practice/minimal_lerobot_episode/normalized_episode.json",
+  "output_dir": "/tmp/rosclaw_lerobot_dataset",
+  "repo_id": "local/rosclaw_minimal",
+  "fps": 10,
+  "robot_type": "rosclaw",
+  "writer": {
+    "format": "lerobot_v3",
+    "use_videos": false,
+    "video_codec": "auto",
+    "consolidate": true,
+    "compute_stats": true
+  },
+  "validation": {
+    "load_after_write": true,
+    "sample_indices": [0]
+  },
+  "timeout_sec": 300
+}

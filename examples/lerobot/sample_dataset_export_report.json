@@ -1,0 +1,56 @@
+{
+  "schema_version": "rosclaw.lerobot.dataset_export.v1",
+  "created_at": "2026-07-10T00:00:00Z",
+  "status": "ok",
+  "source": {
+    "type": "rosclaw_practice_episode",
+    "episode_path": "examples/practice/minimal_lerobot_episode",
+    "episode_id": "minimal_lerobot_episode_000001"
+  },
+  "target": {
+    "format": "lerobot_v3",
+    "repo_id": "local/rosclaw_minimal",
+    "output_dir": "/tmp/rosclaw_lerobot_dataset"
+  },
+  "dataset": {
+    "num_episodes": 1,
+    "num_frames": 3,
+    "fps": 10,
+    "features": {
+      "observation.state": {
+        "shape": [3],
+        "dtype": "float32"
+      },
+      "action": {
+        "shape": [3],
+        "dtype": "float32"
+      },
+      "observation.images.front": {
+        "shape": [48, 64, 3],
+        "dtype": "image"
+      }
+    }
+  },
+  "validation": {
+    "load_ok": true,
+    "index_ok": true,
+    "num_frames": 3,
+    "num_episodes": 1,
+    "sample_keys": ["action", "observation.state", "task"]
+  },
+  "safety": {
+    "contains_executed_actions": true,
+    "actions_are_historical": true,
+    "not_a_policy_execution": true
+  },
+  "limitations": [
+    "No depth export in P2",
+    "No force/current export in P2",
+    "No memory/how annotations in P2",
+    "Single-camera practice episodes only in P2"
+  ],
+  "runtime": {
+    "python": "/home/user/.rosclaw/envs/lerobot/bin/python",
+    "lerobot_version": "0.6.1"
+  }
+}

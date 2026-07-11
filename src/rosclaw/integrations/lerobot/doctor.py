@@ -10,6 +10,9 @@ from rosclaw.integrations.lerobot.config import (
     get_lerobot_config_path,
     load_lerobot_config,
 )
+from rosclaw.integrations.lerobot.dataset_report import (
+    get_dataset_export_validation_status,
+)
 from rosclaw.integrations.lerobot.profiles import list_profile_names
 from rosclaw.integrations.lerobot.runtime import (
     LeRobotRuntime,
@@ -130,6 +133,10 @@ class LeRobotDoctor:
             current_lerobot_version=current_lerobot_version,
             current_python_executable=current_python_executable,
         )
+        dataset_export_status = get_dataset_export_validation_status(
+            current_lerobot_version=current_lerobot_version,
+            current_python_executable=current_python_executable,
+        )
 
         message = self._build_message(
             status,
@@ -190,6 +197,7 @@ class LeRobotDoctor:
             worker_in_process_available=worker_in_process_available,
             status_detail=self._status_detail(status, lerobot_runtime),
             validation_status=validation_status,
+            dataset_export_status=dataset_export_status,
         )
 
     @staticmethod

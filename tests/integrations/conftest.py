@@ -116,3 +116,85 @@ def fake_lerobot_info(tmp_path: Path, monkeypatch):
     script.chmod(script.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ.get("PATH", ""))
     return script
+
+
+@pytest.fixture
+def fake_dataset_worker_script(tmp_path: Path) -> Path:
+    """Return a fake dataset_worker_main.py that echoes a valid DatasetWorkerResponse."""
+    script = tmp_path / "fake_dataset_worker_main.py"
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        "req_path = Path(sys.argv[sys.argv.index('--request-json') + 1])\n"
+        "out_path = Path(sys.argv[sys.argv.index('--output-json') + 1])\n"
+        "req = json.loads(req_path.read_text())\n"
+        "op = req.get('op', 'export_dataset')\n"
+        "response = {\n"
+        "    'schema_version': 'rosclaw.lerobot.dataset_worker.v1',\n"
+        "    'status': 'ok',\n"
+        "    'op': op,\n"
+        "    'output_dir': req.get('output_dir', ''),\n"
+        "    'repo_id': req.get('repo_id', ''),\n"
+        "    'dataset': {\n"
+        "        'num_episodes': 1,\n"
+        "        'num_frames': 3,\n"
+        "        'fps': req.get('fps', 10.0),\n"
+        "        'features': {\n"
+        "            'observation.state': {'shape': [2], 'dtype': 'float32'},\n"
+        "            'action': {'shape': [2], 'dtype': 'float32'},\n"
+        "            'observation.images.front': {'shape': [2, 2, 3], 'dtype': 'image'},\n"
+        "        },\n"
+        "    },\n"
+        "    'files': {\n"
+        "        'meta_info': True,\n"
+        "        'data_files': ['data/chunk-000/file-000.parquet'],\n"
+        "        'video_files': [],\n"
+        "    },\n"
+        "    'validation': {\n"
+        "        'load_ok': True,\n"
+        "        'index_ok': True,\n"
+        "        'num_frames': 3,\n"
+        "        'num_episodes': 1,\n"
+        "        'sample_keys': ['action', 'observation.state', 'task'],\n"
+        "        'sample_image_keys': [],\n"
+        "    },\n"
+        "    'timing': {'write_time_sec': 0.1},\n"
+        "    'runtime': {'python': sys.executable, 'python_version': '3.12.0'},\n"
+        "}\n"
+        "out_path.parent.mkdir(parents=True, exist_ok=True)\n"
+        "out_path.write_text(json.dumps(response, indent=2))\n"
+    )
+    script.chmod(script.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return script
+
+@pytest.fixture(scope="session")
+def real_lerobot_runtime_config(isolated_rosclaw_home):
+    """If a real LeRobot runtime exists, register it in the isolated home."""
+    import sys
+
+    from rosclaw.integrations.lerobot.config import (
+        build_lerobot_config,
+        save_lerobot_config,
+    )
+    from rosclaw.integrations.lerobot.runtime import inspect_lerobot_runtime
+
+    # Probe the conventional isolated runtime path used by `rosclaw setup lerobot`.
+    candidates = [
+        isolated_rosclaw_home.parent.parent / ".venv-lerobot" / "bin" / "python",
+        Path("/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv-lerobot/bin/python"),
+    ]
+    for python_exe in candidates:
+        if python_exe.exists():
+            runtime = inspect_lerobot_runtime(str(python_exe), mode="external")
+            if runtime.state in ("ready", "degraded"):
+                config = build_lerobot_config(
+                    profile="core",
+                    mode="external",
+                    runtime=runtime,
+                    rosclaw_python=sys.executable,
+                    rosclaw_version=".",
+                )
+                save_lerobot_config(config)
+                break

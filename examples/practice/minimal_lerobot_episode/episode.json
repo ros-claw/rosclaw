@@ -1,0 +1,96 @@
+{
+  "schema_version": "rosclaw.practice.normalized.v1",
+  "episode_id": "minimal_lerobot_episode_000001",
+  "robot": {
+    "robot_id": "mock_robot",
+    "body_profile": "mock_body",
+    "body_yaml_path": null
+  },
+  "task": {
+    "text": "transfer the cube",
+    "task_id": "transfer_cube"
+  },
+  "fps": 10,
+  "frames": [
+    {
+      "frame_index": 0,
+      "timestamp": 0.0,
+      "observation": {
+        "state": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "images": {
+          "front": "frames/front_000000.png"
+        }
+      },
+      "action": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "done": false,
+      "success": false,
+      "metadata": {
+        "sandbox_decision": "ALLOW",
+        "source": "rosclaw_practice"
+      }
+    },
+    {
+      "frame_index": 1,
+      "timestamp": 0.1,
+      "observation": {
+        "state": [
+          1.0,
+          0.1,
+          0.2
+        ],
+        "images": {
+          "front": "frames/front_000001.png"
+        }
+      },
+      "action": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "done": false,
+      "success": false,
+      "metadata": {
+        "sandbox_decision": "ALLOW",
+        "source": "rosclaw_practice"
+      }
+    },
+    {
+      "frame_index": 2,
+      "timestamp": 0.2,
+      "observation": {
+        "state": [
+          2.0,
+          0.2,
+          0.4
+        ],
+        "images": {
+          "front": "frames/front_000002.png"
+        }
+      },
+      "action": [
+        2.0,
+        0.0,
+        0.0
+      ],
+      "done": false,
+      "success": true,
+      "metadata": {
+        "sandbox_decision": "ALLOW",
+        "source": "rosclaw_practice"
+      }
+    }
+  ],
+  "metadata": {
+    "source": "rosclaw_practice",
+    "exporter": "rosclaw_lerobot_p2",
+    "notes": []
+  }
+}

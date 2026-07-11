@@ -17,8 +17,29 @@ from rosclaw.integrations.lerobot.compatibility import (
 from rosclaw.integrations.lerobot.config import (
     get_configured_lerobot_runtime,
 )
+from rosclaw.integrations.lerobot.dataset_feature_infer import infer_features
+from rosclaw.integrations.lerobot.dataset_profile import resolve_profile
+from rosclaw.integrations.lerobot.dataset_report import (
+    report_from_worker_response,
+    write_dataset_export_report,
+)
+from rosclaw.integrations.lerobot.dataset_validator import (
+    format_validation_result,
+    validate_dataset,
+)
+from rosclaw.integrations.lerobot.dataset_worker_runner import (
+    LeRobotDatasetWorkerRunner,
+    run_dataset_api_inspect,
+    run_dataset_dataloader_smoke,
+    run_dataset_export,
+)
 from rosclaw.integrations.lerobot.doctor import run_lerobot_doctor
 from rosclaw.integrations.lerobot.installer import install_lerobot
+from rosclaw.integrations.lerobot.practice_normalizer import (
+    NormalizationError,
+    normalize_practice_episode,
+    write_normalized_episode,
+)
 from rosclaw.integrations.lerobot.provider import LeRobotPolicyProvider
 from rosclaw.integrations.lerobot.runtime import LEROBOT_INFO_MODULE, LeRobotRuntime
 from rosclaw.integrations.lerobot.smoke_policy import (
@@ -138,6 +159,7 @@ def cmd_lerobot_doctor(args: argparse.Namespace) -> int:
                 "worker_in_process": report.worker_in_process_available,
             },
             "validation": validation,
+            "dataset_export_status": report.dataset_export_status,
             "hf_endpoint": report.hf_endpoint,
             "config_enabled": report.config_enabled,
         }
@@ -207,6 +229,48 @@ def cmd_lerobot_doctor(args: argparse.Namespace) -> int:
         print(f"  Stale reason:      {reason}")
     if state == "not_configured":
         print("  Hint: Run `rosclaw lerobot smoke-policy` to validate a real policy.")
+
+    print()
+    print("Dataset Export Validation")
+    ds_status = report.dataset_export_status or {"state": "not_configured"}
+    ds_state = ds_status.get("state", "not_configured")
+    print(f"  Status:            {ds_state}")
+    if ds_status.get("last_output_dir"):
+        print(f"  Last output:       {ds_status['last_output_dir']}")
+    if ds_status.get("repo_id"):
+        print(f"  Repo ID:           {ds_status['repo_id']}")
+    if ds_status.get("num_frames") is not None:
+        print(f"  Frames:            {ds_status['num_frames']}")
+    if ds_status.get("num_episodes") is not None:
+        print(f"  Episodes:          {ds_status['num_episodes']}")
+    if ds_status.get("features"):
+        print(f"  Features:          {', '.join(ds_status['features'])}")
+    visual = ds_status.get("visual", {})
+    if visual.get("storage_mode"):
+        print(f"  Visual mode:       {visual['storage_mode']}")
+    if visual.get("camera_keys"):
+        print(f"  Cameras:           {', '.join(visual['camera_keys'])}")
+    if ds_status.get("load_ok") is not None:
+        print(f"  Load OK:           {ds_status['load_ok']}")
+    if ds_status.get("index_ok") is not None:
+        print(f"  Index OK:          {ds_status['index_ok']}")
+    gates = ds_status.get("quality_gates", {})
+    if gates.get("dataloader_ok") is not None:
+        print(f"  Dataloader OK:     {gates['dataloader_ok']}")
+    profile = ds_status.get("profile", {})
+    if profile.get("name"):
+        print(f"  Profile:           {profile['name']}")
+    scope = profile.get("scope", {})
+    if scope.get("validated"):
+        print(f"  Validated groups:  {', '.join(scope['validated'])}")
+    if scope.get("planned"):
+        print(f"  Planned groups:    {', '.join(scope['planned'])}")
+    if scope.get("missing"):
+        print(f"  Missing groups:    {', '.join(scope['missing'])}")
+    if ds_state == "not_configured":
+        print("  Hint: Run `rosclaw lerobot export-dataset` to validate a real dataset export.")
+    for reason in ds_status.get("stale_reasons", []):
+        print(f"  Stale reason:      {reason}")
 
     print()
     print(f"Status: {report.status.upper()}")
@@ -526,6 +590,334 @@ def cmd_provider_infer_lerobot(args: argparse.Namespace) -> int:
     return 0 if response.status == "ok" else 1
 
 
+
+
+def _resolve_episode_path(args: argparse.Namespace) -> Path:
+    """Resolve the practice episode path from CLI args."""
+    episode_id = args.episode_dir or args.episode_id
+    if not episode_id:
+        raise ValueError("Episode identifier or path is required.")
+    candidate = Path(episode_id)
+    if candidate.is_dir():
+        return candidate
+    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    from_data_root = data_root / episode_id
+    if from_data_root.is_dir():
+        return from_data_root
+    return candidate
+
+
+def cmd_lerobot_export_dataset(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot export-dataset`."""
+    import tempfile
+
+    try:
+        episode_path = _resolve_episode_path(args)
+    except ValueError as exc:
+        print(f"[rosclaw-lerobot] {exc}", file=sys.stderr)
+        return 1
+
+    output_dir = Path(args.output)
+    repo_id = args.repo_id
+    fps = float(getattr(args, "fps", 10.0))
+    timeout_sec = int(getattr(args, "timeout_sec", 300))
+    profile = getattr(args, "profile", "minimal")
+    visual_storage_mode = getattr(args, "visual_storage_mode", "auto")
+    use_videos = bool(getattr(args, "use_videos", False))
+    include_body_snapshot = bool(getattr(args, "include_body_snapshot", False))
+    body_snapshot_mode = getattr(args, "body_snapshot_mode", "sanitized")
+    acknowledge_sensitive_body_data = bool(getattr(args, "acknowledge_sensitive_body_data", False))
+    dry_run = bool(getattr(args, "dry_run", False))
+    dataloader = bool(getattr(args, "dataloader", False))
+    allow_partial = bool(getattr(args, "allow_partial", False))
+
+    try:
+        normalized = normalize_practice_episode(
+            episode_path,
+            task=getattr(args, "task", None),
+            robot_id=getattr(args, "robot_id", None),
+            body_profile=getattr(args, "body_profile", None),
+            fps=fps if getattr(args, "fps", None) is not None else None,
+        )
+    except NormalizationError as exc:
+        print(f"[rosclaw-lerobot] Normalization failed ({exc.code}): {exc.message}", file=sys.stderr)
+        if exc.details:
+            print(f"[rosclaw-lerobot] Details: {exc.details}", file=sys.stderr)
+        return 1
+
+    if dry_run:
+        try:
+            prof = resolve_profile(
+                profile,
+                include_body_snapshot=include_body_snapshot,
+                body_snapshot_mode=body_snapshot_mode,
+            )
+            features = infer_features(normalized, feature_groups=sorted(prof.feature_groups))
+            warnings: list[str] = []
+            if prof.feature_groups - {"safety", "failure", "intervention", "action", "outcome"}:
+                warnings.append("Some requested feature groups are not implemented in Gate A.")
+            payload = {
+                "status": "dry_run",
+                "profile": profile,
+                "feature_groups": sorted(prof.feature_groups),
+                "num_frames": len(normalized.frames),
+                "features": {k: {"dtype": v["dtype"], "shape": v["shape"]} for k, v in features.items()},
+                "warnings": warnings,
+            }
+            if args.json:
+                print(json.dumps(payload, indent=2, ensure_ascii=False))
+            else:
+                print("[rosclaw-lerobot] Dry run -- no dataset will be written")
+                print(f"  Profile:       {profile}")
+                print(f"  Feature groups: {', '.join(sorted(prof.feature_groups)) or '(none)'}")
+                print(f"  Frames:        {len(normalized.frames)}")
+                print("  Features:")
+                for key, value in features.items():
+                    print(f"    {key}: dtype={value['dtype']}, shape={value['shape']}")
+                if warnings:
+                    print("  Warnings:")
+                    for w in warnings:
+                        print(f"    - {w}")
+            return 0
+        except ValueError as exc:
+            print(f"[rosclaw-lerobot] {exc}", file=sys.stderr)
+            return 1
+        except Exception as exc:  # noqa: BLE001
+            print(f"[rosclaw-lerobot] Dry-run inference failed: {exc}", file=sys.stderr)
+            return 1
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="rosclaw_lerobot_export_"))
+    normalized_path = temp_dir / "normalized_episode.json"
+    try:
+        write_normalized_episode(normalized, normalized_path)
+
+        try:
+            response = run_dataset_export(
+                normalized_episode_path=str(normalized_path),
+                output_dir=str(output_dir),
+                repo_id=repo_id,
+                fps=fps,
+                use_videos=use_videos,
+                visual_storage_mode=visual_storage_mode,
+                profile=profile,
+                include_body_snapshot=include_body_snapshot,
+                body_snapshot_mode=body_snapshot_mode,
+                acknowledge_sensitive_body_data=acknowledge_sensitive_body_data,
+                dataloader=dataloader,
+                timeout_sec=timeout_sec,
+                allow_partial=allow_partial,
+            )
+        except ValueError as exc:
+            print(f"[rosclaw-lerobot] {exc}", file=sys.stderr)
+            return 1
+
+        report = report_from_worker_response(
+            episode_path=str(episode_path),
+            episode_id=normalized.episode_id,
+            output_dir=str(output_dir),
+            repo_id=repo_id,
+            response_dict=response.to_dict(),
+        )
+        write_dataset_export_report(report, output_dir)
+
+        if args.json:
+            payload = {
+                "status": report.status,
+                "output_dir": str(output_dir),
+                "repo_id": repo_id,
+                "dataset": report.dataset,
+                "validation": report.validation,
+                "feature_groups": report.feature_groups,
+                "sidecar_files": response.sidecar_files,
+                "warnings": response.warnings,
+                "error": report.error,
+            }
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+        else:
+            print("[rosclaw-lerobot] Dataset export complete")
+            print(f"  Status:      {report.status}")
+            print(f"  Output:      {output_dir}")
+            print(f"  Repo ID:     {repo_id}")
+            print(f"  Frames:      {report.dataset.get('num_frames', 0)}")
+            print(f"  Episodes:    {report.dataset.get('num_episodes', 0)}")
+            print(f"  Features:    {', '.join(report.dataset.get('features', {}).keys())}")
+            visual = report.dataset.get('visual', {})
+            print(f"  Visual mode: {visual.get('storage_mode', 'images')}")
+            print(f"  Load OK:     {report.validation.get('load_ok', False)}")
+            print(f"  Index OK:    {report.validation.get('index_ok', False)}")
+            if report.validation.get('dataloader_ok') is not None:
+                print(f"  Dataloader OK: {report.validation['dataloader_ok']}")
+            if report.feature_groups:
+                print(f"  ROSClaw groups: {', '.join(report.feature_groups)}")
+            if response.sidecar_files:
+                print(f"  Sidecar files: {', '.join(response.sidecar_files)}")
+            if response.warnings:
+                for w in response.warnings:
+                    print(f"  Warning:     {w}")
+            if report.error:
+                print(f"  Error:       {report.error.get('message', '')}", file=sys.stderr)
+
+        return 0 if report.status == "ok" else 1
+    finally:
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def cmd_lerobot_validate_dataset(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot validate-dataset`."""
+    dataset_dir = Path(args.dataset)
+    repo_id = args.repo_id
+    level = getattr(args, "level", "load")
+    result = validate_dataset(dataset_dir, repo_id, level=level)
+    formatted = format_validation_result(result)
+    ok = bool(result.load_ok and result.index_ok and not result.error)
+    if args.json:
+        print(json.dumps(formatted, indent=2, ensure_ascii=False))
+    else:
+        print("[rosclaw-lerobot] Dataset validation")
+        print(f"  Level:       {level}")
+        print(f"  Status:      {'ok' if ok else 'failed'}")
+        print(f"  Load OK:     {result.load_ok}")
+        print(f"  Index OK:    {result.index_ok}")
+        print(f"  Frames:      {result.num_frames or 'N/A'}")
+        print(f"  Episodes:    {result.num_episodes or 'N/A'}")
+        if result.sample_keys:
+            print(f"  Sample keys: {', '.join(result.sample_keys)}")
+        if result.sample_image_keys:
+            print(f"  Image keys:  {', '.join(result.sample_image_keys)}")
+        if result.dataloader_ok is not None:
+            print(f"  Dataloader OK: {result.dataloader_ok}")
+        if result.batch_keys:
+            print(f"  Batch keys:  {', '.join(result.batch_keys)}")
+        if result.error:
+            print(f"  Error:       {result.error.get('message', '')}")
+    return 0 if ok else 1
+
+
+def cmd_lerobot_dataset_api(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot dataset-api`."""
+    response = run_dataset_api_inspect(timeout_sec=getattr(args, "timeout_sec", 120))
+    api_info = response.api_info
+    if api_info is None:
+        print("[rosclaw-lerobot] Could not introspect LeRobotDataset API.", file=sys.stderr)
+        if response.error:
+            print(f"[rosclaw-lerobot] {response.error.code}: {response.error.message}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(api_info.to_dict() if api_info else {}, indent=2, ensure_ascii=False))
+    else:
+        print("[rosclaw-lerobot] LeRobotDataset API")
+        print(f"  create signature: {api_info.create_signature}")
+        print(f"  add_frame:        {'yes' if api_info.has_add_frame else 'no'}")
+        print(f"  save_episode:     {'yes' if api_info.has_save_episode else 'no'}")
+        print(f"  consolidate:      {'yes' if api_info.has_consolidate else 'no'}")
+        print(f"  finalize:         {'yes' if api_info.has_finalize else 'no'}")
+        if api_info.lerobot_version:
+            print(f"  LeRobot version:  {api_info.lerobot_version}")
+    return 0
+
+
+def cmd_lerobot_smoke_dataloader(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot smoke-dataloader`."""
+    response = run_dataset_dataloader_smoke(
+        output_dir=str(args.dataset),
+        repo_id=args.repo_id,
+        batch_size=int(getattr(args, "batch_size", 2)),
+        num_workers=int(getattr(args, "num_workers", 0)),
+        timeout_sec=int(getattr(args, "timeout_sec", 300)),
+    )
+    result = response.validation
+    if args.json:
+        print(json.dumps(format_validation_result(result), indent=2, ensure_ascii=False))
+    else:
+        print("[rosclaw-lerobot] DataLoader smoke")
+        print(f"  Dataloader OK: {result.dataloader_ok}")
+        print(f"  Frames:        {result.num_frames or 'N/A'}")
+        print(f"  Episodes:      {result.num_episodes or 'N/A'}")
+        if result.batch_keys:
+            print(f"  Batch keys:    {', '.join(result.batch_keys)}")
+        if result.batch_shapes:
+            print("  Batch shapes:")
+            for key, shape in result.batch_shapes.items():
+                print(f"    {key}: {shape}")
+        if result.error:
+            print(f"  Error:         {result.error.get('message', '')}", file=sys.stderr)
+    return 0 if result.dataloader_ok else 1
+
+
+_DATASET_COMPATIBILITY_MATRIX = [
+    {
+        "feature": "observation.state / action / task",
+        "status": "supported",
+        "since": "P2",
+        "notes": "Core LeRobotDataset features.",
+    },
+    {
+        "feature": "Single RGB camera",
+        "status": "supported",
+        "since": "P2",
+        "notes": "observation.images.<camera>",
+    },
+    {
+        "feature": "Safety / sandbox metadata",
+        "status": "supported",
+        "since": "P2.1 Gate A",
+        "notes": "rosclaw.sandbox.* int8/float32 features.",
+    },
+    {
+        "feature": "Failure metadata",
+        "status": "supported",
+        "since": "P2.1 Gate A",
+        "notes": "rosclaw.failure.* features.",
+    },
+    {
+        "feature": "Intervention metadata",
+        "status": "supported",
+        "since": "P2.1 Gate A",
+        "notes": "rosclaw.intervention.* features.",
+    },
+    {
+        "feature": "Action provenance",
+        "status": "supported",
+        "since": "P2.1 Gate A",
+        "notes": "rosclaw.action.* features.",
+    },
+    {
+        "feature": "Episode sidecar (parquet/jsonl)",
+        "status": "supported",
+        "since": "P2.1 Gate A",
+        "notes": "meta/rosclaw/episodes.parquet",
+    },
+    {
+        "feature": "Multi-camera / depth",
+        "status": "planned",
+        "since": "P2.1 Gate C",
+        "notes": "Multiple RGB/depth cameras.",
+    },
+    {
+        "feature": "Physical telemetry (current/force/temp)",
+        "status": "planned",
+        "since": "P2.1 Gate B",
+        "notes": "Motor current, force/torque, temperature.",
+    },
+]
+
+
+def cmd_lerobot_dataset_compatibility(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot dataset-compatibility`."""
+    if args.json:
+        print(json.dumps({"matrix": _DATASET_COMPATIBILITY_MATRIX}, indent=2, ensure_ascii=False))
+        return 0
+
+    print("ROSClaw × LeRobot Dataset Compatibility Matrix")
+    print("")
+    print(f"{'Feature':<42} {'Status':<12} {'Since':<18} Notes")
+    print("-" * 110)
+    for row in _DATASET_COMPATIBILITY_MATRIX:
+        print(f"{row['feature']:<42} {row['status']:<12} {row['since']:<18} {row['notes']}")
+    return 0
+
+
 def cmd_smoke_policy_lerobot(args: argparse.Namespace) -> int:
     """Dispatch `rosclaw lerobot smoke-policy`."""
     options = SmokePolicyOptions(
@@ -568,3 +960,8 @@ def cmd_lerobot_compatibility(args: argparse.Namespace) -> int:
 
     print(format_compatibility_text(report))
     return 0
+
+
+__all__ = [
+    "LeRobotDatasetWorkerRunner",
+]

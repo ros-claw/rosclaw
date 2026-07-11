@@ -1,0 +1,12 @@
+---
+body_id: mock_body_001
+serial: SECRET_SERIAL_12345
+ip_address: 192.168.1.100
+token: super_secret_token_xyz
+location:
+  lat: 37.7749
+  lon: -122.4194
+model: mock_robot_v1
+components:
+  arm: mock_arm
+  gripper: mock_gripper
