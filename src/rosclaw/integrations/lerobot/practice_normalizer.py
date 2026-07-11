@@ -1,8 +1,8 @@
 """Normalize a ROSClaw Practice episode into a LeRobot-ready intermediate format.
 
-This module lives in the ROSClaw core Python and must not import torch or
-lerobot.  It validates frame consistency, image sizes, and dimensions before the
-LeRobot runtime worker ever sees the data.
+This module lives in the ROSClaw core Python and must not import torch,
+lerobot, or PIL at module import time.  It validates frame consistency, image
+sizes, and dimensions before the LeRobot runtime worker ever sees the data.
 """
 
 from __future__ import annotations
@@ -11,9 +11,6 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
-from PIL import Image
-
 
 NORMALIZED_SCHEMA_VERSION = "rosclaw.practice.normalized.v2"
 LEGACY_NORMALIZED_SCHEMA_VERSION = "rosclaw.practice.normalized.v1"
@@ -27,6 +24,27 @@ class NormalizationError(Exception):
         self.code = code
         self.message = message
         self.details = details
+
+
+def _read_image_size(image_path: Path, camera_name: str) -> tuple[int, int]:
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise NormalizationError(
+            "image_reader_unavailable",
+            "Pillow is required to validate practice episode images.",
+            f"Could not import PIL while reading camera '{camera_name}' at {image_path}.",
+        ) from exc
+
+    try:
+        with Image.open(image_path) as img:
+            img = img.convert("RGB")
+            return (img.width, img.height)
+    except Exception as exc:  # noqa: BLE001
+        raise NormalizationError(
+            "image_file_not_found",
+            f"Could not read image '{camera_name}' at {image_path}: {exc}",
+        ) from exc
 
 
 @dataclass
@@ -59,7 +77,7 @@ class NormalizedRobot:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "NormalizedRobot":
+    def from_dict(cls, data: dict[str, Any]) -> NormalizedRobot:
         return cls(
             robot_id=data.get("robot_id") or "unknown",
             body_profile=data.get("body_profile"),
@@ -85,7 +103,7 @@ class NormalizedTask:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | str) -> "NormalizedTask":
+    def from_dict(cls, data: dict[str, Any] | str) -> NormalizedTask:
         if isinstance(data, str):
             return cls(text=data)
         return cls(text=data.get("text", ""), task_id=data.get("task_id"))
@@ -111,14 +129,11 @@ class NormalizedSafety:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "NormalizedSafety":
+    def from_dict(cls, data: dict[str, Any] | None) -> NormalizedSafety:
         if not data:
             return cls()
         modified = data.get("modified")
-        if modified is None:
-            modified = None
-        else:
-            modified = bool(modified)
+        modified = None if modified is None else bool(modified)
         return cls(
             decision=data.get("decision") or "UNKNOWN",
             modified=modified,
@@ -144,14 +159,11 @@ class NormalizedFailure:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "NormalizedFailure":
+    def from_dict(cls, data: dict[str, Any] | None) -> NormalizedFailure:
         if not data:
             return cls()
         active = data.get("active")
-        if active is None:
-            active = None
-        else:
-            active = bool(active)
+        active = None if active is None else bool(active)
         return cls(
             active=active,
             code=data.get("code"),
@@ -178,14 +190,11 @@ class NormalizedIntervention:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "NormalizedIntervention":
+    def from_dict(cls, data: dict[str, Any] | None) -> NormalizedIntervention:
         if not data:
             return cls()
         active = data.get("active")
-        if active is None:
-            active = None
-        else:
-            active = bool(active)
+        active = None if active is None else bool(active)
         return cls(
             active=active,
             source=data.get("source"),
@@ -207,14 +216,11 @@ class NormalizedActionContext:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "NormalizedActionContext":
+    def from_dict(cls, data: dict[str, Any] | None) -> NormalizedActionContext:
         if not data:
             return cls()
         was_clamped = data.get("was_clamped")
-        if was_clamped is None:
-            was_clamped = None
-        else:
-            was_clamped = bool(was_clamped)
+        was_clamped = None if was_clamped is None else bool(was_clamped)
         return cls(
             source=data.get("source") or "UNKNOWN",
             was_clamped=was_clamped,
@@ -313,7 +319,7 @@ class NormalizedFrame:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "NormalizedFrame":
+    def from_dict(cls, data: dict[str, Any]) -> NormalizedFrame:
         obs = data.get("observation", {})
 
         def _optional_bool(value: Any) -> bool | None:
@@ -387,7 +393,7 @@ class NormalizedPracticeEpisode:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "NormalizedPracticeEpisode":
+    def from_dict(cls, data: dict[str, Any]) -> NormalizedPracticeEpisode:
         return cls(
             schema_version=data.get("schema_version", LEGACY_NORMALIZED_SCHEMA_VERSION),
             episode_id=data.get("episode_id", ""),
@@ -554,15 +560,7 @@ def _validate_frames(episode: NormalizedPracticeEpisode, base_dir: Path) -> None
                     "image_file_not_found",
                     f"Image file not found for camera '{camera_name}': {image_path}",
                 )
-            try:
-                with Image.open(image_path) as img:
-                    img = img.convert("RGB")
-                    size = (img.width, img.height)
-            except Exception as exc:  # noqa: BLE001
-                raise NormalizationError(
-                    "image_file_not_found",
-                    f"Could not read image '{camera_name}' at {image_path}: {exc}",
-                ) from exc
+            size = _read_image_size(image_path, camera_name)
 
             if image_size is None:
                 image_size = size

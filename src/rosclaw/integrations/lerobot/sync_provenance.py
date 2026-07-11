@@ -7,9 +7,6 @@ so downstream tooling can audit how each frame value was produced.
 
 from __future__ import annotations
 
-from typing import Any
-
-
 # Provenance integer codes.  Keep this stable; it is referenced from both
 # sidecar metadata and optional per-frame features.
 PROVENANCE_UNKNOWN = 0

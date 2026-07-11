@@ -82,8 +82,10 @@ def run_ur5e_joint_preview(
         contacts = observation.get("contacts", [])
         contacts_count = len(contacts) if isinstance(contacts, list) else 0
         passed = bool(qpos and qvel and final_time > initial_time)
-        reason = "MuJoCo model stepped with non-empty qpos/qvel." if passed else (
-            "MuJoCo step did not produce a valid advancing physics state."
+        reason = (
+            "MuJoCo model stepped with non-empty qpos/qvel."
+            if passed
+            else ("MuJoCo step did not produce a valid advancing physics state.")
         )
         return SandboxVerificationResult(
             case=case,

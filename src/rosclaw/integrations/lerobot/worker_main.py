@@ -329,7 +329,6 @@ def _load_policy_for_inference(
 
     If none succeed it raises ``RuntimeError("policy_api_unsupported: ...")``.
     """
-    import torch
 
     local_path = Path(policy_path)
     if not local_path.is_dir():
@@ -357,8 +356,8 @@ def _load_policy_for_inference(
     # Alternative modern path via the factory.
     if policy is None:
         try:
-            from lerobot.policies.factory import make_policy
             from lerobot.envs.factory import make_env_config
+            from lerobot.policies.factory import make_policy
 
             env_type = _guess_env_type(local_path) or "aloha"
             policy = make_policy(cfg, env_cfg=make_env_config(env_type))

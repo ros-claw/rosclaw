@@ -6,6 +6,7 @@ ROS Python client libraries.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from enum import StrEnum
@@ -153,8 +154,14 @@ class RosApiResolver:
         values = _extract_values(result.data)
         value = values.get("value")
         if isinstance(value, str):
-            # value is typically "noetic" or "melodic".
-            return value.strip("/").split("/")[-1]
+            # ROS1 rosapi may return the parameter as a JSON-encoded string.
+            try:
+                decoded = json.loads(value)
+                if isinstance(decoded, str):
+                    value = decoded
+            except json.JSONDecodeError:
+                pass
+            return value.strip().strip("/").split("/")[-1]
         return ""
 
 

@@ -12,7 +12,6 @@ from rosclaw.integrations.lerobot.body_snapshot import (
     include_body_snapshot,
 )
 
-
 SAMPLE_BODY = """---
 body_id: mock_body_001
 serial: SECRET_SERIAL_12345

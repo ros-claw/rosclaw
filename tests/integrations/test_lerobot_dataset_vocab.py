@@ -8,8 +8,8 @@ from rosclaw.integrations.lerobot.dataset_vocab import (
     build_rosclaw_vocab,
     decode,
     encode,
-    write_vocab,
     read_vocab,
+    write_vocab,
 )
 
 

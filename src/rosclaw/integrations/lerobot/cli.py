@@ -18,9 +18,8 @@ from rosclaw.integrations.lerobot.config import (
     get_configured_lerobot_runtime,
 )
 from rosclaw.integrations.lerobot.dataset_feature_infer import infer_features
-from rosclaw.integrations.lerobot.dataset_profile import PROFILE_NAMES, resolve_profile
+from rosclaw.integrations.lerobot.dataset_profile import resolve_profile
 from rosclaw.integrations.lerobot.dataset_report import (
-    DatasetExportReport,
     report_from_worker_response,
     write_dataset_export_report,
 )
@@ -34,20 +33,15 @@ from rosclaw.integrations.lerobot.dataset_worker_runner import (
     run_dataset_dataloader_smoke,
     run_dataset_export,
 )
-from rosclaw.integrations.lerobot.dataset_worker_schema import (
-    DatasetValidationConfig,
-    DatasetWorkerRequest,
-    DatasetWriterConfig,
-)
+from rosclaw.integrations.lerobot.doctor import run_lerobot_doctor
+from rosclaw.integrations.lerobot.installer import install_lerobot
 from rosclaw.integrations.lerobot.practice_normalizer import (
     NormalizationError,
     normalize_practice_episode,
     write_normalized_episode,
 )
-from rosclaw.integrations.lerobot.doctor import run_lerobot_doctor
-from rosclaw.integrations.lerobot.installer import install_lerobot
 from rosclaw.integrations.lerobot.provider import LeRobotPolicyProvider
-from rosclaw.integrations.lerobot.runtime import LeRobotRuntime
+from rosclaw.integrations.lerobot.runtime import LEROBOT_INFO_MODULE, LeRobotRuntime
 from rosclaw.integrations.lerobot.smoke_policy import (
     DEFAULT_SMOKE_POLICY,
     SmokePolicyOptions,
@@ -86,18 +80,32 @@ def cmd_setup_lerobot(args: argparse.Namespace) -> int:
         index_url=args.index_url,
         extra_index_url=args.extra_index_url,
     )
-    print(f"[rosclaw-lerobot] Profile: {report.profile}")
-    print(f"[rosclaw-lerobot] Mode: {report.mode or 'N/A'}")
-    print(f"[rosclaw-lerobot] OK: {report.ok}")
-    print(f"[rosclaw-lerobot] Message: {report.message}")
-    if report.lerobot_version:
-        print(f"[rosclaw-lerobot] LeRobot version: {report.lerobot_version}")
-    if report.runtime and report.runtime.python_executable:
-        print(f"[rosclaw-lerobot] Runtime Python: {report.runtime.python_executable}")
-    if report.error_code:
-        print(f"[rosclaw-lerobot] Error code: {report.error_code}")
     if args.json:
-        print(json.dumps(report.details, indent=2, default=str))
+        payload = {
+            "ok": report.ok,
+            "profile": report.profile,
+            "dry_run": report.dry_run,
+            "mode": report.mode,
+            "message": report.message,
+            "error_code": report.error_code,
+            "lerobot_version": report.lerobot_version,
+            "python_executable": report.python_executable,
+            "pip_executable": report.pip_executable,
+            "runtime": _serialize_runtime(report.runtime),
+            "details": report.details,
+        }
+        print(json.dumps(payload, indent=2, default=str))
+    else:
+        print(f"[rosclaw-lerobot] Profile: {report.profile}")
+        print(f"[rosclaw-lerobot] Mode: {report.mode or 'N/A'}")
+        print(f"[rosclaw-lerobot] OK: {report.ok}")
+        print(f"[rosclaw-lerobot] Message: {report.message}")
+        if report.lerobot_version:
+            print(f"[rosclaw-lerobot] LeRobot version: {report.lerobot_version}")
+        if report.runtime and report.runtime.python_executable:
+            print(f"[rosclaw-lerobot] Runtime Python: {report.runtime.python_executable}")
+        if report.error_code:
+            print(f"[rosclaw-lerobot] Error code: {report.error_code}")
 
     if report.ok:
         return 0
@@ -107,6 +115,7 @@ def cmd_setup_lerobot(args: argparse.Namespace) -> int:
         "python312_not_found",
         "external_python_not_found",
         "external_python_too_old",
+        "lerobot_version_unsupported",
     }:
         return 2
     return 1
@@ -121,6 +130,7 @@ def cmd_lerobot_doctor(args: argparse.Namespace) -> int:
         }
     )
     validation = report.validation_status or get_validation_status()
+    ds_status = report.dataset_export_status or {"state": "not_configured"}
     if args.json:
         payload: dict[str, Any] = {
             "name": report.name,
@@ -150,7 +160,7 @@ def cmd_lerobot_doctor(args: argparse.Namespace) -> int:
                 "worker_in_process": report.worker_in_process_available,
             },
             "validation": validation,
-            "dataset_export_status": report.dataset_export_status,
+            "dataset_export_status": ds_status,
             "synchronization": ds_status.get("synchronization", {}),
             "missingness": ds_status.get("missingness", {}),
             "hf_endpoint": report.hf_endpoint,
@@ -225,7 +235,6 @@ def cmd_lerobot_doctor(args: argparse.Namespace) -> int:
 
     print()
     print("Dataset Export Validation")
-    ds_status = report.dataset_export_status or {"state": "not_configured"}
     ds_state = ds_status.get("state", "not_configured")
     print(f"  Status:            {ds_state}")
     if ds_status.get("last_output_dir"):
@@ -332,7 +341,7 @@ def cmd_lerobot_info(args: argparse.Namespace) -> int:
         else:
             # If the stored executable is the python interpreter itself, use
             # python -m lerobot_info as a fallback.
-            info_path = runtime_cfg.get("python_executable")
+            info_path = Path(runtime_cfg["python_executable"])
 
     if info_path is None:
         from_path = which("lerobot-info")
@@ -349,7 +358,7 @@ def cmd_lerobot_info(args: argparse.Namespace) -> int:
 
     cmd: list[str]
     if isinstance(info_path, Path) and info_path.name.startswith("python"):
-        cmd = [str(info_path), "-m", "lerobot_info"]
+        cmd = [str(info_path), "-m", LEROBOT_INFO_MODULE]
     else:
         cmd = [str(info_path)]
     if args.args:
@@ -572,6 +581,8 @@ def cmd_provider_infer_lerobot(args: argparse.Namespace) -> int:
     except json.JSONDecodeError as exc:
         print(f"[rosclaw-lerobot] Invalid input JSON: {exc}", file=sys.stderr)
         return 1
+    if isinstance(inputs, dict):
+        inputs.setdefault("_base_dir", str(input_path.parent))
 
     inputs.update(_build_lerobot_provider_inputs(args))
 
@@ -689,7 +700,7 @@ def cmd_lerobot_export_dataset(args: argparse.Namespace) -> int:
                 print(f"  Profile:       {profile}")
                 print(f"  Feature groups: {', '.join(sorted(prof.feature_groups)) or '(none)'}")
                 print(f"  Frames:        {len(normalized.frames)}")
-                print(f"  Features:")
+                print("  Features:")
                 for key, value in features.items():
                     print(f"    {key}: dtype={value['dtype']}, shape={value['shape']}")
                 if warnings:
@@ -1009,3 +1020,8 @@ def cmd_lerobot_compatibility(args: argparse.Namespace) -> int:
 
     print(format_compatibility_text(report))
     return 0
+
+
+__all__ = [
+    "LeRobotDatasetWorkerRunner",
+]

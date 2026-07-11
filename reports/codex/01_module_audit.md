@@ -1,27 +1,24 @@
 # Module Audit
 
-This audit focuses on repository reality observed during PR #55 validation. It does not claim full architectural completion outside the commands and tests listed here.
+Date: 2026-07-09
 
-| Area | Current implementation | What runs | Gaps | Fixes in this pass |
-|---|---|---|---|---|
-| Runtime | `src/rosclaw/core/runtime.py`, `src/rosclaw/runtime/bus.py` own runtime wiring and runtime event transport. | Full pytest passes after targeted fixes. | More lifecycle idempotency/failure-shutdown tests requested by the task are still not added. | No runtime ownership refactor; only Practice fixture uses `RuntimeBus` through the normal recorder path. |
-| EventBus | `src/rosclaw/core/event_bus.py`, `src/rosclaw/runtime/bus.py`, and `src/rosclaw/schemas/events.py`. | Existing tests pass. Practice recorder writes event envelopes. | Task-requested eventbus-specific tests are still missing. | Practice verifier now checks raw JSONL envelope fields in strict mode. |
-| Body / e-URDF | `src/rosclaw/body/*`, `e-urdf-zoo/`, body CLI wiring in `src/rosclaw/cli.py`. | CLI help smoke for `body` passes. | Effective body constraints into all sandbox/provider paths not fully proven in this pass. | Practice fixture carries `body_id` and body cognition output. |
-| Provider | `src/rosclaw/provider/*`, CLI help under `provider`. | CLI help smoke passes. | Provider route to sandbox cannot be claimed fully closed without additional route/validation tests. | No provider code changed. |
-| Sandbox / Firewall | `src/rosclaw/firewall/*`, sandbox CLI. | CLI help smoke passes; full pytest passes. | Required direct ROS command block and missing-body fail-closed tests remain future work. | No sandbox code changed. |
-| Practice | `src/rosclaw/practice/*`, CLI commands in `src/rosclaw/cli.py`. | `record -> verify --strict -> distill -> ingest-seekdb -> query -> export parquet/lerobot` passes on the deterministic RH56 fixture. | Real SeekDB URL backend is absent; query is SQLite-backed. | Added fixture recorder command, strict envelope checks, deterministic fixture, and regression tests. |
-| Memory | `src/rosclaw/memory/*`. | Full pytest passes; empty event id edge case fixed. | Evidence promotion from Practice to How/Auto/Sandbox is not fully validated. | Generated ids are stored back into records before insert/index. |
-| Know | `src/rosclaw/know/*`. | Full pytest passes. | TaskCard/EvidenceTrace tests requested by the task remain future work. | No Know code changed. |
-| How | `src/rosclaw/how/*`, How CLI. | CLI help smoke passes. | Human-readable intervention evidence/risk/rollback gate not fully audited. | No How code changed. |
-| Auto | `src/rosclaw/auto/*`, Auto CLI. | CLI help smoke passes; full pytest passes. | End-to-end dry-run chain through Darwin and skill promotion not fully proven. | No Auto code changed. |
-| Darwin | `src/rosclaw/darwin/*` exists. | Tests can import modules, but CLI smoke for top-level `rosclaw darwin --help` fails. | Top-level Darwin CLI is missing. | No Darwin CLI added; this remains a merge blocker. |
-| Skill Registry | `src/rosclaw/skill/*`. | Skill tests pass after template copy fix. | Candidate/champion safety gate still needs explicit end-to-end validation. | `_copy_template` skips bytecode/cache files. |
-| Hub / MCP | `src/rosclaw/hub/*`, `src/rosclaw/mcp/*`. | Full pytest passes; docs asset test now treats root MCP config as ignored local state. | Real remote Hub behavior not exercised in this pass. | Docs asset regression now aligns with `.gitignore` for `.mcp.json` and `mcp.json`. |
-| CLI | `src/rosclaw/cli.py`. | `rosclaw --help` and most subcommand help smoke pass. | `darwin` is missing; docs/CLI consistency is not complete. | Added `practice record` and clearer Practice backend errors. |
+| Area | Verified implementation | Current boundary |
+|---|---|---|
+| Runtime | Runtime wiring, idempotent start/stop, handlers, health, and full regression suite pass. | No real robot actuation was authorized or attempted. |
+| EventBus | RuntimeBus to PracticeRecorder produces strict event envelopes and nine-event fixture traces. | Cross-process durability still depends on configured runtime transport. |
+| Body / e-URDF | Body CLI and existing compatibility/render tests pass. | Every third-party robot profile still needs asset-specific validation. |
+| Provider | Contract routing, dry-run benchmark, direct DeepSeek registration, real HTTP invocation, timeout, and structured upstream failure handling pass. | The supplied official account returns `402 Insufficient Balance`; model quality/latency needs a funded account. |
+| Sandbox / Firewall | UR5e MuJoCo model loads and advances eight steps with non-empty qpos/qvel. | Hardware safety certification is outside ROSClaw's scope. |
+| Practice | Fixture record, strict verify, distill, local/real SeekDB, five query modes, exports, and terminal safety artifact integrity pass. | Live recording quality depends on source adapters and clocks. |
+| Memory | Memory, SQLite, in-memory, and real SeekDB server clients pass focused tests. | RuntimeConfig still selects memory/SQLite; direct server selection is currently exposed through Practice CLI/client APIs. |
+| Know / How | Evidence from the RH56 fixture resolves into body cognition and intervention records. | Semantic quality beyond deterministic evidence needs domain datasets. |
+| Auto / Darwin | Canonical Runtime/How events reach Auto; a safety failure produces a proposal and passes sandbox plus three-seed Darwin evaluation. | External benchmark suites and human promotion gates remain deployment responsibilities. |
+| Skill | The acceptance loop registers only a simulated `sim` champion after the evaluation gate; package lineage/promotion/rollback tests pass. | Real skill execution requires body compatibility and explicit safety approval. |
+| Hub / MCP | Full tests pass; universal agent MCP stdio probe discovers 13 tools; public Hub `ros-claw/g1-mcp` resolves to a zero-write dry-run plan. | Authenticated publish needs a Hub write token and remains unexercised. |
+| Agent Integration | Temp-project install generates MCP config, guidance, skill, Claude settings, and context snapshot. | It is cross-agent onboarding, not a native plugin package for each framework. |
+| ROS Connector | Read-only ping/discover/manifest/pose tests pass on ROS2 ports 9090/32887 and ROS1 Noetic port 9091; `/turtle1/cmd_vel` is high risk. | No command topic was published. |
+| CLI | Root help and all task-required module help commands pass. | Commands that can actuate hardware still require explicit user authorization. |
 
-## Boundary Notes
+## Safety Boundary
 
-- No true hardware write, ROS topic publish, DDS publish, serial write, or motor command was executed.
-- Docker endpoints were checked by socket connection only: 9090, 9091, 32887, 8000, 6379, 2881.
-- ROS bridge topic listing and read tests were not completed in this pass, so Loop B is not fully satisfied.
-
+No ROS publish, motor command, serial write, DDS command, or real hardware action was executed. ROS validation was read-only; simulation used MuJoCo only.

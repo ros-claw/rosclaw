@@ -165,7 +165,7 @@ Real Policy Smoke Validation
   Time:              2026-07-09T19:23:16.156854Z
 ```
 
-> 本次运行使用的是真实 LeRobot 0.6.1 runtime、真实 ACT policy 权重与真实单步推理，action_proposal 已按 P1 安全契约标记为 `not_executed=true`、`requires_sandbox=true`、`executable=false`。
+> 本次运行使用的是真实 LeRobot 0.6.x runtime、真实 ACT policy 权重与真实单步推理，action_proposal 已按 P1 安全契约标记为 `not_executed=true`、`requires_sandbox=true`、`executable=false`。
 
 ### 5.3 手工冒烟
 

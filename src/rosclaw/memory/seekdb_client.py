@@ -3,6 +3,7 @@
 Provides abstract SeekDBClient and concrete implementations:
 - SeekDBMemoryClient: In-memory for testing
 - SeekDBSQLiteClient: SQLite for single-machine deployment
+- SeekDBMySQLClient: MySQL-compatible SeekDB/OceanBase server deployment
 
 Sprint 5 of DESIGN_SPRINT3_5.
 """
@@ -10,11 +11,13 @@ Sprint 5 of DESIGN_SPRINT3_5.
 import contextlib
 import json
 import logging
+import re
 import sqlite3
 import uuid
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -780,3 +783,312 @@ class SeekDBSQLiteClient(SeekDBClient):
         cursor = self._connection.execute(sql, params)
         self._connection.commit()
         return cursor.rowcount
+
+
+class SeekDBMySQLClient(SeekDBClient):
+    """MySQL-compatible client for a SeekDB/OceanBase server.
+
+    URLs use a database DSN, for example
+    ``mysql://root@127.0.0.1:2881/rosclaw``. Port 2881 is the SeekDB SQL
+    protocol, not an HTTP endpoint.
+    """
+
+    _SUPPORTED_SCHEMES = {"mysql", "mysql+pymysql", "seekdb"}
+
+    def __init__(self, url: str = "mysql://root@127.0.0.1:2881/rosclaw"):
+        parsed = urlparse(url)
+        if parsed.scheme not in self._SUPPORTED_SCHEMES:
+            raise ValueError(
+                "SeekDB server URL must use mysql://, mysql+pymysql://, or seekdb://; "
+                "port 2881 is not an HTTP API"
+            )
+        if not parsed.hostname:
+            raise ValueError("SeekDB server URL must include a hostname")
+
+        database = parsed.path.lstrip("/") or "rosclaw"
+        self._validate_identifier(database)
+        self._url = url
+        self._host = parsed.hostname
+        self._port = parsed.port or 2881
+        self._user = unquote(parsed.username or "root")
+        self._password = unquote(parsed.password or "")
+        self._database = database
+        self._conn: Any | None = None
+
+    @staticmethod
+    def _validate_identifier(identifier: str) -> str:
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", identifier):
+            raise ValueError(f"Invalid SQL identifier: {identifier!r}")
+        return identifier
+
+    @classmethod
+    def _quoted(cls, identifier: str) -> str:
+        return f"`{cls._validate_identifier(identifier)}`"
+
+    def connect(self) -> None:
+        if self._conn is not None:
+            return
+
+        try:
+            import pymysql
+        except ImportError as exc:
+            raise RuntimeError(
+                "PyMySQL is required for SeekDB server connections; install rosclaw again "
+                "with current dependencies"
+            ) from exc
+
+        connection = pymysql.connect(
+            host=self._host,
+            port=self._port,
+            user=self._user,
+            password=self._password,
+            charset="utf8mb4",
+            autocommit=False,
+            connect_timeout=5,
+            read_timeout=10,
+            write_timeout=10,
+            cursorclass=pymysql.cursors.DictCursor,
+        )
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"CREATE DATABASE IF NOT EXISTS {self._quoted(self._database)} "
+                    "DEFAULT CHARACTER SET utf8mb4"
+                )
+                cursor.execute(f"USE {self._quoted(self._database)}")
+            self._conn = connection
+            self._create_tables()
+        except Exception:
+            connection.close()
+            raise
+
+    def is_connected(self) -> bool:
+        return self._conn is not None and bool(getattr(self._conn, "open", True))
+
+    def disconnect(self) -> None:
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
+    @property
+    def _connection(self) -> Any:
+        if self._conn is None:
+            self.connect()
+        assert self._conn is not None
+        return self._conn
+
+    @staticmethod
+    def _mysql_column_type(
+        column_name: str,
+        declaration: str,
+        *,
+        indexed: bool,
+    ) -> str:
+        normalized = declaration.upper()
+        not_null = "NOT NULL" in normalized
+        primary_key = "PRIMARY KEY" in normalized
+        default_match = re.search(r"\bDEFAULT\s+(.+)$", declaration, flags=re.IGNORECASE)
+
+        if "INTEGER" in normalized:
+            sql_type = "BIGINT"
+        elif "REAL" in normalized:
+            sql_type = "DOUBLE"
+        elif primary_key or indexed:
+            sql_type = "VARCHAR(255)"
+        else:
+            sql_type = "LONGTEXT"
+
+        parts = [sql_type]
+        if not_null:
+            parts.append("NOT NULL")
+        if primary_key:
+            parts.append("PRIMARY KEY")
+        if default_match and sql_type != "LONGTEXT":
+            parts.append(f"DEFAULT {default_match.group(1)}")
+        return " ".join(parts)
+
+    @classmethod
+    def _validate_table_and_columns(
+        cls,
+        table: str,
+        columns: list[str] | None = None,
+    ) -> dict[str, Any]:
+        if table not in SEEKDB_SCHEMAS:
+            raise ValueError(f"Unknown table: {table}")
+        schema = SEEKDB_SCHEMAS[table]
+        if columns:
+            unknown = set(columns) - set(schema["columns"])
+            if unknown:
+                raise ValueError(f"Unknown columns for {table}: {sorted(unknown)}")
+        return schema
+
+    def _create_tables(self) -> None:
+        with self._connection.cursor() as cursor:
+            for table_name, schema in SEEKDB_SCHEMAS.items():
+                indexed = set(schema.get("indices", []))
+                column_sql = ", ".join(
+                    f"{self._quoted(column_name)} "
+                    f"{self._mysql_column_type(column_name, declaration, indexed=column_name in indexed)}"
+                    for column_name, declaration in schema["columns"].items()
+                )
+                cursor.execute(
+                    f"CREATE TABLE IF NOT EXISTS {self._quoted(table_name)} ({column_sql}) "
+                    "DEFAULT CHARACTER SET utf8mb4"
+                )
+
+                cursor.execute(f"SHOW COLUMNS FROM {self._quoted(table_name)}")
+                existing_columns = {
+                    row["Field"] if isinstance(row, dict) else row[0] for row in cursor.fetchall()
+                }
+                for column_name, declaration in schema["columns"].items():
+                    if column_name in existing_columns:
+                        continue
+                    cursor.execute(
+                        f"ALTER TABLE {self._quoted(table_name)} ADD COLUMN "
+                        f"{self._quoted(column_name)} "
+                        f"{self._mysql_column_type(column_name, declaration, indexed=column_name in indexed)}"
+                    )
+
+                cursor.execute(f"SHOW INDEX FROM {self._quoted(table_name)}")
+                existing_indices = {
+                    row["Key_name"] if isinstance(row, dict) else row[2]
+                    for row in cursor.fetchall()
+                }
+                for column_name in indexed:
+                    index_name = f"idx_{table_name}_{column_name}"
+                    if index_name in existing_indices:
+                        continue
+                    cursor.execute(
+                        f"CREATE INDEX {self._quoted(index_name)} "
+                        f"ON {self._quoted(table_name)} ({self._quoted(column_name)})"
+                    )
+        self._connection.commit()
+
+    @staticmethod
+    def _serialize(value: Any) -> Any:
+        return json.dumps(value) if isinstance(value, (list, dict)) else value
+
+    @staticmethod
+    def _deserialize_record(record: dict[str, Any]) -> dict[str, Any]:
+        decoded = dict(record)
+        for key, value in decoded.items():
+            if isinstance(value, str) and (value.startswith("[") or value.startswith("{")):
+                with contextlib.suppress(json.JSONDecodeError):
+                    decoded[key] = json.loads(value)
+        return decoded
+
+    def insert(self, table: str, record: dict) -> str:
+        schema = self._validate_table_and_columns(table, list(record))
+        serialized = {key: self._serialize(value) for key, value in record.items()}
+        serialized.setdefault("id", str(uuid.uuid4()))
+        self._validate_table_and_columns(table, list(serialized))
+
+        columns = list(serialized)
+        placeholders = ", ".join("%s" for _ in columns)
+        update_columns = [column for column in columns if column != "id"]
+        update_clause = ", ".join(
+            f"{self._quoted(column)} = VALUES({self._quoted(column)})" for column in update_columns
+        )
+        if not update_clause:
+            update_clause = f"{self._quoted('id')} = {self._quoted('id')}"
+
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"INSERT INTO {self._quoted(table)} "
+                f"({', '.join(self._quoted(column) for column in columns)}) "
+                f"VALUES ({placeholders}) ON DUPLICATE KEY UPDATE {update_clause}",
+                list(serialized.values()),
+            )
+        self._connection.commit()
+        assert "id" in schema["columns"]
+        return str(serialized["id"])
+
+    def query(
+        self,
+        table: str,
+        filters: dict | None = None,
+        order_by: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        self._validate_table_and_columns(table, list(filters or {}))
+        sql = f"SELECT * FROM {self._quoted(table)}"
+        params: list[Any] = []
+        if filters:
+            conditions = []
+            for key, value in filters.items():
+                conditions.append(f"{self._quoted(key)} = %s")
+                params.append(value)
+            sql += " WHERE " + " AND ".join(conditions)
+        if order_by:
+            descending = order_by.startswith("-")
+            key = order_by.lstrip("-")
+            self._validate_table_and_columns(table, [key])
+            sql += f" ORDER BY {self._quoted(key)} {'DESC' if descending else 'ASC'}"
+        sql += " LIMIT %s"
+        params.append(max(0, int(limit)))
+
+        with self._connection.cursor() as cursor:
+            cursor.execute(sql, params)
+            rows = cursor.fetchall()
+        return [self._deserialize_record(dict(row)) for row in rows]
+
+    def update(self, table: str, record_id: str, updates: dict) -> bool:
+        if not updates:
+            return False
+        self._validate_table_and_columns(table, list(updates))
+        serialized = {key: self._serialize(value) for key, value in updates.items()}
+        set_clause = ", ".join(f"{self._quoted(key)} = %s" for key in serialized)
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"UPDATE {self._quoted(table)} SET {set_clause} WHERE {self._quoted('id')} = %s",
+                [*serialized.values(), record_id],
+            )
+            changed = cursor.rowcount > 0
+        self._connection.commit()
+        return changed
+
+    def count(self, table: str, filters: dict | None = None) -> int:
+        self._validate_table_and_columns(table, list(filters or {}))
+        sql = f"SELECT COUNT(*) AS row_count FROM {self._quoted(table)}"
+        params: list[Any] = []
+        if filters:
+            conditions = []
+            for key, value in filters.items():
+                conditions.append(f"{self._quoted(key)} = %s")
+                params.append(value)
+            sql += " WHERE " + " AND ".join(conditions)
+        with self._connection.cursor() as cursor:
+            cursor.execute(sql, params)
+            row = cursor.fetchone()
+        if isinstance(row, dict):
+            return int(row["row_count"])
+        return int(row[0])
+
+    def delete(self, table: str, record_id: str) -> bool:
+        self._validate_table_and_columns(table)
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"DELETE FROM {self._quoted(table)} WHERE {self._quoted('id')} = %s",
+                (record_id,),
+            )
+            deleted = cursor.rowcount > 0
+        self._connection.commit()
+        return deleted
+
+    def delete_where(self, table: str, filters: dict) -> int:
+        if not filters:
+            return 0
+        self._validate_table_and_columns(table, list(filters))
+        conditions = []
+        params = []
+        for key, value in filters.items():
+            conditions.append(f"{self._quoted(key)} = %s")
+            params.append(value)
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"DELETE FROM {self._quoted(table)} WHERE " + " AND ".join(conditions),
+                params,
+            )
+            deleted = cursor.rowcount
+        self._connection.commit()
+        return int(deleted)

@@ -85,7 +85,7 @@
 
 ### 5.1 环境
 
-- **LeRobot 环境：** `.venv-lerobot`（Python 3.12.13，LeRobot 0.6.1，PyTorch 2.11.0+cu128，CUDA 12.8）
+- **LeRobot 环境：** `.venv-lerobot`（Python 3.12.13，LeRobot 0.6.x，PyTorch 2.11.0+cu128，CUDA 12.8）
 - **无 LeRobot 环境：** `.venv`（Python 3.11.15，仅 rosclaw-core 依赖）
 
 ### 5.2 命令实测
@@ -96,7 +96,7 @@ HF_ENDPOINT=https://hf-mirror.com \
   PATH=.venv-lerobot/bin:$PATH \
   PYTHONPATH=src \
   .venv-lerobot/bin/python -m rosclaw.cli setup lerobot --profile core
-# 输出：OK: True, LeRobot version: 0.6.1
+# 输出：OK: True, LeRobot version: 0.6.x
 ```
 
 ```bash
@@ -125,7 +125,7 @@ rosclaw provider infer --type lerobot_policy \
 rosclaw provider infer --type lerobot_policy \
   --manifest examples/lerobot/sample_policy_manifest.yaml \
   --input examples/lerobot/sample_observation.json
-# lerobot_smoke.import_ok: true, version: 0.6.1
+# lerobot_smoke.import_ok: true, version: 0.6.x
 ```
 
 ```bash

@@ -41,6 +41,8 @@ def adapt_observation_for_worker(input_data: dict[str, Any]) -> dict[str, Any]:
     observation = input_data.get("observation", input_data)
     if not isinstance(observation, dict):
         raise ValueError(f"Expected observation dict, got {type(observation).__name__}")
+    base_dir_raw = input_data.get("_base_dir") or observation.get("_base_dir")
+    base_dir = Path(base_dir_raw) if base_dir_raw else None
 
     out: dict[str, Any] = {}
 
@@ -58,6 +60,8 @@ def adapt_observation_for_worker(input_data: dict[str, Any]) -> dict[str, Any]:
     images = _extract_images(observation)
     for name, path in images.items():
         image_path = Path(path)
+        if base_dir is not None and not image_path.is_absolute():
+            image_path = base_dir / image_path
         if not image_path.exists():
             raise FileNotFoundError(f"Observation image not found: {image_path}")
         out[f"observation.images.{name}"] = str(image_path.resolve())

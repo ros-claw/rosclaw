@@ -5,8 +5,6 @@ These tests do not require a real LeRobot runtime.
 
 from __future__ import annotations
 
-import pytest
-
 from rosclaw.integrations.lerobot.compatibility import (
     POLICY_COMPATIBILITY_MATRIX,
     build_compatibility_report,
@@ -28,7 +26,7 @@ def test_get_policy_compatibility_known_types():
 
     vqbet = get_policy_compatibility("vqbet")
     assert vqbet.inspect is True
-    assert vqbet.load_test is True
+    assert vqbet.load_test is False
     assert vqbet.infer is False
 
 
@@ -49,11 +47,11 @@ def test_get_policy_compatibility_none():
 
 
 def test_classify_compatibility_level_without_report():
-    """Without a smoke report, known families reach infer_ok/load_ok."""
+    """Without a smoke report, only the ACT path is marked infer-capable."""
     assert classify_compatibility_level("act") == "infer_ok"
-    assert classify_compatibility_level("diffusion") == "infer_ok"
-    assert classify_compatibility_level("vqbet") == "load_ok"
-    assert classify_compatibility_level("tdmpc") == "load_ok"
+    assert classify_compatibility_level("diffusion") == "inspect_ok"
+    assert classify_compatibility_level("vqbet") == "inspect_ok"
+    assert classify_compatibility_level("tdmpc") == "inspect_ok"
     assert classify_compatibility_level("unknown_future") == "inspect_ok"
     assert classify_compatibility_level(None) == "unsupported"
 

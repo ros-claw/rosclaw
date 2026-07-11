@@ -122,12 +122,14 @@ class PracticeLayout:
         seekdb_enabled: bool = False,
         extra: dict[str, Any] | None = None,
     ) -> None:
+        body_id = session.metadata.get("body_id") if session.metadata else None
         manifest: dict[str, Any] = {
             "schema_version": "practice.manifest.v1",
             "practice_id": session.practice_id,
             "session_id": session.session_id,
             "robot_id": session.robot_id,
             "robot_type": session.robot_type,
+            "body_id": body_id,
             "task": {
                 "task_id": session.task_id,
                 "task_name": session.task_name,
@@ -136,6 +138,7 @@ class PracticeLayout:
             "start_time": session.start_time_utc,
             "end_time": None,
             "duration_ms": None,
+            "event_count": None,
             "sources": sources or {},
             "artifacts": {
                 "events_jsonl": str(self.events_jsonl_path(session.practice_id)),
@@ -165,6 +168,7 @@ class PracticeLayout:
         if summary is not None:
             manifest["end_time"] = _utc_now_iso()
             manifest["duration_ms"] = summary.duration_ms
+            manifest["event_count"] = summary.event_count
             manifest["status"]["outcome"] = summary.outcome
             manifest["status"]["reward"] = summary.reward
             manifest["status"]["failure_labels"] = summary.failure_labels

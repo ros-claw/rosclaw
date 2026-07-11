@@ -5,6 +5,7 @@ These tests do not require a real LeRobot runtime or network access.
 
 from __future__ import annotations
 
+import builtins
 import json
 import sys
 from pathlib import Path
@@ -12,7 +13,11 @@ from pathlib import Path
 import pytest
 
 from rosclaw.integrations.lerobot.action_adapter import adapt_action_to_proposal
-from rosclaw.integrations.lerobot.policy_cache import PolicyMaterializationError
+from rosclaw.integrations.lerobot.policy_cache import (
+    PolicyMaterializationError,
+    get_policy_cache_dir,
+    materialize_policy_path,
+)
 from rosclaw.integrations.lerobot.smoke_policy import (
     DEFAULT_SMOKE_POLICY,
     SmokePolicyOptions,
@@ -159,6 +164,56 @@ def test_smoke_policy_rejects_uncached_hf_repo_without_allow_network(
     assert report.error["code"] == "network_disabled"
 
 
+def test_materialize_hf_repo_uses_complete_rosclaw_cache_without_hub(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A complete ROSClaw policy cache should not require huggingface_hub."""
+    repo_id = "lerobot/act_cached"
+    cached = get_policy_cache_dir() / "lerobot_act_cached"
+    cached.mkdir(parents=True)
+    (cached / "config.json").write_text('{"type": "act"}', encoding="utf-8")
+    (cached / "model.safetensors").write_bytes(b"weights")
+
+    original_import = builtins.__import__
+
+    def fail_hub_import(name, *args, **kwargs):
+        if name == "huggingface_hub":
+            raise ImportError("blocked in test")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fail_hub_import)
+
+    result = materialize_policy_path(repo_id, allow_network=False)
+
+    assert result.local_path == cached
+    assert result.cache_hit is True
+    assert result.network_used is False
+
+
+def test_materialize_hf_repo_rejects_config_only_rosclaw_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A config-only cache is not enough for load-test/infer smoke."""
+    repo_id = "lerobot/config_only"
+    cached = get_policy_cache_dir() / "lerobot_config_only"
+    cached.mkdir(parents=True)
+    (cached / "config.json").write_text('{"type": "act"}', encoding="utf-8")
+
+    original_import = builtins.__import__
+
+    def fail_hub_import(name, *args, **kwargs):
+        if name == "huggingface_hub":
+            raise ImportError("blocked in test")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fail_hub_import)
+
+    with pytest.raises(PolicyMaterializationError) as exc:
+        materialize_policy_path(repo_id, allow_network=False)
+
+    assert exc.value.code == "network_disabled"
+
+
 def test_smoke_policy_uses_local_policy_path(
     fake_runtime_check, fake_lerobot_worker, local_policy_dir: Path, tmp_path: Path
 ):
@@ -192,9 +247,12 @@ def test_smoke_policy_uses_local_policy_path(
     assert report.stages["load_test"]["status"] == "ok"
     assert report.stages["infer"]["status"] == "ok"
     assert report.policy["local_path"] == str(local_policy_dir.resolve())
+    assert report.policy["repo_id"] is None
     assert report.features["input_features"]["observation.images.top"] == [3, 480, 640]
     assert report.features["input_features"]["observation.state"] == [14]
     assert report.features["output_features"]["action"] == [14]
+    assert report.sample_observation["state_shape"] == [14]
+    assert report.sample_observation["image_keys"] == ["top"]
     assert report.action_proposal is not None
     assert report.action_proposal["shape"] == [100, 14]
     assert report.action_proposal["type"] == "lerobot_action_chunk"
