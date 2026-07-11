@@ -20,7 +20,6 @@ from rosclaw.integrations.lerobot.practice_normalizer import (
     write_normalized_episode,
 )
 
-
 MINIMAL_EPISODE = Path(__file__).parent.parent.parent / "examples" / "practice" / "minimal_lerobot_episode"
 RICH_EPISODE = Path(__file__).parent.parent.parent / "examples" / "practice" / "rich_lerobot_episode"
 

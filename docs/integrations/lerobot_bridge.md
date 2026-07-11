@@ -7,22 +7,22 @@ HuggingFace packages.
 
 ## Important P0.1 principle: runtime isolation
 
-LeRobot 0.6.1 requires **Python >= 3.12** and PyTorch >= 2.10. ROSClaw core
-supports Python 3.10 / 3.11 / 3.12 and must not force your entire robot stack
+Supported LeRobot 0.6.x releases require **Python >= 3.12**. ROSClaw core
+supports Python 3.11+ and must not force your entire robot stack
 to Python 3.12. P0.1 therefore treats LeRobot as an **enhanced runtime** that
 can run in one of three modes:
 
 | Mode | When to use |
 |------|-------------|
 | `current-env` | ROSClaw itself is already running on Python 3.12+ and you want LeRobot in the same environment. |
-| `isolated` | ROSClaw is on Python 3.10/3.11; ROSClaw creates a dedicated Python 3.12 venv at `~/.rosclaw/envs/lerobot`. |
+| `isolated` | ROSClaw is on Python 3.11; ROSClaw creates a dedicated Python 3.12 venv at `~/.rosclaw/envs/lerobot`. |
 | `external` | You already have a LeRobot Python 3.12 environment; ROSClaw just registers it. |
 | `auto` | Default. Picks `current-env` on Python 3.12+ or `isolated` otherwise. |
 
 ```text
 ROSClaw core does not require Python 3.12.
 LeRobot runtime requires Python 3.12+.
-When ROSClaw runs on Python 3.10/3.11, use isolated or external LeRobot runtime.
+When ROSClaw runs on Python 3.11, use an isolated or external LeRobot runtime.
 ```
 
 ## What is implemented
@@ -107,7 +107,7 @@ LeRobot Runtime
   Runtime path:      /home/user/.rosclaw/envs/lerobot
   Python executable: /home/user/.rosclaw/envs/lerobot/bin/python
   Python version:    3.12.13
-  LeRobot version:   0.6.1
+  LeRobot version:   0.6.0
   lerobot-info:      ok
   Torch:             2.11.0+cu128
   CUDA:              available
@@ -264,7 +264,7 @@ Real Policy Smoke Validation
   Status:            validated        # or not_configured / available_not_validated / stale / failed
   Last policy:       lerobot/act_aloha_sim_transfer_cube_human
   Policy type:       act
-  LeRobot version:   0.6.1
+  LeRobot version:   0.6.x
   Device:            cpu
   Action shape:      [100, 14]
   Time:              2026-07-09T12:34:56.789123Z
@@ -435,7 +435,8 @@ execute actions:
   `not_executed=true`, `requires_sandbox=true`, `executable=false`.
 - `rosclaw lerobot smoke-policy` validates a real policy end-to-end, but still
   only produces action proposals.
-- Real video/parquet dataset writing is not implemented.
+- The explicit `--episode <directory>` bridge export is metadata-only. The
+  existing practice-ID exporter still writes real Parquet data.
 - Train, eval, rollout, and reward backends are registered as future
   capabilities only.
 - The worker is one-shot; persistent GPU memory management is future work.
@@ -464,7 +465,7 @@ lerobot_runtime:
   runtime_path: /home/user/.rosclaw/envs/lerobot
   python_executable: /home/user/.rosclaw/envs/lerobot/bin/python
   python_version: 3.12.13
-  lerobot_version: 0.6.1
+  lerobot_version: 0.6.0
   torch_version: 2.11.0+cu128
   cuda_available: true
   state: ready

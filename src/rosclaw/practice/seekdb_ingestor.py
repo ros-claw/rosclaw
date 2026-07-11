@@ -114,8 +114,9 @@ class SeekDBIngestor:
             )
 
             # Episode summary
+            body_id = distillation_result.body_cognition.get("body_id")
             try:
-                self._ingest_episode_summary(practice, robot_id, task_id)
+                self._ingest_episode_summary(practice, robot_id, task_id, body_id=body_id)
                 report.table_counts["episodes"] = 1
             except Exception as exc:
                 logger.warning("Failed to ingest episode summary: %s", exc)
@@ -228,6 +229,7 @@ class SeekDBIngestor:
         practice: dict[str, Any],
         robot_id: str,
         task_id: str | None,
+        body_id: str | None = None,
     ) -> str:
         episode_id = practice.get("episode_id") or practice.get("practice_id")
         started_at = practice.get("start_time")
@@ -247,6 +249,7 @@ class SeekDBIngestor:
                 "robot_type": practice.get("robot_type"),
                 "task_name": practice.get("task_name"),
                 "skill_id": practice.get("skill_id"),
+                "body_id": body_id,
                 "duration_ms": practice.get("duration_ms"),
                 "reward": practice.get("reward"),
             },
@@ -311,13 +314,19 @@ class SeekDBIngestor:
         session_id: str | None,
         episode_id: str | None,
     ) -> str:
+        body_id = cognition.get("body_id") or "unknown"
+        cognition_type = cognition.get("cognition_type") or "body_model"
+        cognition_id = f"cog:{body_id}:{episode_id or session_id or 'unknown'}:{cognition_type}"
+        metadata = dict(cognition.get("metadata", {}))
+        if cognition.get("cognition_id"):
+            metadata["source_cognition_id"] = cognition["cognition_id"]
         record = {
-            "id": cognition.get("cognition_id") or f"cog_{int(time.time() * 1000)}",
-            "body_id": cognition.get("body_id") or "unknown",
+            "id": cognition_id,
+            "body_id": body_id,
             "robot_id": robot_id,
             "episode_id": episode_id,
             "session_id": session_id,
-            "cognition_type": cognition.get("cognition_type") or "body_model",
+            "cognition_type": cognition_type,
             "data": cognition.get("data")
             or {
                 "known_traits": cognition.get("known_traits", []),
@@ -328,7 +337,7 @@ class SeekDBIngestor:
             "timestamp": _iso_to_timestamp(
                 cognition.get("updated_at") or cognition.get("timestamp")
             ),
-            "metadata": cognition.get("metadata", {}),
+            "metadata": metadata,
         }
         return self._client.insert("body_cognition", record)
 

@@ -1,6 +1,6 @@
 ---
 name: rosclaw
-description: Use when operating, validating, or changing ROSClaw physical-AI runtime workflows, especially CLI smoke tests, Practice evidence loops, body/runtime checks, MCP integration, and safe ROS or hardware boundaries.
+description: Use when operating, validating, or changing ROSClaw physical-AI runtime workflows, especially CLI smoke tests, Practice evidence loops, body/runtime checks, MCP integration, MuJoCo sandbox verification, and safe ROS or hardware boundaries.
 ---
 
 # ROSClaw Agent Skill
@@ -8,7 +8,7 @@ description: Use when operating, validating, or changing ROSClaw physical-AI run
 ## Safety
 
 - Treat ROSClaw as physical-AI infrastructure. Do not publish ROS topics, actuate hardware, run real robot skills, or mutate a live workspace unless the user explicitly asks for that specific action.
-- Prefer dry-run, read-only, mock, fixture, or temp-workspace commands for validation.
+- Prefer dry-run, read-only, mock, fixture, simulation, or temp-workspace commands for validation.
 - Use a temporary `ROSCLAW_HOME` for CLI smoke tests that write persistent state.
 - Prefer `--json` for machine checks, then validate the JSON parses.
 
@@ -20,7 +20,7 @@ Run from the repo root after installing editable dev dependencies:
 python -m compileall -q src tests
 ruff check .
 ruff format --check .
-mypy --config-file .github/mypy-ci.ini src/rosclaw/mcp/adapters src/rosclaw/mcp/onboarding src/rosclaw/core/runtime.py src/rosclaw/cli.py src/rosclaw/body src/rosclaw/firstboot src/rosclaw/hub
+mypy src/rosclaw
 pytest tests/practice -q
 ```
 
@@ -31,8 +31,9 @@ TMP=$(mktemp -d /tmp/rosclaw-health.XXXXXX)
 rosclaw doctor --json
 rosclaw runtime backends
 rosclaw body init --robot unitree-g1 --workspace "$TMP/ws" --force --validate --render
-rosclaw provider list
-rosclaw sandbox list-worlds
+rosclaw provider health --json
+rosclaw provider route --capability vlm.scene_graph --json
+rosclaw provider benchmark --dry-run --json
 rosclaw sandbox verify --case ur5e-joint-preview --json
 rosclaw hub search realsense
 rosclaw mcp list
@@ -46,7 +47,7 @@ another MCP-aware agent, use the cross-agent installer:
 
 ```bash
 rosclaw agent install --project-root . --skip-secrets
-rosclaw agent test claude-code --project-root . --quick --mcp-probe
+rosclaw agent test universal --project-root . --quick --mcp-probe
 ```
 
 ## Practice Evidence Loop

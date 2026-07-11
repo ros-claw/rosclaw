@@ -19,7 +19,6 @@ from typing import Any
 
 from rosclaw.firstboot.workspace import get_rosclaw_home
 
-
 SMOKE_REPORT_SCHEMA_VERSION = "rosclaw.lerobot.smoke.v1.1"
 DEFAULT_REPORT_SUBDIR = "lerobot/smoke_reports"
 PREVIEW_VALUES_LIMIT = 5
@@ -72,7 +71,7 @@ class SmokeReport:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "SmokeReport":
+    def from_dict(cls, data: dict[str, Any]) -> SmokeReport:
         return cls(
             schema_version=data.get("schema_version", SMOKE_REPORT_SCHEMA_VERSION),
             created_at=data.get("created_at", ""),
@@ -101,7 +100,8 @@ def write_smoke_report(report: SmokeReport, *, suffix: str = "") -> Path:
     report_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    safe_name = re.sub(r"[^a-zA-Z0-9_.-]", "_", report.policy.get("repo_id", "unknown"))
+    name_source = report.policy.get("repo_id") or report.policy.get("local_path") or "unknown"
+    safe_name = re.sub(r"[^a-zA-Z0-9_.-]", "_", str(name_source))
     filename = f"{timestamp}_{safe_name}.json"
     if suffix:
         filename = f"{timestamp}_{safe_name}_{suffix}.json"

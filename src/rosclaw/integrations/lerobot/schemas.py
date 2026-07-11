@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from rosclaw.integrations.lerobot.runtime import LeRobotRuntime
 
 
-class LeRobotSetupErrorCode(str, Enum):
+class LeRobotSetupErrorCode(StrEnum):
     """Structured error codes for LeRobot setup failures."""
 
     PYTHON_TOO_OLD = "python_too_old"
@@ -23,12 +23,13 @@ class LeRobotSetupErrorCode(str, Enum):
     VENV_CREATE_FAILED = "venv_create_failed"
     PIP_INSTALL_FAILED = "pip_install_failed"
     LEROBOT_IMPORT_FAILED = "lerobot_import_failed"
+    LEROBOT_VERSION_UNSUPPORTED = "lerobot_version_unsupported"
     LEROBOT_INFO_FAILED = "lerobot_info_failed"
     CONFIG_WRITE_FAILED = "config_write_failed"
     PIP_NOT_FOUND = "pip_not_found"
 
 
-class LeRobotWorkerErrorCode(str, Enum):
+class LeRobotWorkerErrorCode(StrEnum):
     """Structured error codes for LeRobot worker/provider failures."""
 
     RUNTIME_NOT_CONFIGURED = "runtime_not_configured"

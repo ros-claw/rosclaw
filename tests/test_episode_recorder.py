@@ -151,6 +151,12 @@ class TestEventBuffering:
                 },
             )
         )
+        recorder._event_bus.publish(
+            Event(
+                topic="praxis.failed",
+                payload={"practice_id": "ep_005", "outcome": {"reward": -1.0}},
+            )
+        )
         meta_path = os.path.join(temp_artifact_dir, "episodes", "ep_005", "metadata.json")
         with open(meta_path) as f:
             meta = json.load(f)
@@ -169,6 +175,12 @@ class TestEventBuffering:
             Event(
                 topic="safety.violation",
                 payload={"request_id": "ep_006", "violations": ["joint limit exceeded"]},
+            )
+        )
+        recorder._event_bus.publish(
+            Event(
+                topic="praxis.failed",
+                payload={"practice_id": "ep_006", "outcome": {"reward": -1.0}},
             )
         )
         meta_path = os.path.join(temp_artifact_dir, "episodes", "ep_006", "metadata.json")
@@ -285,6 +297,12 @@ class TestArtifactFiles:
             Event(
                 topic="firewall.action_blocked",
                 payload={"request_id": "ep_011", "violations": [{"description": "blocked"}]},
+            )
+        )
+        recorder._event_bus.publish(
+            Event(
+                topic="praxis.failed",
+                payload={"practice_id": "ep_011", "outcome": {"reward": -1.0}},
             )
         )
         replay_path = os.path.join(temp_artifact_dir, "episodes", "ep_011", "sandbox_replay.json")

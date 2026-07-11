@@ -27,6 +27,7 @@ _PROJECT_ROOT: str | None = None
 _RUNTIME_PROFILE: str = "default"
 _AGENT_CLIENT: str = "claude-code"
 
+
 def set_client(client: RuntimeClient) -> None:
     """Inject the shared RuntimeClient before serving requests."""
     global _CLIENT

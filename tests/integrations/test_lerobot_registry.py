@@ -28,3 +28,19 @@ def test_get_lerobot_capabilities():
     names = {c.name for c in caps}
     assert "provider_type_lerobot_policy" in names
     assert "dataset_export_lerobot" in names
+
+
+def test_register_integration_after_factory_preserves_factory():
+    """Registration order must not leave a factory-only placeholder record."""
+    registry = type(GLOBAL_INTEGRATION_REGISTRY)()
+    registry.register_provider_type("lerobot_policy", LeRobotPolicyProvider)
+
+    class Integration:
+        @staticmethod
+        def report():
+            return "registered"
+
+    registry.register_integration("lerobot", Integration)
+
+    assert registry.get_provider_factory("lerobot_policy") is LeRobotPolicyProvider
+    assert registry.get_integration("lerobot") == "registered"

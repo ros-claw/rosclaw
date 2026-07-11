@@ -15,7 +15,6 @@ The module stays free of torch/lerobot imports; it delegates heavy work to
 
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 from dataclasses import dataclass, field
@@ -50,9 +49,8 @@ from rosclaw.provider.core.manifest import (
 )
 from rosclaw.provider.core.request import ProviderRequest
 
-
 DEFAULT_SMOKE_POLICY = "lerobot/act_aloha_sim_transfer_cube_human"
-DEFAULT_OBSERVATION_FILE = Path(__file__).parents[4] / "examples" / "lerobot" / "sample_observation_aloha_act.json"
+DEFAULT_OBSERVATION_FILE = Path(__file__).with_name("resources") / "sample_observation_aloha_act.json"
 
 
 @dataclass
@@ -91,7 +89,7 @@ async def run_smoke_policy(options: SmokePolicyOptions) -> SmokeReport:
     features: dict[str, Any] = {}
     runtime_info: dict[str, Any] = {}
     policy_info: dict[str, Any] = {
-        "repo_id": options.policy_path if "/" in options.policy_path else None,
+        "repo_id": _repo_id_or_none(options.policy_path),
         "local_path": None,
         "revision": options.revision,
         "policy_type": None,
@@ -508,13 +506,21 @@ def _summarize_observation(observation: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(obs, dict):
         return {"task": task, "state_shape": None, "image_keys": [], "image_shapes": {}}
 
+    if task is None:
+        task = obs.get("task")
+
     state = obs.get("state")
+    if state is None:
+        state = obs.get("observation.state")
     state_shape = list(state) if isinstance(state, (list, tuple)) else None
     if state_shape and state_shape and isinstance(state_shape[0], (int, float)):
         state_shape = [len(state_shape)]
 
     image_shapes: dict[str, Any] = {}
-    images = obs.get("images", {})
+    images = dict(obs.get("images", {})) if isinstance(obs.get("images"), dict) else {}
+    for key, value in obs.items():
+        if key.startswith("observation.images."):
+            images[key.split(".", 2)[2]] = value
     if isinstance(images, dict):
         for name, path in images.items():
             try:
@@ -531,6 +537,13 @@ def _summarize_observation(observation: dict[str, Any]) -> dict[str, Any]:
         "image_keys": list(images.keys()),
         "image_shapes": image_shapes,
     }
+
+
+def _repo_id_or_none(policy_path: str) -> str | None:
+    path = Path(policy_path).expanduser()
+    if path.exists() or path.is_absolute() or policy_path.startswith("."):
+        return None
+    return policy_path if "/" in policy_path else None
 
 
 def _maybe_write_report(report: SmokeReport, options: SmokePolicyOptions) -> SmokeReport:
@@ -553,5 +566,4 @@ __all__ = [
     "SmokePolicyOptions",
     "run_smoke_policy",
     "run_smoke_policy_sync",
-    "get_validation_status",
 ]

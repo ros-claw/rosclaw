@@ -479,6 +479,7 @@ class HubClient:
         hub_url: str | None = None,
         home: Path | None = None,
         offline: bool = False,
+        cache_writes: bool = True,
     ) -> None:
         self.hub_url = (
             hub_url or os.environ.get("ROSCLAW_MCP_HUB") or self.DEFAULT_HUB_URL
@@ -486,6 +487,7 @@ class HubClient:
         self.home: Path = resolve_home(str(home) if home else None)
         self.cache_dir: Path = self.home / "mcp" / "cache"
         self.offline = offline
+        self.cache_writes = cache_writes
         self._session: Any | None = None
 
     def _ensure_cache_dir(self) -> None:
@@ -506,6 +508,8 @@ class HubClient:
             return None
 
     def _save_cache(self, manifest_id: str, version: str, data: dict[str, Any]) -> None:
+        if not self.cache_writes:
+            return
         self._ensure_cache_dir()
         path = self._cache_path(manifest_id, version)
         path.parent.mkdir(parents=True, exist_ok=True)

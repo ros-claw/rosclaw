@@ -10,7 +10,7 @@
 
 ## 1. 任务目标
 
-完成 ROSClaw × LeRobot Bridge 的 P0.1 修复：把 LeRobot runtime 与 ROSClaw core 解耦，使 ROSClaw 可以继续运行在 Python 3.10/3.11，而 LeRobot 0.6.1+ 运行在独立的 Python 3.12+ 环境中。
+完成 ROSClaw × LeRobot Bridge 的 P0.1 修复：把 LeRobot runtime 与 ROSClaw core 解耦，使 ROSClaw 可以继续运行在 Python 3.10/3.11，而 LeRobot 0.6.x 运行在独立的 Python 3.12+ 环境中。
 
 ---
 
@@ -82,7 +82,7 @@ env -u PYTHONPATH .venv-lerobot/bin/python -m pytest tests/integrations -q --tb=
 |------|------|
 | `setup lerobot --mode auto --dry-run` (Py3.11) | 自动选择 `isolated`，plan 正确 |
 | `setup lerobot --mode current-env` (Py3.11) | 拒绝，error_code=`python_too_old`，exit 2 |
-| `setup lerobot --mode external --python .venv-lerobot/bin/python` | 注册成功，version 0.6.1 |
+| `setup lerobot --mode external --python .venv-lerobot/bin/python` | 注册成功，version 0.6.x |
 | `lerobot doctor` (Py3.11 + external runtime) | 显示双 runtime，Status=`INSTALLED` |
 | `lerobot info` | 调用配置 runtime 的 lerobot-info，输出正常 |
 | `provider infer ... --dry-run` | 返回 sample action，`real_inference=false` |

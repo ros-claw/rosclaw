@@ -1,0 +1,14 @@
+usage: rosclaw provider [-h] {list,health,route,benchmark,invoke,diagnose} ...
+
+positional arguments:
+  {list,health,route,benchmark,invoke,diagnose}
+    list                List registered providers
+    health              Show provider health and capability contracts
+    route               Explain provider route selection for a capability
+    benchmark           Plan a provider benchmark without invoking external
+                        models
+    invoke              Invoke a provider capability
+    diagnose            Diagnose provider interfaces against the active body
+
+options:
+  -h, --help            show this help message and exit
