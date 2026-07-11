@@ -34,7 +34,7 @@ class WorkerObservation:
         return out
 
     @classmethod
-    def from_worker_dict(cls, data: dict[str, Any]) -> "WorkerObservation":
+    def from_worker_dict(cls, data: dict[str, Any]) -> WorkerObservation:
         """Build from a LeRobot-style flat dict."""
         task = data.get("task", "")
         state = data.get("observation.state", [])
@@ -72,7 +72,7 @@ class WorkerRequest:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "WorkerRequest":
+    def from_dict(cls, data: dict[str, Any]) -> WorkerRequest:
         return cls(
             op=data.get("op", "inspect"),  # type: ignore[arg-type]
             policy_path=data.get("policy_path", ""),
@@ -103,7 +103,7 @@ class WorkerAction:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "WorkerAction":
+    def from_dict(cls, data: dict[str, Any]) -> WorkerAction:
         return cls(
             type=data.get("type", "raw_lerobot_action"),
             values=list(data.get("values", [])),
@@ -128,7 +128,7 @@ class WorkerError:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "WorkerError":
+    def from_dict(cls, data: dict[str, Any]) -> WorkerError:
         return cls(
             code=data.get("code", "unknown"),
             message=data.get("message", ""),
@@ -152,7 +152,7 @@ class WorkerTiming:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "WorkerTiming":
+    def from_dict(cls, data: dict[str, Any]) -> WorkerTiming:
         return cls(
             load_time_sec=data.get("load_time_sec"),
             infer_time_sec=data.get("infer_time_sec"),
@@ -194,7 +194,7 @@ class WorkerResponse:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "WorkerResponse":
+    def from_dict(cls, data: dict[str, Any]) -> WorkerResponse:
         action_data = data.get("action")
         error_data = data.get("error")
         return cls(

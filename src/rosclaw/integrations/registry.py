@@ -40,7 +40,7 @@ class RegisteredIntegration:
     """Internal record of a registered integration."""
 
     name: str
-    integration_class: type
+    integration_class: type | None
     provider_types: dict[str, type] = field(default_factory=dict)
     exporters: dict[str, type] = field(default_factory=dict)
 
@@ -62,11 +62,15 @@ class IntegrationRegistry:
     # ------------------------------------------------------------------
     def register_integration(self, name: str, integration_class: type) -> None:
         """Register an integration class."""
-        if name not in self._integrations:
-            self._integrations[name] = RegisteredIntegration(
+        registered = self._integrations.get(name)
+        if registered is None:
+            registered = RegisteredIntegration(
                 name=name,
                 integration_class=integration_class,
             )
+            self._integrations[name] = registered
+        else:
+            registered.integration_class = integration_class
 
     def register_provider_type(self, name: str, factory: type) -> None:
         """Register a provider type factory under the owning integration."""

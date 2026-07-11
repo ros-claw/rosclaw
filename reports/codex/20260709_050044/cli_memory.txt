@@ -1,0 +1,11 @@
+usage: rosclaw memory [-h] {status,query,explain,ingest} ...
+
+positional arguments:
+  {status,query,explain,ingest}
+    status              Show memory status
+    query               Query memory
+    explain             Explain last failure
+    ingest              Ingest a practice episode into memory
+
+options:
+  -h, --help            show this help message and exit

@@ -43,7 +43,7 @@ runtime.initialize()
 | `enable_practice` | bool | True | Enable practice recording |
 | `seekdb_backend` | str | "memory" | "memory" or "sqlite" |
 | `seekdb_path` | str | "./seekdb.sqlite" | SQLite file path |
-| `seekdb_url` | str \| None | `ROSCLAW_SEEKDB_URL` env var | Optional SeekDB endpoint for practice event persistence |
+| `seekdb_url` | str \| None | `ROSCLAW_SEEKDB_URL` env var | Optional legacy HTTP adapter endpoint for live event forwarding |
 | `seekdb_fallback_dir` | str | `ROSCLAW_SEEKDB_FALLBACK_DIR` or `/data/rosclaw/fallback` | Local JSON fallback when SeekDB is unreachable |
 
 ---
@@ -68,10 +68,29 @@ suggestion = asyncio.run(how.suggest_recovery("joint_limit_exceeded"))
 
 ## Enabling Practice / SeekDB Persistence
 
+For direct persistence to a real SeekDB/OceanBase server, use the
+MySQL-compatible DSN accepted by the Practice CLI:
+
+```bash
+rosclaw practice ingest-seekdb <practice_id> \
+  --data-root /data/rosclaw/practice \
+  --seekdb-url mysql://root@127.0.0.1:2881/rosclaw
+
+rosclaw practice query failures \
+  --robot-id rh56 \
+  --data-root /data/rosclaw/practice \
+  --seekdb-url mysql://root@127.0.0.1:2881/rosclaw \
+  --json
+```
+
+Port `2881` is the native MySQL-compatible SQL protocol, not an HTTP API.
+
+### Legacy HTTP event bridge
+
 When `enable_practice=True` and `seekdb_url` is configured, `Runtime` automatically
 assembles a `SeekDBBridge` and passes it to `EpisodeRecorder`. Every finalized
-practice episode is then forwarded to SeekDB in addition to the local artifact
-directory.
+practice episode is then forwarded to a separately deployed HTTP adapter in
+addition to the local artifact directory.
 
 ### Minimal configuration
 
@@ -79,7 +98,7 @@ directory.
 config = RuntimeConfig(
     robot_id="my_robot",
     enable_practice=True,
-    seekdb_url="http://localhost:2881",
+    seekdb_url="http://seekdb-adapter.example:8080",
     seekdb_fallback_dir="/data/rosclaw/fallback",
 )
 runtime = Runtime(config)
@@ -89,7 +108,7 @@ runtime.initialize()
 Or via environment variables:
 
 ```bash
-export ROSCLAW_SEEKDB_URL=http://localhost:2881
+export ROSCLAW_SEEKDB_URL=http://seekdb-adapter.example:8080
 export ROSCLAW_SEEKDB_FALLBACK_DIR=/data/rosclaw/fallback
 ```
 
@@ -106,6 +125,7 @@ pip install -e ".[practice]"
 
 - If `seekdb_url` is unset, no bridge is created and `EpisodeRecorder` behavior is unchanged.
 - If `rosclaw_practice` is not installed, `Runtime` logs an info message and disables SeekDB forwarding; initialization continues normally.
+- The bridge URL must expose `POST /api/v1/insert`; native SeekDB port 2881 does not.
 - SeekDB submission failures are non-fatal: local artifact writes and `praxis.recorded` publication always complete.
 - Failed submissions are written as JSON files to `seekdb_fallback_dir`.
 

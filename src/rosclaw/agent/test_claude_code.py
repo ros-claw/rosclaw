@@ -39,14 +39,18 @@ def _expand_config_value(value: Any, project_root: Path) -> str:
     return os.path.expanduser(os.path.expandvars(text))
 
 
-def _stdio_command(server_config: dict[str, Any], project_root: Path) -> tuple[str, list[str], dict[str, str]]:
+def _stdio_command(
+    server_config: dict[str, Any], project_root: Path
+) -> tuple[str, list[str], dict[str, str]]:
     command = _expand_config_value(server_config.get("command", "rosclaw"), project_root)
     args = [_expand_config_value(arg, project_root) for arg in server_config.get("args", [])]
     env = os.environ.copy()
     for key, value in server_config.get("env", {}).items():
         env[str(key)] = _expand_config_value(value, project_root)
     uses_config_command = os.environ.get("ROSCLAW_AGENT_PROBE_USE_CONFIG_COMMAND") == "1"
-    if Path(command).name == "rosclaw" and (not uses_config_command or shutil.which(command) is None):
+    if Path(command).name == "rosclaw" and (
+        not uses_config_command or shutil.which(command) is None
+    ):
         command = sys.executable
         args = ["-m", "rosclaw.cli", *args]
     return command, args, env

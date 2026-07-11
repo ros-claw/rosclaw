@@ -33,9 +33,9 @@ rosclaw lerobot compatibility --json
 | Policy type | Inspect | Load | Infer | Notes |
 |-------------|:-------:|:----:|:-----:|-------|
 | `act`       | yes     | yes  | yes   | ALOHA-style ACT policies; action chunks such as `[100, 14]` are supported. |
-| `diffusion` | yes     | yes  | yes   | Diffusion policies load and infer; noise scheduling is runtime-specific. |
-| `vqbet`     | yes     | yes  | no    | VQ-BeT loads but inference path is not validated in P1.1. |
-| `tdmpc`     | yes     | yes  | no    | TDMPC loads but observation preprocessing is not validated in P1.1. |
+| `diffusion` | yes     | no   | no    | Pending real smoke; diffusion observation/action preprocessing is not validated in P1.1. |
+| `vqbet`     | yes     | no   | no    | Pending real smoke; VQ-BeT loading and inference are not validated in P1.1. |
+| `tdmpc`     | yes     | no   | no    | Pending real smoke; TDMPC loading and observation preprocessing are not validated in P1.1. |
 
 Unknown policy families default to `inspect_ok`: the bridge can read their
 config and report feature shapes, but loading/inference are not guaranteed.

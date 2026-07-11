@@ -1667,12 +1667,35 @@ class Runtime(LifecycleMixin):
 
         # 6. sandbox events
         if is_blocked:
+            failure_text = " ".join(
+                [
+                    str(sandbox_result.get("reason", "")),
+                    *[
+                        str(violation.get("description", ""))
+                        for violation in sandbox_result.get("violations", [])
+                        if isinstance(violation, dict)
+                    ],
+                ]
+            ).lower()
+            if "joint" in failure_text and "limit" in failure_text:
+                sandbox_failure_type = "joint_limit_exceeded"
+            elif "collision" in failure_text:
+                sandbox_failure_type = "collision_detected"
+            elif "workspace" in failure_text or "out of bounds" in failure_text:
+                sandbox_failure_type = "workspace_boundary_exceeded"
+            else:
+                sandbox_failure_type = "firewall_blocked"
+
             self.event_bus.publish(
                 Event(
                     topic="firewall.action_blocked",
                     payload={
                         "episode_id": episode_id,
                         "request_id": request_id,
+                        "task_id": action.get("task_id", request_id),
+                        "robot_id": self.config.robot_id,
+                        "skill_id": skill_name,
+                        "failure_type": sandbox_failure_type,
                         "action": action,
                         "violations": sandbox_result.get("violations", []),
                         "reason": sandbox_result.get("reason", ""),
@@ -1689,7 +1712,7 @@ class Runtime(LifecycleMixin):
                 try:
                     hint = self._run_async(
                         self._how.generate_recovery_hint(
-                            "firewall_blocked",
+                            sandbox_failure_type,
                             context={
                                 "skill_name": skill_name,
                                 "instruction": instruction,
@@ -1704,10 +1727,14 @@ class Runtime(LifecycleMixin):
                                 topic="rosclaw.how.recovery_hint.generated",
                                 payload={
                                     "episode_id": episode_id,
+                                    "failure_id": episode_id,
                                     "request_id": request_id,
+                                    "task_id": action.get("task_id", request_id),
+                                    "robot_id": self.config.robot_id,
+                                    "skill_id": skill_name,
                                     "hint": hint.get("hint", ""),
                                     "rule_id": hint.get("rule_id", ""),
-                                    "failure_type": "firewall_blocked",
+                                    "failure_type": sandbox_failure_type,
                                 },
                                 source="how",
                                 priority=EventPriority.HIGH,
@@ -1808,6 +1835,11 @@ class Runtime(LifecycleMixin):
                     "episode_id": episode_id,
                     "event_type": "success" if result.get("status") == "ok" else "failure",
                     "correlation_id": request_id,
+                    "request_id": request_id,
+                    "task_id": action.get("task_id", request_id),
+                    "robot_id": self.config.robot_id,
+                    "skill_id": skill_name,
+                    "skill_name": skill_name,
                     "instruction": instruction,
                     "initial_state": action.get("initial_state"),
                     "final_state": result,

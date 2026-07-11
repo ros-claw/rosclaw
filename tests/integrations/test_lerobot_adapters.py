@@ -38,6 +38,21 @@ def test_observation_adapter_flat_keys(tmp_path) -> None:
     assert out["observation.images.front"] == str(img)
 
 
+def test_observation_adapter_resolves_relative_images_from_base_dir(tmp_path) -> None:
+    img = tmp_path / "front.jpg"
+    img.write_bytes(b"")
+    out = adapt_observation_for_worker(
+        {
+            "_base_dir": str(tmp_path),
+            "observation": {
+                "state": [1.0, 2.0],
+                "images": {"front": "front.jpg"},
+            },
+        }
+    )
+    assert out["observation.images.front"] == str(img)
+
+
 def test_observation_adapter_missing_image_raises(tmp_path) -> None:
     with pytest.raises(FileNotFoundError):
         adapt_observation_for_worker(

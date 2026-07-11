@@ -11,17 +11,17 @@
 
 第一轮（P0/P1）已经搭好了 LeRobot 桥接骨架，但存在关键产品化缺口：
 
-> LeRobot 0.6.1 需要 Python >= 3.12，而 ROSClaw core 不应该因此被强制升级到 Python 3.12。
+> 支持的 LeRobot 0.6.x 需要 Python >= 3.12，而 ROSClaw core 不应该因此被强制升级到 Python 3.12。
 
 真实用户环境通常是：
 
 ```text
-ROSClaw 主环境：Python 3.10 / 3.11
+ROSClaw 主环境：Python 3.11+
 ROS2 / RealSense / 机器人 SDK：Python 3.10 / 3.11
 LeRobot：Python 3.12+
 ```
 
-P0.1 的目标不是继续堆功能，而是把 **LeRobot runtime 隔离机制** 做稳，使 ROSClaw 可以在 Python 3.10/3.11/3.12 下运行，同时通过独立的 Python 3.12 环境使用 LeRobot。
+P0.1 的目标不是继续堆功能，而是把 **LeRobot runtime 隔离机制** 做稳，使 ROSClaw 可以在 Python 3.11+ 下运行，同时通过独立的 Python 3.12 环境使用 LeRobot。
 
 ---
 
@@ -120,7 +120,7 @@ else:
 环境：
 
 - ROSClaw: `.venv` (Python 3.11.15)
-- LeRobot: `.venv-lerobot` (Python 3.12.13, LeRobot 0.6.1, torch 2.11.0+cu128)
+- LeRobot: `.venv-lerobot` (Python 3.12.13, LeRobot 0.6.0, torch 2.11.0+cu128)
 
 ### 5.1 auto 模式 dry-run
 
@@ -156,7 +156,7 @@ PYTHONPATH=src .venv/bin/python -m rosclaw.cli setup lerobot \
 [rosclaw-lerobot] Mode: external
 [rosclaw-lerobot] OK: True
 [rosclaw-lerobot] LeRobot external runtime registered: .../.venv-lerobot/bin/python
-[rosclaw-lerobot] LeRobot version: 0.6.1
+[rosclaw-lerobot] LeRobot version: 0.6.0
 ```
 
 ### 5.3 doctor
@@ -179,7 +179,7 @@ LeRobot Runtime
   Mode:              external
   Python executable: .../.venv-lerobot/bin/python
   Python version:    3.12.13
-  LeRobot version:   0.6.1
+  LeRobot version:   0.6.0
   lerobot-info:      ok
   Torch:             2.11.0+cu128
   CUDA:              available
@@ -254,7 +254,7 @@ P0.1 不做真实推理，只验证 LeRobot runtime 可导入：
     "runtime_mode": "external",
     "python_executable": ".../.venv-lerobot/bin/python",
     "import_ok": true,
-    "version": "0.6.1"
+    "version": "0.6.0"
   }
 }
 ```
@@ -272,11 +272,14 @@ P0.1 不做真实推理，只验证 LeRobot runtime 可导入：
 测试结果：
 
 ```text
-# Python 3.11 ROSClaw-only 环境
-28 passed in 5.67s
+# LeRobot integration 回归
+38 passed
 
-# Python 3.12 LeRobot 环境
-26 passed, 2 skipped in 37.32s
+# 仓库完整测试
+3750 passed, 30 skipped, 15 deselected
+
+# Python 3.12 外部 LeRobot 环境
+LeRobot 0.6.0 setup / doctor / info / provider import smoke 均通过
 ```
 
 ---
@@ -287,7 +290,7 @@ P0.1 不做真实推理，只验证 LeRobot runtime 可导入：
 |------|------|
 | `setup lerobot --mode auto --dry-run` (Py3.11) | 自动选择 isolated，plan 正确 |
 | `setup lerobot --mode current-env` (Py3.11) | 拒绝，error_code=python_too_old，exit 2 |
-| `setup lerobot --mode external --python .venv-lerobot/bin/python` | 注册成功，version 0.6.1 |
+| `setup lerobot --mode external --python .venv-lerobot/bin/python` | 注册成功，version 0.6.0 |
 | `lerobot doctor` (Py3.11 + external runtime) | 显示双 runtime，Status=INSTALLED |
 | `lerobot info` | 调用配置 runtime 的 lerobot-info，输出正常 |
 | `provider infer ... --dry-run` | 返回 sample action，real_inference=false |
@@ -300,7 +303,7 @@ P0.1 不做真实推理，只验证 LeRobot runtime 可导入：
 
 - **isolated 模式真实 pip install 受网络环境影响**：本次实测因 PyPI 超时未能完成完整 isolated 安装，但 dry-run、venv 创建、错误处理路径已验证。
 - **P0.1 不执行真实 policy inference**：`provider infer` 只到 import smoke。
-- **P0.1 不执行真实 dataset 写入**：`practice export --format lerobot` 仍输出骨架。
+- **显式 episode 目录只输出骨架**：`--episode <directory>` 不写入真实帧；位置参数 practice ID 仍使用既有真实 Parquet 导出器。
 - **worker 协议未实现**：仅预留 `worker_subprocess` / `worker_in_process` 能力标记。
 - **conda/uv 未支持**：仅使用标准库 `venv`。
 

@@ -49,7 +49,7 @@ def test_provider_dry_run_returns_sample_action(sample_manifest):
 
 
 def test_provider_non_dry_run_without_runtime_or_policy_path_fails(sample_manifest):
-    """Non-dry-run infer without a configured runtime or policy.path fails gracefully."""
+    """Non-dry-run infer now requires an explicit policy.path."""
     provider = LeRobotPolicyProvider(sample_manifest)
     request = ProviderRequest(
         request_id="test_002",

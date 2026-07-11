@@ -2,9 +2,57 @@
 
 import os
 
+import pytest
+
 from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.memory.interface import MemoryInterface
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient, SeekDBSQLiteClient
+from rosclaw.memory.seekdb_client import (
+    SeekDBMemoryClient,
+    SeekDBMySQLClient,
+    SeekDBSQLiteClient,
+)
+
+
+def test_mysql_client_url_contract():
+    client = SeekDBMySQLClient("mysql://robot:secret@seekdb.local:2881/rosclaw_test")
+
+    assert client._host == "seekdb.local"
+    assert client._port == 2881
+    assert client._user == "robot"
+    assert client._password == "secret"
+    assert client._database == "rosclaw_test"
+
+
+def test_mysql_client_rejects_http_url():
+    with pytest.raises(ValueError, match="not an HTTP API"):
+        SeekDBMySQLClient("http://127.0.0.1:2881")
+
+
+def test_mysql_client_schema_types_are_index_safe():
+    assert (
+        SeekDBMySQLClient._mysql_column_type(
+            "id",
+            "TEXT PRIMARY KEY",
+            indexed=False,
+        )
+        == "VARCHAR(255) PRIMARY KEY"
+    )
+    assert (
+        SeekDBMySQLClient._mysql_column_type(
+            "robot_id",
+            "TEXT NOT NULL",
+            indexed=True,
+        )
+        == "VARCHAR(255) NOT NULL"
+    )
+    assert (
+        SeekDBMySQLClient._mysql_column_type(
+            "metadata",
+            "TEXT",
+            indexed=False,
+        )
+        == "LONGTEXT"
+    )
 
 
 def test_memory_client_crud():

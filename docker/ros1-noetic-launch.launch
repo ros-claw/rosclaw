@@ -1,12 +1,7 @@
 <launch>
-  <!--
-    ROS1 rosbridge_websocket enforces strict Host header validation: the port
-    in the HTTP Host header must match the port it listens on (9090 below).
-    When this container is published on a different host port, connect from
-    inside the Docker network using the container IP and port 9090.
-  -->
   <node pkg="rosbridge_server" type="rosbridge_websocket" name="rosbridge_websocket" output="screen">
     <param name="port" value="9090" />
+    <param name="websocket_external_port" value="$(env ROSBRIDGE_EXTERNAL_PORT)" />
     <param name="address" value="" />
     <param name="use_compression" value="false" />
     <param name="max_message_size" value="10000000" />

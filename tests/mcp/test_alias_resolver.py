@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
@@ -42,6 +44,16 @@ def test_unresolvable_alias_raises() -> None:
     resolver = AliasResolver()
     with pytest.raises(AliasResolutionError):
         resolver.resolve("not a valid alias!")
+
+
+def test_remote_owner_repo_resolves_via_manifest_probe() -> None:
+    hub = Mock()
+    hub.fetch_index.return_value = {}
+    hub.fetch_manifest.return_value = SimpleNamespace(id="io.rosclaw.hub.ros-claw.g1-mcp")
+    resolver = AliasResolver(hub=hub)
+
+    assert resolver.resolve("ros-claw/g1-mcp") == "io.rosclaw.hub.ros-claw.g1-mcp"
+    hub.fetch_manifest.assert_called_once_with("ros-claw/g1-mcp")
 
 
 def test_hub_index_alias_match(fake_home: Any) -> None:

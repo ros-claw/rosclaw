@@ -5,8 +5,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 from rosclaw.integrations.lerobot.worker_runner import LeRobotWorkerRunner
 from rosclaw.integrations.lerobot.worker_schema import WorkerRequest
 
