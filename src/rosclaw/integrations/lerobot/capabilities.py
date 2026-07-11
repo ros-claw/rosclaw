@@ -140,14 +140,14 @@ def get_lerobot_capabilities() -> list[IntegrationCapability]:
         IntegrationCapability(
             name="canonical_timeline",
             kind="exporter",
-            enabled=False,
+            enabled=True,
             experimental=True,
             description="Fixed-FPS canonical timeline from asynchronous source streams (Gate B.1)",
         ),
         IntegrationCapability(
             name="per_feature_resampling",
             kind="exporter",
-            enabled=False,
+            enabled=True,
             experimental=True,
             description="Per-feature resampling onto a canonical timeline (Gate B.1)",
         ),

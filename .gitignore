@@ -87,3 +87,7 @@ generated/
 /mcp.json
 /P0_CLAUDE_CODE_AGENT_HELP.md
 /PYEOF
+
+# Agent/backup churn
+.backups/
+.agents/skills/rosclaw/.backups/
