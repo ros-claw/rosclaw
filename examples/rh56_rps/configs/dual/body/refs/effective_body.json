@@ -1,0 +1,107 @@
+{
+  "body_instance_id": "rh56_rps_body",
+  "eurdf_uri": "rosclaw://eurdf/inspire_rh56_dual@1.0",
+  "effective_body_hash": "e4650d2e098b74a301436c7568bdc7e3e152f14287ff32188d3a2d8ca403cb29",
+  "compiled_at": "2026-07-14T09:37:07.218901+00:00",
+  "schema_version": "rosclaw.effective_body.v1",
+  "generation": 38,
+  "frames": {
+    "root": "base_link",
+    "world": "world",
+    "camera_color_optical_frame": "camera_color_optical_frame",
+    "right_hand_base": "rh56_right_hand_base",
+    "left_hand_base": "rh56_left_hand_base"
+  },
+  "identity": {
+    "robot_class": "manipulator"
+  },
+  "joints": {},
+  "sensors": {
+    "/camera/camera/color/image_raw": {
+      "name": "/camera/camera/color/image_raw",
+      "type": "color_camera",
+      "frame_id": "camera_color_optical_frame",
+      "status": "available",
+      "topics": {
+        "color": "/camera/camera/color/image_raw"
+      },
+      "installed": true,
+      "provider_ref": "realsense2_camera"
+    }
+  },
+  "actuators": {
+    "rh56_right_hand": {
+      "name": "rh56_right_hand",
+      "type": "dexterous_hand",
+      "group": "rh56_right_hand",
+      "status": "available",
+      "dof": 6,
+      "installed": true,
+      "provider_ref": "inspire_rh56_serial"
+    },
+    "rh56_left_hand": {
+      "name": "rh56_left_hand",
+      "type": "dexterous_hand",
+      "group": "rh56_left_hand",
+      "status": "available",
+      "dof": 6,
+      "installed": true,
+      "provider_ref": "inspire_rh56_serial"
+    }
+  },
+  "capabilities": {
+    "enabled": [
+      "dexterous_hand_control",
+      "rgb_camera"
+    ],
+    "degraded": [
+      "hand_gesture_recognition",
+      "precision_grasp"
+    ],
+    "blocked": []
+  },
+  "forbidden_capabilities": [],
+  "safety": {
+    "safety_level": "nominal",
+    "joint_soft_limits": {},
+    "safety_limits": {},
+    "workspace_boundaries": [],
+    "pfl": {},
+    "collision_detection": {},
+    "emergency_stop": {},
+    "interaction": {},
+    "environment": {}
+  },
+  "provider_interfaces": {
+    "state": {
+      "required": [
+        "joint_states"
+      ],
+      "optional": []
+    },
+    "command": {
+      "required": [
+        "joint_trajectory"
+      ],
+      "optional": []
+    }
+  },
+  "sandbox": {
+    "compatible_engines": [],
+    "preferred_engine": ""
+  },
+  "source_trace": {
+    "eurdf": "refs/eurdf.profile.yaml",
+    "body": "body.yaml",
+    "calibration": "calibration.yaml",
+    "calibration_status": "uncalibrated",
+    "maintenance": "maintenance.log"
+  },
+  "readiness": {},
+  "known_faults": [],
+  "known_successes": [],
+  "known_failures": [],
+  "runtime_state": {
+    "health": "nominal"
+  }
+}
