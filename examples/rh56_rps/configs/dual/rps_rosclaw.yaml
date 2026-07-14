@@ -60,4 +60,4 @@ memory:
   db_path: ~/.rosclaw/practice/runs/rh56_rps/seekdb.sqlite
 
 # Path to the skill manifest, relative to --config-dir.
-skill_manifest: skills/rh56_rps.skill.yaml
+skill_manifest: skills/rh56_rps/skill.yaml

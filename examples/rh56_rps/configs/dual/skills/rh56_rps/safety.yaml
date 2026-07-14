@@ -1,0 +1,100 @@
+schema_version: "rosclaw.safety.v1"
+
+runtime_mode:
+  default: "sandbox_first"
+  allowed:
+    - dry_run
+    - replay
+    - sandbox
+    - real_robot_guarded
+
+robot:
+  min_battery_percent: 25
+  require_estop_ready: true
+  max_joint_temperature_c: 65
+  require_hand_init: true
+
+action:
+  max_linear_velocity_mps: 0.35
+  max_angular_velocity_radps: 2.0
+  max_joint_speed_percent: 60
+  max_force_g: 500
+  preferred_force_g: 300
+  min_dwell_s: 0.5
+
+hard_constraints:
+  estop_required: true
+  max_force_g: 500
+  max_joint_temperature_c: 65
+  raw_angle_range: [0, 1000]
+  max_joint_speed_percent: 60
+
+environment:
+  disallow_unknown_obstacles: true
+  require_clear_workspace: true
+
+hand_specific:
+  raw_angle_range: [0, 1000]
+  closed_is_zero: true
+  coupled_joints_per_actuator: 2
+  status_fault_codes:
+    - 5   # current protection
+    - 6   # locked rotor
+    - 7   # fault
+  contact_feedback: "FORCE_ACT"
+  force_unit: "g"
+  current_unit: "mA"
+  contact_deadband_raw: 30
+
+sandbox:
+  required_checks:
+    - collision_check
+    - stability_check
+    - torque_limit_check
+    - joint_limit_check
+    - temperature_check
+    - force_contact_check
+  block_on:
+    - collision_risk_high
+    - fall_risk_high
+    - joint_limit_violation
+    - temperature_violation
+    - force_limit_violation
+    - status_fault
+
+reactive_sandbox_v2:
+  force_policy:
+    use_force_baseline: true
+    contact_soft_g: 50
+    contact_desired_min_g: 80
+    contact_desired_max_g: 180
+    contact_hard_g: 250
+    contact_emergency_g: 350
+
+  contact_actions:
+    desired_contact: hold_and_record
+    no_contact: allow_next_approach_step
+    over_contact: backoff_immediately
+    early_contact: record_sim2real_delta_and_backoff
+    force_spike: stop_and_backoff
+
+  current_policy:
+    use_for_static_contact: false
+    use_for_motion_load: true
+
+  status_policy:
+    stop_on_protection: true
+    stop_on_error: true
+
+  temp_policy:
+    warn_c: 45
+    stop_c: 50
+
+failure_policy:
+  on_sandbox_block: "abort_and_explain"
+  on_low_confidence: "verify_or_abort"
+  on_repeated_failure: "write_memory_and_stop"
+  on_status_fault: "stop_and_cool"
+  on_over_contact: "backoff_then_safe_open"
+  on_hardware_protection: "stop_and_require_manual_ack"
+  max_runtime_retries: 2
