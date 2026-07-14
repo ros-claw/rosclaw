@@ -5,6 +5,13 @@ display_name: RealSense RGB-D Capture
 description: |
   Capture an aligned RGB-D frame from a RealSense D405/D435i camera via the
   bound ``librealsense-mcp`` server and write color/depth artifacts.
+
+  D435i wedge recovery: when the camera has been through repeated
+  start/stop cycles or returns UVC GET_CUR errors, prefer a startup reset.
+  - With ``librealsense-mcp``: call ``get_camera_health`` first, then
+    ``start_pipeline(..., reset_before_start=true)``.
+  - With ``realsense-ros-mcp``: call ``launch_camera(..., initial_reset=true)``.
+  Both MCP servers also expose ``get_camera_health`` for diagnostics.
 requires:
   capabilities:
     all_of:
@@ -24,3 +31,5 @@ runtime_policy:
   timeout_ms: 15000
   preferred_mcp: librealsense-mcp
   fallback_mcp: realsense-ros-mcp
+  startup_reset_recommended_for: [d435i]
+  health_check_tool: get_camera_health
