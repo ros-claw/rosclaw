@@ -174,7 +174,7 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
-addopts = "-p no:launch-testing-ros -p no:launch-testing -p no:ament-pep257 -p no:ament-lint -p no:ament-copyright -p no:ament-flake8 -p no:ament-xmllint -p no:colcon-core -m 'not integration and not deployment'"
+addopts = "-p no:launch_ros -p no:launch_testing -p no:ament_pep257 -p no:ament_lint -p no:ament_copyright -p no:ament_flake8 -p no:ament_xmllint -p no:colcon_core -m 'not integration and not deployment'"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as requiring external services (deselect with '-k not integration')",
