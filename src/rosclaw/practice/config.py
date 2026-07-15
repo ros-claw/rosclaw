@@ -27,6 +27,10 @@ class RecorderConfig:
     mcap_chunk_size_bytes: int = 4 * 1024 * 1024
 
     frames_enabled: bool = False
+    # Continuous camera frame recording: emit one frame_event per sampled
+    # frame at ``frame_hz`` and save keyframe images at ``keyframe_hz``.
+    frame_hz: float = 30.0
+    keyframe_hz: float = 1.0
 
     # Continuous telemetry sampling
     telemetry_enabled: bool = True

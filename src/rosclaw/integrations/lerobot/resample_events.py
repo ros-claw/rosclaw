@@ -18,11 +18,8 @@ from rosclaw.integrations.lerobot.sync_provenance import (
     PROVENANCE_AGGREGATED,
     PROVENANCE_EXACT,
     PROVENANCE_HELD,
-    PROVENANCE_UNKNOWN,
-    VALIDITY_INVALID,
     VALIDITY_VALID,
 )
-
 
 _EPS = 1e-9
 _NS_TO_S = 1e-9

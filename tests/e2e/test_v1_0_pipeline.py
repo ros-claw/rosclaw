@@ -191,6 +191,15 @@ class TestFullPipeline:
                 payload={"correlation_id": "e2e-blocked-001"},
             )
         )
+        runtime.event_bus.publish(
+            Event(
+                topic="praxis.failed",
+                payload={
+                    "practice_id": "e2e-blocked-001",
+                    "outcome": {"reward": -1.0, "status": "BLOCKED"},
+                },
+            )
+        )
 
         assert len(praxis_captured) >= 1
         recorder_events = [e for e in praxis_captured if "artifact_uri" in e.payload]

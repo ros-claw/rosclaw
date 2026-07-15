@@ -99,6 +99,55 @@ class TestEpisodeRecorderSeekDBForwarding:
 
         recorder.stop()
 
+    def test_episode_id_path_traversal_is_sanitized(self, tmp_path):
+        bus = EventBus()
+        artifact_base = tmp_path / "artifacts"
+        outside_dir = tmp_path / "outside_episode"
+        recorder = EpisodeRecorder(
+            robot_id="r1",
+            event_bus=bus,
+            artifact_base_dir=str(artifact_base),
+            seekdb_bridge=None,
+        )
+        recorder.initialize()
+
+        bus.publish(
+            Event(
+                topic="praxis.completed",
+                payload={
+                    "correlation_id": "../../outside_episode",
+                    "outcome": {"reward": 1.0},
+                },
+                source="test",
+            )
+        )
+
+        assert not outside_dir.exists()
+        assert (artifact_base / "episodes" / "outside_episode" / "metadata.json").exists()
+
+        recorder.stop()
+
+    def test_finalize_rejects_episode_path_that_escapes_base(self, tmp_path):
+        bus = EventBus()
+        artifact_base = tmp_path / "artifacts"
+        outside_dir = tmp_path / "outside_bypass"
+        recorder = EpisodeRecorder(
+            robot_id="r1",
+            event_bus=bus,
+            artifact_base_dir=str(artifact_base),
+            seekdb_bridge=None,
+        )
+        recorder.initialize()
+        unsafe_episode_id = "../../outside_bypass"
+        recorder._get_or_create_buffer(unsafe_episode_id)
+
+        recorder._finalize_episode(unsafe_episode_id)
+
+        assert not outside_dir.exists()
+        assert not (artifact_base / "episodes" / unsafe_episode_id).exists()
+
+        recorder.stop()
+
 
 class TestRuntimeConfigSeekDB:
     def test_runtime_config_reads_seekdb_env_vars(self, monkeypatch):

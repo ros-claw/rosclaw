@@ -31,8 +31,6 @@ def build_sync_stats_rows(
     for episode_index, episode in enumerate(episodes):
         if not episode.frames:
             continue
-        first = episode.frames[0]
-        last = episode.frames[-1]
         timestamps = [f.timestamp for f in episode.frames]
         source_timestamps = [f.source_timestamp_ns for f in episode.frames if f.source_timestamp_ns is not None]
         episode_times = [f.episode_time_sec for f in episode.frames if f.episode_time_sec is not None]

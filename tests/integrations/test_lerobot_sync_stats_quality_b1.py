@@ -22,7 +22,6 @@ from rosclaw.integrations.lerobot.sync_stats import (
 )
 from rosclaw.integrations.lerobot.synchronize import synchronize_bundle
 
-
 ASYNC_FIXTURE = Path(__file__).parent.parent.parent / "examples" / "practice" / "async_physical_episode"
 
 

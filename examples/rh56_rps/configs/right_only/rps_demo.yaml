@@ -1,0 +1,79 @@
+# Rock-Paper-Scissors dual-hand demo configuration.
+# Copy this over rps_demo.yaml (or pass it as the config dir) to enable the
+# left-hand referee on /dev/ttyUSB1.
+demo:
+  name: "RH56 Rock Paper Scissors"
+  mode: "mock"
+  rounds: 10
+  auto: false
+
+commit:
+  algorithm: "sha256"
+  nonce_bytes: 8
+
+countdown:
+  labels: ["3", "2", "1"]
+  gestures: ["count3", "count2", "count1"]
+  step_s: 0.6
+
+capture:
+  window_s: 0.0
+  fps: 30
+  min_confidence: 0.65
+  majority_ratio: 0.55
+  # ~0.7 s voting window at 30 fps; keeps latency low while smoothing noise.
+  vote_window_size: 20
+
+hand:
+  controller: "rh56"
+  # Use "/dev/ttyUSB0" explicitly, or "auto" to scan for the configured device_id.
+  port: "auto"
+  device_id: 2
+  baudrate: 115200
+  timeout_s: 0.3
+  default_speed: 600
+  default_force: 300
+  safe_mode_failures: 3
+
+referee:
+  enabled: false
+  controller: "rh56"
+  # Use "/dev/ttyUSB1" explicitly, or "auto" to scan for the configured device_id.
+  port: "auto"
+  device_id: 1
+  baudrate: 115200
+  timeout_s: 0.5
+  default_speed: 450
+  default_force: 350
+
+camera:
+  source: "ros2"
+  # RealSense D405 launch command:
+  #   ./launch_camera.sh
+  # This publishes /camera/camera/color/image_raw at 640x480.
+  topic: "/camera/camera/color/image_raw"
+  width: 640
+  height: 480
+  fps: 30
+  # MediaPipe runs on a smaller crop for speed; 320x240 is a good trade-off.
+  recognition_width: 320
+  recognition_height: 240
+  min_detection_confidence: 0.3
+  min_tracking_confidence: 0.3
+
+ui:
+  # How long (seconds) the result + referee gesture stay on screen before
+  # returning to the ready pose.
+  result_display_s: 2.5
+
+logging:
+  root_dir: "~/.rosclaw/practice/runs/rh56_rps"
+  save_frames: false
+  save_telemetry: true
+
+safety:
+  max_force_g: 500
+  max_current_ma: 900
+  max_temp_c: 65
+  safe_open_on_error: true
+  consecutive_failure_limit: 3

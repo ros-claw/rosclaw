@@ -19,7 +19,6 @@ from rosclaw.integrations.lerobot.source_stream_schema import (
     SourceStreamBundle,
 )
 
-
 # Maps a JSONL filename (without extension) to the canonical feature key and
 # stream classification.  Camera streams are detected by the "camera_" prefix.
 _STREAM_FILENAME_TO_KEY: dict[str, tuple[str, str]] = {

@@ -57,15 +57,21 @@ _ALLOWED_SOURCES = {
 
 
 def _normalize_outcome(outcome: str | None) -> str:
-    """Return a lowercase outcome string for canonical storage.
+    """Return a canonical outcome string for storage and schema validation.
 
-    Unknown or empty values are preserved as ``unknown``.
+    Unknown or empty values are preserved as ``unknown``.  ``FAILED`` is
+    mapped to ``failure`` because :class:`EpisodeSummaryPayload` expects the
+    latter literal.
     """
     if not outcome:
         return "unknown"
     upper = outcome.upper()
-    if upper in {"SUCCESS", "FAILED", "PARTIAL"}:
-        return upper.lower()
+    if upper == "SUCCESS":
+        return "success"
+    if upper == "FAILED":
+        return "failure"
+    if upper == "PARTIAL":
+        return "partial"
     if upper == "UNKNOWN":
         return "unknown"
     return outcome.lower()

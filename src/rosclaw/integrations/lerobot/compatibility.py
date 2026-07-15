@@ -19,7 +19,6 @@ from rosclaw.integrations.lerobot.smoke_report import (
     read_latest_smoke_report,
 )
 
-
 COMPATIBILITY_LEVELS = [
     "unsupported",
     "listed",
@@ -43,10 +42,9 @@ class PolicyCompatibility:
     notes: str = ""
 
 
-# P1.1 compatibility matrix.  These entries reflect what the one-shot worker
-# protocol can realistically exercise without a body mapping layer.  Unknown
-# policy families default to "listed" (we can inspect them) unless experience
-# shows they cannot be loaded at all.
+# P1.1 compatibility matrix.  Keep this conservative: only ACT has been
+# validated through a real smoke target in this round. Other known families are
+# listed as inspect-only until a real checkpoint is load-tested/inferred.
 POLICY_COMPATIBILITY_MATRIX: dict[str, PolicyCompatibility] = {
     "act": PolicyCompatibility(
         policy_type="act",
@@ -58,23 +56,23 @@ POLICY_COMPATIBILITY_MATRIX: dict[str, PolicyCompatibility] = {
     "diffusion": PolicyCompatibility(
         policy_type="diffusion",
         inspect=True,
-        load_test=True,
-        infer=True,
-        notes="Diffusion policies load and infer; noise scheduling is runtime-specific.",
+        load_test=False,
+        infer=False,
+        notes="Pending real smoke; diffusion observation/action preprocessing is not validated in P1.1.",
     ),
     "vqbet": PolicyCompatibility(
         policy_type="vqbet",
         inspect=True,
-        load_test=True,
+        load_test=False,
         infer=False,
-        notes="VQ-BeT loads but inference path is not validated in P1.1.",
+        notes="Pending real smoke; VQ-BeT loading and inference are not validated in P1.1.",
     ),
     "tdmpc": PolicyCompatibility(
         policy_type="tdmpc",
         inspect=True,
-        load_test=True,
+        load_test=False,
         infer=False,
-        notes="TDMPC loads but observation preprocessing is not validated in P1.1.",
+        notes="Pending real smoke; TDMPC loading and observation preprocessing are not validated in P1.1.",
     ),
 }
 

@@ -1533,3 +1533,7 @@ def cmd_lerobot_rollout_shadow(args: argparse.Namespace) -> int:
         for error in result.errors:
             print(f"  Error:           {error}")
     return 0 if result.stop_reason.value == "completed" else 1
+
+__all__ = [
+    "LeRobotDatasetWorkerRunner",
+]

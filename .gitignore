@@ -87,6 +87,8 @@ generated/
 /mcp.json
 /P0_CLAUDE_CODE_AGENT_HELP.md
 /PYEOF
+/ROSCLAW_LEROBOT_*REPORT.md
+/reports/P2.1_Gate_*_Implementation_Report.md
 
 # Agent/backup churn
 .backups/

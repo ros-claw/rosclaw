@@ -1,0 +1,15 @@
+/tmp/rosclaw-codex-practice.7GtTkT/export/lerobot/rh56_minimal_loop/data/action.parquet
+/tmp/rosclaw-codex-practice.7GtTkT/export/lerobot/rh56_minimal_loop/data/episode_index.parquet
+/tmp/rosclaw-codex-practice.7GtTkT/export/lerobot/rh56_minimal_loop/data/observation.state.parquet
+/tmp/rosclaw-codex-practice.7GtTkT/export/lerobot/rh56_minimal_loop/data/timestamp.parquet
+/tmp/rosclaw-codex-practice.7GtTkT/export/lerobot/rh56_minimal_loop/meta/info.json
+/tmp/rosclaw-codex-practice.7GtTkT/export/lerobot/rh56_minimal_loop/meta/tasks.jsonl
+/tmp/rosclaw-codex-practice.7GtTkT/export/lerobot/rh56_minimal_loop/rosclaw_extra.jsonl
+/tmp/rosclaw-codex-practice.7GtTkT/export/parquet/rh56_minimal_loop.parquet
+/tmp/rosclaw-codex-practice.7GtTkT/home/telemetry/events/2026-07-08.jsonl
+/tmp/rosclaw-codex-practice.7GtTkT/practice/indexes/practice_catalog.sqlite
+/tmp/rosclaw-codex-practice.7GtTkT/practice/sessions/practice_rh56_minimal_loop/episode.json
+/tmp/rosclaw-codex-practice.7GtTkT/practice/sessions/practice_rh56_minimal_loop/manifest.yaml
+/tmp/rosclaw-codex-practice.7GtTkT/practice/sessions/practice_rh56_minimal_loop/raw/events.jsonl
+/tmp/rosclaw-codex-practice.7GtTkT/practice/sessions/practice_rh56_minimal_loop/timeline.jsonl
+/tmp/rosclaw-codex-practice.7GtTkT/seekdb.sqlite

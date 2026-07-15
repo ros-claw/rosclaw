@@ -44,7 +44,7 @@ class SyncPolicy:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "SyncPolicy":
+    def from_dict(cls, data: dict[str, Any]) -> SyncPolicy:
         return cls(
             method=data.get("method", "previous"),  # type: ignore[arg-type]
             max_gap_ms=data.get("max_gap_ms"),
@@ -69,7 +69,7 @@ class SyncConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "SyncConfig":
+    def from_dict(cls, data: dict[str, Any]) -> SyncConfig:
         raw_policies = data.get("policies", {})
         return cls(
             target_fps=float(data.get("target_fps", 10.0)),

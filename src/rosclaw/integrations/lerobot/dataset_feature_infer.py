@@ -1,15 +1,14 @@
 """Infer LeRobotDataset feature schema from a NormalizedPracticeEpisode.
 
-This module lives in the ROSClaw core Python and must not import torch or
-lerobot.  It uses PIL only to read image dimensions.
+This module lives in the ROSClaw core Python and must not import torch,
+lerobot, or PIL at module import time.  Pillow is only required when image
+dimensions need to be read.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-
-from PIL import Image
 
 from rosclaw.integrations.lerobot.practice_normalizer import NormalizedPracticeEpisode
 
@@ -57,7 +56,6 @@ ROSCLAW_FEATURE_SPECS: dict[str, dict[str, dict[str, Any]]] = {
     },
 }
 
-
 def _infer_telemetry_features(
     episode: NormalizedPracticeEpisode,
 ) -> dict[str, dict[str, Any]]:
@@ -83,6 +81,27 @@ def _infer_telemetry_features(
             spec["shape"] = [dim]
             features[feature_key] = spec
     return features
+
+
+def _read_image_shape(image_path: Path, camera_name: str) -> tuple[int, int]:
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise FeatureInferenceError(
+            "image_reader_unavailable",
+            "Pillow is required to infer image feature dimensions.",
+            f"Could not import PIL while reading camera '{camera_name}' at {image_path}.",
+        ) from exc
+
+    try:
+        with Image.open(image_path) as img:
+            img = img.convert("RGB")
+            return (img.height, img.width)
+    except Exception as exc:  # noqa: BLE001
+        raise FeatureInferenceError(
+            "image_file_not_found",
+            f"Could not read image '{camera_name}' at {image_path}: {exc}",
+        ) from exc
 
 
 def infer_features(
@@ -139,15 +158,7 @@ def infer_features(
                     "image_file_not_found",
                     f"Image file not found for camera '{camera_name}': {image_path}",
                 )
-            try:
-                with Image.open(image_path) as img:
-                    img = img.convert("RGB")
-                    size = (img.height, img.width)
-            except Exception as exc:  # noqa: BLE001
-                raise FeatureInferenceError(
-                    "image_file_not_found",
-                    f"Could not read image '{camera_name}' at {image_path}: {exc}",
-                ) from exc
+            size = _read_image_shape(image_path, camera_name)
 
             prev_size = image_sizes.get(camera_name)
             if prev_size is None:
@@ -195,15 +206,6 @@ def feature_summary(features: dict[str, dict[str, Any]]) -> dict[str, list[int]]
     for key, value in features.items():
         summary[key] = list(value.get("shape", []))
     return summary
-
-
-def __all__() -> list[str]:
-    return [
-        "FeatureInferenceError",
-        "ROSCLAW_FEATURE_SPECS",
-        "feature_summary",
-        "infer_features",
-    ]
 
 
 __all__ = [

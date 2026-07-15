@@ -10,13 +10,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from rosclaw.integrations.lerobot.practice_normalizer import NormalizationError
-from rosclaw.integrations.lerobot.source_stream_schema import SourceStreamBundle
 from rosclaw.integrations.lerobot.clock_mapping import (
     ClockMappingResult,
     normalize_bundle_timestamps,
 )
-
+from rosclaw.integrations.lerobot.practice_normalizer import NormalizationError
+from rosclaw.integrations.lerobot.source_stream_schema import SourceStreamBundle
 
 _NS_TO_S = 1e-9
 _EPSILON = 1e-9

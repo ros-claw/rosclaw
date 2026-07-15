@@ -1,0 +1,43 @@
+schema_version: "rosclaw.dojo.v1"
+
+practice_sources:
+  default_query:
+    task: "rh56_rps"
+    robot: "rh56_rps_robot"
+    body: "rh56_rps_robot"
+    min_success: 0
+    include_failures: true
+  storage:
+    traces:
+      - "~/.rosclaw/practice/runs/rh56_rps/traces"
+    memory:
+      - "~/.rosclaw/practice/runs/rh56_rps/memory"
+
+mining:
+  candidate_prefix: "candidate"
+  min_episodes: 5
+  min_success_episodes: 2
+  include_failure_recovery: true
+  segmentation:
+    method: "event_boundary_and_state_transition"
+    event_markers:
+      - task_start
+      - round_reveal
+      - success_verified
+      - failure_event
+  clustering:
+    method: "effect_signature"
+    features:
+      - precondition
+      - outcome
+
+replay:
+  required: true
+  sample_episodes: 3
+  compare:
+    - state_transition
+    - outcome_metric
+
+training:
+  enabled: false
+  output_dir: "policies/checkpoints"

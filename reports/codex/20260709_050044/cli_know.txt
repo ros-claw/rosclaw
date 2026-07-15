@@ -1,0 +1,11 @@
+usage: rosclaw know [-h] {search,robot,recommend,compile} ...
+
+positional arguments:
+  {search,robot,recommend,compile}
+    search              Search knowledge base
+    robot               Show robot knowledge
+    recommend           Recommend robots for task
+    compile             Compile a grounded task card from a practice episode
+
+options:
+  -h, --help            show this help message and exit

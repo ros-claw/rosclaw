@@ -1,0 +1,124 @@
+# RH56 gesture definitions for Rock-Paper-Scissors demo.
+# DOF order: [little, ring, middle, index, thumb, thumb_rot]
+# Units: raw angle (0 = closed/bent, 1000 = open/extended), speed/force 0-1000.
+gestures:
+  ready:
+    description: "OK / ready pose between rounds"
+    angles: [1000, 1000, 1000, 410, 420, 300]
+    hold_s: 0.8
+    speed: 600
+    force: 300
+    verify:
+      tolerance: 120
+      current_max: 900
+      force_max: 900
+
+  count3:
+    description: "Countdown 3: ring, middle, index extended"
+    angles: [0, 1000, 1000, 1000, 0, 1000]
+    hold_s: 0.5
+    speed: 700
+    force: 300
+    verify:
+      tolerance: 120
+      current_max: 900
+      force_max: 900
+
+  count2:
+    description: "Countdown 2: middle, index extended"
+    angles: [0, 0, 1000, 1000, 0, 1000]
+    hold_s: 0.5
+    speed: 700
+    force: 300
+    verify:
+      tolerance: 120
+      current_max: 900
+      force_max: 900
+
+  count1:
+    description: "Countdown 1: index extended"
+    angles: [0, 0, 0, 1000, 0, 1000]
+    hold_s: 0.5
+    speed: 700
+    force: 300
+    verify:
+      tolerance: 120
+      current_max: 900
+      force_max: 900
+
+  rock:
+    description: "Fist / rock: all fingers closed"
+    angles: [0, 0, 0, 0, 0, 1000]
+    hold_s: 1.0
+    speed: 400
+    force: 350
+    verify:
+      tolerance: 100
+      current_max: 900
+      force_max: 900
+
+  paper:
+    description: "Open palm / paper"
+    angles: [1000, 1000, 1000, 1000, 1000, 1000]
+    hold_s: 0.8
+    speed: 600
+    force: 300
+    verify:
+      tolerance: 80
+      current_max: 800
+      force_max: 800
+
+  scissors:
+    description: "Index and middle extended"
+    angles: [0, 0, 1000, 1000, 0, 1000]
+    hold_s: 0.8
+    speed: 600
+    force: 300
+    verify:
+      tolerance: 80
+      current_max: 800
+      force_max: 800
+
+  win:
+    description: "OK gesture (promoted safe contact pose)"
+    angles: [1000, 1000, 1000, 410, 420, 300]
+    hold_s: 1.2
+    speed: 600
+    force: 300
+    verify:
+      tolerance: 100
+      current_max: 900
+      force_max: 900
+
+  lose:
+    description: "Lose gesture: one finger extended"
+    angles: [0, 0, 0, 1000, 0, 1000]
+    hold_s: 1.0
+    speed: 500
+    force: 300
+    verify:
+      tolerance: 80
+      current_max: 800
+      force_max: 800
+
+  draw:
+    description: "Draw gesture: three fingers extended"
+    angles: [0, 1000, 1000, 1000, 0, 1000]
+    hold_s: 1.0
+    speed: 600
+    force: 300
+    verify:
+      tolerance: 80
+      current_max: 800
+      force_max: 800
+
+  error:
+    description: "Safe open hand on error"
+    angles: [1000, 1000, 1000, 1000, 1000, 1000]
+    hold_s: 0.8
+    speed: 400
+    force: 250
+    verify:
+      tolerance: 120
+      current_max: 800
+      force_max: 800

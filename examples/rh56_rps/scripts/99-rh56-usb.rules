@@ -1,0 +1,6 @@
+# Prevent ModemManager from probing CH340 USB/RS485 adapters used by RH56 hands.
+# Place this file in /etc/udev/rules.d/ and run:
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger
+
+SUBSYSTEM=="usb", ATTR{idVendor}=="1a86", ATTR{idProduct}=="7523", ENV{ID_MM_DEVICE_IGNORE}="1", ENV{ID_MM_DEVICE_MANUAL_SCAN_ONLY}="1"

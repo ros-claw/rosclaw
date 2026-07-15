@@ -7,16 +7,21 @@ the current interpreter.
 
 from __future__ import annotations
 
-import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+import semver
+
 from rosclaw.integrations.lerobot.subprocess_runner import run_command, which
 
 RuntimeMode = Literal["auto", "current-env", "isolated", "external"]
 RuntimeState = Literal["not_found", "ready", "degraded", "error"]
+LEROBOT_MIN_VERSION = semver.Version(0, 6, 0)
+LEROBOT_MAX_VERSION = semver.Version(0, 7, 0)
+LEROBOT_REQUIREMENT = ">=0.6,<0.7"
+LEROBOT_INFO_MODULE = "lerobot.scripts.lerobot_info"
 
 
 @dataclass
@@ -120,11 +125,8 @@ def find_python312(preferred: Path | str | None = None) -> Path | None:
 def resolve_lerobot_info(python_executable: Path | str) -> Path | None:
     """Find the best ``lerobot-info`` executable for a Python runtime.
 
-    Priority:
-      1. A ``lerobot-info`` binary next to the Python executable.
-      2. ``lerobot-info`` on PATH.
-      3. ``python -m lerobot_info`` (no separate executable; returned as python
-         executable for callers that can handle it).
+    A global PATH binary is deliberately ignored because it may belong to a
+    different Python environment.
     """
     python_path = Path(python_executable)
 
@@ -134,18 +136,14 @@ def resolve_lerobot_info(python_executable: Path | str) -> Path | None:
         if sibling.exists():
             return sibling
 
-    # 2. PATH lookup.
-    from_path = which("lerobot-info")
-    if from_path:
-        return Path(from_path)
-
-    # 3. Fall back to python -m if the module is importable.
+    # Fall back to the module entry point in the selected Python runtime.
     result = run_command(
         [
             str(python_path),
             "-c",
             "import importlib.util; import sys; "
-            "sys.exit(0 if importlib.util.find_spec('lerobot') is not None else 1)",
+            f"sys.exit(0 if importlib.util.find_spec('{LEROBOT_INFO_MODULE}') "
+            "is not None else 1)",
         ],
         timeout=30.0,
     )
@@ -166,6 +164,17 @@ def _probe_lerobot_version(python_executable: Path | str) -> str | None:
         timeout=30.0,
     )
     return result.stdout if result.ok else None
+
+
+def is_supported_lerobot_version(version: str | None) -> bool:
+    """Return whether a discovered LeRobot version is supported by this bridge."""
+    if not version:
+        return False
+    try:
+        parsed = semver.Version.parse(version)
+    except ValueError:
+        return False
+    return LEROBOT_MIN_VERSION <= parsed < LEROBOT_MAX_VERSION
 
 
 def _probe_torch_version(python_executable: Path | str) -> tuple[str | None, bool | None]:
@@ -276,6 +285,26 @@ def inspect_lerobot_runtime(
         )
 
     lerobot_version = _probe_lerobot_version(python_path)
+    if not is_supported_lerobot_version(lerobot_version):
+        return LeRobotRuntime(
+            mode=mode,
+            runtime_path=Path(runtime_path) if runtime_path else None,
+            python_executable=python_path,
+            pip_executable=_guess_pip(python_path),
+            lerobot_info_executable=None,
+            python_version=info.version,
+            lerobot_version=lerobot_version,
+            torch_version=None,
+            cuda_available=None,
+            state="error",
+            in_process_available=False,
+            subprocess_available=False,
+            error=(
+                f"Unsupported LeRobot version {lerobot_version or 'unknown'}; "
+                f"required {LEROBOT_REQUIREMENT}"
+            ),
+        )
+
     torch_version, cuda_available = _probe_torch_version(python_path)
     lerobot_info = resolve_lerobot_info(python_path)
 
@@ -284,7 +313,12 @@ def inspect_lerobot_runtime(
     subprocess_ok = False
     info_output = ""
     if lerobot_info == python_path:
-        subprocess_ok = True
+        smoke = run_command(
+            [str(python_path), "-m", LEROBOT_INFO_MODULE],
+            timeout=60.0,
+        )
+        subprocess_ok = smoke.ok
+        info_output = smoke.stdout
     elif lerobot_info is not None:
         smoke = run_command([str(lerobot_info)], timeout=60.0)
         subprocess_ok = smoke.ok
@@ -305,7 +339,7 @@ def inspect_lerobot_runtime(
         torch_version=torch_version,
         cuda_available=cuda_available,
         state="ready" if subprocess_ok else "degraded",
-        in_process_available=sys.executable == str(python_path),
+        in_process_available=Path(sys.executable).resolve() == python_path.resolve(),
         subprocess_available=subprocess_ok,
         lerobot_info_output=info_output,
         error=None if subprocess_ok else "lerobot-info smoke test failed",

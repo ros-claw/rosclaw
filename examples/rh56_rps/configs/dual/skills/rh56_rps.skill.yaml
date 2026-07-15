@@ -1,0 +1,42 @@
+schema_version: rosclaw.skill.v1
+skill_id: rh56_rps
+skill_version: 1.0.0
+display_name: RH56 Rock-Paper-Scissors demo
+
+description: |
+  Dual-hand RH56 dexterous-hand rock-paper-scissors demo with a left-hand
+  referee.  Requires a RealSense color camera for human gesture recognition
+  and one or two Inspire RH56 hands.  Mock mode runs without hardware.
+
+requires:
+  robot_class: manipulator
+
+  capabilities:
+    all_of:
+      - dexterous_hand_control
+
+  sensors:
+    all_of:
+      - id: /camera/camera/color/image_raw
+        status: available
+
+  actuators:
+    all_of:
+      - group: rh56_right_hand
+        status: available
+
+  # Camera calibration is helpful but not mandatory for the demo.
+  calibration:
+    required_status:
+      - validated
+      - uncalibrated
+
+degradation_policy:
+  allow_uncalibrated_camera: true
+  allow_uncalibrated_body: true
+  allow_lower_speed: true
+
+runtime_policy:
+  safety_level: MODERATE
+  allow_mock_mode: true
+  auto_advance_default: false

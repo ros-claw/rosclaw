@@ -79,6 +79,8 @@ class LifecycleMixin:
 
     def start(self) -> None:
         """Start the module. Must be initialized first."""
+        if self._lifecycle_state == LifecycleState.RUNNING:
+            return
         if self._lifecycle_state not in (LifecycleState.READY, LifecycleState.PAUSED):
             raise RuntimeError(f"Cannot start from state {self._lifecycle_state.name}")
         self._lifecycle_state = LifecycleState.RUNNING

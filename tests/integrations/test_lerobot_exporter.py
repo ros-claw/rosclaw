@@ -41,6 +41,14 @@ def test_export_from_episode_dir(tmp_path: Path):
     info = json.loads((output_dir / "meta" / "info.json").read_text(encoding="utf-8"))
     assert info["robot_id"] == "ur5e_lab_01"
     assert info["task"] == "test task"
+    placeholder_rows = [
+        json.loads(line)
+        for line in (output_dir / "data" / "placeholder.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line
+    ]
+    assert placeholder_rows == [{"placeholder": True, "frames": 0}]
 
 
 def test_skeleton_exporter_wrapper(tmp_path: Path):
@@ -54,4 +62,20 @@ def test_skeleton_exporter_wrapper(tmp_path: Path):
     exporter = LeRobotSkeletonExporter(data_root)
     out = exporter.export("minimal")
     assert out.exists()
+    assert (out / "meta" / "info.json").exists()
+
+
+def test_skeleton_exporter_accepts_existing_relative_path(
+    tmp_path: Path, monkeypatch
+):
+    episode_dir = tmp_path / "relative_episode"
+    episode_dir.mkdir()
+    (episode_dir / "metadata.json").write_text("{}", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    out = LeRobotSkeletonExporter(tmp_path / "practice").export(
+        "relative_episode",
+        output_path=tmp_path / "output",
+    )
+
     assert (out / "meta" / "info.json").exists()

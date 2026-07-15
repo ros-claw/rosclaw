@@ -16,11 +16,8 @@ from rosclaw.integrations.lerobot.sync_config import SyncConfig
 from rosclaw.integrations.lerobot.sync_provenance import (
     PROVENANCE_FILLED_NAN,
     PROVENANCE_HELD,
-    PROVENANCE_UNKNOWN,
-    VALIDITY_INVALID,
     VALIDITY_VALID,
 )
-
 
 _MISSING_POLICIES = {"error", "drop-frame", "fill-last", "nan"}
 

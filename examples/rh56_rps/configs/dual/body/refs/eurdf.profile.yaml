@@ -1,0 +1,77 @@
+schema_version: eurdf.profile.v1
+profile_id: inspire_rh56_dual
+profile_version: "1.0"
+vendor: inspire_robotics
+model: rh56_dual
+display_name: Inspire RH56 Dual-Hand Dexterous Setup
+description: |
+  Reference e-URDF profile for the RH56 Rock-Paper-Scissors demo.
+  Two RH56 dexterous hands plus a RealSense D405 color camera.
+
+identity:
+  robot_class: manipulator
+
+frames:
+  root: base_link
+  world: world
+  camera_color_optical_frame: camera_color_optical_frame
+  right_hand_base: rh56_right_hand_base
+  left_hand_base: rh56_left_hand_base
+
+joints: []
+
+sensors:
+  - name: /camera/camera/color/image_raw
+    type: color_camera
+    frame_id: camera_color_optical_frame
+    status: available
+    topics:
+      color: /camera/camera/color/image_raw
+
+actuators:
+  - name: rh56_right_hand
+    type: dexterous_hand
+    group: rh56_right_hand
+    status: available
+    dof: 6
+  - name: rh56_left_hand
+    type: dexterous_hand
+    group: rh56_left_hand
+    status: available
+    dof: 6
+
+capability_hints:
+  all:
+    - dexterous_hand_control
+    - rgb_camera
+    - hand_gesture_recognition
+
+forbidden_capabilities: []
+
+safety:
+  safety_level: nominal
+  joint_soft_limits: {}
+  safety_limits: {}
+  workspace_boundaries: []
+  pfl: {}
+  collision_detection: {}
+  emergency_stop: {}
+  interaction: {}
+  environment: {}
+
+provider_interfaces:
+  state:
+    required:
+      - joint_states
+    optional: []
+  command:
+    required:
+      - joint_trajectory
+    optional: []
+
+sandbox:
+  compatible_engines: []
+  preferred_engine: ""
+
+metadata:
+  demo: rh56_rps

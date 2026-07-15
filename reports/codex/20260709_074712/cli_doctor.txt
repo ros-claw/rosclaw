@@ -1,0 +1,16 @@
+usage: rosclaw doctor [-h] [--ros2] [--ros] [--realsense]
+                      [--endpoint ENDPOINT] [--bootstrap] [--full] [--fix]
+                      [--json] [--gpu] [--network]
+
+options:
+  -h, --help           show this help message and exit
+  --ros2               Check ROS2 environment profile (L1-L5)
+  --ros                Check rosbridge ROS connector profile (no rclpy)
+  --realsense          Check RealSense D405 stack
+  --endpoint ENDPOINT  rosbridge endpoint for --ros check
+  --bootstrap          L0 bootstrap check only
+  --full               Run L1-L3 full health check
+  --fix                Auto-fix safe issues only
+  --json               Output structured JSON
+  --gpu                Include GPU/CUDA check
+  --network            Include network reachability check
