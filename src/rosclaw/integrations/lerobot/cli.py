@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -46,8 +47,9 @@ from rosclaw.integrations.lerobot.practice_normalizer import (
 )
 from rosclaw.integrations.lerobot.doctor import run_lerobot_doctor
 from rosclaw.integrations.lerobot.installer import install_lerobot
+from rosclaw.integrations.lerobot.policy_runtime.manager import PersistentRuntimeManager
 from rosclaw.integrations.lerobot.provider import LeRobotPolicyProvider
-from rosclaw.integrations.lerobot.runtime import LeRobotRuntime
+from rosclaw.integrations.lerobot.runtime import LeRobotRuntime, find_python312
 from rosclaw.integrations.lerobot.smoke_policy import (
     DEFAULT_SMOKE_POLICY,
     SmokePolicyOptions,
@@ -1009,3 +1011,288 @@ def cmd_lerobot_compatibility(args: argparse.Namespace) -> int:
 
     print(format_compatibility_text(report))
     return 0
+
+
+def _resolve_policy_runtime_python(args: argparse.Namespace) -> str:
+    """Pick the LeRobot Python executable for the persistent runtime."""
+    explicit = getattr(args, "python", None)
+    if explicit:
+        return str(explicit)
+    configured = get_configured_lerobot_runtime()
+    if configured and configured.get("python_executable"):
+        return str(configured["python_executable"])
+    found = find_python312()
+    if found:
+        return str(found)
+    return sys.executable
+
+
+def _build_runtime_manager(args: argparse.Namespace, *, policy_path: str | None = None) -> PersistentRuntimeManager:
+    """Build a persistent runtime manager from CLI args."""
+    python_executable = _resolve_policy_runtime_python(args)
+    return PersistentRuntimeManager(
+        python_executable=python_executable,
+        policy_path=policy_path,
+        device=getattr(args, "device", "cpu"),
+        dtype=getattr(args, "dtype", "auto"),
+        allow_network=getattr(args, "allow_network", False),
+        timeout_sec=float(getattr(args, "timeout_sec", 120)),
+        startup_timeout_sec=float(getattr(args, "startup_timeout_sec", 60)),
+    )
+
+
+def cmd_lerobot_policy_serve(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot policy serve`."""
+    from rosclaw.integrations.lerobot.policy_runtime.config import (
+        remove_pid_file,
+        write_pid_file,
+    )
+    from rosclaw.integrations.lerobot.policy_runtime.socket_server import start_daemon
+
+    policy_path: str | None = getattr(args, "policy_path", None) or None
+    manager = _build_runtime_manager(args, policy_path=policy_path)
+
+    if args.daemon:
+        pid = os.fork()
+        if pid > 0:
+            write_pid_file(pid)
+            print(f"[rosclaw-lerobot] Policy runtime daemon PID {pid}")
+            return 0
+        try:
+            os.setsid()
+            devnull = os.open(os.devnull, os.O_RDWR)
+            for fd in (0, 1, 2):
+                os.dup2(devnull, fd)
+            os.close(devnull)
+        except OSError:
+            pass
+
+    server = start_daemon(
+        manager,
+        policy_path=policy_path,
+        python_executable=str(manager.python_executable),
+    )
+    write_pid_file(os.getpid())
+
+    if not args.daemon:
+        print(f"[rosclaw-lerobot] Policy runtime serving on {server.socket_path}")
+        print("[rosclaw-lerobot] Press Ctrl+C to stop")
+
+    try:
+        server.wait()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.stop()
+        remove_pid_file()
+    return 0
+
+
+def cmd_lerobot_policy_status(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot policy status`."""
+    from rosclaw.integrations.lerobot.policy_runtime.config import get_daemon_status
+    from rosclaw.integrations.lerobot.policy_runtime.socket_server import try_send_request
+
+    status = get_daemon_status()
+    probe: dict[str, Any] | None = None
+    if status["running"] and status["socket_path"]:
+        probe = try_send_request(status["socket_path"], "PROBE", timeout_sec=10.0)
+
+    if args.json:
+        payload = dict(status)
+        if probe is not None:
+            payload["probe"] = probe
+        print(json.dumps(payload, indent=2, default=str))
+        return 0
+
+    print("[rosclaw-lerobot] Policy runtime status")
+    print(f"  Running:     {status['running']}")
+    print(f"  PID:         {status['pid'] or 'N/A'}")
+    print(f"  Socket:      {status['socket_path'] or 'N/A'}")
+    print(f"  Policy path: {status['policy_path'] or 'N/A'}")
+    print(f"  Device:      {status['device']}")
+    if probe:
+        print(f"  Policy loaded: {probe.get('policy_loaded', False)}")
+        print(f"  Python:        {probe.get('python_executable', 'N/A')}")
+        print(f"  LeRobot:       {probe.get('lerobot_importable', False)}")
+        print(f"  Torch:         {probe.get('torch_version', 'N/A')}")
+    return 0
+
+
+def cmd_lerobot_policy_health(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot policy health`."""
+    from rosclaw.integrations.lerobot.policy_runtime.config import get_daemon_status
+    from rosclaw.integrations.lerobot.policy_runtime.socket_server import send_request
+
+    status = get_daemon_status()
+    if not status["running"] or not status["socket_path"]:
+        print("[rosclaw-lerobot] Policy runtime is not running", file=sys.stderr)
+        return 1
+
+    try:
+        response = send_request(status["socket_path"], "HEALTH", timeout_sec=30.0)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[rosclaw-lerobot] Health check failed: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(response, indent=2, default=str))
+        return 0 if response.get("status") == "ok" else 1
+
+    print("[rosclaw-lerobot] Policy runtime health")
+    print(f"  Status:         {response.get('status', 'unknown')}")
+    print(f"  Policy loaded:  {response.get('policy_loaded', False)}")
+    print(f"  Active sessions: {response.get('active_sessions', 0)}")
+    return 0 if response.get("status") == "ok" else 1
+
+
+def cmd_lerobot_policy_stop(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot policy stop`."""
+    from rosclaw.integrations.lerobot.policy_runtime.socket_server import stop_daemon
+
+    result = stop_daemon()
+    if args.json:
+        print(json.dumps(result, indent=2, default=str))
+        return 0
+
+    if result.get("running"):
+        print("[rosclaw-lerobot] Policy runtime did not stop cleanly", file=sys.stderr)
+        return 1
+    print("[rosclaw-lerobot] Policy runtime stopped")
+    return 0
+
+
+def cmd_lerobot_policy_metrics(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot policy metrics`."""
+    from rosclaw.integrations.lerobot.policy_runtime.config import get_daemon_status
+    from rosclaw.integrations.lerobot.policy_runtime.socket_server import (
+        send_request,
+        try_send_request,
+    )
+
+    status = get_daemon_status()
+    probe: dict[str, Any] | None = None
+    health: dict[str, Any] | None = None
+    if status["running"] and status["socket_path"]:
+        probe = try_send_request(status["socket_path"], "PROBE", timeout_sec=10.0)
+        health = try_send_request(status["socket_path"], "HEALTH", timeout_sec=10.0)
+
+    if args.json:
+        print(json.dumps({"status": status, "probe": probe, "health": health}, indent=2, default=str))
+        return 0
+
+    print("[rosclaw-lerobot] Policy runtime metrics")
+    print(f"  Running:         {status['running']}")
+    print(f"  PID:             {status['pid'] or 'N/A'}")
+    print(f"  Policy path:     {status['policy_path'] or 'N/A'}")
+    if probe:
+        print(f"  Policy loaded:   {probe.get('policy_loaded', False)}")
+        print(f"  Python:          {probe.get('python_executable', 'N/A')}")
+        print(f"  LeRobot import:  {probe.get('lerobot_importable', False)}")
+        print(f"  Torch version:   {probe.get('torch_version', 'N/A')}")
+        print(f"  CUDA available:  {probe.get('cuda_available', 'N/A')}")
+    if health:
+        print(f"  Active sessions: {health.get('active_sessions', 0)}")
+    return 0
+
+
+def cmd_lerobot_policy_plugins(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot policy plugins`."""
+    from rosclaw.integrations.lerobot.policy_runtime.config import get_daemon_status
+    from rosclaw.integrations.lerobot.policy_runtime.socket_server import (
+        send_request,
+        try_send_request,
+    )
+
+    status = get_daemon_status()
+    probe: dict[str, Any] | None = None
+    if status["running"] and status["socket_path"]:
+        probe = try_send_request(status["socket_path"], "PROBE", timeout_sec=10.0)
+        if probe and probe.get("policy_loaded") and status["policy_path"]:
+            send_request(
+                status["socket_path"],
+                "LOAD_POLICY",
+                {"policy_path": status["policy_path"]},
+                timeout_sec=120.0,
+            )
+            probe = try_send_request(status["socket_path"], "PROBE", timeout_sec=10.0)
+
+    if args.json:
+        print(json.dumps({"status": status, "probe": probe}, indent=2, default=str))
+        return 0
+
+    print("[rosclaw-lerobot] Policy runtime plugins")
+    print(f"  Running:       {status['running']}")
+    print(f"  Policy path:   {status['policy_path'] or 'N/A'}")
+    if probe:
+        print(f"  Policy loaded: {probe.get('policy_loaded', False)}")
+        print(f"  Python:        {probe.get('python_executable', 'N/A')}")
+        print(f"  LeRobot:       {probe.get('lerobot_importable', False)}")
+        print(f"  Torch:         {probe.get('torch_version', 'N/A')}")
+        if probe.get("policy_path"):
+            print(f"  Loaded path:   {probe['policy_path']}")
+    return 0
+
+
+def cmd_lerobot_policy_warmup(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot policy warmup`."""
+    from rosclaw.integrations.lerobot.policy_runtime.config import get_daemon_status
+    from rosclaw.integrations.lerobot.policy_runtime.socket_server import (
+        send_request,
+        start_daemon,
+        stop_daemon,
+    )
+
+    policy_path: str | None = getattr(args, "policy_path", None) or None
+    if not policy_path:
+        print("[rosclaw-lerobot] --policy.path is required for warmup", file=sys.stderr)
+        return 1
+
+    status = get_daemon_status()
+    transient = not (status["running"] and status["socket_path"])
+    if transient:
+        manager = _build_runtime_manager(args, policy_path=policy_path)
+        server = start_daemon(
+            manager,
+            policy_path=policy_path,
+            python_executable=str(manager.python_executable),
+        )
+        socket_path = str(server.socket_path)
+    else:
+        socket_path = status["socket_path"]
+
+    try:
+        load_response = send_request(
+            socket_path,
+            "LOAD_POLICY",
+            {
+                "policy_path": policy_path,
+                "revision": getattr(args, "revision", "main"),
+                "device": getattr(args, "device", "cpu"),
+                "allow_network": getattr(args, "allow_network", False),
+            },
+            timeout_sec=getattr(args, "timeout_sec", 300),
+        )
+        if load_response.get("status") != "ok":
+            print(f"[rosclaw-lerobot] Load policy failed: {load_response}", file=sys.stderr)
+            return 1
+
+        warmup_response = send_request(socket_path, "WARMUP", timeout_sec=120.0)
+        if args.json:
+            print(
+                json.dumps(
+                    {"load_policy": load_response, "warmup": warmup_response},
+                    indent=2,
+                    default=str,
+                )
+            )
+            return 0 if warmup_response.get("status") == "ok" else 1
+
+        print("[rosclaw-lerobot] Policy warmup complete")
+        print(f"  Policy path: {load_response.get('policy_path', policy_path)}")
+        print(f"  Local path:  {load_response.get('local_policy_path', 'N/A')}")
+        print(f"  Device:      {load_response.get('device', 'N/A')}")
+        return 0 if warmup_response.get("status") == "ok" else 1
+    finally:
+        if transient:
+            stop_daemon(socket_path)
