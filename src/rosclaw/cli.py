@@ -60,6 +60,13 @@ from rosclaw.integrations.lerobot.cli import (
     cmd_lerobot_doctor,
     cmd_lerobot_export_dataset,
     cmd_lerobot_info,
+    cmd_lerobot_policy_health,
+    cmd_lerobot_policy_metrics,
+    cmd_lerobot_policy_plugins,
+    cmd_lerobot_policy_serve,
+    cmd_lerobot_policy_status,
+    cmd_lerobot_policy_stop,
+    cmd_lerobot_policy_warmup,
     cmd_lerobot_smoke_dataloader,
     cmd_lerobot_validate_dataset,
     cmd_provider_infer_lerobot,
@@ -6775,6 +6782,92 @@ def main() -> int:
     )
     lerobot_dataset_compatibility_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
+    # policy runtime subcommand
+    lerobot_policy_parser = lerobot_subparsers.add_parser(
+        "policy", help="Persistent LeRobot policy runtime commands"
+    )
+    lerobot_policy_subparsers = lerobot_policy_parser.add_subparsers(dest="lerobot_policy_command")
+
+    lerobot_policy_serve_parser = lerobot_policy_subparsers.add_parser(
+        "serve", help="Start the persistent policy runtime"
+    )
+    lerobot_policy_serve_parser.add_argument(
+        "--policy.path", dest="policy_path", default=None,
+        help="Policy directory or HF repo id"
+    )
+    lerobot_policy_serve_parser.add_argument(
+        "--python", default=None, help="LeRobot Python executable"
+    )
+    lerobot_policy_serve_parser.add_argument(
+        "--device", default="cpu", help="Device for inference (default: cpu)"
+    )
+    lerobot_policy_serve_parser.add_argument(
+        "--dtype", default="auto", choices=["auto", "fp32", "fp16", "bf16"],
+        help="Model dtype (default: auto)"
+    )
+    lerobot_policy_serve_parser.add_argument(
+        "--allow-network", action="store_true", help="Allow network access for HF downloads"
+    )
+    lerobot_policy_serve_parser.add_argument(
+        "--timeout-sec", type=int, default=120, help="Call timeout in seconds (default: 120)"
+    )
+    lerobot_policy_serve_parser.add_argument(
+        "--startup-timeout-sec", type=int, default=60, help="Startup timeout in seconds (default: 60)"
+    )
+    lerobot_policy_serve_parser.add_argument(
+        "--daemon", action="store_true", help="Run as a background daemon"
+    )
+
+    lerobot_policy_status_parser = lerobot_policy_subparsers.add_parser(
+        "status", help="Show persistent policy runtime status"
+    )
+    lerobot_policy_status_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    lerobot_policy_health_parser = lerobot_policy_subparsers.add_parser(
+        "health", help="Check persistent policy runtime health"
+    )
+    lerobot_policy_health_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    lerobot_policy_stop_parser = lerobot_policy_subparsers.add_parser(
+        "stop", help="Stop the persistent policy runtime"
+    )
+    lerobot_policy_stop_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    lerobot_policy_metrics_parser = lerobot_policy_subparsers.add_parser(
+        "metrics", help="Show persistent policy runtime metrics"
+    )
+    lerobot_policy_metrics_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    lerobot_policy_plugins_parser = lerobot_policy_subparsers.add_parser(
+        "plugins", help="List persistent policy runtime plugin info"
+    )
+    lerobot_policy_plugins_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    lerobot_policy_warmup_parser = lerobot_policy_subparsers.add_parser(
+        "warmup", help="Load a policy and warm up the runtime"
+    )
+    lerobot_policy_warmup_parser.add_argument(
+        "--policy.path", dest="policy_path", required=True, help="Policy directory or HF repo id"
+    )
+    lerobot_policy_warmup_parser.add_argument("--revision", default="main", help="HF revision")
+    lerobot_policy_warmup_parser.add_argument(
+        "--device", default="cpu", help="Device for inference (default: cpu)"
+    )
+    lerobot_policy_warmup_parser.add_argument(
+        "--dtype", default="auto", choices=["auto", "fp32", "fp16", "bf16"],
+        help="Model dtype (default: auto)"
+    )
+    lerobot_policy_warmup_parser.add_argument(
+        "--allow-network", action="store_true", help="Allow network access for HF downloads"
+    )
+    lerobot_policy_warmup_parser.add_argument(
+        "--timeout-sec", type=int, default=300, help="Call timeout in seconds (default: 300)"
+    )
+    lerobot_policy_warmup_parser.add_argument(
+        "--startup-timeout-sec", type=int, default=60, help="Startup timeout in seconds (default: 60)"
+    )
+    lerobot_policy_warmup_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
     # auto subcommand (Self-Evolution Control Plane)
     auto_parser = subparsers.add_parser("auto", help="Auto self-evolution commands")
     auto_subparsers = auto_parser.add_subparsers(dest="auto_command")
@@ -7686,6 +7779,24 @@ def main() -> int:
                 return cmd_lerobot_smoke_dataloader(args)
             elif args.lerobot_command == "dataset-compatibility":
                 return cmd_lerobot_dataset_compatibility(args)
+            elif args.lerobot_command == "policy":
+                if args.lerobot_policy_command == "serve":
+                    return cmd_lerobot_policy_serve(args)
+                elif args.lerobot_policy_command == "status":
+                    return cmd_lerobot_policy_status(args)
+                elif args.lerobot_policy_command == "health":
+                    return cmd_lerobot_policy_health(args)
+                elif args.lerobot_policy_command == "stop":
+                    return cmd_lerobot_policy_stop(args)
+                elif args.lerobot_policy_command == "metrics":
+                    return cmd_lerobot_policy_metrics(args)
+                elif args.lerobot_policy_command == "plugins":
+                    return cmd_lerobot_policy_plugins(args)
+                elif args.lerobot_policy_command == "warmup":
+                    return cmd_lerobot_policy_warmup(args)
+                else:
+                    lerobot_policy_parser.print_help()
+                    return 1
             else:
                 lerobot_parser.print_help()
                 return 1
