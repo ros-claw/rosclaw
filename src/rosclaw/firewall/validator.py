@@ -9,6 +9,7 @@ Sprint 3 of DESIGN_SPRINT3_5.
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 import numpy as np
 
@@ -129,6 +130,7 @@ class FirewallValidator(LifecycleMixin):
         event_bus: EventBus,
         mujoco_model_path: str | None = None,
         safety_level: str = "MODERATE",
+        tracer: Any | None = None,
     ):
         super().__init__()
         self._robot_model = robot_model
@@ -138,6 +140,11 @@ class FirewallValidator(LifecycleMixin):
         self._envelope: SafetyEnvelope | None = None
         self._mj_model = None
         self._mj_data = None
+        if tracer is None:
+            from rosclaw.observability.tracer import get_tracer
+
+            tracer = get_tracer(event_bus)
+        self._tracer = tracer
 
     def _do_initialize(self) -> None:
         """Build SafetyEnvelope from e-URDF, optionally load MuJoCo."""
@@ -253,6 +260,54 @@ class FirewallValidator(LifecycleMixin):
             )
 
     def validate(self, request: ValidationRequest) -> ValidationResponse:
+        """Trace and run the deterministic three-layer firewall."""
+
+        with self._tracer.start_span(
+            "firewall.validate",
+            "GUARDRAIL",
+            source="firewall_validator",
+            operation="trajectory.validate",
+            trace_id=request.request_id,
+            attributes={
+                "safety.level": self._safety_level,
+                "trajectory.waypoints": len(request.trajectory),
+            },
+            robot_id=request.robot_id,
+        ) as span:
+            span.set_input(
+                {
+                    "trajectory": request.trajectory,
+                    "duration_per_waypoint": request.duration_per_waypoint,
+                    "metadata": request.metadata,
+                }
+            )
+            response = self._validate(request)
+            output = {
+                "request_id": response.request_id,
+                "is_safe": response.is_safe,
+                "layers_checked": [layer.value for layer in response.layers_checked],
+                "violations": [
+                    {
+                        "layer": item.layer.value,
+                        "severity": item.severity,
+                        "joint_index": item.joint_index,
+                        "description": item.description,
+                        "actual_value": item.actual_value,
+                        "limit_value": item.limit_value,
+                    }
+                    for item in response.violations
+                ],
+                "warnings": response.warnings,
+                "simulation_duration_ms": response.simulation_duration_ms,
+            }
+            span.set_output(output)
+            if not response.is_safe:
+                span.set_status(
+                    "BLOCKED", "; ".join(item.description for item in response.violations)
+                )
+            return response
+
+    def _validate(self, request: ValidationRequest) -> ValidationResponse:
         """Run 3-layer validation pipeline."""
         violations = []
         warnings = []

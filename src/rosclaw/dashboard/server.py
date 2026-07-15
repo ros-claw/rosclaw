@@ -87,6 +87,9 @@ class DashboardServer:
             EventTopics.SANDBOX_EPISODE_FINISHED,
             EventTopics.SANDBOX_ACTION_BLOCKED,
             EventTopics.PROVIDER_INFERENCE_COMPLETED,
+            EventTopics.TRACE_SPAN_STARTED,
+            EventTopics.TRACE_SPAN_COMPLETED,
+            EventTopics.TRACE_SPAN_FAILED,
             EventTopics.CRITIC_SUCCESS_DETECTED,
             EventTopics.DASHBOARD_TRACE_UPDATED,
             EventTopics.HOW_RECOVERY_HINT_GENERATED,
@@ -119,7 +122,11 @@ class DashboardServer:
         self.metrics.increment_event(topic, getattr(event, "payload", None))
 
         # Record full traces for dashboard display
-        if topic == EventTopics.DASHBOARD_TRACE_UPDATED:
+        if topic in {
+            EventTopics.DASHBOARD_TRACE_UPDATED,
+            EventTopics.TRACE_SPAN_COMPLETED,
+            EventTopics.TRACE_SPAN_FAILED,
+        }:
             payload = getattr(event, "payload", {})
             if isinstance(payload, dict):
                 self.metrics.record_trace(payload)

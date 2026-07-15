@@ -115,6 +115,14 @@ class RuntimeConfig:
     sense_replay_path: str | None = None
     # Persist all EventBus events to ~/.rosclaw/events/live.jsonl for dashboard tail
     enable_event_persistence: bool = True
+    # Structured ROSClaw Trace. Model/tool I/O is redacted by default.
+    enable_tracing: bool = True
+    trace_capture_mode: str = field(
+        default_factory=lambda: os.environ.get("ROSCLAW_TRACE_MODE", "standard")
+    )
+    trace_queue_size: int = 4096
+    trace_rotate_mb: float = 64.0
+    trace_home: str | None = None
 
 
 class Runtime(LifecycleMixin):
@@ -133,6 +141,10 @@ class Runtime(LifecycleMixin):
         # Core infrastructure: accept external EventBus or create one
         self.event_bus = event_bus or self.config.event_bus or EventBus()
         self._event_sink: Any | None = None
+        from rosclaw.observability.tracer import get_tracer
+
+        self._tracer = get_tracer(self.event_bus)
+        self._trace_exporter: Any | None = None
 
         # Grounding engines (initialized on demand)
         self._firewall: Any | None = None
@@ -183,6 +195,35 @@ class Runtime(LifecycleMixin):
             self._event_sink = JsonlEventSink()
             self._event_sink.attach(self.event_bus)
 
+        # Trace persistence has its own bounded writer thread: observation
+        # cannot block a provider, sandbox, or robot-control call.
+        if self.config.enable_tracing:
+            from rosclaw.observability.exporters.jsonl import JsonlTraceExporter
+            from rosclaw.observability.schema import ObservabilityConfig
+
+            try:
+                trace_config = ObservabilityConfig(
+                    enabled=True,
+                    capture_mode=self.config.trace_capture_mode,
+                    home=self.config.trace_home,
+                    queue_size=self.config.trace_queue_size,
+                    rotate_mb=self.config.trace_rotate_mb,
+                )
+                self._trace_exporter = JsonlTraceExporter(
+                    home=trace_config.home,
+                    filename=trace_config.filename,
+                    queue_size=trace_config.queue_size,
+                    rotate_mb=trace_config.rotate_mb,
+                )
+                self._tracer.configure(trace_config, exporters=[self._trace_exporter])
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Trace persistence unavailable; keeping live spans only: %s", exc)
+                self._tracer.configure(ObservabilityConfig(enabled=True), exporters=[])
+        else:
+            from rosclaw.observability.schema import ObservabilityConfig
+
+            self._tracer.configure(ObservabilityConfig(enabled=False), exporters=[])
+
         # Initialize Physical Grounding (e-URDF)
         self._load_e_urdf()
 
@@ -196,6 +237,7 @@ class Runtime(LifecycleMixin):
                     event_bus=self.event_bus,
                     mujoco_model_path=self.config.robot_model_path,
                     safety_level=self.config.safety_level,
+                    tracer=self._tracer,
                 )
                 self._modules.append(self._firewall)
                 logger.info("Action Grounding (FirewallValidator) initialized")
@@ -362,6 +404,7 @@ class Runtime(LifecycleMixin):
                     registry,
                     seekdb_client=seekdb,
                     sense_interface=self._sense,
+                    tracer=self._tracer,
                 )
                 self._modules.append(registry)
                 self._modules.append(self._skill_manager)
@@ -466,7 +509,9 @@ class Runtime(LifecycleMixin):
                 self._guard_pipeline.add(ActionGuard())
                 # Create router early so it's always available even if
                 # some provider registrations fail downstream.
-                self._capability_router = CapabilityRouter(self._provider_registry)
+                self._capability_router = CapabilityRouter(
+                    self._provider_registry, tracer=self._tracer
+                )
                 # Register providers — non-fatal if individual steps fail
                 try:
                     self._register_builtin_providers()
@@ -566,6 +611,9 @@ class Runtime(LifecycleMixin):
             for module in reversed(self._modules):
                 if isinstance(module, LifecycleMixin):
                     module.stop()
+        if self._tracer is not None:
+            self._tracer.close()
+            self._trace_exporter = None
         logger.info("Shutdown complete")
 
     def _setup_internal_subscriptions(self) -> None:
@@ -820,7 +868,9 @@ class Runtime(LifecycleMixin):
         request_id = payload.get("request_id", "")
         capability = payload.get("capability", "")
         inputs = payload.get("inputs", {})
-        context = payload.get("context", {})
+        context = dict(payload.get("context", {}))
+        if event.trace_id:
+            context.setdefault("trace_id", event.trace_id)
 
         try:
             from rosclaw.provider.core.request import ProviderRequest
@@ -846,6 +896,7 @@ class Runtime(LifecycleMixin):
                         },
                     },
                     source="runtime",
+                    trace_id=event.trace_id,
                 )
             )
         except Exception as e:
@@ -857,6 +908,7 @@ class Runtime(LifecycleMixin):
                         "result": {"status": "error", "error": str(e)},
                     },
                     source="runtime",
+                    trace_id=event.trace_id,
                 )
             )
 
@@ -929,6 +981,12 @@ class Runtime(LifecycleMixin):
     @property
     def guard_pipeline(self) -> Any | None:
         return self._guard_pipeline
+
+    @property
+    def tracer(self) -> Any:
+        """Return the shared structured tracer for runtime integrations."""
+
+        return self._tracer
 
     @property
     def sandbox(self) -> Any | None:
@@ -1385,7 +1443,9 @@ class Runtime(LifecycleMixin):
         ):
             try:
                 self._provider_registry = ProviderRegistry(event_bus=self.event_bus)
-                self._capability_router = CapabilityRouter(self._provider_registry)
+                self._capability_router = CapabilityRouter(
+                    self._provider_registry, tracer=self._tracer
+                )
                 self._register_builtin_providers()
                 logger.info("Provider layer auto-initialized on first capability_invoke")
             except Exception as e:
@@ -1438,6 +1498,173 @@ class Runtime(LifecycleMixin):
             return {"error": str(e), "capability": capability_name, "status": "error"}
 
     def plan_action(self, instruction: str, perception_result: dict[str, Any]) -> dict[str, Any]:
+        """Build and publish a structured decision summary under a Planner span."""
+
+        with self._tracer.start_span(
+            "agent.plan_action",
+            "PLANNER",
+            source="runtime",
+            operation="action.plan",
+            attributes={"robot.id": self.config.robot_id},
+            robot_id=self.config.robot_id,
+        ) as span:
+            span.set_input({"instruction": instruction, "perception": perception_result})
+            result = self._plan_action(instruction, perception_result)
+            action = result.get("action") if isinstance(result, dict) else None
+            summary = self._build_decision_summary(
+                instruction=instruction,
+                action=action,
+                context=perception_result,
+                reason_summary=(
+                    "Selected the plan produced by the configured skill planner."
+                    if self._skill_manager is not None and hasattr(self._skill_manager, "plan")
+                    else "Used the deterministic fallback plan grounded to the first observed target."
+                ),
+            )
+            result["decision_summary"] = summary.to_dict()
+            span.set_output(result)
+            for reference in summary.evidence_refs:
+                span.add_evidence(reference)
+            if result.get("status") == "error":
+                span.set_status("ERROR", result.get("error"))
+            self.event_bus.publish(
+                Event(
+                    topic="rosclaw.agent.decision.made",
+                    payload=summary.to_dict(),
+                    source="runtime",
+                    priority=EventPriority.NORMAL,
+                )
+            )
+            return result
+
+    def _build_decision_summary(
+        self,
+        *,
+        instruction: str,
+        action: Any,
+        context: dict[str, Any],
+        reason_summary: str,
+    ) -> Any:
+        """Build an auditable decision summary without private model reasoning."""
+
+        from rosclaw.observability.schema import DecisionSummary
+
+        payload = context.get("result", context)
+        if not isinstance(payload, dict):
+            payload = {}
+        objects = payload.get("objects", context.get("objects", []))
+        if not isinstance(objects, list):
+            objects = []
+        observations = [
+            str(item.get("label", item)) if isinstance(item, dict) else str(item)
+            for item in objects[:20]
+        ]
+        provider_status = context.get("status")
+        if not observations and provider_status:
+            observations.append(f"provider_status={provider_status}")
+
+        constraints = [f"safety_level={self.config.safety_level}", "sandbox_validation=required"]
+        supplied_constraints = context.get("constraints", [])
+        if isinstance(supplied_constraints, list):
+            constraints.extend(str(item) for item in supplied_constraints[:20])
+
+        confidence = context.get("confidence", payload.get("confidence"))
+        if not isinstance(confidence, (int, float)) or not 0.0 <= confidence <= 1.0:
+            confidence = None
+
+        if isinstance(action, dict):
+            decision = {
+                key: self._tracer.redactor.redact(action[key])
+                for key in (
+                    "type",
+                    "action",
+                    "skill_name",
+                    "capability",
+                    "target",
+                    "parameters",
+                )
+                if key in action
+            }
+            if not decision:
+                decision = {"action": "structured_action"}
+        else:
+            decision = action
+
+        evidence_refs = [
+            str(item.get("artifact_ref"))
+            for item in objects
+            if isinstance(item, dict) and item.get("artifact_ref")
+        ]
+        explicit_refs = context.get("evidence_refs", [])
+        if isinstance(explicit_refs, list):
+            evidence_refs.extend(str(reference) for reference in explicit_refs[:50])
+
+        return DecisionSummary(
+            goal=instruction,
+            observations=observations,
+            constraints=constraints,
+            candidates=[{"action": decision}] if decision is not None else [],
+            decision=decision,
+            reason_summary=reason_summary,
+            confidence=confidence,
+            evidence_refs=list(dict.fromkeys(evidence_refs)),
+        )
+
+    def _trace_execution_decision(
+        self,
+        *,
+        instruction: str,
+        action: dict[str, Any],
+        provider_result: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Record the actual closed-loop action decision inside the mission trace."""
+
+        with self._tracer.start_span(
+            "agent.execution_decision",
+            "PLANNER",
+            source="runtime",
+            operation="action.select",
+            attributes={
+                "robot.id": self.config.robot_id,
+                "provider": provider_result.get("provider", ""),
+                "provider.status": provider_result.get("status", "unknown"),
+            },
+            robot_id=self.config.robot_id,
+        ) as span:
+            span.set_input(
+                {
+                    "instruction": instruction,
+                    "requested_action": action,
+                    "provider_result": provider_result,
+                }
+            )
+            summary = self._build_decision_summary(
+                instruction=instruction,
+                action=action,
+                context=provider_result,
+                reason_summary=(
+                    "Selected the requested action after provider planning; sandbox validation is "
+                    "required before execution."
+                    if provider_result.get("status") == "ok"
+                    else "Kept the deterministic requested action after provider planning was "
+                    "unavailable; sandbox validation is required before execution."
+                ),
+            )
+            output = {"decision_summary": summary.to_dict()}
+            span.set_output(output)
+            for reference in summary.evidence_refs:
+                span.add_evidence(reference)
+            self.event_bus.publish(
+                Event(
+                    topic="rosclaw.agent.decision.made",
+                    payload=summary.to_dict(),
+                    source="runtime",
+                    priority=EventPriority.NORMAL,
+                )
+            )
+            return output["decision_summary"]
+
+    def _plan_action(self, instruction: str, perception_result: dict[str, Any]) -> dict[str, Any]:
         """Plan a robot action from natural language instruction + perception.
 
         Returns a structured action dict ready for sandbox_check().
@@ -1472,6 +1699,25 @@ class Runtime(LifecycleMixin):
             return {"error": str(e), "instruction": instruction, "status": "error"}
 
     def sandbox_check(self, action: dict[str, Any]) -> dict[str, Any]:
+        """Trace and evaluate one action against the sandbox/firewall boundary."""
+
+        with self._tracer.start_span(
+            "sandbox.validate_action",
+            "SANDBOX",
+            source="runtime",
+            operation=str(action.get("type") or action.get("action") or "validate"),
+            trace_id=str(action.get("request_id") or "") or None,
+            attributes={"safety.level": self.config.safety_level},
+            robot_id=self.config.robot_id,
+        ) as span:
+            span.set_input(action)
+            result = self._sandbox_check(action)
+            span.set_output(result)
+            if result.get("decision") == "BLOCK":
+                span.set_status("BLOCKED", result.get("reason"))
+            return result
+
+    def _sandbox_check(self, action: dict[str, Any]) -> dict[str, Any]:
         """Check an action against the sandbox firewall.
 
         Returns:
@@ -1505,6 +1751,36 @@ class Runtime(LifecycleMixin):
             return {"decision": "BLOCK", "reason": str(e), "violations": []}
 
     def execute(self, action: dict[str, Any]) -> dict[str, Any]:
+        """Execute one mission under a root Agent span."""
+
+        traced_action = dict(action)
+        traced_action.setdefault("request_id", str(uuid.uuid4())[:8])
+        with self._tracer.start_span(
+            "runtime.execute",
+            "MISSION",
+            source="runtime",
+            operation="agent.closed_loop",
+            trace_id=str(traced_action["request_id"]),
+            attributes={
+                "skill.name": traced_action.get("skill_name", "unknown"),
+                "capability": traced_action.get("capability", ""),
+            },
+            robot_id=self.config.robot_id,
+            mission_id=str(traced_action.get("task_id") or traced_action["request_id"]),
+        ) as span:
+            span.set_input(traced_action)
+            result = self._execute_closed_loop(traced_action)
+            span.episode_id = result.get("episode_id")
+            span.set_output(result)
+            status = str(result.get("status", "")).lower()
+            if status == "blocked":
+                span.set_status("BLOCKED", result.get("reason"))
+            elif status in {"error", "failed"}:
+                span.set_status("ERROR", result.get("error"))
+            result.setdefault("trace_id", span.trace_id)
+            return result
+
+    def _execute_closed_loop(self, action: dict[str, Any]) -> dict[str, Any]:
         """Execute an action through the **full closed loop**.
 
         1. Publish ``skill.execution.start``
@@ -1557,6 +1833,14 @@ class Runtime(LifecycleMixin):
             provider_result = self.capability_invoke(capability, provider_inputs)
         except Exception as e:
             provider_result = {"status": "error", "error": str(e)}
+
+        # Record the actual action choice as an auditable reasoning summary in
+        # the same mission trace. This is structured evidence, not private CoT.
+        decision_summary = self._trace_execution_decision(
+            instruction=instruction,
+            action=action,
+            provider_result=provider_result,
+        )
 
         # 3. Sandbox firewall check
         sandbox_result = self.sandbox_check(action)
@@ -1782,6 +2066,9 @@ class Runtime(LifecycleMixin):
                     "result": result,
                     "duration_sec": duration,
                     "trajectory_waypoints": len(trajectory_data),
+                    # The Runtime publishes an explicit praxis terminal event
+                    # after critic evaluation; standalone skills do not.
+                    "praxis_pending": True,
                 },
                 source="runtime",
                 priority=EventPriority.HIGH,
@@ -1918,6 +2205,9 @@ class Runtime(LifecycleMixin):
             except Exception as e:
                 logger.info(f"KNOW post-execution recording failed (non-fatal): {e}")
 
+        result.setdefault("episode_id", episode_id)
+        result.setdefault("request_id", request_id)
+        result.setdefault("decision_summary", decision_summary)
         return result
 
     def _generate_trajectory(self, action: dict[str, Any]) -> list[list[float]]:

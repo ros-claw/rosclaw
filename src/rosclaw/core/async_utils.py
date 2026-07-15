@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import contextvars
 import threading
 from collections.abc import Coroutine
 from typing import Any, TypeVar
@@ -44,7 +45,8 @@ def run_sync(coro: Coroutine[Any, Any, T]) -> T:
 
     # Inside an event loop. asyncio.run would raise RuntimeError here.
     # Schedule the coroutine on a background thread with its own loop.
-    return _SYNC_RUN_EXECUTOR.submit(asyncio.run, coro).result()
+    context = contextvars.copy_context()
+    return _SYNC_RUN_EXECUTOR.submit(context.run, asyncio.run, coro).result()
 
 
 def fire_and_forget(coro: Coroutine[Any, Any, Any]) -> None:
@@ -58,7 +60,8 @@ def fire_and_forget(coro: Coroutine[Any, Any, Any]) -> None:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         # No running loop — run in a daemon thread so the caller is not blocked.
-        threading.Thread(target=lambda: asyncio.run(coro), daemon=True).start()
+        context = contextvars.copy_context()
+        threading.Thread(target=lambda: context.run(asyncio.run, coro), daemon=True).start()
     else:
         # Already inside an event loop — schedule as a task.
         loop.create_task(coro)

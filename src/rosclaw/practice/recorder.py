@@ -696,7 +696,12 @@ class PracticeRecorder(RuntimeConsumer):
             return
         result = payload.get("result", {})
         status = result.get("status")
-        correlation_id = payload.get("correlation_id", "")
+        correlation_id = (
+            payload.get("correlation_id")
+            or payload.get("episode_id")
+            or payload.get("request_id")
+            or ""
+        )
         skill_name = payload.get("skill_name", "")
 
         self._failure_context["current_iteration"] += 1
@@ -709,6 +714,8 @@ class PracticeRecorder(RuntimeConsumer):
                     topic="praxis.completed",
                     payload={
                         "practice_id": correlation_id,
+                        "episode_id": correlation_id,
+                        "correlation_id": correlation_id,
                         "event_type": "praxis.completed",
                         "robot_id": self.robot_id,
                         "outcome": {
@@ -734,6 +741,8 @@ class PracticeRecorder(RuntimeConsumer):
                     topic="praxis.failed",
                     payload={
                         "practice_id": correlation_id,
+                        "episode_id": correlation_id,
+                        "correlation_id": correlation_id,
                         "event_type": "praxis.failed",
                         "robot_id": self.robot_id,
                         "outcome": {
