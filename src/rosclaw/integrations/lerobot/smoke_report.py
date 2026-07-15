@@ -183,9 +183,20 @@ def _flatten_values(values: Any) -> list[Any]:
 def summarize_action_proposal(proposal: dict[str, Any]) -> dict[str, Any]:
     """Build a report-safe action proposal with limited preview values.
 
-    Full action values are never written to the report; only a short preview and
-    the shape/dtype/safety flags are persisted.
+    Supports both the legacy v1 proposal layout and the P4
+    ``rosclaw.action_proposal.v2`` layout.  Full action values are never written
+    to the report; only a short preview and the shape/dtype/safety flags are
+    persisted.
     """
+    default_safety = {
+        "not_executed": True,
+        "requires_sandbox": True,
+        "executable": False,
+        "body_mapping_required": True,
+        "body_compatible": False,
+        "body_name": None,
+    }
+
     if proposal is None:
         return {
             "type": "none",
@@ -193,33 +204,51 @@ def summarize_action_proposal(proposal: dict[str, Any]) -> dict[str, Any]:
             "dtype": "float32",
             "preview_values": [],
             "num_values": 0,
-            "not_executed": True,
-            "requires_sandbox": True,
-            "executable": False,
-            "body_mapping_required": True,
-            "body_compatible": False,
-            "body_name": None,
+            **default_safety,
         }
 
-    values = proposal.get("values", [])
+    # v2 nests action metadata under ``action`` and safety under ``safety``.
+    action = proposal.get("action", proposal)
+    safety = proposal.get("safety", proposal)
+    chunk = proposal.get("chunk", {})
+
+    values = action.get("values", proposal.get("values", []))
+    shape = action.get("shape", proposal.get("shape", []))
+    dtype = action.get("dtype", proposal.get("dtype", "float32"))
+
+    # Use the semantic representation when available; fall back to legacy type
+    # or a chunk-specific label.
+    proposal_type = proposal.get("representation") or action.get("type")
+    if not proposal_type or proposal_type == "unknown":
+        if chunk.get("is_chunk"):
+            proposal_type = "lerobot_action_chunk"
+        else:
+            proposal_type = "raw_lerobot_action"
+
     summary: dict[str, Any] = {
-        "type": proposal.get("type", "raw_lerobot_action"),
-        "shape": proposal.get("shape", []),
-        "dtype": proposal.get("dtype", "float32"),
+        "type": proposal_type,
+        "shape": shape,
+        "dtype": dtype,
         "preview_values": _preview_values(values),
         "num_values": _count_values(values),
-        "not_executed": proposal.get("not_executed", True),
-        "requires_sandbox": proposal.get("requires_sandbox", True),
-        "executable": proposal.get("executable", False),
-        "body_mapping_required": proposal.get("body_mapping_required", True),
-        "body_compatible": proposal.get("body_compatible", False),
-        "body_name": proposal.get("body_name"),
+        "not_executed": safety.get("not_executed", True),
+        "requires_sandbox": safety.get("requires_sandbox", True),
+        "executable": safety.get("executable", False),
+        "body_mapping_required": safety.get("body_mapping_required", True),
+        "body_compatible": safety.get("body_compatible", False),
+        "body_name": safety.get("body_name"),
     }
+
     # Preserve chunk metadata when present.
-    if "chunk_size" in proposal:
+    if chunk.get("is_chunk"):
+        summary["chunk_size"] = chunk.get("length")
+        if shape:
+            summary["action_dim"] = shape[-1]
+    elif "chunk_size" in proposal:
         summary["chunk_size"] = proposal["chunk_size"]
-    if "action_dim" in proposal:
-        summary["action_dim"] = proposal["action_dim"]
+        if "action_dim" in proposal:
+            summary["action_dim"] = proposal["action_dim"]
+
     return summary
 
 
@@ -267,14 +296,16 @@ def compute_warnings(
         }
     )
 
-    if action_proposal and action_proposal.get("body_mapping_required"):
-        warnings.append(
-            {
-                "code": "body_mapping_required",
-                "message": "LeRobot action space is not mapped to a ROSClaw body. "
-                "Direct execution is not supported in P1.1.",
-            }
-        )
+    if action_proposal:
+        safety = action_proposal.get("safety", action_proposal)
+        if safety.get("body_mapping_required"):
+            warnings.append(
+                {
+                    "code": "body_mapping_required",
+                    "message": "LeRobot action space is not mapped to a ROSClaw body. "
+                    "Direct execution is not supported in P1.1.",
+                }
+            )
 
     return warnings
 
@@ -381,12 +412,15 @@ def get_validation_status(
         state = "available_not_validated"
 
     proposal = report.action_proposal or {}
+    action_block = proposal.get("action", proposal)
+    action_shape = action_block.get("shape") or proposal.get("shape")
     safety: list[str] = []
-    if proposal.get("not_executed"):
+    proposal_safety = proposal.get("safety", proposal)
+    if proposal_safety.get("not_executed"):
         safety.append("proposal_only")
-    if proposal.get("requires_sandbox"):
+    if proposal_safety.get("requires_sandbox"):
         safety.append("sandbox_required")
-    if proposal.get("body_mapping_required"):
+    if proposal_safety.get("body_mapping_required"):
         safety.append("body_mapping_required")
 
     performance_warning = None
@@ -407,7 +441,7 @@ def get_validation_status(
         "policy_type": report.policy.get("policy_type"),
         "lerobot_version": report.runtime.get("lerobot_version"),
         "device": report.runtime.get("device"),
-        "action_shape": proposal.get("shape"),
+        "action_shape": action_shape,
         "time": report.created_at,
         "safety": safety,
         "performance_warning": performance_warning,

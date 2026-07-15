@@ -119,6 +119,7 @@ def _ok_response(
     policy_metadata: dict[str, Any] | None = None,
     action: dict[str, Any] | None = None,
     timing: dict[str, Any] | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     response: dict[str, Any] = {
         "schema_version": WORKER_SCHEMA_VERSION,
@@ -133,6 +134,8 @@ def _ok_response(
     }
     if action is not None:
         response["action"] = action
+    if extra is not None:
+        response.update(extra)
     return response
 
 
@@ -156,6 +159,21 @@ def _runtime_info() -> dict[str, Any]:
     except Exception:  # noqa: BLE001
         pass
     return info
+
+
+def _make_pre_post_processors(policy: Any) -> tuple[Any | None, Any | None]:
+    """Build LeRobot preprocessor/postprocessor if the API is available."""
+    try:
+        from lerobot.policies.factory import make_pre_post_processors
+
+        cfg = getattr(policy, "config", None)
+        pretrained_path = getattr(cfg, "pretrained_path", None)
+        if cfg is None or pretrained_path is None:
+            return None, None
+        return make_pre_post_processors(cfg, pretrained_path=pretrained_path)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[worker] pre/post processors unavailable: {exc}", file=sys.stderr)
+        return None, None
 
 
 # ------------------------------------------------------------------
@@ -684,11 +702,16 @@ def _op_infer(request: dict[str, Any]) -> dict[str, Any]:
     infer_start = time.perf_counter()
     try:
         obs_tensors = _build_observation_tensor(observation, device)
+
+        # Use LeRobot preprocessor if available.
+        preprocessor, postprocessor = _make_pre_post_processors(policy)
+        model_input = preprocessor(obs_tensors) if preprocessor is not None else obs_tensors
+
         # Try the standard select_action API.
         if hasattr(policy, "select_action"):
-            raw_action = policy.select_action(obs_tensors)
+            raw_action = policy.select_action(model_input)
         elif hasattr(policy, "forward"):
-            raw_action = policy.forward(obs_tensors)
+            raw_action = policy.forward(model_input)
         else:
             return _error_response(
                 "infer",
@@ -696,7 +719,10 @@ def _op_infer(request: dict[str, Any]) -> dict[str, Any]:
                 "Policy has no select_action or forward method",
                 "",
             )
-        action = _serialize_action(raw_action)
+
+        processed_action = postprocessor(raw_action) if postprocessor is not None else raw_action
+        raw_serial = _serialize_action(raw_action)
+        processed_serial = _serialize_action(processed_action)
     except Exception as exc:  # noqa: BLE001
         return _error_response("infer", "policy_infer_failed", str(exc), traceback.format_exc())
 
@@ -707,9 +733,15 @@ def _op_infer(request: dict[str, Any]) -> dict[str, Any]:
         real_model_loaded=True,
         real_inference=True,
         policy_metadata=metadata,
-        action=action,
+        action=processed_serial,
         timing={"load_time_sec": load_time, "infer_time_sec": infer_time},
+        extra={"raw_action": raw_serial, "processed_action": processed_serial},
     )
+
+
+# ------------------------------------------------------------------
+# Load-test / infer helpers
+# ------------------------------------------------------------------
 
 
 if __name__ == "__main__":

@@ -34,11 +34,12 @@ def test_provider_dry_run_returns_sample_action(sample_manifest):
     request = ProviderRequest(
         request_id="test_001",
         capability="lerobot.policy.infer",
-        inputs={"dry_run": True, "observation": {"state": [0.0] * 7}},
+        inputs={"dry_run": True, "observation": {"observation.state": [0.0] * 7}},
     )
     response = run_sync(provider.infer(request))
     assert response.status == "ok"
-    assert response.result["action_proposal"]["values"] == [0.0] * 7
+    assert response.result["action_proposal"]["action"]["values"] == [0.0] * 7
+    assert response.result["action_proposal"]["safety"]["executable"] is False
     assert response.result["mode"] == "dry_run"
     assert response.result["dry_run"] is True
     assert response.result["real_inference"] is False
@@ -54,7 +55,7 @@ def test_provider_non_dry_run_without_runtime_or_policy_path_fails(sample_manife
     request = ProviderRequest(
         request_id="test_002",
         capability="lerobot.policy.infer",
-        inputs={"dry_run": False, "observation": {"state": [0.0] * 7}},
+        inputs={"dry_run": False, "observation": {"observation.state": [0.0] * 7}},
     )
     response = run_sync(provider.infer(request))
     assert response.status == "failed"
