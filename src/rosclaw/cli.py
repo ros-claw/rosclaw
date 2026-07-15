@@ -86,6 +86,7 @@ from rosclaw.sense.cli import (
     cmd_sense_watch,
 )
 from rosclaw.skill.cli import add_skill_hub_parsers
+from rosclaw.storage.cli import add_db_subparser, cmd_db_doctor, cmd_db_status
 
 
 def _cmd_mcp_serve(args: argparse.Namespace) -> int:
@@ -6352,6 +6353,9 @@ def main() -> int:
         "--editor", default=None, help="Editor command (default: $EDITOR or nano)"
     )
 
+    # db (storage diagnostics)
+    db_parser = add_db_subparser(subparsers)
+
     # profile
     profile_parser = subparsers.add_parser("profile", help="Profile management")
     profile_subparsers = profile_parser.add_subparsers(dest="profile_command")
@@ -7919,6 +7923,14 @@ def main() -> int:
                 return cmd_practice_export(args)
             else:
                 practice_parser.print_help()
+                return 1
+        elif args.command == "db":
+            if args.db_command == "status":
+                return cmd_db_status(args)
+            elif args.db_command == "doctor":
+                return cmd_db_doctor(args)
+            else:
+                db_parser.print_help()
                 return 1
         elif args.command == "know":
             if args.know_command == "search":
