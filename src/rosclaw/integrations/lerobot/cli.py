@@ -1296,3 +1296,7 @@ def cmd_lerobot_policy_warmup(args: argparse.Namespace) -> int:
     finally:
         if transient:
             stop_daemon(socket_path)
+
+__all__ = [
+    "LeRobotDatasetWorkerRunner",
+]

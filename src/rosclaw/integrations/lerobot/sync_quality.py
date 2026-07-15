@@ -14,7 +14,6 @@ from rosclaw.integrations.lerobot.clock_mapping import ClockMappingResult
 from rosclaw.integrations.lerobot.practice_normalizer import NormalizationError
 from rosclaw.integrations.lerobot.sync_stats import SyncFeatureStats
 
-
 QualityAction = Literal["fail", "warn", "ignore"]
 
 
@@ -44,7 +43,7 @@ class FeatureQualityRule:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "FeatureQualityRule":
+    def from_dict(cls, data: dict[str, Any]) -> FeatureQualityRule:
         return cls(
             minimum_coverage=data.get("minimum_coverage"),
             max_p95_skew_ms=data.get("max_p95_skew_ms"),
@@ -65,7 +64,7 @@ class ClockQualityRule:
         return {"unmapped_mixed_domains_action": self.unmapped_mixed_domains_action}
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ClockQualityRule":
+    def from_dict(cls, data: dict[str, Any]) -> ClockQualityRule:
         return cls(
             unmapped_mixed_domains_action=data.get(
                 "unmapped_mixed_domains_action", "fail"
@@ -89,7 +88,7 @@ class QualityConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "QualityConfig":
+    def from_dict(cls, data: dict[str, Any]) -> QualityConfig:
         return cls(
             profile=data.get("profile", "balanced"),
             rules={
@@ -238,56 +237,65 @@ def _evaluate_feature(
             elif rule.action == "warn":
                 result.warnings.append(msg)
 
-    if rule.max_p95_skew_ms is not None and stats.p95_skew_ms is not None:
-        if stats.p95_skew_ms > rule.max_p95_skew_ms + 1e-9:
-            msg = (
-                f"{stats.feature_key} p95 skew {stats.p95_skew_ms:.3f} ms exceeds "
-                f"{rule.max_p95_skew_ms:.3f} ms"
-            )
-            if rule.action == "fail":
-                result.errors.append(msg)
-                result.passed = False
-            elif rule.action == "warn":
-                result.warnings.append(msg)
+    if (
+        rule.max_p95_skew_ms is not None
+        and stats.p95_skew_ms is not None
+        and stats.p95_skew_ms > rule.max_p95_skew_ms + 1e-9
+    ):
+        msg = (
+            f"{stats.feature_key} p95 skew {stats.p95_skew_ms:.3f} ms exceeds "
+            f"{rule.max_p95_skew_ms:.3f} ms"
+        )
+        if rule.action == "fail":
+            result.errors.append(msg)
+            result.passed = False
+        elif rule.action == "warn":
+            result.warnings.append(msg)
 
-    if rule.max_mean_skew_ms is not None and stats.mean_skew_ms is not None:
-        if stats.mean_skew_ms > rule.max_mean_skew_ms + 1e-9:
-            msg = (
-                f"{stats.feature_key} mean skew {stats.mean_skew_ms:.3f} ms exceeds "
-                f"{rule.max_mean_skew_ms:.3f} ms"
-            )
-            if rule.action == "fail":
-                result.errors.append(msg)
-                result.passed = False
-            elif rule.action == "warn":
-                result.warnings.append(msg)
+    if (
+        rule.max_mean_skew_ms is not None
+        and stats.mean_skew_ms is not None
+        and stats.mean_skew_ms > rule.max_mean_skew_ms + 1e-9
+    ):
+        msg = (
+            f"{stats.feature_key} mean skew {stats.mean_skew_ms:.3f} ms exceeds "
+            f"{rule.max_mean_skew_ms:.3f} ms"
+        )
+        if rule.action == "fail":
+            result.errors.append(msg)
+            result.passed = False
+        elif rule.action == "warn":
+            result.warnings.append(msg)
 
-    if rule.max_mean_hold_age_ms is not None and stats.mean_hold_age_ms is not None:
-        if stats.mean_hold_age_ms > rule.max_mean_hold_age_ms + 1e-9:
-            msg = (
-                f"{stats.feature_key} mean hold age {stats.mean_hold_age_ms:.3f} ms "
-                f"exceeds {rule.max_mean_hold_age_ms:.3f} ms"
-            )
-            if rule.action == "fail":
-                result.errors.append(msg)
-                result.passed = False
-            elif rule.action == "warn":
-                result.warnings.append(msg)
+    if (
+        rule.max_mean_hold_age_ms is not None
+        and stats.mean_hold_age_ms is not None
+        and stats.mean_hold_age_ms > rule.max_mean_hold_age_ms + 1e-9
+    ):
+        msg = (
+            f"{stats.feature_key} mean hold age {stats.mean_hold_age_ms:.3f} ms "
+            f"exceeds {rule.max_mean_hold_age_ms:.3f} ms"
+        )
+        if rule.action == "fail":
+            result.errors.append(msg)
+            result.passed = False
+        elif rule.action == "warn":
+            result.warnings.append(msg)
 
     if (
         rule.min_samples_per_window is not None
         and stats.min_samples_per_window is not None
+        and stats.min_samples_per_window < rule.min_samples_per_window
     ):
-        if stats.min_samples_per_window < rule.min_samples_per_window:
-            msg = (
-                f"{stats.feature_key} min samples per window "
-                f"{stats.min_samples_per_window} below {rule.min_samples_per_window}"
-            )
-            if rule.action == "fail":
-                result.errors.append(msg)
-                result.passed = False
-            elif rule.action == "warn":
-                result.warnings.append(msg)
+        msg = (
+            f"{stats.feature_key} min samples per window "
+            f"{stats.min_samples_per_window} below {rule.min_samples_per_window}"
+        )
+        if rule.action == "fail":
+            result.errors.append(msg)
+            result.passed = False
+        elif rule.action == "warn":
+            result.warnings.append(msg)
 
     return result
 

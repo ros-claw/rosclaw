@@ -12,7 +12,6 @@ from rosclaw.integrations.lerobot.clock_mapping import build_clock_mappings
 from rosclaw.integrations.lerobot.practice_normalizer import NormalizationError
 from rosclaw.integrations.lerobot.source_stream_reader import read_source_bundle
 from rosclaw.integrations.lerobot.source_stream_schema import (
-    ClockSyncBundle,
     SourceSample,
     SourceStream,
     SourceStreamBundle,
@@ -24,12 +23,10 @@ from rosclaw.integrations.lerobot.sync_provenance import (
     PROVENANCE_FILLED_NAN,
     PROVENANCE_HELD,
     PROVENANCE_INTERPOLATED,
-    PROVENANCE_NEAREST,
     VALIDITY_INVALID,
     VALIDITY_VALID,
 )
 from rosclaw.integrations.lerobot.synchronize import synchronize_bundle
-
 
 ASYNC_FIXTURE = Path(__file__).parent.parent.parent / "examples" / "practice" / "async_physical_episode"
 

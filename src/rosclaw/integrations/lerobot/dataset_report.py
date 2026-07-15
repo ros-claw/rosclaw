@@ -16,7 +16,6 @@ from typing import Any
 
 from rosclaw.firstboot.workspace import get_rosclaw_home
 
-
 DATASET_EXPORT_SCHEMA_VERSION = "rosclaw.lerobot.dataset_export.v1.2"
 LEGACY_SCHEMA_VERSIONS = [
     "rosclaw.lerobot.dataset_export.v1",
@@ -105,7 +104,7 @@ class DatasetExportReport:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DatasetExportReport":
+    def from_dict(cls, data: dict[str, Any]) -> DatasetExportReport:
         return cls(
             schema_version=data.get("schema_version", LEGACY_SCHEMA_VERSIONS[0]),
             created_at=data.get("created_at", ""),
@@ -247,19 +246,28 @@ def get_dataset_export_validation_status(
             stale_reasons.append("Dataset output directory or meta/info.json is missing.")
 
     report_runtime = report.runtime or {}
-    if current_lerobot_version and report_runtime.get("lerobot_version"):
-        if report_runtime["lerobot_version"] != current_lerobot_version:
-            stale_reasons.append(
-                f"LeRobot version changed: report={report_runtime['lerobot_version']} "
-                f"current={current_lerobot_version}"
-            )
-    if current_python_executable and report_runtime.get("python"):
-        if Path(report_runtime["python"]).resolve() != Path(current_python_executable).resolve():
-            stale_reasons.append("Python executable changed since last export.")
+    if (
+        current_lerobot_version
+        and report_runtime.get("lerobot_version")
+        and report_runtime["lerobot_version"] != current_lerobot_version
+    ):
+        stale_reasons.append(
+            f"LeRobot version changed: report={report_runtime['lerobot_version']} "
+            f"current={current_lerobot_version}"
+        )
+    if (
+        current_python_executable
+        and report_runtime.get("python")
+        and Path(report_runtime["python"]).resolve() != Path(current_python_executable).resolve()
+    ):
+        stale_reasons.append("Python executable changed since last export.")
 
-    if current_api_signature and report.lerobot_dataset_api.get("create_signature"):
-        if report.lerobot_dataset_api["create_signature"] != current_api_signature:
-            stale_reasons.append("LeRobotDataset API signature changed since last export.")
+    if (
+        current_api_signature
+        and report.lerobot_dataset_api.get("create_signature")
+        and report.lerobot_dataset_api["create_signature"] != current_api_signature
+    ):
+        stale_reasons.append("LeRobotDataset API signature changed since last export.")
 
     if report.schema_version in LEGACY_SCHEMA_VERSIONS:
         stale_reasons.append(f"Report schema is older than current ({DATASET_EXPORT_SCHEMA_VERSION}).")

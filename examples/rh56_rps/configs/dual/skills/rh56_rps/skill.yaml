@@ -1,0 +1,95 @@
+schema_version: "rosclaw.skill.v1"
+kind: "Skill"
+
+metadata:
+  name: "rh56_rps"
+  display_name: "RH56 Rock-Paper-Scissors demo"
+  namespace: "ros-claw"
+  version: "1.0.0"
+  stage: "draft"
+  category: "manipulation"
+  tags:
+    - inspire_rh56_right
+    - inspire_rh56_left
+    - dexterous_hand
+    - rock_paper_scissors
+    - rps_demo
+    - physical-ai
+    - realsense
+    - gesture_recognition
+  description: |
+    Dual-hand RH56 dexterous-hand rock-paper-scissors demo with a left-hand
+    referee.  Requires a RealSense color camera for human gesture recognition
+    and one or two Inspire RH56 hands.  Mock mode runs without hardware.
+    The robot hand counts down 3-2-1, reveals its move, and records every
+    practice episode into the ROSClaw data flywheel for closed-loop learning.
+  license: "MIT"
+  authors:
+    - name: "ROSClaw Test Team"
+      url: "https://github.com/ros-claw"
+
+identity:
+  skill_id: "ros-claw/rh56_rps"
+  package_name: "ros-claw/rh56_rps"
+  canonical_uri: "rosclaw://skills/ros-claw/rh56_rps"
+  git_repo: "https://github.com/ros-claw/rosclaw"
+  git_ref: "rps-seekdb-body-id-fixes"
+  source_subdir: "examples/rh56_rps/configs/dual/skills/rh56_rps"
+  git_commit: null
+
+task:
+  intent: "rh56_rps"
+  natural_language:
+    en: "Play rock-paper-scissors with an RH56 dexterous hand."
+    zh: "与 RH56 灵巧手玩石头剪刀布。"
+  input_contract:
+    required:
+      - robot_state
+      - camera_color_image
+    optional:
+      - human_hand_landmarks
+  output_contract:
+    success_condition:
+      - "rounds_completed >= requested_rounds"
+    artifacts:
+      - trace
+      - runtime_events
+      - episode_summary
+
+execution:
+  entrypoint:
+    type: "behavior_tree"
+    file: "behavior_tree.xml"
+  runtime_adapter: "rosclaw.runtime.skill_executor"
+  policy:
+    type: "rule_based"
+    config: "policy.yaml"
+  prompts:
+    planner: "prompts/planner.md"
+    executor: "prompts/executor.md"
+    verifier: "prompts/verifier.md"
+    recovery: "prompts/recovery.md"
+    safety: "prompts/safety.md"
+
+compatibility:
+  eurdf: "e-urdf-compat.yaml"
+  providers: "providers.yaml"
+  safety: "safety.yaml"
+
+evaluation:
+  dojo: "dojo.yaml"
+  darwin: "darwin_eval.yaml"
+  tests: "tests/"
+
+lineage:
+  file: "lineage.yaml"
+
+evidence:
+  directory: "evidence/"
+  latest_eval_report: null
+
+status:
+  promotion_state: "draft"
+  last_eval_passed: false
+  safe_to_run_on_real_robot: true
+  recommended_runtime_mode: "sandbox_first"

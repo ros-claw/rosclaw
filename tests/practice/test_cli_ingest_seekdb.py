@@ -161,3 +161,38 @@ def test_cli_practice_ingest_seekdb_connection_error_is_clear(capsys, monkeypatc
         assert rc == 1
         captured = capsys.readouterr()
         assert "SeekDB connection failed" in captured.err
+
+
+def test_cli_practice_ingest_seekdb_url_backend(capsys, monkeypatch):
+    from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+
+    client = SeekDBMemoryClient()
+    captured_url = {}
+
+    def make_client(url: str):
+        captured_url["url"] = url
+        return client
+
+    monkeypatch.setattr("rosclaw.memory.seekdb_client.SeekDBMySQLClient", make_client)
+    with tempfile.TemporaryDirectory() as tmp:
+        practice_id = _run_session(tmp)
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "rosclaw",
+                "practice",
+                "ingest-seekdb",
+                practice_id,
+                "--data-root",
+                tmp,
+                "--seekdb-url",
+                "mysql://root@127.0.0.1:2881/rosclaw_test",
+                "--json",
+            ],
+        )
+
+        assert main() == 0
+
+    assert captured_url["url"] == "mysql://root@127.0.0.1:2881/rosclaw_test"
+    assert client.count("failures") == 1
+    assert '"success": true' in capsys.readouterr().out

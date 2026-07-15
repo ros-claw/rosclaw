@@ -5,8 +5,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 from rosclaw.integrations.lerobot.dataset_worker_runner import LeRobotDatasetWorkerRunner
 from rosclaw.integrations.lerobot.dataset_worker_schema import (
     DatasetValidationConfig,

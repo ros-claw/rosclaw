@@ -8,7 +8,6 @@ multi-rate source streams onto a canonical fixed-FPS timeline.
 from __future__ import annotations
 
 import bisect
-import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -25,7 +24,6 @@ from rosclaw.integrations.lerobot.sync_provenance import (
     VALIDITY_INVALID,
     VALIDITY_VALID,
 )
-
 
 _NS_TO_S = 1e-9
 _EPS = 1e-9
@@ -59,10 +57,7 @@ def _samples_with_target_sec(
         if mapping is not None:
             ts_ns = mapping.apply(ts_ns)
         target_sec = ts_ns * _NS_TO_S
-        if sample.image_path is not None:
-            value = sample.image_path
-        else:
-            value = sample.value
+        value = sample.image_path if sample.image_path is not None else sample.value
         out.append((target_sec, value, sample.valid))
     return out
 
@@ -91,7 +86,7 @@ def _lerp_value(
     if isinstance(v0, list) and isinstance(v1, list):
         if len(v0) != len(v1):
             return None
-        return [_lerp(float(a), float(b), alpha) for a, b in zip(v0, v1)]
+        return [_lerp(float(a), float(b), alpha) for a, b in zip(v0, v1, strict=False)]
     return _lerp(float(v0), float(v1), alpha)
 
 
@@ -108,7 +103,7 @@ def _vectorize_binary(
         dim = len(first)
         result = list(first) if initializer is None else [initializer] * dim
         for value in values[1:]:
-            result = [op(r, v) for r, v in zip(result, value)]
+            result = [op(r, v) for r, v in zip(result, value, strict=False)]
         return result
     result = first if initializer is None else initializer
     for value in values[1:]:
@@ -301,7 +296,10 @@ def resample_interval_mean(
         if isinstance(mean_value, list):
             mean_value = [v / n for v in mean_value]
             if emit_peak_abs:
-                peak = [max(abs(float(v)) for v in dim_values) for dim_values in zip(*values)]
+                peak = [
+                    max(abs(float(v)) for v in dim_values)
+                    for dim_values in zip(*values, strict=False)
+                ]
                 result.peak_values[i] = peak
         else:
             mean_value = mean_value / n

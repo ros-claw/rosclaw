@@ -131,6 +131,16 @@ def test_fetch_remote_manifest_by_pkg_name(fake_home: Path, monkeypatch) -> None
     assert manifest.display_name == "Unitree G1 humanoid robot MCP server"
 
 
+def test_remote_manifest_cache_can_be_disabled(fake_home: Path, monkeypatch) -> None:
+    hub = HubClient(home=fake_home, offline=False, cache_writes=False)
+    monkeypatch.setattr(hub, "_http_get", lambda _url: _g1_remote_metadata())
+
+    manifest = hub.fetch_manifest("ros-claw/g1-mcp")
+
+    assert manifest.id == "io.rosclaw.hub.ros-claw.g1-mcp"
+    assert not hub.cache_dir.exists()
+
+
 def test_fetch_remote_manifest_version_mismatch(fake_home: Path, monkeypatch) -> None:
     hub = HubClient(home=fake_home, offline=False)
     monkeypatch.setattr(

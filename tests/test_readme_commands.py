@@ -46,6 +46,8 @@ def _run_command(cmd: str, timeout: int = 30) -> subprocess.CompletedProcess:
     """Run a README command through the CLI module."""
     match = _ROSCLAW_CMD_RE.match(cmd)
     args = match.group(1).split() if match else []
+    if args[:2] == ["agent", "install"] and "--dry-run" not in args:
+        args.append("--dry-run")
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT / "src")
     return subprocess.run(
@@ -76,6 +78,9 @@ def test_readme_chinese_command(cmd: str) -> None:
 
 def _run_and_assert(cmd: str) -> None:
     """Run command and assert it exits 0, with a few known exceptions."""
+    if "<" in cmd or ">" in cmd:
+        pytest.skip(f"command contains a documentation placeholder: {cmd}")
+
     skip_patterns = [
         "rosclaw runtime",
         "rosclaw doctor --ros2",

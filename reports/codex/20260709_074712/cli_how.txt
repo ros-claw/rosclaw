@@ -1,0 +1,10 @@
+usage: rosclaw how [-h] {explain,recover,advise} ...
+
+positional arguments:
+  {explain,recover,advise}
+    explain             Explain failure episode
+    recover             Generate recovery plan
+    advise              Advise on a failure using episode evidence
+
+options:
+  -h, --help            show this help message and exit

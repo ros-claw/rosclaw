@@ -68,7 +68,7 @@ def migrate_v0_config_to_v1(config: dict[str, Any]) -> dict[str, Any]:
         },
         "lerobot_runtime": {},
         "hub": {
-            "hf_endpoint": config.get("hf_endpoint", "https://hf-mirror.com"),
+            "hf_endpoint": config.get("hf_endpoint", "https://huggingface.co"),
             "hf_home": None,
             "hf_cache": "~/.cache/huggingface",
         },
@@ -120,8 +120,6 @@ def build_lerobot_config(
     capabilities: dict[str, bool] | None = None,
 ) -> dict[str, Any]:
     """Build a fresh v1 config from a discovered runtime."""
-    from rosclaw.integrations.lerobot.runtime import LeRobotRuntime
-
     caps = capabilities or {
         "provider_type_lerobot_policy": True,
         "dataset_export_lerobot": True,
@@ -164,7 +162,7 @@ def build_lerobot_config(
         },
         "lerobot_runtime": lerobot_runtime,
         "hub": {
-            "hf_endpoint": "https://hf-mirror.com",
+            "hf_endpoint": "https://huggingface.co",
             "hf_home": None,
             "hf_cache": "~/.cache/huggingface",
         },

@@ -14,6 +14,7 @@ Configuration via environment:
 from __future__ import annotations
 
 import os
+from functools import partial
 from typing import Any
 
 from rosclaw.provider.core.provider import Provider
@@ -51,6 +52,7 @@ class DeepSeekProvider(Provider):
                 provider=self.name,
                 capability=request.capability,
                 result={"error": "DEEPSEEK_API_KEY not set"},
+                errors=["DEEPSEEK_API_KEY not set"],
                 status="error",
             )
 
@@ -73,6 +75,7 @@ class DeepSeekProvider(Provider):
                 provider=self.name,
                 capability=request.capability,
                 result={"error": str(e)},
+                errors=[str(e)],
                 status="error",
             )
 
@@ -101,6 +104,7 @@ class DeepSeekProvider(Provider):
         import json
         import re
         import time
+        import urllib.error
         import urllib.request
 
         start = time.time()
@@ -125,8 +129,24 @@ class DeepSeekProvider(Provider):
 
         # Run blocking HTTP call in executor
         loop = asyncio.get_event_loop()
-        resp = await loop.run_in_executor(None, urllib.request.urlopen, req)
-        raw = resp.read()
+        open_request = partial(urllib.request.urlopen, req, timeout=30)
+        try:
+            resp = await loop.run_in_executor(None, open_request)
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            message = body
+            try:
+                payload = json.loads(body)
+                error = payload.get("error", {}) if isinstance(payload, dict) else {}
+                if isinstance(error, dict):
+                    message = str(error.get("message", error))
+            except json.JSONDecodeError:
+                pass
+            raise RuntimeError(f"DeepSeek API error ({exc.code}): {message}") from exc
+        try:
+            raw = resp.read()
+        finally:
+            resp.close()
 
         # Robust JSON parsing with cleanup for malformed LLM output
         try:

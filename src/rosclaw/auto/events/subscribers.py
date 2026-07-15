@@ -6,8 +6,10 @@ from typing import Any
 
 try:
     from rosclaw.core.event_bus import Event
+    from rosclaw.core.event_topics import EventTopics
 except ImportError:
     Event = dict
+    EventTopics = None
 
 logger = logging.getLogger("rosclaw.auto.events.subscribers")
 
@@ -22,9 +24,25 @@ class AutoSubscriber:
         self._setup_handlers()
 
     def _setup_handlers(self) -> None:
+        praxis_failed = (
+            EventTopics.PRAXIS_FAILED if EventTopics is not None else "rosclaw.praxis.failed"
+        )
+        sandbox_blocked = (
+            EventTopics.SANDBOX_ACTION_BLOCKED
+            if EventTopics is not None
+            else "rosclaw.sandbox.action.blocked"
+        )
+        how_recovery = (
+            EventTopics.HOW_RECOVERY_HINT_GENERATED
+            if EventTopics is not None
+            else "rosclaw.how.recovery_hint.generated"
+        )
+        self._handlers[praxis_failed] = self._on_praxis_failed
         self._handlers["rosclaw.practice.failed"] = self._on_praxis_failed
         self._handlers["rosclaw.darwin.benchmark.completed"] = self._on_benchmark_completed
+        self._handlers[sandbox_blocked] = self._on_sandbox_rejected
         self._handlers["rosclaw.sandbox.rejected"] = self._on_sandbox_rejected
+        self._handlers[how_recovery] = self._on_how_suggestion
         self._handlers["rosclaw.how.suggestion"] = self._on_how_suggestion
         self._handlers["rosclaw.memory.insight"] = self._on_memory_insight
 
@@ -67,6 +85,18 @@ class AutoSubscriber:
             "insight_type",
             "insight_summary",
             "failure_id",
+            "robot_id",
+            "request_id",
+            "episode_id",
+            "instruction",
+            "outcome",
+            "final_state",
+            "reason",
+            "action",
+            "violations",
+            "hint",
+            "rule_id",
+            "skill_name",
         ]:
             if hasattr(event, key) and key not in payload:
                 payload[key] = getattr(event, key)
@@ -74,15 +104,26 @@ class AutoSubscriber:
 
     def _on_praxis_failed(self, event: Any) -> None:
         p = self._extract_payload(event)
-        task_id = p.get("task_id", "unknown")
-        skill_id = p.get("skill_id", "unknown")
-        failure_mode = p.get("failure_mode", "unknown")
+        task_id = p.get("task_id") or p.get("request_id") or "unknown"
+        skill_id = p.get("skill_id") or p.get("skill_name") or "unknown"
+        final_state = p.get("final_state") if isinstance(p.get("final_state"), dict) else {}
+        outcome = p.get("outcome") if isinstance(p.get("outcome"), dict) else {}
+        failure_mode = (
+            p.get("failure_mode")
+            or final_state.get("status")
+            or outcome.get("status")
+            or "runtime_failure"
+        )
         phase = p.get("phase", "")
         severity = p.get("severity", "medium")
-        evidence = p.get("evidence", {})
+        evidence = p.get("evidence") or {
+            "instruction": p.get("instruction", ""),
+            "final_state": final_state,
+            "outcome": outcome,
+        }
 
         fc = self.engine.create_failure_case(
-            praxis_event_id=p.get("event_id", ""),
+            praxis_event_id=p.get("event_id") or p.get("episode_id", ""),
             task_id=task_id,
             skill_id=skill_id,
             phase=phase,
@@ -122,21 +163,21 @@ class AutoSubscriber:
 
     def _on_sandbox_rejected(self, event: Any) -> None:
         p = self._extract_payload(event)
-        task_id = p.get("task_id", "unknown")
-        direction = p.get("rejection_reason", "sandbox_rejected")
+        task_id = p.get("task_id") or p.get("request_id") or "unknown"
+        direction = p.get("rejection_reason") or p.get("reason") or "sandbox_rejected"
         self.engine.register_deadend(
             task_id=task_id,
             direction=direction,
             rejection_reason="Sandbox rejected candidate skill",
-            evidence=[str(p.get("sandbox_result", ""))],
+            evidence=[str(p.get("sandbox_result") or p.get("violations", ""))],
         )
         logger.info("AutoSubscriber: registered dead-end for task %s", task_id)
 
     def _on_how_suggestion(self, event: Any) -> None:
         p = self._extract_payload(event)
-        task_id = p.get("task_id", "")
-        skill_id = p.get("skill_id", "")
-        suggestion = p.get("suggestion", "")
+        task_id = p.get("task_id") or p.get("request_id") or "unknown"
+        skill_id = p.get("skill_id") or p.get("skill_name") or "unknown"
+        suggestion = p.get("suggestion") or p.get("hint", "")
         if not suggestion:
             return
         self.engine.create_proposal(

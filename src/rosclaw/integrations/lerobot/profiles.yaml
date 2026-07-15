@@ -1,7 +1,7 @@
 core:
   requires_python: ">=3.12"
   pip:
-    - "lerobot"
+    - "lerobot>=0.6,<0.7"
   checks:
     - "lerobot-info"
   enabled_capabilities:
@@ -12,87 +12,3 @@ core:
     dataset_export_lerobot: true
     worker_subprocess: true
     worker_in_process: auto
-
-dataset:
-  requires_python: ">=3.12"
-  pip:
-    - "lerobot"
-  checks:
-    - "lerobot-info"
-  enabled_capabilities:
-    - "dataset_export_lerobot"
-  capabilities:
-    provider_type_lerobot_policy: false
-    dataset_export_lerobot: true
-    worker_subprocess: true
-    worker_in_process: auto
-
-train:
-  requires_python: ">=3.12"
-  pip:
-    - "lerobot"
-  checks:
-    - "lerobot-info"
-  enabled_capabilities:
-    - "provider_type_lerobot_policy"
-    - "dataset_export_lerobot"
-    - "train"
-  capabilities:
-    provider_type_lerobot_policy: true
-    dataset_export_lerobot: true
-    worker_subprocess: true
-    worker_in_process: auto
-
-eval:
-  requires_python: ">=3.12"
-  pip:
-    - "lerobot"
-  checks:
-    - "lerobot-info"
-  enabled_capabilities:
-    - "eval"
-  capabilities:
-    eval_backend_lerobot: true
-    worker_subprocess: true
-    worker_in_process: auto
-
-rollout:
-  requires_python: ">=3.12"
-  pip:
-    - "lerobot"
-  checks:
-    - "lerobot-info"
-  enabled_capabilities:
-    - "rollout"
-  capabilities:
-    rollout_backend_lerobot: true
-    worker_subprocess: true
-    worker_in_process: auto
-
-reward:
-  requires_python: ">=3.12"
-  pip:
-    - "lerobot"
-  checks:
-    - "lerobot-info"
-  enabled_capabilities:
-    - "reward"
-  capabilities:
-    reward_backend_lerobot: true
-    worker_subprocess: true
-    worker_in_process: auto
-
-all:
-  requires_python: ">=3.12"
-  pip:
-    - "lerobot"
-  checks:
-    - "lerobot-info"
-  capabilities:
-    provider_type_lerobot_policy: true
-    dataset_export_lerobot: true
-    worker_subprocess: true
-    worker_in_process: auto
-    eval_backend_lerobot: true
-    rollout_backend_lerobot: true
-    reward_backend_lerobot: true

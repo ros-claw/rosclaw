@@ -1,0 +1,79 @@
+# Left-hand RH56 referee gestures for Rock-Paper-Scissors demo.
+# DOF order: [little, ring, middle, index, thumb, thumb_rot]
+# Units: raw angle (0 = closed/bent, 1000 = open/extended), speed/force 0-1000.
+#
+# The left hand sits on /dev/ttyUSB1 (slave id 1). Its STATUS register layout
+# differs from the right hand, so verification does NOT check driver status bits.
+gestures:
+  left_ready:
+    description: "Neutral open palm before/after referee display"
+    angles: [1000, 1000, 1000, 1000, 1000, 1000]
+    hold_s: 0.8
+    speed: 450
+    force: 350
+    verify:
+      tolerance: 120
+      current_max: 1200
+      force_max: 900
+      check_driver_status: false
+
+  left_thumb_up:
+    description: "Human wins -> left hand shows thumb up"
+    angles: [0, 0, 0, 0, 1000, 1000]
+    hold_s: 1.5
+    speed: 450
+    force: 350
+    verify:
+      tolerance: 100
+      current_max: 1200
+      force_max: 900
+      check_driver_status: false
+
+  left_pinkie:
+    description: "Human loses -> left hand shows pinkie"
+    angles: [1000, 0, 0, 0, 0, 1000]
+    hold_s: 1.5
+    speed: 450
+    force: 350
+    verify:
+      tolerance: 100
+      current_max: 1200
+      force_max: 900
+      check_driver_status: false
+
+  left_orchid:
+    description: "Draw -> left hand shows orchid finger (thumb meets middle)"
+    # little/ring/index extended; middle fully bent; thumb bent to touch middle.
+    angles: [1000, 1000, 0, 1000, 300, 1000]
+    hold_s: 1.5
+    speed: 400
+    force: 350
+    verify:
+      tolerance: 120
+      current_max: 1200
+      force_max: 900
+      check_driver_status: false
+
+  left_draw:
+    description: "Draw -> left hand shows open palm (fallback)"
+    angles: [1000, 1000, 1000, 1000, 1000, 1000]
+    hold_s: 1.5
+    speed: 450
+    force: 350
+    verify:
+      tolerance: 120
+      current_max: 1200
+      force_max: 900
+      check_driver_status: false
+
+  left_error:
+    description: "Safe open hand on error"
+    angles: [1000, 1000, 1000, 1000, 1000, 1000]
+    hold_s: 0.8
+    speed: 400
+    force: 300
+    verify:
+      tolerance: 120
+      current_max: 1200
+      force_max: 900
+      check_driver_status: false

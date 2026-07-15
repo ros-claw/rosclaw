@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from rosclaw.integrations.lerobot.dataset_extension_schema import read_extension_schema
-from rosclaw.integrations.lerobot.dataset_sidecar import write_episodes_parquet
 from rosclaw.integrations.lerobot.dataset_vocab import read_vocab
 from rosclaw.integrations.lerobot.dataset_worker_runner import (
     LeRobotDatasetWorkerRunner,
@@ -21,7 +20,6 @@ from rosclaw.integrations.lerobot.dataset_worker_schema import (
     DatasetValidationConfig,
     DatasetValidationResult,
     DatasetWorkerRequest,
-    DatasetWorkerResponse,
 )
 
 

@@ -103,10 +103,11 @@ This document lists ROSClaw CLI commands and their implementation status.
 | Command | Status | Description |
 |---------|--------|-------------|
 | `rosclaw provider list` | Stable | List registered providers |
-| `rosclaw provider invoke <capability> [--input ...]` | Stable | Invoke a provider capability |
-| `rosclaw provider init` | Planned | Initialize a provider skeleton |
-| `rosclaw provider route --capability <name>` | Planned | Route a capability request |
-| `rosclaw provider test <id>` | Planned | Test a provider endpoint |
+| `rosclaw provider health [provider_id] --json` | Stable | Show built-in provider health and capability contracts |
+| `rosclaw provider route --capability <name> --json` | Stable | Explain capability routing and fallbacks |
+| `rosclaw provider benchmark --dry-run --json` | Stable | Validate benchmark wiring without external model calls |
+| `rosclaw provider invoke <provider_id> [input] --capability <name>` | Stable | Invoke a configured provider capability |
+| `rosclaw provider diagnose --body current --json` | Stable | Diagnose provider interfaces against the active body |
 
 ---
 
@@ -114,11 +115,13 @@ This document lists ROSClaw CLI commands and their implementation status.
 
 | Command | Status | Description |
 |---------|--------|-------------|
-| `rosclaw practice list` | Stable | List recorded episodes |
-| `rosclaw practice show <id>` | Stable | Show episode details |
-| `rosclaw practice replay <id>` | Stable | Replay episode trace |
-| `rosclaw practice export <id> --format json` | Stable | Export episode metadata |
-| `rosclaw practice start --sources <sources>` | Planned | Start a practice recording session |
+| `rosclaw practice record --fixture <json> --out <dir> --json` | Stable | Record a deterministic fixture through RuntimeBus and PracticeRecorder |
+| `rosclaw practice verify <practice_id> --strict --json` | Stable | Verify catalog, event envelopes, and artifact hashes |
+| `rosclaw practice distill <practice_id> --json` | Stable | Distill failures, cognition, interventions, candidates, and sim2real deltas |
+| `rosclaw practice ingest-seekdb <practice_id> --seekdb-path <file>` | Stable | Ingest into local SQLite-backed SeekDB |
+| `rosclaw practice ingest-seekdb <practice_id> --seekdb-url <mysql-dsn>` | Stable | Ingest into a real SeekDB/OceanBase server |
+| `rosclaw practice query <mode> [filters]` | Stable | Query episodes and distilled knowledge |
+| `rosclaw practice export <practice_id> --format <parquet\|lerobot>` | Stable | Export training/evaluation artifacts |
 
 ---
 
@@ -147,8 +150,9 @@ This document lists ROSClaw CLI commands and their implementation status.
 | `rosclaw auto champion --patch <id>` | Experimental | Promote a patch to champion |
 | `rosclaw auto deadends` | Experimental | List dead-end experiments |
 | `rosclaw auto run --suite <suite>` | Planned | Run a named auto-evolution suite |
-| `rosclaw darwin eval --skill <id>` | Research | Evaluate a skill with Darwin |
-| `rosclaw darwin benchmark --skill <id>` | Research | Run multi-seed benchmark |
+| `rosclaw darwin run --task-id <id> --skill-id <id>` | Research | Run a multi-seed Darwin benchmark |
+| `rosclaw darwin list-scenarios --json` | Stable | List available stress scenarios |
+| `rosclaw darwin history --task-id <id> --json` | Stable | Read recorded benchmark history |
 
 ---
 
