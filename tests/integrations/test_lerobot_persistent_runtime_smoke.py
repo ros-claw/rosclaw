@@ -73,6 +73,8 @@ SAMPLE_OBSERVATION_FILE = (
 def _flatten_observation(obs: dict[str, Any]) -> dict[str, Any]:
     """Convert the sample nested observation into LeRobot flat keys."""
     out: dict[str, Any] = {}
+    # Resolve image paths relative to the sample fixture file.
+    out["_base_dir"] = str(SAMPLE_OBSERVATION_FILE.parent)
     task = obs.get("task")
     if task:
         out["task"] = task
