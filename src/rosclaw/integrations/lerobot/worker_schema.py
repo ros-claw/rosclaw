@@ -171,6 +171,8 @@ class WorkerResponse:
     real_inference: bool = False
     policy_metadata: dict[str, Any] = field(default_factory=dict)
     action: WorkerAction | None = None
+    raw_action: WorkerAction | None = None
+    processed_action: WorkerAction | None = None
     timing: WorkerTiming = field(default_factory=WorkerTiming)
     error: WorkerError | None = None
     runtime: dict[str, Any] = field(default_factory=dict)
@@ -189,6 +191,10 @@ class WorkerResponse:
         }
         if self.action is not None:
             out["action"] = self.action.to_dict()
+        if self.raw_action is not None:
+            out["raw_action"] = self.raw_action.to_dict()
+        if self.processed_action is not None:
+            out["processed_action"] = self.processed_action.to_dict()
         if self.error is not None:
             out["error"] = self.error.to_dict()
         return out
@@ -196,6 +202,8 @@ class WorkerResponse:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "WorkerResponse":
         action_data = data.get("action")
+        raw_action_data = data.get("raw_action")
+        processed_action_data = data.get("processed_action")
         error_data = data.get("error")
         return cls(
             schema_version=data.get("schema_version", WORKER_SCHEMA_VERSION),
@@ -206,10 +214,16 @@ class WorkerResponse:
             real_inference=bool(data.get("real_inference", False)),
             policy_metadata=data.get("policy_metadata", {}),
             action=WorkerAction.from_dict(action_data) if action_data else None,
+            raw_action=WorkerAction.from_dict(raw_action_data) if raw_action_data else None,
+            processed_action=WorkerAction.from_dict(processed_action_data) if processed_action_data else None,
             timing=WorkerTiming.from_dict(data.get("timing", {})),
             error=WorkerError.from_dict(error_data) if error_data else None,
             runtime=data.get("runtime", {}),
         )
+
+    def processed_or_action(self) -> WorkerAction | None:
+        """Return the processed action if available, else the legacy action field."""
+        return self.processed_action or self.action
 
     @property
     def ok(self) -> bool:

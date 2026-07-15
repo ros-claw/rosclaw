@@ -24,7 +24,7 @@ from typing import Any
 
 from rosclaw.core.async_utils import run_sync
 from rosclaw.integrations.lerobot.config import get_configured_lerobot_runtime
-from rosclaw.integrations.lerobot.observation_adapter import adapt_observation_for_worker
+from rosclaw.integrations.lerobot.contracts import ObservationContract, ObservationFeature
 from rosclaw.integrations.lerobot.policy_cache import (
     MaterializationResult,
     PolicyMaterializationError,
@@ -313,22 +313,30 @@ async def _stage_infer(local_path: Path, options: SmokePolicyOptions) -> SmokeSt
     # Ensure image paths are absolute so the worker can find them.
     observation = _resolve_observation_paths(observation, observation_file.parent)
 
-    try:
-        observation = adapt_observation_for_worker(observation)
-    except (ValueError, FileNotFoundError) as exc:
-        return SmokeStageResult(
-            status="error",
-            error={
-                "code": LeRobotWorkerErrorCode.OBSERVATION_SCHEMA_MISMATCH.value,
-                "message": str(exc),
-            },
-        )
+    # Build an explicit observation contract from the manifest so state ordering
+    # is deterministic and fail-closed even if the observation file lacks names.
+    manifest = _minimal_manifest()
+    state_names = manifest.embodiment.action_space or []
+    observation_contract = ObservationContract(
+        id="smoke_policy_contract",
+        policy={"policy_path": str(local_path)},
+        body={"supported_robots": manifest.embodiment.supported_robots or []},
+        features={
+            "observation.state": ObservationFeature(
+                required=True,
+                source={"names": state_names},
+                shape=[len(state_names)],
+                transport="state_vector",
+            )
+        },
+    )
 
     provider, request = _build_provider_request(
         "lerobot.policy.infer",
         local_path,
         options,
         observation=observation,
+        observation_contract=observation_contract,
     )
     t0 = time.perf_counter()
     response = await provider.infer(request)
@@ -354,12 +362,6 @@ async def _stage_infer(local_path: Path, options: SmokePolicyOptions) -> SmokeSt
             },
         )
 
-    proposal["not_executed"] = True
-    proposal["requires_sandbox"] = True
-    proposal["executable"] = False
-    proposal.setdefault("body_mapping_required", True)
-    proposal.setdefault("body_compatible", False)
-
     return SmokeStageResult(
         status="ok",
         latency_sec=latency,
@@ -375,6 +377,7 @@ def _build_provider_request(
     local_path: Path,
     options: SmokePolicyOptions,
     observation: dict[str, Any] | None = None,
+    observation_contract: ObservationContract | None = None,
 ) -> tuple[LeRobotPolicyProvider, ProviderRequest]:
     """Build a provider and request for the given capability."""
     manifest = _minimal_manifest()
@@ -388,6 +391,8 @@ def _build_provider_request(
     }
     if observation is not None:
         inputs["observation"] = observation
+    if observation_contract is not None:
+        inputs["observation_contract"] = observation_contract.to_dict()
 
     request = ProviderRequest(
         request_id=f"lerobot_smoke_{capability.split('.')[-1]}_{int(time.time()*1000)}",

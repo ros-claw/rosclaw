@@ -55,7 +55,7 @@ def fake_lerobot_worker(monkeypatch, tmp_path: Path):
         "            'observation.state': {'type': 'STATE', 'shape': [14]}\n"
         "        },\n"
         "        'output_features': {\n"
-        "            'action': {'type': 'ACTION', 'shape': [14]}\n"
+        "            'action': {'type': 'ACTION', 'shape': [100, 14]}\n"
         "        }\n"
         "    },\n"
         "    'timing': {'load_time_sec': 0.1} if op in ('load_test', 'infer') else {},\n"
@@ -194,10 +194,12 @@ def test_smoke_policy_uses_local_policy_path(
     assert report.policy["local_path"] == str(local_policy_dir.resolve())
     assert report.features["input_features"]["observation.images.top"] == [3, 480, 640]
     assert report.features["input_features"]["observation.state"] == [14]
-    assert report.features["output_features"]["action"] == [14]
+    assert report.features["output_features"]["action"] == [100, 14]
     assert report.action_proposal is not None
     assert report.action_proposal["shape"] == [100, 14]
     assert report.action_proposal["type"] == "lerobot_action_chunk"
+    assert report.action_proposal["chunk_size"] == 100
+    assert report.action_proposal["action_dim"] == 14
     assert report.action_proposal["not_executed"] is True
     assert report.action_proposal["requires_sandbox"] is True
     assert report.action_proposal["executable"] is False
@@ -262,7 +264,7 @@ def test_doctor_shows_validated_with_success_report(tmp_path: Path, monkeypatch)
 
 
 def test_action_chunk_adapter_shape_100_14():
-    """Action adapter must preserve a [100, 14] chunk shape."""
+    """Action adapter must preserve a [100, 14] chunk shape in v2 layout."""
     from rosclaw.integrations.lerobot.worker_schema import WorkerAction
 
     values = [[float(j) for j in range(14)] for _ in range(100)]
@@ -273,11 +275,11 @@ def test_action_chunk_adapter_shape_100_14():
         dtype="float32",
     )
     proposal = adapt_action_to_proposal(action)
-    assert proposal["shape"] == [100, 14]
-    assert proposal["type"] == "lerobot_action_chunk"
-    assert proposal["chunk_size"] == 100
-    assert proposal["action_dim"] == 14
-    assert proposal["executable"] is False
-    assert proposal["requires_sandbox"] is True
-    assert len(proposal["values"]) == 100
-    assert len(proposal["values"][0]) == 14
+    assert proposal["action"]["shape"] == [100, 14]
+    assert proposal["action"]["dtype"] == "float32"
+    assert proposal["chunk"]["is_chunk"] is True
+    assert proposal["chunk"]["length"] == 100
+    assert proposal["safety"]["executable"] is False
+    assert proposal["safety"]["requires_sandbox"] is True
+    assert len(proposal["action"]["values"]) == 100
+    assert len(proposal["action"]["values"][0]) == 14
