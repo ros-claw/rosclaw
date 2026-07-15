@@ -94,10 +94,17 @@ class PolicyWorkerService:
         }
 
     def _handle_load_policy(self, params: dict[str, Any]) -> dict[str, Any]:
-        from lerobot.common.policies.factory import (
-            get_policy_class,
-            make_pre_post_processors,
-        )
+        # LeRobot 0.6.x moved the factory to lerobot.policies.factory.
+        try:
+            from lerobot.policies.factory import (
+                get_policy_class,
+                make_pre_post_processors,
+            )
+        except Exception:  # pragma: no cover - older LeRobot layout
+            from lerobot.common.policies.factory import (
+                get_policy_class,
+                make_pre_post_processors,
+            )
 
         policy_path = params["policy_path"]
         revision = params.get("revision", "main")
@@ -116,19 +123,27 @@ class PolicyWorkerService:
             else Path(materialized)
         )
 
-        policy_cls = get_policy_class(local_path)
-        policy = policy_cls.from_pretrained(local_path)
+        policy_type = self._read_policy_type(local_path)
+        policy_cls = get_policy_class(policy_type)
+        policy = policy_cls.from_pretrained(str(local_path))
         policy.eval()
+        if hasattr(policy.config, "device"):
+            policy.config.device = device
         policy.to(device)
 
-        preprocessor, postprocessor = make_pre_post_processors(policy.config)
+        preprocessor, postprocessor = make_pre_post_processors(
+            policy.config,
+            pretrained_path=str(local_path),
+        )
+        self._move_processor_to_device(preprocessor, device)
+        self._move_processor_to_device(postprocessor, device)
 
         self.policy_path = policy_path
         self.local_policy_path = local_path
         self.policy = policy
         self.preprocessor = preprocessor
         self.postprocessor = postprocessor
-        self.policy_metadata = self._extract_metadata(policy, local_path)
+        self.policy_metadata = self._extract_metadata(policy, local_path, policy_type)
 
         return {
             "status": "ok",
@@ -138,9 +153,46 @@ class PolicyWorkerService:
             "device": device,
         }
 
-    def _extract_metadata(self, policy: Any, local_path: Path) -> dict[str, Any]:
+    def _read_policy_type(self, local_path: Path) -> str:
+        """Read the policy type (e.g. 'act') from the local config."""
+        import json
+
+        config_json = local_path / "config.json"
+        if config_json.exists():
+            data = json.loads(config_json.read_text(encoding="utf-8"))
+        else:
+            config_yaml = local_path / "config.yaml"
+            import yaml
+
+            data = yaml.safe_load(config_yaml.read_text(encoding="utf-8")) or {}
+        policy_type = data.get("type") or data.get("policy_type")
+        if not policy_type:
+            raise ValueError(f"Could not determine policy type from {local_path}")
+        return str(policy_type)
+
+    def _move_processor_to_device(self, processor: Any, device: str) -> None:
+        """Force every DeviceProcessorStep inside a pipeline to the requested device."""
+        if processor is None:
+            return
+        try:
+            import torch
+
+            steps = getattr(processor, "steps", None)
+            if not steps:
+                return
+            for step in steps:
+                if hasattr(step, "device"):
+                    step.device = device
+                if hasattr(step, "tensor_device"):
+                    step.tensor_device = torch.device(device)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _extract_metadata(
+        self, policy: Any, local_path: Path, policy_type: str
+    ) -> dict[str, Any]:
         metadata: dict[str, Any] = {
-            "policy_type": getattr(policy.config, "policy_type", "unknown"),
+            "policy_type": policy_type,
             "policy_hash": None,
         }
         input_features = getattr(policy.config, "input_features", None)
@@ -149,12 +201,49 @@ class PolicyWorkerService:
             metadata["input_features"] = self._features_to_dict(input_features)
         if output_features is not None:
             metadata["output_features"] = self._features_to_dict(output_features)
+
+        # LeRobot configs do not always carry semantic action tags.  Provide a
+        # conservative fallback so ROSClaw action proposals are not "unknown".
+        action_feature = metadata.get("output_features", {}).get("action", {})
+        action_shape = list(action_feature.get("shape", []))
+        action_dim = action_shape[-1] if action_shape else 0
+        representation = action_feature.get("representation")
+        unit = action_feature.get("unit")
+        if representation is None and action_dim > 0:
+            if policy_type in ("act", "diffusion", "pi0", "tdmpc"):
+                representation = "joint_position"
+            else:
+                representation = "unknown"
+        if unit is None and action_dim > 0:
+            if representation in ("joint_position", "joint_delta"):
+                unit = "radian"
+            elif representation in ("joint_velocity",):
+                unit = "radian_per_second"
+            elif representation in ("cartesian_pose", "cartesian_delta"):
+                unit = "meter"
+            else:
+                unit = "unknown"
+        if representation is not None or unit is not None:
+            metadata["extra"] = {
+                "action_representation": representation,
+                "action_unit": unit,
+            }
         return metadata
 
     def _features_to_dict(self, features: Any) -> dict[str, Any]:
         if isinstance(features, dict):
-            return {k: dict(v) for k, v in features.items()}
+            return {k: self._feature_to_dict(v) for k, v in features.items()}
         return {}
+
+    def _feature_to_dict(self, feature: Any) -> dict[str, Any]:
+        if isinstance(feature, dict):
+            return dict(feature)
+        if hasattr(feature, "type") and hasattr(feature, "shape"):
+            return {
+                "type": str(feature.type),
+                "shape": list(feature.shape) if hasattr(feature.shape, "__iter__") else feature.shape,
+            }
+        return {"repr": repr(feature)}
 
     def _handle_warmup(self, params: dict[str, Any]) -> dict[str, Any]:
         if self.policy is None:
@@ -210,7 +299,11 @@ class PolicyWorkerService:
             session["last_step_index"] = step_index
 
         obs_tensor = self._observation_to_tensor(observation)
-        raw_action = self.policy.select_action(obs_tensor)
+        model_input = obs_tensor
+        if self.preprocessor is not None:
+            model_input = self.preprocessor(obs_tensor)
+
+        raw_action = self.policy.select_action(model_input)
         raw_values = raw_action.detach().cpu().numpy()
 
         if self.postprocessor is not None:
@@ -244,16 +337,26 @@ class PolicyWorkerService:
     def _observation_to_tensor(self, observation: dict[str, Any]) -> dict[str, Any]:
         import numpy as np
         import torch
+        from PIL import Image
 
         out: dict[str, Any] = {}
         for key, value in observation.items():
             if key == "task":
                 out[key] = value
-            elif isinstance(value, list):
-                arr = np.array(value, dtype=np.float32)
-                out[key] = torch.from_numpy(arr).unsqueeze(0).to(self.device)
-            elif isinstance(value, str):
-                out[key] = value
+            elif key == "observation.state" or key.startswith("observation.state"):
+                arr = np.asarray(value, dtype=np.float32)
+                if arr.ndim == 1:
+                    arr = arr[None, :]
+                out[key] = torch.from_numpy(arr).to(self.device)
+            elif key.startswith("observation.images."):
+                img_path = Path(str(value))
+                if not img_path.exists():
+                    raise FileNotFoundError(f"Image file not found: {img_path}")
+                img = Image.open(img_path).convert("RGB")
+                arr = np.array(img, dtype=np.float32) / 255.0
+                # (H, W, C) -> (1, C, H, W)
+                arr = np.transpose(arr, (2, 0, 1))[None, ...]
+                out[key] = torch.from_numpy(arr).to(self.device)
             else:
                 out[key] = value
         return out

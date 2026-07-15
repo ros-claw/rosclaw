@@ -225,7 +225,11 @@ class PersistentRuntimeManager:
                 line = line.rstrip("\n")
                 if not line:
                     continue
-                parsed = parse_line(line)
+                try:
+                    parsed = parse_line(line)
+                except Exception:  # noqa: BLE001
+                    # Ignore non-protocol stdout noise from the worker.
+                    continue
                 if parsed is None:
                     continue
                 if hasattr(parsed, "id"):

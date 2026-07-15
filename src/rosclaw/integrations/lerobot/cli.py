@@ -1297,6 +1297,243 @@ def cmd_lerobot_policy_warmup(args: argparse.Namespace) -> int:
         if transient:
             stop_daemon(socket_path)
 
+
+def _resolve_effective_body_for_mapping(body_id: str | None) -> Any:
+    """Load the effective body model for mapping CLI commands."""
+    from rosclaw.body.resolver import BodyResolver
+
+    resolver = BodyResolver()
+    if body_id and body_id != "current":
+        # Fall back to current if the requested body is not resolvable.
+        try:
+            return resolver.get_effective_body(body_id=body_id)
+        except Exception:  # noqa: BLE001
+            return resolver.get_effective_body()
+    return resolver.get_effective_body()
+
+
+def _parse_policy_space_from_args(args: argparse.Namespace) -> "ActionSpace":
+    """Build an ActionSpace from CLI arguments."""
+    from rosclaw.body.action_mapping.schema import ActionSpace
+
+    names_text = getattr(args, "names", "") or ""
+    units_text = getattr(args, "units", "") or ""
+    names = [n.strip() for n in names_text.split(",") if n.strip()]
+    units = [u.strip() for u in units_text.split(",") if u.strip()]
+    return ActionSpace(
+        representation=getattr(args, "representation", "joint_position"),
+        names=names,
+        units=units,
+        reference_frame=getattr(args, "reference_frame", ""),
+    )
+
+
+def cmd_lerobot_mapping_generate(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot mapping generate`."""
+    from rosclaw.body.action_mapping.mapper import generate_action_mapping
+    from rosclaw.body.action_mapping.report import format_mapping_report, format_mapping_text
+    from rosclaw.body.action_mapping.resolver import resolve_body_action_space
+
+    try:
+        body = _resolve_effective_body_for_mapping(getattr(args, "body_id", None))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[rosclaw-lerobot] Failed to load effective body: {exc}", file=sys.stderr)
+        return 1
+
+    body_space = resolve_body_action_space(body, representation=getattr(args, "representation", "joint_position"))
+    policy_space = _parse_policy_space_from_args(args)
+    mapping = generate_action_mapping(
+        policy_space,
+        body_space,
+        allow_partial=getattr(args, "allow_partial", False),
+    )
+
+    if args.json:
+        print(json.dumps(format_mapping_report(mapping), indent=2, default=str))
+        return 0 if not mapping.is_blocked() else 1
+
+    print(format_mapping_text(mapping))
+    return 0 if not mapping.is_blocked() else 1
+
+
+def cmd_lerobot_mapping_validate(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot mapping validate`."""
+    from rosclaw.body.action_mapping.mapper import generate_action_mapping
+    from rosclaw.body.action_mapping.resolver import resolve_body_action_space
+    from rosclaw.body.action_mapping.validator import validate_action_mapping
+
+    try:
+        body = _resolve_effective_body_for_mapping(getattr(args, "body_id", None))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[rosclaw-lerobot] Failed to load effective body: {exc}", file=sys.stderr)
+        return 1
+
+    body_space = resolve_body_action_space(body, representation=getattr(args, "representation", "joint_position"))
+    policy_space = _parse_policy_space_from_args(args)
+    mapping = generate_action_mapping(
+        policy_space,
+        body_space,
+        allow_partial=getattr(args, "allow_partial", False),
+    )
+    report = validate_action_mapping(mapping)
+
+    if args.json:
+        print(json.dumps(report, indent=2, default=str))
+        return 0 if not report["blocked"] else 1
+
+    print("[rosclaw-lerobot] Mapping validation")
+    print(f"  Status:        {report['status']}")
+    print(f"  Compatibility: {report['compatibility']}")
+    print(f"  Matched:       {report['matched_joints']} / {report['joint_count']}")
+    for reason in report["block_reasons"]:
+        print(f"  Block reason:  {reason}")
+    for warning in report["warnings"]:
+        print(f"  Warning:       {warning}")
+    return 0 if not report["blocked"] else 1
+
+
+def cmd_lerobot_mapping_map_action(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot mapping map-action`."""
+    from rosclaw.body.action_mapping.mapper import (
+        generate_action_mapping,
+        map_action_to_body,
+    )
+    from rosclaw.body.action_mapping.report import format_mapped_action_report
+    from rosclaw.body.action_mapping.resolver import resolve_body_action_space
+    from rosclaw.body.action_mapping.validator import validate_action_mapping
+
+    try:
+        body = _resolve_effective_body_for_mapping(getattr(args, "body_id", None))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[rosclaw-lerobot] Failed to load effective body: {exc}", file=sys.stderr)
+        return 1
+
+    body_space = resolve_body_action_space(body, representation=getattr(args, "representation", "joint_position"))
+    policy_space = _parse_policy_space_from_args(args)
+    mapping = generate_action_mapping(
+        policy_space,
+        body_space,
+        allow_partial=getattr(args, "allow_partial", False),
+    )
+
+    validation = validate_action_mapping(mapping)
+    if validation["blocked"]:
+        if args.json:
+            print(json.dumps(validation, indent=2, default=str))
+        else:
+            print("[rosclaw-lerobot] Mapping is blocked; cannot map action", file=sys.stderr)
+            for reason in validation["block_reasons"]:
+                print(f"  - {reason}", file=sys.stderr)
+        return 1
+
+    values_text = getattr(args, "values", "") or ""
+    try:
+        values = [float(v.strip()) for v in values_text.split(",") if v.strip()]
+    except ValueError as exc:
+        print(f"[rosclaw-lerobot] Invalid action values: {exc}", file=sys.stderr)
+        return 1
+
+    mapped = map_action_to_body(values, mapping, chunk_size=getattr(args, "chunk_size", None))
+    report = format_mapped_action_report(mapped)
+
+    if args.json:
+        print(json.dumps(report, indent=2, default=str))
+        return 0 if not mapped.blocked else 1
+
+    print("[rosclaw-lerobot] Mapped action")
+    print(f"  Compatibility: {mapped.compatibility.value}")
+    print(f"  Blocked:       {mapped.blocked}")
+    print(f"  Joints:        {mapped.body_joint_names}")
+    print(f"  Values:        {mapped.body_action_values}")
+    for warning in mapped.warnings:
+        print(f"  Warning:       {warning}")
+    return 0 if not mapped.blocked else 1
+
+
+def _build_rollout_config(args: argparse.Namespace, mode: str) -> "RolloutConfig":
+    """Build a RolloutConfig from CLI args."""
+    from pathlib import Path
+
+    from rosclaw.integrations.lerobot.contracts import ObservationContract
+    from rosclaw.integrations.lerobot.rollout.loop import RolloutConfig
+    from rosclaw.integrations.lerobot.rollout.state import RolloutMode
+
+    contract = None
+    contract_path = getattr(args, "observation_contract", None)
+    if contract_path:
+        contract = ObservationContract.from_dict(
+            json.loads(Path(contract_path).read_text(encoding="utf-8"))
+        )
+
+    python_executable = _resolve_policy_runtime_python(args)
+
+    return RolloutConfig(
+        mode=RolloutMode.PROPOSAL_ONLY if mode == "proposal-only" else RolloutMode.SHADOW,
+        policy_path=getattr(args, "policy_path", ""),
+        python_executable=python_executable,
+        device=getattr(args, "device", "cpu"),
+        dtype=getattr(args, "dtype", "auto"),
+        allow_network=getattr(args, "allow_network", False),
+        body_id=getattr(args, "body_id", None),
+        revision=getattr(args, "revision", "main"),
+        observation_fixture=getattr(args, "observation_fixture", None),
+        observation_contract=contract,
+        collector=getattr(args, "collector", "mock"),
+        scenario=getattr(args, "scenario", "normal"),
+        steps=getattr(args, "steps", None),
+        duration_sec=getattr(args, "duration", None),
+        control_hz=float(getattr(args, "control_hz", 10.0)),
+        execute=getattr(args, "execute", False),
+        allow_partial_mapping=getattr(args, "allow_partial_mapping", False),
+        run_sandbox_preflight=not getattr(args, "skip_sandbox", False),
+        trace_path=getattr(args, "trace_path", None),
+        task_id=getattr(args, "task_id", None),
+        runtime_timeout_sec=float(getattr(args, "timeout_sec", 300)),
+        startup_timeout_sec=float(getattr(args, "startup_timeout_sec", 60)),
+    )
+
+
+def cmd_lerobot_rollout_proposal_only(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot rollout proposal-only`."""
+    from rosclaw.integrations.lerobot.rollout.loop import run_proposal_only_loop
+
+    config = _build_rollout_config(args, "proposal-only")
+    result = run_proposal_only_loop(config)
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2, default=str))
+    else:
+        print("[rosclaw-lerobot] Proposal-only rollout")
+        print(f"  Stop reason:     {result.stop_reason.value}")
+        print(f"  Steps completed: {result.steps_completed}")
+        print(f"  Proposals:       {len(result.proposals)}")
+        print(f"  Sandbox checks:  {len(result.sandbox_decisions)}")
+        print(f"  Hardware actions executed: {result.hardware_actions_executed}")
+        print(f"  Trace path:      {result.trace_path}")
+        for error in result.errors:
+            print(f"  Error:           {error}")
+    return 0 if result.stop_reason.value == "completed" else 1
+
+
+def cmd_lerobot_rollout_shadow(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot rollout shadow`."""
+    from rosclaw.integrations.lerobot.rollout.loop import run_shadow_loop
+
+    config = _build_rollout_config(args, "shadow")
+    result = run_shadow_loop(config)
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2, default=str))
+    else:
+        print("[rosclaw-lerobot] Shadow rollout")
+        print(f"  Stop reason:     {result.stop_reason.value}")
+        print(f"  Steps completed: {result.steps_completed}")
+        print(f"  Proposals:       {len(result.proposals)}")
+        print(f"  Sandbox checks:  {len(result.sandbox_decisions)}")
+        print(f"  Hardware actions executed: {result.hardware_actions_executed}")
+        print(f"  Trace path:      {result.trace_path}")
+        for error in result.errors:
+            print(f"  Error:           {error}")
+    return 0 if result.stop_reason.value == "completed" else 1
+
 __all__ = [
     "LeRobotDatasetWorkerRunner",
 ]

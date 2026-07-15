@@ -60,6 +60,9 @@ from rosclaw.integrations.lerobot.cli import (
     cmd_lerobot_doctor,
     cmd_lerobot_export_dataset,
     cmd_lerobot_info,
+    cmd_lerobot_mapping_generate,
+    cmd_lerobot_mapping_map_action,
+    cmd_lerobot_mapping_validate,
     cmd_lerobot_policy_health,
     cmd_lerobot_policy_metrics,
     cmd_lerobot_policy_plugins,
@@ -67,6 +70,8 @@ from rosclaw.integrations.lerobot.cli import (
     cmd_lerobot_policy_status,
     cmd_lerobot_policy_stop,
     cmd_lerobot_policy_warmup,
+    cmd_lerobot_rollout_proposal_only,
+    cmd_lerobot_rollout_shadow,
     cmd_lerobot_smoke_dataloader,
     cmd_lerobot_validate_dataset,
     cmd_provider_infer_lerobot,
@@ -6868,6 +6873,118 @@ def main() -> int:
     )
     lerobot_policy_warmup_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
+    # body action mapping subcommand
+    lerobot_mapping_parser = lerobot_subparsers.add_parser(
+        "mapping", help="Body action mapping commands"
+    )
+    lerobot_mapping_subparsers = lerobot_mapping_parser.add_subparsers(dest="lerobot_mapping_command")
+
+    def _add_mapping_common_args(parser):
+        parser.add_argument(
+            "--body", dest="body_id", default="current", help="Body instance ID (default: current)"
+        )
+        parser.add_argument(
+            "--representation", default="joint_position",
+            choices=["joint_position", "joint_velocity", "joint_torque"],
+            help="Action representation (default: joint_position)",
+        )
+        parser.add_argument(
+            "--names", required=True, help="Comma-separated policy action names"
+        )
+        parser.add_argument(
+            "--units", default="", help="Comma-separated policy action units"
+        )
+        parser.add_argument("--reference-frame", default="", help="Policy reference frame")
+        parser.add_argument(
+            "--allow-partial", action="store_true", help="Allow partial mappings"
+        )
+        parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    lerobot_mapping_generate_parser = lerobot_mapping_subparsers.add_parser(
+        "generate", help="Generate a body action mapping"
+    )
+    _add_mapping_common_args(lerobot_mapping_generate_parser)
+
+    lerobot_mapping_validate_parser = lerobot_mapping_subparsers.add_parser(
+        "validate", help="Validate a body action mapping"
+    )
+    _add_mapping_common_args(lerobot_mapping_validate_parser)
+
+    lerobot_mapping_map_action_parser = lerobot_mapping_subparsers.add_parser(
+        "map-action", help="Map a policy action vector to body joints"
+    )
+    _add_mapping_common_args(lerobot_mapping_map_action_parser)
+    lerobot_mapping_map_action_parser.add_argument(
+        "--values", required=True, help="Comma-separated policy action values"
+    )
+    lerobot_mapping_map_action_parser.add_argument(
+        "--chunk-size", type=int, default=None, help="Action chunk size"
+    )
+
+    # rollout subcommand (proposal-only / shadow)
+    lerobot_rollout_parser = lerobot_subparsers.add_parser(
+        "rollout", help="LeRobot policy rollout loops"
+    )
+    lerobot_rollout_subparsers = lerobot_rollout_parser.add_subparsers(dest="lerobot_rollout_command")
+
+    def _add_rollout_common_args(parser):
+        parser.add_argument(
+            "--policy.path", dest="policy_path", required=True, help="Policy directory or HF repo id"
+        )
+        parser.add_argument("--revision", default="main", help="HF revision")
+        parser.add_argument("--python", default=None, help="LeRobot Python executable")
+        parser.add_argument("--device", default="cpu", help="Device for inference (default: cpu)")
+        parser.add_argument(
+            "--dtype", default="auto", choices=["auto", "fp32", "fp16", "bf16"], help="Model dtype"
+        )
+        parser.add_argument(
+            "--allow-network", action="store_true", help="Allow network access for HF downloads"
+        )
+        parser.add_argument("--body", dest="body_id", default="current", help="Body instance ID")
+        parser.add_argument("--steps", type=int, default=None, help="Maximum number of steps")
+        parser.add_argument(
+            "--duration", type=float, default=None, help="Maximum duration in seconds"
+        )
+        parser.add_argument("--control-hz", type=float, default=10.0, help="Target control rate")
+        parser.add_argument(
+            "--observation-fixture", default=None, help="JSON observation fixture (proposal-only)"
+        )
+        parser.add_argument(
+            "--observation-contract", default=None, help="JSON observation contract file"
+        )
+        parser.add_argument(
+            "--trace-path", default=None, help="Output JSONL trace path"
+        )
+        parser.add_argument("--task-id", default=None, help="Task ID for practice events")
+        parser.add_argument(
+            "--allow-partial-mapping", action="store_true", help="Allow partial body mappings"
+        )
+        parser.add_argument(
+            "--skip-sandbox", action="store_true", help="Skip sandbox preflight"
+        )
+        parser.add_argument(
+            "--execute", action="store_true", help=argparse.SUPPRESS
+        )
+        parser.add_argument("--timeout-sec", type=int, default=300, help="Call timeout")
+        parser.add_argument("--startup-timeout-sec", type=int, default=60, help="Startup timeout")
+        parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    lerobot_rollout_proposal_parser = lerobot_rollout_subparsers.add_parser(
+        "proposal-only", help="Rollout over a historical observation fixture"
+    )
+    _add_rollout_common_args(lerobot_rollout_proposal_parser)
+
+    lerobot_rollout_shadow_parser = lerobot_rollout_subparsers.add_parser(
+        "shadow", help="Shadow rollout using live body observations"
+    )
+    _add_rollout_common_args(lerobot_rollout_shadow_parser)
+    lerobot_rollout_shadow_parser.add_argument(
+        "--collector", default="mock", help="Sense collector (default: mock)"
+    )
+    lerobot_rollout_shadow_parser.add_argument(
+        "--scenario", default="normal", help="Mock collector scenario"
+    )
+
     # auto subcommand (Self-Evolution Control Plane)
     auto_parser = subparsers.add_parser("auto", help="Auto self-evolution commands")
     auto_subparsers = auto_parser.add_subparsers(dest="auto_command")
@@ -7796,6 +7913,24 @@ def main() -> int:
                     return cmd_lerobot_policy_warmup(args)
                 else:
                     lerobot_policy_parser.print_help()
+                    return 1
+            elif args.lerobot_command == "mapping":
+                if args.lerobot_mapping_command == "generate":
+                    return cmd_lerobot_mapping_generate(args)
+                elif args.lerobot_mapping_command == "validate":
+                    return cmd_lerobot_mapping_validate(args)
+                elif args.lerobot_mapping_command == "map-action":
+                    return cmd_lerobot_mapping_map_action(args)
+                else:
+                    lerobot_mapping_parser.print_help()
+                    return 1
+            elif args.lerobot_command == "rollout":
+                if args.lerobot_rollout_command == "proposal-only":
+                    return cmd_lerobot_rollout_proposal_only(args)
+                elif args.lerobot_rollout_command == "shadow":
+                    return cmd_lerobot_rollout_shadow(args)
+                else:
+                    lerobot_rollout_parser.print_help()
                     return 1
             else:
                 lerobot_parser.print_help()
