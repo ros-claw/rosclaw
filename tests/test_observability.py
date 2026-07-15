@@ -32,6 +32,46 @@ class _Provider(Provider):
     capabilities = ["vlm.scene_understanding"]
 
     async def infer(self, request: ProviderRequest) -> ProviderResponse:
+        if request.inputs.get("scenario") == "corridor_patrol":
+            return ProviderResponse(
+                request_id=request.request_id,
+                provider=self.name,
+                capability=request.capability,
+                result={
+                    "objects": [
+                        {
+                            "label": "right-side pedestrian at 0.65 m",
+                            "artifact_ref": "artifact://patrol/camera/front/1842.jpg",
+                        },
+                        {"label": "conference-room door to the north-east"},
+                    ],
+                    "constraints": [
+                        "minimum pedestrian clearance 0.8 m",
+                        "maximum linear speed 0.5 m/s",
+                    ],
+                    "candidates": [
+                        {
+                            "action": "pass on the right",
+                            "score": 0.31,
+                            "risk": "clearance below threshold",
+                        },
+                        {
+                            "action": "slow down and pass on the left",
+                            "score": 0.86,
+                            "risk": "adds about 3 seconds",
+                        },
+                    ],
+                    "reason_summary": (
+                        "The left detour preserves pedestrian clearance with the lowest risk."
+                    ),
+                    "evidence_refs": ["artifact://patrol/local_costmap/301.json"],
+                    "chain_of_thought": "private scratch reasoning must not be exposed",
+                },
+                confidence=0.86,
+                evidence=[{"artifact_ref": "artifact://patrol/mocap/9921.json"}],
+                model_info={"model": "test-navigation-vlm"},
+                trace={"usage": {"input_tokens": 128, "output_tokens": 47}},
+            )
         return ProviderResponse(
             request_id=request.request_id,
             provider=self.name,
@@ -356,6 +396,99 @@ def test_runtime_mission_links_provider_decision_and_sandbox(tmp_path):
         },
     }
     assert result["decision_summary"]["reason_summary"]
+
+
+def test_runtime_navigation_decision_preserves_auditable_model_evidence(tmp_path):
+    from rosclaw.core.runtime import Runtime, RuntimeConfig
+
+    runtime = Runtime(
+        RuntimeConfig(
+            robot_id="trace-navigation-robot",
+            enable_firewall=False,
+            enable_memory=False,
+            enable_practice=False,
+            enable_swarm=False,
+            enable_skill_manager=False,
+            enable_knowledge=False,
+            enable_how=False,
+            enable_auto=False,
+            enable_provider=False,
+            enable_sense=False,
+            enable_event_persistence=False,
+            enable_tracing=True,
+            trace_home=str(tmp_path),
+        )
+    )
+    runtime.initialize()
+    registry = ProviderRegistry(event_bus=runtime.event_bus)
+    manifest = ProviderManifest.from_dict(
+        {
+            "name": "trace-provider",
+            "version": "1.2.3",
+            "type": "vlm",
+            "capabilities": ["vlm.scene_understanding"],
+        }
+    )
+    registry.register(manifest, lambda item: _Provider(item), auto_load=False)
+    registry.set_provider_health("trace-provider", ok=True)
+    runtime._capability_router = CapabilityRouter(registry, tracer=runtime.tracer)
+
+    result = runtime.execute(
+        {
+            "request_id": "mission-navigation-123",
+            "instruction": "patrol the corridor and inspect the conference-room door",
+            "skill_name": "navigate_and_inspect",
+            "capability": "vlm.scene_understanding",
+            "parameters": {
+                "scenario": "corridor_patrol",
+                "api_key": "must-not-leak",
+            },
+            "trajectory": [[0.0] * 6, [0.3, 0.1, 0.0, 0.0, 0.0, 0.0]],
+        }
+    )
+    runtime.stop()
+
+    assert result["status"] == "ok"
+    trace = TraceStore(home=tmp_path).get_trace("mission-navigation-123")
+    spans = {span["name"]: span for span in trace["spans"]}
+    decision = spans["agent.execution_decision"]["output"]["decision_summary"]
+
+    assert decision["observations"] == [
+        "right-side pedestrian at 0.65 m",
+        "conference-room door to the north-east",
+    ]
+    assert decision["constraints"] == [
+        "safety_level=MODERATE",
+        "sandbox_validation=required",
+        "minimum pedestrian clearance 0.8 m",
+        "maximum linear speed 0.5 m/s",
+    ]
+    assert decision["candidates"] == [
+        {
+            "action": "pass on the right",
+            "score": 0.31,
+            "risk": "clearance below threshold",
+        },
+        {
+            "action": "slow down and pass on the left",
+            "score": 0.86,
+            "risk": "adds about 3 seconds",
+        },
+    ]
+    assert decision["confidence"] == 0.86
+    assert decision["reason_summary"] == (
+        "The left detour preserves pedestrian clearance with the lowest risk."
+    )
+    assert decision["evidence_refs"] == [
+        "artifact://patrol/camera/front/1842.jpg",
+        "artifact://patrol/local_costmap/301.json",
+        "artifact://patrol/mocap/9921.json",
+    ]
+    assert decision["decision"]["parameters"]["api_key"] == "[REDACTED]"
+    assert "chain_of_thought" not in decision
+    assert spans["provider.inference"]["output"]["result"]["chain_of_thought"] == (
+        "[PRIVATE_REASONING_OMITTED]"
+    )
 
 
 def test_trace_store_ignores_malformed_lines(tmp_path):

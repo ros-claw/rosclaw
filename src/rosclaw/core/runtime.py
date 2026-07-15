@@ -1491,8 +1491,16 @@ class Runtime(LifecycleMixin):
             return {
                 "capability": capability_name,
                 "status": "ok" if response.is_ok else "error",
-                "result": response.result if response.is_ok else {"error": response.error},
+                "result": response.result
+                if response.is_ok
+                else {"error": "; ".join(response.errors) or response.status},
                 "provider": response.provider,
+                "confidence": response.confidence,
+                "evidence": response.evidence,
+                "model_info": response.model_info,
+                "provider_trace": response.trace,
+                "warnings": response.warnings,
+                "errors": response.errors,
             }
         except Exception as e:
             return {"error": str(e), "capability": capability_name, "status": "error"}
@@ -1564,9 +1572,13 @@ class Runtime(LifecycleMixin):
             observations.append(f"provider_status={provider_status}")
 
         constraints = [f"safety_level={self.config.safety_level}", "sandbox_validation=required"]
-        supplied_constraints = context.get("constraints", [])
-        if isinstance(supplied_constraints, list):
-            constraints.extend(str(item) for item in supplied_constraints[:20])
+        for supplied_constraints in (
+            context.get("constraints", []),
+            payload.get("constraints", []),
+        ):
+            if isinstance(supplied_constraints, list):
+                constraints.extend(str(item) for item in supplied_constraints[:20])
+        constraints = list(dict.fromkeys(constraints))
 
         confidence = context.get("confidence", payload.get("confidence"))
         if not isinstance(confidence, (int, float)) or not 0.0 <= confidence <= 1.0:
@@ -1590,20 +1602,42 @@ class Runtime(LifecycleMixin):
         else:
             decision = action
 
+        supplied_candidates = payload.get("candidates", context.get("candidates", []))
+        if isinstance(supplied_candidates, list):
+            candidates = [
+                self._tracer.redactor.redact(candidate)
+                for candidate in supplied_candidates[:20]
+                if isinstance(candidate, dict)
+            ]
+        else:
+            candidates = []
+        if not candidates and decision is not None:
+            candidates = [{"action": decision}]
+
         evidence_refs = [
             str(item.get("artifact_ref"))
             for item in objects
             if isinstance(item, dict) and item.get("artifact_ref")
         ]
-        explicit_refs = context.get("evidence_refs", [])
-        if isinstance(explicit_refs, list):
-            evidence_refs.extend(str(reference) for reference in explicit_refs[:50])
+        for explicit_refs in (
+            context.get("evidence_refs", []),
+            payload.get("evidence_refs", []),
+        ):
+            if isinstance(explicit_refs, list):
+                evidence_refs.extend(str(reference) for reference in explicit_refs[:50])
+        for evidence in context.get("evidence", []):
+            if isinstance(evidence, str):
+                evidence_refs.append(evidence)
+            elif isinstance(evidence, dict):
+                reference = evidence.get("artifact_ref") or evidence.get("ref")
+                if reference:
+                    evidence_refs.append(str(reference))
 
         return DecisionSummary(
             goal=instruction,
             observations=observations,
             constraints=constraints,
-            candidates=[{"action": decision}] if decision is not None else [],
+            candidates=candidates,
             decision=decision,
             reason_summary=reason_summary,
             confidence=confidence,
@@ -1618,6 +1652,11 @@ class Runtime(LifecycleMixin):
         provider_result: dict[str, Any],
     ) -> dict[str, Any]:
         """Record the actual closed-loop action decision inside the mission trace."""
+
+        payload = provider_result.get("result", {})
+        provider_reason = payload.get("reason_summary") if isinstance(payload, dict) else None
+        if not isinstance(provider_reason, str) or not provider_reason.strip():
+            provider_reason = None
 
         with self._tracer.start_span(
             "agent.execution_decision",
@@ -1643,11 +1682,14 @@ class Runtime(LifecycleMixin):
                 action=action,
                 context=provider_result,
                 reason_summary=(
-                    "Selected the requested action after provider planning; sandbox validation is "
-                    "required before execution."
-                    if provider_result.get("status") == "ok"
-                    else "Kept the deterministic requested action after provider planning was "
-                    "unavailable; sandbox validation is required before execution."
+                    provider_reason
+                    or (
+                        "Selected the requested action after provider planning; sandbox validation "
+                        "is required before execution."
+                        if provider_result.get("status") == "ok"
+                        else "Kept the deterministic requested action after provider planning was "
+                        "unavailable; sandbox validation is required before execution."
+                    )
                 ),
             )
             output = {"decision_summary": summary.to_dict()}
