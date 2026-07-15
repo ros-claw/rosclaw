@@ -10,11 +10,7 @@ from typing import Any
 
 from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.core.lifecycle import LifecycleMixin
-from rosclaw.memory.seekdb_client import (
-    SeekDBClient,
-    SeekDBMySQLClient,
-    SQLiteKnowledgeStore,
-)
+from rosclaw.memory.seekdb_client import SeekDBClient
 from rosclaw.practice.adapters.base import SourceAdapter
 from rosclaw.practice.adapters.mock_agent_adapter import MockAgentAdapter
 from rosclaw.practice.adapters.mock_runtime_adapter import MockRuntimeAdapter
@@ -678,20 +674,9 @@ class PracticeCoordinator(LifecycleMixin):
         url = self.config.seekdb.url
         if not url:
             return None
-        parsed = str(url).lower()
-        if parsed.startswith("http://") or parsed.startswith("https://"):
-            raise ValueError(
-                f"seekdb.url ({url}) looks like an HTTP endpoint, not a SQL DSN. "
-                "Use seekdb.http_adapter_url / ROSCLAW_PRACTICE_HTTP_ADAPTER_URL "
-                "for the rosclaw_practice HTTP bridge; keep seekdb.url as mysql:// or sqlite://."
-            )
-        if parsed.startswith(("mysql://", "mysql+pymysql://", "seekdb://")):
-            return SeekDBMySQLClient(str(url))
-        # Default to SQLite for bare paths or sqlite:// prefixes.
-        db_path = str(url)
-        if db_path.startswith("sqlite://"):
-            db_path = db_path[len("sqlite://") :]
-        return SQLiteKnowledgeStore(db_path)
+        from rosclaw.storage.factory import StorageFactory
+
+        return StorageFactory.create_knowledge_store(url=url)
 
     def _ingest_seekdb(self) -> Any:
         """Distill and ingest the current session into SeekDB."""

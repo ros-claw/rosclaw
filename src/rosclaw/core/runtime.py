@@ -37,19 +37,6 @@ from rosclaw.core.lifecycle import LifecycleMixin
 logger = logging.getLogger("rosclaw.core.runtime")
 
 
-def _sanitize_url(url: str) -> str:
-    """Return a display-safe version of a SQL DSN with password redacted."""
-    try:
-        from urllib.parse import urlparse
-
-        parsed = urlparse(url)
-        if parsed.password:
-            return url.replace(f":{parsed.password}@", ":***@", 1)
-    except Exception:  # noqa: BLE001
-        pass
-    return url
-
-
 # Provider layer imports (lazy to avoid hard deps)
 ProviderRegistry = None
 CapabilityRouter = None
@@ -136,6 +123,9 @@ class RuntimeConfig:
     sense_robot_profile: str | None = None
     sense_thresholds_path: str | None = None
     sense_replay_path: str | None = None
+    # Storage-layer tunables (Phase 1+).  Keys: pool_size, vector_enabled,
+    # outbox_enabled, outbox_max_records, outbox_flush_interval_sec.
+    storage: dict[str, Any] = field(default_factory=dict)
     # Persist all EventBus events to ~/.rosclaw/events/live.jsonl for dashboard tail
     enable_event_persistence: bool = True
 
@@ -514,58 +504,26 @@ class Runtime(LifecycleMixin):
     def _create_seekdb_client(self) -> Any:
         """Create and return the shared knowledge-store client for Memory/Knowledge/HOW/Auto.
 
-        Supports memory/sqlite/mysql backends. Raises ValueError when the
-        configured URL is ambiguous (HTTP URL used for SQL backend).
+        Delegates to :class:`rosclaw.storage.factory.StorageFactory` so backend
+        selection, URL validation, and future pooling/vector extensions live in
+        one place.
         """
-        backend = self.config.seekdb_backend.lower()
-        url = self.config.seekdb_url
+        from rosclaw.storage.factory import StorageFactory
 
-        # Auto-detect SQL backend from DSN schemes.
-        if url and str(url).lower().startswith(("mysql://", "mysql+pymysql://", "seekdb://")):
-            backend = "mysql"
-        elif url and str(url).lower().startswith("sqlite://"):
-            backend = "sqlite"
-
-        if backend == "memory":
-            from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
-
-            logger.info("Knowledge store backend: memory")
-            return InMemoryKnowledgeStore()
-
-        if backend == "sqlite":
-            from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
-
-            path = self.config.seekdb_path
-            if url and not path:
-                # Accept sqlite:///path or bare path as sqlite path.
-                path = str(url)
-                if path.startswith("sqlite://"):
-                    path = path[len("sqlite://") :]
-            logger.info("Knowledge store backend: sqlite (%s)", path)
-            return SQLiteKnowledgeStore(path)
-
-        if backend == "mysql":
-            from rosclaw.memory.seekdb_client import SeekDBMySQLClient
-
-            if not url:
-                raise ValueError(
-                    "seekdb_backend='mysql' requires seekdb_url (e.g. "
-                    "mysql://root@127.0.0.1:2881/rosclaw). "
-                    "Use ROSCLAW_SEEKDB_URL to set the SQL DSN."
-                )
-            if str(url).lower().startswith("http"):
-                raise ValueError(
-                    f"seekdb_backend='mysql' but seekdb_url looks like an HTTP endpoint ({url}). "
-                    "For the rosclaw_practice HTTP bridge use seekdb_http_url / "
-                    "ROSCLAW_PRACTICE_HTTP_ADAPTER_URL; for SQL use mysql:// or seekdb://."
-                )
-            logger.info("Knowledge store backend: mysql (%s)", _sanitize_url(str(url)))
-            return SeekDBMySQLClient(str(url))
-
-        raise ValueError(
-            f"Unknown seekdb_backend '{self.config.seekdb_backend}'. "
-            "Supported: memory, sqlite, mysql."
+        client = StorageFactory.create_knowledge_store(
+            backend=self.config.seekdb_backend,
+            url=self.config.seekdb_url,
+            path=self.config.seekdb_path,
+            pool_size=self.config.storage.get("pool_size", 4),
         )
+        capabilities = StorageFactory.capabilities(client)
+        logger.info(
+            "Knowledge store backend: %s (persistent=%s, vector=%s)",
+            type(client).__name__,
+            capabilities["persistent"],
+            capabilities["vector"],
+        )
+        return client
 
     def _create_how_engine(self, seekdb: Any | None) -> Any | None:
         """Return a HOW engine: HowClient when configured, else HeuristicEngine."""

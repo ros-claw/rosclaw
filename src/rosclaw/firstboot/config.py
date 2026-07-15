@@ -207,6 +207,17 @@ class FirstbootConfig:
             },
         )
 
+        self.storage = merge_config(
+            self.storage,
+            {
+                "pool_size": 4,
+                "vector_enabled": False,
+                "outbox_enabled": False,
+                "outbox_max_records": 100_000,
+                "outbox_flush_interval_sec": 5.0,
+            },
+        )
+
         self.security = merge_config(
             self.security,
             {
@@ -255,6 +266,7 @@ class FirstbootConfig:
                 "mcp": self.mcp,
                 "cloud": self.cloud,
                 "telemetry": self.telemetry,
+                "storage": self.storage,
                 "security": self.security,
             }
         )
