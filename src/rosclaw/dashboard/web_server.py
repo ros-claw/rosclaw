@@ -213,6 +213,14 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
         raise HTTPException(status_code=500, detail=f"Failed to read {path}: {exc}") from exc
 
 
+def _read_episode_events(layout: PracticeLayout, practice_id: str) -> list[dict[str, Any]]:
+    """Read the canonical events.jsonl stream, falling back to legacy timeline.jsonl."""
+    events_path = layout.events_jsonl_path(practice_id)
+    if events_path.exists():
+        return _read_jsonl(events_path)
+    return _read_jsonl(layout.timeline_jsonl_path(practice_id))
+
+
 async def _latest_frame_info(
     query_api: RuntimeQueryAPI | None = None,
     data_root: Path | None = None,
@@ -245,8 +253,8 @@ async def _latest_frame_info(
 
     layout = PracticeLayout(data_root or _practice_data_root())
     for ep in _list_episodes(layout.data_root):
-        timeline = _read_jsonl(layout.timeline_jsonl_path(ep["practice_id"]))
-        for ev in reversed(timeline):
+        events = _read_episode_events(layout, ep["practice_id"])
+        for ev in reversed(events):
             if ev.get("source") == "camera" and ev.get("event_type") == "rgbd_frame":
                 payload = ev.get("payload", {})
                 rgb_ref = payload.get("rgb_ref")
@@ -305,8 +313,8 @@ def _list_realsense_frames(
     layout = PracticeLayout(data_root or _practice_data_root())
     frames: list[dict[str, Any]] = []
     for ep in _list_episodes(layout.data_root):
-        timeline = _read_jsonl(layout.timeline_jsonl_path(ep["practice_id"]))
-        for ev in reversed(timeline):
+        events = _read_episode_events(layout, ep["practice_id"])
+        for ev in reversed(events):
             if ev.get("source") == "camera" and ev.get("event_type") == "rgbd_frame":
                 payload = ev.get("payload", {})
                 rgb_ref = payload.get("rgb_ref")
@@ -386,8 +394,8 @@ def _list_realsense_streams(
 
     layout = PracticeLayout(data_root or _practice_data_root())
     for ep in _list_episodes(layout.data_root):
-        timeline = _read_jsonl(layout.timeline_jsonl_path(ep["practice_id"]))
-        for ev in reversed(timeline):
+        events = _read_episode_events(layout, ep["practice_id"])
+        for ev in reversed(events):
             if ev.get("source") == "camera" and ev.get("event_type") == "rgbd_frame":
                 payload = ev.get("payload", {})
                 rgb_ref = payload.get("rgb_ref")

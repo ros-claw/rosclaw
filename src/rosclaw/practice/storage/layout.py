@@ -252,18 +252,26 @@ class PracticeLayout:
         session: PracticeSession,
         summary: PracticeSummary,
         sources: dict[str, bool] | None = None,
+        write_timeline: bool = False,
     ) -> None:
-        """Write episode.json and timeline.jsonl from raw events."""
+        """Write episode.json and, if requested, timeline.jsonl from raw events.
+
+        The ``timeline.jsonl`` file is a duplicate of ``events.jsonl`` that was
+        kept for dashboard compatibility.  It is now opt-in (``write_timeline``)
+        because it doubles event storage.  New sessions should consume
+        ``events.jsonl`` directly.
+        """
         self.write_episode_json(practice_id, session, summary, sources=sources)
-        events: list[dict[str, Any]] = []
-        jsonl_path = self.events_jsonl_path(practice_id)
-        if jsonl_path.exists():
-            try:
-                with open(jsonl_path, encoding="utf-8") as f:
-                    events = [json.loads(line) for line in f if line.strip()]
-            except Exception as e:
-                logger.warning("Failed to read events for timeline %s: %s", practice_id, e)
-        self.write_timeline_jsonl(practice_id, events)
+        if write_timeline:
+            events: list[dict[str, Any]] = []
+            jsonl_path = self.events_jsonl_path(practice_id)
+            if jsonl_path.exists():
+                try:
+                    with open(jsonl_path, encoding="utf-8") as f:
+                        events = [json.loads(line) for line in f if line.strip()]
+                except Exception as e:
+                    logger.warning("Failed to read events for timeline %s: %s", practice_id, e)
+            self.write_timeline_jsonl(practice_id, events)
 
 
 def _utc_now_iso() -> str:

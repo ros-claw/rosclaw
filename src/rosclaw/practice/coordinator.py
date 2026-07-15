@@ -10,7 +10,11 @@ from typing import Any
 
 from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.core.lifecycle import LifecycleMixin
-from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore, SeekDBClient, SeekDBMySQLClient, SQLiteKnowledgeStore
+from rosclaw.memory.seekdb_client import (
+    SeekDBClient,
+    SeekDBMySQLClient,
+    SQLiteKnowledgeStore,
+)
 from rosclaw.practice.adapters.base import SourceAdapter
 from rosclaw.practice.adapters.mock_agent_adapter import MockAgentAdapter
 from rosclaw.practice.adapters.mock_runtime_adapter import MockRuntimeAdapter
@@ -484,6 +488,11 @@ class PracticeCoordinator(LifecycleMixin):
                         source="practice_coordinator",
                     )
                 )
+
+        try:
+            self.catalog.flush()
+        except Exception as e:
+            logger.error("Failed to flush practice catalog: %s", e)
 
         logger.info(
             "Practice session stopped: %s",

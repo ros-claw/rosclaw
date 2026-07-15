@@ -369,7 +369,10 @@ class PracticeRecorder(RuntimeConsumer):
         outcome = payload.get("outcome", "UNKNOWN")
         reward = payload.get("reward")
         failure_labels = payload.get("failure_labels", [])
-        event_count = payload.get("event_count", self._event_count)
+        # Recorder is the authoritative source for event count because it sees
+        # every event that passed through RuntimeBus, including events emitted
+        # by producers other than the coordinator.
+        event_count = self._event_count
 
         self._summary = PracticeSummary(
             practice_id=self._session.practice_id,
@@ -585,11 +588,14 @@ class PracticeRecorder(RuntimeConsumer):
             if envelope.event_type not in {"runtime.start", "runtime.stop"}:
                 self._source_event_count += 1
 
+        byte_offset: int | None = None
         if self._writer is not None:
             try:
+                byte_offset = self._writer.bytes_written
                 self._writer.write(envelope.model_dump(mode="json"))
             except Exception as e:
                 logger.error("Failed to write event to JSONL: %s", e)
+                byte_offset = None
 
         if self._mcap_writer is not None:
             try:
@@ -618,6 +624,29 @@ class PracticeRecorder(RuntimeConsumer):
                 )
             except Exception as e:
                 logger.error("Failed to insert event into catalog: %s", e)
+
+            if byte_offset is not None:
+                try:
+                    self._catalog.insert_event_index(
+                        {
+                            "event_id": envelope.event_id,
+                            "session_id": envelope.session_id,
+                            "episode_id": envelope.episode_id,
+                            "timestamp_ns": envelope.timestamp_ns,
+                            "event_type": envelope.event_type,
+                            "artifact_id": str(self.layout.events_jsonl_path(envelope.practice_id)),
+                            "byte_offset": byte_offset,
+                            "summary": {
+                                "source": envelope.source,
+                                "robot_id": envelope.robot_id,
+                                "body_id": envelope.body_id,
+                                "task_id": envelope.task_id,
+                                "skill_id": envelope.skill_id,
+                            },
+                        }
+                    )
+                except Exception as e:
+                    logger.error("Failed to insert event index into catalog: %s", e)
 
         if self._publish_to_event_bus and self._legacy_event_bus is not None:
             try:
