@@ -460,10 +460,31 @@ After the P4.1 hardening pass, the following verification was run on local `main
 Verification results:
 
 ```bash
+# LeRobot unit + integration regression
 python -m pytest tests/integrations/test_lerobot_*.py tests/unit/integrations/lerobot/ -q  # 284 passed, 3 skipped
+
+# Runtime boundary: core Python never imports torch/lerobot
+env -u PYTHONPATH python -m pytest tests/integrations/test_lerobot_runtime_boundary.py -q  # 19 passed
+
+# End-to-end proposal-only rollout → Practice lifecycle → strict verify
+python -m rosclaw.cli lerobot rollout proposal-only \
+  --policy.path /home/dell/.rosclaw/cache/lerobot/policies/lerobot_act_aloha_sim_transfer_cube_human_migrated \
+  --observation-fixture examples/lerobot/sample_observation_aloha_act.json \
+  --steps 100 --control-hz 10 --practice-root /tmp/rosclaw_lerobot_practice --json
+
+python -m rosclaw.cli practice verify --strict --data-root /tmp/rosclaw_lerobot_practice <practice_id>
+# Passed: True (catalog_exists, practice_record, manifest_exists, events_jsonl_exists,
+#              session_record, episode_records, event_types, event_count, artifact_records)
 ```
 
-The P4.1 changes are staged on local `main` and ready to push to `ros-claw/rosclaw` `main`.
+Push status:
+
+- The P4.1 changes are committed on local `main` (`b672542`).
+- Multiple push attempts to `https://github.com/ros-claw/rosclaw.git` failed with
+  `Failed to connect to github.com port 443 ... 连接超时`. DNS resolves and ICMP
+  reaches GitHub, but the HTTPS git connection cannot complete from this environment.
+- Local branch is ahead of `origin/main` by 1 commit and ready to push once network
+  access to GitHub is restored.
 
 ---
 
