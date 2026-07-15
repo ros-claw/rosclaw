@@ -259,12 +259,12 @@ class Runtime(LifecycleMixin):
         if self.config.enable_memory:
             try:
                 from rosclaw.memory.interface import MemoryInterface
-                from rosclaw.memory.seekdb_client import SeekDBMemoryClient, SeekDBSQLiteClient
+                from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore, SQLiteKnowledgeStore
 
                 if self.config.seekdb_backend == "sqlite":
-                    seekdb = SeekDBSQLiteClient(self.config.seekdb_path)
+                    seekdb = SQLiteKnowledgeStore(self.config.seekdb_path)
                 else:
-                    seekdb = SeekDBMemoryClient()
+                    seekdb = InMemoryKnowledgeStore()
                 self._memory = MemoryInterface(
                     robot_id=self.config.robot_id,
                     event_bus=self.event_bus,

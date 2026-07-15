@@ -2278,7 +2278,7 @@ class TestMemorySeekDB:
         rt = Runtime(config=cfg)
         with (
             patch("rosclaw.memory.interface.MemoryInterface") as mock_mem_cls,
-            patch("rosclaw.memory.seekdb_client.SeekDBSQLiteClient") as mock_sqlite,
+            patch("rosclaw.memory.seekdb_client.SQLiteKnowledgeStore") as mock_sqlite,
         ):
             mock_mem = MagicMock()
             mock_mem_cls.return_value = mock_mem
@@ -2302,7 +2302,7 @@ class TestMemorySeekDB:
         rt = Runtime(config=cfg)
         with (
             patch("rosclaw.memory.interface.MemoryInterface") as mock_mem_cls,
-            patch("rosclaw.memory.seekdb_client.SeekDBMemoryClient") as mock_mem_client,
+            patch("rosclaw.memory.seekdb_client.InMemoryKnowledgeStore") as mock_mem_client,
         ):
             mock_mem = MagicMock()
             mock_mem_cls.return_value = mock_mem

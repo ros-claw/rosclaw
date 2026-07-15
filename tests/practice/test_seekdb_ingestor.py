@@ -5,7 +5,7 @@ from __future__ import annotations
 import tempfile
 from typing import Any
 
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 from rosclaw.practice.config import PracticeConfig, SourceConfig
 from rosclaw.practice.coordinator import PracticeCoordinator
 from rosclaw.practice.recorder import PracticeRecorder
@@ -79,7 +79,7 @@ def test_ingest_practice_writes_episode_and_failures():
         ]
         practice_id = _run_session_with_events(tmp, events)
 
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         ingestor = SeekDBIngestor(tmp, seekdb_client=client)
         report = ingestor.ingest_practice(practice_id)
         ingestor.close()
@@ -131,7 +131,7 @@ def test_ingest_practice_is_idempotent():
         ]
         practice_id = _run_session_with_events(tmp, events)
 
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         ingestor = SeekDBIngestor(tmp, seekdb_client=client)
         report1 = ingestor.ingest_practice(practice_id)
         report2 = ingestor.ingest_practice(practice_id)
@@ -178,7 +178,7 @@ def test_ingest_body_cognition_and_sim2real_deltas():
         ]
         practice_id = _run_session_with_events(tmp, events)
 
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         ingestor = SeekDBIngestor(tmp, seekdb_client=client)
         report = ingestor.ingest_practice(practice_id)
         ingestor.close()
@@ -229,7 +229,7 @@ def test_ingest_candidates_and_promotions():
         ]
         practice_id = _run_session_with_events(tmp, events)
 
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         ingestor = SeekDBIngestor(tmp, seekdb_client=client)
         report = ingestor.ingest_practice(practice_id)
         ingestor.close()

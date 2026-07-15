@@ -85,9 +85,9 @@ def _ingest_session(tmp: str, seekdb_path: str) -> str:
     coord.stop()
     recorder.stop()
 
-    from rosclaw.memory.seekdb_client import SeekDBSQLiteClient
+    from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
 
-    client = SeekDBSQLiteClient(seekdb_path)
+    client = SQLiteKnowledgeStore(seekdb_path)
     ingestor = SeekDBIngestor(tmp, seekdb_client=client)
     ingestor.ingest_practice(practice_id)
     ingestor.close()

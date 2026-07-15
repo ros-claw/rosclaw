@@ -2,8 +2,8 @@
 Tests for SeekDB query indexes.
 
 Verifies:
-1. SeekDBMemoryClient uses inverted indexes for common filter patterns
-2. SeekDBSQLiteClient creates composite indexes for common query patterns
+1. InMemoryKnowledgeStore uses inverted indexes for common filter patterns
+2. SQLiteKnowledgeStore creates composite indexes for common query patterns
 3. Index correctness: indexed queries return same results as full scans
 
 P1 Issue 3: https://github.com/ros-claw/rosclaw-v1.0/issues/XXX
@@ -15,12 +15,12 @@ import pytest
 
 from rosclaw.memory.seekdb_client import (
     SEEKDB_SCHEMAS,
-    SeekDBMemoryClient,
-    SeekDBSQLiteClient,
+    InMemoryKnowledgeStore,
+    SQLiteKnowledgeStore,
 )
 
 # ---------------------------------------------------------------------------
-# SeekDBMemoryClient — Inverted Indexes
+# InMemoryKnowledgeStore — Inverted Indexes
 # ---------------------------------------------------------------------------
 
 
@@ -29,7 +29,7 @@ class TestMemoryClientInvertedIndex:
 
     @pytest.fixture
     def client(self):
-        c = SeekDBMemoryClient()
+        c = InMemoryKnowledgeStore()
         c.connect()
         yield c
         c.disconnect()
@@ -163,12 +163,12 @@ class TestMemoryClientInvertedIndex:
 
     def test_max_scan_limit(self):
         """MAX_SCAN_LIMIT should be defined."""
-        assert hasattr(SeekDBMemoryClient, "MAX_SCAN_LIMIT")
-        assert SeekDBMemoryClient.MAX_SCAN_LIMIT > 0
+        assert hasattr(InMemoryKnowledgeStore, "MAX_SCAN_LIMIT")
+        assert InMemoryKnowledgeStore.MAX_SCAN_LIMIT > 0
 
 
 # ---------------------------------------------------------------------------
-# SeekDBSQLiteClient — Composite Indexes
+# SQLiteKnowledgeStore — Composite Indexes
 # ---------------------------------------------------------------------------
 
 
@@ -178,7 +178,7 @@ class TestSQLiteClientCompositeIndexes:
     @pytest.fixture
     def client(self, tmp_path):
         db_path = str(tmp_path / "test_seekdb.sqlite")
-        c = SeekDBSQLiteClient(db_path)
+        c = SQLiteKnowledgeStore(db_path)
         c.connect()
         yield c
         c.disconnect()
@@ -202,7 +202,7 @@ class TestSQLiteClientCompositeIndexes:
         """Composite indexes should be created."""
         cursor = client._conn.execute("SELECT name FROM sqlite_master WHERE type='index'")
         indexes = {row[0] for row in cursor.fetchall()}
-        for _, idx_name, _ in SeekDBSQLiteClient._COMPOSITE_INDICES:
+        for _, idx_name, _ in SQLiteKnowledgeStore._COMPOSITE_INDICES:
             assert idx_name in indexes, f"Composite index {idx_name} missing"
 
     def test_composite_index_used_for_robot_ts_query(self, client):
@@ -285,7 +285,7 @@ class TestSeekDBPerformance:
 
     def test_memory_client_indexed_vs_scan(self):
         """Indexed query should be faster than or equal to full scan on large dataset."""
-        c = SeekDBMemoryClient()
+        c = InMemoryKnowledgeStore()
         c.connect()
         for i in range(1000):
             c.insert(
@@ -321,7 +321,7 @@ class TestSeekDBPerformance:
     def test_sqlite_client_10k_rows(self, tmp_path):
         """SQLite should handle 10K rows with indexed queries."""
         db_path = str(tmp_path / "perf_test.sqlite")
-        c = SeekDBSQLiteClient(db_path)
+        c = SQLiteKnowledgeStore(db_path)
         c.connect()
 
         for i in range(1000):

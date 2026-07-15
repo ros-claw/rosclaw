@@ -16,7 +16,7 @@ from pytest import MonkeyPatch
 
 from rosclaw.body.resolver import BodyResolver
 from rosclaw.core.event_bus import EventBus
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 from rosclaw.skill_manager.executor import SkillExecutor
 from rosclaw.skill_manager.registry import SkillEntry, SkillRegistry
 
@@ -32,7 +32,7 @@ def env(tmp_path):
     """Test environment: EventBus + Registry + SeekDB + Executor."""
     bus = EventBus()
     registry = SkillRegistry(event_bus=bus)
-    seekdb = SeekDBMemoryClient()
+    seekdb = InMemoryKnowledgeStore()
     seekdb.connect()
     resolver = BodyResolver(workspace=tmp_path)
     executor = SkillExecutor(

@@ -1,9 +1,12 @@
-"""SeekDB Client - Knowledge Plane interface for ROSClaw.
+"""Knowledge Plane storage backends for ROSClaw.
 
 Provides abstract SeekDBClient and concrete implementations:
-- SeekDBMemoryClient: In-memory for testing
-- SeekDBSQLiteClient: SQLite for single-machine deployment
+- InMemoryKnowledgeStore: In-memory backend for testing
+- SQLiteKnowledgeStore: SQLite backend for single-machine deployment
 - SeekDBMySQLClient: MySQL-compatible SeekDB/OceanBase server deployment
+
+Legacy aliases SeekDBMemoryClient and SeekDBSQLiteClient are kept for
+backward compatibility but emit DeprecationWarning on instantiation.
 
 Sprint 5 of DESIGN_SPRINT3_5.
 """
@@ -415,8 +418,8 @@ class SeekDBClient(ABC):
     def delete_where(self, table: str, filters: dict) -> int: ...
 
 
-class SeekDBMemoryClient(SeekDBClient):
-    """In-memory SeekDB client for testing.
+class InMemoryKnowledgeStore(SeekDBClient):
+    """In-memory knowledge store for testing.
 
     Maintains inverted indexes on columns declared in SEEKDB_SCHEMAS
     to avoid full-table scans on the most common filter patterns.
@@ -583,10 +586,10 @@ class SeekDBMemoryClient(SeekDBClient):
             return len(to_delete)
 
 
-class SeekDBSQLiteClient(SeekDBClient):
-    """SQLite-backed SeekDB client for single-machine deployment."""
+class SQLiteKnowledgeStore(SeekDBClient):
+    """SQLite-backed knowledge store for single-machine deployment."""
 
-    def __init__(self, db_path: str = "./seekdb.sqlite"):
+    def __init__(self, db_path: str = "~/.rosclaw/memory/knowledge.sqlite"):
         self._db_path = db_path
         self._conn: sqlite3.Connection | None = None
 
@@ -786,7 +789,7 @@ class SeekDBSQLiteClient(SeekDBClient):
 
 
 class SeekDBMySQLClient(SeekDBClient):
-    """MySQL-compatible client for a SeekDB/OceanBase server.
+    """Experimental MySQL-compatible backend (SeekDB/OceanBase SQL port).
 
     URLs use a database DSN, for example
     ``mysql://root@127.0.0.1:2881/rosclaw``. Port 2881 is the SeekDB SQL
@@ -1092,3 +1095,31 @@ class SeekDBMySQLClient(SeekDBClient):
             deleted = cursor.rowcount
         self._connection.commit()
         return int(deleted)
+
+
+class SeekDBMemoryClient(InMemoryKnowledgeStore):
+    """Deprecated alias for :class:`InMemoryKnowledgeStore`."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        import warnings
+
+        warnings.warn(
+            "SeekDBMemoryClient is deprecated; use InMemoryKnowledgeStore",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super().__init__(*args, **kwargs)
+
+
+class SeekDBSQLiteClient(SQLiteKnowledgeStore):
+    """Deprecated alias for :class:`SQLiteKnowledgeStore`."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        import warnings
+
+        warnings.warn(
+            "SeekDBSQLiteClient is deprecated; use SQLiteKnowledgeStore",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super().__init__(*args, **kwargs)

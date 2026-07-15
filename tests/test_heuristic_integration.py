@@ -5,7 +5,7 @@ import pytest
 from rosclaw.how.engine import HeuristicEngine
 from rosclaw.how.recovery import RecoveryEngine, RecoveryFormatter, format_recovery_suggestion
 from rosclaw.how.rules import RuleManager
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
 
 class TestHeuristicEngine:
@@ -13,7 +13,7 @@ class TestHeuristicEngine:
 
     @pytest.fixture
     def engine(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         return HeuristicEngine(seekdb_client=client)
 
@@ -149,7 +149,7 @@ class TestRuleManager:
 
     @pytest.fixture
     def manager(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         return RuleManager(client)
 
@@ -212,7 +212,7 @@ class TestRecoveryEngine:
 
     @pytest.fixture
     def recovery_engine(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         how = HeuristicEngine(seekdb_client=client)
         return RecoveryEngine(how)
@@ -301,7 +301,7 @@ class TestMCPHeuristicTool:
 
         class MockRuntime:
             def __init__(self):
-                client = SeekDBMemoryClient()
+                client = InMemoryKnowledgeStore()
                 client.connect()
                 self.how = HeuristicEngine(seekdb_client=client)
 
@@ -327,7 +327,7 @@ class TestMCPHeuristicTool:
 
         class MockRuntime:
             def __init__(self):
-                client = SeekDBMemoryClient()
+                client = InMemoryKnowledgeStore()
                 client.connect()
                 self.how = HeuristicEngine(seekdb_client=client)
 
@@ -380,9 +380,9 @@ class TestRuntimeRecoveryHandlers:
         from rosclaw.core.event_bus import Event, EventPriority
         from rosclaw.how.engine import HeuristicEngine
         from rosclaw.how.recovery import RecoveryEngine
-        from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+        from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         how = HeuristicEngine(seekdb_client=client)
         import asyncio
@@ -523,10 +523,10 @@ class TestHowEndToEndRecovery:
         """Set up HeuristicEngine + RecoveryEngine + MemoryInterface + EventBus."""
         from rosclaw.core.event_bus import EventBus
         from rosclaw.memory.interface import MemoryInterface
-        from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+        from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
         event_bus = EventBus()
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
 
         how = HeuristicEngine(seekdb_client=client)
@@ -704,7 +704,7 @@ class TestHeuristicEngineBodySense:
 
     @pytest.fixture
     def engine_with_sense(self, sense_runtime_kick_not_ready):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         engine = HeuristicEngine(
             seekdb_client=client,
@@ -743,7 +743,7 @@ class TestHeuristicEngineBodySense:
         runtime.initialize()
         runtime.tick()
 
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         engine = HeuristicEngine(seekdb_client=client, sense_runtime=runtime)
         await engine.seed_defaults()
@@ -760,7 +760,7 @@ class TestHeuristicEngineBodySense:
     async def test_on_failure_event_enriches_context(self, sense_runtime_kick_not_ready):
         from rosclaw.core.event_bus import EventBus
 
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         bus = EventBus()
         engine = HeuristicEngine(

@@ -10,7 +10,7 @@ from rosclaw.core import Runtime, RuntimeConfig
 from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.how import HeuristicEngine
 from rosclaw.know import KnowledgeInterface
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
 # ─────────────────────────────────────────────────────────────
 # SeekDB Failure Tests
@@ -22,7 +22,7 @@ class TestSeekDBFailurePaths:
 
     def test_seekdb_query_nonexistent_table(self):
         """Query on non-existent table returns empty list, no crash."""
-        seekdb = SeekDBMemoryClient()
+        seekdb = InMemoryKnowledgeStore()
         seekdb.connect()
 
         results = seekdb.query("nonexistent_table", filters={}, limit=10)
@@ -30,8 +30,8 @@ class TestSeekDBFailurePaths:
 
     def test_seekdb_insert_without_connect(self):
         """Insert without connect raises appropriate error."""
-        seekdb = SeekDBMemoryClient()
-        # Note: SeekDBMemoryClient may auto-connect
+        seekdb = InMemoryKnowledgeStore()
+        # Note: InMemoryKnowledgeStore may auto-connect
         # This test documents expected behavior
         try:
             seekdb.insert("test", {"id": "1", "data": "x"})
@@ -42,7 +42,7 @@ class TestSeekDBFailurePaths:
 
     def test_seekdb_malformed_filter(self):
         """Malformed filter is handled gracefully."""
-        seekdb = SeekDBMemoryClient()
+        seekdb = InMemoryKnowledgeStore()
         seekdb.connect()
 
         seekdb.insert("test", {"id": "1", "robot_id": "bot1"})
@@ -53,7 +53,7 @@ class TestSeekDBFailurePaths:
 
     def test_seekdb_concurrent_access(self):
         """Concurrent reads/writes don't corrupt data."""
-        seekdb = SeekDBMemoryClient()
+        seekdb = InMemoryKnowledgeStore()
         seekdb.connect()
 
         # Seed data
@@ -242,7 +242,7 @@ class TestHowFailurePaths:
     @pytest.mark.asyncio
     async def test_how_recovery_no_matching_rule(self):
         """Recovery with no matching rule returns None."""
-        seekdb = SeekDBMemoryClient()
+        seekdb = InMemoryKnowledgeStore()
         seekdb.connect()
 
         how = HeuristicEngine(seekdb_client=seekdb)
@@ -254,7 +254,7 @@ class TestHowFailurePaths:
     @pytest.mark.asyncio
     async def test_how_record_outcome_invalid_rule(self):
         """Recording outcome for invalid rule is handled gracefully."""
-        seekdb = SeekDBMemoryClient()
+        seekdb = InMemoryKnowledgeStore()
         seekdb.connect()
 
         how = HeuristicEngine(seekdb_client=seekdb)
@@ -266,7 +266,7 @@ class TestHowFailurePaths:
     @pytest.mark.asyncio
     async def test_how_seed_defaults_idempotent(self):
         """Seeding defaults twice is idempotent."""
-        seekdb = SeekDBMemoryClient()
+        seekdb = InMemoryKnowledgeStore()
         seekdb.connect()
 
         how = HeuristicEngine(seekdb_client=seekdb)
@@ -290,7 +290,7 @@ class TestKnowFailurePaths:
 
     def test_know_query_malformed_robot_id(self):
         """Query with malformed robot_id is handled gracefully."""
-        seekdb = SeekDBMemoryClient()
+        seekdb = InMemoryKnowledgeStore()
         seekdb.connect()
 
         know = KnowledgeInterface(seekdb_client=seekdb, robot_id="test")
@@ -303,7 +303,7 @@ class TestKnowFailurePaths:
 
     def test_know_match_symptom_empty(self):
         """Symptom matching with empty symptom returns empty."""
-        seekdb = SeekDBMemoryClient()
+        seekdb = InMemoryKnowledgeStore()
         seekdb.connect()
 
         know = KnowledgeInterface(seekdb_client=seekdb, robot_id="test")
@@ -314,7 +314,7 @@ class TestKnowFailurePaths:
 
     def test_know_get_analogy_no_data(self):
         """Analogy with no data returns None or empty."""
-        seekdb = SeekDBMemoryClient()
+        seekdb = InMemoryKnowledgeStore()
         seekdb.connect()
 
         know = KnowledgeInterface(seekdb_client=seekdb, robot_id="test")

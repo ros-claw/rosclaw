@@ -1285,7 +1285,7 @@ def _memory_db_path() -> Path:
 
 def _practice_seekdb_client(args: argparse.Namespace) -> Any:
     """Build the configured Practice SeekDB backend."""
-    from rosclaw.memory.seekdb_client import SeekDBMySQLClient, SeekDBSQLiteClient
+    from rosclaw.memory.seekdb_client import SeekDBMySQLClient, SQLiteKnowledgeStore
 
     seekdb_url = getattr(args, "seekdb_url", None)
     if seekdb_url:
@@ -1293,7 +1293,7 @@ def _practice_seekdb_client(args: argparse.Namespace) -> Any:
 
     db_path = Path(getattr(args, "seekdb_path", None) or _memory_db_path())
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    return SeekDBSQLiteClient(str(db_path))
+    return SQLiteKnowledgeStore(str(db_path))
 
 
 def cmd_practice_list(args: argparse.Namespace) -> int:
@@ -3892,7 +3892,7 @@ def cmd_how_advise(args: argparse.Namespace) -> int:
     import asyncio
 
     from rosclaw.how.engine import HeuristicEngine
-    from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+    from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
     body_id = args.body
     failure = args.failure
@@ -3900,7 +3900,7 @@ def cmd_how_advise(args: argparse.Namespace) -> int:
     data_root = getattr(args, "data_root", None) or "/data/rosclaw/practice"
 
     async def _run() -> dict:
-        engine = HeuristicEngine(seekdb_client=SeekDBMemoryClient())
+        engine = HeuristicEngine(seekdb_client=InMemoryKnowledgeStore())
         await engine.initialize()
         return await engine.advise(
             body_id=body_id,
@@ -4375,12 +4375,12 @@ def _search_episode_artifacts(query: str, limit: int = 5) -> list[dict]:
 def cmd_memory_query(args: argparse.Namespace) -> int:
     """Query memory for similar experiences."""
     from rosclaw.memory.interface import MemoryInterface
-    from rosclaw.memory.seekdb_client import SeekDBSQLiteClient
+    from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
 
     db_path = _memory_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    mem = MemoryInterface("cli", seekdb_client=SeekDBSQLiteClient(str(db_path)))
+    mem = MemoryInterface("cli", seekdb_client=SQLiteKnowledgeStore(str(db_path)))
     mem._do_initialize()
     results = mem.find_similar_experiences(args.query, limit=args.limit)
 
@@ -4444,12 +4444,12 @@ def _find_last_failure_from_artifacts(task_id: str | None = None) -> dict | None
 def cmd_memory_explain(args: argparse.Namespace) -> int:
     """Explain the most recent failure."""
     from rosclaw.memory.interface import MemoryInterface
-    from rosclaw.memory.seekdb_client import SeekDBSQLiteClient
+    from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
 
     db_path = _memory_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    mem = MemoryInterface("cli", seekdb_client=SeekDBSQLiteClient(str(db_path)))
+    mem = MemoryInterface("cli", seekdb_client=SQLiteKnowledgeStore(str(db_path)))
     mem._do_initialize()
     failure = mem.explain_last_failure(task_id=args.task_id)
 
@@ -4477,14 +4477,14 @@ def cmd_memory_explain(args: argparse.Namespace) -> int:
 def cmd_memory_ingest(args: argparse.Namespace) -> int:
     """Ingest a practice episode into memory."""
     from rosclaw.memory.interface import MemoryInterface
-    from rosclaw.memory.seekdb_client import SeekDBSQLiteClient
+    from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
 
     episode_id = args.episode_id
     data_root = getattr(args, "data_root", None) or "/data/rosclaw/practice"
     db_path = _memory_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    mem = MemoryInterface("cli", seekdb_client=SeekDBSQLiteClient(str(db_path)))
+    mem = MemoryInterface("cli", seekdb_client=SQLiteKnowledgeStore(str(db_path)))
     mem._do_initialize()
     result = mem.ingest_episode(episode_id, data_root=data_root)
 

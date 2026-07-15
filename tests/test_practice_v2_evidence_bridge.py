@@ -10,7 +10,7 @@ from rosclaw.cli import cmd_practice_record
 from rosclaw.how.engine import HeuristicEngine
 from rosclaw.know.interface import KnowledgeInterface
 from rosclaw.memory.interface import MemoryInterface
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
 FIXTURE = Path(__file__).parent / "fixtures" / "practice" / "rh56_minimal_loop.json"
 EPISODE_ID = "episode_rh56_minimal_loop"
@@ -31,7 +31,7 @@ def test_memory_ingest_consumes_practice_v2_episode(tmp_path, capsys):
     _record_practice_v2_fixture(data_root)
     capsys.readouterr()
 
-    client = SeekDBMemoryClient()
+    client = InMemoryKnowledgeStore()
     memory = MemoryInterface(robot_id="rh56", seekdb_client=client)
     memory._do_initialize()
 
@@ -78,7 +78,7 @@ def test_how_advise_consumes_practice_v2_how_intervention(tmp_path, capsys):
     _record_practice_v2_fixture(data_root)
     capsys.readouterr()
 
-    engine = HeuristicEngine(seekdb_client=SeekDBMemoryClient())
+    engine = HeuristicEngine(seekdb_client=InMemoryKnowledgeStore())
     result = asyncio.run(
         engine.advise(
             body_id="body_rh56_left",

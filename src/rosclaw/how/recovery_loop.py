@@ -52,7 +52,7 @@ class RecoveryLoop:
         client = self._memory.seekdb_client if self._memory else None
         if client is None:
             return
-        # SeekDBMemoryClient auto-creates tables on insert; SQLite client
+        # InMemoryKnowledgeStore auto-creates tables on insert; SQLite client
         # needs the table in SEEKDB_SCHEMAS.  We use a lightweight record
         # that fits the generic key-value pattern.
         import contextlib

@@ -7,9 +7,11 @@ import pytest
 from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.memory.interface import MemoryInterface
 from rosclaw.memory.seekdb_client import (
+    InMemoryKnowledgeStore,
     SeekDBMemoryClient,
     SeekDBMySQLClient,
     SeekDBSQLiteClient,
+    SQLiteKnowledgeStore,
 )
 
 
@@ -57,7 +59,7 @@ def test_mysql_client_schema_types_are_index_safe():
 
 def test_memory_client_crud():
     """Insert, query, update, count on in-memory backend."""
-    client = SeekDBMemoryClient()
+    client = InMemoryKnowledgeStore()
     client.connect()
 
     record_id = client.insert(
@@ -92,7 +94,7 @@ def test_sqlite_client_crud():
     if os.path.exists(db_path):
         os.remove(db_path)
 
-    client = SeekDBSQLiteClient(db_path)
+    client = SQLiteKnowledgeStore(db_path)
     client.connect()
 
     record_id = client.insert(
@@ -214,3 +216,43 @@ def test_memory_statistics():
     assert stats["failure_count"] == 1
     assert stats["success_rate"] == 2 / 3
     memory.stop()
+
+
+def test_legacy_seekdb_memory_client_alias():
+    """SeekDBMemoryClient is a deprecated alias for InMemoryKnowledgeStore."""
+    with pytest.warns(DeprecationWarning, match="SeekDBMemoryClient is deprecated"):
+        client = SeekDBMemoryClient()
+    assert isinstance(client, InMemoryKnowledgeStore)
+    client.connect()
+    record_id = client.insert(
+        "experience_graph",
+        {
+            "id": "alias_exp",
+            "event_type": "praxis",
+            "robot_id": "r_alias",
+            "timestamp": 1.0,
+            "instruction": "alias test",
+        },
+    )
+    assert record_id == "alias_exp"
+
+
+def test_legacy_seekdb_sqlite_client_alias(tmp_path):
+    """SeekDBSQLiteClient is a deprecated alias for SQLiteKnowledgeStore."""
+    db_path = tmp_path / "alias_test.sqlite"
+    with pytest.warns(DeprecationWarning, match="SeekDBSQLiteClient is deprecated"):
+        client = SeekDBSQLiteClient(str(db_path))
+    assert isinstance(client, SQLiteKnowledgeStore)
+    client.connect()
+    record_id = client.insert(
+        "experience_graph",
+        {
+            "id": "alias_sqlite_exp",
+            "event_type": "praxis",
+            "robot_id": "r_alias_sqlite",
+            "timestamp": 1.0,
+            "instruction": "alias sqlite test",
+        },
+    )
+    assert record_id == "alias_sqlite_exp"
+    client.disconnect()

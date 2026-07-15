@@ -14,7 +14,7 @@ import pytest
 from rosclaw.know.graph import count_knowledge_facts
 from rosclaw.know.interface import KnowledgeInterface
 from rosclaw.know.storage import seed_knowledge_graph
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
 # Isolation: these tests pin the curated-baseline contract, so they
 # MUST not pick up the compiled catalog in ``data/knowledge_assets/``.
@@ -120,7 +120,7 @@ class TestKnowledgeStorage:
     """Tests for SeekDB knowledge_graph seeding."""
 
     def test_seed_knowledge_graph(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         counts = seed_knowledge_graph(client)
         assert counts["total"] > 0
@@ -133,7 +133,7 @@ class TestKnowledgeStorage:
         assert facts["symptoms"] == counts["symptoms"]
 
     def test_seed_idempotent(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         counts1 = seed_knowledge_graph(client)
         counts2 = seed_knowledge_graph(client)
@@ -148,7 +148,7 @@ class TestKnowledgeInterfaceWithSeekDB:
     """Tests for KnowledgeInterface backed by SeekDB."""
 
     def test_load_from_seekdb(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         seed_knowledge_graph(client)
 
@@ -163,7 +163,7 @@ class TestKnowledgeInterfaceWithSeekDB:
         ki._do_stop()
 
     def test_load_symptoms_from_seekdb(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         seed_knowledge_graph(client)
 
@@ -316,7 +316,7 @@ class TestRobotCapabilityQuery:
     """Tests for robot_capability_query method."""
 
     def test_capability_query_with_seekdb(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         seed_knowledge_graph(client)
 
@@ -337,7 +337,7 @@ class TestRobotCapabilityQuery:
         ki._do_stop()
 
     def test_capability_query_no_match(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         seed_knowledge_graph(client)
 
@@ -415,7 +415,7 @@ class TestCompositionalReasoning:
     """Tests for can_perform_task and recommend_robot_for_task."""
 
     def test_can_perform_task_yes(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         seed_knowledge_graph(client)
 
@@ -432,7 +432,7 @@ class TestCompositionalReasoning:
         ki._do_stop()
 
     def test_can_perform_task_no(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         seed_knowledge_graph(client)
 
@@ -454,7 +454,7 @@ class TestCompositionalReasoning:
         ki._do_stop()
 
     def test_recommend_robot_for_task(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         seed_knowledge_graph(client)
 
@@ -472,7 +472,7 @@ class TestCompositionalReasoning:
         ki._do_stop()
 
     def test_recommend_robot_sort_objects(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         seed_knowledge_graph(client)
 
@@ -498,7 +498,7 @@ class TestMatchRobotToTask:
     """Tests for match_robot_to_task with constraints."""
 
     def test_match_pick_and_place_no_constraints(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         seed_knowledge_graph(client)
 
@@ -514,7 +514,7 @@ class TestMatchRobotToTask:
         ki._do_stop()
 
     def test_match_with_payload_constraint(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         seed_knowledge_graph(client)
 
@@ -532,7 +532,7 @@ class TestMatchRobotToTask:
         ki._do_stop()
 
     def test_match_with_dof_min_constraint(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         seed_knowledge_graph(client)
 
@@ -549,7 +549,7 @@ class TestMatchRobotToTask:
         ki._do_stop()
 
     def test_match_with_reach_constraint(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         seed_knowledge_graph(client)
 
@@ -566,7 +566,7 @@ class TestMatchRobotToTask:
         ki._do_stop()
 
     def test_match_with_sim_backend_constraint(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         seed_knowledge_graph(client)
 
@@ -654,7 +654,7 @@ class TestEurdfLoader:
         if not os.path.exists(eurdf_path):
             pytest.skip("e-URDF zoo not available")
 
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
 
         ki = KnowledgeInterface(robot_id="ur5e", seekdb_client=client)
@@ -688,7 +688,7 @@ class TestEurdfLoader:
         ki._do_stop()
 
     def test_load_eurdf_file_not_found(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         ki = KnowledgeInterface(robot_id="ur5e", seekdb_client=client)
         ki._do_initialize()
@@ -706,7 +706,7 @@ class TestEurdfLoader:
         if not os.path.exists(eurdf_path):
             pytest.skip("e-URDF zoo not available")
 
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
 
         ki = KnowledgeInterface(robot_id="ur5e", seekdb_client=client)
@@ -731,7 +731,7 @@ class TestEurdfLoader:
         if not os.path.exists(eurdf_path):
             pytest.skip("e-URDF zoo not available")
 
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
 
         ki = KnowledgeInterface(robot_id="ur5e", seekdb_client=client)

@@ -20,7 +20,7 @@ from typing import Any
 
 from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.core.lifecycle import LifecycleMixin
-from rosclaw.memory.seekdb_client import SeekDBClient, SeekDBMemoryClient
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore, SeekDBClient
 from rosclaw.memory.types import ArtifactRef, FailureMemory, PraxisEvent
 
 logger = logging.getLogger("rosclaw.memory.interface")
@@ -95,7 +95,7 @@ class MemoryInterface(LifecycleMixin):
         super().__init__()
         self._robot_id = robot_id
         self.event_bus = event_bus
-        self._client = seekdb_client or SeekDBMemoryClient()
+        self._client = seekdb_client or InMemoryKnowledgeStore()
         self._embodied = embodied_memory
         self._sense_runtime: Any | None = None
         self._memory_writer_adapter: Any | None = None
