@@ -41,15 +41,35 @@ class RecorderConfig:
 
 @dataclass
 class SeekDBConfig:
-    """SeekDB integration settings."""
+    """SeekDB integration settings.
+
+    ``url`` is the SQL DSN for the knowledge store (sqlite:// or mysql://).
+    ``http_adapter_url`` is the HTTP endpoint for the optional
+    rosclaw_practice SeekDB bridge (ExperienceCommitter).  Keeping them
+    separate removes the ambiguity that caused 2881 to be interpreted as
+    both SQL and HTTP.
+    """
 
     enabled: bool = False
     url: str | None = field(default_factory=lambda: os.environ.get("ROSCLAW_SEEKDB_URL"))
+    http_adapter_url: str | None = field(
+        default_factory=lambda: os.environ.get("ROSCLAW_PRACTICE_HTTP_ADAPTER_URL")
+    )
     fallback_dir: str = field(
         default_factory=lambda: os.environ.get("ROSCLAW_SEEKDB_FALLBACK_DIR", DEFAULT_FALLBACK_DIR)
     )
     table: str = "praxis_events"
     timeout_sec: float = 2.0
+
+    @property
+    def integration_enabled(self) -> bool:
+        """True if any SeekDB integration (HTTP bridge or SQL ingestion) is configured."""
+        return self.enabled or bool(self.url) or bool(self.http_adapter_url)
+
+    @property
+    def sql_ingestion_enabled(self) -> bool:
+        """True if a SQL DSN is configured for post-session ingestion."""
+        return bool(self.url)
 
 
 @dataclass

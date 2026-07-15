@@ -36,6 +36,20 @@ from rosclaw.core.lifecycle import LifecycleMixin
 
 logger = logging.getLogger("rosclaw.core.runtime")
 
+
+def _sanitize_url(url: str) -> str:
+    """Return a display-safe version of a SQL DSN with password redacted."""
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        if parsed.password:
+            return url.replace(f":{parsed.password}@", ":***@", 1)
+    except Exception:  # noqa: BLE001
+        pass
+    return url
+
+
 # Provider layer imports (lazy to avoid hard deps)
 ProviderRegistry = None
 CapabilityRouter = None
@@ -76,10 +90,19 @@ class RuntimeConfig:
     safety_level: str = "MODERATE"  # STRICT | MODERATE | LENIENT
     timeline_output_dir: str = "./practice_data"
     enable_mcap: bool = False
-    seekdb_backend: str = "memory"  # "memory" | "sqlite"
+    # Knowledge-store backend for Memory/Knowledge/HOW/Auto modules.
+    # Supported: "memory" (ephemeral), "sqlite" (local file), "mysql" (SeekDB/OceanBase SQL).
+    seekdb_backend: str = "memory"
     seekdb_path: str = "./seekdb.sqlite"
-    # Optional SeekDB / rosclaw_practice integration for practice event persistence
+    # SQL DSN for sqlite/mysql knowledge-store backends.
+    # Examples: "sqlite:///home/user/.rosclaw/memory/knowledge.sqlite"
+    #           "mysql://root@127.0.0.1:2881/rosclaw"
     seekdb_url: str | None = field(default_factory=lambda: os.environ.get("ROSCLAW_SEEKDB_URL"))
+    # HTTP URL for the optional rosclaw_practice SeekDB bridge (ExperienceCommitter).
+    # This is NOT a SQL DSN; it targets the rosclaw_practice HTTP adapter.
+    seekdb_http_url: str | None = field(
+        default_factory=lambda: os.environ.get("ROSCLAW_PRACTICE_HTTP_ADAPTER_URL")
+    )
     seekdb_fallback_dir: str = field(
         default_factory=lambda: os.environ.get(
             "ROSCLAW_SEEKDB_FALLBACK_DIR", "/data/rosclaw/fallback"
@@ -259,12 +282,8 @@ class Runtime(LifecycleMixin):
         if self.config.enable_memory:
             try:
                 from rosclaw.memory.interface import MemoryInterface
-                from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore, SQLiteKnowledgeStore
 
-                if self.config.seekdb_backend == "sqlite":
-                    seekdb = SQLiteKnowledgeStore(self.config.seekdb_path)
-                else:
-                    seekdb = InMemoryKnowledgeStore()
+                seekdb = self._create_seekdb_client()
                 self._memory = MemoryInterface(
                     robot_id=self.config.robot_id,
                     event_bus=self.event_bus,
@@ -297,15 +316,16 @@ class Runtime(LifecycleMixin):
 
             # Optional SeekDB bridge for practice event persistence
             seekdb_bridge = None
-            if self.config.seekdb_url:
+            http_url = self.config.seekdb_http_url
+            if http_url:
                 try:
                     from rosclaw.practice.seekdb_bridge import SeekDBBridge
 
                     seekdb_bridge = SeekDBBridge(
-                        seekdb_url=self.config.seekdb_url,
+                        seekdb_url=http_url,
                         fallback_dir=self.config.seekdb_fallback_dir,
                     )
-                    logger.info("SeekDBBridge initialized")
+                    logger.info("SeekDBBridge initialized at %s", http_url)
                 except ImportError as e:
                     logger.info(f"rosclaw_practice not installed, SeekDB integration disabled: {e}")
                 except Exception as e:
@@ -490,6 +510,62 @@ class Runtime(LifecycleMixin):
                 module.initialize()
 
         logger.info("Initialization complete")
+
+    def _create_seekdb_client(self) -> Any:
+        """Create and return the shared knowledge-store client for Memory/Knowledge/HOW/Auto.
+
+        Supports memory/sqlite/mysql backends. Raises ValueError when the
+        configured URL is ambiguous (HTTP URL used for SQL backend).
+        """
+        backend = self.config.seekdb_backend.lower()
+        url = self.config.seekdb_url
+
+        # Auto-detect SQL backend from DSN schemes.
+        if url and str(url).lower().startswith(("mysql://", "mysql+pymysql://", "seekdb://")):
+            backend = "mysql"
+        elif url and str(url).lower().startswith("sqlite://"):
+            backend = "sqlite"
+
+        if backend == "memory":
+            from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
+
+            logger.info("Knowledge store backend: memory")
+            return InMemoryKnowledgeStore()
+
+        if backend == "sqlite":
+            from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
+
+            path = self.config.seekdb_path
+            if url and not path:
+                # Accept sqlite:///path or bare path as sqlite path.
+                path = str(url)
+                if path.startswith("sqlite://"):
+                    path = path[len("sqlite://") :]
+            logger.info("Knowledge store backend: sqlite (%s)", path)
+            return SQLiteKnowledgeStore(path)
+
+        if backend == "mysql":
+            from rosclaw.memory.seekdb_client import SeekDBMySQLClient
+
+            if not url:
+                raise ValueError(
+                    "seekdb_backend='mysql' requires seekdb_url (e.g. "
+                    "mysql://root@127.0.0.1:2881/rosclaw). "
+                    "Use ROSCLAW_SEEKDB_URL to set the SQL DSN."
+                )
+            if str(url).lower().startswith("http"):
+                raise ValueError(
+                    f"seekdb_backend='mysql' but seekdb_url looks like an HTTP endpoint ({url}). "
+                    "For the rosclaw_practice HTTP bridge use seekdb_http_url / "
+                    "ROSCLAW_PRACTICE_HTTP_ADAPTER_URL; for SQL use mysql:// or seekdb://."
+                )
+            logger.info("Knowledge store backend: mysql (%s)", _sanitize_url(str(url)))
+            return SeekDBMySQLClient(str(url))
+
+        raise ValueError(
+            f"Unknown seekdb_backend '{self.config.seekdb_backend}'. "
+            "Supported: memory, sqlite, mysql."
+        )
 
     def _create_how_engine(self, seekdb: Any | None) -> Any | None:
         """Return a HOW engine: HowClient when configured, else HeuristicEngine."""

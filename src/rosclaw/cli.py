@@ -1284,10 +1284,12 @@ def _memory_db_path() -> Path:
 
 
 def _practice_seekdb_client(args: argparse.Namespace) -> Any:
-    """Build the configured Practice SeekDB backend."""
+    """Build the configured Practice SeekDB backend from args or env."""
+    import os
+
     from rosclaw.memory.seekdb_client import SeekDBMySQLClient, SQLiteKnowledgeStore
 
-    seekdb_url = getattr(args, "seekdb_url", None)
+    seekdb_url = getattr(args, "seekdb_url", None) or os.environ.get("ROSCLAW_SEEKDB_URL")
     if seekdb_url:
         return SeekDBMySQLClient(seekdb_url)
 
@@ -1982,7 +1984,21 @@ def cmd_practice_start(args: argparse.Namespace) -> int:
     import signal
 
     seekdb_enabled = args.seekdb
-    seekdb_url = os.environ.get("ROSCLAW_SEEKDB_URL", "http://localhost:2881")
+    # HTTP bridge URL for the optional rosclaw_practice SeekDB adapter.
+    # Prefer the dedicated env var; fall back to the legacy ROSCLAW_SEEKDB_URL
+    # for backward compatibility, but default to port 2882 to avoid colliding
+    # with the SeekDB SQL protocol on port 2881.
+    seekdb_http_url = os.environ.get("ROSCLAW_PRACTICE_HTTP_ADAPTER_URL")
+    if not seekdb_http_url:
+        legacy_url = os.environ.get("ROSCLAW_SEEKDB_URL")
+        if legacy_url and legacy_url.lower().startswith(("http://", "https://")):
+            seekdb_http_url = legacy_url
+            print(
+                "[rosclaw-practice] Warning: ROSCLAW_SEEKDB_URL is deprecated for the HTTP bridge; "
+                "set ROSCLAW_PRACTICE_HTTP_ADAPTER_URL instead.",
+                file=sys.stderr,
+            )
+    seekdb_http_url = seekdb_http_url or "http://localhost:2882"
     fallback_dir = os.environ.get("ROSCLAW_SEEKDB_FALLBACK_DIR", "/data/rosclaw/practice/fallback")
     skill_id = getattr(args, "skill", None)
     provider_id = getattr(args, "provider", None)
@@ -2074,8 +2090,12 @@ def cmd_practice_start(args: argparse.Namespace) -> int:
         publish_to_event_bus=True,
     )
     config.seekdb.enabled = seekdb_enabled
-    config.seekdb.url = seekdb_url if seekdb_enabled else None
+    config.seekdb.http_adapter_url = seekdb_http_url if seekdb_enabled else None
     config.seekdb.fallback_dir = fallback_dir
+    # Only treat ROSCLAW_SEEKDB_URL as a SQL DSN for post-session ingestion.
+    sql_url = os.environ.get("ROSCLAW_SEEKDB_URL")
+    if sql_url and str(sql_url).lower().startswith(("mysql://", "seekdb://", "sqlite://")):
+        config.seekdb.url = sql_url
 
     coordinator = PracticeCoordinator(config)
     coordinator.initialize()
@@ -2086,7 +2106,7 @@ def cmd_practice_start(args: argparse.Namespace) -> int:
             from rosclaw.practice.episode_recorder import EpisodeRecorder
             from rosclaw.practice.seekdb_bridge import SeekDBBridge
 
-            bridge = SeekDBBridge(seekdb_url=seekdb_url, fallback_dir=fallback_dir)
+            bridge = SeekDBBridge(seekdb_url=seekdb_http_url, fallback_dir=fallback_dir)
             recorder = EpisodeRecorder(
                 robot_id=resolved_body_id,
                 event_bus=coordinator.event_bus,
@@ -3059,11 +3079,15 @@ def cmd_practice_stop(args: argparse.Namespace) -> int:
 
 def cmd_practice_sync_fallback(args: argparse.Namespace) -> int:
     """Re-submit fallback JSON files to SeekDB."""
-    seekdb_url = args.seekdb_url or os.environ.get("ROSCLAW_SEEKDB_URL", "http://localhost:2881")
+    http_url = (
+        args.seekdb_url
+        or os.environ.get("ROSCLAW_PRACTICE_HTTP_ADAPTER_URL")
+        or os.environ.get("ROSCLAW_SEEKDB_URL", "http://localhost:2882")
+    )
     fallback_dir = args.fallback_dir or os.environ.get(
         "ROSCLAW_SEEKDB_FALLBACK_DIR", "/data/rosclaw/practice/fallback"
     )
-    sync = FallbackSync(seekdb_url=seekdb_url, fallback_dir=fallback_dir)
+    sync = FallbackSync(seekdb_url=http_url, fallback_dir=fallback_dir)
     summary = sync.sync()
     print(
         f"[rosclaw-practice] Fallback sync: attempted={summary['attempted']} "

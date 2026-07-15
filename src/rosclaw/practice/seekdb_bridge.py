@@ -9,6 +9,7 @@ requires ``rosclaw-practice`` to be installed (``pip install rosclaw[practice]``
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -37,14 +38,20 @@ class SeekDBBridge:
 
     def __init__(
         self,
-        seekdb_url: str = "http://localhost:2881",
+        seekdb_url: str | None = None,
         fallback_dir: str = "/data/rosclaw/fallback",
     ) -> None:
         """Initialize the bridge.
 
-        :param seekdb_url: Base URL of the SeekDB instance.
+        :param seekdb_url: Base URL of the rosclaw_practice HTTP adapter.
+            Defaults to ROSCLAW_PRACTICE_HTTP_ADAPTER_URL or
+            http://localhost:2882 to avoid colliding with the SeekDB SQL
+            protocol on port 2881.
         :param fallback_dir: Directory for offline JSON fallback files.
         """
+        seekdb_url = seekdb_url or os.environ.get(
+            "ROSCLAW_PRACTICE_HTTP_ADAPTER_URL", "http://localhost:2882"
+        )
         self._committer = ExperienceCommitter(
             seekdb_url=seekdb_url,
             fallback_dir=fallback_dir,

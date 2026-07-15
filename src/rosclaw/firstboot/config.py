@@ -40,6 +40,26 @@ class FirstbootConfig:
             self.generated_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
         self._apply_defaults()
+        self._sync_memory_backend()
+
+    def _sync_memory_backend(self) -> None:
+        """Map legacy memory.backend values to runtime.seekdb_backend."""
+        backend = self.memory.get("backend")
+        if backend is None:
+            return
+        # Only map if user has not explicitly set runtime.seekdb_backend.
+        if "seekdb_backend" in self.runtime:
+            return
+        mapping = {
+            "local": "sqlite",
+            "sqlite": "sqlite",
+            "memory": "memory",
+            "mysql": "mysql",
+            "seekdb": "mysql",
+        }
+        mapped = mapping.get(backend)
+        if mapped:
+            self.runtime["seekdb_backend"] = mapped
 
     def _apply_defaults(self) -> None:
         home = self.workspace.get("home", "~/.rosclaw")
@@ -62,6 +82,10 @@ class FirstbootConfig:
                 "robot_id": "sim_ur5e",
                 "safety_level": "strict",
                 "log_level": "INFO",
+                "seekdb_backend": "memory",
+                "seekdb_path": str(
+                    Path(home).expanduser() / "data" / "memory" / "knowledge.sqlite"
+                ),
             },
         )
 

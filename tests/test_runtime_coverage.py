@@ -158,9 +158,59 @@ class TestRuntimeConfig:
         assert cfg.event_bus is bus
 
 
-# ---------------------------------------------------------------------------
-# Runtime.__init__
-# ---------------------------------------------------------------------------
+class TestRuntimeSeekDBBackendSelection:
+    def test_mysql_backend_from_explicit_config(self):
+        pytest.importorskip("pymysql")
+        cfg = RuntimeConfig(
+            seekdb_backend="mysql",
+            seekdb_url="mysql://root@127.0.0.1:2881/rosclaw",
+        )
+        rt = Runtime(config=cfg)
+        client = rt._create_seekdb_client()
+        assert type(client).__name__ == "SeekDBMySQLClient"
+
+    def test_mysql_backend_auto_detected_from_url(self):
+        pytest.importorskip("pymysql")
+        cfg = RuntimeConfig(
+            seekdb_backend="memory",
+            seekdb_url="seekdb://root@127.0.0.1:2881/rosclaw",
+        )
+        rt = Runtime(config=cfg)
+        client = rt._create_seekdb_client()
+        assert type(client).__name__ == "SeekDBMySQLClient"
+
+    def test_sqlite_backend_from_path(self):
+        cfg = RuntimeConfig(seekdb_backend="sqlite", seekdb_path=":memory:")
+        rt = Runtime(config=cfg)
+        client = rt._create_seekdb_client()
+        assert type(client).__name__ == "SQLiteKnowledgeStore"
+
+    def test_sqlite_backend_auto_detected_from_url(self):
+        cfg = RuntimeConfig(seekdb_backend="memory", seekdb_url="sqlite://:memory:")
+        rt = Runtime(config=cfg)
+        client = rt._create_seekdb_client()
+        assert type(client).__name__ == "SQLiteKnowledgeStore"
+
+    def test_http_url_rejected_for_mysql_backend(self):
+        cfg = RuntimeConfig(
+            seekdb_backend="mysql",
+            seekdb_url="http://localhost:2881",
+        )
+        rt = Runtime(config=cfg)
+        with pytest.raises(ValueError, match="HTTP endpoint"):
+            rt._create_seekdb_client()
+
+    def test_memory_backend_default(self):
+        cfg = RuntimeConfig()
+        rt = Runtime(config=cfg)
+        client = rt._create_seekdb_client()
+        assert type(client).__name__ == "InMemoryKnowledgeStore"
+
+    def test_unknown_backend_raises(self):
+        cfg = RuntimeConfig(seekdb_backend="oceanbase")
+        rt = Runtime(config=cfg)
+        with pytest.raises(ValueError, match="Unknown seekdb_backend"):
+            rt._create_seekdb_client()
 
 
 class TestRuntimeInit:
