@@ -1602,6 +1602,18 @@ class Runtime(LifecycleMixin):
         else:
             decision = action
 
+        selected_candidate = payload.get("decision")
+        if selected_candidate is not None:
+            selected_candidate = self._tracer.redactor.redact(selected_candidate)
+            decision = (
+                {
+                    "selected_candidate": selected_candidate,
+                    "executed_action": decision,
+                }
+                if decision is not None
+                else {"selected_candidate": selected_candidate}
+            )
+
         supplied_candidates = payload.get("candidates", context.get("candidates", []))
         if isinstance(supplied_candidates, list):
             candidates = [
