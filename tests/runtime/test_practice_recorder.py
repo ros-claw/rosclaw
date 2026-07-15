@@ -108,8 +108,8 @@ def test_recorder_writes_events_jsonl_and_catalog(tmp_path):
     assert "provider.result" in event_types
 
     timeline_path = session_dir / "timeline.jsonl"
-    assert timeline_path.exists()
-    assert len(timeline_path.read_text(encoding="utf-8").strip().splitlines()) == 2
+    # timeline.jsonl is deprecated; the canonical event stream is events.jsonl.
+    assert not timeline_path.exists()
 
     episode_path = session_dir / "episode.json"
     assert episode_path.exists()
