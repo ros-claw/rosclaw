@@ -141,7 +141,7 @@ sqlite3 ~/.rosclaw/practice/runs/rh56_rps/seekdb.sqlite
 ```sql
 .tables
 .schema episodes
-.schema events
+.schema praxis_events
 .schema body_cognition
 ```
 
@@ -159,13 +159,13 @@ ORDER BY started_at DESC
 LIMIT 5;
 ```
 
-查看 events 表（RPS 原始事件都先写这里）：
+查看 praxis_events（默认 ingest 后通常是空的，需要额外配置才会写入）：
 
 ```sql
 SELECT
   event_type,
   COUNT(*) AS cnt
-FROM events
+FROM praxis_events
 GROUP BY event_type
 ORDER BY cnt DESC
 LIMIT 20;
@@ -223,8 +223,15 @@ FROM practice_artifacts
 ORDER BY created_at DESC
 LIMIT 10;
 
--- 事件索引（当前 RPS 数据主要写入 events 表；practice_event_index 表可能为空）
-SELECT event_id, event_type, timestamp_utc
+-- 事件统计（RPS 原始事件都先写 events 表；practice_event_index 表可能为空）
+SELECT event_type, COUNT(*) AS cnt
+FROM events
+GROUP BY event_type
+ORDER BY cnt DESC
+LIMIT 20;
+
+-- 查看最近事件（注意 timestamp_ns 字段含义不一致，见第 7 节）
+SELECT event_id, event_type, timestamp_utc, timestamp_ns
 FROM events
 ORDER BY timestamp_ns DESC
 LIMIT 10;
@@ -243,7 +250,9 @@ head -3 ~/.rosclaw/practice/runs/rh56_rps/sessions/prac_20260714T093707Z_212a83/
 
 ### 5.2 MCAP
 
-可以用 `mcap` 工具或 Python 读取：
+可以用 `mcap` CLI 或 Python 读取。
+
+> 如果还没有安装 mcap CLI：`pip install mcap mcap-ros2-support`。
 
 ```bash
 # 列出 topic
@@ -251,6 +260,21 @@ mcap info ~/.rosclaw/practice/runs/rh56_rps/sessions/prac_20260714T093707Z_212a8
 
 # 导出某 topic
 mcap cat ~/.rosclaw/practice/runs/rh56_rps/sessions/prac_20260714T093707Z_212a83/raw/events.mcap --topic /camera/camera/color/image_raw
+```
+
+不想装 CLI 时，也可用 Python 直接读：
+
+```python
+from mcap.reader import make_reader
+from mcap_ros2.decoder import DecoderFactory
+
+with open(
+    "/home/nvidia/.rosclaw/practice/runs/rh56_rps/sessions/"
+    "prac_20260714T093707Z_212a83/raw/events.mcap", "rb"
+) as f:
+    reader = make_reader(f, decoder_factories=[DecoderFactory()])
+    for schema, channel, message, decoded in reader.iter_decoded_messages():
+        print(channel.topic, message.log_time, decoded)
 ```
 
 ### 5.3 帧图
@@ -311,13 +335,15 @@ ${PYTHON} -m rosclaw.cli practice export \
 ```
 
 - 如果 sqlite3 输出乱码，可以加 `.mode columns` / `.headers on` 美化。
+- **注意 `timestamp_ns` 字段的语义不一致**：`runtime.start` 等极少数事件的 `timestamp_ns` 是相对启动时间（约 `2.37×10¹³`），而绝大多数事件的 `timestamp_ns` 是绝对 Unix 纳秒时间戳（约 `1.78×10¹⁸`）。直接用 `timestamp_ns` 做差值会得到荒谬的时长。分析时长请以 `timestamp_utc`、`host_ts_ns` 或 `camera_frame_ts` 等字段为准。
 
-## 8. 文档路径
+## 8. 文档路径与同步
 
-本文件位于：
+本文件位于两处，内容应保持同步：
 
 ```text
 examples/rh56_rps/docs/seekdb_tutorial.md
+rosclaw/examples/rh56_rps/docs/seekdb_tutorial.md
 ```
 
 对应的本地数据根目录：
