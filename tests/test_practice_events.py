@@ -87,6 +87,31 @@ def test_praxis_completed_event_priority():
     recorder.stop()
 
 
+def test_praxis_completed_falls_back_to_episode_id():
+    """Skill events without correlation_id keep their episode identity."""
+    bus = EventBus()
+    recorder = PracticeRecorder("ur5e_01", joint_dof=6, event_bus=bus)
+    recorder.initialize()
+
+    captured = []
+    bus.subscribe("praxis.completed", lambda event: captured.append(event.payload))
+    bus.publish(
+        Event(
+            topic="skill.execution.complete",
+            payload={
+                "episode_id": "ep_reach_001",
+                "skill_name": "reach",
+                "result": {"status": "success", "reward": 0.92},
+            },
+        )
+    )
+
+    assert captured[0]["practice_id"] == "ep_reach_001"
+    assert captured[0]["episode_id"] == "ep_reach_001"
+    assert captured[0]["correlation_id"] == "ep_reach_001"
+    recorder.stop()
+
+
 def test_praxis_completed_payload_structure():
     """praxis.completed payload has all required fields for KNOW/DASHBOARD."""
     bus = EventBus()

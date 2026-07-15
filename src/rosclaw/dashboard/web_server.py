@@ -446,12 +446,18 @@ class DashboardWebServer:
         host: str = "0.0.0.0",
         port: int = 8765,
         runtime_bus: RuntimeBus | None = None,
+        trace_store: Any | None = None,
     ) -> None:
         self.metrics = DashboardMetrics()
         self.server = DashboardServer(self.metrics, host=host, port=port)
         self.app = FastAPI(title="ROSClaw Dashboard", version="1.0.0")
         self._runtime_bus = runtime_bus
         self._query_api = RuntimeQueryAPI(runtime_bus) if runtime_bus is not None else None
+        if trace_store is None:
+            from rosclaw.observability.store import TraceStore
+
+            trace_store = TraceStore()
+        self._trace_store = trace_store
         self._setup_routes()
 
     def attach_to_event_bus(self, event_bus: Any) -> None:
@@ -526,6 +532,49 @@ class DashboardWebServer:
         @self.app.get("/api/firstboot")
         async def api_firstboot() -> dict[str, Any]:
             return self.server.get_firstboot_state()
+
+        # ── Structured Trace API ──────────────────────────────────────
+
+        @self.app.get("/traces")
+        async def traces_page() -> Any:
+            from rosclaw.dashboard.trace_page import TRACE_PAGE_HTML
+
+            return HTMLResponse(TRACE_PAGE_HTML)
+
+        @self.app.get("/api/traces")
+        async def api_traces(
+            trace_id: str | None = None,
+            kind: str | None = None,
+            status: str | None = None,
+            limit: int = 100,
+        ) -> dict[str, Any]:
+            safe_limit = max(1, min(limit, 5000))
+            if trace_id or kind or status:
+                spans = self._trace_store.read(
+                    trace_id=trace_id,
+                    kinds={part.strip().upper() for part in kind.split(",")} if kind else None,
+                    statuses={part.strip().upper() for part in status.split(",")}
+                    if status
+                    else None,
+                    limit=safe_limit,
+                )
+                return {"count": len(spans), "spans": spans}
+            traces = self._trace_store.list_traces(limit=safe_limit)
+            return {"count": len(traces), "traces": traces}
+
+        @self.app.get("/api/traces/events/{event_id}")
+        async def api_trace_event(event_id: str) -> dict[str, Any]:
+            event = self._trace_store.find_event(event_id)
+            if event is None:
+                raise HTTPException(status_code=404, detail="Trace event not found")
+            return event
+
+        @self.app.get("/api/traces/{trace_id}")
+        async def api_trace(trace_id: str) -> dict[str, Any]:
+            trace = self._trace_store.get_trace(trace_id)
+            if not trace["spans"]:
+                raise HTTPException(status_code=404, detail="Trace not found")
+            return trace
 
         @self.app.post("/api/firstboot/preview")
         async def firstboot_preview(request: Request) -> dict[str, Any]:

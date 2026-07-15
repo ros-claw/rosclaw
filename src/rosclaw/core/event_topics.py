@@ -40,6 +40,7 @@ class EventTopics:
     AGENT_COMMAND = "rosclaw.agent.command"
     AGENT_RESPONSE = "rosclaw.agent.response"
     AGENT_CAPABILITY_REQUEST = "rosclaw.agent.capability.request"
+    AGENT_DECISION_MADE = "rosclaw.agent.decision.made"
 
     # ── Skill Execution ──
     SKILL_EXECUTION_START = "rosclaw.skill.execution.start"
@@ -50,6 +51,11 @@ class EventTopics:
     PROVIDER_INFERENCE_COMPLETED = "rosclaw.provider.inference.completed"
     PROVIDER_REGISTERED = "rosclaw.provider.registered"
     PROVIDER_HEALTH_CHANGED = "rosclaw.provider.health_changed"
+
+    # ── Unified Trace ──
+    TRACE_SPAN_STARTED = "rosclaw.trace.span.started"
+    TRACE_SPAN_COMPLETED = "rosclaw.trace.span.completed"
+    TRACE_SPAN_FAILED = "rosclaw.trace.span.failed"
 
     # ── Sandbox / Firewall ──
     SANDBOX_EPISODE_STARTED = "rosclaw.sandbox.episode.started"

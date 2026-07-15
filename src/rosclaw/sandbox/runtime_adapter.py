@@ -46,6 +46,12 @@ class SandboxRuntimeAdapter(LifecycleMixin):
         self._engine_name = config.get("engine", "mujoco")
         self._world_id = config.get("world_id", "empty")
         self._robot_id = config.get("robot_id", "")
+        from rosclaw.observability.tracer import Tracer, get_tracer
+
+        runtime_tracer = getattr(runtime, "tracer", None)
+        self._tracer = (
+            runtime_tracer if isinstance(runtime_tracer, Tracer) else get_tracer(event_bus)
+        )
         if self._runtime is not None:
             sense_runtime = getattr(self._runtime, "sense", None)
             if sense_runtime is not None:
@@ -106,6 +112,41 @@ class SandboxRuntimeAdapter(LifecycleMixin):
             logger.info("Sandbox closed")
 
     def validate_trajectory(
+        self,
+        trajectory: list[list[float]],
+        safety_level: str = "MODERATE",
+    ) -> dict[str, Any]:
+        """Trace one digital-twin trajectory validation."""
+
+        with self._tracer.start_span(
+            "sandbox.validate_trajectory",
+            "SANDBOX",
+            source="sandbox",
+            operation="trajectory.rollout",
+            attributes={
+                "sandbox.engine": self._engine_name,
+                "sandbox.world": self._world_id,
+                "safety.level": safety_level,
+                "trajectory.waypoints": len(trajectory),
+            },
+            robot_id=self._robot_id or None,
+        ) as span:
+            span.set_input({"trajectory": trajectory})
+            result = self._validate_trajectory(trajectory, safety_level)
+            span.set_output(result)
+            if not result.get("is_safe", False):
+                reason = str(result.get("reason", "unsafe"))
+                span.set_status(
+                    "ERROR"
+                    if "error" in reason.lower() or "not initialized" in reason.lower()
+                    else "BLOCKED",
+                    reason,
+                )
+            if result.get("replay_id"):
+                span.add_evidence(f"sandbox://replay/{result['replay_id']}")
+            return result
+
+    def _validate_trajectory(
         self,
         trajectory: list[list[float]],
         safety_level: str = "MODERATE",

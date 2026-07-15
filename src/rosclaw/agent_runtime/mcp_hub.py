@@ -82,6 +82,7 @@ class MCPHub(LifecycleMixin):
         event_bus: EventBus,
         robot_id: str = "rosclaw_default",
         runtime: Any | None = None,
+        tracer: Any | None = None,
     ):
         super().__init__()
         self.event_bus = event_bus
@@ -95,6 +96,16 @@ class MCPHub(LifecycleMixin):
         self._server: Any | None = None
         self._pending_requests: dict[str, asyncio.Future] = {}
         self._default_timeout: float = 30.0
+        if tracer is None:
+            from rosclaw.observability.tracer import Tracer, get_tracer
+
+            runtime_tracer = getattr(runtime, "tracer", None)
+            tracer = (
+                runtime_tracer
+                if isinstance(runtime_tracer, Tracer)
+                else get_tracer(event_bus)
+            )
+        self._tracer = tracer
 
     def _do_initialize(self) -> None:
         """Initialize MCP server and register tools."""
@@ -524,6 +535,36 @@ class MCPHub(LifecycleMixin):
     # Tool call dispatch
     # ------------------------------------------------------------------
     async def handle_tool_call(self, name: str, arguments: dict) -> dict:
+        """Trace and dispatch one real MCP tool invocation."""
+
+        trace_id = arguments.get("trace_id") or f"mcp_{uuid.uuid4().hex[:16]}"
+        side_effect = name in {"move_joints", "grasp", "emergency_stop", "delegate_skill"}
+        async with self._tracer.start_span(
+            "mcp.call_tool",
+            "MCP",
+            source="mcp_hub",
+            operation=name,
+            trace_id=str(trace_id),
+            attributes={
+                "mcp.server": "rosclaw-mcp",
+                "tool.name": name,
+                "tool.side_effect": side_effect,
+                "safety.level": self.context.safety_level,
+            },
+            robot_id=self.robot_id,
+            session_id=self.context.session_id,
+        ) as span:
+            span.set_input(arguments)
+            result = await self._dispatch_tool_call(name, arguments)
+            span.set_output(result)
+            status = str(result.get("status", "")).lower()
+            if status == "blocked":
+                span.set_status("BLOCKED", result.get("error") or result.get("message"))
+            elif status in {"failed", "error", "timeout"} or "error" in result:
+                span.set_status("ERROR", result.get("error") or result.get("message"))
+            return result
+
+    async def _dispatch_tool_call(self, name: str, arguments: dict) -> dict:
         """
         Handle an MCP tool call from an LLM.
 

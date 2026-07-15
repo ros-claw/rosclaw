@@ -958,9 +958,11 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
 
         host = getattr(args, "host", "0.0.0.0")
         port = getattr(args, "port", 8765)
+        trace_id = getattr(args, "trace", None)
         print("ROSClaw v1.0 Dashboard")
         print("[ROSClaw] Starting Dashboard Web Server...")
-        print(f"[ROSClaw] Dashboard URL: http://localhost:{port}")
+        dashboard_path = f"/traces?trace_id={trace_id}" if trace_id else "/traces"
+        print(f"[ROSClaw] Trace Dashboard URL: http://localhost:{port}{dashboard_path}")
         print("[ROSClaw] Press Ctrl+C to stop")
         serve_dashboard(host=host, port=port)
     except ImportError as exc:
@@ -973,6 +975,146 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
             print(f"[ROSClaw] Server exited (code={exc.code}). Port may be in use.")
         return 0
     return 0
+
+
+def _trace_store_from_args(args: argparse.Namespace) -> Any:
+    from rosclaw.observability.store import TraceStore
+
+    return TraceStore(
+        home=getattr(args, "home", None),
+        path=getattr(args, "path", None),
+    )
+
+
+def _trace_filters(args: argparse.Namespace) -> tuple[set[str] | None, set[str] | None]:
+    kind = getattr(args, "kind", None)
+    status = getattr(args, "status", None)
+    kinds = {part.strip().upper() for part in kind.split(",") if part.strip()} if kind else None
+    statuses = (
+        {part.strip().upper() for part in status.split(",") if part.strip()} if status else None
+    )
+    return kinds, statuses
+
+
+def _print_trace_span(span: dict[str, Any], *, indent: int = 0) -> None:
+    started = time.strftime("%H:%M:%S", time.localtime(span.get("started_at") or 0))
+    duration = float(span.get("duration_ms") or 0)
+    prefix = "  " * indent
+    print(
+        f"{started}  {prefix}{str(span.get('span_kind', '?')):<12} "
+        f"{str(span.get('status', '?')):<8} {duration:9.2f} ms  {span.get('name', '?')}"
+    )
+
+
+def _print_trace_tree(nodes: list[dict[str, Any]], depth: int = 0) -> None:
+    for node in nodes:
+        _print_trace_span(node, indent=depth)
+        _print_trace_tree(node.get("children", []), depth + 1)
+
+
+def cmd_trace(args: argparse.Namespace) -> int:
+    """Inspect, tail, explain, replay, or export structured ROSClaw traces."""
+
+    store = _trace_store_from_args(args)
+    command = getattr(args, "trace_command", None)
+
+    if command == "list":
+        traces = store.list_traces(limit=args.limit)
+        if args.json:
+            print(json.dumps({"count": len(traces), "traces": traces}, indent=2))
+            return 0
+        if not traces:
+            print(f"No traces found in {store.path}")
+            return 0
+        print("TRACE ID                         STATUS    SPANS   DURATION   KINDS")
+        for item in traces:
+            kinds = ",".join(item["kinds"])
+            print(
+                f"{item['trace_id']:<32} {item['status']:<9} {item['span_count']:>5}   "
+                f"{item['duration_ms']:>8.2f}ms   {kinds}"
+            )
+        return 0
+
+    if command in {"show", "replay"}:
+        trace = store.get_trace(args.trace_id)
+        if not trace["spans"]:
+            print(f"Trace not found: {args.trace_id}", file=sys.stderr)
+            return 1
+        if getattr(args, "provider", False):
+            trace["spans"] = [
+                span for span in trace["spans"] if span.get("span_kind") in {"LLM", "VLM"}
+            ]
+            trace["span_count"] = len(trace["spans"])
+        if getattr(args, "json", False):
+            print(json.dumps(trace, indent=2, ensure_ascii=False, default=str))
+            return 0
+        print(f"Trace {trace['trace_id']} ({trace['span_count']} spans)")
+        if command == "replay" or getattr(args, "provider", False):
+            for span in trace["spans"]:
+                _print_trace_span(span)
+        else:
+            _print_trace_tree(trace["tree"])
+        return 0
+
+    if command == "tail":
+        kinds, statuses = _trace_filters(args)
+        seen: set[str] = set()
+        try:
+            while True:
+                spans = store.read(
+                    trace_id=args.trace_id,
+                    kinds=kinds,
+                    statuses=statuses,
+                    limit=args.limit,
+                )
+                for span in spans:
+                    event_id = str(span.get("event_id"))
+                    if event_id in seen:
+                        continue
+                    seen.add(event_id)
+                    if args.json:
+                        print(json.dumps(span, ensure_ascii=False, default=str), flush=True)
+                    else:
+                        _print_trace_span(span)
+                if not args.follow:
+                    break
+                time.sleep(0.5)
+        except KeyboardInterrupt:
+            pass
+        return 0
+
+    if command == "explain":
+        event = store.find_event(args.event_id)
+        if event is None:
+            print(f"Trace event not found: {args.event_id}", file=sys.stderr)
+            return 1
+        print(json.dumps(event, indent=2, ensure_ascii=False, default=str))
+        return 0
+
+    if command == "export":
+        trace = store.get_trace(args.trace_id)
+        if not trace["spans"]:
+            print(f"Trace not found: {args.trace_id}", file=sys.stderr)
+            return 1
+        if args.format == "jsonl":
+            rendered = (
+                "\n".join(
+                    json.dumps(span, ensure_ascii=False, default=str) for span in trace["spans"]
+                )
+                + "\n"
+            )
+        else:
+            rendered = json.dumps(trace, indent=2, ensure_ascii=False, default=str) + "\n"
+        if args.output:
+            output = Path(args.output).expanduser()
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(rendered, encoding="utf-8")
+            print(str(output))
+        else:
+            print(rendered, end="")
+        return 0
+
+    return 1
 
 
 def _print_dashboard_status() -> int:
@@ -6230,6 +6372,57 @@ def main() -> int:
     dashboard_parser.add_argument(
         "--port", type=int, default=8765, help="Port to bind the dashboard server"
     )
+    dashboard_parser.add_argument("--trace", default=None, help="Open the dashboard on a trace ID")
+
+    # structured physical-intelligence trace
+    trace_parser = subparsers.add_parser("trace", help="Inspect structured runtime traces")
+    trace_subparsers = trace_parser.add_subparsers(dest="trace_command")
+
+    def add_trace_store_args(parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--home", default=None, help="ROSCLAW_HOME containing traces/")
+        parser.add_argument("--path", default=None, help="Explicit live.jsonl trace path")
+
+    trace_list_parser = trace_subparsers.add_parser("list", help="List recent traces")
+    trace_list_parser.add_argument("--limit", type=int, default=50)
+    trace_list_parser.add_argument("--json", action="store_true")
+    add_trace_store_args(trace_list_parser)
+
+    trace_show_parser = trace_subparsers.add_parser("show", help="Show one trace as a span tree")
+    trace_show_parser.add_argument("trace_id")
+    trace_show_parser.add_argument("--tree", action="store_true", help="Show tree (default)")
+    trace_show_parser.add_argument(
+        "--provider", action="store_true", help="Show only LLM/VLM spans"
+    )
+    trace_show_parser.add_argument("--json", action="store_true")
+    add_trace_store_args(trace_show_parser)
+
+    trace_tail_parser = trace_subparsers.add_parser("tail", help="Show recent completed spans")
+    trace_tail_parser.add_argument("--trace-id", default=None)
+    trace_tail_parser.add_argument("--kind", default=None, help="Comma-separated span kinds")
+    trace_tail_parser.add_argument("--status", default=None, help="Comma-separated statuses")
+    trace_tail_parser.add_argument("--limit", type=int, default=100)
+    trace_tail_parser.add_argument("--follow", action="store_true")
+    trace_tail_parser.add_argument("--json", action="store_true")
+    add_trace_store_args(trace_tail_parser)
+
+    trace_explain_parser = trace_subparsers.add_parser(
+        "explain", help="Show one span/event with its evidence"
+    )
+    trace_explain_parser.add_argument("event_id")
+    add_trace_store_args(trace_explain_parser)
+
+    trace_export_parser = trace_subparsers.add_parser("export", help="Export one trace")
+    trace_export_parser.add_argument("trace_id")
+    trace_export_parser.add_argument("--format", choices=["json", "jsonl"], default="json")
+    trace_export_parser.add_argument("--output", default=None)
+    add_trace_store_args(trace_export_parser)
+
+    trace_replay_parser = trace_subparsers.add_parser(
+        "replay", help="Replay a trace as an ordered textual timeline"
+    )
+    trace_replay_parser.add_argument("trace_id")
+    trace_replay_parser.add_argument("--json", action="store_true")
+    add_trace_store_args(trace_replay_parser)
 
     # doctor
     doctor_parser = subparsers.add_parser("doctor", help="Run health diagnosis")
@@ -7800,6 +7993,11 @@ def main() -> int:
             return cmd_status(args)
         elif args.command == "dashboard":
             return cmd_dashboard(args)
+        elif args.command == "trace":
+            if getattr(args, "trace_command", None):
+                return cmd_trace(args)
+            trace_parser.print_help()
+            return 1
         elif args.command == "doctor":
             if getattr(args, "ros", False):
                 return cmd_doctor_ros(args)
