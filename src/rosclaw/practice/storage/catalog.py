@@ -336,14 +336,14 @@ class PracticeCatalog:
         self._event_batch_size = event_batch_size
         self._event_flush_ms = event_flush_ms
         self._event_max_queue = event_max_queue
-        self._event_writer = _BatchWriter(
+        self._event_writer: _BatchWriter | None = _BatchWriter(
             "events",
             self._flush_events,
             batch_size=event_batch_size,
             flush_interval_ms=event_flush_ms,
             max_queue_size=event_max_queue,
         )
-        self._event_index_writer = _BatchWriter(
+        self._event_index_writer: _BatchWriter | None = _BatchWriter(
             "event_index",
             self._flush_event_index,
             batch_size=event_batch_size,
@@ -426,6 +426,8 @@ class PracticeCatalog:
             self._conn.commit()
 
     def insert_event(self, record: dict[str, Any]) -> None:
+        if self._event_writer is None:
+            raise RuntimeError("PracticeCatalog is closed")
         self._event_writer.put(record)
 
     def _flush_events(self, batch: list[dict[str, Any]]) -> None:
@@ -720,6 +722,8 @@ class PracticeCatalog:
     def insert_event_index(self, record: dict[str, Any]) -> None:
         record = dict(record)
         record = self._encode_json_fields(record, ["summary"])
+        if self._event_index_writer is None:
+            raise RuntimeError("PracticeCatalog is closed")
         self._event_index_writer.put(record)
 
     def _flush_event_index(self, batch: list[dict[str, Any]]) -> None:

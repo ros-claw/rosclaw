@@ -702,7 +702,9 @@ class SQLiteKnowledgeStore(SeekDBClient):
                             f"ALTER TABLE {table_name} ADD COLUMN {col_name} {safe_type}"
                         )
                     except sqlite3.Error as exc:
-                        logger.warning("Failed to add column %s to %s: %s", col_name, table_name, exc)
+                        logger.warning(
+                            "Failed to add column %s to %s: %s", col_name, table_name, exc
+                        )
             self._connection.commit()
 
     def insert(self, table: str, record: dict) -> str:
