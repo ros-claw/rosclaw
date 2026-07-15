@@ -61,6 +61,7 @@ class _Provider(Provider):
                             "risk": "adds about 3 seconds",
                         },
                     ],
+                    "decision": "slow down and pass on the left",
                     "reason_summary": (
                         "The left detour preserves pedestrian clearance with the lowest risk."
                     ),
@@ -484,7 +485,8 @@ def test_runtime_navigation_decision_preserves_auditable_model_evidence(tmp_path
         "artifact://patrol/local_costmap/301.json",
         "artifact://patrol/mocap/9921.json",
     ]
-    assert decision["decision"]["parameters"]["api_key"] == "[REDACTED]"
+    assert decision["decision"]["selected_candidate"] == "slow down and pass on the left"
+    assert decision["decision"]["executed_action"]["parameters"]["api_key"] == "[REDACTED]"
     assert "chain_of_thought" not in decision
     assert spans["provider.inference"]["output"]["result"]["chain_of_thought"] == (
         "[PRIVATE_REASONING_OMITTED]"
