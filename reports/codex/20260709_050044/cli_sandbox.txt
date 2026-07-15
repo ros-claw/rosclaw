@@ -1,0 +1,16 @@
+usage: rosclaw sandbox [-h]
+                       {list-worlds,verify,validate,run,replay,check,generate-config}
+                       ...
+
+positional arguments:
+  {list-worlds,verify,validate,run,replay,check,generate-config}
+    list-worlds         List available sandbox worlds
+    verify              Run a deterministic MuJoCo sandbox verification case
+    validate            Validate robot in sandbox
+    run                 Run a sandbox episode
+    replay              Replay a sandbox episode
+    check               Check action safety in sandbox
+    generate-config     Generate simulation config from the active body
+
+options:
+  -h, --help            show this help message and exit

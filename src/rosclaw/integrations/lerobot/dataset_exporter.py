@@ -127,7 +127,7 @@ class LeRobotDatasetExporter:
 
         # Placeholder data file.
         with open(data_dir / "placeholder.jsonl", "w", encoding="utf-8") as f:
-            f.write("# Placeholder: real frame rows go here in LeRobotDataset v3 format.\n")
+            f.write(json.dumps({"placeholder": True, "frames": 0}) + "\n")
 
         # README files.
         (output_dir / "README.md").write_text(

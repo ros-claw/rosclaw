@@ -9,8 +9,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from rosclaw.integrations.lerobot.config import migrate_v0_config_to_v1
+from rosclaw.integrations.lerobot.env_manager import LeRobotEnvManager
 from rosclaw.integrations.lerobot.installer import LeRobotInstaller
-from rosclaw.integrations.lerobot.runtime import RuntimeMode
+from rosclaw.integrations.lerobot.runtime import inspect_lerobot_runtime, resolve_lerobot_info
+from rosclaw.integrations.lerobot.subprocess_runner import CommandResult
 
 
 # ------------------------------------------------------------------
@@ -214,3 +216,126 @@ def test_inspect_python_reports_version(tmp_path: Path):
     assert info.ok is True
     assert info.major is not None
     assert info.minor is not None
+
+
+def test_resolve_lerobot_info_does_not_use_unrelated_path_binary(
+    tmp_path: Path, monkeypatch
+):
+    python = tmp_path / "runtime" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.write_text("", encoding="utf-8")
+    global_info = tmp_path / "global" / "lerobot-info"
+    global_info.parent.mkdir()
+    global_info.write_text("", encoding="utf-8")
+    monkeypatch.setenv("PATH", str(global_info.parent))
+    monkeypatch.setattr(
+        "rosclaw.integrations.lerobot.runtime.run_command",
+        lambda *args, **kwargs: CommandResult(
+            ok=False, command=[], returncode=1, stdout="", stderr=""
+        ),
+    )
+
+    assert resolve_lerobot_info(python) is None
+
+
+def test_inspect_runtime_rejects_unsupported_lerobot_version(monkeypatch):
+    responses = iter(
+        [
+            CommandResult(True, 0, "3.12.3\n3\n12", "", []),
+            CommandResult(True, 0, "", "", []),
+            CommandResult(True, 0, "0.5.2", "", []),
+        ]
+    )
+    monkeypatch.setattr(
+        "rosclaw.integrations.lerobot.runtime.run_command",
+        lambda *args, **kwargs: next(responses),
+    )
+
+    runtime = inspect_lerobot_runtime(sys.executable, mode="external")
+
+    assert runtime.state == "error"
+    assert ">=0.6,<0.7" in (runtime.error or "")
+
+
+def test_installer_does_not_inject_huggingface_mirror(monkeypatch):
+    monkeypatch.delenv("HF_ENDPOINT", raising=False)
+
+    prepared = LeRobotInstaller()._prepare_env(None)
+
+    assert "HF_ENDPOINT" not in prepared
+
+
+def test_config_write_failure_is_reported(monkeypatch):
+    installer = LeRobotInstaller()
+    runtime = MagicMock()
+    runtime.in_process_available = False
+    runtime.runtime_path = None
+    runtime.python_executable = Path(sys.executable)
+    runtime.pip_executable = None
+    runtime.lerobot_info_executable = None
+    runtime.python_version = "3.12.3"
+    runtime.lerobot_version = "0.6.0"
+    runtime.torch_version = None
+    runtime.cuda_available = False
+    runtime.state = "ready"
+    runtime.subprocess_available = True
+    runtime.error = None
+    details = {}
+    monkeypatch.setattr(
+        "rosclaw.integrations.lerobot.installer.save_lerobot_config",
+        MagicMock(side_effect=PermissionError("read-only")),
+    )
+
+    error = installer._write_config("core", "external", runtime, details)
+
+    assert error == "read-only"
+    report = installer._config_write_failure(
+        "core", "external", runtime, details, error
+    )
+    assert report.ok is False
+    assert report.error_code == "config_write_failed"
+
+
+def test_isolated_install_uses_runtime_python_for_pip(tmp_path: Path):
+    runtime = MagicMock()
+    runtime.python_executable = tmp_path / "bin" / "python"
+    runtime.pip_executable = None
+    runtime.mode = "isolated"
+    runtime.runtime_path = tmp_path
+    runner = MagicMock(
+        return_value=CommandResult(True, 0, "", "", [])
+    )
+
+    with (
+        patch(
+            "rosclaw.integrations.lerobot.env_manager.run_command",
+            runner,
+        ),
+        patch(
+            "rosclaw.integrations.lerobot.env_manager.inspect_lerobot_runtime",
+            return_value=runtime,
+        ),
+    ):
+        report = LeRobotEnvManager().install_lerobot(
+            runtime, packages=["lerobot>=0.6,<0.7"]
+        )
+
+    assert report.ok is True
+    assert runner.call_args.args[0][:4] == [
+        str(runtime.python_executable),
+        "-m",
+        "pip",
+        "install",
+    ]
+
+
+def test_force_rejects_non_venv_directory(tmp_path: Path):
+    runtime_path = tmp_path / "not-a-venv"
+    runtime_path.mkdir()
+
+    with pytest.raises(RuntimeError, match="does not look like a venv"):
+        LeRobotEnvManager().create_isolated_env(
+            runtime_path,
+            python_executable=sys.executable,
+            force=True,
+        )

@@ -1,47 +1,32 @@
 # Regression Plan
 
-## P0: Merge Gate Hygiene
+## P1: SeekDB Operations
 
-- Decide whether to apply repo-wide `ruff format .` in a dedicated formatting PR, or narrow formatter scope in project config. Current `ruff format --check .` fails on 499 files.
-- Fix `mypy src/rosclaw` virtualenv/package discovery. The current command follows `.venv-codex` and fails on `mcap` before checking ROSClaw source.
-- Add or document the top-level `rosclaw darwin` CLI. Current docs/task expect it, but smoke fails.
+- Add a deployment integration job that starts `oceanbase/seekdb` and runs the real MySQL DSN Practice loop.
+- Decide whether RuntimeConfig should add a `mysql`/`seekdb` backend alongside `memory` and `sqlite`.
+- Deprecate or clearly package the legacy HTTP `SeekDBBridge` adapter path.
 
-## P1: Practice Closed Loop
+## P2: Provider Reality
 
-- Keep the RH56 fixture as a regression seed:
-  - `record --fixture`
-  - `verify --strict`
-  - `distill`
-  - `ingest-seekdb`
-  - all five query modes
-  - `export parquet`
-  - `export lerobot`
-  - artifact tamper detection
-- Add catalog backward-compatibility tests requested by the task:
-  - v1 catalog read under v2 code
-  - old event schema still readable in non-strict mode
-- Keep backend failure tests:
-  - invalid `--seekdb-path` must return rc 1 with a clear message
-  - invalid query backend must return rc 1 with a clear message
+- Re-run the official DeepSeek invocation after the account has balance.
+- Run latency/schema benchmarks against configured VLM/VLA/world-model endpoints.
+- Record endpoint health and benchmark evidence in Practice rather than treating the built-in catalog as runtime health.
 
-## P2: Real SeekDB/OceanBase
+## P2: Hub Authentication
 
-- Add a backend option for the task's `--seekdb-url http://localhost:2881` flow or explicitly rename the CLI to `ingest-sqlite` to avoid false claims.
-- Add idempotent repeated ingest tests against the real backend.
-- Add query filters for robot_id, task_id, skill_id, and time range against the real backend.
+- Exercise authenticated publish/verify/install when a non-production Hub test
+  token is available.
+- Keep public Hub dry-run as a zero-write regression gate.
 
-## P3: ROS Bridge Integration
+## P2: Evolution Hardening
 
-- Extend `scripts/codex/validate_full_runtime.sh` from socket smoke to real rosbridge list/read operations.
-- Add tests that prove unsafe direct `/cmd_vel` or equivalent commands are blocked by sandbox/firewall and recorded to Practice.
+- Keep `tests/integration/test_physical_ai_agent_acceptance.py` as the
+  no-hardware acceptance chain for Runtime -> Practice/Memory -> How -> Auto
+  -> sandbox/Darwin -> simulated Skill Registry promotion.
+- Add production benchmark datasets and explicit human approval before any
+  promotion beyond the simulated `sim` level.
 
-## P4: Runtime Self-Evolution Loop
+## P3: Hardware Acceptance
 
-- Add dry-run tests for:
-  - Practice failure -> Memory evidence
-  - Memory evidence -> How intervention
-  - How intervention -> Auto proposal
-  - Auto proposal -> Darwin dry-run
-  - Darwin result -> Skill candidate/champion gate
-- Do not mark any candidate as champion without sandbox, Darwin, and human/promotion gate evidence.
-
+- Validate one explicitly authorized robot through read-only state, simulation preview, guarded command validation, and supervised execution.
+- Keep certified emergency-stop and industrial safety systems outside ROSClaw's software trust boundary.

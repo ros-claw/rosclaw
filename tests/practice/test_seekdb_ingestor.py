@@ -114,6 +114,20 @@ def test_ingest_practice_is_idempotent():
                     description="too much force",
                 ).model_dump(),
             ).model_dump(mode="json"),
+            PracticeEventEnvelope(
+                practice_id="prac_1",
+                robot_id="test_bot",
+                body_id="body_rh56_left",
+                source="runtime",
+                event_type="physical_feedback_event",
+                payload=PhysicalFeedbackPayload(
+                    frame_id="f1",
+                    body_id="body_rh56_left",
+                    timestamp=1.0,
+                    force_net={"thumb": 100.0},
+                    primary_event="desired_contact",
+                ).model_dump(),
+            ).model_dump(mode="json"),
         ]
         practice_id = _run_session_with_events(tmp, events)
 
@@ -125,6 +139,7 @@ def test_ingest_practice_is_idempotent():
 
         assert report1.table_counts["failures"] == report2.table_counts["failures"]
         assert client.count("failures") == 1
+        assert client.count("body_cognition") == 1
 
 
 def test_ingest_body_cognition_and_sim2real_deltas():

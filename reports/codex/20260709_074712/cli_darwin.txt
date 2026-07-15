@@ -1,0 +1,10 @@
+usage: rosclaw darwin [-h] {run,list-scenarios,history} ...
+
+positional arguments:
+  {run,list-scenarios,history}
+    run                 Run a Darwin benchmark
+    list-scenarios      List available stress scenarios
+    history             Show local benchmark history
+
+options:
+  -h, --help            show this help message and exit

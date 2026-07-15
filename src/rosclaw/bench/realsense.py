@@ -62,9 +62,42 @@ def _detect_device_info(profile: Any) -> dict[str, str]:
     return info
 
 
+def _reset_device_before_capture(rs: Any, max_wait_sec: float = 15.0) -> bool:
+    """``hardware_reset()`` the first enumerated device before ``pipe.start()``.
+
+    On this D435i unit (fw 5.17.0.10) a previous session's teardown leaves the
+    firmware in a bad state, and the next ``pipe.start()`` then hangs on a UVC
+    extension-unit query (GET_CUR -110) and drops the device off the bus.  A
+    hardware reset restores the "freshly plugged" condition.  Best-effort:
+    never raises — the capture proceeds even if the reset is unsupported.
+    """
+    try:
+        devs = rs.context().query_devices()
+        if not devs:
+            return False
+        devs[0].hardware_reset()
+    except Exception as exc:
+        logger.debug("hardware_reset unavailable or failed: %s", exc)
+        return False
+
+    deadline = time.time() + max_wait_sec
+    while time.time() < deadline:
+        time.sleep(1.0)
+        try:
+            if rs.context().query_devices():
+                time.sleep(1.5)  # settle after re-enumeration
+                return True
+        except Exception:
+            continue
+    logger.warning("Device did not re-enumerate within %.0fs after reset", max_wait_sec)
+    return False
+
+
 def _capture_with_pyrealsense2(duration_sec: float) -> dict[str, Any]:
     """Capture frames using pyrealsense2 and return report fields."""
     import pyrealsense2 as rs
+
+    device_reset = _reset_device_before_capture(rs)
 
     config = rs.config()
     config.enable_stream(rs.stream.color, 640, 480, rs.format.rgb8, 30)
@@ -97,6 +130,7 @@ def _capture_with_pyrealsense2(duration_sec: float) -> dict[str, Any]:
     depth_fps = round(depth_frames / elapsed, 2) if elapsed > 0 else 0.0
     return {
         "backend": "pyrealsense2",
+        "device_reset": device_reset,
         "color_frames": color_frames,
         "depth_frames": depth_frames,
         "fps": round((color_fps + depth_fps) / 2, 2) if (color_frames or depth_frames) else 0.0,

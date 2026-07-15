@@ -39,6 +39,7 @@ dependencies = [
     "rosclaw-know>=1.0.2",
     "rosclaw-how>=1.0.2",
     "pydantic>=2.0.0",
+    "pymysql>=1.1.0",
     "requests>=2.25.0",
     "semver>=3.0.0",
     "filelock>=3.0.0",
@@ -62,7 +63,7 @@ practice-export = [
     "pyarrow>=15.0.0",
 ]
 lerobot = [
-    "lerobot",
+    "lerobot>=0.6,<0.7",
 ]
 dev = [
     "pytest>=7.0.0",
@@ -158,6 +159,11 @@ disable_error_code = [
 [[tool.mypy.overrides]]
 module = "rosclaw.hub.*"
 follow_imports = "normal"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["mcap", "mcap.*"]
+follow_imports = "skip"
 ignore_errors = true
 
 [tool.pytest.ini_options]
