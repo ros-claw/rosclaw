@@ -46,13 +46,12 @@ def test_observation_adapter_resolves_relative_images_from_base_dir(tmp_path) ->
     out = adapt_observation_for_worker(
         {
             "_base_dir": str(tmp_path),
-            "observation": {
-                "state": [1.0, 2.0],
-                "images": {"front": "front.jpg"},
-            },
+            "observation.state": [1.0, 2.0],
+            "observation.images.front": "front.jpg",
         }
     )
     assert out["observation.images.front"] == str(img)
+    assert out["observation.state"] == [1.0, 2.0]
 
 
 def test_observation_adapter_missing_image_raises(tmp_path) -> None:

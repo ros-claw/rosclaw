@@ -320,7 +320,7 @@ def test_doctor_shows_validated_with_success_report(tmp_path: Path, monkeypatch)
 
 
 def test_action_chunk_adapter_shape_100_14():
-    """Action adapter must preserve a [100, 14] chunk shape."""
+    """Action adapter must preserve a [100, 14] chunk shape in v2 proposals."""
     from rosclaw.integrations.lerobot.worker_schema import WorkerAction
 
     values = [[float(j) for j in range(14)] for _ in range(100)]
@@ -331,11 +331,12 @@ def test_action_chunk_adapter_shape_100_14():
         dtype="float32",
     )
     proposal = adapt_action_to_proposal(action)
-    assert proposal["shape"] == [100, 14]
-    assert proposal["type"] == "lerobot_action_chunk"
-    assert proposal["chunk_size"] == 100
-    assert proposal["action_dim"] == 14
-    assert proposal["executable"] is False
-    assert proposal["requires_sandbox"] is True
-    assert len(proposal["values"]) == 100
-    assert len(proposal["values"][0]) == 14
+    assert proposal["schema_version"] == "rosclaw.action_proposal.v2"
+    assert proposal["action"]["shape"] == [100, 14]
+    assert proposal["chunk"]["is_chunk"] is True
+    assert proposal["chunk"]["length"] == 100
+    assert len(proposal["action"]["names"]) == 14
+    assert proposal["safety"]["executable"] is False
+    assert proposal["safety"]["requires_sandbox"] is True
+    assert len(proposal["action"]["values"]) == 100
+    assert len(proposal["action"]["values"][0]) == 14

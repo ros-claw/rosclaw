@@ -47,13 +47,17 @@ class FixtureObservationSource(ObservationSource):
                 if obs is not None:
                     self.observations.append(obs)
         elif isinstance(raw, dict):
-            observations = raw.get("observations", [])
+            observations = raw.get("observations", [raw])
             for item in observations:
                 obs = self._extract_observation(item)
                 if obs is not None:
                     self.observations.append(obs)
         if not self.observations:
             raise ValueError(f"No observations found in fixture: {self.fixture_path}")
+        base_dir = str(self.fixture_path.parent)
+        for obs in self.observations:
+            if isinstance(obs, dict) and "_base_dir" not in obs:
+                obs["_base_dir"] = base_dir
 
     @staticmethod
     def _extract_observation(item: dict[str, Any]) -> dict[str, Any] | None:

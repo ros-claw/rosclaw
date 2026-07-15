@@ -139,8 +139,13 @@ def _run_loop(config: RolloutConfig, source: ObservationSource) -> RolloutResult
         or f"/tmp/rosclaw_lerobot_rollout_{config.mode.value}_{uuid.uuid4().hex[:8]}.jsonl"
     )
 
-    body = _load_body(config.body_id)
-    body_space = resolve_body_action_space(body)
+    body = None
+    body_space = None
+    mapping = None
+    mapping_report: dict[str, Any] = {"blocked": False, "block_reasons": []}
+    if config.mode == RolloutMode.SHADOW:
+        body = _load_body(config.body_id)
+        body_space = resolve_body_action_space(body)
 
     contract = _resolve_contract(config.observation_contract)
 
@@ -194,16 +199,17 @@ def _run_loop(config: RolloutConfig, source: ObservationSource) -> RolloutResult
 
         policy_metadata = load_response.get("policy_metadata", {})
         policy_space = _policy_space_from_metadata(policy_metadata)
-        mapping = generate_action_mapping(
-            policy_space,
-            body_space,
-            allow_partial=config.allow_partial_mapping,
-        )
-        mapping_report = validate_action_mapping(mapping)
-        if mapping_report["blocked"] and config.require_exact_mapping:
-            result.stop_reason = RolloutStopReason.INCOMPATIBLE_MAPPING
-            result.errors.extend(mapping_report["block_reasons"])
-            return result
+        if body_space is not None:
+            mapping = generate_action_mapping(
+                policy_space,
+                body_space,
+                allow_partial=config.allow_partial_mapping,
+            )
+            mapping_report = validate_action_mapping(mapping)
+            if mapping_report["blocked"] and config.require_exact_mapping:
+                result.stop_reason = RolloutStopReason.INCOMPATIBLE_MAPPING
+                result.errors.extend(mapping_report["block_reasons"])
+                return result
 
         session_id = f"session_{uuid.uuid4().hex[:12]}"
         create_response = runtime.call(
@@ -259,7 +265,7 @@ def _run_loop(config: RolloutConfig, source: ObservationSource) -> RolloutResult
                 break
 
             result.proposals.append(step_result.get("proposal", {}))
-            result.mapped_actions.append(step_result.get("mapped_report", {}))
+            result.mapped_actions.append(step_result.get("mapping_report", {}))
             result.sandbox_decisions.append(step_result.get("sandbox", {}))
             parent_event_id = step_result.get("step_event_id")
             step_index += 1
@@ -381,36 +387,45 @@ def _run_step(
     )
 
     with StepTimer() as map_timer:
-        mapped = map_action_proposal_to_body(proposal, mapping)
-        mapped_report = validate_mapped_action(mapped)
+        if mapping is not None:
+            mapped = map_action_proposal_to_body(proposal, mapping)
+            mapping_report = validate_mapped_action(mapped)
+        else:
+            mapped = None
+            mapping_report = {
+                "status": "skipped",
+                "blocked": False,
+                "issues": [],
+                "mapped_values": [],
+            }
     metrics.record_mapping(map_timer.elapsed_ms)
 
     recorder.record_action_mapping(
         proposal,
-        mapping_report=validate_action_mapping(mapping),
-        mapped_action=mapped_report,
+        mapping_report=validate_action_mapping(mapping) if mapping is not None else mapping_report,
+        mapped_action=mapping_report,
         latency_ms=map_timer.elapsed_ms,
         parent_event_id=obs_event_id,
         frame_id=str(step_index),
     )
 
-    if mapped.blocked or mapped_report["blocked"]:
+    if mapped is not None and (mapped.blocked or mapping_report["blocked"]):
         metrics.mapping_blocks += 1
-        if any("NaN" in issue or "Inf" in issue or "Invalid value" in issue for issue in mapped_report["issues"]):
+        if any("NaN" in issue or "Inf" in issue or "Invalid value" in issue for issue in mapping_report["issues"]):
             metrics.nan_inf_blocks += 1
             return {
                 "stop": True,
                 "reason": RolloutStopReason.NAN_INF,
-                "errors": mapped_report["issues"],
+                "errors": mapping_report["issues"],
             }
         return {
             "stop": True,
             "reason": RolloutStopReason.INCOMPATIBLE_MAPPING,
-            "errors": mapped_report["issues"],
+            "errors": mapping_report["issues"],
         }
 
     sandbox: dict[str, Any] = {}
-    if config.run_sandbox_preflight:
+    if config.run_sandbox_preflight and mapping is not None and mapped is not None:
         with StepTimer() as sandbox_timer:
             sandbox = run_sandbox_preflight(
                 mapped,
@@ -419,7 +434,7 @@ def _run_step(
             )
         metrics.record_sandbox(sandbox_timer.elapsed_ms)
         recorder.record_sandbox_decision(
-            mapped_report,
+            mapping_report,
             sandbox,
             sandbox_timer.elapsed_ms,
             parent_event_id=obs_event_id,
@@ -432,6 +447,19 @@ def _run_step(
                 "reason": RolloutStopReason.SANDBOX_BLOCK,
                 "errors": [f"Sandbox blocked: {sandbox.get('reason', '')}"],
             }
+    elif config.run_sandbox_preflight:
+        sandbox = {
+            "is_safe": True,
+            "decision": "ALLOW",
+            "reason": "proposal-only mode: no body mapping",
+        }
+        recorder.record_sandbox_decision(
+            mapping_report,
+            sandbox,
+            0.0,
+            parent_event_id=obs_event_id,
+            frame_id=str(step_index),
+        )
 
     step_event_id = recorder.record_step(
         step_index,
@@ -448,7 +476,7 @@ def _run_step(
     return {
         "stop": False,
         "proposal": proposal,
-        "mapped_report": mapped_report,
+        "mapping_report": mapping_report,
         "sandbox": sandbox,
         "step_event_id": step_event_id,
     }

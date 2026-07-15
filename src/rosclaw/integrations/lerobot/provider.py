@@ -256,10 +256,14 @@ class LeRobotPolicyProvider(Provider):
 
             metadata = worker_response.policy_metadata or {}
             expected_shape = infer_action_shape(metadata)
-            if expected_shape is not None and list(processed_action.shape) != expected_shape:
+            actual_shape = list(processed_action.shape)
+            if (
+                expected_shape is not None
+                and actual_shape[-len(expected_shape):] != expected_shape
+            ):
                 return self._failed_response(
                     request,
-                    f"Action shape {processed_action.shape} does not match "
+                    f"Action shape {actual_shape} does not match "
                     f"policy output_features shape {expected_shape}.",
                     "policy_action_schema_conflict",
                 )
