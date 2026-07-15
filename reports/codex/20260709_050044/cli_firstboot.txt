@@ -1,0 +1,36 @@
+usage: rosclaw firstboot [-h] [--yes] [--workspace WORKSPACE]
+                         [--profile {offline,cloud,hybrid}] [--robot ROBOT]
+                         [--safety {strict,moderate,relaxed}]
+                         [--enable-sandbox] [--disable-sandbox] [--enable-mcp]
+                         [--disable-mcp] [--enable-ros2] [--enable-memory]
+                         [--enable-practice] [--enable-auto] [--telemetry]
+                         [--no-telemetry] [--diagnostics] [--no-diagnostics]
+                         [--rich-feedback] [--no-rich-feedback] [--dev]
+                         [--force] [--dry-run] [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --yes                 Non-interactive mode with defaults
+  --workspace WORKSPACE
+                        Custom workspace path
+  --profile {offline,cloud,hybrid}
+  --robot ROBOT         Default robot profile
+  --safety {strict,moderate,relaxed}
+  --enable-sandbox      Enable sandbox
+  --disable-sandbox     Disable sandbox
+  --enable-mcp          Enable MCP config generation
+  --disable-mcp         Disable MCP config generation
+  --enable-ros2         Enable ROS 2 mode
+  --enable-memory       Enable memory module
+  --enable-practice     Enable practice capture
+  --enable-auto         Enable auto evolution
+  --telemetry           Enable anonymous telemetry
+  --no-telemetry        Disable anonymous telemetry
+  --diagnostics         Allow redacted diagnostic upload
+  --no-diagnostics      Disallow redacted diagnostic upload
+  --rich-feedback       Allow manual rich feedback upload
+  --no-rich-feedback    Disallow manual rich feedback upload
+  --dev                 Developer mode
+  --force               Re-run even if already initialized
+  --dry-run             Show what would be done without writing
+  --json                JSON output

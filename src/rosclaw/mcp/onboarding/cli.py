@@ -150,6 +150,7 @@ def dispatch_mcp_command(args: argparse.Namespace) -> int:
 def dispatch_mcp_install(args: argparse.Namespace) -> int:
     """Handle ``rosclaw mcp install``."""
     from rosclaw.mcp.onboarding.errors import OnboardingError
+    from rosclaw.mcp.onboarding.hub_client import HubClient
     from rosclaw.mcp.onboarding.installer import InstallEngine
 
     # Source-based installs bypass the package registry.
@@ -229,7 +230,8 @@ def dispatch_mcp_install(args: argparse.Namespace) -> int:
         )
         return 1
 
-    engine = InstallEngine(project_root=_project_root(args))
+    hub = HubClient(offline=args.offline, cache_writes=not args.dry_run)
+    engine = InstallEngine(project_root=_project_root(args), hub=hub)
 
     if args.dry_run:
         try:
@@ -515,7 +517,9 @@ def dispatch_mcp_health(args: argparse.Namespace) -> int:
                     )
                 else:
                     print("[ROSClaw MCP] No installed Hardware MCP servers.")
-                    print("Install one with `rosclaw mcp install <alias>` or inspect options with `rosclaw mcp list`.")
+                    print(
+                        "Install one with `rosclaw mcp install <alias>` or inspect options with `rosclaw mcp list`."
+                    )
                 return 0
             reports = [_check_server(r.server_name) for r in installed]
     except Exception as exc:  # noqa: BLE001

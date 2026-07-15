@@ -8,7 +8,7 @@ suitable for ``sync_stats.parquet``.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +26,6 @@ from rosclaw.integrations.lerobot.sync_provenance import (
     PROVENANCE_UNKNOWN,
     VALIDITY_VALID,
 )
-
 
 _NS_TO_S = 1e-9
 
@@ -198,7 +197,7 @@ def compute_sync_feature_stats(
     skews = [s for s in feature.source_skew_ms if s is not None]
     hold_ages = [
         s
-        for s, p in zip(feature.source_skew_ms, feature.provenance)
+        for s, p in zip(feature.source_skew_ms, feature.provenance, strict=False)
         if s is not None and p == PROVENANCE_HELD
     ]
     samples_per_window = [

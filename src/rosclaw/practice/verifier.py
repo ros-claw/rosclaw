@@ -126,7 +126,12 @@ class PracticeVerifier:
             )
             return
 
-        session_dir = self._layout.sessions_dir / session_id
+        # The filesystem layout names the session directory by practice_id,
+        # not by the catalog v2 session_id, so resolve it from the practice record.
+        practice = catalog.get_practice(practice_id)
+        session_dir = self._layout.session_dir(practice_id)
+        if practice is not None and practice.get("session_id") == session_id:
+            pass
         if not session_dir.exists():
             report.add("error", "session_dir", f"session directory missing: {session_dir}")
 
@@ -248,11 +253,27 @@ class PracticeVerifier:
             if not isinstance(artifact_id, str):
                 report.add("error", "artifact", "artifact record missing artifact_id")
                 continue
-            ok, msg = self._artifact_store.verify_artifact(
-                artifact_id, session_id, artifact.get("episode_id")
-            )
-            if not ok:
-                report.add("error", "artifact", f"{artifact_id}: {msg}")
+            artifact_path = Path(artifact.get("path") or "")
+            expected_sha = artifact.get("sha256")
+            if not artifact_path.exists():
+                report.add("error", "artifact", f"{artifact_id}: file missing: {artifact_path}")
+                continue
+            actual_sha = ArtifactStore._compute_sha256(artifact_path)
+            if expected_sha and actual_sha != expected_sha:
+                report.add(
+                    "error",
+                    "artifact",
+                    f"{artifact_id}: sha256 mismatch",
+                )
+                continue
+            # size_bytes consistency
+            expected_size = artifact.get("size_bytes")
+            if expected_size is not None and artifact_path.stat().st_size != expected_size:
+                report.add(
+                    "warning",
+                    "artifact",
+                    f"{artifact_id}: size mismatch",
+                )
 
     @staticmethod
     def _verify_jsonl(path: Path, report: VerificationReport) -> None:

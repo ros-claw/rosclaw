@@ -1,0 +1,13 @@
+usage: rosclaw auto [-h] {init,run,status,champion,deadends,report} ...
+
+positional arguments:
+  {init,run,status,champion,deadends,report}
+    init                Initialize an auto task
+    run                 Run auto evolution
+    status              Show auto status
+    champion            Show current champion
+    deadends            List dead ends
+    report              Generate evolution report
+
+options:
+  -h, --help            show this help message and exit

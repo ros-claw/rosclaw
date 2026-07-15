@@ -6,12 +6,12 @@ LeRobot, keeping it separate from the ROSClaw core runtime.
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Any
 
 from rosclaw.integrations.lerobot.runtime import (
     LeRobotRuntime,
-    RuntimeMode,
     find_python312,
     inspect_lerobot_runtime,
 )
@@ -33,7 +33,12 @@ class LeRobotEnvManager:
         Raises a ``RuntimeError`` on fatal failures so the installer can turn
         them into a structured ``InstallReport``.
         """
-        runtime_path = Path(runtime_path)
+        runtime_path = Path(runtime_path).expanduser()
+        resolved_runtime_path = runtime_path.expanduser().resolve()
+        if resolved_runtime_path in {Path("/"), Path.home().resolve()}:
+            raise RuntimeError(f"Refusing unsafe LeRobot runtime path: {runtime_path}")
+        if runtime_path.is_symlink():
+            raise RuntimeError(f"Refusing symlink LeRobot runtime path: {runtime_path}")
         python_path = find_python312(python_executable)
         if python_path is None:
             raise RuntimeError(
@@ -42,26 +47,21 @@ class LeRobotEnvManager:
                 "  rosclaw setup lerobot --profile core --mode external --python /path/to/python3.12"
             )
 
-        pip_path = runtime_path / "bin" / "pip"
         runtime_python = runtime_path / "bin" / "python"
 
-        if runtime_path.exists() and not force:
-            # Reuse existing environment if it looks valid.
-            if runtime_python.exists():
+        if runtime_path.exists():
+            is_venv = runtime_python.exists() and (runtime_path / "pyvenv.cfg").exists()
+            if is_venv and not force:
                 return inspect_lerobot_runtime(
                     runtime_python,
                     mode="isolated",
                     runtime_path=runtime_path,
                 )
-            if force:
-                run_command(["rm", "-rf", str(runtime_path)], timeout=60.0)
-            else:
+            if not is_venv:
                 raise RuntimeError(
                     f"Runtime path exists but does not look like a venv: {runtime_path}"
                 )
-
-        if runtime_path.exists() and force:
-            run_command(["rm", "-rf", str(runtime_path)], timeout=60.0)
+            shutil.rmtree(runtime_path)
 
         # Create venv.
         create_result = run_command(
@@ -96,18 +96,7 @@ class LeRobotEnvManager:
         packages: list[str] | None = None,
     ) -> InstallReport:
         """Install LeRobot packages into an existing runtime."""
-        if runtime.pip_executable is None:
-            return InstallReport(
-                ok=False,
-                profile=profile,
-                dry_run=False,
-                message=f"No pip executable found for runtime {runtime.python_executable}",
-                error_code="pip_not_found",
-                mode="isolated",
-                runtime=runtime,
-            )
-
-        pip_cmd = [str(runtime.pip_executable), "install"]
+        pip_cmd = [str(runtime.python_executable), "-m", "pip", "install"]
         if upgrade:
             pip_cmd.append("--upgrade")
         if index_url:
@@ -142,6 +131,17 @@ class LeRobotEnvManager:
             mode=runtime.mode,
             runtime_path=runtime.runtime_path,
         )
+        if runtime.state == "error":
+            return InstallReport(
+                ok=False,
+                profile=profile,
+                dry_run=False,
+                message=runtime.error or "Installed LeRobot runtime failed validation",
+                error_code="lerobot_runtime_invalid",
+                mode="isolated",
+                runtime=runtime,
+                details=details,
+            )
 
         return InstallReport(
             ok=True,

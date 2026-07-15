@@ -1,0 +1,1575 @@
+===== .venv-codex/bin/python --version =====
+Python 3.11.15
+----- rc=0
+===== .venv-codex/bin/pip check =====
+No broken requirements found.
+----- rc=0
+===== .venv-codex/bin/python -m compileall -q src tests =====
+----- rc=0
+===== .venv-codex/bin/ruff check . =====
+All checks passed!
+----- rc=0
+===== .venv-codex/bin/ruff format --check . =====
+890 files already formatted
+----- rc=0
+===== OPTIONAL .venv-codex/bin/mypy src/rosclaw =====
+.venv-codex/lib/python3.11/site-packages/mcap/__init__.py: error: Source file found twice under different module names: "mcap" and "mcap.__init__"
+.venv-codex/lib/python3.11/site-packages/mcap/__init__.py: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#mapping-file-paths-to-modules for more info
+.venv-codex/lib/python3.11/site-packages/mcap/__init__.py: note: Common resolutions include:
+.venv-codex/lib/python3.11/site-packages/mcap/__init__.py: note:     a) adding `__init__.py` somewhere,
+.venv-codex/lib/python3.11/site-packages/mcap/__init__.py: note:     b) using `--explicit-package-bases` or adjusting `MYPYPATH`
+Found 1 error in 1 file (errors prevented further checking)
+----- rc=2
+===== .venv-codex/bin/pytest -q =====
+.........................................sss............................ [  1%]
+........................................................................ [  3%]
+........................................................................ [  5%]
+........................................................................ [  7%]
+.........ssssssssssssssss............................................... [  9%]
+........................................................................ [ 11%]
+........................................................................ [ 13%]
+........................................................................ [ 15%]
+........................................................................ [ 17%]
+........................................................................ [ 19%]
+........................................................................ [ 21%]
+.......s................................................................ [ 23%]
+.............................s.......................................... [ 25%]
+........................................................................ [ 27%]
+.......................s................................................ [ 28%]
+........................................................................ [ 30%]
+........................................................................ [ 32%]
+........................................................................ [ 34%]
+........................................................................ [ 36%]
+........................................................................ [ 38%]
+........................................................................ [ 40%]
+........................................................................ [ 42%]
+........................................................................ [ 44%]
+........................................................................ [ 46%]
+........................................................................ [ 48%]
+........................................................................ [ 50%]
+........................................................................ [ 52%]
+........................................................................ [ 54%]
+s....................................................................... [ 55%]
+........................................................................ [ 57%]
+........................................................................ [ 59%]
+........................................................................ [ 61%]
+........................................................................ [ 63%]
+........................................................................ [ 65%]
+........................................................................ [ 67%]
+........................................................................ [ 69%]
+........................................................................ [ 71%]
+........................................................................ [ 73%]
+........................................................................ [ 75%]
+........................................................................ [ 77%]
+........................................................................ [ 79%]
+..........................................ss..................ss........ [ 81%]
+........................................................................ [ 82%]
+........................................................................ [ 84%]
+........................................................................ [ 86%]
+........................................................................ [ 88%]
+........................................................................ [ 90%]
+........................................................................ [ 92%]
+........................................................................ [ 94%]
+........................................................................ [ 96%]
+........................................................................ [ 98%]
+...........................................................              [100%]
+3704 passed, 30 skipped, 15 deselected in 423.37s (0:07:03)
+----- rc=0
+===== .venv-codex/bin/pytest -q tests/integration/test_physical_ai_agent_acceptance.py =====
+.                                                                        [100%]
+1 passed in 2.23s
+----- rc=0
+===== .venv-codex/bin/python -m rosclaw.cli --help =====
+usage: rosclaw [-h] [--version]
+               {init,run,start,status,stop,restart,dashboard,doctor,firstboot,config,profile,uninstall,logs,events,ros,body,eurdf,hub,robot,how,provider,auto,skill,sandbox,runtime,test,firewall,forge,memory,darwin,practice,know,sense,fleet,demo,bench,agent,mcp,feedback}
+               ...
+
+ROSClaw - Self-Evolving Runtime Infrastructure for Physical AI & Embodied
+Agents
+
+positional arguments:
+  {init,run,start,status,stop,restart,dashboard,doctor,firstboot,config,profile,uninstall,logs,events,ros,body,eurdf,hub,robot,how,provider,auto,skill,sandbox,runtime,test,firewall,forge,memory,darwin,practice,know,sense,fleet,demo,bench,agent,mcp,feedback}
+    init                Initialize a ROSClaw workspace
+    run                 Start ROSClaw runtime
+    start               Start ROSClaw runtime
+    status              Show runtime status
+    stop                Stop ROSClaw runtime
+    restart             Restart ROSClaw runtime
+    dashboard           Start the ROSClaw dashboard web server
+    doctor              Run health diagnosis
+    firstboot           Run ROSClaw first boot wizard
+    config              Configuration commands
+    profile             Profile management
+    uninstall           Uninstall ROSClaw
+    logs                Show runtime logs
+    events              EventBus commands
+    ros                 ROS bridge commands
+    body                Body / embodiment commands
+    eurdf               e-URDF-Zoo manifest asset commands
+    hub                 ROSClaw Hub asset discovery, verification, and
+                        lifecycle
+    robot               Robot registry commands
+    how                 How recovery commands
+    provider            Provider commands
+    auto                Auto self-evolution commands
+    skill               Skill commands
+    sandbox             Sandbox commands
+    runtime             Runtime backend commands
+    test                End-to-end smoke tests
+    firewall            Firewall safety checks
+    forge               Forge bundle commands
+    memory              Memory commands
+    darwin              Darwin benchmark engine
+    practice            Practice episode commands
+    know                Knowledge base queries
+    sense               Body sense and readiness commands
+    fleet               Fleet-wide body operations
+    demo                Run demonstration scenarios
+    bench               Benchmark runtime subsystems
+    agent               Agent onboarding and diagnostics
+    mcp                 MCP server commands
+    feedback            Feedback, telemetry, and privacy controls
+
+options:
+  -h, --help            show this help message and exit
+  --version             show program's version number and exit
+----- rc=0
+===== .venv-codex/bin/python -m rosclaw.cli provider health --json =====
+{
+  "ok": true,
+  "status": "ok",
+  "source": "builtin_provider_contract",
+  "provider_count": 8,
+  "providers": [
+    {
+      "name": "llm",
+      "type": "llm",
+      "status": "registered",
+      "description": "LLM provider for text generation and task planning",
+      "capabilities": [
+        "llm.chat",
+        "llm.plan",
+        "text.generate",
+        "reasoning.task"
+      ],
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text",
+          "plan"
+        ]
+      },
+      "runtime": {
+        "backend": "builtin",
+        "protocol": "in_process",
+        "endpoint": null,
+        "dry_run_safe": true
+      },
+      "safety": {
+        "executable": false,
+        "requires_guard": true,
+        "requires_human_gate": false
+      }
+    },
+    {
+      "name": "vlm",
+      "type": "vlm",
+      "status": "registered",
+      "description": "Vision-Language Model for object grounding and perception",
+      "capabilities": [
+        "vlm.vqa",
+        "vlm.scene_graph",
+        "vlm.object_grounding",
+        "vlm.risk_assessment"
+      ],
+      "modalities": {
+        "input": [
+          "image",
+          "text"
+        ],
+        "output": [
+          "text",
+          "scene_graph"
+        ]
+      },
+      "runtime": {
+        "backend": "builtin",
+        "protocol": "in_process",
+        "endpoint": null,
+        "dry_run_safe": true
+      },
+      "safety": {
+        "executable": false,
+        "requires_guard": true,
+        "requires_human_gate": false
+      }
+    },
+    {
+      "name": "vla",
+      "type": "vla",
+      "status": "registered",
+      "description": "Vision-Language-Action model for guarded action proposals",
+      "capabilities": [
+        "vla.plan",
+        "vla.action_proposal",
+        "control.proposal"
+      ],
+      "modalities": {
+        "input": [
+          "image",
+          "text",
+          "state"
+        ],
+        "output": [
+          "action_plan"
+        ]
+      },
+      "runtime": {
+        "backend": "builtin",
+        "protocol": "in_process",
+        "endpoint": null,
+        "dry_run_safe": true
+      },
+      "safety": {
+        "executable": false,
+        "requires_guard": true,
+        "requires_human_gate": true
+      }
+    },
+    {
+      "name": "vln",
+      "type": "vln",
+      "status": "registered",
+      "description": "Vision-Language-Navigation for mobile robot path planning",
+      "capabilities": [
+        "vln.navigate",
+        "navigation.plan",
+        "navigation.waypoint"
+      ],
+      "modalities": {
+        "input": [
+          "image",
+          "text",
+          "map"
+        ],
+        "output": [
+          "path"
+        ]
+      },
+      "runtime": {
+        "backend": "builtin",
+        "protocol": "in_process",
+        "endpoint": null,
+        "dry_run_safe": true
+      },
+      "safety": {
+        "executable": false,
+        "requires_guard": true,
+        "requires_human_gate": false
+      }
+    },
+    {
+      "name": "world",
+      "type": "world",
+      "status": "registered",
+      "description": "World state provider for scene understanding",
+      "capabilities": [
+        "world.state",
+        "world.scene_graph",
+        "vlm.scene_graph"
+      ],
+      "modalities": {
+        "input": [
+          "state",
+          "image",
+          "text"
+        ],
+        "output": [
+          "scene_graph"
+        ]
+      },
+      "runtime": {
+        "backend": "builtin",
+        "protocol": "in_process",
+        "endpoint": null,
+        "dry_run_safe": true
+      },
+      "safety": {
+        "executable": false,
+        "requires_guard": true,
+        "requires_human_gate": false
+      }
+    },
+    {
+      "name": "skill",
+      "type": "skill",
+      "status": "registered",
+      "description": "Skill execution provider for robot actions",
+      "capabilities": [
+        "skill.invoke",
+        "skill.plan",
+        "skill.validate"
+      ],
+      "modalities": {
+        "input": [
+          "task",
+          "state"
+        ],
+        "output": [
+          "skill_result"
+        ]
+      },
+      "runtime": {
+        "backend": "builtin",
+        "protocol": "in_process",
+        "endpoint": null,
+        "dry_run_safe": true
+      },
+      "safety": {
+        "executable": false,
+        "requires_guard": true,
+        "requires_human_gate": true
+      }
+    },
+    {
+      "name": "critic",
+      "type": "critic",
+      "status": "registered",
+      "description": "Critic provider for success/failure judgment",
+      "capabilities": [
+        "critic.risk",
+        "critic.success",
+        "critic.regression"
+      ],
+      "modalities": {
+        "input": [
+          "trace",
+          "state",
+          "text"
+        ],
+        "output": [
+          "judgement"
+        ]
+      },
+      "runtime": {
+        "backend": "builtin",
+        "protocol": "in_process",
+        "endpoint": null,
+        "dry_run_safe": true
+      },
+      "safety": {
+        "executable": false,
+        "requires_guard": true,
+        "requires_human_gate": false
+      }
+    },
+    {
+      "name": "embedding",
+      "type": "embedding",
+      "status": "registered",
+      "description": "Embedding provider for semantic search",
+      "capabilities": [
+        "embedding.encode",
+        "embedding.search",
+        "memory.retrieve"
+      ],
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "embedding",
+          "matches"
+        ]
+      },
+      "runtime": {
+        "backend": "builtin",
+        "protocol": "in_process",
+        "endpoint": null,
+        "dry_run_safe": true
+      },
+      "safety": {
+        "executable": false,
+        "requires_guard": true,
+        "requires_human_gate": false
+      }
+    }
+  ]
+}
+----- rc=0
+===== .venv-codex/bin/python -m rosclaw.cli provider route --capability vlm.scene_graph --json =====
+{
+  "ok": true,
+  "capability": "vlm.scene_graph",
+  "selected_provider": "vlm",
+  "selected_type": "vlm",
+  "fallbacks": [
+    "world"
+  ],
+  "reason": "vlm declares capability 'vlm.scene_graph' in the built-in provider contract",
+  "score": 1.0,
+  "executable": false,
+  "requires_guard": true,
+  "requires_human_gate": false,
+  "dry_run_safe": true,
+  "candidates": [
+    {
+      "name": "vlm",
+      "type": "vlm",
+      "capabilities": [
+        "vlm.vqa",
+        "vlm.scene_graph",
+        "vlm.object_grounding",
+        "vlm.risk_assessment"
+      ]
+    },
+    {
+      "name": "world",
+      "type": "world",
+      "capabilities": [
+        "world.state",
+        "world.scene_graph",
+        "vlm.scene_graph"
+      ]
+    }
+  ]
+}
+----- rc=0
+===== .venv-codex/bin/python -m rosclaw.cli provider benchmark --dry-run --json =====
+{
+  "ok": true,
+  "status": "dry_run",
+  "dry_run": true,
+  "iterations": 1,
+  "provider_count": 8,
+  "capabilities": [
+    "llm.chat",
+    "vlm.scene_graph",
+    "vla.plan",
+    "critic.risk"
+  ],
+  "route_plan": [
+    {
+      "capability": "llm.chat",
+      "selected_provider": "llm",
+      "fallbacks": [],
+      "status": "planned"
+    },
+    {
+      "capability": "vlm.scene_graph",
+      "selected_provider": "vlm",
+      "fallbacks": [
+        "world"
+      ],
+      "status": "planned"
+    },
+    {
+      "capability": "vla.plan",
+      "selected_provider": "vla",
+      "fallbacks": [],
+      "status": "planned"
+    },
+    {
+      "capability": "critic.risk",
+      "selected_provider": "critic",
+      "fallbacks": [],
+      "status": "planned"
+    }
+  ],
+  "metrics": [
+    "route_success",
+    "latency_ms",
+    "normalized_result_schema",
+    "guard_required"
+  ],
+  "note": "No provider was invoked; this validates benchmark wiring and route coverage only."
+}
+----- rc=0
+===== .venv-codex/bin/python -m rosclaw.cli sandbox verify --case ur5e-joint-preview --steps 8 --json =====
+{
+  "case": "ur5e-joint-preview",
+  "robot_id": "universal_robots_ur5e",
+  "world_id": "empty",
+  "task": "preview a conservative six-axis joint-position command in MuJoCo",
+  "passed": true,
+  "has_physics": true,
+  "steps": 8,
+  "qpos_size": 6,
+  "qvel_size": 6,
+  "final_time": 0.016,
+  "contacts_count": 0,
+  "reason": "MuJoCo model stepped with non-empty qpos/qvel.",
+  "details": {
+    "initial_time": 0.0,
+    "joint_positions": [
+      0.05,
+      -0.08,
+      0.06,
+      0.0,
+      0.04,
+      0.0
+    ],
+    "body_count": 8
+  }
+}
+----- rc=0
+===== .venv-codex/bin/python -m rosclaw.cli agent install universal --project-root /tmp/rosclaw-codex-agent.KVFrld --skip-secrets =====
+ROSClaw universal agent integration installed.
+Target: universal
+Project root: /tmp/rosclaw-codex-agent.KVFrld
+MCP transport: stdio
+Generated files:
+  - .mcp.json
+  - AGENTS.md
+  - .agents/skills/rosclaw/SKILL.md
+  - CLAUDE.md
+  - ROSCLAW.md
+  - .claude/settings.json
+  - context.snapshot.json
+
+One-line instruction for any agent:
+  Run `rosclaw agent install --project-root . --skip-secrets`, then read ROSCLAW.md.
+----- rc=0
+===== .venv-codex/bin/python -m rosclaw.cli agent test universal --project-root /tmp/rosclaw-codex-agent.KVFrld --quick --mcp-probe =====
+Agent target: universal
+Project root: /tmp/rosclaw-codex-agent.KVFrld
+Robot ID: (none detected)
+MCP transport: stdio
+
+.mcp.json: OK
+CLAUDE.md: OK
+ROSCLAW.md: OK
+context.snapshot.json: OK
+MCP server config: rosclaw
+Tools advertised: 13
+MCP stdio probe: OK
+MCP tools discovered: 13
+
+Quick checks complete.
+----- rc=0
+===== .venv-codex/bin/python - =====
+OK ros2_humble 9090
+OK ros1_noetic 9091
+OK ros2_smoke 32887
+OK rosclaw_api 8000
+OK redis 6379
+OK seekdb 2881
+----- rc=0
+===== OPTIONAL .venv-codex/bin/python -m rosclaw.cli ros ping --endpoint ws://127.0.0.1:9090 --json =====
+{
+  "ok": true,
+  "action": "ping",
+  "endpoint": "ws://127.0.0.1:9090",
+  "message": "rosbridge reachable",
+  "error": null
+}
+----- rc=0
+===== OPTIONAL .venv-codex/bin/python -m rosclaw.cli ros discover --endpoint ws://127.0.0.1:9090 --json =====
+{
+  "ok": true,
+  "action": "discover",
+  "endpoint": "ws://127.0.0.1:9090",
+  "robot_id": "unknown",
+  "ros_version": "ros2",
+  "distro": "humble",
+  "topics": [
+    {
+      "name": "/client_count",
+      "type": "std_msgs/msg/Int32",
+      "risk": null
+    },
+    {
+      "name": "/connected_clients",
+      "type": "rosbridge_msgs/msg/ConnectedClients",
+      "risk": null
+    },
+    {
+      "name": "/parameter_events",
+      "type": "rcl_interfaces/msg/ParameterEvent",
+      "risk": null
+    },
+    {
+      "name": "/rosout",
+      "type": "rcl_interfaces/msg/Log",
+      "risk": null
+    },
+    {
+      "name": "/turtle1/cmd_vel",
+      "type": "geometry_msgs/msg/Twist",
+      "risk": "high"
+    },
+    {
+      "name": "/turtle1/color_sensor",
+      "type": "turtlesim/msg/Color",
+      "risk": null
+    },
+    {
+      "name": "/turtle1/pose",
+      "type": "turtlesim/msg/Pose",
+      "risk": null
+    }
+  ],
+  "services": [
+    {
+      "name": "/clear",
+      "type": "std_srvs/srv/Empty",
+      "risk": "low"
+    },
+    {
+      "name": "/kill",
+      "type": "turtlesim/srv/Kill",
+      "risk": "low"
+    },
+    {
+      "name": "/reset",
+      "type": "std_srvs/srv/Empty",
+      "risk": "medium"
+    },
+    {
+      "name": "/rosapi/action_feedback_details",
+      "type": "rosapi_msgs/srv/ActionFeedbackDetails",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/action_goal_details",
+      "type": "rosapi_msgs/srv/ActionGoalDetails",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/action_result_details",
+      "type": "rosapi_msgs/srv/ActionResultDetails",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/action_servers",
+      "type": "rosapi_msgs/srv/GetActionServers",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/action_type",
+      "type": "rosapi_msgs/srv/ActionType",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/delete_param",
+      "type": "rosapi_msgs/srv/DeleteParam",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/describe_parameters",
+      "type": "rcl_interfaces/srv/DescribeParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/get_param",
+      "type": "rosapi_msgs/srv/GetParam",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/get_param_names",
+      "type": "rosapi_msgs/srv/GetParamNames",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/get_parameter_types",
+      "type": "rcl_interfaces/srv/GetParameterTypes",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/get_parameters",
+      "type": "rcl_interfaces/srv/GetParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/get_ros_version",
+      "type": "rosapi_msgs/srv/GetROSVersion",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/get_time",
+      "type": "rosapi_msgs/srv/GetTime",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/has_param",
+      "type": "rosapi_msgs/srv/HasParam",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/interfaces",
+      "type": "rosapi_msgs/srv/Interfaces",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/list_parameters",
+      "type": "rcl_interfaces/srv/ListParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/message_details",
+      "type": "rosapi_msgs/srv/MessageDetails",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/node_details",
+      "type": "rosapi_msgs/srv/NodeDetails",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/nodes",
+      "type": "rosapi_msgs/srv/Nodes",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/publishers",
+      "type": "rosapi_msgs/srv/Publishers",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/service_node",
+      "type": "rosapi_msgs/srv/ServiceNode",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/service_providers",
+      "type": "rosapi_msgs/srv/ServiceProviders",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/service_request_details",
+      "type": "rosapi_msgs/srv/ServiceRequestDetails",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/service_response_details",
+      "type": "rosapi_msgs/srv/ServiceResponseDetails",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/service_type",
+      "type": "rosapi_msgs/srv/ServiceType",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/services",
+      "type": "rosapi_msgs/srv/Services",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/services_for_type",
+      "type": "rosapi_msgs/srv/ServicesForType",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/set_param",
+      "type": "rosapi_msgs/srv/SetParam",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/set_parameters",
+      "type": "rcl_interfaces/srv/SetParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/set_parameters_atomically",
+      "type": "rcl_interfaces/srv/SetParametersAtomically",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/subscribers",
+      "type": "rosapi_msgs/srv/Subscribers",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/topic_type",
+      "type": "rosapi_msgs/srv/TopicType",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/topics",
+      "type": "rosapi_msgs/srv/Topics",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/topics_and_raw_types",
+      "type": "rosapi_msgs/srv/TopicsAndRawTypes",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/topics_for_type",
+      "type": "rosapi_msgs/srv/TopicsForType",
+      "risk": "low"
+    },
+    {
+      "name": "/rosbridge_websocket/describe_parameters",
+      "type": "rcl_interfaces/srv/DescribeParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/rosbridge_websocket/get_parameter_types",
+      "type": "rcl_interfaces/srv/GetParameterTypes",
+      "risk": "low"
+    },
+    {
+      "name": "/rosbridge_websocket/get_parameters",
+      "type": "rcl_interfaces/srv/GetParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/rosbridge_websocket/list_parameters",
+      "type": "rcl_interfaces/srv/ListParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/rosbridge_websocket/set_parameters",
+      "type": "rcl_interfaces/srv/SetParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/rosbridge_websocket/set_parameters_atomically",
+      "type": "rcl_interfaces/srv/SetParametersAtomically",
+      "risk": "low"
+    },
+    {
+      "name": "/spawn",
+      "type": "turtlesim/srv/Spawn",
+      "risk": "low"
+    },
+    {
+      "name": "/turtle1/set_pen",
+      "type": "turtlesim/srv/SetPen",
+      "risk": "low"
+    },
+    {
+      "name": "/turtle1/teleport_absolute",
+      "type": "turtlesim/srv/TeleportAbsolute",
+      "risk": "low"
+    },
+    {
+      "name": "/turtle1/teleport_relative",
+      "type": "turtlesim/srv/TeleportRelative",
+      "risk": "low"
+    },
+    {
+      "name": "/turtlesim/describe_parameters",
+      "type": "rcl_interfaces/srv/DescribeParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/turtlesim/get_parameter_types",
+      "type": "rcl_interfaces/srv/GetParameterTypes",
+      "risk": "low"
+    },
+    {
+      "name": "/turtlesim/get_parameters",
+      "type": "rcl_interfaces/srv/GetParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/turtlesim/list_parameters",
+      "type": "rcl_interfaces/srv/ListParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/turtlesim/set_parameters",
+      "type": "rcl_interfaces/srv/SetParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/turtlesim/set_parameters_atomically",
+      "type": "rcl_interfaces/srv/SetParametersAtomically",
+      "risk": "low"
+    }
+  ],
+  "actions": [
+    {
+      "name": "/turtle1/rotate_absolute",
+      "type": "",
+      "risk": "medium"
+    }
+  ],
+  "nodes": [
+    "/turtlesim",
+    "/rosbridge_websocket",
+    "/rosapi",
+    "/rosapi_params"
+  ],
+  "params": []
+}
+----- rc=0
+===== OPTIONAL .venv-codex/bin/python -m rosclaw.cli ros ping --endpoint ws://127.0.0.1:9091 --json =====
+Failed to connect to ws://127.0.0.1:9091: Handshake status 400 port 9091 in HTTP Host header '127.0.0.1:9091' does not match server listening port 9090 -+-+- {} -+-+- None
+{
+  "ok": false,
+  "action": "ping",
+  "endpoint": "ws://127.0.0.1:9091",
+  "message": "rosbridge unreachable",
+  "error": "Failed to connect to ws://127.0.0.1:9091: Handshake status 400 port 9091 in HTTP Host header '127.0.0.1:9091' does not match server listening port 9090 -+-+- {} -+-+- None"
+}
+----- rc=1
+===== OPTIONAL .venv-codex/bin/python -m rosclaw.cli ros discover --endpoint ws://127.0.0.1:9091 --json =====
+Failed to connect to ws://127.0.0.1:9091: Handshake status 400 port 9091 in HTTP Host header '127.0.0.1:9091' does not match server listening port 9090 -+-+- {} -+-+- None
+Failed to connect to ws://127.0.0.1:9091: Handshake status 400 port 9091 in HTTP Host header '127.0.0.1:9091' does not match server listening port 9090 -+-+- {} -+-+- None
+Failed to connect to ws://127.0.0.1:9091: Handshake status 400 port 9091 in HTTP Host header '127.0.0.1:9091' does not match server listening port 9090 -+-+- {} -+-+- None
+Failed to connect to ws://127.0.0.1:9091: Handshake status 400 port 9091 in HTTP Host header '127.0.0.1:9091' does not match server listening port 9090 -+-+- {} -+-+- None
+Failed to connect to ws://127.0.0.1:9091: Handshake status 400 port 9091 in HTTP Host header '127.0.0.1:9091' does not match server listening port 9090 -+-+- {} -+-+- None
+Failed to connect to ws://127.0.0.1:9091: Handshake status 400 port 9091 in HTTP Host header '127.0.0.1:9091' does not match server listening port 9090 -+-+- {} -+-+- None
+{
+  "ok": false,
+  "action": "discover",
+  "endpoint": "ws://127.0.0.1:9091",
+  "error": "Could not detect ROS version; rosbridge may be unreachable or rosapi not running: Failed to connect to ws://127.0.0.1:9091: Handshake status 400 port 9091 in HTTP Host header '127.0.0.1:9091' does not match server listening port 9090 -+-+- {} -+-+- None"
+}
+----- rc=1
+===== OPTIONAL .venv-codex/bin/python -m rosclaw.cli ros ping --endpoint ws://127.0.0.1:32887 --json =====
+{
+  "ok": true,
+  "action": "ping",
+  "endpoint": "ws://127.0.0.1:32887",
+  "message": "rosbridge reachable",
+  "error": null
+}
+----- rc=0
+===== OPTIONAL .venv-codex/bin/python -m rosclaw.cli ros discover --endpoint ws://127.0.0.1:32887 --json =====
+{
+  "ok": true,
+  "action": "discover",
+  "endpoint": "ws://127.0.0.1:32887",
+  "robot_id": "unknown",
+  "ros_version": "ros2",
+  "distro": "humble",
+  "topics": [
+    {
+      "name": "/client_count",
+      "type": "std_msgs/msg/Int32",
+      "risk": null
+    },
+    {
+      "name": "/connected_clients",
+      "type": "rosbridge_msgs/msg/ConnectedClients",
+      "risk": null
+    },
+    {
+      "name": "/parameter_events",
+      "type": "rcl_interfaces/msg/ParameterEvent",
+      "risk": null
+    },
+    {
+      "name": "/rosout",
+      "type": "rcl_interfaces/msg/Log",
+      "risk": null
+    },
+    {
+      "name": "/turtle1/cmd_vel",
+      "type": "geometry_msgs/msg/Twist",
+      "risk": "high"
+    },
+    {
+      "name": "/turtle1/color_sensor",
+      "type": "turtlesim/msg/Color",
+      "risk": null
+    },
+    {
+      "name": "/turtle1/pose",
+      "type": "turtlesim/msg/Pose",
+      "risk": null
+    }
+  ],
+  "services": [
+    {
+      "name": "/clear",
+      "type": "std_srvs/srv/Empty",
+      "risk": "low"
+    },
+    {
+      "name": "/kill",
+      "type": "turtlesim/srv/Kill",
+      "risk": "low"
+    },
+    {
+      "name": "/reset",
+      "type": "std_srvs/srv/Empty",
+      "risk": "medium"
+    },
+    {
+      "name": "/rosapi/action_feedback_details",
+      "type": "rosapi_msgs/srv/ActionFeedbackDetails",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/action_goal_details",
+      "type": "rosapi_msgs/srv/ActionGoalDetails",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/action_result_details",
+      "type": "rosapi_msgs/srv/ActionResultDetails",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/action_servers",
+      "type": "rosapi_msgs/srv/GetActionServers",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/action_type",
+      "type": "rosapi_msgs/srv/ActionType",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/delete_param",
+      "type": "rosapi_msgs/srv/DeleteParam",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/describe_parameters",
+      "type": "rcl_interfaces/srv/DescribeParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/get_param",
+      "type": "rosapi_msgs/srv/GetParam",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/get_param_names",
+      "type": "rosapi_msgs/srv/GetParamNames",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/get_parameter_types",
+      "type": "rcl_interfaces/srv/GetParameterTypes",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/get_parameters",
+      "type": "rcl_interfaces/srv/GetParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/get_ros_version",
+      "type": "rosapi_msgs/srv/GetROSVersion",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/get_time",
+      "type": "rosapi_msgs/srv/GetTime",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/has_param",
+      "type": "rosapi_msgs/srv/HasParam",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/interfaces",
+      "type": "rosapi_msgs/srv/Interfaces",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/list_parameters",
+      "type": "rcl_interfaces/srv/ListParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/message_details",
+      "type": "rosapi_msgs/srv/MessageDetails",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/node_details",
+      "type": "rosapi_msgs/srv/NodeDetails",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/nodes",
+      "type": "rosapi_msgs/srv/Nodes",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/publishers",
+      "type": "rosapi_msgs/srv/Publishers",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/service_node",
+      "type": "rosapi_msgs/srv/ServiceNode",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/service_providers",
+      "type": "rosapi_msgs/srv/ServiceProviders",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/service_request_details",
+      "type": "rosapi_msgs/srv/ServiceRequestDetails",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/service_response_details",
+      "type": "rosapi_msgs/srv/ServiceResponseDetails",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/service_type",
+      "type": "rosapi_msgs/srv/ServiceType",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/services",
+      "type": "rosapi_msgs/srv/Services",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/services_for_type",
+      "type": "rosapi_msgs/srv/ServicesForType",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/set_param",
+      "type": "rosapi_msgs/srv/SetParam",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/set_parameters",
+      "type": "rcl_interfaces/srv/SetParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/set_parameters_atomically",
+      "type": "rcl_interfaces/srv/SetParametersAtomically",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/subscribers",
+      "type": "rosapi_msgs/srv/Subscribers",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/topic_type",
+      "type": "rosapi_msgs/srv/TopicType",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/topics",
+      "type": "rosapi_msgs/srv/Topics",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/topics_and_raw_types",
+      "type": "rosapi_msgs/srv/TopicsAndRawTypes",
+      "risk": "low"
+    },
+    {
+      "name": "/rosapi/topics_for_type",
+      "type": "rosapi_msgs/srv/TopicsForType",
+      "risk": "low"
+    },
+    {
+      "name": "/rosbridge_websocket/describe_parameters",
+      "type": "rcl_interfaces/srv/DescribeParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/rosbridge_websocket/get_parameter_types",
+      "type": "rcl_interfaces/srv/GetParameterTypes",
+      "risk": "low"
+    },
+    {
+      "name": "/rosbridge_websocket/get_parameters",
+      "type": "rcl_interfaces/srv/GetParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/rosbridge_websocket/list_parameters",
+      "type": "rcl_interfaces/srv/ListParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/rosbridge_websocket/set_parameters",
+      "type": "rcl_interfaces/srv/SetParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/rosbridge_websocket/set_parameters_atomically",
+      "type": "rcl_interfaces/srv/SetParametersAtomically",
+      "risk": "low"
+    },
+    {
+      "name": "/spawn",
+      "type": "turtlesim/srv/Spawn",
+      "risk": "low"
+    },
+    {
+      "name": "/turtle1/set_pen",
+      "type": "turtlesim/srv/SetPen",
+      "risk": "low"
+    },
+    {
+      "name": "/turtle1/teleport_absolute",
+      "type": "turtlesim/srv/TeleportAbsolute",
+      "risk": "low"
+    },
+    {
+      "name": "/turtle1/teleport_relative",
+      "type": "turtlesim/srv/TeleportRelative",
+      "risk": "low"
+    },
+    {
+      "name": "/turtlesim/describe_parameters",
+      "type": "rcl_interfaces/srv/DescribeParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/turtlesim/get_parameter_types",
+      "type": "rcl_interfaces/srv/GetParameterTypes",
+      "risk": "low"
+    },
+    {
+      "name": "/turtlesim/get_parameters",
+      "type": "rcl_interfaces/srv/GetParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/turtlesim/list_parameters",
+      "type": "rcl_interfaces/srv/ListParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/turtlesim/set_parameters",
+      "type": "rcl_interfaces/srv/SetParameters",
+      "risk": "low"
+    },
+    {
+      "name": "/turtlesim/set_parameters_atomically",
+      "type": "rcl_interfaces/srv/SetParametersAtomically",
+      "risk": "low"
+    }
+  ],
+  "actions": [
+    {
+      "name": "/turtle1/rotate_absolute",
+      "type": "",
+      "risk": "medium"
+    }
+  ],
+  "nodes": [
+    "/turtlesim",
+    "/rosbridge_websocket",
+    "/rosapi",
+    "/rosapi_params"
+  ],
+  "params": []
+}
+----- rc=0
+===== .venv-codex/bin/python - =====
+OK: no bidi control chars found
+----- rc=0
+===== env ROSCLAW_HOME=/tmp/rosclaw-codex-practice.mrekQn/home .venv-codex/bin/python -m rosclaw.cli practice record --fixture tests/fixtures/practice/rh56_minimal_loop.json --out /tmp/rosclaw-codex-practice.mrekQn/practice --json =====
+{
+  "practice_id": "practice_rh56_minimal_loop",
+  "session_id": "session_rh56_minimal_loop",
+  "episode_id": "episode_rh56_minimal_loop",
+  "event_count": 9,
+  "data_root": "/tmp/rosclaw-codex-practice.mrekQn/practice",
+  "events_jsonl": "/tmp/rosclaw-codex-practice.mrekQn/practice/sessions/practice_rh56_minimal_loop/raw/events.jsonl"
+}
+----- rc=0
+===== env ROSCLAW_HOME=/tmp/rosclaw-codex-practice.mrekQn/home .venv-codex/bin/python -m rosclaw.cli practice verify practice_rh56_minimal_loop --data-root /tmp/rosclaw-codex-practice.mrekQn/practice --strict --json =====
+{
+  "practice_id": "practice_rh56_minimal_loop",
+  "passed": true,
+  "strict": true,
+  "checked": [
+    "catalog_exists",
+    "practice_record",
+    "manifest_exists",
+    "events_jsonl_exists",
+    "session_record",
+    "episode_records",
+    "event_types",
+    "event_count",
+    "artifact_records"
+  ],
+  "issues": []
+}
+----- rc=0
+===== env ROSCLAW_HOME=/tmp/rosclaw-codex-practice.mrekQn/home .venv-codex/bin/python -m rosclaw.cli practice distill practice_rh56_minimal_loop --data-root /tmp/rosclaw-codex-practice.mrekQn/practice --json =====
+{
+  "practice_id": "practice_rh56_minimal_loop",
+  "session_id": "session_rh56_minimal_loop",
+  "episode_id": "episode_rh56_minimal_loop",
+  "body_cognition_traits": [
+    "over_contact_risk"
+  ],
+  "failure_count": 1,
+  "how_intervention_count": 1,
+  "candidate_count": 1,
+  "promotion_result_count": 1,
+  "sim2real_delta_count": 1,
+  "artifact_refs": {
+    "body_cognition": "/tmp/rosclaw-codex-practice.mrekQn/practice/sessions/session_rh56_minimal_loop/episodes/episode_rh56_minimal_loop/artifacts/body_cognition/body_cognition_cog_2026-07-08T21:09:27.702969Z.yaml",
+    "failures": "/tmp/rosclaw-codex-practice.mrekQn/practice/sessions/session_rh56_minimal_loop/episodes/episode_rh56_minimal_loop/artifacts/failures/failures_asset_20260708T210927Z_e3e3907de50b.yaml",
+    "how_interventions": "/tmp/rosclaw-codex-practice.mrekQn/practice/sessions/session_rh56_minimal_loop/episodes/episode_rh56_minimal_loop/artifacts/how_interventions/how_interventions_asset_20260708T210927Z_2b10404e417b.yaml",
+    "candidates": "/tmp/rosclaw-codex-practice.mrekQn/practice/sessions/session_rh56_minimal_loop/episodes/episode_rh56_minimal_loop/artifacts/candidates/candidates_cand_20260708T210927Z_2ea06da165a5.yaml",
+    "promotion_results": "/tmp/rosclaw-codex-practice.mrekQn/practice/sessions/session_rh56_minimal_loop/episodes/episode_rh56_minimal_loop/artifacts/promotion_results/promotion_results_asset_20260708T210927Z_5f38ce70b40a.yaml",
+    "sim2real_deltas": "/tmp/rosclaw-codex-practice.mrekQn/practice/sessions/session_rh56_minimal_loop/episodes/episode_rh56_minimal_loop/artifacts/sim2real_deltas/sim2real_deltas_asset_20260708T210927Z_b078cf304b0d.yaml"
+  }
+}
+----- rc=0
+===== env ROSCLAW_HOME=/tmp/rosclaw-codex-practice.mrekQn/home .venv-codex/bin/python -m rosclaw.cli practice ingest-seekdb practice_rh56_minimal_loop --data-root /tmp/rosclaw-codex-practice.mrekQn/practice --seekdb-path /tmp/rosclaw-codex-practice.mrekQn/seekdb.sqlite --json =====
+{
+  "practice_id": "practice_rh56_minimal_loop",
+  "episode_id": "episode_rh56_minimal_loop",
+  "success": true,
+  "table_counts": {
+    "episodes": 1,
+    "failures": 1,
+    "how_interventions": 1,
+    "body_cognition": 1,
+    "sim2real_deltas": 1,
+    "skill_candidates": 1,
+    "promotion_results": 1
+  },
+  "total_records": 7,
+  "errors": []
+}
+----- rc=0
+===== env ROSCLAW_HOME=/tmp/rosclaw-codex-practice.mrekQn/home .venv-codex/bin/python -m rosclaw.cli practice query failures --robot-id rh56 --data-root /tmp/rosclaw-codex-practice.mrekQn/practice --seekdb-path /tmp/rosclaw-codex-practice.mrekQn/seekdb.sqlite --json =====
+[
+  {
+    "id": "fail_rh56_over_contact_1",
+    "episode_id": "episode_rh56_minimal_loop",
+    "task_id": "task_ok_contact",
+    "robot_id": "rh56",
+    "body_id": "body_rh56_left",
+    "failure_type": "over_contact",
+    "root_cause": "thumb force_net 310g exceeded safety threshold 250g",
+    "timestamp": 1783468800.3,
+    "recovery_hint": "",
+    "metadata": {
+      "failure_id": "fail_rh56_over_contact_1",
+      "failure_type": "over_contact",
+      "severity": "high",
+      "source": "sandbox",
+      "description": "thumb force_net 310g exceeded safety threshold 250g",
+      "related_contact_id": "contact_rh56_001",
+      "evidence_refs": [
+        "event_rh56_002",
+        "event_rh56_003"
+      ],
+      "suggested_fix": {
+        "action": "backoff_force",
+        "amount_g": 60.0
+      },
+      "timestamp": "2026-07-08T00:00:00.300000Z"
+    }
+  }
+]
+----- rc=0
+===== env ROSCLAW_HOME=/tmp/rosclaw-codex-practice.mrekQn/home .venv-codex/bin/python -m rosclaw.cli practice query body-cognition --body-id body_rh56_left --data-root /tmp/rosclaw-codex-practice.mrekQn/practice --seekdb-path /tmp/rosclaw-codex-practice.mrekQn/seekdb.sqlite --json =====
+[
+  {
+    "id": "cog:body_rh56_left:episode_rh56_minimal_loop:body_model",
+    "body_id": "body_rh56_left",
+    "robot_id": "rh56",
+    "episode_id": "episode_rh56_minimal_loop",
+    "session_id": "session_rh56_minimal_loop",
+    "cognition_type": "body_model",
+    "data": {
+      "known_traits": [
+        "over_contact_risk"
+      ],
+      "force_model": {
+        "thumb": {
+          "mean": 310.0,
+          "max": 310.0,
+          "min": 310.0,
+          "count": 1
+        },
+        "index": {
+          "mean": 82.0,
+          "max": 82.0,
+          "min": 82.0,
+          "count": 1
+        }
+      },
+      "thermal_limits": {
+        "thumb": 38.0,
+        "index": 36.0
+      },
+      "contact_distribution": {
+        "over_contact": 2
+      }
+    },
+    "timestamp": 1783544972.447492,
+    "metadata": {
+      "source_cognition_id": "cog_2026-07-08T21:09:32.447471Z"
+    }
+  }
+]
+----- rc=0
+===== env ROSCLAW_HOME=/tmp/rosclaw-codex-practice.mrekQn/home .venv-codex/bin/python -m rosclaw.cli practice query sim2real --body-id body_rh56_left --data-root /tmp/rosclaw-codex-practice.mrekQn/practice --seekdb-path /tmp/rosclaw-codex-practice.mrekQn/seekdb.sqlite --json =====
+[
+  {
+    "id": "delta_rh56_thumb_force",
+    "body_id": "body_rh56_left",
+    "robot_id": "rh56",
+    "episode_id": "episode_rh56_minimal_loop",
+    "dofs": [
+      "thumb"
+    ],
+    "sim_value": {
+      "thumb": 230.0
+    },
+    "real_value": {
+      "thumb": 210.0
+    },
+    "delta": {
+      "thumb": -20.0
+    },
+    "unit": "g",
+    "timestamp": 1783468800.7,
+    "metadata": {}
+  }
+]
+----- rc=0
+===== env ROSCLAW_HOME=/tmp/rosclaw-codex-practice.mrekQn/home .venv-codex/bin/python -m rosclaw.cli practice query candidates --skill-id skill_ok_contact --data-root /tmp/rosclaw-codex-practice.mrekQn/practice --seekdb-path /tmp/rosclaw-codex-practice.mrekQn/seekdb.sqlite --json =====
+[
+  {
+    "id": "candidate_rh56_thumb_backoff",
+    "skill_id": "skill_ok_contact",
+    "robot_id": "rh56",
+    "episode_id": "episode_rh56_minimal_loop",
+    "policy_id": "policy_ok_contact_v2",
+    "policy_type": "force_backoff",
+    "policy_params": {
+      "thumb_target_delta": -60.0
+    },
+    "metrics": {
+      "thumb_force_after": 210.0
+    },
+    "status": "promoted",
+    "evidence_refs": [
+      "event_rh56_004",
+      "event_rh56_005"
+    ],
+    "timestamp": 1783468800.5,
+    "metadata": {}
+  }
+]
+----- rc=0
+===== env ROSCLAW_HOME=/tmp/rosclaw-codex-practice.mrekQn/home .venv-codex/bin/python -m rosclaw.cli practice query interventions --failure-id fail_rh56_over_contact_1 --data-root /tmp/rosclaw-codex-practice.mrekQn/practice --seekdb-path /tmp/rosclaw-codex-practice.mrekQn/seekdb.sqlite --json =====
+[
+  {
+    "id": "how_rh56_001",
+    "failure_id": "fail_rh56_over_contact_1",
+    "episode_id": "episode_rh56_minimal_loop",
+    "robot_id": "rh56",
+    "task_id": "task_ok_contact",
+    "intervention_type": "back",
+    "description": "back off thumb target and retry with lower force",
+    "action_taken": {
+      "thumb_target_delta": -60.0,
+      "retry": true
+    },
+    "outcome": "resolved",
+    "timestamp": 1783468800.4,
+    "metadata": {
+      "intervention_id": "how_rh56_001",
+      "failure_id": "fail_rh56_over_contact_1",
+      "episode_id": "episode_rh56_minimal_loop",
+      "description": "back off thumb target and retry with lower force",
+      "action_taken": {
+        "thumb_target_delta": -60.0,
+        "retry": true
+      },
+      "outcome": "resolved",
+      "evidence_refs": [
+        "event_rh56_004"
+      ],
+      "timestamp": "2026-07-08T00:00:00.400000Z"
+    }
+  }
+]
+----- rc=0
+===== env ROSCLAW_HOME=/tmp/rosclaw-codex-practice.mrekQn/home .venv-codex/bin/python -m rosclaw.cli practice ingest-seekdb practice_rh56_minimal_loop --data-root /tmp/rosclaw-codex-practice.mrekQn/practice --seekdb-url mysql://root@127.0.0.1:2881/rosclaw_codex_final2 --json =====
+{
+  "practice_id": "practice_rh56_minimal_loop",
+  "episode_id": "episode_rh56_minimal_loop",
+  "success": true,
+  "table_counts": {
+    "episodes": 1,
+    "failures": 1,
+    "how_interventions": 1,
+    "body_cognition": 1,
+    "sim2real_deltas": 1,
+    "skill_candidates": 1,
+    "promotion_results": 1
+  },
+  "total_records": 7,
+  "errors": []
+}
+----- rc=0
+===== env ROSCLAW_HOME=/tmp/rosclaw-codex-practice.mrekQn/home .venv-codex/bin/python -m rosclaw.cli practice ingest-seekdb practice_rh56_minimal_loop --data-root /tmp/rosclaw-codex-practice.mrekQn/practice --seekdb-url mysql://root@127.0.0.1:2881/rosclaw_codex_final2 --json =====
+{
+  "practice_id": "practice_rh56_minimal_loop",
+  "episode_id": "episode_rh56_minimal_loop",
+  "success": true,
+  "table_counts": {
+    "episodes": 1,
+    "failures": 1,
+    "how_interventions": 1,
+    "body_cognition": 1,
+    "sim2real_deltas": 1,
+    "skill_candidates": 1,
+    "promotion_results": 1
+  },
+  "total_records": 7,
+  "errors": []
+}
+----- rc=0
+===== env SEEKDB_DSN=mysql://root@127.0.0.1:2881/rosclaw_codex_final2 .venv-codex/bin/python - =====
+REAL SEEKDB COUNTS: {'episodes': 1, 'failures': 1, 'how_interventions': 1, 'body_cognition': 1, 'sim2real_deltas': 1, 'skill_candidates': 1, 'promotion_results': 1}
+----- rc=0
+===== env ROSCLAW_HOME=/tmp/rosclaw-codex-practice.mrekQn/home .venv-codex/bin/python -m rosclaw.cli practice query failures --robot-id rh56 --data-root /tmp/rosclaw-codex-practice.mrekQn/practice --seekdb-url mysql://root@127.0.0.1:2881/rosclaw_codex_final2 --json =====
+[
+  {
+    "id": "fail_rh56_over_contact_1",
+    "episode_id": "episode_rh56_minimal_loop",
+    "task_id": "task_ok_contact",
+    "robot_id": "rh56",
+    "body_id": "body_rh56_left",
+    "failure_type": "over_contact",
+    "root_cause": "thumb force_net 310g exceeded safety threshold 250g",
+    "timestamp": 1783468800.3,
+    "recovery_hint": "",
+    "metadata": {
+      "failure_id": "fail_rh56_over_contact_1",
+      "failure_type": "over_contact",
+      "severity": "high",
+      "source": "sandbox",
+      "description": "thumb force_net 310g exceeded safety threshold 250g",
+      "related_contact_id": "contact_rh56_001",
+      "evidence_refs": [
+        "event_rh56_002",
+        "event_rh56_003"
+      ],
+      "suggested_fix": {
+        "action": "backoff_force",
+        "amount_g": 60.0
+      },
+      "timestamp": "2026-07-08T00:00:00.300000Z"
+    }
+  }
+]
+----- rc=0
+===== env ROSCLAW_HOME=/tmp/rosclaw-codex-practice.mrekQn/home .venv-codex/bin/python -m rosclaw.cli practice export practice_rh56_minimal_loop --format parquet --data-root /tmp/rosclaw-codex-practice.mrekQn/practice --output /tmp/rosclaw-codex-practice.mrekQn/export/parquet/rh56_minimal_loop.parquet =====
+[ROSClaw] Exported Parquet to /tmp/rosclaw-codex-practice.mrekQn/export/parquet/rh56_minimal_loop.parquet
+----- rc=0
+===== env ROSCLAW_HOME=/tmp/rosclaw-codex-practice.mrekQn/home .venv-codex/bin/python -m rosclaw.cli practice export practice_rh56_minimal_loop --format lerobot --data-root /tmp/rosclaw-codex-practice.mrekQn/practice --output /tmp/rosclaw-codex-practice.mrekQn/export/lerobot/rh56_minimal_loop =====
+[ROSClaw] Exported LeRobot dataset to /tmp/rosclaw-codex-practice.mrekQn/export/lerobot/rh56_minimal_loop
+----- rc=0

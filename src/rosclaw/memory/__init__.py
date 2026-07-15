@@ -9,6 +9,7 @@ from rosclaw.memory.interface import MemoryInterface
 from rosclaw.memory.seekdb_client import (
     SeekDBClient,
     SeekDBMemoryClient,
+    SeekDBMySQLClient,
     SeekDBSQLiteClient,
 )
 from rosclaw.memory.types import ArtifactRef, FailureMemory, PraxisEvent
@@ -22,6 +23,7 @@ __all__ = [
     "SeekDBClient",
     "SeekDBMemoryClient",
     "MemorySeekDB",
+    "SeekDBMySQLClient",
     "SeekDBSQLiteClient",
     "SQLiteSeekDB",
     "PraxisEvent",

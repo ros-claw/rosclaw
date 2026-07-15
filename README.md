@@ -209,6 +209,34 @@ harnesses how to discover and use it.
 
 ---
 
+## Persist Practice to SeekDB
+
+Use SQLite for local development or a MySQL-compatible DSN for a real
+SeekDB/OceanBase server:
+
+```bash
+# Local file
+rosclaw practice ingest-seekdb <practice_id> \
+  --data-root /data/rosclaw/practice \
+  --seekdb-path ~/.rosclaw/memory/seekdb.sqlite
+
+# Real SeekDB server
+rosclaw practice ingest-seekdb <practice_id> \
+  --data-root /data/rosclaw/practice \
+  --seekdb-url mysql://root@127.0.0.1:2881/rosclaw
+
+rosclaw practice query failures \
+  --robot-id rh56 \
+  --data-root /data/rosclaw/practice \
+  --seekdb-url mysql://root@127.0.0.1:2881/rosclaw \
+  --json
+```
+
+SeekDB port `2881` uses the MySQL-compatible SQL protocol. It is not an HTTP
+API. Repeated Practice ingestion is idempotent by episode and evidence IDs.
+
+---
+
 ## Safety Model
 
 ROSClaw's core safety rule:

@@ -36,7 +36,7 @@ class DatasetWriterConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DatasetWriterConfig":
+    def from_dict(cls, data: dict[str, Any]) -> DatasetWriterConfig:
         return cls(
             format=data.get("format", "lerobot_v3"),
             use_videos=bool(data.get("use_videos", True)),
@@ -69,7 +69,7 @@ class DatasetValidationConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DatasetValidationConfig":
+    def from_dict(cls, data: dict[str, Any]) -> DatasetValidationConfig:
         indices = data.get("sample_indices", [0])
         if not isinstance(indices, list):
             indices = [0]
@@ -122,7 +122,7 @@ class DatasetWorkerRequest:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DatasetWorkerRequest":
+    def from_dict(cls, data: dict[str, Any]) -> DatasetWorkerRequest:
         return cls(
             op=data.get("op", "export_dataset"),  # type: ignore[arg-type]
             normalized_episode_path=data.get("normalized_episode_path", ""),
@@ -159,7 +159,7 @@ class DatasetFeatureInfo:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DatasetFeatureInfo":
+    def from_dict(cls, data: dict[str, Any]) -> DatasetFeatureInfo:
         names = data.get("names")
         if names is not None:
             names = list(names)
@@ -188,7 +188,7 @@ class DatasetVisualInfo:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DatasetVisualInfo":
+    def from_dict(cls, data: dict[str, Any]) -> DatasetVisualInfo:
         return cls(
             storage_mode=data.get("storage_mode", "images"),
             camera_keys=list(data.get("camera_keys", [])),
@@ -217,7 +217,7 @@ class DatasetInfo:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DatasetInfo":
+    def from_dict(cls, data: dict[str, Any]) -> DatasetInfo:
         raw_features = data.get("features", {})
         features: dict[str, DatasetFeatureInfo] = {}
         for key, value in raw_features.items():
@@ -250,7 +250,7 @@ class DatasetFileInfo:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DatasetFileInfo":
+    def from_dict(cls, data: dict[str, Any]) -> DatasetFileInfo:
         return cls(
             meta_info=bool(data.get("meta_info", False)),
             data_files=list(data.get("data_files", [])),
@@ -294,7 +294,7 @@ class DatasetValidationResult:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DatasetValidationResult":
+    def from_dict(cls, data: dict[str, Any]) -> DatasetValidationResult:
         return cls(
             load_ok=bool(data.get("load_ok", False)),
             index_ok=bool(data.get("index_ok", False)),
@@ -325,7 +325,7 @@ class DatasetWorkerError:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DatasetWorkerError":
+    def from_dict(cls, data: dict[str, Any]) -> DatasetWorkerError:
         return cls(
             code=data.get("code", "unknown"),
             message=data.get("message", ""),
@@ -352,7 +352,7 @@ class DatasetWorkerTiming:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DatasetWorkerTiming":
+    def from_dict(cls, data: dict[str, Any]) -> DatasetWorkerTiming:
         return cls(
             normalize_time_sec=data.get("normalize_time_sec"),
             write_time_sec=data.get("write_time_sec"),
@@ -387,7 +387,7 @@ class DatasetApiInfo:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DatasetApiInfo":
+    def from_dict(cls, data: dict[str, Any]) -> DatasetApiInfo:
         error_data = data.get("error")
         return cls(
             create_signature=data.get("create_signature", ""),
@@ -455,7 +455,7 @@ class DatasetWorkerResponse:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DatasetWorkerResponse":
+    def from_dict(cls, data: dict[str, Any]) -> DatasetWorkerResponse:
         api_data = data.get("api_info")
         error_data = data.get("error")
         return cls(

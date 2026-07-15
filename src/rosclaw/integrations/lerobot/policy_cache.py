@@ -15,7 +15,6 @@ from typing import Any
 
 from rosclaw.firstboot.workspace import get_rosclaw_home
 
-
 DEFAULT_CACHE_SUBDIR = "cache/lerobot/policies"
 
 
@@ -111,26 +110,26 @@ def _materialize_hf_repo(
     force_download: bool,
 ) -> MaterializationResult:
     """Resolve a HF repo id to a local directory."""
-    try:
-        import huggingface_hub as hf_hub
-    except ImportError as exc:
-        raise PolicyMaterializationError(
-            "network_disabled",
-            "huggingface_hub is not installed and allow_network=false.",
-            str(exc),
-        ) from exc
-
     cache_dir = get_policy_cache_dir()
     sanitized = _sanitize_repo_id(repo_id)
     target_dir = cache_dir / sanitized
 
     # If we already have a cached copy and are not forcing a re-download, reuse it.
-    if target_dir.exists() and not force_download and _looks_like_policy_dir(target_dir):
+    if target_dir.exists() and not force_download and _looks_like_loadable_policy_dir(target_dir):
         return MaterializationResult(
             local_path=target_dir,
             network_used=False,
             cache_hit=True,
         )
+
+    try:
+        import huggingface_hub as hf_hub
+    except ImportError as exc:
+        raise PolicyMaterializationError(
+            "network_disabled",
+            "huggingface_hub is not installed and no complete local policy cache was found.",
+            str(exc),
+        ) from exc
 
     if not allow_network:
         # Try the HF cache before giving up.
@@ -169,10 +168,10 @@ def _materialize_hf_repo(
         ) from exc
 
     local_path = Path(downloaded)
-    if not _looks_like_policy_dir(local_path):
+    if not _looks_like_loadable_policy_dir(local_path):
         raise PolicyMaterializationError(
             "policy_config_not_found",
-            f"Downloaded policy directory does not contain a config: {local_path}",
+            f"Downloaded policy directory does not contain a config and checkpoint: {local_path}",
         )
     return MaterializationResult(
         local_path=local_path,
@@ -189,9 +188,10 @@ def _find_in_hf_cache(hf_hub: Any, repo_id: str, revision: str) -> Path | None:
         for repo in scan_cache_dir().repos:
             if repo.repo_id == repo_id:
                 for rev in repo.revisions:
-                    if rev.commit_hash.startswith(revision) or revision in rev.commit_hash:
-                        if (rev.snapshot_path / "config.json").exists():
-                            return Path(rev.snapshot_path)
+                    if (
+                        rev.commit_hash.startswith(revision) or revision in rev.commit_hash
+                    ) and _looks_like_loadable_policy_dir(rev.snapshot_path):
+                        return Path(rev.snapshot_path)
     except Exception:  # noqa: BLE001
         pass
 
@@ -204,7 +204,7 @@ def _find_in_hf_cache(hf_hub: Any, repo_id: str, revision: str) -> Path | None:
             local_files_only=True,
         )
         candidate = Path(config_path).parent
-        if _looks_like_policy_dir(candidate):
+        if _looks_like_loadable_policy_dir(candidate):
             return candidate
     except Exception:  # noqa: BLE001
         pass
@@ -214,6 +214,12 @@ def _find_in_hf_cache(hf_hub: Any, repo_id: str, revision: str) -> Path | None:
 
 def _looks_like_policy_dir(path: Path) -> bool:
     return (path / "config.json").exists() or (path / "config.yaml").exists()
+
+
+def _looks_like_loadable_policy_dir(path: Path) -> bool:
+    if not _looks_like_policy_dir(path):
+        return False
+    return (path / "model.safetensors").exists() or bool(list(path.rglob("*.safetensors")))
 
 
 def _sanitize_repo_id(repo_id: str) -> str:

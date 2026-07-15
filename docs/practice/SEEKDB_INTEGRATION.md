@@ -1,6 +1,13 @@
 # ROSClaw SeekDB 实践事件集成
 
-本文档说明如何把 ROSClaw 主仓库产生的物理实践事件 (`PraxisEvent`) 通过 `rosclaw_practice` 的 `ExperienceCommitter` 持久化到 SeekDB。
+本文档说明两种不同的 SeekDB 集成：
+
+1. `SeekDBMySQLClient` 通过 MySQL-compatible SQL 协议直连 SeekDB/OceanBase，
+   用于 `practice ingest-seekdb` 和 `practice query`。
+2. 旧 `SeekDBBridge` 通过独立的 HTTP adapter 转发单个 `PraxisEvent`。
+
+SeekDB 原生 `2881` 端口不是 HTTP API，不能使用
+`http://localhost:2881/api/v1/insert`。
 
 ---
 
@@ -13,17 +20,38 @@
 ## 前置条件
 
 - ROSClaw v1.0 主仓库已安装。
-- 可选依赖 `rosclaw[practice]` 已安装（内部指向 `rosclaw-practice` 包）：
+- 直连 server 时，SeekDB 可通过
+  `mysql://root@127.0.0.1:2881/rosclaw` 访问。
+- 仅使用旧 HTTP bridge 时，可选依赖 `rosclaw[practice]` 已安装
+  （内部指向 `rosclaw-practice` 包）：
 
   ```bash
   pip install -e ".[practice]"
   ```
 
-- SeekDB 实例可访问（默认地址 `http://localhost:2881`）。
+---
+
+## 直接写入真实 SeekDB
+
+```bash
+rosclaw practice ingest-seekdb <practice_id> \
+  --data-root /data/rosclaw/practice \
+  --seekdb-url mysql://root@127.0.0.1:2881/rosclaw \
+  --json
+
+rosclaw practice query failures \
+  --robot-id rh56 \
+  --data-root /data/rosclaw/practice \
+  --seekdb-url mysql://root@127.0.0.1:2881/rosclaw \
+  --json
+```
+
+客户端会创建数据库、Knowledge Plane 表和索引。重复 ingest 使用稳定 evidence ID
+做幂等 upsert。
 
 ---
 
-## 启用步骤
+## 启用旧 HTTP Bridge
 
 ### 1. 安装可选依赖
 
@@ -34,7 +62,7 @@ python3 -m pip install -e ".[practice]"
 ### 2. 配置环境变量
 
 ```bash
-export ROSCLAW_SEEKDB_URL=http://localhost:2881
+export ROSCLAW_SEEKDB_URL=http://seekdb-adapter.example:8080
 # 可选：离线失败时的 JSON 落盘目录
 export ROSCLAW_SEEKDB_FALLBACK_DIR=/data/rosclaw/fallback
 ```
@@ -47,7 +75,7 @@ from rosclaw.core import Runtime, RuntimeConfig
 config = RuntimeConfig(
     robot_id="ur5e_lab_01",
     enable_practice=True,
-    seekdb_url="http://localhost:2881",
+    seekdb_url="http://seekdb-adapter.example:8080",
     seekdb_fallback_dir="/data/rosclaw/fallback",
 )
 runtime = Runtime(config)
@@ -62,7 +90,7 @@ runtime.initialize()
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `seekdb_url` | `str \| None` | `ROSCLAW_SEEKDB_URL` 环境变量 | SeekDB 服务地址 |
+| `seekdb_url` | `str \| None` | `ROSCLAW_SEEKDB_URL` 环境变量 | 旧 HTTP adapter 地址，不是原生 2881 SQL 端口 |
 | `seekdb_fallback_dir` | `str` | `ROSCLAW_SEEKDB_FALLBACK_DIR` 或 `/data/rosclaw/fallback` | 提交失败时的本地 JSON 落盘目录 |
 
 ---
@@ -88,6 +116,7 @@ runtime.initialize()
 ## 失败降级
 
 - `SeekDBBridge.commit()` 内部使用 `requests.post` 在 `2.0` 秒超时内向 `POST {seekdb_url}/api/v1/insert` 提交事件。
+- 该路径要求额外部署兼容的 HTTP adapter；原生 SeekDB server 不提供此 HTTP API。
 - 任何网络或服务器错误都会被捕获，并将事件以 JSON 形式写入 `seekdb_fallback_dir`。
 - `EpisodeRecorder` 对 `SeekDBBridge.commit()` 再做一层 `try/except`，确保 SeekDB 提交失败不会中断本地 artifact 写入，也不会阻止 `praxis.recorded` 事件发布。
 
@@ -98,7 +127,7 @@ runtime.initialize()
 运行相关测试：
 
 ```bash
-python3 -m pytest tests/practice/test_seekdb_bridge.py tests/practice/test_episode_recorder_seekdb.py -v
+python3 -m pytest tests/test_seekdb.py tests/practice/test_cli_ingest_seekdb.py tests/practice/test_seekdb_ingestor.py -v
 ```
 
 离线验证 fallback：关闭 SeekDB 后执行一次 skill，检查 `ROSCLAW_SEEKDB_FALLBACK_DIR` 目录下是否生成新的 `.json` 文件。

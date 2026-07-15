@@ -1,0 +1,13 @@
+usage: rosclaw mcp [-h] {serve,install,list,health,inspect,call} ...
+
+positional arguments:
+  {serve,install,list,health,inspect,call}
+    serve               Start the P0 MCP server
+    install             Install/register a Hardware MCP server
+    list                List installed and available Hardware MCP servers
+    health              Run health checks for installed Hardware MCP servers
+    inspect             Show details for an installed MCP server
+    call                Call a tool on an installed MCP server
+
+options:
+  -h, --help            show this help message and exit

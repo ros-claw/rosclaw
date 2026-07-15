@@ -72,7 +72,7 @@ class AliasResolver:
         try:
             index = self.hub.fetch_index()
             for manifest_id, meta in index.items():
-                if manifest_id.lower() == alias:
+                if manifest_id.lower() == cleaned:
                     return manifest_id
                 name = manifest_id.replace(CANONICAL_PREFIX, "")
                 if name == cleaned:
@@ -82,6 +82,14 @@ class AliasResolver:
                         return manifest_id
         except Exception:
             pass
+
+        # Public Hub packages use owner/repository names. A package may be
+        # queryable from /api/registry before it appears in the list index.
+        if re.fullmatch(r"[a-z0-9_.-]+/[a-z0-9_.-]+", cleaned):
+            try:
+                return self.hub.fetch_manifest(cleaned).id
+            except Exception:
+                pass
 
         # Last resort: assume the alias is the short name under our namespace.
         if re.match(r"^[a-z0-9_-]+$", cleaned):

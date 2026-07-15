@@ -1,0 +1,73 @@
+# Rock-Paper-Scissors demo runtime configuration.
+demo:
+  name: "RH56 Rock Paper Scissors"
+  mode: "mock"  # mock | camera-only | hand-test | full
+  rounds: 10
+  auto: false
+
+commit:
+  # Robot choice is generated and hashed before human gesture capture.
+  algorithm: "sha256"
+  nonce_bytes: 8
+
+countdown:
+  labels: ["3", "2", "1"]
+  gestures: ["count3", "count2", "count1"]
+  step_s: 0.6
+
+capture:
+  window_s: 0.0
+  fps: 30
+  min_confidence: 0.65
+  majority_ratio: 0.55
+  vote_window_size: 20
+
+hand:
+  controller: "rh56"  # mock | rh56
+  port: "/dev/ttyUSB0"
+  device_id: 2
+  baudrate: 115200
+  timeout_s: 0.3
+  default_speed: 600
+  default_force: 300
+  safe_mode_failures: 3
+
+referee:
+  enabled: false
+  controller: "rh56"
+  port: "/dev/ttyUSB1"
+  device_id: 1
+  baudrate: 115200
+  timeout_s: 0.5
+  default_speed: 450
+  default_force: 350
+
+camera:
+  source: "ros2"  # mock | realsense | usb | ros2
+  # RealSense device type used by launch_camera.sh / run_rosclaw_rps.sh.
+  device_type: "d435i"  # d405 | d435i
+  # RealSense launch command:
+  #   ./launch_camera.sh [--device d405|d435i]
+  topic: "/camera/camera/color/image_raw"
+  width: 640
+  height: 480
+  fps: 30
+  recognition_width: 320
+  recognition_height: 240
+  min_detection_confidence: 0.3
+  min_tracking_confidence: 0.3
+
+ui:
+  result_display_s: 2.5
+
+logging:
+  root_dir: "~/.rosclaw/practice/runs/rh56_rps"
+  save_frames: false
+  save_telemetry: true
+
+safety:
+  max_force_g: 500
+  max_current_ma: 900
+  max_temp_c: 65
+  safe_open_on_error: true
+  consecutive_failure_limit: 3

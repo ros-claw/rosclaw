@@ -1,0 +1,63 @@
+schema_version: "rosclaw.providers.v1"
+
+required_capabilities:
+  planning.skill_params:
+    primary: "local_rule_planner"
+    fallback: []
+    timeout_ms: 1500
+
+  body_command.v1:
+    primary: "rh56_serial_provider"
+    fallback: []
+    timeout_ms: 2000
+
+  sensor.robot_state:
+    primary: "rh56_state_provider"
+    fallback: []
+    timeout_ms: 1000
+
+  sensor.camera.color:
+    primary: "realsense_color_provider"
+    fallback: []
+    timeout_ms: 2000
+
+providers:
+  local_rule_planner:
+    type: "rosclaw_provider"
+    endpoint: "local://planning/skill_params"
+    health_check: "rosclaw provider health local_rule_planner"
+
+  rh56_serial_provider:
+    type: "hardware_bridge"
+    endpoint: "serial:///dev/ttyUSB0?baud=115200&protocol=modbus_rtu&slave=2"
+    health_check: "rosclaw provider health rh56_serial_provider"
+    required_topics:
+      - /rh56/angle_set
+      - /rh56/speed_set
+      - /rh56/force_set
+
+  rh56_state_provider:
+    type: "hardware_bridge"
+    endpoint: "serial:///dev/ttyUSB0?baud=115200&protocol=modbus_rtu&slave=2"
+    health_check: "rosclaw provider health rh56_state_provider"
+    required_topics:
+      - /rh56/joint_states
+      - /rh56/force_feedback
+      - /rh56/temperature
+      - /rh56/status
+
+  realsense_color_provider:
+    type: "camera_bridge"
+    endpoint: "ros2:///camera/camera/color/image_raw"
+    health_check: "rosclaw provider health realsense_color_provider"
+    required_topics:
+      - /camera/camera/color/image_raw
+      - /camera/camera/color/camera_info
+
+routing_policy:
+  default: "capability_first"
+  prefer_local: true
+  require_health_check: false
+  fallback_on:
+    - timeout
+    - unavailable
