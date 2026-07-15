@@ -1028,10 +1028,10 @@ def cmd_trace(args: argparse.Namespace) -> int:
             return 0
         print("TRACE ID                         STATUS    SPANS   DURATION   KINDS")
         for item in traces:
-            kinds = ",".join(item["kinds"])
+            kind_text = ",".join(item["kinds"])
             print(
                 f"{item['trace_id']:<32} {item['status']:<9} {item['span_count']:>5}   "
-                f"{item['duration_ms']:>8.2f}ms   {kinds}"
+                f"{item['duration_ms']:>8.2f}ms   {kind_text}"
             )
         return 0
 
