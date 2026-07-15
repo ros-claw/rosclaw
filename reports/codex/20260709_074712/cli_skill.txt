@@ -1,0 +1,29 @@
+usage: rosclaw skill [-h]
+                     {list,check,invoke,run,champions,lineage,rollback,search,install,inspect,init,validate,mine,eval,promote,package,verify-package,upload,submit-catalog}
+                     ...
+
+positional arguments:
+  {list,check,invoke,run,champions,lineage,rollback,search,install,inspect,init,validate,mine,eval,promote,package,verify-package,upload,submit-catalog}
+    list                List available skills
+    check               Check skill availability and body compatibility
+    invoke              Invoke a skill
+    run                 Run a skill (alias for invoke)
+    champions           Skill champion management
+    lineage             Show skill lineage
+    rollback            Rollback skill to version
+    search              Search builtin and local skills
+    install             Install a builtin skill reference
+    inspect             Inspect a skill
+    init                Create a local skill package skeleton
+    validate            Validate skill package
+    mine                Mine skill candidate from practice episodes
+    eval                Evaluate skill candidate
+    promote             Promote candidate to version
+    package             Package skill into distributable archive
+    verify-package      Verify packaged archive
+    upload              Upload skill metadata to ROSClaw Hub (admin only)
+    submit-catalog      Submit a local skill to the official ros-claw/skills
+                        catalog via GitHub PR
+
+options:
+  -h, --help            show this help message and exit

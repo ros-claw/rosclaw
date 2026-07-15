@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from rosclaw.integrations.lerobot.canonical_timeline import (
-    CanonicalTimeline,
     build_canonical_timeline,
 )
 from rosclaw.integrations.lerobot.clock_mapping import (
@@ -26,7 +25,6 @@ from rosclaw.integrations.lerobot.source_stream_schema import (
     SourceStream,
     SourceStreamBundle,
 )
-
 
 ASYNC_FIXTURE = Path(__file__).parent.parent.parent / "examples" / "practice" / "async_physical_episode"
 

@@ -12,7 +12,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-
 ROSCLAW_EXTENSION_SCHEMA_VERSION = "rosclaw.lerobot.extension.v1"
 
 
@@ -47,7 +46,7 @@ class ExtensionSchema:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ExtensionSchema":
+    def from_dict(cls, data: dict[str, Any]) -> ExtensionSchema:
         return cls(
             schema_version=data.get("schema_version", ROSCLAW_EXTENSION_SCHEMA_VERSION),
             dataset_format=data.get("dataset_format", "lerobot_v3"),

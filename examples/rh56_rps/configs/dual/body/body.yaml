@@ -1,0 +1,49 @@
+schema_version: rosclaw.body.v1
+
+body_instance:
+  id: rh56_rps_body
+  robot_model: inspire_rh56_dual
+  nickname: RH56 RPS demo body
+  deployment_site: lab
+
+model_ref:
+  profile_id: inspire_rh56_dual
+  profile_version: "1.0"
+  eurdf_uri: rosclaw://eurdf/inspire_rh56_dual@1.0
+
+calibration:
+  status: uncalibrated
+
+installed_components:
+  sensors:
+    /camera/camera/color/image_raw:
+      type: color_camera
+      status: available
+      provider_ref: realsense2_camera
+  actuators:
+    rh56_right_hand:
+      type: dexterous_hand
+      status: available
+      provider_ref: inspire_rh56_serial
+    rh56_left_hand:
+      type: dexterous_hand
+      status: available
+      provider_ref: inspire_rh56_serial
+
+capabilities:
+  enabled:
+    - dexterous_hand_control
+    - rgb_camera
+    - hand_gesture_recognition
+  degraded: []
+  disabled: []
+
+forbidden_capabilities: []
+
+safety_overrides: {}
+
+runtime_state:
+  health: nominal
+
+metadata:
+  note: Demo body used by the ROSClaw-native RPS launcher.

@@ -17,7 +17,6 @@ from rosclaw.integrations.lerobot.smoke_policy import (
     run_smoke_policy_sync,
 )
 
-
 _REAL_POLICY = os.environ.get("ROSCLAW_LEROBOT_SMOKE_POLICY")
 _REAL_ROSCLAW_HOME = Path.home() / ".rosclaw"
 

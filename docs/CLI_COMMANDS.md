@@ -138,7 +138,12 @@
 | `practice list` | List recorded episodes | `rosclaw practice list [-h]` |
 | `practice show` | Show episode details | `rosclaw practice show [-h] [--json] episode_id` |
 | `practice replay` | Replay episode trace | `rosclaw practice replay [-h] episode_id` |
-| `practice export` | Export episode metadata | `rosclaw practice export [-h] [--format {json}] episode_id` |
+| `practice record` | Record a deterministic fixture | `rosclaw practice record --fixture FIXTURE --out DATA_ROOT [--json]` |
+| `practice verify` | Verify event envelopes and artifacts | `rosclaw practice verify practice_id --data-root DATA_ROOT [--strict] [--json]` |
+| `practice distill` | Distill closed-loop evidence | `rosclaw practice distill practice_id --data-root DATA_ROOT [--json]` |
+| `practice ingest-seekdb` | Ingest into SQLite or real SeekDB | `rosclaw practice ingest-seekdb practice_id [--seekdb-path FILE | --seekdb-url MYSQL_DSN] [--json]` |
+| `practice query` | Query distilled Practice data | `rosclaw practice query {episodes,failures,body-cognition,sim2real,candidates,interventions,explain-episode,explain-failure} ...` |
+| `practice export` | Export Practice artifacts | `rosclaw practice export practice_id --format {parquet,lerobot} --output PATH` |
 
 ## Memory commands
 
@@ -179,7 +184,11 @@
 | Command | Description | Usage |
 |---------|-------------|-------|
 | `provider list` | List registered providers | `rosclaw provider list [-h]` |
-| `provider invoke` | Invoke a provider capability | `rosclaw provider invoke [-h] [--trace-id TRACE_ID] provider_id input` |
+| `provider health` | Show provider health/capability contracts | `rosclaw provider health [provider_id] [--json]` |
+| `provider route` | Explain capability route selection | `rosclaw provider route --capability CAPABILITY [--json]` |
+| `provider benchmark` | Build a no-call benchmark plan | `rosclaw provider benchmark --dry-run [--json]` |
+| `provider invoke` | Invoke a provider capability | `rosclaw provider invoke provider_id [input] [--capability CAPABILITY] [--json]` |
+| `provider diagnose` | Diagnose interfaces against an active body | `rosclaw provider diagnose [--body BODY] [--workspace WORKSPACE] [--json]` |
 
 ## Events commands
 

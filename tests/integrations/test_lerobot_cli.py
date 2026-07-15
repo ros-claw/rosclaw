@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import sys
+from argparse import Namespace
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from rosclaw.cli import main
+from rosclaw.cli import cmd_practice_export, main
 
 
 @pytest.fixture
@@ -47,6 +48,29 @@ def test_setup_lerobot_dry_run(capsys):
     assert rc == 0
     out = capsys.readouterr().out
     assert "Dry-run" in out
+
+
+def test_setup_lerobot_json_is_single_machine_readable_document(capsys):
+    with patch.object(
+        sys,
+        "argv",
+        [
+            "rosclaw",
+            "setup",
+            "lerobot",
+            "--profile",
+            "core",
+            "--dry-run",
+            "--json",
+        ],
+    ):
+        rc = main()
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["profile"] == "core"
+    assert payload["dry_run"] is True
+    assert payload["details"]["plan"]
 
 
 def test_lerobot_doctor(capsys):
@@ -143,3 +167,35 @@ def test_provider_infer_missing_manifest(sample_input):
     ):
         rc = main()
     assert rc == 1
+
+
+def test_practice_id_keeps_real_lerobot_export_path(tmp_path: Path):
+    practice_id = "practice-001"
+    (tmp_path / practice_id).mkdir()
+    real_exporter = MagicMock()
+    real_exporter.export.return_value = tmp_path / "real-export"
+    skeleton_exporter = MagicMock()
+    args = Namespace(
+        episode_dir=None,
+        episode_id=practice_id,
+        practice_id=None,
+        format="lerobot",
+        data_root=str(tmp_path),
+        output=None,
+    )
+
+    with (
+        patch(
+            "rosclaw.practice.exporters.LeRobotExporter",
+            return_value=real_exporter,
+        ),
+        patch(
+            "rosclaw.practice.exporters.LeRobotSkeletonExporter",
+            return_value=skeleton_exporter,
+        ),
+    ):
+        rc = cmd_practice_export(args)
+
+    assert rc == 0
+    real_exporter.export.assert_called_once_with(practice_id, output_path=None)
+    skeleton_exporter.export.assert_not_called()

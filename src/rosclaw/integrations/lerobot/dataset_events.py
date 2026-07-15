@@ -9,12 +9,10 @@ integer columns and vocabularies.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 from rosclaw.integrations.lerobot.practice_normalizer import NormalizedPracticeEpisode
-
 
 _EVENT_FIELDS: list[tuple[str, str, str | None]] = [
     ("safety", "decision", None),

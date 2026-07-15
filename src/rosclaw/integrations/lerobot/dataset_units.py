@@ -12,7 +12,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-
 # Default SI-ish units for the physical telemetry fields introduced in Gate B.
 # Callers can override these by passing a custom unit map.
 DEFAULT_UNIT_MAP: dict[str, dict[str, Any]] = {

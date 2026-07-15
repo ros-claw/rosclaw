@@ -1,6 +1,7 @@
 """Tests for DeepSeekProvider."""
 
 import json
+import urllib.error
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -130,6 +131,33 @@ class TestDeepSeekInfer:
             resp = await provider.infer(req)
             assert resp.status == "error"
             assert "rate limit exceeded" in resp.result["error"]
+
+    @pytest.mark.asyncio
+    async def test_http_error_includes_upstream_message(self):
+        provider = DeepSeekProvider({"name": "deepseek", "capabilities": ["llm.task_planning"]})
+        provider._api_key = "fake_key"
+        error = urllib.error.HTTPError(
+            "https://api.deepseek.com/chat/completions",
+            402,
+            "Payment Required",
+            {},
+            MagicMock(
+                read=MagicMock(
+                    return_value=json.dumps({"error": {"message": "Insufficient Balance"}}).encode()
+                )
+            ),
+        )
+
+        with patch("urllib.request.urlopen", side_effect=error):
+            req = ProviderRequest(
+                request_id="r1",
+                capability="llm.task_planning",
+                inputs={"task": "test"},
+            )
+            resp = await provider.infer(req)
+
+        assert resp.status == "error"
+        assert resp.errors == ["DeepSeek API error (402): Insufficient Balance"]
 
     @pytest.mark.asyncio
     async def test_api_returns_non_dict(self):

@@ -55,7 +55,7 @@ class ClockMapping:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ClockMapping":
+    def from_dict(cls, data: dict[str, Any]) -> ClockMapping:
         return cls(
             source_clock=data.get("source_clock", "unknown"),
             target_clock=data.get("target_clock", "episode_time"),
@@ -90,7 +90,7 @@ class ClockSyncBundle:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ClockSyncBundle":
+    def from_dict(cls, data: dict[str, Any]) -> ClockSyncBundle:
         return cls(
             schema_version=data.get("schema_version", CLOCK_SYNC_SCHEMA_VERSION),
             target_clock=data.get("target_clock", "episode_time"),
@@ -131,7 +131,7 @@ class SourceSample:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "SourceSample":
+    def from_dict(cls, data: dict[str, Any]) -> SourceSample:
         return cls(
             sequence=int(data.get("sequence", 0)),
             source_timestamp_ns=int(data["source_timestamp_ns"]),
@@ -171,7 +171,7 @@ class SourceStream:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "SourceStream":
+    def from_dict(cls, data: dict[str, Any]) -> SourceStream:
         return cls(
             key=data.get("key", ""),
             samples=[SourceSample.from_dict(s) for s in data.get("samples", [])],
@@ -207,7 +207,7 @@ class SourceStreamBundle:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "SourceStreamBundle":
+    def from_dict(cls, data: dict[str, Any]) -> SourceStreamBundle:
         raw_streams = data.get("streams", {})
         return cls(
             schema_version=data.get("schema_version", SOURCE_BUNDLE_SCHEMA_VERSION),
@@ -224,7 +224,7 @@ class SourceStreamBundle:
 
     def required_stream_keys(self) -> list[str]:
         """Streams that must be present for a meaningful episode."""
-        return sorted(k for k in self.streams.keys() if k in {"observation.state", "action"})
+        return sorted(k for k in self.streams if k in {"observation.state", "action"})
 
 
 __all__ = [

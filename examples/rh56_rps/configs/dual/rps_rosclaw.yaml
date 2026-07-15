@@ -1,0 +1,63 @@
+# ROSClaw integration config for the RH56 RPS demo.
+# Loaded by rosclaw_cli.py / run_rosclaw_rps.sh.
+
+practice:
+  robot_id: rh56_rps_robot
+  robot_type: dual_rh56
+  task_id: rh56_rps
+  task_name: RH56 Rock-Paper-Scissors
+  skill_id: rh56_rps
+  session_name: rh56_rps_session
+
+  # Explicit body_id for SeekDB querying.  The demo hardware is not yet
+  # modeled as a full rosclaw body, so this defaults to robot_id.
+  body_id: rh56_rps_robot
+
+  # Local data layout: sessions/ + indexes/ under this root.
+  # Use ~/.rosclaw/practice/runs/rh56_rps instead of /tmp.
+  data_root: ~/.rosclaw/practice/runs/rh56_rps
+
+  sources:
+    dds: false
+    ros2: false
+    camera: true         # 30 Hz frame_event stream via FrameRecorder
+    agent: true
+    provider: false
+    sandbox: false
+    runtime: true
+    human: false
+
+  recorder:
+    jsonl_enabled: true
+    jsonl_rotate_mb: 512
+    mcap_enabled: true
+    mcap_compression: zstd
+    mcap_chunk_size_bytes: 4194304
+    frames_enabled: true
+    frame_hz: 30.0
+    keyframe_hz: 1.0
+    telemetry_enabled: true
+    telemetry_hz: 5.0
+
+  seekdb:
+    enabled: false
+    fallback_dir: ~/.rosclaw/practice/runs/rh56_rps/fallback
+
+# Body workspace used for skill/body compatibility checks.
+# The demo does not yet have a linked rosclaw body model, so we point this at
+# the config directory (which has no body/ subdir).  SkillExecutor treats an
+# unlinked workspace as backward-compatible fail-open, while the body_id above
+# still lets SeekDB tag and query sessions correctly.
+body:
+  workspace: .
+
+# Memory / Knowledge Plane backend.
+#   backend: memory  -> in-memory SeekDB (default, no persistence across runs)
+#   backend: sqlite -> local SQLite-backed SeekDB
+memory:
+  # backend: memory
+  backend: sqlite
+  db_path: ~/.rosclaw/practice/runs/rh56_rps/seekdb.sqlite
+
+# Path to the skill manifest, relative to --config-dir.
+skill_manifest: skills/rh56_rps/skill.yaml

@@ -1,0 +1,27 @@
+usage: rosclaw hub [-h]
+                   {validate,ref,schema,login,whoami,logout,sync,search,verify,policy,install,uninstall,update,list,publish}
+                   ...
+
+positional arguments:
+  {validate,ref,schema,login,whoami,logout,sync,search,verify,policy,install,uninstall,update,list,publish}
+    validate            Validate an asset manifest.yaml
+    ref                 Asset reference utilities
+    schema              Manifest schema utilities
+    login               Authenticate with a Hub registry
+    whoami              Show the active Hub registry identity
+    logout              Forget stored Hub credentials
+    sync                Sync the local catalog index
+    search              Search the local catalog index
+    verify              Verify asset integrity (checksums, artifacts,
+                        signatures)
+    policy              Check asset against local permission and license
+                        policy
+    install             Install an asset from a local directory or registry
+                        reference
+    uninstall           Uninstall an asset by reference
+    update              Update an installed asset from a local directory
+    list                List installed assets
+    publish             Prepare and publish a ROSClaw Hub asset
+
+options:
+  -h, --help            show this help message and exit

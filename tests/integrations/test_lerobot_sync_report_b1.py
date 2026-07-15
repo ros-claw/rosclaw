@@ -15,14 +15,13 @@ from rosclaw.integrations.lerobot.sync_config import default_sync_config
 from rosclaw.integrations.lerobot.sync_quality import default_quality_config, evaluate_quality
 from rosclaw.integrations.lerobot.sync_report import (
     build_missingness_report_block,
-    build_synchronization_report_block,
     build_sync_stats_rows,
+    build_synchronization_report_block,
     write_clock_mappings_sidecar,
     write_sync_config_sidecar,
 )
 from rosclaw.integrations.lerobot.sync_stats import compute_sync_stats, write_sync_stats_parquet
 from rosclaw.integrations.lerobot.synchronize import synchronize_bundle
-
 
 ASYNC_FIXTURE = Path(__file__).parent.parent.parent / "examples" / "practice" / "async_physical_episode"
 
