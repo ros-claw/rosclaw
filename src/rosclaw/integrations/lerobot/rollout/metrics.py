@@ -20,6 +20,9 @@ class RolloutMetrics:
     sandbox_blocks: int = 0
     nan_inf_blocks: int = 0
     deadline_misses: int = 0
+    deadline_miss_ms: list[float] = field(default_factory=list)
+    overrun_count: int = 0
+    effective_control_hz: float = 0.0
     hardware_actions_executed: int = 0
 
     def record_step(self, latency_ms: float) -> None:
@@ -33,6 +36,12 @@ class RolloutMetrics:
 
     def record_sandbox(self, latency_ms: float) -> None:
         self.sandbox_latencies_ms.append(latency_ms)
+
+    def record_deadline_miss(self, miss_ms: float, overrun: bool = False) -> None:
+        self.deadline_misses += 1
+        self.deadline_miss_ms.append(round(miss_ms, 3))
+        if overrun:
+            self.overrun_count += 1
 
     @staticmethod
     def _summary(values: list[float]) -> dict[str, float]:
@@ -60,6 +69,9 @@ class RolloutMetrics:
             "sandbox_blocks": self.sandbox_blocks,
             "nan_inf_blocks": self.nan_inf_blocks,
             "deadline_misses": self.deadline_misses,
+            "deadline_miss_ms": self._summary(self.deadline_miss_ms),
+            "overrun_count": self.overrun_count,
+            "effective_control_hz": round(self.effective_control_hz, 2),
             "hardware_actions_executed": self.hardware_actions_executed,
         }
 

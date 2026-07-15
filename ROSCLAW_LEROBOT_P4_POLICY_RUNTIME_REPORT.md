@@ -1,8 +1,8 @@
 # ROSClaw × LeRobot Bridge P4 — Persistent Policy Runtime Report
 
-**Date:** 2026-07-15  
-**Branch:** `p4-e-acceptance-hardening`  
-**Status:** P4-A through P4-E implementation complete; real persistent runtime smoke and mock body-mapping smoke passed.
+**Date:** 2026-07-16  
+**Branch:** `main`  
+**Status:** P4-A through P4-E implementation complete; P4.1 Acceptance Hardening complete. Full LeRobot unit + integration test suite passes (284 passed, 3 skipped). Ready for P5 real-hardware execution gating.
 
 ---
 
@@ -10,24 +10,45 @@
 
 P4 upgrades the ROSClaw ↔ LeRobot bridge from a **one-shot subprocess-per-inference** model to a **persistent policy runtime** that keeps a LeRobot policy resident across many inference steps, preserves episode-scoped temporal state, enforces explicit observation/action contracts, maps actions to the current effective body, and runs sandbox-preflighted proposal-only / shadow loops without ever executing hardware commands.
 
-All acceptance gates from §19 of the P4 specification pass:
+**P4.1 Acceptance Hardening** closes the safety gaps between "engineering prototype" and "real-robot前置层":
+
+- Action semantics are no longer guessed from `policy_type`; only explicit policy metadata is authoritative. Missing metadata produces a fail-closed `unknown_action_semantics` block.
+- `WARMUP` runs a real end-to-end inference (`preprocess → select_action → postprocess`) and validates shape / NaN / Inf before the live loop starts.
+- The runtime enforces a **single active session**; a second `CREATE_SESSION` returns `session_capacity_exceeded`.
+- `INFER` enforces strict **step-index monotonicity** (`expected = last + 1`); mismatches return `non_monotonic_step_index`.
+- Worker death immediately fails pending requests with `worker_died` instead of waiting for the 120 s timeout.
+- Action batch dimensions are normalized (`[1, D] → [D]`); undeclared `[N>1, D]` tensors are rejected as `batch_action_not_supported`, while declared `[chunk_size, D]` chunks remain valid.
+- The rollout loop uses a **fixed-deadline scheduler** and records `deadline_miss_ms`, `overrun_count`, and `effective_control_hz`.
+- Shadow/proposal rollouts can finalize into the full **Practice lifecycle** (session/episode/manifest/timeline/catalog) via `finalize_rollout_practice_session`.
+
+All acceptance gates from §19 of the P4 specification and the P4.1 hardening checklist pass:
 
 | Gate | Result |
 |------|--------|
 | Policy loads once | ✅ `LOAD_POLICY` succeeds and `policy_loaded` stays true |
-| 100 continuous inferences on same worker | ✅ 100 `INFER` calls on PID `745985` |
+| 100 continuous inferences on same worker | ✅ 100 `INFER` calls on stable worker PID |
 | `policy.reset()` per session | ✅ called in `CREATE_SESSION` / `RESET_SESSION` |
 | Sessions do not leak | ✅ `active_sessions` tracked and closed |
+| Single active session enforced | ✅ second session returns `session_capacity_exceeded` |
+| Step monotonicity enforced | ✅ mismatch returns `non_monotonic_step_index` |
+| Worker death wakes pending requests | ✅ `worker_died` returned immediately |
 | Pre/post processors invoked | ✅ `make_pre_post_processors` built and `_move_processor_to_device` applied |
 | State ordering uses names | ✅ `observation_adapter` enforces flat named keys |
 | No `action_dim=7` fallback for real inference | ✅ shape taken from `output_features.action.shape` |
-| Proposals carry representation/names/units/timing | ✅ `rosclaw.action_proposal.v2` populated |
+| No policy_type → representation/unit guessing | ✅ explicit metadata only; unknown semantics block |
+| WARMUP runs real inference | ✅ preprocess/model/postprocess/shape/NaN-Inf validated |
+| Action batch `[1,D]` squeezed | ✅ normalized to `[D]` |
+| Undeclared `[N>1,D]` blocked | ✅ `batch_action_not_supported` |
+| Declared chunks `[T,D]` preserved | ✅ `chunk_size` metadata distinguishes chunk from batch |
+| Proposals carry representation/names/units/timing/source/authoritative | ✅ `rosclaw.action_proposal.v2` populated |
 | One mock body achieves `exact` mapping | ✅ RH56 6-DoF mock test |
 | Incompatible body mapping blocked | ✅ fail-closed, `INCOMPATIBLE_MAPPING` stop reason |
 | Sandbox preflight end-to-end | ✅ `sandbox_run` invoked per step in shadow mode |
-| Proposal-only loop 100 steps | ✅ CLI path exercised in unit tests |
+| Proposal-only loop 100 steps | ✅ CLI path exercised in integration tests |
 | Shadow mode no hardware execution | ✅ `hardware_actions_executed == 0` always |
-| Practice records full evidence | ✅ JSONL trace with runtime/session/mapping/sandbox events |
+| Fixed-deadline scheduler | ✅ `next_deadline = loop_start + (step+1)/control_hz` |
+| Deadline miss / overrun metrics | ✅ recorded per step |
+| Practice full lifecycle | ✅ session/episode/manifest/timeline/catalog |
 | Python 3.11 core never imports torch/lerobot | ✅ subprocess boundary test passes |
 
 ---
@@ -85,7 +106,8 @@ rosclaw.integrations.lerobot
 │   ├── observation_source.py
 │   ├── recorder.py       # Practice-compatible JSONL trace recorder
 │   ├── metrics.py
-│   └── sandbox_preflight.py
+│   ├── sandbox_preflight.py
+│   └── practice_bridge.py # rollout trace → full Practice lifecycle
 ├── action_adapter.py     # processed action → rosclaw.action_proposal.v2
 ├── observation_adapter.py# ROSClaw obs → worker flat tensor keys
 └── cli.py                # `rosclaw lerobot policy ...`, `mapping ...`, `rollout ...`
@@ -105,7 +127,7 @@ rosclaw.body.action_mapping
 - `HELLO` — protocol handshake
 - `PROBE` — runtime capability discovery
 - `LOAD_POLICY` — materialize policy, build processors, extract metadata
-- `WARMUP` — confirm policy resident
+- `WARMUP` — run one real end-to-end inference (`preprocess → select_action → postprocess`) and validate shape / NaN / Inf
 - `CREATE_SESSION` — new episode, call `policy.reset()`
 - `RESET_SESSION` — reset episode, call `policy.reset()`
 - `INFER` — preprocess → `select_action` → postprocess → return raw + processed action
@@ -152,9 +174,9 @@ The first inference is slower; after warm-up the loop is stable.
 ### 4.3 Action shape and semantics
 
 - `output_features.action.shape` = `[14]`
-- Processed action returned shape = `[1, 14]` (postprocessor preserves a batch dimension).
-- Test was updated to compare `shape[-1]` and flatten safely instead of assuming a 1-D list.
-- Semantic fallback in `policy_worker_service._extract_metadata` sets `extra.action_representation = joint_position` and `extra.action_unit = radian` for `act`, `diffusion`, `pi0`, `tdmpc` policies when the LeRobot config does not carry explicit tags.
+- Processed action returned shape = `[1, 14]` (postprocessor preserves a batch dimension); the contract layer squeezes `[1, D]` → `[D]`.
+- **P4.1 fail-closed semantics:** `policy_worker_service._extract_metadata` no longer infers `action_representation` / `action_unit` from `policy_type`. Only explicit config tags are propagated. The generic ALOHA smoke policy therefore yields `representation="unknown"`, `units="unknown"`, and `names=[]`, which `build_action_proposal_v2` blocks as `unknown_action_semantics`. A real-robot run must supply explicit metadata or an observation contract that carries authoritative action semantics.
+- `chunk_size` from `policy.config` is propagated in `metadata.extra.chunk_size` so that `[chunk_size, D]` action chunks are distinguished from unsupported batched actions.
 
 ---
 
@@ -195,6 +217,8 @@ The first inference is slower; after warm-up the loop is stable.
   "step_index": 0,
   "representation": "joint_position",
   "reference_frame": "world",
+  "semantic_source": "explicit_policy_contract",
+  "authoritative": true,
   "action": {
     "names": ["left_hip_pitch", "left_knee", "..."],
     "units": "radian",
@@ -342,12 +366,16 @@ Each event includes `event_time`, `task_id`, `session_id`, `step_index`, and evi
 | `test_lerobot_runtime_boundary.py::test_core_module_does_not_import_torch_or_lerobot` | Python 3.11 core | absent | ✅ 13 modules pass |
 | `test_lerobot_runtime_boundary.py::test_worker_module_can_import_torch_and_lerobot` | Python 3.12 worker | present | ✅ no core guard error |
 | `test_lerobot_persistent_runtime_smoke.py::test_persistent_runtime_100_inferences` | Python 3.12 worker | present | ✅ pass |
-| `test_lerobot_persistent_runtime_smoke.py::test_persistent_runtime_action_proposal_has_semantics` | Python 3.12 worker | present | ✅ pass |
+| `test_lerobot_persistent_runtime_smoke.py::test_persistent_runtime_action_proposal_has_semantics` | Python 3.12 worker | present | ✅ pass (fail-closed unknown semantics) |
 | `test_lerobot_rollout_rh56_smoke.py` | Python 3.11 core (mock runtime) | absent | ✅ pass |
-| Unit tests under `tests/unit/integrations/lerobot/` | Python 3.11 core | absent | ✅ 57 pass |
-| `tests/integrations/test_lerobot_cli.py` | Python 3.11 core | absent | ✅ 220 passed, 3 skipped |
+| Unit tests under `tests/unit/integrations/lerobot/` | Python 3.11 core | absent | ✅ 63 pass |
+| `tests/integrations/test_lerobot_cli.py` + other integration tests | Python 3.11 core / worker | mixed | ✅ 221 passed, 3 skipped |
 
-Total LeRobot integration tests: **220 passed, 3 skipped**.
+Total LeRobot tests: **284 passed, 3 skipped**.
+
+```bash
+python -m pytest tests/integrations/test_lerobot_*.py tests/unit/integrations/lerobot/ -q  # 284 passed, 3 skipped
+```
 
 ---
 
@@ -355,15 +383,27 @@ Total LeRobot integration tests: **220 passed, 3 skipped**.
 
 1. **LeRobot 0.6.x processor migration** — older pretrained policies require a one-time migrated copy (`<policy>_migrated`). The smoke test skips if it is missing and tells the operator to migrate.
 2. **CPU-only metrics** — GPU memory measurement was not available in the test environment; only CPU latency is reported.
-3. **Postprocessor batch dimension** — processed action retains `[1, D]` shape because LeRobot's postprocessor is batch-preserving. Consumers should use `shape[-1]` and flatten safely.
-4. **First-inference warm-up** — the very first `INFER` can be several seconds due to JIT/import side effects; p95 after warm-up is stable.
-5. **Real robot shadow** — tested only with a mock body and mock collector; a real-body shadow test requires a linked robot and safe lab environment.
+3. **Postprocessor batch dimension** — processed action retains `[1, D]` shape because LeRobot's postprocessor is batch-preserving. The contract layer normalizes this to `[D]`; consumers see the squeezed shape.
+4. **First-inference warm-up** — the very first `INFER` can be several seconds due to JIT/import side effects. `WARMUP` now absorbs this overhead before the live loop starts.
+5. **Action semantics require explicit metadata** — the bridge no longer guesses representation/units/names from `policy_type`. Real-robot policies must include explicit action metadata in their config or be paired with an authoritative observation/action contract.
+6. **Real robot shadow** — tested with a mock body and mock collector. A real-body shadow gate is the first P5 milestone and requires a linked robot and safe lab environment.
 
 ---
 
-## 13. P5 Recommendations
+## 13. P5 Gate Status
 
-1. **Real-robot shadow gate** — run shadow mode on a linked ROSClaw body with a human-held emergency stop, verifying timing and body mapping against encoders.
+P5 real-hardware execution may begin only after the following hard gates are closed:
+
+| Gate | Status | Notes |
+|------|--------|-------|
+| Real-body shadow 1000 steps, 0 hardware actions | ⏳ pending | Requires linked ROSClaw body and lab safety procedure |
+| Real policy with explicit action metadata (representation, units, names) | ⏳ pending | Current smoke policy lacks explicit tags; use body-specific policy or manifest |
+| `rosclaw practice verify --strict` on shadow output | ✅ ready | `finalize_rollout_practice_session` writes full lifecycle |
+| Operator emergency-stop and human oversight | ⏳ pending | Lab procedure, not code |
+
+### P5 follow-up work
+
+1. **Real-robot shadow gate** — run shadow mode on a linked ROSClaw body with a human-held emergency stop, verifying timing, body mapping, and 0 hardware actions.
 2. **GPU memory telemetry** — add `torch.cuda.memory_summary` to `PROBE`/`HEALTH` when CUDA is available.
 3. **Action chunk execution** — extend the runtime to return full action chunks and a chunk selector for temporal consistency.
 4. **Online policy update** — support `UNLOAD_POLICY` + `LOAD_POLICY` hot-swap for A/B policy evaluation.
@@ -392,9 +432,10 @@ Total LeRobot integration tests: **220 passed, 3 skipped**.
 - `src/rosclaw/integrations/lerobot/action_adapter.py`
 - `src/rosclaw/integrations/lerobot/observation_adapter.py`
 - `src/rosclaw/integrations/lerobot/contracts/*.py`
-- `src/rosclaw/integrations/lerobot/rollout/*.py`
+- `src/rosclaw/integrations/lerobot/rollout/*.py` (incl. new `practice_bridge.py`)
 - `src/rosclaw/integrations/lerobot/cli.py`
 - `src/rosclaw/body/action_mapping/*.py`
+- `src/rosclaw/cli.py`
 
 ### Report
 
@@ -402,37 +443,27 @@ Total LeRobot integration tests: **220 passed, 3 skipped**.
 
 ---
 
-## 15. Post-Merge Verification (2026-07-15)
+## 15. Post-Merge Verification (2026-07-16)
 
-After the initial P4-E merge, a deep re-verification pass was run on `main`:
+After the P4.1 hardening pass, the following verification was run on local `main`:
 
-- Fixed a variable-name typo (`mapped_report` → `mapping_report`) in the
-  proposal-only rollout loop that caused a runtime failure when no body was linked.
-- Made `FixtureObservationSource` inject `_base_dir` and accept a single
-  observation dict, so the bundled sample fixture works out of the box.
-- Added `state_names` to `sample_observation_aloha_act.json` to satisfy the
-  fail-closed observation adapter without requiring an external contract.
-- Fixed `rosclaw setup lerobot --json` to emit a single parseable JSON document.
+- Removed `policy_type → joint_position/radian` semantic guessing in `_extract_metadata`.
+- Added `SemanticSource` and `authoritative` flags to `ActionProposalV2`; blocked proposals when representation is unknown or names are missing.
+- Made `WARMUP` run a real end-to-end inference with NaN/Inf/shape validation.
+- Enforced single active session (`session_capacity_exceeded`) and strict step-index monotonicity (`non_monotonic_step_index`).
+- Added `worker_generation` and immediate `worker_died` propagation on worker death.
+- Normalized action batches (`[1,D] → [D]`) and rejected undeclared `[N>1,D]` while preserving declared `[chunk_size,D]` chunks.
+- Switched rollout loop to fixed-deadline scheduling with `deadline_miss_ms`, `overrun_count`, and `effective_control_hz`.
+- Added `finalize_rollout_practice_session` to import rollout traces into the full Practice lifecycle.
+- Updated CLI flags (`--strict-deadline`, `--max-deadline-misses`, `--practice-root`, `--observation` for warmup).
 
 Verification results:
 
-```
-python -m pytest tests/integrations/test_lerobot_*.py -q   # 220 passed, 3 skipped
-python -m pytest tests/unit/integrations/lerobot/ -q       # 57 passed
-rosclaw lerobot rollout proposal-only --steps 100           # completed, 100 proposals
+```bash
+python -m pytest tests/integrations/test_lerobot_*.py tests/unit/integrations/lerobot/ -q  # 284 passed, 3 skipped
 ```
 
-Proposal-only CLI latency (CPU, post-warmup): mean ~84 ms, p95 ~92 ms.
-`hardware_actions_executed` remained `0`.
-
-Two commits are ready on local `main`:
-
-- `203560e` P4-E: fix proposal-only rollout body-agnostic path, fixture state_names, and source base_dir injection
-- `57553a4` P4-E: make rosclaw setup lerobot --json emit a single parseable document
-
-Push to `origin/main` was attempted but blocked by GitHub authentication/network
-issues from this environment (HTTPS token rejected / SSH denied to `yanht-op`).
-The commits should be pushed manually or from an environment with write access.
+The P4.1 changes are staged on local `main` and ready to push to `ros-claw/rosclaw` `main`.
 
 ---
 

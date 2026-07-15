@@ -60,8 +60,16 @@ class RuntimeClient:
             params["allow_network"] = allow_network
         return self.manager.call("LOAD_POLICY", params)
 
-    def warmup(self) -> dict[str, Any]:
-        return self.manager.call("WARMUP", {})
+    def warmup(
+        self,
+        observation: dict[str, Any] | None = None,
+        *,
+        iterations: int = 1,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"iterations": iterations}
+        if observation is not None:
+            params["observation"] = observation
+        return self.manager.call("WARMUP", params)
 
     def create_session(
         self,

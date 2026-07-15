@@ -40,6 +40,7 @@ class RolloutResult:
     mapped_actions: list[dict[str, Any]] = field(default_factory=list)
     sandbox_decisions: list[dict[str, Any]] = field(default_factory=list)
     trace_path: str | None = None
+    practice_id: str | None = None
     metrics: dict[str, Any] = field(default_factory=dict)
     hardware_actions_executed: int = 0
     errors: list[str] = field(default_factory=list)
@@ -54,6 +55,7 @@ class RolloutResult:
             "mapped_action_count": len(self.mapped_actions),
             "sandbox_decision_count": len(self.sandbox_decisions),
             "trace_path": self.trace_path,
+            "practice_id": self.practice_id,
             "metrics": self.metrics,
             "hardware_actions_executed": self.hardware_actions_executed,
             "errors": self.errors,

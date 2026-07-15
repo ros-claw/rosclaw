@@ -320,7 +320,11 @@ def test_doctor_shows_validated_with_success_report(tmp_path: Path, monkeypatch)
 
 
 def test_action_chunk_adapter_shape_100_14():
-    """Action adapter must preserve a [100, 14] chunk shape in v2 proposals."""
+    """Action adapter must preserve a [100, 14] chunk shape in v2 proposals.
+
+    Without explicit policy metadata the action semantics are unknown, so the
+    proposal is fail-closed rather than inventing generic action names.
+    """
     from rosclaw.integrations.lerobot.worker_schema import WorkerAction
 
     values = [[float(j) for j in range(14)] for _ in range(100)]
@@ -330,13 +334,50 @@ def test_action_chunk_adapter_shape_100_14():
         shape=[100, 14],
         dtype="float32",
     )
-    proposal = adapt_action_to_proposal(action)
+    proposal = adapt_action_to_proposal(
+        action,
+        policy_metadata={"extra": {"chunk_size": 100}},
+    )
     assert proposal["schema_version"] == "rosclaw.action_proposal.v2"
     assert proposal["action"]["shape"] == [100, 14]
     assert proposal["chunk"]["is_chunk"] is True
     assert proposal["chunk"]["length"] == 100
-    assert len(proposal["action"]["names"]) == 14
+    assert proposal["action"]["names"] == []
     assert proposal["safety"]["executable"] is False
     assert proposal["safety"]["requires_sandbox"] is True
-    assert len(proposal["action"]["values"]) == 100
-    assert len(proposal["action"]["values"][0]) == 14
+    assert proposal["safety"].get("error_code") == "unknown_action_semantics"
+    assert proposal["authoritative"] is False
+    assert len(proposal["action"]["values"]) == 1400
+    assert all(isinstance(v, float) for v in proposal["action"]["values"])
+
+
+def test_action_chunk_adapter_with_explicit_metadata_is_authoritative():
+    """Explicit action metadata in the policy config produces an authoritative proposal."""
+    from rosclaw.integrations.lerobot.worker_schema import WorkerAction
+
+    values = [[float(j) for j in range(7)] for _ in range(10)]
+    action = WorkerAction(
+        type="lerobot_action_chunk",
+        values=values,
+        shape=[10, 7],
+        dtype="float32",
+    )
+    proposal = adapt_action_to_proposal(
+        action,
+        policy_metadata={
+            "output_features": {
+                "action": {
+                    "shape": [10, 7],
+                    "representation": "joint_position",
+                    "unit": "radian",
+                    "names": [f"joint_{i}" for i in range(7)],
+                }
+            }
+        },
+    )
+    assert proposal["representation"] == "joint_position"
+    assert proposal["action"]["names"] == [f"joint_{i}" for i in range(7)]
+    assert proposal["action"]["units"] == "radian"
+    assert proposal["authoritative"] is True
+    assert proposal["semantic_source"] == "explicit_policy_contract"
+    assert proposal["safety"].get("error_code") is None

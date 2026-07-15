@@ -250,12 +250,17 @@ def test_persistent_runtime_action_proposal_has_semantics(
         )
 
         assert proposal.get("schema_version") == "rosclaw.action_proposal.v2"
-        assert proposal.get("representation") != "unknown"
+        # The generic ALOHA smoke policy config does not declare action semantics,
+        # so the bridge must remain fail-closed rather than guessing.
+        assert proposal.get("representation") == "unknown"
         action = proposal.get("action", {})
-        assert action.get("names")
-        assert action.get("units") != "unknown"
+        assert action.get("names") == []
+        assert action.get("units") == "unknown"
         assert action.get("shape")
         assert proposal.get("safety", {}).get("executable") is False
         assert proposal.get("safety", {}).get("requires_sandbox") is True
+        assert proposal.get("safety", {}).get("error_code") == "unknown_action_semantics"
+        assert proposal.get("authoritative") is False
+        assert proposal.get("semantic_source") == "unknown"
 
         runtime.call("CLOSE_SESSION", {"session_id": session_id})

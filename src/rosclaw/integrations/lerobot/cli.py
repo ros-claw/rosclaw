@@ -1243,6 +1243,21 @@ def cmd_lerobot_policy_plugins(args: argparse.Namespace) -> int:
     return 0
 
 
+def _build_warmup_params(args: argparse.Namespace) -> dict[str, Any]:
+    """Build WARMUP parameters from CLI args."""
+    params: dict[str, Any] = {"iterations": 1}
+    fixture_path = getattr(args, "observation_fixture", None)
+    if fixture_path:
+        from rosclaw.integrations.lerobot.rollout.observation_source import FixtureObservationSource
+
+        source = FixtureObservationSource(fixture_path)
+        obs = source.get_observation(0)
+        if obs is None:
+            raise ValueError(f"No observation found in fixture: {fixture_path}")
+        params["observation"] = obs
+    return params
+
+
 def cmd_lerobot_policy_warmup(args: argparse.Namespace) -> int:
     """Dispatch `rosclaw lerobot policy warmup`."""
     from rosclaw.integrations.lerobot.policy_runtime.config import get_daemon_status
@@ -1286,7 +1301,12 @@ def cmd_lerobot_policy_warmup(args: argparse.Namespace) -> int:
             print(f"[rosclaw-lerobot] Load policy failed: {load_response}", file=sys.stderr)
             return 1
 
-        warmup_response = send_request(socket_path, "WARMUP", timeout_sec=120.0)
+        warmup_response = send_request(
+            socket_path,
+            "WARMUP",
+            _build_warmup_params(args),
+            timeout_sec=120.0,
+        )
         if args.json:
             print(
                 json.dumps(
@@ -1492,11 +1512,14 @@ def _build_rollout_config(args: argparse.Namespace, mode: str) -> "RolloutConfig
         steps=getattr(args, "steps", None),
         duration_sec=getattr(args, "duration", None),
         control_hz=float(getattr(args, "control_hz", 10.0)),
+        strict_deadline=getattr(args, "strict_deadline", False),
+        max_deadline_misses=getattr(args, "max_deadline_misses", None),
         execute=getattr(args, "execute", False),
         allow_partial_mapping=getattr(args, "allow_partial_mapping", False),
         run_sandbox_preflight=not getattr(args, "skip_sandbox", False),
         trace_path=getattr(args, "trace_path", None),
         task_id=getattr(args, "task_id", None),
+        practice_data_root=getattr(args, "practice_root", None),
         runtime_timeout_sec=float(getattr(args, "timeout_sec", 300)),
         startup_timeout_sec=float(getattr(args, "startup_timeout_sec", 60)),
     )

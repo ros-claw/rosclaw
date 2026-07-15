@@ -156,6 +156,8 @@ def test_action_proposal_v2_chunk_detection() -> None:
         dtype="float32",
         names=[f"joint_{i}" for i in range(7)],
         units="radian",
+        semantic_source="explicit_policy_contract",
+        authoritative=True,
         chunk={"is_chunk": True, "length": 50},
         safety={"executable": False},
     )
@@ -195,12 +197,13 @@ def test_build_action_proposal_v2_infers_names_units() -> None:
 
 def test_build_action_proposal_v2_chunk_from_shape() -> None:
     processed = {"values": [[0.0] * 6 for _ in range(20)], "shape": [20, 6], "dtype": "float32"}
+    metadata = {"output_features": {"action": {"shape": [20, 6]}}}
     proposal = build_action_proposal_v2(
         proposal_id="p1",
         session_id=None,
         step_index=5,
         policy_path="local/test",
-        policy_metadata={},
+        policy_metadata=metadata,
         processed_action=processed,
     )
     assert proposal.chunk.is_chunk is True
@@ -217,7 +220,7 @@ def test_infer_action_names_priority() -> None:
     metadata2 = {"extra": {"action_names": ["c", "d"]}}
     assert infer_action_names(metadata2) == ["c", "d"]
     assert infer_action_names({}, manifest_action_space=["x", "y"]) == ["x", "y"]
-    assert infer_action_names({}, action_dim=3) == ["action_0", "action_1", "action_2"]
+    assert infer_action_names({}, action_dim=3) == []
 
 
 def test_infer_action_representation_and_units() -> None:
@@ -281,3 +284,121 @@ def test_action_proposal_from_dict_handles_missing_action_block() -> None:
     assert proposal.values == []
     assert proposal.shape == []
     assert proposal.names == []
+
+
+def test_build_action_proposal_v2_squeezes_batch_one() -> None:
+    processed = {
+        "values": [[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]],
+        "shape": [1, 7],
+        "dtype": "float32",
+    }
+    metadata = {
+        "output_features": {
+            "action": {
+                "representation": "joint_position",
+                "unit": "radian",
+                "names": ["j0", "j1", "j2", "j3", "j4", "j5", "j6"],
+            }
+        }
+    }
+    proposal = build_action_proposal_v2(
+        proposal_id="p1",
+        session_id=None,
+        step_index=0,
+        policy_path="local/test",
+        policy_metadata=metadata,
+        processed_action=processed,
+    )
+    assert proposal.shape == [7]
+    assert proposal.values == [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+    assert proposal.chunk.is_chunk is False
+
+
+def test_build_action_proposal_v2_blocks_batch_action_not_supported() -> None:
+    processed = {
+        "values": [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
+        "shape": [2, 3],
+        "dtype": "float32",
+    }
+    metadata = {
+        "output_features": {
+            "action": {
+                "representation": "joint_position",
+                "unit": "radian",
+                "names": ["j0", "j1", "j2"],
+                "shape": [3],
+            }
+        }
+    }
+    proposal = build_action_proposal_v2(
+        proposal_id="p1",
+        session_id=None,
+        step_index=0,
+        policy_path="local/test",
+        policy_metadata=metadata,
+        processed_action=processed,
+    )
+    assert proposal.safety.get("error_code") == "batch_action_not_supported"
+    assert proposal.safety.get("executable") is False
+
+
+def test_build_action_proposal_v2_blocks_unknown_representation() -> None:
+    processed = {"values": [0.1] * 14, "shape": [14], "dtype": "float32"}
+    proposal = build_action_proposal_v2(
+        proposal_id="p1",
+        session_id=None,
+        step_index=0,
+        policy_path="local/test",
+        policy_metadata={},
+        processed_action=processed,
+    )
+    assert proposal.representation == "unknown"
+    assert proposal.units == "unknown"
+    assert proposal.names == []
+    assert proposal.safety.get("error_code") == "unknown_action_semantics"
+    assert proposal.safety.get("executable") is False
+
+
+def test_build_action_proposal_v2_semantic_source_and_authoritative() -> None:
+    explicit_metadata = {
+        "output_features": {
+            "action": {
+                "representation": "joint_position",
+                "unit": "radian",
+                "names": ["j0"],
+            }
+        }
+    }
+    proposal = build_action_proposal_v2(
+        proposal_id="p1",
+        session_id=None,
+        step_index=0,
+        policy_path="local/test",
+        policy_metadata=explicit_metadata,
+        processed_action={"values": [0.0], "shape": [1], "dtype": "float32"},
+    )
+    assert proposal.semantic_source == "explicit_policy_contract"
+    assert proposal.authoritative is True
+
+    inferred_metadata = {"extra": {"action_representation": "joint_delta", "action_unit": "degree"}}
+    proposal = build_action_proposal_v2(
+        proposal_id="p2",
+        session_id=None,
+        step_index=0,
+        policy_path="local/test",
+        policy_metadata=inferred_metadata,
+        processed_action={"values": [0.0], "shape": [1], "dtype": "float32"},
+    )
+    assert proposal.semantic_source == "inferred"
+    assert proposal.authoritative is False
+
+    proposal = build_action_proposal_v2(
+        proposal_id="p3",
+        session_id=None,
+        step_index=0,
+        policy_path="local/test",
+        policy_metadata={},
+        processed_action={"values": [0.0], "shape": [1], "dtype": "float32"},
+    )
+    assert proposal.semantic_source == "unknown"
+    assert proposal.authoritative is False

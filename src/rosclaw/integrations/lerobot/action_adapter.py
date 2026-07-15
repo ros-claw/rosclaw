@@ -54,6 +54,8 @@ def adapt_action_to_proposal(
             dtype="float32",
             names=[],
             units="unknown",
+            semantic_source="unknown",
+            authoritative=False,
             chunk={"is_chunk": False, "length": 1},
             timing=timing or {},
             safety={
@@ -148,6 +150,8 @@ def _blocked_proposal(
         dtype="float32",
         names=[],
         units="unknown",
+        semantic_source="unknown",
+        authoritative=False,
         chunk={"is_chunk": False, "length": 1},
         timing=timing or {},
         safety={

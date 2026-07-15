@@ -5,8 +5,9 @@ This module must not import torch or lerobot.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 
 ACTION_PROPOSAL_SCHEMA_VERSION = "rosclaw.action_proposal.v2"
@@ -36,6 +37,82 @@ ACTION_UNITS = (
     "raw_device_unit",
     "unknown",
 )
+
+SemanticSource = Literal[
+    "explicit_policy_contract",
+    "manifest",
+    "inferred",
+    "unknown",
+]
+
+
+def _coerce_list(values: Any) -> list[float]:
+    """Recursively coerce tensor-like values to a flat list of floats."""
+    if values is None:
+        return []
+    if isinstance(values, (list, tuple)):
+        if values and isinstance(values[0], (list, tuple)):
+            return [float(v) for row in values for v in row]
+        return [float(v) for v in values]
+    if hasattr(values, "tolist"):
+        return [float(v) for v in values.tolist()]
+    return [float(values)]
+
+
+def _canonicalize_action(
+    values: list[Any], shape: list[int], metadata: dict[str, Any] | None = None
+) -> tuple[list[float], list[int], str | None]:
+    """Normalize action values and shape.
+
+    - Strips a leading batch dimension of size 1.
+    - Treats a [chunk_size, D] tensor as a chunk when chunk_size is declared
+      in the policy metadata or the expected output shape is 2D.
+    - Rejects other batch dimensions greater than 1.
+    - Verifies that the total number of scalar values matches the product of shape.
+
+    Returns (normalized_values, normalized_shape, error_code).
+    """
+    flat_values = _coerce_list(values)
+    if not shape:
+        if len(flat_values) == 1:
+            return flat_values, [1], None
+        return flat_values, [len(flat_values)], None
+
+    normalized_shape = list(shape)
+    while normalized_shape and normalized_shape[0] == 1:
+        normalized_shape = normalized_shape[1:]
+
+    expected_count = math.prod(shape)
+    if expected_count and len(flat_values) != expected_count:
+        return flat_values, shape, "action_shape_value_mismatch"
+
+    if not normalized_shape:
+        normalized_shape = [len(flat_values)] if flat_values else [0]
+
+    # Distinguish a time/chunk dimension [T, D] from an unsupported batch [N, D].
+    if normalized_shape and normalized_shape[0] > 1 and len(normalized_shape) >= 2:
+        expected_shape = infer_action_shape(metadata or {})
+        chunk_size = _extract_chunk_size(metadata or {})
+        is_declared_chunk = (
+            expected_shape is not None and expected_shape == normalized_shape
+        ) or (chunk_size is not None and normalized_shape[0] == chunk_size)
+        if not is_declared_chunk:
+            return flat_values, shape, "batch_action_not_supported"
+
+    return flat_values, normalized_shape, None
+
+
+def _extract_chunk_size(metadata: dict[str, Any]) -> int | None:
+    extra = metadata.get("extra", {})
+    chunk_size = extra.get("chunk_size")
+    if isinstance(chunk_size, int) and chunk_size > 1:
+        return chunk_size
+    output_features = metadata.get("output_features", {})
+    action_feature = output_features.get("action", {})
+    chunk_size = action_feature.get("chunk_size")
+    if isinstance(chunk_size, int) and chunk_size > 1:
+        return chunk_size
+    return None
 
 
 @dataclass
@@ -83,6 +160,8 @@ class ActionProposalV2:
     dtype: str
     names: list[str]
     units: str
+    semantic_source: SemanticSource
+    authoritative: bool
     chunk: ActionChunkMetadata
     timing: dict[str, Any] = field(default_factory=dict)
     safety: dict[str, Any] = field(default_factory=dict)
@@ -118,6 +197,8 @@ class ActionProposalV2:
                 "names": self.names,
                 "units": self.units,
             },
+            "semantic_source": self.semantic_source,
+            "authoritative": self.authoritative,
             "chunk": self.chunk.to_dict(),
             "timing": self.timing,
             "safety": self.safety,
@@ -146,12 +227,31 @@ class ActionProposalV2:
             dtype=str(action.get("dtype", "float32")),
             names=list(action.get("names", [])),
             units=str(action.get("units", "unknown")),
+            semantic_source=data.get("semantic_source", "unknown"),  # type: ignore[arg-type]
+            authoritative=bool(data.get("authoritative", False)),
             chunk=ActionChunkMetadata.from_dict(chunk),
             timing=dict(data.get("timing", {})),
             safety=dict(data.get("safety", {})),
             raw_model_output=data.get("raw_model_output"),
             schema_version=str(data.get("schema_version", ACTION_PROPOSAL_SCHEMA_VERSION)),
         )
+
+
+def _source_priority(source: SemanticSource) -> int:
+    return {
+        "explicit_policy_contract": 3,
+        "manifest": 2,
+        "inferred": 1,
+        "unknown": 0,
+    }.get(source, 0)
+
+
+def _merge_sources(*sources: SemanticSource) -> SemanticSource:
+    best = "unknown"
+    for source in sources:
+        if _source_priority(source) > _source_priority(best):
+            best = source
+    return best
 
 
 def infer_action_representation(metadata: dict[str, Any]) -> str:
@@ -162,16 +262,22 @@ def infer_action_representation(metadata: dict[str, Any]) -> str:
       2. extra["action_representation"]
       3. "unknown"
     """
+    return _infer_action_representation_with_source(metadata)[0]
+
+
+def _infer_action_representation_with_source(
+    metadata: dict[str, Any],
+) -> tuple[str, SemanticSource]:
     output_features = metadata.get("output_features", {})
     action_feature = output_features.get("action", {})
     representation = action_feature.get("representation")
     if representation is not None:
-        return str(representation)
+        return str(representation), "explicit_policy_contract"
     extra = metadata.get("extra", {})
     representation = extra.get("action_representation")
     if representation is not None:
-        return str(representation)
-    return "unknown"
+        return str(representation), "inferred"
+    return "unknown", "unknown"
 
 
 def infer_action_names(
@@ -185,26 +291,31 @@ def infer_action_names(
       1. output_features["action"]["names"]
       2. extra["action_names"]
       3. manifest embodiment.action_space
-      4. fallback ["action_0", ..., "action_{N-1}"] when action_dim is known
+      4. [] (no fallback generic action_0 names)
     """
+    return _infer_action_names_with_source(metadata, manifest_action_space, action_dim)[0]
+
+
+def _infer_action_names_with_source(
+    metadata: dict[str, Any],
+    manifest_action_space: list[str] | None = None,
+    action_dim: int | None = None,
+) -> tuple[list[str], SemanticSource]:
     output_features = metadata.get("output_features", {})
     action_feature = output_features.get("action", {})
     names = action_feature.get("names")
     if isinstance(names, list) and names:
-        return [str(n) for n in names]
+        return [str(n) for n in names], "explicit_policy_contract"
 
     extra = metadata.get("extra", {})
     names = extra.get("action_names")
     if isinstance(names, list) and names:
-        return [str(n) for n in names]
+        return [str(n) for n in names], "inferred"
 
     if manifest_action_space:
-        return [str(n) for n in manifest_action_space]
+        return [str(n) for n in manifest_action_space], "manifest"
 
-    if action_dim is not None and action_dim > 0:
-        return [f"action_{i}" for i in range(action_dim)]
-
-    return []
+    return [], "unknown"
 
 
 def infer_action_units(metadata: dict[str, Any]) -> str:
@@ -215,16 +326,22 @@ def infer_action_units(metadata: dict[str, Any]) -> str:
       2. extra["action_unit"]
       3. "unknown"
     """
+    return _infer_action_units_with_source(metadata)[0]
+
+
+def _infer_action_units_with_source(
+    metadata: dict[str, Any],
+) -> tuple[str, SemanticSource]:
     output_features = metadata.get("output_features", {})
     action_feature = output_features.get("action", {})
     unit = action_feature.get("unit")
     if unit is not None:
-        return str(unit)
+        return str(unit), "explicit_policy_contract"
     extra = metadata.get("extra", {})
     unit = extra.get("action_unit")
     if unit is not None:
-        return str(unit)
-    return "unknown"
+        return str(unit), "inferred"
+    return "unknown", "unknown"
 
 
 def infer_action_shape(metadata: dict[str, Any]) -> list[int] | None:
@@ -256,17 +373,50 @@ def build_action_proposal_v2(
     values = list(processed_action.get("values", []))
     shape = list(processed_action.get("shape", []))
     dtype = str(processed_action.get("dtype", "float32"))
-    action_dim = shape[-1] if shape else len(values)
 
-    representation = infer_action_representation(policy_metadata)
-    names = infer_action_names(policy_metadata, manifest_action_space, action_dim)
-    units = infer_action_units(policy_metadata)
+    normalized_values, normalized_shape, batch_error = _canonicalize_action(
+        values, shape, policy_metadata
+    )
 
-    is_chunk = len(shape) == 2 and shape[0] > 1
+    representation, representation_source = _infer_action_representation_with_source(policy_metadata)
+    names, names_source = _infer_action_names_with_source(
+        policy_metadata, manifest_action_space, action_dim=normalized_shape[-1] if normalized_shape else None
+    )
+    units, units_source = _infer_action_units_with_source(policy_metadata)
+
+    semantic_source = _merge_sources(representation_source, names_source, units_source)
+    authoritative = semantic_source == "explicit_policy_contract"
+
+    is_chunk = len(normalized_shape) == 2 and normalized_shape[0] > 1
     chunk = ActionChunkMetadata(
         is_chunk=is_chunk,
-        length=shape[0] if is_chunk else 1,
+        length=normalized_shape[0] if is_chunk else 1,
     )
+
+    effective_safety = dict(safety or {})
+
+    # Fail-closed: block body mapping when semantics are unknown or batch is unsupported.
+    blocked_reason: str | None = None
+    if batch_error == "batch_action_not_supported":
+        blocked_reason = "batch_action_not_supported"
+    elif batch_error == "action_shape_value_mismatch":
+        blocked_reason = "action_shape_value_mismatch"
+    elif representation == "unknown":
+        blocked_reason = "unknown_action_semantics"
+    elif not names:
+        blocked_reason = "missing_action_names"
+
+    if blocked_reason:
+        effective_safety.setdefault("executable", False)
+        effective_safety.setdefault("requires_sandbox", True)
+        effective_safety.setdefault("not_executed", True)
+        effective_safety["body_mapping_required"] = True
+        effective_safety["body_compatible"] = False
+        effective_safety["error_code"] = blocked_reason
+        effective_safety.setdefault(
+            "message",
+            f"Action proposal blocked: {blocked_reason}",
+        )
 
     return ActionProposalV2(
         proposal_id=proposal_id,
@@ -278,22 +428,22 @@ def build_action_proposal_v2(
         processor_hash=processor_hash,
         representation=representation,
         reference_frame=None,
-        values=values,
-        shape=shape,
+        values=normalized_values,
+        shape=normalized_shape,
         dtype=dtype,
         names=names,
         units=units,
+        semantic_source=semantic_source,
+        authoritative=authoritative,
         chunk=chunk,
         timing=timing or {},
-        safety=safety or {},
+        safety=effective_safety,
         raw_model_output=raw_action.get("values") if raw_action else None,
     )
 
 
 def validate_action_values(values: list[float]) -> tuple[bool, str | None]:
     """Check for NaN/Inf in action values."""
-    import math
-
     for i, v in enumerate(values):
         if not isinstance(v, (int, float)):
             return False, f"action value at index {i} is not numeric: {type(v).__name__}"

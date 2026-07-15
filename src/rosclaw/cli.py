@@ -6854,6 +6854,11 @@ def main() -> int:
     lerobot_policy_warmup_parser.add_argument(
         "--policy.path", dest="policy_path", required=True, help="Policy directory or HF repo id"
     )
+    lerobot_policy_warmup_parser.add_argument(
+        "--observation",
+        dest="observation_fixture",
+        help="Path to a JSON observation fixture used for warmup inference",
+    )
     lerobot_policy_warmup_parser.add_argument("--revision", default="main", help="HF revision")
     lerobot_policy_warmup_parser.add_argument(
         "--device", default="cpu", help="Device for inference (default: cpu)"
@@ -6947,6 +6952,17 @@ def main() -> int:
         )
         parser.add_argument("--control-hz", type=float, default=10.0, help="Target control rate")
         parser.add_argument(
+            "--strict-deadline",
+            action="store_true",
+            help="Stop the rollout if deadline misses exceed the threshold",
+        )
+        parser.add_argument(
+            "--max-deadline-misses",
+            type=int,
+            default=None,
+            help="Maximum allowed deadline misses in strict mode",
+        )
+        parser.add_argument(
             "--observation-fixture", default=None, help="JSON observation fixture (proposal-only)"
         )
         parser.add_argument(
@@ -6954,6 +6970,11 @@ def main() -> int:
         )
         parser.add_argument(
             "--trace-path", default=None, help="Output JSONL trace path"
+        )
+        parser.add_argument(
+            "--practice-root",
+            default=None,
+            help="Root directory for full Practice session import",
         )
         parser.add_argument("--task-id", default=None, help="Task ID for practice events")
         parser.add_argument(

@@ -7,7 +7,9 @@ Python 3.11 runtime.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -193,7 +195,7 @@ class PolicyWorkerService:
     ) -> dict[str, Any]:
         metadata: dict[str, Any] = {
             "policy_type": policy_type,
-            "policy_hash": None,
+            "policy_hash": self._compute_policy_hash(local_path),
         }
         input_features = getattr(policy.config, "input_features", None)
         output_features = getattr(policy.config, "output_features", None)
@@ -202,33 +204,33 @@ class PolicyWorkerService:
         if output_features is not None:
             metadata["output_features"] = self._features_to_dict(output_features)
 
-        # LeRobot configs do not always carry semantic action tags.  Provide a
-        # conservative fallback so ROSClaw action proposals are not "unknown".
+        # P4.1: do not guess semantics from policy_type. Only propagate explicit tags.
         action_feature = metadata.get("output_features", {}).get("action", {})
-        action_shape = list(action_feature.get("shape", []))
-        action_dim = action_shape[-1] if action_shape else 0
         representation = action_feature.get("representation")
         unit = action_feature.get("unit")
-        if representation is None and action_dim > 0:
-            if policy_type in ("act", "diffusion", "pi0", "tdmpc"):
-                representation = "joint_position"
-            else:
-                representation = "unknown"
-        if unit is None and action_dim > 0:
-            if representation in ("joint_position", "joint_delta"):
-                unit = "radian"
-            elif representation in ("joint_velocity",):
-                unit = "radian_per_second"
-            elif representation in ("cartesian_pose", "cartesian_delta"):
-                unit = "meter"
-            else:
-                unit = "unknown"
-        if representation is not None or unit is not None:
-            metadata["extra"] = {
-                "action_representation": representation,
-                "action_unit": unit,
-            }
+        chunk_size = getattr(policy.config, "chunk_size", None)
+        extra: dict[str, Any] = {}
+        if representation is not None:
+            extra["action_representation"] = str(representation)
+        if unit is not None:
+            extra["action_unit"] = str(unit)
+        if isinstance(chunk_size, int):
+            extra["chunk_size"] = chunk_size
+        if extra:
+            metadata["extra"] = extra
         return metadata
+
+    def _compute_policy_hash(self, local_path: Path) -> str | None:
+        """Return a stable hash of the policy config file, if present."""
+        config_json = local_path / "config.json"
+        config_yaml = local_path / "config.yaml"
+        target = config_json if config_json.exists() else config_yaml if config_yaml.exists() else None
+        if target is None:
+            return None
+        try:
+            return f"sha256:{hashlib.sha256(target.read_bytes()).hexdigest()}"
+        except Exception:  # noqa: BLE001
+            return None
 
     def _features_to_dict(self, features: Any) -> dict[str, Any]:
         if isinstance(features, dict):
@@ -248,17 +250,95 @@ class PolicyWorkerService:
     def _handle_warmup(self, params: dict[str, Any]) -> dict[str, Any]:
         if self.policy is None:
             return {"status": "error", "error": {"code": "policy_not_loaded"}}
-        # A no-op that confirms the policy and processors are resident.
+
+        observation = params.get("observation")
+        if observation is None:
+            return {
+                "status": "error",
+                "error": {
+                    "code": "warmup_failed",
+                    "message": "WARMUP requires a contract-compatible observation",
+                },
+            }
+
+        iterations = max(1, int(params.get("iterations", 1)))
+        try:
+            last_result: dict[str, Any] | None = None
+            for _ in range(iterations):
+                last_result = self._run_inference(observation)
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "status": "error",
+                "error": {
+                    "code": "warmup_failed",
+                    "message": f"{type(exc).__name__}: {exc}",
+                },
+            }
+
+        processed = last_result["processed_action"] if last_result else {"shape": [], "dtype": "float32"}
         return {
             "status": "ok",
             "policy_path": self.policy_path,
             "device": self.device,
+            "iterations": iterations,
+            "processed_action": {
+                "shape": processed.get("shape", []),
+                "dtype": processed.get("dtype", "float32"),
+            },
+        }
+
+    def _run_inference(self, observation: dict[str, Any]) -> dict[str, Any]:
+        """Execute one full preprocess → select_action → postprocess step."""
+        import numpy as np
+
+        obs_tensor = self._observation_to_tensor(observation)
+        model_input = obs_tensor
+        if self.preprocessor is not None:
+            model_input = self.preprocessor(obs_tensor)
+
+        raw_action = self.policy.select_action(model_input)
+        raw_values = raw_action.detach().cpu().numpy()
+
+        if self.postprocessor is not None:
+            processed_action_tensor = self.postprocessor(raw_action)
+            processed_values = processed_action_tensor.detach().cpu().numpy()
+        else:
+            processed_values = raw_values
+
+        # Fail-closed: reject NaN/Inf in the processed action.
+        if not np.all(np.isfinite(processed_values)):
+            raise ValueError("processed action contains NaN or Inf")
+
+        raw_list = self._array_to_list(raw_values)
+        processed_list = self._array_to_list(processed_values)
+
+        return {
+            "raw_action": {
+                "values": raw_list,
+                "shape": list(raw_values.shape),
+                "dtype": str(raw_values.dtype),
+            },
+            "processed_action": {
+                "values": processed_list,
+                "shape": list(processed_values.shape),
+                "dtype": str(processed_values.dtype),
+            },
         }
 
     def _handle_create_session(self, params: dict[str, Any]) -> dict[str, Any]:
+        if self.policy is None:
+            return {"status": "error", "error": {"code": "policy_not_loaded"}}
+        # P4.1: enforce a single active session for policy-state safety.
+        if len(self.sessions) >= 1:
+            return {
+                "status": "error",
+                "error": {
+                    "code": "session_capacity_exceeded",
+                    "message": "Only one active session is supported",
+                },
+            }
         session_id = params["session_id"]
-        if self.policy is not None:
-            self.policy.reset()
+        self.policy.reset()
         self.sessions[session_id] = {
             "body_id": params.get("body_id"),
             "context": params.get("context", {}),
@@ -271,15 +351,11 @@ class PolicyWorkerService:
         session_id = params["session_id"]
         if session_id not in self.sessions:
             return {"status": "error", "error": {"code": "session_not_found"}}
-        if self.policy is not None:
-            self.policy.reset()
+        self.policy.reset()
         self.sessions[session_id]["last_step_index"] = -1
         return {"status": "ok", "session_id": session_id}
 
     def _handle_infer(self, params: dict[str, Any]) -> dict[str, Any]:
-        import numpy as np
-        import torch
-
         if self.policy is None:
             return {"status": "error", "error": {"code": "policy_not_loaded"}}
 
@@ -296,40 +372,27 @@ class PolicyWorkerService:
             session["last_step_index"] += 1
             step_index = session["last_step_index"]
         else:
+            expected = session["last_step_index"] + 1
+            if step_index != expected:
+                return {
+                    "status": "error",
+                    "error": {
+                        "code": "non_monotonic_step_index",
+                        "message": f"Expected step_index {expected}, got {step_index}",
+                    },
+                }
             session["last_step_index"] = step_index
 
-        obs_tensor = self._observation_to_tensor(observation)
-        model_input = obs_tensor
-        if self.preprocessor is not None:
-            model_input = self.preprocessor(obs_tensor)
-
-        raw_action = self.policy.select_action(model_input)
-        raw_values = raw_action.detach().cpu().numpy()
-
-        if self.postprocessor is not None:
-            processed_action = self.postprocessor(raw_action)
-            processed_values = processed_action.detach().cpu().numpy()
-        else:
-            processed_values = raw_values
-
-        raw_list = self._array_to_list(raw_values)
-        processed_list = self._array_to_list(processed_values)
-        shape = list(processed_values.shape)
+        result = self._run_inference(observation)
+        raw_action = result["raw_action"]
+        processed_action = result["processed_action"]
 
         return {
             "status": "ok",
             "session_id": session_id,
             "step_index": step_index,
-            "raw_action": {
-                "values": raw_list,
-                "shape": list(raw_values.shape),
-                "dtype": str(raw_values.dtype),
-            },
-            "processed_action": {
-                "values": processed_list,
-                "shape": shape,
-                "dtype": str(processed_values.dtype),
-            },
+            "raw_action": raw_action,
+            "processed_action": processed_action,
             "policy_metadata": self.policy_metadata,
             "return_chunk": return_chunk,
         }

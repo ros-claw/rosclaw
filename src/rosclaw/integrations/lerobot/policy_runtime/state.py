@@ -27,6 +27,7 @@ class RuntimeState:
     policy_loaded: bool = False
     policy_metadata: dict[str, Any] = field(default_factory=dict)
     active_session_id: str | None = None
+    worker_generation: int = 0
     error: str | None = None
     last_health_at: float | None = None
 
@@ -47,6 +48,7 @@ class RuntimeState:
             "policy_path": self.policy_path,
             "policy_loaded": self.policy_loaded,
             "active_session_id": self.active_session_id,
+            "worker_generation": self.worker_generation,
             "error": self.error,
             "last_health_at": self.last_health_at,
         }

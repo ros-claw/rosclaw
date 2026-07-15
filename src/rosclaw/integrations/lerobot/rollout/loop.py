@@ -34,6 +34,7 @@ from rosclaw.integrations.lerobot.rollout.observation_source import (
     FixtureObservationSource,
     ObservationSource,
 )
+from rosclaw.integrations.lerobot.rollout.practice_bridge import finalize_rollout_practice_session
 from rosclaw.integrations.lerobot.rollout.recorder import RolloutRecorder
 from rosclaw.integrations.lerobot.rollout.sandbox_preflight import run_sandbox_preflight
 from rosclaw.integrations.lerobot.rollout.state import (
@@ -70,6 +71,8 @@ class RolloutConfig:
     steps: int | None = None
     duration_sec: float | None = None
     control_hz: float = 10.0
+    strict_deadline: bool = False
+    max_deadline_misses: int | None = None
 
     # Safety / execution
     execute: bool = False
@@ -80,6 +83,7 @@ class RolloutConfig:
     # Output
     trace_path: str | Path | None = None
     task_id: str | None = None
+    practice_data_root: str | Path | None = None
 
     tags: list[str] = field(default_factory=list)
 
@@ -229,6 +233,8 @@ def _run_loop(config: RolloutConfig, source: ObservationSource) -> RolloutResult
         step_interval = 1.0 / config.control_hz if config.control_hz > 0 else 0.0
         step_index = 0
         parent_event_id: str | None = None
+        loop_start = time.monotonic()
+        next_deadline = loop_start + step_interval if step_interval > 0 else None
 
         while True:
             if config.is_step_limited() and step_index >= config.steps:
@@ -238,6 +244,7 @@ def _run_loop(config: RolloutConfig, source: ObservationSource) -> RolloutResult
             if source.is_exhausted(step_index):
                 break
 
+            step_start = time.monotonic()
             with StepTimer() as step_timer:
                 step_result = _run_step(
                     runtime=runtime,
@@ -270,12 +277,33 @@ def _run_loop(config: RolloutConfig, source: ObservationSource) -> RolloutResult
             parent_event_id = step_result.get("step_event_id")
             step_index += 1
 
-            if step_interval > 0:
-                sleep_until = time.monotonic() + step_interval
-                while time.monotonic() < sleep_until:
-                    pass
+            # Fixed-deadline scheduler.
+            if next_deadline is not None:
+                now = time.monotonic()
+                if now > next_deadline:
+                    miss_ms = (now - next_deadline) * 1000.0
+                    overrun = step_timer.elapsed_ms > step_interval * 1000.0
+                    metrics.record_deadline_miss(miss_ms, overrun=overrun)
+                    if config.strict_deadline and (
+                        config.max_deadline_misses is None
+                        or metrics.deadline_misses > config.max_deadline_misses
+                    ):
+                        result.stop_reason = RolloutStopReason.DEADLINE_MISS
+                        result.errors.append(
+                            f"Deadline miss at step {step_index}: {miss_ms:.1f} ms"
+                        )
+                        break
+                sleep_time = max(0.0, next_deadline - time.monotonic())
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+                next_deadline += step_interval
 
+        elapsed_total = time.monotonic() - loop_start
         result.steps_completed = step_index
+        if elapsed_total > 0 and result.steps_completed > 0:
+            metrics.effective_control_hz = result.steps_completed / elapsed_total
+        else:
+            metrics.effective_control_hz = 0.0
     except KeyboardInterrupt:
         result.stop_reason = RolloutStopReason.INTERRUPTED
         result.errors.append("Interrupted by operator")
@@ -291,6 +319,15 @@ def _run_loop(config: RolloutConfig, source: ObservationSource) -> RolloutResult
         result.metrics = metrics.to_dict()
         result.trace_path = str(trace_path)
         result.hardware_actions_executed = 0
+        if config.practice_data_root is not None:
+            try:
+                result.practice_id = finalize_rollout_practice_session(
+                    trace_path,
+                    result.to_dict(),
+                    data_root=config.practice_data_root,
+                )
+            except Exception as exc:  # noqa: BLE001
+                result.warnings.append(f"Practice finalize failed: {exc}")
         recorder.record_summary(result.to_dict())
 
     return result
@@ -525,8 +562,7 @@ def _policy_space_from_metadata(metadata: dict[str, Any]) -> ActionSpace:
     shape = list(action_feature.get("shape", []))
     action_dim = shape[-1] if shape else 0
     names = action_feature.get("names") or metadata.get("extra", {}).get("action_names") or []
-    if not names and action_dim:
-        names = [f"action_{i}" for i in range(action_dim)]
+    # P4.1: do not synthesize generic action_* names; unknown semantics must stay unknown.
     units = action_feature.get("unit") or metadata.get("extra", {}).get("action_unit") or "unknown"
     representation = (
         action_feature.get("representation")

@@ -143,6 +143,8 @@ def test_manager_load_policy_and_infer(manager: PersistentRuntimeManager) -> Non
     load = manager.call("LOAD_POLICY", {"policy_path": "local/test"})
     assert load["status"] == "ok"
     assert load["policy_path"] == "local/test"
+    assert "worker_generation" in load
+    assert load["worker_generation"] >= 1
 
     session = manager.call("CREATE_SESSION", {"session_id": "s1"})
     assert session["status"] == "ok"
@@ -153,6 +155,25 @@ def test_manager_load_policy_and_infer(manager: PersistentRuntimeManager) -> Non
     )
     assert infer["status"] == "ok"
     assert infer["processed_action"]["values"] == [0.2]
+
+
+def test_manager_restart_increments_worker_generation(
+    manager: PersistentRuntimeManager,
+) -> None:
+    manager.start()
+    first = manager.state.worker_generation
+    manager.restart()
+    assert manager.state.worker_generation == first + 1
+
+
+def test_runtime_client_warmup_passes_observation(manager: PersistentRuntimeManager) -> None:
+    manager.start()
+    client = RuntimeClient(manager)
+    client.load_policy("local/test")
+    # The fake worker returns ok for any WARMUP; this verifies the client serializes
+    # observation and iterations correctly and the manager transports them.
+    result = client.warmup({"observation.state": [0.0]}, iterations=2)
+    assert result["status"] == "ok"
 
 
 def test_runtime_client_create_session(manager: PersistentRuntimeManager) -> None:

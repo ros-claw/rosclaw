@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 from queue import Empty, Queue
 from typing import Any
@@ -70,6 +71,7 @@ class PersistentRuntimeManager:
         self._stdout_queue: Queue[str] = Queue()
         self._stderr_lines: list[str] = []
         self._shutdown = False
+        self._worker_generation = 0
 
     @property
     def state(self) -> RuntimeState:
@@ -86,6 +88,7 @@ class PersistentRuntimeManager:
             self._responses.clear()
             self._pending.clear()
             self._stderr_lines.clear()
+            self._worker_generation += 1
 
             env = dict(self.env or os.environ)
             # Ensure the worker can find the rosclaw package tree.
@@ -121,6 +124,7 @@ class PersistentRuntimeManager:
                 return self._state
 
             self._state.pid = self._process.pid
+            self._state.worker_generation = self._worker_generation
 
         self._reader_thread = threading.Thread(target=self._read_stdout, daemon=True)
         self._reader_thread.start()
@@ -180,11 +184,20 @@ class PersistentRuntimeManager:
             self._pending[request_id] = event
 
         line = encode_request(method, params, request_id)  # type: ignore[arg-type]
-        self._send_line(line)
+        try:
+            self._send_line(line)
+        except RuntimeError as exc:
+            with self._lock:
+                self._pending.pop(request_id, None)
+            return {"status": "error", "error": {"code": "worker_died", "message": str(exc)}}
 
         if not event.wait(timeout=timeout_sec):
             with self._lock:
                 self._pending.pop(request_id, None)
+                process = self._process
+            if process is not None and process.poll() is not None:
+                self._state.transition("error", "Worker process died")
+                return {"status": "error", "error": {"code": "worker_died", "message": "Worker process died"}}
             raise RuntimeError(f"Timeout waiting for {method} response")
 
         with self._lock:
@@ -196,7 +209,7 @@ class PersistentRuntimeManager:
                 "status": "error",
                 "error": response["error"],
             }
-        return {"status": "ok", **response.get("result", {})}
+        return {"status": "ok", **response.get("result", {}), "worker_generation": self._worker_generation}
 
     def _next_request_id(self) -> str:
         with self._lock:
@@ -216,9 +229,20 @@ class PersistentRuntimeManager:
                 self._state.transition("error", f"Worker stdin closed: {exc}")
                 raise RuntimeError("Worker stdin closed") from exc
 
+    def _fail_all_pending(self, code: str, message: str) -> None:
+        """Resolve all pending requests with a worker error."""
+        with self._lock:
+            pending = dict(self._pending)
+            for request_id in pending:
+                self._responses[request_id] = {"error": {"code": code, "message": message}}
+                event = self._pending.pop(request_id, None)
+                if event is not None:
+                    event.set()
+
     def _read_stdout(self) -> None:
         """Background thread: read stdout lines and dispatch responses."""
         if self._process is None or self._process.stdout is None:
+            self._fail_all_pending("worker_died", "Worker stdout not available")
             return
         try:
             for line in self._process.stdout:
@@ -241,6 +265,9 @@ class PersistentRuntimeManager:
                         event.set()
         except Exception as exc:  # noqa: BLE001
             self._state.transition("error", f"stdout reader failed: {exc}")
+            self._fail_all_pending("worker_died", f"stdout reader failed: {exc}")
+        finally:
+            self._fail_all_pending("worker_died", "Worker stdout closed")
 
     def _read_stderr(self) -> None:
         """Background thread: capture the last chunk of stderr for diagnostics."""
