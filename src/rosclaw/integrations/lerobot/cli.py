@@ -88,17 +88,26 @@ def cmd_setup_lerobot(args: argparse.Namespace) -> int:
         index_url=args.index_url,
         extra_index_url=args.extra_index_url,
     )
-    print(f"[rosclaw-lerobot] Profile: {report.profile}")
-    print(f"[rosclaw-lerobot] Mode: {report.mode or 'N/A'}")
-    print(f"[rosclaw-lerobot] OK: {report.ok}")
-    print(f"[rosclaw-lerobot] Message: {report.message}")
-    if report.lerobot_version:
-        print(f"[rosclaw-lerobot] LeRobot version: {report.lerobot_version}")
-    if report.runtime and report.runtime.python_executable:
-        print(f"[rosclaw-lerobot] Runtime Python: {report.runtime.python_executable}")
-    if report.error_code:
-        print(f"[rosclaw-lerobot] Error code: {report.error_code}")
     if args.json:
+        payload = {
+            "ok": report.ok,
+            "profile": report.profile,
+            "dry_run": report.dry_run,
+            "mode": report.mode,
+            "details": report.details,
+        }
+        print(json.dumps(payload, indent=2, default=str))
+    else:
+        print(f"[rosclaw-lerobot] Profile: {report.profile}")
+        print(f"[rosclaw-lerobot] Mode: {report.mode or 'N/A'}")
+        print(f"[rosclaw-lerobot] OK: {report.ok}")
+        print(f"[rosclaw-lerobot] Message: {report.message}")
+        if report.lerobot_version:
+            print(f"[rosclaw-lerobot] LeRobot version: {report.lerobot_version}")
+        if report.runtime and report.runtime.python_executable:
+            print(f"[rosclaw-lerobot] Runtime Python: {report.runtime.python_executable}")
+        if report.error_code:
+            print(f"[rosclaw-lerobot] Error code: {report.error_code}")
         print(json.dumps(report.details, indent=2, default=str))
 
     if report.ok:
