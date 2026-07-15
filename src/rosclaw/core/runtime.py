@@ -80,8 +80,14 @@ class RuntimeConfig:
     enable_mcap: bool = False
     # Knowledge-store backend for Memory/Knowledge/HOW/Auto modules.
     # Supported: "memory" (ephemeral), "sqlite" (local file), "mysql" (SeekDB/OceanBase SQL).
-    seekdb_backend: str = "memory"
-    seekdb_path: str = "./seekdb.sqlite"
+    # Default matches the canonical firstboot/rosclaw.yaml path so Runtime behavior is
+    # consistent whether a config file is present or not.
+    seekdb_backend: str = "sqlite"
+    seekdb_path: str = field(
+        default_factory=lambda: str(
+            Path.home() / ".rosclaw" / "data" / "memory" / "knowledge.sqlite"
+        )
+    )
     # SQL DSN for sqlite/mysql knowledge-store backends.
     # Examples: "sqlite:///home/user/.rosclaw/memory/knowledge.sqlite"
     #           "mysql://root@127.0.0.1:2881/rosclaw"
@@ -421,6 +427,7 @@ class Runtime(LifecycleMixin):
                     event_bus=self.event_bus,
                     seekdb_client=seekdb,
                     use_rosclaw_know_registry=self.config.know_curated_registry_enabled,
+                    memory_interface=self._memory,
                 )
                 self._modules.append(self._knowledge)
                 logger.info("Knowledge Grounding (KnowledgeInterface) initialized")
@@ -587,6 +594,7 @@ class Runtime(LifecycleMixin):
             knowledge_interface=self._knowledge,
             event_bus=self.event_bus,
             sense_runtime=self._sense,
+            memory_interface=self._memory,
         )
         self._run_async(engine.initialize())
         self._run_async(engine.seed_defaults())

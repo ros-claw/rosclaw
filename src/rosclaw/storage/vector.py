@@ -33,6 +33,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("rosclaw.storage.vector")
 
+# SQLite identifiers we interpolate into SQL must be simple names.
+_VALID_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _validate_identifier(name: str, kind: str = "identifier") -> None:
+    if not isinstance(name, str) or not _VALID_IDENTIFIER.fullmatch(name):
+        raise ValueError(f"Invalid SQL {kind}: {name!r}")
+
 
 def _tokenize(text: str) -> list[str]:
     """Simple lower-case word tokenization."""
@@ -210,7 +218,42 @@ class SQLiteVectorStore(VectorStore):
         self._store = store
 
     def _table_name(self, table: str) -> str:
+        _validate_identifier(table, "table name")
         return f"vec_{table}"
+
+    def _filter_record_ids(self, table: str, filters: dict[str, Any]) -> set[str] | None:
+        """Return main-table record ids matching *filters*, or None if empty."""
+        if not filters:
+            return None
+        _validate_identifier(table, "table name")
+        cursor = self._store._connection.execute(f"PRAGMA table_info({table})")
+        columns = {row["name"] for row in cursor.fetchall()}
+        if "id" not in columns:
+            return None
+
+        conditions: list[str] = []
+        params: list[Any] = []
+        for key, value in filters.items():
+            _validate_identifier(key, "column name")
+            if key not in columns:
+                raise ValueError(f"Filter column {key!r} not found in table {table!r}")
+            if isinstance(value, (list, tuple, set)):
+                value = list(value)
+                if not value:
+                    continue
+                placeholders = ", ".join("?" for _ in value)
+                conditions.append(f"{key} IN ({placeholders})")
+                params.extend(value)
+            else:
+                conditions.append(f"{key} = ?")
+                params.append(value)
+        if not conditions:
+            return None
+
+        sql = f"SELECT id FROM {table} WHERE " + " AND ".join(conditions)
+        with self._store._lock:
+            rows = self._store._connection.execute(sql, params).fetchall()
+        return {row[0] for row in rows}
 
     def _ensure_table(self, table: str) -> None:
         sql = f"""
@@ -251,6 +294,34 @@ class SQLiteVectorStore(VectorStore):
             )
             self._store._connection.commit()
 
+    def upsert_many(
+        self,
+        table: str,
+        records: list[tuple[str, str, list[float] | None]],
+    ) -> None:
+        """Batch upsert embeddings for a single table in one transaction."""
+        self._ensure_table(table)
+        if not records:
+            return
+        now = time.time()
+        params = [
+            (record_id, text, json.dumps(embedding or []), now)
+            for record_id, text, embedding in records
+        ]
+        with self._store._lock:
+            self._store._connection.executemany(
+                f"""
+                INSERT INTO {self._table_name(table)} (record_id, text, embedding_json, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(record_id) DO UPDATE SET
+                    text=excluded.text,
+                    embedding_json=excluded.embedding_json,
+                    updated_at=excluded.updated_at
+                """,
+                params,
+            )
+            self._store._connection.commit()
+
     def _all_rows(self, table: str) -> list[sqlite3.Row]:
         with self._store._lock:
             return self._store._connection.execute(
@@ -263,11 +334,17 @@ class SQLiteVectorStore(VectorStore):
         query_embedding: list[float],
         filters: dict[str, Any] | None = None,
         limit: int = 10,
+        _allowed_ids: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         self._ensure_table(table)
+        allowed_ids = _allowed_ids
+        if allowed_ids is None and filters:
+            allowed_ids = self._filter_record_ids(table, filters)
         rows = self._all_rows(table)
         scored = []
         for row in rows:
+            if allowed_ids is not None and row["record_id"] not in allowed_ids:
+                continue
             emb = json.loads(row["embedding_json"])
             if not emb:
                 continue
@@ -289,8 +366,13 @@ class SQLiteVectorStore(VectorStore):
     ) -> list[dict[str, Any]]:
         self._ensure_table(table)
         query_embedding = embedder.encode(query_text)
-        vector_results = self.search(table, query_embedding, filters=filters, limit=limit * 4)
-        keyword_results = self._keyword_search(table, query_text, limit=limit * 4)
+        allowed_ids = self._filter_record_ids(table, filters) if filters else None
+        vector_results = self.search(
+            table, query_embedding, limit=limit * 4, _allowed_ids=allowed_ids
+        )
+        keyword_results = self._keyword_search(
+            table, query_text, limit=limit * 4, _allowed_ids=allowed_ids
+        )
 
         vector_ranking = [(r["id"], r["score"]) for r in vector_results]
         keyword_ranking = [(r["id"], r["score"]) for r in keyword_results]
@@ -303,13 +385,21 @@ class SQLiteVectorStore(VectorStore):
             for record_id, score in fused[:limit]
         ]
 
-    def _keyword_search(self, table: str, query_text: str, limit: int) -> list[dict[str, Any]]:
+    def _keyword_search(
+        self,
+        table: str,
+        query_text: str,
+        limit: int = 10,
+        _allowed_ids: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
         query_tokens = set(_tokenize(query_text))
         if not query_tokens:
             return []
         rows = self._all_rows(table)
         scored = []
         for row in rows:
+            if _allowed_ids is not None and row["record_id"] not in _allowed_ids:
+                continue
             tokens = set(_tokenize(row["text"]))
             overlap = len(query_tokens & tokens)
             if overlap:

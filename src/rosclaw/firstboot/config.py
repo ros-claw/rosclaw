@@ -32,6 +32,7 @@ class FirstbootConfig:
     darwin: dict[str, Any] = field(default_factory=dict)
     mcp: dict[str, Any] = field(default_factory=dict)
     cloud: dict[str, Any] = field(default_factory=dict)
+    storage: dict[str, Any] = field(default_factory=dict)
     telemetry: dict[str, Any] = field(default_factory=dict)
     security: dict[str, Any] = field(default_factory=dict)
 
@@ -39,8 +40,8 @@ class FirstbootConfig:
         if not self.generated_at:
             self.generated_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
-        self._apply_defaults()
         self._sync_memory_backend()
+        self._apply_defaults()
 
     def _sync_memory_backend(self) -> None:
         """Map legacy memory.backend values to runtime.seekdb_backend."""
@@ -82,7 +83,7 @@ class FirstbootConfig:
                 "robot_id": "sim_ur5e",
                 "safety_level": "strict",
                 "log_level": "INFO",
-                "seekdb_backend": "memory",
+                "seekdb_backend": "sqlite",
                 "seekdb_path": str(
                     Path(home).expanduser() / "data" / "memory" / "knowledge.sqlite"
                 ),

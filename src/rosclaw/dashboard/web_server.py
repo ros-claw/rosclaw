@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -156,12 +157,21 @@ def _practice_data_root(query_root: str | None = None) -> Path:
     return Path(os.environ.get("ROSCLAW_PRACTICE_DATA_ROOT", "/data/rosclaw/practice"))
 
 
+_EPISODE_LIST_TTL_SECONDS = 5.0
+_episode_list_cache: dict[Path, tuple[float, list[dict[str, Any]]]] = {}
+
+
 def _list_episodes(data_root: Path) -> list[dict[str, Any]]:
     """Return practice episode summaries from disk, newest first."""
     layout = PracticeLayout(data_root)
     sessions_dir = layout.sessions_dir
     if not sessions_dir.exists():
         return []
+
+    now = time.monotonic()
+    cached = _episode_list_cache.get(data_root)
+    if cached is not None and (now - cached[0]) < _EPISODE_LIST_TTL_SECONDS:
+        return cached[1]
 
     episodes: list[dict[str, Any]] = []
     for session_dir in sessions_dir.iterdir():
@@ -187,6 +197,7 @@ def _list_episodes(data_root: Path) -> list[dict[str, Any]]:
         )
 
     episodes.sort(key=lambda e: e.get("start_time") or "", reverse=True)
+    _episode_list_cache[data_root] = (now, episodes)
     return episodes
 
 
@@ -651,7 +662,7 @@ class DashboardWebServer:
             root = _practice_data_root(data_root)
             session_dir = _episode_dir(root, episode_id)
             layout = PracticeLayout(root)
-            timeline = _read_jsonl(layout.timeline_jsonl_path(session_dir.name))
+            timeline = _read_episode_events(layout, session_dir.name)
             return {"practice_id": session_dir.name, "count": len(timeline), "timeline": timeline}
 
         @self.app.get("/api/practice/episodes/{episode_id}/artifacts")

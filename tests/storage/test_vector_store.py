@@ -95,7 +95,7 @@ def test_sqlite_hybrid_search(tmp_path) -> None:
         embedder=embedder,
     )
     store.connect()
-    store._init_vector_store()
+    store._ensure_vector_store()
 
     store._vector_store.upsert("skills", "s1", "pick red cube", embedder.encode("pick red cube"))
     store._vector_store.upsert(
@@ -137,3 +137,55 @@ def test_empty_query_returns_empty() -> None:
     store.connect()
     results = store.similar("skills", "", limit=5)
     assert results == []
+
+
+def test_warmup_embedder_indexes_existing_rows(tmp_path) -> None:
+    store = SQLiteKnowledgeStore(db_path=str(tmp_path / "knowledge.sqlite"), vector_enabled=True)
+    store.connect()
+    store.insert(
+        "experience_graph",
+        {
+            "id": "exp1",
+            "event_type": "praxis",
+            "robot_id": "r1",
+            "timestamp": 1.0,
+            "instruction": "pick red cube",
+            "outcome": "success",
+        },
+    )
+    store.insert(
+        "experience_graph",
+        {
+            "id": "exp2",
+            "event_type": "praxis",
+            "robot_id": "r1",
+            "timestamp": 2.0,
+            "instruction": "place red cube on table",
+            "outcome": "success",
+        },
+    )
+    counts = store.warmup_embedder(tables=["experience_graph"])
+    assert counts.get("experience_graph") == 2
+
+    results = store.similar("experience_graph", "grab red cube", limit=2)
+    ids = [r["id"] for r in results]
+    assert "exp1" in ids
+
+
+def test_warmup_embedder_is_idempotent(tmp_path) -> None:
+    store = SQLiteKnowledgeStore(db_path=str(tmp_path / "knowledge.sqlite"), vector_enabled=True)
+    store.connect()
+    store.insert(
+        "experience_graph",
+        {
+            "id": "exp1",
+            "event_type": "praxis",
+            "robot_id": "r1",
+            "timestamp": 1.0,
+            "instruction": "pick red cube",
+        },
+    )
+    counts1 = store.warmup_embedder(tables=["experience_graph"])
+    assert counts1.get("experience_graph") == 1
+    counts2 = store.warmup_embedder(tables=["experience_graph"])
+    assert counts2 == {}

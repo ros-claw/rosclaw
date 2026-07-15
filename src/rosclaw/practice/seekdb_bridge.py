@@ -46,6 +46,8 @@ class SeekDBBridge:
         fallback_dir: str = "/data/rosclaw/fallback",
         outbox: OutboxStore | None = None,
         outbox_worker: OutboxWorker | None = None,
+        outbox_interval_sec: float = 5.0,
+        outbox_batch_size: int = 100,
     ) -> None:
         """Initialize the bridge.
 
@@ -60,6 +62,8 @@ class SeekDBBridge:
         :param outbox_worker: Optional worker that drains *outbox*. If omitted
             but *outbox* is provided, the bridge creates and starts its own
             worker using the internal committer.
+        :param outbox_interval_sec: Drain interval for a bridge-owned worker.
+        :param outbox_batch_size: Batch size for a bridge-owned worker.
         """
         seekdb_url = seekdb_url or os.environ.get(
             "ROSCLAW_PRACTICE_HTTP_ADAPTER_URL", "http://localhost:2882"
@@ -78,8 +82,8 @@ class SeekDBBridge:
             self._owned_worker = OutboxWorker(
                 self._outbox,
                 self._committer,
-                interval_sec=5.0,
-                batch_size=100,
+                interval_sec=outbox_interval_sec,
+                batch_size=outbox_batch_size,
             )
             self._owned_worker.start()
             self._outbox_worker = self._owned_worker
@@ -105,8 +109,9 @@ class SeekDBBridge:
         await asyncio.to_thread(self.commit, event)
 
     def close(self) -> None:
-        """Stop any outbox worker owned by this bridge."""
+        """Flush and stop any outbox worker owned by this bridge."""
         if self._owned_worker is not None:
+            self._owned_worker.flush()
             self._owned_worker.stop()
             self._owned_worker = None
             self._outbox_worker = None

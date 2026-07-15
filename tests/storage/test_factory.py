@@ -43,12 +43,12 @@ def test_factory_sqlite_path(tmp_path: Path):
     assert db.exists()
 
 
-def test_factory_explicit_backend_overrides_url_scheme():
-    # Even with an sqlite:// URL, explicit backend=memory wins.
+def test_factory_memory_backend_defers_to_url_scheme():
+    # "memory" is the neutral default; a concrete sqlite:// URL selects the real backend.
     client = StorageFactory.create_knowledge_store(
         backend="memory", url="sqlite:///tmp/ignored.sqlite"
     )
-    assert isinstance(client, InMemoryKnowledgeStore)
+    assert isinstance(client, SQLiteKnowledgeStore)
 
 
 def test_factory_rejects_http_for_sql_backend():

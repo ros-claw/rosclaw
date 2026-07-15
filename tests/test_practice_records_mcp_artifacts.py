@@ -70,11 +70,9 @@ class TestPracticeRecordsMcpArtifacts:
         assert provider_data["provider_id"] == "cosmos-reason2-lan"
         assert "normalized" in provider_data
 
-        # Timeline mirrors raw events.
+        # timeline.jsonl is deprecated; the canonical event stream is events.jsonl.
         timeline_path = session_dir / "timeline.jsonl"
-        assert timeline_path.exists()
-        timeline = [json.loads(line) for line in timeline_path.read_text().strip().splitlines()]
-        assert len(timeline) == len(events)
+        assert not timeline_path.exists()
 
     def test_run_without_provider_records_camera_and_sandbox(
         self,

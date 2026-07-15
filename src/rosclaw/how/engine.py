@@ -83,9 +83,11 @@ class HeuristicEngine:
         knowledge_interface: Any | None = None,
         event_bus: Any | None = None,
         sense_runtime: Any | None = None,
+        memory_interface: Any | None = None,
     ) -> None:
         self._seekdb = seekdb_client
         self._knowledge = knowledge_interface
+        self._memory = memory_interface
         self._event_bus = event_bus
         self._sense_runtime = sense_runtime
         self._table = "heuristic_rules"
@@ -205,9 +207,11 @@ class HeuristicEngine:
             if tax_rule is not None:
                 return self._format(tax_rule)
 
-        # 4. Knowledge fallback (optional)
-        if self._knowledge:
-            return await self._knowledge_fallback(error_log, context)
+        # 4. Memory/knowledge analogy fallback (vector-backed experience retrieval)
+        if self._memory is not None or self._knowledge:
+            memory_result = await self._knowledge_fallback(error_log, context)
+            if memory_result is not None:
+                return memory_result
 
         return None
 
@@ -515,20 +519,63 @@ class HeuristicEngine:
         error_log: str,
         context: dict[str, Any] | None,
     ) -> dict[str, Any] | None:
-        """Optional knowledge-based analogy fallback."""
-        try:
-            # Placeholder: if Knowledge module provides analogy lookup
-            analogy = self._knowledge.find_analogy(error_log)
-            if analogy:
-                return {
-                    "rule_id": "analogy_" + str(analogy.get("id", "")),
-                    "condition": error_log,
-                    "action": str(analogy.get("action_suggestion", "")),
-                    "priority": 0,
-                    "source": "knowledge_analogy",
-                }
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Knowledge fallback failed: %s", exc)
+        """Optional knowledge-based analogy fallback.
+
+        Prefers a vector-backed MemoryInterface because it can retrieve
+        semantically similar past failures even when keyword matching fails.
+        Falls back to the KnowledgeInterface analogy API when no memory
+        interface is available.
+        """
+        if self._memory is not None:
+            try:
+                analogy = self._memory.find_analogy(error_log, limit=1)
+                if analogy:
+                    return {
+                        "rule_id": "analogy_" + str(analogy.get("id", "")),
+                        "condition": error_log,
+                        "action": str(analogy.get("action_suggestion", "")),
+                        "priority": 0,
+                        "source": "memory_analogy",
+                    }
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Memory analogy fallback failed: %s", exc)
+
+        if self._knowledge is not None:
+            try:
+                # KnowledgeInterface exposes get_analogy; MemoryInterface exposes
+                # find_analogy. Try the canonical API first, then fall back to
+                # the memory-style API so either backend can serve analogies.
+                if hasattr(self._knowledge, "get_analogy"):
+                    analogy = self._knowledge.get_analogy(error_log)
+                    analogies: list[dict[str, Any]] = []
+                    if isinstance(analogy, dict):
+                        analogies = analogy.get("analogies") or []
+                        if not analogies and analogy.get("action_suggestion"):
+                            analogies = [analogy]
+                    first = analogies[0] if analogies else {}
+                    if first.get("action_suggestion"):
+                        pattern_id = (
+                            analogy.get("pattern_id", "") if isinstance(analogy, dict) else ""
+                        )
+                        return {
+                            "rule_id": "analogy_" + str(pattern_id),
+                            "condition": error_log,
+                            "action": str(first.get("action_suggestion", "")),
+                            "priority": 0,
+                            "source": "knowledge_analogy",
+                        }
+                if hasattr(self._knowledge, "find_analogy"):
+                    analogy = self._knowledge.find_analogy(error_log, limit=1)
+                    if analogy:
+                        return {
+                            "rule_id": "analogy_" + str(analogy.get("id", "")),
+                            "condition": error_log,
+                            "action": str(analogy.get("action_suggestion", "")),
+                            "priority": 0,
+                            "source": "knowledge_analogy",
+                        }
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Knowledge fallback failed: %s", exc)
         return None
 
     def _format(self, rule: dict[str, Any]) -> dict[str, Any]:

@@ -154,6 +154,8 @@ SEEKDB_SCHEMAS: dict[str, Any] = {
             "timestamp": "REAL NOT NULL",
             "payload": "TEXT",
             "metadata": "TEXT",
+            "body_condition_failure": "INTEGER",
+            "body_sense_evidence": "TEXT",
         },
         "indices": ["episode_id", "robot_id", "event_type", "timestamp"],
     },
@@ -169,6 +171,8 @@ SEEKDB_SCHEMAS: dict[str, Any] = {
             "timestamp": "REAL",
             "recovery_hint": "TEXT",
             "metadata": "TEXT",
+            "body_condition_failure": "INTEGER",
+            "body_sense_evidence": "TEXT",
         },
         "indices": ["episode_id", "task_id", "robot_id", "body_id", "failure_type", "timestamp"],
     },
@@ -610,8 +614,170 @@ class SQLiteKnowledgeStore(SeekDBClient):
         self._vector_enabled = vector_enabled
         self._embedder = embedder
         self._vector_store: Any | None = None
+        self._embedder_warmed = False
+        self._warmed_tables: set[str] = set()
 
-    def _init_vector_store(self) -> None:
+    def _has_table(self, table: str) -> bool:
+        """Return True if *table* exists in the SQLite database."""
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (table,),
+            ).fetchone()
+        return row is not None
+
+    _TABLE_TEXT_FIELDS: dict[str, list[str]] = {
+        "knowledge_graph": ["subject", "predicate", "object"],
+        "experience_graph": ["instruction", "tags", "error_details"],
+        "heuristic_rules": ["condition", "action"],
+        "failures": ["failure_type", "root_cause", "recovery_hint"],
+        "praxis_events": ["event_type", "payload"],
+        "episodes": ["task_id", "outcome"],
+        "success_patterns": ["skill_id"],
+        "artifacts": ["artifact_type", "uri", "metadata"],
+    }
+
+    # Columns that are persisted as JSON strings and should be re-hydrated on read.
+    _JSON_COLUMN_NAMES: frozenset[str] = frozenset(
+        {
+            "body_sense_evidence",
+            "changes",
+            "cot_trace",
+            "data",
+            "delta",
+            "dofs",
+            "error_details",
+            "evidence_refs",
+            "failures",
+            "improvement",
+            "metrics",
+            "metadata",
+            "original_outcome",
+            "parameter_patch",
+            "payload",
+            "policy_params",
+            "prerequisites",
+            "real_value",
+            "retry_outcome",
+            "search_space",
+            "sim_value",
+            "tags",
+            "trajectory",
+        }
+    )
+
+    def _json_columns(self, table: str) -> list[str]:
+        """Return the columns of *table* that should be JSON-deserialized."""
+        schema = SEEKDB_SCHEMAS.get(table, {})
+        return [col for col in schema.get("columns", {}) if col in self._JSON_COLUMN_NAMES]
+
+    def _extract_warmup_text(self, table: str, row: dict[str, Any]) -> str:
+        """Build a single searchable text blob for *row* in *table*."""
+        fields = self._TABLE_TEXT_FIELDS.get(table, [])
+        if not fields:
+            # Fallback: concatenate all string-ish values.
+            fields = [k for k in row if k != "id"]
+        parts: list[str] = []
+        for field in fields:
+            value = row.get(field)
+            if value is None or value == "":
+                continue
+            if isinstance(value, (list, dict)):
+                with contextlib.suppress(Exception):
+                    parts.append(json.dumps(value, ensure_ascii=False))
+            elif isinstance(value, str):
+                parts.append(value)
+        return " ".join(parts)
+
+    def warmup_embedder(self, tables: list[str] | None = None) -> dict[str, int]:
+        """Fit the embedder on existing rows and index them into the vector store.
+
+        This eliminates cold-start latency for the first vector query and makes
+        historical knowledge/experience/failure records searchable through the
+        hybrid retrieval path.
+
+        Returns a dict mapping table name to the number of rows indexed.
+        """
+        if not self._vector_enabled:
+            return {}
+        self._ensure_vector_store()
+        if self._vector_store is None or self._embedder is None:
+            self._embedder_warmed = True
+            return {}
+
+        tables = tables or list(self._TABLE_TEXT_FIELDS.keys())
+        # Only warm tables that have not been warmed yet.
+        tables = [t for t in tables if t not in self._warmed_tables]
+        if not tables:
+            self._embedder_warmed = True
+            return {}
+
+        counts: dict[str, int] = {}
+        all_texts: list[str] = []
+        rows_by_table: dict[str, list[tuple[str, str]]] = {}
+
+        for table in tables:
+            if not self._has_table(table):
+                continue
+            try:
+                rows = self.query(table, limit=10_000)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Warmup query failed for %s: %s", table, exc)
+                continue
+            table_rows: list[tuple[str, str]] = []
+            for row in rows:
+                record_id = row.get("id")
+                if not record_id:
+                    continue
+                text = self._extract_warmup_text(table, row)
+                if not text:
+                    continue
+                all_texts.append(text)
+                table_rows.append((str(record_id), text))
+            rows_by_table[table] = table_rows
+
+        # For the TF-IDF embedder, fit once on the entire corpus so that
+        # subsequent encodings share a stable vocabulary.
+        try:
+            from rosclaw.storage.vector import TfidfEmbedder
+
+            if (
+                isinstance(self._embedder, TfidfEmbedder)
+                and self._embedder._vocab is None
+                and all_texts
+            ):
+                self._embedder.fit(all_texts)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Embedder warmup fit failed: %s", exc)
+
+        for table, table_rows in rows_by_table.items():
+            if not table_rows:
+                self._warmed_tables.add(table)
+                continue
+            try:
+                texts = [text for _, text in table_rows]
+                if hasattr(self._embedder, "encode_batch"):
+                    embeddings = self._embedder.encode_batch(texts)
+                else:
+                    embeddings = [self._embedder.encode(text) for text in texts]
+                self._vector_store.upsert_many(
+                    table,
+                    [
+                        (record_id, text, embedding)
+                        for (record_id, text), embedding in zip(table_rows, embeddings, strict=True)
+                    ],
+                )
+                counts[table] = len(table_rows)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Warmup embedding failed for %s: %s", table, exc)
+            self._warmed_tables.add(table)
+
+        self._embedder_warmed = True
+        logger.info("Embedder warmup complete: %s", counts)
+        return counts
+
+    def _ensure_vector_store(self) -> None:
+        """Create the embedder and vector store if vector support is enabled."""
         if not self._vector_enabled:
             return
         from rosclaw.storage.vector import SQLiteVectorStore, TfidfEmbedder
@@ -633,13 +799,43 @@ class SQLiteKnowledgeStore(SeekDBClient):
         Requires ``vector_enabled=True`` and an embedder.  If vector support is
         not configured, falls back to a simple keyword search over text fields.
         """
-        self._init_vector_store()
+        self._ensure_vector_store()
         if self._vector_store is not None and self._embedder is not None:
-            return self._vector_store.hybrid_search(
-                table, query_text, self._embedder, filters=filters, limit=limit
-            )
+            if table not in self._warmed_tables:
+                self.warmup_embedder([table])
+            if table in self._warmed_tables:
+                return self._vector_store.hybrid_search(
+                    table, query_text, self._embedder, filters=filters, limit=limit
+                )
         # Fallback: keyword search against string columns of the table.
         return self._keyword_fallback(table, query_text, filters, limit)
+
+    def _index_vector(
+        self,
+        table: str,
+        record_id: str,
+        record: dict[str, Any],
+    ) -> None:
+        """Keep the vector index in sync with a freshly written record.
+
+        Only indexes tables that have already been warmed, so inserts into
+        unqueried tables do not pay the embedding cost.
+        """
+        if not self._vector_enabled:
+            return
+        if table not in self._warmed_tables:
+            return
+        self._ensure_vector_store()
+        if self._vector_store is None or self._embedder is None:
+            return
+        text = self._extract_warmup_text(table, record)
+        if not text:
+            return
+        try:
+            embedding = self._embedder.encode(text)
+            self._vector_store.upsert(table, record_id, text, embedding)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Vector index update failed for %s %s: %s", table, record_id, exc)
 
     def _keyword_fallback(
         self,
@@ -654,13 +850,9 @@ class SQLiteKnowledgeStore(SeekDBClient):
         results = []
         rows = self.query(table, filters=filters, limit=limit * 10)
         for row in rows:
-            text_parts = []
-            for v in row.values():
-                if isinstance(v, str):
-                    text_parts.append(v)
-                elif isinstance(v, (list, dict)):
-                    text_parts.append(json.dumps(v))
-            row_text = " ".join(text_parts)
+            row_text = self._extract_warmup_text(table, row)
+            if not row_text:
+                continue
             tokens = set(_tokenize(row_text))
             overlap = len(query_tokens & tokens)
             if overlap:
@@ -798,6 +990,7 @@ class SQLiteKnowledgeStore(SeekDBClient):
                 values,
             )
             self._connection.commit()
+        self._index_vector(table, serialized["id"], record)
         return serialized["id"]
 
     def query(
@@ -824,9 +1017,11 @@ class SQLiteKnowledgeStore(SeekDBClient):
             cursor = self._connection.execute(sql, params)
             rows = cursor.fetchall()
         results = []
+        json_columns = self._json_columns(table)
         for row in rows:
             record = dict(row)
-            for k, v in record.items():
+            for k in json_columns:
+                v = record.get(k)
                 if isinstance(v, str) and (v.startswith("[") or v.startswith("{")):
                     with contextlib.suppress(json.JSONDecodeError):
                         record[k] = json.loads(v)
@@ -847,6 +1042,11 @@ class SQLiteKnowledgeStore(SeekDBClient):
                 values,
             )
             self._connection.commit()
+        if cursor.rowcount > 0:
+            # Re-read the updated record to keep the vector index in sync.
+            rows = self.query(table, filters={"id": record_id}, limit=1)
+            if rows:
+                self._index_vector(table, record_id, rows[0])
         return cursor.rowcount > 0
 
     def count(self, table: str, filters: dict | None = None) -> int:
@@ -927,10 +1127,21 @@ class _ConnectionPool:
         try:
             conn = self._pool.get_nowait()
         except queue.Empty:
+            # Decide whether we may create a new connection while holding the
+            # lock, then create it outside the lock so slow I/O does not block
+            # other threads. If creation fails, decrement _created so capacity
+            # is not leaked.
             with self._lock:
-                if self._created < self._max_size:
+                may_create = self._created < self._max_size
+                if may_create:
                     self._created += 1
+            if may_create:
+                try:
                     conn = self._creator()
+                except Exception:
+                    with self._lock:
+                        self._created = max(0, self._created - 1)
+                    raise
             if conn is None:
                 conn = self._pool.get(timeout=self._timeout)
         return _PooledConnection(self, conn)

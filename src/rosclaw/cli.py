@@ -2102,12 +2102,38 @@ def cmd_practice_start(args: argparse.Namespace) -> int:
     coordinator.initialize()
 
     recorder = None
+    bridge = None
     if seekdb_enabled:
         try:
+            from rosclaw.firstboot.config import load_rosclaw_yaml
             from rosclaw.practice.episode_recorder import EpisodeRecorder
             from rosclaw.practice.seekdb_bridge import SeekDBBridge
+            from rosclaw.storage.outbox import OutboxStore
 
-            bridge = SeekDBBridge(seekdb_url=seekdb_http_url, fallback_dir=fallback_dir)
+            yaml_cfg = load_rosclaw_yaml(home) or {}
+            storage_cfg = yaml_cfg.get("storage", {})
+            outbox_enabled = bool(storage_cfg.get("outbox_enabled", False))
+            outbox_path = storage_cfg.get("outbox_path") or str(home / "storage" / "outbox.sqlite")
+            outbox_max_records = int(storage_cfg.get("outbox_max_records", 100_000))
+            outbox_flush_interval_sec = float(
+                storage_cfg.get("outbox_flush_interval_sec", 5.0)
+            )
+            outbox_batch_size = int(storage_cfg.get("outbox_batch_size", 100))
+
+            outbox: OutboxStore | None = None
+            if outbox_enabled:
+                outbox = OutboxStore(
+                    db_path=outbox_path,
+                    max_records=outbox_max_records,
+                )
+
+            bridge = SeekDBBridge(
+                seekdb_url=seekdb_http_url,
+                fallback_dir=fallback_dir,
+                outbox=outbox,
+                outbox_interval_sec=outbox_flush_interval_sec,
+                outbox_batch_size=outbox_batch_size,
+            )
             recorder = EpisodeRecorder(
                 robot_id=resolved_body_id,
                 event_bus=coordinator.event_bus,
@@ -2181,6 +2207,8 @@ def cmd_practice_start(args: argparse.Namespace) -> int:
     coordinator.stop()
     if recorder is not None:
         recorder.stop()
+    if bridge is not None:
+        bridge.close()
     if pid_file.exists():
         pid_file.unlink()
 

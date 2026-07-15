@@ -86,7 +86,13 @@ class StorageFactory:
         :raises ValueError: on ambiguous or unsupported backend configuration.
         """
         detected = _detect_backend_from_url(url)
-        chosen = (backend or detected or "memory").lower()
+        # "memory" is the neutral/ephemeral default. If a concrete URL scheme is
+        # provided, let it select the real backend so callers that only set
+        # ``ROSCLAW_SEEKDB_URL`` get the right implementation.
+        if backend == "memory" and detected:
+            chosen = detected
+        else:
+            chosen = (backend or detected or "memory").lower()
 
         if chosen == "http":
             raise ValueError(
@@ -105,11 +111,13 @@ class StorageFactory:
             return InMemoryKnowledgeStore()
 
         if chosen == "sqlite":
-            db_path = path
-            if url and not db_path:
+            db_path = None
+            if url:
                 db_path = str(url)
                 if db_path.lower().startswith("sqlite://"):
                     db_path = db_path[len("sqlite://") :]
+            if not db_path:
+                db_path = path
             if not db_path:
                 raise ValueError("seekdb_backend='sqlite' requires seekdb_path or a sqlite:// URL.")
             logger.info("Knowledge store backend: sqlite (%s)", db_path)
@@ -153,6 +161,8 @@ class StorageFactory:
     ) -> str:
         """Return the backend that :meth:`create_knowledge_store` would select."""
         detected = _detect_backend_from_url(url)
+        if backend == "memory" and detected:
+            return detected
         return (backend or detected or "memory").lower()
 
     @staticmethod

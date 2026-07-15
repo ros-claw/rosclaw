@@ -368,6 +368,7 @@ class MemoryInterface(LifecycleMixin):
 
         record_id = self._client.insert("experience_graph", record)
         self._invalidate_search_cache()
+        self._maybe_index_experience_vector(record_id, record)
 
         if self.event_bus is not None:
             self.event_bus.publish(
@@ -395,6 +396,47 @@ class MemoryInterface(LifecycleMixin):
             self.enforce_capacity()
 
         return record_id
+
+    def _vector_search_available(self) -> bool:
+        """Return True if the configured backend supports vector/hybrid search."""
+        return hasattr(self._client, "similar") and getattr(self._client, "_vector_enabled", False)
+
+    def _resolve_vector_results(self, vector_results: list[dict[str, Any]]) -> list[dict]:
+        """Map vector search result ids back to full experience records."""
+        results: list[dict] = []
+        for vr in vector_results:
+            record_id = vr.get("id")
+            if not record_id:
+                continue
+            rows = self._client.query("experience_graph", filters={"id": record_id}, limit=1)
+            if rows:
+                record = dict(rows[0])
+                record["vector_score"] = vr.get("score")
+                results.append(record)
+        return results
+
+    def _maybe_index_experience_vector(self, record_id: str, record: dict[str, Any]) -> None:
+        """Upsert experience text into the vector side table when vector is enabled."""
+        if not getattr(self._client, "_vector_enabled", False):
+            return
+        self._client._ensure_vector_store()
+        vector_store = getattr(self._client, "_vector_store", None)
+        embedder = getattr(self._client, "_embedder", None)
+        if vector_store is None or embedder is None:
+            return
+        parts = [
+            record.get("instruction", ""),
+            " ".join(record.get("tags", [])),
+            record.get("error_details") or "",
+        ]
+        text = " ".join(p for p in parts if p)
+        if not text:
+            return
+        try:
+            embedding = embedder.encode(text)
+            vector_store.upsert("experience_graph", record_id, text, embedding)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to index experience %s to vector store: %s", record_id, exc)
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:
@@ -555,6 +597,22 @@ class MemoryInterface(LifecycleMixin):
             return []
 
         # 2) Tiered retrieval: fast path 200, expand to 600 only if needed
+        # If the backend supports vector/hybrid search, prefer it.
+        vector_results: list[dict[str, Any]] = []
+        if self._vector_search_available():
+            try:
+                vector_results = self._client.similar(
+                    "experience_graph", instruction, filters=filters, limit=limit
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Vector search failed for %r: %s", instruction, exc)
+
+        if vector_results:
+            results = self._resolve_vector_results(vector_results)
+            if results:
+                self._query_result_cache[cache_key] = (results, now)
+                return results
+
         all_experiences = self._client.query(
             "experience_graph",
             filters=filters,

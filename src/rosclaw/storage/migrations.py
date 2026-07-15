@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import re
-import sqlite3
 import time
 from pathlib import Path
 from typing import Any
@@ -21,16 +20,85 @@ logger = logging.getLogger("rosclaw.storage.migrations")
 def _split_statements(sql: str) -> list[str]:
     """Split a SQL script into individual statements.
 
-    This is intentionally simple: it splits on semicolons and ignores empty
-    statements and line comments.  For complex migrations, keep one statement
-    per line or use explicit delimiters.
+    Handles single-line ``--`` comments, ``/* */`` block comments, and string
+    literals delimited by ``'`` or ``\"``.  Semicolons inside strings or
+    comments are ignored so that migrations containing punctuation in data do
+    not get mangled.
     """
-    statements = []
-    for raw in sql.split(";"):
-        cleaned = re.sub(r"--.*", "", raw)
-        cleaned = cleaned.strip()
-        if cleaned:
-            statements.append(cleaned)
+    statements: list[str] = []
+    current: list[str] = []
+    i = 0
+    n = len(sql)
+    in_line_comment = False
+    in_block_comment = False
+    in_string = False
+    string_char = ""
+
+    while i < n:
+        ch = sql[i]
+        nxt = sql[i + 1] if i + 1 < n else ""
+
+        if in_line_comment:
+            if ch == "\n":
+                in_line_comment = False
+            i += 1
+            continue
+
+        if in_block_comment:
+            if ch == "*" and nxt == "/":
+                in_block_comment = False
+                i += 2
+            else:
+                i += 1
+            continue
+
+        if in_string:
+            if ch == "\\" and nxt:
+                current.extend([ch, nxt])
+                i += 2
+                continue
+            if ch == string_char:
+                if nxt == string_char:
+                    current.extend([ch, nxt])
+                    i += 2
+                    continue
+                in_string = False
+                string_char = ""
+            current.append(ch)
+            i += 1
+            continue
+
+        if ch == "-" and nxt == "-":
+            in_line_comment = True
+            i += 2
+            continue
+
+        if ch == "/" and nxt == "*":
+            in_block_comment = True
+            i += 2
+            continue
+
+        if ch in ("'", '"'):
+            in_string = True
+            string_char = ch
+            current.append(ch)
+            i += 1
+            continue
+
+        if ch == ";":
+            stmt = "".join(current).strip()
+            if stmt:
+                statements.append(stmt)
+            current = []
+            i += 1
+            continue
+
+        current.append(ch)
+        i += 1
+
+    stmt = "".join(current).strip()
+    if stmt:
+        statements.append(stmt)
     return statements
 
 
@@ -62,7 +130,11 @@ class MigrationRunner:
         applied_versions = {row["version"] for row in applied}
 
         new: list[str] = []
-        for path in sorted(self._migrations_dir.glob("*.sql")):
+        migration_paths = sorted(
+            self._migrations_dir.glob("*.sql"),
+            key=lambda p: int(self._version_from_filename(p)),
+        )
+        for path in migration_paths:
             version = self._version_from_filename(path)
             if version in applied_versions:
                 continue
@@ -74,8 +146,7 @@ class MigrationRunner:
             self._record(connection, version, backend)
             new.append(version)
 
-        if isinstance(connection, sqlite3.Connection):
-            connection.commit()
+        connection.commit()
         return new
 
     @staticmethod
@@ -85,6 +156,29 @@ class MigrationRunner:
         if not match:
             raise ValueError(f"Migration filename must start with a version number: {path.name}")
         return match.group(1)
+
+    def pending(self, connection: Any, backend: str) -> list[str]:
+        """Return versions of migrations that have not yet been applied.
+
+        This is a read-only helper for ``db status`` / ``db doctor``; it does
+        not modify the database.
+        """
+        self._ensure_table(connection, backend)
+        applied_versions = {row["version"] for row in self._applied_versions(connection, backend)}
+        pending_versions: list[str] = []
+        migration_paths = sorted(
+            self._migrations_dir.glob("*.sql"),
+            key=lambda p: int(self._version_from_filename(p)),
+        )
+        for path in migration_paths:
+            version = self._version_from_filename(path)
+            if version in applied_versions:
+                continue
+            target = _read_backend(path)
+            if target != "all" and target != backend:
+                continue
+            pending_versions.append(version)
+        return pending_versions
 
     @staticmethod
     def _ensure_table(connection: Any, backend: str) -> None:
@@ -115,7 +209,21 @@ class MigrationRunner:
             return [{"version": row[0], "applied_at": row[1]} for row in cursor.fetchall()]
         with connection.cursor() as cursor:
             cursor.execute("SELECT version, applied_at FROM schema_migrations")
-            return [dict(row) for row in cursor.fetchall()]
+            rows = cursor.fetchall()
+            return MigrationRunner._rows_as_dicts(cursor, rows)
+
+    @staticmethod
+    def _rows_as_dicts(cursor: Any, rows: list[Any]) -> list[dict[str, Any]]:
+        """Convert cursor rows to dicts regardless of cursor type."""
+        if not rows:
+            return []
+        # If rows are already dict-like, preserve them.
+        first = rows[0]
+        if isinstance(first, dict):
+            return [dict(r) for r in rows]
+        # PyMySQL tuple rows: map from cursor.description.
+        columns = [desc[0] for desc in getattr(cursor, "description", []) or []]
+        return [dict(zip(columns, row, strict=True)) for row in rows]
 
     @staticmethod
     def _record(connection: Any, version: str, backend: str) -> None:
@@ -133,11 +241,29 @@ class MigrationRunner:
 
     @staticmethod
     def _execute_script(connection: Any, sql: str, backend: str) -> None:
-        statements = _split_statements(sql)
         if backend == "sqlite":
-            for statement in statements:
+            for statement in _split_statements(sql):
                 connection.execute(statement)
-        else:
-            with connection.cursor() as cursor:
-                for statement in statements:
+            return
+
+        # MySQL: prefer multi=True so the server parses statements itself.
+        # This correctly handles triggers, stored procedures, and backtick
+        # identifiers that a naive semicolon split would mangle.
+        with connection.cursor() as cursor:
+            try:
+                multi_supported = hasattr(cursor, "execute") and "multi" in (
+                    cursor.execute.__code__.co_varnames
+                    if hasattr(cursor.execute, "__code__")
+                    else []
+                )
+            except Exception:  # noqa: BLE001
+                multi_supported = False
+
+            if multi_supported:
+                for result in cursor.execute(sql, multi=True):
+                    # Consume any result sets so the protocol stays clean.
+                    if getattr(result, "with_rows", False):
+                        result.fetchall()
+            else:
+                for statement in _split_statements(sql):
                     cursor.execute(statement)

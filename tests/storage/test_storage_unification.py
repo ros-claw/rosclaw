@@ -7,6 +7,7 @@ and ``MigrationRunner`` together through the public ``rosclaw.storage`` API.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -36,7 +37,7 @@ class TestStorageFactoryUnification:
             assert ping["latency_ms"] is not None
 
             # Initialize vector extension tables.
-            client._init_vector_store()
+            client._ensure_vector_store()
             # Force creation of a vector side table.
             assert client._vector_store is not None
             client._vector_store._ensure_table("experience_graph")
@@ -70,7 +71,13 @@ class TestOutboxAndMigrationsTogether:
         db_path = tmp_path / "outbox.sqlite"
         outbox = OutboxStore(db_path=str(db_path))
         stats = outbox.stats()
-        assert stats == {"total": 0, "pending": 0, "failed": 0}
+        assert stats == {
+            "total": 0,
+            "pending": 0,
+            "failed": 0,
+            "dead_letters": 0,
+            "oldest_pending_sec": None,
+        }
 
     def test_migration_runner_baseline_idempotent(self, tmp_path: Path) -> None:
         import sqlite3
@@ -88,6 +95,64 @@ class TestOutboxAndMigrationsTogether:
         }
         assert "schema_migrations" in tables
         conn.close()
+
+    def test_split_statements_ignores_semicolons_in_strings(self) -> None:
+        from rosclaw.storage.migrations import _split_statements
+
+        sql = """
+        INSERT INTO t (name) VALUES ('a;b'); -- inline comment; ignore
+        UPDATE t SET name = 'c' WHERE id = 1;
+        /* block ; comment */
+        SELECT * FROM t;
+        """
+        statements = _split_statements(sql)
+        assert statements == [
+            "INSERT INTO t (name) VALUES ('a;b')",
+            "UPDATE t SET name = 'c' WHERE id = 1",
+            "SELECT * FROM t",
+        ]
+
+    def test_migration_runner_commits_mysql(self, tmp_path: Path) -> None:
+        from rosclaw.storage.migrations import MigrationRunner
+
+        migrations_dir = tmp_path / "migs"
+        migrations_dir.mkdir()
+        migrations_dir.joinpath("001_test.sql").write_text(
+            "CREATE TABLE demo (id INT PRIMARY KEY);", encoding="utf-8"
+        )
+
+        commits: list[None] = []
+        executed: list[str] = []
+
+        class FakeCursor:
+            def execute(self, sql: str, params: tuple | None = None) -> None:
+                executed.append(sql)
+
+            def fetchall(self) -> list[dict[str, Any]]:
+                return []
+
+            def __enter__(self) -> FakeCursor:
+                return self
+
+            def __exit__(self, *args: Any) -> None:
+                pass
+
+        class FakeConnection:
+            def __init__(self) -> None:
+                self._cursor = FakeCursor()
+
+            def cursor(self) -> FakeCursor:
+                return self._cursor
+
+            def commit(self) -> None:
+                commits.append(None)
+
+        conn = FakeConnection()
+        runner = MigrationRunner(migrations_dir=str(migrations_dir))
+        applied = runner.apply(conn, "mysql")
+        assert applied == ["001"]
+        assert commits, "MigrationRunner must commit MySQL migrations"
+        assert any("schema_migrations" in sql for sql in executed)
 
 
 class TestVectorSearchEndToEnd:
@@ -121,7 +186,7 @@ class TestVectorSearchEndToEnd:
                 },
             )
 
-            client._init_vector_store()
+            client._ensure_vector_store()
             embedder = client._embedder
             assert embedder is not None
             client._vector_store.upsert(
@@ -146,5 +211,77 @@ class TestVectorSearchEndToEnd:
             assert len(results) == 2
             # The grasp record should rank at least as high as the push record.
             assert results[0]["id"] == id1
+        finally:
+            getattr(client, "disconnect", getattr(client, "close", lambda: None))()
+
+    def test_similar_search_filters_by_robot_id(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "vec_filters.sqlite"
+        client = StorageFactory.create_knowledge_store(
+            backend="sqlite",
+            path=str(db_path),
+            vector_enabled=True,
+        )
+        try:
+            id1 = client.insert(
+                "experience_graph",
+                {
+                    "event_type": "test",
+                    "robot_id": "r1",
+                    "timestamp": 1.0,
+                    "instruction": "grasp a red cube on the table",
+                    "outcome": "success",
+                },
+            )
+            id2 = client.insert(
+                "experience_graph",
+                {
+                    "event_type": "test",
+                    "robot_id": "r2",
+                    "timestamp": 2.0,
+                    "instruction": "grasp a blue cube on the table",
+                    "outcome": "success",
+                },
+            )
+
+            client._ensure_vector_store()
+            embedder = client._embedder
+            assert embedder is not None
+            client._vector_store.upsert(
+                "experience_graph",
+                id1,
+                "grasp a red cube on the table",
+                embedder.encode("grasp a red cube on the table"),
+            )
+            client._vector_store.upsert(
+                "experience_graph",
+                id2,
+                "grasp a blue cube on the table",
+                embedder.encode("grasp a blue cube on the table"),
+            )
+
+            results = client.similar(
+                "experience_graph",
+                query_text="grasp cube",
+                filters={"robot_id": "r1"},
+                limit=5,
+            )
+            assert len(results) == 1
+            assert results[0]["id"] == id1
+        finally:
+            getattr(client, "disconnect", getattr(client, "close", lambda: None))()
+
+    def test_invalid_table_name_rejected(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "vec_invalid.sqlite"
+        client = StorageFactory.create_knowledge_store(
+            backend="sqlite",
+            path=str(db_path),
+            vector_enabled=True,
+        )
+        try:
+            client._ensure_vector_store()
+            store = client._vector_store
+            assert store is not None
+            with pytest.raises(ValueError, match="Invalid SQL table name"):
+                store.upsert("experience graph; DROP", "id", "text", [1.0])
         finally:
             getattr(client, "disconnect", getattr(client, "close", lambda: None))()
