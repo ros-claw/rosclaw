@@ -15,6 +15,13 @@ from typing import Any
 logger = logging.getLogger("rosclaw.practice.storage.catalog")
 
 
+def _strip_watermark_key(record: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of *record* without the internal ``_wm`` sequence key."""
+    if "_wm" not in record:
+        return record
+    return {k: v for k, v in record.items() if k != "_wm"}
+
+
 class _BatchWriter:
     """Threaded batch inserter for catalog tables.
 
@@ -36,6 +43,7 @@ class _BatchWriter:
         batch_size: int = 500,
         flush_interval_ms: float = 300.0,
         max_queue_size: int = 2000,
+        on_watermark: Any | None = None,
     ):
         self.name = name
         self._flush_fn = flush_fn
@@ -47,6 +55,9 @@ class _BatchWriter:
         self._overflow_fallbacks = 0
         self._failed_records: list[dict[str, Any]] = []
         self._flush_error: Exception | None = None
+        # ``on_watermark`` is called with the max ``_wm`` sequence of every
+        # successfully flushed batch so callers can track durable progress.
+        self._on_watermark = on_watermark
         self._thread = threading.Thread(
             target=self._worker, name=f"catalog-batch-{name}", daemon=True
         )
@@ -143,6 +154,22 @@ class _BatchWriter:
         except Exception:
             logger.exception("Batch writer %s flush failed", self.name)
             raise
+        self._report_watermark(batch)
+
+    def _report_watermark(self, batch: list[dict[str, Any]]) -> None:
+        """Forward the max ``_wm`` sequence of a flushed batch to the catalog."""
+        if self._on_watermark is None:
+            return
+        watermark = 0
+        for record in batch:
+            value = record.get("_wm")
+            if isinstance(value, int) and value > watermark:
+                watermark = value
+        if watermark:
+            try:
+                self._on_watermark(watermark)
+            except Exception:  # noqa: BLE001
+                logger.exception("Batch writer %s watermark callback failed", self.name)
 
 
 class PracticeCatalog:
@@ -356,21 +383,48 @@ class PracticeCatalog:
         self._event_batch_size = event_batch_size
         self._event_flush_ms = event_flush_ms
         self._event_max_queue = event_max_queue
-        self._event_writer: _BatchWriter | None = _BatchWriter(
+        # Durable-progress watermarks, keyed by the per-session ``_wm``
+        # sequence the recorder attaches to every queued record.  They only
+        # advance after the batch containing that sequence has been committed,
+        # so ``flush_until`` never confuses "dequeued" with "persisted".
+        self._events_watermark = 0
+        self._event_index_watermark = 0
+        self._watermark_cond = threading.Condition()
+        self._event_writer: _BatchWriter | None = self._new_event_writer()
+        self._event_index_writer: _BatchWriter | None = self._new_event_index_writer()
+        self._init_schema()
+
+    def _new_event_writer(self) -> _BatchWriter:
+        return _BatchWriter(
             "events",
             self._flush_events,
-            batch_size=event_batch_size,
-            flush_interval_ms=event_flush_ms,
-            max_queue_size=event_max_queue,
+            batch_size=self._event_batch_size,
+            flush_interval_ms=self._event_flush_ms,
+            max_queue_size=self._event_max_queue,
+            on_watermark=self._on_events_watermark,
         )
-        self._event_index_writer: _BatchWriter | None = _BatchWriter(
+
+    def _new_event_index_writer(self) -> _BatchWriter:
+        return _BatchWriter(
             "event_index",
             self._flush_event_index,
-            batch_size=event_batch_size,
-            flush_interval_ms=event_flush_ms,
-            max_queue_size=event_max_queue,
+            batch_size=self._event_batch_size,
+            flush_interval_ms=self._event_flush_ms,
+            max_queue_size=self._event_max_queue,
+            on_watermark=self._on_event_index_watermark,
         )
-        self._init_schema()
+
+    def _on_events_watermark(self, watermark: int) -> None:
+        with self._watermark_cond:
+            if watermark > self._events_watermark:
+                self._events_watermark = watermark
+            self._watermark_cond.notify_all()
+
+    def _on_event_index_watermark(self, watermark: int) -> None:
+        with self._watermark_cond:
+            if watermark > self._event_index_watermark:
+                self._event_index_watermark = watermark
+            self._watermark_cond.notify_all()
 
     def _init_schema(self) -> None:
         with self._lock:
@@ -413,22 +467,60 @@ class PracticeCatalog:
         """Flush any pending batched writes before reading."""
         if self._event_writer is not None:
             self._event_writer.close()
-            self._event_writer = _BatchWriter(
-                "events",
-                self._flush_events,
-                batch_size=self._event_batch_size,
-                flush_interval_ms=self._event_flush_ms,
-                max_queue_size=self._event_max_queue,
-            )
+            self._event_writer = self._new_event_writer()
         if self._event_index_writer is not None:
             self._event_index_writer.close()
-            self._event_index_writer = _BatchWriter(
-                "event_index",
-                self._flush_event_index,
-                batch_size=self._event_batch_size,
-                flush_interval_ms=self._event_flush_ms,
-                max_queue_size=self._event_max_queue,
+            self._event_index_writer = self._new_event_index_writer()
+
+    # ------------------------------------------------------------------
+    # Durability watermarks
+    # ------------------------------------------------------------------
+
+    def advance_event_index_watermark(self, sequence_id: int) -> None:
+        """Advance the event-index watermark for intentionally skipped rows.
+
+        The recorder only queues an event-index row when the JSONL write
+        succeeded; for sequences without an index row the watermark must
+        still advance so ``flush_until`` does not wait forever.
+        """
+        self._on_event_index_watermark(sequence_id)
+
+    def watermarks(self) -> dict[str, int]:
+        """Return current durable-progress watermarks."""
+        with self._watermark_cond:
+            return {
+                "events": self._events_watermark,
+                "event_index": self._event_index_watermark,
+            }
+
+    def flush_until(self, sequence_id: int, timeout_sec: float = 30.0) -> dict[str, Any]:
+        """Wait until both batch writers have persisted up to *sequence_id*.
+
+        This is the commit-point barrier used before session finalize: it
+        returns only when every queued event and event-index record whose
+        ``_wm`` sequence is ``<= sequence_id`` has actually been committed to
+        SQLite — never merely when the in-memory queue is empty.
+        """
+        deadline = time.monotonic() + max(0.0, timeout_sec)
+        with self._watermark_cond:
+            while (
+                self._events_watermark < sequence_id
+                or self._event_index_watermark < sequence_id
+            ):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._watermark_cond.wait(timeout=min(remaining, 0.05))
+            ok = (
+                self._events_watermark >= sequence_id
+                and self._event_index_watermark >= sequence_id
             )
+            return {
+                "ok": ok,
+                "target": sequence_id,
+                "events_watermark": self._events_watermark,
+                "event_index_watermark": self._event_index_watermark,
+            }
 
     # ------------------------------------------------------------------
     # Legacy compatibility
@@ -453,9 +545,10 @@ class PracticeCatalog:
     def _flush_events(self, batch: list[dict[str, Any]]) -> None:
         if not batch:
             return
-        cols = ", ".join(batch[0].keys())
-        placeholders = ", ".join("?" for _ in batch[0])
-        values = [list(record.values()) for record in batch]
+        clean = [_strip_watermark_key(record) for record in batch]
+        cols = ", ".join(clean[0].keys())
+        placeholders = ", ".join("?" for _ in clean[0])
+        values = [list(record.values()) for record in clean]
         with self._lock:
             self._conn.executemany(
                 f"INSERT OR REPLACE INTO events ({cols}) VALUES ({placeholders})",
@@ -749,9 +842,10 @@ class PracticeCatalog:
     def _flush_event_index(self, batch: list[dict[str, Any]]) -> None:
         if not batch:
             return
-        cols = ", ".join(batch[0].keys())
-        placeholders = ", ".join("?" for _ in batch[0])
-        values = [list(record.values()) for record in batch]
+        clean = [_strip_watermark_key(record) for record in batch]
+        cols = ", ".join(clean[0].keys())
+        placeholders = ", ".join("?" for _ in clean[0])
+        values = [list(record.values()) for record in clean]
         with self._lock:
             self._conn.executemany(
                 f"INSERT OR REPLACE INTO practice_event_index ({cols}) VALUES ({placeholders})",

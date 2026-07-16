@@ -38,6 +38,12 @@ class RecorderConfig:
     rgb_format: str = "jpg"
     depth_format: str = "png16"
 
+    # Maximum time session finalize waits for the catalog batch writers to
+    # commit every queued event before the manifest is written.  A timeout
+    # never aborts finalize (the robot must not be blocked); an unsatisfied
+    # barrier is logged CRITICAL and surfaced via ``db reconcile``.
+    finalize_flush_timeout_sec: float = 30.0
+
 
 @dataclass
 class SeekDBConfig:
