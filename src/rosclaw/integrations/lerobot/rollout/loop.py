@@ -79,6 +79,9 @@ class RolloutConfig:
     require_exact_mapping: bool = True
     allow_partial_mapping: bool = False
     run_sandbox_preflight: bool = True
+    # Optional pre-resolved body for shadow/execute loops (avoids resolver
+    # lookups and monkey-patching in RH56 mock gates).
+    body_override: Any | None = None
     # Optional RH56 sandbox context: {"profile": TransportProfile,
     # "calibration": RH56Calibration|None, "current_positions": list|None,
     # "max_step_delta_raw": float|None}.  When set, the RH56 range checker
@@ -153,7 +156,7 @@ def _run_loop(config: RolloutConfig, source: ObservationSource) -> RolloutResult
     mapping = None
     mapping_report: dict[str, Any] = {"blocked": False, "block_reasons": []}
     if config.mode == RolloutMode.SHADOW:
-        body = _load_body(config.body_id)
+        body = config.body_override if config.body_override is not None else _load_body(config.body_id)
         body_space = resolve_body_action_space(body)
 
     contract = _resolve_contract(config.observation_contract)
@@ -207,6 +210,7 @@ def _run_loop(config: RolloutConfig, source: ObservationSource) -> RolloutResult
             return result
 
         policy_metadata = load_response.get("policy_metadata", {})
+        initial_worker_generation = load_response.get("worker_generation")
         policy_space = _policy_space_from_metadata(policy_metadata)
         if body_space is not None:
             mapping = generate_action_mapping(
@@ -315,6 +319,15 @@ def _run_loop(config: RolloutConfig, source: ObservationSource) -> RolloutResult
         result.stop_reason = RolloutStopReason.RUNTIME_FAILURE
         result.errors.append(f"Rollout exception: {exc}")
     finally:
+        # P5: track worker restarts across the rollout (gate requires 0).
+        with contextlib.suppress(Exception):
+            health = runtime.call("HEALTH", {}, timeout_sec=5.0)
+            final_generation = health.get("worker_generation")
+            initial_generation = locals().get("initial_worker_generation")
+            if initial_generation is not None and final_generation is not None:
+                metrics.worker_restart_count = max(
+                    0, int(final_generation) - int(initial_generation)
+                )
         with contextlib.suppress(Exception):
             runtime.call("CLOSE_SESSION", {"session_id": session_id}, timeout_sec=10.0)
         runtime.stop()

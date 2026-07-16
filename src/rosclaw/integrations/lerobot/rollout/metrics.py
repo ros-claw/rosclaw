@@ -24,6 +24,7 @@ class RolloutMetrics:
     overrun_count: int = 0
     effective_control_hz: float = 0.0
     hardware_actions_executed: int = 0
+    worker_restart_count: int = 0
 
     def record_step(self, latency_ms: float) -> None:
         self.step_latencies_ms.append(latency_ms)
@@ -73,6 +74,7 @@ class RolloutMetrics:
             "overrun_count": self.overrun_count,
             "effective_control_hz": round(self.effective_control_hz, 2),
             "hardware_actions_executed": self.hardware_actions_executed,
+            "worker_restart_count": self.worker_restart_count,
         }
 
 

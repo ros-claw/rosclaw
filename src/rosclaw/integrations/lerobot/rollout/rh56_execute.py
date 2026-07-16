@@ -13,8 +13,6 @@ physical device.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import time
 import uuid
 from pathlib import Path
@@ -31,7 +29,7 @@ from rosclaw.body.execution.rh56_executor import RH56Executor
 from rosclaw.body.rh56.calibration import load_rh56_calibration
 from rosclaw.body.rh56.mock_body import build_mock_rh56_body
 from rosclaw.body.rh56.sandbox import run_rh56_sandbox_preflight
-from rosclaw.body.rh56.transport import MockModbusTransport, RH56Transport
+from rosclaw.body.rh56.transport import MockModbusTransport, RH56Transport, TransportIOError
 from rosclaw.body.rh56.transport_profile import (
     load_transport_profile,
     validate_transport_binding,
@@ -47,6 +45,7 @@ from rosclaw.integrations.lerobot.execution import (
 )
 from rosclaw.integrations.lerobot.observation_adapter import adapt_observation_for_worker
 from rosclaw.integrations.lerobot.policy_runtime.manager import PersistentRuntimeManager
+from rosclaw.integrations.lerobot.rollout.loop import _build_snapshot
 from rosclaw.integrations.lerobot.rollout.practice_bridge import (
     finalize_rollout_practice_session,
 )
@@ -96,7 +95,7 @@ def run_rh56_execute(
     if not transport.is_connected():
         transport.connect()
 
-    result = RolloutResult(mode=RolloutMode.SHADOW, stop_reason=RolloutStopReason.COMPLETED)
+    result = RolloutResult(mode=RolloutMode.EXECUTE, stop_reason=RolloutStopReason.COMPLETED)
     report = ExecutionReport(body_id=getattr(body, "body_instance_id", robot_id), task=task)
     trace = Path(trace_path or f"/tmp/rosclaw_rh56_execute_{uuid.uuid4().hex[:8]}.jsonl")
     recorder = RolloutRecorder(
@@ -115,13 +114,6 @@ def run_rh56_execute(
             payload,
         )
 
-    permit = permit_manager.get(permit_id)
-    if permit is None:
-        result.stop_reason = RolloutStopReason.RUNTIME_FAILURE
-        result.errors.append(f"permit {permit_id} not active")
-        return result, report
-    _event_sink("execution.armed", {"permit_id": permit_id, "task": task})
-
     executor = RH56Executor(transport, profile)
     step_executor = SingleStepExecutor(
         executor=executor,
@@ -139,17 +131,24 @@ def run_rh56_execute(
     )
     body_space = resolve_body_action_space(body)
     session_id = f"session_{uuid.uuid4().hex[:12]}"
-
-    hashes = {
-        "policy_contract_hash": permit.policy_contract_hash,
-        "body_hash": permit.body_hash,
-        "calibration_hash": permit.calibration_hash,
-        "mapping_hash": permit.mapping_hash,
-        "transport_profile_hash": permit.transport_profile_hash,
-    }
-
     source = RH56ObservationSource(transport, profile, task=task)
+
     try:
+        permit = permit_manager.get(permit_id)
+        if permit is None:
+            result.stop_reason = RolloutStopReason.RUNTIME_FAILURE
+            result.errors.append(f"permit {permit_id} not active or revoked")
+            return result, report
+        _event_sink("execution.armed", {"permit_id": permit_id, "task": task})
+
+        hashes = {
+            "policy_contract_hash": permit.policy_contract_hash,
+            "body_hash": permit.body_hash,
+            "calibration_hash": permit.calibration_hash,
+            "mapping_hash": permit.mapping_hash,
+            "transport_profile_hash": permit.transport_profile_hash,
+        }
+
         state = runtime.start()
         if state.state != "ready":
             result.stop_reason = RolloutStopReason.RUNTIME_FAILURE
@@ -181,11 +180,22 @@ def run_rh56_execute(
 
         for step_index in range(steps):
             obs_ns = time.monotonic_ns()
-            raw_observation = source.get_observation(step_index)
+            try:
+                raw_observation = source.get_observation(step_index)
+            except TransportIOError as exc:
+                # Observation channel failed mid-execution: estop, fault, stop.
+                step_executor.emergency_stop()
+                _event_sink(
+                    "execution.communication_lost",
+                    {"reason": f"observation read failed: {exc}", "step": step_index},
+                )
+                arming.fault(ExecutionState.COMMUNICATION_LOST, str(exc))
+                permit_manager.revoke(permit_id, "communication_lost")
+                result.stop_reason = RolloutStopReason.RUNTIME_FAILURE
+                result.errors.append(f"communication_lost: {exc}")
+                break
             if raw_observation is None:
                 break
-            from rosclaw.integrations.lerobot.rollout.loop import _build_snapshot
-
             snapshot = _build_snapshot(raw_observation, step_index, session_id)
             recorder.record_observation_validated(
                 snapshot.to_dict(),
@@ -279,7 +289,6 @@ def run_rh56_execute(
                     time.sleep(sleep_time)
 
         report.final_state = arming.machine.state.value
-        result.hardware_actions_executed = step_executor.hardware_actions_executed
     except KeyboardInterrupt:
         step_executor.emergency_stop()
         result.stop_reason = RolloutStopReason.INTERRUPTED
@@ -288,6 +297,10 @@ def run_rh56_execute(
         result.stop_reason = RolloutStopReason.RUNTIME_FAILURE
         result.errors.append(f"execute loop exception: {exc}")
     finally:
+        # Evidence must survive every exit path, including mid-loop faults:
+        # commands already sent count as executed hardware actions.
+        result.hardware_actions_executed = step_executor.hardware_actions_executed
+        report.final_state = arming.machine.state.value
         try:
             runtime.call("CLOSE_SESSION", {"session_id": session_id}, timeout_sec=10.0)
         except Exception:  # noqa: BLE001

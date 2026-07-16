@@ -12,6 +12,7 @@ class RolloutMode(StrEnum):
 
     PROPOSAL_ONLY = "proposal_only"
     SHADOW = "shadow"
+    EXECUTE = "execute"
 
 
 class RolloutStopReason(StrEnum):

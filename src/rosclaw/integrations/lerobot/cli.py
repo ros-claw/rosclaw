@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -1641,7 +1642,19 @@ def cmd_lerobot_rollout_rh56_shadow(args: argparse.Namespace) -> int:
             _rh56_registry_dir() / "shadow_validated.json",
             **_rh56_hashes(args),
         )
-    report_md = render_shadow_report(gate, result)
+    import yaml as _yaml
+
+    contract_doc = {}
+    contract_path = Path(args.policy_path) / "policy_contract.yaml"
+    if contract_path.exists():
+        with contextlib.suppress(Exception):
+            contract_doc = _yaml.safe_load(contract_path.read_text(encoding="utf-8")) or {}
+    report_md = render_shadow_report(
+        gate,
+        result,
+        calibration_hash=calibration.content_hash(),
+        policy_contract=contract_doc,
+    )
     if args.report:
         Path(args.report).write_text(report_md, encoding="utf-8")
     if args.json:
@@ -1716,6 +1729,10 @@ def _report_preflight(checks: list[dict[str, Any]], args: argparse.Namespace) ->
 
 def cmd_lerobot_rollout_arm(args: argparse.Namespace) -> int:
     """Dispatch `rosclaw lerobot rollout arm` (P5 §12.3)."""
+    from rosclaw.body.rh56.calibration import (
+        calibration_has_mock_evidence,
+        load_rh56_calibration,
+    )
     from rosclaw.integrations.lerobot.execution.arming import (
         ArmingController,
         restore_shadow_registry,
@@ -1726,9 +1743,20 @@ def cmd_lerobot_rollout_arm(args: argparse.Namespace) -> int:
         save_permit,
     )
 
+    calib = load_rh56_calibration(args.calibration)
+    # A mock-validated calibration must never arm a real device unless the
+    # operator explicitly runs in mock mode.
+    if calib.status == "validated" and calibration_has_mock_evidence(calib) and not args.mock:
+        print(
+            "[rosclaw-lerobot] ARM refused: calibration was validated against the MOCK "
+            "transport (evidence mock=True). Re-run `body validate-calibration` on the "
+            "real device, or pass --mock for a mock-only run."
+        )
+        return 1
+
     hashes = _rh56_hashes(args)
     registry = _rh56_registry_dir() / "shadow_validated.json"
-    pm = PermitManager()
+    pm = PermitManager(store_dir=_rh56_registry_dir() / "permits")
     arming = ArmingController(pm)
     restored = restore_shadow_registry(registry, arming)
     arming.begin_preflight()
@@ -1755,7 +1783,7 @@ def cmd_lerobot_rollout_arm(args: argparse.Namespace) -> int:
             operator_armed=True,
             physical_estop_confirmed=True,
             task=args.task,
-            calibration_status="validated",
+            calibration_status=calib.status,
         )
     except PermitError as exc:
         print(f"[rosclaw-lerobot] ARM refused: {exc}")
@@ -1789,10 +1817,10 @@ def cmd_lerobot_rollout_execute(args: argparse.Namespace) -> int:
         return 1
 
     registry_dir = _rh56_registry_dir()
-    pm = PermitManager()
+    pm = PermitManager(store_dir=registry_dir / "permits")
     permit = load_permit_into_manager(args.permit, registry_dir / "permits", pm)
     if permit is None:
-        print(f"[rosclaw-lerobot] execute refused: permit {args.permit} not found or expired")
+        print(f"[rosclaw-lerobot] execute refused: permit {args.permit} not found or revoked")
         return 1
 
     arming = ArmingController(pm)

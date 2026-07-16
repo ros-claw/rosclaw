@@ -159,6 +159,15 @@ class RH56Calibration:
         return spec.position_tolerance_raw if spec is not None else 25
 
 
+def calibration_has_mock_evidence(calib: RH56Calibration) -> bool:
+    """True when the validation evidence came from the mock transport.
+
+    A calibration validated against the mock device must never arm real
+    hardware; arming paths check this and refuse unless mock mode is explicit.
+    """
+    return any("mock=true" in str(item).lower() for item in calib.validation.evidence)
+
+
 def load_rh56_calibration(path: str | Path) -> RH56Calibration:
     """Load a calibration document from YAML or JSON, fail-closed on errors."""
     path = Path(path)

@@ -1668,7 +1668,19 @@ def cmd_practice_export(args: argparse.Namespace) -> int:
         if practice_id:
             episode_dir = Path(practice_id)
             if not episode_dir.is_dir():
-                episode_dir = Path(args.data_root) / practice_id
+                candidate = Path(args.data_root) / practice_id
+                episode_dir = candidate
+                # Practice sessions live under <data_root>/sessions/<id>; fall
+                # back to that layout when the flat path does not resolve.
+                sessions_candidate = Path(args.data_root) / "sessions" / practice_id
+                if not (candidate / "episode.json").exists() and sessions_candidate.is_dir():
+                    episode_dir = sessions_candidate
+            # Rollout-imported sessions carry a frame-level episode built from
+            # the trace; prefer it over the summary-only episode.json.
+            if episode_dir.is_dir():
+                frames_file = episode_dir / "frames_episode.json"
+                if frames_file.exists():
+                    episode_dir = frames_file
         else:
             episode_dir = Path(args.data_root)
 
@@ -7332,6 +7344,11 @@ def main() -> int:
     arm_parser.add_argument("--expires-in", type=float, default=120.0)
     arm_parser.add_argument("--require-estop", action="store_true")
     arm_parser.add_argument("--acknowledge-real-robot-risk", action="store_true")
+    arm_parser.add_argument(
+        "--mock",
+        action="store_true",
+        help="Allow a mock-validated calibration (mock-only runs)",
+    )
 
     execute_parser = lerobot_rollout_subparsers.add_parser(
         "execute", help="P5 RH56 single-step execution (requires a permit)"

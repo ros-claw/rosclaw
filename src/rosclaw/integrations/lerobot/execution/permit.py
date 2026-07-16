@@ -31,9 +31,10 @@ class PermitError(ValueError):
 class PermitManager:
     """Issue and validate execution permits."""
 
-    def __init__(self) -> None:
+    def __init__(self, store_dir: str | Path | None = None) -> None:
         self._permits: dict[str, ExecutionPermit] = {}
         self._revoked: dict[str, str] = {}
+        self._store_dir = Path(store_dir).expanduser() if store_dir else None
 
     def issue(
         self,
@@ -109,6 +110,8 @@ class PermitManager:
     def revoke(self, permit_id: str, reason: str) -> None:
         self._revoked[permit_id] = reason
         self._permits.pop(permit_id, None)
+        if self._store_dir is not None:
+            _write_revoked_marker(self._store_dir, permit_id, reason)
 
     def revoke_all(self, reason: str) -> int:
         count = len(self._permits)
@@ -142,6 +145,12 @@ class PermitManager:
         if time.monotonic_ns() > permit.expires_at_monotonic_ns:
             self.revoke(permit_id, "expired")
             raise PermitError(f"permit_expired: {permit_id}")
+        # Wall-clock check as well: a persisted permit's monotonic deadline is
+        # meaningless after a reboot, so expiry is enforced in both domains.
+        wall_expiry = _parse_iso(permit.expires_at)
+        if wall_expiry is not None and datetime.now(UTC) > wall_expiry:
+            self.revoke(permit_id, "expired_wall_clock")
+            raise PermitError(f"permit_expired: {permit_id} (wall clock)")
         if permit.body_id != body_id:
             raise PermitError(
                 f"permit_body_mismatch: {body_id} != {permit.body_id}"
@@ -217,8 +226,38 @@ def load_permit_into_manager(
     directory: str | Path,
     manager: PermitManager,
 ) -> ExecutionPermit | None:
-    """Load a persisted permit and register it as active in ``manager``."""
+    """Load a persisted permit and register it as active in ``manager``.
+
+    Returns ``None`` when the permit file is missing **or a revoked marker
+    exists** — revocation survives process restarts.
+    """
+    directory = Path(directory).expanduser()
+    if (directory / f"{permit_id}.revoked.json").exists():
+        manager._revoked[permit_id] = "revoked(persisted)"
+        return None
     permit = load_permit(permit_id, directory)
     if permit is not None:
         manager._permits[permit.permit_id] = permit
     return permit
+
+
+def _parse_iso(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _write_revoked_marker(store_dir: Path, permit_id: str, reason: str) -> None:
+    import json
+
+    store_dir.mkdir(parents=True, exist_ok=True)
+    marker = store_dir / f"{permit_id}.revoked.json"
+    payload = {
+        "permit_id": permit_id,
+        "reason": reason,
+        "revoked_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+    }
+    marker.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")

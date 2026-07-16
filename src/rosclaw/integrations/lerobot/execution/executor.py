@@ -165,7 +165,7 @@ class SingleStepExecutor:
             acknowledged, feedback = self.executor.execute_step(
                 request,
                 settle_ms=settle_ms,
-                max_step_delta_raw=permit.max_step_delta_raw,  # type: ignore[call-arg]
+                max_step_delta_raw=permit.max_step_delta_raw,
             )
         except ExecutorSafetyError as exc:
             self.arming.machine.transition(ExecutionState.VERIFYING_FEEDBACK, "safety refusal")

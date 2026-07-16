@@ -69,16 +69,11 @@ def run_rh56_shadow(
         "profile": profile,
         "calibration": calibration,
     }
+    config.body_override = body
 
-    # Inject the mock/resolved body via the loop's loader hook.
-    import rosclaw.integrations.lerobot.rollout.loop as loop_module
-
-    original_loader = loop_module._load_body
-    loop_module._load_body = lambda body_id: body
     try:
         result = _run_loop(config, source)
     finally:
-        loop_module._load_body = original_loader
         source.close()
 
     gate_report = evaluate_shadow_gate(result, profile, source.serial_health())
@@ -139,6 +134,11 @@ def evaluate_shadow_gate(
             "value": serial_health.get("disconnect_count", 0),
             "required": "== 0",
             "pass": serial_health.get("disconnect_count", 0) == 0,
+        },
+        "worker_restart_count": {
+            "value": metrics.get("worker_restart_count", 0),
+            "required": "== 0",
+            "pass": metrics.get("worker_restart_count", 0) == 0,
         },
         "effective_hz": {
             "value": round(effective_hz, 3),

@@ -266,6 +266,7 @@ def _write_frames_episode(
     observations: dict[int, dict[str, Any]] = {}
     actions: dict[int, dict[str, Any]] = {}
     executed: dict[int, dict[str, Any]] = {}
+    step_timestamps: dict[int, int] = {}
     for ev in events:
         etype = ev.get("event_type", "")
         payload = ev.get("payload", {}) or {}
@@ -278,6 +279,9 @@ def _write_frames_episode(
             continue
         if etype == "rollout.observation.validated":
             observations[step] = payload.get("snapshot", {}) or {}
+            ts = ev.get("timestamp_ns")
+            if isinstance(ts, int):
+                step_timestamps.setdefault(step, ts)
         elif etype == "rollout.policy.inference":
             actions[step] = payload.get("inference", {}) or {}
         elif etype in ("execution.feedback.verified", "execution.step.completed"):
@@ -287,7 +291,14 @@ def _write_frames_episode(
     if not steps:
         return None
 
-    first_ts = events[0].get("timestamp_ns", 0) if events else 0
+    first_ts = step_timestamps.get(steps[0]) or (events[0].get("timestamp_ns", 0) if events else 0)
+    # Real inter-step spacing from trace timestamps (fallback to 5 Hz spacing).
+    if len(steps) > 1 and steps[0] in step_timestamps and steps[-1] in step_timestamps:
+        span_sec = (step_timestamps[steps[-1]] - step_timestamps[steps[0]]) / 1e9
+        fps = (len(steps) - 1) / span_sec if span_sec > 0 else 5.0
+    else:
+        fps = 5.0
+
     frames: list[dict[str, Any]] = []
     for out_index, step in enumerate(steps):
         snapshot = observations[step]
@@ -295,10 +306,11 @@ def _write_frames_episode(
         features = snapshot.get("features", {}) or {}
         state_feature = features.get("observation.state", {}) or {}
         action_block = proposal.get("action", {}) or {}
+        step_ts = step_timestamps.get(step, first_ts)
 
         frame: dict[str, Any] = {
             "frame_index": out_index,
-            "timestamp": out_index * 0.2,
+            "timestamp": max(0.0, (step_ts - first_ts) / 1e9),
             "observation": {
                 "state": [float(v) for v in state_feature.get("values", [])],
                 "images": {},
@@ -340,7 +352,7 @@ def _write_frames_episode(
             "policy_path": policy_path,
         },
         "task": {"text": task_id},
-        "fps": 5.0,
+        "fps": round(fps, 3),
         "frames": frames,
         "metadata": {
             "practice_id": practice_id,
