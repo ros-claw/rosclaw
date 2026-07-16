@@ -21,6 +21,11 @@ from rosclaw.body.query import BodyQueryEngine
 from rosclaw.body.registry import BodyRegistryError, BodyRegistryManager
 from rosclaw.body.renderer import EmbodimentRenderer
 from rosclaw.body.resolver import BodyNotLinkedError, BodyResolver
+from rosclaw.body.rh56.calibrate_cli import (
+    add_rh56_calibration_parsers,
+    cmd_body_calibrate_rh56,
+    cmd_body_validate_calibration,
+)
 from rosclaw.body.ros_introspection import RosIntrospectionError, introspect_ros
 from rosclaw.body.schema import (
     BodyDiff,
@@ -179,6 +184,9 @@ def add_body_subparser(
     cal_update.add_argument("--file", required=True, help="Path to calibration YAML file")
     cal_update.add_argument("--workspace", default=None, help="ROSClaw workspace")
     _add_body_arg(cal_update)
+
+    # RH56 calibration (P5): calibrate-rh56 / validate-calibration
+    add_rh56_calibration_parsers(body_subparsers)
 
     # retrofit
     retro_parser = body_subparsers.add_parser("retrofit", help="Record a hardware retrofit")
@@ -410,6 +418,10 @@ def dispatch_body_command(args: argparse.Namespace) -> int:
         return cmd_body_maintenance(args)
     if command == "calibration":
         return cmd_body_calibration(args)
+    if command == "calibrate-rh56":
+        return cmd_body_calibrate_rh56(args)
+    if command == "validate-calibration":
+        return cmd_body_validate_calibration(args)
     if command == "retrofit":
         return cmd_body_retrofit(args)
     if command == "capability":

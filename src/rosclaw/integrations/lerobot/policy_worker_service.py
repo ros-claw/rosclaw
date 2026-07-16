@@ -126,6 +126,9 @@ class PolicyWorkerService:
         )
 
         policy_type = self._read_policy_type(local_path)
+        # Third-party plugin policies register their config at import time;
+        # config.json may declare the plugin module explicitly.
+        self._import_policy_plugin(local_path, policy_type)
         policy_cls = get_policy_class(policy_type)
         policy = policy_cls.from_pretrained(str(local_path))
         policy.eval()
@@ -172,6 +175,39 @@ class PolicyWorkerService:
             raise ValueError(f"Could not determine policy type from {local_path}")
         return str(policy_type)
 
+    @staticmethod
+    def _import_policy_plugin(local_path: Path, policy_type: str) -> None:
+        """Import a declared or conventional LeRobot plugin package.
+
+        LeRobot registers third-party policy configs at import time, so the
+        plugin module must be imported before ``get_policy_class``.  Sources,
+        in priority order:
+
+        1. ``config.json`` ``plugin_module`` field (explicit, authoritative)
+        2. Conventional module names derived from the policy type
+        """
+        import importlib
+        import json
+
+        candidates: list[str] = []
+        config_json = local_path / "config.json"
+        if config_json.exists():
+            try:
+                data = json.loads(config_json.read_text(encoding="utf-8"))
+                declared = data.get("plugin_module")
+                if isinstance(declared, str) and declared:
+                    candidates.append(declared)
+            except Exception:  # noqa: BLE001
+                pass
+        candidates.append(f"lerobot_policy_{policy_type}")
+
+        for module_name in candidates:
+            try:
+                importlib.import_module(module_name)
+                return
+            except ImportError:
+                continue
+
     def _move_processor_to_device(self, processor: Any, device: str) -> None:
         """Force every DeviceProcessorStep inside a pipeline to the requested device."""
         if processor is None:
@@ -216,9 +252,56 @@ class PolicyWorkerService:
             extra["action_unit"] = str(unit)
         if isinstance(chunk_size, int):
             extra["chunk_size"] = chunk_size
+
+        # P5: an explicit policy_contract.yaml inside the policy artifact is the
+        # authoritative source of action semantics.  When present it overrides
+        # output_features.action names/representation/unit, which makes every
+        # emitted proposal carry semantic_source=explicit_policy_contract.
+        contract = self._read_policy_contract(local_path)
+        if contract is not None:
+            contract_action = (
+                contract.get("output_features", {}).get("action", {}) or {}
+            )
+            target = metadata.setdefault("output_features", {}).setdefault("action", {})
+            for key in ("names", "representation", "unit", "shape"):
+                value = contract_action.get(key)
+                if value is not None:
+                    target[key] = value
+            extra["action_contract"] = {
+                "schema_version": contract.get("schema_version"),
+                "policy_id": contract.get("policy_id"),
+                "authoritative": bool(contract_action.get("authoritative", False)),
+            }
+            contract_hash = self._compute_contract_hash(local_path)
+            if contract_hash:
+                metadata["action_contract_hash"] = contract_hash
         if extra:
             metadata["extra"] = extra
         return metadata
+
+    @staticmethod
+    def _read_policy_contract(local_path: Path) -> dict[str, Any] | None:
+        """Read an optional ``policy_contract.yaml`` from the policy artifact."""
+        import yaml
+
+        contract_path = local_path / "policy_contract.yaml"
+        if not contract_path.exists():
+            return None
+        try:
+            data = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return None
+        return data if isinstance(data, dict) else None
+
+    @staticmethod
+    def _compute_contract_hash(local_path: Path) -> str | None:
+        contract_path = local_path / "policy_contract.yaml"
+        if not contract_path.exists():
+            return None
+        try:
+            return f"sha256:{hashlib.sha256(contract_path.read_bytes()).hexdigest()}"
+        except Exception:  # noqa: BLE001
+            return None
 
     def _compute_policy_hash(self, local_path: Path) -> str | None:
         """Return a stable hash of the policy config file, if present."""
