@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 import time
@@ -12,15 +11,6 @@ from typing import Any
 from rosclaw.practice.config import DEFAULT_DATA_ROOT, PracticeSession, PracticeSummary
 from rosclaw.practice.storage.catalog import PracticeCatalog
 from rosclaw.practice.storage.layout import PracticeLayout, generate_practice_id
-
-
-def _compute_sha256(path: Path) -> str:
-    """Return the SHA-256 hex digest of a file."""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def finalize_rollout_practice_session(
@@ -66,20 +56,18 @@ def finalize_rollout_practice_session(
     duration_ms = (end_time_ns - start_time_ns) / 1e6 if end_time_ns >= start_time_ns else 0.0
 
     start_time_utc = _ns_to_iso(start_time_ns)
-    session_dir = layout.session_dir(practice_id)
 
     session = PracticeSession(
         practice_id=practice_id,
         robot_id=robot_id,
+        robot_type=None,
         task_id=task_id,
         task_name=task_id,
         skill_id=None,
-        session_dir=session_dir,
-        start_time_ns=start_time_ns,
-        start_time_utc=start_time_utc,
-        robot_type=None,
         session_id=session_id,
         episode_id=episode_id,
+        start_time_ns=start_time_ns,
+        start_time_utc=start_time_utc,
         metadata={"body_id": body_id, "policy_id": policy_id, "source": "lerobot_rollout"},
     )
 
@@ -157,58 +145,6 @@ def finalize_rollout_practice_session(
                 "metrics": rollout_result.get("metrics", {}),
             }
         )
-
-        # Import events into the legacy events table for catalog-based queries.
-        for ev in events:
-            catalog.insert_event(
-                {
-                    "event_id": ev.get("event_id") or f"event_{practice_id}_{ev.get('sequence_id', 0)}",
-                    "practice_id": practice_id,
-                    "source": ev.get("source", "runtime"),
-                    "event_type": ev.get("event_type", "unknown"),
-                    "timestamp_ns": ev.get("timestamp_ns", start_time_ns),
-                    "timestamp_utc": ev.get("timestamp_utc", start_time_utc),
-                    "action_id": ev.get("action_id"),
-                    "task_id": ev.get("task_id", task_id),
-                    "skill_id": ev.get("skill_id"),
-                    "payload_ref": json.dumps(ev.get("payload_ref", {}) or {}),
-                    "tags": json.dumps(ev.get("tags", []) or []),
-                }
-            )
-
-        # Register v2 artifacts for the events JSONL and timeline.
-        timeline_path = layout.timeline_jsonl_path(practice_id)
-        artifact_records = [
-            {
-                "artifact_id": f"artifact_{practice_id}_events_jsonl",
-                "session_id": session_id,
-                "episode_id": episode_id,
-                "artifact_type": "events_jsonl",
-                "path": str(target_events),
-                "sha256": _compute_sha256(target_events),
-                "size_bytes": target_events.stat().st_size,
-                "schema_name": "practice.event.v1",
-                "created_at": _ns_to_iso(end_time_ns),
-                "metadata": {"role": "trace", "source": "lerobot_rollout"},
-            },
-        ]
-        if timeline_path.exists():
-            artifact_records.append(
-                {
-                    "artifact_id": f"artifact_{practice_id}_timeline_jsonl",
-                    "session_id": session_id,
-                    "episode_id": episode_id,
-                    "artifact_type": "timeline_jsonl",
-                    "path": str(timeline_path),
-                    "sha256": _compute_sha256(timeline_path),
-                    "size_bytes": timeline_path.stat().st_size,
-                    "schema_name": "practice.event.v1",
-                    "created_at": _ns_to_iso(end_time_ns),
-                    "metadata": {"role": "timeline", "source": "lerobot_rollout"},
-                }
-            )
-        for record in artifact_records:
-            catalog.insert_artifact_v2(record)
     finally:
         catalog.close()
 

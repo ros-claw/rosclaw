@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib.util
-import sys
 from pathlib import Path
 
 import pytest
@@ -69,7 +68,7 @@ def test_doctor_validation_status_reflects_successful_smoke(
         },
         runtime={
             "lerobot_version": "0.6.1",
-            "python_executable": sys.executable,
+            "python_executable": "/fake/python",
             "device": "cpu",
         },
     )
