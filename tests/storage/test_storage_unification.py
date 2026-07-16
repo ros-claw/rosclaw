@@ -74,6 +74,9 @@ class TestOutboxAndMigrationsTogether:
         assert stats == {
             "total": 0,
             "pending": 0,
+            "inflight": 0,
+            "retry": 0,
+            "delivered": 0,
             "failed": 0,
             "dead_letters": 0,
             "oldest_pending_sec": None,
