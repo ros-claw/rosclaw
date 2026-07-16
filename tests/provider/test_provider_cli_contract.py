@@ -21,8 +21,12 @@ def test_provider_health_json_contract(monkeypatch, capsys):
 
     assert code == 0
     assert payload["ok"] is True
+    assert payload["status"] == "catalog_available"
     assert payload["provider_count"] >= 8
+    assert payload["healthy_provider_count"] == 0
+    assert payload["execution_ready_provider_count"] == 0
     assert any(provider["name"] == "vlm" for provider in payload["providers"])
+    assert all(provider["readiness"]["verified"] is False for provider in payload["providers"])
 
 
 def test_provider_route_explains_vlm_scene_graph(monkeypatch, capsys):

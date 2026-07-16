@@ -18,7 +18,7 @@ from rosclaw.provider.core import (
     RuntimeAdapterError,
 )
 from rosclaw.provider.core.errors import CapabilityNotSupportedError, ManifestValidationError
-from rosclaw.provider.core.manifest import EmbodimentSpec
+from rosclaw.provider.core.manifest import EmbodimentSpec, SafetySpec
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -252,6 +252,78 @@ class TestProviderRegistry:
         reg.register(manifest, lambda m: DummyProvider(m), auto_load=False)
         assert reg.is_healthy("test_provider") is False
 
+    def test_health_does_not_imply_executable(self):
+        executable_manifest = ProviderManifest(
+            name="arm_driver",
+            version="1.0",
+            type="skill",
+            capabilities=["arm.move"],
+            safety=SafetySpec(executable=True),
+            extra={"implementation_kind": "vendor_driver", "execution_mode": "REAL"},
+        )
+        reg = ProviderRegistry()
+        reg.register(executable_manifest, lambda m: DummyProvider(m), auto_load=False)
+        reg.set_provider_health("arm_driver", ok=True)
+
+        readiness = reg.get_readiness("arm_driver")
+
+        assert readiness.registered is True
+        assert readiness.healthy is True
+        assert readiness.loaded is False
+        assert readiness.executable is False
+        assert readiness.verified is False
+
+    def test_provider_requires_loaded_verified_environment_and_authorization(self):
+        executable_manifest = ProviderManifest(
+            name="arm_driver",
+            version="1.0",
+            type="skill",
+            capabilities=["arm.move"],
+            safety=SafetySpec(executable=True),
+            extra={"implementation_kind": "vendor_driver", "execution_mode": "REAL"},
+        )
+        reg = ProviderRegistry()
+        reg.register(executable_manifest, lambda m: DummyProvider(m), auto_load=False)
+        reg.set_provider_health("arm_driver", ok=True)
+        reg.set_provider_readiness(
+            "arm_driver",
+            loaded=True,
+            verified_environment=True,
+            authorized=False,
+        )
+
+        readiness = reg.get_readiness("arm_driver")
+        assert readiness.executable is True
+        assert readiness.authorized is False
+        assert readiness.verified is False
+
+        reg.set_provider_readiness("arm_driver", authorized=True)
+        assert reg.get_readiness("arm_driver").verified is True
+
+    def test_mock_provider_can_never_be_real_executable(self):
+        mock_manifest = ProviderManifest(
+            name="mock_arm",
+            version="1.0",
+            type="skill",
+            capabilities=["arm.move"],
+            safety=SafetySpec(executable=True),
+            extra={"implementation_kind": "mock", "execution_mode": "FIXTURE"},
+        )
+        reg = ProviderRegistry()
+        reg.register(mock_manifest, lambda m: DummyProvider(m), auto_load=False)
+        reg.set_provider_health("mock_arm", ok=True)
+        reg.set_provider_readiness(
+            "mock_arm",
+            loaded=True,
+            verified_environment=True,
+            authorized=True,
+        )
+
+        readiness = reg.get_readiness("mock_arm")
+        assert readiness.execution_mode == "FIXTURE"
+        assert readiness.executable is False
+        assert readiness.verified is False
+
 
 # ---------------------------------------------------------------------------
 # CapabilityRouter
@@ -292,6 +364,30 @@ class TestCapabilityRouter:
         assert isinstance(decision, RouterDecision)
         assert decision.selected_provider == "test_provider"
         assert decision.score > 0
+
+    @pytest.mark.asyncio
+    async def test_route_blocks_unverified_executable_provider(self):
+        manifest = ProviderManifest(
+            name="arm_driver",
+            version="1.0",
+            type="skill",
+            capabilities=["arm.move"],
+            safety=SafetySpec(executable=True),
+            extra={"implementation_kind": "vendor_driver", "execution_mode": "REAL"},
+        )
+        registry = ProviderRegistry()
+        registry.register(manifest, lambda m: DummyProvider(m), auto_load=False)
+        registry.set_provider_health("arm_driver", ok=True)
+        router = CapabilityRouter(registry)
+        request = ProviderRequest(
+            request_id="move-1",
+            capability="arm.move",
+            inputs={"target": [0.0] * 6},
+            constraints={"requires_execution": True},
+        )
+
+        with pytest.raises(ProviderNotFoundError):
+            await router.route(request)
 
     @pytest.mark.asyncio
     async def test_invoke_success(self, healthy_router: CapabilityRouter):

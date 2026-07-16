@@ -48,3 +48,9 @@ class ProviderRequest:
     @property
     def requires_offline(self) -> bool:
         return self.constraints.get("offline", False)
+
+    @property
+    def requires_execution(self) -> bool:
+        """Whether routing this request may cause a physical side effect."""
+
+        return bool(self.constraints.get("requires_execution", False))

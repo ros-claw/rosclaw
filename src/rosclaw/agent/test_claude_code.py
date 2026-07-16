@@ -20,6 +20,12 @@ from rosclaw.agent.merge import read_json_if_exists
 from rosclaw.agent.tool_catalog import P0_AGENT_MCP_TOOLS
 
 _SHELL_DEFAULT_PATTERN = re.compile(r"\$\{([^}:]+):-([^}]+)\}")
+_EXPECTED_READINESS_CODES = {
+    "BODY_NOT_FOUND",
+    "RUNTIME_UNAVAILABLE",
+    "STATE_PROVENANCE_UNAVAILABLE",
+    "SYNTHETIC_SOURCE_NOT_ALLOWED",
+}
 
 
 @dataclass
@@ -27,6 +33,35 @@ class McpProbeResult:
     ok: bool
     tools: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    readiness_limits: list[str] = field(default_factory=list)
+
+
+def _assess_probe_payload(
+    tool_name: str,
+    payload: Any,
+) -> tuple[str | None, str | None]:
+    """Classify a tool envelope as healthy, truthfully unavailable, or broken."""
+    if not isinstance(payload, dict):
+        return f"{tool_name} returned a non-object envelope", None
+    if payload.get("schema_version") != "rosclaw.mcp.v1":
+        return f"{tool_name} returned unexpected schema", None
+    if payload.get("ok") is True:
+        return None, None
+    if payload.get("ok") is not False:
+        return f"{tool_name} returned an envelope without boolean ok", None
+
+    error = payload.get("error")
+    if not isinstance(error, dict):
+        return f"{tool_name} returned malformed error details", None
+    code = str(error.get("code", ""))
+    details = error.get("details")
+    if (
+        code in _EXPECTED_READINESS_CODES
+        and isinstance(details, dict)
+        and details.get("usable_for_real_execution") is False
+    ):
+        return None, f"{tool_name}: unavailable as expected ({code})"
+    return f"{tool_name} returned ok=false: {error}", None
 
 
 def _expand_config_value(value: Any, project_root: Path) -> str:
@@ -81,6 +116,7 @@ async def _probe_stdio_mcp(
             discovered = sorted(tool.name for tool in tools_response.tools)
             missing = [tool for tool in P0_AGENT_MCP_TOOLS if tool not in discovered]
             errors = [f"Missing MCP tools: {missing}"] if missing else []
+            readiness_limits: list[str] = []
 
             probe_calls: list[tuple[str, dict[str, Any]]] = [
                 ("get_robot_state", {}),
@@ -95,13 +131,23 @@ async def _probe_stdio_mcp(
                 if not result.content:
                     errors.append(f"{tool_name} returned no content")
                     continue
-                payload = json.loads(result.content[0].text)
-                if payload.get("schema_version") != "rosclaw.mcp.v1":
-                    errors.append(f"{tool_name} returned unexpected schema")
-                if payload.get("ok") is not True:
-                    errors.append(f"{tool_name} returned ok=false: {payload.get('error')}")
+                try:
+                    payload = json.loads(result.content[0].text)
+                except (AttributeError, json.JSONDecodeError, TypeError) as exc:
+                    errors.append(f"{tool_name} returned invalid JSON: {exc}")
+                    continue
+                error, readiness_limit = _assess_probe_payload(tool_name, payload)
+                if error:
+                    errors.append(error)
+                if readiness_limit:
+                    readiness_limits.append(readiness_limit)
 
-            return McpProbeResult(not errors, tools=discovered, errors=errors)
+            return McpProbeResult(
+                not errors,
+                tools=discovered,
+                errors=errors,
+                readiness_limits=readiness_limits,
+            )
     except Exception as exc:  # noqa: BLE001
         return McpProbeResult(False, errors=[f"MCP stdio probe failed: {exc}"])
 
@@ -185,6 +231,8 @@ def cmd_agent_test_claude_code(args: argparse.Namespace) -> int:
             print(f"MCP tools discovered: {len(probe.tools)}")
         for error in probe.errors:
             print(f"  - {error}")
+        for readiness_limit in probe.readiness_limits:
+            print(f"  - Readiness: {readiness_limit}")
         if not probe.ok:
             all_ok = False
 
@@ -226,7 +274,10 @@ def add_test_parser(subparsers: Any) -> None:
     parser.add_argument(
         "--mcp-probe",
         action="store_true",
-        help="Start the configured stdio MCP server and verify tool discovery plus envelopes.",
+        help=(
+            "Start the configured stdio MCP server and verify protocol, tool discovery, "
+            "envelopes, and truthful readiness responses."
+        ),
     )
     parser.set_defaults(func=cmd_agent_test_claude_code)
 

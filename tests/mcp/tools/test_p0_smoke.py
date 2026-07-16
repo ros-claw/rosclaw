@@ -45,6 +45,10 @@ async def test_get_robot_state() -> None:
     assert payload["ok"] is True
     assert payload["data"]["robot_id"] == "test_bot"
     assert payload["data"]["mode"] == "fixture"
+    assert payload["execution_mode"] == "FIXTURE"
+    assert payload["trust_level"] == "SYNTHETIC"
+    assert payload["usable_for_real_execution"] is False
+    assert payload["data"]["risk_summary"]["risk_level"] == "UNKNOWN"
 
 
 async def test_list_skills() -> None:
@@ -71,7 +75,7 @@ async def test_validate_trajectory_unsafe_when_runtime_missing() -> None:
     payload = _envelope(await validate_trajectory(trajectory=[[0.0] * 6, [0.1] * 6]))
     assert payload["ok"] is True
     assert payload["data"]["is_safe"] is False
-    assert "runtime_unavailable" in payload["data"]["violations"]
+    assert "fixture_not_valid_for_safety_acceptance" in payload["data"]["violations"]
 
 
 async def test_sandbox_run_fixture() -> None:
@@ -83,6 +87,7 @@ async def test_sandbox_run_fixture() -> None:
 async def test_emergency_stop_degraded_acknowledgment() -> None:
     payload = _envelope(await emergency_stop(reason="test halt"))
     assert payload["ok"] is True
-    assert payload["data"]["stopped"] is True
+    assert payload["data"]["stopped"] is False
     assert payload["data"]["reason"] == "test halt"
-    assert payload["data"]["mode"] == "degraded"
+    assert payload["data"]["mode"] == "fixture"
+    assert payload["data"]["request_dispatched"] is False

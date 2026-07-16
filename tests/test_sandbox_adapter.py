@@ -11,13 +11,12 @@ from rosclaw.sense.runtime import SenseRuntime
 
 
 class TestSandboxRuntimeAdapterLifecycle:
-    def test_initialize_import_error_creates_stub(self, caplog):
+    def test_initialize_import_error_reports_unavailable(self, caplog):
         import logging
 
         bus = EventBus()
         config = {"engine": "mujoco", "world_id": "empty", "robot_id": "test_bot"}
         adapter = SandboxRuntimeAdapter(config, event_bus=bus)
-        # Patch Sandbox.create to raise ImportError (caught by except ImportError)
         with (
             patch(
                 "rosclaw.sandbox.sandbox_api.Sandbox.create", side_effect=ImportError("no module")
@@ -25,38 +24,37 @@ class TestSandboxRuntimeAdapterLifecycle:
             caplog.at_level(logging.WARNING, logger="rosclaw.sandbox.runtime_adapter"),
         ):
             adapter.initialize()
-        assert "Sandbox not available" in caplog.text
-        assert adapter._sandbox_service is not None
-        assert hasattr(adapter._sandbox_service, "session")
+        assert "Failed to create sandbox" in caplog.text
+        assert adapter._sandbox_service is None
+        assert adapter.health()["status"] == "unavailable"
         adapter.stop()
 
-    def test_initialize_exception_creates_stub(self, caplog):
+    def test_initialize_exception_reports_unavailable(self, caplog):
         import logging
 
         bus = EventBus()
         config = {"engine": "mujoco", "world_id": "empty", "robot_id": "test_bot"}
         adapter = SandboxRuntimeAdapter(config, event_bus=bus)
-        # Patch Sandbox.create to raise RuntimeError (caught by except Exception)
         with (
             patch("rosclaw.sandbox.sandbox_api.Sandbox.create", side_effect=RuntimeError("boom")),
             caplog.at_level(logging.WARNING, logger="rosclaw.sandbox.runtime_adapter"),
         ):
             adapter.initialize()
         assert "Failed to create sandbox" in caplog.text
-        assert adapter._sandbox_service is not None
+        assert adapter._sandbox_service is None
+        assert adapter.health()["error"] == "boom"
         adapter.stop()
 
-    def test_stub_sandbox_has_methods(self):
+    def test_fixture_sandbox_requires_explicit_engine(self):
         bus = EventBus()
-        config = {"engine": "mujoco", "world_id": "empty", "robot_id": "test_bot"}
+        config = {"engine": "fixture", "world_id": "empty", "robot_id": "test_bot"}
         adapter = SandboxRuntimeAdapter(config, event_bus=bus)
-        stub = adapter._create_stub_sandbox()
-        assert hasattr(stub, "session")
-        assert hasattr(stub, "reset")
-        assert hasattr(stub, "close")
-        # Should not raise
-        stub.reset()
-        stub.close()
+        adapter.initialize()
+
+        assert adapter._sandbox_service is not None
+        assert adapter.health()["status"] == "fixture"
+        assert adapter.health()["trust_level"] == "SYNTHETIC"
+        adapter.stop()
 
     def test_start_calls_reset(self, caplog):
         import logging
@@ -70,7 +68,7 @@ class TestSandboxRuntimeAdapterLifecycle:
         with caplog.at_level(logging.INFO, logger="rosclaw.sandbox.runtime_adapter"):
             adapter.start()
         mock_service.reset.assert_called_once()
-        assert "Sandbox reset and running" in caplog.text
+        assert "Sandbox reset" in caplog.text
 
     def test_stop_calls_close(self, caplog):
         import logging

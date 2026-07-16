@@ -386,9 +386,11 @@ class FirstbootDoctor:
         return results
 
     def _check_eurdf_zoo(self) -> list[CheckResult]:
+        from rosclaw.runtime.eurdf_loader import _default_zoo_path
+
         candidates = [
             self.home / "robots" / "e-urdf-zoo",
-            Path(__file__).parent.parent.parent.parent / "e-urdf-zoo",
+            _default_zoo_path(),
         ]
         for candidate in candidates:
             if candidate.exists() and any(candidate.iterdir()):
@@ -442,29 +444,41 @@ class FirstbootDoctor:
             ]
 
     def _check_sandbox(self) -> list[CheckResult]:
+        sandbox = None
         try:
-            from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
+            from rosclaw.sandbox.sandbox_api import Sandbox
+
+            sandbox = Sandbox.create(
+                robot_id="sim_ur5e",
+                world_id="tabletop",
+                engine="mujoco",
+            )
+            if not sandbox.has_physics:
+                raise RuntimeError(sandbox.load_error or "MuJoCo physics unavailable")
 
             return [
                 CheckResult(
                     "runtime.sandbox",
-                    "Sandbox module",
+                    "Sandbox physics",
                     CheckStatus.PASS,
                     True,
-                    SandboxRuntimeAdapter.__name__,
+                    f"MuJoCo model loaded: {sandbox.model_path}",
                 )
             ]
         except Exception as exc:
             return [
                 CheckResult(
                     "runtime.sandbox",
-                    "Sandbox module",
+                    "Sandbox physics",
                     CheckStatus.FAIL,
                     True,
                     str(exc),
-                    "pip install -e .",
+                    "Install MuJoCo and verify the packaged sim_ur5e model.",
                 )
             ]
+        finally:
+            if sandbox is not None:
+                sandbox.close()
 
     def _check_practice(self) -> list[CheckResult]:
         try:
@@ -590,7 +604,7 @@ class FirstbootDoctor:
                     "optional.mujoco",
                     "MuJoCo",
                     CheckStatus.PASS,
-                    False,
+                    True,
                     mujoco.__version__,
                 )
             ]
@@ -599,8 +613,8 @@ class FirstbootDoctor:
                 CheckResult(
                     "optional.mujoco",
                     "MuJoCo",
-                    CheckStatus.WARN,
-                    False,
+                    CheckStatus.FAIL,
+                    True,
                     "not installed",
                     "pip install mujoco",
                 )
@@ -860,6 +874,7 @@ class FirstbootDoctor:
         data = {
             "status": result.status.value,
             "exit_code": result.exit_code,
+            "readiness": self._readiness_summary(result),
             "checks": [asdict(c) for c in result.checks],
         }
         print(json.dumps(data, indent=2, default=str))
@@ -894,6 +909,21 @@ class FirstbootDoctor:
 
         print("\n" + "=" * 60)
         print(f"Result: {result.status.value}")
+        readiness = self._readiness_summary(result)
+        print("\nExecution readiness:")
+        print(f"  Package healthy:       {'YES' if readiness['package_healthy'] else 'NO'}")
+        print(f"  Configured:            {'YES' if readiness['configured'] else 'NO'}")
+        print(
+            f"  Runtime initialized:   "
+            f"{'YES' if readiness['runtime_initialized'] else 'NO (not exercised)'}"
+        )
+        print(
+            f"  Southbound connected:  "
+            f"{'YES (MuJoCo)' if readiness['southbound_connected'] else 'NO'}"
+        )
+        print("  Verified action path:  NO (not exercised)")
+        print("  Robot connected:       NO (not exercised)")
+        print("  Real execution ready:  NO")
         if result.status != DoctorStatus.READY:
             fixes = [c for c in result.checks if c.status != CheckStatus.PASS and c.fix]
             if fixes:
@@ -901,6 +931,32 @@ class FirstbootDoctor:
                 for c in fixes:
                     print(f"  • {c.name}: {c.fix}")
         print("=" * 60)
+
+    @staticmethod
+    def _readiness_summary(result: DoctorResult) -> dict[str, bool]:
+        checks = {check.id: check for check in result.checks}
+
+        def passed(check_id: str) -> bool:
+            check = checks.get(check_id)
+            return check is not None and check.status == CheckStatus.PASS
+
+        module_checks = [
+            check
+            for check in result.checks
+            if check.id.startswith("core.module.") and check.required
+        ]
+        package_healthy = passed("core.python") and all(
+            check.status == CheckStatus.PASS for check in module_checks
+        )
+        return {
+            "package_healthy": package_healthy,
+            "configured": passed("core.config_schema"),
+            "runtime_initialized": False,
+            "southbound_connected": passed("runtime.sandbox"),
+            "verified_action_path": False,
+            "robot_connected": False,
+            "real_execution_ready": False,
+        }
 
 
 def render_legacy_doctor_report(checks: list[tuple[str, str, bool]], issues: list[str]) -> int:
@@ -929,5 +985,7 @@ def render_legacy_doctor_report(checks: list[tuple[str, str, bool]], issues: lis
             print("  • Install deps: pip install -e .")
         return 1
 
-    print("\n✅ All checks passed. ROSClaw is healthy!")
+    print("\nPackage and configuration checks passed.")
+    print("Robot connected: NO (not checked)")
+    print("Real execution ready: NO (not checked)")
     return 0

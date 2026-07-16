@@ -1,8 +1,8 @@
 """End-to-end smoke tests for the P0 MCP server over stdio and HTTP transports.
 
 These tests start the real ``rosclaw-mcp-serve`` subprocess, connect with the
-official MCP SDK clients, discover the seven P0 tools, and call each tool to
-verify the JSON envelope shape.
+official MCP SDK clients, discover the P0 tools, and verify success and
+fail-closed error envelopes over both transports.
 """
 
 from __future__ import annotations
@@ -53,13 +53,18 @@ async def _start_server(*args: str) -> asyncio.subprocess.Process:
     return proc
 
 
-def _envelope(text: str) -> dict[str, Any]:
+def _envelope(text: str, *, expected_ok: bool) -> dict[str, Any]:
     payload = json.loads(text)
-    assert payload["ok"] is True, f"expected ok=True, got {payload}"
+    assert payload["ok"] is expected_ok, payload
     assert payload["schema_version"] == "rosclaw.mcp.v1"
     assert "trace_id" in payload
     assert "timestamp" in payload
-    assert "data" in payload
+    if expected_ok:
+        assert "data" in payload
+    else:
+        assert payload["trust_level"] == "UNAVAILABLE"
+        assert payload["usable_for_real_execution"] is False
+        assert "error" in payload
     return payload
 
 
@@ -83,6 +88,7 @@ P0_TOOL_CALLS: list[tuple[str, dict[str, Any]]] = [
 ]
 
 EXPECTED_TOOLS = {name for name, _ in P0_TOOL_CALLS}
+EXPECTED_ERROR_TOOLS = {"get_robot_state"}
 
 
 @pytest.mark.asyncio
@@ -100,6 +106,8 @@ async def test_stdio_smoke(tmp_path: Path) -> None:
             "WARNING",
             "--project-root",
             project_root,
+            "--robot-id",
+            "sim_ur5e",
         ],
         env=_server_env(),
     )
@@ -116,7 +124,10 @@ async def test_stdio_smoke(tmp_path: Path) -> None:
         for tool_name, arguments in P0_TOOL_CALLS:
             result = await session.call_tool(tool_name, arguments=arguments)
             assert len(result.content) == 1
-            _envelope(result.content[0].text)
+            _envelope(
+                result.content[0].text,
+                expected_ok=tool_name not in EXPECTED_ERROR_TOOLS,
+            )
 
 
 @pytest.mark.asyncio
@@ -136,6 +147,8 @@ async def test_http_smoke(tmp_path: Path) -> None:
         "WARNING",
         "--project-root",
         project_root,
+        "--robot-id",
+        "sim_ur5e",
     )
     try:
         await _wait_for_port(host, port)
@@ -152,7 +165,10 @@ async def test_http_smoke(tmp_path: Path) -> None:
             for tool_name, arguments in P0_TOOL_CALLS:
                 result = await session.call_tool(tool_name, arguments=arguments)
                 assert len(result.content) == 1
-                _envelope(result.content[0].text)
+                _envelope(
+                    result.content[0].text,
+                    expected_ok=tool_name not in EXPECTED_ERROR_TOOLS,
+                )
     finally:
         if proc.returncode is None:
             proc.terminate()

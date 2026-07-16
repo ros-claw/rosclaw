@@ -49,7 +49,24 @@ jobs:
         run: uv pip install -e ".[dev]" --system
 
       - name: Run focused mypy
-        run: mypy --config-file .github/mypy-ci.ini src/rosclaw/mcp/adapters src/rosclaw/mcp/onboarding src/rosclaw/core/runtime.py src/rosclaw/cli.py src/rosclaw/body src/rosclaw/firstboot src/rosclaw/hub
+        run: >-
+          mypy --config-file .github/mypy-ci.ini
+          src/rosclaw/kernel
+          src/rosclaw/sandbox
+          src/rosclaw/runtime/doctor_levels.py
+          src/rosclaw/provider/core
+          src/rosclaw/mcp_drivers
+          src/rosclaw/mcp/adapters
+          src/rosclaw/mcp/onboarding
+          src/rosclaw/agent
+          src/rosclaw/agent_runtime/mcp_hub.py
+          src/rosclaw/connectors/ros/provider/ros_capability_provider.py
+          src/rosclaw/connectors/ros/mcp/tools.py
+          src/rosclaw/core/runtime.py
+          src/rosclaw/cli.py
+          src/rosclaw/body
+          src/rosclaw/firstboot
+          src/rosclaw/hub
 
   test:
     name: Test
@@ -74,7 +91,31 @@ jobs:
         run: uv pip install -e ".[dev]" --system
 
       - name: Run tests
-        run: pytest tests/agent tests/mcp tests/security tests/practice tests/body tests/test_firstboot.py tests/test_firstboot_config.py tests/test_config_profile.py tests/test_doctor_json.py tests/test_cli.py tests/test_skill_manager.py tests/test_skill_metadata.py -m 'not integration and not deployment' -v --cov=src/rosclaw --cov-report=xml
+        run: >-
+          pytest
+          tests/agent
+          tests/mcp
+          tests/kernel
+          tests/sandbox/test_reach_episode.py
+          tests/runtime/test_doctor_levels.py
+          tests/provider
+          tests/security
+          tests/practice
+          tests/body
+          tests/test_mcp_drivers.py
+          tests/test_mcp_drivers_coverage.py
+          tests/test_mujoco_driver.py
+          tests/test_firstboot.py
+          tests/test_firstboot_config.py
+          tests/test_config_profile.py
+          tests/test_doctor_json.py
+          tests/test_cli.py
+          tests/test_skill_manager.py
+          tests/test_skill_metadata.py
+          -m 'not integration and not deployment'
+          -v
+          --cov=src/rosclaw
+          --cov-report=xml
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -82,6 +123,29 @@ jobs:
         with:
           files: ./coverage.xml
           fail_ci_if_error: false
+
+  full-regression:
+    name: Full Regression (Python 3.11)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: 'latest'
+
+      - name: Install dependencies
+        run: uv pip install -e ".[dev]" --system
+
+      - name: Run full non-deployment suite
+        run: pytest -q
 
   hub-test:
     name: Hub Tests
@@ -109,7 +173,7 @@ jobs:
   integration-test:
     name: Integration Test
     runs-on: ubuntu-latest
-    needs: [lint, type-check, test]
+    needs: [lint, type-check, test, full-regression]
     steps:
       - uses: actions/checkout@v4
 
@@ -155,7 +219,7 @@ jobs:
   build:
     name: Build Package
     runs-on: ubuntu-latest
-    needs: [lint, type-check, test]
+    needs: [lint, type-check, test, full-regression]
     steps:
       - uses: actions/checkout@v4
 
@@ -169,6 +233,33 @@ jobs:
 
       - name: Build package
         run: hatch build
+
+      - name: Verify wheel runtime resources
+        run: |
+          python - <<'PY'
+          import glob
+          import zipfile
+
+          wheels = glob.glob("dist/*.whl")
+          assert len(wheels) == 1, wheels
+          with zipfile.ZipFile(wheels[0]) as wheel:
+              names = set(wheel.namelist())
+          required = {
+              "rosclaw/kernel/action_gateway.py",
+              "rosclaw/runtime/doctor_levels.py",
+              "rosclaw/sandbox/episode.py",
+              "rosclaw/eurdf_zoo_data/ur5e/robot.mjcf.xml",
+          }
+          missing = sorted(required - names)
+          assert not missing, f"wheel missing runtime resources: {missing}"
+          meshes = [
+              name
+              for name in names
+              if name.startswith("rosclaw/eurdf_zoo_data/ur5e/assets/")
+              and name.endswith(".obj")
+          ]
+          assert len(meshes) >= 20, f"wheel contains only {len(meshes)} UR5e meshes"
+          PY
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

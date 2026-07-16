@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from rosclaw.body.registry import BodyRegistryManager
 from rosclaw.body.resolver import BodyResolver
@@ -14,6 +14,7 @@ from rosclaw.mcp.adapters.practice_client import PracticeClient
 from rosclaw.mcp.adapters.safety_client import SafetyClient
 from rosclaw.mcp.adapters.sandbox_client import SandboxClient
 from rosclaw.mcp.adapters.skill_registry_client import SkillRegistryClient
+from rosclaw.mcp.schemas.common import MCPError
 
 logger = logging.getLogger("rosclaw.mcp.adapters.runtime_client")
 
@@ -21,9 +22,9 @@ logger = logging.getLogger("rosclaw.mcp.adapters.runtime_client")
 class RuntimeClient:
     """Lazy-initializing client over the existing ROSClaw Runtime components.
 
-    The client is intentionally defensive: if the runtime cannot be initialized
-    (missing model, no ROS, etc.) the tools fall back to fixture responses so
-    that the agent still receives a well-formed envelope.
+    Fixture responses are available only when ``fixture_mode=True``.  Runtime
+    initialization and subsystem failures otherwise become structured errors;
+    synthetic data never leaks into a live path.
 
     Thin subsystem adapters (MemoryClient, SandboxClient, etc.) are used to keep
     the Runtime surface small and to make the MCP layer easy to unit-test.
@@ -109,17 +110,53 @@ class RuntimeClient:
         return {
             "robot_id": self.robot_id,
             "mode": "fixture",
-            "note": "ROSClaw runtime is not initialized; returning representative fixture state.",
+            "execution_mode": "FIXTURE",
+            "trust_level": "SYNTHETIC",
+            "usable_for_real_execution": False,
+            "note": "Explicit fixture mode; no robot observation was performed.",
             "body_state": {
                 "joint_positions": [0.0] * 6,
                 "joint_velocities": [0.0] * 6,
                 "timestamp": 0.0,
             },
             "readiness": {"overall": "UNKNOWN", "factors": {}},
-            "risk_summary": {"risk_level": "LOW", "violations": []},
+            "risk_summary": {
+                "risk_level": "UNKNOWN",
+                "violations": ["synthetic_state_not_valid_for_risk_assessment"],
+            },
             "is_stale": True,
             "age_ms": 0,
         }
+
+    @staticmethod
+    def _fixture_payload(payload: dict[str, Any]) -> dict[str, Any]:
+        return {
+            **payload,
+            "mode": "fixture",
+            "execution_mode": "FIXTURE",
+            "trust_level": "SYNTHETIC",
+            "usable_for_real_execution": False,
+        }
+
+    def _unavailable(
+        self,
+        operation: str,
+        message: str | None = None,
+        *,
+        code: str = "RUNTIME_UNAVAILABLE",
+    ) -> NoReturn:
+        reason = message or self._runtime_error or "ROSClaw runtime is unavailable."
+        raise MCPError(
+            code,
+            f"{operation} unavailable: {reason}",
+            details={
+                "operation": operation,
+                "runtime_error": self._runtime_error,
+                "execution_mode": "UNKNOWN",
+                "trust_level": "UNAVAILABLE",
+                "usable_for_real_execution": False,
+            },
+        )
 
     @staticmethod
     def _safe_dict(value: Any) -> dict[str, Any]:
@@ -134,18 +171,54 @@ class RuntimeClient:
     # ------------------------------------------------------------------
 
     async def get_robot_state(self) -> dict[str, Any]:
-        rt = self._ensure_runtime()
-        if rt is None or rt.sense is None:
+        if self.fixture_mode:
             return self._fixture_state()
+        rt = self._ensure_runtime()
+        if rt is None:
+            self._unavailable("get_robot_state")
+        if rt.sense is None:
+            self._unavailable("get_robot_state", "Body Sense subsystem is not initialized.")
         try:
             sense = rt.sense
             latest = sense.get_latest_state()
             body_sense = sense.get_body_sense()
             readiness = sense.get_readiness()
+            body_state = self._safe_dict(latest)
+            source = str(body_state.get("source", ""))
+            collector = str(getattr(getattr(sense, "config", None), "collector", ""))
+            if source.startswith("mock:") or collector == "mock":
+                self._unavailable(
+                    "get_robot_state",
+                    "Body Sense is using a synthetic mock collector; enable fixture mode "
+                    "explicitly to consume synthetic state.",
+                    code="SYNTHETIC_SOURCE_NOT_ALLOWED",
+                )
+            elif source.startswith("file_replay:"):
+                mode = "replay"
+                execution_mode = "REPLAY"
+                trust_level = "RECORDED"
+            elif (
+                not source
+                or source == "unknown"
+                or source.endswith(":stub")
+                or source == "sense:degraded"
+            ):
+                self._unavailable(
+                    "get_robot_state",
+                    f"Body state has no live provenance (source={source or 'missing'}).",
+                    code="STATE_PROVENANCE_UNAVAILABLE",
+                )
+            else:
+                mode = "live" if not getattr(sense, "is_stale", True) else "stale"
+                execution_mode = "REAL"
+                trust_level = "OBSERVED" if mode == "live" else "STALE"
             return {
                 "robot_id": self.robot_id,
-                "mode": "live" if not getattr(sense, "is_stale", True) else "stale",
-                "body_state": self._safe_dict(latest),
+                "mode": mode,
+                "execution_mode": execution_mode,
+                "trust_level": trust_level,
+                "usable_for_real_execution": mode == "live",
+                "body_state": body_state,
                 "body_sense": self._safe_dict(body_sense),
                 "readiness": self._safe_dict(readiness),
                 "is_stale": getattr(sense, "is_stale", True),
@@ -153,19 +226,23 @@ class RuntimeClient:
             }
         except Exception as exc:  # noqa: BLE001
             logger.debug("get_robot_state failed: %s", exc)
-            return self._fixture_state()
+            if isinstance(exc, MCPError):
+                raise
+            self._unavailable("get_robot_state", str(exc), code="SENSE_READ_FAILED")
 
     async def list_skills(
         self, *, skill_type: str | None = None, full_ids: bool = False
     ) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload({"skills": [], "count": 0})
         adapter = self._adapters().get("skill")
         if adapter is None:
-            return {"skills": [], "count": 0, "mode": "fixture"}
+            self._unavailable("list_skills", "Skill registry is not initialized.")
         try:
             return adapter.list_skills(skill_type=skill_type, full_ids=full_ids)
         except Exception as exc:  # noqa: BLE001
             logger.debug("list_skills failed: %s", exc)
-            return {"skills": [], "count": 0, "mode": "fixture"}
+            self._unavailable("list_skills", str(exc), code="SKILL_QUERY_FAILED")
 
     async def query_memory(
         self,
@@ -174,9 +251,11 @@ class RuntimeClient:
         limit: int = 5,
         outcome_filter: str | None = None,
     ) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload({"experiences": [], "count": 0})
         adapter = self._adapters().get("memory")
         if adapter is None:
-            return {"experiences": [], "count": 0, "mode": "fixture"}
+            self._unavailable("query_memory", "Memory subsystem is not initialized.")
         try:
             return adapter.find_similar_experiences(
                 instruction=instruction,
@@ -185,7 +264,7 @@ class RuntimeClient:
             )
         except Exception as exc:  # noqa: BLE001
             logger.debug("query_memory failed: %s", exc)
-            return {"experiences": [], "count": 0, "mode": "fixture"}
+            self._unavailable("query_memory", str(exc), code="MEMORY_QUERY_FAILED")
 
     # ------------------------------------------------------------------
     # S2 validated-plan tool
@@ -197,48 +276,53 @@ class RuntimeClient:
         *,
         safety_level: str = "MODERATE",
     ) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload(
+                {
+                    "is_safe": False,
+                    "risk_score": 1.0,
+                    "reason": "Explicit fixture mode cannot validate a physical trajectory.",
+                    "violations": ["fixture_not_valid_for_safety_acceptance"],
+                    "replay_id": None,
+                    "validation_type": "FixtureOnly",
+                    "simulation_executed": False,
+                }
+            )
         adapter = self._adapters().get("sandbox")
         if adapter is None:
-            return {
-                "is_safe": False,
-                "risk_score": 1.0,
-                "reason": "Sandbox/runtime unavailable; cannot validate trajectory.",
-                "violations": ["runtime_unavailable"],
-                "replay_id": None,
-            }
+            self._unavailable("validate_trajectory", "Sandbox is not initialized.")
         try:
             return adapter.validate_trajectory(trajectory=trajectory, safety_level=safety_level)
         except Exception as exc:  # noqa: BLE001
             logger.debug("validate_trajectory failed: %s", exc)
-            return {
-                "is_safe": False,
-                "risk_score": 1.0,
-                "reason": f"Validation error: {exc}",
-                "violations": ["validation_exception"],
-                "replay_id": None,
-            }
+            self._unavailable("validate_trajectory", str(exc), code="VALIDATION_FAILED")
 
     # ------------------------------------------------------------------
     # S1 simulation-only tool
     # ------------------------------------------------------------------
 
     async def sandbox_run(self, joint_positions: list[float]) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload(
+                {
+                    "physics_state": {},
+                    "has_physics": False,
+                    "note": "Explicit fixture mode; no physics was executed.",
+                }
+            )
         adapter = self._adapters().get("sandbox")
         if adapter is None:
-            return {
-                "physics_state": {},
-                "mode": "fixture",
-                "note": "Sandbox runtime unavailable; returning empty fixture.",
-            }
+            self._unavailable("sandbox_run", "Sandbox is not initialized.")
         try:
-            return adapter.simulate_step(joint_positions)
+            result = adapter.simulate_step(joint_positions)
+            if not result.get("has_physics", False):
+                self._unavailable("sandbox_run", result.get("note", "Physics unavailable."))
+            return result
         except Exception as exc:  # noqa: BLE001
             logger.debug("sandbox_run failed: %s", exc)
-            return {
-                "physics_state": {},
-                "mode": "fixture",
-                "note": f"Simulation error: {exc}",
-            }
+            if isinstance(exc, MCPError):
+                raise
+            self._unavailable("sandbox_run", str(exc), code="SIMULATION_FAILED")
 
     # ------------------------------------------------------------------
     # S0 practice-query tool
@@ -250,14 +334,16 @@ class RuntimeClient:
         episode_id: str | None = None,
         limit: int = 10,
     ) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload({"episodes": [], "count": 0})
         adapter = self._adapters().get("practice")
         if adapter is None:
-            return {"episodes": [], "count": 0, "mode": "fixture"}
+            self._unavailable("practice_query", "Practice recorder is not initialized.")
         try:
             return adapter.query(episode_id=episode_id, limit=limit)
         except Exception as exc:  # noqa: BLE001
             logger.debug("practice_query failed: %s", exc)
-            return {"episodes": [], "count": 0, "mode": "fixture"}
+            self._unavailable("practice_query", str(exc), code="PRACTICE_QUERY_FAILED")
 
     # ------------------------------------------------------------------
     # Body registry tools (P2)
@@ -284,7 +370,7 @@ class RuntimeClient:
             }
         except Exception as exc:  # noqa: BLE001
             logger.debug("list_bodies failed: %s", exc)
-            return {"mode": "fixture", "bodies": [], "total": 0, "error": str(exc)}
+            self._unavailable("list_bodies", str(exc), code="BODY_REGISTRY_FAILED")
 
     async def get_body(self, body_id: str) -> dict[str, Any]:
         """Return registry entry and effective body snapshot for one body."""
@@ -293,7 +379,11 @@ class RuntimeClient:
             manager = BodyRegistryManager(workspace)
             entry = manager.get_body(body_id)
             if entry is None:
-                return {"mode": "fixture", "body_id": body_id, "error": "Body not found"}
+                self._unavailable(
+                    "get_body",
+                    f"Body '{body_id}' was not found.",
+                    code="BODY_NOT_FOUND",
+                )
             resolver = BodyResolver(workspace, body_id=body_id)
             effective = resolver.get_effective_body(recompile_if_stale=False)
             return {
@@ -303,7 +393,9 @@ class RuntimeClient:
             }
         except Exception as exc:  # noqa: BLE001
             logger.debug("get_body failed: %s", exc)
-            return {"mode": "fixture", "body_id": body_id, "error": str(exc)}
+            if isinstance(exc, MCPError):
+                raise
+            self._unavailable("get_body", str(exc), code="BODY_READ_FAILED")
 
     async def switch_body(self, body_id: str) -> dict[str, Any]:
         """Switch the active body pointer in the registry."""
@@ -318,7 +410,7 @@ class RuntimeClient:
             }
         except Exception as exc:  # noqa: BLE001
             logger.debug("switch_body failed: %s", exc)
-            return {"mode": "fixture", "body_id": body_id, "error": str(exc)}
+            self._unavailable("switch_body", str(exc), code="BODY_SWITCH_FAILED")
 
     async def list_body_history(self, body_id: str) -> dict[str, Any]:
         """List snapshot history for a body."""
@@ -333,7 +425,7 @@ class RuntimeClient:
             }
         except Exception as exc:  # noqa: BLE001
             logger.debug("list_body_history failed: %s", exc)
-            return {"mode": "fixture", "body_id": body_id, "error": str(exc)}
+            self._unavailable("list_body_history", str(exc), code="BODY_HISTORY_FAILED")
 
     async def check_skill_compatibility(self) -> dict[str, Any]:
         """Check skill compatibility for the current body."""
@@ -349,7 +441,11 @@ class RuntimeClient:
             return {"mode": "live", "report": report.to_dict()}
         except Exception as exc:  # noqa: BLE001
             logger.debug("check_skill_compatibility failed: %s", exc)
-            return {"mode": "fixture", "report": {}, "error": str(exc)}
+            self._unavailable(
+                "check_skill_compatibility",
+                str(exc),
+                code="COMPATIBILITY_CHECK_FAILED",
+            )
 
     async def fleet_skill_compatibility(self) -> dict[str, Any]:
         """Aggregate skill compatibility across all bodies in the workspace."""
@@ -362,7 +458,11 @@ class RuntimeClient:
             return {"mode": "live", "report": report.to_dict()}
         except Exception as exc:  # noqa: BLE001
             logger.debug("fleet_skill_compatibility failed: %s", exc)
-            return {"mode": "fixture", "report": {}, "error": str(exc)}
+            self._unavailable(
+                "fleet_skill_compatibility",
+                str(exc),
+                code="FLEET_COMPATIBILITY_FAILED",
+            )
 
     # ------------------------------------------------------------------
     # P0 body tools
@@ -377,7 +477,7 @@ class RuntimeClient:
             return {"mode": "live", "profile": tools.get_body_profile()}
         except Exception as exc:  # noqa: BLE001
             logger.debug("get_body_profile failed: %s", exc)
-            return {"mode": "fixture", "profile": {}, "error": str(exc)}
+            self._unavailable("get_body_profile", str(exc), code="BODY_PROFILE_FAILED")
 
     async def get_body_state(self, *, include_runtime: bool = True) -> dict[str, Any]:
         """Return current body safety and capability state."""
@@ -388,7 +488,7 @@ class RuntimeClient:
             return {"mode": "live", "state": tools.get_body_state(include_runtime=include_runtime)}
         except Exception as exc:  # noqa: BLE001
             logger.debug("get_body_state failed: %s", exc)
-            return {"mode": "fixture", "state": {}, "error": str(exc)}
+            self._unavailable("get_body_state", str(exc), code="BODY_STATE_FAILED")
 
     async def list_body_capabilities(self, *, status: str = "all") -> dict[str, Any]:
         """List capabilities grouped by status."""
@@ -399,7 +499,11 @@ class RuntimeClient:
             return {"mode": "live", "capabilities": tools.list_body_capabilities(status=status)}
         except Exception as exc:  # noqa: BLE001
             logger.debug("list_body_capabilities failed: %s", exc)
-            return {"mode": "fixture", "capabilities": {}, "error": str(exc)}
+            self._unavailable(
+                "list_body_capabilities",
+                str(exc),
+                code="BODY_CAPABILITY_QUERY_FAILED",
+            )
 
     async def query_body(self, question: str) -> dict[str, Any]:
         """Answer a natural-language question about the body."""
@@ -410,11 +514,7 @@ class RuntimeClient:
             return {"mode": "live", "result": tools.query_body(question)}
         except Exception as exc:  # noqa: BLE001
             logger.debug("query_body failed: %s", exc)
-            return {
-                "mode": "fixture",
-                "result": {"answer": str(exc), "decision": "unknown"},
-                "error": str(exc),
-            }
+            self._unavailable("query_body", str(exc), code="BODY_QUERY_FAILED")
 
     async def validate_body_action(
         self,
@@ -434,16 +534,11 @@ class RuntimeClient:
             }
         except Exception as exc:  # noqa: BLE001
             logger.debug("validate_body_action failed: %s", exc)
-            return {
-                "mode": "fixture",
-                "validation": {
-                    "body_check": "unknown",
-                    "allowed_to_propose": False,
-                    "allowed_to_execute_real_robot": False,
-                    "reasons": [str(exc)],
-                },
-                "error": str(exc),
-            }
+            self._unavailable(
+                "validate_body_action",
+                str(exc),
+                code="BODY_ACTION_VALIDATION_FAILED",
+            )
 
     async def get_calibration_status(self, *, component: str | None = None) -> dict[str, Any]:
         """Return calibration status for the body or a component."""
@@ -457,37 +552,46 @@ class RuntimeClient:
             }
         except Exception as exc:  # noqa: BLE001
             logger.debug("get_calibration_status failed: %s", exc)
-            return {
-                "mode": "fixture",
-                "calibration": {
-                    "component": component or "*",
-                    "status": "unknown",
-                    "confidence": 0.0,
-                    "blocks": [str(exc)],
-                },
-                "error": str(exc),
-            }
+            self._unavailable(
+                "get_calibration_status",
+                str(exc),
+                code="CALIBRATION_QUERY_FAILED",
+            )
 
     # ------------------------------------------------------------------
     # S4 emergency tool
     # ------------------------------------------------------------------
 
     async def emergency_stop(self, reason: str) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload(
+                {
+                    "request_id": None,
+                    "reason": reason,
+                    "targets": [],
+                    "request_dispatched": False,
+                    "driver_acknowledged": False,
+                    "physical_stop_observed": False,
+                    "stopped": False,
+                    "final_status": "UNVERIFIED",
+                    "note": (
+                        "Fixture mode cannot stop hardware. Activate the physical E-stop "
+                        "if a robot may be moving."
+                    ),
+                }
+            )
         adapter = self._adapters().get("safety")
         if adapter is not None:
             try:
                 return adapter.emergency_stop(reason)
             except Exception as exc:  # noqa: BLE001
                 logger.debug("emergency_stop failed: %s", exc)
-                return {
-                    "stopped": False,
-                    "reason": reason,
-                    "mode": "error",
-                    "note": f"Could not confirm emergency stop: {exc}. Activate physical E-stop immediately.",
-                }
-        return {
-            "stopped": True,
-            "reason": reason,
-            "mode": "degraded",
-            "note": "Runtime not initialized. Emergency stop acknowledged; activate physical E-stop if needed.",
-        }
+                self._unavailable(
+                    "emergency_stop",
+                    f"{exc}. Activate the physical E-stop immediately.",
+                    code="EMERGENCY_STOP_FAILED",
+                )
+        self._unavailable(
+            "emergency_stop",
+            "Runtime is not initialized; activate the physical E-stop immediately.",
+        )

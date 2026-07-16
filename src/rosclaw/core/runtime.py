@@ -27,7 +27,10 @@ Architecture:
 import contextlib
 import logging
 import os
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -39,12 +42,12 @@ logger = logging.getLogger("rosclaw.core.runtime")
 
 
 # Provider layer imports (lazy to avoid hard deps)
-ProviderRegistry = None
-CapabilityRouter = None
-ProviderRequest = None
-GuardPipeline = None
-SchemaGuard = None
-ActionGuard = None
+ProviderRegistry: Any = None
+CapabilityRouter: Any = None
+ProviderRequest: Any = None
+GuardPipeline: Any = None
+SchemaGuard: Any = None
+ActionGuard: Any = None
 
 try:
     from rosclaw.provider.core.registry import ProviderRegistry
@@ -130,6 +133,10 @@ class RuntimeConfig:
     sense_robot_profile: str | None = None
     sense_thresholds_path: str | None = None
     sense_replay_path: str | None = None
+    # Truthful sandbox execution configuration.
+    sandbox_engine: str = "mujoco"
+    sandbox_world_id: str = "empty"
+    sandbox_artifact_root: str | None = None
     # Storage-layer tunables (Phase 1+).  Keys: pool_size, vector_enabled,
     # outbox_enabled, outbox_max_records, outbox_flush_interval_sec.
     storage: dict[str, Any] = field(default_factory=dict)
@@ -165,6 +172,9 @@ class Runtime(LifecycleMixin):
 
         self._tracer = get_tracer(self.event_bus)
         self._trace_exporter: Any | None = None
+        from rosclaw.kernel import ActionGateway
+
+        self._action_gateway = ActionGateway(event_bus=self.event_bus, tracer=self._tracer)
 
         # Grounding engines (initialized on demand)
         self._firewall: Any | None = None
@@ -184,6 +194,8 @@ class Runtime(LifecycleMixin):
         self._episode_recorder: Any | None = None
         self._seekdb_bridge: Any | None = None
         self._mcp_drivers: dict[str, Any] = {}
+        self._emergency_stop_receipts: dict[str, Any] = {}
+        self._emergency_stop_latched = False
 
         # Provider layer
         self._provider_registry: Any | None = None
@@ -198,6 +210,7 @@ class Runtime(LifecycleMixin):
         import threading
 
         self._module_lock = threading.RLock()
+        self._emergency_stop_lock = threading.RLock()
 
     def _do_initialize(self) -> None:
         """Initialize all enabled grounding engines."""
@@ -281,9 +294,10 @@ class Runtime(LifecycleMixin):
             except Exception:
                 pass
             sandbox_config = {
-                "engine": "mujoco",
-                "world_id": "empty",
+                "engine": self.config.sandbox_engine,
+                "world_id": self.config.sandbox_world_id,
                 "robot_id": canonical_robot_id,
+                "artifact_root": self.config.sandbox_artifact_root,
             }
             self._sandbox = SandboxRuntimeAdapter(
                 config=sandbox_config,
@@ -579,6 +593,20 @@ class Runtime(LifecycleMixin):
             if isinstance(module, LifecycleMixin):
                 module.initialize()
 
+        if self._sandbox is not None:
+            from rosclaw.kernel import ExecutionMode
+
+            self._action_gateway.register_executor(
+                "sandbox.reach",
+                ExecutionMode.SIMULATION,
+                self._sandbox.execute_action,
+            )
+            self._action_gateway.register_executor(
+                "sandbox.reach",
+                ExecutionMode.FIXTURE,
+                self._sandbox.execute_action,
+            )
+
         logger.info("Initialization complete")
 
     def _create_seekdb_client(self) -> Any:
@@ -713,13 +741,10 @@ class Runtime(LifecycleMixin):
     def _on_safety_violation(self, event: Event) -> None:
         """Handle safety violation events."""
         logger.info(f"SAFETY VIOLATION: {event.payload}")
-        self.event_bus.publish(
-            Event(
-                topic="robot.emergency_stop",
-                payload={"reason": event.payload},
-                source="runtime",
-                priority=EventPriority.CRITICAL,
-            )
+        self.request_emergency_stop(
+            str(event.payload),
+            request_id=event.event_id,
+            source="safety.violation",
         )
 
     def _on_firewall_action_blocked(self, event: Event) -> None:
@@ -930,11 +955,211 @@ class Runtime(LifecycleMixin):
         logger.info(f"Agent command received: {command}")
 
     def _on_emergency_stop(self, event: Event) -> None:
-        """Handle emergency stop - stop all drivers."""
-        logger.info("EMERGENCY STOP triggered")
-        for driver in self._mcp_drivers.values():
-            if hasattr(driver, "emergency_stop"):
-                driver.emergency_stop()
+        """Handle externally published emergency-stop requests."""
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        if payload.get("runtime_managed"):
+            return
+        self.request_emergency_stop(
+            str(payload.get("reason", "external emergency-stop event")),
+            request_id=str(payload.get("request_id") or event.event_id),
+            source=str(payload.get("source") or event.source),
+        )
+
+    def request_emergency_stop(
+        self,
+        reason: str,
+        *,
+        request_id: str | None = None,
+        timeout_sec: float = 1.0,
+        source: str = "runtime",
+    ) -> Any:
+        """Fan out an emergency stop and return evidence without optimistic claims."""
+        from rosclaw.kernel import EmergencyStopReceipt, EmergencyStopStatus
+        from rosclaw.kernel.contracts import utc_now
+
+        stop_id = request_id or f"estop_{uuid.uuid4().hex}"
+        with self._emergency_stop_lock:
+            existing = self._emergency_stop_receipts.get(stop_id)
+            if existing is not None:
+                return existing
+
+            requested_at = utc_now()
+            targets = sorted(
+                name
+                for name, driver in self._mcp_drivers.items()
+                if callable(getattr(driver, "emergency_stop", None))
+            )
+            self._emergency_stop_latched = True
+            self.event_bus.publish(
+                Event(
+                    topic="robot.emergency_stop",
+                    payload={
+                        "request_id": stop_id,
+                        "reason": reason,
+                        "source": source,
+                        "targets": targets,
+                        "runtime_managed": True,
+                    },
+                    source="runtime",
+                    priority=EventPriority.CRITICAL,
+                )
+            )
+
+            if not targets:
+                receipt = EmergencyStopReceipt(
+                    request_id=stop_id,
+                    reason=reason,
+                    requested_at=requested_at,
+                    targets=[],
+                    request_dispatched=False,
+                    driver_acknowledged=False,
+                    acknowledged_drivers=[],
+                    unacknowledged_drivers=[],
+                    physical_stop_observed=False,
+                    observed_velocity=None,
+                    observed_joint_velocity=None,
+                    verification_source=None,
+                    timeout=False,
+                    timeout_sec=timeout_sec,
+                    final_status=EmergencyStopStatus.FAILED,
+                    errors=[
+                        {
+                            "code": "NO_STOP_TARGETS",
+                            "message": "No registered driver exposes emergency_stop().",
+                        }
+                    ],
+                )
+                self._record_emergency_stop_receipt(receipt)
+                return receipt
+
+            executor = ThreadPoolExecutor(
+                max_workers=len(targets),
+                thread_name_prefix="rosclaw-estop",
+            )
+            futures = {
+                name: executor.submit(self._mcp_drivers[name].emergency_stop) for name in targets
+            }
+            deadline = time.monotonic() + max(0.0, timeout_sec)
+            acknowledged: list[str] = []
+            unacknowledged: list[str] = []
+            driver_results: dict[str, dict[str, Any]] = {}
+            errors: list[dict[str, Any]] = []
+            any_timeout = False
+
+            for name, future in futures.items():
+                remaining = max(0.0, deadline - time.monotonic())
+                try:
+                    raw_result = future.result(timeout=remaining)
+                    if isinstance(raw_result, dict):
+                        result = dict(raw_result)
+                    elif raw_result is not None and hasattr(raw_result, "to_dict"):
+                        result = dict(raw_result.to_dict())
+                    else:
+                        result = {
+                            "acknowledged": False,
+                            "physical_stop_observed": False,
+                            "note": "Driver returned no acknowledgement evidence.",
+                        }
+                except FutureTimeoutError:
+                    any_timeout = True
+                    result = {
+                        "acknowledged": False,
+                        "physical_stop_observed": False,
+                        "timeout": True,
+                    }
+                    errors.append(
+                        {
+                            "code": "DRIVER_ACK_TIMEOUT",
+                            "driver": name,
+                            "message": f"Driver did not answer within {timeout_sec:.3f}s.",
+                        }
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    result = {
+                        "acknowledged": False,
+                        "physical_stop_observed": False,
+                        "error": str(exc),
+                    }
+                    errors.append(
+                        {
+                            "code": "DRIVER_STOP_FAILED",
+                            "driver": name,
+                            "message": str(exc),
+                        }
+                    )
+                driver_results[name] = result
+                if bool(result.get("acknowledged", False)):
+                    acknowledged.append(name)
+                else:
+                    unacknowledged.append(name)
+
+            executor.shutdown(wait=False, cancel_futures=True)
+            all_acknowledged = len(acknowledged) == len(targets)
+            all_physically_observed = all(
+                bool(driver_results[name].get("physical_stop_observed", False)) for name in targets
+            )
+            observed_velocity: float | None = None
+            observed_joint_velocity: list[float] | None = None
+            verification_sources: list[str] = []
+            execution_modes: set[str] = set()
+            for result in driver_results.values():
+                if result.get("observed_velocity") is not None:
+                    observed_velocity = float(result["observed_velocity"])
+                if isinstance(result.get("observed_joint_velocity"), list):
+                    observed_joint_velocity = [
+                        float(value) for value in result["observed_joint_velocity"]
+                    ]
+                if result.get("verification_source"):
+                    verification_sources.append(str(result["verification_source"]))
+                if result.get("execution_mode"):
+                    execution_modes.add(str(result["execution_mode"]).upper())
+
+            execution_mode = next(iter(execution_modes)) if len(execution_modes) == 1 else "UNKNOWN"
+
+            if all_physically_observed:
+                final_status = EmergencyStopStatus.PHYSICALLY_VERIFIED
+            elif all_acknowledged:
+                final_status = EmergencyStopStatus.ACKNOWLEDGED
+            elif acknowledged:
+                final_status = EmergencyStopStatus.PARTIALLY_ACKNOWLEDGED
+            else:
+                final_status = EmergencyStopStatus.UNVERIFIED
+
+            receipt = EmergencyStopReceipt(
+                request_id=stop_id,
+                reason=reason,
+                requested_at=requested_at,
+                targets=targets,
+                request_dispatched=True,
+                driver_acknowledged=all_acknowledged,
+                acknowledged_drivers=acknowledged,
+                unacknowledged_drivers=unacknowledged,
+                physical_stop_observed=all_physically_observed,
+                observed_velocity=observed_velocity,
+                observed_joint_velocity=observed_joint_velocity,
+                verification_source=(
+                    ",".join(sorted(set(verification_sources))) if verification_sources else None
+                ),
+                timeout=any_timeout,
+                timeout_sec=timeout_sec,
+                final_status=final_status,
+                execution_mode=execution_mode,
+                driver_results=driver_results,
+                errors=errors,
+            )
+            self._record_emergency_stop_receipt(receipt)
+            return receipt
+
+    def _record_emergency_stop_receipt(self, receipt: Any) -> None:
+        self._emergency_stop_receipts[receipt.request_id] = receipt
+        self.event_bus.publish(
+            Event(
+                topic="robot.emergency_stop.receipt",
+                payload=receipt.to_dict(),
+                source="runtime",
+                priority=EventPriority.CRITICAL,
+            )
+        )
 
     def _on_capability_request(self, event: Event) -> None:
         """Handle capability requests from MCPHub via EventBus.
@@ -1000,6 +1225,30 @@ class Runtime(LifecycleMixin):
     def get_driver(self, name: str) -> Any | None:
         """Get a registered driver by name."""
         return self._mcp_drivers.get(name)
+
+    def submit_action(self, action: Any) -> Any:
+        """Submit one canonical ActionEnvelope through the action gateway."""
+        from rosclaw.kernel import ExecutionMode
+
+        if self._emergency_stop_latched and action.execution_mode in {
+            ExecutionMode.SHADOW,
+            ExecutionMode.REAL,
+        }:
+            return self._action_gateway.reject(
+                action,
+                code="EMERGENCY_STOP_LATCHED",
+                message=(
+                    "Real or shadow execution remains blocked after emergency stop; "
+                    "an authorized operator must reinitialize the runtime."
+                ),
+            )
+        return self._action_gateway.submit(action)
+
+    @property
+    def action_gateway(self) -> Any:
+        """Return the canonical physical action gateway."""
+
+        return self._action_gateway
 
     @property
     def firewall(self) -> Any | None:
@@ -1116,12 +1365,18 @@ class Runtime(LifecycleMixin):
                     "capabilities": ["vlm.object_grounding", "vlm.scene_understanding"],
                     "modalities": {"input": ["image", "text"], "output": ["object_list"]},
                     "safety": {"executable": False, "requires_guard": False},
+                    "implementation_kind": "mock",
+                    "execution_mode": "FIXTURE",
+                    "verified_environment": False,
                 }
             ),
             lambda m: MockVLMProvider(m),
             auto_load=False,
         )
         self._provider_registry.set_provider_health("mock_vlm", ok=True)
+        self._provider_registry.set_provider_readiness(
+            "mock_vlm", loaded=True, verified_environment=True
+        )
 
         self._provider_registry.register(
             ProviderManifest.from_dict(
@@ -1131,13 +1386,19 @@ class Runtime(LifecycleMixin):
                     "type": "skill",
                     "capabilities": ["skill.grasp", "skill.place", "skill.pick_and_place"],
                     "embodiment": {"supported_robots": []},
-                    "safety": {"executable": True, "requires_guard": True},
+                    "safety": {"executable": False, "requires_guard": True},
+                    "implementation_kind": "mock",
+                    "execution_mode": "FIXTURE",
+                    "verified_environment": False,
                 }
             ),
             lambda m: MockSkillProvider(m),
             auto_load=False,
         )
         self._provider_registry.set_provider_health("mock_skill", ok=True)
+        self._provider_registry.set_provider_readiness(
+            "mock_skill", loaded=True, verified_environment=True
+        )
 
         self._provider_registry.register(
             ProviderManifest.from_dict(
@@ -1147,12 +1408,18 @@ class Runtime(LifecycleMixin):
                     "type": "critic",
                     "capabilities": ["critic.success_detection", "critic.retry_advice"],
                     "safety": {"executable": False, "requires_guard": False},
+                    "implementation_kind": "mock",
+                    "execution_mode": "FIXTURE",
+                    "verified_environment": False,
                 }
             ),
             lambda m: MockCriticProvider(m),
             auto_load=False,
         )
         self._provider_registry.set_provider_health("mock_critic", ok=True)
+        self._provider_registry.set_provider_readiness(
+            "mock_critic", loaded=True, verified_environment=True
+        )
 
         # Register DeepSeek LLM provider (requires DEEPSEEK_API_KEY)
         self._provider_registry.register(
@@ -1163,6 +1430,9 @@ class Runtime(LifecycleMixin):
                     "type": "llm",
                     "capabilities": ["llm.task_planning", "llm.summary", "llm.chat"],
                     "safety": {"executable": False, "requires_guard": False},
+                    "implementation_kind": "remote_service",
+                    "execution_mode": "DRY_RUN",
+                    "requires_credentials": True,
                 }
             ),
             lambda m: DeepSeekProvider(m),
@@ -1186,6 +1456,9 @@ class Runtime(LifecycleMixin):
             except Exception:
                 healthy = False
         self._provider_registry.set_provider_health("deepseek", ok=healthy)
+        self._provider_registry.set_provider_readiness(
+            "deepseek", loaded=healthy, verified_environment=healthy
+        )
 
         # ─── GPU Model Microservice Providers ───────────────────────────────
         self._register_gpu_providers()
@@ -1260,6 +1533,8 @@ class Runtime(LifecycleMixin):
                             "device": "cuda",
                         },
                         "safety": {"executable": False, "requires_guard": True},
+                        "implementation_kind": "remote_service",
+                        "execution_mode": "DRY_RUN",
                     }
                 )
                 self._provider_registry.register(
@@ -1278,6 +1553,9 @@ class Runtime(LifecycleMixin):
                 except Exception:
                     healthy = False
                 self._provider_registry.set_provider_health(cfg["name"], ok=healthy)
+                self._provider_registry.set_provider_readiness(
+                    cfg["name"], loaded=healthy, verified_environment=healthy
+                )
                 status = "healthy" if healthy else "unreachable"
                 logger.info(f"GPU provider '{cfg['name']}' registered ({status}) @ {endpoint}")
             except Exception as e:
@@ -1350,7 +1628,16 @@ class Runtime(LifecycleMixin):
                     request_id=request.request_id,
                     provider=self.name,
                     capability=request.capability,
-                    result={"available": True, "robot_id": robot_id},
+                    result={
+                        "declared": True,
+                        "available": False,
+                        "execution_ready": False,
+                        "robot_id": robot_id,
+                        "reason": (
+                            "Capability is declared by the e-URDF profile; no executable "
+                            "driver has been bound and verified."
+                        ),
+                    },
                 )
 
             async def health(self):
@@ -1363,13 +1650,18 @@ class Runtime(LifecycleMixin):
                     "version": "1.0",
                     "type": "robot",
                     "capabilities": cap_names,
-                    "safety": {"executable": True, "requires_guard": True},
+                    "safety": {"executable": False, "requires_guard": True},
+                    "implementation_kind": "metadata_catalog",
+                    "execution_mode": "DRY_RUN",
                 }
             ),
             lambda m: RobotCapabilityProvider(m),
             auto_load=False,
         )
         self._provider_registry.set_provider_health("robot_capabilities", ok=True)
+        self._provider_registry.set_provider_readiness(
+            "robot_capabilities", loaded=True, verified_environment=True
+        )
         logger.info(f"Registered {len(cap_names)} robot capabilities from e-URDF")
 
     def _on_provider_event(self, event: Event) -> None:

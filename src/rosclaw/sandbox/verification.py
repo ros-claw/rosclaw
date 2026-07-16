@@ -76,8 +76,10 @@ def run_ur5e_joint_preview(
             state = sandbox.step(positions)
         observation = sandbox.get_observation(normalize=True) or {}
         state = state or {}
-        qpos = state.get("qpos") if isinstance(state.get("qpos"), list) else []
-        qvel = state.get("qvel") if isinstance(state.get("qvel"), list) else []
+        raw_qpos = state.get("qpos")
+        raw_qvel = state.get("qvel")
+        qpos = raw_qpos if isinstance(raw_qpos, list) else []
+        qvel = raw_qvel if isinstance(raw_qvel, list) else []
         final_time = float(state.get("time", 0.0))
         contacts = observation.get("contacts", [])
         contacts_count = len(contacts) if isinstance(contacts, list) else 0

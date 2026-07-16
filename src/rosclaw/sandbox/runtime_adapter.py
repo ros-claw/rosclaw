@@ -8,6 +8,7 @@ through the Runtime's module registry.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from rosclaw.core.event_bus import EventBus
@@ -43,9 +44,13 @@ class SandboxRuntimeAdapter(LifecycleMixin):
         self._runtime = runtime
         self._sandbox_service: Any | None = None
         self._sandbox_context_adapter: Any | None = None
+        self._initialization_error: str | None = None
         self._engine_name = config.get("engine", "mujoco")
         self._world_id = config.get("world_id", "empty")
         self._robot_id = config.get("robot_id", "")
+        self._artifact_root = Path(
+            config.get("artifact_root") or Path.home() / ".rosclaw" / "artifacts" / "sandbox"
+        )
         from rosclaw.observability.tracer import Tracer, get_tracer
 
         runtime_tracer = getattr(runtime, "tracer", None)
@@ -77,34 +82,22 @@ class SandboxRuntimeAdapter(LifecycleMixin):
                 engine=self._engine_name,
                 publisher=publisher,
             )
-            logger.info("Sandbox created: %s", self._sandbox_service.session.session_id)
-        except ImportError as e:
-            logger.warning("Sandbox not available: %s", e)
-            self._sandbox_service = self._create_stub_sandbox()
-        except Exception as e:
-            logger.warning("Failed to create sandbox: %s", e)
-            self._sandbox_service = self._create_stub_sandbox()
-
-    def _create_stub_sandbox(self):
-        """Create a stub sandbox for testing/development when real sandbox unavailable."""
-        import uuid
-
-        class StubSandbox:
-            def __init__(self):
-                self.session = type("Session", (), {"session_id": str(uuid.uuid4())})()
-
-            def reset(self):
-                pass
-
-            def close(self):
-                pass
-
-        return StubSandbox()
+            self._initialization_error = self._sandbox_service.load_error
+            if self._sandbox_service.has_physics:
+                logger.info("Sandbox created: %s", self._sandbox_service.session.session_id)
+            elif self._engine_name.lower() in {"fixture", "mock"}:
+                logger.info("Explicit fixture sandbox created (no physics)")
+            else:
+                logger.warning("Sandbox physics unavailable: %s", self._initialization_error)
+        except Exception as exc:  # noqa: BLE001
+            self._sandbox_service = None
+            self._initialization_error = str(exc)
+            logger.warning("Failed to create sandbox: %s", exc)
 
     def _do_start(self) -> None:
         if self._sandbox_service:
             self._sandbox_service.reset()
-            logger.info("Sandbox reset and running")
+            logger.info("Sandbox reset")
 
     def _do_stop(self) -> None:
         if self._sandbox_service:
@@ -153,11 +146,11 @@ class SandboxRuntimeAdapter(LifecycleMixin):
         safety_level: str = "MODERATE",
         event_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """
-        Validate a trajectory using dynamic simulation (mj_step).
+        """Run static policy checks for a proposed trajectory.
 
-        Replaces the static mj_forward-based check in FirewallValidator
-        with a true physics rollout.
+        This legacy endpoint does not advance MuJoCo.  Its result is explicitly
+        labeled ``StaticPolicyValidation`` so callers cannot mistake it for a
+        simulation rollout.
         """
         if self._sandbox_service is None:
             return {"is_safe": False, "reason": "Sandbox not initialized"}
@@ -220,6 +213,8 @@ class SandboxRuntimeAdapter(LifecycleMixin):
 
             result = {
                 "is_safe": decision.is_allowed,
+                "validation_type": "StaticPolicyValidation",
+                "simulation_executed": False,
                 "risk_score": decision.risk_score,
                 "predicted_collision": decision.predicted_collision,
                 "reason": decision.reason,
@@ -246,6 +241,17 @@ class SandboxRuntimeAdapter(LifecycleMixin):
             state = self._sandbox_service.step(joint_positions)
             return state or {}
         return {}
+
+    def execute_action(self, action: Any) -> Any:
+        """Execute one sandbox ActionEnvelope and return gateway-ready evidence."""
+
+        from rosclaw.sandbox.episode import run_reach_action
+
+        return run_reach_action(
+            self._sandbox_service,
+            action,
+            artifact_root=self._artifact_root,
+        )
 
     def get_observation(self, normalize: bool = True) -> dict[str, Any]:
         """Get rich normalized observation from scene state.
@@ -277,12 +283,35 @@ class SandboxRuntimeAdapter(LifecycleMixin):
             return False
         return getattr(self._sandbox_service, "has_physics", False)
 
+    @property
+    def model_path(self) -> Path | None:
+        """Return the resolved MuJoCo model path when physics loaded."""
+
+        if self._sandbox_service is None:
+            return None
+        return getattr(self._sandbox_service, "model_path", None)
+
     def health(self) -> dict[str, Any]:
         """Return health status for Runtime monitoring."""
+        explicit_fixture = self._engine_name.lower() in {"fixture", "mock"}
+        has_physics = self.has_physics
+        if has_physics:
+            status = "healthy"
+        elif explicit_fixture and self._sandbox_service is not None:
+            status = "fixture"
+        else:
+            status = "unavailable"
         return {
-            "status": "healthy" if self._sandbox_service else "unavailable",
+            "status": status,
             "engine": self._engine_name,
             "world": self._world_id,
+            "has_physics": has_physics,
+            "execution_mode": "FIXTURE" if explicit_fixture else "SIMULATION",
+            "trust_level": "SYNTHETIC"
+            if explicit_fixture
+            else ("SIMULATED" if has_physics else "UNAVAILABLE"),
+            "usable_for_real_execution": False,
+            "error": self._initialization_error,
             "session_id": self._sandbox_service.session.session_id
             if self._sandbox_service
             else None,

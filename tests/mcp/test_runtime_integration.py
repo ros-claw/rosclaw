@@ -14,13 +14,14 @@ import pytest
 
 from rosclaw.core.runtime import Runtime, RuntimeConfig
 from rosclaw.mcp.adapters.runtime_client import RuntimeClient
+from rosclaw.mcp.schemas.common import MCPError
 
 
 @pytest.fixture
 def live_runtime_client(tmp_path: Path) -> RuntimeClient:
     """Build a RuntimeClient backed by a fully initialized Runtime."""
     config = RuntimeConfig(
-        robot_id="integration_test_bot",
+        robot_id="sim_ur5e",
         enable_firewall=False,
         enable_memory=True,
         enable_practice=True,
@@ -38,7 +39,7 @@ def live_runtime_client(tmp_path: Path) -> RuntimeClient:
 
     client = RuntimeClient(
         project_root=tmp_path,
-        robot_id="integration_test_bot",
+        robot_id="sim_ur5e",
         runtime_profile={},
     )
     client._runtime = rt
@@ -49,14 +50,14 @@ def live_runtime_client(tmp_path: Path) -> RuntimeClient:
     rt.stop()
 
 
-async def test_get_robot_state_live(live_runtime_client: RuntimeClient) -> None:
-    response = await live_runtime_client.get_robot_state()
-    assert response["robot_id"] == "integration_test_bot"
-    assert response["mode"] in {"live", "stale"}
-    assert "readiness" in response
-    assert response["readiness"].get("overall_status") == "ready"
-    assert "is_stale" in response
-    assert "age_ms" in response
+async def test_mock_sense_is_rejected_without_explicit_fixture_mode(
+    live_runtime_client: RuntimeClient,
+) -> None:
+    with pytest.raises(MCPError) as error:
+        await live_runtime_client.get_robot_state()
+
+    assert error.value.code == "SYNTHETIC_SOURCE_NOT_ALLOWED"
+    assert error.value.details["trust_level"] == "UNAVAILABLE"
 
 
 async def test_list_skills_live(live_runtime_client: RuntimeClient) -> None:
@@ -99,10 +100,9 @@ async def test_validate_trajectory_live(live_runtime_client: RuntimeClient) -> N
 
 async def test_sandbox_run_live(live_runtime_client: RuntimeClient) -> None:
     response = await live_runtime_client.sandbox_run([0.0] * 6)
-    assert response["mode"] in {"live", "degraded"}
+    assert response["mode"] == "simulation"
     assert isinstance(response["physics_state"], dict)
-    if response["mode"] == "degraded":
-        assert response["has_physics"] is False
+    assert response["has_physics"] is True
 
 
 async def test_emergency_stop_live(live_runtime_client: RuntimeClient) -> None:
@@ -111,8 +111,10 @@ async def test_emergency_stop_live(live_runtime_client: RuntimeClient) -> None:
     rt.event_bus.subscribe("robot.emergency_stop", received.append)
 
     response = await live_runtime_client.emergency_stop("integration test halt")
-    assert response["stopped"] is True
-    assert response["mode"] == "live"
+    assert response["stopped"] is False
+    assert response["mode"] == "unknown"
+    assert response["execution_mode"] == "UNKNOWN"
+    assert response["final_status"] == "FAILED"
     assert response["reason"] == "integration test halt"
     assert len(received) == 1
     assert received[0].topic == "robot.emergency_stop"

@@ -51,6 +51,7 @@ def serve(
     profile: str | None,
     project_root: str | None,
     log_level: str,
+    fixture_mode: bool = False,
 ) -> None:
     """Start the P0 MCP server."""
     _setup_logging(log_level)
@@ -62,6 +63,7 @@ def serve(
         project_root=root,
         robot_id=robot_id or project_profile.robot_id,
         runtime_profile=project_profile.runtime_profile,
+        fixture_mode=fixture_mode,
     )
     set_client(client)
     set_context(
@@ -142,6 +144,12 @@ def main(argv: list[str] | None = None) -> int:
         default=os.environ.get("ROSCLAW_LOG_LEVEL", "INFO"),
         help="Logging level",
     )
+    parser.add_argument(
+        "--fixture",
+        action="store_true",
+        default=os.environ.get("ROSCLAW_MCP_FIXTURE", "").lower() in {"1", "true", "yes", "on"},
+        help="Explicitly enable synthetic fixture responses; never valid for real execution",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -153,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
             profile=args.profile,
             project_root=args.project_root,
             log_level=args.log_level,
+            fixture_mode=args.fixture,
         )
     except KeyboardInterrupt:
         logger.info("Shutting down on interrupt")

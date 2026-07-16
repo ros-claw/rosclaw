@@ -369,6 +369,38 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 def _run_doctor(args: argparse.Namespace) -> int:
     """Internal doctor implementation."""
+    if getattr(args, "level", None):
+        from rosclaw.runtime.doctor_levels import LevelDoctor
+
+        level_result = LevelDoctor(resolve_home()).run(args.level)
+        if getattr(args, "json", False):
+            print(json.dumps(level_result.to_dict(), indent=2, default=str))
+        else:
+            fields = [
+                ("Package healthy", level_result.package_healthy),
+                ("Configured", level_result.configured),
+                ("Runtime initialized", level_result.runtime_initialized),
+                ("Southbound connected", level_result.southbound_connected),
+                ("Action dry run", level_result.action_dry_run),
+                ("Verified action path", level_result.verified_action_path),
+                ("Robot connected", level_result.robot_connected),
+                ("Real execution ready", level_result.real_execution_ready),
+            ]
+            print("=" * 60)
+            print(f"ROSClaw Doctor - {level_result.requested_level.value.upper()}")
+            print("=" * 60)
+            for name, ready in fields:
+                print(f"{name:<25} {'YES' if ready else 'NO'}")
+            print(f"Verified execution mode  {level_result.verified_execution_mode or 'NONE'}")
+            print("=" * 60)
+            for check in level_result.checks:
+                scope = "required" if check.required else "informational"
+                print(
+                    f"[{'PASS' if check.passed else 'FAIL'}] {check.id} ({scope}): {check.detail}"
+                )
+            print("=" * 60)
+        return level_result.exit_code
+
     # --ros2 profile check: L1-L5 layered ROS2 environment validation
     if getattr(args, "ros2", False):
         return _cmd_doctor_ros2()
@@ -386,18 +418,18 @@ def _run_doctor(args: argparse.Namespace) -> int:
 
         doctor = FirstbootDoctor(resolve_home())
         if getattr(args, "bootstrap", False):
-            result = doctor.run_bootstrap(
+            doctor_result = doctor.run_bootstrap(
                 fix=getattr(args, "fix", False),
                 json_output=getattr(args, "json", False),
             )
         else:
-            result = doctor.run_full(
+            doctor_result = doctor.run_full(
                 fix=getattr(args, "fix", False),
                 json_output=getattr(args, "json", False),
                 check_gpu=getattr(args, "gpu", False),
                 check_network=getattr(args, "network", False),
             )
-        return result.exit_code
+        return doctor_result.exit_code
 
     import importlib
     import platform
@@ -433,7 +465,9 @@ def _run_doctor(args: argparse.Namespace) -> int:
             issues.append(f"Cannot import {mod_name}: {exc}")
 
     # 3. e-URDF-Zoo accessibility
-    zoo_path = Path(__file__).parent.parent.parent / "e-urdf-zoo"
+    from rosclaw.runtime.eurdf_loader import _default_zoo_path
+
+    zoo_path = _default_zoo_path()
     zoo_ok = zoo_path.exists() and any(zoo_path.iterdir())
     checks.append(("e-URDF-Zoo", str(zoo_path), zoo_ok))
     if not zoo_ok:
@@ -469,13 +503,14 @@ def _run_doctor(args: argparse.Namespace) -> int:
     except ImportError:
         checks.append(("PyTorch", "Not installed", True))  # optional
 
-    # 7. MuJoCo (optional)
+    # 7. MuJoCo (required for the supported simulation golden path)
     try:
         import mujoco
 
         checks.append(("MuJoCo", mujoco.__version__, True))
     except ImportError:
-        checks.append(("MuJoCo", "Not installed", True))
+        checks.append(("MuJoCo", "Not installed", False))
+        issues.append("MuJoCo is not installed")
 
     # 8. RealSense D405 stack (always reported; default doctor stays passable)
     rs_checks, rs_warnings, rs_issues = _collect_realsense_checks(args)
@@ -512,7 +547,9 @@ def _run_doctor(args: argparse.Namespace) -> int:
             print("  • Install deps: pip install -e .")
         return 1
 
-    print("\n✅ All checks passed. ROSClaw is healthy!")
+    print("\nPackage and configuration checks passed.")
+    print("Robot connected: NO (not checked)")
+    print("Real execution ready: NO (run `rosclaw doctor --level verified` for simulation)")
     return 0
 
 
@@ -747,6 +784,7 @@ def _builtin_provider_catalog() -> list[dict[str, Any]]:
 def _provider_contract(record: dict[str, Any]) -> dict[str, Any]:
     """Add runtime and safety fields shared by provider contract commands."""
     payload = dict(record)
+    payload["status"] = "registered_not_verified"
     payload.setdefault(
         "runtime",
         {
@@ -762,6 +800,20 @@ def _provider_contract(record: dict[str, Any]) -> dict[str, Any]:
             "executable": False,
             "requires_guard": True,
             "requires_human_gate": record.get("type") in {"vla", "skill"},
+        },
+    )
+    payload.setdefault(
+        "readiness",
+        {
+            "implementation_kind": "builtin_contract",
+            "execution_mode": "DRY_RUN",
+            "registered": True,
+            "loaded": False,
+            "healthy": False,
+            "executable": False,
+            "authorized": False,
+            "verified": False,
+            "verified_environment": False,
         },
     )
     return payload
@@ -2285,9 +2337,7 @@ def cmd_practice_start(args: argparse.Namespace) -> int:
             outbox_enabled = bool(storage_cfg.get("outbox_enabled", False))
             outbox_path = storage_cfg.get("outbox_path") or str(home / "storage" / "outbox.sqlite")
             outbox_max_records = int(storage_cfg.get("outbox_max_records", 100_000))
-            outbox_flush_interval_sec = float(
-                storage_cfg.get("outbox_flush_interval_sec", 5.0)
-            )
+            outbox_flush_interval_sec = float(storage_cfg.get("outbox_flush_interval_sec", 5.0))
             outbox_batch_size = int(storage_cfg.get("outbox_batch_size", 100))
 
             outbox: OutboxStore | None = None
@@ -4173,9 +4223,11 @@ def cmd_provider_health(args: argparse.Namespace) -> int:
 
     payload = {
         "ok": bool(providers),
-        "status": "ok" if providers else "not_found",
+        "status": "catalog_available" if providers else "not_found",
         "source": "builtin_provider_contract",
         "provider_count": len(providers),
+        "healthy_provider_count": 0,
+        "execution_ready_provider_count": 0,
         "providers": providers,
     }
     if provider_id and not providers:
@@ -4185,7 +4237,7 @@ def cmd_provider_health(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
         print("=" * 60)
-        print("ROSClaw Provider Health")
+        print("ROSClaw Provider Readiness")
         print("=" * 60)
         if providers:
             print(f"{'Name':<16} {'Type':<12} {'Status':<12} {'Capabilities'}")
@@ -4195,6 +4247,9 @@ def cmd_provider_health(args: argparse.Namespace) -> int:
                     f"{provider['name']:<16} {provider['type']:<12} "
                     f"{provider['status']:<12} {len(provider['capabilities'])}"
                 )
+            print("\nCatalog loaded: YES")
+            print("Provider health checked: NO")
+            print("Verified execution ready: NO")
         else:
             print(payload["error"])
         print("=" * 60)
@@ -5329,64 +5384,141 @@ def cmd_firewall_check(args: argparse.Namespace) -> int:
 
 
 def cmd_sandbox_run(args: argparse.Namespace) -> int:
-    """Run a sandbox episode."""
-    from rosclaw.core.event_bus import EventBus
-    from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
+    """Run a truthful sandbox episode through Runtime.submit_action()."""
+    import hashlib
+    import uuid
 
-    backend = args.backend or "mock"
+    from rosclaw.core.runtime import Runtime, RuntimeConfig
+    from rosclaw.kernel import ActionEnvelope, ActionState, ExecutionMode
+
+    mode = ExecutionMode(str(args.mode).upper())
+    backend = str(args.backend or "mujoco").lower()
     world = args.world or "empty"
+    if mode is ExecutionMode.FIXTURE:
+        backend = "fixture"
+    elif backend != "mujoco":
+        message = "SIMULATION mode requires --backend mujoco; use --mode fixture explicitly."
+        if args.json:
+            print(json.dumps({"status": "BLOCKED", "error": message}, indent=2))
+        else:
+            print(f"[ROSClaw] {message}", file=sys.stderr)
+        return 2
 
-    print(f"[ROSClaw] Running sandbox episode: robot={args.robot}, world={world}, task={args.task}")
+    if not args.json:
+        print(
+            f"[ROSClaw] Running sandbox episode: robot={args.robot}, "
+            f"world={world}, task={args.task}, mode={mode.value}"
+        )
 
-    # Build config compatible with SandboxRuntimeAdapter.__init__
-    config = {
-        "engine": backend,
-        "world_id": world,
-        "robot_id": args.robot,
-    }
-    bus = EventBus()
-    adapter = SandboxRuntimeAdapter(config=config, event_bus=bus)
-    adapter.initialize()
+    artifact_root = Path(args.artifact_dir).expanduser() if args.artifact_dir else None
+    runtime = Runtime(
+        RuntimeConfig(
+            robot_id=args.robot,
+            default_eurdf_robot="ur5e",
+            enable_event_persistence=False,
+            enable_firewall=False,
+            enable_memory=False,
+            enable_practice=False,
+            enable_skill_manager=False,
+            enable_knowledge=False,
+            enable_how=False,
+            enable_auto=False,
+            enable_provider=False,
+            enable_sense=False,
+            sandbox_engine=backend,
+            sandbox_world_id=world,
+            sandbox_artifact_root=str(artifact_root) if artifact_root else None,
+            trace_home=str(artifact_root / "trace") if artifact_root else None,
+        )
+    )
     try:
-        # Mock episode execution since run_episode is not implemented
-        import time
-
-        episode_id = f"sb_{args.robot}_{args.task}_{int(time.time())}"
-        trace_id = args.trace_id or f"trace_{int(time.time())}"
-        # Simulate execution
-        time.sleep(0.1)
-        result = {
-            "episode_id": episode_id,
-            "trace_id": trace_id,
-            "status": "success",
-            "robot_id": args.robot,
+        runtime.initialize()
+        model_path = runtime.sandbox.model_path if runtime.sandbox is not None else None
+        body_hash = ""
+        if model_path is not None and model_path.is_file():
+            body_hash = f"sha256:{hashlib.sha256(model_path.read_bytes()).hexdigest()}"
+        arguments: dict[str, Any] = {
             "task": args.task,
-            "world": world,
-            "backend": backend,
-            "steps": 100,
-            "duration_sec": 5.0,
-            "final_error": 0.02,
-            "artifact_uri": f"sandbox://episodes/{episode_id}",
+            "max_steps": args.steps,
+            "tolerance_m": args.tolerance,
+            "seed": args.seed,
         }
+        if args.target is not None:
+            arguments["target"] = list(args.target)
+        action = ActionEnvelope(
+            actor_id="rosclaw-cli",
+            agent_framework="cli",
+            session_id=args.trace_id or f"cli_{uuid.uuid4().hex[:12]}",
+            body_id=args.robot,
+            body_snapshot_hash=body_hash,
+            capability_id=f"sandbox.{args.task}",
+            arguments=arguments,
+            execution_mode=mode,
+            parent_trace_id=args.trace_id,
+        )
+        receipt = runtime.submit_action(action)
+        result = receipt.to_dict()
+        if args.json:
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+            return (
+                0
+                if (
+                    receipt.final_state in {ActionState.COMPLETED, ActionState.DEGRADED}
+                    and (receipt.verified or mode is ExecutionMode.FIXTURE)
+                )
+                else 1
+            )
+
         print("=" * 60)
         print("Sandbox Episode Result")
         print("=" * 60)
-        print(f"Episode ID: {result['episode_id']}")
+        if mode is ExecutionMode.FIXTURE:
+            print("MODE: FIXTURE")
+            print("NO PHYSICS WAS EXECUTED")
+            print("NOT VALID FOR ACCEPTANCE")
+        print(f"Action ID:  {result['action_id']}")
         print(f"Trace ID:   {result['trace_id']}")
-        print(f"Status:     {result['status']}")
-        print(f"World:      {result['world']}")
-        print(f"Backend:    {result['backend']}")
-        print(f"Steps:      {result['steps']}")
-        print(f"Duration:   {result['duration_sec']:.2f}s")
-        print(f"Final Error:{result['final_error']:.3f}m")
-        print(f"Artifact:   {result['artifact_uri']}")
+        print(f"Status:     {result['final_state']}")
+        print(f"Evidence:   {result['evidence_level']}")
+        print(f"Verified:   {result['verified']}")
+        print(f"World:      {world}")
+        print(f"Backend:    {backend}")
+        simulation = result.get("simulation_result") or {}
+        verification = result.get("verification_result") or {}
+        print(f"Steps:      {simulation.get('steps', 0)}")
+        if verification.get("final_error_m") is not None:
+            print(f"Final Error:{verification['final_error_m']:.6f}m")
+        for artifact in result.get("artifacts", []):
+            print(f"Artifact:   {artifact}")
+        for error in result.get("errors", []):
+            print(f"Error:      {error.get('code')}: {error.get('message')}")
         print("=" * 60)
-        adapter.stop()
-        return 0
+        return (
+            0
+            if (
+                receipt.final_state in {ActionState.COMPLETED, ActionState.DEGRADED}
+                and (receipt.verified or mode is ExecutionMode.FIXTURE)
+            )
+            else 1
+        )
     except Exception as exc:
-        print(f"[ROSClaw] ❌ Sandbox run error: {exc}")
-        adapter.stop()
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "status": "FAILED",
+                        "execution_mode": mode.value,
+                        "verified": False,
+                        "error": str(exc),
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            print(f"[ROSClaw] Sandbox run error: {exc}", file=sys.stderr)
         return 1
+    finally:
+        runtime.stop()
 
 
 def cmd_sandbox_replay(args: argparse.Namespace) -> int:
@@ -6526,6 +6658,12 @@ def main() -> int:
     )
     doctor_parser.add_argument("--bootstrap", action="store_true", help="L0 bootstrap check only")
     doctor_parser.add_argument("--full", action="store_true", help="Run L1-L3 full health check")
+    doctor_parser.add_argument(
+        "--level",
+        choices=["package", "configured", "runtime", "connected", "execution", "verified"],
+        default=None,
+        help="Run progressive execution-readiness checks",
+    )
     doctor_parser.add_argument("--fix", action="store_true", help="Auto-fix safe issues only")
     doctor_parser.add_argument("--json", action="store_true", help="Output structured JSON")
     doctor_parser.add_argument("--gpu", action="store_true", help="Include GPU/CUDA check")
@@ -7086,8 +7224,7 @@ def main() -> int:
         "serve", help="Start the persistent policy runtime"
     )
     lerobot_policy_serve_parser.add_argument(
-        "--policy.path", dest="policy_path", default=None,
-        help="Policy directory or HF repo id"
+        "--policy.path", dest="policy_path", default=None, help="Policy directory or HF repo id"
     )
     lerobot_policy_serve_parser.add_argument(
         "--python", default=None, help="LeRobot Python executable"
@@ -7096,8 +7233,10 @@ def main() -> int:
         "--device", default="cpu", help="Device for inference (default: cpu)"
     )
     lerobot_policy_serve_parser.add_argument(
-        "--dtype", default="auto", choices=["auto", "fp32", "fp16", "bf16"],
-        help="Model dtype (default: auto)"
+        "--dtype",
+        default="auto",
+        choices=["auto", "fp32", "fp16", "bf16"],
+        help="Model dtype (default: auto)",
     )
     lerobot_policy_serve_parser.add_argument(
         "--allow-network", action="store_true", help="Allow network access for HF downloads"
@@ -7106,7 +7245,10 @@ def main() -> int:
         "--timeout-sec", type=int, default=120, help="Call timeout in seconds (default: 120)"
     )
     lerobot_policy_serve_parser.add_argument(
-        "--startup-timeout-sec", type=int, default=60, help="Startup timeout in seconds (default: 60)"
+        "--startup-timeout-sec",
+        type=int,
+        default=60,
+        help="Startup timeout in seconds (default: 60)",
     )
     lerobot_policy_serve_parser.add_argument(
         "--daemon", action="store_true", help="Run as a background daemon"
@@ -7153,8 +7295,10 @@ def main() -> int:
         "--device", default="cpu", help="Device for inference (default: cpu)"
     )
     lerobot_policy_warmup_parser.add_argument(
-        "--dtype", default="auto", choices=["auto", "fp32", "fp16", "bf16"],
-        help="Model dtype (default: auto)"
+        "--dtype",
+        default="auto",
+        choices=["auto", "fp32", "fp16", "bf16"],
+        help="Model dtype (default: auto)",
     )
     lerobot_policy_warmup_parser.add_argument(
         "--allow-network", action="store_true", help="Allow network access for HF downloads"
@@ -7163,7 +7307,10 @@ def main() -> int:
         "--timeout-sec", type=int, default=300, help="Call timeout in seconds (default: 300)"
     )
     lerobot_policy_warmup_parser.add_argument(
-        "--startup-timeout-sec", type=int, default=60, help="Startup timeout in seconds (default: 60)"
+        "--startup-timeout-sec",
+        type=int,
+        default=60,
+        help="Startup timeout in seconds (default: 60)",
     )
     lerobot_policy_warmup_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -7171,27 +7318,24 @@ def main() -> int:
     lerobot_mapping_parser = lerobot_subparsers.add_parser(
         "mapping", help="Body action mapping commands"
     )
-    lerobot_mapping_subparsers = lerobot_mapping_parser.add_subparsers(dest="lerobot_mapping_command")
+    lerobot_mapping_subparsers = lerobot_mapping_parser.add_subparsers(
+        dest="lerobot_mapping_command"
+    )
 
     def _add_mapping_common_args(parser):
         parser.add_argument(
             "--body", dest="body_id", default="current", help="Body instance ID (default: current)"
         )
         parser.add_argument(
-            "--representation", default="joint_position",
+            "--representation",
+            default="joint_position",
             choices=["joint_position", "joint_velocity", "joint_torque"],
             help="Action representation (default: joint_position)",
         )
-        parser.add_argument(
-            "--names", required=True, help="Comma-separated policy action names"
-        )
-        parser.add_argument(
-            "--units", default="", help="Comma-separated policy action units"
-        )
+        parser.add_argument("--names", required=True, help="Comma-separated policy action names")
+        parser.add_argument("--units", default="", help="Comma-separated policy action units")
         parser.add_argument("--reference-frame", default="", help="Policy reference frame")
-        parser.add_argument(
-            "--allow-partial", action="store_true", help="Allow partial mappings"
-        )
+        parser.add_argument("--allow-partial", action="store_true", help="Allow partial mappings")
         parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     lerobot_mapping_generate_parser = lerobot_mapping_subparsers.add_parser(
@@ -7219,11 +7363,16 @@ def main() -> int:
     lerobot_rollout_parser = lerobot_subparsers.add_parser(
         "rollout", help="LeRobot policy rollout loops"
     )
-    lerobot_rollout_subparsers = lerobot_rollout_parser.add_subparsers(dest="lerobot_rollout_command")
+    lerobot_rollout_subparsers = lerobot_rollout_parser.add_subparsers(
+        dest="lerobot_rollout_command"
+    )
 
     def _add_rollout_common_args(parser):
         parser.add_argument(
-            "--policy.path", dest="policy_path", required=True, help="Policy directory or HF repo id"
+            "--policy.path",
+            dest="policy_path",
+            required=True,
+            help="Policy directory or HF repo id",
         )
         parser.add_argument("--revision", default="main", help="HF revision")
         parser.add_argument("--python", default=None, help="LeRobot Python executable")
@@ -7257,9 +7406,7 @@ def main() -> int:
         parser.add_argument(
             "--observation-contract", default=None, help="JSON observation contract file"
         )
-        parser.add_argument(
-            "--trace-path", default=None, help="Output JSONL trace path"
-        )
+        parser.add_argument("--trace-path", default=None, help="Output JSONL trace path")
         parser.add_argument(
             "--practice-root",
             default=None,
@@ -7269,12 +7416,8 @@ def main() -> int:
         parser.add_argument(
             "--allow-partial-mapping", action="store_true", help="Allow partial body mappings"
         )
-        parser.add_argument(
-            "--skip-sandbox", action="store_true", help="Skip sandbox preflight"
-        )
-        parser.add_argument(
-            "--execute", action="store_true", help=argparse.SUPPRESS
-        )
+        parser.add_argument("--skip-sandbox", action="store_true", help="Skip sandbox preflight")
+        parser.add_argument("--execute", action="store_true", help=argparse.SUPPRESS)
         parser.add_argument("--timeout-sec", type=int, default=300, help="Call timeout")
         parser.add_argument("--startup-timeout-sec", type=int, default=60, help="Startup timeout")
         parser.add_argument("--json", action="store_true", help="Output as JSON")
@@ -7498,8 +7641,35 @@ def main() -> int:
     sandbox_run_parser.add_argument("--robot", required=True, help="Robot identifier")
     sandbox_run_parser.add_argument("--world", default="empty", help="Sandbox world")
     sandbox_run_parser.add_argument("--task", required=True, help="Task name")
-    sandbox_run_parser.add_argument("--backend", default="mujoco", help="Sandbox backend")
+    sandbox_run_parser.add_argument(
+        "--mode",
+        default="simulation",
+        choices=["simulation", "fixture"],
+        help="Execution mode; fixture must be explicitly requested",
+    )
+    sandbox_run_parser.add_argument(
+        "--backend",
+        default="mujoco",
+        choices=["mujoco", "mock", "fixture"],
+        help="Sandbox backend (SIMULATION requires mujoco)",
+    )
+    sandbox_run_parser.add_argument(
+        "--target",
+        nargs=3,
+        type=float,
+        metavar=("X", "Y", "Z"),
+        help="Cartesian reach target in meters",
+    )
+    sandbox_run_parser.add_argument("--steps", type=int, default=1200, help="Maximum MuJoCo steps")
+    sandbox_run_parser.add_argument(
+        "--tolerance", type=float, default=0.008, help="Reach success tolerance in meters"
+    )
+    sandbox_run_parser.add_argument("--seed", type=int, default=0, help="Deterministic seed")
+    sandbox_run_parser.add_argument(
+        "--artifact-dir", default=None, help="Directory for trajectory and receipt artifacts"
+    )
     sandbox_run_parser.add_argument("--trace-id", default=None, help="Trace ID")
+    sandbox_run_parser.add_argument("--json", action="store_true", help="Output receipt as JSON")
     sandbox_replay_parser = sandbox_subparsers.add_parser("replay", help="Replay a sandbox episode")
     sandbox_replay_parser.add_argument("episode_id", help="Episode identifier")
     sandbox_check_parser = sandbox_subparsers.add_parser(

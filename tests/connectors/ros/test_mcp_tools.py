@@ -112,3 +112,34 @@ def test_ros_validate_capability_uses_runtime_registry():
     )
     assert result["ok"] is False
     assert result["decision"] == "BLOCK"
+
+
+def test_ros_emergency_stop_returns_runtime_evidence():
+    class Receipt:
+        @staticmethod
+        def to_dict():
+            return {
+                "request_dispatched": True,
+                "driver_acknowledged": True,
+                "physical_stop_observed": False,
+                "stopped": False,
+                "final_status": "ACKNOWLEDGED",
+                "trust_level": "UNVERIFIED",
+            }
+
+    class FakeRuntime:
+        def request_emergency_stop(self, reason, *, source):
+            assert reason == "MCP emergency stop for turtlesim"
+            assert source == "ros_mcp_tools"
+            return Receipt()
+
+    mcp = FakeMCP()
+    register_ros_tools(mcp, runtime=FakeRuntime())
+
+    result = mcp.tools["ros_emergency_stop"](robot_id="turtlesim")
+
+    assert result["ok"] is False
+    assert result["request_dispatched"] is True
+    assert result["driver_acknowledged"] is True
+    assert result["stopped"] is False
+    assert result["trust_level"] == "UNVERIFIED"

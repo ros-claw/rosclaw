@@ -100,11 +100,7 @@ class MCPHub(LifecycleMixin):
             from rosclaw.observability.tracer import Tracer, get_tracer
 
             runtime_tracer = getattr(runtime, "tracer", None)
-            tracer = (
-                runtime_tracer
-                if isinstance(runtime_tracer, Tracer)
-                else get_tracer(event_bus)
-            )
+            tracer = runtime_tracer if isinstance(runtime_tracer, Tracer) else get_tracer(event_bus)
         self._tracer = tracer
 
     def _do_initialize(self) -> None:
@@ -636,6 +632,8 @@ class MCPHub(LifecycleMixin):
         capability: str,
         inputs: dict[str, Any],
         context: dict[str, Any] | None = None,
+        *,
+        requires_execution: bool = False,
     ) -> dict[str, Any]:
         """Route a capability request via EventBus.
 
@@ -668,7 +666,10 @@ class MCPHub(LifecycleMixin):
                     "capability": capability,
                     "inputs": inputs,
                     "context": ctx,
-                    "constraints": {"safety_level": self.context.safety_level.upper()},
+                    "constraints": {
+                        "safety_level": self.context.safety_level.upper(),
+                        "requires_execution": requires_execution,
+                    },
                 },
                 source="mcp_hub",
                 priority=EventPriority.HIGH,
@@ -782,7 +783,11 @@ class MCPHub(LifecycleMixin):
             "target": arguments.get("target", {}),
             "constraints": arguments.get("constraints", {}),
         }
-        return await self._route_capability(capability, inputs)
+        return await self._route_capability(
+            capability,
+            inputs,
+            requires_execution=True,
+        )
 
     async def _handle_verify_task_success(self, arguments: dict) -> dict:
         """Handle verify_task_success via Critic provider."""
@@ -845,48 +850,69 @@ class MCPHub(LifecycleMixin):
                 future.set_result(event.payload.get("result", event.payload))
 
     async def _handle_move_joints(self, arguments: dict) -> dict:
-        """Handle move_joints tool call with command-response."""
+        """Submit move_joints through the canonical action gateway."""
         positions = arguments.get("joint_positions", [])
         duration = arguments.get("duration", 2.0)
-
-        result = await self._send_command_and_wait(
-            topic="agent.command",
-            payload={
-                "action": "move_joints",
+        return self._submit_physical_action(
+            "robot.move_joints",
+            {
                 "joint_positions": positions,
                 "duration": duration,
             },
+            arguments,
         )
-
-        if result.get("status") == "timeout":
-            return {
-                "status": "command_issued",
-                "action": "move_joints",
-                "target_positions": positions,
-                "warning": "No response received from execution layer",
-            }
-        return result
 
     async def _handle_grasp(self, arguments: dict) -> dict:
-        """Handle grasp tool call with command-response."""
+        """Submit grasp through the canonical action gateway."""
         action = arguments.get("action", "close")
         force = arguments.get("force", 0.5)
-
-        result = await self._send_command_and_wait(
-            topic="agent.command",
-            payload={
-                "action": "grasp",
-                "grasp_action": action,
-                "force": force,
-            },
+        return self._submit_physical_action(
+            "robot.grasp",
+            {"grasp_action": action, "force": force},
+            arguments,
         )
 
-        if result.get("status") == "timeout":
+    def _submit_physical_action(
+        self,
+        capability_id: str,
+        action_arguments: dict[str, Any],
+        request_arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self.runtime is None or not callable(getattr(self.runtime, "submit_action", None)):
             return {
-                "status": "command_issued",
-                "action": f"grasp_{action}",
-                "warning": "No response received from execution layer",
+                "status": "blocked",
+                "error": "RUNTIME_ACTION_GATEWAY_REQUIRED",
+                "message": "Physical actions require Runtime.submit_action().",
+                "execution_mode": "UNKNOWN",
+                "trust_level": "UNAVAILABLE",
+                "usable_for_real_execution": False,
             }
+
+        from rosclaw.kernel import ActionEnvelope, ExecutionMode
+
+        try:
+            mode = ExecutionMode(str(request_arguments.get("execution_mode", "REAL")).upper())
+        except ValueError:
+            return {
+                "status": "blocked",
+                "error": "INVALID_EXECUTION_MODE",
+                "execution_mode": str(request_arguments.get("execution_mode", "")),
+                "trust_level": "UNAVAILABLE",
+                "usable_for_real_execution": False,
+            }
+        envelope = ActionEnvelope(
+            actor_id="mcp-agent",
+            agent_framework="mcp",
+            session_id=self.context.session_id,
+            body_id=self.robot_id,
+            body_snapshot_hash=str(request_arguments.get("body_snapshot_hash", "")),
+            capability_id=capability_id,
+            arguments=action_arguments,
+            execution_mode=mode,
+        )
+        receipt = self.runtime.submit_action(envelope)
+        result = receipt.to_dict()
+        result["status"] = receipt.final_state.value.lower()
         return result
 
     def _handle_get_state(self) -> dict:
@@ -921,6 +947,17 @@ class MCPHub(LifecycleMixin):
 
     def _handle_emergency_stop(self) -> dict:
         """Handle emergency_stop tool call."""
+        if self.runtime is not None and callable(
+            getattr(self.runtime, "request_emergency_stop", None)
+        ):
+            receipt = self.runtime.request_emergency_stop(
+                "LLM emergency stop command",
+                source="mcp_hub",
+            )
+            result = receipt if isinstance(receipt, dict) else receipt.to_dict()
+            result["status"] = str(result.get("final_status", "UNVERIFIED")).lower()
+            return result
+
         self.event_bus.publish(
             Event(
                 topic="robot.emergency_stop",
@@ -929,7 +966,16 @@ class MCPHub(LifecycleMixin):
                 priority=EventPriority.CRITICAL,
             )
         )
-        return {"status": "emergency_stop_triggered"}
+        return {
+            "status": "requested_unverified",
+            "request_dispatched": True,
+            "driver_acknowledged": False,
+            "physical_stop_observed": False,
+            "stopped": False,
+            "execution_mode": "UNKNOWN",
+            "trust_level": "UNVERIFIED",
+            "usable_for_real_execution": False,
+        }
 
     # ------------------------------------------------------------------
     # Physical world handlers

@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
-from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.mcp.adapters.memory_client import MemoryClient
 from rosclaw.mcp.adapters.practice_client import PracticeClient
 from rosclaw.mcp.adapters.safety_client import SafetyClient
@@ -86,18 +85,19 @@ def test_sandbox_client_simulate_step() -> None:
     sandbox.simulate_step.return_value = {"qpos": [0.1] * 6}
     client = SandboxClient(sandbox)
     response = client.simulate_step([0.1] * 6)
-    assert response["mode"] == "live"
+    assert response["mode"] == "simulation"
+    assert response["execution_mode"] == "SIMULATION"
     assert response["has_physics"] is True
     assert response["physics_state"]["qpos"] == [0.1] * 6
 
 
-def test_sandbox_client_simulate_step_degraded_when_empty() -> None:
+def test_sandbox_client_simulate_step_unavailable_when_empty() -> None:
     sandbox = MagicMock()
     sandbox.has_physics = False
     sandbox.simulate_step.return_value = {}
     client = SandboxClient(sandbox)
     response = client.simulate_step([0.1] * 6)
-    assert response["mode"] == "degraded"
+    assert response["mode"] == "unavailable"
     assert response["has_physics"] is False
     assert response["physics_state"] == {}
 
@@ -129,24 +129,32 @@ def test_skill_registry_client_falls_back_to_skill_manager() -> None:
 
 
 def test_safety_client_publishes_emergency_event() -> None:
-    bus = EventBus()
     runtime = MagicMock()
-    runtime.event_bus = bus
-    received: list[Event] = []
-    bus.subscribe("robot.emergency_stop", received.append)
+    runtime.request_emergency_stop.return_value = {
+        "request_id": "stop-1",
+        "reason": "collision imminent",
+        "request_dispatched": True,
+        "driver_acknowledged": True,
+        "physical_stop_observed": False,
+        "stopped": False,
+        "final_status": "ACKNOWLEDGED",
+    }
     client = SafetyClient(runtime)
     response = client.emergency_stop("collision imminent")
-    assert response["stopped"] is True
-    assert response["mode"] == "live"
-    assert len(received) == 1
-    assert received[0].topic == "robot.emergency_stop"
-    assert received[0].payload["reason"] == "collision imminent"
-    assert received[0].priority == EventPriority.CRITICAL
+    assert response["stopped"] is False
+    assert response["final_status"] == "ACKNOWLEDGED"
+    runtime.request_emergency_stop.assert_called_once_with(
+        "collision imminent",
+        source="mcp.emergency_stop",
+    )
 
 
 def test_safety_client_does_not_call_private_handler() -> None:
     runtime = MagicMock()
-    runtime.event_bus = EventBus()
+    runtime.request_emergency_stop.return_value = {
+        "stopped": False,
+        "final_status": "UNVERIFIED",
+    }
     client = SafetyClient(runtime)
     client.emergency_stop("test")
     runtime._on_emergency_stop.assert_not_called()

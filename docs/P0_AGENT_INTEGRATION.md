@@ -7,7 +7,9 @@ This document describes the P0 integration between agent frameworks and the ROSC
 - An agent that opens a ROSClaw project should immediately understand the runtime boundary.
 - The agent has **read-only**, **simulation-only**, **validated-plan**, and **emergency** tools available.
 - There is **no real-execution tool** in P0. Any request to move the real robot must be refused or routed through `validate_trajectory` with operator confirmation.
-- If ROSClaw components are unavailable, tools degrade gracefully to well-formed fixture responses instead of crashing the agent.
+- If ROSClaw components are unavailable, tools return a structured `ok: false`
+  envelope. Synthetic responses are available only when fixture mode is
+  explicitly enabled.
 
 ## Generated project files
 
@@ -53,8 +55,8 @@ The P0 server exposes 13 tools via `src/rosclaw/mcp/server.py`:
 | `validate_body_action` | S0 read-only | Validate a proposed body-level action |
 | `get_calibration_status` | S0 read-only | Calibration status for body components |
 | `validate_trajectory` | S2 validated-plan | Validate a trajectory through the sandbox/firewall; never executes real motion |
-| `sandbox_run` | S1 simulation-only | Run one MuJoCo simulation step; reports `mode: degraded` if no physics state is available |
-| `emergency_stop` | S4 emergency | Publish `robot.emergency_stop` on the `EventBus` to halt all motion |
+| `sandbox_run` | S1 simulation-only | Run one real MuJoCo step; fails if physics/model loading is unavailable |
+| `emergency_stop` | S4 emergency | Fan out a stop request and return dispatch, driver ACK, timeout, and physical-observation evidence |
 
 All tool responses share a common envelope defined in `src/rosclaw/mcp/schemas/common.py` with `ok`, `timestamp`, `trace_id`, and an optional structured `error` field.
 
@@ -76,7 +78,12 @@ Each adapter is small, independently unit-testable, and translates a subsystem A
 
 ### Emergency stop
 
-`SafetyClient.emergency_stop` publishes a `robot.emergency_stop` event on the `EventBus` with `EventPriority.CRITICAL`. The `EventBus` calls synchronous subscribers immediately, so any registered stop handler is invoked in-band. The MCP tool no longer calls `Runtime._on_emergency_stop` directly, removing a layering violation and making the stop path observable by other runtime subscribers.
+`SafetyClient.emergency_stop` delegates to
+`Runtime.request_emergency_stop`. Runtime publishes one managed critical event,
+fans out to registered drivers, waits for bounded acknowledgements, and returns
+an `EmergencyStopReceipt`. `stopped=true` is emitted only when stopped state was
+physically observed in the stated execution mode. Publishing a request alone is
+never reported as a confirmed stop.
 
 ## Usage
 
@@ -108,41 +115,47 @@ rosclaw-mcp-serve --transport stdio --log-level INFO
 
 # HTTP transport
 rosclaw-mcp-serve --transport http --host 127.0.0.1 --port 9090
+
+# Explicit synthetic mode for demos/tests only
+rosclaw-mcp-serve --transport stdio --fixture
 ```
 
-Environment variables: `ROSCLAW_MCP_TRANSPORT`, `ROSCLAW_MCP_HOST`, `ROSCLAW_MCP_PORT`, `ROSCLAW_ROBOT_ID`, `ROSCLAW_PROJECT_ROOT`, `ROSCLAW_LOG_LEVEL`.
+Environment variables: `ROSCLAW_MCP_TRANSPORT`, `ROSCLAW_MCP_HOST`,
+`ROSCLAW_MCP_PORT`, `ROSCLAW_ROBOT_ID`, `ROSCLAW_PROJECT_ROOT`,
+`ROSCLAW_LOG_LEVEL`, and explicit `ROSCLAW_MCP_FIXTURE=1`.
 
 ## Safety boundaries
 
 - `validate_trajectory` and `sandbox_run` are restricted to planning and simulation. They do not command hardware.
-- `emergency_stop` is the only destructive tool and is gated at S4.
+- `emergency_stop` is the only real-side-effect tool in this MCP surface and is
+  gated at S4. It still does not replace a certified physical E-Stop.
 - The audit logger redacts values for keys matching `{token, password, secret, api_key, apikey, auth}` before writing to `~/.rosclaw/logs/mcp/audit.jsonl`.
 - All state tools include `is_stale` and `age_ms` so the agent can judge freshness.
 
 ## Verification
 
 ```bash
-# Lint
 ruff check src tests
-
-# Focused type check (project-wide mypy has pre-existing errors)
-mypy src/rosclaw/mcp/adapters src/rosclaw/core/runtime.py --follow-imports=skip --ignore-missing-imports
-
-# Tests
-pytest tests/agent tests/mcp tests/security tests/practice
+mypy --config-file .github/mypy-ci.ini \
+  src/rosclaw/kernel src/rosclaw/sandbox src/rosclaw/provider/core \
+  src/rosclaw/mcp_drivers src/rosclaw/mcp/adapters src/rosclaw/agent \
+  src/rosclaw/agent_runtime/mcp_hub.py src/rosclaw/core/runtime.py src/rosclaw/cli.py
+pytest -q
+rosclaw doctor --level verified --json
+rosclaw agent test universal --project-root . --quick --mcp-probe
 ```
 
-Current follow-up status:
-
-- `ruff check src tests` — passing.
-- `mypy --config-file .github/mypy-ci.ini src/rosclaw/mcp/adapters src/rosclaw/core/runtime.py` — passing.
-- `pytest tests/agent tests/mcp tests/security tests/practice` — 67 passing.
-- `mypy src` — pre-existing type errors across the wider codebase; changed modules compile and tests pass.
+The transport tests exercise stdio and streamable HTTP. They expect synthetic
+Body Sense to fail closed in normal mode and verify that MuJoCo simulation is
+reported as `SIMULATION`, not `live`. Release validation also builds the wheel,
+installs it outside the repository, and confirms the packaged UR5e MJCF and mesh
+assets can execute a MuJoCo step without resolving files from the source tree.
 
 ## Remaining gaps
 
-1. ~~End-to-end MCP smoke tests over stdio/HTTP transport.~~ (Done in `tests/mcp/test_e2e.py`.)
-2. ~~Live `Runtime` integration tests for all 13 P0 tools in fixture or sim mode.~~ (Done in `tests/mcp/test_runtime_integration.py`.)
-3. ~~Performance/load tests for `EventBus` synchronous dispatch under emergency-stop load.~~ (Done in `tests/mcp/test_event_bus_emergency_perf.py`.)
-4. ~~CI enforcement of `ruff check src tests` and a focused `mypy` gate.~~ (Done in `.github/workflows/ci.yml` and `.github/mypy-ci.ini`.)
-5. ~~Continuous documentation refresh for `AGENTS.md`, `CLAUDE.md`, and `ROSCLAW.md` managed blocks.~~ Refreshed via `rosclaw agent install`; `doctor` and `test` pass.
+1. No real-hardware MCP execution tool is exposed by this P0 server.
+2. ROS2 and DDS Body Sense collectors are still stubs and therefore return
+   unavailable rather than live state.
+3. Legacy physical side-effect adapters outside this P0 MCP surface are still
+   being migrated to `Runtime.submit_action`.
+4. Hardware E-Stop requires device-specific ACK and feedback acceptance tests.

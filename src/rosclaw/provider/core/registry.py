@@ -12,6 +12,7 @@ from typing import Any
 from rosclaw.provider.core.errors import ProviderNotFoundError
 from rosclaw.provider.core.manifest import ProviderManifest
 from rosclaw.provider.core.provider import Provider
+from rosclaw.provider.core.readiness import ProviderReadiness
 
 
 class ProviderRegistry:
@@ -36,6 +37,7 @@ class ProviderRegistry:
         self._factories: dict[str, Callable[[ProviderManifest], Provider]] = {}
         self._manifests: dict[str, ProviderManifest] = {}
         self._health: dict[str, dict[str, Any]] = {}
+        self._readiness: dict[str, ProviderReadiness] = {}
         self._health_interval = health_check_interval_sec
         self._health_task: asyncio.Task | None = None
         self._shutdown: bool = False
@@ -92,6 +94,12 @@ class ProviderRegistry:
 
         provider = factory(manifest)
         self._providers[name] = provider
+        self._readiness[name] = ProviderReadiness.from_manifest(
+            manifest,
+            implementation_kind=(
+                "mock" if provider.__class__.__name__.lower().startswith("mock") else None
+            ),
+        )
 
         self._publish_event(
             "provider_registered",
@@ -107,6 +115,7 @@ class ProviderRegistry:
             self._load_provider(provider)
 
         self._health[name] = {"last_check": 0.0, "ok": provider._healthy}
+        self._refresh_readiness(name)
         return provider
 
     def _load_provider(self, provider: Provider) -> None:
@@ -120,10 +129,22 @@ class ProviderRegistry:
             try:
                 run_sync(provider.load())
                 provider._healthy = True
+                readiness = self._readiness.get(provider.name)
+                if readiness is not None:
+                    readiness.loaded = True
+                    readiness.healthy = True
+                    readiness.error = ""
+                    self._refresh_readiness(provider.name)
                 self._publish_health_changed(provider.name, True, "load_success")
             except Exception as e:
                 provider._healthy = False
                 provider._load_error = str(e)
+                readiness = self._readiness.get(provider.name)
+                if readiness is not None:
+                    readiness.loaded = False
+                    readiness.healthy = False
+                    readiness.error = str(e)
+                    self._refresh_readiness(provider.name)
                 self._publish_health_changed(provider.name, False, f"load_failed: {e}")
         else:
             # Called from within an async context — schedule deferred load.
@@ -136,11 +157,23 @@ class ProviderRegistry:
         try:
             await provider.load()
             provider._healthy = True
+            readiness = self._readiness.get(provider.name)
+            if readiness is not None:
+                readiness.loaded = True
+                readiness.healthy = True
+                readiness.error = ""
+                self._refresh_readiness(provider.name)
             self._health[provider.name] = {"last_check": time.time(), "ok": True}
             self._publish_health_changed(provider.name, True, "load_success")
         except Exception as e:
             provider._healthy = False
             provider._load_error = str(e)
+            readiness = self._readiness.get(provider.name)
+            if readiness is not None:
+                readiness.loaded = False
+                readiness.healthy = False
+                readiness.error = str(e)
+                self._refresh_readiness(provider.name)
             self._health[provider.name] = {"last_check": time.time(), "ok": False, "error": str(e)}
             self._publish_health_changed(provider.name, False, f"load_failed: {e}")
 
@@ -160,6 +193,7 @@ class ProviderRegistry:
         self._factories.pop(name, None)
         self._manifests.pop(name, None)
         self._health.pop(name, None)
+        self._readiness.pop(name, None)
         self._publish_event(
             "provider_unregistered",
             {"provider": name},
@@ -187,7 +221,60 @@ class ProviderRegistry:
             "ok": ok,
             "error": error,
         }
+        readiness = self._readiness.get(name)
+        if readiness is not None:
+            readiness.healthy = ok
+            readiness.error = error
+            self._refresh_readiness(name)
         self._publish_health_changed(name, ok, error or "manual_set")
+
+    def set_provider_readiness(
+        self,
+        name: str,
+        *,
+        loaded: bool | None = None,
+        verified_environment: bool | None = None,
+        authorized: bool | None = None,
+        execution_mode: str | None = None,
+        implementation_kind: str | None = None,
+    ) -> ProviderReadiness:
+        """Update explicit readiness facts without inferring them from registration."""
+
+        readiness = self._readiness.get(name)
+        if readiness is None:
+            raise ProviderNotFoundError(f"Provider '{name}' not found")
+        if loaded is not None:
+            readiness.loaded = loaded
+        if verified_environment is not None:
+            readiness.verified_environment = verified_environment
+        if authorized is not None:
+            readiness.authorized = authorized
+        if execution_mode is not None:
+            readiness.execution_mode = execution_mode.upper()
+        if implementation_kind is not None:
+            readiness.implementation_kind = implementation_kind
+        self._refresh_readiness(name)
+        return readiness
+
+    def get_readiness(self, name: str) -> ProviderReadiness:
+        """Return provider readiness facts by exact name."""
+
+        readiness = self._readiness.get(name)
+        if readiness is None:
+            raise ProviderNotFoundError(f"Readiness for provider '{name}' not found")
+        return readiness
+
+    def is_execution_ready(self, name: str) -> bool:
+        """Return whether a provider is verified for executable routing."""
+
+        readiness = self._readiness.get(name)
+        return bool(readiness and readiness.verified)
+
+    def _refresh_readiness(self, name: str) -> None:
+        readiness = self._readiness.get(name)
+        manifest = self._manifests.get(name)
+        if readiness is not None and manifest is not None:
+            readiness.refresh(manifest)
 
     # ------------------------------------------------------------------
     # Lookups
@@ -243,11 +330,21 @@ class ProviderRegistry:
             if provider._healthy != new_ok:
                 self._publish_health_changed(name, new_ok, "health_check")
             provider._healthy = new_ok
+            readiness = self._readiness.get(name)
+            if readiness is not None:
+                readiness.healthy = new_ok
+                readiness.error = str(result.get("error", ""))
+                self._refresh_readiness(name)
             return result
         except Exception as e:
             provider._healthy = False
             self._health[name] = {"ok": False, "error": str(e), "timestamp": time.time()}
             self._publish_health_changed(name, False, f"health_check_error: {e}")
+            readiness = self._readiness.get(name)
+            if readiness is not None:
+                readiness.healthy = False
+                readiness.error = str(e)
+                self._refresh_readiness(name)
             return self._health[name]
 
     async def check_all_health(self) -> dict[str, dict[str, Any]]:
@@ -258,7 +355,7 @@ class ProviderRegistry:
             return_exceptions=True,
         )
         return {
-            n: (r if not isinstance(r, Exception) else {"ok": False, "error": str(r)})
+            n: (r if not isinstance(r, BaseException) else {"ok": False, "error": str(r)})
             for n, r in zip(names, results, strict=False)
         }
 
@@ -320,6 +417,9 @@ class ProviderRegistry:
             "healthy_providers": healthy,
             "unhealthy_providers": total - healthy,
             "by_type": by_type,
+            "execution_ready_providers": sum(
+                1 for readiness in self._readiness.values() if readiness.verified
+            ),
         }
 
     def get_reasoner(self, provider_id: str | None = None) -> Any:

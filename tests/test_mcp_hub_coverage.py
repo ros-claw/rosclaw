@@ -169,7 +169,10 @@ class TestHandleToolCallNoRuntime:
         hub = MCPHub(event_bus=bus)
         hub.initialize()
         result = await hub.handle_tool_call("emergency_stop", {})
-        assert result["status"] == "emergency_stop_triggered"
+        assert result["status"] == "requested_unverified"
+        assert result["request_dispatched"] is True
+        assert result["physical_stop_observed"] is False
+        assert result["stopped"] is False
         hub.stop()
 
     @pytest.mark.asyncio
@@ -182,24 +185,25 @@ class TestHandleToolCallNoRuntime:
         hub.stop()
 
     @pytest.mark.asyncio
-    async def test_move_joints_timeout(self):
+    async def test_move_joints_without_runtime_is_blocked(self):
         bus = EventBus()
         hub = MCPHub(event_bus=bus)
         hub.initialize()
-        # No subscriber to agent.command — will timeout immediately
-        hub._default_timeout = 0.01
         result = await hub.handle_tool_call("move_joints", {"joint_positions": [0.1, 0.2]})
-        assert result["status"] == "command_issued"
+        assert result["status"] == "blocked"
+        assert result["error"] == "RUNTIME_ACTION_GATEWAY_REQUIRED"
+        assert bus.get_history("agent.command") == []
         hub.stop()
 
     @pytest.mark.asyncio
-    async def test_grasp_timeout(self):
+    async def test_grasp_without_runtime_is_blocked(self):
         bus = EventBus()
         hub = MCPHub(event_bus=bus)
         hub.initialize()
-        hub._default_timeout = 0.01
         result = await hub.handle_tool_call("grasp", {"action": "close"})
-        assert result["status"] == "command_issued"
+        assert result["status"] == "blocked"
+        assert result["error"] == "RUNTIME_ACTION_GATEWAY_REQUIRED"
+        assert bus.get_history("agent.command") == []
         hub.stop()
 
     @pytest.mark.asyncio
@@ -213,12 +217,15 @@ class TestHandleToolCallNoRuntime:
         hub.stop()
 
     @pytest.mark.asyncio
-    async def test_move_joints_with_response(self):
+    async def test_move_joints_cannot_use_legacy_event_responder(self):
         bus = EventBus()
         hub = MCPHub(event_bus=bus)
         hub.initialize()
 
+        responses: list[str] = []
+
         def responder(event):
+            responses.append(event.topic)
             req_id = event.metadata.get("request_id")
             bus.publish(
                 Event(
@@ -230,16 +237,21 @@ class TestHandleToolCallNoRuntime:
 
         bus.subscribe("agent.command", responder)
         result = await hub.handle_tool_call("move_joints", {"joint_positions": [0.1, 0.2]})
-        assert result["status"] == "ok"
+        assert result["status"] == "blocked"
+        assert result["error"] == "RUNTIME_ACTION_GATEWAY_REQUIRED"
+        assert responses == []
         hub.stop()
 
     @pytest.mark.asyncio
-    async def test_grasp_with_response(self):
+    async def test_grasp_cannot_use_legacy_event_responder(self):
         bus = EventBus()
         hub = MCPHub(event_bus=bus)
         hub.initialize()
 
+        responses: list[str] = []
+
         def responder(event):
+            responses.append(event.topic)
             req_id = event.metadata.get("request_id")
             bus.publish(
                 Event(
@@ -251,7 +263,9 @@ class TestHandleToolCallNoRuntime:
 
         bus.subscribe("agent.command", responder)
         result = await hub.handle_tool_call("grasp", {"action": "close"})
-        assert result["status"] == "ok"
+        assert result["status"] == "blocked"
+        assert result["error"] == "RUNTIME_ACTION_GATEWAY_REQUIRED"
+        assert responses == []
         hub.stop()
 
     @pytest.mark.asyncio

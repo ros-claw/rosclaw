@@ -5,8 +5,11 @@ All hardware drivers (real robots, simulators, serial devices)
 implement the BaseDriver interface for uniform control.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from typing import Any
 
 from rosclaw.core.lifecycle import LifecycleMixin
 
@@ -23,6 +26,11 @@ class DriverState:
     gripper_state: float | None = None
     error_code: int = 0
     error_message: str = ""
+    execution_mode: str = "UNKNOWN"
+    trust_level: str = "UNAVAILABLE"
+    implementation_kind: str = "unknown"
+    usable_for_real_execution: bool = False
+    connection_evidence: str = ""
 
     def is_ready(self) -> bool:
         return self.connected and self.error_code == 0
@@ -38,6 +46,11 @@ class DriverState:
             "gripper_state": self.gripper_state,
             "error_code": self.error_code,
             "error_message": self.error_message,
+            "execution_mode": self.execution_mode,
+            "trust_level": self.trust_level,
+            "implementation_kind": self.implementation_kind,
+            "usable_for_real_execution": self.usable_for_real_execution,
+            "connection_evidence": self.connection_evidence,
         }
 
 
@@ -62,11 +75,47 @@ class BaseDriver(LifecycleMixin, ABC):
     - Emergency stop
     """
 
-    def __init__(self, robot_id: str, joint_dof: int = 6):
+    def __init__(self, robot_id: str, joint_dof: int = 6, *, fixture_mode: bool = False):
         super().__init__()
         self.robot_id = robot_id
         self.joint_dof = joint_dof
+        self.fixture_mode = fixture_mode
         self._driver_state = DriverState()
+
+    def _activate_fixture(self, reason: str) -> None:
+        """Enable synthetic behavior only after explicit caller opt-in."""
+
+        if not self.fixture_mode:
+            self._driver_state.connected = False
+            self._driver_state.error_code = 1
+            self._driver_state.error_message = reason
+            raise RuntimeError(reason)
+        self._driver_state.connected = True
+        self._driver_state.error_code = 0
+        self._driver_state.error_message = ""
+        self._driver_state.execution_mode = "FIXTURE"
+        self._driver_state.trust_level = "SYNTHETIC"
+        self._driver_state.implementation_kind = "fixture"
+        self._driver_state.usable_for_real_execution = False
+        self._driver_state.connection_evidence = reason
+
+    def _mark_backend_ready(
+        self,
+        *,
+        execution_mode: str,
+        trust_level: str,
+        implementation_kind: str,
+        connection_evidence: str,
+        usable_for_real_execution: bool,
+    ) -> None:
+        self._driver_state.connected = True
+        self._driver_state.error_code = 0
+        self._driver_state.error_message = ""
+        self._driver_state.execution_mode = execution_mode
+        self._driver_state.trust_level = trust_level
+        self._driver_state.implementation_kind = implementation_kind
+        self._driver_state.usable_for_real_execution = usable_for_real_execution
+        self._driver_state.connection_evidence = connection_evidence
 
     @property
     def state(self) -> DriverState:
@@ -161,8 +210,8 @@ class BaseDriver(LifecycleMixin, ABC):
         """Set gripper position (0=open, 1=closed)."""
 
     @abstractmethod
-    def emergency_stop(self) -> None:
-        """Immediate halt of all motion."""
+    def emergency_stop(self) -> dict[str, Any]:
+        """Request immediate halt and return acknowledgement evidence."""
 
     @abstractmethod
     def get_state(self) -> DriverState:

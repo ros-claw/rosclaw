@@ -14,6 +14,8 @@ def _make_manifest(name: str = "test_provider", type_: str = "llm", capabilities
     m.name = name
     m.type = type_
     m.capabilities = capabilities or ["chat"]
+    m.extra = {}
+    m.safety = MagicMock(executable=False)
     return m
 
 

@@ -1,8 +1,7 @@
-"""ROS Connector - ROS Capability Provider.
+"""ROS capability discovery, validation, and explicit dry-run provider.
 
-Provider implementation that integrates with ROSClaw's ProviderRegistry and
-CapabilityRouter. It exposes discovered ROS capabilities as ROSClaw capabilities
-and routes execution through safety checks and stop guards.
+Legacy direct rosbridge execution is fail-closed until each physical capability
+is registered as a verified runtime action-gateway executor.
 """
 
 from __future__ import annotations
@@ -72,7 +71,7 @@ class RosCapabilityResult:
 
 
 class RosCapabilityProvider(Provider):
-    """ROSClaw provider that discovers and executes ROS capabilities safely."""
+    """Discover ROS capabilities without bypassing the runtime action gateway."""
 
     name = "ros_capability_provider"
     version = "0.1.0"
@@ -344,15 +343,45 @@ class RosCapabilityProvider(Provider):
         if decision.decision == "MODIFY" and decision.modified_args is not None:
             args = decision.modified_args
 
-        # 2. Execute against ROS transport.
+        # A safety-contract ALLOW is not authorization to cause a physical side
+        # effect. Until this provider is an ActionGateway executor, only an
+        # explicit dry run is allowed through this legacy surface.
+        if not dry_run:
+            self._publish_event(
+                "firewall.action_blocked",
+                {
+                    "episode_id": trace_id,
+                    "request_id": trace_id,
+                    "capability_id": capability_id,
+                    "robot_id": self._robot_id,
+                    "reason": "Runtime action gateway required",
+                    "violations": [
+                        {
+                            "description": (
+                                "Legacy direct rosbridge execution is disabled; no command "
+                                "was dispatched."
+                            )
+                        }
+                    ],
+                },
+                priority=EventPriority.HIGH if EventPriority else None,
+            )
+            raise GuardBlockedError(
+                message=(
+                    f"ROS capability '{capability_id}' requires Runtime.submit_action(); "
+                    "legacy direct rosbridge execution is disabled and no command was dispatched"
+                ),
+                provider=self.name,
+                checks=[{"check": "RUNTIME_ACTION_GATEWAY_REQUIRED"}],
+                recommended_action="register_verified_runtime_executor",
+            )
+
+        # 2. Produce an explicit dry-run result without touching ROS transport.
         raw_response: RosTransportResult | None = None
         exec_error: str | None = None
 
         try:
-            if dry_run:
-                raw_response = RosTransportResult(ok=True, data={"dry_run": True})
-            else:
-                raw_response = self._invoke_ros_interface(cap, args)
+            raw_response = RosTransportResult(ok=True, data={"dry_run": True})
             ok = raw_response.ok if raw_response else False
             if raw_response and raw_response.error:
                 exec_error = raw_response.error
@@ -369,6 +398,10 @@ class RosCapabilityProvider(Provider):
             "capability_id": capability_id,
             "args": args,
             "ok": ok,
+            "execution_mode": "DRY_RUN",
+            "trust_level": "SYNTHETIC",
+            "command_dispatched": False,
+            "usable_for_real_execution": False,
         }
         if raw_response and raw_response.data:
             result_data["ros_response"] = raw_response.data
