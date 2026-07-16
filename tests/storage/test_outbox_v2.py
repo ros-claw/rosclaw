@@ -95,9 +95,7 @@ def test_purge_delivered_respects_retention(outbox: OutboxStore) -> None:
 def test_corrupt_payload_goes_to_dead_letters(outbox: OutboxStore) -> None:
     rid = outbox.enqueue("t", {"a": 1})
     # Simulate on-disk corruption of the stored payload.
-    outbox._connection.execute(
-        "UPDATE outbox SET payload_json = '{corrupted' WHERE id = ?", (rid,)
-    )
+    outbox._connection.execute("UPDATE outbox SET payload_json = '{corrupted' WHERE id = ?", (rid,))
     outbox._connection.commit()
     claimed = outbox.claim(10, owner="w1")
     assert claimed == []

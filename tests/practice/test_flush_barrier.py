@@ -96,7 +96,7 @@ def test_watermark_key_is_not_persisted() -> None:
         catalog.insert_event({"event_id": "e1", "practice_id": "p1", "_wm": 7})
         row = catalog._conn.execute("SELECT * FROM events WHERE event_id = 'e1'").fetchone()
         assert row is not None
-        assert "_wm" not in row.keys()
+        assert "_wm" not in row.keys()  # noqa: SIM118 - sqlite3.Row lacks __contains__
         assert catalog.watermarks()["events"] >= 7
         catalog.close()
 
@@ -115,7 +115,6 @@ def test_flush_barrier_satisfied_after_events() -> None:
             assert report["event_index_watermark"] >= 20
         finally:
             recorder.stop()
-
 
 
 def test_flush_barrier_called_on_finalize() -> None:
@@ -138,4 +137,3 @@ def test_flush_barrier_called_on_finalize() -> None:
                 catalog.close()
         finally:
             recorder.stop()
-

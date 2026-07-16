@@ -54,9 +54,7 @@ def _write_session(
     conn.execute(
         "CREATE TABLE IF NOT EXISTS practices (practice_id TEXT PRIMARY KEY, session_id TEXT, episode_id TEXT)"
     )
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS events (event_id TEXT PRIMARY KEY, practice_id TEXT)"
-    )
+    conn.execute("CREATE TABLE IF NOT EXISTS events (event_id TEXT PRIMARY KEY, practice_id TEXT)")
     conn.execute(
         "CREATE TABLE IF NOT EXISTS practice_event_index (event_id TEXT PRIMARY KEY, session_id TEXT, episode_id TEXT)"
     )

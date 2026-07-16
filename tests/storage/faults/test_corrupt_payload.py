@@ -58,7 +58,9 @@ def test_corrupt_jsonl_line_fails_reconcile(tmp_path: Path) -> None:
     conn = sqlite3.connect(str(indexes / "practice_catalog.sqlite"))
     conn.execute("CREATE TABLE practices (practice_id TEXT, session_id TEXT, episode_id TEXT)")
     conn.execute("CREATE TABLE events (event_id TEXT, practice_id TEXT)")
-    conn.execute("CREATE TABLE practice_event_index (event_id TEXT, session_id TEXT, episode_id TEXT)")
+    conn.execute(
+        "CREATE TABLE practice_event_index (event_id TEXT, session_id TEXT, episode_id TEXT)"
+    )
     conn.execute("INSERT INTO practices VALUES ('prac_corrupt', 's1', 'ep1')")
     for eid in ("e1", "e2"):
         conn.execute("INSERT INTO events VALUES (?, 'prac_corrupt')", (eid,))

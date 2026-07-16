@@ -19,15 +19,11 @@ def test_catalog_retries_flush_while_database_locked() -> None:
         # Hold an exclusive write lock from a second connection ("SQLite 被锁").
         locker = sqlite3.connect(str(db), check_same_thread=False)
         locker.execute("BEGIN IMMEDIATE")
-        locker.execute(
-            "INSERT INTO practices (practice_id) VALUES ('lock_holder')"
-        )
+        locker.execute("INSERT INTO practices (practice_id) VALUES ('lock_holder')")
 
         # Events keep queueing while the database is locked.
         for i in range(1, 21):
-            catalog.insert_event(
-                {"event_id": f"e{i}", "practice_id": "p1", "_wm": i}
-            )
+            catalog.insert_event({"event_id": f"e{i}", "practice_id": "p1", "_wm": i})
             catalog.insert_event_index(
                 {"event_id": f"e{i}", "session_id": "s1", "summary": {}, "_wm": i}
             )

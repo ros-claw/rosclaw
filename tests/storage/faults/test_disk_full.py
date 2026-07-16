@@ -5,7 +5,6 @@ from __future__ import annotations
 import datetime
 import errno
 import tempfile
-from pathlib import Path
 
 from rosclaw.practice.recorder import PracticeRecorder
 from rosclaw.runtime.bus import RuntimeBus

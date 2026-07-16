@@ -49,9 +49,9 @@ def test_crash_after_remote_commit_redelivers_but_remote_stays_idempotent(
             # Idempotent upsert by the injected key.
             remote[payload["idempotency_key"]] = payload
             # Simulate the worker dying right after a successful remote commit:
-            raise _WorkerDied() if payload.get("_die_once") else None
+            raise _WorkerDiedError() if payload.get("_die_once") else None
 
-    class _WorkerDied(Exception):
+    class _WorkerDiedError(Exception):
         pass
 
     outbox.enqueue("seekdb_http", {"event": "a"}, idempotency_key="episode:ep2:v1")

@@ -326,7 +326,7 @@ class OutboxStore:
         lease_expires = now + lease_sec
         with self._lock:
             candidates = self._connection.execute(
-                f"""
+                """
                 SELECT id FROM outbox
                 WHERE (
                         (status IN ('pending', 'retry'))
@@ -367,13 +367,17 @@ class OutboxStore:
         records: list[OutboxRecord] = []
         for row in rows:
             record = self._row_to_record(row)
-            stored_sha = row["payload_sha256"] if "payload_sha256" in row.keys() else None
+            stored_sha = (
+                row["payload_sha256"] if "payload_sha256" in row.keys() else None  # noqa: SIM118
+            )
             if stored_sha and not self._payload_hash_matches(row["payload_json"], stored_sha):
                 logger.error(
                     "Outbox record %s payload checksum mismatch; moving to dead letters",
                     record.id,
                 )
-                self._move_to_dead_letters(row, retry_count=row["retry_count"], error="payload checksum mismatch")
+                self._move_to_dead_letters(
+                    row, retry_count=row["retry_count"], error="payload checksum mismatch"
+                )
                 continue
             records.append(record)
         return records
@@ -396,7 +400,9 @@ class OutboxStore:
         except (TypeError, ValueError):
             return False
 
-    def _move_to_dead_letters(self, row: sqlite3.Row, *, retry_count: int, error: str | None) -> None:
+    def _move_to_dead_letters(
+        self, row: sqlite3.Row, *, retry_count: int, error: str | None
+    ) -> None:
         now = time.time()
         keys = row.keys()
         self._connection.execute(
