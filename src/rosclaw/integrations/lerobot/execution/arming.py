@@ -13,6 +13,7 @@ the full sequence again — there is no automatic recovery.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from rosclaw.integrations.lerobot.execution.permit import PermitManager
@@ -130,3 +131,85 @@ class ArmingController:
             "shadow_validated_sets": len(self._shadow_validated_hashes),
             "history": [(s.value, r) for s, r in self.machine.history[-10:]],
         }
+
+
+# ---------------------------------------------------------------------------
+# Shadow-validation registry (CLI shadow → arm flow spans processes)
+# ---------------------------------------------------------------------------
+
+_HASH_KEYS = (
+    "policy_contract_hash",
+    "body_hash",
+    "calibration_hash",
+    "mapping_hash",
+    "transport_profile_hash",
+)
+
+
+def _hash_tuple(hashes: dict[str, str]) -> list[str]:
+    return [hashes[k] for k in _HASH_KEYS]
+
+
+def load_shadow_registry(path: str | Path) -> list[list[str]]:
+    """Load persisted shadow-validated hash sets."""
+    import json
+
+    path = Path(path).expanduser()
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return []
+    return data if isinstance(data, list) else []
+
+
+def record_shadow_validation(
+    path: str | Path,
+    *,
+    policy_contract_hash: str,
+    body_hash: str,
+    calibration_hash: str,
+    mapping_hash: str,
+    transport_profile_hash: str,
+) -> None:
+    """Persist that the shadow gate passed for this exact hash set."""
+    import json
+
+    path = Path(path).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    registry = load_shadow_registry(path)
+    entry = _hash_tuple(
+        {
+            "policy_contract_hash": policy_contract_hash,
+            "body_hash": body_hash,
+            "calibration_hash": calibration_hash,
+            "mapping_hash": mapping_hash,
+            "transport_profile_hash": transport_profile_hash,
+        }
+    )
+    if entry not in registry:
+        registry.append(entry)
+    path.write_text(json.dumps(registry, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def shadow_registry_contains(path: str | Path, hashes: dict[str, str]) -> bool:
+    """Check whether the persisted registry covers this hash set."""
+    return _hash_tuple(hashes) in load_shadow_registry(path)
+
+
+def restore_shadow_registry(path: str | Path, arming: "ArmingController") -> int:
+    """Restore persisted shadow-validated hash sets into an arming controller."""
+    count = 0
+    for entry in load_shadow_registry(path):
+        if len(entry) != len(_HASH_KEYS):
+            continue
+        arming.mark_shadow_validated(
+            policy_contract_hash=entry[0],
+            body_hash=entry[1],
+            calibration_hash=entry[2],
+            mapping_hash=entry[3],
+            transport_profile_hash=entry[4],
+        )
+        count += 1
+    return count

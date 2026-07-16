@@ -18,6 +18,7 @@ from __future__ import annotations
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from rosclaw.integrations.lerobot.execution.schema import ExecutionPermit
@@ -181,3 +182,43 @@ class PermitManager:
             "active": sorted(self._permits.keys()),
             "revoked": dict(self._revoked),
         }
+
+
+# ---------------------------------------------------------------------------
+# Permit persistence (CLI arm → execute flow spans processes)
+# ---------------------------------------------------------------------------
+
+
+def save_permit(permit: ExecutionPermit, directory: str | Path) -> Path:
+    """Persist an issued permit so a later CLI process can validate it."""
+    import json
+
+    directory = Path(directory).expanduser()
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{permit.permit_id}.json"
+    path.write_text(json.dumps(permit.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def load_permit(permit_id: str, directory: str | Path) -> ExecutionPermit | None:
+    """Load a persisted permit back into a manager-compatible object."""
+    import json
+
+    path = Path(directory).expanduser() / f"{permit_id}.json"
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data.pop("schema_version", None)
+    return ExecutionPermit(**data)
+
+
+def load_permit_into_manager(
+    permit_id: str,
+    directory: str | Path,
+    manager: PermitManager,
+) -> ExecutionPermit | None:
+    """Load a persisted permit and register it as active in ``manager``."""
+    permit = load_permit(permit_id, directory)
+    if permit is not None:
+        manager._permits[permit.permit_id] = permit
+    return permit

@@ -327,7 +327,14 @@ def _policy_space(metadata: dict[str, Any]):
 def _default_python() -> str:
     import sys
 
+    from rosclaw.integrations.lerobot.config import get_configured_lerobot_runtime
     from rosclaw.integrations.lerobot.runtime import find_python312
 
+    configured = get_configured_lerobot_runtime()
+    if configured and configured.get("python_executable"):
+        return str(configured["python_executable"])
+    repo_venv = Path(__file__).resolve().parents[5] / ".venv-lerobot" / "bin" / "python"
+    if repo_venv.exists():
+        return str(repo_venv)
     found = find_python312()
     return str(found) if found else sys.executable

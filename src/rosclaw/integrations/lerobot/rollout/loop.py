@@ -603,7 +603,17 @@ def _policy_space_from_metadata(metadata: dict[str, Any]) -> ActionSpace:
 def _default_python() -> str:
     import sys
 
+    from rosclaw.integrations.lerobot.config import get_configured_lerobot_runtime
     from rosclaw.integrations.lerobot.runtime import find_python312
 
+    # Prefer the configured LeRobot runtime (has torch/lerobot installed);
+    # a bare python3.12 from PATH would crash the worker on import.
+    configured = get_configured_lerobot_runtime()
+    if configured and configured.get("python_executable"):
+        return str(configured["python_executable"])
+    # Fallback: a conventional worker venv next to the repo, then any py3.12.
+    repo_venv = Path(__file__).resolve().parents[5] / ".venv-lerobot" / "bin" / "python"
+    if repo_venv.exists():
+        return str(repo_venv)
     found = find_python312()
     return str(found) if found else sys.executable
