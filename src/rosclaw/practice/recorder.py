@@ -138,6 +138,15 @@ class PracticeRecorder(RuntimeConsumer):
         self._jsonl_watermark = 0
         self._mcap_watermark = 0
         self._last_flush_barrier: dict[str, Any] | None = None
+        # Sequences that failed to persist on a given path.  The flush
+        # barrier treats any failed sequence <= target as not-ok even when
+        # later watermarks have advanced past it.
+        self._failed_persist_sequences: dict[str, set[int]] = {
+            "jsonl": set(),
+            "mcap": set(),
+            "catalog_events": set(),
+            "catalog_event_index": set(),
+        }
 
         # Legacy state.
         self._flywheel: DataFlywheel | None = None
@@ -319,6 +328,8 @@ class PracticeRecorder(RuntimeConsumer):
         self._jsonl_watermark = 0
         self._mcap_watermark = 0
         self._last_flush_barrier = None
+        for failed_set in self._failed_persist_sequences.values():
+            failed_set.clear()
 
         self._writer = JsonlWriter(self.layout.events_jsonl_path(practice_id), rotate_mb=None)
         self._catalog = PracticeCatalog(self.layout.catalog_db_path)
@@ -621,6 +632,8 @@ class PracticeRecorder(RuntimeConsumer):
             except Exception as e:
                 logger.error("Failed to write event to JSONL: %s", e)
                 byte_offset = None
+                with self._lock:
+                    self._failed_persist_sequences["jsonl"].add(sequence_id)
 
         if self._mcap_writer is not None:
             try:
@@ -629,6 +642,8 @@ class PracticeRecorder(RuntimeConsumer):
                     self._mcap_watermark = sequence_id
             except Exception as e:
                 logger.error("Failed to write event to MCAP: %s", e)
+                with self._lock:
+                    self._failed_persist_sequences["mcap"].add(sequence_id)
 
         if self._catalog is not None:
             try:
@@ -652,6 +667,12 @@ class PracticeRecorder(RuntimeConsumer):
                 )
             except Exception as e:
                 logger.error("Failed to insert event into catalog: %s", e)
+                with self._lock:
+                    self._failed_persist_sequences["catalog_events"].add(sequence_id)
+                try:
+                    self._catalog.advance_events_watermark(sequence_id)
+                except Exception:  # noqa: BLE001
+                    logger.debug("Failed to advance events watermark after insert failure")
 
             if byte_offset is not None:
                 try:
@@ -676,6 +697,12 @@ class PracticeRecorder(RuntimeConsumer):
                     )
                 except Exception as e:
                     logger.error("Failed to insert event index into catalog: %s", e)
+                    with self._lock:
+                        self._failed_persist_sequences["catalog_event_index"].add(sequence_id)
+                    try:
+                        self._catalog.advance_event_index_watermark(sequence_id)
+                    except Exception:  # noqa: BLE001
+                        logger.debug("Failed to advance index watermark after insert failure")
             else:
                 # No index row will be queued for this sequence (e.g. JSONL
                 # write failed); advance the index watermark so flush_until
@@ -782,8 +809,13 @@ class PracticeRecorder(RuntimeConsumer):
         with self._lock:
             jsonl_watermark = self._jsonl_watermark
             mcap_watermark = self._mcap_watermark
+            failed_below_target = {
+                path: sorted(seq for seq in seqs if seq <= target)
+                for path, seqs in self._failed_persist_sequences.items()
+            }
         jsonl_ok = jsonl_watermark >= target or self._writer is None or target == 0
-        ok = bool(jsonl_ok and catalog_report.get("ok", False))
+        gaps = {path: seqs for path, seqs in failed_below_target.items() if seqs}
+        ok = bool(jsonl_ok and catalog_report.get("ok", False) and not gaps)
         report = {
             "ok": ok,
             "target": target,
@@ -791,6 +823,7 @@ class PracticeRecorder(RuntimeConsumer):
             "mcap_watermark": mcap_watermark,
             "events_watermark": catalog_report.get("events_watermark"),
             "event_index_watermark": catalog_report.get("event_index_watermark"),
+            "failed_sequences": gaps,
         }
         self._last_flush_barrier = report
         return report
