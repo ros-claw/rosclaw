@@ -127,7 +127,7 @@ class RuntimeClient:
     def shutdown(self) -> None:
         self.manager.stop()
 
-    def __enter__(self) -> "RuntimeClient":
+    def __enter__(self) -> RuntimeClient:
         self.start()
         return self
 

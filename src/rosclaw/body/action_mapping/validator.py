@@ -22,9 +22,7 @@ def validate_action_mapping(mapping: ActionMapping) -> dict[str, Any]:
         status = "ok_with_conversion"
     elif mapping.compatibility == MappingCompatibility.PARTIAL:
         status = "blocked" if not mapping.allow_partial else "partial"
-    elif mapping.compatibility == MappingCompatibility.INCOMPATIBLE:
-        status = "blocked"
-    elif mapping.compatibility == MappingCompatibility.UNKNOWN:
+    elif mapping.compatibility == MappingCompatibility.INCOMPATIBLE or mapping.compatibility == MappingCompatibility.UNKNOWN:
         status = "blocked"
 
     joint_issues = [

@@ -55,6 +55,8 @@ class OutboxStore:
         db_path: str = "~/.rosclaw/storage/outbox.sqlite",
         max_records: int = 100_000,
     ):
+        if max_records < 1:
+            raise ValueError("max_records must be at least 1")
         self._db_path = db_path
         self._max_records = max_records
         self._conn: sqlite3.Connection | None = None
@@ -117,21 +119,21 @@ class OutboxStore:
             self._connection.commit()
 
     def enqueue(self, target: str, payload: dict[str, Any]) -> str:
-        """Add *payload* to the outbox for *target*.  Drops oldest record if full."""
+        """Add *payload* to the outbox for *target*.
+
+        Capacity exhaustion is reported to the producer instead of deleting an
+        older, unacknowledged record. This preserves the durable-outbox
+        guarantee and lets the caller apply backpressure or stop safely.
+        """
         record_id = str(uuid.uuid4())
         now = time.time()
         with self._lock:
-            # Enforce capacity by dropping the oldest record(s).
             count = self._connection.execute("SELECT COUNT(*) FROM outbox").fetchone()[0]
             if count >= self._max_records:
-                oldest = self._connection.execute(
-                    "SELECT id FROM outbox ORDER BY created_at ASC LIMIT 1"
-                ).fetchone()
-                if oldest:
-                    self._connection.execute("DELETE FROM outbox WHERE id = ?", (oldest["id"],))
-                    logger.warning(
-                        "Outbox capacity exceeded; dropped oldest record %s", oldest["id"]
-                    )
+                raise OverflowError(
+                    f"Outbox capacity exhausted ({self._max_records} records); "
+                    "refusing to discard unacknowledged data"
+                )
             self._connection.execute(
                 """
                 INSERT INTO outbox (id, target, payload_json, created_at, retry_count, next_retry_at)

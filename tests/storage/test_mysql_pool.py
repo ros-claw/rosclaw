@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import queue
+import sys
 import threading
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-from rosclaw.memory.seekdb_client import _ConnectionPool, _PooledConnection
+from rosclaw.memory.seekdb_client import SeekDBMySQLClient, _ConnectionPool, _PooledConnection
 
 
 class FakeConnection:
@@ -17,9 +19,16 @@ class FakeConnection:
     def __init__(self, name: str = "conn") -> None:
         self.name = name
         self.closed = False
+        self.ping_calls = 0
+        self.fail_ping = False
 
     def close(self) -> None:
         self.closed = True
+
+    def ping(self, reconnect: bool = False) -> None:
+        self.ping_calls += 1
+        if self.fail_ping:
+            raise ConnectionError("stale connection")
 
 
 def test_pool_creates_connection_on_first_acquire():
@@ -51,6 +60,26 @@ def test_pool_reuses_released_connection():
     with pool.acquire() as conn2:
         assert conn2 is conn1
     assert len(created) == 1
+    assert conn2.ping_calls == 1
+
+
+def test_pool_discards_unhealthy_released_connection():
+    created = []
+
+    def creator():
+        conn = FakeConnection(f"c{len(created)}")
+        created.append(conn)
+        return conn
+
+    pool = _ConnectionPool(creator=creator, pool_size=1)
+    with pool.acquire() as conn1:
+        pass
+    conn1.fail_ping = True
+
+    with pool.acquire() as conn2:
+        assert conn2 is not conn1
+    assert conn1.closed
+    assert len(created) == 2
 
 
 def test_pool_respects_max_size():
@@ -176,3 +205,19 @@ def test_pooled_connection_tracks_broken_state():
         pass
     assert pooled._broken is True
     pool._release.assert_called_once_with(conn, True)
+
+
+def test_mysql_pool_connections_select_configured_database(monkeypatch):
+    connect = MagicMock(return_value=FakeConnection())
+    fake_pymysql = SimpleNamespace(
+        connect=connect,
+        cursors=SimpleNamespace(DictCursor=object()),
+    )
+    monkeypatch.setitem(sys.modules, "pymysql", fake_pymysql)
+    client = SeekDBMySQLClient("mysql://robot:secret@db.local:2881/rosclaw_test")
+
+    client._create_raw_connection()
+    assert connect.call_args.kwargs["database"] == "rosclaw_test"
+
+    client._open_connection(None)
+    assert "database" not in connect.call_args.kwargs

@@ -14,7 +14,6 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-
 RUNTIME_PROTOCOL_VERSION = "rosclaw.lerobot.policy_runtime.v1"
 
 # Methods supported by the worker service.
@@ -67,7 +66,7 @@ class RuntimeRequest:
         return json.dumps(self.to_dict(), ensure_ascii=False) + "\n"
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "RuntimeRequest":
+    def from_dict(cls, data: dict[str, Any]) -> RuntimeRequest:
         return cls(
             method=data.get("method", "PROBE"),  # type: ignore[arg-type]
             params=dict(data.get("params", {})),
@@ -97,7 +96,7 @@ class RuntimeResponse:
         return json.dumps(self.to_dict(), ensure_ascii=False) + "\n"
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "RuntimeResponse":
+    def from_dict(cls, data: dict[str, Any]) -> RuntimeResponse:
         return cls(
             id=str(data.get("id", "0")),
             result=dict(data.get("result", {})),

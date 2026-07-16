@@ -9,6 +9,7 @@ This module is free of torch/lerobot imports.
 
 from __future__ import annotations
 
+import contextlib
 import socket
 import threading
 import time
@@ -27,7 +28,6 @@ from rosclaw.integrations.lerobot.policy_runtime.protocol import (
     encode_response,
     parse_line,
 )
-
 
 DEFAULT_SOCKET_TIMEOUT_SEC = 120.0
 
@@ -65,7 +65,7 @@ class RuntimeSocketServer:
         while not self._shutdown.is_set():
             try:
                 conn, _ = self._server.accept()  # type: ignore[union-attr]
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 break
@@ -107,10 +107,8 @@ class RuntimeSocketServer:
         """Stop accepting clients and shut down the manager."""
         self._shutdown.set()
         if self._server is not None:
-            try:
+            with contextlib.suppress(OSError):
                 self._server.close()
-            except OSError:
-                pass
         if self._accept_thread is not None:
             self._accept_thread.join(timeout=2.0)
         self.manager.stop()
@@ -173,7 +171,7 @@ def try_send_request(
     """Best-effort request; returns None on connection failure."""
     try:
         return send_request(socket_path, method, params, timeout_sec=timeout_sec)
-    except (OSError, socket.timeout):
+    except (TimeoutError, OSError):
         return None
 
 

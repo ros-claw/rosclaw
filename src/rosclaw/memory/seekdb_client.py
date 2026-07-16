@@ -969,9 +969,22 @@ class SQLiteKnowledgeStore(SeekDBClient):
                         )
             self._connection.commit()
 
-    def insert(self, table: str, record: dict) -> str:
+    @staticmethod
+    def _validate_table_and_columns(
+        table: str,
+        columns: list[str] | None = None,
+    ) -> dict[str, Any]:
         if table not in SEEKDB_SCHEMAS:
             raise ValueError(f"Unknown table: {table}")
+        schema = SEEKDB_SCHEMAS[table]
+        if columns:
+            unknown = set(columns) - set(schema["columns"])
+            if unknown:
+                raise ValueError(f"Unknown columns for {table}: {sorted(unknown)}")
+        return schema
+
+    def insert(self, table: str, record: dict) -> str:
+        self._validate_table_and_columns(table, list(record))
         serialized = {}
         for k, v in record.items():
             serialized[k] = json.dumps(v) if isinstance(v, (list, dict)) else v
@@ -1000,6 +1013,7 @@ class SQLiteKnowledgeStore(SeekDBClient):
         order_by: str | None = None,
         limit: int = 100,
     ) -> list[dict]:
+        self._validate_table_and_columns(table, list(filters or {}))
         sql = f"SELECT * FROM {table}"
         params = []
         if filters:
@@ -1011,8 +1025,10 @@ class SQLiteKnowledgeStore(SeekDBClient):
         if order_by:
             direction = "DESC" if order_by.startswith("-") else "ASC"
             key = order_by.lstrip("-")
+            self._validate_table_and_columns(table, [key])
             sql += f" ORDER BY {key} {direction}"
-        sql += f" LIMIT {limit}"
+        sql += " LIMIT ?"
+        params.append(max(0, int(limit)))
         with self._lock:
             cursor = self._connection.execute(sql, params)
             rows = cursor.fetchall()
@@ -1031,6 +1047,7 @@ class SQLiteKnowledgeStore(SeekDBClient):
     def update(self, table: str, record_id: str, updates: dict) -> bool:
         if not updates:
             return False
+        self._validate_table_and_columns(table, list(updates))
         serialized = {}
         for k, v in updates.items():
             serialized[k] = json.dumps(v) if isinstance(v, (list, dict)) else v
@@ -1050,6 +1067,7 @@ class SQLiteKnowledgeStore(SeekDBClient):
         return cursor.rowcount > 0
 
     def count(self, table: str, filters: dict | None = None) -> int:
+        self._validate_table_and_columns(table, list(filters or {}))
         sql = f"SELECT COUNT(*) FROM {table}"
         params = []
         if filters:
@@ -1063,6 +1081,7 @@ class SQLiteKnowledgeStore(SeekDBClient):
             return cursor.fetchone()[0]
 
     def delete(self, table: str, record_id: str) -> bool:
+        self._validate_table_and_columns(table)
         with self._lock:
             cursor = self._connection.execute(
                 f"DELETE FROM {table} WHERE id = ?",
@@ -1074,6 +1093,7 @@ class SQLiteKnowledgeStore(SeekDBClient):
     def delete_where(self, table: str, filters: dict) -> int:
         if not filters:
             return 0
+        self._validate_table_and_columns(table, list(filters))
         conditions = []
         params = []
         for k, v in filters.items():
@@ -1124,9 +1144,26 @@ class _ConnectionPool:
         if self._closed:
             raise RuntimeError("Connection pool is closed")
         conn: Any | None = None
-        try:
-            conn = self._pool.get_nowait()
-        except queue.Empty:
+        while conn is None:
+            try:
+                candidate = self._pool.get_nowait()
+            except queue.Empty:
+                candidate = None
+            if candidate is not None:
+                try:
+                    ping = getattr(candidate, "ping", None)
+                    if ping is not None:
+                        ping(reconnect=True)
+                    conn = candidate
+                except Exception:
+                    self._close_conn(candidate)
+                    with self._lock:
+                        self._created = max(0, self._created - 1)
+                    logger.warning("Discarded unhealthy MySQL connection from pool")
+                    continue
+                if conn is not None:
+                    break
+
             # Decide whether we may create a new connection while holding the
             # lock, then create it outside the lock so slow I/O does not block
             # other threads. If creation fails, decrement _created so capacity
@@ -1144,6 +1181,15 @@ class _ConnectionPool:
                     raise
             if conn is None:
                 conn = self._pool.get(timeout=self._timeout)
+                try:
+                    ping = getattr(conn, "ping", None)
+                    if ping is not None:
+                        ping(reconnect=True)
+                except Exception:
+                    self._close_conn(conn)
+                    with self._lock:
+                        self._created = max(0, self._created - 1)
+                    conn = None
         return _PooledConnection(self, conn)
 
     def _release(self, conn: Any, is_broken: bool) -> None:
@@ -1223,8 +1269,8 @@ class SeekDBMySQLClient(SeekDBClient):
             timeout=max(connect_timeout, 10.0),
         )
 
-    def _create_raw_connection(self) -> Any:
-        """Create a new PyMySQL connection (without selecting the database)."""
+    def _open_connection(self, database: str | None) -> Any:
+        """Create a PyMySQL connection, optionally selecting *database*."""
         try:
             import pymysql
         except ImportError as exc:
@@ -1233,18 +1279,25 @@ class SeekDBMySQLClient(SeekDBClient):
                 "with current dependencies"
             ) from exc
 
-        return pymysql.connect(
-            host=self._host,
-            port=self._port,
-            user=self._user,
-            password=self._password,
-            charset="utf8mb4",
-            autocommit=False,
-            connect_timeout=int(self._connect_timeout),
-            read_timeout=int(self._read_timeout),
-            write_timeout=int(self._write_timeout),
-            cursorclass=pymysql.cursors.DictCursor,
-        )
+        kwargs: dict[str, Any] = {
+            "host": self._host,
+            "port": self._port,
+            "user": self._user,
+            "password": self._password,
+            "charset": "utf8mb4",
+            "autocommit": False,
+            "connect_timeout": int(self._connect_timeout),
+            "read_timeout": int(self._read_timeout),
+            "write_timeout": int(self._write_timeout),
+            "cursorclass": pymysql.cursors.DictCursor,
+        }
+        if database is not None:
+            kwargs["database"] = database
+        return pymysql.connect(**kwargs)
+
+    def _create_raw_connection(self) -> Any:
+        """Create a pooled PyMySQL connection bound to the configured database."""
+        return self._open_connection(self._database)
 
     @staticmethod
     def _validate_identifier(identifier: str) -> str:
@@ -1268,14 +1321,19 @@ class SeekDBMySQLClient(SeekDBClient):
                 "with current dependencies"
             ) from exc
 
+        bootstrap = self._open_connection(None)
+        try:
+            with bootstrap.cursor() as cursor:
+                cursor.execute(
+                    f"CREATE DATABASE IF NOT EXISTS {self._quoted(self._database)} "
+                    "DEFAULT CHARACTER SET utf8mb4"
+                )
+            bootstrap.commit()
+        finally:
+            bootstrap.close()
+
         with self._pool.acquire() as connection:
             try:
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        f"CREATE DATABASE IF NOT EXISTS {self._quoted(self._database)} "
-                        "DEFAULT CHARACTER SET utf8mb4"
-                    )
-                    cursor.execute(f"USE {self._quoted(self._database)}")
                 self._create_tables(connection)
                 connection.commit()
             except Exception:

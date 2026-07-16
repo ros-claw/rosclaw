@@ -8,6 +8,7 @@ or ``-- backend: all`` (default).  The runner records applied versions in a
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import time
@@ -127,7 +128,7 @@ class MigrationRunner:
         """
         self._ensure_table(connection, backend)
         applied = self._applied_versions(connection, backend)
-        applied_versions = {row["version"] for row in applied}
+        applied_by_version = {row["version"]: row for row in applied}
 
         new: list[str] = []
         migration_paths = sorted(
@@ -136,17 +137,44 @@ class MigrationRunner:
         )
         for path in migration_paths:
             version = self._version_from_filename(path)
-            if version in applied_versions:
-                continue
             target = _read_backend(path)
             if target != "all" and target != backend:
                 continue
+            checksum = hashlib.sha256(path.read_bytes()).hexdigest()
+            previous = applied_by_version.get(version)
+            if previous is not None:
+                recorded_checksum = previous.get("checksum")
+                if recorded_checksum and recorded_checksum != checksum:
+                    raise RuntimeError(
+                        f"Migration {version} checksum mismatch for {path.name}; "
+                        "applied migrations must not be modified"
+                    )
+                if not recorded_checksum:
+                    self._update_checksum(connection, version, checksum, backend)
+                    connection.commit()
+                continue
             logger.info("Applying migration %s for backend %s", path.name, backend)
-            self._execute_script(connection, path.read_text(encoding="utf-8"), backend)
-            self._record(connection, version, backend)
+            sql = path.read_text(encoding="utf-8")
+            if backend == "sqlite":
+                connection.execute("SAVEPOINT rosclaw_migration")
+                try:
+                    self._execute_script(connection, sql, backend)
+                    self._record(connection, version, checksum, backend)
+                    connection.execute("RELEASE SAVEPOINT rosclaw_migration")
+                except Exception:
+                    connection.execute("ROLLBACK TO SAVEPOINT rosclaw_migration")
+                    connection.execute("RELEASE SAVEPOINT rosclaw_migration")
+                    raise
+            else:
+                try:
+                    self._execute_script(connection, sql, backend)
+                    self._record(connection, version, checksum, backend)
+                except Exception:
+                    connection.rollback()
+                    raise
+            connection.commit()
             new.append(version)
 
-        connection.commit()
         return new
 
     @staticmethod
@@ -187,28 +215,46 @@ class MigrationRunner:
                 """
                 CREATE TABLE IF NOT EXISTS schema_migrations (
                     version TEXT PRIMARY KEY,
-                    applied_at REAL NOT NULL
+                    applied_at REAL NOT NULL,
+                    checksum TEXT
                 )
                 """
             )
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(schema_migrations)")}
+            if "checksum" not in columns:
+                connection.execute("ALTER TABLE schema_migrations ADD COLUMN checksum TEXT")
         else:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
                     CREATE TABLE IF NOT EXISTS schema_migrations (
                         version VARCHAR(64) PRIMARY KEY,
-                        applied_at DOUBLE NOT NULL
+                        applied_at DOUBLE NOT NULL,
+                        checksum VARCHAR(64) NULL
                     ) DEFAULT CHARACTER SET utf8mb4
                     """
                 )
+                cursor.execute("SHOW COLUMNS FROM schema_migrations")
+                columns = {
+                    row["Field"] if isinstance(row, dict) else row[0] for row in cursor.fetchall()
+                }
+                if "checksum" not in columns:
+                    cursor.execute(
+                        "ALTER TABLE schema_migrations ADD COLUMN checksum VARCHAR(64) NULL"
+                    )
 
     @staticmethod
     def _applied_versions(connection: Any, backend: str) -> list[dict[str, Any]]:
         if backend == "sqlite":
-            cursor = connection.execute("SELECT version, applied_at FROM schema_migrations")
-            return [{"version": row[0], "applied_at": row[1]} for row in cursor.fetchall()]
+            cursor = connection.execute(
+                "SELECT version, applied_at, checksum FROM schema_migrations"
+            )
+            return [
+                {"version": row[0], "applied_at": row[1], "checksum": row[2]}
+                for row in cursor.fetchall()
+            ]
         with connection.cursor() as cursor:
-            cursor.execute("SELECT version, applied_at FROM schema_migrations")
+            cursor.execute("SELECT version, applied_at, checksum FROM schema_migrations")
             rows = cursor.fetchall()
             return MigrationRunner._rows_as_dicts(cursor, rows)
 
@@ -226,17 +272,33 @@ class MigrationRunner:
         return [dict(zip(columns, row, strict=True)) for row in rows]
 
     @staticmethod
-    def _record(connection: Any, version: str, backend: str) -> None:
+    def _record(connection: Any, version: str, checksum: str, backend: str) -> None:
         if backend == "sqlite":
             connection.execute(
-                "INSERT OR REPLACE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
-                (version, time.time()),
+                "INSERT OR REPLACE INTO schema_migrations "
+                "(version, applied_at, checksum) VALUES (?, ?, ?)",
+                (version, time.time(), checksum),
             )
         else:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "REPLACE INTO schema_migrations (version, applied_at) VALUES (%s, %s)",
-                    (version, time.time()),
+                    "REPLACE INTO schema_migrations "
+                    "(version, applied_at, checksum) VALUES (%s, %s, %s)",
+                    (version, time.time(), checksum),
+                )
+
+    @staticmethod
+    def _update_checksum(connection: Any, version: str, checksum: str, backend: str) -> None:
+        if backend == "sqlite":
+            connection.execute(
+                "UPDATE schema_migrations SET checksum = ? WHERE version = ?",
+                (checksum, version),
+            )
+        else:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE schema_migrations SET checksum = %s WHERE version = %s",
+                    (checksum, version),
                 )
 
     @staticmethod

@@ -31,7 +31,7 @@ class _FakeMySQLCursor:
         self.executed: list[tuple[Any, ...]] = []
         self.multi_scripts: list[str] = []
         self._tables: set[str] = set()
-        self._migrations: list[tuple[str, float]] = []
+        self._migrations: list[tuple[str, float, str | None]] = []
         self._description: tuple[tuple[str, ...], ...] | None = None
         self._rows: list[tuple[Any, ...]] = []
 
@@ -63,11 +63,11 @@ class _FakeMySQLCursor:
             name = tokens[idx].strip("`(")
             self._tables.add(name)
         elif upper.startswith("REPLACE INTO SCHEMA_MIGRATIONS"):
-            version, applied_at = params
+            version, applied_at, checksum = params
             self._migrations = [m for m in self._migrations if m[0] != version]
-            self._migrations.append((version, applied_at))
+            self._migrations.append((version, applied_at, checksum))
         elif upper.startswith("SELECT VERSION, APPLIED_AT"):
-            self._description = (("version",), ("applied_at",))
+            self._description = (("version",), ("applied_at",), ("checksum",))
             self._rows = list(self._migrations)
             yield _FakeMySQLResult(with_rows=True, rows=self._rows)
             return
@@ -102,6 +102,9 @@ class _FakeMySQLConnection:
 
     def commit(self) -> None:
         self.committed = True
+
+    def rollback(self) -> None:
+        pass
 
 
 def test_migration_applies_sqlite(tmp_path: Path) -> None:
@@ -143,6 +146,37 @@ def test_migration_tracks_versions(tmp_path: Path) -> None:
     runner = MigrationRunner(migrations_dir)
     assert runner.apply(conn, "sqlite") == ["001", "002"]
     assert runner.apply(conn, "sqlite") == []
+
+
+def test_migration_rejects_checksum_drift(tmp_path: Path) -> None:
+    migrations_dir = tmp_path / "migrations"
+    migrations_dir.mkdir()
+    migration = migrations_dir / "001_first.sql"
+    migration.write_text("-- backend: sqlite\nSELECT 1;", encoding="utf-8")
+    conn = sqlite3.connect(":memory:")
+    runner = MigrationRunner(migrations_dir)
+    assert runner.apply(conn, "sqlite") == ["001"]
+
+    migration.write_text("-- backend: sqlite\nSELECT 2;", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="checksum mismatch"):
+        runner.apply(conn, "sqlite")
+
+
+def test_failed_sqlite_migration_rolls_back_partial_schema(tmp_path: Path) -> None:
+    migrations_dir = tmp_path / "migrations"
+    migrations_dir.mkdir()
+    (migrations_dir / "001_broken.sql").write_text(
+        "-- backend: sqlite\nCREATE TABLE partial_table (id TEXT PRIMARY KEY);\nTHIS IS NOT SQL;",
+        encoding="utf-8",
+    )
+    conn = sqlite3.connect(":memory:")
+
+    with pytest.raises(sqlite3.Error):
+        MigrationRunner(migrations_dir).apply(conn, "sqlite")
+
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "partial_table" not in tables
+    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 0
 
 
 def test_migration_bad_filename(tmp_path: Path) -> None:
@@ -199,12 +233,12 @@ def test_mysql_complex_sql_passed_whole(tmp_path: Path) -> None:
 
 def test_rows_as_dicts_handles_tuple_rows() -> None:
     class FakeCursor:
-        description = (("version",), ("applied_at",))
+        description = (("version",), ("applied_at",), ("checksum",))
 
     cursor = FakeCursor()
-    rows = [("001", 1.0), ("002", 2.0)]
+    rows = [("001", 1.0, "abc"), ("002", 2.0, "def")]
     result = MigrationRunner._rows_as_dicts(cursor, rows)
     assert result == [
-        {"version": "001", "applied_at": 1.0},
-        {"version": "002", "applied_at": 2.0},
+        {"version": "001", "applied_at": 1.0, "checksum": "abc"},
+        {"version": "002", "applied_at": 2.0, "checksum": "def"},
     ]

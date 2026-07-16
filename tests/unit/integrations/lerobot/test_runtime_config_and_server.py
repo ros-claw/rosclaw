@@ -9,9 +9,6 @@ import pytest
 
 from rosclaw.integrations.lerobot.policy_runtime.config import (
     get_daemon_status,
-    get_policy_runtime_config_path,
-    get_policy_runtime_pid_path,
-    get_policy_runtime_socket_path,
     is_process_alive,
     load_policy_runtime_config,
     read_pid_file,
@@ -26,7 +23,6 @@ from rosclaw.integrations.lerobot.policy_runtime.socket_server import (
     start_daemon,
     stop_daemon,
 )
-
 
 _FAKE_WORKER_SOURCE = '''\
 import sys

@@ -64,19 +64,24 @@ def test_mark_failed_moves_to_dead_letters_when_exhausted(outbox: OutboxStore) -
     assert dead[0].error_log == "err1"
 
 
-def test_capacity_drops_oldest(outbox: OutboxStore) -> None:
+def test_capacity_rejects_new_record_without_data_loss(outbox: OutboxStore) -> None:
     outbox._max_records = 2
     first = outbox.enqueue("seekdb_http", {"seq": 1})
     time.sleep(0.01)
     second = outbox.enqueue("seekdb_http", {"seq": 2})
     time.sleep(0.01)
-    third = outbox.enqueue("seekdb_http", {"seq": 3})
+    with pytest.raises(OverflowError, match="capacity exhausted"):
+        outbox.enqueue("seekdb_http", {"seq": 3})
     stats = outbox.stats()
     assert stats["total"] == 2
     ids = {r.id for r in outbox.pending(limit=10)}
-    assert first not in ids
+    assert first in ids
     assert second in ids
-    assert third in ids
+
+
+def test_capacity_must_be_positive(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="at least 1"):
+        OutboxStore(db_path=str(tmp_path / "outbox.sqlite"), max_records=0)
 
 
 def test_stats_oldest_pending_age(outbox: OutboxStore) -> None:

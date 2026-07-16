@@ -83,7 +83,7 @@ class StepTimer:
         self.start_ns: int = 0
         self.elapsed_ms: float = 0.0
 
-    def __enter__(self) -> "StepTimer":
+    def __enter__(self) -> StepTimer:
         self.start_ns = time.perf_counter_ns()
         return self
 

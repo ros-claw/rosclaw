@@ -3,18 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class RolloutMode(str, Enum):
+class RolloutMode(StrEnum):
     """Supported rollout modes."""
 
     PROPOSAL_ONLY = "proposal_only"
     SHADOW = "shadow"
 
 
-class RolloutStopReason(str, Enum):
+class RolloutStopReason(StrEnum):
     """Reason a rollout loop terminated."""
 
     COMPLETED = "completed"

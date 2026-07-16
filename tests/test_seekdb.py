@@ -125,6 +125,22 @@ def test_sqlite_client_crud():
     os.remove(db_path)
 
 
+def test_sqlite_client_rejects_unknown_tables_and_columns(tmp_path):
+    client = SQLiteKnowledgeStore(str(tmp_path / "validated.sqlite"))
+    client.connect()
+    try:
+        with pytest.raises(ValueError, match="Unknown table"):
+            client.query("experience_graph; DROP TABLE skills")
+        with pytest.raises(ValueError, match="Unknown columns"):
+            client.insert("experience_graph", {"id": "bad", "unknown_column": "value"})
+        with pytest.raises(ValueError, match="Unknown columns"):
+            client.query("experience_graph", filters={"unknown_column": "value"})
+        with pytest.raises(ValueError, match="Unknown columns"):
+            client.query("experience_graph", order_by="unknown_column")
+    finally:
+        client.disconnect()
+
+
 def test_experience_storage():
     """store_experience() -> findable in experience_graph."""
     bus = EventBus()

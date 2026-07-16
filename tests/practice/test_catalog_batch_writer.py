@@ -109,19 +109,17 @@ def test_event_count_matches_inserted(catalog: PracticeCatalog) -> None:
     assert catalog.count_events("p1") == 100
 
 
-def test_batch_writer_queue_full_does_not_crash(tmp_path: Path) -> None:
+def test_batch_writer_queue_full_falls_back_without_data_loss(tmp_path: Path) -> None:
     cat = PracticeCatalog(
         tmp_path / "catalog.sqlite",
         event_batch_size=500,
         event_flush_ms=300_000,  # Never flush by interval.
         event_max_queue=2,
     )
-    # Fill the queue; the third insert may be dropped but must not block/raise.
+    # Saturating the queue must persist overflow records synchronously rather
+    # than silently dropping physical-event evidence.
     for i in range(5):
         cat.insert_event(_event_record(i))
     cat.flush()
-    count = cat.count_events("p1")
-    # At least the synchronous/dropped path should leave some records; exact
-    # count depends on timing, but it must not hang or raise.
-    assert count >= 0
+    assert cat.count_events("p1") == 5
     cat.close()

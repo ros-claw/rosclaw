@@ -44,7 +44,9 @@ class _BatchWriter:
         self._queue: queue.Queue = queue.Queue(maxsize=max(1, int(max_queue_size)))
         self._lock = threading.Lock()
         self._closed = False
-        self._total_dropped = 0
+        self._overflow_fallbacks = 0
+        self._failed_records: list[dict[str, Any]] = []
+        self._flush_error: Exception | None = None
         self._thread = threading.Thread(
             target=self._worker, name=f"catalog-batch-{name}", daemon=True
         )
@@ -53,6 +55,8 @@ class _BatchWriter:
     def put(self, record: dict[str, Any]) -> None:
         if self._closed:
             raise RuntimeError(f"Batch writer {self.name} is closed")
+        if self._flush_error is not None:
+            raise RuntimeError(f"Batch writer {self.name} previously failed") from self._flush_error
         # Synchronous path for unit tests that require read-after-write.
         if self._batch_size == 1:
             self._flush([record])
@@ -61,8 +65,12 @@ class _BatchWriter:
             self._queue.put(record, block=False)
         except queue.Full:
             with self._lock:
-                self._total_dropped += 1
-            logger.error("Batch writer %s queue full; dropping record", self.name)
+                self._overflow_fallbacks += 1
+            logger.warning(
+                "Batch writer %s queue full; persisting record synchronously",
+                self.name,
+            )
+            self._flush([record])
 
     def close(self) -> None:
         with self._lock:
@@ -75,7 +83,7 @@ class _BatchWriter:
             logger.warning("Batch writer %s queue full on close; draining inline", self.name)
         self._thread.join(timeout=5.0)
         # Final drain in case the worker did not process everything.
-        final: list[dict[str, Any]] = []
+        final = list(self._failed_records)
         while not self._queue.empty():
             try:
                 item = self._queue.get_nowait()
@@ -84,12 +92,12 @@ class _BatchWriter:
             except queue.Empty:
                 break
         if final:
-            self._flush_fn(final)
-        if self._total_dropped:
-            logger.warning(
-                "Batch writer %s dropped %s records due to queue overflow",
+            self._flush(final)
+        if self._overflow_fallbacks:
+            logger.info(
+                "Batch writer %s used synchronous overflow fallback %s times",
                 self.name,
-                self._total_dropped,
+                self._overflow_fallbacks,
             )
 
     def _worker(self) -> None:
@@ -108,13 +116,24 @@ class _BatchWriter:
                 except queue.Empty:
                     break
                 if item is self._POISON:
-                    self._flush(batch)
+                    if not self._try_worker_flush(batch):
+                        return
                     return
                 batch.append(item)
                 if deadline is None:
                     deadline = time.monotonic() + self._flush_interval_s
-            if batch:
-                self._flush(batch)
+            if batch and not self._try_worker_flush(batch):
+                return
+
+    def _try_worker_flush(self, batch: list[dict[str, Any]]) -> bool:
+        try:
+            self._flush(batch)
+        except Exception as exc:
+            with self._lock:
+                self._failed_records.extend(batch)
+                self._flush_error = exc
+            return False
+        return True
 
     def _flush(self, batch: list[dict[str, Any]]) -> None:
         if not batch:
@@ -123,6 +142,7 @@ class _BatchWriter:
             self._flush_fn(batch)
         except Exception:
             logger.exception("Batch writer %s flush failed", self.name)
+            raise
 
 
 class PracticeCatalog:

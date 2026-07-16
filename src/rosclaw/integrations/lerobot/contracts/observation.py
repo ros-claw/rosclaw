@@ -9,7 +9,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-
 OBSERVATION_CONTRACT_SCHEMA_VERSION = "rosclaw.observation_contract.v1"
 OBSERVATION_SNAPSHOT_SCHEMA_VERSION = "rosclaw.observation_snapshot.v1"
 
@@ -43,7 +42,7 @@ class ObservationFeature:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ObservationFeature":
+    def from_dict(cls, data: dict[str, Any]) -> ObservationFeature:
         return cls(
             required=bool(data.get("required", True)),
             source=dict(data.get("source", {})),
@@ -78,7 +77,7 @@ class ObservationContract:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ObservationContract":
+    def from_dict(cls, data: dict[str, Any]) -> ObservationContract:
         features = data.get("features", {})
         return cls(
             id=str(data.get("id", "")),
@@ -133,7 +132,7 @@ class ObservationFeatureSnapshot:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ObservationFeatureSnapshot":
+    def from_dict(cls, data: dict[str, Any]) -> ObservationFeatureSnapshot:
         return cls(
             valid=bool(data.get("valid", True)),
             values=data.get("values"),
@@ -170,7 +169,7 @@ class ObservationSnapshot:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ObservationSnapshot":
+    def from_dict(cls, data: dict[str, Any]) -> ObservationSnapshot:
         features = data.get("features", {})
         return cls(
             snapshot_id=str(data.get("snapshot_id", "")),

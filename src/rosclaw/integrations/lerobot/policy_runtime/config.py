@@ -6,6 +6,7 @@ This module is free of torch/lerobot imports.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 from datetime import UTC, datetime
@@ -117,10 +118,8 @@ def terminate_process(pid: int, grace_period_sec: float = 5.0) -> bool:
             return True
         time.sleep(0.1)
 
-    try:
+    with contextlib.suppress(OSError, ProcessLookupError):
         os.kill(pid, signal.SIGKILL)
-    except (OSError, ProcessLookupError):
-        pass
     return not is_process_alive(pid)
 
 

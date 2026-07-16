@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import math
+import contextlib
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -244,7 +244,6 @@ def _run_loop(config: RolloutConfig, source: ObservationSource) -> RolloutResult
             if source.is_exhausted(step_index):
                 break
 
-            step_start = time.monotonic()
             with StepTimer() as step_timer:
                 step_result = _run_step(
                     runtime=runtime,
@@ -311,10 +310,8 @@ def _run_loop(config: RolloutConfig, source: ObservationSource) -> RolloutResult
         result.stop_reason = RolloutStopReason.RUNTIME_FAILURE
         result.errors.append(f"Rollout exception: {exc}")
     finally:
-        try:
+        with contextlib.suppress(Exception):
             runtime.call("CLOSE_SESSION", {"session_id": session_id}, timeout_sec=10.0)
-        except Exception:  # noqa: BLE001
-            pass
         runtime.stop()
         result.metrics = metrics.to_dict()
         result.trace_path = str(trace_path)
@@ -560,7 +557,6 @@ def _policy_space_from_metadata(metadata: dict[str, Any]) -> ActionSpace:
     output_features = metadata.get("output_features", {})
     action_feature = output_features.get("action", {})
     shape = list(action_feature.get("shape", []))
-    action_dim = shape[-1] if shape else 0
     names = action_feature.get("names") or metadata.get("extra", {}).get("action_names") or []
     # P4.1: do not synthesize generic action_* names; unknown semantics must stay unknown.
     units = action_feature.get("unit") or metadata.get("extra", {}).get("action_unit") or "unknown"
