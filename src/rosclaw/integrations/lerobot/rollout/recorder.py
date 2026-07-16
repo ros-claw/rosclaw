@@ -63,6 +63,7 @@ class RolloutRecorder:
             body_id=self.body_id,
             source=source,  # type: ignore[arg-type]
             event_type=event_type,
+            trace_id=self.session_id,
             timestamp_ns=int(time.time_ns()),
             source_timestamp_ns=int(time.monotonic() * 1e9),
             sequence_id=self._sequence,
