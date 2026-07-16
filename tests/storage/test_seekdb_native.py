@@ -206,3 +206,56 @@ def test_native_benchmark_vs_sqlite_scan(tmp_path) -> None:
     )
     assert native_ms < sqlite_ms, f"native {native_ms}ms not faster than sqlite {sqlite_ms}ms"
     sqlite_client.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# Server-mode SeekDB (real container: quay.io/oceanbase/seekdb on :2881)
+# ---------------------------------------------------------------------------
+
+
+def _server_reachable() -> bool:
+    import socket
+
+    try:
+        with socket.create_connection(("127.0.0.1", 2881), timeout=2):
+            return True
+    except OSError:
+        return False
+
+
+@pytest.mark.skipif(
+    not _server_reachable(), reason="seekdb server container not reachable on :2881"
+)
+def test_server_mode_native_retrieval() -> None:
+    """Real server-mode SeekDB: CRUD + native vector + hybrid + metadata."""
+    from rosclaw.storage.seekdb_native import SeekDBServerStore
+
+    store = SeekDBServerStore(
+        host="127.0.0.1", port=2881, user="root", password="", database="rosclaw_pytest_server"
+    )
+    store.connect()
+    try:
+        records = [
+            {
+                "id": f"srv_t_{i:03d}",
+                "memory_type": "failure",
+                "robot_id": "rh56_rps_robot",
+                "title": f"server failure {i}",
+                "document": f"服务器模式 剪刀失败 {i} overcurrent",
+                "status": "active",
+            }
+            for i in range(20)
+        ]
+        store.insert_many("memory_items", records)
+        assert store.count("memory_items") == 20
+        hits = store.similar("memory_items", "剪刀 过流", limit=5)
+        assert hits
+        assert store.hybrid_search("memory_items", "剪刀", limit=5)
+        assert store.query("memory_items", {"robot_id": "rh56_rps_robot"}, limit=5)
+        assert store.delete("memory_items", "srv_t_000")
+        assert store.count("memory_items") == 19
+        info = store.embedding_info("memory_items")
+        assert info["dimension"] == 384
+    finally:
+        store.delete_where("memory_items", {"robot_id": "rh56_rps_robot"})
+        store.disconnect()
