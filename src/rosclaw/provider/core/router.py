@@ -6,6 +6,7 @@ embodiment compatibility, latency budget, safety level, health, and fallback cha
 
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 from rosclaw.provider.core.errors import ProviderNotFoundError, ProviderUnavailableError
 from rosclaw.provider.core.provider import Provider
@@ -41,8 +42,13 @@ class CapabilityRouter:
     9. fallback priority
     """
 
-    def __init__(self, registry: ProviderRegistry):
+    def __init__(self, registry: ProviderRegistry, tracer: Any | None = None):
         self.registry = registry
+        if tracer is None:
+            from rosclaw.observability.tracer import get_tracer
+
+            tracer = get_tracer(getattr(registry, "_event_bus", None))
+        self.tracer = tracer
 
     # ------------------------------------------------------------------
     # Public API
@@ -98,6 +104,48 @@ class CapabilityRouter:
         request: ProviderRequest,
         trace: ProviderTrace | None = None,
     ) -> ProviderResponse:
+        """Invoke a capability under a routed Provider span."""
+
+        trace_id = request.context.get("trace_id") or request.request_id
+        kind = self._span_kind_for_capability(request.capability)
+        async with self.tracer.start_span(
+            "provider.invoke",
+            kind,
+            source="provider_router",
+            operation=request.capability,
+            trace_id=trace_id,
+            attributes={
+                "request.id": request.request_id,
+                "capability": request.capability,
+                "robot.id": request.robot_id,
+                "safety.level": request.safety_level,
+            },
+            robot_id=request.robot_id or None,
+            episode_id=request.context.get("episode_id"),
+            mission_id=request.context.get("task_id"),
+        ) as span:
+            span.set_input(
+                {
+                    "inputs": request.inputs,
+                    "context": request.context,
+                    "constraints": request.constraints,
+                    "output_schema": request.output_schema,
+                }
+            )
+            response = await self._invoke_routed(request, trace)
+            span.set_attribute("provider.selected", response.provider)
+            span.set_attribute("latency_ms", response.latency_ms)
+            span.set_attribute("fallback.used", response.trace.get("fallback_used", False))
+            span.set_output(self._response_payload(response))
+            if not response.is_ok:
+                span.set_status("ERROR", "; ".join(response.errors) or response.status)
+            return response
+
+    async def _invoke_routed(
+        self,
+        request: ProviderRequest,
+        trace: ProviderTrace | None = None,
+    ) -> ProviderResponse:
         """Full invoke pipeline: route -> infer -> fallback if needed.
 
         Args:
@@ -137,6 +185,36 @@ class CapabilityRouter:
         # All failed — return primary response (with errors)
         response.trace["fallbacks_exhausted"] = True
         return response
+
+    @staticmethod
+    def _span_kind_for_capability(capability: str) -> str:
+        prefix = capability.split(".", 1)[0].lower()
+        return {
+            "vlm": "VLM",
+            "llm": "LLM",
+            "critic": "CRITIC",
+            "skill": "SKILL",
+            "world": "WORLD_MODEL",
+            "perception": "PERCEPTION",
+            "planner": "PLANNER",
+        }.get(prefix, "LLM")
+
+    @staticmethod
+    def _response_payload(response: ProviderResponse) -> dict[str, Any]:
+        return {
+            "request_id": response.request_id,
+            "provider": response.provider,
+            "capability": response.capability,
+            "result": response.result,
+            "confidence": response.confidence,
+            "evidence": response.evidence,
+            "latency_ms": response.latency_ms,
+            "model_info": response.model_info,
+            "trace": response.trace,
+            "warnings": response.warnings,
+            "errors": response.errors,
+            "status": response.status,
+        }
 
     # ------------------------------------------------------------------
     # Scoring
@@ -220,19 +298,65 @@ class CapabilityRouter:
         trace: ProviderTrace | None,
     ) -> ProviderResponse:
         """Invoke a single provider with timing and error handling."""
-        t0 = time.monotonic()
-        try:
-            response = await provider.infer(request)
-        except Exception as e:
-            response = ProviderResponse(
-                request_id=request.request_id,
-                provider=provider.name,
-                capability=request.capability,
-                status="failed",
-                errors=[str(e)],
+        async with self.tracer.start_span(
+            "provider.inference",
+            self._span_kind_for_capability(request.capability),
+            source=provider.name,
+            operation=request.capability,
+            attributes={
+                "provider.name": provider.name,
+                "provider.version": provider.version,
+                "provider.type": provider.manifest.type,
+                "runtime.backend": provider.manifest.runtime.backend,
+                "request.id": request.request_id,
+            },
+            robot_id=request.robot_id or None,
+            episode_id=request.context.get("episode_id"),
+            mission_id=request.context.get("task_id"),
+        ) as span:
+            span.set_input(request.inputs)
+            self._publish_inference_event(
+                "rosclaw.provider.inference.requested",
+                request,
+                provider,
+                {"input": span.input},
             )
+            t0 = time.monotonic()
+            try:
+                response = await provider.infer(request)
+            except Exception as e:
+                response = ProviderResponse(
+                    request_id=request.request_id,
+                    provider=provider.name,
+                    capability=request.capability,
+                    status="failed",
+                    errors=[str(e)],
+                )
 
-        response.latency_ms = int((time.monotonic() - t0) * 1000)
+            response.latency_ms = int((time.monotonic() - t0) * 1000)
+            output = self._response_payload(response)
+            span.set_output(output)
+            span.set_attribute("latency_ms", response.latency_ms)
+            span.set_attribute("model.info", response.model_info)
+            usage = response.trace.get("usage", {}) if isinstance(response.trace, dict) else {}
+            if usage:
+                span.set_attribute("token.usage", usage)
+            if not response.is_ok:
+                span.set_status("ERROR", "; ".join(response.errors) or response.status)
+            self._publish_inference_event(
+                "rosclaw.provider.inference.completed",
+                request,
+                provider,
+                {
+                    "status": response.status,
+                    "latency_ms": response.latency_ms,
+                    "model": response.model_info,
+                    "tokens": usage,
+                    "output": span.output,
+                    "errors": response.errors,
+                    "warnings": response.warnings,
+                },
+            )
 
         if trace:
             trace.add_step(
@@ -245,3 +369,37 @@ class CapabilityRouter:
             )
 
         return response
+
+    def _publish_inference_event(
+        self,
+        topic: str,
+        request: ProviderRequest,
+        provider: Provider,
+        details: dict[str, Any],
+    ) -> None:
+        event_bus = getattr(self.registry, "_event_bus", None)
+        if event_bus is None:
+            return
+        try:
+            from rosclaw.core.event_bus import Event, EventPriority
+
+            event_bus.publish(
+                Event(
+                    topic=topic,
+                    payload={
+                        "request_id": request.request_id,
+                        "episode_id": request.context.get("episode_id"),
+                        "task_id": request.context.get("task_id"),
+                        "robot_id": request.robot_id,
+                        "provider": provider.name,
+                        "provider_version": provider.version,
+                        "capability": request.capability,
+                        **details,
+                    },
+                    source="provider_router",
+                    priority=EventPriority.NORMAL,
+                )
+            )
+        except Exception:
+            # Observability cannot change inference behavior.
+            pass

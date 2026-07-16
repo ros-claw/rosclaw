@@ -37,6 +37,7 @@ class SkillExecutor(LifecycleMixin):
         seekdb_client: Any | None = None,
         sense_interface: Any | None = None,
         body_resolver: BodyResolver | None = None,
+        tracer: Any | None = None,
     ):
         super().__init__()
         self.event_bus = event_bus
@@ -52,6 +53,11 @@ class SkillExecutor(LifecycleMixin):
             except Exception:
                 logger.warning("Failed to initialize SkillRequirementsAdapter", exc_info=True)
         self._body_resolver = body_resolver
+        if tracer is None:
+            from rosclaw.observability.tracer import get_tracer
+
+            tracer = get_tracer(event_bus)
+        self._tracer = tracer
         # Ensure runtime skill handlers are discovered from entry points.
         try:
             get_runtime_plugin().discover_handlers()
@@ -62,6 +68,29 @@ class SkillExecutor(LifecycleMixin):
         logger.info("Initialized")
 
     def execute(self, skill_name: str, parameters: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Execute one skill under a structured Skill span."""
+
+        with self._tracer.start_span(
+            "skill.execute",
+            "SKILL",
+            source="skill_executor",
+            operation=skill_name,
+            attributes={"skill.name": skill_name},
+        ) as span:
+            span.set_input(parameters or {})
+            result = self._execute_skill(skill_name, parameters)
+            span.set_output(result)
+            status = str(result.get("status", "")).lower()
+            if status in {"blocked", "precondition_failed"}:
+                span.set_status("BLOCKED", result.get("message") or result.get("reason"))
+            elif status == "error":
+                span.set_status("ERROR", result.get("error") or result.get("message"))
+            result.setdefault("trace_id", span.trace_id)
+            return result
+
+    def _execute_skill(
+        self, skill_name: str, parameters: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """
         Execute a skill by name.
 

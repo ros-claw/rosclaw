@@ -110,6 +110,26 @@ See [QUICKSTART.md](QUICKSTART.md) for four guided paths: local simulation, agen
 
 ---
 
+## Structured Runtime Trace
+
+ROSClaw records a causal span tree across Runtime, Provider, MCP, Skill, Sandbox, and Firewall
+boundaries. Model/tool I/O is bounded and redacted, binary perception data is stored as references,
+and private chain-of-thought fields are omitted by default in favor of structured decision summaries.
+
+```bash
+rosclaw trace list
+rosclaw trace show <trace-id> --tree
+rosclaw trace tail --kind VLM,MCP,SANDBOX
+rosclaw dashboard --trace <trace-id>
+```
+
+The built-in Trace view is available at `/traces`.
+
+See [docs/TRACE.md](docs/TRACE.md) for the schema, instrumentation API, capture modes, CLI, and
+Dashboard endpoints.
+
+---
+
 ## Hub & Assets
 
 The ROSClaw Hub is a **Physical-AI Asset Hub** for skills, providers, hardware MCP servers, digital twins, and cognitive wikis. Assets can be kept entirely local or synced with a registry.

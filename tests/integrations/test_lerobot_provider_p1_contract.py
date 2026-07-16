@@ -118,9 +118,9 @@ def test_provider_infer_marks_not_executed(
     assert response.result["requires_sandbox"] is True
     proposal = response.result["action_proposal"]
     assert proposal is not None
-    assert proposal["executable"] is False
-    assert proposal["requires_sandbox"] is True
-    assert proposal["values"] == [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+    assert proposal["safety"]["executable"] is False
+    assert proposal["safety"]["requires_sandbox"] is True
+    assert proposal["action"]["values"] == [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
 
 
 def test_provider_infer_rejects_execute(provider: LeRobotPolicyProvider) -> None:
@@ -146,8 +146,8 @@ def test_provider_infer_dry_run_returns_sample(provider: LeRobotPolicyProvider) 
     assert response.status == "ok"
     assert response.result["mode"] == "dry_run"
     assert response.result["real_inference"] is False
-    assert response.result["action_proposal"]["executable"] is False
-    assert response.result["action_proposal"]["values"] == [0.0] * 7
+    assert response.result["action_proposal"]["safety"]["executable"] is False
+    assert response.result["action_proposal"]["action"]["values"] == [0.0] * 7
 
 
 def test_provider_infer_requires_policy_path(provider: LeRobotPolicyProvider) -> None:

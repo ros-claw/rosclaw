@@ -53,6 +53,9 @@ class Event:
         timestamp: Unix timestamp when event was created
         priority: Processing priority
         event_id: Unique identifier
+        trace_id: End-to-end causal trace identifier
+        span_id: Operation that emitted this event
+        parent_span_id: Parent operation, when known
         metadata: Additional context
     """
 
@@ -63,6 +66,8 @@ class Event:
     priority: EventPriority = EventPriority.NORMAL
     event_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     trace_id: str = ""  # correlation ID for distributed tracing across the pipeline
+    span_id: str = ""  # active operation that emitted this event
+    parent_span_id: str = ""  # parent operation, when known
     metadata: dict = field(default_factory=dict)
 
     def derive(self, **overrides) -> "Event":
@@ -82,6 +87,8 @@ class Event:
             priority=overrides.get("priority", self.priority),
             event_id=overrides.get("event_id", str(uuid.uuid4())[:8]),
             trace_id=overrides.get("trace_id", self.trace_id),
+            span_id=overrides.get("span_id", self.span_id),
+            parent_span_id=overrides.get("parent_span_id", self.parent_span_id),
             metadata=overrides.get("metadata", self.metadata.copy()),
         )
 
@@ -214,17 +221,36 @@ class EventBus:
         # event.topic so existing tests and consumers are not broken.
         norm_topic = self._norm(event.topic)
 
-        # CRITICAL FIX: auto-inject trace_id for distributed tracing if missing.
-        # Derive from payload request_id/correlation_id/episode_id first so the
-        # entire pipeline shares one trace_id.
+        # Auto-inject causal trace/span identity. ``contextvars`` propagates
+        # through sync and async call paths; legacy request IDs remain the
+        # fallback for publishers that have not adopted structured spans yet.
+        trace_context = None
+        try:
+            from rosclaw.observability.context import current_trace_context
+
+            trace_context = current_trace_context()
+        except ImportError:
+            pass
         if not event.trace_id:
             payload = event.payload if isinstance(event.payload, dict) else {}
+            metadata = event.metadata if isinstance(event.metadata, dict) else {}
             event.trace_id = (
-                payload.get("request_id")
+                (trace_context.trace_id if trace_context else "")
+                or payload.get("trace_id")
+                or payload.get("request_id")
                 or payload.get("correlation_id")  # noqa: W503
                 or payload.get("episode_id")  # noqa: W503
+                or metadata.get("trace_id")  # noqa: W503
+                or metadata.get("request_id")  # noqa: W503
+                or metadata.get("correlation_id")  # noqa: W503
+                or metadata.get("episode_id")  # noqa: W503
                 or f"trace_{uuid.uuid4().hex[:12]}"  # noqa: W503
             )
+        if trace_context is not None and event.trace_id == trace_context.trace_id:
+            if not event.span_id:
+                event.span_id = trace_context.span_id
+            if not event.parent_span_id:
+                event.parent_span_id = trace_context.parent_span_id or ""
 
         # Store in history
         with self._lock:

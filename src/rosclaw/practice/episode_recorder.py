@@ -51,6 +51,7 @@ class _EpisodeBuffer:
     critic_status: str | None = None
     praxis_status: str | None = None
     praxis_reward: float | None = None
+    praxis_pending: bool = False
     duration_sec: float | None = None
     # CRITICAL FIX: agent_request stores the original user/agent request for full traceability
     agent_request: dict[str, Any] | None = None
@@ -258,6 +259,7 @@ class EpisodeRecorder(LifecycleMixin):
         buf = self._get_or_create_buffer(episode_id)
         buf.received_events.add("skill.execution.complete")
         buf.final_state = payload.get("final_state", payload.get("state"))
+        buf.praxis_pending = bool(payload.get("praxis_pending", False))
         result = payload.get("result", {})
         duration = payload.get("duration_sec")
         if duration is None and buf.created_at:
@@ -272,9 +274,8 @@ class EpisodeRecorder(LifecycleMixin):
             }
         )
         buf.last_event_at = time.time()
-        # Note: skill.execution.complete does NOT auto-finalize;
-        # we wait for praxis.completed/failed or other terminal events
-        # so that all context (provider, critic, sandbox) can be collected.
+        # Finalization waits for a critic or explicit praxis terminal event so
+        # that skill output is not mistaken for an evaluated physical outcome.
 
     def _on_praxis_completed(self, event: Event) -> None:
         """External praxis.completed handler (fallback for non-skill paths)."""
@@ -422,7 +423,7 @@ class EpisodeRecorder(LifecycleMixin):
         buf.last_event_at = time.time()
 
     def _on_critic_success(self, event: Event) -> None:
-        """Stub for rosclaw.critic.success.detected (future sprint)."""
+        """Capture a critic terminal result and finalize standalone skills."""
         payload = event.payload if isinstance(event.payload, dict) else {}
         episode_id = self._extract_episode_id(payload)
         buf = self._get_or_create_buffer(episode_id)
@@ -430,6 +431,8 @@ class EpisodeRecorder(LifecycleMixin):
         buf.critic_reward = payload.get("reward", 1.0 if payload.get("success") else 0.0)
         buf.critic_status = "SUCCESS" if payload.get("success", True) else "FAILED"
         buf.last_event_at = time.time()
+        if buf.is_complete() and not buf.praxis_pending:
+            self._finalize_episode(episode_id, reason="critic_terminal")
 
     def _on_sandbox_episode_finished(self, event: Event) -> None:
         """Stub for rosclaw.sandbox.episode.finished (Sprint 3)."""

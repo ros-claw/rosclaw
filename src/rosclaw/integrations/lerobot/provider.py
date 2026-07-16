@@ -1,13 +1,13 @@
 """LeRobot policy provider for ROSClaw.
 
-P1 semantics:
+P1/P4 semantics:
 - ``lerobot.policy.inspect`` reads policy config/metadata without loading weights.
 - ``lerobot.policy.load_test`` loads weights but does not run inference.
 - ``lerobot.policy.infer`` performs one real policy inference via the LeRobot
   subprocess worker, but the returned action is always an **action proposal**:
   ``not_executed=true``, ``requires_sandbox=true``, ``executable=false``.
 - ``--dry-run`` still returns a deterministic sample action for backward
-  compatibility.
+  compatibility, using the manifest action shape.
 - The provider never executes actions on hardware.
 """
 
@@ -18,7 +18,14 @@ import time
 from typing import Any
 
 from rosclaw.integrations.lerobot.action_adapter import adapt_action_to_proposal
+from rosclaw.integrations.lerobot.config import get_configured_lerobot_runtime
+from rosclaw.integrations.lerobot.contracts import (
+    ObservationContract,
+    infer_action_shape,
+    validate_action_values,
+)
 from rosclaw.integrations.lerobot.observation_adapter import adapt_observation_for_worker
+from rosclaw.integrations.lerobot.runtime import inspect_lerobot_runtime
 from rosclaw.integrations.lerobot.worker_runner import LeRobotWorkerRunner
 from rosclaw.integrations.lerobot.worker_schema import WorkerRequest
 from rosclaw.provider.core.errors import CapabilityNotSupportedError
@@ -32,7 +39,7 @@ class LeRobotPolicyProvider(Provider):
     """ROSClaw provider adapter for LeRobot policies."""
 
     name = "lerobot_policy_provider"
-    version = "0.2.0"
+    version = "0.3.0"
     capabilities = [
         "lerobot.policy.inspect",
         "lerobot.policy.load_test",
@@ -41,11 +48,11 @@ class LeRobotPolicyProvider(Provider):
 
     def __init__(self, manifest: ProviderManifest):
         super().__init__(manifest)
-        self._action_dim = self._infer_action_dim(manifest)
+        self._dry_run_action_dim = self._infer_dry_run_action_dim(manifest)
 
     @staticmethod
-    def _infer_action_dim(manifest: ProviderManifest) -> int:
-        """Infer action dimension from manifest or default to 7."""
+    def _infer_dry_run_action_dim(manifest: ProviderManifest) -> int:
+        """Infer action dimension for dry-run sample actions only."""
         action_space = manifest.embodiment.action_space
         if action_space:
             return len(action_space)
@@ -70,7 +77,7 @@ class LeRobotPolicyProvider(Provider):
             "version": self.version,
             "capabilities": self.capabilities,
             "load_error": self._load_error,
-            "action_dim": self._action_dim,
+            "dry_run_action_dim": self._dry_run_action_dim,
         }
 
     async def infer(self, request: ProviderRequest) -> ProviderResponse:
@@ -91,8 +98,8 @@ class LeRobotPolicyProvider(Provider):
         if inputs.get("execute"):
             return self._blocked_response(
                 request,
-                "P1 LeRobot provider only returns action proposals. "
-                "Remove --execute or set execute=false.",
+                "P4 LeRobot provider only supports proposal-only and shadow modes. "
+                "Real robot execution is reserved for P5 Safe Rollout.",
             )
 
         return await self._worker_response(request, capability)
@@ -101,6 +108,22 @@ class LeRobotPolicyProvider(Provider):
     # Response builders
     # ------------------------------------------------------------------
     def _dry_run_response(self, request: ProviderRequest) -> ProviderResponse:
+        sample_values = [0.0] * self._dry_run_action_dim
+        proposal = adapt_action_to_proposal(
+            {
+                "type": "sample_action",
+                "values": sample_values,
+                "shape": [self._dry_run_action_dim],
+                "dtype": "float32",
+            },
+            policy_path=(request.inputs or {}).get("policy.path", ""),
+            policy_metadata={},
+            manifest_action_space=self.manifest.embodiment.action_space or [],
+            session_id=(request.inputs or {}).get("session_id"),
+            step_index=0,
+            proposal_id="proposal_dry_run",
+        )
+        proposal["message"] = "Dry-run returned a sample action proposal."
         result = {
             "provider": self.name,
             "capability": request.capability,
@@ -109,18 +132,7 @@ class LeRobotPolicyProvider(Provider):
             "real_inference": False,
             "not_executed": True,
             "requires_sandbox": True,
-            "action_proposal": {
-                "type": "sample_action",
-                "values": self._sample_action(),
-                "shape": [self._action_dim],
-                "dtype": "float32",
-                "executable": False,
-                "requires_sandbox": True,
-                "not_executed": True,
-                "body_mapping_required": True,
-                "body_compatible": False,
-                "body_name": None,
-            },
+            "action_proposal": proposal,
             "action_space": self.manifest.embodiment.action_space or [],
             "safety": self._safety_dict(),
             "message": "Dry-run returned a sample action proposal.",
@@ -176,8 +188,9 @@ class LeRobotPolicyProvider(Provider):
 
         observation: dict[str, Any] = {}
         if op == "infer":
+            contract = inputs.get("observation_contract")
             try:
-                observation = adapt_observation_for_worker(inputs)
+                observation = adapt_observation_for_worker(inputs, contract=contract)
             except (ValueError, FileNotFoundError) as exc:
                 return self._failed_response(request, str(exc), "observation_schema_mismatch")
 
@@ -233,7 +246,39 @@ class LeRobotPolicyProvider(Provider):
         }
 
         if op == "infer":
-            result["action_proposal"] = adapt_action_to_proposal(worker_response.action)
+            processed_action = worker_response.processed_or_action()
+            if processed_action is None:
+                return self._failed_response(
+                    request,
+                    "Worker returned no processed action.",
+                    "policy_action_schema_unknown",
+                )
+
+            metadata = worker_response.policy_metadata or {}
+            expected_shape = infer_action_shape(metadata)
+            actual_shape = list(processed_action.shape)
+            if (
+                expected_shape is not None
+                and actual_shape[-len(expected_shape):] != expected_shape
+            ):
+                return self._failed_response(
+                    request,
+                    f"Action shape {actual_shape} does not match "
+                    f"policy output_features shape {expected_shape}.",
+                    "policy_action_schema_conflict",
+                )
+
+            result["action_proposal"] = adapt_action_to_proposal(
+                processed_action,
+                policy_path=worker_response.policy_path,
+                policy_metadata=metadata,
+                manifest_action_space=self.manifest.embodiment.action_space or [],
+                session_id=inputs.get("session_id"),
+                step_index=inputs.get("step_index", 0),
+                proposal_id=f"proposal_{request.request_id}",
+                runtime_id=worker_response.runtime.get("runtime_id"),
+                timing=worker_response.timing.to_dict(),
+            )
             result["message"] = "LeRobot policy inference completed; action is a proposal only."
         else:
             result["action_proposal"] = None
@@ -291,7 +336,3 @@ class LeRobotPolicyProvider(Provider):
             "body_compatible": False,
             "max_action_norm": self.manifest.safety.max_action_norm,
         }
-
-    def _sample_action(self) -> list[float]:
-        """Return a deterministic zero-ish sample action."""
-        return [0.0] * self._action_dim

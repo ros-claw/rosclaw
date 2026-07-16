@@ -83,6 +83,8 @@ class JsonlEventSink:
             "source": getattr(event, "source", None),
             "event_id": getattr(event, "event_id", None),
             "trace_id": getattr(event, "trace_id", None),
+            "span_id": getattr(event, "span_id", None),
+            "parent_span_id": getattr(event, "parent_span_id", None),
             "priority": getattr(event, "priority", None),
             "metadata": getattr(event, "metadata", None),
             "payload": getattr(event, "payload", None),
