@@ -52,12 +52,17 @@ class PermitManager:
         operator_armed: bool = False,
         physical_estop_confirmed: bool = False,
         task: str = "",
+        calibration_status: str | None = None,
     ) -> ExecutionPermit:
         """Issue a new permit.  Requires operator arming + estop confirmation."""
         if not operator_armed:
             raise PermitError("permit_not_armed: operator_armed is required")
         if not physical_estop_confirmed:
             raise PermitError("permit_estop_unconfirmed: physical estop must be confirmed")
+        if calibration_status is not None and calibration_status != "validated":
+            raise PermitError(
+                f"calibration_not_validated: status {calibration_status!r}; permit denied"
+            )
         for name, value in (
             ("policy_contract_hash", policy_contract_hash),
             ("body_hash", body_hash),

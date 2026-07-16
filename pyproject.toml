@@ -180,4 +180,7 @@ markers = [
     "integration: marks tests as requiring external services (deselect with '-k not integration')",
     "legacy_rclpy: marks tests that depend on the legacy rclpy-based ROS2 driver layer",
     "deployment: marks tests that deploy the Docker ROS test stack (deselect with '-m \"not deployment\"')",
+    "rh56_hw: marks tests requiring the physical RH56 hand (ROSCLAW_RH56_HW=1)",
+    "rh56_shadow: marks tests running the RH56 real-body shadow gate",
+    "rh56_execute: marks tests executing on the physical RH56 (also requires ROSCLAW_RH56_EXECUTE_ACK=YES)",
 ]
