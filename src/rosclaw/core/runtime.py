@@ -731,6 +731,8 @@ class Runtime(LifecycleMixin):
         """
         if self._how is None:
             return
+        if event.payload.get("recovery_owner") == "runtime.closed_loop":
+            return
         try:
             request_id = event.payload.get("request_id", "")
             violations = event.payload.get("violations", [])
@@ -1469,7 +1471,178 @@ class Runtime(LifecycleMixin):
     # Integration APIs — v1.0 Minimum Closed-Loop
     # ------------------------------------------------------------------
 
-    def capability_invoke(self, capability_name: str, inputs: dict[str, Any]) -> dict[str, Any]:
+    @staticmethod
+    def _knowledge_evidence_refs(result: dict[str, Any] | None) -> list[str]:
+        """Build stable, non-secret evidence references for one KNOW result."""
+
+        if not result:
+            return []
+        robot_id = str(result.get("robot_id") or "unknown")
+        capability = str(result.get("capability") or "unknown")
+        refs = [f"know://robot/{robot_id}/capability/{capability}"]
+        if result.get("safety_limits"):
+            refs.append(f"know://robot/{robot_id}/safety-limits")
+        known_risk = result.get("known_risk")
+        if isinstance(known_risk, dict) and known_risk.get("pattern_id"):
+            refs.append(f"know://pattern/{known_risk['pattern_id']}")
+        return list(dict.fromkeys(refs))
+
+    @staticmethod
+    def _memory_evidence_refs(result: dict[str, Any] | None) -> list[str]:
+        """Build stable evidence references for retrieved experience summaries."""
+
+        if not result:
+            return []
+        experiences = result.get("experiences", [])
+        if not isinstance(experiences, list):
+            return []
+        return [
+            f"memory://experience/{experience['id']}"
+            for experience in experiences
+            if isinstance(experience, dict) and experience.get("id")
+        ]
+
+    def _trace_knowledge_preflight(
+        self,
+        capability_name: str,
+        invocation_context: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Query KNOW once and expose the capability/safety evidence as a span."""
+
+        if self._knowledge is None:
+            return None
+        with self._tracer.start_span(
+            "knowledge.preflight",
+            "CONTEXT",
+            source="know",
+            operation="provider.preflight",
+            attributes={
+                "capability": capability_name,
+                "robot.id": self.config.robot_id,
+            },
+            robot_id=self.config.robot_id,
+            episode_id=invocation_context.get("episode_id"),
+            mission_id=invocation_context.get("task_id"),
+        ) as span:
+            span.set_input(
+                {
+                    "capability": capability_name,
+                    "robot_id": self.config.robot_id,
+                }
+            )
+            try:
+                result = self._knowledge.query_for_provider_selection(
+                    capability_name, self.config.robot_id
+                )
+            except Exception as exc:  # noqa: BLE001 - grounding is non-fatal
+                span.set_output({"status": "error", "error": str(exc)})
+                span.set_status("ERROR", str(exc))
+                logger.info("KNOW pre-check failed (non-fatal): %s", exc)
+                return None
+
+            evidence_refs = self._knowledge_evidence_refs(result)
+            span.set_output(result)
+            for reference in evidence_refs:
+                span.add_evidence(reference)
+            logger.info(
+                "KNOW pre-check for %s: has_capability=%s",
+                capability_name,
+                result.get("has_capability", False),
+            )
+            self.event_bus.publish(
+                Event(
+                    topic="rosclaw.knowledge.pre_check",
+                    payload={
+                        "capability": capability_name,
+                        "robot_id": self.config.robot_id,
+                        "result": result,
+                        "evidence_refs": evidence_refs,
+                        "prechecked": True,
+                    },
+                    source="runtime",
+                    priority=EventPriority.NORMAL,
+                )
+            )
+            return result
+
+    @staticmethod
+    def _summarize_experience(record: dict[str, Any]) -> dict[str, Any]:
+        """Return model-useful experience evidence without saved private CoT."""
+
+        summary: dict[str, Any] = {
+            key: record[key]
+            for key in (
+                "id",
+                "event_type",
+                "instruction",
+                "outcome",
+                "duration_sec",
+                "error_details",
+                "tags",
+            )
+            if key in record
+        }
+        metadata = record.get("metadata")
+        if isinstance(metadata, dict):
+            for key in ("reason_summary", "recovery_hint", "critic_status"):
+                if metadata.get(key) is not None:
+                    summary[key] = metadata[key]
+        return summary
+
+    def _trace_memory_retrieval(
+        self,
+        instruction: str,
+        invocation_context: dict[str, Any],
+        *,
+        limit: int = 3,
+    ) -> dict[str, Any] | None:
+        """Retrieve prior experiences and expose only bounded evidence summaries."""
+
+        if self._memory is None or not instruction.strip():
+            return None
+        with self._tracer.start_span(
+            "memory.retrieve_experiences",
+            "MEMORY",
+            source="memory",
+            operation="experience.search",
+            attributes={"robot.id": self.config.robot_id, "retrieval.limit": limit},
+            robot_id=self.config.robot_id,
+            episode_id=invocation_context.get("episode_id"),
+            mission_id=invocation_context.get("task_id"),
+        ) as span:
+            span.set_input({"query": instruction, "limit": limit})
+            try:
+                records = self._memory.find_similar_experiences(instruction, limit=limit)
+            except Exception as exc:  # noqa: BLE001 - retrieval is non-fatal
+                span.set_output({"status": "error", "error": str(exc)})
+                span.set_status("ERROR", str(exc))
+                logger.info("Memory retrieval failed (non-fatal): %s", exc)
+                return None
+
+            summaries = [
+                self._summarize_experience(record)
+                for record in records[:limit]
+                if isinstance(record, dict)
+            ]
+            result = {
+                "query": instruction,
+                "count": len(summaries),
+                "experiences": summaries,
+            }
+            evidence_refs = self._memory_evidence_refs(result)
+            result["evidence_refs"] = evidence_refs
+            span.set_output(result)
+            for reference in evidence_refs:
+                span.add_evidence(reference)
+            return result
+
+    def capability_invoke(
+        self,
+        capability_name: str,
+        inputs: dict[str, Any],
+        *,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Invoke a provider capability and return the result.
 
         Auto-initializes the provider layer if available but not yet set up.
@@ -1484,34 +1657,43 @@ class Runtime(LifecycleMixin):
                 "vlm.object_grounding", {"image": "red_cup.jpg"}
             )
         """
-        # --- KNOW pre-check (v1.0) ---
-        know_result: dict[str, Any] | None = None
-        if self._knowledge is not None:
-            try:
-                know_result = self._knowledge.query_for_provider_selection(
-                    capability_name, self.config.robot_id
-                )
-                logger.info(
-                    f"KNOW pre-check for {capability_name}: "
-                    f"has_capability={know_result.get('has_capability', False)}"
-                )
-            except Exception as e:
-                logger.info(f"KNOW pre-check failed (non-fatal): {e}")
-
-        # Publish pre-check event for Practice/Memory tracking
-        if self.event_bus is not None and know_result is not None:
-            self.event_bus.publish(
-                Event(
-                    topic="rosclaw.provider.inference.requested",
-                    payload={
-                        "capability": capability_name,
-                        "robot_id": self.config.robot_id,
-                        "know_result": know_result,
-                    },
-                    source="runtime",
-                    priority=EventPriority.NORMAL,
-                )
+        invocation_context = dict(context or {})
+        invocation_context.setdefault("robot", self.config.robot_id)
+        instruction = str(
+            invocation_context.get("instruction")
+            or inputs.get("instruction")
+            or inputs.get("text")
+            or inputs.get("query")
+            or capability_name
+        )
+        know_result = self._trace_knowledge_preflight(capability_name, invocation_context)
+        memory_result = self._trace_memory_retrieval(instruction, invocation_context)
+        evidence_refs = list(
+            dict.fromkeys(
+                self._knowledge_evidence_refs(know_result)
+                + self._memory_evidence_refs(memory_result)
             )
+        )
+        grounding = {
+            "knowledge": know_result,
+            "memory": memory_result,
+            "evidence_refs": evidence_refs,
+        }
+        invocation_context["grounding"] = grounding
+        provider_constraints: dict[str, Any] = {"safety_level": self.config.safety_level}
+        if know_result is not None:
+            provider_constraints["knowledge_has_capability"] = know_result.get("has_capability")
+            if know_result.get("safety_limits"):
+                provider_constraints["knowledge_safety_limits"] = know_result["safety_limits"]
+
+        def with_grounding(result: dict[str, Any]) -> dict[str, Any]:
+            if know_result is not None:
+                result["knowledge_context"] = know_result
+            if memory_result is not None:
+                result["memory_context"] = memory_result
+            if evidence_refs:
+                result["grounding_evidence_refs"] = evidence_refs
+            return result
 
         # Lazy init: if provider layer is importable but not initialized, set it up now
         if (
@@ -1532,30 +1714,36 @@ class Runtime(LifecycleMixin):
         if self._capability_router is None:
             # Graceful fallback: return mock responses for known capability families
             if capability_name.startswith("vlm."):
-                return {
-                    "capability": capability_name,
-                    "status": "ok",
-                    "result": {
-                        "mock": True,
-                        "objects": [{"label": "mock_object", "confidence": 0.95}],
-                    },
-                    "provider": "mock_fallback",
-                    "note": "CapabilityRouter not initialized — mock fallback used",
-                }
+                return with_grounding(
+                    {
+                        "capability": capability_name,
+                        "status": "ok",
+                        "result": {
+                            "mock": True,
+                            "objects": [{"label": "mock_object", "confidence": 0.95}],
+                        },
+                        "provider": "mock_fallback",
+                        "note": "CapabilityRouter not initialized — mock fallback used",
+                    }
+                )
             elif capability_name.startswith("skill."):
-                return {
+                return with_grounding(
+                    {
+                        "capability": capability_name,
+                        "status": "ok",
+                        "result": {"mock": True, "action": capability_name.replace("skill.", "")},
+                        "provider": "mock_fallback",
+                        "note": "CapabilityRouter not initialized — mock fallback used",
+                    }
+                )
+            return with_grounding(
+                {
+                    "error": "CapabilityRouter not initialized",
                     "capability": capability_name,
-                    "status": "ok",
-                    "result": {"mock": True, "action": capability_name.replace("skill.", "")},
-                    "provider": "mock_fallback",
-                    "note": "CapabilityRouter not initialized — mock fallback used",
+                    "status": "error",
+                    "hint": "Set enable_provider=True in RuntimeConfig, or ensure rosclaw.provider is installed",
                 }
-            return {
-                "error": "CapabilityRouter not initialized",
-                "capability": capability_name,
-                "status": "error",
-                "hint": "Set enable_provider=True in RuntimeConfig, or ensure rosclaw.provider is installed",
-            }
+            )
 
         try:
             from rosclaw.provider.core.request import ProviderRequest
@@ -1564,24 +1752,30 @@ class Runtime(LifecycleMixin):
                 capability=capability_name,
                 inputs=inputs,
                 request_id=f"cap_{uuid.uuid4().hex[:8]}",
+                context=invocation_context,
+                constraints=provider_constraints,
             )
             response = self._run_async(self._capability_router.invoke(request))
-            return {
-                "capability": capability_name,
-                "status": "ok" if response.is_ok else "error",
-                "result": response.result
-                if response.is_ok
-                else {"error": "; ".join(response.errors) or response.status},
-                "provider": response.provider,
-                "confidence": response.confidence,
-                "evidence": response.evidence,
-                "model_info": response.model_info,
-                "provider_trace": response.trace,
-                "warnings": response.warnings,
-                "errors": response.errors,
-            }
+            return with_grounding(
+                {
+                    "capability": capability_name,
+                    "status": "ok" if response.is_ok else "error",
+                    "result": response.result
+                    if response.is_ok
+                    else {"error": "; ".join(response.errors) or response.status},
+                    "provider": response.provider,
+                    "confidence": response.confidence,
+                    "evidence": response.evidence,
+                    "model_info": response.model_info,
+                    "provider_trace": response.trace,
+                    "warnings": response.warnings,
+                    "errors": response.errors,
+                }
+            )
         except Exception as e:
-            return {"error": str(e), "capability": capability_name, "status": "error"}
+            return with_grounding(
+                {"error": str(e), "capability": capability_name, "status": "error"}
+            )
 
     def plan_action(self, instruction: str, perception_result: dict[str, Any]) -> dict[str, Any]:
         """Build and publish a structured decision summary under a Planner span."""
@@ -1645,6 +1839,26 @@ class Runtime(LifecycleMixin):
             str(item.get("label", item)) if isinstance(item, dict) else str(item)
             for item in objects[:20]
         ]
+        knowledge_context = context.get("knowledge_context")
+        if isinstance(knowledge_context, dict):
+            capability = knowledge_context.get("capability", "unknown")
+            declared = knowledge_context.get("has_capability")
+            observations.append(f"knowledge: {capability} declared={declared}")
+            known_risk = knowledge_context.get("known_risk")
+            if isinstance(known_risk, dict) and known_risk.get("pattern_id"):
+                observations.append(
+                    f"knowledge risk {known_risk['pattern_id']}: "
+                    f"{known_risk.get('symptom', 'unspecified')}"
+                )
+        memory_context = context.get("memory_context")
+        if isinstance(memory_context, dict):
+            experiences = memory_context.get("experiences", [])
+            if isinstance(experiences, list):
+                observations.extend(
+                    f"memory: {item.get('outcome', 'unknown')} experience {item.get('id')}"
+                    for item in experiences[:5]
+                    if isinstance(item, dict) and item.get("id")
+                )
         provider_status = context.get("status")
         if not observations and provider_status:
             observations.append(f"provider_status={provider_status}")
@@ -1656,6 +1870,16 @@ class Runtime(LifecycleMixin):
         ):
             if isinstance(supplied_constraints, list):
                 constraints.extend(str(item) for item in supplied_constraints[:20])
+        if isinstance(knowledge_context, dict):
+            constraints.append(
+                f"knowledge_has_capability={knowledge_context.get('has_capability')}"
+            )
+            safety_limits = knowledge_context.get("safety_limits")
+            if isinstance(safety_limits, dict):
+                constraints.extend(
+                    f"knowledge_safety.{key}={value}"
+                    for key, value in list(safety_limits.items())[:10]
+                )
         constraints = list(dict.fromkeys(constraints))
 
         confidence = context.get("confidence", payload.get("confidence"))
@@ -1712,6 +1936,7 @@ class Runtime(LifecycleMixin):
         for explicit_refs in (
             context.get("evidence_refs", []),
             payload.get("evidence_refs", []),
+            context.get("grounding_evidence_refs", []),
         ):
             if isinstance(explicit_refs, list):
                 evidence_refs.extend(str(reference) for reference in explicit_refs[:50])
@@ -1882,6 +2107,301 @@ class Runtime(LifecycleMixin):
         except Exception as e:
             return {"decision": "BLOCK", "reason": str(e), "violations": []}
 
+    def _trace_trajectory_execution(
+        self,
+        action: dict[str, Any],
+        sandbox_result: dict[str, Any],
+        execution_context: dict[str, Any],
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], bool]:
+        """Apply a validated trajectory in the digital twin, never to hardware."""
+
+        initially_blocked = sandbox_result.get("decision") == "BLOCK"
+        has_sandbox_validator = self._sandbox is not None and hasattr(
+            self._sandbox, "validate_trajectory"
+        )
+        has_real_physics = bool(
+            has_sandbox_validator and getattr(self._sandbox, "has_physics", False)
+        )
+        mode = (
+            "blocked_before_actuation"
+            if initially_blocked
+            else ("digital_twin_physics" if has_real_physics else "simulation_fallback")
+        )
+        with self._tracer.start_span(
+            "robot.simulate_trajectory",
+            "ROBOT_ACTION",
+            source="runtime",
+            operation="trajectory.simulate",
+            attributes={
+                "robot.id": self.config.robot_id,
+                "execution.mode": mode,
+                "physical_actuation": False,
+            },
+            robot_id=self.config.robot_id,
+        ) as span:
+            span.set_input(
+                {
+                    "trajectory": action.get("trajectory", []),
+                    "sandbox_decision": sandbox_result,
+                }
+            )
+            trajectory_data: list[dict[str, Any]] = []
+            is_blocked = initially_blocked
+            if is_blocked:
+                result = {
+                    "status": "blocked",
+                    "decision": "BLOCK",
+                    "reason": sandbox_result.get("reason", "firewall"),
+                    "violations": sandbox_result.get("violations", []),
+                    "source": "firewall",
+                }
+            elif has_sandbox_validator:
+                try:
+                    raw_trajectory = action.get("trajectory", [])
+                    if not raw_trajectory:
+                        raw_trajectory = self._generate_trajectory(action)
+
+                    try:
+                        validation = self._sandbox.validate_trajectory(
+                            raw_trajectory,
+                            event_context={
+                                **execution_context,
+                                "recovery_owner": "runtime.closed_loop",
+                            },
+                        )
+                    except TypeError as exc:
+                        # Preserve compatibility with third-party sandbox
+                        # adapters that implement the older one-argument API.
+                        if "event_context" not in str(exc):
+                            raise
+                        validation = self._sandbox.validate_trajectory(raw_trajectory)
+                    dt = 0.01
+                    for index, waypoint in enumerate(raw_trajectory):
+                        if has_real_physics:
+                            state = self._sandbox.simulate_step(waypoint)
+                            if state:
+                                joint_positions = state.get("qpos", waypoint)[: len(waypoint)]
+                                timestamp = state.get("time", index * dt)
+                            else:
+                                joint_positions = waypoint
+                                timestamp = index * dt
+                        else:
+                            joint_positions = waypoint
+                            timestamp = index * dt
+                        trajectory_data.append(
+                            {
+                                "timestamp": timestamp,
+                                "joint_positions": joint_positions,
+                                "phase": (
+                                    "approach"
+                                    if index < len(raw_trajectory) * 0.3
+                                    else (
+                                        "grasp" if index < len(raw_trajectory) * 0.6 else "retract"
+                                    )
+                                ),
+                            }
+                        )
+
+                    if validation.get("is_safe", True):
+                        result = {
+                            "status": "ok",
+                            "trajectory": raw_trajectory,
+                            "trajectory_data": trajectory_data,
+                            "validation": validation,
+                            "final_position": raw_trajectory[-1] if raw_trajectory else [],
+                            "source": "sandbox",
+                        }
+                    else:
+                        result = {
+                            "status": "blocked",
+                            "decision": "BLOCK",
+                            "reason": validation.get("reason", "unsafe"),
+                            "violations": validation.get("violations", []),
+                            "validation": validation,
+                            "source": "sandbox",
+                        }
+                        is_blocked = True
+                except Exception as exc:  # noqa: BLE001 - captured in execution result
+                    result = {"status": "error", "error": str(exc), "source": "sandbox"}
+            else:
+                raw_trajectory = self._generate_trajectory(action)
+                for index, waypoint in enumerate(raw_trajectory):
+                    trajectory_data.append(
+                        {
+                            "timestamp": index * 0.01,
+                            "joint_positions": waypoint,
+                            "phase": "mock",
+                        }
+                    )
+                result = {
+                    "status": "ok",
+                    "trajectory": raw_trajectory,
+                    "trajectory_data": trajectory_data,
+                    "source": "fallback",
+                    "note": "No sandbox physics -- mock trajectory used",
+                }
+
+            span.set_output(result)
+            if result.get("status") == "blocked":
+                span.set_status("BLOCKED", result.get("reason"))
+            elif result.get("status") == "error":
+                span.set_status("ERROR", result.get("error"))
+            validation = result.get("validation")
+            if isinstance(validation, dict) and validation.get("replay_id"):
+                span.add_evidence(f"sandbox://replay/{validation['replay_id']}")
+            return result, trajectory_data, is_blocked
+
+    def _trace_execution_state(
+        self,
+        result: dict[str, Any],
+        trajectory_data: list[dict[str, Any]],
+    ) -> None:
+        """Record the observed digital-twin outcome without claiming physical feedback."""
+
+        with self._tracer.start_span(
+            "robot.observe_execution_result",
+            "ROBOT_STATE",
+            source="runtime",
+            operation="execution.observe",
+            attributes={
+                "robot.id": self.config.robot_id,
+                "state.source": result.get("source", "unknown"),
+                "physical_observation": False,
+            },
+            robot_id=self.config.robot_id,
+        ) as span:
+            state = {
+                "status": result.get("status", "unknown"),
+                "source": result.get("source", "unknown"),
+                "trajectory_waypoints": len(trajectory_data),
+                "final_position": result.get("final_position", []),
+                "violations": result.get("violations", []),
+            }
+            span.set_output(state)
+            if state["status"] == "blocked":
+                span.set_status("BLOCKED", result.get("reason"))
+            elif state["status"] == "error":
+                span.set_status("ERROR", result.get("error"))
+
+    def _trace_how_recovery(
+        self,
+        failure_type: str,
+        context: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Generate one HOW recovery hint and link its rule/analogy evidence."""
+
+        if self._how is None:
+            return None
+        with self._tracer.start_span(
+            "how.generate_recovery_hint",
+            "RECOVERY",
+            source="how",
+            operation=failure_type,
+            attributes={
+                "robot.id": self.config.robot_id,
+                "failure.type": failure_type,
+            },
+            robot_id=self.config.robot_id,
+            episode_id=context.get("episode_id"),
+            mission_id=context.get("task_id"),
+        ) as span:
+            span.set_input({"failure_type": failure_type, "context": context})
+            try:
+                hint = self._run_async(
+                    self._how.generate_recovery_hint(failure_type, context=context)
+                )
+            except Exception as exc:  # noqa: BLE001 - recovery is non-fatal
+                span.set_output({"status": "error", "error": str(exc)})
+                span.set_status("ERROR", str(exc))
+                logger.info("How recovery hint failed (non-fatal): %s", exc)
+                return None
+
+            if not hint:
+                span.set_output({"status": "no_hint"})
+                return None
+            hint = dict(hint)
+            rule_id = str(hint.get("rule_id") or "")
+            source = str(hint.get("source") or "")
+            evidence_refs = [
+                reference
+                for reference in hint.get("evidence_refs", [])
+                if isinstance(reference, str)
+            ]
+            if rule_id:
+                evidence_refs.insert(0, f"how://rule/{rule_id}")
+            if source == "memory_analogy" and rule_id.startswith("analogy_"):
+                evidence_refs.append(f"memory://experience/{rule_id.removeprefix('analogy_')}")
+            elif source == "knowledge_analogy" and rule_id.startswith("analogy_"):
+                evidence_refs.append(f"know://pattern/{rule_id.removeprefix('analogy_')}")
+            evidence_refs = list(dict.fromkeys(evidence_refs))
+            hint["evidence_refs"] = evidence_refs
+            span.set_output(hint)
+            for reference in evidence_refs:
+                span.add_evidence(reference)
+            return hint
+
+    def _trace_critic_evaluation(
+        self,
+        result: dict[str, Any],
+        trajectory_data: list[dict[str, Any]],
+        *,
+        is_blocked: bool,
+        episode_id: str,
+        task_id: str,
+    ) -> tuple[float, str]:
+        """Evaluate the execution result under a dedicated Critic span."""
+
+        with self._tracer.start_span(
+            "critic.evaluate_execution",
+            "CRITIC",
+            source="critic",
+            operation="execution.evaluate",
+            attributes={"robot.id": self.config.robot_id},
+            robot_id=self.config.robot_id,
+            episode_id=episode_id,
+            mission_id=task_id,
+        ) as span:
+            span.set_input(
+                {
+                    "execution_status": result.get("status"),
+                    "trajectory_waypoints": len(trajectory_data),
+                    "blocked": is_blocked,
+                }
+            )
+            reward = 0.0
+            status = "UNKNOWN"
+            max_joint_delta = 0.0
+            if result.get("status") == "ok":
+                reward = 1.0
+                status = "SUCCESS"
+                if len(trajectory_data) > 2:
+                    for index in range(1, len(trajectory_data)):
+                        previous = trajectory_data[index - 1].get("joint_positions", [])
+                        current = trajectory_data[index].get("joint_positions", [])
+                        if previous and current and len(previous) == len(current):
+                            delta = sum(
+                                abs(before - after)
+                                for before, after in zip(previous, current, strict=False)
+                            )
+                            max_joint_delta = max(max_joint_delta, delta)
+                    if max_joint_delta > 0.5:
+                        reward -= 0.2
+            elif is_blocked:
+                reward = -1.0
+                status = "BLOCKED"
+            else:
+                reward = -1.0
+                status = "FAILED"
+
+            span.set_output(
+                {
+                    "reward": reward,
+                    "status": status,
+                    "max_joint_delta": max_joint_delta,
+                }
+            )
+            return reward, status
+
     def execute(self, action: dict[str, Any]) -> dict[str, Any]:
         """Execute one mission under a root Agent span."""
 
@@ -1962,7 +2482,16 @@ class Runtime(LifecycleMixin):
         try:
             capability = action.get("capability", f"skill.{skill_name}")
             provider_inputs = action.get("parameters", {})
-            provider_result = self.capability_invoke(capability, provider_inputs)
+            provider_result = self.capability_invoke(
+                capability,
+                provider_inputs,
+                context={
+                    "instruction": instruction,
+                    "episode_id": episode_id,
+                    "task_id": action.get("task_id", request_id),
+                    "request_id": request_id,
+                },
+            )
         except Exception as e:
             provider_result = {"status": "error", "error": str(e)}
 
@@ -1995,101 +2524,38 @@ class Runtime(LifecycleMixin):
             )
         )
 
-        # 5. Generate real joint trajectory via sandbox physics
-        trajectory_data: list[dict] = []
-        if is_blocked:
-            result = {
-                "status": "blocked",
-                "decision": "BLOCK",
-                "reason": sandbox_result.get("reason", "firewall"),
-                "violations": sandbox_result.get("violations", []),
-                "source": "firewall",
-            }
-        else:
-            if self._sandbox is not None and hasattr(self._sandbox, "validate_trajectory"):
-                try:
-                    raw_trajectory = action.get("trajectory", [])
-                    if not raw_trajectory:
-                        raw_trajectory = self._generate_trajectory(action)
-
-                    validation = self._sandbox.validate_trajectory(raw_trajectory)
-
-                    # Use real physics stepping if sandbox has MuJoCo model
-                    has_real_physics = (
-                        self._sandbox is not None and getattr(self._sandbox, "has_physics", False)  # noqa: W503
-                    )
-                    dt = 0.01
-                    for i, waypoint in enumerate(raw_trajectory):
-                        if has_real_physics:
-                            state = self._sandbox.simulate_step(waypoint)
-                            if state:
-                                joint_positions = state.get("qpos", waypoint)[: len(waypoint)]
-                                timestamp = state.get("time", i * dt)
-                            else:
-                                joint_positions = waypoint
-                                timestamp = i * dt
-                        else:
-                            joint_positions = waypoint
-                            timestamp = i * dt
-                        trajectory_data.append(
-                            {
-                                "timestamp": timestamp,
-                                "joint_positions": joint_positions,
-                                "phase": "approach"
-                                if i < len(raw_trajectory) * 0.3
-                                else ("grasp" if i < len(raw_trajectory) * 0.6 else "retract"),
-                            }
-                        )
-
-                    if validation.get("is_safe", True):
-                        result = {
-                            "status": "ok",
-                            "trajectory": raw_trajectory,
-                            "trajectory_data": trajectory_data,
-                            "validation": validation,
-                            "final_position": raw_trajectory[-1] if raw_trajectory else [],
-                            "source": "sandbox",
-                        }
-                    else:
-                        result = {
-                            "status": "blocked",
-                            "decision": "BLOCK",
-                            "reason": validation.get("reason", "unsafe"),
-                            "violations": validation.get("violations", []),
-                            "source": "sandbox",
-                        }
-                        is_blocked = True
-                except Exception as e:
-                    result = {"status": "error", "error": str(e), "source": "sandbox"}
-            else:
-                raw_trajectory = self._generate_trajectory(action)
-                for i, waypoint in enumerate(raw_trajectory):
-                    trajectory_data.append(
-                        {
-                            "timestamp": i * 0.01,
-                            "joint_positions": waypoint,
-                            "phase": "mock",
-                        }
-                    )
-                result = {
-                    "status": "ok",
-                    "trajectory": raw_trajectory,
-                    "trajectory_data": trajectory_data,
-                    "source": "fallback",
-                    "note": "No sandbox physics -- mock trajectory used",
-                }
+        # 5. Apply the trajectory only in the digital twin. The dedicated
+        # ROBOT_ACTION span states physical_actuation=False so a simulated
+        # validation run can never be mistaken for a hardware command.
+        result, trajectory_data, is_blocked = self._trace_trajectory_execution(
+            action,
+            sandbox_result,
+            {
+                "episode_id": episode_id,
+                "request_id": request_id,
+                "task_id": action.get("task_id", request_id),
+                "skill_id": skill_name,
+            },
+        )
+        self._trace_execution_state(result, trajectory_data)
 
         duration = time.time() - t0
 
         # 6. sandbox events
+        recovery_hint: dict[str, Any] | None = None
         if is_blocked:
+            failure_violations = result.get("violations") or sandbox_result.get("violations", [])
+            failure_reason = result.get("reason") or sandbox_result.get("reason", "")
             failure_text = " ".join(
                 [
-                    str(sandbox_result.get("reason", "")),
+                    str(failure_reason),
                     *[
-                        str(violation.get("description", ""))
-                        for violation in sandbox_result.get("violations", [])
-                        if isinstance(violation, dict)
+                        (
+                            str(violation.get("description", ""))
+                            if isinstance(violation, dict)
+                            else str(violation)
+                        )
+                        for violation in failure_violations
                     ],
                 ]
             ).lower()
@@ -2102,62 +2568,70 @@ class Runtime(LifecycleMixin):
             else:
                 sandbox_failure_type = "firewall_blocked"
 
-            self.event_bus.publish(
-                Event(
-                    topic="firewall.action_blocked",
-                    payload={
-                        "episode_id": episode_id,
-                        "request_id": request_id,
-                        "task_id": action.get("task_id", request_id),
-                        "robot_id": self.config.robot_id,
-                        "skill_id": skill_name,
-                        "failure_type": sandbox_failure_type,
-                        "action": action,
-                        "violations": sandbox_result.get("violations", []),
-                        "reason": sandbox_result.get("reason", ""),
-                    },
-                    source="sandbox",
-                    priority=EventPriority.HIGH,
-                    trace_id=request_id,
-                )
+            validation = result.get("validation")
+            failure_event_already_published = bool(
+                isinstance(validation, dict) and validation.get("event_published")
             )
+            if not failure_event_already_published:
+                self.event_bus.publish(
+                    Event(
+                        topic="firewall.action_blocked",
+                        payload={
+                            "episode_id": episode_id,
+                            "request_id": request_id,
+                            "task_id": action.get("task_id", request_id),
+                            "robot_id": self.config.robot_id,
+                            "skill_id": skill_name,
+                            "failure_type": sandbox_failure_type,
+                            "action": action,
+                            "violations": failure_violations,
+                            "reason": failure_reason,
+                            "recovery_owner": "runtime.closed_loop",
+                        },
+                        source="sandbox",
+                        priority=EventPriority.HIGH,
+                        trace_id=request_id,
+                    )
+                )
             # Memory auto-ingests firewall.action_blocked via EventBus subscription
             # (see MemoryInterface._on_firewall_action_blocked)
-            # How recovery hint generation (P0-6)
-            if self._how is not None:
-                try:
-                    hint = self._run_async(
-                        self._how.generate_recovery_hint(
-                            sandbox_failure_type,
-                            context={
-                                "skill_name": skill_name,
-                                "instruction": instruction,
-                                "violations": sandbox_result.get("violations", []),
-                                "reason": sandbox_result.get("reason", ""),
-                            },
-                        )
+            # Runtime owns recovery for this closed loop. The marker above
+            # prevents Runtime/HOW EventBus subscribers from issuing duplicate
+            # suggestions for the same failure.
+            recovery_hint = self._trace_how_recovery(
+                sandbox_failure_type,
+                {
+                    "episode_id": episode_id,
+                    "task_id": action.get("task_id", request_id),
+                    "request_id": request_id,
+                    "skill_name": skill_name,
+                    "instruction": instruction,
+                    "violations": failure_violations,
+                    "reason": failure_reason,
+                },
+            )
+            if recovery_hint:
+                result["recovery_hint"] = recovery_hint
+                self.event_bus.publish(
+                    Event(
+                        topic="rosclaw.how.recovery_hint.generated",
+                        payload={
+                            "episode_id": episode_id,
+                            "failure_id": episode_id,
+                            "request_id": request_id,
+                            "task_id": action.get("task_id", request_id),
+                            "robot_id": self.config.robot_id,
+                            "skill_id": skill_name,
+                            "hint": recovery_hint.get("hint", ""),
+                            "rule_id": recovery_hint.get("rule_id", ""),
+                            "source": recovery_hint.get("source", ""),
+                            "failure_type": sandbox_failure_type,
+                            "evidence_refs": recovery_hint.get("evidence_refs", []),
+                        },
+                        source="how",
+                        priority=EventPriority.HIGH,
                     )
-                    if hint:
-                        self.event_bus.publish(
-                            Event(
-                                topic="rosclaw.how.recovery_hint.generated",
-                                payload={
-                                    "episode_id": episode_id,
-                                    "failure_id": episode_id,
-                                    "request_id": request_id,
-                                    "task_id": action.get("task_id", request_id),
-                                    "robot_id": self.config.robot_id,
-                                    "skill_id": skill_name,
-                                    "hint": hint.get("hint", ""),
-                                    "rule_id": hint.get("rule_id", ""),
-                                    "failure_type": sandbox_failure_type,
-                                },
-                                source="how",
-                                priority=EventPriority.HIGH,
-                            )
-                        )
-                except Exception as e:
-                    logger.info(f"How recovery hint failed (non-fatal): {e}")
+                )
         else:
             self.event_bus.publish(
                 Event(
@@ -2208,27 +2682,13 @@ class Runtime(LifecycleMixin):
         )
 
         # 8. Critic evaluation
-        critic_reward = 0.0
-        critic_status = "UNKNOWN"
-        if result.get("status") == "ok":
-            critic_reward = 1.0
-            critic_status = "SUCCESS"
-            if len(trajectory_data) > 2:
-                max_diff = 0.0
-                for i in range(1, len(trajectory_data)):
-                    prev = trajectory_data[i - 1].get("joint_positions", [])
-                    curr = trajectory_data[i].get("joint_positions", [])
-                    if prev and curr and len(prev) == len(curr):
-                        diff = sum(abs(a - b) for a, b in zip(prev, curr, strict=False))
-                        max_diff = max(max_diff, diff)
-                if max_diff > 0.5:
-                    critic_reward -= 0.2
-        elif is_blocked:
-            critic_reward = -1.0
-            critic_status = "BLOCKED"
-        else:
-            critic_reward = -1.0
-            critic_status = "FAILED"
+        critic_reward, critic_status = self._trace_critic_evaluation(
+            result,
+            trajectory_data,
+            is_blocked=is_blocked,
+            episode_id=episode_id,
+            task_id=str(action.get("task_id", request_id)),
+        )
 
         self.event_bus.publish(
             Event(
@@ -2265,6 +2725,7 @@ class Runtime(LifecycleMixin):
                     "duration_sec": duration,
                     "outcome": {"reward": critic_reward, "status": critic_status},
                     "trajectory": trajectory_data,
+                    "recovery_owner": "runtime.closed_loop" if is_blocked else None,
                 },
                 source="runtime",
                 priority=EventPriority.NORMAL,
@@ -2273,7 +2734,16 @@ class Runtime(LifecycleMixin):
 
         # 10. Memory auto-ingest
         if self._memory is not None:
-            try:
+            with self._tracer.start_span(
+                "memory.store_experience",
+                "MEMORY",
+                source="memory",
+                operation="experience.store",
+                attributes={"robot.id": self.config.robot_id},
+                robot_id=self.config.robot_id,
+                episode_id=episode_id,
+                mission_id=str(action.get("task_id", request_id)),
+            ) as memory_span:
                 tags = [skill_name, self.config.robot_id]
                 if is_blocked:
                     tags.append("blocked")
@@ -2281,27 +2751,99 @@ class Runtime(LifecycleMixin):
                     tags.append("success")
                 else:
                     tags.append("failure")
-                self._memory.store_experience(
-                    event_id=episode_id,
-                    event_type="praxis",
-                    instruction=instruction,
-                    outcome="success" if result.get("status") == "ok" else "failure",
-                    duration_sec=duration,
-                    error_details=result.get("reason") if is_blocked else result.get("error"),
-                    tags=tags,
-                    metadata={
-                        "request_id": request_id,
-                        "skill_name": skill_name,
-                        "critic_reward": critic_reward,
-                        "critic_status": critic_status,
-                        "trajectory_waypoints": len(trajectory_data),
-                        "sandbox_blocked": is_blocked,
-                        "provider": provider_result.get("provider", ""),
-                        "validation": sandbox_result,
-                    },
+                retrieved = provider_result.get("memory_context")
+                retrieved_experience_ids = []
+                if isinstance(retrieved, dict):
+                    retrieved_experience_ids = [
+                        item["id"]
+                        for item in retrieved.get("experiences", [])
+                        if isinstance(item, dict) and item.get("id")
+                    ]
+                grounding_refs = provider_result.get("grounding_evidence_refs", [])
+                memory_span.set_input(
+                    {
+                        "event_id": episode_id,
+                        "instruction": instruction,
+                        "outcome": "success" if result.get("status") == "ok" else "failure",
+                        "tags": tags,
+                        "retrieved_experience_ids": retrieved_experience_ids,
+                    }
                 )
-            except Exception as e:
-                logger.info(f"Memory auto-ingest failed (non-fatal): {e}")
+                try:
+                    record_id = self._memory.store_experience(
+                        event_id=episode_id,
+                        event_type="praxis",
+                        instruction=instruction,
+                        outcome="success" if result.get("status") == "ok" else "failure",
+                        duration_sec=duration,
+                        error_details=(result.get("reason") if is_blocked else result.get("error")),
+                        tags=tags,
+                        metadata={
+                            "request_id": request_id,
+                            "trace_id": request_id,
+                            "skill_name": skill_name,
+                            "critic_reward": critic_reward,
+                            "critic_status": critic_status,
+                            "trajectory_waypoints": len(trajectory_data),
+                            "sandbox_blocked": is_blocked,
+                            "provider": provider_result.get("provider", ""),
+                            "validation": sandbox_result,
+                            "decision_summary": decision_summary,
+                            "grounding_evidence_refs": grounding_refs,
+                            "retrieved_experience_ids": retrieved_experience_ids,
+                            "recovery_hint": recovery_hint,
+                        },
+                    )
+                    reference = f"memory://experience/{record_id}"
+                    memory_span.set_output(
+                        {"status": "stored", "record_id": record_id, "reference": reference}
+                    )
+                    memory_span.add_evidence(reference)
+                except Exception as exc:  # noqa: BLE001 - persistence is non-fatal
+                    memory_span.set_output({"status": "error", "error": str(exc)})
+                    memory_span.set_status("ERROR", str(exc))
+                    logger.info("Memory auto-ingest failed (non-fatal): %s", exc)
+
+        # KNOW post-execution recording
+        if self._knowledge is not None:
+            with self._tracer.start_span(
+                "knowledge.record_usage",
+                "CONTEXT",
+                source="know",
+                operation="knowledge.usage.record",
+                attributes={"robot.id": self.config.robot_id},
+                robot_id=self.config.robot_id,
+                episode_id=episode_id,
+                mission_id=str(action.get("task_id", request_id)),
+            ) as knowledge_span:
+                knowledge_context = provider_result.get("knowledge_context")
+                knowledge_refs = self._knowledge_evidence_refs(
+                    knowledge_context if isinstance(knowledge_context, dict) else None
+                )
+                usage_context = {
+                    "episode_id": episode_id,
+                    "request_id": request_id,
+                    "trace_id": request_id,
+                    "robot_id": self.config.robot_id,
+                    "skill_name": skill_name,
+                    "capability": action.get("capability", f"skill.{skill_name}"),
+                    "execution_status": result.get("status", "unknown"),
+                    "duration_sec": duration,
+                    "knowledge_queried": knowledge_context is not None,
+                    "evidence_refs": knowledge_refs,
+                }
+                knowledge_span.set_input(usage_context)
+                try:
+                    self._knowledge.record_knowledge_usage(usage_context)
+                    reference = f"know://usage/{episode_id}"
+                    knowledge_span.set_output({"status": "recorded", "reference": reference})
+                    knowledge_span.add_evidence(reference)
+                    for evidence_ref in knowledge_refs:
+                        knowledge_span.add_evidence(evidence_ref)
+                except Exception as exc:  # noqa: BLE001 - persistence is non-fatal
+                    knowledge_span.set_output({"status": "error", "error": str(exc)})
+                    knowledge_span.set_status("ERROR", str(exc))
+                    logger.info("KNOW post-execution recording failed (non-fatal): %s", exc)
 
         # 11. dashboard.trace.updated
         self.event_bus.publish(
@@ -2320,22 +2862,6 @@ class Runtime(LifecycleMixin):
                 priority=EventPriority.LOW,
             )
         )
-
-        # KNOW post-execution recording
-        if self._knowledge is not None:
-            try:
-                self._knowledge.record_knowledge_usage(
-                    {
-                        "episode_id": episode_id,
-                        "robot_id": self.config.robot_id,
-                        "action": action,
-                        "result": result,
-                        "duration_sec": duration,
-                        "knowledge_queried": True,
-                    }
-                )
-            except Exception as e:
-                logger.info(f"KNOW post-execution recording failed (non-fatal): {e}")
 
         result.setdefault("episode_id", episode_id)
         result.setdefault("request_id", request_id)

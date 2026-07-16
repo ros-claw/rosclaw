@@ -55,6 +55,9 @@ def _load_storage_config(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "home": home,
         "config_found": bool(cfg),
+        "config_overridden": any(
+            getattr(args, name, None) is not None for name in ("backend", "url", "path")
+        ),
         "backend": backend,
         "url": url,
         "path": path,
@@ -339,8 +342,15 @@ def cmd_db_doctor(args: argparse.Namespace) -> int:
 
     # 1. Config presence
     config_ok = cfg["config_found"]
-    checks.append(("rosclaw.yaml", "found" if config_ok else "missing", config_ok))
-    if not config_ok:
+    config_overridden = cfg["config_overridden"]
+    checks.append(
+        (
+            "rosclaw.yaml",
+            "found" if config_ok else ("overridden by CLI" if config_overridden else "missing"),
+            config_ok or config_overridden,
+        )
+    )
+    if not config_ok and not config_overridden:
         issues.append("No rosclaw.yaml found; using defaults.")
 
     # 2. Backend resolution and URL sanity

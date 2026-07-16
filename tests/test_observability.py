@@ -83,6 +83,45 @@ class _Provider(Provider):
         )
 
 
+class _GroundingAwareProvider(Provider):
+    """Test provider that proves Runtime grounding reaches model inputs."""
+
+    name = "grounding-aware-provider"
+    version = "1.0.0"
+    capabilities = ["vlm.scene_understanding"]
+    requests: list[ProviderRequest] = []
+
+    async def infer(self, request: ProviderRequest) -> ProviderResponse:
+        self.requests.append(request)
+        grounding = request.context.get("grounding", {})
+        knowledge = grounding.get("knowledge") or {}
+        memory = grounding.get("memory") or {}
+        experiences = memory.get("experiences") or []
+        return ProviderResponse(
+            request_id=request.request_id,
+            provider=self.name,
+            capability=request.capability,
+            result={
+                "objects": [{"label": "conference-room door"}],
+                "candidates": [
+                    {"action": "continue patrol", "score": 0.82, "risk": "low"},
+                    {"action": "stop patrol", "score": 0.18, "risk": "missed inspection"},
+                ],
+                "decision": "continue patrol",
+                "reason_summary": (
+                    "The declared safety limits and a successful prior patrol support the route."
+                ),
+                "constraints": [
+                    f"knowledge_has_capability={knowledge.get('has_capability')}",
+                    f"retrieved_experiences={len(experiences)}",
+                ],
+                "evidence_refs": grounding.get("evidence_refs", []),
+            },
+            confidence=0.82,
+            model_info={"model": "grounding-aware-test-vlm"},
+        )
+
+
 def test_redactor_removes_secrets_and_large_artifacts():
     redactor = TraceRedactor(max_text_chars=8)
     result = redactor.redact(
@@ -491,6 +530,228 @@ def test_runtime_navigation_decision_preserves_auditable_model_evidence(tmp_path
     assert spans["provider.inference"]["output"]["result"]["chain_of_thought"] == (
         "[PRIVATE_REASONING_OMITTED]"
     )
+
+
+def test_runtime_trace_closes_knowledge_memory_decision_feedback_loop(tmp_path):
+    """A patrol mission retrieves grounding before inference and records its outcome."""
+
+    from rosclaw.core.runtime import Runtime, RuntimeConfig
+
+    runtime = Runtime(
+        RuntimeConfig(
+            robot_id="ur5e",
+            enable_firewall=False,
+            enable_memory=True,
+            enable_practice=False,
+            enable_swarm=False,
+            enable_skill_manager=False,
+            enable_knowledge=True,
+            enable_how=True,
+            enable_auto=False,
+            enable_provider=False,
+            enable_sense=False,
+            enable_event_persistence=False,
+            enable_tracing=True,
+            trace_home=str(tmp_path),
+            seekdb_backend="memory",
+        )
+    )
+    runtime.initialize()
+    assert runtime.memory is not None
+    runtime.memory.store_experience(
+        event_id="prior-patrol-success",
+        event_type="praxis",
+        instruction="patrol the corridor and inspect the conference-room door",
+        cot_trace=["private historical reasoning must not enter a new model request"],
+        outcome="success",
+        tags=["navigate_and_inspect", "success"],
+        metadata={"reason_summary": "The left route maintained safe clearance."},
+    )
+    assert runtime.knowledge is not None
+    original_preflight = runtime.knowledge.query_for_provider_selection
+    preflight_calls = 0
+
+    def counted_preflight(*args, **kwargs):
+        nonlocal preflight_calls
+        preflight_calls += 1
+        return original_preflight(*args, **kwargs)
+
+    runtime.knowledge.query_for_provider_selection = counted_preflight
+    runtime.start()
+
+    _GroundingAwareProvider.requests.clear()
+    registry = ProviderRegistry(event_bus=runtime.event_bus)
+    manifest = ProviderManifest.from_dict(
+        {
+            "name": "grounding-aware-provider",
+            "version": "1.0.0",
+            "type": "vlm",
+            "capabilities": ["vlm.scene_understanding"],
+        }
+    )
+    registry.register(manifest, lambda item: _GroundingAwareProvider(item), auto_load=False)
+    registry.set_provider_health("grounding-aware-provider", ok=True)
+    runtime._capability_router = CapabilityRouter(registry, tracer=runtime.tracer)
+
+    result = runtime.execute(
+        {
+            "request_id": "mission-grounded-patrol",
+            "task_id": "patrol-42",
+            "instruction": "patrol the corridor and inspect the conference-room door",
+            "skill_name": "navigate_and_inspect",
+            "capability": "vlm.scene_understanding",
+            "parameters": {"scenario": "corridor_patrol"},
+            "trajectory": [[0.0] * 6, [0.2, 0.0, 0.0, 0.0, 0.0, 0.0]],
+        }
+    )
+    runtime.stop()
+
+    assert result["status"] == "ok"
+    assert preflight_calls == 1
+    assert len(runtime.event_bus.get_history("rosclaw.knowledge.pre_check")) == 1
+    assert len(_GroundingAwareProvider.requests) == 1
+    request = _GroundingAwareProvider.requests[0]
+    grounding = request.context["grounding"]
+    assert grounding["knowledge"]["robot_id"] == "ur5e"
+    assert grounding["knowledge"]["safety_limits"]
+    assert grounding["memory"]["experiences"][0]["id"] == "prior-patrol-success"
+    assert "cot_trace" not in grounding["memory"]["experiences"][0]
+    assert request.constraints["knowledge_safety_limits"]
+
+    trace = TraceStore(home=tmp_path).get_trace("mission-grounded-patrol")
+    spans = {span["name"]: span for span in trace["spans"]}
+    expected = {
+        "runtime.execute": "MISSION",
+        "knowledge.preflight": "CONTEXT",
+        "memory.retrieve_experiences": "MEMORY",
+        "provider.invoke": "VLM",
+        "provider.inference": "VLM",
+        "agent.execution_decision": "PLANNER",
+        "sandbox.validate_action": "SANDBOX",
+        "robot.simulate_trajectory": "ROBOT_ACTION",
+        "sandbox.validate_trajectory": "SANDBOX",
+        "robot.observe_execution_result": "ROBOT_STATE",
+        "critic.evaluate_execution": "CRITIC",
+        "memory.store_experience": "MEMORY",
+        "knowledge.record_usage": "CONTEXT",
+    }
+    assert {name: spans[name]["span_kind"] for name in expected} == expected
+    mission_span_id = spans["runtime.execute"]["span_id"]
+    for name in expected.keys() - {
+        "runtime.execute",
+        "provider.inference",
+        "sandbox.validate_trajectory",
+    }:
+        assert spans[name]["parent_span_id"] == mission_span_id
+    assert spans["provider.inference"]["parent_span_id"] == spans["provider.invoke"]["span_id"]
+    assert (
+        spans["sandbox.validate_trajectory"]["parent_span_id"]
+        == spans["robot.simulate_trajectory"]["span_id"]
+    )
+    assert spans["robot.simulate_trajectory"]["attributes"]["physical_actuation"] is False
+    assert spans["memory.retrieve_experiences"]["evidence_refs"] == [
+        "memory://experience/prior-patrol-success"
+    ]
+    decision = spans["agent.execution_decision"]["output"]["decision_summary"]
+    assert "retrieved_experiences=1" in decision["constraints"]
+    assert "memory://experience/prior-patrol-success" in decision["evidence_refs"]
+    assert "chain_of_thought" not in decision
+
+
+def test_runtime_trace_records_single_evidence_backed_how_recovery(tmp_path):
+    """A safety block uses one HOW call and links its source experience."""
+
+    from rosclaw.core.runtime import Runtime, RuntimeConfig
+    from rosclaw.firewall.validator import (
+        ValidationLayer,
+        ValidationResponse,
+        ViolationDetail,
+    )
+
+    runtime = Runtime(
+        RuntimeConfig(
+            robot_id="ur5e",
+            enable_firewall=False,
+            enable_memory=True,
+            enable_practice=False,
+            enable_swarm=False,
+            enable_skill_manager=False,
+            enable_knowledge=True,
+            enable_how=True,
+            enable_auto=False,
+            enable_provider=False,
+            enable_sense=False,
+            enable_event_persistence=False,
+            enable_tracing=True,
+            trace_home=str(tmp_path),
+            seekdb_backend="memory",
+        )
+    )
+    runtime.initialize()
+    assert runtime.memory is not None
+    runtime.memory.store_experience(
+        event_id="prior-firewall-recovery",
+        event_type="praxis",
+        instruction="recover from an unusual safety interlock",
+        outcome="failure",
+        error_details="firewall blocked",
+        tags=["firewall", "blocked"],
+        metadata={"recovery_hint": "Re-localize, reduce speed, and request a fresh safety check."},
+    )
+
+    class _BlockingFirewall:
+        def validate(self, request):
+            return ValidationResponse(
+                request_id=request.request_id,
+                is_safe=False,
+                layers_checked=[ValidationLayer.SEMANTIC_SAFETY],
+                violations=[
+                    ViolationDetail(
+                        layer=ValidationLayer.SEMANTIC_SAFETY,
+                        severity="HIGH",
+                        joint_index=None,
+                        description="unclassified safety interlock",
+                    )
+                ],
+            )
+
+    runtime._firewall = _BlockingFirewall()
+    assert runtime._how is not None
+    original_generate = runtime._how.generate_recovery_hint
+    recovery_calls = 0
+
+    async def counted_generate(*args, **kwargs):
+        nonlocal recovery_calls
+        recovery_calls += 1
+        return await original_generate(*args, **kwargs)
+
+    runtime._how.generate_recovery_hint = counted_generate
+    result = runtime.execute(
+        {
+            "request_id": "mission-blocked-recovery",
+            "instruction": "continue the inspection through the interlock",
+            "skill_name": "navigate_and_inspect",
+            "capability": "vlm.scene_understanding",
+            "trajectory": [[0.0] * 6],
+        }
+    )
+    runtime.stop()
+
+    assert result["status"] == "blocked"
+    assert recovery_calls == 1
+    assert result["recovery_hint"]["source"] == "memory_analogy"
+    trace = TraceStore(home=tmp_path).get_trace("mission-blocked-recovery")
+    spans = {span["name"]: span for span in trace["spans"]}
+    recovery = spans["how.generate_recovery_hint"]
+    assert recovery["span_kind"] == "RECOVERY"
+    assert recovery["status"] == "OK"
+    assert recovery["output"]["source"] == "memory_analogy"
+    assert recovery["evidence_refs"] == [
+        "how://rule/analogy_prior-firewall-recovery",
+        "memory://experience/prior-firewall-recovery",
+    ]
+    assert spans["robot.simulate_trajectory"]["status"] == "BLOCKED"
+    assert spans["critic.evaluate_execution"]["output"]["status"] == "BLOCKED"
 
 
 def test_trace_store_ignores_malformed_lines(tmp_path):

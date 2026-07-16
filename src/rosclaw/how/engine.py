@@ -785,6 +785,9 @@ class HeuristicEngine:
 
     def _on_failure_sync_wrapper(self, event: Any) -> None:
         """Sync EventBus callback that schedules async recovery handling."""
+        payload = event.payload if hasattr(event, "payload") else {}
+        if payload.get("recovery_owner") == "runtime.closed_loop":
+            return
         from rosclaw.core.async_utils import fire_and_forget
 
         fire_and_forget(self._on_failure_async(event))

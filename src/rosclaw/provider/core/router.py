@@ -314,7 +314,12 @@ class CapabilityRouter:
             episode_id=request.context.get("episode_id"),
             mission_id=request.context.get("task_id"),
         ) as span:
-            span.set_input(request.inputs)
+            inference_input = dict(request.inputs)
+            if request.context:
+                inference_input["_runtime_context"] = request.context
+            if request.constraints:
+                inference_input["_constraints"] = request.constraints
+            span.set_input(inference_input)
             self._publish_inference_event(
                 "rosclaw.provider.inference.requested",
                 request,
@@ -383,6 +388,8 @@ class CapabilityRouter:
         try:
             from rosclaw.core.event_bus import Event, EventPriority
 
+            grounding = request.context.get("grounding")
+            knowledge_prechecked = bool(isinstance(grounding, dict) and grounding.get("knowledge"))
             event_bus.publish(
                 Event(
                     topic=topic,
@@ -394,6 +401,7 @@ class CapabilityRouter:
                         "provider": provider.name,
                         "provider_version": provider.version,
                         "capability": request.capability,
+                        "knowledge_prechecked": knowledge_prechecked,
                         **details,
                     },
                     source="provider_router",

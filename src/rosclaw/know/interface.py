@@ -456,6 +456,12 @@ class KnowledgeInterface(LifecycleMixin):
         Publishes ``rosclaw.knowledge.pre_check`` with capability match info.
         """
         payload = event.payload if isinstance(event.payload, dict) else {}
+        # Runtime.capability_invoke() already performs and traces this query,
+        # then marks the provider event. Re-querying here would duplicate both
+        # storage reads and pre-check events. External provider calls without
+        # this marker still receive the event-driven fallback below.
+        if payload.get("knowledge_prechecked"):
+            return
         capability = payload.get("capability", "")
         robot_id = payload.get("robot_id", self.robot_id)
         result = self.query_for_provider_selection(capability, robot_id)

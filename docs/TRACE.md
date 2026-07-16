@@ -111,11 +111,51 @@ may be dropped; an error or blocked span displaces a normal queued record.
 - Runtime closed-loop missions and structured planning decisions
 - Every `Runtime.execute()` mission includes a nested `PLANNER` decision summary, including when
   provider planning is unavailable and the deterministic requested action is retained
+- KNOW provider preflight as a `CONTEXT` span, with capability, safety-limit, risk-pattern, and
+  `know://...` evidence references. Runtime performs this query once and marks the subsequent
+  provider event so the event-driven KNOW fallback does not query it again.
+- Bounded Memory retrieval before inference. Prior experiences are passed to the Provider as
+  summaries without persisted private `cot_trace`, and are linked with
+  `memory://experience/<id>` references.
+- Provider requests receive a `context.grounding` envelope containing KNOW, Memory, and evidence
+  references. KNOW safety limits are also placed in Provider constraints, so grounding is part of
+  the real model request rather than a dashboard-only annotation.
 - Provider routing, real inference input/output, model metadata, token usage, fallback, and errors
 - MCP tool arguments/results, side-effect classification, robot/session identity, timeout/error state
 - Skill execution input/output and block/error state
 - Runtime sandbox validation, digital-twin rollout, firewall layers, violations, and replay refs
+- Explicit `ROBOT_ACTION` and `ROBOT_STATE` spans for Runtime trajectory simulation and its observed
+  result. These spans carry `physical_actuation=false` / `physical_observation=false`; they do not
+  pretend a digital-twin run reached hardware.
+- Critic evaluation, Memory experience write-back, and KNOW usage write-back in the same mission
+  tree. Stored experience metadata links the decision summary, originating trace, retrieved
+  experiences, and recovery evidence.
+- A blocked execution gets one Runtime-owned HOW recovery span. Heuristic, Memory analogy, and KNOW
+  analogy sources use `how://`, `memory://`, and `know://` references; duplicate EventBus recovery
+  calls for the same closed-loop failure are suppressed.
 - EventBus envelope propagation of `trace_id`, `span_id`, and `parent_span_id`
+
+For example, a navigation/inspection dry run now produces a causal tree like:
+
+```text
+MISSION  runtime.execute
+├── CONTEXT       knowledge.preflight
+├── MEMORY        memory.retrieve_experiences
+├── VLM           provider.invoke
+│   └── VLM       provider.inference
+├── PLANNER       agent.execution_decision
+├── SANDBOX       sandbox.validate_action
+├── ROBOT_ACTION  robot.simulate_trajectory
+│   └── SANDBOX   sandbox.validate_trajectory
+├── ROBOT_STATE   robot.observe_execution_result
+├── CRITIC        critic.evaluate_execution
+├── MEMORY        memory.store_experience
+└── CONTEXT       knowledge.record_usage
+```
+
+The failure branch adds `RECOVERY how.generate_recovery_hint`. A real robot bridge or MCP driver
+should add its own `ROBOT_ACTION` command/ACK and physical `ROBOT_STATE` feedback spans; Runtime's
+simulation spans remain clearly labeled until those integrations are present.
 
 High-frequency robot state should continue to use Practice/MCAP. Trace is for causal semantic
 operations; it should reference large physical artifacts rather than embed them.

@@ -115,6 +115,7 @@ class SandboxRuntimeAdapter(LifecycleMixin):
         self,
         trajectory: list[list[float]],
         safety_level: str = "MODERATE",
+        event_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Trace one digital-twin trajectory validation."""
 
@@ -132,7 +133,7 @@ class SandboxRuntimeAdapter(LifecycleMixin):
             robot_id=self._robot_id or None,
         ) as span:
             span.set_input({"trajectory": trajectory})
-            result = self._validate_trajectory(trajectory, safety_level)
+            result = self._validate_trajectory(trajectory, safety_level, event_context)
             span.set_output(result)
             if not result.get("is_safe", False):
                 reason = str(result.get("reason", "unsafe"))
@@ -150,6 +151,7 @@ class SandboxRuntimeAdapter(LifecycleMixin):
         self,
         trajectory: list[list[float]],
         safety_level: str = "MODERATE",
+        event_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Validate a trajectory using dynamic simulation (mj_step).
@@ -200,6 +202,7 @@ class SandboxRuntimeAdapter(LifecycleMixin):
                     Event(
                         topic=topic,
                         payload={
+                            **(event_context or {}),
                             "robot_id": self._robot_id,
                             "world_id": self._world_id,
                             "action": action,
@@ -222,6 +225,7 @@ class SandboxRuntimeAdapter(LifecycleMixin):
                 "reason": decision.reason,
                 "violations": decision.violated_constraints,
                 "replay_id": decision.replay_id,
+                "event_published": self._event_bus is not None,
             }
 
             gate.close()
