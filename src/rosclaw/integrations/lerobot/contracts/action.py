@@ -9,7 +9,6 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-
 ACTION_PROPOSAL_SCHEMA_VERSION = "rosclaw.action_proposal.v2"
 
 # Action representations supported by P4.
@@ -133,7 +132,7 @@ class ActionChunkMetadata:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ActionChunkMetadata":
+    def from_dict(cls, data: dict[str, Any]) -> ActionChunkMetadata:
         return cls(
             is_chunk=bool(data.get("is_chunk", False)),
             length=int(data.get("length", 1)),
@@ -208,7 +207,7 @@ class ActionProposalV2:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ActionProposalV2":
+    def from_dict(cls, data: dict[str, Any]) -> ActionProposalV2:
         policy = data.get("policy", {})
         action = data.get("action", {})
         chunk = data.get("chunk", {})

@@ -312,6 +312,7 @@ class KnowledgeInterface(LifecycleMixin):
         assets_path: str = "data/knowledge_assets",
         similarity_floor: float = 0.5,
         use_rosclaw_know_registry: bool = False,
+        memory_interface: Any | None = None,
     ):
         super().__init__()
         self.robot_id = robot_id
@@ -320,6 +321,7 @@ class KnowledgeInterface(LifecycleMixin):
         self.assets_path = Path(assets_path)
         self.similarity_floor = similarity_floor
         self.use_rosclaw_know_registry = use_rosclaw_know_registry
+        self.memory_interface = memory_interface
 
         # In-memory caches (populated at initialize())
         self._capabilities: dict[str, list[str]] = {}  # robot_id -> [capability, ...]
@@ -517,6 +519,13 @@ class KnowledgeInterface(LifecycleMixin):
         if not error_signature or not self._initialized:
             return None
 
+        # 0) Vector/hybrid search over past failures when a MemoryInterface
+        #    with vector search is available. This surfaces semantically
+        #    related episodes that keyword matching would miss.
+        vector_match = self._vector_match_symptom(error_signature)
+        if vector_match is not None:
+            return vector_match
+
         best_match: dict[str, Any] | None = None
         best_score = 0.0
 
@@ -536,6 +545,49 @@ class KnowledgeInterface(LifecycleMixin):
         # v1.0: return best match if any keyword hit at all
         if best_match and best_score > 0.05:
             return best_match
+        return None
+
+    def _vector_match_symptom(self, error_signature: str) -> dict[str, Any] | None:
+        """Try to match a symptom via MemoryInterface vector/hybrid search.
+
+        Searches recent failure experiences and synthesizes a pattern dict
+        compatible with :meth:`match_symptom`.
+        """
+        if self.memory_interface is None:
+            return None
+        try:
+            results = self.memory_interface.find_similar_experiences(
+                error_signature,
+                limit=3,
+                outcome_filter="failure",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Vector symptom match failed for %r: %s", error_signature, exc)
+            return None
+
+        for result in results:
+            vector_score = result.get("vector_score")
+            if vector_score is None:
+                continue
+            if vector_score < self.similarity_floor:
+                continue
+            record_id = result.get("id", "")
+            symptom = result.get("error_details") or result.get("instruction", "")
+            metadata = result.get("metadata", {}) or {}
+            fix = metadata.get("recovery_hint", "")
+            anti_pattern = metadata.get("anti_pattern", "")
+            tags = result.get("tags", [])
+            return {
+                "pattern_id": f"vector_{record_id}",
+                "symptom": symptom,
+                "domain": metadata.get("domain", ""),
+                "fix": fix,
+                "anti_pattern": anti_pattern,
+                "similarity": round(float(vector_score), 4),
+                "source": "vector_memory",
+                "experience_id": record_id,
+                "tags": tags,
+            }
         return None
 
     def get_analogy(self, situation: str) -> dict[str, Any] | None:

@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -156,12 +157,21 @@ def _practice_data_root(query_root: str | None = None) -> Path:
     return Path(os.environ.get("ROSCLAW_PRACTICE_DATA_ROOT", "/data/rosclaw/practice"))
 
 
+_EPISODE_LIST_TTL_SECONDS = 5.0
+_episode_list_cache: dict[Path, tuple[float, list[dict[str, Any]]]] = {}
+
+
 def _list_episodes(data_root: Path) -> list[dict[str, Any]]:
     """Return practice episode summaries from disk, newest first."""
     layout = PracticeLayout(data_root)
     sessions_dir = layout.sessions_dir
     if not sessions_dir.exists():
         return []
+
+    now = time.monotonic()
+    cached = _episode_list_cache.get(data_root)
+    if cached is not None and (now - cached[0]) < _EPISODE_LIST_TTL_SECONDS:
+        return cached[1]
 
     episodes: list[dict[str, Any]] = []
     for session_dir in sessions_dir.iterdir():
@@ -187,6 +197,7 @@ def _list_episodes(data_root: Path) -> list[dict[str, Any]]:
         )
 
     episodes.sort(key=lambda e: e.get("start_time") or "", reverse=True)
+    _episode_list_cache[data_root] = (now, episodes)
     return episodes
 
 
@@ -211,6 +222,14 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
             return [json.loads(line) for line in f if line.strip()]
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to read {path}: {exc}") from exc
+
+
+def _read_episode_events(layout: PracticeLayout, practice_id: str) -> list[dict[str, Any]]:
+    """Read the canonical events.jsonl stream, falling back to legacy timeline.jsonl."""
+    events_path = layout.events_jsonl_path(practice_id)
+    if events_path.exists():
+        return _read_jsonl(events_path)
+    return _read_jsonl(layout.timeline_jsonl_path(practice_id))
 
 
 async def _latest_frame_info(
@@ -245,8 +264,8 @@ async def _latest_frame_info(
 
     layout = PracticeLayout(data_root or _practice_data_root())
     for ep in _list_episodes(layout.data_root):
-        timeline = _read_jsonl(layout.timeline_jsonl_path(ep["practice_id"]))
-        for ev in reversed(timeline):
+        events = _read_episode_events(layout, ep["practice_id"])
+        for ev in reversed(events):
             if ev.get("source") == "camera" and ev.get("event_type") == "rgbd_frame":
                 payload = ev.get("payload", {})
                 rgb_ref = payload.get("rgb_ref")
@@ -305,8 +324,8 @@ def _list_realsense_frames(
     layout = PracticeLayout(data_root or _practice_data_root())
     frames: list[dict[str, Any]] = []
     for ep in _list_episodes(layout.data_root):
-        timeline = _read_jsonl(layout.timeline_jsonl_path(ep["practice_id"]))
-        for ev in reversed(timeline):
+        events = _read_episode_events(layout, ep["practice_id"])
+        for ev in reversed(events):
             if ev.get("source") == "camera" and ev.get("event_type") == "rgbd_frame":
                 payload = ev.get("payload", {})
                 rgb_ref = payload.get("rgb_ref")
@@ -386,8 +405,8 @@ def _list_realsense_streams(
 
     layout = PracticeLayout(data_root or _practice_data_root())
     for ep in _list_episodes(layout.data_root):
-        timeline = _read_jsonl(layout.timeline_jsonl_path(ep["practice_id"]))
-        for ev in reversed(timeline):
+        events = _read_episode_events(layout, ep["practice_id"])
+        for ev in reversed(events):
             if ev.get("source") == "camera" and ev.get("event_type") == "rgbd_frame":
                 payload = ev.get("payload", {})
                 rgb_ref = payload.get("rgb_ref")
@@ -692,7 +711,7 @@ class DashboardWebServer:
             root = _practice_data_root(data_root)
             session_dir = _episode_dir(root, episode_id)
             layout = PracticeLayout(root)
-            timeline = _read_jsonl(layout.timeline_jsonl_path(session_dir.name))
+            timeline = _read_episode_events(layout, session_dir.name)
             return {"practice_id": session_dir.name, "count": len(timeline), "timeline": timeline}
 
         @self.app.get("/api/practice/episodes/{episode_id}/artifacts")

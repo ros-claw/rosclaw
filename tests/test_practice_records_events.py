@@ -101,11 +101,14 @@ def _start_args(practice_home: Path, **overrides) -> SimpleNamespace:
 
 
 def _event_types(session_dir: Path) -> list[str]:
+    # timeline.jsonl is deprecated; read the canonical events.jsonl stream.
+    events_jsonl = session_dir / "raw" / "events.jsonl"
     timeline_jsonl = session_dir / "timeline.jsonl"
-    if not timeline_jsonl.exists():
+    target = events_jsonl if events_jsonl.exists() else timeline_jsonl
+    if not target.exists():
         return []
     types = []
-    for line in timeline_jsonl.read_text(encoding="utf-8").strip().splitlines():
+    for line in target.read_text(encoding="utf-8").strip().splitlines():
         if line:
             types.append(json.loads(line)["event_type"])
     return types

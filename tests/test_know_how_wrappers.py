@@ -10,7 +10,7 @@ Covers:
 import pytest
 
 from rosclaw.memory.interface import HeuristicRuleWrapper, KnowledgeGraphWrapper, MemoryInterface
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -27,7 +27,7 @@ def mem():
 
 @pytest.fixture
 def kg_wrapper():
-    client = SeekDBMemoryClient()
+    client = InMemoryKnowledgeStore()
     client.connect()
     w = KnowledgeGraphWrapper(client)
     return w
@@ -35,7 +35,7 @@ def kg_wrapper():
 
 @pytest.fixture
 def hr_wrapper():
-    client = SeekDBMemoryClient()
+    client = InMemoryKnowledgeStore()
     client.connect()
     w = HeuristicRuleWrapper(client)
     return w

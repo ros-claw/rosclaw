@@ -31,12 +31,12 @@ from rosclaw.how import (
     diagnose_safety,
     from_v1_prompt_build,
 )
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
 
 @pytest.fixture
 def engine():
-    client = SeekDBMemoryClient()
+    client = InMemoryKnowledgeStore()
     client.connect()
     return HeuristicEngine(seekdb_client=client)
 

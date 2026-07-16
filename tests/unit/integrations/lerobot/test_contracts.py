@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from rosclaw.integrations.lerobot.contracts import (
     ActionProposalV2,
     ObservationContract,

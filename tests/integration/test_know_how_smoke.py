@@ -8,7 +8,7 @@ import pytest
 from rosclaw.core import Runtime, RuntimeConfig
 from rosclaw.how import HeuristicEngine
 from rosclaw.know import KnowledgeInterface
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
 # ─────────────────────────────────────────────────────────────
 # KNOW Smoke Tests
@@ -26,7 +26,7 @@ class TestKnowModuleSmoke:
 
     def test_know_initialize(self):
         """KnowledgeInterface initializes with SeekDB."""
-        seekdb = SeekDBMemoryClient()
+        seekdb = InMemoryKnowledgeStore()
         seekdb.connect()
 
         know = KnowledgeInterface(seekdb_client=seekdb, robot_id="test_bot")
@@ -39,7 +39,7 @@ class TestKnowModuleSmoke:
 
     def test_know_query_empty_graph(self):
         """Query with empty knowledge_graph returns empty list, not error."""
-        seekdb = SeekDBMemoryClient()
+        seekdb = InMemoryKnowledgeStore()
         seekdb.connect()
 
         know = KnowledgeInterface(seekdb_client=seekdb, robot_id="unknown_bot")
@@ -50,7 +50,7 @@ class TestKnowModuleSmoke:
 
     def test_know_query_with_data(self):
         """Query returns seeded capabilities."""
-        seekdb = SeekDBMemoryClient()
+        seekdb = InMemoryKnowledgeStore()
         seekdb.connect()
 
         # Seed test data
@@ -75,7 +75,7 @@ class TestKnowModuleSmoke:
 
     def test_know_invalid_robot_id(self):
         """Query with invalid robot_id returns empty list, no crash."""
-        seekdb = SeekDBMemoryClient()
+        seekdb = InMemoryKnowledgeStore()
         seekdb.connect()
 
         know = KnowledgeInterface(seekdb_client=seekdb, robot_id="test_bot")
@@ -102,7 +102,7 @@ class TestHowModuleSmoke:
     @pytest.mark.asyncio
     async def test_how_initialize(self):
         """HeuristicEngine initializes with SeekDB."""
-        seekdb = SeekDBMemoryClient()
+        seekdb = InMemoryKnowledgeStore()
         seekdb.connect()
 
         how = HeuristicEngine(seekdb_client=seekdb)
@@ -114,7 +114,7 @@ class TestHowModuleSmoke:
     @pytest.mark.asyncio
     async def test_how_suggest_recovery_no_rules(self):
         """Recovery with no rules returns None, no crash."""
-        seekdb = SeekDBMemoryClient()
+        seekdb = InMemoryKnowledgeStore()
         seekdb.connect()
 
         how = HeuristicEngine(seekdb_client=seekdb)
@@ -126,7 +126,7 @@ class TestHowModuleSmoke:
     @pytest.mark.asyncio
     async def test_how_suggest_recovery_with_seeded_rules(self):
         """Recovery returns suggestion after seeding default rules."""
-        seekdb = SeekDBMemoryClient()
+        seekdb = InMemoryKnowledgeStore()
         seekdb.connect()
 
         how = HeuristicEngine(seekdb_client=seekdb)
@@ -141,7 +141,7 @@ class TestHowModuleSmoke:
     @pytest.mark.asyncio
     async def test_how_record_outcome(self):
         """Recording outcome updates rule stats."""
-        seekdb = SeekDBMemoryClient()
+        seekdb = InMemoryKnowledgeStore()
         seekdb.connect()
 
         how = HeuristicEngine(seekdb_client=seekdb)

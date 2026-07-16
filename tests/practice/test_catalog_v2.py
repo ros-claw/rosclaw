@@ -12,7 +12,7 @@ from rosclaw.practice.storage.catalog import PracticeCatalog
 
 @pytest.fixture
 def catalog(tmp_path: Path):
-    return PracticeCatalog(tmp_path / "catalog.sqlite")
+    return PracticeCatalog(tmp_path / "catalog.sqlite", event_batch_size=1)
 
 
 def test_v2_tables_are_created(catalog: PracticeCatalog):
@@ -136,7 +136,7 @@ def test_migration_preserves_existing_data(tmp_path: Path):
     conn.commit()
     conn.close()
 
-    catalog = PracticeCatalog(db_path)
+    catalog = PracticeCatalog(db_path, event_batch_size=1)
     row = catalog.get_practice("prac_old")
     assert row["robot_id"] == "r1"
     assert catalog.get_session("nonexistent") is None

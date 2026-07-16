@@ -29,12 +29,14 @@ import logging
 import os
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
 
 logger = logging.getLogger("rosclaw.core.runtime")
+
 
 # Provider layer imports (lazy to avoid hard deps)
 ProviderRegistry = None
@@ -76,10 +78,25 @@ class RuntimeConfig:
     safety_level: str = "MODERATE"  # STRICT | MODERATE | LENIENT
     timeline_output_dir: str = "./practice_data"
     enable_mcap: bool = False
-    seekdb_backend: str = "memory"  # "memory" | "sqlite"
-    seekdb_path: str = "./seekdb.sqlite"
-    # Optional SeekDB / rosclaw_practice integration for practice event persistence
+    # Knowledge-store backend for Memory/Knowledge/HOW/Auto modules.
+    # Supported: "memory" (ephemeral), "sqlite" (local file), "mysql" (SeekDB/OceanBase SQL).
+    # Default matches the canonical firstboot/rosclaw.yaml path so Runtime behavior is
+    # consistent whether a config file is present or not.
+    seekdb_backend: str = "sqlite"
+    seekdb_path: str = field(
+        default_factory=lambda: str(
+            Path.home() / ".rosclaw" / "data" / "memory" / "knowledge.sqlite"
+        )
+    )
+    # SQL DSN for sqlite/mysql knowledge-store backends.
+    # Examples: "sqlite:///home/user/.rosclaw/memory/knowledge.sqlite"
+    #           "mysql://root@127.0.0.1:2881/rosclaw"
     seekdb_url: str | None = field(default_factory=lambda: os.environ.get("ROSCLAW_SEEKDB_URL"))
+    # HTTP URL for the optional rosclaw_practice SeekDB bridge (ExperienceCommitter).
+    # This is NOT a SQL DSN; it targets the rosclaw_practice HTTP adapter.
+    seekdb_http_url: str | None = field(
+        default_factory=lambda: os.environ.get("ROSCLAW_PRACTICE_HTTP_ADAPTER_URL")
+    )
     seekdb_fallback_dir: str = field(
         default_factory=lambda: os.environ.get(
             "ROSCLAW_SEEKDB_FALLBACK_DIR", "/data/rosclaw/fallback"
@@ -113,6 +130,9 @@ class RuntimeConfig:
     sense_robot_profile: str | None = None
     sense_thresholds_path: str | None = None
     sense_replay_path: str | None = None
+    # Storage-layer tunables (Phase 1+).  Keys: pool_size, vector_enabled,
+    # outbox_enabled, outbox_max_records, outbox_flush_interval_sec.
+    storage: dict[str, Any] = field(default_factory=dict)
     # Persist all EventBus events to ~/.rosclaw/events/live.jsonl for dashboard tail
     enable_event_persistence: bool = True
     # Structured ROSClaw Trace. Model/tool I/O is redacted by default.
@@ -162,6 +182,7 @@ class Runtime(LifecycleMixin):
         self._robot_profile: Any | None = None
         self._sandbox: Any | None = None
         self._episode_recorder: Any | None = None
+        self._seekdb_bridge: Any | None = None
         self._mcp_drivers: dict[str, Any] = {}
 
         # Provider layer
@@ -301,12 +322,8 @@ class Runtime(LifecycleMixin):
         if self.config.enable_memory:
             try:
                 from rosclaw.memory.interface import MemoryInterface
-                from rosclaw.memory.seekdb_client import SeekDBMemoryClient, SeekDBSQLiteClient
 
-                if self.config.seekdb_backend == "sqlite":
-                    seekdb = SeekDBSQLiteClient(self.config.seekdb_path)
-                else:
-                    seekdb = SeekDBMemoryClient()
+                seekdb = self._create_seekdb_client()
                 self._memory = MemoryInterface(
                     robot_id=self.config.robot_id,
                     event_bus=self.event_bus,
@@ -338,20 +355,47 @@ class Runtime(LifecycleMixin):
                 logger.info(f"UnifiedTimeline not available: {e}")
 
             # Optional SeekDB bridge for practice event persistence
-            seekdb_bridge = None
-            if self.config.seekdb_url:
+            self._seekdb_bridge = None
+            http_url = self.config.seekdb_http_url
+            if http_url:
                 try:
                     from rosclaw.practice.seekdb_bridge import SeekDBBridge
+                    from rosclaw.storage.outbox import OutboxStore
 
-                    seekdb_bridge = SeekDBBridge(
-                        seekdb_url=self.config.seekdb_url,
-                        fallback_dir=self.config.seekdb_fallback_dir,
-                    )
-                    logger.info("SeekDBBridge initialized")
+                    outbox_enabled = self.config.storage.get("outbox_enabled", False)
+                    if outbox_enabled:
+                        outbox_path = self.config.storage.get(
+                            "outbox_path",
+                            str(Path.home() / ".rosclaw" / "storage" / "outbox.sqlite"),
+                        )
+                        outbox = OutboxStore(
+                            db_path=outbox_path,
+                            max_records=self.config.storage.get("outbox_max_records", 100_000),
+                        )
+                        outbox.connect()
+                        self._seekdb_bridge = SeekDBBridge(
+                            seekdb_url=http_url,
+                            fallback_dir=self.config.seekdb_fallback_dir,
+                            outbox=outbox,
+                        )
+                        # Bridge owns the worker when only outbox is passed.
+                        logger.info(
+                            "SeekDBBridge initialized at %s with outbox (%s)",
+                            http_url,
+                            outbox_path,
+                        )
+                    else:
+                        self._seekdb_bridge = SeekDBBridge(
+                            seekdb_url=http_url,
+                            fallback_dir=self.config.seekdb_fallback_dir,
+                        )
+                        logger.info("SeekDBBridge initialized at %s", http_url)
                 except ImportError as e:
                     logger.info(f"rosclaw_practice not installed, SeekDB integration disabled: {e}")
                 except Exception as e:
                     logger.warning(f"SeekDBBridge initialization failed: {e}")
+
+            seekdb_bridge = self._seekdb_bridge
 
             # Initialize EpisodeRecorder for artifact management
             try:
@@ -426,6 +470,7 @@ class Runtime(LifecycleMixin):
                     event_bus=self.event_bus,
                     seekdb_client=seekdb,
                     use_rosclaw_know_registry=self.config.know_curated_registry_enabled,
+                    memory_interface=self._memory,
                 )
                 self._modules.append(self._knowledge)
                 logger.info("Knowledge Grounding (KnowledgeInterface) initialized")
@@ -536,6 +581,31 @@ class Runtime(LifecycleMixin):
 
         logger.info("Initialization complete")
 
+    def _create_seekdb_client(self) -> Any:
+        """Create and return the shared knowledge-store client for Memory/Knowledge/HOW/Auto.
+
+        Delegates to :class:`rosclaw.storage.factory.StorageFactory` so backend
+        selection, URL validation, and future pooling/vector extensions live in
+        one place.
+        """
+        from rosclaw.storage.factory import StorageFactory
+
+        client = StorageFactory.create_knowledge_store(
+            backend=self.config.seekdb_backend,
+            url=self.config.seekdb_url,
+            path=self.config.seekdb_path,
+            pool_size=self.config.storage.get("pool_size", 4),
+            vector_enabled=self.config.storage.get("vector_enabled", False),
+        )
+        capabilities = StorageFactory.capabilities(client)
+        logger.info(
+            "Knowledge store backend: %s (persistent=%s, vector=%s)",
+            type(client).__name__,
+            capabilities["persistent"],
+            capabilities["vector"],
+        )
+        return client
+
     def _create_how_engine(self, seekdb: Any | None) -> Any | None:
         """Return a HOW engine: HowClient when configured, else HeuristicEngine."""
         if self.config.how_url:
@@ -569,6 +639,7 @@ class Runtime(LifecycleMixin):
             knowledge_interface=self._knowledge,
             event_bus=self.event_bus,
             sense_runtime=self._sense,
+            memory_interface=self._memory,
         )
         self._run_async(engine.initialize())
         self._run_async(engine.seed_defaults())
@@ -598,6 +669,13 @@ class Runtime(LifecycleMixin):
         if self._event_sink is not None:
             self._event_sink.close()
             self._event_sink = None
+        # Close SeekDB bridge (and any owned outbox worker) before stopping modules.
+        if self._seekdb_bridge is not None and hasattr(self._seekdb_bridge, "close"):
+            try:
+                self._seekdb_bridge.close()
+            except Exception as exc:
+                logger.warning("SeekDBBridge close failed (non-fatal): %s", exc)
+            self._seekdb_bridge = None
         self.event_bus.publish(
             Event(
                 topic="runtime.status",

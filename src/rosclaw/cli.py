@@ -98,6 +98,7 @@ from rosclaw.sense.cli import (
     cmd_sense_watch,
 )
 from rosclaw.skill.cli import add_skill_hub_parsers
+from rosclaw.storage.cli import add_db_subparser, cmd_db_doctor, cmd_db_status
 
 
 def _cmd_mcp_serve(args: argparse.Namespace) -> int:
@@ -1438,16 +1439,18 @@ def _memory_db_path() -> Path:
 
 
 def _practice_seekdb_client(args: argparse.Namespace) -> Any:
-    """Build the configured Practice SeekDB backend."""
-    from rosclaw.memory.seekdb_client import SeekDBMySQLClient, SeekDBSQLiteClient
+    """Build the configured Practice SeekDB backend from args or env."""
+    import os
 
-    seekdb_url = getattr(args, "seekdb_url", None)
+    from rosclaw.memory.seekdb_client import SeekDBMySQLClient, SQLiteKnowledgeStore
+
+    seekdb_url = getattr(args, "seekdb_url", None) or os.environ.get("ROSCLAW_SEEKDB_URL")
     if seekdb_url:
         return SeekDBMySQLClient(seekdb_url)
 
     db_path = Path(getattr(args, "seekdb_path", None) or _memory_db_path())
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    return SeekDBSQLiteClient(str(db_path))
+    return SQLiteKnowledgeStore(str(db_path))
 
 
 def cmd_practice_list(args: argparse.Namespace) -> int:
@@ -1699,6 +1702,7 @@ def cmd_practice_export(args: argparse.Namespace) -> int:
                 writer = "skeleton"
             else:
                 from rosclaw.integrations.lerobot.config import get_configured_lerobot_runtime
+
                 runtime = get_configured_lerobot_runtime()
                 if runtime and runtime.get("subprocess_available"):
                     writer = "real"
@@ -1739,7 +1743,9 @@ def cmd_practice_export(args: argparse.Namespace) -> int:
 
         # real writer path
         if not args.output:
-            print("[ROSClaw] --output is required for real LeRobot dataset export.", file=sys.stderr)
+            print(
+                "[ROSClaw] --output is required for real LeRobot dataset export.", file=sys.stderr
+            )
             return 1
         repo_id = args.repo_id or f"local/rosclaw_{episode_dir.name or 'episode'}"
         include_groups = None
@@ -2133,7 +2139,21 @@ def cmd_practice_start(args: argparse.Namespace) -> int:
     import signal
 
     seekdb_enabled = args.seekdb
-    seekdb_url = os.environ.get("ROSCLAW_SEEKDB_URL", "http://localhost:2881")
+    # HTTP bridge URL for the optional rosclaw_practice SeekDB adapter.
+    # Prefer the dedicated env var; fall back to the legacy ROSCLAW_SEEKDB_URL
+    # for backward compatibility, but default to port 2882 to avoid colliding
+    # with the SeekDB SQL protocol on port 2881.
+    seekdb_http_url = os.environ.get("ROSCLAW_PRACTICE_HTTP_ADAPTER_URL")
+    if not seekdb_http_url:
+        legacy_url = os.environ.get("ROSCLAW_SEEKDB_URL")
+        if legacy_url and legacy_url.lower().startswith(("http://", "https://")):
+            seekdb_http_url = legacy_url
+            print(
+                "[rosclaw-practice] Warning: ROSCLAW_SEEKDB_URL is deprecated for the HTTP bridge; "
+                "set ROSCLAW_PRACTICE_HTTP_ADAPTER_URL instead.",
+                file=sys.stderr,
+            )
+    seekdb_http_url = seekdb_http_url or "http://localhost:2882"
     fallback_dir = os.environ.get("ROSCLAW_SEEKDB_FALLBACK_DIR", "/data/rosclaw/practice/fallback")
     skill_id = getattr(args, "skill", None)
     provider_id = getattr(args, "provider", None)
@@ -2225,19 +2245,49 @@ def cmd_practice_start(args: argparse.Namespace) -> int:
         publish_to_event_bus=True,
     )
     config.seekdb.enabled = seekdb_enabled
-    config.seekdb.url = seekdb_url if seekdb_enabled else None
+    config.seekdb.http_adapter_url = seekdb_http_url if seekdb_enabled else None
     config.seekdb.fallback_dir = fallback_dir
+    # Only treat ROSCLAW_SEEKDB_URL as a SQL DSN for post-session ingestion.
+    sql_url = os.environ.get("ROSCLAW_SEEKDB_URL")
+    if sql_url and str(sql_url).lower().startswith(("mysql://", "seekdb://", "sqlite://")):
+        config.seekdb.url = sql_url
 
     coordinator = PracticeCoordinator(config)
     coordinator.initialize()
 
     recorder = None
+    bridge = None
     if seekdb_enabled:
         try:
+            from rosclaw.firstboot.config import load_rosclaw_yaml
             from rosclaw.practice.episode_recorder import EpisodeRecorder
             from rosclaw.practice.seekdb_bridge import SeekDBBridge
+            from rosclaw.storage.outbox import OutboxStore
 
-            bridge = SeekDBBridge(seekdb_url=seekdb_url, fallback_dir=fallback_dir)
+            yaml_cfg = load_rosclaw_yaml(home) or {}
+            storage_cfg = yaml_cfg.get("storage", {})
+            outbox_enabled = bool(storage_cfg.get("outbox_enabled", False))
+            outbox_path = storage_cfg.get("outbox_path") or str(home / "storage" / "outbox.sqlite")
+            outbox_max_records = int(storage_cfg.get("outbox_max_records", 100_000))
+            outbox_flush_interval_sec = float(
+                storage_cfg.get("outbox_flush_interval_sec", 5.0)
+            )
+            outbox_batch_size = int(storage_cfg.get("outbox_batch_size", 100))
+
+            outbox: OutboxStore | None = None
+            if outbox_enabled:
+                outbox = OutboxStore(
+                    db_path=outbox_path,
+                    max_records=outbox_max_records,
+                )
+
+            bridge = SeekDBBridge(
+                seekdb_url=seekdb_http_url,
+                fallback_dir=fallback_dir,
+                outbox=outbox,
+                outbox_interval_sec=outbox_flush_interval_sec,
+                outbox_batch_size=outbox_batch_size,
+            )
             recorder = EpisodeRecorder(
                 robot_id=resolved_body_id,
                 event_bus=coordinator.event_bus,
@@ -2311,6 +2361,8 @@ def cmd_practice_start(args: argparse.Namespace) -> int:
     coordinator.stop()
     if recorder is not None:
         recorder.stop()
+    if bridge is not None:
+        bridge.close()
     if pid_file.exists():
         pid_file.unlink()
 
@@ -2838,14 +2890,18 @@ def cmd_practice_validate(args: argparse.Namespace) -> int:
 
     timeline: list[dict[str, Any]] = []
     if not timeline_path.exists():
-        errors.append(f"missing timeline.jsonl: {timeline_path}")
+        warnings.append(
+            f"missing timeline.jsonl: {timeline_path} (events.jsonl is the canonical stream)"
+        )
     else:
         try:
             with open(timeline_path, encoding="utf-8") as f:
                 timeline = [json.loads(line) for line in f if line.strip()]
         except Exception as exc:
-            errors.append(f"failed to parse timeline.jsonl: {exc}")
+            warnings.append(f"failed to parse timeline.jsonl: {exc}")
 
+    # timeline.jsonl is deprecated; derive checks from the canonical events.jsonl.
+    check_events = timeline if timeline else events
     event_count = episode.get("event_count", len(events))
     checks["event_count"] = event_count
     checks["timeline_count"] = len(timeline)
@@ -2866,7 +2922,7 @@ def cmd_practice_validate(args: argparse.Namespace) -> int:
         )
 
     # Event-type and source checks.
-    timeline_types = {ev.get("event_type") for ev in timeline}
+    timeline_types = {ev.get("event_type") for ev in check_events}
     checks["event_types"] = sorted(timeline_types)
     if "runtime.start" not in timeline_types:
         errors.append("missing runtime.start event")
@@ -3206,11 +3262,15 @@ def cmd_practice_stop(args: argparse.Namespace) -> int:
 
 def cmd_practice_sync_fallback(args: argparse.Namespace) -> int:
     """Re-submit fallback JSON files to SeekDB."""
-    seekdb_url = args.seekdb_url or os.environ.get("ROSCLAW_SEEKDB_URL", "http://localhost:2881")
+    http_url = (
+        args.seekdb_url
+        or os.environ.get("ROSCLAW_PRACTICE_HTTP_ADAPTER_URL")
+        or os.environ.get("ROSCLAW_SEEKDB_URL", "http://localhost:2882")
+    )
     fallback_dir = args.fallback_dir or os.environ.get(
         "ROSCLAW_SEEKDB_FALLBACK_DIR", "/data/rosclaw/practice/fallback"
     )
-    sync = FallbackSync(seekdb_url=seekdb_url, fallback_dir=fallback_dir)
+    sync = FallbackSync(seekdb_url=http_url, fallback_dir=fallback_dir)
     summary = sync.sync()
     print(
         f"[rosclaw-practice] Fallback sync: attempted={summary['attempted']} "
@@ -4046,7 +4106,7 @@ def cmd_how_advise(args: argparse.Namespace) -> int:
     import asyncio
 
     from rosclaw.how.engine import HeuristicEngine
-    from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+    from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
     body_id = args.body
     failure = args.failure
@@ -4054,7 +4114,7 @@ def cmd_how_advise(args: argparse.Namespace) -> int:
     data_root = getattr(args, "data_root", None) or "/data/rosclaw/practice"
 
     async def _run() -> dict:
-        engine = HeuristicEngine(seekdb_client=SeekDBMemoryClient())
+        engine = HeuristicEngine(seekdb_client=InMemoryKnowledgeStore())
         await engine.initialize()
         return await engine.advise(
             body_id=body_id,
@@ -4529,12 +4589,12 @@ def _search_episode_artifacts(query: str, limit: int = 5) -> list[dict]:
 def cmd_memory_query(args: argparse.Namespace) -> int:
     """Query memory for similar experiences."""
     from rosclaw.memory.interface import MemoryInterface
-    from rosclaw.memory.seekdb_client import SeekDBSQLiteClient
+    from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
 
     db_path = _memory_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    mem = MemoryInterface("cli", seekdb_client=SeekDBSQLiteClient(str(db_path)))
+    mem = MemoryInterface("cli", seekdb_client=SQLiteKnowledgeStore(str(db_path)))
     mem._do_initialize()
     results = mem.find_similar_experiences(args.query, limit=args.limit)
 
@@ -4598,12 +4658,12 @@ def _find_last_failure_from_artifacts(task_id: str | None = None) -> dict | None
 def cmd_memory_explain(args: argparse.Namespace) -> int:
     """Explain the most recent failure."""
     from rosclaw.memory.interface import MemoryInterface
-    from rosclaw.memory.seekdb_client import SeekDBSQLiteClient
+    from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
 
     db_path = _memory_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    mem = MemoryInterface("cli", seekdb_client=SeekDBSQLiteClient(str(db_path)))
+    mem = MemoryInterface("cli", seekdb_client=SQLiteKnowledgeStore(str(db_path)))
     mem._do_initialize()
     failure = mem.explain_last_failure(task_id=args.task_id)
 
@@ -4631,14 +4691,14 @@ def cmd_memory_explain(args: argparse.Namespace) -> int:
 def cmd_memory_ingest(args: argparse.Namespace) -> int:
     """Ingest a practice episode into memory."""
     from rosclaw.memory.interface import MemoryInterface
-    from rosclaw.memory.seekdb_client import SeekDBSQLiteClient
+    from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
 
     episode_id = args.episode_id
     data_root = getattr(args, "data_root", None) or "/data/rosclaw/practice"
     db_path = _memory_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    mem = MemoryInterface("cli", seekdb_client=SeekDBSQLiteClient(str(db_path)))
+    mem = MemoryInterface("cli", seekdb_client=SQLiteKnowledgeStore(str(db_path)))
     mem._do_initialize()
     result = mem.ingest_episode(episode_id, data_root=data_root)
 
@@ -6308,11 +6368,21 @@ def main() -> int:
         default=None,
         help="Target path for isolated runtime (default: ~/.rosclaw/envs/lerobot)",
     )
-    setup_lerobot_parser.add_argument("--dry-run", action="store_true", help="Show what would be installed")
+    setup_lerobot_parser.add_argument(
+        "--dry-run", action="store_true", help="Show what would be installed"
+    )
     setup_lerobot_parser.add_argument("--upgrade", action="store_true", help="Upgrade packages")
-    setup_lerobot_parser.add_argument("--force", action="store_true", help="Recreate isolated runtime or overwrite existing config")
-    setup_lerobot_parser.add_argument("--index-url", default=None, help="Base URL of Python package index")
-    setup_lerobot_parser.add_argument("--extra-index-url", default=None, help="Extra URL of Python package index")
+    setup_lerobot_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Recreate isolated runtime or overwrite existing config",
+    )
+    setup_lerobot_parser.add_argument(
+        "--index-url", default=None, help="Base URL of Python package index"
+    )
+    setup_lerobot_parser.add_argument(
+        "--extra-index-url", default=None, help="Extra URL of Python package index"
+    )
     setup_lerobot_parser.add_argument("--json", action="store_true", help="Output JSON details")
 
     # run / start
@@ -6516,6 +6586,9 @@ def main() -> int:
         "--editor", default=None, help="Editor command (default: $EDITOR or nano)"
     )
 
+    # db (storage diagnostics)
+    db_parser = add_db_subparser(subparsers)
+
     # profile
     profile_parser = subparsers.add_parser("profile", help="Profile management")
     profile_subparsers = profile_parser.add_subparsers(dest="profile_command")
@@ -6688,15 +6761,15 @@ def main() -> int:
     provider_infer_parser.add_argument(
         "--manifest", required=True, help="Path to provider.yaml manifest"
     )
-    provider_infer_parser.add_argument(
-        "--input", required=True, help="Path to input JSON file"
-    )
+    provider_infer_parser.add_argument("--input", required=True, help="Path to input JSON file")
     provider_infer_parser.add_argument(
         "--policy.path", dest="policy_path", default=None, help="Policy directory or HF repo id"
     )
     provider_infer_parser.add_argument(
-        "--worker", choices=["auto", "subprocess", "in-process"], default="auto",
-        help="Worker execution mode (default: auto)"
+        "--worker",
+        choices=["auto", "subprocess", "in-process"],
+        default="auto",
+        help="Worker execution mode (default: auto)",
     )
     provider_infer_parser.add_argument(
         "--device", default="cpu", help="Device for inference (default: cpu)"
@@ -6707,12 +6780,8 @@ def main() -> int:
     provider_infer_parser.add_argument(
         "--timeout-sec", type=int, default=120, help="Worker timeout in seconds (default: 120)"
     )
-    provider_infer_parser.add_argument(
-        "--output", default=None, help="Output JSON file"
-    )
-    provider_infer_parser.add_argument(
-        "--dry-run", action="store_true", help="Dry-run mode"
-    )
+    provider_infer_parser.add_argument("--output", default=None, help="Output JSON file")
+    provider_infer_parser.add_argument("--dry-run", action="store_true", help="Dry-run mode")
     provider_infer_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     provider_inspect_parser = provider_subparsers.add_parser(
@@ -6736,9 +6805,7 @@ def main() -> int:
     provider_inspect_parser.add_argument(
         "--timeout-sec", type=int, default=60, help="Worker timeout in seconds (default: 60)"
     )
-    provider_inspect_parser.add_argument(
-        "--output", default=None, help="Output JSON file"
-    )
+    provider_inspect_parser.add_argument("--output", default=None, help="Output JSON file")
     provider_inspect_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     provider_load_test_parser = provider_subparsers.add_parser(
@@ -6762,9 +6829,7 @@ def main() -> int:
     provider_load_test_parser.add_argument(
         "--timeout-sec", type=int, default=120, help="Worker timeout in seconds (default: 120)"
     )
-    provider_load_test_parser.add_argument(
-        "--output", default=None, help="Output JSON file"
-    )
+    provider_load_test_parser.add_argument("--output", default=None, help="Output JSON file")
     provider_load_test_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     provider_diagnose_parser = provider_subparsers.add_parser(
@@ -6791,7 +6856,9 @@ def main() -> int:
     # lerobot subcommand
     lerobot_parser = subparsers.add_parser("lerobot", help="LeRobot integration commands")
     lerobot_subparsers = lerobot_parser.add_subparsers(dest="lerobot_command")
-    lerobot_doctor_parser = lerobot_subparsers.add_parser("doctor", help="Diagnose LeRobot integration")
+    lerobot_doctor_parser = lerobot_subparsers.add_parser(
+        "doctor", help="Diagnose LeRobot integration"
+    )
     lerobot_doctor_parser.add_argument("--json", action="store_true", help="Output as JSON")
     lerobot_info_parser = lerobot_subparsers.add_parser("info", help="Run lerobot-info")
     lerobot_info_parser.add_argument(
@@ -6806,16 +6873,20 @@ def main() -> int:
         "smoke-policy", help="Run a real LeRobot policy smoke test"
     )
     lerobot_smoke_parser.add_argument(
-        "--policy.path", dest="policy_path", default=DEFAULT_SMOKE_POLICY,
-        help=f"Policy directory or HF repo id (default: {DEFAULT_SMOKE_POLICY})"
+        "--policy.path",
+        dest="policy_path",
+        default=DEFAULT_SMOKE_POLICY,
+        help=f"Policy directory or HF repo id (default: {DEFAULT_SMOKE_POLICY})",
     )
     lerobot_smoke_parser.add_argument("--revision", default="main", help="HF revision")
     lerobot_smoke_parser.add_argument(
         "--device", default="cpu", help="Device for inference (default: cpu)"
     )
     lerobot_smoke_parser.add_argument(
-        "--dtype", default="auto", choices=["auto", "fp32", "fp16", "bf16"],
-        help="Model dtype (default: auto)"
+        "--dtype",
+        default="auto",
+        choices=["auto", "fp32", "fp16", "bf16"],
+        help="Model dtype (default: auto)",
     )
     lerobot_smoke_parser.add_argument(
         "--allow-network", action="store_true", help="Allow network access for HF downloads"
@@ -6823,9 +6894,7 @@ def main() -> int:
     lerobot_smoke_parser.add_argument(
         "--timeout-sec", type=int, default=300, help="Worker timeout in seconds (default: 300)"
     )
-    lerobot_smoke_parser.add_argument(
-        "--output", default=None, help="Output JSON file"
-    )
+    lerobot_smoke_parser.add_argument("--output", default=None, help="Output JSON file")
     lerobot_smoke_parser.add_argument(
         "--keep-worker-files", action="store_true", help="Keep worker temp files"
     )
@@ -6852,7 +6921,10 @@ def main() -> int:
         "export-dataset", help="Export a ROSClaw Practice episode to a real LeRobotDataset"
     )
     lerobot_export_dataset_parser.add_argument(
-        "--episode", dest="episode_dir", required=True, help="Path to the Practice episode directory"
+        "--episode",
+        dest="episode_dir",
+        required=True,
+        help="Path to the Practice episode directory",
     )
     lerobot_export_dataset_parser.add_argument(
         "--output", required=True, help="Output directory for the LeRobotDataset"
@@ -6873,7 +6945,9 @@ def main() -> int:
         "--body-profile", default=None, help="Override body profile metadata"
     )
     lerobot_export_dataset_parser.add_argument(
-        "--use-videos", action="store_true", help="Encode camera frames as MP4 videos (default: images)"
+        "--use-videos",
+        action="store_true",
+        help="Encode camera frames as MP4 videos (default: images)",
     )
     lerobot_export_dataset_parser.add_argument(
         "--visual-storage-mode",
@@ -6888,17 +6962,21 @@ def main() -> int:
         help="ROSClaw feature profile (default: minimal)",
     )
     lerobot_export_dataset_parser.add_argument(
-        "--include", dest="include_groups", default=None,
-        help="Comma-separated extra feature groups to include (e.g. safety,failure)"
+        "--include",
+        dest="include_groups",
+        default=None,
+        help="Comma-separated extra feature groups to include (e.g. safety,failure)",
     )
     lerobot_export_dataset_parser.add_argument(
-        "--include-body-snapshot", action="store_true", help="Copy body YAML snapshot into meta/rosclaw/body_snapshot/"
+        "--include-body-snapshot",
+        action="store_true",
+        help="Copy body YAML snapshot into meta/rosclaw/body_snapshot/",
     )
     lerobot_export_dataset_parser.add_argument(
         "--body-snapshot-mode",
         choices=["none", "sanitized", "full"],
         default="sanitized",
-        help="Body snapshot sanitization mode (default: sanitized)"
+        help="Body snapshot sanitization mode (default: sanitized)",
     )
     lerobot_export_dataset_parser.add_argument(
         "--acknowledge-sensitive-body-data",
@@ -6933,9 +7011,7 @@ def main() -> int:
     lerobot_validate_dataset_parser.add_argument(
         "--dataset", required=True, help="Path to the LeRobotDataset directory"
     )
-    lerobot_validate_dataset_parser.add_argument(
-        "--repo-id", required=True, help="Dataset repo id"
-    )
+    lerobot_validate_dataset_parser.add_argument("--repo-id", required=True, help="Dataset repo id")
     lerobot_validate_dataset_parser.add_argument(
         "--level",
         choices=["structural", "load", "dataloader", "rich"],
@@ -6945,7 +7021,9 @@ def main() -> int:
     lerobot_validate_dataset_parser.add_argument(
         "--timeout-sec", type=int, default=300, help="Worker timeout in seconds (default: 300)"
     )
-    lerobot_validate_dataset_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    lerobot_validate_dataset_parser.add_argument(
+        "--json", action="store_true", help="Output as JSON"
+    )
 
     lerobot_dataset_api_parser = lerobot_subparsers.add_parser(
         "dataset-api", help="Introspect the LeRobotDataset API in the configured runtime"
@@ -6961,9 +7039,7 @@ def main() -> int:
     lerobot_smoke_dataloader_parser.add_argument(
         "--dataset", required=True, help="Path to the LeRobotDataset directory"
     )
-    lerobot_smoke_dataloader_parser.add_argument(
-        "--repo-id", required=True, help="Dataset repo id"
-    )
+    lerobot_smoke_dataloader_parser.add_argument("--repo-id", required=True, help="Dataset repo id")
     lerobot_smoke_dataloader_parser.add_argument(
         "--batch-size", type=int, default=2, help="DataLoader batch size (default: 2)"
     )
@@ -6973,12 +7049,16 @@ def main() -> int:
     lerobot_smoke_dataloader_parser.add_argument(
         "--timeout-sec", type=int, default=300, help="Worker timeout in seconds (default: 300)"
     )
-    lerobot_smoke_dataloader_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    lerobot_smoke_dataloader_parser.add_argument(
+        "--json", action="store_true", help="Output as JSON"
+    )
 
     lerobot_dataset_compatibility_parser = lerobot_subparsers.add_parser(
         "dataset-compatibility", help="Show ROSClaw × LeRobot dataset feature compatibility matrix"
     )
-    lerobot_dataset_compatibility_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    lerobot_dataset_compatibility_parser.add_argument(
+        "--json", action="store_true", help="Output as JSON"
+    )
 
     # policy runtime subcommand
     lerobot_policy_parser = lerobot_subparsers.add_parser(
@@ -7782,10 +7862,15 @@ def main() -> int:
         help="LeRobot export mode: real dataset writer or legacy skeleton (default: real if runtime available)",
     )
     practice_export_parser.add_argument(
-        "--repo-id", default=None, help="Dataset repo id for real writer (default: local/rosclaw_<episode>)"
+        "--repo-id",
+        default=None,
+        help="Dataset repo id for real writer (default: local/rosclaw_<episode>)",
     )
     practice_export_parser.add_argument(
-        "--fps", type=float, default=None, help="Frames per second for real writer (default: inferred or 10)"
+        "--fps",
+        type=float,
+        default=None,
+        help="Frames per second for real writer (default: inferred or 10)",
     )
     practice_export_parser.add_argument(
         "--task", default=None, help="Override task text for the exported episode"
@@ -7797,7 +7882,9 @@ def main() -> int:
         "--body-profile", default=None, help="Override body profile metadata"
     )
     practice_export_parser.add_argument(
-        "--use-videos", action="store_true", help="Encode camera frames as MP4 videos (default: images)"
+        "--use-videos",
+        action="store_true",
+        help="Encode camera frames as MP4 videos (default: images)",
     )
     practice_export_parser.add_argument(
         "--visual-storage-mode",
@@ -7823,17 +7910,21 @@ def main() -> int:
         help="How to handle missing physical telemetry values (default: nan)",
     )
     practice_export_parser.add_argument(
-        "--include", dest="include_groups", default=None,
-        help="Comma-separated extra feature groups to include"
+        "--include",
+        dest="include_groups",
+        default=None,
+        help="Comma-separated extra feature groups to include",
     )
     practice_export_parser.add_argument(
-        "--include-body-snapshot", action="store_true", help="Copy body YAML snapshot into meta/rosclaw/body_snapshot/"
+        "--include-body-snapshot",
+        action="store_true",
+        help="Copy body YAML snapshot into meta/rosclaw/body_snapshot/",
     )
     practice_export_parser.add_argument(
         "--body-snapshot-mode",
         choices=["none", "sanitized", "full"],
         default="sanitized",
-        help="Body snapshot sanitization mode (default: sanitized)"
+        help="Body snapshot sanitization mode (default: sanitized)",
     )
     practice_export_parser.add_argument(
         "--acknowledge-sensitive-body-data",
@@ -8076,7 +8167,9 @@ def main() -> int:
             elif args.provider_command == "load-test":
                 if args.type == "lerobot_policy":
                     return cmd_provider_load_test_lerobot(args)
-                print(f"[ROSClaw] Unknown provider type for load-test: {args.type}", file=sys.stderr)
+                print(
+                    f"[ROSClaw] Unknown provider type for load-test: {args.type}", file=sys.stderr
+                )
                 return 1
             elif args.provider_command == "infer":
                 if args.type == "lerobot_policy":
@@ -8323,6 +8416,14 @@ def main() -> int:
                 return cmd_practice_export(args)
             else:
                 practice_parser.print_help()
+                return 1
+        elif args.command == "db":
+            if args.db_command == "status":
+                return cmd_db_status(args)
+            elif args.db_command == "doctor":
+                return cmd_db_doctor(args)
+            else:
+                db_parser.print_help()
                 return 1
         elif args.command == "know":
             if args.know_command == "search":

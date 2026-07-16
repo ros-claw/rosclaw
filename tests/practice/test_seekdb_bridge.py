@@ -126,3 +126,36 @@ class TestSeekDBBridge:
             await bridge.commit_async(praxis_event)
 
         mock_post.assert_called_once()
+
+    def test_commit_with_outbox_enqueues_without_http(self, praxis_event, tmp_path):
+        from rosclaw.storage.outbox import OutboxStore
+
+        outbox = OutboxStore(db_path=str(tmp_path / "outbox.sqlite"))
+        bridge = SeekDBBridge(outbox=outbox)
+        try:
+            with patch("requests.post") as mock_post:
+                bridge.commit(praxis_event)
+            mock_post.assert_not_called()
+            stats = outbox.stats()
+            assert stats["total"] == 1
+            assert stats["pending"] == 1
+        finally:
+            bridge.close()
+            outbox.close()
+
+    def test_bridge_owned_worker_uses_custom_interval_and_batch_size(self, tmp_path):
+        from rosclaw.storage.outbox import OutboxStore
+
+        outbox = OutboxStore(db_path=str(tmp_path / "outbox.sqlite"))
+        bridge = SeekDBBridge(
+            outbox=outbox,
+            outbox_interval_sec=2.5,
+            outbox_batch_size=42,
+        )
+        try:
+            assert bridge._owned_worker is not None
+            assert bridge._owned_worker._interval_sec == 2.5
+            assert bridge._owned_worker._batch_size == 42
+        finally:
+            bridge.close()
+            outbox.close()

@@ -6,7 +6,7 @@ Only a small, conservative set of conversions is supported.  Anything not in
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 UnitConverter = Callable[[float], float]
 

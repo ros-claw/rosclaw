@@ -18,11 +18,8 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from rosclaw.integrations.lerobot.rollout import RolloutConfig, run_shadow_loop
 from rosclaw.integrations.lerobot.rollout.state import RolloutMode, RolloutStopReason
-
 
 RH56_JOINTS = [
     "left_hip_pitch",

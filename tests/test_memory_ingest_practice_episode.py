@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 from rosclaw.cli import cmd_memory_ingest
 from rosclaw.memory.interface import MemoryInterface
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
 
 class _SpyMemoryInterface:
@@ -91,7 +91,7 @@ class TestMemoryIngestPracticeEpisode:
         data_root = tmp_path / "practice"
         _make_episode(data_root, episode_id)
 
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         mem = MemoryInterface(robot_id="d405_lab_01", seekdb_client=client)
         mem._do_initialize()
 
@@ -113,7 +113,7 @@ class TestMemoryIngestPracticeEpisode:
         assert artifacts[0]["episode_id"] == episode_id
 
     def test_ingest_episode_missing_session_returns_error(self, tmp_path):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         mem = MemoryInterface(robot_id="d405_lab_01", seekdb_client=client)
         mem._do_initialize()
 

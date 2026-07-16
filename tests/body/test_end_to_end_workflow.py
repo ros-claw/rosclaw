@@ -167,11 +167,11 @@ def test_skill_check_without_body(capsys):
 def test_body_update_state_and_note_write_memory_events(linked_body_with_skills, monkeypatch):
     """body update-state and note must persist body_change and skill_compatibility_change memory events."""
     from rosclaw.memory.interface import MemoryInterface
-    from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+    from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
-    shared_client = SeekDBMemoryClient()
+    shared_client = InMemoryKnowledgeStore()
     shared_client.connect()
-    monkeypatch.setattr("rosclaw.memory.interface.SeekDBMemoryClient", lambda: shared_client)
+    monkeypatch.setattr("rosclaw.memory.interface.InMemoryKnowledgeStore", lambda: shared_client)
 
     resolver = BodyResolver()
     robot_id = resolver.get_current_body_yaml().body_instance.get("id") or resolver.body_id

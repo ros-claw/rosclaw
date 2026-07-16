@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import sys
 import time
 from pathlib import Path
@@ -157,7 +156,6 @@ class PolicyWorkerService:
 
     def _read_policy_type(self, local_path: Path) -> str:
         """Read the policy type (e.g. 'act') from the local config."""
-        import json
 
         config_json = local_path / "config.json"
         if config_json.exists():

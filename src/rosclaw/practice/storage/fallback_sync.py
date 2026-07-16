@@ -23,7 +23,7 @@ class FallbackSync:
 
     def __init__(
         self,
-        seekdb_url: str = "http://localhost:2881",
+        seekdb_url: str = "http://localhost:2882",
         fallback_dir: Path | str = "/data/rosclaw/practice/fallback",
         table: str = "praxis_events",
         timeout_sec: float = 2.0,

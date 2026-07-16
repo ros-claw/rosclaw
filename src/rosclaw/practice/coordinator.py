@@ -10,7 +10,7 @@ from typing import Any
 
 from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.core.lifecycle import LifecycleMixin
-from rosclaw.memory.seekdb_client import SeekDBClient, SeekDBMySQLClient, SeekDBSQLiteClient
+from rosclaw.memory.seekdb_client import SeekDBClient
 from rosclaw.practice.adapters.base import SourceAdapter
 from rosclaw.practice.adapters.mock_agent_adapter import MockAgentAdapter
 from rosclaw.practice.adapters.mock_runtime_adapter import MockRuntimeAdapter
@@ -179,7 +179,7 @@ class PracticeCoordinator(LifecycleMixin):
             self.layout.write_manifest(
                 self._session,
                 sources=self._sources_dict(),
-                seekdb_enabled=bool(self.config.seekdb.url),
+                seekdb_enabled=self.config.seekdb.integration_enabled,
             )
         else:
             self._runtime_bus.publish(
@@ -198,7 +198,7 @@ class PracticeCoordinator(LifecycleMixin):
                         "episode_id": episode_id,
                         "session_dir": str(session_dir),
                         "sources": self._sources_dict(),
-                        "seekdb_enabled": bool(self.config.seekdb.url),
+                        "seekdb_enabled": self.config.seekdb.integration_enabled,
                     },
                     metadata={"trace_id": practice_id},
                 )
@@ -330,9 +330,10 @@ class PracticeCoordinator(LifecycleMixin):
                 self._writer = None
 
             if self._session is not None:
-                seekdb_enabled = self.config.seekdb.enabled or bool(self.config.seekdb.url)
+                seekdb_integration_enabled = self.config.seekdb.integration_enabled
+                seekdb_sql_enabled = self.config.seekdb.sql_ingestion_enabled
 
-                # Finalize the session files (episode.json, timeline.jsonl).
+                # Finalize the session files (episode.json, events.jsonl).
                 self.layout.finalize_session(
                     self._session.practice_id,
                     self._session,
@@ -386,9 +387,9 @@ class PracticeCoordinator(LifecycleMixin):
                 except Exception as e:
                     logger.error("Failed to insert episode into catalog v2: %s", e)
 
-                # Auto-ingest into SeekDB when enabled so the Knowledge Plane is
-                # populated immediately after a session finishes.
-                if seekdb_enabled:
+                # Auto-ingest into SeekDB when a SQL DSN is configured so the
+                # Knowledge Plane is populated immediately after a session finishes.
+                if seekdb_sql_enabled:
                     try:
                         report = self._ingest_seekdb()
                         if report.success:
@@ -408,7 +409,7 @@ class PracticeCoordinator(LifecycleMixin):
                     self._session,
                     summary=self._summary,
                     sources=self._sources_dict(),
-                    seekdb_enabled=seekdb_enabled,
+                    seekdb_enabled=seekdb_integration_enabled,
                 )
 
                 # Backfill catalog v2 artifact records for the files we just
@@ -464,7 +465,7 @@ class PracticeCoordinator(LifecycleMixin):
                             "event_count": self._event_count,
                             "failure_labels": failure_labels,
                             "sources": self._sources_dict(),
-                            "seekdb_enabled": bool(self.config.seekdb.url),
+                            "seekdb_enabled": self.config.seekdb.integration_enabled,
                         },
                         metadata={"trace_id": self._session.practice_id},
                     )
@@ -484,6 +485,11 @@ class PracticeCoordinator(LifecycleMixin):
                         source="practice_coordinator",
                     )
                 )
+
+        try:
+            self.catalog.flush()
+        except Exception as e:
+            logger.error("Failed to flush practice catalog: %s", e)
 
         logger.info(
             "Practice session stopped: %s",
@@ -664,18 +670,13 @@ class PracticeCoordinator(LifecycleMixin):
         return records
 
     def _make_seekdb_client(self) -> SeekDBClient | None:
-        """Create a SeekDB client from the configured URL."""
+        """Create a SeekDB client from the configured SQL URL."""
         url = self.config.seekdb.url
         if not url:
             return None
-        parsed = str(url).lower()
-        if parsed.startswith(("mysql://", "mysql+pymysql://", "seekdb://")):
-            return SeekDBMySQLClient(str(url))
-        # Default to SQLite for bare paths or sqlite:// prefixes.
-        db_path = str(url)
-        if db_path.startswith("sqlite://"):
-            db_path = db_path[len("sqlite://") :]
-        return SeekDBSQLiteClient(db_path)
+        from rosclaw.storage.factory import StorageFactory
+
+        return StorageFactory.create_knowledge_store(url=url)
 
     def _ingest_seekdb(self) -> Any:
         """Distill and ingest the current session into SeekDB."""

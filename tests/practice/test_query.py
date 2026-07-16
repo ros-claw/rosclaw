@@ -5,7 +5,7 @@ from __future__ import annotations
 import tempfile
 from typing import Any
 
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 from rosclaw.practice.config import PracticeConfig, SourceConfig
 from rosclaw.practice.coordinator import PracticeCoordinator
 from rosclaw.practice.query import PracticeQuery
@@ -50,7 +50,7 @@ def _run_session_with_events(tmp: str, events: list[dict[str, Any]]) -> str:
 
 def _ingest_and_query(tmp: str, events: list[dict[str, Any]]) -> tuple[str, PracticeQuery]:
     practice_id = _run_session_with_events(tmp, events)
-    client = SeekDBMemoryClient()
+    client = InMemoryKnowledgeStore()
     ingestor = SeekDBIngestor(tmp, seekdb_client=client)
     ingestor.ingest_practice(practice_id)
     ingestor.close()

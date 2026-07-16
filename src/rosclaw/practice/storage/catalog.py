@@ -5,12 +5,144 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import queue
 import sqlite3
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("rosclaw.practice.storage.catalog")
+
+
+class _BatchWriter:
+    """Threaded batch inserter for catalog tables.
+
+    Records are queued and flushed either when the batch reaches
+    ``batch_size`` or ``flush_interval_ms`` elapse.  The worker is a daemon
+    thread so a crashing process does not hang on a stuck writer; ``close()``
+    drains the queue and joins the thread.
+
+    Passing ``batch_size=1`` makes inserts effectively synchronous, which is
+    useful in tests that require immediate read-after-write visibility.
+    """
+
+    _POISON = object()
+
+    def __init__(
+        self,
+        name: str,
+        flush_fn: Any,
+        batch_size: int = 500,
+        flush_interval_ms: float = 300.0,
+        max_queue_size: int = 2000,
+    ):
+        self.name = name
+        self._flush_fn = flush_fn
+        self._batch_size = max(1, int(batch_size))
+        self._flush_interval_s = max(0.001, float(flush_interval_ms)) / 1000.0
+        self._queue: queue.Queue = queue.Queue(maxsize=max(1, int(max_queue_size)))
+        self._lock = threading.Lock()
+        self._closed = False
+        self._overflow_fallbacks = 0
+        self._failed_records: list[dict[str, Any]] = []
+        self._flush_error: Exception | None = None
+        self._thread = threading.Thread(
+            target=self._worker, name=f"catalog-batch-{name}", daemon=True
+        )
+        self._thread.start()
+
+    def put(self, record: dict[str, Any]) -> None:
+        if self._closed:
+            raise RuntimeError(f"Batch writer {self.name} is closed")
+        if self._flush_error is not None:
+            raise RuntimeError(f"Batch writer {self.name} previously failed") from self._flush_error
+        # Synchronous path for unit tests that require read-after-write.
+        if self._batch_size == 1:
+            self._flush([record])
+            return
+        try:
+            self._queue.put(record, block=False)
+        except queue.Full:
+            with self._lock:
+                self._overflow_fallbacks += 1
+            logger.warning(
+                "Batch writer %s queue full; persisting record synchronously",
+                self.name,
+            )
+            self._flush([record])
+
+    def close(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+        try:
+            self._queue.put(self._POISON, block=True, timeout=5.0)
+        except queue.Full:
+            logger.warning("Batch writer %s queue full on close; draining inline", self.name)
+        self._thread.join(timeout=5.0)
+        # Final drain in case the worker did not process everything.
+        final = list(self._failed_records)
+        while not self._queue.empty():
+            try:
+                item = self._queue.get_nowait()
+                if item is not self._POISON:
+                    final.append(item)
+            except queue.Empty:
+                break
+        if final:
+            self._flush(final)
+        if self._overflow_fallbacks:
+            logger.info(
+                "Batch writer %s used synchronous overflow fallback %s times",
+                self.name,
+                self._overflow_fallbacks,
+            )
+
+    def _worker(self) -> None:
+        while True:
+            batch: list[dict[str, Any]] = []
+            deadline: float | None = None
+            while len(batch) < self._batch_size:
+                timeout: float | None = None
+                if batch:
+                    assert deadline is not None
+                    timeout = max(0.0, deadline - time.monotonic())
+                else:
+                    timeout = None
+                try:
+                    item = self._queue.get(timeout=timeout)
+                except queue.Empty:
+                    break
+                if item is self._POISON:
+                    if not self._try_worker_flush(batch):
+                        return
+                    return
+                batch.append(item)
+                if deadline is None:
+                    deadline = time.monotonic() + self._flush_interval_s
+            if batch and not self._try_worker_flush(batch):
+                return
+
+    def _try_worker_flush(self, batch: list[dict[str, Any]]) -> bool:
+        try:
+            self._flush(batch)
+        except Exception as exc:
+            with self._lock:
+                self._failed_records.extend(batch)
+                self._flush_error = exc
+            return False
+        return True
+
+    def _flush(self, batch: list[dict[str, Any]]) -> None:
+        if not batch:
+            return
+        try:
+            self._flush_fn(batch)
+        except Exception:
+            logger.exception("Batch writer %s flush failed", self.name)
+            raise
 
 
 class PracticeCatalog:
@@ -208,12 +340,36 @@ class PracticeCatalog:
         ],
     }
 
-    def __init__(self, db_path: Path | str):
+    def __init__(
+        self,
+        db_path: Path | str,
+        *,
+        event_batch_size: int = 500,
+        event_flush_ms: float = 300.0,
+        event_max_queue: int = 2000,
+    ):
         self._db_path = Path(db_path)
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.RLock()
+        self._event_batch_size = event_batch_size
+        self._event_flush_ms = event_flush_ms
+        self._event_max_queue = event_max_queue
+        self._event_writer: _BatchWriter | None = _BatchWriter(
+            "events",
+            self._flush_events,
+            batch_size=event_batch_size,
+            flush_interval_ms=event_flush_ms,
+            max_queue_size=event_max_queue,
+        )
+        self._event_index_writer: _BatchWriter | None = _BatchWriter(
+            "event_index",
+            self._flush_event_index,
+            batch_size=event_batch_size,
+            flush_interval_ms=event_flush_ms,
+            max_queue_size=event_max_queue,
+        )
         self._init_schema()
 
     def _init_schema(self) -> None:
@@ -242,8 +398,37 @@ class PracticeCatalog:
                     self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column}")
 
     def close(self) -> None:
+        # Close writers first (they need the lock to flush) before closing the
+        # underlying connection.
+        if self._event_writer is not None:
+            self._event_writer.close()
+            self._event_writer = None
+        if self._event_index_writer is not None:
+            self._event_index_writer.close()
+            self._event_index_writer = None
         with self._lock:
             self._conn.close()
+
+    def flush(self) -> None:
+        """Flush any pending batched writes before reading."""
+        if self._event_writer is not None:
+            self._event_writer.close()
+            self._event_writer = _BatchWriter(
+                "events",
+                self._flush_events,
+                batch_size=self._event_batch_size,
+                flush_interval_ms=self._event_flush_ms,
+                max_queue_size=self._event_max_queue,
+            )
+        if self._event_index_writer is not None:
+            self._event_index_writer.close()
+            self._event_index_writer = _BatchWriter(
+                "event_index",
+                self._flush_event_index,
+                batch_size=self._event_batch_size,
+                flush_interval_ms=self._event_flush_ms,
+                max_queue_size=self._event_max_queue,
+            )
 
     # ------------------------------------------------------------------
     # Legacy compatibility
@@ -261,11 +446,18 @@ class PracticeCatalog:
             self._conn.commit()
 
     def insert_event(self, record: dict[str, Any]) -> None:
-        cols = ", ".join(record.keys())
-        placeholders = ", ".join("?" for _ in record)
-        values = list(record.values())
+        if self._event_writer is None:
+            raise RuntimeError("PracticeCatalog is closed")
+        self._event_writer.put(record)
+
+    def _flush_events(self, batch: list[dict[str, Any]]) -> None:
+        if not batch:
+            return
+        cols = ", ".join(batch[0].keys())
+        placeholders = ", ".join("?" for _ in batch[0])
+        values = [list(record.values()) for record in batch]
         with self._lock:
-            self._conn.execute(
+            self._conn.executemany(
                 f"INSERT OR REPLACE INTO events ({cols}) VALUES ({placeholders})",
                 values,
             )
@@ -550,12 +742,20 @@ class PracticeCatalog:
     def insert_event_index(self, record: dict[str, Any]) -> None:
         record = dict(record)
         record = self._encode_json_fields(record, ["summary"])
-        cols = ", ".join(record.keys())
-        placeholders = ", ".join("?" for _ in record)
+        if self._event_index_writer is None:
+            raise RuntimeError("PracticeCatalog is closed")
+        self._event_index_writer.put(record)
+
+    def _flush_event_index(self, batch: list[dict[str, Any]]) -> None:
+        if not batch:
+            return
+        cols = ", ".join(batch[0].keys())
+        placeholders = ", ".join("?" for _ in batch[0])
+        values = [list(record.values()) for record in batch]
         with self._lock:
-            self._conn.execute(
+            self._conn.executemany(
                 f"INSERT OR REPLACE INTO practice_event_index ({cols}) VALUES ({placeholders})",
-                list(record.values()),
+                values,
             )
             self._conn.commit()
 

@@ -10,7 +10,7 @@ from rosclaw.practice.storage.catalog import PracticeCatalog
 
 def test_insert_and_get_practice():
     with tempfile.TemporaryDirectory() as tmp:
-        db = PracticeCatalog(Path(tmp) / "catalog.sqlite")
+        db = PracticeCatalog(Path(tmp) / "catalog.sqlite", event_batch_size=1)
         db.insert_practice(
             {
                 "practice_id": "prac_001",
@@ -34,7 +34,7 @@ def test_insert_and_get_practice():
 
 def test_update_practice():
     with tempfile.TemporaryDirectory() as tmp:
-        db = PracticeCatalog(Path(tmp) / "catalog.sqlite")
+        db = PracticeCatalog(Path(tmp) / "catalog.sqlite", event_batch_size=1)
         db.insert_practice(
             {
                 "practice_id": "prac_002",
@@ -53,7 +53,7 @@ def test_update_practice():
 
 def test_list_practices_filters():
     with tempfile.TemporaryDirectory() as tmp:
-        db = PracticeCatalog(Path(tmp) / "catalog.sqlite")
+        db = PracticeCatalog(Path(tmp) / "catalog.sqlite", event_batch_size=1)
         for i, robot in enumerate(["r1", "r1", "r2"]):
             db.insert_practice(
                 {
@@ -73,7 +73,7 @@ def test_list_practices_filters():
 
 def test_insert_event():
     with tempfile.TemporaryDirectory() as tmp:
-        db = PracticeCatalog(Path(tmp) / "catalog.sqlite")
+        db = PracticeCatalog(Path(tmp) / "catalog.sqlite", event_batch_size=1)
         db.insert_practice(
             {
                 "practice_id": "prac_003",

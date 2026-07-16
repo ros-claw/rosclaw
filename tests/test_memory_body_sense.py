@@ -6,7 +6,7 @@ import pytest
 
 from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.memory.interface import MemoryInterface
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 from rosclaw.memory.types import FailureMemory
 from rosclaw.sense.config import SenseConfig
 from rosclaw.sense.runtime import SenseRuntime
@@ -30,7 +30,7 @@ def sense_runtime_kick_not_ready():
 
 @pytest.fixture
 def memory_with_sense(sense_runtime_kick_not_ready):
-    client = SeekDBMemoryClient()
+    client = InMemoryKnowledgeStore()
     client.connect()
     memory = MemoryInterface(
         robot_id="g1_lab_01",
@@ -81,7 +81,7 @@ class TestMemoryBodyConditionFailure:
         assert "body_sense_evidence" in stored[0]
 
     def test_firewall_blocked_handler_writes_body_condition(self, sense_runtime_kick_not_ready):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         bus = EventBus()
         memory = MemoryInterface(robot_id="g1_lab_01", event_bus=bus, seekdb_client=client)
@@ -113,7 +113,7 @@ class TestMemoryBodyConditionFailure:
         runtime.initialize()
         runtime.tick()
 
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         memory = MemoryInterface(robot_id="g1_lab_01", event_bus=EventBus(), seekdb_client=client)
         memory.set_sense_runtime(runtime)
@@ -130,7 +130,7 @@ class TestMemoryBodyConditionFailure:
         runtime.stop()
 
     def test_no_sense_runtime_leaves_record_unchanged(self):
-        client = SeekDBMemoryClient()
+        client = InMemoryKnowledgeStore()
         client.connect()
         memory = MemoryInterface(robot_id="g1_lab_01", event_bus=EventBus(), seekdb_client=client)
         record_id = memory.write_failure_memory(

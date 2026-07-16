@@ -8,7 +8,11 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from rosclaw.body.action_mapping.schema import ActionSpace
+    from rosclaw.integrations.lerobot.rollout.loop import RolloutConfig
 
 from rosclaw.integrations.lerobot.capabilities import get_lerobot_capabilities
 from rosclaw.integrations.lerobot.compatibility import (
@@ -19,9 +23,8 @@ from rosclaw.integrations.lerobot.config import (
     get_configured_lerobot_runtime,
 )
 from rosclaw.integrations.lerobot.dataset_feature_infer import infer_features
-from rosclaw.integrations.lerobot.dataset_profile import PROFILE_NAMES, resolve_profile
+from rosclaw.integrations.lerobot.dataset_profile import resolve_profile
 from rosclaw.integrations.lerobot.dataset_report import (
-    DatasetExportReport,
     report_from_worker_response,
     write_dataset_export_report,
 )
@@ -35,19 +38,14 @@ from rosclaw.integrations.lerobot.dataset_worker_runner import (
     run_dataset_dataloader_smoke,
     run_dataset_export,
 )
-from rosclaw.integrations.lerobot.dataset_worker_schema import (
-    DatasetValidationConfig,
-    DatasetWorkerRequest,
-    DatasetWriterConfig,
-)
+from rosclaw.integrations.lerobot.doctor import run_lerobot_doctor
+from rosclaw.integrations.lerobot.installer import install_lerobot
+from rosclaw.integrations.lerobot.policy_runtime.manager import PersistentRuntimeManager
 from rosclaw.integrations.lerobot.practice_normalizer import (
     NormalizationError,
     normalize_practice_episode,
     write_normalized_episode,
 )
-from rosclaw.integrations.lerobot.doctor import run_lerobot_doctor
-from rosclaw.integrations.lerobot.installer import install_lerobot
-from rosclaw.integrations.lerobot.policy_runtime.manager import PersistentRuntimeManager
 from rosclaw.integrations.lerobot.provider import LeRobotPolicyProvider
 from rosclaw.integrations.lerobot.runtime import LeRobotRuntime, find_python312
 from rosclaw.integrations.lerobot.smoke_policy import (
@@ -132,6 +130,7 @@ def cmd_lerobot_doctor(args: argparse.Namespace) -> int:
         }
     )
     validation = report.validation_status or get_validation_status()
+    ds_status = report.dataset_export_status or {"state": "not_configured"}
     if args.json:
         payload: dict[str, Any] = {
             "name": report.name,
@@ -236,7 +235,6 @@ def cmd_lerobot_doctor(args: argparse.Namespace) -> int:
 
     print()
     print("Dataset Export Validation")
-    ds_status = report.dataset_export_status or {"state": "not_configured"}
     ds_state = ds_status.get("state", "not_configured")
     print(f"  Status:            {ds_state}")
     if ds_status.get("last_output_dir"):
@@ -700,7 +698,7 @@ def cmd_lerobot_export_dataset(args: argparse.Namespace) -> int:
                 print(f"  Profile:       {profile}")
                 print(f"  Feature groups: {', '.join(sorted(prof.feature_groups)) or '(none)'}")
                 print(f"  Frames:        {len(normalized.frames)}")
-                print(f"  Features:")
+                print("  Features:")
                 for key, value in features.items():
                     print(f"    {key}: dtype={value['dtype']}, shape={value['shape']}")
                 if warnings:
@@ -1175,7 +1173,6 @@ def cmd_lerobot_policy_metrics(args: argparse.Namespace) -> int:
     """Dispatch `rosclaw lerobot policy metrics`."""
     from rosclaw.integrations.lerobot.policy_runtime.config import get_daemon_status
     from rosclaw.integrations.lerobot.policy_runtime.socket_server import (
-        send_request,
         try_send_request,
     )
 
@@ -1342,7 +1339,7 @@ def _resolve_effective_body_for_mapping(body_id: str | None) -> Any:
     return resolver.get_effective_body()
 
 
-def _parse_policy_space_from_args(args: argparse.Namespace) -> "ActionSpace":
+def _parse_policy_space_from_args(args: argparse.Namespace) -> ActionSpace:
     """Build an ActionSpace from CLI arguments."""
     from rosclaw.body.action_mapping.schema import ActionSpace
 
@@ -1480,7 +1477,7 @@ def cmd_lerobot_mapping_map_action(args: argparse.Namespace) -> int:
     return 0 if not mapped.blocked else 1
 
 
-def _build_rollout_config(args: argparse.Namespace, mode: str) -> "RolloutConfig":
+def _build_rollout_config(args: argparse.Namespace, mode: str) -> RolloutConfig:
     """Build a RolloutConfig from CLI args."""
     from pathlib import Path
 

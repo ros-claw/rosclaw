@@ -164,9 +164,9 @@ def test_cli_practice_ingest_seekdb_connection_error_is_clear(capsys, monkeypatc
 
 
 def test_cli_practice_ingest_seekdb_url_backend(capsys, monkeypatch):
-    from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+    from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
-    client = SeekDBMemoryClient()
+    client = InMemoryKnowledgeStore()
     captured_url = {}
 
     def make_client(url: str):

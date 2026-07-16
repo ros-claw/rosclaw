@@ -32,6 +32,7 @@ class FirstbootConfig:
     darwin: dict[str, Any] = field(default_factory=dict)
     mcp: dict[str, Any] = field(default_factory=dict)
     cloud: dict[str, Any] = field(default_factory=dict)
+    storage: dict[str, Any] = field(default_factory=dict)
     telemetry: dict[str, Any] = field(default_factory=dict)
     security: dict[str, Any] = field(default_factory=dict)
 
@@ -39,7 +40,27 @@ class FirstbootConfig:
         if not self.generated_at:
             self.generated_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
+        self._sync_memory_backend()
         self._apply_defaults()
+
+    def _sync_memory_backend(self) -> None:
+        """Map legacy memory.backend values to runtime.seekdb_backend."""
+        backend = self.memory.get("backend")
+        if backend is None:
+            return
+        # Only map if user has not explicitly set runtime.seekdb_backend.
+        if "seekdb_backend" in self.runtime:
+            return
+        mapping = {
+            "local": "sqlite",
+            "sqlite": "sqlite",
+            "memory": "memory",
+            "mysql": "mysql",
+            "seekdb": "mysql",
+        }
+        mapped = mapping.get(backend)
+        if mapped:
+            self.runtime["seekdb_backend"] = mapped
 
     def _apply_defaults(self) -> None:
         home = self.workspace.get("home", "~/.rosclaw")
@@ -62,6 +83,10 @@ class FirstbootConfig:
                 "robot_id": "sim_ur5e",
                 "safety_level": "strict",
                 "log_level": "INFO",
+                "seekdb_backend": "sqlite",
+                "seekdb_path": str(
+                    Path(home).expanduser() / "data" / "memory" / "knowledge.sqlite"
+                ),
             },
         )
 
@@ -183,6 +208,17 @@ class FirstbootConfig:
             },
         )
 
+        self.storage = merge_config(
+            self.storage,
+            {
+                "pool_size": 4,
+                "vector_enabled": False,
+                "outbox_enabled": False,
+                "outbox_max_records": 100_000,
+                "outbox_flush_interval_sec": 5.0,
+            },
+        )
+
         self.security = merge_config(
             self.security,
             {
@@ -231,6 +267,7 @@ class FirstbootConfig:
                 "mcp": self.mcp,
                 "cloud": self.cloud,
                 "telemetry": self.telemetry,
+                "storage": self.storage,
                 "security": self.security,
             }
         )

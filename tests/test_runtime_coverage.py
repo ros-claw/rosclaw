@@ -90,8 +90,8 @@ class TestRuntimeConfig:
         assert cfg.safety_level == "MODERATE"
         assert cfg.timeline_output_dir == "./practice_data"
         assert cfg.enable_mcap is False
-        assert cfg.seekdb_backend == "memory"
-        assert cfg.seekdb_path == "./seekdb.sqlite"
+        assert cfg.seekdb_backend == "sqlite"
+        assert cfg.seekdb_path.endswith(".rosclaw/data/memory/knowledge.sqlite")
         assert cfg.embodied_memory is None
         assert cfg.providers_dir is None
         assert cfg.gpu_sam3_endpoint is None
@@ -158,9 +158,59 @@ class TestRuntimeConfig:
         assert cfg.event_bus is bus
 
 
-# ---------------------------------------------------------------------------
-# Runtime.__init__
-# ---------------------------------------------------------------------------
+class TestRuntimeSeekDBBackendSelection:
+    def test_mysql_backend_from_explicit_config(self):
+        pytest.importorskip("pymysql")
+        cfg = RuntimeConfig(
+            seekdb_backend="mysql",
+            seekdb_url="mysql://root@127.0.0.1:2881/rosclaw",
+        )
+        rt = Runtime(config=cfg)
+        client = rt._create_seekdb_client()
+        assert type(client).__name__ == "SeekDBMySQLClient"
+
+    def test_mysql_backend_auto_detected_from_url(self):
+        pytest.importorskip("pymysql")
+        cfg = RuntimeConfig(
+            seekdb_backend="memory",
+            seekdb_url="seekdb://root@127.0.0.1:2881/rosclaw",
+        )
+        rt = Runtime(config=cfg)
+        client = rt._create_seekdb_client()
+        assert type(client).__name__ == "SeekDBMySQLClient"
+
+    def test_sqlite_backend_from_path(self):
+        cfg = RuntimeConfig(seekdb_backend="sqlite", seekdb_path=":memory:")
+        rt = Runtime(config=cfg)
+        client = rt._create_seekdb_client()
+        assert type(client).__name__ == "SQLiteKnowledgeStore"
+
+    def test_sqlite_backend_auto_detected_from_url(self):
+        cfg = RuntimeConfig(seekdb_backend="memory", seekdb_url="sqlite://:memory:")
+        rt = Runtime(config=cfg)
+        client = rt._create_seekdb_client()
+        assert type(client).__name__ == "SQLiteKnowledgeStore"
+
+    def test_http_url_rejected_for_mysql_backend(self):
+        cfg = RuntimeConfig(
+            seekdb_backend="mysql",
+            seekdb_url="http://localhost:2881",
+        )
+        rt = Runtime(config=cfg)
+        with pytest.raises(ValueError, match="HTTP endpoint"):
+            rt._create_seekdb_client()
+
+    def test_sqlite_backend_default(self):
+        cfg = RuntimeConfig()
+        rt = Runtime(config=cfg)
+        client = rt._create_seekdb_client()
+        assert type(client).__name__ == "SQLiteKnowledgeStore"
+
+    def test_unknown_backend_raises(self):
+        cfg = RuntimeConfig(seekdb_backend="oceanbase")
+        rt = Runtime(config=cfg)
+        with pytest.raises(ValueError, match="Unknown knowledge-store backend"):
+            rt._create_seekdb_client()
 
 
 class TestRuntimeInit:
@@ -2278,13 +2328,19 @@ class TestMemorySeekDB:
         rt = Runtime(config=cfg)
         with (
             patch("rosclaw.memory.interface.MemoryInterface") as mock_mem_cls,
-            patch("rosclaw.memory.seekdb_client.SeekDBSQLiteClient") as mock_sqlite,
+            patch("rosclaw.storage.factory.StorageFactory.create_knowledge_store") as mock_create,
         ):
             mock_mem = MagicMock()
             mock_mem_cls.return_value = mock_mem
-            mock_sqlite.return_value = MagicMock()
+            mock_create.return_value = MagicMock()
             rt.initialize()
-            mock_sqlite.assert_called_once_with(":memory:")
+            mock_create.assert_called_once_with(
+                backend="sqlite",
+                url=None,
+                path=":memory:",
+                pool_size=4,
+                vector_enabled=False,
+            )
 
     def test_memory_backend(self, fresh_runtime):
         rt = fresh_runtime
@@ -2302,13 +2358,19 @@ class TestMemorySeekDB:
         rt = Runtime(config=cfg)
         with (
             patch("rosclaw.memory.interface.MemoryInterface") as mock_mem_cls,
-            patch("rosclaw.memory.seekdb_client.SeekDBMemoryClient") as mock_mem_client,
+            patch("rosclaw.storage.factory.StorageFactory.create_knowledge_store") as mock_create,
         ):
             mock_mem = MagicMock()
             mock_mem_cls.return_value = mock_mem
-            mock_mem_client.return_value = MagicMock()
+            mock_create.return_value = MagicMock()
             rt.initialize()
-            mock_mem_client.assert_called_once()
+            mock_create.assert_called_once_with(
+                backend="memory",
+                url=None,
+                path=cfg.seekdb_path,
+                pool_size=4,
+                vector_enabled=False,
+            )
 
 
 # ---------------------------------------------------------------------------

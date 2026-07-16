@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 from rosclaw.cli import cmd_how_advise
 from rosclaw.how.engine import HeuristicEngine
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
 
 def _make_advise_episode(data_root: Path, episode_id: str) -> Path:
@@ -80,7 +80,7 @@ class TestHowAdviseRealSenseEvidence:
         data_root = tmp_path / "practice"
         _make_advise_episode(data_root, episode_id)
 
-        engine = HeuristicEngine(seekdb_client=SeekDBMemoryClient())
+        engine = HeuristicEngine(seekdb_client=InMemoryKnowledgeStore())
         result = asyncio.run(
             engine.advise(
                 body_id="d405_lab_01",
@@ -99,7 +99,7 @@ class TestHowAdviseRealSenseEvidence:
         assert result["intervention"].get("action")
 
     def test_advise_falls_back_when_no_events(self, tmp_path):
-        engine = HeuristicEngine(seekdb_client=SeekDBMemoryClient())
+        engine = HeuristicEngine(seekdb_client=InMemoryKnowledgeStore())
         result = asyncio.run(
             engine.advise(
                 body_id="d405_lab_01",

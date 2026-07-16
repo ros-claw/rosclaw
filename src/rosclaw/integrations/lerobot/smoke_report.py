@@ -220,10 +220,9 @@ def summarize_action_proposal(proposal: dict[str, Any]) -> dict[str, Any]:
     # or a chunk-specific label.
     proposal_type = proposal.get("representation") or action.get("type")
     if not proposal_type or proposal_type == "unknown":
-        if chunk.get("is_chunk"):
-            proposal_type = "lerobot_action_chunk"
-        else:
-            proposal_type = "raw_lerobot_action"
+        proposal_type = (
+            "lerobot_action_chunk" if chunk.get("is_chunk") else "raw_lerobot_action"
+        )
 
     summary: dict[str, Any] = {
         "type": proposal_type,

@@ -18,7 +18,6 @@ from rosclaw.integrations.lerobot.policy_runtime.protocol import (
     parse_line,
 )
 
-
 _FAKE_WORKER_SOURCE = '''\
 import sys
 from rosclaw.integrations.lerobot.policy_runtime.protocol import encode_response, parse_line

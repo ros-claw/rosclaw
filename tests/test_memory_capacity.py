@@ -16,7 +16,7 @@ import time
 import pytest
 
 from rosclaw.memory.interface import MemoryInterface
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient, SeekDBSQLiteClient
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore, SQLiteKnowledgeStore
 
 # ---------------------------------------------------------------------------
 # SeekDB delete operations
@@ -27,7 +27,7 @@ class TestSeekDBDelete:
     """Verify delete() and delete_where() on both SeekDB backends."""
 
     def test_memory_client_delete(self):
-        c = SeekDBMemoryClient()
+        c = InMemoryKnowledgeStore()
         c.connect()
         c.insert(
             "experience_graph", {"id": "e1", "robot_id": "r1", "timestamp": 1.0, "event_type": "t"}
@@ -37,12 +37,12 @@ class TestSeekDBDelete:
         assert c.count("experience_graph") == 0
 
     def test_memory_client_delete_nonexistent(self):
-        c = SeekDBMemoryClient()
+        c = InMemoryKnowledgeStore()
         c.connect()
         assert c.delete("experience_graph", "nope") is False
 
     def test_memory_client_delete_where(self):
-        c = SeekDBMemoryClient()
+        c = InMemoryKnowledgeStore()
         c.connect()
         for i in range(5):
             c.insert(
@@ -60,7 +60,7 @@ class TestSeekDBDelete:
         assert c.count("experience_graph") == 2
 
     def test_memory_client_delete_updates_index(self):
-        c = SeekDBMemoryClient()
+        c = InMemoryKnowledgeStore()
         c.connect()
         c.insert(
             "experience_graph",
@@ -78,7 +78,7 @@ class TestSeekDBDelete:
         assert "e1" not in idx["robot_id"].get("r1", set())
 
     def test_sqlite_client_delete(self, tmp_path):
-        c = SeekDBSQLiteClient(str(tmp_path / "t.sqlite"))
+        c = SQLiteKnowledgeStore(str(tmp_path / "t.sqlite"))
         c.connect()
         c.insert(
             "experience_graph", {"id": "e1", "robot_id": "r1", "timestamp": 1.0, "event_type": "t"}
@@ -89,7 +89,7 @@ class TestSeekDBDelete:
         c.disconnect()
 
     def test_sqlite_client_delete_where(self, tmp_path):
-        c = SeekDBSQLiteClient(str(tmp_path / "t.sqlite"))
+        c = SQLiteKnowledgeStore(str(tmp_path / "t.sqlite"))
         c.connect()
         for i in range(5):
             c.insert(

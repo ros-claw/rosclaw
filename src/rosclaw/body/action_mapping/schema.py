@@ -8,11 +8,11 @@ from the ROSClaw core Python runtime.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class MappingCompatibility(str, Enum):
+class MappingCompatibility(StrEnum):
     """Compatibility level between a policy action space and a body."""
 
     EXACT = "exact"
@@ -50,7 +50,7 @@ class ActionSpace:
         }
 
     @classmethod
-    def from_proposal_v2(cls, proposal: dict[str, Any]) -> "ActionSpace":
+    def from_proposal_v2(cls, proposal: dict[str, Any]) -> ActionSpace:
         """Infer an action space from a ``rosclaw.action_proposal.v2`` dict."""
         action = proposal.get("action", {})
         names = action.get("names", [])
@@ -157,9 +157,7 @@ class ActionMapping:
             return True
         if self.compatibility == MappingCompatibility.PARTIAL and not self.allow_partial:
             return True
-        if self.block_reasons:
-            return True
-        return False
+        return bool(self.block_reasons)
 
 
 @dataclass

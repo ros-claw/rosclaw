@@ -9,14 +9,13 @@ This module must not import torch or lerobot.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
 import threading
-import time
-import uuid
 from pathlib import Path
-from queue import Empty, Queue
+from queue import Queue
 from typing import Any
 
 from rosclaw.integrations.lerobot.policy_runtime.protocol import (
@@ -25,7 +24,6 @@ from rosclaw.integrations.lerobot.policy_runtime.protocol import (
     parse_line,
 )
 from rosclaw.integrations.lerobot.policy_runtime.state import RuntimeState
-
 
 DEFAULT_STARTUP_TIMEOUT_SEC = 60.0
 DEFAULT_CALL_TIMEOUT_SEC = 120.0
@@ -155,10 +153,8 @@ class PersistentRuntimeManager:
         """Gracefully stop the worker subprocess."""
         with self._lock:
             self._shutdown = True
-        try:
+        with contextlib.suppress(RuntimeError):
             self.call("SHUTDOWN", {}, timeout_sec=self.shutdown_timeout_sec)
-        except RuntimeError:
-            pass
         self._stop_process()
         self._state.transition("stopped")
 
@@ -294,17 +290,13 @@ class PersistentRuntimeManager:
                 process.wait(timeout=5.0)
             except subprocess.TimeoutExpired:
                 process.kill()
-                try:
+                with contextlib.suppress(subprocess.TimeoutExpired):
                     process.wait(timeout=5.0)
-                except subprocess.TimeoutExpired:
-                    pass
 
         for stream in (process.stdin, process.stdout, process.stderr):
             if stream is not None:
-                try:
+                with contextlib.suppress(Exception):
                     stream.close()
-                except Exception:  # noqa: BLE001
-                    pass
 
         with self._lock:
             self._process = None
@@ -313,7 +305,7 @@ class PersistentRuntimeManager:
         """Return the most recent stderr lines for debugging."""
         return self._stderr_lines[-limit:]
 
-    def __enter__(self) -> "PersistentRuntimeManager":
+    def __enter__(self) -> PersistentRuntimeManager:
         self.start()
         return self
 

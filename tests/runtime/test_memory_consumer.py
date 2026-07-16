@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from rosclaw.core.event_bus import EventBus
 from rosclaw.memory.consumer import MemoryConsumer
-from rosclaw.memory.seekdb_client import SeekDBMemoryClient
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 from rosclaw.runtime import RuntimeBus, RuntimeEvent
 
 
 def test_memory_consumer_stores_camera_artifact(tmp_path):
     event_bus = EventBus(normalize_topics=False)
     bus = RuntimeBus(event_bus=event_bus)
-    client = SeekDBMemoryClient()
+    client = InMemoryKnowledgeStore()
     client.connect()
     consumer = MemoryConsumer(bus, robot_id="realsense-d405", seekdb_client=client)
     consumer.initialize()
@@ -42,7 +42,7 @@ def test_memory_consumer_stores_camera_artifact(tmp_path):
 def test_memory_consumer_stores_provider_result(tmp_path):
     event_bus = EventBus(normalize_topics=False)
     bus = RuntimeBus(event_bus=event_bus)
-    client = SeekDBMemoryClient()
+    client = InMemoryKnowledgeStore()
     client.connect()
     consumer = MemoryConsumer(bus, robot_id="realsense-d405", seekdb_client=client)
     consumer.initialize()
@@ -68,7 +68,7 @@ def test_memory_consumer_stores_provider_result(tmp_path):
 def test_memory_consumer_stores_practice_stop_experience(tmp_path):
     event_bus = EventBus(normalize_topics=False)
     bus = RuntimeBus(event_bus=event_bus)
-    client = SeekDBMemoryClient()
+    client = InMemoryKnowledgeStore()
     client.connect()
     consumer = MemoryConsumer(bus, robot_id="realsense-d405", seekdb_client=client)
     consumer.initialize()
@@ -101,7 +101,7 @@ def test_memory_consumer_stores_practice_stop_experience(tmp_path):
 def test_memory_consumer_indexes_artifact_uri(tmp_path):
     event_bus = EventBus(normalize_topics=False)
     bus = RuntimeBus(event_bus=event_bus)
-    client = SeekDBMemoryClient()
+    client = InMemoryKnowledgeStore()
     client.connect()
     consumer = MemoryConsumer(bus, robot_id="realsense-d405", seekdb_client=client)
     consumer.initialize()
@@ -122,7 +122,7 @@ def test_memory_consumer_indexes_artifact_uri(tmp_path):
 
     consumer.stop()
 
-    # Query by URI substring is not supported by exact-filter SeekDBMemoryClient,
+    # Query by URI substring is not supported by exact-filter InMemoryKnowledgeStore,
     # but the schema index on uri exists and exact URI lookup works.
     artifacts = client.query(
         "artifacts",

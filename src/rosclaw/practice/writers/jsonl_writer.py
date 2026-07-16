@@ -32,10 +32,18 @@ class JsonlWriter:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._file: TextIO | None = None
+        self._bytes_written = 0
         self._open()
+
+    @property
+    def bytes_written(self) -> int:
+        """Total bytes written to the active JSONL file."""
+        with self._lock:
+            return self._bytes_written
 
     def _open(self) -> None:
         self._file = open(self._path, "a", encoding="utf-8")  # noqa: SIM115
+        self._bytes_written = self._path.stat().st_size if self._path.exists() else 0
 
     def write(self, record: dict[str, Any]) -> None:
         """Serialize *record* to one JSON line and append."""
@@ -51,6 +59,7 @@ class JsonlWriter:
             assert self._file is not None
             self._file.write(line + "\n")
             self._file.flush()
+            self._bytes_written += len((line + "\n").encode("utf-8"))
 
             if self._rotate_bytes and self._path.stat().st_size >= self._rotate_bytes:
                 self._rotate()

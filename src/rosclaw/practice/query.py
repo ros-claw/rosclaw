@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from rosclaw.memory.seekdb_client import SeekDBClient, SeekDBMemoryClient
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore, SeekDBClient
 from rosclaw.practice.storage.catalog import PracticeCatalog
 from rosclaw.practice.storage.layout import PracticeLayout
 
@@ -31,7 +31,7 @@ class PracticeQuery:
     ):
         self._data_root = Path(data_root)
         self._layout = layout or PracticeLayout(self._data_root)
-        self._client = seekdb_client or SeekDBMemoryClient()
+        self._client = seekdb_client or InMemoryKnowledgeStore()
         self._owns_connection = not self._client.is_connected()
         if self._owns_connection:
             self._client.connect()

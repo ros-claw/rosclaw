@@ -24,6 +24,7 @@ class ObservationSource(ABC):
 
     def close(self) -> None:
         """Release any resources."""
+        return None
 
 
 class FixtureObservationSource(ObservationSource):

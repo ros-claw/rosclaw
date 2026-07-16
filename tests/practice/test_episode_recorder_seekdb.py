@@ -151,26 +151,56 @@ class TestEpisodeRecorderSeekDBForwarding:
 
 class TestRuntimeConfigSeekDB:
     def test_runtime_config_reads_seekdb_env_vars(self, monkeypatch):
-        monkeypatch.setenv("ROSCLAW_SEEKDB_URL", "http://seekdb.example:2881")
+        monkeypatch.setenv("ROSCLAW_SEEKDB_URL", "mysql://root@127.0.0.1:2881/rosclaw")
+        monkeypatch.setenv("ROSCLAW_PRACTICE_HTTP_ADAPTER_URL", "http://seekdb.example:2882")
         monkeypatch.setenv("ROSCLAW_SEEKDB_FALLBACK_DIR", "/tmp/seekdb_fallback")
 
         config = RuntimeConfig()
-        assert config.seekdb_url == "http://seekdb.example:2881"
+        assert config.seekdb_url == "mysql://root@127.0.0.1:2881/rosclaw"
+        assert config.seekdb_http_url == "http://seekdb.example:2882"
         assert config.seekdb_fallback_dir == "/tmp/seekdb_fallback"
 
     def test_runtime_config_seekdb_defaults(self, monkeypatch):
         monkeypatch.delenv("ROSCLAW_SEEKDB_URL", raising=False)
+        monkeypatch.delenv("ROSCLAW_PRACTICE_HTTP_ADAPTER_URL", raising=False)
         monkeypatch.delenv("ROSCLAW_SEEKDB_FALLBACK_DIR", raising=False)
 
         config = RuntimeConfig()
         assert config.seekdb_url is None
+        assert config.seekdb_http_url is None
         assert config.seekdb_fallback_dir == "/data/rosclaw/fallback"
 
 
 class TestRuntimeSeekDBAssembly:
-    def test_runtime_assembles_seekdb_bridge_when_url_configured(self, tmp_path, monkeypatch):
+    def test_runtime_assembles_seekdb_bridge_when_http_url_configured(self, tmp_path, monkeypatch):
+        pytest.importorskip("rosclaw_practice")
+        monkeypatch.setenv("ROSCLAW_PRACTICE_HTTP_ADAPTER_URL", "http://localhost:2882")
+
+        config = RuntimeConfig(
+            robot_id="test_bot",
+            enable_firewall=False,
+            enable_memory=False,
+            enable_practice=True,
+            enable_skill_manager=False,
+            enable_knowledge=False,
+            enable_how=False,
+            enable_auto=False,
+            enable_provider=False,
+            enable_sense=False,
+            seekdb_fallback_dir=str(tmp_path / "fallback"),
+        )
+        runtime = Runtime(config)
+        runtime.initialize()
+
+        assert runtime._episode_recorder is not None
+        assert runtime._episode_recorder._seekdb_bridge is not None
+
+        runtime.stop()
+
+    def test_runtime_legacy_seekdb_url_still_assembles_bridge(self, tmp_path, monkeypatch):
         pytest.importorskip("rosclaw_practice")
         monkeypatch.setenv("ROSCLAW_SEEKDB_URL", "http://localhost:2881")
+        monkeypatch.delenv("ROSCLAW_PRACTICE_HTTP_ADAPTER_URL", raising=False)
 
         config = RuntimeConfig(
             robot_id="test_bot",
@@ -207,7 +237,7 @@ class TestRuntimeSeekDBAssembly:
         )
         monkeypatch.delitem(sys.modules, "rosclaw.practice.seekdb_bridge", raising=False)
         monkeypatch.setitem(sys.modules, "rosclaw.practice.seekdb_bridge", fake_module)
-        monkeypatch.setenv("ROSCLAW_SEEKDB_URL", "http://localhost:2881")
+        monkeypatch.setenv("ROSCLAW_PRACTICE_HTTP_ADAPTER_URL", "http://localhost:2882")
 
         config = RuntimeConfig(
             robot_id="test_bot",
