@@ -1248,13 +1248,14 @@ def _build_warmup_params(args: argparse.Namespace) -> dict[str, Any]:
     params: dict[str, Any] = {"iterations": 1}
     fixture_path = getattr(args, "observation_fixture", None)
     if fixture_path:
+        from rosclaw.integrations.lerobot.observation_adapter import adapt_observation_for_worker
         from rosclaw.integrations.lerobot.rollout.observation_source import FixtureObservationSource
 
         source = FixtureObservationSource(fixture_path)
         obs = source.get_observation(0)
         if obs is None:
             raise ValueError(f"No observation found in fixture: {fixture_path}")
-        params["observation"] = obs
+        params["observation"] = adapt_observation_for_worker(obs)
     return params
 
 
