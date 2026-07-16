@@ -70,7 +70,11 @@ from rosclaw.integrations.lerobot.cli import (
     cmd_lerobot_policy_status,
     cmd_lerobot_policy_stop,
     cmd_lerobot_policy_warmup,
+    cmd_lerobot_rollout_arm,
+    cmd_lerobot_rollout_execute,
+    cmd_lerobot_rollout_preflight,
     cmd_lerobot_rollout_proposal_only,
+    cmd_lerobot_rollout_rh56_shadow,
     cmd_lerobot_rollout_shadow,
     cmd_lerobot_smoke_dataloader,
     cmd_lerobot_validate_dataset,
@@ -7279,6 +7283,68 @@ def main() -> int:
         "--scenario", default="normal", help="Mock collector scenario"
     )
 
+    # P5 RH56 subcommands: rh56-shadow / preflight / arm / execute
+    def _add_rh56_args(parser, *, with_policy: bool = True):
+        if with_policy:
+            parser.add_argument(
+                "--policy.path", dest="policy_path", required=True, help="Policy directory"
+            )
+        parser.add_argument("--body-id", default="rh56_right_01", help="Body instance ID")
+        parser.add_argument(
+            "--transport-profile",
+            default="configs/rh56_right_rs485_v1.yaml",
+            help="RH56 transport profile YAML",
+        )
+        parser.add_argument(
+            "--calibration",
+            default="configs/rh56_right_01_calibration.yaml",
+            help="RH56 calibration YAML",
+        )
+        parser.add_argument("--task", default="hold_current", help="Reference task name")
+        parser.add_argument("--python", default=None, help="LeRobot Python executable")
+        parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    rh56_shadow_parser = lerobot_rollout_subparsers.add_parser(
+        "rh56-shadow", help="P5-B RH56 shadow gate (mock or real transport)"
+    )
+    _add_rh56_args(rh56_shadow_parser)
+    rh56_shadow_parser.add_argument("--steps", type=int, default=1000)
+    rh56_shadow_parser.add_argument("--control-hz", type=float, default=5.0)
+    rh56_shadow_parser.add_argument("--strict-deadline", action="store_true")
+    rh56_shadow_parser.add_argument("--max-deadline-misses", type=int, default=10)
+    rh56_shadow_parser.add_argument("--practice-root", default=None)
+    rh56_shadow_parser.add_argument("--report", default=None, help="Write shadow report MD")
+
+    preflight_parser = lerobot_rollout_subparsers.add_parser(
+        "preflight", help="P5 RH56 preflight checks (transport/calibration/contract)"
+    )
+    _add_rh56_args(preflight_parser)
+    preflight_parser.add_argument("--provider-ref", default=None)
+    preflight_parser.add_argument("--mapping", default=None, help="Mapping manifest path")
+
+    arm_parser = lerobot_rollout_subparsers.add_parser(
+        "arm", help="P5 RH56 arming (issues an execution permit)"
+    )
+    _add_rh56_args(arm_parser)
+    arm_parser.add_argument("--max-step-delta", type=float, default=20.0)
+    arm_parser.add_argument("--max-speed", type=int, default=100)
+    arm_parser.add_argument("--max-force", type=float, default=100.0)
+    arm_parser.add_argument("--expires-in", type=float, default=120.0)
+    arm_parser.add_argument("--require-estop", action="store_true")
+    arm_parser.add_argument("--acknowledge-real-robot-risk", action="store_true")
+
+    execute_parser = lerobot_rollout_subparsers.add_parser(
+        "execute", help="P5 RH56 single-step execution (requires a permit)"
+    )
+    _add_rh56_args(execute_parser)
+    execute_parser.add_argument("--permit", required=True, help="Permit ID from `arm`")
+    execute_parser.add_argument("--steps", type=int, default=3)
+    execute_parser.add_argument("--control-hz", type=float, default=2.0)
+    execute_parser.add_argument("--max-speed", type=int, default=100)
+    execute_parser.add_argument("--max-force", type=float, default=100.0)
+    execute_parser.add_argument("--practice-root", default=None)
+    execute_parser.add_argument("--acknowledge-real-robot-risk", action="store_true")
+
     # auto subcommand (Self-Evolution Control Plane)
     auto_parser = subparsers.add_parser("auto", help="Auto self-evolution commands")
     auto_subparsers = auto_parser.add_subparsers(dest="auto_command")
@@ -8241,6 +8307,14 @@ def main() -> int:
                     return cmd_lerobot_rollout_proposal_only(args)
                 elif args.lerobot_rollout_command == "shadow":
                     return cmd_lerobot_rollout_shadow(args)
+                elif args.lerobot_rollout_command == "rh56-shadow":
+                    return cmd_lerobot_rollout_rh56_shadow(args)
+                elif args.lerobot_rollout_command == "preflight":
+                    return cmd_lerobot_rollout_preflight(args)
+                elif args.lerobot_rollout_command == "arm":
+                    return cmd_lerobot_rollout_arm(args)
+                elif args.lerobot_rollout_command == "execute":
+                    return cmd_lerobot_rollout_execute(args)
                 else:
                     lerobot_rollout_parser.print_help()
                     return 1

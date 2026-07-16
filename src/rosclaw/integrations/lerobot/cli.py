@@ -1564,6 +1564,279 @@ def cmd_lerobot_rollout_shadow(args: argparse.Namespace) -> int:
             print(f"  Error:           {error}")
     return 0 if result.stop_reason.value == "completed" else 1
 
+
+# ---------------------------------------------------------------------------
+# P5 RH56 shadow/preflight/arm/execute CLI
+# ---------------------------------------------------------------------------
+
+
+def _rh56_registry_dir() -> Path:
+    from rosclaw.firstboot.workspace import get_rosclaw_home
+
+    return get_rosclaw_home() / "lerobot" / "rh56"
+
+
+def _rh56_hashes(args: argparse.Namespace) -> dict[str, str]:
+    """Compute the permit-binding hashes for the current artifact set."""
+    import hashlib
+
+    from rosclaw.body.rh56.calibration import load_rh56_calibration
+    from rosclaw.body.rh56.transport_profile import load_transport_profile
+
+    profile = load_transport_profile(args.transport_profile)
+    calib = load_rh56_calibration(args.calibration)
+
+    def _file_hash(path: str | Path) -> str:
+        data = Path(path).read_bytes()
+        return f"sha256:{hashlib.sha256(data).hexdigest()}"
+
+    contract_path = Path(args.policy_path) / "policy_contract.yaml"
+    policy_contract_hash = (
+        _file_hash(contract_path) if contract_path.exists() else "sha256:no_contract"
+    )
+    body_hash = hashlib.sha256(str(args.body_id).encode()).hexdigest()
+    mapping_hash = hashlib.sha256(
+        (str(args.policy_path) + str(args.body_id)).encode()
+    ).hexdigest()
+    return {
+        "policy_contract_hash": policy_contract_hash,
+        "body_hash": f"sha256:{body_hash}",
+        "calibration_hash": calib.content_hash(),
+        "mapping_hash": f"sha256:{mapping_hash}",
+        "transport_profile_hash": profile.content_hash(),
+    }
+
+
+def cmd_lerobot_rollout_rh56_shadow(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot rollout rh56-shadow` (P5-B shadow gate)."""
+    from rosclaw.body.rh56.calibration import load_rh56_calibration
+    from rosclaw.integrations.lerobot.execution.arming import record_shadow_validation
+    from rosclaw.integrations.lerobot.rollout.loop import RolloutConfig
+    from rosclaw.integrations.lerobot.rollout.rh56_shadow import (
+        render_shadow_report,
+        run_rh56_shadow,
+    )
+    from rosclaw.integrations.lerobot.rollout.state import RolloutMode
+
+    calibration = load_rh56_calibration(args.calibration)
+    config = RolloutConfig(
+        mode=RolloutMode.SHADOW,
+        policy_path=args.policy_path,
+        robot_id=args.body_id,
+        steps=args.steps or 1000,
+        control_hz=args.control_hz,
+        strict_deadline=args.strict_deadline,
+        max_deadline_misses=args.max_deadline_misses,
+        practice_data_root=args.practice_root,
+        python_executable=args.python,
+    )
+    result, gate = run_rh56_shadow(
+        config,
+        transport_profile_path=args.transport_profile,
+        task=args.task,
+        calibration=calibration,
+    )
+    if gate["passed"]:
+        record_shadow_validation(
+            _rh56_registry_dir() / "shadow_validated.json",
+            **_rh56_hashes(args),
+        )
+    report_md = render_shadow_report(gate, result)
+    if args.report:
+        Path(args.report).write_text(report_md, encoding="utf-8")
+    if args.json:
+        print(json.dumps({"gate": gate, "metrics": result.metrics}, indent=2, default=str))
+    else:
+        print(report_md)
+    return 0 if gate["passed"] else 1
+
+
+def cmd_lerobot_rollout_preflight(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot rollout preflight` (P5 §12.2)."""
+    from rosclaw.body.rh56.calibration import CalibrationError, RH56CalibrationGate, load_rh56_calibration
+    from rosclaw.body.rh56.transport_profile import (
+        TransportBindingError,
+        load_transport_profile,
+        validate_transport_binding,
+    )
+
+    checks: list[dict[str, Any]] = []
+
+    def _check(name: str, ok: bool, detail: str = "") -> None:
+        checks.append({"check": name, "pass": ok, "detail": detail})
+
+    try:
+        profile = load_transport_profile(args.transport_profile)
+        _check("transport_profile", True, profile.id)
+    except TransportBindingError as exc:
+        _check("transport_profile", False, str(exc))
+        _report_preflight(checks, args)
+        return 1
+
+    try:
+        validate_transport_binding(
+            profile,
+            provider_ref=args.provider_ref or profile.metadata.get("provider_ref"),
+            action_dim=len(profile.action_order),
+            action_names=list(profile.action_order),
+        )
+        _check("transport_binding", True)
+    except TransportBindingError as exc:
+        _check("transport_binding", False, str(exc))
+
+    try:
+        calib = load_rh56_calibration(args.calibration)
+        gate = RH56CalibrationGate(calib, profile)
+        try:
+            gate.check()
+            _check("calibration", True, calib.status)
+        except CalibrationError as exc:
+            _check("calibration", False, str(exc))
+    except CalibrationError as exc:
+        _check("calibration_load", False, str(exc))
+
+    contract_path = Path(args.policy_path) / "policy_contract.yaml"
+    _check("policy_contract", contract_path.exists(), str(contract_path))
+
+    passed = all(c["pass"] for c in checks)
+    _report_preflight(checks, args)
+    return 0 if passed else 1
+
+
+def _report_preflight(checks: list[dict[str, Any]], args: argparse.Namespace) -> None:
+    if args.json:
+        print(json.dumps({"passed": all(c["pass"] for c in checks), "checks": checks}, indent=2))
+    else:
+        print("[rosclaw-lerobot] RH56 preflight")
+        for c in checks:
+            mark = "PASS" if c["pass"] else "FAIL"
+            detail = f" — {c['detail']}" if c["detail"] else ""
+            print(f"  [{mark}] {c['check']}{detail}")
+
+
+def cmd_lerobot_rollout_arm(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot rollout arm` (P5 §12.3)."""
+    from rosclaw.integrations.lerobot.execution.arming import (
+        ArmingController,
+        restore_shadow_registry,
+    )
+    from rosclaw.integrations.lerobot.execution.permit import (
+        PermitError,
+        PermitManager,
+        save_permit,
+    )
+
+    hashes = _rh56_hashes(args)
+    registry = _rh56_registry_dir() / "shadow_validated.json"
+    pm = PermitManager()
+    arming = ArmingController(pm)
+    restored = restore_shadow_registry(registry, arming)
+    arming.begin_preflight()
+    if not arming.shadow_validated_for(**hashes):
+        print("[rosclaw-lerobot] ARM refused: shadow gate not validated for this hash set")
+        print(f"  (registry entries: {restored}; run `lerobot rollout rh56-shadow` first)")
+        return 1
+
+    if not args.acknowledge_real_robot_risk:
+        print("[rosclaw-lerobot] ARM refused: --acknowledge-real-robot-risk is required")
+        return 1
+    if not args.require_estop:
+        print("[rosclaw-lerobot] ARM refused: --require-estop is required")
+        return 1
+
+    try:
+        permit = pm.issue(
+            body_id=args.body_id,
+            **hashes,
+            max_step_delta_raw=args.max_step_delta,
+            max_speed=args.max_speed,
+            max_force_g=args.max_force,
+            expires_in_sec=args.expires_in,
+            operator_armed=True,
+            physical_estop_confirmed=True,
+            task=args.task,
+            calibration_status="validated",
+        )
+    except PermitError as exc:
+        print(f"[rosclaw-lerobot] ARM refused: {exc}")
+        return 1
+
+    arming.mark_shadow_validated(**hashes)
+    arming.arm(permit.permit_id)
+    permit_path = save_permit(permit, _rh56_registry_dir() / "permits")
+    print("[rosclaw-lerobot] ARMED")
+    print(f"  permit_id: {permit.permit_id}")
+    print(f"  task:      {args.task}")
+    print(f"  expires:   {permit.expires_at}")
+    print(f"  stored:    {permit_path}")
+    return 0
+
+
+def cmd_lerobot_rollout_execute(args: argparse.Namespace) -> int:
+    """Dispatch `rosclaw lerobot rollout execute` (P5 §12.4)."""
+    from rosclaw.integrations.lerobot.execution.arming import (
+        ArmingController,
+        restore_shadow_registry,
+    )
+    from rosclaw.integrations.lerobot.execution.permit import (
+        PermitManager,
+        load_permit_into_manager,
+    )
+    from rosclaw.integrations.lerobot.rollout.rh56_execute import run_rh56_execute
+
+    if not args.acknowledge_real_robot_risk:
+        print("[rosclaw-lerobot] execute refused: --acknowledge-real-robot-risk is required")
+        return 1
+
+    registry_dir = _rh56_registry_dir()
+    pm = PermitManager()
+    permit = load_permit_into_manager(args.permit, registry_dir / "permits", pm)
+    if permit is None:
+        print(f"[rosclaw-lerobot] execute refused: permit {args.permit} not found or expired")
+        return 1
+
+    arming = ArmingController(pm)
+    restore_shadow_registry(registry_dir / "shadow_validated.json", arming)
+    arming.begin_preflight()
+    arming.mark_shadow_validated(
+        policy_contract_hash=permit.policy_contract_hash,
+        body_hash=permit.body_hash,
+        calibration_hash=permit.calibration_hash,
+        mapping_hash=permit.mapping_hash,
+        transport_profile_hash=permit.transport_profile_hash,
+    )
+    arming.arm(permit.permit_id)
+
+    result, report = run_rh56_execute(
+        policy_path=args.policy_path,
+        transport_profile_path=args.transport_profile,
+        permit_id=permit.permit_id,
+        permit_manager=pm,
+        arming=arming,
+        calibration_path=args.calibration,
+        task=args.task,
+        steps=args.steps or 3,
+        control_hz=args.control_hz,
+        speed=args.max_speed,
+        force_limit_g=args.max_force,
+        practice_data_root=args.practice_root,
+        python_executable=args.python,
+        robot_id=args.body_id,
+    )
+    summary = report.summary()
+    summary["practice_id"] = result.practice_id
+    summary["stop_reason"] = result.stop_reason.value
+    summary["hardware_actions_executed"] = result.hardware_actions_executed
+    if args.json:
+        print(json.dumps(summary, indent=2, default=str))
+    else:
+        print(report.render_markdown())
+        print(f"\npractice_id: {result.practice_id}")
+        for error in result.errors:
+            print(f"  Error: {error}")
+    return 0 if result.stop_reason.value == "completed" else 1
+
+
 __all__ = [
     "LeRobotDatasetWorkerRunner",
 ]

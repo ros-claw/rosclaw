@@ -1,0 +1,38 @@
+{
+    "type": "rosclaw_rh56_reference",
+    "n_obs_steps": 1,
+    "input_features": {
+        "observation.state": {
+            "type": "STATE",
+            "shape": [
+                6
+            ]
+        }
+    },
+    "output_features": {
+        "action": {
+            "type": "ACTION",
+            "shape": [
+                6
+            ]
+        }
+    },
+    "device": "cpu",
+    "use_amp": false,
+    "use_peft": false,
+    "push_to_hub": true,
+    "repo_id": null,
+    "private": null,
+    "tags": null,
+    "license": null,
+    "pretrained_path": null,
+    "pretrained_revision": null,
+    "task": "hold_current",
+    "max_step_delta": 20,
+    "hold_steps": 2,
+    "plugin_module": "lerobot_policy_rosclaw_rh56",
+    "normalization_mapping": {
+        "STATE": "IDENTITY",
+        "ACTION": "IDENTITY"
+    }
+}

@@ -178,6 +178,15 @@ def finalize_rollout_practice_session(
 
         # Register v2 artifacts for the events JSONL and timeline.
         timeline_path = layout.timeline_jsonl_path(practice_id)
+        frames_path = _write_frames_episode(
+            layout,
+            practice_id,
+            events,
+            robot_id=robot_id,
+            task_id=task_id,
+            policy_path=policy_id or "",
+            episode_id=episode_id,
+        )
         artifact_records = [
             {
                 "artifact_id": f"artifact_{practice_id}_events_jsonl",
@@ -192,6 +201,21 @@ def finalize_rollout_practice_session(
                 "metadata": {"role": "trace", "source": "lerobot_rollout"},
             },
         ]
+        if frames_path is not None:
+            artifact_records.append(
+                {
+                    "artifact_id": f"artifact_{practice_id}_frames_episode",
+                    "session_id": session_id,
+                    "episode_id": episode_id,
+                    "artifact_type": "frames_episode_json",
+                    "path": str(frames_path),
+                    "sha256": _compute_sha256(frames_path),
+                    "size_bytes": frames_path.stat().st_size,
+                    "schema_name": "rosclaw.practice.episode.normalized.v2",
+                    "created_at": _ns_to_iso(end_time_ns),
+                    "metadata": {"role": "frames", "source": "lerobot_rollout"},
+                }
+            )
         if timeline_path.exists():
             artifact_records.append(
                 {
@@ -219,3 +243,112 @@ def _ns_to_iso(ns: int) -> str:
     from datetime import UTC, datetime
 
     return datetime.fromtimestamp(ns / 1e9, tz=UTC).isoformat().replace("+00:00", "Z")
+
+
+def _write_frames_episode(
+    layout: PracticeLayout,
+    practice_id: str,
+    events: list[dict[str, Any]],
+    *,
+    robot_id: str,
+    task_id: str,
+    policy_path: str,
+    episode_id: str,
+) -> Path | None:
+    """Build a frame-level normalized episode JSON from rollout trace events.
+
+    Pairs ``rollout.observation.validated`` snapshots with the following
+    ``rollout.policy.inference`` proposal for the same step and writes
+    ``frames_episode.json`` in the normalized-episode schema accepted by
+    ``rosclaw practice export --format lerobot``.  Returns ``None`` when no
+    frames can be built.
+    """
+    observations: dict[int, dict[str, Any]] = {}
+    actions: dict[int, dict[str, Any]] = {}
+    executed: dict[int, dict[str, Any]] = {}
+    for ev in events:
+        etype = ev.get("event_type", "")
+        payload = ev.get("payload", {}) or {}
+        frame_id = ev.get("frame_id")
+        try:
+            step = int(frame_id) if frame_id is not None else -1
+        except (TypeError, ValueError):
+            step = -1
+        if step < 0:
+            continue
+        if etype == "rollout.observation.validated":
+            observations[step] = payload.get("snapshot", {}) or {}
+        elif etype == "rollout.policy.inference":
+            actions[step] = payload.get("inference", {}) or {}
+        elif etype in ("execution.feedback.verified", "execution.step.completed"):
+            executed[step] = payload
+
+    steps = sorted(set(observations) & set(actions))
+    if not steps:
+        return None
+
+    first_ts = events[0].get("timestamp_ns", 0) if events else 0
+    frames: list[dict[str, Any]] = []
+    for out_index, step in enumerate(steps):
+        snapshot = observations[step]
+        proposal = actions[step]
+        features = snapshot.get("features", {}) or {}
+        state_feature = features.get("observation.state", {}) or {}
+        action_block = proposal.get("action", {}) or {}
+
+        frame: dict[str, Any] = {
+            "frame_index": out_index,
+            "timestamp": out_index * 0.2,
+            "observation": {
+                "state": [float(v) for v in state_feature.get("values", [])],
+                "images": {},
+            },
+            "action": [float(v) for v in action_block.get("values", [])],
+            "metadata": {
+                "step_index": step,
+                "proposal_id": proposal.get("proposal_id"),
+                "sandbox_decision": None,
+            },
+        }
+        # Physical telemetry channels (Gate B / P5 §10.1).
+        for feature_key, frame_key in (
+            ("observation.current", "motor_current"),
+            ("observation.temperature", "joint_temperature"),
+            ("observation.force", "force_torque"),
+        ):
+            channel = features.get(feature_key, {}) or {}
+            values = channel.get("values")
+            if isinstance(values, list) and values:
+                frame["observation"][frame_key] = [float(v) for v in values]
+        status_feature = features.get("observation.status", {}) or {}
+        status_values = status_feature.get("values")
+        if isinstance(status_values, list) and status_values:
+            frame["observation"]["contact"] = [bool(int(v) & 0x01) for v in status_values]
+
+        if step in executed:
+            frame["metadata"]["executed"] = True
+            result = executed[step].get("result", {}) or {}
+            if result.get("actual"):
+                frame["observation"]["state"] = [float(v) for v in result["actual"]]
+        frames.append(frame)
+
+    episode_doc = {
+        "schema_version": "rosclaw.practice.episode.normalized.v2",
+        "episode_id": episode_id,
+        "robot": {
+            "robot_id": robot_id,
+            "policy_path": policy_path,
+        },
+        "task": {"text": task_id},
+        "fps": 5.0,
+        "frames": frames,
+        "metadata": {
+            "practice_id": practice_id,
+            "source": "lerobot_rollout",
+            "event_count": len(events),
+            "first_timestamp_ns": first_ts,
+        },
+    }
+    path = layout.session_dir(practice_id) / "frames_episode.json"
+    path.write_text(json.dumps(episode_doc, ensure_ascii=False), encoding="utf-8")
+    return path

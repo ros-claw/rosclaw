@@ -1,0 +1,50 @@
+# RH56 — CAN 2.0B transport profile (11 joints, 0-65535 raw).
+#
+# This profile describes the inspire-rh56-mcp CAN interface.  It MUST NOT be
+# used with the RS485/Modbus-RTU /dev/ttyUSB0 connection (that uses
+# rh56_right_rs485_v1: 6 actuators, 0-1000 raw).
+schema_version: rosclaw.rh56.transport_profile.v1
+
+id: rh56_can_v1
+
+transport:
+  type: can_2_0b
+  channel: can0
+  baudrate: 1000000
+  slave_id: 1
+  extended_id: true
+
+command:
+  actuator_count: 11
+  position_range: [0, 65535]
+  position_convention:
+    closed: 0
+    open: 65535
+  speed_range: [0, 4095]
+  force_range: [0, 4095]
+  force_unit: raw_device_unit
+  current_unit: milliampere
+
+action_order:
+  - thumb_rot
+  - thumb_proximal
+  - thumb_distal
+  - index_proximal
+  - index_distal
+  - middle_proximal
+  - middle_distal
+  - ring_proximal
+  - ring_distal
+  - little_proximal
+  - little_distal
+
+feedback:
+  position_unit: raw_device_unit
+  force_channel: FORCE_ACT
+  current_channel: CURRENT
+  status_channel: STATUS
+  temperature_channel: TEMP
+
+metadata:
+  provider_ref: inspire_rh56_can
+  source: inspire-rh56-mcp README / CAN Supplemental Protocol V0.0.2

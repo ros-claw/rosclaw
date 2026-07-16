@@ -79,6 +79,11 @@ class RolloutConfig:
     require_exact_mapping: bool = True
     allow_partial_mapping: bool = False
     run_sandbox_preflight: bool = True
+    # Optional RH56 sandbox context: {"profile": TransportProfile,
+    # "calibration": RH56Calibration|None, "current_positions": list|None,
+    # "max_step_delta_raw": float|None}.  When set, the RH56 range checker
+    # replaces the generic humanoid MuJoCo firewall.
+    rh56_context: dict[str, Any] | None = None
 
     # Output
     trace_path: str | Path | None = None
@@ -465,6 +470,7 @@ def _run_step(
                 mapped,
                 body_space,
                 robot_id=config.robot_id,
+                rh56_context=config.rh56_context,
             )
         metrics.record_sandbox(sandbox_timer.elapsed_ms)
         recorder.record_sandbox_decision(
@@ -538,17 +544,33 @@ def _build_snapshot(
     names = observation.get("state_names")
     if names is None and "state" in observation and isinstance(observation["state"], dict):
         names = list(observation["state"].keys())
+    features = {
+        "observation.state": ObservationFeatureSnapshot(
+            valid=True,
+            values=list(values),
+            names=list(names) if names else None,
+        )
+    }
+    # P5: record RH56 feedback channels as observation features so the
+    # Practice trace carries force/current/temperature/status evidence.
+    for key in (
+        "observation.force",
+        "observation.current",
+        "observation.temperature",
+        "observation.status",
+    ):
+        channel_values = observation.get(key)
+        if isinstance(channel_values, list) and channel_values:
+            features[key] = ObservationFeatureSnapshot(
+                valid=True,
+                values=list(channel_values),
+                names=list(names) if names else None,
+            )
     return ObservationSnapshot(
         snapshot_id=f"obs_{session_id}_{step_index}",
         session_id=session_id,
         captured_at_monotonic_ns=time.monotonic_ns(),
-        features={
-            "observation.state": ObservationFeatureSnapshot(
-                valid=True,
-                values=list(values),
-                names=list(names) if names else None,
-            )
-        },
+        features=features,
     )
 
 
@@ -577,7 +599,17 @@ def _policy_space_from_metadata(metadata: dict[str, Any]) -> ActionSpace:
 def _default_python() -> str:
     import sys
 
+    from rosclaw.integrations.lerobot.config import get_configured_lerobot_runtime
     from rosclaw.integrations.lerobot.runtime import find_python312
 
+    # Prefer the configured LeRobot runtime (has torch/lerobot installed);
+    # a bare python3.12 from PATH would crash the worker on import.
+    configured = get_configured_lerobot_runtime()
+    if configured and configured.get("python_executable"):
+        return str(configured["python_executable"])
+    # Fallback: a conventional worker venv next to the repo, then any py3.12.
+    repo_venv = Path(__file__).resolve().parents[5] / ".venv-lerobot" / "bin" / "python"
+    if repo_venv.exists():
+        return str(repo_venv)
     found = find_python312()
     return str(found) if found else sys.executable

@@ -22,13 +22,32 @@ def run_sandbox_preflight(
     robot_id: str = "rosclaw_default",
     world_id: str = "empty",
     safety_level: str = "MODERATE",
+    rh56_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Validate a mapped action candidate through the sandbox firewall.
 
     Chunked actions are expanded into a trajectory so each chunk waypoint can be
     checked.  If the sandbox is unavailable, the candidate is blocked to honor
     the fail-closed contract.
+
+    When ``rh56_context`` is provided (keys: ``profile``, optional
+    ``calibration``, ``current_positions``, ``max_step_delta_raw``), the
+    RH56-aware range/calibration checker runs instead of the generic humanoid
+    MuJoCo firewall, whose hardcoded radian limits are meaningless for a
+    raw-device-unit hand.
     """
+    if rh56_context is not None:
+        from rosclaw.body.rh56.sandbox import run_rh56_sandbox_preflight
+
+        return run_rh56_sandbox_preflight(
+            mapped_action,
+            body_action_space,
+            profile=rh56_context["profile"],
+            calibration=rh56_context.get("calibration"),
+            current_positions=rh56_context.get("current_positions"),
+            max_step_delta_raw=rh56_context.get("max_step_delta_raw"),
+        )
+
     from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
 
     t0 = time.perf_counter()

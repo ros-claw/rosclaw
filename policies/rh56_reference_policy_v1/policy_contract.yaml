@@ -1,0 +1,48 @@
+# Authoritative action contract for the RH56 reference policy.
+#
+# This file is the ONLY authoritative source of action semantics for
+# rh56_reference_policy_v1.  The persistent worker merges it into the policy
+# metadata at LOAD_POLICY time (explicit_policy_contract source), which makes
+# every emitted ActionProposalV2 authoritative=true.
+schema_version: rosclaw.policy_contract.v1
+
+policy_id: rh56_reference_policy_v1
+policy_type: rosclaw_rh56_reference
+
+input_features:
+  observation.state:
+    shape: [6]
+    names: [little, ring, middle, index, thumb, thumb_rot]
+    unit: raw_device_unit
+  observation.force:
+    shape: [6]
+    unit: gram
+    required: false
+  observation.temperature:
+    shape: [6]
+    unit: celsius
+    required: false
+
+output_features:
+  action:
+    shape: [6]
+    representation: joint_position
+    unit: raw_device_unit
+    names: [little, ring, middle, index, thumb, thumb_rot]
+    semantic_source: explicit_policy_contract
+    authoritative: true
+
+tasks:
+  - hold_current
+  - open_hand
+  - micro_index_flex
+  - half_close
+  - return_open
+  - countdown_pose
+  - ok_pose_safe
+
+safety:
+  max_step_delta_default: 20
+  position_range: [0, 1000]
+  single_step_only: true
+  open_loop_chunk: forbidden

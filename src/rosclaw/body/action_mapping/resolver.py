@@ -37,7 +37,11 @@ def resolve_body_action_space(
             continue
         joint_names.append(name)
         if representation == "joint_position":
-            units.append(_default_unit_for_joint_type(j_type))
+            # An explicit per-joint unit hint wins over the joint-type default;
+            # this is how raw-device-unit bodies (e.g. RH56 0-1000) declare
+            # their native command units without pretending to be SI units.
+            hint = joint.get("unit")
+            units.append(str(hint) if hint else _default_unit_for_joint_type(j_type))
         else:
             units.append("")
         limits[name] = _extract_limits(joint)
