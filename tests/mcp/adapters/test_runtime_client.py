@@ -10,6 +10,7 @@ import pytest
 
 from rosclaw.core.event_bus import EventBus
 from rosclaw.mcp.adapters.runtime_client import RuntimeClient
+from rosclaw.mcp.schemas.common import MCPError
 
 
 class _FakeSense:
@@ -18,7 +19,7 @@ class _FakeSense:
         self.state_age_ms = 42
 
     def get_latest_state(self) -> dict[str, Any]:
-        return {"joint_positions": [0.1] * 6}
+        return {"joint_positions": [0.1] * 6, "source": "hardware:test_feedback"}
 
     def get_body_sense(self) -> dict[str, Any]:
         return {"temperature": "normal"}
@@ -49,6 +50,20 @@ class _FakeRuntime:
         self.sandbox.simulate_step.return_value = {"qpos": [0.2] * 6}
         self.episode_recorder = MagicMock()
         self.episode_recorder.list_episodes.return_value = []
+
+    def request_emergency_stop(self, reason: str, *, source: str) -> dict[str, Any]:
+        return {
+            "request_id": "stop-fake",
+            "reason": reason,
+            "source": source,
+            "targets": ["fake_driver"],
+            "request_dispatched": True,
+            "driver_acknowledged": True,
+            "physical_stop_observed": False,
+            "stopped": False,
+            "final_status": "ACKNOWLEDGED",
+            "mode": "runtime",
+        }
 
 
 @pytest.fixture
@@ -109,7 +124,7 @@ async def test_validate_trajectory_delegates_to_sandbox(client_with_runtime: Run
 
 async def test_sandbox_run_delegates_to_sandbox(client_with_runtime: RuntimeClient) -> None:
     response = await client_with_runtime.sandbox_run([0.1] * 6)
-    assert response["mode"] == "live"
+    assert response["mode"] == "simulation"
     assert response["physics_state"]["qpos"] == [0.2] * 6
 
 
@@ -123,12 +138,10 @@ async def test_practice_query_delegates_to_recorder(client_with_runtime: Runtime
 
 
 async def test_emergency_stop_publishes_via_event_bus(client_with_runtime: RuntimeClient) -> None:
-    received: list[Any] = []
-    client_with_runtime._runtime.event_bus.subscribe("robot.emergency_stop", received.append)
     response = await client_with_runtime.emergency_stop("integration test")
-    assert response["stopped"] is True
-    assert response["mode"] == "live"
-    assert len(received) == 1
+    assert response["stopped"] is False
+    assert response["mode"] == "runtime"
+    assert response["final_status"] == "ACKNOWLEDGED"
 
 
 async def test_emergency_stop_degraded_without_runtime() -> None:
@@ -139,6 +152,22 @@ async def test_emergency_stop_degraded_without_runtime() -> None:
         fixture_mode=True,
     )
     response = await client.emergency_stop("no runtime")
-    assert response["stopped"] is True
-    assert response["mode"] == "degraded"
+    assert response["stopped"] is False
+    assert response["mode"] == "fixture"
+    assert response["execution_mode"] == "FIXTURE"
     assert "physical E-stop" in response["note"]
+
+
+async def test_live_mode_never_falls_back_to_fixture_on_runtime_failure() -> None:
+    client = RuntimeClient(
+        project_root=Path("/tmp/rosclaw-test"),
+        robot_id="real_bot",
+        runtime_profile={},
+    )
+    client._runtime_error = "model missing"
+
+    with pytest.raises(MCPError) as error:
+        await client.get_robot_state()
+
+    assert error.value.code == "RUNTIME_UNAVAILABLE"
+    assert error.value.details["trust_level"] == "UNAVAILABLE"

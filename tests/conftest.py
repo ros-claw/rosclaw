@@ -290,10 +290,9 @@ def _isolate_runtime_plugin() -> None:
 def fake_realsense_skill(monkeypatch, dummy_png):
     """Replace the builtin ``realsense_capture_rgbd`` skill with a fast stub.
 
-    The real builtin is loaded dynamically by ``load_builtins`` as a separate
-    module object, so monkeypatching the dotted import path used by the tests
-    does not take effect.  Instead we patch ``load_builtins`` itself and inject
-    a ``SkillEntry`` whose handler writes a color (and optional depth) artifact.
+    SkillExecutor prefers Runtime plugin handlers over legacy SkillEntry
+    handlers. Isolate discovery and register the stub in both surfaces so the
+    fixture behaves identically alone and in the full suite.
     """
     import shutil
 
@@ -336,3 +335,8 @@ def fake_realsense_skill(monkeypatch, dummy_png):
 
     monkeypatch.setattr("rosclaw.skill.builtins.load_builtins", _fake_load_builtins)
     monkeypatch.setattr("rosclaw.cli._image_dimensions", lambda _path: (640, 480))
+    from rosclaw.runtime.plugin import get_runtime_plugin
+
+    plugin = get_runtime_plugin()
+    plugin.register("realsense_capture_rgbd", _fake_run)
+    monkeypatch.setattr(plugin, "discover_handlers", lambda *_args, **_kwargs: None)

@@ -493,7 +493,7 @@ class TestSandboxCommands:
         captured = capsys.readouterr()
         assert "not found" in captured.out or "error" in captured.out.lower() or code != 0
 
-    def test_sandbox_run_accepts_world_argument(self, capsys):
+    def test_sandbox_run_accepts_world_argument(self, capsys, tmp_path):
         from rosclaw.cli import main
 
         sys.argv = [
@@ -506,11 +506,70 @@ class TestSandboxCommands:
             "tabletop",
             "--task",
             "reach",
+            "--artifact-dir",
+            str(tmp_path),
         ]
         code = main()
         captured = capsys.readouterr()
         assert code == 0
         assert "World:      tabletop" in captured.out
+        assert "Status:     COMPLETED" in captured.out
+        assert "Evidence:   TASK_VERIFIED" in captured.out
+        assert "Verified:   True" in captured.out
+
+    def test_sandbox_fixture_requires_explicit_mode(self, capsys, tmp_path):
+        from rosclaw.cli import main
+
+        sys.argv = [
+            "rosclaw",
+            "sandbox",
+            "run",
+            "--robot",
+            "sim_ur5e",
+            "--world",
+            "tabletop",
+            "--task",
+            "reach",
+            "--mode",
+            "fixture",
+            "--artifact-dir",
+            str(tmp_path),
+        ]
+        code = main()
+        captured = capsys.readouterr()
+
+        assert code == 0
+        assert "MODE: FIXTURE" in captured.out
+        assert "NO PHYSICS WAS EXECUTED" in captured.out
+        assert "NOT VALID FOR ACCEPTANCE" in captured.out
+        assert "Verified:   False" in captured.out
+
+    def test_sandbox_missing_model_fails_with_json_receipt(self, capsys, tmp_path):
+        import json
+
+        from rosclaw.cli import main
+
+        sys.argv = [
+            "rosclaw",
+            "sandbox",
+            "run",
+            "--robot",
+            "definitely_missing_robot",
+            "--world",
+            "tabletop",
+            "--task",
+            "reach",
+            "--artifact-dir",
+            str(tmp_path),
+            "--json",
+        ]
+        code = main()
+        payload = json.loads(capsys.readouterr().out)
+
+        assert code == 1
+        assert payload["final_state"] == "FAILED"
+        assert payload["verified"] is False
+        assert payload["errors"][0]["code"] == "PHYSICS_UNAVAILABLE"
 
 
 class TestMemoryCommands:

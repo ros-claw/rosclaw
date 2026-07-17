@@ -26,10 +26,10 @@ from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.data.flywheel import DataFlywheel, EventType
 from rosclaw.practice.artifact_store import ArtifactStore
 from rosclaw.practice.config import (
-    DEFAULT_DATA_ROOT,
     PracticeSession,
     PracticeSummary,
     RecorderConfig,
+    resolve_data_root,
 )
 from rosclaw.practice.ids import generate_episode_id
 from rosclaw.practice.schemas import SCHEMA_VERSION, EpisodeSummaryPayload, PracticeEventEnvelope
@@ -99,7 +99,7 @@ class PracticeRecorder(RuntimeConsumer):
         runtime_bus_or_robot_id: RuntimeBus | str,
         joint_dof: int = 6,
         event_bus: EventBus | None = None,
-        data_root: str | Path = DEFAULT_DATA_ROOT,
+        data_root: str | Path | None = None,
         publish_to_event_bus: bool = True,
         auto_start_on_skill: bool = True,
         config: RecorderConfig | None = None,
@@ -120,7 +120,7 @@ class PracticeRecorder(RuntimeConsumer):
         self._config = config or RecorderConfig()
 
         # Runtime Kernel v2 recording state.
-        self.layout = PracticeLayout(data_root)
+        self.layout = PracticeLayout(resolve_data_root(data_root))
         self._catalog: PracticeCatalog | None = None
         self._artifact_store: ArtifactStore | None = None
         self._writer: JsonlWriter | None = None

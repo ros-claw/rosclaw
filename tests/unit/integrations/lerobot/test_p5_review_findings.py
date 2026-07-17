@@ -7,7 +7,7 @@ Each test maps to a finding fixed in the review pass:
 3. Mock-validated calibration is detectable and cannot silently arm.
 4. Observation channel failure mid-execution estops and enters
    COMMUNICATION_LOST with the permit revoked.
-5. hardware_actions_executed survives fault exit paths.
+5. Fixture command counters survive fault exit paths without claiming hardware.
 6. Shadow gate checks worker_restart_count == 0.
 7. Execute rollouts report mode=execute (not shadow).
 8. frames_episode.json uses real trace timestamps.
@@ -16,9 +16,10 @@ Each test maps to a finding fixed in the review pass:
 from __future__ import annotations
 
 import json
-import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -152,6 +153,7 @@ def _armed_stack(tmp_path: Path):
         operator_armed=True,
         physical_estop_confirmed=True,
         calibration_status="validated",
+        execution_mode="FIXTURE",
     )
     arming = ArmingController(pm)
     arming.begin_preflight()
@@ -162,9 +164,51 @@ def _armed_stack(tmp_path: Path):
     return profile, calib, pm, permit, arming, transport
 
 
-def test_observation_failure_estops_and_revokes(tmp_path: Path) -> None:
+def _install_fake_policy_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    from rosclaw.body.rh56.constants import RS485_ACTUATOR_ORDER
+
+    runtime = MagicMock()
+    runtime.start.return_value = type("State", (), {"state": "ready", "error": None})()
+
+    def _call(method: str, params: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        if method == "LOAD_POLICY":
+            return {
+                "status": "ok",
+                "policy_metadata": {
+                    "output_features": {
+                        "action": {
+                            "shape": [6],
+                            "names": list(RS485_ACTUATOR_ORDER),
+                            "unit": "raw_device_unit",
+                            "representation": "joint_position",
+                        }
+                    }
+                },
+            }
+        if method == "INFER":
+            return {
+                "status": "ok",
+                "processed_action": {
+                    "values": [1000.0] * 6,
+                    "shape": [6],
+                    "dtype": "float32",
+                },
+            }
+        return {"status": "ok", "session_id": params.get("session_id")}
+
+    runtime.call.side_effect = _call
+    monkeypatch.setattr(
+        "rosclaw.integrations.lerobot.rollout.rh56_execute.PersistentRuntimeManager",
+        lambda **kwargs: runtime,
+    )
+
+
+def test_observation_failure_estops_and_revokes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from rosclaw.integrations.lerobot.rollout.rh56_execute import run_rh56_execute
 
+    _install_fake_policy_runtime(monkeypatch)
     profile, calib, pm, permit, arming, transport = _armed_stack(tmp_path)
     transport.fail_next_read()  # observation read at step 0 fails
 
@@ -179,6 +223,7 @@ def test_observation_failure_estops_and_revokes(tmp_path: Path) -> None:
         steps=3,
         practice_data_root=tmp_path / "practice",
         python_executable=".venv-lerobot/bin/python",
+        fixture_mode=True,
     )
     from rosclaw.integrations.lerobot.execution import ExecutionState
 
@@ -191,9 +236,12 @@ def test_observation_failure_estops_and_revokes(tmp_path: Path) -> None:
     assert "execution.estop" in event_types or "execution.communication_lost" in event_types
 
 
-def test_hardware_actions_survive_fault_exit(tmp_path: Path) -> None:
+def test_fixture_actions_survive_fault_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from rosclaw.integrations.lerobot.rollout.rh56_execute import run_rh56_execute
 
+    _install_fake_policy_runtime(monkeypatch)
     profile, calib, pm, permit, arming, transport = _armed_stack(tmp_path)
 
     result, report = run_rh56_execute(
@@ -209,10 +257,16 @@ def test_hardware_actions_survive_fault_exit(tmp_path: Path) -> None:
         control_hz=5.0,
         practice_data_root=tmp_path / "practice",
         python_executable=".venv-lerobot/bin/python",
+        fixture_mode=True,
     )
-    # Even on the success path the count must be recorded on the result.
-    assert result.hardware_actions_executed == result.steps_completed
+    # Synthetic commands remain visible without being mislabeled as hardware.
+    assert result.stop_reason.value == "completed", result.errors
+    assert result.steps_completed == 2
+    assert result.commands_executed == result.steps_completed
+    assert result.fixture_actions_executed == result.steps_completed
+    assert result.hardware_actions_executed == 0
     assert result.mode.value == "execute"
+    assert result.execution_mode == "FIXTURE"
 
 
 # 6. Shadow gate worker restart check -----------------------------------------

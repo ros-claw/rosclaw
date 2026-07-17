@@ -197,7 +197,8 @@ def register_ros_tools(mcp, runtime: Any | None = None) -> None:
 
     @mcp.tool(
         description=(
-            "Execute a ROS capability through the safety-gated provider.\n"
+            "Dry-run a ROS capability; physical execution is blocked until registered with "
+            "the runtime action gateway.\n"
             "Example: ros_execute_capability(capability_id='turtlesim.base.velocity_command', args={...})"
         ),
     )
@@ -237,7 +238,7 @@ def register_ros_tools(mcp, runtime: Any | None = None) -> None:
 
     @mcp.tool(
         description=(
-            "Emergency stop a robot by sending zero velocity and disabling active commands.\n"
+            "Request an emergency stop and return its evidence-bearing runtime receipt.\n"
             "Example: ros_emergency_stop(robot_id='turtlesim')"
         ),
     )
@@ -245,17 +246,25 @@ def register_ros_tools(mcp, runtime: Any | None = None) -> None:
         if runtime is None:
             return {"ok": False, "error": "Runtime not available"}
         try:
-            from rosclaw.core.event_bus import Event
-
-            event_bus = getattr(runtime, "event_bus", None)
-            if event_bus is not None:
-                event_bus.publish(
-                    Event(
-                        topic="robot.emergency_stop",
-                        payload={"reason": f"MCP emergency stop for {robot_id}"},
-                        source="ros_mcp_tools",
-                    )
-                )
-            return {"ok": True, "robot_id": robot_id, "action": "emergency_stop_triggered"}
+            request_stop = getattr(runtime, "request_emergency_stop", None)
+            if not callable(request_stop):
+                return {
+                    "ok": False,
+                    "robot_id": robot_id,
+                    "error": "Runtime emergency-stop manager not available",
+                }
+            receipt = request_stop(
+                f"MCP emergency stop for {robot_id}",
+                source="ros_mcp_tools",
+            )
+            result = receipt.to_dict()
+            result.update(
+                {
+                    "ok": bool(result.get("stopped", False)),
+                    "robot_id": robot_id,
+                    "action": "emergency_stop",
+                }
+            )
+            return result
         except Exception as exc:
             return {"ok": False, "robot_id": robot_id, "error": str(exc)}

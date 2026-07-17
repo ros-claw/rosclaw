@@ -1,8 +1,8 @@
-"""ROS Connector - ROS CLI commands.
+"""ROS connector CLI for discovery, validation, and explicit dry runs.
 
-Safe, human-facing CLI for the ROS bridge. We never expose raw
-``publish_once`` / ``call_any_service`` primitives here; execution goes
-through the safety-gated ``RosCapabilityProvider``.
+Physical capability execution is blocked until it enters through the runtime
+action gateway. The emergency-stop command remains a best-effort safety path
+and reports dispatch separately from physical stop verification.
 """
 
 from __future__ import annotations
@@ -390,7 +390,7 @@ def cmd_ros_validate_capability(args: argparse.Namespace) -> int:
 
 
 def cmd_ros_execute_capability(args: argparse.Namespace) -> int:
-    """Execute a capability through the safety-gated provider."""
+    """Dry-run a capability or report that runtime-gated execution is required."""
     capability_id = args.capability_id
     endpoint = args.endpoint
     robot_id = args.robot_id
@@ -542,11 +542,20 @@ def cmd_ros_emergency_stop(args: argparse.Namespace) -> int:
         return _maybe_json(
             args,
             {
-                "ok": True,
+                "ok": False,
                 "action": "emergency_stop",
                 "robot_id": robot_id,
                 "endpoint": endpoint,
-                "message": "Zero velocity commands published to command topics",
+                "request_dispatched": True,
+                "driver_acknowledged": False,
+                "physical_stop_observed": False,
+                "stopped": False,
+                "final_status": "UNVERIFIED",
+                "trust_level": "UNVERIFIED",
+                "message": (
+                    "Zero-velocity requests were published, but no driver acknowledgement or "
+                    "independent stop observation is available. Use the physical E-stop."
+                ),
             },
         )
     except Exception as exc:

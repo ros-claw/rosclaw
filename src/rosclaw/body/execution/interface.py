@@ -1,7 +1,9 @@
-"""Body executor interface (plan §7.1 ``body/execution/interface.py``).
+"""Low-level body executor interface (plan §7.1 ``body/execution/interface.py``).
 
-A ``BodyExecutor`` is the only component allowed to turn an
-``ActionExecutionRequest`` into a physical command.  Implementations must:
+A ``BodyExecutor`` can turn an ``ActionExecutionRequest`` into a transport
+command. REAL implementations must only be invoked by a registered Runtime
+ActionGateway executor; this interface is not authorization. Implementations
+must:
 
 - send **exactly one** single-step position command per call
 - return the physical feedback measured after the command
@@ -31,7 +33,7 @@ class ExecutorSafetyError(RuntimeError):
 
 
 class BodyExecutor(Protocol):
-    """Minimal single-step executor contract."""
+    """Minimal single-step transport contract; not a public execution facade."""
 
     def execute_step(
         self,
@@ -40,7 +42,7 @@ class BodyExecutor(Protocol):
         settle_ms: float = 0.0,
         max_step_delta_raw: float | None = None,
     ) -> tuple[bool, RH56Feedback]:
-        """Send one step command and return ``(acknowledged, feedback)``.
+        """Send one transport step and return ``(acknowledged, feedback)``.
 
         Must raise :class:`ExecutorCommunicationError` on I/O failure and
         :class:`ExecutorSafetyError` when the request cannot be sent safely.

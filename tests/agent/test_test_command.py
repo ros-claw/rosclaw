@@ -9,7 +9,7 @@ import pytest
 
 import rosclaw.agent.test_claude_code as test_module
 from rosclaw.agent.init_claude_code import cmd_agent_init_claude_code
-from rosclaw.agent.test_claude_code import cmd_agent_test_claude_code
+from rosclaw.agent.test_claude_code import _assess_probe_payload, cmd_agent_test_claude_code
 
 
 def _make_init_args(tmp_path: Path) -> argparse.Namespace:
@@ -98,6 +98,9 @@ async def test_test_command_mcp_probe_runs(
         lambda _server_config, *, project_root: test_module.McpProbeResult(
             True,
             tools=["get_robot_state", "sandbox_run"],
+            readiness_limits=[
+                "get_robot_state: unavailable as expected (SYNTHETIC_SOURCE_NOT_ALLOWED)"
+            ],
         ),
     )
 
@@ -105,3 +108,43 @@ async def test_test_command_mcp_probe_runs(
     captured = capsys.readouterr()
     assert "MCP stdio probe: OK" in captured.out
     assert "MCP tools discovered: 2" in captured.out
+    assert "Readiness: get_robot_state: unavailable as expected" in captured.out
+
+
+def test_probe_accepts_truthful_readiness_failure() -> None:
+    error, readiness = _assess_probe_payload(
+        "get_robot_state",
+        {
+            "schema_version": "rosclaw.mcp.v1",
+            "ok": False,
+            "error": {
+                "code": "SYNTHETIC_SOURCE_NOT_ALLOWED",
+                "message": "fixture mode was not requested",
+                "details": {
+                    "trust_level": "UNAVAILABLE",
+                    "usable_for_real_execution": False,
+                },
+            },
+        },
+    )
+
+    assert error is None
+    assert readiness == ("get_robot_state: unavailable as expected (SYNTHETIC_SOURCE_NOT_ALLOWED)")
+
+
+def test_probe_rejects_internal_runtime_error() -> None:
+    error, readiness = _assess_probe_payload(
+        "sandbox_run",
+        {
+            "schema_version": "rosclaw.mcp.v1",
+            "ok": False,
+            "error": {
+                "code": "RUNTIME_ERROR",
+                "message": "unexpected exception",
+                "details": {"usable_for_real_execution": False},
+            },
+        },
+    )
+
+    assert "returned ok=false" in str(error)
+    assert readiness is None

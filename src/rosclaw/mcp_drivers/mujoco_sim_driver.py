@@ -18,34 +18,44 @@ class MuJoCoSimDriver(BaseDriver):
     Provides identical interface to real hardware but runs in simulation.
     """
 
-    def __init__(self, robot_id: str = "default_robot", model_path: str = "", joint_dof: int = 6):
-        super().__init__(robot_id, joint_dof)
+    def __init__(
+        self,
+        robot_id: str = "default_robot",
+        model_path: str = "",
+        joint_dof: int = 6,
+        *,
+        fixture_mode: bool = False,
+    ):
+        super().__init__(robot_id, joint_dof, fixture_mode=fixture_mode)
         self._model_path = model_path
         self._model: Any | None = None
         self._data: Any | None = None
         self._sim_step = 0.002
 
     def _do_initialize(self) -> None:
+        if self.fixture_mode:
+            self._activate_fixture("Explicit MuJoCo driver fixture mode; no physics loaded.")
+            return
         try:
             import mujoco
         except ImportError:
-            logger.warning("mujoco not available, running in mock mode")
-            self._driver_state.connected = True
-            return
+            self._activate_fixture("MuJoCo is not installed.")
 
         if not self._model_path or not self._model_path.strip():
-            logger.warning("No model path provided, running in mock mode")
-            self._driver_state.connected = True
-            return
+            self._activate_fixture("MuJoCo model_path is required.")
 
         if not Path(self._model_path).exists():
-            logger.warning("Model not found, running in mock mode: %s", self._model_path)
-            self._driver_state.connected = True
-            return
+            self._activate_fixture(f"MuJoCo model not found: {self._model_path}")
 
         self._model = mujoco.MjModel.from_xml_path(self._model_path)
         self._data = mujoco.MjData(self._model)
-        self._driver_state.connected = True
+        self._mark_backend_ready(
+            execution_mode="SIMULATION",
+            trust_level="SIMULATED",
+            implementation_kind="mujoco",
+            connection_evidence=f"loaded:{Path(self._model_path).resolve()}",
+            usable_for_real_execution=False,
+        )
         logger.info("MuJoCo model loaded: %s", self._model_path)
 
     def _do_stop(self) -> None:
@@ -114,11 +124,36 @@ class MuJoCoSimDriver(BaseDriver):
         self._driver_state.gripper_state = position
         return True
 
-    def emergency_stop(self) -> None:
+    def emergency_stop(self) -> dict[str, Any]:
         self._driver_state.error_code = 99
         self._driver_state.error_message = "Emergency stop triggered"
-        if self._data is not None:
-            self._data.ctrl[:] = 0.0
+        if self._data is None or self._model is None:
+            return {
+                "acknowledged": False,
+                "physical_stop_observed": False,
+                "execution_mode": "FIXTURE" if self.fixture_mode else "UNKNOWN",
+                "trust_level": "SYNTHETIC" if self.fixture_mode else "UNAVAILABLE",
+                "note": "No MuJoCo physics state exists to stop or observe.",
+            }
+
+        import mujoco
+
+        actuator_count = min(self._model.nu, self._model.nq)
+        self._data.ctrl[:actuator_count] = self._data.qpos[:actuator_count]
+        for _ in range(100):
+            mujoco.mj_step(self._model, self._data)
+        joint_velocity = self.get_joint_velocities()
+        observed_velocity = max((abs(value) for value in joint_velocity), default=0.0)
+        observed = observed_velocity <= 1e-3
+        return {
+            "acknowledged": True,
+            "physical_stop_observed": observed,
+            "observed_velocity": observed_velocity,
+            "observed_joint_velocity": joint_velocity,
+            "verification_source": "mujoco.qvel",
+            "execution_mode": "SIMULATION",
+            "trust_level": "SIMULATED",
+        }
 
     def get_state(self) -> DriverState:
         self._driver_state.joint_positions = self.get_joint_positions()

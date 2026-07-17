@@ -1,4 +1,4 @@
-"""RH56 execute loop (P5-C): receding-horizon single-step execution.
+"""RH56 fixture loop (P5-C): receding-horizon single-step validation.
 
 Mirrors :func:`run_rh56_shadow` but every step goes through the full
 execution pipeline::
@@ -6,13 +6,14 @@ execution pipeline::
     observe → infer → map → sandbox → permit → execute one step
       → feedback verify → Practice events
 
-Hardware execution only happens through the injected ``BodyExecutor``; with
-:class:`MockModbusTransport` this validates the complete loop without any
-physical device.
+Only explicit :class:`MockModbusTransport` fixtures are accepted here. REAL
+execution is blocked until an RH56 executor is registered behind the Runtime
+ActionGateway.
 """
 
 from __future__ import annotations
 
+import contextlib
 import time
 import uuid
 from pathlib import Path
@@ -54,6 +55,7 @@ from rosclaw.integrations.lerobot.rollout.rh56_observation_source import (
     RH56ObservationSource,
 )
 from rosclaw.integrations.lerobot.rollout.state import RolloutMode, RolloutResult, RolloutStopReason
+from rosclaw.kernel import ExecutionMode
 
 
 def run_rh56_execute(
@@ -76,12 +78,17 @@ def run_rh56_execute(
     trace_path: str | Path | None = None,
     python_executable: str | None = None,
     robot_id: str = "rh56_mock",
+    fixture_mode: bool = False,
 ) -> tuple[RolloutResult, ExecutionReport]:
-    """Run a receding-horizon single-step execution loop."""
+    """Run the explicit RH56 fixture loop; REAL dispatch requires ActionGateway."""
+    if not fixture_mode:
+        raise RuntimeError(
+            "RUNTIME_ACTION_GATEWAY_REQUIRED: RH56 REAL execution is unavailable; "
+            "use Runtime.submit_action() with a registered verified REAL executor"
+        )
+
     profile = load_transport_profile(transport_profile_path)
-    calibration = (
-        load_rh56_calibration(calibration_path) if calibration_path is not None else None
-    )
+    calibration = load_rh56_calibration(calibration_path) if calibration_path is not None else None
     if body is None:
         body = build_mock_rh56_body(profile)
     validate_transport_binding(
@@ -92,11 +99,29 @@ def run_rh56_execute(
 
     if transport is None:
         transport = MockModbusTransport(profile)
+    transport_mode = str(getattr(transport, "execution_mode", "UNKNOWN")).upper()
+    if transport_mode != ExecutionMode.FIXTURE.value:
+        raise RuntimeError(
+            "RUNTIME_ACTION_GATEWAY_REQUIRED: the legacy RH56 loop accepts only an explicit "
+            "FIXTURE transport; no command was dispatched"
+        )
     if not transport.is_connected():
         transport.connect()
 
-    result = RolloutResult(mode=RolloutMode.EXECUTE, stop_reason=RolloutStopReason.COMPLETED)
-    report = ExecutionReport(body_id=getattr(body, "body_instance_id", robot_id), task=task)
+    result = RolloutResult(
+        mode=RolloutMode.EXECUTE,
+        stop_reason=RolloutStopReason.COMPLETED,
+        execution_mode=ExecutionMode.FIXTURE.value,
+        trust_level="SYNTHETIC",
+        verified=False,
+        usable_for_real_execution=False,
+    )
+    report = ExecutionReport(
+        body_id=getattr(body, "body_instance_id", robot_id),
+        task=task,
+        execution_mode=ExecutionMode.FIXTURE.value,
+        trust_level="SYNTHETIC",
+    )
     trace = Path(trace_path or f"/tmp/rosclaw_rh56_execute_{uuid.uuid4().hex[:8]}.jsonl")
     recorder = RolloutRecorder(
         trace_path=trace,
@@ -121,6 +146,7 @@ def run_rh56_execute(
         permit_manager=permit_manager,
         arming=arming,
         verifier=FeedbackVerifier(profile, calibration),
+        execution_mode=ExecutionMode.FIXTURE,
         event_sink=_event_sink,
     )
 
@@ -246,9 +272,7 @@ def run_rh56_execute(
                 current_positions=[float(v) for v in raw_observation["observation.state"]],
                 max_step_delta_raw=permit.max_step_delta_raw,
             )
-            recorder.record_sandbox_decision(
-                mapped_report, sandbox, 0.0, frame_id=str(step_index)
-            )
+            recorder.record_sandbox_decision(mapped_report, sandbox, 0.0, frame_id=str(step_index))
             result.sandbox_decisions.append(sandbox)
             if not sandbox.get("is_safe"):
                 _event_sink(
@@ -274,9 +298,11 @@ def run_rh56_execute(
                 settle_ms=settle_ms,
             )
             report.record_result(exec_result)
-            if exec_result.status in {"fault", "aborted"}:
+            if exec_result.status != "completed":
                 result.stop_reason = RolloutStopReason.RUNTIME_FAILURE
-                result.errors.append(exec_result.message or exec_result.status)
+                result.errors.append(
+                    exec_result.message or exec_result.error_code or exec_result.status
+                )
                 break
 
             result.steps_completed = step_index + 1
@@ -297,14 +323,13 @@ def run_rh56_execute(
         result.stop_reason = RolloutStopReason.RUNTIME_FAILURE
         result.errors.append(f"execute loop exception: {exc}")
     finally:
-        # Evidence must survive every exit path, including mid-loop faults:
-        # commands already sent count as executed hardware actions.
-        result.hardware_actions_executed = step_executor.hardware_actions_executed
+        # Preserve truthful counters on every exit path, including faults.
+        result.commands_executed = step_executor.commands_executed
+        result.fixture_actions_executed = step_executor.fixture_actions_executed
+        result.hardware_actions_executed = 0
         report.final_state = arming.machine.state.value
-        try:
+        with contextlib.suppress(Exception):
             runtime.call("CLOSE_SESSION", {"session_id": session_id}, timeout_sec=10.0)
-        except Exception:  # noqa: BLE001
-            pass
         runtime.stop()
         source.close()
         result.trace_path = str(trace)

@@ -43,12 +43,18 @@ class SandboxClient:
         if isinstance(state, dict) and state:
             return {
                 "physics_state": state,
-                "mode": "live",
+                "mode": "simulation",
+                "execution_mode": "SIMULATION",
+                "trust_level": "SIMULATED",
+                "usable_for_real_execution": False,
                 "has_physics": has_physics,
             }
         return {
             "physics_state": {},
-            "mode": "degraded",
+            "mode": "unavailable",
+            "execution_mode": "SIMULATION",
+            "trust_level": "UNAVAILABLE",
+            "usable_for_real_execution": False,
             "has_physics": False,
             "note": "Sandbox initialized but no physics state was returned; MuJoCo model may be unavailable.",
         }

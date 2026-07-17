@@ -89,7 +89,7 @@ def test_compile_manifest_for_turtlesim(transport: RosbridgeTransport):
 
 
 @pytest.mark.skipif(not _is_reachable(), reason="rosbridge turtlesim not reachable")
-def test_provider_executes_safe_velocity_command():
+def test_provider_blocks_legacy_direct_velocity_command():
     manifest = ProviderManifest(
         name="ros_capability_provider",
         version="0.1.0",
@@ -118,8 +118,8 @@ def test_provider_executes_safe_velocity_command():
     response = asyncio.run(provider.infer(request))
     asyncio.run(provider.unload())
 
-    assert response.status == "ok", response.errors
-    assert response.result.get("ok") is True
+    assert response.status == "blocked", response.errors
+    assert "Runtime.submit_action" in response.errors[0]
 
 
 @pytest.mark.skipif(not _is_reachable(), reason="rosbridge turtlesim not reachable")

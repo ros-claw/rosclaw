@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
-"""
-ROSClaw UR5 MCP Server - Production-ready ROS2-native MCP Server.
+"""Legacy ROS 2 MCP surface for observing and validating a UR5 robot.
 
-This server provides MCP tools for controlling a Universal Robots UR5e arm
-via ROS 2. It includes actual rclpy node implementation with real
-Subscriptions, Publishers, and Action Clients.
-
-The Digital Twin firewall validates all trajectories through MuJoCo
-before execution on real hardware.
+Direct motion through this standalone server is disabled until it is migrated
+behind the runtime action gateway. Read-only state, limit inspection, offline
+validation, and an explicitly unverified best-effort stop request remain
+available.
 """
 
 import asyncio
@@ -16,7 +13,6 @@ import os
 import signal
 import sys
 import threading
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -310,25 +306,26 @@ class UR5ROSNode(Node):
         executor.shutdown()
 
         if result.result.error_code == FollowJointTrajectory.Result.SUCCESSFUL:
-            return True, "Trajectory executed successfully"
+            return True, "Controller reported a successful trajectory result"
         else:
             return False, f"Trajectory failed with error code: {result.result.error_code}"
 
-    def emergency_stop(self) -> None:
-        """Send emergency stop command."""
-        # Publish zero velocity to halt motion
+    def emergency_stop(self) -> dict[str, object]:
+        """Publish a best-effort stop request without claiming physical state."""
         stop_msg = Twist()
         self.velocity_pub.publish(stop_msg)
-        self.get_logger().warn("EMERGENCY STOP triggered")
+        self.get_logger().warn("Emergency stop request published; physical stop is unverified")
+        return {
+            "request_dispatched": True,
+            "driver_acknowledged": False,
+            "physical_stop_observed": False,
+            "stopped": False,
+            "evidence": ["zero_velocity_request_published"],
+        }
 
 
 class UR5MCPServer:
-    """
-    MCP Server for UR5 robot control.
-
-    Provides MCP tools that interface with the ROS 2 node.
-    Includes Digital Twin validation before executing on real hardware.
-    """
+    """Legacy UR5 MCP server with direct physical execution fail-closed."""
 
     def __init__(self, robot_ip: str = "192.168.1.100", firewall_model_path: str | None = None):
         if not RCLPY_AVAILABLE:
@@ -397,7 +394,10 @@ class UR5MCPServer:
                 ),
                 Tool(
                     name="ur5_move_joints",
-                    description="Move robot joints to target positions with Digital Twin validation",
+                    description=(
+                        "Legacy move interface; direct execution is blocked until configured "
+                        "through the ROSClaw runtime action gateway"
+                    ),
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -422,7 +422,10 @@ class UR5MCPServer:
                 ),
                 Tool(
                     name="ur5_execute_trajectory",
-                    description="Execute a multi-point joint trajectory",
+                    description=(
+                        "Legacy trajectory interface; direct execution is blocked until configured "
+                        "through the ROSClaw runtime action gateway"
+                    ),
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -447,7 +450,10 @@ class UR5MCPServer:
                 ),
                 Tool(
                     name="ur5_emergency_stop",
-                    description="Emergency stop - halt all robot motion immediately",
+                    description=(
+                        "Publish a best-effort stop request; physical stop remains unverified "
+                        "without independent acknowledgement"
+                    ),
                     inputSchema={"type": "object", "properties": {}},
                 ),
                 Tool(
@@ -511,10 +517,8 @@ class UR5MCPServer:
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
     async def _handle_move_joints(self, arguments: dict) -> list[TextContent]:
-        """Handle move_joints tool call with Digital Twin validation."""
+        """Validate input, then block the legacy direct execution path."""
         positions = arguments.get("joint_positions", [])
-        duration = arguments.get("duration", 2.0)
-        validate = arguments.get("validate", True)
 
         if len(positions) != 6:
             return [
@@ -528,104 +532,12 @@ class UR5MCPServer:
         if not valid:
             return [TextContent(type="text", text=f"Error: Joint limit violation - {msg}")]
 
-        # Digital Twin validation via EventBus (replaces direct Firewall import)
-        if validate:
-            try:
-                import asyncio
-
-                from rosclaw.core.event_bus import Event
-
-                # Get or create event bus reference
-                event_bus = getattr(self, "_event_bus", None)
-                if event_bus is None:
-                    # Fallback: try to find Runtime's event bus
-                    try:
-                        from rosclaw.core.runtime import Runtime
-
-                        runtime = Runtime._instance if hasattr(Runtime, "_instance") else None
-                        if runtime:
-                            event_bus = runtime.event_bus
-                    except Exception:
-                        pass
-
-                if event_bus:
-                    # Publish validation request with unique correlation ID
-                    current = self.ros_node.get_current_joint_positions()
-                    trajectory = self._interpolate_trajectory(
-                        current, positions, int(duration * 50)
-                    )
-                    req_id = f"val_{uuid.uuid4().hex[:8]}"
-
-                    validation_result = {"is_safe": True, "reason": ""}
-                    validation_event = asyncio.Event()
-
-                    def on_validation_result(event):
-                        if not validation_event.is_set():
-                            payload = event.payload if hasattr(event, "payload") else {}
-                            # Only accept result matching our correlation ID
-                            if payload.get("request_id") == req_id:
-                                nonlocal validation_result
-                                validation_result = payload
-                                validation_event.set()
-
-                    event_bus.subscribe("firewall.validation_result", on_validation_result)
-                    event_bus.publish(
-                        Event(
-                            topic="firewall.validation_request",
-                            payload={
-                                "robot_id": self.ros_node.robot_id,
-                                "trajectory": trajectory,
-                                "safety_level": "STRICT",
-                                "request_id": req_id,
-                            },
-                            source="ur5_mcp_server",
-                        )
-                    )
-
-                    try:
-                        await asyncio.wait_for(validation_event.wait(), timeout=0.5)
-                    except TimeoutError:
-                        pass
-                    finally:
-                        event_bus.unsubscribe("firewall.validation_result", on_validation_result)
-
-                    if not validation_result.get("is_safe", True):
-                        error_msg = "Digital Twin validation FAILED:\n"
-                        error_msg += f"  - Reason: {validation_result.get('reason', 'Unknown')}"
-                        return [TextContent(type="text", text=error_msg)]
-                else:
-                    # Fallback to direct firewall if EventBus unavailable
-                    if self.firewall:
-                        current = self.ros_node.get_current_joint_positions()
-                        trajectory = self._interpolate_trajectory(
-                            current, positions, int(duration * 50)
-                        )
-                        result = self.firewall.validate_trajectory(
-                            [np.array(p) for p in trajectory],
-                            safety_level=SafetyLevel.STRICT,
-                        )
-                        if not result.is_safe:
-                            return [TextContent(type="text", text="Digital Twin validation FAILED")]
-
-            except Exception as e:
-                return [TextContent(type="text", text=f"Digital Twin validation error: {e}")]
-
-        # Execute motion
-        success, msg = await self.ros_node.execute_joint_trajectory(
-            [positions],
-            [duration],
-        )
-
-        if success:
-            return [TextContent(type="text", text=f"Motion executed successfully: {msg}")]
-        else:
-            return [TextContent(type="text", text=f"Motion failed: {msg}")]
+        return self._gateway_required("ur5_move_joints")
 
     async def _handle_execute_trajectory(self, arguments: dict) -> list[TextContent]:
-        """Handle execute_trajectory tool call."""
+        """Validate input, then block the legacy direct execution path."""
         waypoints = arguments.get("waypoints", [])
         times = arguments.get("times", [])
-        validate = arguments.get("validate", True)
 
         if len(waypoints) != len(times):
             return [
@@ -644,34 +556,37 @@ class UR5MCPServer:
             if not valid:
                 return [TextContent(type="text", text=f"Error in waypoint {i}: {msg}")]
 
-        # Digital Twin validation
-        if validate and self.firewall:
-            try:
-                result = self.firewall.validate_trajectory(
-                    [np.array(p) for p in waypoints],
-                    safety_level=SafetyLevel.STRICT,
-                )
+        return self._gateway_required("ur5_execute_trajectory")
 
-                if not result.is_safe:
-                    error_msg = "Digital Twin validation FAILED for trajectory:\n"
-                    error_msg += json.dumps(result.to_dict(), indent=2)
-                    return [TextContent(type="text", text=error_msg)]
-
-            except Exception as e:
-                return [TextContent(type="text", text=f"Digital Twin validation error: {e}")]
-
-        # Execute trajectory
-        success, msg = await self.ros_node.execute_joint_trajectory(waypoints, times)
-
-        if success:
-            return [TextContent(type="text", text=f"Trajectory executed successfully: {msg}")]
-        else:
-            return [TextContent(type="text", text=f"Trajectory failed: {msg}")]
+    @staticmethod
+    def _gateway_required(action: str) -> list[TextContent]:
+        response = {
+            "status": "blocked",
+            "error_code": "RUNTIME_ACTION_GATEWAY_REQUIRED",
+            "action": action,
+            "no_command_dispatched": True,
+            "required_entrypoint": "Runtime.submit_action",
+            "message": (
+                "Legacy direct physical execution is disabled until a verified REAL executor "
+                "is registered with the ROSClaw runtime action gateway."
+            ),
+        }
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
 
     async def _handle_emergency_stop(self) -> list[TextContent]:
-        """Handle emergency_stop tool call."""
-        self.ros_node.emergency_stop()
-        return [TextContent(type="text", text="EMERGENCY STOP triggered - all motion halted")]
+        """Publish a stop request and report only the evidence actually available."""
+        evidence = self.ros_node.emergency_stop()
+        response = {
+            "status": "requested_unverified",
+            "execution_mode": "REAL",
+            "trust": "UNVERIFIED",
+            **evidence,
+            "message": (
+                "A best-effort stop request was published, but no driver acknowledgement or "
+                "independent physical stop observation is available. Use the physical E-stop."
+            ),
+        }
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
 
     async def _handle_get_limits(self) -> list[TextContent]:
         """Handle get_limits tool call."""

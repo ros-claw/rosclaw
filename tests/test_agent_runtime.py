@@ -35,23 +35,20 @@ def test_mcp_hub_tools():
 
 
 async def test_mcp_hub_handle_move_joints_timeout():
-    """Test move_joints falls back to command_issued when no response."""
+    """Physical motion is blocked when no Runtime gateway is attached."""
     bus = EventBus()
     hub = MCPHub(bus, robot_id="test")
     hub.initialize()
-    # Use a short timeout so the no-response fallback is exercised quickly.
-    hub._default_timeout = 1.0
-    # No response handler registered, so it should timeout and fallback
     result = await hub.handle_tool_call(
         "move_joints", {"joint_positions": [0.1] * 6, "duration": 1.0}
     )
-    assert result["status"] == "command_issued"
-    assert result["action"] == "move_joints"
+    assert result["status"] == "blocked"
+    assert result["error"] == "RUNTIME_ACTION_GATEWAY_REQUIRED"
     hub.stop()
 
 
 async def test_mcp_hub_handle_move_joints_with_response():
-    """Test move_joints receives response from execution layer."""
+    """An EventBus success fixture cannot bypass the action gateway."""
     bus = EventBus()
     hub = MCPHub(bus, robot_id="test")
     hub.initialize()
@@ -78,8 +75,8 @@ async def test_mcp_hub_handle_move_joints_with_response():
     result = await hub.handle_tool_call(
         "move_joints", {"joint_positions": [0.1] * 6, "duration": 1.0}
     )
-    assert result["status"] == "success"
-    assert result["action"] == "move_joints"
+    assert result["status"] == "blocked"
+    assert result["error"] == "RUNTIME_ACTION_GATEWAY_REQUIRED"
     hub.stop()
 
 
@@ -87,10 +84,9 @@ async def test_mcp_hub_handle_grasp():
     bus = EventBus()
     hub = MCPHub(bus, robot_id="test")
     hub.initialize()
-    # Short timeout so the no-response fallback runs quickly.
-    hub._default_timeout = 1.0
     result = await hub.handle_tool_call("grasp", {"action": "close", "force": 0.8})
-    assert result["status"] == "command_issued"
+    assert result["status"] == "blocked"
+    assert result["error"] == "RUNTIME_ACTION_GATEWAY_REQUIRED"
     hub.stop()
 
 
@@ -99,7 +95,8 @@ async def test_mcp_hub_handle_emergency_stop():
     hub = MCPHub(bus, robot_id="test")
     hub.initialize()
     result = await hub.handle_tool_call("emergency_stop", {})
-    assert result["status"] == "emergency_stop_triggered"
+    assert result["status"] == "requested_unverified"
+    assert result["stopped"] is False
     hub.stop()
 
 
@@ -122,7 +119,7 @@ def test_mcp_hub_context_update():
 
 
 async def test_mcp_hub_command_response_pattern():
-    """Test the full command-response pattern with request_id matching."""
+    """Legacy EventBus responses cannot manufacture physical completion."""
     bus = EventBus()
     hub = MCPHub(bus, robot_id="test")
     hub.initialize()
@@ -145,9 +142,8 @@ async def test_mcp_hub_command_response_pattern():
     bus.subscribe("agent.command", mock_handler)
 
     result = await hub.handle_tool_call("move_joints", {"joint_positions": [0.5] * 6})
-    assert result["status"] == "completed"
-    assert len(received_requests) == 1
-    assert received_requests[0] is not None
+    assert result["status"] == "blocked"
+    assert received_requests == []
     hub.stop()
 
 
@@ -227,7 +223,7 @@ async def test_mcp_hub_locate_object_via_provider():
 
 
 async def test_mcp_hub_delegate_skill_via_provider():
-    """Test delegate_skill routes through capability router to mock skill provider."""
+    """Unverified mock providers cannot dispatch physical skills."""
     from rosclaw.core.runtime import Runtime, RuntimeConfig
 
     runtime = Runtime(RuntimeConfig(robot_id="test_bot", enable_provider=True))
@@ -244,10 +240,8 @@ async def test_mcp_hub_delegate_skill_via_provider():
             "target": {"object": "red cup"},
         },
     )
-    assert result.get("status") == "ok", f"Expected ok, got: {result}"
-    assert result["capability"] == "skill.grasp"
-    assert result["result"]["skill"] == "grasp"
-    assert result["result"]["status"] == "dispatched"
+    assert result.get("status") == "error"
+    assert "No provider passed constraints" in result["error"]
 
     hub.stop()
     runtime.stop()
@@ -279,7 +273,7 @@ async def test_mcp_hub_verify_task_success_via_provider():
 
 
 async def test_mcp_hub_emergency_stop_with_runtime():
-    """Emergency stop works in both semantic and low-level modes."""
+    """Emergency stop does not claim success without a driver acknowledgement."""
     from rosclaw.core.runtime import Runtime, RuntimeConfig
 
     runtime = Runtime(RuntimeConfig(robot_id="test_bot", enable_provider=True))
@@ -290,7 +284,9 @@ async def test_mcp_hub_emergency_stop_with_runtime():
     hub.initialize()
 
     result = await hub.handle_tool_call("emergency_stop", {})
-    assert result["status"] == "emergency_stop_triggered"
+    assert result["status"] == "failed"
+    assert result["stopped"] is False
+    assert result["final_status"] == "FAILED"
 
     hub.stop()
     runtime.stop()

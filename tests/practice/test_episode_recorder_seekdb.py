@@ -8,6 +8,7 @@ import pytest
 
 from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.core.runtime import Runtime, RuntimeConfig
+from rosclaw.firstboot.workspace import get_rosclaw_home
 from rosclaw.practice.episode_recorder import EpisodeRecorder
 
 
@@ -168,7 +169,9 @@ class TestRuntimeConfigSeekDB:
         config = RuntimeConfig()
         assert config.seekdb_url is None
         assert config.seekdb_http_url is None
-        assert config.seekdb_fallback_dir == "/data/rosclaw/fallback"
+        assert config.seekdb_fallback_dir == str(
+            get_rosclaw_home() / "data" / "practice" / "fallback"
+        )
 
 
 class TestRuntimeSeekDBAssembly:

@@ -15,6 +15,7 @@ from typing import Any
 
 from rosclaw.firstboot.config import load_rosclaw_yaml
 from rosclaw.firstboot.workspace import resolve_home
+from rosclaw.practice.config import get_default_data_root
 from rosclaw.storage.factory import StorageFactory, _sanitize_url
 from rosclaw.storage.migrations import MigrationRunner
 from rosclaw.storage.outbox import OutboxStore
@@ -50,7 +51,7 @@ def _load_storage_config(args: argparse.Namespace) -> dict[str, Any]:
     outbox_enabled = storage_cfg.get("outbox_enabled", False)
     outbox_path = storage_cfg.get("outbox_path") or str(home / "storage" / "outbox.sqlite")
 
-    practice_data_root = practice_cfg.get("output_dir") or "/data/rosclaw/practice"
+    practice_data_root = practice_cfg.get("output_dir") or str(get_default_data_root())
 
     return {
         "home": home,

@@ -181,10 +181,14 @@ def real_lerobot_runtime_config(isolated_rosclaw_home):
     from rosclaw.integrations.lerobot.runtime import inspect_lerobot_runtime
 
     # Probe the conventional isolated runtime path used by `rosclaw setup lerobot`.
-    candidates = [
+    candidates = []
+    explicit_python = os.environ.get("ROSCLAW_TEST_LEROBOT_PYTHON")
+    if explicit_python:
+        candidates.append(Path(explicit_python))
+    candidates.extend([
         isolated_rosclaw_home.parent.parent / ".venv-lerobot" / "bin" / "python",
         Path("/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv-lerobot/bin/python"),
-    ]
+    ])
     for python_exe in candidates:
         if python_exe.exists():
             runtime = inspect_lerobot_runtime(str(python_exe), mode="external")

@@ -47,6 +47,14 @@ async def test_install_generates_cross_agent_files(
     assert (tmp_path / ".agents/skills/rosclaw/SKILL.md").exists()
     assert (tmp_path / ".rosclaw/agent/context.snapshot.json").exists()
 
+    agents_guide = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    runtime_guide = (tmp_path / "ROSCLAW.md").read_text(encoding="utf-8")
+    skill_guide = (tmp_path / ".agents/skills/rosclaw/SKILL.md").read_text(encoding="utf-8")
+    assert "Runtime.submit_action()" in agents_guide
+    assert "Runtime.submit_action()" in runtime_guide
+    assert "Runtime.submit_action()" in skill_guide
+    assert "Refuse direct ROS, DDS, serial, SDK, or motor commands" in skill_guide
+
     snapshot = json.loads((tmp_path / ".rosclaw/agent/context.snapshot.json").read_text())
     assert len(snapshot["tools"]["available"]) == 13
     assert snapshot["policies"]["no_real_execution"] is True

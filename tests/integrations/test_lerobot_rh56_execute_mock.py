@@ -45,6 +45,7 @@ def _armed_stack(tmp_path: Path):
         operator_armed=True,
         physical_estop_confirmed=True,
         calibration_status="validated",
+        execution_mode="FIXTURE",
     )
     arming = ArmingController(pm)
     arming.begin_preflight()
@@ -78,16 +79,33 @@ def _run_execute(tmp_path: Path, *, task: str = "hold_current", steps: int = 3):
         control_hz=5.0,
         practice_data_root=practice_root,
         python_executable=_worker_python(),
+        fixture_mode=True,
     )
     return result, report, practice_root
+
+
+def test_execute_requires_explicit_fixture_mode() -> None:
+    with pytest.raises(RuntimeError, match="RUNTIME_ACTION_GATEWAY_REQUIRED"):
+        run_rh56_execute(
+            policy_path="unused",
+            transport_profile_path="unused",
+            permit_id="unused",
+            permit_manager=PermitManager(),
+            arming=ArmingController(),
+        )
 
 
 def test_execution_events_complete(tmp_path: Path, real_lerobot_runtime_config) -> None:
     result, report, _ = _run_execute(tmp_path)
     assert result.stop_reason.value == "completed", result.errors
-    trace_events = {
-        etype for etype, _ in report.events
-    }
+    assert result.execution_mode == "FIXTURE"
+    assert result.trust_level == "SYNTHETIC"
+    assert result.verified is False
+    assert result.commands_executed == result.steps_completed
+    assert result.fixture_actions_executed == result.steps_completed
+    assert result.hardware_actions_executed == 0
+    assert report.summary()["hardware_actions_executed"] == 0
+    trace_events = {etype for etype, _ in report.events}
     required = {
         "execution.armed",
         "execution.command.requested",
@@ -107,7 +125,9 @@ def test_execution_events_complete(tmp_path: Path, real_lerobot_runtime_config) 
     assert required <= recorded_types
 
 
-def test_proposed_mapped_executed_actual_distinct(tmp_path: Path, real_lerobot_runtime_config) -> None:
+def test_proposed_mapped_executed_actual_distinct(
+    tmp_path: Path, real_lerobot_runtime_config
+) -> None:
     result, report, _ = _run_execute(tmp_path, task="micro_index_flex", steps=4)
     assert result.stop_reason.value == "completed", result.errors
     trace_path = Path(result.trace_path)
@@ -151,9 +171,7 @@ def test_execution_practice_verify_strict(tmp_path: Path, real_lerobot_runtime_c
 
 def test_execution_dataset_export(tmp_path: Path, real_lerobot_runtime_config) -> None:
     result, _, practice_root = _run_execute(tmp_path)
-    frames_file = (
-        practice_root / "sessions" / result.practice_id / "frames_episode.json"
-    )
+    frames_file = practice_root / "sessions" / result.practice_id / "frames_episode.json"
     assert frames_file.exists()
     doc = json.loads(frames_file.read_text(encoding="utf-8"))
     assert len(doc["frames"]) == 3

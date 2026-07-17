@@ -6,22 +6,22 @@ from typing import Any
 
 
 class SafetyClient:
-    """Emergency client that publishes ``robot.emergency_stop`` and invokes the
-    runtime handler directly for immediate effect.
-    """
+    """Emergency client that delegates to Runtime's acknowledged stop path."""
 
     def __init__(self, runtime: Any) -> None:
         self._runtime = runtime
 
     def emergency_stop(self, reason: str) -> dict[str, Any]:
-        """Trigger an emergency stop and return a structured response."""
-        from rosclaw.core.event_bus import Event, EventPriority
-
-        event = Event(
-            topic="robot.emergency_stop",
-            payload={"reason": reason, "source": "mcp.emergency_stop"},
-            source="rosclaw.mcp.server",
-            priority=EventPriority.CRITICAL,
+        """Trigger an emergency stop and return its evidence receipt."""
+        request = getattr(self._runtime, "request_emergency_stop", None)
+        if not callable(request):
+            raise RuntimeError("Runtime does not implement acknowledged emergency stop")
+        receipt = request(
+            reason,
+            source="mcp.emergency_stop",
         )
-        self._runtime.event_bus.publish(event)
-        return {"stopped": True, "reason": reason, "mode": "live"}
+        if isinstance(receipt, dict):
+            return receipt
+        if hasattr(receipt, "to_dict"):
+            return receipt.to_dict()
+        raise TypeError("Runtime returned an invalid EmergencyStopReceipt")

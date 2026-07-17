@@ -22,7 +22,7 @@ from __future__ import annotations
 import math
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Protocol
 
 from rosclaw.body.rh56.constants import RS485_ACTUATOR_ORDER
@@ -51,7 +51,7 @@ class RH56Feedback:
     error: str | None = None
 
     @classmethod
-    def zero(cls, count: int = 6) -> "RH56Feedback":
+    def zero(cls, count: int = 6) -> RH56Feedback:
         return cls(
             position=[0] * count,
             force_g=[0.0] * count,
@@ -64,6 +64,9 @@ class RH56Feedback:
 
 class RH56Transport(Protocol):
     """Minimal transport contract for RH56 backends."""
+
+    execution_mode: str
+    implementation_kind: str
 
     def connect(self) -> None: ...
 
@@ -113,6 +116,9 @@ class MockModbusTransport:
     - status protection bits on over-temperature or over-force
     """
 
+    execution_mode = "FIXTURE"
+    implementation_kind = "synthetic_fixture"
+
     def __init__(
         self,
         profile: TransportProfile,
@@ -147,7 +153,9 @@ class MockModbusTransport:
 
     # -- test hooks -----------------------------------------------------
 
-    def set_contact(self, actuator_index: int, contact_position: int, force_g: float = 120.0) -> None:
+    def set_contact(
+        self, actuator_index: int, contact_position: int, force_g: float = 120.0
+    ) -> None:
         self._specs[actuator_index].contact_position = contact_position
         self._specs[actuator_index].contact_force_g = force_g
 
@@ -196,7 +204,9 @@ class MockModbusTransport:
             # Contact model: pressing past the contact position builds force.
             if spec.contact_position is not None and self._position[i] <= spec.contact_position:
                 overshoot = spec.contact_position - self._position[i]
-                self._force_g[i] = min(spec.contact_force_g, spec.contact_force_g * (0.5 + overshoot / 20.0))
+                self._force_g[i] = min(
+                    spec.contact_force_g, spec.contact_force_g * (0.5 + overshoot / 20.0)
+                )
                 self._position[i] = spec.contact_position  # blocked by contact
             else:
                 decay = 0.6 if not moving else 0.9
@@ -265,6 +275,9 @@ class SerialModbusTransport:
     frame implementation (function codes 0x03/0x06/0x10 over the Inspire
     register map) is completed during Experiment 0 with the physical hand.
     """
+
+    execution_mode = "REAL"
+    implementation_kind = "hardware_stub"
 
     def __init__(self, profile: TransportProfile):
         self.profile = profile

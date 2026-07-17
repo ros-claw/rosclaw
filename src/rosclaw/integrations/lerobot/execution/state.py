@@ -1,4 +1,4 @@
-"""Execution state machine for P5 hardware execution (plan §7.2).
+"""Execution state machine for P5 single-step validation (plan §7.2).
 
 Normal path::
 
@@ -14,10 +14,10 @@ Every fault returns to ``DISARMED``; automatic re-arming is forbidden.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class ExecutionState(str, Enum):
+class ExecutionState(StrEnum):
     DISARMED = "DISARMED"
     PREFLIGHT = "PREFLIGHT"
     SHADOW_VALIDATED = "SHADOW_VALIDATED"

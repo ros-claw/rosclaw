@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "rosclaw"
 version = "1.0.1"
-description = "Self-Evolving Runtime Infrastructure for Physical AI & Embodied Agents"
+description = "Trustworthy Physical Execution Runtime and Control Plane for Embodied Agents"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
@@ -13,7 +13,7 @@ authors = [
 ]
 keywords = ["robotics", "ros2", "mcp", "llm", "embodied-ai", "physical-ai", "mujoco", "runtime", "eurdf"]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
@@ -107,6 +107,9 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel.force-include]
 "e-urdf-zoo" = "rosclaw/eurdf_zoo_data"
+"configs" = "rosclaw/rh56_data/configs"
+"policies/rh56_reference_policy_v1" = "rosclaw/rh56_data/policies/rh56_reference_policy_v1"
+"worker_plugins/lerobot_policy_rosclaw_rh56/src/lerobot_policy_rosclaw_rh56" = "lerobot_policy_rosclaw_rh56"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -115,6 +118,9 @@ include = [
     "/docs",
     "/bin",
     "/e-urdf-zoo",
+    "/configs",
+    "/policies/rh56_reference_policy_v1",
+    "/worker_plugins/lerobot_policy_rosclaw_rh56",
 ]
 
 [tool.ruff]
@@ -174,7 +180,7 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
-addopts = "-p no:launch_ros -p no:launch_testing -p no:ament_pep257 -p no:ament_lint -p no:ament_copyright -p no:ament_flake8 -p no:ament_xmllint -p no:colcon_core -m 'not integration and not deployment'"
+addopts = "--import-mode=importlib -p no:launch_ros -p no:launch_testing -p no:ament_pep257 -p no:ament_lint -p no:ament_copyright -p no:ament_flake8 -p no:ament_xmllint -p no:colcon_core -m 'not integration and not deployment'"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as requiring external services (deselect with '-k not integration')",

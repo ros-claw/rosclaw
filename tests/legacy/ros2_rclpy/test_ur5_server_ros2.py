@@ -507,7 +507,10 @@ class TestUR5MCPServerHandleEmergencyStop:
 
         result = await server._handle_emergency_stop()
         assert len(result) == 1
-        assert "EMERGENCY STOP" in result[0].text
+        response = __import__("json").loads(result[0].text)
+        assert response["status"] == "requested_unverified"
+        assert response["request_dispatched"] is True
+        assert response["stopped"] is False
 
         server.ros_node.destroy_node()
         if rclpy.ok():
@@ -553,7 +556,7 @@ class TestUR5MCPServerHandleMoveJoints:
 
     @pytest.mark.asyncio
     async def test_move_joints_valid_no_execution(self, ros_context):
-        # Valid positions but action server not available
+        # Valid input must not bypass the runtime action gateway.
         server = UR5MCPServer(
             robot_ip="127.0.0.1",
             firewall_model_path="/nonexistent/model.xml",
@@ -565,8 +568,10 @@ class TestUR5MCPServerHandleMoveJoints:
                 "validate": False,
             }
         )
-        # Should attempt to execute but server not available
-        assert "not available" in result[0].text or "failed" in result[0].text.lower()
+        response = __import__("json").loads(result[0].text)
+        assert response["status"] == "blocked"
+        assert response["error_code"] == "RUNTIME_ACTION_GATEWAY_REQUIRED"
+        assert response["no_command_dispatched"] is True
 
         server.ros_node.destroy_node()
         if rclpy.ok():
@@ -626,6 +631,27 @@ class TestUR5MCPServerHandleExecuteTrajectory:
             }
         )
         assert "Error in waypoint" in result[0].text
+
+        server.ros_node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_execute_valid_trajectory_is_gateway_blocked(self, ros_context):
+        server = UR5MCPServer(
+            robot_ip="127.0.0.1",
+            firewall_model_path="/nonexistent/model.xml",
+        )
+
+        result = await server._handle_execute_trajectory(
+            {
+                "waypoints": [[0.0] * 6],
+                "times": [1.0],
+            }
+        )
+        response = __import__("json").loads(result[0].text)
+        assert response["status"] == "blocked"
+        assert response["no_command_dispatched"] is True
 
         server.ros_node.destroy_node()
         if rclpy.ok():

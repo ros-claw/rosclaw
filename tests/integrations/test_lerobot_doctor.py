@@ -58,6 +58,12 @@ def test_doctor_validation_status_reflects_successful_smoke(
 ):
     """A successful smoke report makes the doctor validation state 'validated'."""
     monkeypatch.setenv("ROSCLAW_HOME", str(tmp_path))
+    current = run_lerobot_doctor()
+    current_python = (
+        str(current.lerobot_runtime.python_executable)
+        if current.lerobot_runtime is not None
+        else sys.executable
+    )
     smoke = SmokeReport(
         status="ok",
         policy={"repo_id": "lerobot/act_test", "policy_type": "act"},
@@ -68,8 +74,8 @@ def test_doctor_validation_status_reflects_successful_smoke(
             "body_mapping_required": True,
         },
         runtime={
-            "lerobot_version": "0.6.1",
-            "python_executable": sys.executable,
+            "lerobot_version": current.lerobot_version,
+            "python_executable": current_python,
             "device": "cpu",
         },
     )

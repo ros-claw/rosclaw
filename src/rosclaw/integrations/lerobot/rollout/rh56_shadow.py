@@ -41,6 +41,7 @@ def run_rh56_shadow(
     task: str = "hold_current",
     body: Any | None = None,
     calibration: Any | None = None,
+    fixture_mode: bool = False,
 ) -> tuple[RolloutResult, dict[str, Any]]:
     """Run an RH56 shadow rollout and evaluate the gate.
 
@@ -58,8 +59,20 @@ def run_rh56_shadow(
         action_names=list(profile.action_order),
     )
 
+    if transport is None and not fixture_mode:
+        raise RuntimeError(
+            "FIXTURE_MODE_REQUIRED: no RH56 observation transport was provided; "
+            "explicitly enable fixture mode to use MockModbusTransport"
+        )
     if transport is None:
         transport = MockModbusTransport(profile)
+    transport_mode = str(getattr(transport, "execution_mode", "UNKNOWN")).upper()
+    if transport_mode == "FIXTURE" and not fixture_mode:
+        raise RuntimeError(
+            "FIXTURE_MODE_REQUIRED: MockModbusTransport cannot be consumed as live shadow data"
+        )
+    if fixture_mode and transport_mode != "FIXTURE":
+        raise RuntimeError(f"FIXTURE_TRANSPORT_REQUIRED: got transport mode {transport_mode!r}")
     if not transport.is_connected():
         transport.connect()
 
@@ -75,6 +88,11 @@ def run_rh56_shadow(
         result = _run_loop(config, source)
     finally:
         source.close()
+
+    result.execution_mode = "FIXTURE" if fixture_mode else "SHADOW"
+    result.trust_level = "SYNTHETIC" if fixture_mode else "OBSERVED"
+    result.verified = False
+    result.usable_for_real_execution = False
 
     gate_report = evaluate_shadow_gate(result, profile, source.serial_health())
     return result, gate_report
@@ -155,6 +173,10 @@ def evaluate_shadow_gate(
     return {
         "gate": "rh56_shadow_gate",
         "passed": passed,
+        "execution_mode": result.execution_mode,
+        "trust_level": result.trust_level,
+        "verified": False,
+        "usable_for_real_execution": False,
         "transport_profile": profile.id,
         "checks": checks,
         "serial_health": serial_health,
@@ -184,9 +206,17 @@ def render_shadow_report(
 ) -> str:
     """Render the P5 shadow report (plan §6.5) as Markdown."""
     metrics = result.metrics or {}
+    title = (
+        "# P5 RH56 Fixture Shadow Report"
+        if result.execution_mode == "FIXTURE"
+        else "# P5 RH56 Observed Shadow Report"
+    )
     lines = [
-        "# P5 RH56 Real Shadow Report",
+        title,
         "",
+        f"- Execution mode: `{result.execution_mode}`",
+        f"- Trust level: `{result.trust_level}`",
+        "- Verified for real execution: `false`",
         f"- Transport profile: `{gate_report['transport_profile']}`",
         f"- Calibration hash: `{calibration_hash or 'n/a (mock)'}`",
         f"- Policy contract: `{(policy_contract or {}).get('policy_id', 'rh56_reference_policy_v1')}`",

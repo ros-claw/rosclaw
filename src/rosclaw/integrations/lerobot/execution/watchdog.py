@@ -18,7 +18,7 @@ from typing import Any
 from rosclaw.body.rh56.transport import RH56Transport, TransportIOError
 
 
-class WatchdogTrip(RuntimeError):
+class WatchdogTrip(RuntimeError):  # noqa: N818 - public protocol term
     """Watchdog escalation; message starts with a machine-readable code."""
 
     def __init__(self, code: str, message: str):

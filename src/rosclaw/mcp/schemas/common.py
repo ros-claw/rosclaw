@@ -20,7 +20,7 @@ def make_response(
     runtime_profile: str | None = None,
 ) -> dict[str, Any]:
     """Build the standard P0 success envelope."""
-    return {
+    response = {
         "ok": True,
         "schema_version": SCHEMA_VERSION,
         "trace_id": trace_id or str(uuid.uuid4()),
@@ -28,6 +28,11 @@ def make_response(
         "runtime_profile": runtime_profile or "default",
         "data": data,
     }
+    if isinstance(data, dict):
+        for key in ("execution_mode", "trust_level", "usable_for_real_execution"):
+            if key in data:
+                response[key] = data[key]
+    return response
 
 
 def make_error(
@@ -39,7 +44,8 @@ def make_error(
     runtime_profile: str | None = None,
 ) -> dict[str, Any]:
     """Build the standard P0 error envelope."""
-    return {
+    error_details = details or {}
+    response = {
         "ok": False,
         "schema_version": SCHEMA_VERSION,
         "trace_id": trace_id or str(uuid.uuid4()),
@@ -48,9 +54,13 @@ def make_error(
         "error": {
             "code": code,
             "message": message,
-            "details": details or {},
+            "details": error_details,
         },
     }
+    for key in ("execution_mode", "trust_level", "usable_for_real_execution"):
+        if key in error_details:
+            response[key] = error_details[key]
+    return response
 
 
 class MCPError(Exception):

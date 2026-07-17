@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -67,7 +68,6 @@ def test_sync_stats_fields_and_values() -> None:
 
 
 def test_sync_stats_parquet_round_trip(tmp_path: Path) -> None:
-    pytest.importorskip("pandas")
     bundle = read_source_bundle(ASYNC_FIXTURE)
     mapping = build_clock_mappings(bundle)
     config = default_sync_config(fps=10.0)
@@ -83,6 +83,13 @@ def test_sync_stats_parquet_round_trip(tmp_path: Path) -> None:
     parquet_path = tmp_path / "sync_stats.parquet"
     written = write_sync_stats_parquet(stats, parquet_path)
     assert written.exists()
+
+    if written.suffix == ".jsonl":
+        rows = [json.loads(line) for line in written.read_text().splitlines()]
+        assert all("feature_key" in row for row in rows)
+        assert all("coverage_ratio" in row for row in rows)
+        assert len(rows) == len(stats)
+        return
 
     import pandas as pd
 

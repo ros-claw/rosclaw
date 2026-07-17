@@ -50,44 +50,19 @@ from rosclaw.firstboot.wizard import run_firstboot
 from rosclaw.firstboot.workspace import get_rosclaw_home, resolve_home
 from rosclaw.hub.cli import add_hub_subparser, dispatch_hub_command
 from rosclaw.integrations import GLOBAL_INTEGRATION_REGISTRY
-from rosclaw.integrations.lerobot import register_lerobot_capabilities
-from rosclaw.integrations.lerobot.cli import (
-    cmd_capability_list,
-    cmd_lerobot_capabilities,
-    cmd_lerobot_compatibility,
-    cmd_lerobot_dataset_api,
-    cmd_lerobot_dataset_compatibility,
-    cmd_lerobot_doctor,
-    cmd_lerobot_export_dataset,
-    cmd_lerobot_info,
-    cmd_lerobot_mapping_generate,
-    cmd_lerobot_mapping_map_action,
-    cmd_lerobot_mapping_validate,
-    cmd_lerobot_policy_health,
-    cmd_lerobot_policy_metrics,
-    cmd_lerobot_policy_plugins,
-    cmd_lerobot_policy_serve,
-    cmd_lerobot_policy_status,
-    cmd_lerobot_policy_stop,
-    cmd_lerobot_policy_warmup,
-    cmd_lerobot_rollout_arm,
-    cmd_lerobot_rollout_execute,
-    cmd_lerobot_rollout_preflight,
-    cmd_lerobot_rollout_proposal_only,
-    cmd_lerobot_rollout_rh56_shadow,
-    cmd_lerobot_rollout_shadow,
-    cmd_lerobot_smoke_dataloader,
-    cmd_lerobot_validate_dataset,
-    cmd_provider_infer_lerobot,
-    cmd_provider_inspect_lerobot,
-    cmd_provider_load_test_lerobot,
-    cmd_setup_lerobot,
-    cmd_smoke_policy_lerobot,
-)
-from rosclaw.integrations.lerobot.smoke_policy import DEFAULT_SMOKE_POLICY
+from rosclaw.integrations.lerobot.constants import DEFAULT_SMOKE_POLICY
 from rosclaw.mcp.onboarding.cli import add_mcp_subparser
 from rosclaw.mcp.server import serve as _mcp_serve
-from rosclaw.practice.config import PracticeConfig, SourceConfig
+from rosclaw.practice.config import (
+    PracticeConfig,
+    SourceConfig,
+)
+from rosclaw.practice.config import (
+    get_default_data_root as get_default_practice_data_root,
+)
+from rosclaw.practice.config import (
+    resolve_data_root as resolve_practice_data_root,
+)
 from rosclaw.practice.coordinator import PracticeCoordinator
 from rosclaw.practice.storage.catalog import PracticeCatalog
 from rosclaw.practice.storage.fallback_sync import FallbackSync
@@ -103,6 +78,21 @@ from rosclaw.sense.cli import (
 )
 from rosclaw.skill.cli import add_skill_hub_parsers
 from rosclaw.storage.cli import add_db_subparser, cmd_db_doctor, cmd_db_status
+
+
+def _dispatch_lerobot_cli(command: str, *args: Any) -> int:
+    """Load the optional LeRobot command surface only when it is invoked."""
+    from rosclaw.integrations.lerobot import cli as lerobot_cli
+
+    handler = getattr(lerobot_cli, command)
+    return int(handler(*args))
+
+
+def _register_lerobot_cli_capabilities() -> None:
+    """Register LeRobot factories only for commands that inspect that registry."""
+    from rosclaw.integrations.lerobot.capabilities import register_lerobot_capabilities
+
+    register_lerobot_capabilities(GLOBAL_INTEGRATION_REGISTRY)
 
 
 def _cmd_mcp_serve(args: argparse.Namespace) -> int:
@@ -369,6 +359,38 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 def _run_doctor(args: argparse.Namespace) -> int:
     """Internal doctor implementation."""
+    if getattr(args, "level", None):
+        from rosclaw.runtime.doctor_levels import LevelDoctor
+
+        level_result = LevelDoctor(resolve_home()).run(args.level)
+        if getattr(args, "json", False):
+            print(json.dumps(level_result.to_dict(), indent=2, default=str))
+        else:
+            fields = [
+                ("Package healthy", level_result.package_healthy),
+                ("Configured", level_result.configured),
+                ("Runtime initialized", level_result.runtime_initialized),
+                ("Southbound connected", level_result.southbound_connected),
+                ("Action dry run", level_result.action_dry_run),
+                ("Verified action path", level_result.verified_action_path),
+                ("Robot connected", level_result.robot_connected),
+                ("Real execution ready", level_result.real_execution_ready),
+            ]
+            print("=" * 60)
+            print(f"ROSClaw Doctor - {level_result.requested_level.value.upper()}")
+            print("=" * 60)
+            for name, ready in fields:
+                print(f"{name:<25} {'YES' if ready else 'NO'}")
+            print(f"Verified execution mode  {level_result.verified_execution_mode or 'NONE'}")
+            print("=" * 60)
+            for check in level_result.checks:
+                scope = "required" if check.required else "informational"
+                print(
+                    f"[{'PASS' if check.passed else 'FAIL'}] {check.id} ({scope}): {check.detail}"
+                )
+            print("=" * 60)
+        return level_result.exit_code
+
     # --ros2 profile check: L1-L5 layered ROS2 environment validation
     if getattr(args, "ros2", False):
         return _cmd_doctor_ros2()
@@ -386,18 +408,18 @@ def _run_doctor(args: argparse.Namespace) -> int:
 
         doctor = FirstbootDoctor(resolve_home())
         if getattr(args, "bootstrap", False):
-            result = doctor.run_bootstrap(
+            doctor_result = doctor.run_bootstrap(
                 fix=getattr(args, "fix", False),
                 json_output=getattr(args, "json", False),
             )
         else:
-            result = doctor.run_full(
+            doctor_result = doctor.run_full(
                 fix=getattr(args, "fix", False),
                 json_output=getattr(args, "json", False),
                 check_gpu=getattr(args, "gpu", False),
                 check_network=getattr(args, "network", False),
             )
-        return result.exit_code
+        return doctor_result.exit_code
 
     import importlib
     import platform
@@ -433,7 +455,9 @@ def _run_doctor(args: argparse.Namespace) -> int:
             issues.append(f"Cannot import {mod_name}: {exc}")
 
     # 3. e-URDF-Zoo accessibility
-    zoo_path = Path(__file__).parent.parent.parent / "e-urdf-zoo"
+    from rosclaw.runtime.eurdf_loader import _default_zoo_path
+
+    zoo_path = _default_zoo_path()
     zoo_ok = zoo_path.exists() and any(zoo_path.iterdir())
     checks.append(("e-URDF-Zoo", str(zoo_path), zoo_ok))
     if not zoo_ok:
@@ -469,13 +493,14 @@ def _run_doctor(args: argparse.Namespace) -> int:
     except ImportError:
         checks.append(("PyTorch", "Not installed", True))  # optional
 
-    # 7. MuJoCo (optional)
+    # 7. MuJoCo (required for the supported simulation golden path)
     try:
         import mujoco
 
         checks.append(("MuJoCo", mujoco.__version__, True))
     except ImportError:
-        checks.append(("MuJoCo", "Not installed", True))
+        checks.append(("MuJoCo", "Not installed", False))
+        issues.append("MuJoCo is not installed")
 
     # 8. RealSense D405 stack (always reported; default doctor stays passable)
     rs_checks, rs_warnings, rs_issues = _collect_realsense_checks(args)
@@ -512,7 +537,9 @@ def _run_doctor(args: argparse.Namespace) -> int:
             print("  • Install deps: pip install -e .")
         return 1
 
-    print("\n✅ All checks passed. ROSClaw is healthy!")
+    print("\nPackage and configuration checks passed.")
+    print("Robot connected: NO (not checked)")
+    print("Real execution ready: NO (run `rosclaw doctor --level verified` for simulation)")
     return 0
 
 
@@ -747,6 +774,7 @@ def _builtin_provider_catalog() -> list[dict[str, Any]]:
 def _provider_contract(record: dict[str, Any]) -> dict[str, Any]:
     """Add runtime and safety fields shared by provider contract commands."""
     payload = dict(record)
+    payload["status"] = "registered_not_verified"
     payload.setdefault(
         "runtime",
         {
@@ -762,6 +790,20 @@ def _provider_contract(record: dict[str, Any]) -> dict[str, Any]:
             "executable": False,
             "requires_guard": True,
             "requires_human_gate": record.get("type") in {"vla", "skill"},
+        },
+    )
+    payload.setdefault(
+        "readiness",
+        {
+            "implementation_kind": "builtin_contract",
+            "execution_mode": "DRY_RUN",
+            "registered": True,
+            "loaded": False,
+            "healthy": False,
+            "executable": False,
+            "authorized": False,
+            "verified": False,
+            "verified_environment": False,
         },
     )
     return payload
@@ -1437,6 +1479,15 @@ def _practice_artifacts_dir() -> Path:
     return get_rosclaw_home() / "artifacts"
 
 
+def _add_practice_data_root_argument(parser: argparse.ArgumentParser) -> None:
+    """Add the shared workspace-aware Practice root option."""
+    parser.add_argument(
+        "--data-root",
+        default=str(get_default_practice_data_root()),
+        help="Practice data root (default: $ROSCLAW_HOME/data/practice)",
+    )
+
+
 def _memory_db_path() -> Path:
     """Return the default SQLite path for persistent SeekDB memory."""
     return get_rosclaw_home() / "memory" / "seekdb.sqlite"
@@ -1459,7 +1510,7 @@ def _practice_seekdb_client(args: argparse.Namespace) -> Any:
 
 def cmd_practice_list(args: argparse.Namespace) -> int:
     """List recorded practice sessions from the local catalog."""
-    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    data_root = resolve_practice_data_root(getattr(args, "data_root", None))
     layout = PracticeLayout(data_root)
     catalog = PracticeCatalog(layout.catalog_db_path)
     records = catalog.list_practices(limit=100)
@@ -1501,7 +1552,7 @@ def cmd_practice_list(args: argparse.Namespace) -> int:
 def cmd_practice_show(args: argparse.Namespace) -> int:
     """Show practice episode details from the local episode.json."""
     practice_id = args.episode_id
-    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    data_root = resolve_practice_data_root(getattr(args, "data_root", None))
     layout = PracticeLayout(data_root)
     session_dir = layout.session_dir(practice_id)
 
@@ -1570,7 +1621,7 @@ def cmd_practice_show(args: argparse.Namespace) -> int:
 def cmd_practice_replay(args: argparse.Namespace) -> int:
     """Replay a practice session by reading its events.jsonl trace."""
     practice_id = args.episode_id
-    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    data_root = resolve_practice_data_root(getattr(args, "data_root", None))
     layout = PracticeLayout(data_root)
     catalog = PracticeCatalog(layout.catalog_db_path)
     record = catalog.get_practice(practice_id)
@@ -1790,7 +1841,7 @@ def cmd_practice_export(args: argparse.Namespace) -> int:
             timeout_sec=args.timeout_sec,
             json=args.json if hasattr(args, "json") else False,
         )
-        return cmd_lerobot_export_dataset(export_args)
+        return _dispatch_lerobot_cli("cmd_lerobot_export_dataset", export_args)
 
     from rosclaw.practice.episode_recorder import EpisodeRecorder
 
@@ -1836,7 +1887,7 @@ def cmd_practice_record(args: argparse.Namespace) -> int:
 
     fixture_path = Path(args.fixture)
     data_root_arg = getattr(args, "out", None) or getattr(args, "data_root", None)
-    data_root = Path(data_root_arg or "/data/rosclaw/practice")
+    data_root = resolve_practice_data_root(data_root_arg)
 
     try:
         fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
@@ -2123,12 +2174,13 @@ def cmd_practice_init(args: argparse.Namespace) -> int:
     (config_root / "robots" / robot_id).mkdir(parents=True, exist_ok=True)
 
     config_path = config_root / "config.yaml"
-    content = """# rosclaw-practice global configuration
-data_root: /data/rosclaw/practice
+    data_root = get_default_practice_data_root()
+    content = f"""# rosclaw-practice global configuration
+data_root: {data_root}
 seekdb:
   enabled: false
   url: ""
-  fallback_dir: /data/rosclaw/practice/fallback
+  fallback_dir: {data_root / "fallback"}
 """
     config_path.write_text(content, encoding="utf-8")
 
@@ -2170,7 +2222,10 @@ def cmd_practice_start(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
     seekdb_http_url = seekdb_http_url or "http://localhost:2882"
-    fallback_dir = os.environ.get("ROSCLAW_SEEKDB_FALLBACK_DIR", "/data/rosclaw/practice/fallback")
+    fallback_dir = os.environ.get(
+        "ROSCLAW_SEEKDB_FALLBACK_DIR",
+        str(get_default_practice_data_root() / "fallback"),
+    )
     skill_id = getattr(args, "skill", None)
     provider_id = getattr(args, "provider", None)
     capability = getattr(args, "capability", "vlm.risk_assessment")
@@ -2285,9 +2340,7 @@ def cmd_practice_start(args: argparse.Namespace) -> int:
             outbox_enabled = bool(storage_cfg.get("outbox_enabled", False))
             outbox_path = storage_cfg.get("outbox_path") or str(home / "storage" / "outbox.sqlite")
             outbox_max_records = int(storage_cfg.get("outbox_max_records", 100_000))
-            outbox_flush_interval_sec = float(
-                storage_cfg.get("outbox_flush_interval_sec", 5.0)
-            )
+            outbox_flush_interval_sec = float(storage_cfg.get("outbox_flush_interval_sec", 5.0))
             outbox_batch_size = int(storage_cfg.get("outbox_batch_size", 100))
 
             outbox: OutboxStore | None = None
@@ -2442,7 +2495,7 @@ def _run_practice_skill_iteration(
     capability: str = "vlm.risk_assessment",
     task_id: str | None = None,
     robot_type: str | None = None,
-    data_root: str = "/data/rosclaw/practice",
+    data_root: str | Path | None = None,
     iteration_index: int = 0,
 ) -> int:
     """Execute one skill iteration and emit practice events into a live session.
@@ -2765,10 +2818,9 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
     skill_id = args.skill
     provider_id = getattr(args, "provider", None)
     capability = getattr(args, "capability", "vlm.risk_assessment")
-    data_root = (
+    data_root = resolve_practice_data_root(
         getattr(args, "output_root", None)
         or getattr(args, "data_root", None)
-        or "/data/rosclaw/practice"
     )
 
     resolved_body_id = _resolve_practice_body_id(home, robot_id)
@@ -2842,7 +2894,7 @@ def cmd_practice_validate(args: argparse.Namespace) -> int:
     events.jsonl, and timeline.jsonl exist and are consistent.  In strict
     mode the episode must contain camera, provider, and sandbox events.
     """
-    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    data_root = resolve_practice_data_root(getattr(args, "data_root", None))
     episode_id = args.episode_id
     strict = getattr(args, "strict", False)
 
@@ -3025,7 +3077,7 @@ def cmd_practice_verify(args: argparse.Namespace) -> int:
     """Verify closed-loop integrity of a practice session."""
     from rosclaw.practice.verifier import PracticeVerifier, format_report
 
-    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    data_root = resolve_practice_data_root(getattr(args, "data_root", None))
     practice_id = args.practice_id
     strict = getattr(args, "strict", False)
 
@@ -3059,7 +3111,7 @@ def cmd_practice_distill(args: argparse.Namespace) -> int:
     """Distill raw practice events into knowledge artifacts."""
     from rosclaw.practice.distiller import PracticeDistiller
 
-    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    data_root = resolve_practice_data_root(getattr(args, "data_root", None))
     practice_id = args.practice_id
     body_id = getattr(args, "body_id", None)
     write_artifacts = not getattr(args, "no_artifacts", False)
@@ -3101,7 +3153,7 @@ def cmd_practice_ingest_seekdb(args: argparse.Namespace) -> int:
     """Ingest a distilled practice session into SeekDB."""
     from rosclaw.practice.seekdb_ingestor import SeekDBIngestor
 
-    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    data_root = resolve_practice_data_root(getattr(args, "data_root", None))
     practice_id = args.practice_id
 
     try:
@@ -3153,7 +3205,7 @@ def cmd_practice_query(args: argparse.Namespace) -> int:
     """Query practice episodes, failures, body cognition, sim2real, candidates, and interventions."""
     from rosclaw.practice.query import PracticeQuery
 
-    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    data_root = resolve_practice_data_root(getattr(args, "data_root", None))
 
     try:
         client = _practice_seekdb_client(args)
@@ -3284,7 +3336,8 @@ def cmd_practice_sync_fallback(args: argparse.Namespace) -> int:
         or os.environ.get("ROSCLAW_SEEKDB_URL", "http://localhost:2882")
     )
     fallback_dir = args.fallback_dir or os.environ.get(
-        "ROSCLAW_SEEKDB_FALLBACK_DIR", "/data/rosclaw/practice/fallback"
+        "ROSCLAW_SEEKDB_FALLBACK_DIR",
+        str(get_default_practice_data_root() / "fallback"),
     )
     sync = FallbackSync(seekdb_url=http_url, fallback_dir=fallback_dir)
     summary = sync.sync()
@@ -4127,7 +4180,7 @@ def cmd_how_advise(args: argparse.Namespace) -> int:
     body_id = args.body
     failure = args.failure
     episode_id = args.episode_id
-    data_root = getattr(args, "data_root", None) or "/data/rosclaw/practice"
+    data_root = str(resolve_practice_data_root(getattr(args, "data_root", None)))
 
     async def _run() -> dict:
         engine = HeuristicEngine(seekdb_client=InMemoryKnowledgeStore())
@@ -4173,9 +4226,11 @@ def cmd_provider_health(args: argparse.Namespace) -> int:
 
     payload = {
         "ok": bool(providers),
-        "status": "ok" if providers else "not_found",
+        "status": "catalog_available" if providers else "not_found",
         "source": "builtin_provider_contract",
         "provider_count": len(providers),
+        "healthy_provider_count": 0,
+        "execution_ready_provider_count": 0,
         "providers": providers,
     }
     if provider_id and not providers:
@@ -4185,7 +4240,7 @@ def cmd_provider_health(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
         print("=" * 60)
-        print("ROSClaw Provider Health")
+        print("ROSClaw Provider Readiness")
         print("=" * 60)
         if providers:
             print(f"{'Name':<16} {'Type':<12} {'Status':<12} {'Capabilities'}")
@@ -4195,6 +4250,9 @@ def cmd_provider_health(args: argparse.Namespace) -> int:
                     f"{provider['name']:<16} {provider['type']:<12} "
                     f"{provider['status']:<12} {len(provider['capabilities'])}"
                 )
+            print("\nCatalog loaded: YES")
+            print("Provider health checked: NO")
+            print("Verified execution ready: NO")
         else:
             print(payload["error"])
         print("=" * 60)
@@ -4710,7 +4768,7 @@ def cmd_memory_ingest(args: argparse.Namespace) -> int:
     from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
 
     episode_id = args.episode_id
-    data_root = getattr(args, "data_root", None) or "/data/rosclaw/practice"
+    data_root = str(resolve_practice_data_root(getattr(args, "data_root", None)))
     db_path = _memory_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -4885,7 +4943,7 @@ def cmd_know_compile(args: argparse.Namespace) -> int:
 
     task = args.task
     episode_id = args.episode_id
-    data_root = getattr(args, "data_root", None) or "/data/rosclaw/practice"
+    data_root = str(resolve_practice_data_root(getattr(args, "data_root", None)))
 
     know = KnowledgeInterface(robot_id="rosclaw_default")
     know._do_initialize()
@@ -5329,64 +5387,141 @@ def cmd_firewall_check(args: argparse.Namespace) -> int:
 
 
 def cmd_sandbox_run(args: argparse.Namespace) -> int:
-    """Run a sandbox episode."""
-    from rosclaw.core.event_bus import EventBus
-    from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
+    """Run a truthful sandbox episode through Runtime.submit_action()."""
+    import hashlib
+    import uuid
 
-    backend = args.backend or "mock"
+    from rosclaw.core.runtime import Runtime, RuntimeConfig
+    from rosclaw.kernel import ActionEnvelope, ActionState, ExecutionMode
+
+    mode = ExecutionMode(str(args.mode).upper())
+    backend = str(args.backend or "mujoco").lower()
     world = args.world or "empty"
+    if mode is ExecutionMode.FIXTURE:
+        backend = "fixture"
+    elif backend != "mujoco":
+        message = "SIMULATION mode requires --backend mujoco; use --mode fixture explicitly."
+        if args.json:
+            print(json.dumps({"status": "BLOCKED", "error": message}, indent=2))
+        else:
+            print(f"[ROSClaw] {message}", file=sys.stderr)
+        return 2
 
-    print(f"[ROSClaw] Running sandbox episode: robot={args.robot}, world={world}, task={args.task}")
+    if not args.json:
+        print(
+            f"[ROSClaw] Running sandbox episode: robot={args.robot}, "
+            f"world={world}, task={args.task}, mode={mode.value}"
+        )
 
-    # Build config compatible with SandboxRuntimeAdapter.__init__
-    config = {
-        "engine": backend,
-        "world_id": world,
-        "robot_id": args.robot,
-    }
-    bus = EventBus()
-    adapter = SandboxRuntimeAdapter(config=config, event_bus=bus)
-    adapter.initialize()
+    artifact_root = Path(args.artifact_dir).expanduser() if args.artifact_dir else None
+    runtime = Runtime(
+        RuntimeConfig(
+            robot_id=args.robot,
+            default_eurdf_robot="ur5e",
+            enable_event_persistence=False,
+            enable_firewall=False,
+            enable_memory=False,
+            enable_practice=False,
+            enable_skill_manager=False,
+            enable_knowledge=False,
+            enable_how=False,
+            enable_auto=False,
+            enable_provider=False,
+            enable_sense=False,
+            sandbox_engine=backend,
+            sandbox_world_id=world,
+            sandbox_artifact_root=str(artifact_root) if artifact_root else None,
+            trace_home=str(artifact_root / "trace") if artifact_root else None,
+        )
+    )
     try:
-        # Mock episode execution since run_episode is not implemented
-        import time
-
-        episode_id = f"sb_{args.robot}_{args.task}_{int(time.time())}"
-        trace_id = args.trace_id or f"trace_{int(time.time())}"
-        # Simulate execution
-        time.sleep(0.1)
-        result = {
-            "episode_id": episode_id,
-            "trace_id": trace_id,
-            "status": "success",
-            "robot_id": args.robot,
+        runtime.initialize()
+        model_path = runtime.sandbox.model_path if runtime.sandbox is not None else None
+        body_hash = ""
+        if model_path is not None and model_path.is_file():
+            body_hash = f"sha256:{hashlib.sha256(model_path.read_bytes()).hexdigest()}"
+        arguments: dict[str, Any] = {
             "task": args.task,
-            "world": world,
-            "backend": backend,
-            "steps": 100,
-            "duration_sec": 5.0,
-            "final_error": 0.02,
-            "artifact_uri": f"sandbox://episodes/{episode_id}",
+            "max_steps": args.steps,
+            "tolerance_m": args.tolerance,
+            "seed": args.seed,
         }
+        if args.target is not None:
+            arguments["target"] = list(args.target)
+        action = ActionEnvelope(
+            actor_id="rosclaw-cli",
+            agent_framework="cli",
+            session_id=args.trace_id or f"cli_{uuid.uuid4().hex[:12]}",
+            body_id=args.robot,
+            body_snapshot_hash=body_hash,
+            capability_id=f"sandbox.{args.task}",
+            arguments=arguments,
+            execution_mode=mode,
+            parent_trace_id=args.trace_id,
+        )
+        receipt = runtime.submit_action(action)
+        result = receipt.to_dict()
+        if args.json:
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+            return (
+                0
+                if (
+                    receipt.final_state in {ActionState.COMPLETED, ActionState.DEGRADED}
+                    and (receipt.verified or mode is ExecutionMode.FIXTURE)
+                )
+                else 1
+            )
+
         print("=" * 60)
         print("Sandbox Episode Result")
         print("=" * 60)
-        print(f"Episode ID: {result['episode_id']}")
+        if mode is ExecutionMode.FIXTURE:
+            print("MODE: FIXTURE")
+            print("NO PHYSICS WAS EXECUTED")
+            print("NOT VALID FOR ACCEPTANCE")
+        print(f"Action ID:  {result['action_id']}")
         print(f"Trace ID:   {result['trace_id']}")
-        print(f"Status:     {result['status']}")
-        print(f"World:      {result['world']}")
-        print(f"Backend:    {result['backend']}")
-        print(f"Steps:      {result['steps']}")
-        print(f"Duration:   {result['duration_sec']:.2f}s")
-        print(f"Final Error:{result['final_error']:.3f}m")
-        print(f"Artifact:   {result['artifact_uri']}")
+        print(f"Status:     {result['final_state']}")
+        print(f"Evidence:   {result['evidence_level']}")
+        print(f"Verified:   {result['verified']}")
+        print(f"World:      {world}")
+        print(f"Backend:    {backend}")
+        simulation = result.get("simulation_result") or {}
+        verification = result.get("verification_result") or {}
+        print(f"Steps:      {simulation.get('steps', 0)}")
+        if verification.get("final_error_m") is not None:
+            print(f"Final Error:{verification['final_error_m']:.6f}m")
+        for artifact in result.get("artifacts", []):
+            print(f"Artifact:   {artifact}")
+        for error in result.get("errors", []):
+            print(f"Error:      {error.get('code')}: {error.get('message')}")
         print("=" * 60)
-        adapter.stop()
-        return 0
+        return (
+            0
+            if (
+                receipt.final_state in {ActionState.COMPLETED, ActionState.DEGRADED}
+                and (receipt.verified or mode is ExecutionMode.FIXTURE)
+            )
+            else 1
+        )
     except Exception as exc:
-        print(f"[ROSClaw] ❌ Sandbox run error: {exc}")
-        adapter.stop()
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "status": "FAILED",
+                        "execution_mode": mode.value,
+                        "verified": False,
+                        "error": str(exc),
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            print(f"[ROSClaw] Sandbox run error: {exc}", file=sys.stderr)
         return 1
+    finally:
+        runtime.stop()
 
 
 def cmd_sandbox_replay(args: argparse.Namespace) -> int:
@@ -6348,10 +6483,6 @@ def main() -> int:
     )
     subparsers = parser.add_subparsers(dest="command")
 
-    # Register optional integrations (LeRobot, etc.) so their provider types
-    # and exporters are available to CLI commands without hard dependencies.
-    register_lerobot_capabilities(GLOBAL_INTEGRATION_REGISTRY)
-
     # init
     init_parser = subparsers.add_parser("init", help="Initialize a ROSClaw workspace")
     init_parser.add_argument("dir", nargs="?", default=".", help="Target directory")
@@ -6526,6 +6657,12 @@ def main() -> int:
     )
     doctor_parser.add_argument("--bootstrap", action="store_true", help="L0 bootstrap check only")
     doctor_parser.add_argument("--full", action="store_true", help="Run L1-L3 full health check")
+    doctor_parser.add_argument(
+        "--level",
+        choices=["package", "configured", "runtime", "connected", "execution", "verified"],
+        default=None,
+        help="Run progressive execution-readiness checks",
+    )
     doctor_parser.add_argument("--fix", action="store_true", help="Auto-fix safe issues only")
     doctor_parser.add_argument("--json", action="store_true", help="Output structured JSON")
     doctor_parser.add_argument("--gpu", action="store_true", help="Include GPU/CUDA check")
@@ -6688,9 +6825,7 @@ def main() -> int:
     how_advise_parser.add_argument("--body", required=True, help="Body instance identifier")
     how_advise_parser.add_argument("--failure", required=True, help="Failure symptom or label")
     how_advise_parser.add_argument("--episode-id", required=True, help="Episode identifier")
-    how_advise_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(how_advise_parser)
     how_advise_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     # provider subcommand
@@ -7086,8 +7221,7 @@ def main() -> int:
         "serve", help="Start the persistent policy runtime"
     )
     lerobot_policy_serve_parser.add_argument(
-        "--policy.path", dest="policy_path", default=None,
-        help="Policy directory or HF repo id"
+        "--policy.path", dest="policy_path", default=None, help="Policy directory or HF repo id"
     )
     lerobot_policy_serve_parser.add_argument(
         "--python", default=None, help="LeRobot Python executable"
@@ -7096,8 +7230,10 @@ def main() -> int:
         "--device", default="cpu", help="Device for inference (default: cpu)"
     )
     lerobot_policy_serve_parser.add_argument(
-        "--dtype", default="auto", choices=["auto", "fp32", "fp16", "bf16"],
-        help="Model dtype (default: auto)"
+        "--dtype",
+        default="auto",
+        choices=["auto", "fp32", "fp16", "bf16"],
+        help="Model dtype (default: auto)",
     )
     lerobot_policy_serve_parser.add_argument(
         "--allow-network", action="store_true", help="Allow network access for HF downloads"
@@ -7106,7 +7242,10 @@ def main() -> int:
         "--timeout-sec", type=int, default=120, help="Call timeout in seconds (default: 120)"
     )
     lerobot_policy_serve_parser.add_argument(
-        "--startup-timeout-sec", type=int, default=60, help="Startup timeout in seconds (default: 60)"
+        "--startup-timeout-sec",
+        type=int,
+        default=60,
+        help="Startup timeout in seconds (default: 60)",
     )
     lerobot_policy_serve_parser.add_argument(
         "--daemon", action="store_true", help="Run as a background daemon"
@@ -7153,8 +7292,10 @@ def main() -> int:
         "--device", default="cpu", help="Device for inference (default: cpu)"
     )
     lerobot_policy_warmup_parser.add_argument(
-        "--dtype", default="auto", choices=["auto", "fp32", "fp16", "bf16"],
-        help="Model dtype (default: auto)"
+        "--dtype",
+        default="auto",
+        choices=["auto", "fp32", "fp16", "bf16"],
+        help="Model dtype (default: auto)",
     )
     lerobot_policy_warmup_parser.add_argument(
         "--allow-network", action="store_true", help="Allow network access for HF downloads"
@@ -7163,7 +7304,10 @@ def main() -> int:
         "--timeout-sec", type=int, default=300, help="Call timeout in seconds (default: 300)"
     )
     lerobot_policy_warmup_parser.add_argument(
-        "--startup-timeout-sec", type=int, default=60, help="Startup timeout in seconds (default: 60)"
+        "--startup-timeout-sec",
+        type=int,
+        default=60,
+        help="Startup timeout in seconds (default: 60)",
     )
     lerobot_policy_warmup_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -7171,27 +7315,24 @@ def main() -> int:
     lerobot_mapping_parser = lerobot_subparsers.add_parser(
         "mapping", help="Body action mapping commands"
     )
-    lerobot_mapping_subparsers = lerobot_mapping_parser.add_subparsers(dest="lerobot_mapping_command")
+    lerobot_mapping_subparsers = lerobot_mapping_parser.add_subparsers(
+        dest="lerobot_mapping_command"
+    )
 
     def _add_mapping_common_args(parser):
         parser.add_argument(
             "--body", dest="body_id", default="current", help="Body instance ID (default: current)"
         )
         parser.add_argument(
-            "--representation", default="joint_position",
+            "--representation",
+            default="joint_position",
             choices=["joint_position", "joint_velocity", "joint_torque"],
             help="Action representation (default: joint_position)",
         )
-        parser.add_argument(
-            "--names", required=True, help="Comma-separated policy action names"
-        )
-        parser.add_argument(
-            "--units", default="", help="Comma-separated policy action units"
-        )
+        parser.add_argument("--names", required=True, help="Comma-separated policy action names")
+        parser.add_argument("--units", default="", help="Comma-separated policy action units")
         parser.add_argument("--reference-frame", default="", help="Policy reference frame")
-        parser.add_argument(
-            "--allow-partial", action="store_true", help="Allow partial mappings"
-        )
+        parser.add_argument("--allow-partial", action="store_true", help="Allow partial mappings")
         parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     lerobot_mapping_generate_parser = lerobot_mapping_subparsers.add_parser(
@@ -7219,11 +7360,16 @@ def main() -> int:
     lerobot_rollout_parser = lerobot_subparsers.add_parser(
         "rollout", help="LeRobot policy rollout loops"
     )
-    lerobot_rollout_subparsers = lerobot_rollout_parser.add_subparsers(dest="lerobot_rollout_command")
+    lerobot_rollout_subparsers = lerobot_rollout_parser.add_subparsers(
+        dest="lerobot_rollout_command"
+    )
 
     def _add_rollout_common_args(parser):
         parser.add_argument(
-            "--policy.path", dest="policy_path", required=True, help="Policy directory or HF repo id"
+            "--policy.path",
+            dest="policy_path",
+            required=True,
+            help="Policy directory or HF repo id",
         )
         parser.add_argument("--revision", default="main", help="HF revision")
         parser.add_argument("--python", default=None, help="LeRobot Python executable")
@@ -7257,9 +7403,7 @@ def main() -> int:
         parser.add_argument(
             "--observation-contract", default=None, help="JSON observation contract file"
         )
-        parser.add_argument(
-            "--trace-path", default=None, help="Output JSONL trace path"
-        )
+        parser.add_argument("--trace-path", default=None, help="Output JSONL trace path")
         parser.add_argument(
             "--practice-root",
             default=None,
@@ -7269,12 +7413,8 @@ def main() -> int:
         parser.add_argument(
             "--allow-partial-mapping", action="store_true", help="Allow partial body mappings"
         )
-        parser.add_argument(
-            "--skip-sandbox", action="store_true", help="Skip sandbox preflight"
-        )
-        parser.add_argument(
-            "--execute", action="store_true", help=argparse.SUPPRESS
-        )
+        parser.add_argument("--skip-sandbox", action="store_true", help="Skip sandbox preflight")
+        parser.add_argument("--execute", action="store_true", help=argparse.SUPPRESS)
         parser.add_argument("--timeout-sec", type=int, default=300, help="Call timeout")
         parser.add_argument("--startup-timeout-sec", type=int, default=60, help="Startup timeout")
         parser.add_argument("--json", action="store_true", help="Output as JSON")
@@ -7297,19 +7437,27 @@ def main() -> int:
 
     # P5 RH56 subcommands: rh56-shadow / preflight / arm / execute
     def _add_rh56_args(parser, *, with_policy: bool = True):
+        from rosclaw.body.rh56.resources import (
+            rh56_config_path,
+            rh56_reference_policy_path,
+        )
+
         if with_policy:
             parser.add_argument(
-                "--policy.path", dest="policy_path", required=True, help="Policy directory"
+                "--policy.path",
+                dest="policy_path",
+                default=str(rh56_reference_policy_path()),
+                help="Policy directory (default: bundled RH56 reference policy)",
             )
         parser.add_argument("--body-id", default="rh56_right_01", help="Body instance ID")
         parser.add_argument(
             "--transport-profile",
-            default="configs/rh56_right_rs485_v1.yaml",
+            default=str(rh56_config_path("rh56_right_rs485_v1.yaml")),
             help="RH56 transport profile YAML",
         )
         parser.add_argument(
             "--calibration",
-            default="configs/rh56_right_01_calibration.yaml",
+            default=str(rh56_config_path("rh56_right_01_calibration.yaml")),
             help="RH56 calibration YAML",
         )
         parser.add_argument("--task", default="hold_current", help="Reference task name")
@@ -7317,7 +7465,7 @@ def main() -> int:
         parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     rh56_shadow_parser = lerobot_rollout_subparsers.add_parser(
-        "rh56-shadow", help="P5-B RH56 shadow gate (mock or real transport)"
+        "rh56-shadow", help="P5-B RH56 shadow gate (explicit fixture in this release)"
     )
     _add_rh56_args(rh56_shadow_parser)
     rh56_shadow_parser.add_argument("--steps", type=int, default=1000)
@@ -7326,6 +7474,11 @@ def main() -> int:
     rh56_shadow_parser.add_argument("--max-deadline-misses", type=int, default=10)
     rh56_shadow_parser.add_argument("--practice-root", default=None)
     rh56_shadow_parser.add_argument("--report", default=None, help="Write shadow report MD")
+    rh56_shadow_parser.add_argument(
+        "--fixture",
+        action="store_true",
+        help="Explicitly use synthetic MockModbusTransport feedback",
+    )
 
     preflight_parser = lerobot_rollout_subparsers.add_parser(
         "preflight", help="P5 RH56 preflight checks (transport/calibration/contract)"
@@ -7335,23 +7488,33 @@ def main() -> int:
     preflight_parser.add_argument("--mapping", default=None, help="Mapping manifest path")
 
     arm_parser = lerobot_rollout_subparsers.add_parser(
-        "arm", help="P5 RH56 arming (issues an execution permit)"
+        "arm", help="P5 RH56 fixture arming (REAL requires Runtime ActionGateway)"
     )
     _add_rh56_args(arm_parser)
     arm_parser.add_argument("--max-step-delta", type=float, default=20.0)
     arm_parser.add_argument("--max-speed", type=int, default=100)
     arm_parser.add_argument("--max-force", type=float, default=100.0)
     arm_parser.add_argument("--expires-in", type=float, default=120.0)
-    arm_parser.add_argument("--require-estop", action="store_true")
-    arm_parser.add_argument("--acknowledge-real-robot-risk", action="store_true")
     arm_parser.add_argument(
-        "--mock",
+        "--require-estop",
         action="store_true",
-        help="Allow a mock-validated calibration (mock-only runs)",
+        help="Reserved for the future REAL gateway path; does not authorize execution",
+    )
+    arm_parser.add_argument(
+        "--acknowledge-real-robot-risk",
+        action="store_true",
+        help="Reserved for the future REAL gateway path; does not authorize execution",
+    )
+    arm_parser.add_argument(
+        "--fixture",
+        "--mock",
+        dest="fixture",
+        action="store_true",
+        help="Issue a synthetic fixture permit; --mock is a compatibility alias",
     )
 
     execute_parser = lerobot_rollout_subparsers.add_parser(
-        "execute", help="P5 RH56 single-step execution (requires a permit)"
+        "execute", help="P5 RH56 fixture execution (REAL requires Runtime ActionGateway)"
     )
     _add_rh56_args(execute_parser)
     execute_parser.add_argument("--permit", required=True, help="Permit ID from `arm`")
@@ -7360,7 +7523,16 @@ def main() -> int:
     execute_parser.add_argument("--max-speed", type=int, default=100)
     execute_parser.add_argument("--max-force", type=float, default=100.0)
     execute_parser.add_argument("--practice-root", default=None)
-    execute_parser.add_argument("--acknowledge-real-robot-risk", action="store_true")
+    execute_parser.add_argument(
+        "--acknowledge-real-robot-risk",
+        action="store_true",
+        help="Reserved for the future REAL gateway path; does not authorize execution",
+    )
+    execute_parser.add_argument(
+        "--fixture",
+        action="store_true",
+        help="Explicitly execute against MockModbusTransport only",
+    )
 
     # auto subcommand (Self-Evolution Control Plane)
     auto_parser = subparsers.add_parser("auto", help="Auto self-evolution commands")
@@ -7498,8 +7670,35 @@ def main() -> int:
     sandbox_run_parser.add_argument("--robot", required=True, help="Robot identifier")
     sandbox_run_parser.add_argument("--world", default="empty", help="Sandbox world")
     sandbox_run_parser.add_argument("--task", required=True, help="Task name")
-    sandbox_run_parser.add_argument("--backend", default="mujoco", help="Sandbox backend")
+    sandbox_run_parser.add_argument(
+        "--mode",
+        default="simulation",
+        choices=["simulation", "fixture"],
+        help="Execution mode; fixture must be explicitly requested",
+    )
+    sandbox_run_parser.add_argument(
+        "--backend",
+        default="mujoco",
+        choices=["mujoco", "mock", "fixture"],
+        help="Sandbox backend (SIMULATION requires mujoco)",
+    )
+    sandbox_run_parser.add_argument(
+        "--target",
+        nargs=3,
+        type=float,
+        metavar=("X", "Y", "Z"),
+        help="Cartesian reach target in meters",
+    )
+    sandbox_run_parser.add_argument("--steps", type=int, default=1200, help="Maximum MuJoCo steps")
+    sandbox_run_parser.add_argument(
+        "--tolerance", type=float, default=0.008, help="Reach success tolerance in meters"
+    )
+    sandbox_run_parser.add_argument("--seed", type=int, default=0, help="Deterministic seed")
+    sandbox_run_parser.add_argument(
+        "--artifact-dir", default=None, help="Directory for trajectory and receipt artifacts"
+    )
     sandbox_run_parser.add_argument("--trace-id", default=None, help="Trace ID")
+    sandbox_run_parser.add_argument("--json", action="store_true", help="Output receipt as JSON")
     sandbox_replay_parser = sandbox_subparsers.add_parser("replay", help="Replay a sandbox episode")
     sandbox_replay_parser.add_argument("episode_id", help="Episode identifier")
     sandbox_check_parser = sandbox_subparsers.add_parser(
@@ -7600,9 +7799,7 @@ def main() -> int:
         "ingest", help="Ingest a practice episode into memory"
     )
     memory_ingest_parser.add_argument("--episode-id", required=True, help="Episode identifier")
-    memory_ingest_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(memory_ingest_parser)
 
     # darwin subcommand
     darwin_parser = subparsers.add_parser("darwin", help="Darwin benchmark engine")
@@ -7640,9 +7837,7 @@ def main() -> int:
     practice_list_parser = practice_subparsers.add_parser(
         "list", help="List recorded practice sessions"
     )
-    practice_list_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(practice_list_parser)
 
     practice_init_parser = practice_subparsers.add_parser(
         "init", help="Initialize practice configuration"
@@ -7686,9 +7881,7 @@ def main() -> int:
         help="Capture frequency when camera source is enabled",
     )
     practice_start_parser.add_argument("--seekdb", action="store_true", help="Enable SeekDB commit")
-    practice_start_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(practice_start_parser)
 
     practice_run_parser = practice_subparsers.add_parser(
         "run", help="Run a single skill+provider practice episode"
@@ -7714,9 +7907,7 @@ def main() -> int:
         "validate", help="Validate a recorded practice episode"
     )
     practice_validate_parser.add_argument("episode_id", help="Episode or practice identifier")
-    practice_validate_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(practice_validate_parser)
     practice_validate_parser.add_argument(
         "--strict", action="store_true", help="Require camera, provider, and sandbox events"
     )
@@ -7728,9 +7919,7 @@ def main() -> int:
         "verify", help="Verify closed-loop integrity of a practice session"
     )
     practice_verify_parser.add_argument("practice_id", help="Practice session identifier")
-    practice_verify_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(practice_verify_parser)
     practice_verify_parser.add_argument(
         "--strict", action="store_true", help="Treat warnings as failures"
     )
@@ -7742,9 +7931,7 @@ def main() -> int:
         "distill", help="Distill raw practice events into knowledge artifacts"
     )
     practice_distill_parser.add_argument("practice_id", help="Practice session identifier")
-    practice_distill_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(practice_distill_parser)
     practice_distill_parser.add_argument(
         "--body-id", default=None, help="Override body_id for distilled cognition"
     )
@@ -7772,9 +7959,7 @@ def main() -> int:
         "ingest-seekdb", help="Ingest a distilled practice session into SeekDB"
     )
     practice_ingest_seekdb_parser.add_argument("practice_id", help="Practice session identifier")
-    practice_ingest_seekdb_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(practice_ingest_seekdb_parser)
     add_practice_seekdb_backend_args(practice_ingest_seekdb_parser)
     practice_ingest_seekdb_parser.add_argument(
         "--json", action="store_true", help="Output ingestion report as JSON"
@@ -7790,9 +7975,7 @@ def main() -> int:
     query_episodes_parser.add_argument("--skill-id", default=None, help="Filter by skill_id")
     query_episodes_parser.add_argument("--outcome", default=None, help="Filter by outcome")
     query_episodes_parser.add_argument("--limit", type=int, default=100, help="Max results")
-    query_episodes_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(query_episodes_parser)
     add_practice_seekdb_backend_args(query_episodes_parser)
     query_episodes_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -7805,9 +7988,7 @@ def main() -> int:
     )
     query_failures_parser.add_argument("--robot-id", default=None, help="Filter by robot_id")
     query_failures_parser.add_argument("--limit", type=int, default=100, help="Max results")
-    query_failures_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(query_failures_parser)
     add_practice_seekdb_backend_args(query_failures_parser)
     query_failures_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -7819,9 +8000,7 @@ def main() -> int:
         "--cognition-type", default=None, help="Filter by cognition_type"
     )
     query_body_cognition_parser.add_argument("--limit", type=int, default=100, help="Max results")
-    query_body_cognition_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(query_body_cognition_parser)
     add_practice_seekdb_backend_args(query_body_cognition_parser)
     query_body_cognition_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -7830,9 +8009,7 @@ def main() -> int:
     )
     query_sim2real_parser.add_argument("--body-id", default=None, help="Filter by body_id")
     query_sim2real_parser.add_argument("--limit", type=int, default=100, help="Max results")
-    query_sim2real_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(query_sim2real_parser)
     add_practice_seekdb_backend_args(query_sim2real_parser)
     query_sim2real_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -7843,9 +8020,7 @@ def main() -> int:
     query_candidates_parser.add_argument("--status", default=None, help="Filter by status")
     query_candidates_parser.add_argument("--policy-id", default=None, help="Filter by policy_id")
     query_candidates_parser.add_argument("--limit", type=int, default=100, help="Max results")
-    query_candidates_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(query_candidates_parser)
     add_practice_seekdb_backend_args(query_candidates_parser)
     query_candidates_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -7860,9 +8035,7 @@ def main() -> int:
     )
     query_interventions_parser.add_argument("--outcome", default=None, help="Filter by outcome")
     query_interventions_parser.add_argument("--limit", type=int, default=100, help="Max results")
-    query_interventions_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(query_interventions_parser)
     add_practice_seekdb_backend_args(query_interventions_parser)
     query_interventions_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -7870,9 +8043,7 @@ def main() -> int:
         "explain-episode", help="Explain everything known about an episode"
     )
     query_explain_episode_parser.add_argument("episode_id", help="Episode identifier")
-    query_explain_episode_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(query_explain_episode_parser)
     add_practice_seekdb_backend_args(query_explain_episode_parser)
     query_explain_episode_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -7880,9 +8051,7 @@ def main() -> int:
         "explain-failure", help="Explain a failure and its interventions"
     )
     query_explain_failure_parser.add_argument("failure_id", help="Failure identifier")
-    query_explain_failure_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(query_explain_failure_parser)
     add_practice_seekdb_backend_args(query_explain_failure_parser)
     query_explain_failure_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -7904,15 +8073,11 @@ def main() -> int:
     )
     practice_show_parser.add_argument("episode_id", help="Episode or practice identifier")
     practice_show_parser.add_argument("--json", action="store_true", help="Output as JSON")
-    practice_show_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(practice_show_parser)
 
     practice_replay_parser = practice_subparsers.add_parser("replay", help="Replay episode trace")
     practice_replay_parser.add_argument("episode_id", help="Episode identifier")
-    practice_replay_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(practice_replay_parser)
 
     practice_export_parser = practice_subparsers.add_parser(
         "export", help="Export episode metadata or practice events"
@@ -7935,9 +8100,7 @@ def main() -> int:
     practice_export_parser.add_argument(
         "--output", default=None, help="Output file or directory (default stdout / auto path)"
     )
-    practice_export_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(practice_export_parser)
     practice_export_parser.add_argument(
         "--writer",
         choices=["real", "skeleton"],
@@ -8047,9 +8210,7 @@ def main() -> int:
     )
     know_compile_parser.add_argument("task", help="Task description")
     know_compile_parser.add_argument("--episode-id", required=True, help="Episode identifier")
-    know_compile_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(know_compile_parser)
     know_compile_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     # sense subcommand
@@ -8244,19 +8405,19 @@ def main() -> int:
                 return cmd_provider_invoke(args)
             elif args.provider_command == "inspect":
                 if args.type == "lerobot_policy":
-                    return cmd_provider_inspect_lerobot(args)
+                    return _dispatch_lerobot_cli("cmd_provider_inspect_lerobot", args)
                 print(f"[ROSClaw] Unknown provider type for inspect: {args.type}", file=sys.stderr)
                 return 1
             elif args.provider_command == "load-test":
                 if args.type == "lerobot_policy":
-                    return cmd_provider_load_test_lerobot(args)
+                    return _dispatch_lerobot_cli("cmd_provider_load_test_lerobot", args)
                 print(
                     f"[ROSClaw] Unknown provider type for load-test: {args.type}", file=sys.stderr
                 )
                 return 1
             elif args.provider_command == "infer":
                 if args.type == "lerobot_policy":
-                    return cmd_provider_infer_lerobot(args)
+                    return _dispatch_lerobot_cli("cmd_provider_infer_lerobot", args)
                 print(f"[ROSClaw] Unknown provider type for infer: {args.type}", file=sys.stderr)
                 return 1
             elif args.provider_command == "diagnose":
@@ -8266,72 +8427,75 @@ def main() -> int:
                 return 1
         elif args.command == "capability":
             if args.capability_command == "list":
-                return cmd_capability_list(args, GLOBAL_INTEGRATION_REGISTRY)
+                _register_lerobot_cli_capabilities()
+                return _dispatch_lerobot_cli(
+                    "cmd_capability_list", args, GLOBAL_INTEGRATION_REGISTRY
+                )
             else:
                 capability_parser.print_help()
                 return 1
         elif args.command == "lerobot":
             if args.lerobot_command == "doctor":
-                return cmd_lerobot_doctor(args)
+                return _dispatch_lerobot_cli("cmd_lerobot_doctor", args)
             elif args.lerobot_command == "info":
-                return cmd_lerobot_info(args)
+                return _dispatch_lerobot_cli("cmd_lerobot_info", args)
             elif args.lerobot_command == "capabilities":
-                return cmd_lerobot_capabilities(args)
+                return _dispatch_lerobot_cli("cmd_lerobot_capabilities", args)
             elif args.lerobot_command == "smoke-policy":
-                return cmd_smoke_policy_lerobot(args)
+                return _dispatch_lerobot_cli("cmd_smoke_policy_lerobot", args)
             elif args.lerobot_command == "compatibility":
-                return cmd_lerobot_compatibility(args)
+                return _dispatch_lerobot_cli("cmd_lerobot_compatibility", args)
             elif args.lerobot_command == "export-dataset":
-                return cmd_lerobot_export_dataset(args)
+                return _dispatch_lerobot_cli("cmd_lerobot_export_dataset", args)
             elif args.lerobot_command == "validate-dataset":
-                return cmd_lerobot_validate_dataset(args)
+                return _dispatch_lerobot_cli("cmd_lerobot_validate_dataset", args)
             elif args.lerobot_command == "dataset-api":
-                return cmd_lerobot_dataset_api(args)
+                return _dispatch_lerobot_cli("cmd_lerobot_dataset_api", args)
             elif args.lerobot_command == "smoke-dataloader":
-                return cmd_lerobot_smoke_dataloader(args)
+                return _dispatch_lerobot_cli("cmd_lerobot_smoke_dataloader", args)
             elif args.lerobot_command == "dataset-compatibility":
-                return cmd_lerobot_dataset_compatibility(args)
+                return _dispatch_lerobot_cli("cmd_lerobot_dataset_compatibility", args)
             elif args.lerobot_command == "policy":
                 if args.lerobot_policy_command == "serve":
-                    return cmd_lerobot_policy_serve(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_policy_serve", args)
                 elif args.lerobot_policy_command == "status":
-                    return cmd_lerobot_policy_status(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_policy_status", args)
                 elif args.lerobot_policy_command == "health":
-                    return cmd_lerobot_policy_health(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_policy_health", args)
                 elif args.lerobot_policy_command == "stop":
-                    return cmd_lerobot_policy_stop(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_policy_stop", args)
                 elif args.lerobot_policy_command == "metrics":
-                    return cmd_lerobot_policy_metrics(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_policy_metrics", args)
                 elif args.lerobot_policy_command == "plugins":
-                    return cmd_lerobot_policy_plugins(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_policy_plugins", args)
                 elif args.lerobot_policy_command == "warmup":
-                    return cmd_lerobot_policy_warmup(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_policy_warmup", args)
                 else:
                     lerobot_policy_parser.print_help()
                     return 1
             elif args.lerobot_command == "mapping":
                 if args.lerobot_mapping_command == "generate":
-                    return cmd_lerobot_mapping_generate(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_mapping_generate", args)
                 elif args.lerobot_mapping_command == "validate":
-                    return cmd_lerobot_mapping_validate(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_mapping_validate", args)
                 elif args.lerobot_mapping_command == "map-action":
-                    return cmd_lerobot_mapping_map_action(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_mapping_map_action", args)
                 else:
                     lerobot_mapping_parser.print_help()
                     return 1
             elif args.lerobot_command == "rollout":
                 if args.lerobot_rollout_command == "proposal-only":
-                    return cmd_lerobot_rollout_proposal_only(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_rollout_proposal_only", args)
                 elif args.lerobot_rollout_command == "shadow":
-                    return cmd_lerobot_rollout_shadow(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_rollout_shadow", args)
                 elif args.lerobot_rollout_command == "rh56-shadow":
-                    return cmd_lerobot_rollout_rh56_shadow(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_rollout_rh56_shadow", args)
                 elif args.lerobot_rollout_command == "preflight":
-                    return cmd_lerobot_rollout_preflight(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_rollout_preflight", args)
                 elif args.lerobot_rollout_command == "arm":
-                    return cmd_lerobot_rollout_arm(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_rollout_arm", args)
                 elif args.lerobot_rollout_command == "execute":
-                    return cmd_lerobot_rollout_execute(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_rollout_execute", args)
                 else:
                     lerobot_rollout_parser.print_help()
                     return 1
@@ -8340,7 +8504,7 @@ def main() -> int:
                 return 1
         elif args.command == "setup":
             if args.setup_command == "lerobot":
-                return cmd_setup_lerobot(args)
+                return _dispatch_lerobot_cli("cmd_setup_lerobot", args)
             else:
                 setup_parser.print_help()
                 return 1

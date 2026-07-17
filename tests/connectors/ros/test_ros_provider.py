@@ -79,9 +79,10 @@ def _pose_capability() -> RosCapability:
 
 
 @pytest.mark.asyncio
-async def test_safe_velocity_command_allowed():
+async def test_safe_velocity_command_requires_runtime_gateway():
     provider = _make_manifest_provider(capabilities=[_cmd_vel_capability()], dry_run=False)
-    provider._transport = MockTransport()  # avoid real websocket
+    transport = MockTransport()
+    provider._transport = transport
     request = ProviderRequest(
         request_id="r1",
         capability="turtlesim.base.velocity_command",
@@ -92,9 +93,10 @@ async def test_safe_velocity_command_allowed():
         },
     )
     response = await provider.infer(request)
-    assert response.status == "ok"
-    assert response.result["ok"]
-    assert response.result["stop_guard_triggered"]
+    assert response.status == "blocked"
+    assert "Runtime.submit_action" in response.errors[0]
+    assert response.trace["guard_checks"] == [{"check": "RUNTIME_ACTION_GATEWAY_REQUIRED"}]
+    assert transport.requests == []
 
 
 @pytest.mark.asyncio
@@ -164,6 +166,10 @@ async def test_dry_run_does_not_invoke_ros():
     response = await provider.infer(request)
     assert response.status == "ok"
     assert response.result.get("ros_response", {}).get("dry_run")
+    assert response.result["execution_mode"] == "DRY_RUN"
+    assert response.result["trust_level"] == "SYNTHETIC"
+    assert response.result["command_dispatched"] is False
+    assert response.result["usable_for_real_execution"] is False
 
 
 def test_rosbridge_endpoint_from_url():

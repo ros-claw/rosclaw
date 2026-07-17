@@ -8,7 +8,7 @@ Pipeline for every step::
       → executor boundary checks (fresh, dim, range, step delta)
       → send exactly one command
       → read feedback
-      → verify physical result (position/force/temp/status)
+      → verify returned feedback (position/force/temp/status)
       → Practice events
 
 Open-loop chunks, background motion and multi-step dispatch are forbidden by
@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from rosclaw.body.execution.interface import (
     BodyExecutor,
@@ -39,6 +40,7 @@ from rosclaw.integrations.lerobot.execution.watchdog import (
     ExecutionWatchdog,
     WatchdogTrip,
 )
+from rosclaw.kernel import ExecutionMode
 
 # Plan §8.2: observation→command freshness budget.
 DEFAULT_MAX_ACTION_AGE_MS = 300.0
@@ -55,6 +57,7 @@ class SingleStepExecutor:
         permit_manager: PermitManager,
         arming: ArmingController,
         verifier: FeedbackVerifier,
+        execution_mode: ExecutionMode,
         watchdog: ExecutionWatchdog | None = None,
         max_action_age_ms: float = DEFAULT_MAX_ACTION_AGE_MS,
         event_sink: Callable[[str, dict[str, Any]], None] | None = None,
@@ -64,9 +67,12 @@ class SingleStepExecutor:
         self.permit_manager = permit_manager
         self.arming = arming
         self.verifier = verifier
+        self.execution_mode = ExecutionMode(execution_mode)
         self.watchdog = watchdog or ExecutionWatchdog()
         self.max_action_age_ms = max_action_age_ms
         self._event_sink = event_sink or (lambda etype, payload: None)
+        self.commands_executed = 0
+        self.fixture_actions_executed = 0
         self.hardware_actions_executed = 0
 
     # ------------------------------------------------------------------
@@ -90,9 +96,21 @@ class SingleStepExecutor:
         settle_ms: float = 0.0,
     ) -> ActionExecutionResult:
         """Execute one mapped candidate.  Never sends more than one command."""
+        transport = getattr(self.executor, "transport", None)
+        transport_mode = str(getattr(transport, "execution_mode", "UNKNOWN")).upper()
+        if self.execution_mode is not ExecutionMode.FIXTURE or transport_mode != "FIXTURE":
+            return self._result(
+                status="blocked",
+                error_code="RUNTIME_ACTION_GATEWAY_REQUIRED",
+                message=(
+                    "RH56 physical execution requires a verified REAL executor registered "
+                    "with Runtime.submit_action(); no command was dispatched."
+                ),
+            )
+
         # 1. State machine: must be ARMED.
         if not self.arming.machine.can_execute:
-            return ActionExecutionResult(
+            return self._result(
                 status="blocked",
                 error_code="not_armed",
                 message=f"state {self.arming.machine.state.value} cannot execute",
@@ -117,10 +135,11 @@ class SingleStepExecutor:
                 transport_profile_hash=hashes["transport_profile_hash"],
                 representation=representation,
                 units=units,
+                execution_mode=self.execution_mode.value,
             )
         except PermitError as exc:
             self._emit("execution.step.blocked", {"reason": str(exc), "proposal_id": proposal_id})
-            return ActionExecutionResult(
+            return self._result(
                 status="blocked",
                 error_code=str(exc).split(":", 1)[0],
                 message=str(exc),
@@ -133,7 +152,7 @@ class SingleStepExecutor:
                 "execution.step.blocked",
                 {"reason": "stale_action", "age_ms": age_ms, "proposal_id": proposal_id},
             )
-            return ActionExecutionResult(
+            return self._result(
                 status="stale_action",
                 error_code="stale_action",
                 message=f"observation age {age_ms:.1f} ms > {self.max_action_age_ms} ms",
@@ -151,8 +170,7 @@ class SingleStepExecutor:
             values=[float(v) for v in values],
             speed=min(int(speed), permit.max_speed),
             force_limit_g=min(float(force_limit_g), permit.max_force_g),
-            valid_until_monotonic_ns=time.monotonic_ns()
-            + int(self.max_action_age_ms * 1e6),
+            valid_until_monotonic_ns=time.monotonic_ns() + int(self.max_action_age_ms * 1e6),
         )
         self._emit(
             "execution.command.requested",
@@ -171,7 +189,7 @@ class SingleStepExecutor:
             self.arming.machine.transition(ExecutionState.VERIFYING_FEEDBACK, "safety refusal")
             self.arming.machine.transition(ExecutionState.ARMED, "resume armed")
             self._emit("execution.step.blocked", {"reason": str(exc), "proposal_id": proposal_id})
-            return ActionExecutionResult(
+            return self._result(
                 status="blocked",
                 error_code=str(exc).split(":", 1)[0],
                 message=str(exc),
@@ -179,17 +197,21 @@ class SingleStepExecutor:
         except ExecutorCommunicationError as exc:
             return self._communication_lost(exc, proposal_id)
 
-        self.hardware_actions_executed += 1
+        self.commands_executed += 1
+        self.fixture_actions_executed += 1
         self._emit(
             "execution.command.sent",
             {"proposal_id": proposal_id, "acknowledged": acknowledged},
         )
         self._emit(
-            "execution.command.acknowledged" if acknowledged else "execution.command.not_acknowledged",
+            "execution.command.acknowledged"
+            if acknowledged
+            else "execution.command.not_acknowledged",
             {"proposal_id": proposal_id},
         )
 
-        # 7. Verify physical feedback.
+        # 7. Verify transport feedback. In the currently allowed path this is
+        # synthetic fixture feedback, as recorded on the result envelope.
         self.arming.machine.transition(ExecutionState.VERIFYING_FEEDBACK, "feedback")
         verification = self.verifier.verify(
             target=request.values,
@@ -218,7 +240,7 @@ class SingleStepExecutor:
             for i in range(len(request.values))
         ]
         ok = self.verifier.is_step_ok(verification) and acknowledged
-        result = ActionExecutionResult(
+        result = self._result(
             status="completed" if ok else "fault",
             command_sent=True,
             command_acknowledged=acknowledged,
@@ -275,10 +297,12 @@ class SingleStepExecutor:
         if permit_id:
             self.permit_manager.revoke(permit_id, trip.code)
         self._emit(
-            "execution.communication_lost" if state == ExecutionState.COMMUNICATION_LOST else "execution.estop",
+            "execution.communication_lost"
+            if state == ExecutionState.COMMUNICATION_LOST
+            else "execution.estop",
             {"proposal_id": proposal_id, "reason": str(trip)},
         )
-        return ActionExecutionResult(
+        return self._result(
             status="aborted" if state == ExecutionState.OPERATOR_ABORT else "fault",
             error_code=trip.code,
             message=str(trip),
@@ -297,14 +321,35 @@ class SingleStepExecutor:
         )
         # Best-effort emergency stop.
         self.executor.emergency_stop()
-        return ActionExecutionResult(
+        return self._result(
             status="fault",
             error_code="communication_lost",
             message=str(exc),
         )
 
     def emergency_stop(self) -> bool:
-        stopped = self.executor.emergency_stop()
+        acknowledged = self.executor.emergency_stop()
         self.arming.fault(ExecutionState.ESTOP, "software emergency stop")
-        self._emit("execution.estop", {"stopped": stopped})
-        return stopped
+        self._emit(
+            "execution.estop",
+            {
+                "request_dispatched": True,
+                "driver_acknowledged": acknowledged,
+                "physical_stop_observed": False,
+                "stopped": False,
+                "execution_mode": self.execution_mode.value,
+                "trust_level": "SYNTHETIC",
+            },
+        )
+        return acknowledged
+
+    def _result(self, **values: Any) -> ActionExecutionResult:
+        fixture = self.execution_mode is ExecutionMode.FIXTURE
+        return ActionExecutionResult(
+            execution_mode=self.execution_mode.value,
+            evidence_level="SYNTHETIC" if fixture else "REQUESTED",
+            verified=False,
+            trust_level="SYNTHETIC" if fixture else "UNAVAILABLE",
+            usable_for_real_execution=False,
+            **values,
+        )

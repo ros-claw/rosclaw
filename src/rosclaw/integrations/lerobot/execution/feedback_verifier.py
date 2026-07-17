@@ -17,7 +17,7 @@ from rosclaw.integrations.lerobot.execution.schema import FeedbackVerification
 
 
 class FeedbackVerifier:
-    """Verify physical feedback after one executed step."""
+    """Verify transport feedback after one step; provenance is recorded elsewhere."""
 
     def __init__(
         self,
@@ -48,9 +48,7 @@ class FeedbackVerifier:
                 details.append(f"position_dim:{name}")
                 continue
             tolerance = (
-                self.calibration.position_tolerance(name)
-                if self.calibration is not None
-                else 25
+                self.calibration.position_tolerance(name) if self.calibration is not None else 25
             )
             error = abs(float(feedback.position[i]) - float(target[i]))
             if error > tolerance:
@@ -60,9 +58,7 @@ class FeedbackVerifier:
         # Force: primary contact/overload criterion.
         force_safe = True
         hard_limit = (
-            self.calibration.feedback.force_hard_limit_g
-            if self.calibration is not None
-            else 300.0
+            self.calibration.feedback.force_hard_limit_g if self.calibration is not None else 300.0
         )
         for i, name in enumerate(names):
             if i < len(feedback.force_g):
@@ -76,9 +72,7 @@ class FeedbackVerifier:
         # Temperature: thermal hard criterion.
         temperature_safe = True
         stop_c = (
-            self.calibration.feedback.temperature_stop_c
-            if self.calibration is not None
-            else 60.0
+            self.calibration.feedback.temperature_stop_c if self.calibration is not None else 60.0
         )
         warn_c = (
             self.calibration.feedback.temperature_warning_c
@@ -110,7 +104,7 @@ class FeedbackVerifier:
         )
 
     def is_step_ok(self, verification: FeedbackVerification) -> bool:
-        """A step is physically OK only if every hard criterion passes."""
+        """A feedback sample passes only if every hard criterion passes."""
         return (
             verification.position_reached
             and verification.force_safe

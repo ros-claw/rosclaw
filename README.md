@@ -2,16 +2,16 @@
 
 # ROSClaw
 
-### Self-Evolving Runtime Infrastructure for Physical AI & Embodied Agents
+### Trustworthy Physical Execution Runtime and Control Plane for Embodied Agents
 
-**Ground AI agents into robot bodies. Validate every action. Learn from every trace. Evolve every skill.**
+**Ground actions to a body, fail closed, execute with evidence, and return an auditable receipt.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python)](https://www.python.org/)
 [![ROS 2](https://img.shields.io/badge/ROS_2-Humble_|_Jazzy-FF3E00?logo=ros)](https://docs.ros.org/)
-[![Simulation](https://img.shields.io/badge/Simulation-MuJoCo_|_Isaac--Sim-black?logo=mujoco)](https://mujoco.org/)
+[![Simulation](https://img.shields.io/badge/Verified_Simulation-MuJoCo-black?logo=mujoco)](https://mujoco.org/)
 [![MCP](https://img.shields.io/badge/Protocol-MCP-8A2BE2)](https://modelcontextprotocol.io/)
-[![Status](https://img.shields.io/badge/Release-v1.0-purple)](https://github.com/ros-claw/rosclaw/releases)
+[![Status](https://img.shields.io/badge/Status-Alpha-orange)](https://github.com/ros-claw/rosclaw)
 
 [Website](https://rosclaw.io) · [Quick Start](QUICKSTART.md) · [Architecture](ARCHITECTURE.md) · [Docs](docs/) · [Contact](mailto:ai@rosclaw.io)
 
@@ -19,18 +19,56 @@
 
 ```bash
 curl -sSL https://rosclaw.io/get | bash
-rosclaw firstboot
+rosclaw firstboot --yes --profile offline --no-telemetry
+rosclaw doctor --level verified
 ```
 
 ---
 
 ## What is ROSClaw?
 
-ROSClaw is not another chatbot framework. It is not a thin LLM-to-ROS wrapper. It is not a collection of unrelated robotics scripts.
+ROSClaw is not another agent framework, a replacement for ROS 2, or a thin
+LLM-to-ROS wrapper.
 
-ROSClaw is a **runtime infrastructure layer for Physical AI and embodied agents**. It connects AI agents, robot embodiments, simulation sandboxes, capability routing, physical memory, praxis capture, runtime intervention, and skill evolution into one coherent operating layer.
+ROSClaw is a **trustworthy physical execution runtime and control plane for
+embodied agents**. Codex, Claude Code, OpenClaw, VLA services, and other agents
+are northbound clients. ROS 2, MCP, vendor SDKs, simulators, and robot
+controllers are southbound systems.
 
-It is built for embodied agents that must reason, act safely, remember what happened, recover from failure, and improve over time.
+Its canonical action path binds intent to a body and capability, applies policy
+and authorization, arbitrates physical resources, dispatches to a driver, and
+returns an evidence-bearing `ExecutionReceipt`. Memory and self-evolution are
+asynchronous consumers of that evidence, not substitutes for it.
+
+### Current maturity
+
+ROSClaw is alpha software. The table below is the capability boundary, not a
+roadmap disguised as completed work.
+
+| Scope | Status | Evidence available today |
+|---|---|---|
+| UR5e tabletop reach | **Simulation verified** | Real MuJoCo model load and `mj_step`, Cartesian success predicate, collision/limit blocks, trajectory artifact, trace, receipt. |
+| Action contract and gateway | **Component/system verified** | Versioned action/receipt, evidence levels, idempotent action IDs, exclusive body lease, fail-closed executor lookup. |
+| E-Stop control path | **Component verified** | Fan-out, timeout, partial ACK, idempotency, latch, and explicit physical-observation fields. No hardware stop was verified here. |
+| Mock Sense, mock Providers, fixture Drivers | **Fixture only** | Explicit `FIXTURE` / `SYNTHETIC`; not valid for safety or acceptance. |
+| RH56 LeRobot single-step loop | **Fixture verified** | Explicit `--fixture`, synthetic Modbus feedback, permit/hash/watchdog checks, and `hardware_actions_executed=0`; the serial backend remains a stub. |
+| ROS connectors, LeRobot, hardware MCP, real Providers | **Experimental** | Contract and component coverage varies; registration or import does not mean execution-ready. |
+| ROS 2 Turtlesim motion golden path | **Not verified in this environment** | ROS 2 is not installed in the current validation environment. |
+| Real robot execution | **Not run** | Requires hardware-specific acceptance with driver ACK and physical feedback. |
+
+The core package supports Python 3.11+. The isolated LeRobot 0.6 runtime and
+the bundled RH56 reference-policy plugin require Python 3.12+.
+
+### Execution modes
+
+| Mode | Meaning |
+|---|---|
+| `FIXTURE` | Explicit synthetic data. Never verified and never valid for real execution. |
+| `DRY_RUN` | Schema/static-policy evaluation; no physical simulation or dispatch. |
+| `REPLAY` | Previously recorded evidence; no new physical effect. |
+| `SIMULATION` | Physics-backed execution. The UR5e reach path is currently verified. |
+| `SHADOW` | Contract defined; no verified golden path yet. |
+| `REAL` | Contract defined and fail-closed; no repository-wide real-hardware acceptance claim. |
 
 ---
 
@@ -55,11 +93,14 @@ Physical worlds have gravity, friction, collision, latency, sensor noise, torque
 ## Runtime Loop
 
 ```text
-Intent → Body Context → Capability Route → Sandbox → Execution
-       → Trace → Memory → Intervention → Evolution → Safer Skill
+Action Intent → Body/Capability → Policy/Authorization → Resource Lease
+              → Dispatch/ACK → Physical Observation → Verification → Receipt
+
+Receipt → Trace/Practice → Memory/How/Auto/Darwin (asynchronous)
 ```
 
-> **Every physical action should be grounded, validated, recorded, remembered, and improved.**
+> **A request is not execution, dispatch is not completion, and completion
+> requires evidence.**
 
 Auto may propose changes, but it cannot approve them alone. Sandbox validation, Darwin evaluation, the promotion gate, and human approval together decide whether a change reaches the real world.
 
@@ -72,7 +113,7 @@ Install the CLI and run the interactive first-boot wizard:
 ```bash
 curl -sSL https://rosclaw.io/get | bash
 rosclaw firstboot
-rosclaw doctor
+rosclaw doctor --level verified
 ```
 
 Run a local simulation demo without any hardware:
@@ -198,7 +239,7 @@ full lifecycle, state files, permissions, and troubleshooting.
 
 ---
 
-## Install ROSClaw Agent Integration
+## Install and Configure ROSClaw for Any Agent
 
 Paste this setup prompt into Codex, Claude Code, OpenClaw, or another
 MCP-aware agent:
@@ -234,20 +275,22 @@ harnesses how to discover and use it.
 Use SQLite for local development or a MySQL-compatible DSN for a real
 SeekDB/OceanBase server:
 
+When `--data-root` is omitted, ROSClaw uses `ROSCLAW_PRACTICE_DATA_ROOT` when
+set, otherwise `$ROSCLAW_HOME/data/practice` (default `~/.rosclaw/data/practice`).
+Container deployments can explicitly set the environment variable to
+`/data/rosclaw/practice`.
+
 ```bash
 # Local file
 rosclaw practice ingest-seekdb <practice_id> \
-  --data-root /data/rosclaw/practice \
   --seekdb-path ~/.rosclaw/memory/seekdb.sqlite
 
 # Real SeekDB server
 rosclaw practice ingest-seekdb <practice_id> \
-  --data-root /data/rosclaw/practice \
   --seekdb-url mysql://root@127.0.0.1:2881/rosclaw
 
 rosclaw practice query failures \
   --robot-id rh56 \
-  --data-root /data/rosclaw/practice \
   --seekdb-url mysql://root@127.0.0.1:2881/rosclaw \
   --json
 ```
@@ -263,14 +306,24 @@ ROSClaw's core safety rule:
 
 > **No model output should directly control a robot.**
 
-Every physical action passes through a validation pipeline:
+The new canonical physical-action path is:
 
 1. Provider produces a structured action proposal.
 2. Sandbox / Firewall checks it against the effective body model and safety policy.
 3. The decision is one of `ALLOW`, `MODIFY`, `BLOCK`, or `REQUIRE_HUMAN_CONFIRMATION`.
-4. Execution is recorded by Practice.
-5. Memory and Know retain evidence for later audit.
-6. How and Auto may propose improvements, but only the promotion gate can change the active skill.
+4. `ActionGateway` acquires an exclusive resource lease and dispatches an executor.
+5. Driver ACK, observations, verification, trace, and artifacts are assembled into a receipt.
+6. Practice, Memory, How, Auto, and Darwin may consume the receipt asynchronously.
+
+Legacy execution adapters are still being migrated to this gateway. Do not
+assume that every historical CLI, Skill, ROS connector, or vendor path is
+already non-bypassable. `REAL` deployments must pass body-specific acceptance
+tests and keep southbound credentials outside the agent process.
+
+The known MCPHub low-level actions, standalone UR5 MCP motion tools, and ROS
+connector capability execution now fail closed instead of dispatching directly.
+The ROS connector still supports discovery, validation, explicit dry runs, and
+truthful emergency-stop request receipts while its executors are migrated.
 
 ROSClaw is research infrastructure. It does not replace certified industrial safety systems. Always test in simulation first, keep emergency stops engaged, and use human supervision.
 
@@ -295,9 +348,10 @@ Read [docs/SAFETY.md](docs/SAFETY.md) for the full safety model.
 
 | Phase | Focus |
 |---|---|
-| **Current / v1.0** | Runtime, EventBus, Sandbox, Practice, Memory, How, MCP server, First Boot, Hub validation/search. |
-| **In Progress** | Provider routing, skill execution on real bodies, Auto evolution workflow, Darwin evaluation. |
-| **Research** | Multi-agent fleet coordination, continuous self-evolution, cross-robot skill transfer. |
+| **Current / Alpha** | Truthful action/receipt contracts, fail-closed fixtures/providers/drivers, MuJoCo UR5e reach golden path, readiness-level Doctor. |
+| **Next** | Migrate every physical side-effect path to the gateway; cancellation/preemption; ROS 2 Turtlesim observed-motion golden path. |
+| **Hardware acceptance** | RealSense read-only capture, then bounded actuator tasks with ACK, feedback, stop verification, and receipts. |
+| **Later** | Receipt-driven Memory/How/Auto/Darwin promotion with independent evaluation and rollback. |
 
 ---
 

@@ -182,12 +182,15 @@ Body context tools: {", ".join(f"`{t}`" for t in P0_BODY_CONTEXT_TOOLS)}.
 1. Agent proposes motion via `validate_trajectory`.
 2. `validate_trajectory` returns `{{"is_safe": true}}` **only** when the plan
    passes the firewall gate and sandbox simulation.
-3. If safe, the agent **must** ask a human operator before sending any real
-   command to ROS/hardware.
+3. A safe validation result is not execution authorization. Human approval,
+   when required, must be represented by an `AuthorizationContext` on an
+   `ActionEnvelope` submitted through `Runtime.submit_action()`.
 4. `sandbox_run` may be used to preview physics in MuJoCo; it never commands
    real hardware.
 5. On unexpected behavior, call `emergency_stop` and follow local E-stop
    procedures.
+6. The P0 MCP surface has no REAL executor. If no verified runtime executor is
+   registered, refuse real motion and report it as unavailable.
 
 ## Deny rules
 
@@ -195,7 +198,7 @@ Claude Code must never run these commands directly:
 
 - `rostopic pub /cmd_vel ...`
 - `ros2 topic pub /cmd_vel ...`
-- Any direct motor/DDS/hardware write without operator confirmation
+- Any direct motor/DDS/hardware write, including after operator confirmation
 - Any `sudo` command on the robot host without explicit justification
 {MANAGED_END}
 
@@ -237,11 +240,13 @@ tool in P0.
 ## Safety
 
 - Do not publish ROS topics, actuate hardware, run real robot skills, or mutate
-  a live robot workspace unless the user explicitly requests that exact action.
+  a live robot workspace directly. A user request or human confirmation does
+  not make a shell/DDS/vendor command an approved execution path.
 - Prefer fixture, mock, simulation, read-only, dry-run, or temporary
   `ROSCLAW_HOME` workflows for validation.
-- For any motion-related request, validate through `validate_trajectory` and
-  require operator confirmation before real execution.
+- For real motion, require an immutable body snapshot, scoped authorization,
+  and a verified REAL executor through `Runtime.submit_action()`. If any are
+  unavailable, refuse the action and explain the missing prerequisite.
 {MANAGED_END}
 
 ## Human notes
@@ -262,12 +267,15 @@ description: Use when operating, validating, or changing ROSClaw physical-AI run
 ## Safety
 
 - Treat ROSClaw as physical-AI infrastructure. Do not publish ROS topics,
-  actuate hardware, run real robot skills, or mutate a live workspace unless
-  the user explicitly asks for that specific action.
+  actuate hardware, run real robot skills, or mutate a live workspace directly,
+  even when a user asks for that specific action.
 - Prefer dry-run, read-only, mock, fixture, simulation, or temp-workspace
   commands for validation.
 - Use a temporary `ROSCLAW_HOME` for CLI smoke tests that write persistent state.
 - Prefer `--json` for machine checks, then validate the JSON parses.
+- Real actions require `Runtime.submit_action()` with an immutable body snapshot,
+  capability-scoped authorization, and a registered verified REAL executor.
+  Refuse direct ROS, DDS, serial, SDK, or motor commands.
 
 ## First Checks
 

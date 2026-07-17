@@ -124,10 +124,10 @@ class PersistentRuntimeManager:
             self._state.pid = self._process.pid
             self._state.worker_generation = self._worker_generation
 
-        self._reader_thread = threading.Thread(target=self._read_stdout, daemon=True)
-        self._reader_thread.start()
         self._stderr_thread = threading.Thread(target=self._read_stderr, daemon=True)
         self._stderr_thread.start()
+        self._reader_thread = threading.Thread(target=self._read_stdout, daemon=True)
+        self._reader_thread.start()
 
         # Complete HELLO handshake to confirm protocol compatibility.
         hello = self.call(
@@ -192,8 +192,9 @@ class PersistentRuntimeManager:
                 self._pending.pop(request_id, None)
                 process = self._process
             if process is not None and process.poll() is not None:
-                self._state.transition("error", "Worker process died")
-                return {"status": "error", "error": {"code": "worker_died", "message": "Worker process died"}}
+                message = self._worker_failure_message("Worker process died")
+                self._state.transition("error", message)
+                return {"status": "error", "error": {"code": "worker_died", "message": message}}
             raise RuntimeError(f"Timeout waiting for {method} response")
 
         with self._lock:
@@ -263,7 +264,9 @@ class PersistentRuntimeManager:
             self._state.transition("error", f"stdout reader failed: {exc}")
             self._fail_all_pending("worker_died", f"stdout reader failed: {exc}")
         finally:
-            self._fail_all_pending("worker_died", "Worker stdout closed")
+            self._fail_all_pending(
+                "worker_died", self._worker_failure_message("Worker stdout closed")
+            )
 
     def _read_stderr(self) -> None:
         """Background thread: capture the last chunk of stderr for diagnostics."""
@@ -277,6 +280,22 @@ class PersistentRuntimeManager:
                     self._stderr_lines = self._stderr_lines[-250:]
         except Exception:  # noqa: BLE001
             pass
+
+    def _worker_failure_message(self, summary: str) -> str:
+        """Attach bounded worker stderr to an otherwise opaque process failure."""
+        stderr_thread = self._stderr_thread
+        if (
+            stderr_thread is not None
+            and stderr_thread is not threading.current_thread()
+            and stderr_thread.is_alive()
+        ):
+            stderr_thread.join(timeout=0.5)
+        tail = "\n".join(self.stderr_tail(20)).strip()
+        if not tail:
+            return summary
+        if len(tail) > 4000:
+            tail = tail[-4000:]
+        return f"{summary}; worker stderr:\n{tail}"
 
     def _stop_process(self) -> None:
         with self._lock:

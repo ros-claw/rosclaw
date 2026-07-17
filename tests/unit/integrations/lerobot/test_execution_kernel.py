@@ -5,8 +5,6 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-import pytest
-
 from rosclaw.body.execution.rh56_executor import RH56Executor
 from rosclaw.body.rh56.calibration import load_rh56_calibration
 from rosclaw.body.rh56.transport import MockModbusTransport
@@ -18,6 +16,7 @@ from rosclaw.integrations.lerobot.execution import (
     PermitManager,
     SingleStepExecutor,
 )
+from rosclaw.kernel import ExecutionMode
 
 CONFIGS = Path(__file__).resolve().parents[4] / "configs"
 PROFILE_PATH = CONFIGS / "rh56_right_rs485_v1.yaml"
@@ -33,7 +32,13 @@ HASHES = {
 NAMES = ["little", "ring", "middle", "index", "thumb", "thumb_rot"]
 
 
-def _stack(*, arm: bool = True, max_step_delta: float = 30.0, max_age_ms: float = 300.0):
+def _stack(
+    *,
+    arm: bool = True,
+    max_step_delta: float = 30.0,
+    max_age_ms: float = 300.0,
+    execution_mode: ExecutionMode = ExecutionMode.FIXTURE,
+):
     profile = load_transport_profile(PROFILE_PATH)
     calibration = load_rh56_calibration(CALIBRATION_PATH)
     transport = MockModbusTransport(profile)
@@ -46,6 +51,7 @@ def _stack(*, arm: bool = True, max_step_delta: float = 30.0, max_age_ms: float 
         operator_armed=True,
         physical_estop_confirmed=True,
         calibration_status="validated",
+        execution_mode=execution_mode.value,
     )
     arming = ArmingController(pm)
     events: list[tuple[str, dict]] = []
@@ -55,6 +61,7 @@ def _stack(*, arm: bool = True, max_step_delta: float = 30.0, max_age_ms: float 
         permit_manager=pm,
         arming=arming,
         verifier=FeedbackVerifier(profile, calibration),
+        execution_mode=execution_mode,
         max_action_age_ms=max_age_ms,
         event_sink=lambda etype, payload: events.append((etype, payload)),
     )
@@ -97,7 +104,13 @@ def test_noop_execution() -> None:
     assert result.status == "completed"
     assert result.command_sent and result.command_acknowledged
     assert result.verification.position_reached
-    assert executor.hardware_actions_executed == 1
+    assert result.execution_mode == "FIXTURE"
+    assert result.evidence_level == "SYNTHETIC"
+    assert result.verified is False
+    assert result.usable_for_real_execution is False
+    assert executor.commands_executed == 1
+    assert executor.fixture_actions_executed == 1
+    assert executor.hardware_actions_executed == 0
     event_types = {t for t, _ in events}
     assert "execution.command.sent" in event_types
     assert "execution.feedback.verified" in event_types
@@ -106,10 +119,27 @@ def test_noop_execution() -> None:
 
 def test_single_step_only() -> None:
     _, _, _, permit, _, executor, _ = _stack()
-    result = _run(executor, permit.permit_id, values=[980.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0])
+    result = _run(
+        executor, permit.permit_id, values=[980.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0]
+    )
     assert result.status == "completed"
     # Exactly one command per call.
-    assert executor.hardware_actions_executed == 1
+    assert executor.commands_executed == 1
+    assert executor.fixture_actions_executed == 1
+    assert executor.hardware_actions_executed == 0
+
+
+def test_real_mode_requires_runtime_action_gateway() -> None:
+    _, transport, _, permit, _, executor, _ = _stack(execution_mode=ExecutionMode.REAL)
+
+    result = _run(executor, permit.permit_id)
+
+    assert result.status == "blocked"
+    assert result.error_code == "RUNTIME_ACTION_GATEWAY_REQUIRED"
+    assert result.command_sent is False
+    assert executor.commands_executed == 0
+    assert executor.hardware_actions_executed == 0
+    assert transport._target == transport._position
 
 
 def test_open_loop_chunk_blocked() -> None:

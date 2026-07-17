@@ -1,158 +1,105 @@
-"""
-ROSClaw - Self-Evolving Runtime Infrastructure for Physical AI & Embodied Agents.
+"""ROSClaw trustworthy physical execution runtime.
 
-This package provides an open runtime infrastructure layer for connecting AI agents
-to physical robots through embodiment grounding, sandbox safety, capability routing,
-praxis capture, physical memory, runtime intervention, and skill evolution.
-
-Architecture:
-    Agent Runtime (LLM/MCP)
-         |
-         v
-    ROSClaw Runtime (core.runtime)
-    |-- EventBus (core.event_bus)
-    |-- Firewall (firewall) - Action Grounding
-    |-- Memory (memory) - Experience Grounding
-    |-- Practice (practice) - Timeline Grounding
-    |-- Swarm (swarm) - Collaboration Grounding
-    |-- SkillManager (skill_manager) - Skill Grounding
-    |-- e-URDF (e_urdf) - Physical Grounding
-    |-- MCP Drivers (mcp_drivers) - Hardware abstraction
-         |
-         v
-    Physical World (Robot)
+Public compatibility exports are loaded lazily.  This keeps lightweight
+subprocesses, including isolated policy workers, independent from unrelated
+robotics and control-plane dependencies.
 """
+
+from __future__ import annotations
+
+import importlib
+from pkgutil import extend_path as _extend_path
+from typing import Any
 
 __version__ = "1.0.1"
 __author__ = "ROSClaw Team"
 
-# Enable namespace extension so rosclaw-sandbox and other
-# sibling packages can add sub-packages under rosclaw.*
-from pkgutil import extend_path as _extend_path
-
+# Allow sibling distributions such as rosclaw-sandbox to extend rosclaw.*.
 __path__ = _extend_path(__path__, __name__)
 
-# Core OS (always available)
-from rosclaw.core import (
-    Event,
-    EventBus,
-    EventPriority,
-    LifecycleMixin,
-    LifecycleState,
-    Runtime,
-    RuntimeConfig,
-)
+_EXPORTS = {
+    "Event": ("core", "Event"),
+    "EventBus": ("core", "EventBus"),
+    "EventPriority": ("core", "EventPriority"),
+    "LifecycleMixin": ("core", "LifecycleMixin"),
+    "LifecycleState": ("core", "LifecycleState"),
+    "Runtime": ("core", "Runtime"),
+    "RuntimeConfig": ("core", "RuntimeConfig"),
+    "DigitalTwinFirewall": ("firewall.decorator", "DigitalTwinFirewall"),
+    "SafetyLevel": ("firewall.decorator", "SafetyLevel"),
+    "SafetyViolationError": ("firewall.decorator", "SafetyViolationError"),
+    "mujoco_firewall": ("firewall.decorator", "mujoco_firewall"),
+    "AgentContext": ("agent_runtime", "AgentContext"),
+    "DeepSeekClient": ("agent_runtime", "DeepSeekClient"),
+    "DeepSeekConfig": ("agent_runtime", "DeepSeekConfig"),
+    "DeepSeekProvider": ("agent_runtime", "DeepSeekProvider"),
+    "LLMConfig": ("agent_runtime", "LLMConfig"),
+    "LLMProvider": ("agent_runtime", "LLMProvider"),
+    "MCPHub": ("agent_runtime", "MCPHub"),
+    "OpenAIProvider": ("agent_runtime", "OpenAIProvider"),
+    "QwenProvider": ("agent_runtime", "QwenProvider"),
+    "get_provider": ("agent_runtime", "get_provider"),
+    "list_providers": ("agent_runtime", "list_providers"),
+    "register_provider": ("agent_runtime", "register_provider"),
+    "EURDFParser": ("e_urdf", "EURDFParser"),
+    "RobotModel": ("e_urdf", "RobotModel"),
+    "BaseDriver": ("mcp_drivers", "BaseDriver"),
+    "DriverState": ("mcp_drivers", "DriverState"),
+    "TrajectoryCommand": ("mcp_drivers", "TrajectoryCommand"),
+    "MemoryInterface": ("memory", "MemoryInterface"),
+    "PracticeRecorder": ("practice", "PracticeRecorder"),
+    "SkillEntry": ("skill_manager", "SkillEntry"),
+    "SkillExecutor": ("skill_manager", "SkillExecutor"),
+    "SkillLoader": ("skill_manager", "SkillLoader"),
+    "SkillRegistry": ("skill_manager", "SkillRegistry"),
+    "SwarmRuntimeManager": ("swarm", "SwarmRuntimeManager"),
+    "GenericProvider": ("provider.adapters.generic", "GenericProvider"),
+    "CapabilityClient": ("provider.client", "CapabilityClient"),
+    "ProviderManifest": ("provider.core.manifest", "ProviderManifest"),
+    "Provider": ("provider.core.provider", "Provider"),
+    "ProviderRegistry": ("provider.core.registry", "ProviderRegistry"),
+    "ProviderRequest": ("provider.core.request", "ProviderRequest"),
+    "ProviderResponse": ("provider.core.response", "ProviderResponse"),
+    "CapabilityRouter": ("provider.core.router", "CapabilityRouter"),
+    "GuardPipeline": ("provider.guard.pipeline", "GuardPipeline"),
+    "ProviderLoader": ("provider.loader", "ProviderLoader"),
+}
 
-# Grounding Engines (optional imports for environments without all deps)
-try:
-    from rosclaw.firewall.decorator import (
-        DigitalTwinFirewall,
-        SafetyLevel,
-        SafetyViolationError,
-        mujoco_firewall,
-    )
-except ImportError:
-    DigitalTwinFirewall = None  # type: ignore
-    SafetyLevel = None  # type: ignore
-    SafetyViolationError = None  # type: ignore
-    mujoco_firewall = None  # type: ignore
-
-from rosclaw.agent_runtime import (
-    AgentContext,
-    # Backward-compatible aliases
-    DeepSeekClient,
-    DeepSeekConfig,
-    DeepSeekProvider,
-    LLMConfig,
-    LLMProvider,
-    MCPHub,
-    OpenAIProvider,
-    QwenProvider,
-    get_provider,
-    list_providers,
-    register_provider,
-)
-from rosclaw.e_urdf import EURDFParser, RobotModel
-from rosclaw.mcp_drivers import BaseDriver, DriverState, TrajectoryCommand
-from rosclaw.memory import MemoryInterface
-from rosclaw.practice import PracticeRecorder
-from rosclaw.skill_manager import SkillEntry, SkillExecutor, SkillLoader, SkillRegistry
-from rosclaw.swarm import SwarmRuntimeManager
-
-# Provider Layer (optional - available when provider skeleton is installed)
-try:
-    from rosclaw.provider.adapters.generic import GenericProvider
-    from rosclaw.provider.client import CapabilityClient
-    from rosclaw.provider.core.manifest import ProviderManifest
-    from rosclaw.provider.core.provider import Provider
-    from rosclaw.provider.core.registry import ProviderRegistry
-    from rosclaw.provider.core.request import ProviderRequest
-    from rosclaw.provider.core.response import ProviderResponse
-    from rosclaw.provider.core.router import CapabilityRouter
-    from rosclaw.provider.guard.pipeline import GuardPipeline
-    from rosclaw.provider.loader import ProviderLoader
-except ImportError:
-    Provider = None  # type: ignore
-    ProviderRegistry = None  # type: ignore
-    CapabilityRouter = None  # type: ignore
-    ProviderManifest = None  # type: ignore
-    ProviderRequest = None  # type: ignore
-    ProviderResponse = None  # type: ignore
-    GuardPipeline = None  # type: ignore
-    CapabilityClient = None  # type: ignore
-    ProviderLoader = None  # type: ignore
-    GenericProvider = None  # type: ignore
-
-__all__ = [
-    # Core
-    "EventBus",
-    "Event",
-    "EventPriority",
-    "Runtime",
-    "RuntimeConfig",
-    "LifecycleState",
-    "LifecycleMixin",
-    # Grounding Engines
+_OPTIONAL_EXPORTS = {
     "DigitalTwinFirewall",
     "SafetyLevel",
     "SafetyViolationError",
     "mujoco_firewall",
-    "EURDFParser",
-    "RobotModel",
-    "MCPHub",
-    "AgentContext",
-    # LLM Providers
-    "LLMProvider",
-    "LLMConfig",
-    "DeepSeekProvider",
-    "OpenAIProvider",
-    "QwenProvider",
-    "get_provider",
-    "list_providers",
-    "register_provider",
-    # Backward-compatible aliases
-    "DeepSeekClient",
-    "DeepSeekConfig",
-    "MemoryInterface",
-    "PracticeRecorder",
-    "SwarmRuntimeManager",
-    "SkillRegistry",
-    "SkillEntry",
-    "SkillExecutor",
-    "SkillLoader",
-    # MCP Drivers
-    "BaseDriver",
-    "DriverState",
-    "TrajectoryCommand",
-    # Provider Layer
+    "GenericProvider",
+    "CapabilityClient",
+    "ProviderManifest",
     "Provider",
     "ProviderRegistry",
-    "CapabilityRouter",
-    "ProviderManifest",
     "ProviderRequest",
     "ProviderResponse",
+    "CapabilityRouter",
     "GuardPipeline",
-    "CapabilityClient",
     "ProviderLoader",
-    "GenericProvider",
-]
+}
+
+__all__ = list(_EXPORTS)
+
+
+def __getattr__(name: str) -> Any:
+    target = _EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(name)
+    module_name, attribute = target
+    try:
+        module = importlib.import_module(f"{__name__}.{module_name}")
+        value = getattr(module, attribute)
+    except ImportError:
+        if name not in _OPTIONAL_EXPORTS:
+            raise
+        value = None
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))

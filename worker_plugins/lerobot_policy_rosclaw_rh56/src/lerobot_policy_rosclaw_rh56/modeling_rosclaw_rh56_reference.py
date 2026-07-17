@@ -24,9 +24,8 @@ Action order is always the RS485 canonical order:
 from __future__ import annotations
 
 import torch
-from torch import Tensor
-
 from lerobot.policies.pretrained import PreTrainedPolicy
+from torch import Tensor
 
 from lerobot_policy_rosclaw_rh56.configuration_rosclaw_rh56_reference import (
     RosclawRH56ReferenceConfig,

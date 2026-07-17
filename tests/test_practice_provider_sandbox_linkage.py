@@ -3,51 +3,13 @@
 from __future__ import annotations
 
 import json
-import shutil
-from pathlib import Path
 from types import SimpleNamespace
-
-import pytest
 
 from rosclaw.cli import cmd_practice_run
 
 
 class TestPracticeProviderSandboxLinkage:
     """Verify provider reasoning is grounded in the captured frame and sandbox allows it."""
-
-    @pytest.fixture
-    def fake_realsense_skill(self, monkeypatch, dummy_png):
-        from rosclaw.skill_manager.registry import SkillEntry, SkillRegistry
-
-        def _fake_run(params):
-            output_dir = Path(params.get("output_dir") or "./capture")
-            output_dir.mkdir(parents=True, exist_ok=True)
-            color = output_dir / "color.png"
-            shutil.copy(dummy_png, color)
-            return {
-                "status": "success",
-                "skill": "realsense_capture_rgbd",
-                "artifacts": {"color": str(color)},
-                "metrics": {"latency_ms": 20.0, "usb_mode": "USB3", "degraded": False},
-            }
-
-        def _fake_load_builtins(registry=None):
-            if registry is None:
-                registry = SkillRegistry()
-            registry.register(
-                SkillEntry(
-                    name="realsense_capture_rgbd",
-                    description="Fake RealSense RGB-D capture skill",
-                    skill_type="programmed",
-                    handler=_fake_run,
-                    metadata={"builtin": True},
-                    version="1.0.0",
-                )
-            )
-            return registry, []
-
-        monkeypatch.setattr("rosclaw.skill.builtins.load_builtins", _fake_load_builtins)
-        monkeypatch.setattr("rosclaw.cli._image_dimensions", lambda _path: (640, 480))
 
     def test_provider_event_references_captured_frame(
         self,

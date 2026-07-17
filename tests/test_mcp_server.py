@@ -7,7 +7,7 @@ Tests the UR5MCPServer class with mocked ROS 2 dependencies.
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -39,9 +39,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 # Now import the MCP server - these will use the mocks
 # Import errors here mean mocks aren't set up correctly
 try:
-    from rosclaw.mcp.ur5_server import UR5ROSNode
+    from rosclaw.mcp.ur5_server import UR5MCPServer, UR5ROSNode
 except ImportError:
     # If import fails due to mocking issues, we'll test the tool schemas separately
+    UR5MCPServer = None
     UR5ROSNode = None
 
 
@@ -215,6 +216,60 @@ class TestMoveJointsValidation:
         # Invalid position
         invalid_pos = 10.0
         assert not (min_lim <= invalid_pos <= max_lim)
+
+
+@pytest.mark.skipif(UR5MCPServer is None, reason="UR5 MCP imports unavailable")
+class TestLegacyExecutionBoundary:
+    """Legacy MCP handlers must not dispatch physical motion directly."""
+
+    @staticmethod
+    def _server():
+        server = object.__new__(UR5MCPServer)
+        server.ros_node = MagicMock()
+        server.ros_node.validate_joint_limits.return_value = (True, "")
+        server.ros_node.execute_joint_trajectory = AsyncMock()
+        return server
+
+    @pytest.mark.asyncio
+    async def test_move_is_blocked_without_dispatch(self):
+        server = self._server()
+
+        result = await server._handle_move_joints({"joint_positions": [0.0] * 6})
+
+        response = json.loads(result[0].text)
+        assert response["status"] == "blocked"
+        assert response["error_code"] == "RUNTIME_ACTION_GATEWAY_REQUIRED"
+        assert response["no_command_dispatched"] is True
+        server.ros_node.execute_joint_trajectory.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_trajectory_is_blocked_without_dispatch(self):
+        server = self._server()
+
+        result = await server._handle_execute_trajectory({"waypoints": [[0.0] * 6], "times": [1.0]})
+
+        response = json.loads(result[0].text)
+        assert response["status"] == "blocked"
+        assert response["no_command_dispatched"] is True
+        server.ros_node.execute_joint_trajectory.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_stop_request_does_not_claim_physical_stop(self):
+        server = self._server()
+        server.ros_node.emergency_stop.return_value = {
+            "request_dispatched": True,
+            "driver_acknowledged": False,
+            "physical_stop_observed": False,
+            "stopped": False,
+            "evidence": ["zero_velocity_request_published"],
+        }
+
+        result = await server._handle_emergency_stop()
+
+        response = json.loads(result[0].text)
+        assert response["status"] == "requested_unverified"
+        assert response["trust"] == "UNVERIFIED"
+        assert response["stopped"] is False
 
 
 class TestTrajectoryValidation:

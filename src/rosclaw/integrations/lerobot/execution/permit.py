@@ -55,11 +55,15 @@ class PermitManager:
         physical_estop_confirmed: bool = False,
         task: str = "",
         calibration_status: str | None = None,
+        execution_mode: str = "REAL",
     ) -> ExecutionPermit:
-        """Issue a new permit.  Requires operator arming + estop confirmation."""
-        if not operator_armed:
+        """Issue a local permit, which is not Runtime REAL authorization."""
+        mode = str(execution_mode).upper()
+        if mode not in {"FIXTURE", "REAL"}:
+            raise PermitError(f"permit_invalid_mode: unsupported execution mode {mode!r}")
+        if mode == "REAL" and not operator_armed:
             raise PermitError("permit_not_armed: operator_armed is required")
-        if not physical_estop_confirmed:
+        if mode == "REAL" and not physical_estop_confirmed:
             raise PermitError("permit_estop_unconfirmed: physical estop must be confirmed")
         if calibration_status is not None and calibration_status != "validated":
             raise PermitError(
@@ -79,8 +83,10 @@ class PermitManager:
 
         now = time.monotonic_ns()
         expires_mono = now + int(expires_in_sec * 1e9)
-        expires_at = (datetime.now(UTC) + timedelta(seconds=expires_in_sec)).isoformat().replace(
-            "+00:00", "Z"
+        expires_at = (
+            (datetime.now(UTC) + timedelta(seconds=expires_in_sec))
+            .isoformat()
+            .replace("+00:00", "Z")
         )
         permit = ExecutionPermit(
             permit_id=f"permit_{uuid.uuid4().hex[:12]}",
@@ -97,9 +103,10 @@ class PermitManager:
             max_force_g=float(max_force_g),
             expires_at=expires_at,
             expires_at_monotonic_ns=expires_mono,
-            operator_armed=True,
-            physical_estop_confirmed=True,
+            operator_armed=bool(operator_armed),
+            physical_estop_confirmed=bool(physical_estop_confirmed),
             task=task,
+            execution_mode=mode,
         )
         self._permits[permit.permit_id] = permit
         return permit
@@ -136,6 +143,7 @@ class PermitManager:
         transport_profile_hash: str,
         representation: str,
         units: str,
+        execution_mode: str | None = None,
     ) -> ExecutionPermit:
         """Fail-closed validation of a permit for one execution request."""
         permit = self._permits.get(permit_id)
@@ -152,8 +160,10 @@ class PermitManager:
             self.revoke(permit_id, "expired_wall_clock")
             raise PermitError(f"permit_expired: {permit_id} (wall clock)")
         if permit.body_id != body_id:
+            raise PermitError(f"permit_body_mismatch: {body_id} != {permit.body_id}")
+        if execution_mode is not None and permit.execution_mode.upper() != execution_mode.upper():
             raise PermitError(
-                f"permit_body_mismatch: {body_id} != {permit.body_id}"
+                f"permit_mode_mismatch: {execution_mode.upper()} != {permit.execution_mode.upper()}"
             )
         checks = (
             ("policy_contract_hash", policy_contract_hash, permit.policy_contract_hash),
@@ -165,13 +175,9 @@ class PermitManager:
         for name, current, expected in checks:
             if current != expected:
                 self.revoke(permit_id, f"{name}_changed")
-                raise PermitError(
-                    f"permit_hash_mismatch: {name} changed; permit revoked"
-                )
+                raise PermitError(f"permit_hash_mismatch: {name} changed; permit revoked")
         if representation != permit.allowed_representation:
-            raise PermitError(
-                f"permit_representation_mismatch: {representation} not allowed"
-            )
+            raise PermitError(f"permit_representation_mismatch: {representation} not allowed")
         if units != permit.allowed_unit:
             raise PermitError(f"permit_unit_mismatch: {units} not allowed")
         return permit
@@ -218,6 +224,8 @@ def load_permit(permit_id: str, directory: str | Path) -> ExecutionPermit | None
         return None
     data = json.loads(path.read_text(encoding="utf-8"))
     data.pop("schema_version", None)
+    data.pop("trust_level", None)
+    data.pop("usable_for_real_execution", None)
     return ExecutionPermit(**data)
 
 

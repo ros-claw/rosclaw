@@ -82,14 +82,15 @@ class TestFirewallDynamicCollision:
         assert "dynamic simulation" in source or "mj_step" in source
 
 
-class TestMCPUsesEventBus:
-    def test_ur5_server_event_bus_fallback(self):
-        """Verify UR5 MCP server has EventBus fallback code."""
+class TestMCPLegacyExecutionBoundary:
+    def test_ur5_server_requires_runtime_action_gateway(self):
+        """Verify the standalone UR5 MCP cannot dispatch direct motion."""
 
         # Read source without importing (avoids rclpy dependency)
         mcp_path = Path(__file__).parent.parent / "src" / "rosclaw" / "mcp" / "ur5_server.py"
         with open(mcp_path) as f:
             source = f.read()
 
-        assert "firewall.validation_request" in source or "event_bus" in source
-        assert "firewall.validation_result" in source or "EventBus" in source
+        assert "RUNTIME_ACTION_GATEWAY_REQUIRED" in source
+        assert '"no_command_dispatched": True' in source
+        assert "firewall.validation_request" not in source

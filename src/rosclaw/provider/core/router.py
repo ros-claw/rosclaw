@@ -258,6 +258,10 @@ class CapabilityRouter:
         if not self.registry.is_healthy(provider.name):
             return 0.0, "unhealthy"
 
+        # Physical side effects require independently verified readiness.
+        if request.requires_execution and not self.registry.is_execution_ready(provider.name):
+            return 0.0, "provider is registered but not verified for execution"
+
         # 6. Safety level
         safety = request.safety_level
         if safety == "STRICT":

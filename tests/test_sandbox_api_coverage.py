@@ -142,7 +142,7 @@ class TestSandboxLoadModelImportError:
         ):
             sandbox = Sandbox("ur5e", "empty")
         assert not sandbox.has_physics
-        assert "MuJoCo not installed" in caplog.text
+        assert "MuJoCo is not installed" in caplog.text
 
 
 class TestSandboxLoadModelCandidateFailures:

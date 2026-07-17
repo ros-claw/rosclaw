@@ -123,7 +123,7 @@ class FirstbootConfig:
             {
                 "enabled": True,
                 "auto_record": True,
-                "output_dir": str(Path(home).expanduser() / "artifacts" / "episodes"),
+                "output_dir": str(Path(home).expanduser() / "data" / "practice"),
                 "formats": {"jsonl": True, "mcap": False, "video": False},
             },
         )

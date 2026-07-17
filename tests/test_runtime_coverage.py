@@ -709,7 +709,8 @@ class TestEventHandlers:
         )
         rt._on_safety_violation(evt)
         assert len(events) == 1
-        assert events[0].payload["reason"] == {"reason": "joint_limit_exceeded"}
+        assert events[0].payload["reason"] == "{'reason': 'joint_limit_exceeded'}"
+        assert events[0].payload["runtime_managed"] is True
         assert events[0].priority == EventPriority.CRITICAL
 
     def test_on_agent_command_logs(self, fresh_runtime, caplog):

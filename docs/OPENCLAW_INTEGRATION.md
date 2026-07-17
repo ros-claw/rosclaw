@@ -1,6 +1,13 @@
 # ROSClaw-OpenClaw Integration: Phase 1
 
-This document describes how ROSClaw (production-ready embodied MCP layer) integrates with OpenClaw's Agent Event Loop via the mcporter bridge.
+> **Historical design document:** the standalone UR5 MCP direct-motion path shown
+> below is disabled because it bypasses the runtime action gateway. It must not be
+> treated as a production or hardware-execution guide. Use
+> [P0_AGENT_INTEGRATION.md](P0_AGENT_INTEGRATION.md) for the current agent-facing
+> integration and submit physical actions through `Runtime.submit_action()`.
+
+This document records the original Phase 1 design for integrating ROSClaw with
+OpenClaw's Agent Event Loop via the mcporter bridge.
 
 ## Architecture Overview
 

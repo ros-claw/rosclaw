@@ -24,7 +24,7 @@ def _find_task_id(engine, task_name: str) -> str | None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="rosclaw-auto", description="ROSClaw Self-Evolution Control Plane"
+        prog="rosclaw auto", description="ROSClaw Self-Evolution Control Plane"
     )
     sub = parser.add_subparsers(dest="cmd")
 
@@ -84,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         task_id = _find_task_id(engine, args.task)
         if not task_id:
             print(
-                f"Task {args.task} not found. Run `rosclaw-auto init --task {args.task} ...` first."
+                f"Task {args.task} not found. Run `rosclaw auto init --task {args.task} ...` first."
             )
             return 1
         report = engine.run(task_id, args.rounds, args.dry_run)
