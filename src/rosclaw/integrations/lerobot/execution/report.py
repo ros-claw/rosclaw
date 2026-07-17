@@ -12,9 +12,18 @@ from rosclaw.integrations.lerobot.execution.state import ExecutionState
 class ExecutionReport:
     """Accumulate per-step results and render the execution summary."""
 
-    def __init__(self, *, body_id: str, task: str):
+    def __init__(
+        self,
+        *,
+        body_id: str,
+        task: str,
+        execution_mode: str = "UNKNOWN",
+        trust_level: str = "UNAVAILABLE",
+    ):
         self.body_id = body_id
         self.task = task
+        self.execution_mode = execution_mode
+        self.trust_level = trust_level
         self.results: list[ActionExecutionResult] = []
         self.events: list[tuple[str, dict[str, Any]]] = []
         self.final_state: str = ExecutionState.DISARMED.value
@@ -35,18 +44,18 @@ class ExecutionReport:
         sent = sum(1 for r in self.results if r.command_sent)
         acked = sum(1 for r in self.results if r.command_acknowledged)
         over_contact = sum(
-            1
-            for r in self.results
-            if any("force_hard_limit" in d for d in r.verification.details)
+            1 for r in self.results if any("force_hard_limit" in d for d in r.verification.details)
         )
         protection = sum(
-            1
-            for r in self.results
-            if any("status_protection" in d for d in r.verification.details)
+            1 for r in self.results if any("status_protection" in d for d in r.verification.details)
         )
         return {
             "body_id": self.body_id,
             "task": self.task,
+            "execution_mode": self.execution_mode,
+            "trust_level": self.trust_level,
+            "verified": False,
+            "usable_for_real_execution": False,
             "steps": len(self.results),
             "completed": completed,
             "blocked": blocked,
@@ -54,6 +63,8 @@ class ExecutionReport:
             "stale_actions": stale,
             "commands_sent": sent,
             "commands_acknowledged": acked,
+            "fixture_actions_executed": sent if self.execution_mode == "FIXTURE" else 0,
+            "hardware_actions_executed": 0,
             "over_contact": over_contact,
             "hardware_protection": protection,
             "final_state": self.final_state,
@@ -62,10 +73,13 @@ class ExecutionReport:
     def render_markdown(self) -> str:
         s = self.summary()
         lines = [
-            "# P5 RH56 Execution Report",
+            "# P5 RH56 Fixture Execution Report",
             "",
             f"- Body: `{s['body_id']}`",
             f"- Task: `{s['task']}`",
+            f"- Execution mode: `{s['execution_mode']}`",
+            f"- Trust level: `{s['trust_level']}`",
+            "- Verified for real execution: `false`",
             f"- Final state: `{s['final_state']}`",
             "",
             "## Summary",

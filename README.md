@@ -51,9 +51,13 @@ roadmap disguised as completed work.
 | Action contract and gateway | **Component/system verified** | Versioned action/receipt, evidence levels, idempotent action IDs, exclusive body lease, fail-closed executor lookup. |
 | E-Stop control path | **Component verified** | Fan-out, timeout, partial ACK, idempotency, latch, and explicit physical-observation fields. No hardware stop was verified here. |
 | Mock Sense, mock Providers, fixture Drivers | **Fixture only** | Explicit `FIXTURE` / `SYNTHETIC`; not valid for safety or acceptance. |
+| RH56 LeRobot single-step loop | **Fixture verified** | Explicit `--fixture`, synthetic Modbus feedback, permit/hash/watchdog checks, and `hardware_actions_executed=0`; the serial backend remains a stub. |
 | ROS connectors, LeRobot, hardware MCP, real Providers | **Experimental** | Contract and component coverage varies; registration or import does not mean execution-ready. |
 | ROS 2 Turtlesim motion golden path | **Not verified in this environment** | ROS 2 is not installed in the current validation environment. |
 | Real robot execution | **Not run** | Requires hardware-specific acceptance with driver ACK and physical feedback. |
+
+The core package supports Python 3.11+. The isolated LeRobot 0.6 runtime and
+the bundled RH56 reference-policy plugin require Python 3.12+.
 
 ### Execution modes
 

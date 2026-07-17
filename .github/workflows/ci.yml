@@ -60,6 +60,9 @@ jobs:
           src/rosclaw/mcp/onboarding
           src/rosclaw/agent
           src/rosclaw/agent_runtime/mcp_hub.py
+          src/rosclaw/integrations/lerobot/execution
+          src/rosclaw/integrations/lerobot/rollout/rh56_execute.py
+          src/rosclaw/integrations/lerobot/rollout/rh56_shadow.py
           src/rosclaw/connectors/ros/provider/ros_capability_provider.py
           src/rosclaw/connectors/ros/mcp/tools.py
           src/rosclaw/core/runtime.py
@@ -249,6 +252,11 @@ jobs:
               "rosclaw/runtime/doctor_levels.py",
               "rosclaw/sandbox/episode.py",
               "rosclaw/eurdf_zoo_data/ur5e/robot.mjcf.xml",
+              "rosclaw/rh56_data/configs/rh56_right_rs485_v1.yaml",
+              "rosclaw/rh56_data/configs/rh56_right_01_calibration.yaml",
+              "rosclaw/rh56_data/policies/rh56_reference_policy_v1/config.json",
+              "rosclaw/rh56_data/policies/rh56_reference_policy_v1/model.safetensors",
+              "lerobot_policy_rosclaw_rh56/__init__.py",
           }
           missing = sorted(required - names)
           assert not missing, f"wheel missing runtime resources: {missing}"

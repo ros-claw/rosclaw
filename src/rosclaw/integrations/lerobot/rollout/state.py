@@ -43,6 +43,12 @@ class RolloutResult:
     trace_path: str | None = None
     practice_id: str | None = None
     metrics: dict[str, Any] = field(default_factory=dict)
+    execution_mode: str = "UNKNOWN"
+    trust_level: str = "UNAVAILABLE"
+    verified: bool = False
+    usable_for_real_execution: bool = False
+    commands_executed: int = 0
+    fixture_actions_executed: int = 0
     hardware_actions_executed: int = 0
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -58,6 +64,12 @@ class RolloutResult:
             "trace_path": self.trace_path,
             "practice_id": self.practice_id,
             "metrics": self.metrics,
+            "execution_mode": self.execution_mode,
+            "trust_level": self.trust_level,
+            "verified": self.verified,
+            "usable_for_real_execution": self.usable_for_real_execution,
+            "commands_executed": self.commands_executed,
+            "fixture_actions_executed": self.fixture_actions_executed,
             "hardware_actions_executed": self.hardware_actions_executed,
             "errors": self.errors,
             "warnings": self.warnings,

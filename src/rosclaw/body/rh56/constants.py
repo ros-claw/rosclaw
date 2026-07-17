@@ -7,10 +7,10 @@ different devices with different value ranges and MUST NOT be interchanged.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class RH56Actuator(str, Enum):
+class RH56Actuator(StrEnum):
     """The 6 actuators of the RS485 RH56 interface."""
 
     LITTLE = "little"

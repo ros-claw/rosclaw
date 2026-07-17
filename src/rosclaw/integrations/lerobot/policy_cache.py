@@ -13,8 +13,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from rosclaw.firstboot.workspace import get_rosclaw_home
-
 DEFAULT_CACHE_SUBDIR = "cache/lerobot/policies"
 
 
@@ -39,6 +37,8 @@ class PolicyMaterializationError(Exception):
 
 def get_policy_cache_dir() -> Path:
     """Return the directory where downloaded policies are cached."""
+    from rosclaw.firstboot.workspace import get_rosclaw_home
+
     return get_rosclaw_home() / DEFAULT_CACHE_SUBDIR
 
 

@@ -107,6 +107,9 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel.force-include]
 "e-urdf-zoo" = "rosclaw/eurdf_zoo_data"
+"configs" = "rosclaw/rh56_data/configs"
+"policies/rh56_reference_policy_v1" = "rosclaw/rh56_data/policies/rh56_reference_policy_v1"
+"worker_plugins/lerobot_policy_rosclaw_rh56/src/lerobot_policy_rosclaw_rh56" = "lerobot_policy_rosclaw_rh56"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -115,6 +118,9 @@ include = [
     "/docs",
     "/bin",
     "/e-urdf-zoo",
+    "/configs",
+    "/policies/rh56_reference_policy_v1",
+    "/worker_plugins/lerobot_policy_rosclaw_rh56",
 ]
 
 [tool.ruff]

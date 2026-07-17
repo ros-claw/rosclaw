@@ -287,7 +287,9 @@ def cmd_lerobot_doctor(args: argparse.Namespace) -> int:
         print(f"  Dropped frames:    {sync_block.get('dropped_frames', 'N/A')}")
         if sync_block.get("clock_domains"):
             print(f"  Clock domains:     {', '.join(sync_block['clock_domains'])}")
-        print(f"  Clock mappings:    {'valid' if sync_block.get('clock_mappings_valid') else 'invalid'}")
+        print(
+            f"  Clock mappings:    {'valid' if sync_block.get('clock_mappings_valid') else 'invalid'}"
+        )
         print(f"  Quality profile:   {sync_block.get('quality_profile', 'N/A')}")
         print(f"  Quality gates:     {'passed' if sync_block.get('quality_passed') else 'failed'}")
         for warning in sync_block.get("warnings", []):
@@ -617,8 +619,6 @@ def cmd_provider_infer_lerobot(args: argparse.Namespace) -> int:
     return 0 if response.status == "ok" else 1
 
 
-
-
 def _resolve_episode_path(args: argparse.Namespace) -> Path:
     """Resolve the practice episode path from CLI args."""
     episode_id = args.episode_dir or args.episode_id
@@ -668,7 +668,9 @@ def cmd_lerobot_export_dataset(args: argparse.Namespace) -> int:
             fps=fps if getattr(args, "fps", None) is not None else None,
         )
     except NormalizationError as exc:
-        print(f"[rosclaw-lerobot] Normalization failed ({exc.code}): {exc.message}", file=sys.stderr)
+        print(
+            f"[rosclaw-lerobot] Normalization failed ({exc.code}): {exc.message}", file=sys.stderr
+        )
         if exc.details:
             print(f"[rosclaw-lerobot] Details: {exc.details}", file=sys.stderr)
         return 1
@@ -689,7 +691,9 @@ def cmd_lerobot_export_dataset(args: argparse.Namespace) -> int:
                 "profile": profile,
                 "feature_groups": sorted(prof.feature_groups),
                 "num_frames": len(normalized.frames),
-                "features": {k: {"dtype": v["dtype"], "shape": v["shape"]} for k, v in features.items()},
+                "features": {
+                    k: {"dtype": v["dtype"], "shape": v["shape"]} for k, v in features.items()
+                },
                 "warnings": warnings,
             }
             if args.json:
@@ -770,11 +774,11 @@ def cmd_lerobot_export_dataset(args: argparse.Namespace) -> int:
             print(f"  Frames:      {report.dataset.get('num_frames', 0)}")
             print(f"  Episodes:    {report.dataset.get('num_episodes', 0)}")
             print(f"  Features:    {', '.join(report.dataset.get('features', {}).keys())}")
-            visual = report.dataset.get('visual', {})
+            visual = report.dataset.get("visual", {})
             print(f"  Visual mode: {visual.get('storage_mode', 'images')}")
             print(f"  Load OK:     {report.validation.get('load_ok', False)}")
             print(f"  Index OK:    {report.validation.get('index_ok', False)}")
-            if report.validation.get('dataloader_ok') is not None:
+            if report.validation.get("dataloader_ok") is not None:
                 print(f"  Dataloader OK: {report.validation['dataloader_ok']}")
             if report.feature_groups:
                 print(f"  ROSClaw groups: {', '.join(report.feature_groups)}")
@@ -789,6 +793,7 @@ def cmd_lerobot_export_dataset(args: argparse.Namespace) -> int:
         return 0 if report.status == "ok" else 1
     finally:
         import shutil
+
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
@@ -830,7 +835,10 @@ def cmd_lerobot_dataset_api(args: argparse.Namespace) -> int:
     if api_info is None:
         print("[rosclaw-lerobot] Could not introspect LeRobotDataset API.", file=sys.stderr)
         if response.error:
-            print(f"[rosclaw-lerobot] {response.error.code}: {response.error.message}", file=sys.stderr)
+            print(
+                f"[rosclaw-lerobot] {response.error.code}: {response.error.message}",
+                file=sys.stderr,
+            )
         return 1
     if args.json:
         print(json.dumps(api_info.to_dict() if api_info else {}, indent=2, ensure_ascii=False))
@@ -990,7 +998,9 @@ def cmd_smoke_policy_lerobot(args: argparse.Namespace) -> int:
         keep_worker_files=getattr(args, "keep_worker_files", False),
         force_download=getattr(args, "force_download", False),
         skip_infer=getattr(args, "skip_infer", False),
-        observation_file=Path(args.observation_file) if getattr(args, "observation_file", None) else None,
+        observation_file=Path(args.observation_file)
+        if getattr(args, "observation_file", None)
+        else None,
         json_output=getattr(args, "json", False),
     )
 
@@ -1035,7 +1045,9 @@ def _resolve_policy_runtime_python(args: argparse.Namespace) -> str:
     return sys.executable
 
 
-def _build_runtime_manager(args: argparse.Namespace, *, policy_path: str | None = None) -> PersistentRuntimeManager:
+def _build_runtime_manager(
+    args: argparse.Namespace, *, policy_path: str | None = None
+) -> PersistentRuntimeManager:
     """Build a persistent runtime manager from CLI args."""
     python_executable = _resolve_policy_runtime_python(args)
     return PersistentRuntimeManager(
@@ -1185,7 +1197,9 @@ def cmd_lerobot_policy_metrics(args: argparse.Namespace) -> int:
         health = try_send_request(status["socket_path"], "HEALTH", timeout_sec=10.0)
 
     if args.json:
-        print(json.dumps({"status": status, "probe": probe, "health": health}, indent=2, default=str))
+        print(
+            json.dumps({"status": status, "probe": probe, "health": health}, indent=2, default=str)
+        )
         return 0
 
     print("[rosclaw-lerobot] Policy runtime metrics")
@@ -1368,7 +1382,9 @@ def cmd_lerobot_mapping_generate(args: argparse.Namespace) -> int:
         print(f"[rosclaw-lerobot] Failed to load effective body: {exc}", file=sys.stderr)
         return 1
 
-    body_space = resolve_body_action_space(body, representation=getattr(args, "representation", "joint_position"))
+    body_space = resolve_body_action_space(
+        body, representation=getattr(args, "representation", "joint_position")
+    )
     policy_space = _parse_policy_space_from_args(args)
     mapping = generate_action_mapping(
         policy_space,
@@ -1396,7 +1412,9 @@ def cmd_lerobot_mapping_validate(args: argparse.Namespace) -> int:
         print(f"[rosclaw-lerobot] Failed to load effective body: {exc}", file=sys.stderr)
         return 1
 
-    body_space = resolve_body_action_space(body, representation=getattr(args, "representation", "joint_position"))
+    body_space = resolve_body_action_space(
+        body, representation=getattr(args, "representation", "joint_position")
+    )
     policy_space = _parse_policy_space_from_args(args)
     mapping = generate_action_mapping(
         policy_space,
@@ -1436,7 +1454,9 @@ def cmd_lerobot_mapping_map_action(args: argparse.Namespace) -> int:
         print(f"[rosclaw-lerobot] Failed to load effective body: {exc}", file=sys.stderr)
         return 1
 
-    body_space = resolve_body_action_space(body, representation=getattr(args, "representation", "joint_position"))
+    body_space = resolve_body_action_space(
+        body, representation=getattr(args, "representation", "joint_position")
+    )
     policy_space = _parse_policy_space_from_args(args)
     mapping = generate_action_mapping(
         policy_space,
@@ -1596,9 +1616,7 @@ def _rh56_hashes(args: argparse.Namespace) -> dict[str, str]:
         _file_hash(contract_path) if contract_path.exists() else "sha256:no_contract"
     )
     body_hash = hashlib.sha256(str(args.body_id).encode()).hexdigest()
-    mapping_hash = hashlib.sha256(
-        (str(args.policy_path) + str(args.body_id)).encode()
-    ).hexdigest()
+    mapping_hash = hashlib.sha256((str(args.policy_path) + str(args.body_id)).encode()).hexdigest()
     return {
         "policy_contract_hash": policy_contract_hash,
         "body_hash": f"sha256:{body_hash}",
@@ -1619,6 +1637,13 @@ def cmd_lerobot_rollout_rh56_shadow(args: argparse.Namespace) -> int:
     )
     from rosclaw.integrations.lerobot.rollout.state import RolloutMode
 
+    if not getattr(args, "fixture", False):
+        print(
+            "[rosclaw-lerobot] shadow refused: no live RH56 observation transport is "
+            "configured; pass --fixture to use explicit synthetic feedback"
+        )
+        return 1
+
     calibration = load_rh56_calibration(args.calibration)
     config = RolloutConfig(
         mode=RolloutMode.SHADOW,
@@ -1636,6 +1661,7 @@ def cmd_lerobot_rollout_rh56_shadow(args: argparse.Namespace) -> int:
         transport_profile_path=args.transport_profile,
         task=args.task,
         calibration=calibration,
+        fixture_mode=True,
     )
     if gate["passed"]:
         record_shadow_validation(
@@ -1666,7 +1692,11 @@ def cmd_lerobot_rollout_rh56_shadow(args: argparse.Namespace) -> int:
 
 def cmd_lerobot_rollout_preflight(args: argparse.Namespace) -> int:
     """Dispatch `rosclaw lerobot rollout preflight` (P5 §12.2)."""
-    from rosclaw.body.rh56.calibration import CalibrationError, RH56CalibrationGate, load_rh56_calibration
+    from rosclaw.body.rh56.calibration import (
+        CalibrationError,
+        RH56CalibrationGate,
+        load_rh56_calibration,
+    )
     from rosclaw.body.rh56.transport_profile import (
         TransportBindingError,
         load_transport_profile,
@@ -1729,10 +1759,7 @@ def _report_preflight(checks: list[dict[str, Any]], args: argparse.Namespace) ->
 
 def cmd_lerobot_rollout_arm(args: argparse.Namespace) -> int:
     """Dispatch `rosclaw lerobot rollout arm` (P5 §12.3)."""
-    from rosclaw.body.rh56.calibration import (
-        calibration_has_mock_evidence,
-        load_rh56_calibration,
-    )
+    from rosclaw.body.rh56.calibration import load_rh56_calibration
     from rosclaw.integrations.lerobot.execution.arming import (
         ArmingController,
         restore_shadow_registry,
@@ -1743,16 +1770,14 @@ def cmd_lerobot_rollout_arm(args: argparse.Namespace) -> int:
         save_permit,
     )
 
-    calib = load_rh56_calibration(args.calibration)
-    # A mock-validated calibration must never arm a real device unless the
-    # operator explicitly runs in mock mode.
-    if calib.status == "validated" and calibration_has_mock_evidence(calib) and not args.mock:
+    if not getattr(args, "fixture", False):
         print(
-            "[rosclaw-lerobot] ARM refused: calibration was validated against the MOCK "
-            "transport (evidence mock=True). Re-run `body validate-calibration` on the "
-            "real device, or pass --mock for a mock-only run."
+            "[rosclaw-lerobot] ARM refused: REAL execution requires a verified executor "
+            "registered with Runtime.submit_action(); use --fixture for synthetic validation"
         )
         return 1
+
+    calib = load_rh56_calibration(args.calibration)
 
     hashes = _rh56_hashes(args)
     registry = _rh56_registry_dir() / "shadow_validated.json"
@@ -1765,13 +1790,6 @@ def cmd_lerobot_rollout_arm(args: argparse.Namespace) -> int:
         print(f"  (registry entries: {restored}; run `lerobot rollout rh56-shadow` first)")
         return 1
 
-    if not args.acknowledge_real_robot_risk:
-        print("[rosclaw-lerobot] ARM refused: --acknowledge-real-robot-risk is required")
-        return 1
-    if not args.require_estop:
-        print("[rosclaw-lerobot] ARM refused: --require-estop is required")
-        return 1
-
     try:
         permit = pm.issue(
             body_id=args.body_id,
@@ -1780,10 +1798,11 @@ def cmd_lerobot_rollout_arm(args: argparse.Namespace) -> int:
             max_speed=args.max_speed,
             max_force_g=args.max_force,
             expires_in_sec=args.expires_in,
-            operator_armed=True,
-            physical_estop_confirmed=True,
+            operator_armed=False,
+            physical_estop_confirmed=False,
             task=args.task,
             calibration_status=calib.status,
+            execution_mode="FIXTURE",
         )
     except PermitError as exc:
         print(f"[rosclaw-lerobot] ARM refused: {exc}")
@@ -1792,11 +1811,12 @@ def cmd_lerobot_rollout_arm(args: argparse.Namespace) -> int:
     arming.mark_shadow_validated(**hashes)
     arming.arm(permit.permit_id)
     permit_path = save_permit(permit, _rh56_registry_dir() / "permits")
-    print("[rosclaw-lerobot] ARMED")
+    print("[rosclaw-lerobot] FIXTURE ARMED")
     print(f"  permit_id: {permit.permit_id}")
     print(f"  task:      {args.task}")
     print(f"  expires:   {permit.expires_at}")
     print(f"  stored:    {permit_path}")
+    print("  trust:     SYNTHETIC (not usable for real execution)")
     return 0
 
 
@@ -1812,8 +1832,11 @@ def cmd_lerobot_rollout_execute(args: argparse.Namespace) -> int:
     )
     from rosclaw.integrations.lerobot.rollout.rh56_execute import run_rh56_execute
 
-    if not args.acknowledge_real_robot_risk:
-        print("[rosclaw-lerobot] execute refused: --acknowledge-real-robot-risk is required")
+    if not getattr(args, "fixture", False):
+        print(
+            "[rosclaw-lerobot] execute refused: REAL execution requires a verified executor "
+            "registered with Runtime.submit_action(); use --fixture for synthetic validation"
+        )
         return 1
 
     registry_dir = _rh56_registry_dir()
@@ -1821,6 +1844,12 @@ def cmd_lerobot_rollout_execute(args: argparse.Namespace) -> int:
     permit = load_permit_into_manager(args.permit, registry_dir / "permits", pm)
     if permit is None:
         print(f"[rosclaw-lerobot] execute refused: permit {args.permit} not found or revoked")
+        return 1
+    if permit.execution_mode.upper() != "FIXTURE":
+        print(
+            f"[rosclaw-lerobot] execute refused: permit {permit.permit_id} is "
+            f"{permit.execution_mode}, expected FIXTURE"
+        )
         return 1
 
     arming = ArmingController(pm)
@@ -1850,11 +1879,18 @@ def cmd_lerobot_rollout_execute(args: argparse.Namespace) -> int:
         practice_data_root=args.practice_root,
         python_executable=args.python,
         robot_id=args.body_id,
+        fixture_mode=True,
     )
     summary = report.summary()
     summary["practice_id"] = result.practice_id
     summary["stop_reason"] = result.stop_reason.value
     summary["hardware_actions_executed"] = result.hardware_actions_executed
+    summary["commands_executed"] = result.commands_executed
+    summary["fixture_actions_executed"] = result.fixture_actions_executed
+    summary["execution_mode"] = result.execution_mode
+    summary["trust_level"] = result.trust_level
+    summary["verified"] = result.verified
+    summary["usable_for_real_execution"] = result.usable_for_real_execution
     if args.json:
         print(json.dumps(summary, indent=2, default=str))
     else:

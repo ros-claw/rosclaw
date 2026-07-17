@@ -81,7 +81,7 @@ class TransportProfile:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TransportProfile":
+    def from_dict(cls, data: dict[str, Any]) -> TransportProfile:
         schema = data.get("schema_version")
         if schema != TRANSPORT_PROFILE_SCHEMA_VERSION:
             raise TransportBindingError(
@@ -168,10 +168,7 @@ def load_transport_profile(path: str | Path) -> TransportProfile:
     if not path.exists():
         raise TransportBindingError(f"transport_profile_mismatch: profile not found: {path}")
     text = path.read_text(encoding="utf-8")
-    if path.suffix.lower() == ".json":
-        data = json.loads(text)
-    else:
-        data = yaml.safe_load(text)
+    data = json.loads(text) if path.suffix.lower() == ".json" else yaml.safe_load(text)
     if not isinstance(data, dict):
         raise TransportBindingError(f"transport_profile_mismatch: {path} is not a mapping")
     return TransportProfile.from_dict(data)
@@ -217,12 +214,15 @@ def validate_transport_binding(
                 f"CAN profile {profile.id!r}"
             )
 
-    if device_path is not None and profile.transport.type == "serial_modbus_rtu":
-        if device_path != profile.transport.device:
-            raise TransportBindingError(
-                f"transport_profile_mismatch: device {device_path!r} != profile device "
-                f"{profile.transport.device!r}"
-            )
+    if (
+        device_path is not None
+        and profile.transport.type == "serial_modbus_rtu"
+        and device_path != profile.transport.device
+    ):
+        raise TransportBindingError(
+            f"transport_profile_mismatch: device {device_path!r} != profile device "
+            f"{profile.transport.device!r}"
+        )
 
     if action_dim is not None and action_dim != profile.command.actuator_count:
         raise TransportBindingError(

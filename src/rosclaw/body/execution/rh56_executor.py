@@ -9,6 +9,9 @@ Enforces the P5 execution safety rules at the executor boundary (plan §8):
   ``max_step_delta_raw`` (from the permit)
 - exactly one command per call; then feedback is read back
 - any transport I/O failure raises :class:`ExecutorCommunicationError`
+
+This is a low-level adapter. REAL use must be registered behind the Runtime
+ActionGateway; the current legacy rollout accepts only explicit fixtures.
 """
 
 from __future__ import annotations

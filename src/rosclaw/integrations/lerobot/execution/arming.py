@@ -64,9 +64,7 @@ class ArmingController:
             )
         )
         if self.machine.state == ExecutionState.PREFLIGHT:
-            return self.machine.transition(
-                ExecutionState.SHADOW_VALIDATED, "shadow gate passed"
-            )
+            return self.machine.transition(ExecutionState.SHADOW_VALIDATED, "shadow gate passed")
         return self.machine.state
 
     def shadow_validated_for(
@@ -100,9 +98,7 @@ class ArmingController:
             mapping_hash=permit.mapping_hash,
             transport_profile_hash=permit.transport_profile_hash,
         ):
-            raise ArmingError(
-                "arming_shadow_not_validated: shadow gate required for this hash set"
-            )
+            raise ArmingError("arming_shadow_not_validated: shadow gate required for this hash set")
         if self.machine.state != ExecutionState.SHADOW_VALIDATED:
             raise ArmingError(
                 f"arming_sequence_violation: state is {self.machine.state.value}, "
@@ -198,7 +194,7 @@ def shadow_registry_contains(path: str | Path, hashes: dict[str, str]) -> bool:
     return _hash_tuple(hashes) in load_shadow_registry(path)
 
 
-def restore_shadow_registry(path: str | Path, arming: "ArmingController") -> int:
+def restore_shadow_registry(path: str | Path, arming: ArmingController) -> int:
     """Restore persisted shadow-validated hash sets into an arming controller."""
     count = 0
     for entry in load_shadow_registry(path):

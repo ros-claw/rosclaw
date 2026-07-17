@@ -35,10 +35,18 @@ class ExecutionPermit:
     operator_armed: bool = False
     physical_estop_confirmed: bool = False
     task: str = ""
+    execution_mode: str = "REAL"
     schema_version: str = EXECUTION_PERMIT_SCHEMA
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        result = asdict(self)
+        result["trust_level"] = (
+            "SYNTHETIC" if self.execution_mode.upper() == "FIXTURE" else "UNVERIFIED"
+        )
+        # A local permit is an input to execution policy, not Runtime
+        # authorization and never sufficient for real dispatch by itself.
+        result["usable_for_real_execution"] = False
+        return result
 
 
 @dataclass
@@ -76,7 +84,7 @@ class FeedbackVerification:
 
 @dataclass
 class ActionExecutionResult:
-    """``rosclaw.action_execution_result.v1`` — outcome + physical feedback."""
+    """``rosclaw.action_execution_result.v1`` — outcome plus provenance-tagged feedback."""
 
     status: str = "blocked"  # completed | blocked | fault | stale_action | aborted
     command_sent: bool = False
@@ -91,6 +99,11 @@ class ActionExecutionResult:
     verification: FeedbackVerification = field(default_factory=FeedbackVerification)
     error_code: str | None = None
     message: str = ""
+    execution_mode: str = "UNKNOWN"
+    evidence_level: str = "REQUESTED"
+    verified: bool = False
+    trust_level: str = "UNAVAILABLE"
+    usable_for_real_execution: bool = False
     schema_version: str = ACTION_EXECUTION_RESULT_SCHEMA
 
     def to_dict(self) -> dict:

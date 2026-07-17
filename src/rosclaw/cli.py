@@ -7440,19 +7440,27 @@ def main() -> int:
 
     # P5 RH56 subcommands: rh56-shadow / preflight / arm / execute
     def _add_rh56_args(parser, *, with_policy: bool = True):
+        from rosclaw.body.rh56.resources import (
+            rh56_config_path,
+            rh56_reference_policy_path,
+        )
+
         if with_policy:
             parser.add_argument(
-                "--policy.path", dest="policy_path", required=True, help="Policy directory"
+                "--policy.path",
+                dest="policy_path",
+                default=str(rh56_reference_policy_path()),
+                help="Policy directory (default: bundled RH56 reference policy)",
             )
         parser.add_argument("--body-id", default="rh56_right_01", help="Body instance ID")
         parser.add_argument(
             "--transport-profile",
-            default="configs/rh56_right_rs485_v1.yaml",
+            default=str(rh56_config_path("rh56_right_rs485_v1.yaml")),
             help="RH56 transport profile YAML",
         )
         parser.add_argument(
             "--calibration",
-            default="configs/rh56_right_01_calibration.yaml",
+            default=str(rh56_config_path("rh56_right_01_calibration.yaml")),
             help="RH56 calibration YAML",
         )
         parser.add_argument("--task", default="hold_current", help="Reference task name")
@@ -7460,7 +7468,7 @@ def main() -> int:
         parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     rh56_shadow_parser = lerobot_rollout_subparsers.add_parser(
-        "rh56-shadow", help="P5-B RH56 shadow gate (mock or real transport)"
+        "rh56-shadow", help="P5-B RH56 shadow gate (explicit fixture in this release)"
     )
     _add_rh56_args(rh56_shadow_parser)
     rh56_shadow_parser.add_argument("--steps", type=int, default=1000)
@@ -7469,6 +7477,11 @@ def main() -> int:
     rh56_shadow_parser.add_argument("--max-deadline-misses", type=int, default=10)
     rh56_shadow_parser.add_argument("--practice-root", default=None)
     rh56_shadow_parser.add_argument("--report", default=None, help="Write shadow report MD")
+    rh56_shadow_parser.add_argument(
+        "--fixture",
+        action="store_true",
+        help="Explicitly use synthetic MockModbusTransport feedback",
+    )
 
     preflight_parser = lerobot_rollout_subparsers.add_parser(
         "preflight", help="P5 RH56 preflight checks (transport/calibration/contract)"
@@ -7478,23 +7491,33 @@ def main() -> int:
     preflight_parser.add_argument("--mapping", default=None, help="Mapping manifest path")
 
     arm_parser = lerobot_rollout_subparsers.add_parser(
-        "arm", help="P5 RH56 arming (issues an execution permit)"
+        "arm", help="P5 RH56 fixture arming (REAL requires Runtime ActionGateway)"
     )
     _add_rh56_args(arm_parser)
     arm_parser.add_argument("--max-step-delta", type=float, default=20.0)
     arm_parser.add_argument("--max-speed", type=int, default=100)
     arm_parser.add_argument("--max-force", type=float, default=100.0)
     arm_parser.add_argument("--expires-in", type=float, default=120.0)
-    arm_parser.add_argument("--require-estop", action="store_true")
-    arm_parser.add_argument("--acknowledge-real-robot-risk", action="store_true")
     arm_parser.add_argument(
-        "--mock",
+        "--require-estop",
         action="store_true",
-        help="Allow a mock-validated calibration (mock-only runs)",
+        help="Reserved for the future REAL gateway path; does not authorize execution",
+    )
+    arm_parser.add_argument(
+        "--acknowledge-real-robot-risk",
+        action="store_true",
+        help="Reserved for the future REAL gateway path; does not authorize execution",
+    )
+    arm_parser.add_argument(
+        "--fixture",
+        "--mock",
+        dest="fixture",
+        action="store_true",
+        help="Issue a synthetic fixture permit; --mock is a compatibility alias",
     )
 
     execute_parser = lerobot_rollout_subparsers.add_parser(
-        "execute", help="P5 RH56 single-step execution (requires a permit)"
+        "execute", help="P5 RH56 fixture execution (REAL requires Runtime ActionGateway)"
     )
     _add_rh56_args(execute_parser)
     execute_parser.add_argument("--permit", required=True, help="Permit ID from `arm`")
@@ -7503,7 +7526,16 @@ def main() -> int:
     execute_parser.add_argument("--max-speed", type=int, default=100)
     execute_parser.add_argument("--max-force", type=float, default=100.0)
     execute_parser.add_argument("--practice-root", default=None)
-    execute_parser.add_argument("--acknowledge-real-robot-risk", action="store_true")
+    execute_parser.add_argument(
+        "--acknowledge-real-robot-risk",
+        action="store_true",
+        help="Reserved for the future REAL gateway path; does not authorize execution",
+    )
+    execute_parser.add_argument(
+        "--fixture",
+        action="store_true",
+        help="Explicitly execute against MockModbusTransport only",
+    )
 
     # auto subcommand (Self-Evolution Control Plane)
     auto_parser = subparsers.add_parser("auto", help="Auto self-evolution commands")

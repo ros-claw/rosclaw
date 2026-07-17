@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -129,6 +131,65 @@ def test_manager_start_hello(manager: PersistentRuntimeManager) -> None:
     state = manager.start()
     assert state.state == "ready"
     assert manager.state.pid is not None
+
+
+def test_manager_start_reports_worker_stderr(tmp_path: Path) -> None:
+    pkg_dir = tmp_path / "broken_worker"
+    pkg_dir.mkdir()
+    (pkg_dir / "__init__.py").write_text("", encoding="utf-8")
+    (pkg_dir / "__main__.py").write_text(
+        "import sys\nsys.stderr.write('missing worker dependency: sentinel\\n')\n",
+        encoding="utf-8",
+    )
+    manager = PersistentRuntimeManager(
+        sys.executable,
+        worker_module="broken_worker",
+        env={"PYTHONPATH": str(tmp_path)},
+        startup_timeout_sec=5.0,
+    )
+
+    state = manager.start()
+
+    assert state.state == "error"
+    assert state.error is not None
+    assert "missing worker dependency: sentinel" in state.error
+
+
+def test_worker_hello_does_not_require_control_plane_dependencies() -> None:
+    repo_root = Path(__file__).resolve().parents[4]
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(repo_root / "src")
+    request = "\n".join(
+        [
+            '{"jsonrpc":"2.0","method":"HELLO","params":{},"id":"1"}',
+            '{"jsonrpc":"2.0","method":"SHUTDOWN","params":{},"id":"2"}',
+            "",
+        ]
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            "-m",
+            "rosclaw.integrations.lerobot.policy_worker_runtime",
+            "--protocol-version",
+            RUNTIME_PROTOCOL_VERSION,
+        ],
+        input=request,
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=10,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    responses = [parse_line(line) for line in completed.stdout.splitlines()]
+    assert [response.id for response in responses if isinstance(response, RuntimeResponse)] == [
+        "1",
+        "2",
+    ]
 
 
 def test_manager_call_probe(manager: PersistentRuntimeManager) -> None:

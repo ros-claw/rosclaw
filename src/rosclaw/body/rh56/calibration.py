@@ -81,7 +81,7 @@ class RH56Calibration:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "RH56Calibration":
+    def from_dict(cls, data: dict[str, Any]) -> RH56Calibration:
         schema = data.get("schema_version")
         if schema != RH56_CALIBRATION_SCHEMA_VERSION:
             raise CalibrationError(
@@ -174,10 +174,7 @@ def load_rh56_calibration(path: str | Path) -> RH56Calibration:
     if not path.exists():
         raise CalibrationError(f"calibration_not_found: {path}")
     text = path.read_text(encoding="utf-8")
-    if path.suffix.lower() == ".json":
-        data = json.loads(text)
-    else:
-        data = yaml.safe_load(text)
+    data = json.loads(text) if path.suffix.lower() == ".json" else yaml.safe_load(text)
     if not isinstance(data, dict):
         raise CalibrationError(f"calibration_schema_mismatch: {path} is not a mapping")
     return RH56Calibration.from_dict(data)

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import pytest
 
 from rosclaw.integrations.lerobot.execution import PermitError, PermitManager
+from rosclaw.integrations.lerobot.execution.permit import load_permit, save_permit
 
 HASHES = {
     "policy_contract_hash": "sha256:policy",
@@ -53,6 +55,40 @@ def test_permit_requires_operator_arm_and_estop() -> None:
         _issue(pm, operator_armed=False)
     with pytest.raises(PermitError, match="permit_estop_unconfirmed"):
         _issue(pm, physical_estop_confirmed=False)
+
+
+def test_fixture_permit_is_explicit_and_never_real_authorization() -> None:
+    pm = PermitManager()
+
+    permit = _issue(
+        pm,
+        execution_mode="FIXTURE",
+        operator_armed=False,
+        physical_estop_confirmed=False,
+    )
+
+    payload = permit.to_dict()
+    assert payload["execution_mode"] == "FIXTURE"
+    assert payload["trust_level"] == "SYNTHETIC"
+    assert payload["usable_for_real_execution"] is False
+    with pytest.raises(PermitError, match="permit_mode_mismatch"):
+        _validate(pm, permit.permit_id, execution_mode="REAL")
+
+
+def test_fixture_permit_persistence_roundtrip(tmp_path: Path) -> None:
+    permit = _issue(
+        PermitManager(),
+        execution_mode="FIXTURE",
+        operator_armed=False,
+        physical_estop_confirmed=False,
+    )
+
+    save_permit(permit, tmp_path)
+    restored = load_permit(permit.permit_id, tmp_path)
+
+    assert restored is not None
+    assert restored.execution_mode == "FIXTURE"
+    assert restored.to_dict()["usable_for_real_execution"] is False
 
 
 def test_permit_expires() -> None:
