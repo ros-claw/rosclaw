@@ -82,8 +82,21 @@ SEEKDB_SCHEMAS: dict[str, Any] = {
             "success_count": "INTEGER DEFAULT 0",
             "failure_count": "INTEGER DEFAULT 0",
             "last_triggered": "REAL",
+            # PR-EVO-1 (§11.1): applicability + efficacy evidence
+            "failure_signature": "TEXT",
+            "action_template": "TEXT",
+            "applicable_robot_types": "TEXT",
+            "applicable_body_ids": "TEXT",
+            "context_constraints": "TEXT",
+            "safety_level": "TEXT",
+            "evidence_count": "INTEGER DEFAULT 0",
+            "success_rate": "REAL DEFAULT 0.0",
+            "confidence_interval": "TEXT",
+            "last_validated_at": "REAL",
+            "evidence_refs": "TEXT",
+            "status": "TEXT DEFAULT 'active'",
         },
-        "indices": ["priority"],
+        "indices": ["priority", "failure_signature", "status", "safety_level"],
     },
     # Memory 2.0 (PR-MEM-1) — typed embodied memory with evidence rows
     "memory_items": {
