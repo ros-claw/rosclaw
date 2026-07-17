@@ -322,6 +322,26 @@ class SQLiteVectorStore(VectorStore):
             )
             self._store._connection.commit()
 
+    def delete(self, table: str, record_id: str) -> bool:
+        """Remove *record_id* from the vector index (delete sync, §6.6)."""
+        self._ensure_table(table)
+        with self._store._lock:
+            cursor = self._store._connection.execute(
+                f"DELETE FROM {self._table_name(table)} WHERE record_id = ?",
+                (record_id,),
+            )
+            self._store._connection.commit()
+        return cursor.rowcount > 0
+
+    def count(self, table: str) -> int:
+        """Number of indexed records for *table*."""
+        self._ensure_table(table)
+        with self._store._lock:
+            row = self._store._connection.execute(
+                f"SELECT COUNT(*) FROM {self._table_name(table)}"
+            ).fetchone()
+        return int(row[0]) if row else 0
+
     def _all_rows(self, table: str) -> list[sqlite3.Row]:
         with self._store._lock:
             return self._store._connection.execute(

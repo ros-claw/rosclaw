@@ -28,8 +28,12 @@ class MemoryRepository:
     telemetry windows, human feedback, or critic results.
     """
 
-    def __init__(self, client: Any):
+    def __init__(self, client: Any, projection: Any | None = None):
         self._client = client
+        # Optional SQLite → native SeekDB retrieval projection (§7.5).
+        # When present, every successful local write is projected (via the
+        # projection's outbox or directly) so the native index stays current.
+        self._projection = projection
 
     # ------------------------------------------------------------------
     # Write path
@@ -59,6 +63,7 @@ class MemoryRepository:
         for ev in rows:
             ev.memory_id = item.memory_id
             self._client.insert(EVIDENCE_TABLE, ev.to_record())
+        self._project(item.to_record())
         return item.memory_id
 
     def merge_into(self, target_id: str, item: MemoryItem) -> bool:
@@ -108,11 +113,25 @@ class MemoryRepository:
         return self.store(new_item)
 
     def mark_status(self, memory_id: str, status: str) -> bool:
-        return bool(
+        updated = bool(
             self._client.update(
                 ITEMS_TABLE, memory_id, {"status": status, "updated_at": time.time()}
             )
         )
+        if updated and self._projection is not None:
+            item = self.get(memory_id)
+            if item is not None:
+                self._project(item.to_record())
+        return updated
+
+    def _project(self, record: dict[str, Any]) -> None:
+        """Best-effort projection into native SeekDB (never blocks the write)."""
+        if self._projection is None:
+            return
+        try:
+            self._projection.project(record)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("SeekDB projection failed for %s: %s", record.get("id"), exc)
 
     def pin(self, memory_id: str, pinned: bool = True) -> bool:
         """Safety/human-approved pinning: pinned memories never decay or expire."""
