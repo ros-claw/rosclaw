@@ -1,0 +1,62 @@
+body_id: rh56_left_01
+transport_profile: rh56_left_rs485_v1
+actuators:
+  little:
+    open_raw: 1000
+    closed_raw: 0
+    safe_min_raw: 0
+    safe_max_raw: 1000
+    direction: -1
+    position_tolerance_raw: 16
+  ring:
+    open_raw: 1000
+    closed_raw: 0
+    safe_min_raw: 0
+    safe_max_raw: 1000
+    direction: -1
+    position_tolerance_raw: 16
+  middle:
+    open_raw: 1000
+    closed_raw: 0
+    safe_min_raw: 0
+    safe_max_raw: 1000
+    direction: -1
+    position_tolerance_raw: 16
+  index:
+    open_raw: 1000
+    closed_raw: 163
+    safe_min_raw: 138
+    safe_max_raw: 1000
+    direction: -1
+    position_tolerance_raw: 16
+  thumb:
+    open_raw: 997
+    closed_raw: 117
+    safe_min_raw: 92
+    safe_max_raw: 1000
+    direction: -1
+    position_tolerance_raw: 16
+  thumb_rot:
+    open_raw: 985
+    closed_raw: 156
+    safe_min_raw: 131
+    safe_max_raw: 1000
+    direction: -1
+    position_tolerance_raw: 16
+feedback:
+  force_baseline_file: ''
+  force_soft_limit_g: 100.0
+  force_hard_limit_g: 300.0
+  temperature_warning_c: 55.0
+  temperature_stop_c: 60.0
+  thresholds_source: measured_conservative
+validation:
+  status: validated
+  validated_at: '2026-07-17T09:58:31.583504Z'
+  rounds: 5
+  body_hash: ''
+  transport_profile_hash: sha256:1f90ef13e0c6c0a3ae0e026b602b8e79082cacff4e9decdb142ecac961a65d09
+  evidence:
+  - probe_rounds=5/5
+  - mock=False
+schema_version: rosclaw.rh56.calibration.v1

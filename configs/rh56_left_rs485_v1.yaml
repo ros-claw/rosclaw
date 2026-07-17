@@ -1,0 +1,44 @@
+# RH56 left hand — RS485/Modbus-RTU transport profile (6 actuators, 0-1000 raw).
+#
+# This is the ONLY valid profile for the /dev/ttyUSB1 RS485 connection used by
+# the ROSClaw RH56 dual-hand setup (left hand, Modbus slave id 1).
+schema_version: rosclaw.rh56.transport_profile.v1
+
+id: rh56_left_rs485_v1
+
+transport:
+  type: serial_modbus_rtu
+  device: /dev/ttyUSB1
+  baudrate: 115200
+  slave_id: 1
+
+command:
+  actuator_count: 6
+  position_range: [0, 1000]
+  position_convention:
+    closed: 0
+    open: 1000
+  speed_range: [0, 1000]
+  force_range: [0, 1000]
+  force_unit: gram
+  current_unit: milliampere
+
+action_order:
+  - little
+  - ring
+  - middle
+  - index
+  - thumb
+  - thumb_rot
+
+feedback:
+  position_unit: raw_device_unit
+  force_channel: FORCE_ACT     # stable contact signal
+  current_channel: CURRENT     # motion/stall auxiliary signal (returns ~0 at rest)
+  status_channel: STATUS       # protection hard criterion
+  temperature_channel: TEMP    # thermal hard criterion
+
+metadata:
+  provider_ref: inspire_rh56_serial
+  hand: left
+  source: rosclaw_rps example convention
