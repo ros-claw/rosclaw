@@ -14,6 +14,8 @@ import os
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from rosclaw.practice.config import get_default_data_root
+
 if TYPE_CHECKING:
     from rosclaw.core.types import PraxisEvent as RosclawPraxisEvent
     from rosclaw.storage.outbox import OutboxStore, OutboxWorker
@@ -43,7 +45,7 @@ class SeekDBBridge:
     def __init__(
         self,
         seekdb_url: str | None = None,
-        fallback_dir: str = "/data/rosclaw/fallback",
+        fallback_dir: str | None = None,
         outbox: OutboxStore | None = None,
         outbox_worker: OutboxWorker | None = None,
         outbox_interval_sec: float = 5.0,
@@ -67,6 +69,9 @@ class SeekDBBridge:
         """
         seekdb_url = seekdb_url or os.environ.get(
             "ROSCLAW_PRACTICE_HTTP_ADAPTER_URL", "http://localhost:2882"
+        )
+        fallback_dir = fallback_dir or os.environ.get(
+            "ROSCLAW_SEEKDB_FALLBACK_DIR", str(get_default_data_root() / "fallback")
         )
         self._committer = ExperienceCommitter(
             seekdb_url=seekdb_url,

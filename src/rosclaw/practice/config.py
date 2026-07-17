@@ -9,9 +9,29 @@ from typing import Any
 
 from rosclaw.firstboot.workspace import get_rosclaw_home
 
-DEFAULT_DATA_ROOT = "/data/rosclaw/practice"
-DEFAULT_FALLBACK_DIR = "/data/rosclaw/practice/fallback"
-DEFAULT_INDEX_DIR = "/data/rosclaw/practice/indexes"
+PRACTICE_DATA_ROOT_ENV = "ROSCLAW_PRACTICE_DATA_ROOT"
+
+
+def get_default_data_root() -> Path:
+    """Return the writable Practice root for the active ROSClaw workspace."""
+    configured = os.environ.get(PRACTICE_DATA_ROOT_ENV)
+    if configured:
+        return Path(configured).expanduser()
+    return get_rosclaw_home() / "data" / "practice"
+
+
+def resolve_data_root(data_root: str | Path | None = None) -> Path:
+    """Resolve an explicit Practice root or the active workspace default."""
+    if data_root is None or not str(data_root).strip():
+        return get_default_data_root()
+    return Path(data_root).expanduser()
+
+
+# Compatibility exports for callers that imported the original constants.
+# Internal defaults use the functions above so ROSCLAW_HOME remains dynamic.
+DEFAULT_DATA_ROOT = str(get_default_data_root())
+DEFAULT_FALLBACK_DIR = str(get_default_data_root() / "fallback")
+DEFAULT_INDEX_DIR = str(get_default_data_root() / "indexes")
 DEFAULT_CONFIG_ROOT = get_rosclaw_home() / "practice"
 
 
@@ -56,7 +76,9 @@ class SeekDBConfig:
         default_factory=lambda: os.environ.get("ROSCLAW_PRACTICE_HTTP_ADAPTER_URL")
     )
     fallback_dir: str = field(
-        default_factory=lambda: os.environ.get("ROSCLAW_SEEKDB_FALLBACK_DIR", DEFAULT_FALLBACK_DIR)
+        default_factory=lambda: os.environ.get(
+            "ROSCLAW_SEEKDB_FALLBACK_DIR", str(get_default_data_root() / "fallback")
+        )
     )
     table: str = "praxis_events"
     timeout_sec: float = 2.0
@@ -97,7 +119,7 @@ class PracticeConfig:
     skill_id: str | None = None
     session_name: str | None = None
 
-    data_root: str = DEFAULT_DATA_ROOT
+    data_root: str = field(default_factory=lambda: str(get_default_data_root()))
     config_root: Path = field(default_factory=lambda: get_rosclaw_home() / "practice")
     sources: SourceConfig = field(default_factory=SourceConfig)
     recorder: RecorderConfig = field(default_factory=RecorderConfig)
@@ -115,7 +137,7 @@ class PracticeConfig:
 
     @property
     def data_root_path(self) -> Path:
-        return Path(self.data_root)
+        return resolve_data_root(self.data_root)
 
     @property
     def sessions_dir(self) -> Path:

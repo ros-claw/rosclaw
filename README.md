@@ -275,20 +275,22 @@ harnesses how to discover and use it.
 Use SQLite for local development or a MySQL-compatible DSN for a real
 SeekDB/OceanBase server:
 
+When `--data-root` is omitted, ROSClaw uses `ROSCLAW_PRACTICE_DATA_ROOT` when
+set, otherwise `$ROSCLAW_HOME/data/practice` (default `~/.rosclaw/data/practice`).
+Container deployments can explicitly set the environment variable to
+`/data/rosclaw/practice`.
+
 ```bash
 # Local file
 rosclaw practice ingest-seekdb <practice_id> \
-  --data-root /data/rosclaw/practice \
   --seekdb-path ~/.rosclaw/memory/seekdb.sqlite
 
 # Real SeekDB server
 rosclaw practice ingest-seekdb <practice_id> \
-  --data-root /data/rosclaw/practice \
   --seekdb-url mysql://root@127.0.0.1:2881/rosclaw
 
 rosclaw practice query failures \
   --robot-id rh56 \
-  --data-root /data/rosclaw/practice \
   --seekdb-url mysql://root@127.0.0.1:2881/rosclaw \
   --json
 ```

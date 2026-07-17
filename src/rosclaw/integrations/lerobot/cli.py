@@ -56,6 +56,7 @@ from rosclaw.integrations.lerobot.smoke_policy import (
 )
 from rosclaw.integrations.lerobot.smoke_report import get_validation_status
 from rosclaw.integrations.lerobot.subprocess_runner import run_command, which
+from rosclaw.practice.config import resolve_data_root
 from rosclaw.provider.core.manifest import ProviderManifest
 from rosclaw.provider.core.request import ProviderRequest
 
@@ -627,7 +628,7 @@ def _resolve_episode_path(args: argparse.Namespace) -> Path:
     candidate = Path(episode_id)
     if candidate.is_dir():
         return candidate
-    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    data_root = resolve_data_root(getattr(args, "data_root", None))
     from_data_root = data_root / episode_id
     if from_data_root.is_dir():
         return from_data_root

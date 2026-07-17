@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-import os
 import time
 from pathlib import Path
 from typing import Any
@@ -152,9 +151,9 @@ _REALSENSE_PAGE_HTML = """<!DOCTYPE html>
 
 def _practice_data_root(query_root: str | None = None) -> Path:
     """Resolve the practice data root from query param, env, or default."""
-    if query_root:
-        return Path(query_root)
-    return Path(os.environ.get("ROSCLAW_PRACTICE_DATA_ROOT", "/data/rosclaw/practice"))
+    from rosclaw.practice.config import resolve_data_root
+
+    return resolve_data_root(query_root)
 
 
 _EPISODE_LIST_TTL_SECONDS = 5.0

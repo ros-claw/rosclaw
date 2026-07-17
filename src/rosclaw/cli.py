@@ -53,7 +53,16 @@ from rosclaw.integrations import GLOBAL_INTEGRATION_REGISTRY
 from rosclaw.integrations.lerobot.constants import DEFAULT_SMOKE_POLICY
 from rosclaw.mcp.onboarding.cli import add_mcp_subparser
 from rosclaw.mcp.server import serve as _mcp_serve
-from rosclaw.practice.config import PracticeConfig, SourceConfig
+from rosclaw.practice.config import (
+    PracticeConfig,
+    SourceConfig,
+)
+from rosclaw.practice.config import (
+    get_default_data_root as get_default_practice_data_root,
+)
+from rosclaw.practice.config import (
+    resolve_data_root as resolve_practice_data_root,
+)
 from rosclaw.practice.coordinator import PracticeCoordinator
 from rosclaw.practice.storage.catalog import PracticeCatalog
 from rosclaw.practice.storage.fallback_sync import FallbackSync
@@ -1470,6 +1479,15 @@ def _practice_artifacts_dir() -> Path:
     return get_rosclaw_home() / "artifacts"
 
 
+def _add_practice_data_root_argument(parser: argparse.ArgumentParser) -> None:
+    """Add the shared workspace-aware Practice root option."""
+    parser.add_argument(
+        "--data-root",
+        default=str(get_default_practice_data_root()),
+        help="Practice data root (default: $ROSCLAW_HOME/data/practice)",
+    )
+
+
 def _memory_db_path() -> Path:
     """Return the default SQLite path for persistent SeekDB memory."""
     return get_rosclaw_home() / "memory" / "seekdb.sqlite"
@@ -1492,7 +1510,7 @@ def _practice_seekdb_client(args: argparse.Namespace) -> Any:
 
 def cmd_practice_list(args: argparse.Namespace) -> int:
     """List recorded practice sessions from the local catalog."""
-    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    data_root = resolve_practice_data_root(getattr(args, "data_root", None))
     layout = PracticeLayout(data_root)
     catalog = PracticeCatalog(layout.catalog_db_path)
     records = catalog.list_practices(limit=100)
@@ -1534,7 +1552,7 @@ def cmd_practice_list(args: argparse.Namespace) -> int:
 def cmd_practice_show(args: argparse.Namespace) -> int:
     """Show practice episode details from the local episode.json."""
     practice_id = args.episode_id
-    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    data_root = resolve_practice_data_root(getattr(args, "data_root", None))
     layout = PracticeLayout(data_root)
     session_dir = layout.session_dir(practice_id)
 
@@ -1603,7 +1621,7 @@ def cmd_practice_show(args: argparse.Namespace) -> int:
 def cmd_practice_replay(args: argparse.Namespace) -> int:
     """Replay a practice session by reading its events.jsonl trace."""
     practice_id = args.episode_id
-    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    data_root = resolve_practice_data_root(getattr(args, "data_root", None))
     layout = PracticeLayout(data_root)
     catalog = PracticeCatalog(layout.catalog_db_path)
     record = catalog.get_practice(practice_id)
@@ -1869,7 +1887,7 @@ def cmd_practice_record(args: argparse.Namespace) -> int:
 
     fixture_path = Path(args.fixture)
     data_root_arg = getattr(args, "out", None) or getattr(args, "data_root", None)
-    data_root = Path(data_root_arg or "/data/rosclaw/practice")
+    data_root = resolve_practice_data_root(data_root_arg)
 
     try:
         fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
@@ -2156,12 +2174,13 @@ def cmd_practice_init(args: argparse.Namespace) -> int:
     (config_root / "robots" / robot_id).mkdir(parents=True, exist_ok=True)
 
     config_path = config_root / "config.yaml"
-    content = """# rosclaw-practice global configuration
-data_root: /data/rosclaw/practice
+    data_root = get_default_practice_data_root()
+    content = f"""# rosclaw-practice global configuration
+data_root: {data_root}
 seekdb:
   enabled: false
   url: ""
-  fallback_dir: /data/rosclaw/practice/fallback
+  fallback_dir: {data_root / "fallback"}
 """
     config_path.write_text(content, encoding="utf-8")
 
@@ -2203,7 +2222,10 @@ def cmd_practice_start(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
     seekdb_http_url = seekdb_http_url or "http://localhost:2882"
-    fallback_dir = os.environ.get("ROSCLAW_SEEKDB_FALLBACK_DIR", "/data/rosclaw/practice/fallback")
+    fallback_dir = os.environ.get(
+        "ROSCLAW_SEEKDB_FALLBACK_DIR",
+        str(get_default_practice_data_root() / "fallback"),
+    )
     skill_id = getattr(args, "skill", None)
     provider_id = getattr(args, "provider", None)
     capability = getattr(args, "capability", "vlm.risk_assessment")
@@ -2473,7 +2495,7 @@ def _run_practice_skill_iteration(
     capability: str = "vlm.risk_assessment",
     task_id: str | None = None,
     robot_type: str | None = None,
-    data_root: str = "/data/rosclaw/practice",
+    data_root: str | Path | None = None,
     iteration_index: int = 0,
 ) -> int:
     """Execute one skill iteration and emit practice events into a live session.
@@ -2796,10 +2818,9 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
     skill_id = args.skill
     provider_id = getattr(args, "provider", None)
     capability = getattr(args, "capability", "vlm.risk_assessment")
-    data_root = (
+    data_root = resolve_practice_data_root(
         getattr(args, "output_root", None)
         or getattr(args, "data_root", None)
-        or "/data/rosclaw/practice"
     )
 
     resolved_body_id = _resolve_practice_body_id(home, robot_id)
@@ -2873,7 +2894,7 @@ def cmd_practice_validate(args: argparse.Namespace) -> int:
     events.jsonl, and timeline.jsonl exist and are consistent.  In strict
     mode the episode must contain camera, provider, and sandbox events.
     """
-    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    data_root = resolve_practice_data_root(getattr(args, "data_root", None))
     episode_id = args.episode_id
     strict = getattr(args, "strict", False)
 
@@ -3056,7 +3077,7 @@ def cmd_practice_verify(args: argparse.Namespace) -> int:
     """Verify closed-loop integrity of a practice session."""
     from rosclaw.practice.verifier import PracticeVerifier, format_report
 
-    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    data_root = resolve_practice_data_root(getattr(args, "data_root", None))
     practice_id = args.practice_id
     strict = getattr(args, "strict", False)
 
@@ -3090,7 +3111,7 @@ def cmd_practice_distill(args: argparse.Namespace) -> int:
     """Distill raw practice events into knowledge artifacts."""
     from rosclaw.practice.distiller import PracticeDistiller
 
-    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    data_root = resolve_practice_data_root(getattr(args, "data_root", None))
     practice_id = args.practice_id
     body_id = getattr(args, "body_id", None)
     write_artifacts = not getattr(args, "no_artifacts", False)
@@ -3132,7 +3153,7 @@ def cmd_practice_ingest_seekdb(args: argparse.Namespace) -> int:
     """Ingest a distilled practice session into SeekDB."""
     from rosclaw.practice.seekdb_ingestor import SeekDBIngestor
 
-    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    data_root = resolve_practice_data_root(getattr(args, "data_root", None))
     practice_id = args.practice_id
 
     try:
@@ -3184,7 +3205,7 @@ def cmd_practice_query(args: argparse.Namespace) -> int:
     """Query practice episodes, failures, body cognition, sim2real, candidates, and interventions."""
     from rosclaw.practice.query import PracticeQuery
 
-    data_root = Path(getattr(args, "data_root", "/data/rosclaw/practice"))
+    data_root = resolve_practice_data_root(getattr(args, "data_root", None))
 
     try:
         client = _practice_seekdb_client(args)
@@ -3315,7 +3336,8 @@ def cmd_practice_sync_fallback(args: argparse.Namespace) -> int:
         or os.environ.get("ROSCLAW_SEEKDB_URL", "http://localhost:2882")
     )
     fallback_dir = args.fallback_dir or os.environ.get(
-        "ROSCLAW_SEEKDB_FALLBACK_DIR", "/data/rosclaw/practice/fallback"
+        "ROSCLAW_SEEKDB_FALLBACK_DIR",
+        str(get_default_practice_data_root() / "fallback"),
     )
     sync = FallbackSync(seekdb_url=http_url, fallback_dir=fallback_dir)
     summary = sync.sync()
@@ -4158,7 +4180,7 @@ def cmd_how_advise(args: argparse.Namespace) -> int:
     body_id = args.body
     failure = args.failure
     episode_id = args.episode_id
-    data_root = getattr(args, "data_root", None) or "/data/rosclaw/practice"
+    data_root = str(resolve_practice_data_root(getattr(args, "data_root", None)))
 
     async def _run() -> dict:
         engine = HeuristicEngine(seekdb_client=InMemoryKnowledgeStore())
@@ -4746,7 +4768,7 @@ def cmd_memory_ingest(args: argparse.Namespace) -> int:
     from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
 
     episode_id = args.episode_id
-    data_root = getattr(args, "data_root", None) or "/data/rosclaw/practice"
+    data_root = str(resolve_practice_data_root(getattr(args, "data_root", None)))
     db_path = _memory_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -4921,7 +4943,7 @@ def cmd_know_compile(args: argparse.Namespace) -> int:
 
     task = args.task
     episode_id = args.episode_id
-    data_root = getattr(args, "data_root", None) or "/data/rosclaw/practice"
+    data_root = str(resolve_practice_data_root(getattr(args, "data_root", None)))
 
     know = KnowledgeInterface(robot_id="rosclaw_default")
     know._do_initialize()
@@ -6803,9 +6825,7 @@ def main() -> int:
     how_advise_parser.add_argument("--body", required=True, help="Body instance identifier")
     how_advise_parser.add_argument("--failure", required=True, help="Failure symptom or label")
     how_advise_parser.add_argument("--episode-id", required=True, help="Episode identifier")
-    how_advise_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(how_advise_parser)
     how_advise_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     # provider subcommand
@@ -7779,9 +7799,7 @@ def main() -> int:
         "ingest", help="Ingest a practice episode into memory"
     )
     memory_ingest_parser.add_argument("--episode-id", required=True, help="Episode identifier")
-    memory_ingest_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(memory_ingest_parser)
 
     # darwin subcommand
     darwin_parser = subparsers.add_parser("darwin", help="Darwin benchmark engine")
@@ -7819,9 +7837,7 @@ def main() -> int:
     practice_list_parser = practice_subparsers.add_parser(
         "list", help="List recorded practice sessions"
     )
-    practice_list_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(practice_list_parser)
 
     practice_init_parser = practice_subparsers.add_parser(
         "init", help="Initialize practice configuration"
@@ -7865,9 +7881,7 @@ def main() -> int:
         help="Capture frequency when camera source is enabled",
     )
     practice_start_parser.add_argument("--seekdb", action="store_true", help="Enable SeekDB commit")
-    practice_start_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(practice_start_parser)
 
     practice_run_parser = practice_subparsers.add_parser(
         "run", help="Run a single skill+provider practice episode"
@@ -7893,9 +7907,7 @@ def main() -> int:
         "validate", help="Validate a recorded practice episode"
     )
     practice_validate_parser.add_argument("episode_id", help="Episode or practice identifier")
-    practice_validate_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(practice_validate_parser)
     practice_validate_parser.add_argument(
         "--strict", action="store_true", help="Require camera, provider, and sandbox events"
     )
@@ -7907,9 +7919,7 @@ def main() -> int:
         "verify", help="Verify closed-loop integrity of a practice session"
     )
     practice_verify_parser.add_argument("practice_id", help="Practice session identifier")
-    practice_verify_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(practice_verify_parser)
     practice_verify_parser.add_argument(
         "--strict", action="store_true", help="Treat warnings as failures"
     )
@@ -7921,9 +7931,7 @@ def main() -> int:
         "distill", help="Distill raw practice events into knowledge artifacts"
     )
     practice_distill_parser.add_argument("practice_id", help="Practice session identifier")
-    practice_distill_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(practice_distill_parser)
     practice_distill_parser.add_argument(
         "--body-id", default=None, help="Override body_id for distilled cognition"
     )
@@ -7951,9 +7959,7 @@ def main() -> int:
         "ingest-seekdb", help="Ingest a distilled practice session into SeekDB"
     )
     practice_ingest_seekdb_parser.add_argument("practice_id", help="Practice session identifier")
-    practice_ingest_seekdb_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(practice_ingest_seekdb_parser)
     add_practice_seekdb_backend_args(practice_ingest_seekdb_parser)
     practice_ingest_seekdb_parser.add_argument(
         "--json", action="store_true", help="Output ingestion report as JSON"
@@ -7969,9 +7975,7 @@ def main() -> int:
     query_episodes_parser.add_argument("--skill-id", default=None, help="Filter by skill_id")
     query_episodes_parser.add_argument("--outcome", default=None, help="Filter by outcome")
     query_episodes_parser.add_argument("--limit", type=int, default=100, help="Max results")
-    query_episodes_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(query_episodes_parser)
     add_practice_seekdb_backend_args(query_episodes_parser)
     query_episodes_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -7984,9 +7988,7 @@ def main() -> int:
     )
     query_failures_parser.add_argument("--robot-id", default=None, help="Filter by robot_id")
     query_failures_parser.add_argument("--limit", type=int, default=100, help="Max results")
-    query_failures_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(query_failures_parser)
     add_practice_seekdb_backend_args(query_failures_parser)
     query_failures_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -7998,9 +8000,7 @@ def main() -> int:
         "--cognition-type", default=None, help="Filter by cognition_type"
     )
     query_body_cognition_parser.add_argument("--limit", type=int, default=100, help="Max results")
-    query_body_cognition_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(query_body_cognition_parser)
     add_practice_seekdb_backend_args(query_body_cognition_parser)
     query_body_cognition_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -8009,9 +8009,7 @@ def main() -> int:
     )
     query_sim2real_parser.add_argument("--body-id", default=None, help="Filter by body_id")
     query_sim2real_parser.add_argument("--limit", type=int, default=100, help="Max results")
-    query_sim2real_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(query_sim2real_parser)
     add_practice_seekdb_backend_args(query_sim2real_parser)
     query_sim2real_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -8022,9 +8020,7 @@ def main() -> int:
     query_candidates_parser.add_argument("--status", default=None, help="Filter by status")
     query_candidates_parser.add_argument("--policy-id", default=None, help="Filter by policy_id")
     query_candidates_parser.add_argument("--limit", type=int, default=100, help="Max results")
-    query_candidates_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(query_candidates_parser)
     add_practice_seekdb_backend_args(query_candidates_parser)
     query_candidates_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -8039,9 +8035,7 @@ def main() -> int:
     )
     query_interventions_parser.add_argument("--outcome", default=None, help="Filter by outcome")
     query_interventions_parser.add_argument("--limit", type=int, default=100, help="Max results")
-    query_interventions_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(query_interventions_parser)
     add_practice_seekdb_backend_args(query_interventions_parser)
     query_interventions_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -8049,9 +8043,7 @@ def main() -> int:
         "explain-episode", help="Explain everything known about an episode"
     )
     query_explain_episode_parser.add_argument("episode_id", help="Episode identifier")
-    query_explain_episode_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(query_explain_episode_parser)
     add_practice_seekdb_backend_args(query_explain_episode_parser)
     query_explain_episode_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -8059,9 +8051,7 @@ def main() -> int:
         "explain-failure", help="Explain a failure and its interventions"
     )
     query_explain_failure_parser.add_argument("failure_id", help="Failure identifier")
-    query_explain_failure_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(query_explain_failure_parser)
     add_practice_seekdb_backend_args(query_explain_failure_parser)
     query_explain_failure_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -8083,15 +8073,11 @@ def main() -> int:
     )
     practice_show_parser.add_argument("episode_id", help="Episode or practice identifier")
     practice_show_parser.add_argument("--json", action="store_true", help="Output as JSON")
-    practice_show_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(practice_show_parser)
 
     practice_replay_parser = practice_subparsers.add_parser("replay", help="Replay episode trace")
     practice_replay_parser.add_argument("episode_id", help="Episode identifier")
-    practice_replay_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(practice_replay_parser)
 
     practice_export_parser = practice_subparsers.add_parser(
         "export", help="Export episode metadata or practice events"
@@ -8114,9 +8100,7 @@ def main() -> int:
     practice_export_parser.add_argument(
         "--output", default=None, help="Output file or directory (default stdout / auto path)"
     )
-    practice_export_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(practice_export_parser)
     practice_export_parser.add_argument(
         "--writer",
         choices=["real", "skeleton"],
@@ -8226,9 +8210,7 @@ def main() -> int:
     )
     know_compile_parser.add_argument("task", help="Task description")
     know_compile_parser.add_argument("--episode-id", required=True, help="Episode identifier")
-    know_compile_parser.add_argument(
-        "--data-root", default="/data/rosclaw/practice", help="Practice data root"
-    )
+    _add_practice_data_root_argument(know_compile_parser)
     know_compile_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     # sense subcommand

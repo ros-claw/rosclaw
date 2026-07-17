@@ -15,6 +15,8 @@ from typing import Any
 
 import requests
 
+from rosclaw.practice.config import get_default_data_root
+
 logger = logging.getLogger("rosclaw.practice.storage.fallback_sync")
 
 
@@ -24,13 +26,13 @@ class FallbackSync:
     def __init__(
         self,
         seekdb_url: str = "http://localhost:2882",
-        fallback_dir: Path | str = "/data/rosclaw/practice/fallback",
+        fallback_dir: Path | str | None = None,
         table: str = "praxis_events",
         timeout_sec: float = 2.0,
     ):
         self._seekdb_url = seekdb_url.rstrip("/")
         self._endpoint = f"{self._seekdb_url}/api/v1/insert"
-        self._fallback_dir = Path(fallback_dir)
+        self._fallback_dir = Path(fallback_dir or get_default_data_root() / "fallback")
         self._table = table
         self._timeout = timeout_sec
         self._archived_dir = self._fallback_dir / "archived"

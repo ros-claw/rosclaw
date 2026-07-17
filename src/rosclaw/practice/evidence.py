@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from rosclaw.practice.config import resolve_data_root
 from rosclaw.practice.storage.catalog import PracticeCatalog
 from rosclaw.practice.storage.layout import PracticeLayout
 
@@ -57,7 +58,7 @@ def load_episode_evidence(
 ) -> PracticeEpisodeEvidence:
     """Load episode summary, raw events, and provider result by episode id."""
 
-    root = Path(data_root or "/data/rosclaw/practice")
+    root = resolve_data_root(data_root)
     layout = PracticeLayout(root)
 
     legacy = _load_from_paths(layout, episode_id, session_dir=layout.session_dir(episode_id))

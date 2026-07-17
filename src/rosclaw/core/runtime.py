@@ -37,8 +37,20 @@ from typing import Any
 
 from rosclaw.core.event_bus import Event, EventBus, EventPriority
 from rosclaw.core.lifecycle import LifecycleMixin
+from rosclaw.firstboot.workspace import get_rosclaw_home
 
 logger = logging.getLogger("rosclaw.core.runtime")
+
+
+def _seekdb_http_url_from_env() -> str | None:
+    """Resolve the HTTP bridge URL without treating SQL DSNs as HTTP endpoints."""
+    dedicated = os.environ.get("ROSCLAW_PRACTICE_HTTP_ADAPTER_URL")
+    if dedicated:
+        return dedicated
+    legacy = os.environ.get("ROSCLAW_SEEKDB_URL")
+    if legacy and legacy.lower().startswith(("http://", "https://")):
+        return legacy
+    return None
 
 
 # Provider layer imports (lazy to avoid hard deps)
@@ -97,12 +109,11 @@ class RuntimeConfig:
     seekdb_url: str | None = field(default_factory=lambda: os.environ.get("ROSCLAW_SEEKDB_URL"))
     # HTTP URL for the optional rosclaw_practice SeekDB bridge (ExperienceCommitter).
     # This is NOT a SQL DSN; it targets the rosclaw_practice HTTP adapter.
-    seekdb_http_url: str | None = field(
-        default_factory=lambda: os.environ.get("ROSCLAW_PRACTICE_HTTP_ADAPTER_URL")
-    )
+    seekdb_http_url: str | None = field(default_factory=_seekdb_http_url_from_env)
     seekdb_fallback_dir: str = field(
         default_factory=lambda: os.environ.get(
-            "ROSCLAW_SEEKDB_FALLBACK_DIR", "/data/rosclaw/fallback"
+            "ROSCLAW_SEEKDB_FALLBACK_DIR",
+            str(get_rosclaw_home() / "data" / "practice" / "fallback"),
         )
     )
     embodied_memory: Any | None = None  # powermem.EmbodiedMemory instance

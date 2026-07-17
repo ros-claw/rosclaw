@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from rosclaw.practice.config import DEFAULT_DATA_ROOT, PracticeSession, PracticeSummary
+from rosclaw.practice.config import PracticeSession, PracticeSummary, resolve_data_root
 from rosclaw.practice.storage.catalog import PracticeCatalog
 from rosclaw.practice.storage.layout import PracticeLayout, generate_practice_id
 
@@ -35,7 +35,7 @@ def finalize_rollout_practice_session(
     Returns the generated ``practice_id``.
     """
     trace_path = Path(trace_path)
-    data_root = Path(data_root or DEFAULT_DATA_ROOT)
+    data_root = resolve_data_root(data_root)
     practice_id = practice_id or generate_practice_id()
 
     layout = PracticeLayout(data_root)
