@@ -149,8 +149,42 @@ class StorageFactory:
                 write_timeout=10.0,
             )
 
+        if chosen == "seekdb_embedded":
+            from rosclaw.storage.seekdb_native import SeekDBEmbeddedStore
+
+            db_path = path or (str(url) if url and not _is_http_url(url) else None)
+            logger.info("Knowledge store backend: seekdb_embedded (%s)", db_path or "default")
+            if db_path:
+                return SeekDBEmbeddedStore(path=db_path)
+            return SeekDBEmbeddedStore()
+
+        if chosen == "seekdb_server":
+            from urllib.parse import urlparse
+
+            from rosclaw.storage.seekdb_native import SeekDBServerStore
+
+            if not url:
+                raise ValueError(
+                    "seekdb_backend='seekdb_server' requires seekdb_url "
+                    "(e.g. mysql://root@127.0.0.1:2881/rosclaw or seekdb://root@host:2881/db)."
+                )
+            if _is_http_url(url):
+                raise ValueError(
+                    f"seekdb_backend='seekdb_server' but seekdb_url looks like HTTP ({url})."
+                )
+            parsed = urlparse(str(url))
+            logger.info("Knowledge store backend: seekdb_server (%s)", _sanitize_url(str(url)))
+            return SeekDBServerStore(
+                host=parsed.hostname or "127.0.0.1",
+                port=parsed.port or 2881,
+                user=parsed.username or "root",
+                password=parsed.password or "",
+                database=parsed.path.lstrip("/") or "rosclaw",
+            )
+
         raise ValueError(
-            f"Unknown knowledge-store backend '{chosen}'. Supported: memory, sqlite, mysql."
+            f"Unknown knowledge-store backend '{chosen}'. "
+            "Supported: memory, sqlite, mysql, seekdb_embedded, seekdb_server."
         )
 
     @staticmethod
