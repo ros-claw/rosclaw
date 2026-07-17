@@ -6,6 +6,7 @@ Adds ``rosclaw db status`` and ``rosclaw db doctor``.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sqlite3
@@ -630,6 +631,286 @@ def cmd_db_doctor(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# rosclaw db reconcile
+# ---------------------------------------------------------------------------
+
+
+def _id_set_hash(ids: set[str]) -> str:
+    """SHA-256 over the sorted event-id set (order-independent)."""
+    digest = hashlib.sha256()
+    for event_id in sorted(ids):
+        digest.update(event_id.encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
+def _jsonl_event_stats(events_path: Path) -> dict[str, Any]:
+    """Stream events.jsonl: line count, duplicate ids, and the event-id set."""
+    count = 0
+    duplicates = 0
+    parse_errors = 0
+    ids: set[str] = set()
+    if not events_path.exists():
+        return {"count": 0, "duplicates": 0, "parse_errors": 0, "ids": ids, "exists": False}
+    with events_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            count += 1
+            try:
+                event_id = json.loads(line).get("event_id")
+            except json.JSONDecodeError:
+                parse_errors += 1
+                continue
+            if not event_id:
+                parse_errors += 1
+                continue
+            if event_id in ids:
+                duplicates += 1
+            else:
+                ids.add(event_id)
+    return {"count": count, "duplicates": duplicates, "parse_errors": parse_errors,
+            "ids": ids, "exists": True}
+
+
+def _manifest_event_count(session_dir: Path) -> int | None:
+    manifest_path = session_dir / "manifest.yaml"
+    if not manifest_path.exists():
+        return None
+    try:
+        import yaml
+
+        data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            value = data.get("event_count")
+            return int(value) if value is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _episode_event_count(session_dir: Path) -> int | None:
+    episode_path = session_dir / "episode.json"
+    if not episode_path.exists():
+        return None
+    try:
+        value = json.loads(episode_path.read_text(encoding="utf-8")).get("event_count")
+        return int(value) if value is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _remote_counts(client: Any, practice_id: str) -> dict[str, Any]:
+    """Best-effort remote episode/memory counts for *practice_id*."""
+    result: dict[str, Any] = {"remote_episode": None, "remote_memories": None}
+    try:
+        result["remote_episode"] = client.count("episodes", {"practice_id": practice_id})
+    except Exception as exc:  # noqa: BLE001
+        result["remote_episode_error"] = str(exc)
+    try:
+        result["remote_memories"] = client.count("body_cognition", {"practice_id": practice_id})
+    except Exception as exc:  # noqa: BLE001
+        result["remote_memories_error"] = str(exc)
+    return result
+
+
+def reconcile_practice(
+    practice_id: str,
+    data_root: str,
+    *,
+    remote_client: Any | None = None,
+    max_missing: int = 20,
+) -> dict[str, Any]:
+    """Reconcile one practice session across JSONL, catalog, index, and manifest."""
+    root = Path(data_root)
+    session_dir = root / "sessions" / practice_id
+    events_path = session_dir / "raw" / "events.jsonl"
+
+    jsonl = _jsonl_event_stats(events_path)
+    manifest_count = _manifest_event_count(session_dir)
+    episode_count = _episode_event_count(session_dir)
+
+    report: dict[str, Any] = {
+        "practice_id": practice_id,
+        "session_dir": str(session_dir),
+        "raw_jsonl": jsonl["count"],
+        "catalog_events": None,
+        "event_index": None,
+        "manifest_event_count": manifest_count,
+        "episode_event_count": episode_count,
+        "duplicates": jsonl["duplicates"],
+        "parse_errors": jsonl["parse_errors"],
+        "missing": [],
+        "missing_in_index": [],
+        "hashes": {},
+        "passed": False,
+    }
+    if not jsonl["exists"]:
+        report["error"] = "events.jsonl not found"
+        return report
+
+    catalog_path = _practice_catalog_path(data_root)
+    catalog_ids: set[str] = set()
+    index_ids: set[str] = set()
+    if catalog_path.exists():
+        conn = sqlite3.connect(f"file:{catalog_path}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT event_id FROM events WHERE practice_id = ?", (practice_id,)
+            ).fetchall()
+            catalog_ids = {row[0] for row in rows if row[0]}
+            practice_row = conn.execute(
+                "SELECT session_id, episode_id FROM practices WHERE practice_id = ?",
+                (practice_id,),
+            ).fetchone()
+            if practice_row and (practice_row[0] or practice_row[1]):
+                if practice_row[1]:
+                    idx_rows = conn.execute(
+                        "SELECT event_id FROM practice_event_index WHERE episode_id = ?",
+                        (practice_row[1],),
+                    ).fetchall()
+                else:
+                    idx_rows = conn.execute(
+                        "SELECT event_id FROM practice_event_index WHERE session_id = ?",
+                        (practice_row[0],),
+                    ).fetchall()
+                index_ids = {row[0] for row in idx_rows if row[0]}
+        finally:
+            conn.close()
+    else:
+        report["error"] = f"catalog not found at {catalog_path}"
+        return report
+
+    report["catalog_events"] = len(catalog_ids)
+    report["event_index"] = len(index_ids)
+
+    jsonl_ids: set[str] = jsonl["ids"]
+    missing_in_catalog = jsonl_ids - catalog_ids
+    missing_in_index = jsonl_ids - index_ids
+    report["missing"] = sorted(missing_in_catalog)[:max_missing]
+    report["missing_in_index"] = sorted(missing_in_index)[:max_missing]
+    report["missing_count"] = len(missing_in_catalog)
+    report["missing_in_index_count"] = len(missing_in_index)
+
+    report["hashes"] = {
+        "jsonl_event_ids": _id_set_hash(jsonl_ids),
+        "catalog_event_ids": _id_set_hash(catalog_ids),
+        "event_index_ids": _id_set_hash(index_ids),
+    }
+    hash_match = (
+        report["hashes"]["jsonl_event_ids"] == report["hashes"]["catalog_event_ids"]
+        and report["hashes"]["jsonl_event_ids"] == report["hashes"]["event_index_ids"]
+    )
+
+    counts_match = (
+        jsonl["count"] == len(catalog_ids) == len(index_ids)
+        and (manifest_count is None or manifest_count == jsonl["count"])
+        and (episode_count is None or episode_count == jsonl["count"])
+    )
+    local_ok = (
+        counts_match
+        and hash_match
+        and jsonl["duplicates"] == 0
+        and jsonl["parse_errors"] == 0
+    )
+
+    if remote_client is not None:
+        report.update(_remote_counts(remote_client, practice_id))
+        remote_ok = (
+            report.get("remote_episode") is not None
+            and report.get("remote_episode", 0) >= 1
+            and report.get("remote_memories") is not None
+        )
+        report["remote_checked"] = True
+        report["passed"] = bool(local_ok and remote_ok)
+    else:
+        report["remote_checked"] = False
+        report["passed"] = bool(local_ok)
+    return report
+
+
+def cmd_db_reconcile(args: argparse.Namespace) -> int:
+    """Reconcile practice event persistence across all local/remote paths."""
+    cfg = _load_storage_config(args)
+    data_root = getattr(args, "data_root", None) or cfg["practice_data_root"]
+
+    remote_client = None
+    if getattr(args, "remote", False):
+        try:
+            remote_client = _create_client(cfg)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[rosclaw db reconcile] Cannot create remote client: {exc}", file=sys.stderr)
+            return 1
+
+    try:
+        practice_ids: list[str] = []
+        if getattr(args, "all", False):
+            sessions_root = Path(data_root) / "sessions"
+            if sessions_root.exists():
+                # Only prac_* dirs are practice event sessions; sess_* dirs
+                # are ArtifactStore layout dirs without raw/events.jsonl.
+                practice_ids = sorted(
+                    p.name
+                    for p in sessions_root.iterdir()
+                    if p.is_dir() and p.name.startswith("prac_")
+                )
+        elif getattr(args, "practice_id", None):
+            practice_ids = [args.practice_id]
+        else:
+            latest = _latest_session_dir(data_root)
+            if latest is not None:
+                practice_ids = [latest.name]
+
+        if not practice_ids:
+            print("[rosclaw db reconcile] No practice sessions found", file=sys.stderr)
+            return 1
+
+        reports = [
+            reconcile_practice(
+                pid,
+                data_root,
+                remote_client=remote_client,
+                max_missing=getattr(args, "max_missing", 20),
+            )
+            for pid in practice_ids
+        ]
+    finally:
+        if remote_client is not None:
+            _close_client(remote_client)
+
+    all_passed = all(r["passed"] for r in reports)
+    if getattr(args, "json", False):
+        output: Any = reports[0] if len(reports) == 1 else {
+            "passed": all_passed,
+            "sessions": reports,
+        }
+        print(json.dumps(output, indent=2))
+    else:
+        for report in reports:
+            icon = "✅" if report["passed"] else "❌"
+            print(f"{icon} {report['practice_id']}")
+            for key in (
+                "raw_jsonl",
+                "catalog_events",
+                "event_index",
+                "manifest_event_count",
+                "episode_event_count",
+                "duplicates",
+                "missing_count",
+                "missing_in_index_count",
+            ):
+                if key in report:
+                    print(f"    {key:<24} {report[key]}")
+            if report.get("remote_checked"):
+                print(f"    {'remote_episode':<24} {report.get('remote_episode')}")
+                print(f"    {'remote_memories':<24} {report.get('remote_memories')}")
+            if report.get("error"):
+                print(f"    error: {report['error']}")
+    return 0 if all_passed else 1
+
+
 def add_db_subparser(subparsers: Any) -> Any:
     """Add ``rosclaw db`` subcommands."""
     db_parser = subparsers.add_parser("db", help="Storage backend diagnostics")
@@ -647,6 +928,28 @@ def add_db_subparser(subparsers: Any) -> Any:
     doctor_parser.add_argument("--backend", default=None, help="Override backend")
     doctor_parser.add_argument("--url", default=None, help="Override SQL URL")
     doctor_parser.add_argument("--path", default=None, help="Override SQLite path")
+
+    reconcile_parser = db_subparsers.add_parser(
+        "reconcile",
+        help="Verify JSONL/catalog/event-index/manifest event consistency",
+    )
+    reconcile_parser.add_argument("--practice-id", default=None, help="Practice to reconcile")
+    reconcile_parser.add_argument(
+        "--all", action="store_true", help="Reconcile every session in the data root"
+    )
+    reconcile_parser.add_argument(
+        "--data-root", default=None, help="Practice data root (default: from rosclaw.yaml)"
+    )
+    reconcile_parser.add_argument(
+        "--remote", action="store_true", help="Also reconcile against the remote knowledge store"
+    )
+    reconcile_parser.add_argument("--json", action="store_true", help="Output JSON")
+    reconcile_parser.add_argument("--backend", default=None, help="Override backend")
+    reconcile_parser.add_argument("--url", default=None, help="Override SQL URL")
+    reconcile_parser.add_argument("--path", default=None, help="Override SQLite path")
+    reconcile_parser.add_argument(
+        "--max-missing", type=int, default=20, help="Max missing event ids to list"
+    )
     return db_parser
 
 

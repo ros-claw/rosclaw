@@ -132,6 +132,21 @@ class PracticeRecorder(RuntimeConsumer):
         self._source_event_count = 0
         self._failure_labels: list[str] = []
         self._lock = threading.RLock()
+        # Durability watermarks: each counts the highest per-session sequence
+        # number known to be persisted on that path.  ``_catalog_watermarks``
+        # is delegated to PracticeCatalog.flush_until.
+        self._jsonl_watermark = 0
+        self._mcap_watermark = 0
+        self._last_flush_barrier: dict[str, Any] | None = None
+        # Sequences that failed to persist on a given path.  The flush
+        # barrier treats any failed sequence <= target as not-ok even when
+        # later watermarks have advanced past it.
+        self._failed_persist_sequences: dict[str, set[int]] = {
+            "jsonl": set(),
+            "mcap": set(),
+            "catalog_events": set(),
+            "catalog_event_index": set(),
+        }
 
         # Legacy state.
         self._flywheel: DataFlywheel | None = None
@@ -310,6 +325,11 @@ class PracticeRecorder(RuntimeConsumer):
         self._source_event_count = 0
         self._failure_labels = []
         self._summary = None
+        self._jsonl_watermark = 0
+        self._mcap_watermark = 0
+        self._last_flush_barrier = None
+        for failed_set in self._failed_persist_sequences.values():
+            failed_set.clear()
 
         self._writer = JsonlWriter(self.layout.events_jsonl_path(practice_id), rotate_mb=None)
         self._catalog = PracticeCatalog(self.layout.catalog_db_path)
@@ -405,6 +425,19 @@ class PracticeRecorder(RuntimeConsumer):
             duration_ms = (time.monotonic_ns() - self._session.start_time_ns) / 1_000_000.0
         if event_count is None:
             event_count = self._event_count
+
+        # Commit-point barrier: before the manifest declares the session
+        # complete, every produced event must be durably committed on each
+        # persistence path.  A failure never aborts finalize (the robot must
+        # not be blocked) but is logged CRITICAL so ``db reconcile`` and the
+        # operator see the discrepancy.
+        barrier = self.flush_barrier(event_count)
+        if not barrier["ok"]:
+            logger.critical(
+                "Flush barrier not satisfied before finalizing session %s: %s",
+                self._session.practice_id,
+                barrier,
+            )
 
         self._summary = PracticeSummary(
             practice_id=self._session.practice_id,
@@ -584,7 +617,8 @@ class PracticeRecorder(RuntimeConsumer):
 
         with self._lock:
             self._event_count += 1
-            envelope.sequence_id = self._event_count
+            sequence_id = self._event_count
+            envelope.sequence_id = sequence_id
             if envelope.event_type not in {"runtime.start", "runtime.stop"}:
                 self._source_event_count += 1
 
@@ -593,15 +627,23 @@ class PracticeRecorder(RuntimeConsumer):
             try:
                 byte_offset = self._writer.bytes_written
                 self._writer.write(envelope.model_dump(mode="json"))
+                with self._lock:
+                    self._jsonl_watermark = sequence_id
             except Exception as e:
                 logger.error("Failed to write event to JSONL: %s", e)
                 byte_offset = None
+                with self._lock:
+                    self._failed_persist_sequences["jsonl"].add(sequence_id)
 
         if self._mcap_writer is not None:
             try:
                 self._mcap_writer.write(envelope.model_dump(mode="json"))
+                with self._lock:
+                    self._mcap_watermark = sequence_id
             except Exception as e:
                 logger.error("Failed to write event to MCAP: %s", e)
+                with self._lock:
+                    self._failed_persist_sequences["mcap"].add(sequence_id)
 
         if self._catalog is not None:
             try:
@@ -620,10 +662,17 @@ class PracticeRecorder(RuntimeConsumer):
                         if envelope.payload_ref
                         else None,
                         "tags": ",".join(envelope.tags),
+                        "_wm": sequence_id,
                     }
                 )
             except Exception as e:
                 logger.error("Failed to insert event into catalog: %s", e)
+                with self._lock:
+                    self._failed_persist_sequences["catalog_events"].add(sequence_id)
+                try:
+                    self._catalog.advance_events_watermark(sequence_id)
+                except Exception:  # noqa: BLE001
+                    logger.debug("Failed to advance events watermark after insert failure")
 
             if byte_offset is not None:
                 try:
@@ -643,10 +692,25 @@ class PracticeRecorder(RuntimeConsumer):
                                 "task_id": envelope.task_id,
                                 "skill_id": envelope.skill_id,
                             },
+                            "_wm": sequence_id,
                         }
                     )
                 except Exception as e:
                     logger.error("Failed to insert event index into catalog: %s", e)
+                    with self._lock:
+                        self._failed_persist_sequences["catalog_event_index"].add(sequence_id)
+                    try:
+                        self._catalog.advance_event_index_watermark(sequence_id)
+                    except Exception:  # noqa: BLE001
+                        logger.debug("Failed to advance index watermark after insert failure")
+            else:
+                # No index row will be queued for this sequence (e.g. JSONL
+                # write failed); advance the index watermark so flush_until
+                # does not wait for a record that will never arrive.
+                try:
+                    self._catalog.advance_event_index_watermark(sequence_id)
+                except Exception as e:
+                    logger.error("Failed to advance event-index watermark: %s", e)
 
         if self._publish_to_event_bus and self._legacy_event_bus is not None:
             try:
@@ -711,6 +775,58 @@ class PracticeRecorder(RuntimeConsumer):
     @property
     def summary(self) -> PracticeSummary | None:
         return self._summary
+
+    @property
+    def last_flush_barrier(self) -> dict[str, Any] | None:
+        """Result of the most recent :meth:`flush_barrier` call, if any."""
+        return self._last_flush_barrier
+
+    def flush_barrier(
+        self,
+        sequence_id: int | None = None,
+        timeout_sec: float | None = None,
+    ) -> dict[str, Any]:
+        """Wait until every produced event up to *sequence_id* is persisted.
+
+        "Persisted" means actually committed on each storage path — JSONL
+        (synchronous), MCAP (synchronous), and the catalog batch writers —
+        never merely dequeued from an in-memory queue.  Returns a
+        machine-readable barrier report.
+        """
+        with self._lock:
+            target = sequence_id if sequence_id is not None else self._event_count
+        if timeout_sec is None:
+            timeout_sec = self._config.finalize_flush_timeout_sec
+
+        catalog_report: dict[str, Any] = {
+            "ok": True,
+            "events_watermark": target,
+            "event_index_watermark": target,
+        }
+        if self._catalog is not None and target > 0:
+            catalog_report = self._catalog.flush_until(target, timeout_sec)
+
+        with self._lock:
+            jsonl_watermark = self._jsonl_watermark
+            mcap_watermark = self._mcap_watermark
+            failed_below_target = {
+                path: sorted(seq for seq in seqs if seq <= target)
+                for path, seqs in self._failed_persist_sequences.items()
+            }
+        jsonl_ok = jsonl_watermark >= target or self._writer is None or target == 0
+        gaps = {path: seqs for path, seqs in failed_below_target.items() if seqs}
+        ok = bool(jsonl_ok and catalog_report.get("ok", False) and not gaps)
+        report = {
+            "ok": ok,
+            "target": target,
+            "jsonl_watermark": jsonl_watermark,
+            "mcap_watermark": mcap_watermark,
+            "events_watermark": catalog_report.get("events_watermark"),
+            "event_index_watermark": catalog_report.get("event_index_watermark"),
+            "failed_sequences": gaps,
+        }
+        self._last_flush_barrier = report
+        return report
 
     # ------------------------------------------------------------------
     # Legacy DataFlywheel / EventBus API (preserved for compatibility)

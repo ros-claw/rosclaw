@@ -276,8 +276,10 @@ def test_worker_drains_to_http_endpoint_per_record(outbox: OutboxStore, http_com
     assert drained == 2
     assert outbox.stats()["total"] == 0
     assert len(http_committer.state["received"]) == 2
-    assert {"event": "a"} in http_committer.state["received"]
-    assert {"event": "b"} in http_committer.state["received"]
+    events = {p.get("event") for p in http_committer.state["received"]}
+    assert events == {"a", "b"}
+    # The worker attaches the record's idempotency key for remote upsert.
+    assert all("idempotency_key" in p for p in http_committer.state["received"])
 
 
 def test_worker_drains_to_http_endpoint_in_batches(outbox: OutboxStore, http_committer) -> None:
@@ -292,8 +294,9 @@ def test_worker_drains_to_http_endpoint_in_batches(outbox: OutboxStore, http_com
     assert len(http_committer.state["received"]) == 1
     payloads = http_committer.state["received"][0]
     assert isinstance(payloads, list)
-    assert {"event": "a"} in payloads
-    assert {"event": "b"} in payloads
+    events = {p.get("event") for p in payloads}
+    assert events == {"a", "b"}
+    assert all("idempotency_key" in p for p in payloads)
 
 
 def test_worker_http_failure_retries_and_dead_letters(outbox: OutboxStore, http_committer) -> None:

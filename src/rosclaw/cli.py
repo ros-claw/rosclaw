@@ -77,7 +77,7 @@ from rosclaw.sense.cli import (
     cmd_sense_watch,
 )
 from rosclaw.skill.cli import add_skill_hub_parsers
-from rosclaw.storage.cli import add_db_subparser, cmd_db_doctor, cmd_db_status
+from rosclaw.storage.cli import add_db_subparser, cmd_db_doctor, cmd_db_reconcile, cmd_db_status
 
 
 def _dispatch_lerobot_cli(command: str, *args: Any) -> int:
@@ -8677,6 +8677,8 @@ def main() -> int:
                 return cmd_db_status(args)
             elif args.db_command == "doctor":
                 return cmd_db_doctor(args)
+            elif args.db_command == "reconcile":
+                return cmd_db_reconcile(args)
             else:
                 db_parser.print_help()
                 return 1

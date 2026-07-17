@@ -105,7 +105,13 @@ class SeekDBBridge:
         practice_event = self._convert(event)
         payload = practice_event.model_dump()
         if self._outbox is not None:
-            self._outbox.enqueue("seekdb_http", payload)
+            self._outbox.enqueue(
+                "seekdb_http",
+                payload,
+                idempotency_key=f"praxis_event:{event.event_id}",
+                entity_type="praxis_event",
+                entity_id=event.event_id,
+            )
             return
         self._committer.save_to_seekdb(payload)
 
