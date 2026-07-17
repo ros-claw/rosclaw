@@ -20,14 +20,17 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
 
+from rosclaw.body.service import BodyInstanceService
+
 # Ensure the subprocess server imports the branch code, not an installed copy.
 _PROJECT_SRC = str(Path(__file__).resolve().parents[2] / "src")
 
 
-def _server_env() -> dict[str, str]:
+def _server_env(rosclaw_home: Path) -> dict[str, str]:
     env = os.environ.copy()
     existing = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = _PROJECT_SRC if not existing else f"{_PROJECT_SRC}{os.pathsep}{existing}"
+    env["ROSCLAW_HOME"] = str(rosclaw_home)
     return env
 
 
@@ -42,20 +45,20 @@ async def _wait_for_port(host: str, port: int, timeout: float = 60.0) -> None:
     raise TimeoutError(f"Server did not bind to {host}:{port} within {timeout}s")
 
 
-async def _start_server(*args: str) -> asyncio.subprocess.Process:
+async def _start_server(*args: str, rosclaw_home: Path) -> asyncio.subprocess.Process:
     cmd = [sys.executable, "-m", "rosclaw.mcp.server", *args]
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
-        env=_server_env(),
+        env=_server_env(rosclaw_home),
     )
     return proc
 
 
-def _envelope(text: str, *, expected_ok: bool) -> dict[str, Any]:
+def _envelope(text: str, *, tool_name: str, expected_ok: bool) -> dict[str, Any]:
     payload = json.loads(text)
-    assert payload["ok"] is expected_ok, payload
+    assert payload["ok"] is expected_ok, {"tool": tool_name, "payload": payload}
     assert payload["schema_version"] == "rosclaw.mcp.v1"
     assert "trace_id" in payload
     assert "timestamp" in payload
@@ -91,10 +94,23 @@ EXPECTED_TOOLS = {name for name, _ in P0_TOOL_CALLS}
 EXPECTED_ERROR_TOOLS = {"get_robot_state"}
 
 
+def _prepare_server_workspace(tmp_path: Path) -> tuple[Path, Path]:
+    """Create deterministic project and body state for the subprocess server."""
+    project_root = tmp_path / "project"
+    rosclaw_home = tmp_path / "rosclaw-home"
+    project_root.mkdir()
+    BodyInstanceService(workspace=rosclaw_home).create_or_init(
+        robot="ur5e",
+        name="sim_ur5e",
+        mode="single",
+    )
+    return project_root, rosclaw_home
+
+
 @pytest.mark.asyncio
 async def test_stdio_smoke(tmp_path: Path) -> None:
     """Discover and exercise every P0 tool through the stdio transport."""
-    project_root = str(tmp_path)
+    project_root, rosclaw_home = _prepare_server_workspace(tmp_path)
     params = StdioServerParameters(
         command=sys.executable,
         args=[
@@ -105,11 +121,11 @@ async def test_stdio_smoke(tmp_path: Path) -> None:
             "--log-level",
             "WARNING",
             "--project-root",
-            project_root,
+            str(project_root),
             "--robot-id",
             "sim_ur5e",
         ],
-        env=_server_env(),
+        env=_server_env(rosclaw_home),
     )
 
     async with (
@@ -126,6 +142,7 @@ async def test_stdio_smoke(tmp_path: Path) -> None:
             assert len(result.content) == 1
             _envelope(
                 result.content[0].text,
+                tool_name=tool_name,
                 expected_ok=tool_name not in EXPECTED_ERROR_TOOLS,
             )
 
@@ -135,7 +152,7 @@ async def test_http_smoke(tmp_path: Path) -> None:
     """Discover and exercise every P0 tool through the streamable HTTP transport."""
     host = "127.0.0.1"
     port = _find_free_port(host)
-    project_root = str(tmp_path)
+    project_root, rosclaw_home = _prepare_server_workspace(tmp_path)
     proc = await _start_server(
         "--transport",
         "http",
@@ -146,9 +163,10 @@ async def test_http_smoke(tmp_path: Path) -> None:
         "--log-level",
         "WARNING",
         "--project-root",
-        project_root,
+        str(project_root),
         "--robot-id",
         "sim_ur5e",
+        rosclaw_home=rosclaw_home,
     )
     try:
         await _wait_for_port(host, port)
@@ -167,6 +185,7 @@ async def test_http_smoke(tmp_path: Path) -> None:
                 assert len(result.content) == 1
                 _envelope(
                     result.content[0].text,
+                    tool_name=tool_name,
                     expected_ok=tool_name not in EXPECTED_ERROR_TOOLS,
                 )
     finally:

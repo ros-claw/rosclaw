@@ -50,41 +50,7 @@ from rosclaw.firstboot.wizard import run_firstboot
 from rosclaw.firstboot.workspace import get_rosclaw_home, resolve_home
 from rosclaw.hub.cli import add_hub_subparser, dispatch_hub_command
 from rosclaw.integrations import GLOBAL_INTEGRATION_REGISTRY
-from rosclaw.integrations.lerobot import register_lerobot_capabilities
-from rosclaw.integrations.lerobot.cli import (
-    cmd_capability_list,
-    cmd_lerobot_capabilities,
-    cmd_lerobot_compatibility,
-    cmd_lerobot_dataset_api,
-    cmd_lerobot_dataset_compatibility,
-    cmd_lerobot_doctor,
-    cmd_lerobot_export_dataset,
-    cmd_lerobot_info,
-    cmd_lerobot_mapping_generate,
-    cmd_lerobot_mapping_map_action,
-    cmd_lerobot_mapping_validate,
-    cmd_lerobot_policy_health,
-    cmd_lerobot_policy_metrics,
-    cmd_lerobot_policy_plugins,
-    cmd_lerobot_policy_serve,
-    cmd_lerobot_policy_status,
-    cmd_lerobot_policy_stop,
-    cmd_lerobot_policy_warmup,
-    cmd_lerobot_rollout_arm,
-    cmd_lerobot_rollout_execute,
-    cmd_lerobot_rollout_preflight,
-    cmd_lerobot_rollout_proposal_only,
-    cmd_lerobot_rollout_rh56_shadow,
-    cmd_lerobot_rollout_shadow,
-    cmd_lerobot_smoke_dataloader,
-    cmd_lerobot_validate_dataset,
-    cmd_provider_infer_lerobot,
-    cmd_provider_inspect_lerobot,
-    cmd_provider_load_test_lerobot,
-    cmd_setup_lerobot,
-    cmd_smoke_policy_lerobot,
-)
-from rosclaw.integrations.lerobot.smoke_policy import DEFAULT_SMOKE_POLICY
+from rosclaw.integrations.lerobot.constants import DEFAULT_SMOKE_POLICY
 from rosclaw.mcp.onboarding.cli import add_mcp_subparser
 from rosclaw.mcp.server import serve as _mcp_serve
 from rosclaw.practice.config import PracticeConfig, SourceConfig
@@ -103,6 +69,21 @@ from rosclaw.sense.cli import (
 )
 from rosclaw.skill.cli import add_skill_hub_parsers
 from rosclaw.storage.cli import add_db_subparser, cmd_db_doctor, cmd_db_status
+
+
+def _dispatch_lerobot_cli(command: str, *args: Any) -> int:
+    """Load the optional LeRobot command surface only when it is invoked."""
+    from rosclaw.integrations.lerobot import cli as lerobot_cli
+
+    handler = getattr(lerobot_cli, command)
+    return int(handler(*args))
+
+
+def _register_lerobot_cli_capabilities() -> None:
+    """Register LeRobot factories only for commands that inspect that registry."""
+    from rosclaw.integrations.lerobot.capabilities import register_lerobot_capabilities
+
+    register_lerobot_capabilities(GLOBAL_INTEGRATION_REGISTRY)
 
 
 def _cmd_mcp_serve(args: argparse.Namespace) -> int:
@@ -1842,7 +1823,7 @@ def cmd_practice_export(args: argparse.Namespace) -> int:
             timeout_sec=args.timeout_sec,
             json=args.json if hasattr(args, "json") else False,
         )
-        return cmd_lerobot_export_dataset(export_args)
+        return _dispatch_lerobot_cli("cmd_lerobot_export_dataset", export_args)
 
     from rosclaw.practice.episode_recorder import EpisodeRecorder
 
@@ -6480,10 +6461,6 @@ def main() -> int:
     )
     subparsers = parser.add_subparsers(dest="command")
 
-    # Register optional integrations (LeRobot, etc.) so their provider types
-    # and exporters are available to CLI commands without hard dependencies.
-    register_lerobot_capabilities(GLOBAL_INTEGRATION_REGISTRY)
-
     # init
     init_parser = subparsers.add_parser("init", help="Initialize a ROSClaw workspace")
     init_parser.add_argument("dir", nargs="?", default=".", help="Target directory")
@@ -8446,19 +8423,19 @@ def main() -> int:
                 return cmd_provider_invoke(args)
             elif args.provider_command == "inspect":
                 if args.type == "lerobot_policy":
-                    return cmd_provider_inspect_lerobot(args)
+                    return _dispatch_lerobot_cli("cmd_provider_inspect_lerobot", args)
                 print(f"[ROSClaw] Unknown provider type for inspect: {args.type}", file=sys.stderr)
                 return 1
             elif args.provider_command == "load-test":
                 if args.type == "lerobot_policy":
-                    return cmd_provider_load_test_lerobot(args)
+                    return _dispatch_lerobot_cli("cmd_provider_load_test_lerobot", args)
                 print(
                     f"[ROSClaw] Unknown provider type for load-test: {args.type}", file=sys.stderr
                 )
                 return 1
             elif args.provider_command == "infer":
                 if args.type == "lerobot_policy":
-                    return cmd_provider_infer_lerobot(args)
+                    return _dispatch_lerobot_cli("cmd_provider_infer_lerobot", args)
                 print(f"[ROSClaw] Unknown provider type for infer: {args.type}", file=sys.stderr)
                 return 1
             elif args.provider_command == "diagnose":
@@ -8468,72 +8445,75 @@ def main() -> int:
                 return 1
         elif args.command == "capability":
             if args.capability_command == "list":
-                return cmd_capability_list(args, GLOBAL_INTEGRATION_REGISTRY)
+                _register_lerobot_cli_capabilities()
+                return _dispatch_lerobot_cli(
+                    "cmd_capability_list", args, GLOBAL_INTEGRATION_REGISTRY
+                )
             else:
                 capability_parser.print_help()
                 return 1
         elif args.command == "lerobot":
             if args.lerobot_command == "doctor":
-                return cmd_lerobot_doctor(args)
+                return _dispatch_lerobot_cli("cmd_lerobot_doctor", args)
             elif args.lerobot_command == "info":
-                return cmd_lerobot_info(args)
+                return _dispatch_lerobot_cli("cmd_lerobot_info", args)
             elif args.lerobot_command == "capabilities":
-                return cmd_lerobot_capabilities(args)
+                return _dispatch_lerobot_cli("cmd_lerobot_capabilities", args)
             elif args.lerobot_command == "smoke-policy":
-                return cmd_smoke_policy_lerobot(args)
+                return _dispatch_lerobot_cli("cmd_smoke_policy_lerobot", args)
             elif args.lerobot_command == "compatibility":
-                return cmd_lerobot_compatibility(args)
+                return _dispatch_lerobot_cli("cmd_lerobot_compatibility", args)
             elif args.lerobot_command == "export-dataset":
-                return cmd_lerobot_export_dataset(args)
+                return _dispatch_lerobot_cli("cmd_lerobot_export_dataset", args)
             elif args.lerobot_command == "validate-dataset":
-                return cmd_lerobot_validate_dataset(args)
+                return _dispatch_lerobot_cli("cmd_lerobot_validate_dataset", args)
             elif args.lerobot_command == "dataset-api":
-                return cmd_lerobot_dataset_api(args)
+                return _dispatch_lerobot_cli("cmd_lerobot_dataset_api", args)
             elif args.lerobot_command == "smoke-dataloader":
-                return cmd_lerobot_smoke_dataloader(args)
+                return _dispatch_lerobot_cli("cmd_lerobot_smoke_dataloader", args)
             elif args.lerobot_command == "dataset-compatibility":
-                return cmd_lerobot_dataset_compatibility(args)
+                return _dispatch_lerobot_cli("cmd_lerobot_dataset_compatibility", args)
             elif args.lerobot_command == "policy":
                 if args.lerobot_policy_command == "serve":
-                    return cmd_lerobot_policy_serve(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_policy_serve", args)
                 elif args.lerobot_policy_command == "status":
-                    return cmd_lerobot_policy_status(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_policy_status", args)
                 elif args.lerobot_policy_command == "health":
-                    return cmd_lerobot_policy_health(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_policy_health", args)
                 elif args.lerobot_policy_command == "stop":
-                    return cmd_lerobot_policy_stop(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_policy_stop", args)
                 elif args.lerobot_policy_command == "metrics":
-                    return cmd_lerobot_policy_metrics(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_policy_metrics", args)
                 elif args.lerobot_policy_command == "plugins":
-                    return cmd_lerobot_policy_plugins(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_policy_plugins", args)
                 elif args.lerobot_policy_command == "warmup":
-                    return cmd_lerobot_policy_warmup(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_policy_warmup", args)
                 else:
                     lerobot_policy_parser.print_help()
                     return 1
             elif args.lerobot_command == "mapping":
                 if args.lerobot_mapping_command == "generate":
-                    return cmd_lerobot_mapping_generate(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_mapping_generate", args)
                 elif args.lerobot_mapping_command == "validate":
-                    return cmd_lerobot_mapping_validate(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_mapping_validate", args)
                 elif args.lerobot_mapping_command == "map-action":
-                    return cmd_lerobot_mapping_map_action(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_mapping_map_action", args)
                 else:
                     lerobot_mapping_parser.print_help()
                     return 1
             elif args.lerobot_command == "rollout":
                 if args.lerobot_rollout_command == "proposal-only":
-                    return cmd_lerobot_rollout_proposal_only(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_rollout_proposal_only", args)
                 elif args.lerobot_rollout_command == "shadow":
-                    return cmd_lerobot_rollout_shadow(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_rollout_shadow", args)
                 elif args.lerobot_rollout_command == "rh56-shadow":
-                    return cmd_lerobot_rollout_rh56_shadow(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_rollout_rh56_shadow", args)
                 elif args.lerobot_rollout_command == "preflight":
-                    return cmd_lerobot_rollout_preflight(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_rollout_preflight", args)
                 elif args.lerobot_rollout_command == "arm":
-                    return cmd_lerobot_rollout_arm(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_rollout_arm", args)
                 elif args.lerobot_rollout_command == "execute":
-                    return cmd_lerobot_rollout_execute(args)
+                    return _dispatch_lerobot_cli("cmd_lerobot_rollout_execute", args)
                 else:
                     lerobot_rollout_parser.print_help()
                     return 1
@@ -8542,7 +8522,7 @@ def main() -> int:
                 return 1
         elif args.command == "setup":
             if args.setup_command == "lerobot":
-                return cmd_setup_lerobot(args)
+                return _dispatch_lerobot_cli("cmd_setup_lerobot", args)
             else:
                 setup_parser.print_help()
                 return 1

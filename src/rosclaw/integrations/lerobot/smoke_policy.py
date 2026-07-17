@@ -23,6 +23,7 @@ from typing import Any
 
 from rosclaw.core.async_utils import run_sync
 from rosclaw.integrations.lerobot.config import get_configured_lerobot_runtime
+from rosclaw.integrations.lerobot.constants import DEFAULT_SMOKE_POLICY
 from rosclaw.integrations.lerobot.contracts import ObservationContract, ObservationFeature
 from rosclaw.integrations.lerobot.policy_cache import (
     MaterializationResult,
@@ -49,7 +50,6 @@ from rosclaw.provider.core.manifest import (
 )
 from rosclaw.provider.core.request import ProviderRequest
 
-DEFAULT_SMOKE_POLICY = "lerobot/act_aloha_sim_transfer_cube_human"
 DEFAULT_OBSERVATION_FILE = Path(__file__).with_name("resources") / "sample_observation_aloha_act.json"
 
 

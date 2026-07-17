@@ -46,7 +46,7 @@ _EXPORTS = {
     "LeRobotDoctorReport": "schemas",
     "LeRobotSetupErrorCode": "schemas",
     "ProfileSpec": "schemas",
-    "DEFAULT_SMOKE_POLICY": "smoke_policy",
+    "DEFAULT_SMOKE_POLICY": "constants",
     "SmokePolicyOptions": "smoke_policy",
     "run_smoke_policy": "smoke_policy",
     "run_smoke_policy_sync": "smoke_policy",
