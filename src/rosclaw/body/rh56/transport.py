@@ -258,6 +258,12 @@ class MockModbusTransport:
         self._force_limit = int(force_limit)
         return True
 
+    def read_angle_setpoints(self) -> list[int]:
+        """Current setpoints (the mock tracks its last commanded target)."""
+        if not self._connected:
+            raise TransportIOError("serial_timeout: transport not connected")
+        return [int(t) for t in self._target]
+
     def emergency_stop(self) -> bool:
         self._estopped = True
         self._target = list(self._position)
@@ -506,6 +512,14 @@ class SerialModbusTransport:
     def last_command_delivery(self) -> str:
         """Delivery classification of the most recent write_position call."""
         return self._last_command_delivery
+
+    def read_angle_setpoints(self) -> list[int]:
+        """Read the current ANGLE_SET registers (the active setpoints)."""
+        from rosclaw.body.rh56.modbus import Register
+
+        if not self.is_connected():
+            raise TransportIOError("serial_timeout: transport not connected")
+        return self._read_registers(Register.ANGLE_SET, self.profile.actuator_count)
 
     def write_position(
         self,

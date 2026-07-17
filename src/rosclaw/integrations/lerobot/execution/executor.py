@@ -185,12 +185,25 @@ class SingleStepExecutor:
         )
 
         # 6. Executor boundary: freshness/dim/range/step-delta + one command.
+        # Setpoint hold band (exp3 real-hardware finding): the firmware coasts
+        # one servo cycle when a setpoint CHANGES to ≈ the current position
+        # (zero error → ~15-17 raw dip on gravity-loaded joints).  Rewriting
+        # an UNCHANGED setpoint does not re-plan.  The band therefore covers
+        # only near-zero deltas (5 raw — the dip was measured at |Δ|<=2);
+        # anything larger is real motion and must re-plan.  This is a device
+        # constant, deliberately NOT the position tolerance: using the
+        # tolerance as the band starves small deliberate steps.
+        hold_tolerance: list[float] | None = None
+        calibration = getattr(self.verifier, "calibration", None)
+        if calibration is not None:
+            hold_tolerance = [5.0] * len(self.profile.action_order)
         self.arming.machine.transition(ExecutionState.EXECUTING_STEP, proposal_id)
         try:
             acknowledged, feedback = self.executor.execute_step(
                 request,
                 settle_ms=settle_ms,
                 max_step_delta_raw=permit.max_step_delta_raw,
+                hold_tolerance_raw=hold_tolerance,
             )
         except ExecutorSafetyError as exc:
             self.arming.machine.transition(ExecutionState.VERIFYING_FEEDBACK, "safety refusal")

@@ -147,7 +147,13 @@ class _FakeSerial:
         self.is_open = True
 
 
-def _armed_stack(*, mode: ExecutionMode = ExecutionMode.REAL, transport=None):
+def _armed_stack(
+    *,
+    mode: ExecutionMode = ExecutionMode.REAL,
+    transport=None,
+    calibration=None,
+    max_step_delta_raw: float = 30.0,
+):
     profile = _profile()
     if transport is None:
         transport = SerialModbusTransport(profile, existing_serial=_FakeSerial(_FakeDevice()))
@@ -159,7 +165,7 @@ def _armed_stack(*, mode: ExecutionMode = ExecutionMode.REAL, transport=None):
     permit = permit_manager.issue(
         body_id="rh56_left_01",
         **HASHES,
-        max_step_delta_raw=30.0,
+        max_step_delta_raw=max_step_delta_raw,
         max_speed=100,
         max_force_g=100.0,
         expires_in_sec=120.0,
@@ -173,7 +179,7 @@ def _armed_stack(*, mode: ExecutionMode = ExecutionMode.REAL, transport=None):
         profile=profile,
         permit_manager=permit_manager,
         arming=arming,
-        verifier=FeedbackVerifier(profile),
+        verifier=FeedbackVerifier(profile, calibration),
         execution_mode=mode,
     )
     return step, permit, transport
@@ -326,3 +332,91 @@ def test_step_delta_refusal_faults_and_revokes_permit() -> None:
     assert receipt.final_state is ActionState.BLOCKED
     assert "step_delta_exceeded" in receipt.errors[0]["code"]
     assert step.commands_executed == 0
+
+
+def _calibration(tolerance: int = 25):
+    from rosclaw.body.rh56.calibration import (
+        ActuatorCalibration,
+        CalibrationValidation,
+        RH56Calibration,
+    )
+
+    names = ["little", "ring", "middle", "index", "thumb", "thumb_rot"]
+    return RH56Calibration(
+        body_id="rh56_left_01",
+        transport_profile="test_profile",
+        actuators={name: ActuatorCalibration(position_tolerance_raw=tolerance) for name in names},
+        validation=CalibrationValidation(status="validated"),
+    )
+
+
+def test_setpoint_hysteresis_keeps_static_joint_setpoints() -> None:
+    # thumb_rot sits mid-range (actual == setpoint 900 after the first move).
+    # A follow-up command that moves ONLY the index must not re-plan thumb_rot
+    # (a setpoint rewrite to ≈current would coast the servo on real hardware).
+    from rosclaw.body.rh56 import modbus
+
+    device = _FakeDevice()
+    transport = SerialModbusTransport(_profile(), existing_serial=_FakeSerial(device))
+    transport.connect()
+    step, permit, _ = _armed_stack(
+        calibration=_calibration(tolerance=25),
+        transport=transport,
+        max_step_delta_raw=60.0,
+    )
+
+    # First: move thumb_rot to 900 (its setpoint becomes 900, actual snaps to 900).
+    transport.write_position([1000] * 5 + [900], speed=100, force_limit=100)
+    time.sleep(0.01)
+    assert transport.read_state().position[5] == 900
+
+    # Now request index=950 (moving) with thumb_rot=905 (within 25 of actual 900).
+    values = [1000.0, 1000.0, 1000.0, 950.0, 1000.0, 905.0]
+    result = step.execute_candidate(
+        permit_id=permit.permit_id,
+        proposal_id="hyst_1",
+        names=["little", "ring", "middle", "index", "thumb", "thumb_rot"],
+        values=values,
+        representation="joint_position",
+        units="raw_device_unit",
+        hashes=HASHES,
+        speed=100,
+        force_limit_g=100.0,
+        observation_timestamp_ns=time.monotonic_ns(),
+    )
+    assert result.status == "completed", result.message
+    angle_set = device.registers[modbus.Register.ANGLE_SET]
+    assert angle_set[3] == 950  # index moved as requested
+    assert angle_set[5] == 900  # thumb_rot setpoint preserved (no re-plan)
+
+
+def test_setpoint_hysteresis_does_not_apply_beyond_tolerance() -> None:
+    # thumb_rot target 940 is 40 raw away (beyond tolerance 25): must re-plan.
+    from rosclaw.body.rh56 import modbus
+
+    device = _FakeDevice()
+    transport = SerialModbusTransport(_profile(), existing_serial=_FakeSerial(device))
+    transport.connect()
+    step, permit, _ = _armed_stack(
+        calibration=_calibration(tolerance=25),
+        transport=transport,
+        max_step_delta_raw=60.0,
+    )
+    transport.write_position([1000] * 5 + [900], speed=100, force_limit=100)
+    time.sleep(0.01)
+
+    values = [1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 940.0]
+    result = step.execute_candidate(
+        permit_id=permit.permit_id,
+        proposal_id="hyst_2",
+        names=["little", "ring", "middle", "index", "thumb", "thumb_rot"],
+        values=values,
+        representation="joint_position",
+        units="raw_device_unit",
+        hashes=HASHES,
+        speed=100,
+        force_limit_g=100.0,
+        observation_timestamp_ns=time.monotonic_ns(),
+    )
+    assert result.status == "completed", result.message
+    assert device.registers[modbus.Register.ANGLE_SET][5] == 940
