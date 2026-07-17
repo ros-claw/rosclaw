@@ -326,3 +326,42 @@ def test_not_connected_raises() -> None:
     transport = SerialModbusTransport(_profile(), existing_serial=_FakeSerial(_FakeDevice()))
     with pytest.raises(TransportIOError, match="serial_timeout"):
         transport.read_state()
+
+
+def test_termios_eio_converts_to_transport_io_error() -> None:
+    """A vanished adapter surfaces as termios.error (NOT OSError) on Linux —
+    it must become TransportIOError and mark the transport disconnected."""
+    import termios
+
+    device = _FakeDevice()
+    fake = _FakeSerial(device)
+
+    def _raise_eio(*args, **kwargs):
+        raise termios.error(5, "Input/output error")
+
+    transport = SerialModbusTransport(_profile(), existing_serial=fake)
+    transport.connect()
+    fake.read = _raise_eio
+    fake.reset_input_buffer = _raise_eio
+    with pytest.raises(TransportIOError, match="io_error"):
+        transport.read_state()
+    assert not transport.is_connected()
+
+
+def test_termios_eio_on_write_marks_disconnected() -> None:
+    import termios
+
+    device = _FakeDevice()
+    fake = _FakeSerial(device)
+
+    def _raise_eio(*args, **kwargs):
+        raise termios.error(5, "Input/output error")
+
+    transport = SerialModbusTransport(_profile(), existing_serial=fake)
+    transport.connect()
+    fake.reset_input_buffer = _raise_eio
+    # write_position fails closed (UNCERTAIN, no blind resend) and the EIO
+    # marks the transport disconnected.
+    assert transport.write_position([500] * 6, speed=200, force_limit=300) is False
+    assert transport.last_command_delivery == CommandDelivery.UNCERTAIN
+    assert not transport.is_connected()

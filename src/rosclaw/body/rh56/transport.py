@@ -22,6 +22,7 @@ import contextlib
 import logging
 import math
 import os
+import termios
 import threading
 import time
 from dataclasses import dataclass
@@ -356,7 +357,7 @@ class SerialModbusTransport:
                         timeout=0.05,
                         write_timeout=1.0,
                     )
-                except OSError as exc:
+                except (OSError, termios.error) as exc:
                     raise TransportUnavailableError(
                         f"device_path_disappeared: cannot open {self._device}: {exc}"
                     ) from exc
@@ -364,7 +365,7 @@ class SerialModbusTransport:
                 # Reopen after close() — pyserial objects are re-openable.
                 try:
                     self._ser.open()
-                except OSError as exc:
+                except (OSError, termios.error) as exc:
                     raise TransportUnavailableError(
                         f"device_path_disappeared: cannot reopen {self._device}: {exc}"
                     ) from exc
@@ -383,6 +384,28 @@ class SerialModbusTransport:
     # ------------------------------------------------------------------
     # frame IO
 
+    @contextlib.contextmanager
+    def _io_guard(self, op: str):
+        """Convert pyserial/termios failures into :class:`TransportIOError`.
+
+        On Linux a vanished adapter surfaces as ``termios.error`` (EIO) from
+        pyserial's read/write/flush paths — and ``termios.error`` is NOT an
+        OSError subclass, so a plain ``except OSError`` misses it (found by
+        the exp4 USB-unbind fault injection: a raw termios.error escaped as
+        EXECUTOR_ERROR instead of escalating COMMUNICATION_LOST).  EIO-class
+        failures also mark the transport disconnected so later calls fail
+        fast instead of hammering a dead fd.
+        """
+        try:
+            yield
+        except (OSError, termios.error) as exc:
+            errno_ = getattr(exc, "errno", None)
+            if errno_ is None and exc.args and isinstance(exc.args[0], int):
+                errno_ = exc.args[0]
+            if errno_ in (5, 6, 19):  # EIO, ENXIO, ENODEV — adapter gone
+                self._connected = False
+            raise TransportIOError(f"io_error: serial {op} failed: {exc}") from exc
+
     def _emit_trace(self, direction: str, data: bytes) -> None:
         if self._trace_hook is not None:
             with contextlib.suppress(Exception):
@@ -390,11 +413,9 @@ class SerialModbusTransport:
 
     def _write(self, data: bytes) -> None:
         self._emit_trace("tx", data)
-        try:
+        with self._io_guard("write"):
             self._ser.write(data)
             self._ser.flush()
-        except OSError as exc:
-            raise TransportIOError(f"io_error: serial write failed: {exc}") from exc
 
     def _read_exact(self, n: int, timeout_s: float) -> bytes:
         deadline = time.monotonic() + timeout_s
@@ -403,10 +424,8 @@ class SerialModbusTransport:
         try:
             self._ser.timeout = 0.02
             while len(buf) < n and time.monotonic() < deadline:
-                try:
+                with self._io_guard("read"):
                     chunk = self._ser.read(n - len(buf))
-                except OSError as exc:
-                    raise TransportIOError(f"io_error: serial read failed: {exc}") from exc
                 if chunk:
                     buf += chunk
         finally:
@@ -421,10 +440,8 @@ class SerialModbusTransport:
         with self._lock:
             if not self.is_connected():
                 raise TransportIOError("serial_timeout: transport not connected")
-            try:
+            with self._io_guard("flush"):
                 self._ser.reset_input_buffer()
-            except OSError as exc:
-                raise TransportIOError(f"io_error: flush failed: {exc}") from exc
             self._write(request)
             header = self._read_exact(3, timeout_s)
             if len(header) < 3:
