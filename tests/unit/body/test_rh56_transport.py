@@ -74,7 +74,9 @@ def test_actuator_count_mismatch_blocked() -> None:
 
 def test_device_path_missing() -> None:
     profile = load_transport_profile(RS485_PROFILE)
-    with pytest.raises(TransportUnavailableError, match="device_path_disappeared|pending"):
+    # Deterministic: point the profile at a device that never exists.
+    profile.transport.device = "/dev/definitely_not_a_real_rh56"
+    with pytest.raises(TransportUnavailableError, match="device_path_disappeared"):
         SerialModbusTransport(profile)
 
 
