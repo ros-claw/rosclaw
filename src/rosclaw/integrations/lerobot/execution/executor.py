@@ -98,7 +98,14 @@ class SingleStepExecutor:
         """Execute one mapped candidate.  Never sends more than one command."""
         transport = getattr(self.executor, "transport", None)
         transport_mode = str(getattr(transport, "execution_mode", "UNKNOWN")).upper()
-        if self.execution_mode is not ExecutionMode.FIXTURE or transport_mode != "FIXTURE":
+        # Mode must match the transport exactly: FIXTURE drives only synthetic
+        # transports; REAL drives only a verified real transport registered
+        # behind the Runtime ActionGateway.  Every other pairing fails closed
+        # so a fixture can never act as hardware (or vice versa).
+        mode_ok = (
+            self.execution_mode is ExecutionMode.FIXTURE and transport_mode == "FIXTURE"
+        ) or (self.execution_mode is ExecutionMode.REAL and transport_mode == "REAL")
+        if not mode_ok:
             return self._result(
                 status="blocked",
                 error_code="RUNTIME_ACTION_GATEWAY_REQUIRED",
@@ -198,7 +205,10 @@ class SingleStepExecutor:
             return self._communication_lost(exc, proposal_id)
 
         self.commands_executed += 1
-        self.fixture_actions_executed += 1
+        if self.execution_mode is ExecutionMode.FIXTURE:
+            self.fixture_actions_executed += 1
+        else:
+            self.hardware_actions_executed += 1
         self._emit(
             "execution.command.sent",
             {"proposal_id": proposal_id, "acknowledged": acknowledged},
