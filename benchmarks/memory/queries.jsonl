@@ -1,0 +1,100 @@
+{"query_id": "q001", "text": "剪刀手势食指不到位", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q002", "text": "左手石头小指收不拢", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q003", "text": "左手剪刀拇指旋转不到位", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q004", "text": "右手 ready 食指角度差", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q005", "text": "相机重启后无帧", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q006", "text": "CH340 串口超时", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q007", "text": "FTDI 持续 EIO", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q008", "text": "右手温升 36 到 42", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q009", "text": "左手温升", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q010", "text": "右手食指温升比左手快", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q011", "text": "scissors gesture index finger not reached", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q012", "text": "left rock little finger", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q013", "text": "D435i no frames after restart", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q014", "text": "CH340 serial timeout EIO", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q015", "text": "FTDI persistent EIO", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q016", "text": "right hand thermal drift", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q017", "text": "scissors success rate", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q018", "text": "rock success rate", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q019", "text": "paper success rate", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q020", "text": "left scissors success rate", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q021", "text": "剪刀手势失败", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q022", "text": "剪刀食指不到位", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q023", "text": "石头手势失败", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q024", "text": "拳头握不紧", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q025", "text": "手指过流", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q026", "text": "电机电流异常", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q027", "text": "finger overcurrent", "robot_id": "mobile_base_01", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q028", "text": "temperature too high", "robot_id": "mobile_base_01", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q029", "text": "serial timeout", "robot_id": "mobile_base_01", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q030", "text": "camera no frames", "robot_id": "mobile_base_01", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q031", "text": "finger overcurrent", "robot_id": "mobile_base_01", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q032", "text": "finger overcurrent", "robot_id": "arm_ur5_02", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q033", "text": "temperature too high", "robot_id": "arm_ur5_02", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q034", "text": "serial timeout", "robot_id": "arm_ur5_02", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q035", "text": "camera no frames", "robot_id": "arm_ur5_02", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q036", "text": "finger overcurrent", "robot_id": "arm_ur5_02", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q037", "text": "温升", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": "rh56_left", "task_id": null}
+{"query_id": "q038", "text": "剪刀", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": "rh56_left", "task_id": null}
+{"query_id": "q039", "text": "success rate", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": "rh56_left", "task_id": null}
+{"query_id": "q040", "text": "thermal drift", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": "rh56_left", "task_id": null}
+{"query_id": "q041", "text": "gesture failed", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": "rh56_left", "task_id": null}
+{"query_id": "q042", "text": "温升", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": "rh56_right", "task_id": null}
+{"query_id": "q043", "text": "剪刀", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": "rh56_right", "task_id": null}
+{"query_id": "q044", "text": "success rate", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": "rh56_right", "task_id": null}
+{"query_id": "q045", "text": "thermal drift", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": "rh56_right", "task_id": null}
+{"query_id": "q046", "text": "gesture failed", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": "rh56_right", "task_id": null}
+{"query_id": "q047", "text": "RH56 安全温度/电流/电压上限 °C", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q048", "text": "RH56 安全温度/电流/电压上限 mA", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q049", "text": "RH56 安全温度/电流/电压上限 V", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q050", "text": "failure", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": "rh56_rps"}
+{"query_id": "q051", "text": "失败", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": "rh56_rps"}
+{"query_id": "q052", "text": "success rate", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": "rh56_rps"}
+{"query_id": "q053", "text": "thermal", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": "rh56_rps"}
+{"query_id": "q054", "text": "episode", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": "rh56_rps"}
+{"query_id": "q055", "text": "failure", "robot_id": "mobile_base_01", "memory_types": null, "body_id": null, "task_id": "patrol"}
+{"query_id": "q056", "text": "失败", "robot_id": "mobile_base_01", "memory_types": null, "body_id": null, "task_id": "patrol"}
+{"query_id": "q057", "text": "success rate", "robot_id": "mobile_base_01", "memory_types": null, "body_id": null, "task_id": "patrol"}
+{"query_id": "q058", "text": "thermal", "robot_id": "mobile_base_01", "memory_types": null, "body_id": null, "task_id": "patrol"}
+{"query_id": "q059", "text": "episode", "robot_id": "mobile_base_01", "memory_types": null, "body_id": null, "task_id": "patrol"}
+{"query_id": "q060", "text": "failure", "robot_id": "arm_ur5_02", "memory_types": null, "body_id": null, "task_id": "painting"}
+{"query_id": "q061", "text": "失败", "robot_id": "arm_ur5_02", "memory_types": null, "body_id": null, "task_id": "painting"}
+{"query_id": "q062", "text": "success rate", "robot_id": "arm_ur5_02", "memory_types": null, "body_id": null, "task_id": "painting"}
+{"query_id": "q063", "text": "thermal", "robot_id": "arm_ur5_02", "memory_types": null, "body_id": null, "task_id": "painting"}
+{"query_id": "q064", "text": "episode", "robot_id": "arm_ur5_02", "memory_types": null, "body_id": null, "task_id": "painting"}
+{"query_id": "q065", "text": "USB_TIMEOUT 故障", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q066", "text": "EIO 故障", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q067", "text": "-110 故障", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q068", "text": "USB_TIMEOUT 故障", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q069", "text": "EIO 故障", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q070", "text": "手指过流 根因", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q071", "text": "scissors root cause", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q072", "text": "剪刀 热降额", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q073", "text": "rock serial timeout", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q074", "text": "过流 机械磨损", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q075", "text": "thermal scissors failure", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q076", "text": "串口 剪刀失败", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q077", "text": "camera stuck 相机", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q078", "text": "电流异常 finger", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q079", "text": "joint not reached 关节", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q080", "text": "quantum entanglement protocol", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q081", "text": "recipe for chocolate cake", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q082", "text": "kubernetes pod eviction policy", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q083", "text": "量子计算算法", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q084", "text": "french revolution timeline", "robot_id": "rh56_rps_robot", "memory_types": null, "body_id": null, "task_id": null}
+{"query_id": "q085", "text": "手指过流", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q086", "text": "finger overcurrent", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q087", "text": "电机电流异常", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q088", "text": "RH56 finger current spike", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q089", "text": "thermal profile", "robot_id": "rh56_rps_robot", "memory_types": ["body"], "body_id": null, "task_id": null}
+{"query_id": "q090", "text": "热态画像", "robot_id": "rh56_rps_robot", "memory_types": ["body"], "body_id": null, "task_id": null}
+{"query_id": "q091", "text": "温升曲线", "robot_id": "rh56_rps_robot", "memory_types": ["body"], "body_id": null, "task_id": null}
+{"query_id": "q092", "text": "body thermal", "robot_id": "rh56_rps_robot", "memory_types": ["body"], "body_id": null, "task_id": null}
+{"query_id": "q093", "text": "热限", "robot_id": "rh56_rps_robot", "memory_types": ["body"], "body_id": null, "task_id": null}
+{"query_id": "q094", "text": "recent failure", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q095", "text": "最近失败", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q096", "text": "latest thermal", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q097", "text": "最近 过流", "robot_id": "rh56_rps_robot", "memory_types": ["failure"], "body_id": null, "task_id": null}
+{"query_id": "q098", "text": "gesture success pattern", "robot_id": "rh56_rps_robot", "memory_types": ["skill"], "body_id": null, "task_id": null}
+{"query_id": "q099", "text": "剪刀 成功率", "robot_id": "rh56_rps_robot", "memory_types": ["skill"], "body_id": null, "task_id": null}
+{"query_id": "q100", "text": "skill evidence", "robot_id": "rh56_rps_robot", "memory_types": ["skill"], "body_id": null, "task_id": null}

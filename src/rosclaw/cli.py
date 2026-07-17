@@ -7503,7 +7503,7 @@ def main() -> int:
     # memory subcommand
     memory_parser = subparsers.add_parser("memory", help="Memory commands")
     memory_subparsers = memory_parser.add_subparsers(dest="memory_command")
-    memory_subparsers.add_parser("status", help="Show memory status")
+    memory_status_parser = memory_subparsers.add_parser("status", help="Show memory status")
     memory_query_parser = memory_subparsers.add_parser("query", help="Query memory")
     memory_query_parser.add_argument("query", help="Query text")
     memory_query_parser.add_argument("--limit", type=int, default=5, help="Max results")
@@ -7512,6 +7512,11 @@ def main() -> int:
     )
     memory_explain_parser = memory_subparsers.add_parser("explain", help="Explain last failure")
     memory_explain_parser.add_argument("--task-id", default=None, help="Filter by task ID")
+
+    from rosclaw.memory.v2.cli import extend_legacy_memory_parsers, register_memory_v2_commands
+
+    register_memory_v2_commands(memory_subparsers)
+    extend_legacy_memory_parsers(memory_status_parser, memory_query_parser, memory_explain_parser)
 
     memory_ingest_parser = memory_subparsers.add_parser(
         "ingest", help="Ingest a practice episode into memory"
@@ -8336,6 +8341,13 @@ def main() -> int:
                 forge_parser.print_help()
                 return 1
         elif args.command == "memory":
+            v2_handler = getattr(args, "v2_handler", None)
+            if v2_handler is not None and (
+                getattr(args, "v2", False)
+                or args.memory_command
+                in {"verify", "consolidate", "forget", "distill", "index", "benchmark"}
+            ):
+                return v2_handler(args)
             if args.memory_command == "status":
                 return cmd_memory_status(args)
             elif args.memory_command == "query":

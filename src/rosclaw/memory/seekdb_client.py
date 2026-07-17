@@ -152,6 +152,25 @@ SEEKDB_SCHEMAS: dict[str, Any] = {
         },
         "indices": ["memory_id", "evidence_type", "source_event_id"],
     },
+    # Memory 2.0 (PR-MEM-2) — embedding index lifecycle registry
+    "memory_index_registry": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "table_or_collection": "TEXT NOT NULL",
+            "embedder_type": "TEXT",
+            "model_name": "TEXT",
+            "model_revision": "TEXT",
+            "dimension": "INTEGER",
+            "distance_metric": "TEXT",
+            "corpus_hash": "TEXT",
+            "index_version": "INTEGER DEFAULT 1",
+            "record_count": "INTEGER DEFAULT 0",
+            "created_at": "REAL",
+            "completed_at": "REAL",
+            "status": "TEXT",
+        },
+        "indices": ["table_or_collection", "status", "model_name"],
+    },
     # Sprint 8 — Knowledge Plane tables
     "robots": {
         "columns": {

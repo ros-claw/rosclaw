@@ -1,0 +1,52 @@
+{
+  "dataset_size": 310,
+  "query_count": 100,
+  "keyword": {
+    "queries": 100,
+    "recall@1": 0.63,
+    "recall@5": 0.81,
+    "recall@10": 0.88,
+    "mrr": 0.6626,
+    "ndcg@5": 0.5919,
+    "context_precision@5": 0.414,
+    "cross_robot_leakage": 0.0,
+    "stale_memory_rate": 0.0,
+    "latency_ms": {
+      "p50": 4.07,
+      "p95": 5.77,
+      "p99": 5.93
+    }
+  },
+  "vector_tfidf": {
+    "queries": 100,
+    "recall@1": 0.56,
+    "recall@5": 0.72,
+    "recall@10": 0.86,
+    "mrr": 0.5796,
+    "ndcg@5": 0.4981,
+    "context_precision@5": 0.37,
+    "cross_robot_leakage": 0.0,
+    "stale_memory_rate": 0.0,
+    "latency_ms": {
+      "p50": 12.25,
+      "p95": 13.97,
+      "p99": 14.06
+    }
+  },
+  "hybrid": {
+    "queries": 100,
+    "recall@1": 0.68,
+    "recall@5": 0.8,
+    "recall@10": 0.87,
+    "mrr": 0.6792,
+    "ndcg@5": 0.6135,
+    "context_precision@5": 0.428,
+    "cross_robot_leakage": 0.0,
+    "stale_memory_rate": 0.0,
+    "latency_ms": {
+      "p50": 12.13,
+      "p95": 13.98,
+      "p99": 14.06
+    }
+  }
+}
