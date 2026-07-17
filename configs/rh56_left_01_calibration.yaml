@@ -55,8 +55,9 @@ validation:
   validated_at: '2026-07-17T09:58:31.583504Z'
   rounds: 5
   body_hash: ''
-  transport_profile_hash: sha256:1f90ef13e0c6c0a3ae0e026b602b8e79082cacff4e9decdb142ecac961a65d09
+  transport_profile_hash: sha256:687f04bbfef513581edf8fbcc4408f039c8699f94bb959d972fb787dfcbde065
   evidence:
   - probe_rounds=5/5
   - mock=False
+  - rebound=profile gained status/temp grouped register widths (measured data unchanged)
 schema_version: rosclaw.rh56.calibration.v1

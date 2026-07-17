@@ -195,6 +195,49 @@ def test_read_state_fields(transport: SerialModbusTransport) -> None:
     assert state.force_g == [0.0] * 6
 
 
+def _grouped_profile() -> TransportProfile:
+    profile = _profile()
+    profile.feedback = {"status_registers": 3, "temperature_registers": 3}
+    return profile
+
+
+def test_read_state_grouped_registers_expand_pairwise() -> None:
+    # Grouped firmware: 3 STATUS/TEMP registers (one per actuator pair) are
+    # expanded pair-wise so downstream consumers stay 6-wide.
+    device = _FakeDevice()
+    device.registers[modbus.Register.STATUS] = [2, 1, 0]
+    device.registers[modbus.Register.TEMP] = [40, 41, 42]
+    transport = SerialModbusTransport(_grouped_profile(), existing_serial=_FakeSerial(device))
+    transport.connect()
+    state = transport.read_state()
+    assert state.status_bits == [2, 2, 1, 1, 0, 0]
+    assert state.temperature_c == [40.0, 40.0, 41.0, 41.0, 42.0, 42.0]
+
+
+def test_read_state_grouped_registers_never_bleed_temp_into_status() -> None:
+    # On the real grouped firmware, reading 6 STATUS regs bleeds TEMP values
+    # (e.g. 44 °C) into slots 3-5; with the declared width those temps must
+    # never appear in status_bits.
+    device = _FakeDevice()
+    device.registers[modbus.Register.STATUS] = [2, 2, 2]
+    device.registers[modbus.Register.TEMP] = [44, 45, 42]
+    transport = SerialModbusTransport(_grouped_profile(), existing_serial=_FakeSerial(device))
+    transport.connect()
+    state = transport.read_state()
+    assert state.status_bits == [2] * 6
+    assert max(state.status_bits) <= 0x1F
+    assert state.temperature_c == [44.0, 44.0, 45.0, 45.0, 42.0, 42.0]
+
+
+def test_read_state_grouped_width_must_divide_actuator_count() -> None:
+    profile = _profile()
+    profile.feedback = {"status_registers": 4}
+    transport = SerialModbusTransport(profile, existing_serial=_FakeSerial(_FakeDevice()))
+    transport.connect()
+    with pytest.raises(TransportIOError, match="feedback_width_invalid"):
+        transport.read_state()
+
+
 def test_write_position_acknowledged(transport: SerialModbusTransport) -> None:
     ok = transport.write_position([500] * 6, speed=200, force_limit=300)
     assert ok

@@ -37,6 +37,13 @@ feedback:
   current_channel: CURRENT     # motion/stall auxiliary signal (returns ~0 at rest)
   status_channel: STATUS       # protection hard criterion
   temperature_channel: TEMP    # thermal hard criterion
+  # This firmware groups STATUS/TEMP into 3 registers each (one per actuator
+  # pair) instead of 6 per-actuator registers.  Reading 6 bleeds the TEMP
+  # block into status slots 3-5 (and zeros into temp slots 3-5), which would
+  # trip protection checks on garbage.  Declared from real-device audits
+  # (exp0/exp1) and 7x24 telemetry; values are expanded pair-wise.
+  status_registers: 3
+  temperature_registers: 3
 
 metadata:
   provider_ref: inspire_rh56_serial

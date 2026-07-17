@@ -15,6 +15,25 @@ from rosclaw.body.rh56.transport import RH56Feedback
 from rosclaw.body.rh56.transport_profile import TransportProfile
 from rosclaw.integrations.lerobot.execution.schema import FeedbackVerification
 
+# RH56 STATUS bit semantics (firmware family documentation, proven in the
+# rosclaw_rh56 runtime):  0x01 running | 0x02 in_position are *informational*
+# — a healthy hand reports them during normal operation.  Only the protection
+# bits are hard faults.
+STATUS_BIT_RUNNING = 0x01
+STATUS_BIT_IN_POSITION = 0x02
+STATUS_BIT_CURRENT_PROTECTION = 0x04
+STATUS_BIT_FORCE_PROTECTION = 0x08
+STATUS_BIT_TEMP_PROTECTION = 0x10
+STATUS_PROTECTION_MASK = (
+    STATUS_BIT_CURRENT_PROTECTION | STATUS_BIT_FORCE_PROTECTION | STATUS_BIT_TEMP_PROTECTION
+)
+
+_PROTECTION_NAMES = (
+    (STATUS_BIT_CURRENT_PROTECTION, "current_protection"),
+    (STATUS_BIT_FORCE_PROTECTION, "force_protection"),
+    (STATUS_BIT_TEMP_PROTECTION, "temp_protection"),
+)
+
 
 class FeedbackVerifier:
     """Verify transport feedback after one step; provenance is recorded elsewhere."""
@@ -88,12 +107,16 @@ class FeedbackVerifier:
                 elif temp >= warn_c:
                     details.append(f"temperature_warning:{name}={temp:.1f}>={warn_c}")
 
-        # Status bits: protection hard criterion.
+        # Status bits: protection hard criterion.  Informational bits
+        # (running/in_position) are healthy states, not faults.
         fault_free = True
         for i, name in enumerate(names):
-            if i < len(feedback.status_bits) and int(feedback.status_bits[i]) != 0:
-                fault_free = False
-                details.append(f"status_protection:{name}=0x{int(feedback.status_bits[i]):02x}")
+            if i < len(feedback.status_bits):
+                status = int(feedback.status_bits[i])
+                if status & STATUS_PROTECTION_MASK:
+                    fault_free = False
+                    active = [label for bit, label in _PROTECTION_NAMES if status & bit]
+                    details.append(f"status_protection:{name}=0x{status:02x}({','.join(active)})")
 
         return FeedbackVerification(
             position_reached=position_reached,

@@ -470,8 +470,15 @@ class SerialModbusTransport:
         positions = self._read_registers(Register.ANGLE_ACT, 6)
         forces = self._read_registers(Register.FORCE_ACT, 6)
         currents = self._read_registers(Register.CURRENT, 6)
-        statuses = self._read_registers(Register.STATUS, 6)
-        temps = self._read_registers(Register.TEMP, 6)
+        # STATUS/TEMP register width is firmware-specific: some revisions
+        # expose 6 per-actuator registers, others group them into 3 (one per
+        # actuator pair).  Reading 6 on a grouped device bleeds adjacent
+        # blocks into slots 3-5 (temps into status, zeros into temp), which
+        # would trip protection checks on garbage.  The profile declares the
+        # real width; grouped values are expanded pair-wise
+        # [g0, g0, g1, g1, g2, g2] so downstream consumers stay 6-wide.
+        statuses = self._read_grouped(Register.STATUS, "status_registers")
+        temps = self._read_grouped(Register.TEMP, "temperature_registers")
         return RH56Feedback(
             position=[int(v) for v in positions],
             force_g=[float(to_signed_16(v)) for v in forces],
@@ -480,6 +487,20 @@ class SerialModbusTransport:
             temperature_c=[float(v) for v in temps],
             timestamp_monotonic_ns=time.monotonic_ns(),
         )
+
+    def _read_grouped(self, start_addr: int, profile_key: str) -> list[int]:
+        """Read STATUS/TEMP honoring the firmware's grouped register width."""
+        width = int(self.profile.feedback.get(profile_key, 6) or 6)
+        n = self.profile.actuator_count
+        if width == n:
+            return self._read_registers(start_addr, n)
+        if width <= 0 or n % width != 0:
+            raise TransportIOError(
+                f"feedback_width_invalid: {profile_key}={width} does not divide actuator_count={n}"
+            )
+        grouped = self._read_registers(start_addr, width)
+        repeat = n // width
+        return [v for g in grouped for v in [g] * repeat]
 
     @property
     def last_command_delivery(self) -> str:

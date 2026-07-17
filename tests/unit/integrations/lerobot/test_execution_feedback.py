@@ -64,11 +64,32 @@ def test_force_hard_limit() -> None:
 
 def test_status_protection_estop() -> None:
     v = _verifier()
-    feedback = _feedback(status_bits=[0, 0, 0x01, 0, 0, 0])
+    feedback = _feedback(status_bits=[0, 0, 0x04, 0, 0, 0])  # current_protection
     result = v.verify(target=[1000.0] * 6, feedback=feedback, force_limit_g=100.0)
     assert not result.fault_free
     assert any("status_protection:middle" in d for d in result.details)
+    assert "current_protection" in "".join(result.details)
     assert not v.is_step_ok(result)
+
+
+def test_status_informational_bits_are_healthy() -> None:
+    # running (0x01) and in_position (0x02) are normal operating states on the
+    # real firmware, not faults — only protection bits (0x04|0x08|0x10) trip.
+    v = _verifier()
+    for status in (0x01, 0x02, 0x03):
+        feedback = _feedback(status_bits=[status] * 6)
+        result = v.verify(target=[1000.0] * 6, feedback=feedback, force_limit_g=100.0)
+        assert result.fault_free, f"status 0x{status:02x} must be fault-free"
+        assert v.is_step_ok(result)
+
+
+def test_status_force_and_temp_protection() -> None:
+    v = _verifier()
+    for status, label in ((0x08, "force_protection"), (0x10, "temp_protection")):
+        feedback = _feedback(status_bits=[0, 0, 0, status, 0, 0])
+        result = v.verify(target=[1000.0] * 6, feedback=feedback, force_limit_g=100.0)
+        assert not result.fault_free
+        assert label in "".join(result.details)
 
 
 def test_temperature_warning() -> None:
