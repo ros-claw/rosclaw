@@ -56,6 +56,7 @@ class RH56Executor:
         *,
         settle_ms: float = 0.0,
         max_step_delta_raw: float | None = None,
+        hold_tolerance_raw: list[float] | None = None,
     ) -> tuple[bool, RH56Feedback]:
         if request_is_stale(request):
             raise ExecutorSafetyError("stale_action: request validity window expired")
@@ -68,6 +69,12 @@ class RH56Executor:
 
         # Read current position for the step-delta check.
         current = self.read_feedback()
+        setpoints: list[int] | None = None
+        if hold_tolerance_raw is not None:
+            try:
+                setpoints = self.transport.read_angle_setpoints()
+            except TransportIOError as exc:
+                raise ExecutorCommunicationError(f"setpoint_read_failed: {exc}") from exc
 
         targets: list[int] = []
         for i, value in enumerate(request.values):
@@ -79,7 +86,22 @@ class RH56Executor:
                         f"step_delta_exceeded: actuator {i} delta {abs(delta):.1f} > "
                         f"{max_step_delta_raw}"
                     )
-            targets.append(target)
+            # Setpoint hysteresis (real-hardware behavior, exp3): changing a
+            # joint's setpoint to ≈ its current position makes the firmware
+            # coast for one servo cycle (~15-17 raw dip on gravity-loaded
+            # joints).  When the requested value is already within the
+            # calibrated tolerance of the actual position, keep the EXISTING
+            # setpoint — rewriting an unchanged setpoint does not re-plan, so
+            # the joint simply keeps holding.
+            if (
+                setpoints is not None
+                and i < len(setpoints)
+                and i < len(current.position)
+                and abs(target - float(current.position[i])) <= hold_tolerance_raw[i]
+            ):
+                targets.append(int(setpoints[i]))
+            else:
+                targets.append(target)
 
         try:
             acknowledged = self.transport.write_position(

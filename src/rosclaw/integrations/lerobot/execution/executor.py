@@ -98,7 +98,14 @@ class SingleStepExecutor:
         """Execute one mapped candidate.  Never sends more than one command."""
         transport = getattr(self.executor, "transport", None)
         transport_mode = str(getattr(transport, "execution_mode", "UNKNOWN")).upper()
-        if self.execution_mode is not ExecutionMode.FIXTURE or transport_mode != "FIXTURE":
+        # Mode must match the transport exactly: FIXTURE drives only synthetic
+        # transports; REAL drives only a verified real transport registered
+        # behind the Runtime ActionGateway.  Every other pairing fails closed
+        # so a fixture can never act as hardware (or vice versa).
+        mode_ok = (
+            self.execution_mode is ExecutionMode.FIXTURE and transport_mode == "FIXTURE"
+        ) or (self.execution_mode is ExecutionMode.REAL and transport_mode == "REAL")
+        if not mode_ok:
             return self._result(
                 status="blocked",
                 error_code="RUNTIME_ACTION_GATEWAY_REQUIRED",
@@ -178,12 +185,25 @@ class SingleStepExecutor:
         )
 
         # 6. Executor boundary: freshness/dim/range/step-delta + one command.
+        # Setpoint hold band (exp3 real-hardware finding): the firmware coasts
+        # one servo cycle when a setpoint CHANGES to ≈ the current position
+        # (zero error → ~15-17 raw dip on gravity-loaded joints).  Rewriting
+        # an UNCHANGED setpoint does not re-plan.  The band therefore covers
+        # only near-zero deltas (5 raw — the dip was measured at |Δ|<=2);
+        # anything larger is real motion and must re-plan.  This is a device
+        # constant, deliberately NOT the position tolerance: using the
+        # tolerance as the band starves small deliberate steps.
+        hold_tolerance: list[float] | None = None
+        calibration = getattr(self.verifier, "calibration", None)
+        if calibration is not None:
+            hold_tolerance = [5.0] * len(self.profile.action_order)
         self.arming.machine.transition(ExecutionState.EXECUTING_STEP, proposal_id)
         try:
             acknowledged, feedback = self.executor.execute_step(
                 request,
                 settle_ms=settle_ms,
                 max_step_delta_raw=permit.max_step_delta_raw,
+                hold_tolerance_raw=hold_tolerance,
             )
         except ExecutorSafetyError as exc:
             self.arming.machine.transition(ExecutionState.VERIFYING_FEEDBACK, "safety refusal")
@@ -198,7 +218,10 @@ class SingleStepExecutor:
             return self._communication_lost(exc, proposal_id)
 
         self.commands_executed += 1
-        self.fixture_actions_executed += 1
+        if self.execution_mode is ExecutionMode.FIXTURE:
+            self.fixture_actions_executed += 1
+        else:
+            self.hardware_actions_executed += 1
         self._emit(
             "execution.command.sent",
             {"proposal_id": proposal_id, "acknowledged": acknowledged},

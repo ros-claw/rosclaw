@@ -88,6 +88,31 @@ def cmd_setup_lerobot(args: argparse.Namespace) -> int:
         index_url=args.index_url,
         extra_index_url=args.extra_index_url,
     )
+    reference_result: dict[str, Any] | None = None
+    if report.ok and getattr(args, "reference_policy", None) == "rh56":
+        from rosclaw.integrations.lerobot.reference_policy_setup import (
+            install_rh56_reference_policy,
+        )
+
+        runtime_python = None
+        if report.runtime and report.runtime.python_executable:
+            runtime_python = report.runtime.python_executable
+        elif report.details.get("python_executable"):
+            runtime_python = report.details["python_executable"]
+        if runtime_python is None:
+            import sys
+
+            runtime_python = sys.executable
+        reference_result = install_rh56_reference_policy(runtime_python, dry_run=args.dry_run)
+        report.details["reference_policy_rh56"] = reference_result
+        if not reference_result.get("ok"):
+            report.ok = False
+            report.message = (
+                "LeRobot runtime installed, but RH56 reference policy setup failed: "
+                + "; ".join(
+                    f"{s['name']}: {s['detail']}" for s in reference_result["steps"] if not s["ok"]
+                )
+            )
     if args.json:
         payload = {
             "ok": report.ok,

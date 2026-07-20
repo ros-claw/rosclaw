@@ -39,7 +39,9 @@ def _build_transport(profile, mock: bool):
         transport.connect()
         return transport
     try:
-        return SerialModbusTransport(profile)
+        transport = SerialModbusTransport(profile)
+        transport.connect()
+        return transport
     except TransportUnavailableError as exc:
         raise CalibrationError(f"transport_unavailable: {exc}") from exc
 

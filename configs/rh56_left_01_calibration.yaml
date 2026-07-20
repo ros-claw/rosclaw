@@ -1,0 +1,66 @@
+body_id: rh56_left_01
+transport_profile: rh56_left_rs485_v1
+actuators:
+  little:
+    open_raw: 1000
+    closed_raw: 0
+    safe_min_raw: 0
+    safe_max_raw: 1000
+    direction: -1
+    position_tolerance_raw: 12
+  ring:
+    open_raw: 1000
+    closed_raw: 0
+    safe_min_raw: 0
+    safe_max_raw: 1000
+    direction: -1
+    position_tolerance_raw: 12
+  middle:
+    open_raw: 1000
+    closed_raw: 0
+    safe_min_raw: 0
+    safe_max_raw: 1000
+    direction: -1
+    position_tolerance_raw: 12
+  index:
+    open_raw: 1000
+    closed_raw: 163
+    safe_min_raw: 138
+    safe_max_raw: 1000
+    direction: -1
+    position_tolerance_raw: 12
+  thumb:
+    open_raw: 997
+    closed_raw: 117
+    safe_min_raw: 92
+    safe_max_raw: 1000
+    direction: -1
+    position_tolerance_raw: 40
+  thumb_rot:
+    open_raw: 985
+    closed_raw: 156
+    safe_min_raw: 131
+    safe_max_raw: 1000
+    direction: -1
+    position_tolerance_raw: 40
+feedback:
+  force_baseline_file: ''
+  force_soft_limit_g: 100.0
+  force_hard_limit_g: 300.0
+  temperature_warning_c: 55.0
+  temperature_stop_c: 60.0
+  thresholds_source: measured_conservative
+validation:
+  status: validated
+  validated_at: '2026-07-17T09:58:31.583504Z'
+  rounds: 5
+  body_hash: ''
+  transport_profile_hash: sha256:687f04bbfef513581edf8fbcc4408f039c8699f94bb959d972fb787dfcbde065
+  evidence:
+  - probe_rounds=5/5
+  - mock=False
+  - rebound=profile gained status/temp grouped register widths (measured data unchanged)
+  - tolerance_remeasured=2026-07-17 targets 300/500/700/850/950, max err 6 (fingers) / 20 (thumb_rot) -> 12/25 with margin
+  - thumb_tolerance_raised=2026-07-17 steady-state+in-motion tracking lag up to 31 under load -> 40
+  - thumb_rot_tolerance_raised=2026-07-17 steady-state+tracking lag up to ~30 at low positions -> 40
+schema_version: rosclaw.rh56.calibration.v1

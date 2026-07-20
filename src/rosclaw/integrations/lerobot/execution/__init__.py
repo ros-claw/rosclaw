@@ -27,6 +27,9 @@ if TYPE_CHECKING:
     from rosclaw.integrations.lerobot.execution.report import (
         ExecutionReport as ExecutionReport,
     )
+    from rosclaw.integrations.lerobot.execution.rh56_real_executor import (
+        RH56RealStepExecutor as RH56RealStepExecutor,
+    )
     from rosclaw.integrations.lerobot.execution.schema import (
         ActionExecutionRequest as ActionExecutionRequest,
     )
@@ -70,6 +73,7 @@ _EXPORTS = {
     "IllegalTransitionError": "state",
     "PermitError": "permit",
     "PermitManager": "permit",
+    "RH56RealStepExecutor": "rh56_real_executor",
     "SingleStepExecutor": "executor",
     "WatchdogTrip": "watchdog",
 }

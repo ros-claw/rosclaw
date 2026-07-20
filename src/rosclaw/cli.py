@@ -2819,8 +2819,7 @@ def cmd_practice_run(args: argparse.Namespace) -> int:
     provider_id = getattr(args, "provider", None)
     capability = getattr(args, "capability", "vlm.risk_assessment")
     data_root = resolve_practice_data_root(
-        getattr(args, "output_root", None)
-        or getattr(args, "data_root", None)
+        getattr(args, "output_root", None) or getattr(args, "data_root", None)
     )
 
     resolved_body_id = _resolve_practice_body_id(home, robot_id)
@@ -6529,6 +6528,15 @@ def main() -> int:
     )
     setup_lerobot_parser.add_argument(
         "--extra-index-url", default=None, help="Extra URL of Python package index"
+    )
+    setup_lerobot_parser.add_argument(
+        "--reference-policy",
+        default=None,
+        choices=["rh56"],
+        help=(
+            "After install, also install + smoke-verify a bundled reference "
+            "policy worker plugin (rh56: lerobot-policy-rosclaw-rh56)"
+        ),
     )
     setup_lerobot_parser.add_argument("--json", action="store_true", help="Output JSON details")
 
