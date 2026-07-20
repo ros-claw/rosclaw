@@ -25,11 +25,17 @@ Two deployments share the class:
 from __future__ import annotations
 
 import logging
+from contextlib import ExitStack
+from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from rosclaw.memory.seekdb_client import SeekDBClient
 
 logger = logging.getLogger("rosclaw.storage.seekdb_native")
+
+_EMBEDDED_PATH_LOCK = Lock()
+_EMBEDDED_PROCESS_TARGET: tuple[str, str] | None = None
 
 # Fields whose text is used as the embedding document, per table family.
 # Task/outcome fields lead: without them the episode document degrades to an
@@ -95,6 +101,7 @@ class SeekDBNativeStore(SeekDBClient):
         self._password = password
         self._database = database
         self._client: Any | None = None
+        self._client_stack: ExitStack | None = None
         self._collections: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
@@ -106,27 +113,58 @@ class SeekDBNativeStore(SeekDBClient):
             return
         pyseekdb = _require_pyseekdb()
         if self._path is not None:
-            admin = pyseekdb.AdminClient(path=self._path)
-            self._ensure_database(admin)
-            self._client = pyseekdb.Client(path=self._path, database=self._database)
+            self._claim_embedded_target()
+            with pyseekdb.AdminClient(path=self._path) as admin:
+                self._ensure_database(admin)
+            client_context = pyseekdb.Client(path=self._path, database=self._database)
         else:
-            admin = pyseekdb.AdminClient(
+            with pyseekdb.AdminClient(
                 host=self._host, port=self._port, user=self._user, password=self._password
-            )
-            self._ensure_database(admin)
-            self._client = pyseekdb.Client(
+            ) as admin:
+                self._ensure_database(admin)
+            client_context = pyseekdb.Client(
                 host=self._host,
                 port=self._port,
                 user=self._user,
                 password=self._password,
                 database=self._database,
             )
-        self._wait_ready()
+        stack = ExitStack()
+        try:
+            self._client = stack.enter_context(client_context)
+            self._client_stack = stack
+            self._wait_ready()
+        except BaseException:
+            self._client = None
+            self._client_stack = None
+            stack.close()
+            raise
         logger.info(
             "SeekDBNativeStore connected (%s, database=%s)",
             f"embedded:{self._path}" if self._path else f"server:{self._host}:{self._port}",
             self._database,
         )
+
+    def _claim_embedded_target(self) -> None:
+        """Prevent pylibseekdb from silently reusing another process-global target."""
+        if self._path is None:
+            return
+        path = str(Path(self._path).resolve())
+        target = (path, self._database)
+        global _EMBEDDED_PROCESS_TARGET
+        with _EMBEDDED_PATH_LOCK:
+            if _EMBEDDED_PROCESS_TARGET is None:
+                _EMBEDDED_PROCESS_TARGET = target
+            elif target != _EMBEDDED_PROCESS_TARGET:
+                claimed_path, claimed_database = _EMBEDDED_PROCESS_TARGET
+                raise RuntimeError(
+                    "pylibseekdb supports one embedded path/database target per process; "
+                    f"this process already uses path={claimed_path!r}, "
+                    f"database={claimed_database!r} and cannot open path={path!r}, "
+                    f"database={self._database!r}. Reuse the existing target or start "
+                    "a separate process."
+                )
+        self._path = path
 
     def _wait_ready(self, timeout_s: float = 30.0) -> None:
         """Block until the (embedded) engine answers catalog queries.
@@ -163,8 +201,12 @@ class SeekDBNativeStore(SeekDBClient):
         return self._client is not None
 
     def disconnect(self) -> None:
+        stack = self._client_stack
         self._client = None
+        self._client_stack = None
         self._collections = {}
+        if stack is not None:
+            stack.close()
 
     # ------------------------------------------------------------------
     # Collections
@@ -408,11 +450,13 @@ class SeekDBNativeStore(SeekDBClient):
 
 # Deployment-specific aliases matching the PR-SDB-1 naming (§7.3).
 class SeekDBEmbeddedStore(SeekDBNativeStore):
-    """Embedded SeekDB (library-in-process) knowledge store."""
+    """Embedded SeekDB knowledge store.
+
+    pylibseekdb owns process-global engine state, so one process must reuse the
+    same path and database. Use another process for a different embedded target.
+    """
 
     def __init__(self, path: str = "~/.rosclaw/data/seekdb", database: str = "rosclaw"):
-        from pathlib import Path
-
         super().__init__(path=str(Path(path).expanduser()), database=database)
 
 

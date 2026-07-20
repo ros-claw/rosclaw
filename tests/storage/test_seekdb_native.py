@@ -22,13 +22,23 @@ from rosclaw.storage.seekdb_projection import SeekDBProjection
 TEST_PATH = "/tmp/seekdb_native_tests"
 
 
+@pytest.fixture(scope="module")
+def embedded_path(tmp_path_factory):
+    return tmp_path_factory.mktemp("seekdb_native")
+
+
 @pytest.fixture
-def store(tmp_path):
-    path = tmp_path / "seekdb"
-    store = SeekDBEmbeddedStore(path=str(path), database="test_db")
+def store(embedded_path):
+    store = SeekDBEmbeddedStore(path=str(embedded_path), database="test_db")
     store.connect()
-    yield store
-    store.disconnect()
+    store.delete_where("memory_items", {})
+    try:
+        yield store
+    finally:
+        if not store.is_connected():
+            store.connect()
+        store.delete_where("memory_items", {})
+        store.disconnect()
 
 
 def _sample_records() -> list[dict]:
@@ -93,19 +103,14 @@ def test_native_hybrid_search(store: SeekDBEmbeddedStore) -> None:
     assert hits, "native hybrid search returned nothing"
 
 
-def test_restart_persistence(tmp_path) -> None:
-    path = tmp_path / "seekdb"
-    store = SeekDBEmbeddedStore(path=str(path), database="persist_db")
-    store.connect()
+def test_restart_persistence(store: SeekDBEmbeddedStore) -> None:
     store.insert_many("memory_items", _sample_records())
     store.disconnect()
 
-    store2 = SeekDBEmbeddedStore(path=str(path), database="persist_db")
-    store2.connect()
-    assert store2.count("memory_items") == len(_sample_records())
-    hits = store2.similar("memory_items", "剪刀", limit=3)
+    store.connect()
+    assert store.count("memory_items") == len(_sample_records())
+    hits = store.similar("memory_items", "剪刀", limit=3)
     assert hits
-    store2.disconnect()
 
 
 def test_embedding_info(store: SeekDBEmbeddedStore) -> None:
@@ -114,7 +119,7 @@ def test_embedding_info(store: SeekDBEmbeddedStore) -> None:
     assert info["model_name"] == "all-MiniLM-L6-v2"
 
 
-def test_projection_rebuild(tmp_path) -> None:
+def test_projection_rebuild(tmp_path, store: SeekDBEmbeddedStore) -> None:
     from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
 
     sqlite_client = SQLiteKnowledgeStore(str(tmp_path / "knowledge.sqlite"))
@@ -131,7 +136,6 @@ def test_projection_rebuild(tmp_path) -> None:
             )
         )
 
-    store = SeekDBEmbeddedStore(path=str(tmp_path / "seekdb"), database="proj_db")
     projection = SeekDBProjection(store)
     result = projection.rebuild(repo)
     assert result["rebuilt"] == 10
@@ -140,12 +144,11 @@ def test_projection_rebuild(tmp_path) -> None:
     sqlite_client.disconnect()
 
 
-def test_repository_dual_write_via_projection(tmp_path) -> None:
+def test_repository_dual_write_via_projection(tmp_path, store: SeekDBEmbeddedStore) -> None:
     from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
 
     sqlite_client = SQLiteKnowledgeStore(str(tmp_path / "knowledge.sqlite"))
     sqlite_client.connect()
-    store = SeekDBEmbeddedStore(path=str(tmp_path / "seekdb"), database="dual_db")
     projection = SeekDBProjection(store)
     repo = MemoryRepository(sqlite_client, projection=projection)
 
@@ -163,7 +166,7 @@ def test_repository_dual_write_via_projection(tmp_path) -> None:
 
 
 @pytest.mark.slow
-def test_native_benchmark_vs_sqlite_scan(tmp_path) -> None:
+def test_native_benchmark_vs_sqlite_scan(tmp_path, store: SeekDBEmbeddedStore) -> None:
     """Native HNSW vector search must beat SQLite full-table scan at 10k records."""
     from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
     from rosclaw.storage.vector import SQLiteVectorStore, TfidfEmbedder
@@ -179,8 +182,6 @@ def test_native_benchmark_vs_sqlite_scan(tmp_path) -> None:
         for record in base
     ]  # 10,080 records
     # Native SeekDB (HNSW index)
-    store = SeekDBEmbeddedStore(path=str(tmp_path / "seekdb"), database="bench_db")
-    store.connect()
     for offset in range(0, len(records), 1000):
         store.insert_many("memory_items", records[offset : offset + 1000])
     t0 = time.perf_counter()
