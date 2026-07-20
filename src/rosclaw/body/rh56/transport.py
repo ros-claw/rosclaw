@@ -23,6 +23,7 @@ import math
 import os
 import time
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Protocol
 
 from rosclaw.body.rh56.constants import RS485_ACTUATOR_ORDER
@@ -35,6 +36,20 @@ class TransportUnavailableError(RuntimeError):
 
 class TransportIOError(RuntimeError):
     """Raised on I/O failure during a transport transaction."""
+
+
+class CommandDelivery(str, Enum):
+    """Tri-state delivery outcome for one command (review §1).
+
+    A plain boolean cannot express "the command may have executed but the
+    response was lost on the wire".  Drivers must return ``UNCERTAIN`` in
+    that case; the executor then re-reads the actual position before
+    deciding anything — it never blindly re-sends a position command.
+    """
+
+    ACKNOWLEDGED = "acknowledged"
+    REJECTED = "rejected"
+    UNCERTAIN = "uncertain"
 
 
 @dataclass
@@ -79,8 +94,14 @@ class RH56Transport(Protocol):
         *,
         speed: int,
         force_limit: int,
-    ) -> bool:
-        """Send one position command.  Returns True when acknowledged."""
+    ) -> CommandDelivery:
+        """Send one position command and report the delivery outcome.
+
+        ``ACKNOWLEDGED`` — the device confirmed the command.
+        ``REJECTED`` — the device explicitly refused it.
+        ``UNCERTAIN`` — the response was lost/ambiguous; the caller must
+        re-read actual positions before any retry decision.
+        """
 
     def emergency_stop(self) -> bool: ...
 
@@ -144,6 +165,7 @@ class MockModbusTransport:
         self._estopped = False
         self._io_fail_next = False  # test hook: next read raises TransportIOError
         self._disconnect_next = False  # test hook: next read reports disconnect
+        self._uncertain_next_write = False  # test hook: next write loses its response
 
     # -- test hooks -----------------------------------------------------
 
@@ -156,6 +178,10 @@ class MockModbusTransport:
 
     def drop_connection(self) -> None:
         self._disconnect_next = True
+
+    def lose_next_write_response(self) -> None:
+        """Simulate a write whose response is lost on the wire (UNCERTAIN)."""
+        self._uncertain_next_write = True
 
     # -- transport contract ----------------------------------------------
 
@@ -229,7 +255,9 @@ class MockModbusTransport:
             timestamp_monotonic_ns=time.monotonic_ns(),
         )
 
-    def write_position(self, positions: list[int], *, speed: int, force_limit: int) -> bool:
+    def write_position(
+        self, positions: list[int], *, speed: int, force_limit: int
+    ) -> CommandDelivery:
         if not self._connected:
             raise TransportIOError("serial_timeout: transport not connected")
         if len(positions) != self._count:
@@ -237,12 +265,17 @@ class MockModbusTransport:
                 f"actuator_count_mismatch: got {len(positions)} positions, expected {self._count}"
             )
         if self._estopped:
-            return False
+            return CommandDelivery.REJECTED
         lo, hi = self.profile.position_range
         self._target = [float(max(lo, min(hi, int(p)))) for p in positions]
         self._speed = int(speed)
         self._force_limit = int(force_limit)
-        return True
+        if self._uncertain_next_write:
+            # The command WAS applied to the mock device, but the response is
+            # lost — exactly the ambiguous case the tri-state exists for.
+            self._uncertain_next_write = False
+            return CommandDelivery.UNCERTAIN
+        return CommandDelivery.ACKNOWLEDGED
 
     def emergency_stop(self) -> bool:
         self._estopped = True

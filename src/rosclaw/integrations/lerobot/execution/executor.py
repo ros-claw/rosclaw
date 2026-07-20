@@ -26,6 +26,7 @@ from rosclaw.body.execution.interface import (
     ExecutorCommunicationError,
     ExecutorSafetyError,
 )
+from rosclaw.body.rh56.transport import CommandDelivery
 from rosclaw.body.rh56.transport_profile import TransportProfile
 from rosclaw.integrations.lerobot.execution.arming import ArmingController
 from rosclaw.integrations.lerobot.execution.feedback_verifier import FeedbackVerifier
@@ -162,7 +163,7 @@ class SingleStepExecutor:
         # 6. Executor boundary: freshness/dim/range/step-delta + one command.
         self.arming.machine.transition(ExecutionState.EXECUTING_STEP, proposal_id)
         try:
-            acknowledged, feedback = self.executor.execute_step(
+            delivery, feedback = self.executor.execute_step(
                 request,
                 settle_ms=settle_ms,
                 max_step_delta_raw=permit.max_step_delta_raw,
@@ -179,14 +180,19 @@ class SingleStepExecutor:
         except ExecutorCommunicationError as exc:
             return self._communication_lost(exc, proposal_id)
 
+        acknowledged = delivery == CommandDelivery.ACKNOWLEDGED
         self.hardware_actions_executed += 1
         self._emit(
             "execution.command.sent",
-            {"proposal_id": proposal_id, "acknowledged": acknowledged},
+            {
+                "proposal_id": proposal_id,
+                "acknowledged": acknowledged,
+                "command_delivery": delivery.value,
+            },
         )
         self._emit(
             "execution.command.acknowledged" if acknowledged else "execution.command.not_acknowledged",
-            {"proposal_id": proposal_id},
+            {"proposal_id": proposal_id, "command_delivery": delivery.value},
         )
 
         # 7. Verify physical feedback.
@@ -222,6 +228,7 @@ class SingleStepExecutor:
             status="completed" if ok else "fault",
             command_sent=True,
             command_acknowledged=acknowledged,
+            command_delivery=delivery.value,
             target=list(request.values),
             actual=[float(p) for p in feedback.position],
             position_error=position_error,

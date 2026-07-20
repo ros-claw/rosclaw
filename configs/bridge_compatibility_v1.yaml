@@ -1,0 +1,50 @@
+# ROSClaw × LeRobot Bridge v1.0 — compatibility matrix (draft for release).
+#
+# Only the combinations listed here are supported.  Everything in
+# `not_supported` is deliberately out of scope for Bridge v1.0 and must not
+# be silently enabled.
+schema_version: rosclaw.bridge.compatibility.v1
+
+bridge_version: "1.0"
+
+rosclaw:
+  core_python: "3.11"
+
+lerobot:
+  tested_version: "0.6.x"
+  worker_python: "3.12"
+
+policy_runtime:
+  active_sessions: 1
+  dtype: auto
+  execution_mode:
+    - proposal_only
+    - shadow
+    - single_step_receding_horizon
+
+reference_policy:
+  type: rosclaw_rh56_reference
+  action_dim: 6
+  contract: policies/rh56_reference_policy_v1/policy_contract.yaml
+
+reference_body:
+  model: inspire_rh56_right
+  transport: rs485_modbus_rtu
+  device: /dev/ttyUSB0
+  baudrate: 115200
+  slave_id: 2
+  position_range: [0, 1000]
+  action_order: [little, ring, middle, index, thumb, thumb_rot]
+
+feedback_doctrine:
+  contact_primary: FORCE_ACT
+  motion_auxiliary: CURRENT
+  hard_criteria: [STATUS, TEMP]
+
+not_supported:
+  - CAN RH56 execution          # MCPExecutor is a fail-closed stub
+  - open_loop_action_chunks
+  - multiple_active_sessions
+  - unattended_execution
+  - remote_arm_via_dashboard
+  - training / DAgger / Hub publishing  # separate projects

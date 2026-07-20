@@ -181,12 +181,23 @@ def render_shadow_report(
     *,
     calibration_hash: str = "",
     policy_contract: dict[str, Any] | None = None,
+    data_source: str = "mock",
 ) -> str:
-    """Render the P5 shadow report (plan §6.5) as Markdown."""
+    """Render the P5 shadow report (plan §6.5) as Markdown.
+
+    ``data_source`` must be ``"mock"`` or ``"real"`` — a report built from
+    mock transport data is never labeled "REAL".
+    """
     metrics = result.metrics or {}
+    title = (
+        "# P5 RH56 Real Shadow Report"
+        if data_source == "real"
+        else "# P5 RH56 Shadow Report (mock transport)"
+    )
     lines = [
-        "# P5 RH56 Real Shadow Report",
+        title,
         "",
+        f"- Data source: **{data_source}**",
         f"- Transport profile: `{gate_report['transport_profile']}`",
         f"- Calibration hash: `{calibration_hash or 'n/a (mock)'}`",
         f"- Policy contract: `{(policy_contract or {}).get('policy_id', 'rh56_reference_policy_v1')}`",

@@ -81,6 +81,9 @@ class ActionExecutionResult:
     status: str = "blocked"  # completed | blocked | fault | stale_action | aborted
     command_sent: bool = False
     command_acknowledged: bool = False
+    # Tri-state delivery evidence: acknowledged | rejected | uncertain
+    # (uncertain is always resolved by position verification, never by retry).
+    command_delivery: str = ""
     target: list[float] = field(default_factory=list)
     actual: list[float] = field(default_factory=list)
     position_error: list[float] = field(default_factory=list)

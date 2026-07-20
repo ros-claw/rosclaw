@@ -9,6 +9,10 @@ Enforces the P5 execution safety rules at the executor boundary (plan §8):
   ``max_step_delta_raw`` (from the permit)
 - exactly one command per call; then feedback is read back
 - any transport I/O failure raises :class:`ExecutorCommunicationError`
+
+Delivery is reported as :class:`CommandDelivery`.  ``UNCERTAIN`` means the
+command may have executed but its response was lost: the executor re-reads
+the actual position to verify, and NEVER blindly re-sends.
 """
 
 from __future__ import annotations
@@ -20,7 +24,12 @@ from rosclaw.body.execution.interface import (
     ExecutorSafetyError,
     request_is_stale,
 )
-from rosclaw.body.rh56.transport import RH56Feedback, RH56Transport, TransportIOError
+from rosclaw.body.rh56.transport import (
+    CommandDelivery,
+    RH56Feedback,
+    RH56Transport,
+    TransportIOError,
+)
 from rosclaw.body.rh56.transport_profile import TransportProfile
 from rosclaw.integrations.lerobot.execution.schema import ActionExecutionRequest
 
@@ -53,7 +62,7 @@ class RH56Executor:
         *,
         settle_ms: float = 0.0,
         max_step_delta_raw: float | None = None,
-    ) -> tuple[bool, RH56Feedback]:
+    ) -> tuple[CommandDelivery, RH56Feedback]:
         if request_is_stale(request):
             raise ExecutorSafetyError("stale_action: request validity window expired")
 
@@ -79,7 +88,7 @@ class RH56Executor:
             targets.append(target)
 
         try:
-            acknowledged = self.transport.write_position(
+            delivery = self.transport.write_position(
                 targets,
                 speed=int(request.speed),
                 force_limit=int(request.force_limit_g),
@@ -91,7 +100,21 @@ class RH56Executor:
             time.sleep(settle_ms / 1000.0)
 
         feedback = self.read_feedback()
-        return acknowledged, feedback
+        if delivery == CommandDelivery.UNCERTAIN:
+            # Verify what actually happened instead of re-sending: if the
+            # device landed within tolerance of the target, the command
+            # executed; otherwise it did not and the caller must re-plan
+            # from the observed state (never blind-retry a position command).
+            tolerance = 25
+            landed = all(
+                abs(int(feedback.position[i]) - targets[i]) <= tolerance
+                for i in range(len(targets))
+                if i < len(feedback.position)
+            )
+            delivery = (
+                CommandDelivery.ACKNOWLEDGED if landed else CommandDelivery.REJECTED
+            )
+        return delivery, feedback
 
     def emergency_stop(self) -> bool:
         try:

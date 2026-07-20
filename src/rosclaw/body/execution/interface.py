@@ -14,7 +14,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Protocol
 
-from rosclaw.body.rh56.transport import RH56Feedback
+from rosclaw.body.rh56.transport import CommandDelivery, RH56Feedback
 
 if TYPE_CHECKING:  # avoid a body → integrations runtime dependency
     from rosclaw.integrations.lerobot.execution.schema import (
@@ -39,13 +39,15 @@ class BodyExecutor(Protocol):
         *,
         settle_ms: float = 0.0,
         max_step_delta_raw: float | None = None,
-    ) -> tuple[bool, RH56Feedback]:
-        """Send one step command and return ``(acknowledged, feedback)``.
+    ) -> tuple[CommandDelivery, RH56Feedback]:
+        """Send one step command and return ``(delivery, feedback)``.
 
         Must raise :class:`ExecutorCommunicationError` on I/O failure and
         :class:`ExecutorSafetyError` when the request cannot be sent safely.
         When ``max_step_delta_raw`` is given, any per-actuator jump from the
         current position larger than the limit must be refused before sending.
+        Delivery is tri-state: ``UNCERTAIN`` means the response was lost and
+        the actual outcome must be verified from feedback — never re-sent.
         """
 
     def read_feedback(self) -> RH56Feedback: ...

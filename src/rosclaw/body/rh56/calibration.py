@@ -23,6 +23,15 @@ RH56_CALIBRATION_SCHEMA_VERSION = "rosclaw.rh56.calibration.v1"
 
 CALIBRATION_STATUSES = ("uncalibrated", "provisional", "validated", "expired")
 
+# Provenance of feedback thresholds (review §2): never present temporary
+# defaults as hardware-official specifications.
+THRESHOLD_SOURCES = (
+    "manual_authoritative",      # from the official Inspire manual/profile
+    "measured_conservative",     # measured on the real device, conservative margin
+    "operator_configured",       # explicitly set by the operator
+    "conservative_default",      # temporary default, NOT hardware-official
+)
+
 
 class CalibrationError(ValueError):
     """Raised when calibration content or status is not acceptable.
@@ -92,6 +101,11 @@ class RH56Calibration:
             for name, spec in (data.get("actuators") or {}).items()
         }
         feedback = FeedbackCalibration(**(data.get("feedback") or {}))
+        if feedback.thresholds_source not in THRESHOLD_SOURCES:
+            raise CalibrationError(
+                f"calibration_schema_mismatch: unknown thresholds_source "
+                f"{feedback.thresholds_source!r}; expected one of {THRESHOLD_SOURCES}"
+            )
         validation = CalibrationValidation(**(data.get("validation") or {}))
         calib = cls(
             body_id=str(data.get("body_id", "")),

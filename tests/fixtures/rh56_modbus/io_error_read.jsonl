@@ -1,0 +1,2 @@
+{"op": "read", "io_error": "serial_timeout"}
+{"op": "read", "position": [1000, 1000, 1000, 1000, 1000, 1000], "force_g": [0, 0, 0, 0, 0, 0], "current_ma": [0, 0, 0, 0, 0, 0], "status_bits": [0, 0, 0, 0, 0, 0], "temperature_c": [32.0, 32.0, 32.0, 32.0, 32.0, 32.0]}

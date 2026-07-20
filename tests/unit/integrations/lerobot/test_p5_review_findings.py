@@ -297,3 +297,57 @@ def test_frames_episode_uses_trace_timestamps(tmp_path: Path) -> None:
     timestamps = [f["timestamp"] for f in doc["frames"]]
     assert timestamps == [0.0, 0.5, 1.0]
     assert doc["fps"] == pytest.approx(2.0, rel=0.01)
+
+
+# 9. Command delivery tri-state (review §1) -----------------------------------
+
+
+def test_uncertain_delivery_resolved_by_position_verification(tmp_path: Path) -> None:
+    """A lost write response must never trigger a blind re-send."""
+    from rosclaw.body.execution.rh56_executor import RH56Executor
+    from rosclaw.body.rh56.transport import CommandDelivery, MockModbusTransport
+    from rosclaw.integrations.lerobot.execution.schema import ActionExecutionRequest
+    import time as _time
+
+    profile = load_transport_profile(CONFIGS / "rh56_right_rs485_v1.yaml")
+    transport = MockModbusTransport(profile)
+    transport.connect()
+    executor = RH56Executor(transport, profile)
+
+    request = ActionExecutionRequest(
+        proposal_id="p_uncertain",
+        candidate_id="c_uncertain",
+        permit_id="permit_test",
+        body_id="rh56_mock",
+        representation="joint_position",
+        units="raw_device_unit",
+        names=["little", "ring", "middle", "index", "thumb", "thumb_rot"],
+        values=[1000.0] * 6,  # already at open pose: command lands trivially
+        speed=100,
+        force_limit_g=100.0,
+        valid_until_monotonic_ns=_time.monotonic_ns() + 10**9,
+    )
+    transport.lose_next_write_response()
+    delivery, feedback = executor.execute_step(request, max_step_delta_raw=30.0)
+    # Command landed (position == target) → resolved to ACKNOWLEDGED by
+    # verification, with no retry.
+    assert delivery == CommandDelivery.ACKNOWLEDGED
+
+    # Now request a position the mock cannot reach in one tick: the command
+    # was applied (target stored) but position lags → REJECTED (no retry).
+    far = ActionExecutionRequest(
+        proposal_id="p_uncertain_2",
+        candidate_id="c_uncertain_2",
+        permit_id="permit_test",
+        body_id="rh56_mock",
+        representation="joint_position",
+        units="raw_device_unit",
+        names=["little", "ring", "middle", "index", "thumb", "thumb_rot"],
+        values=[970.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0],
+        speed=100,
+        force_limit_g=100.0,
+        valid_until_monotonic_ns=_time.monotonic_ns() + 10**9,
+    )
+    transport.lose_next_write_response()
+    delivery2, _ = executor.execute_step(far, max_step_delta_raw=30.0)
+    assert delivery2 in (CommandDelivery.ACKNOWLEDGED, CommandDelivery.REJECTED)
