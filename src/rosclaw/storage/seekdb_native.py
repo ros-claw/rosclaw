@@ -112,11 +112,35 @@ class SeekDBNativeStore(SeekDBClient):
                 password=self._password,
                 database=self._database,
             )
+        self._wait_ready()
         logger.info(
             "SeekDBNativeStore connected (%s, database=%s)",
             f"embedded:{self._path}" if self._path else f"server:{self._host}:{self._port}",
             self._database,
         )
+
+    def _wait_ready(self, timeout_s: float = 30.0) -> None:
+        """Block until the (embedded) engine answers catalog queries.
+
+        The embedded SeekDB engine opens asynchronously; under load (full
+        suite) early catalog calls can hit a not-yet-ready engine and lose
+        writes or report missing collections.  Probe with retries so callers
+        never see a half-open engine.
+        """
+        import time
+
+        deadline = time.monotonic() + timeout_s
+        last_exc: Exception | None = None
+        while time.monotonic() < deadline:
+            try:
+                self._client.list_collections()
+                return
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                time.sleep(0.5)
+        raise RuntimeError(
+            f"SeekDBNativeStore engine not ready within {timeout_s}s: {last_exc}"
+        ) from last_exc
 
     def _ensure_database(self, admin: Any) -> None:
         try:
