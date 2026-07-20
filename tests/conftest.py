@@ -246,6 +246,20 @@ def pytest_runtest_call(item):
     logging.getLogger().propagate = True
 
 
+@pytest.fixture(scope="session")
+def shared_embedded_seekdb_target(tmp_path_factory) -> dict[str, str]:
+    """The single real embedded SeekDB ``(path, database)`` target for this process.
+
+    pylibseekdb supports ONE embedded target per process
+    (``SeekDBNativeStore._claim_embedded_target``); every real-engine test
+    must share this one.  Tests connect/disconnect their own stores against
+    it sequentially and clean up the collections they use.
+    """
+    pytest.importorskip("pyseekdb")
+    path = tmp_path_factory.mktemp("shared_embedded_seekdb")
+    return {"path": str(path), "database": "rosclaw"}
+
+
 @pytest.fixture
 def linked_realsense_workspace(tmp_path: Path) -> Path:
     """Create a temporary workspace with a linked RealSense D405 body."""
