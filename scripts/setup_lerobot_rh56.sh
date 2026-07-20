@@ -47,9 +47,26 @@ log "rosclaw ${SETUP_ARGS[*]}"
 "${ROSCLAW_PYTHON}" -m rosclaw.cli "${SETUP_ARGS[@]}"
 
 # 3. proposal-only smoke -------------------------------------------------------
+# proposal-only requires an observation fixture — generate a 5-step RH56
+# hold_current fixture locally (no dev-machine assumptions).
+SMOKE_FIXTURE="$(mktemp /tmp/rh56_smoke_obs.XXXXXX.json)"
+trap 'rm -f "${SMOKE_FIXTURE}"' EXIT
+"${ROSCLAW_PYTHON}" - <<'PYEOF' > "${SMOKE_FIXTURE}"
+import json
+obs = [
+    {
+        "observation.state": [1000.0] * 6,
+        "state_names": ["little", "ring", "middle", "index", "thumb", "thumb_rot"],
+        "task": "hold_current",
+    }
+    for _ in range(5)
+]
+print(json.dumps({"observations": obs}))
+PYEOF
 log "proposal-only smoke"
 "${ROSCLAW_PYTHON}" -m rosclaw.cli lerobot rollout proposal-only \
   --policy.path "${REPO_ROOT}/policies/rh56_reference_policy_v1" \
+  --observation-fixture "${SMOKE_FIXTURE}" \
   --steps 5 --json || {
     echo "[setup-lerobot-rh56] proposal-only smoke FAILED" >&2; exit 1; }
 
