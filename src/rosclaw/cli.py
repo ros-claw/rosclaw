@@ -1494,13 +1494,37 @@ def _memory_db_path() -> Path:
 
 
 def _practice_seekdb_client(args: argparse.Namespace) -> Any:
-    """Build the configured Practice SeekDB backend from args or env."""
+    """Build the configured Practice SeekDB backend from args or env.
+
+    URL forms:
+
+    - ``seekdb+native://[user[:password]@]host[:port][/database]`` — the real
+      SeekDB / OceanBase server over the native pyseekdb protocol (port 2881);
+    - ``mysql://`` / ``mysql+pymysql://`` / ``seekdb://`` — the experimental
+      MySQL-protocol backend;
+    - no URL — the local SQLite knowledge store (``--seekdb-path``).
+    """
     import os
+    from urllib.parse import urlparse
 
     from rosclaw.memory.seekdb_client import SeekDBMySQLClient, SQLiteKnowledgeStore
 
     seekdb_url = getattr(args, "seekdb_url", None) or os.environ.get("ROSCLAW_SEEKDB_URL")
     if seekdb_url:
+        if urlparse(seekdb_url).scheme == "seekdb+native":
+            from rosclaw.storage.seekdb_native import SeekDBServerStore
+
+            parsed = urlparse(seekdb_url)
+            database = parsed.path.lstrip("/") or "rosclaw"
+            store = SeekDBServerStore(
+                host=parsed.hostname or "127.0.0.1",
+                port=parsed.port or 2881,
+                user=parsed.username or "root",
+                password=parsed.password or "",
+                database=database,
+            )
+            store.connect()
+            return store
         return SeekDBMySQLClient(seekdb_url)
 
     db_path = Path(getattr(args, "seekdb_path", None) or _memory_db_path())
@@ -7965,7 +7989,11 @@ def main() -> int:
         backend_group.add_argument(
             "--seekdb-url",
             default=None,
-            help=("SeekDB MySQL-compatible DSN, e.g. mysql://root@127.0.0.1:2881/rosclaw"),
+            help=(
+                "SeekDB backend DSN: seekdb+native://root@127.0.0.1:2881/rosclaw "
+                "(real SeekDB/OceanBase server, native protocol) or "
+                "mysql://root@127.0.0.1:2881/rosclaw (experimental MySQL protocol)"
+            ),
         )
 
     practice_ingest_seekdb_parser = practice_subparsers.add_parser(
