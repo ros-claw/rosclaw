@@ -138,6 +138,15 @@ class PolicyWorkerService:
         preprocessor, postprocessor = make_pre_post_processors(
             policy.config,
             pretrained_path=str(local_path),
+            # Instantiate device steps with the requested device from the
+            # start: a pipeline saved with device='cuda' must still load on a
+            # machine where CUDA is (or became) unavailable.
+            preprocessor_overrides={
+                "device_processor": {"device": device, "float_dtype": None}
+            },
+            postprocessor_overrides={
+                "device_processor": {"device": device, "float_dtype": None}
+            },
         )
         self._move_processor_to_device(preprocessor, device)
         self._move_processor_to_device(postprocessor, device)
