@@ -23,25 +23,27 @@ from rosclaw.body.rh56.calibration import (
 )
 from rosclaw.body.rh56.transport import (
     MockModbusTransport,
+    RH56Transport,
     SerialModbusTransport,
     TransportUnavailableError,
 )
 from rosclaw.body.rh56.transport_profile import (
     TransportBindingError,
+    TransportProfile,
     load_transport_profile,
     validate_transport_binding,
 )
 
 
-def _build_transport(profile, mock: bool):
+def _build_transport(profile: TransportProfile, mock: bool) -> RH56Transport:
     if mock:
-        transport = MockModbusTransport(profile)
-        transport.connect()
-        return transport
+        mock_transport = MockModbusTransport(profile)
+        mock_transport.connect()
+        return mock_transport
     try:
-        transport = SerialModbusTransport(profile)
-        transport.connect()
-        return transport
+        serial_transport = SerialModbusTransport(profile)
+        serial_transport.connect()
+        return serial_transport
     except TransportUnavailableError as exc:
         raise CalibrationError(f"transport_unavailable: {exc}") from exc
 

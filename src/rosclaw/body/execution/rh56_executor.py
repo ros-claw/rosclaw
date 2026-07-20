@@ -69,8 +69,15 @@ class RH56Executor:
 
         # Read current position for the step-delta check.
         current = self.read_feedback()
+        hold_tolerance = hold_tolerance_raw
         setpoints: list[int] | None = None
-        if hold_tolerance_raw is not None:
+        if hold_tolerance is not None:
+            if len(hold_tolerance) != self.profile.command.actuator_count:
+                raise ExecutorSafetyError(
+                    "hold_tolerance_count_mismatch: "
+                    f"{len(hold_tolerance)} values for "
+                    f"{self.profile.command.actuator_count} actuators"
+                )
             try:
                 setpoints = self.transport.read_angle_setpoints()
             except TransportIOError as exc:
@@ -97,7 +104,8 @@ class RH56Executor:
                 setpoints is not None
                 and i < len(setpoints)
                 and i < len(current.position)
-                and abs(target - float(current.position[i])) <= hold_tolerance_raw[i]
+                and hold_tolerance is not None
+                and abs(target - float(current.position[i])) <= hold_tolerance[i]
             ):
                 targets.append(int(setpoints[i]))
             else:

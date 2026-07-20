@@ -1,387 +1,135 @@
-# ROSClaw-OpenClaw Integration: Phase 1
+# OpenClaw Integration
 
-> **Historical design document:** the standalone UR5 MCP direct-motion path shown
-> below is disabled because it bypasses the runtime action gateway. It must not be
-> treated as a production or hardware-execution guide. Use
-> [P0_AGENT_INTEGRATION.md](P0_AGENT_INTEGRATION.md) for the current agent-facing
-> integration and submit physical actions through `Runtime.submit_action()`.
+ROSClaw integrates with OpenClaw in two distinct ways:
 
-This document records the original Phase 1 design for integrating ROSClaw with
-OpenClaw's Agent Event Loop via the mcporter bridge.
+1. a workspace skill teaches the Agent the ROSClaw safety and evidence workflow;
+2. OpenClaw's operator-owned MCP registry exposes the bounded ROSClaw tool
+   surface to OpenClaw-managed runs.
 
-## Architecture Overview
+The project installer creates the workspace files. It deliberately does not
+edit the user's global OpenClaw configuration.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        OpenClaw Agent Layer (TypeScript/Node.js)            │
-│                        - Agent Event Loop (src/agents/acp-spawn.ts)         │
-│                        - LLM Integration                                    │
-│                        - ACP Protocol                                       │
-│                                                                             │
-│  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │                    mcporter Bridge                                     │ │
-│  │  (OpenClaw's MCP Integration Bridge)                                   │ │
-│  │  - Spawns external MCP servers as subprocesses                         │ │
-│  │  - Manages connection lifecycle                                        │ │
-│  │  - Routes tool calls to appropriate MCP servers                        │ │
-│  └─────────────────────────────┬─────────────────────────────────────────┘ │
-│                                │                                            │
-│                                │ stdio transport                            │
-│                                ▼                                            │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                        │
-                                        │ stdio communication
-                                        │ (JSON-RPC 2.0 / MCP protocol)
-                                        ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        ROSClaw MCP Server (Python)                          │
-│                        - UR5MCPServer (Layers 1-4)                          │
-│                                                                             │
-│  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │                    Layer 4: Embodiment MCP                             │ │
-│  │  - MCP Tools: move_robot, get_robot_state, execute_trajectory          │ │
-│  │  - Digital Twin validation before execution                            │ │
-│  └─────────────────────────────┬─────────────────────────────────────────┘ │
-│                                │                                            │
-│  ┌─────────────────────────────▼─────────────────────────────────────────┐ │
-│  │                    Layer 3: Digital Twin (MuJoCo)                      │ │
-│  │  - Physics validation of trajectories                                  │ │
-│  │  - Collision detection                                                 │ │
-│  │  - SafetyViolationError on validation failure                          │ │
-│  └─────────────────────────────┬─────────────────────────────────────────┘ │
-│                                │                                            │
-│  ┌─────────────────────────────▼─────────────────────────────────────────┐ │
-│  │                    Layer 2: Semantic-HAL                               │ │
-│  │  - Fast Lane: ROS 2 topics (30Hz)                                      │ │
-│  │  - Slow Lane: MCP tools (1Hz)                                          │ │
-│  └─────────────────────────────┬─────────────────────────────────────────┘ │
-│                                │                                            │
-│  ┌─────────────────────────────▼─────────────────────────────────────────┐ │
-│  │                    Layer 1: ROS 2 Runtime                              │ │
-│  │  - UR5ROSNode (actual rclpy implementation)                            │ │
-│  │  - Real Subscribers, Publishers, ActionClients                         │ │
-│  └─────────────────────────────┬─────────────────────────────────────────┘ │
-│                                │                                            │
-│                                │ ROS 2 DDS (FastDDS/CycloneDDS)             │
-│                                ▼                                            │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                        │
-                                        │ Ethernet/IP
-                                        ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        Physical Robot (UR5)                                 │
-│                        - RTDE/URScript                                      │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+## Safety Boundary
 
-## Integration Flow
+The current P0 Agent surface is read-only, validation, simulation, product
+evidence, and emergency control. It contains no real-execution tool.
 
-### 1. OpenClaw Agent Event Loop
+The legacy `rosclaw-ur5-mcp` entry point remains available for compatibility,
+but its motion handlers fail closed behind the runtime action gateway. Do not
+use it as a direct hardware integration path. A real action must enter through
+`Runtime.submit_action()` with an immutable body snapshot, scoped
+authorization, safety policy, a registered verified executor, feedback, and an
+execution receipt.
 
-The Agent Event Loop in OpenClaw (`src/agents/acp-spawn.ts`) manages the lifecycle of agent subprocesses. When an agent needs robot control capabilities:
+## 1. Install ROSClaw Into an OpenClaw Workspace
 
-```typescript
-// OpenClaw agent configuration
-const agentConfig = {
-  model: "claude-sonnet-4-1-20250514",
-  servers: [
-    {
-      name: "rosclaw-ur5",
-      command: "rosclaw-ur5-mcp",  // Entry point from pyproject.toml
-      env: {
-        "ROBOT_IP": "192.168.1.100",
-        "DIGITAL_TWIN_ENABLED": "true"
-      }
-    }
-  ]
-};
-```
-
-### 2. mcporter Bridge
-
-mcporter spawns the ROSClaw MCP server as a subprocess:
-
-```typescript
-// mcporter creates subprocess
-const process = spawn('rosclaw-ur5-mcp', [], {
-  env: { ...process.env, ROBOT_IP: '192.168.1.100' }
-});
-
-// Communication via stdio (JSON-RPC 2.0)
-process.stdout.on('data', (data) => {
-  // Parse MCP protocol messages
-  // Route to Agent Event Loop
-});
-```
-
-### 3. ROSClaw MCP Server Initialization
-
-When spawned, `rosclaw-ur5-mcp` (defined in `pyproject.toml`):
-
-```python
-# src/rosclaw/mcp/ur5_server.py
-async def main():
-    # 1. Initialize ROS 2 node
-    rclpy.init()
-    ros_node = UR5ROSNode(
-        robot_ip=os.environ.get("ROBOT_IP", "192.168.1.100"),
-        use_digital_twin=os.environ.get("DIGITAL_TWIN_ENABLED", "true") == "true"
-    )
-
-    # 2. Start ROS 2 node in separate thread
-    ros_thread = threading.Thread(target=ros_node.run)
-    ros_thread.start()
-
-    # 3. Initialize MCP server
-    mcp = UR5MCPServer(ros_node)
-
-    # 4. Start MCP stdio transport (blocks here)
-    await mcp.run()
-```
-
-### 4. Tool Call Flow
-
-When OpenClaw agent calls a tool:
-
-```
-OpenClaw Agent
-     │
-     │ 1. LLM decides to move robot
-     │    Tool Call: move_robot(joint_positions=[...])
-     ▼
-mcporter Bridge
-     │
-     │ 2. Serialize to MCP protocol
-     │    JSON-RPC: {"method": "tools/call", ...}
-     ▼
-ROSClaw UR5MCPServer
-     │
-     │ 3. Validate via Digital Twin
-     │    - Load MuJoCo model
-     │    - Simulate trajectory
-     │    - Check collisions/limits
-     ▼
-     │ 4a. Validation Failed?
-     │    → Return SafetyViolationError
-     ▼
-     │ 4b. Validation Passed
-     │    → Send ROS 2 Action Goal
-     ▼
-UR5ROSNode
-     │
-     │ 5. FollowJointTrajectory Action
-     │    - Send goal to /follow_joint_trajectory
-     ▼
-ROS 2 DDS
-     │
-     │ 6. Network transport
-     ▼
-UR5 Controller
-     │
-     │ 7. Execute motion
-     │    - RTDE feedback
-     ▼
-ROS 2 DDS (feedback)
-     │
-     │ 8. Action result
-     ▼
-UR5ROSNode
-     │
-     │ 9. Return result
-     ▼
-ROSClaw UR5MCPServer
-     │
-     │ 10. Format MCP response
-     ▼
-mcporter
-     │
-     │ 11. Deserialize
-     ▼
-OpenClaw Agent
-     │ 12. LLM observes result
-```
-
-## Safety Architecture
-
-### Digital Twin Firewall
-
-Before any physical motion, the Digital Twin validates:
-
-```python
-from rosclaw.firewall import DigitalTwinFirewall, SafetyViolationError
-
-# Initialize firewall with MuJoCo model
-firewall = DigitalTwinFirewall(
-    model_path="src/rosclaw/specs/ur5e.xml",
-    check_collision=True,
-    check_joint_limits=True,
-    check_torque_limits=True
-)
-
-# Validate trajectory before execution
-trajectory = [[0.0, -1.57, 1.57, 0.0, 0.0, 0.0], ...]
-result = firewall.validate_trajectory(
-    trajectory=trajectory,
-    time_step=0.001,
-    max_sim_time=5.0
-)
-
-if not result.is_valid:
-    raise SafetyViolationError(
-        f"Trajectory unsafe: {result.violations}"
-    )
-```
-
-### Decorator Pattern
-
-Functions can be wrapped for automatic validation:
-
-```python
-from rosclaw.firewall import mujoco_firewall
-
-@mujoco_firewall(
-    model_path="src/rosclaw/specs/ur5e.xml",
-    safety_level=SafetyLevel.STRICT
-)
-def execute_move(trajectory_points: list[list[float]]):
-    """Execute motion - automatically validated by Digital Twin."""
-    # Only runs if validation passes
-    ...
-```
-
-## MCP Tools Reference
-
-### Tool: `move_robot`
-
-Move the robot to a specific joint configuration.
-
-**Input:**
-```json
-{
-  "joint_positions": [0.0, -1.57, 1.57, 0.0, 0.0, 0.0],
-  "time_from_start": 5.0,
-  "validate": true
-}
-```
-
-**Output:**
-```json
-{
-  "success": true,
-  "message": "Motion completed successfully",
-  "actual_positions": [0.0, -1.57, 1.57, 0.0, 0.0, 0.0],
-  "execution_time": 4.98
-}
-```
-
-### Tool: `execute_trajectory`
-
-Execute a multi-point trajectory.
-
-**Input:**
-```json
-{
-  "trajectory_points": [
-    {"positions": [0.0, -1.57, 1.57, 0.0, 0.0, 0.0], "time": 0.0},
-    {"positions": [0.5, -1.0, 1.0, 0.5, 0.0, 0.0], "time": 2.0},
-    {"positions": [1.0, -0.5, 0.5, 1.0, 0.0, 0.0], "time": 4.0}
-  ],
-  "validate": true
-}
-```
-
-### Tool: `get_robot_state`
-
-Get current robot state.
-
-**Output:**
-```json
-{
-  "joint_positions": [0.0, -1.57, 1.57, 0.0, 0.0, 0.0],
-  "joint_velocities": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-  "tcp_pose": {
-    "position": [0.4, 0.2, 0.5],
-    "orientation": [0.0, 0.0, 0.0, 1.0]
-  },
-  "is_moving": false,
-  "digital_twin_status": "active"
-}
-```
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ROBOT_IP` | `192.168.1.100` | IP address of UR5 robot |
-| `ROBOT_PORT` | `50002` | RTDE port |
-| `DIGITAL_TWIN_ENABLED` | `true` | Enable MuJoCo validation |
-| `MUJOCO_MODEL_PATH` | `src/rosclaw/specs/ur5e.xml` | Path to MJCF model |
-| `SAFETY_LEVEL` | `strict` | Safety validation level |
-
-### OpenClaw Configuration
-
-Add to OpenClaw agent config:
-
-```json
-{
-  "mcpServers": {
-    "rosclaw-ur5": {
-      "command": "rosclaw-ur5-mcp",
-      "env": {
-        "ROBOT_IP": "192.168.1.100",
-        "DIGITAL_TWIN_ENABLED": "true"
-      }
-    }
-  }
-}
-```
-
-## Development
-
-### Setup
+Run this from the OpenClaw workspace:
 
 ```bash
-# Install ROSClaw
-cd /root/workspace/rosclaw/rosclaw
-pip install -e ".[ros2,dev]"
-
-# Test Digital Twin
-python -c "
-from rosclaw.firewall import DigitalTwinFirewall
-fw = DigitalTwinFirewall('src/rosclaw/specs/ur5e.xml')
-print('Digital Twin loaded successfully')
-"
-
-# Test MCP Server (stdio mode)
-rosclaw-ur5-mcp
-
-# Test MCP Server (HTTP mode for debugging)
-rosclaw-ur5-mcp --transport http --port 9000
+rosclaw agent install openclaw --project-root . --skip-secrets
 ```
 
-### Running with OpenClaw
+This writes:
+
+- `.agents/skills/rosclaw/SKILL.md`, which OpenClaw discovers as a workspace
+  skill;
+- `ROSCLAW.md` and `AGENTS.md`, which state the runtime and deny boundaries;
+- `.rosclaw/agent/context.snapshot.json`, which records the advertised tools
+  and safety levels;
+- cross-agent Codex and Claude Code files for the same project.
+
+Start a new OpenClaw session after installation so the workspace skill is
+included in the session's skill snapshot.
+
+Validate the generated project files and the ROSClaw stdio server:
 
 ```bash
-# 1. Start OpenClaw with mcporter pointing to ROSClaw
-# In OpenClaw config, add rosclaw-ur5-mcp as MCP server
-
-# 2. Agent Event Loop automatically spawns and manages ROSClaw
-# Agent can now call move_robot, execute_trajectory, etc.
+rosclaw agent doctor openclaw --project-root .
+rosclaw agent test openclaw --project-root . --quick --mcp-probe
 ```
 
-## Next Steps: Phase 2
+The second command runs a protocol-level probe and a real MuJoCo
+`ur5e-reach` evidence workflow. It never contacts physical hardware.
 
-1. **Multi-Agent Support**: Extend to support G1 + UR5 coordination
-2. **Event-Driven Ring Buffer**: Implement 60s ring buffer with event triggers
-3. **OpenClaw-RL Integration**: Connect to `slime` for RL training
-4. **VLA Policy Server**: Add OpenVLA/π0 integration
+## 2. Register the Native MCP Server
 
-## References
+OpenClaw stores outbound MCP servers in its global operator configuration.
+Review the command and run it explicitly from the intended workspace:
 
-- **OpenClaw**: `/root/workspace/rosclaw/openclaw/` - TypeScript agent framework
-- **mcporter**: OpenClaw's MCP bridge (spawns external MCP servers)
-- **MuJoCo**: Physics engine for Digital Twin
-- **ROS 2**: Robot Operating System for hardware control
-- **MCP Protocol**: Model Context Protocol specification
+```bash
+openclaw mcp add rosclaw \
+  --command rosclaw \
+  --arg mcp \
+  --arg serve \
+  --arg=--project \
+  --arg "$PWD" \
+  --arg=--log-level \
+  --arg ERROR \
+  --cwd "$PWD" \
+  --env ROSCLAW_AGENT_CLIENT=openclaw \
+  --env ROSCLAW_MCP_AUDIT=1 \
+  --timeout 300 \
+  --include \
+  'get_robot_state,list_skills,query_memory,validate_trajectory,sandbox_run,practice_query,emergency_stop,get_body_profile,get_body_state,list_body_capabilities,query_body,validate_body_action,get_calibration_status,get_product_status,list_product_demos,run_product_demo,get_execution_receipt,explain_execution'
+openclaw mcp doctor rosclaw --probe
+```
+
+`openclaw mcp doctor rosclaw --probe` must report a live server with exactly
+the 18 tools listed above. If it reports more tools, remove the server and
+investigate before giving it to an Agent:
+
+```bash
+openclaw mcp unset rosclaw
+```
+
+The project installer does not run these global commands because it cannot
+know which OpenClaw agent, workspace, or security policy should own the server.
+
+## 3. Agent Evidence Workflow
+
+Ask the OpenClaw Agent to use the ROSClaw tools, not shell commands or direct
+device APIs:
+
+1. call `get_product_status`;
+2. call `list_product_demos`;
+3. call `run_product_demo` with `demo_id="ur5e-reach"`;
+4. call `get_execution_receipt` with the returned run ID;
+5. call `explain_execution` with the same run ID.
+
+A valid result reports:
+
+- execution mode `SIMULATION`;
+- policy decision `ALLOW`;
+- MuJoCo physics steps greater than zero;
+- a verified task result;
+- an integrity-checked receipt;
+- `usable_for_real_execution: false`.
+
+Do not infer success from conversational text. The receipt and its integrity
+check are the product evidence.
+
+## Tool Boundary
+
+| Category | Tools | Meaning |
+|---|---|---|
+| Read-only | `get_robot_state`, `list_skills`, `query_memory`, `practice_query` | Inspect runtime state and evidence |
+| Validation/simulation | `validate_trajectory`, `sandbox_run` | Validate or simulate; never authorize real motion |
+| Emergency | `emergency_stop` | Request an immediate stop |
+| Body context | `get_body_profile`, `get_body_state`, `list_body_capabilities`, `query_body`, `validate_body_action`, `get_calibration_status` | Inspect and validate the effective body |
+| Product evidence | `get_product_status`, `list_product_demos`, `run_product_demo`, `get_execution_receipt`, `explain_execution` | Run and explain official evidence workflows |
+
+OpenClaw's MCP registry and skill behavior can change between releases. Check
+the current OpenClaw MCP and Skills documentation before automating global
+installation.
+
+## Current Verification Status
+
+- The workspace skill and ROSClaw MCP protocol probe are covered by automated
+  tests.
+- The full product evidence workflow has been exercised through an independent
+  local Codex CLI process.
+- OpenClaw native registry configuration is documented but has not been
+  independently verified in this repository's CI because OpenClaw is not a
+  test dependency.
+- Agent-controlled real actuation is not verified and remains unavailable from
+  the P0 MCP surface.

@@ -2,7 +2,7 @@
 
 Exposes the P0 safety-gated tool surface:
   S0 read-only/body-context: robot state, skills, memory, practice, body context
-  S1 simulation-only       : sandbox_run
+  S1 simulation-only       : sandbox_run, official product demos
   S2 validated-plan        : validate_trajectory
   S4 emergency             : emergency_stop
 
@@ -73,8 +73,9 @@ def serve(
     )
 
     instructions = (
-        "ROSClaw P0 physical-AI runtime. Read-only, simulation, validated-plan, "
-        "and emergency tools only. No real-execution tool is available."
+        "ROSClaw P0 physical-AI runtime. Discover canonical product status, run "
+        "official simulation demos, inspect receipts, and use read-only, "
+        "validated-plan, and emergency tools. No real-execution tool is available."
     )
 
     mcp = FastMCP(

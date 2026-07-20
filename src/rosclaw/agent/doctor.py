@@ -11,7 +11,7 @@ from rosclaw.agent.detectors import build_project_profile
 from rosclaw.agent.install import AGENT_TARGETS
 from rosclaw.agent.merge import read_json_if_exists
 from rosclaw.agent.tool_catalog import P0_AGENT_MCP_TOOLS
-from rosclaw.agent.validate import validate_project
+from rosclaw.agent.validate import agent_target_paths, validate_project
 
 
 def _check_server_reachable(profile: dict[str, Any]) -> tuple[bool, str]:
@@ -38,17 +38,9 @@ def cmd_agent_doctor_claude_code(args: argparse.Namespace) -> int:
     """Implementation of `rosclaw agent doctor`."""
     project_root = Path(args.project_root) if args.project_root else None
     profile = build_project_profile(project_root=project_root)
+    target = getattr(args, "agent", "claude-code")
 
-    generated_paths = {
-        ".mcp.json": profile.project_root / ".mcp.json",
-        "CLAUDE.md": profile.project_root / "CLAUDE.md",
-        "ROSCLAW.md": profile.project_root / "ROSCLAW.md",
-        ".claude/settings.json": profile.project_root / ".claude" / "settings.json",
-        "context.snapshot.json": profile.project_root
-        / ".rosclaw"
-        / "agent"
-        / "context.snapshot.json",
-    }
+    generated_paths = agent_target_paths(profile.project_root, target)
 
     validation = validate_project(
         profile.project_root,
@@ -56,7 +48,7 @@ def cmd_agent_doctor_claude_code(args: argparse.Namespace) -> int:
         skip_secrets=args.skip_secrets,
     )
 
-    print(f"Agent target: {getattr(args, 'agent', 'claude-code')}")
+    print(f"Agent target: {target}")
     print(f"Project root: {profile.project_root}")
     print(f"Robot ID: {profile.robot_id or '(none detected)'}")
     print(f"MCP transport: {profile.default_transport}")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import inspect
 import json
@@ -231,6 +232,123 @@ async def _get_calibration_status(component: str | None = None) -> dict[str, Any
 
 
 # ---------------------------------------------------------------------------
+# Product workflow tools (simulation and receipt access only)
+# ---------------------------------------------------------------------------
+
+
+async def _get_product_status() -> dict[str, Any]:
+    """Return the canonical release, support tiers, and evidence boundary."""
+    from rosclaw.product.status import load_product_status
+
+    return {
+        "execution_mode": "NONE",
+        "trust_level": "DECLARED_AND_VALIDATED",
+        "usable_for_real_execution": False,
+        "product_status": load_product_status(),
+    }
+
+
+async def _list_product_demos() -> dict[str, Any]:
+    """List official evidence-bearing product demos."""
+    from rosclaw.product.demo import list_demos
+
+    return {
+        "execution_mode": "NONE",
+        "trust_level": "DECLARED_AND_VALIDATED",
+        "usable_for_real_execution": False,
+        "demos": [demo.to_dict() for demo in list_demos()],
+    }
+
+
+async def _run_product_demo(
+    demo_id: str = "ur5e-reach",
+    target: list[float] | None = None,
+    max_steps: int = 1200,
+    tolerance_m: float = 0.008,
+    seed: int = 0,
+) -> dict[str, Any]:
+    """Run an official simulation demo and persist its ExecutionReceipt."""
+    from rosclaw.product.demo import DemoConfigurationError, DemoNotFoundError, run_demo
+
+    target_tuple: tuple[float, float, float] | None = None
+    if target is not None:
+        if len(target) != 3:
+            raise MCPError("INVALID_ARGUMENT", "target must contain exactly three coordinates.")
+        if any(
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            for value in target
+        ):
+            raise MCPError(
+                "INVALID_ARGUMENT",
+                "target coordinates must be finite numbers.",
+            )
+        target_tuple = (float(target[0]), float(target[1]), float(target[2]))
+
+    try:
+        receipt, receipt_path = await asyncio.to_thread(
+            run_demo,
+            demo_id,
+            target=target_tuple,
+            max_steps=max_steps,
+            tolerance_m=tolerance_m,
+            seed=seed,
+            actor_id="rosclaw-mcp",
+            agent_framework=_AGENT_CLIENT,
+        )
+    except DemoNotFoundError as exc:
+        raise MCPError("DEMO_NOT_FOUND", str(exc)) from exc
+    except DemoConfigurationError as exc:
+        raise MCPError("INVALID_ARGUMENT", str(exc)) from exc
+
+    payload = receipt.to_dict()
+    return {
+        "execution_mode": payload.get("execution_mode"),
+        "trust_level": payload.get("trust_level"),
+        "usable_for_real_execution": False,
+        "receipt": payload,
+        "receipt_path": str(receipt_path),
+    }
+
+
+async def _get_execution_receipt(run_reference: str = "latest") -> dict[str, Any]:
+    """Read and integrity-check a persisted ExecutionReceipt."""
+    from rosclaw.product.runs import ProductRunStore, RunNotFoundError, RunStoreError
+
+    try:
+        receipt, receipt_path = ProductRunStore().load(run_reference)
+    except RunNotFoundError as exc:
+        raise MCPError("RUN_NOT_FOUND", str(exc)) from exc
+    except RunStoreError as exc:
+        raise MCPError("RUN_INTEGRITY_ERROR", str(exc)) from exc
+    return {
+        "execution_mode": receipt.get("execution_mode"),
+        "trust_level": receipt.get("trust_level"),
+        "usable_for_real_execution": False,
+        "receipt": receipt,
+        "receipt_path": str(receipt_path),
+    }
+
+
+async def _explain_execution(run_reference: str = "latest") -> dict[str, Any]:
+    """Explain what ROSClaw requested, guarded, executed, and verified."""
+    from rosclaw.product.explain import explain_receipt
+    from rosclaw.product.runs import ProductRunStore, RunNotFoundError, RunStoreError
+
+    try:
+        receipt, receipt_path = ProductRunStore().load(run_reference)
+    except RunNotFoundError as exc:
+        raise MCPError("RUN_NOT_FOUND", str(exc)) from exc
+    except RunStoreError as exc:
+        raise MCPError("RUN_INTEGRITY_ERROR", str(exc)) from exc
+    return {
+        "execution_mode": receipt.get("execution_mode"),
+        "trust_level": receipt.get("trust_level"),
+        "usable_for_real_execution": False,
+        "explanation": explain_receipt(receipt, receipt_path),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Body registry tools (P2 / body scope, not part of P0_TOOLS)
 # ---------------------------------------------------------------------------
 
@@ -279,6 +397,11 @@ list_body_capabilities = _tool_wrapper("list_body_capabilities", _list_body_capa
 query_body = _tool_wrapper("query_body", _query_body)
 validate_body_action = _tool_wrapper("validate_body_action", _validate_body_action)
 get_calibration_status = _tool_wrapper("get_calibration_status", _get_calibration_status)
+get_product_status = _tool_wrapper("get_product_status", _get_product_status)
+list_product_demos = _tool_wrapper("list_product_demos", _list_product_demos)
+run_product_demo = _tool_wrapper("run_product_demo", _run_product_demo)
+get_execution_receipt = _tool_wrapper("get_execution_receipt", _get_execution_receipt)
+explain_execution = _tool_wrapper("explain_execution", _explain_execution)
 list_bodies = _tool_wrapper("list_bodies", _list_bodies)
 get_body = _tool_wrapper("get_body", _get_body)
 switch_body = _tool_wrapper("switch_body", _switch_body)
@@ -300,6 +423,11 @@ P0_TOOLS: list[ToolFunc] = [
     query_body,
     validate_body_action,
     get_calibration_status,
+    get_product_status,
+    list_product_demos,
+    run_product_demo,
+    get_execution_receipt,
+    explain_execution,
 ]
 
 BODY_TOOLS: list[ToolFunc] = [
@@ -331,6 +459,11 @@ __all__ = [
     "query_body",
     "validate_body_action",
     "get_calibration_status",
+    "get_product_status",
+    "list_product_demos",
+    "run_product_demo",
+    "get_execution_receipt",
+    "explain_execution",
     "list_bodies",
     "get_body",
     "switch_body",

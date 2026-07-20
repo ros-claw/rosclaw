@@ -1231,6 +1231,9 @@ def _print_dashboard_status() -> int:
 
 def cmd_status(args: argparse.Namespace) -> int:
     """Show ROSClaw runtime status."""
+    if getattr(args, "status_command", None) == "capabilities":
+        return cmd_status_capabilities(args)
+
     import importlib
 
     config_path = Path("rosclaw.yaml")
@@ -1290,6 +1293,13 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"\nDegraded modules ({len(degraded)}): {', '.join(degraded)}")
         return 1
     return 0
+
+
+def cmd_status_capabilities(args: argparse.Namespace) -> int:
+    """Show the canonical product capability boundary."""
+    from rosclaw.product.cli import cmd_status_capabilities as product_handler
+
+    return product_handler(args)
 
 
 def cmd_robot_list(_args: argparse.Namespace) -> int:
@@ -5182,6 +5192,27 @@ def cmd_demo_tabletop_grasp(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_demo_list(args: argparse.Namespace) -> int:
+    """List official evidence-bearing product demos."""
+    from rosclaw.product.cli import cmd_demo_list as product_handler
+
+    return product_handler(args)
+
+
+def cmd_demo_run(args: argparse.Namespace) -> int:
+    """Run an official demo and print its evidence-bearing receipt."""
+    from rosclaw.product.cli import cmd_demo_run as product_handler
+
+    return product_handler(args)
+
+
+def cmd_explain_run(args: argparse.Namespace) -> int:
+    """Explain a persisted product run."""
+    from rosclaw.product.cli import cmd_explain_run as product_handler
+
+    return product_handler(args)
+
+
 # Shared event history file for cross-CLI-process persistence
 _EVENT_HISTORY_FILE = get_rosclaw_home() / "event_history.jsonl"
 _EVENT_HISTORY_MAX = 10000
@@ -5411,24 +5442,17 @@ def cmd_firewall_check(args: argparse.Namespace) -> int:
 
 def cmd_sandbox_run(args: argparse.Namespace) -> int:
     """Run a truthful sandbox episode through Runtime.submit_action()."""
-    import hashlib
-    import uuid
-
-    from rosclaw.core.runtime import Runtime, RuntimeConfig
-    from rosclaw.kernel import ActionEnvelope, ActionState, ExecutionMode
+    from rosclaw.kernel import ActionState, ExecutionMode
+    from rosclaw.sandbox.service import (
+        SandboxConfigurationError,
+        SandboxRunRequest,
+        run_sandbox_action,
+    )
 
     mode = ExecutionMode(str(args.mode).upper())
     backend = str(args.backend or "mujoco").lower()
     world = args.world or "empty"
-    if mode is ExecutionMode.FIXTURE:
-        backend = "fixture"
-    elif backend != "mujoco":
-        message = "SIMULATION mode requires --backend mujoco; use --mode fixture explicitly."
-        if args.json:
-            print(json.dumps({"status": "BLOCKED", "error": message}, indent=2))
-        else:
-            print(f"[ROSClaw] {message}", file=sys.stderr)
-        return 2
+    display_backend = "fixture" if mode is ExecutionMode.FIXTURE else backend
 
     if not args.json:
         print(
@@ -5437,52 +5461,25 @@ def cmd_sandbox_run(args: argparse.Namespace) -> int:
         )
 
     artifact_root = Path(args.artifact_dir).expanduser() if args.artifact_dir else None
-    runtime = Runtime(
-        RuntimeConfig(
-            robot_id=args.robot,
-            default_eurdf_robot="ur5e",
-            enable_event_persistence=False,
-            enable_firewall=False,
-            enable_memory=False,
-            enable_practice=False,
-            enable_skill_manager=False,
-            enable_knowledge=False,
-            enable_how=False,
-            enable_auto=False,
-            enable_provider=False,
-            enable_sense=False,
-            sandbox_engine=backend,
-            sandbox_world_id=world,
-            sandbox_artifact_root=str(artifact_root) if artifact_root else None,
-            trace_home=str(artifact_root / "trace") if artifact_root else None,
-        )
-    )
+    target: tuple[float, float, float] | None = None
+    if args.target is not None:
+        target = (float(args.target[0]), float(args.target[1]), float(args.target[2]))
     try:
-        runtime.initialize()
-        model_path = runtime.sandbox.model_path if runtime.sandbox is not None else None
-        body_hash = ""
-        if model_path is not None and model_path.is_file():
-            body_hash = f"sha256:{hashlib.sha256(model_path.read_bytes()).hexdigest()}"
-        arguments: dict[str, Any] = {
-            "task": args.task,
-            "max_steps": args.steps,
-            "tolerance_m": args.tolerance,
-            "seed": args.seed,
-        }
-        if args.target is not None:
-            arguments["target"] = list(args.target)
-        action = ActionEnvelope(
-            actor_id="rosclaw-cli",
-            agent_framework="cli",
-            session_id=args.trace_id or f"cli_{uuid.uuid4().hex[:12]}",
-            body_id=args.robot,
-            body_snapshot_hash=body_hash,
-            capability_id=f"sandbox.{args.task}",
-            arguments=arguments,
-            execution_mode=mode,
-            parent_trace_id=args.trace_id,
+        receipt = run_sandbox_action(
+            SandboxRunRequest(
+                robot=args.robot,
+                world=world,
+                task=args.task,
+                mode=mode,
+                backend=backend,
+                target=target,
+                max_steps=args.steps,
+                tolerance_m=args.tolerance,
+                seed=args.seed,
+                artifact_root=artifact_root,
+                trace_id=args.trace_id,
+            )
         )
-        receipt = runtime.submit_action(action)
         result = receipt.to_dict()
         if args.json:
             print(json.dumps(result, indent=2, ensure_ascii=False))
@@ -5508,7 +5505,7 @@ def cmd_sandbox_run(args: argparse.Namespace) -> int:
         print(f"Evidence:   {result['evidence_level']}")
         print(f"Verified:   {result['verified']}")
         print(f"World:      {world}")
-        print(f"Backend:    {backend}")
+        print(f"Backend:    {display_backend}")
         simulation = result.get("simulation_result") or {}
         verification = result.get("verification_result") or {}
         print(f"Steps:      {simulation.get('steps', 0)}")
@@ -5527,6 +5524,12 @@ def cmd_sandbox_run(args: argparse.Namespace) -> int:
             )
             else 1
         )
+    except SandboxConfigurationError as exc:
+        if args.json:
+            print(json.dumps({"status": "BLOCKED", "error": str(exc)}, indent=2))
+        else:
+            print(f"[ROSClaw] {exc}", file=sys.stderr)
+        return 2
     except Exception as exc:
         if args.json:
             print(
@@ -5543,8 +5546,6 @@ def cmd_sandbox_run(args: argparse.Namespace) -> int:
         else:
             print(f"[ROSClaw] Sandbox run error: {exc}", file=sys.stderr)
         return 1
-    finally:
-        runtime.stop()
 
 
 def cmd_sandbox_replay(args: argparse.Namespace) -> int:
@@ -6584,7 +6585,24 @@ def main() -> int:
 
     status_parser = subparsers.add_parser("status", help="Show runtime status")
     status_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    status_subparsers = status_parser.add_subparsers(dest="status_command")
+    status_capabilities_parser = status_subparsers.add_parser(
+        "capabilities", help="Show evidence-backed product capability status"
+    )
+    status_capabilities_parser.add_argument(
+        "--json", action="store_true", help="Output canonical status YAML as JSON"
+    )
     subparsers.add_parser("stop", help="Stop ROSClaw runtime")
+
+    explain_parser = subparsers.add_parser("explain", help="Explain an evidence-bearing run")
+    explain_parser.add_argument(
+        "run_reference",
+        nargs="?",
+        default="latest",
+        help="Run ID or 'latest' (default: latest)",
+    )
+    explain_parser.add_argument("--home", default=None, help="ROSCLAW_HOME override")
+    explain_parser.add_argument("--json", action="store_true", help="Output JSON")
 
     # restart (uses same args as run)
     restart_parser = subparsers.add_parser("restart", help="Restart ROSClaw runtime")
@@ -8309,6 +8327,29 @@ def main() -> int:
     demo_parser = subparsers.add_parser("demo", help="Run demonstration scenarios")
     demo_subparsers = demo_parser.add_subparsers(dest="demo_command")
 
+    demo_list_parser = demo_subparsers.add_parser("list", help="List official verified demos")
+    demo_list_parser.add_argument("--json", action="store_true", help="Output JSON")
+
+    demo_run_parser = demo_subparsers.add_parser(
+        "run", help="Run an official evidence-bearing demo"
+    )
+    demo_run_parser.add_argument("demo_id", help="Official demo ID (for example ur5e-reach)")
+    demo_run_parser.add_argument(
+        "--target",
+        nargs=3,
+        type=float,
+        metavar=("X", "Y", "Z"),
+        help="Cartesian target override in meters",
+    )
+    demo_run_parser.add_argument("--steps", type=int, default=1200, help="Maximum MuJoCo steps")
+    demo_run_parser.add_argument(
+        "--tolerance", type=float, default=0.008, help="Reach success tolerance in meters"
+    )
+    demo_run_parser.add_argument("--seed", type=int, default=0, help="Deterministic seed")
+    demo_run_parser.add_argument("--trace-id", default=None, help="Parent trace ID")
+    demo_run_parser.add_argument("--home", default=None, help="ROSCLAW_HOME override")
+    demo_run_parser.add_argument("--json", action="store_true", help="Output receipt JSON")
+
     demo_pid_parser = demo_subparsers.add_parser("mobile-pid", help="Mobile base PID control demo")
     demo_pid_parser.add_argument("--robot-id", default="turtlebot", help="Robot identifier")
     demo_pid_parser.add_argument("--target", type=float, default=1.0, help="Target position (m)")
@@ -8388,6 +8429,8 @@ def main() -> int:
             return cmd_run(args)
         elif args.command == "status":
             return cmd_status(args)
+        elif args.command == "explain":
+            return cmd_explain_run(args)
         elif args.command == "dashboard":
             return cmd_dashboard(args)
         elif args.command == "trace":
@@ -8759,7 +8802,11 @@ def main() -> int:
                 sense_parser.print_help()
                 return 1
         elif args.command == "demo":
-            if args.demo_command == "mobile-pid":
+            if args.demo_command == "list":
+                return cmd_demo_list(args)
+            elif args.demo_command == "run":
+                return cmd_demo_run(args)
+            elif args.demo_command == "mobile-pid":
                 return cmd_demo_mobile_pid(args)
             elif args.demo_command == "tabletop-grasp":
                 return cmd_demo_tabletop_grasp(args)

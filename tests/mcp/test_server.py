@@ -7,28 +7,14 @@ from pathlib import Path
 
 import pytest
 
+from rosclaw.agent.tool_catalog import P0_AGENT_MCP_TOOLS
 from rosclaw.mcp.tools import P0_TOOLS, _audit, _redact_for_audit
 
 
 async def test_p0_tools_contains_expected_set() -> None:
-    """P0_TOOLS must contain the original seven tools plus P0 body tools."""
-    names = {t.__name__ for t in P0_TOOLS}
-    expected = {
-        "get_robot_state",
-        "list_skills",
-        "query_memory",
-        "validate_trajectory",
-        "sandbox_run",
-        "practice_query",
-        "emergency_stop",
-        "get_body_profile",
-        "get_body_state",
-        "list_body_capabilities",
-        "query_body",
-        "validate_body_action",
-        "get_calibration_status",
-    }
-    assert names == expected
+    """P0_TOOLS contains core, body-context, and product workflow tools."""
+    names = tuple(tool.__name__ for tool in P0_TOOLS)
+    assert names == P0_AGENT_MCP_TOOLS
 
 
 async def test_redact_for_audit_masks_secrets() -> None:

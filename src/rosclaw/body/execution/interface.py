@@ -41,6 +41,7 @@ class BodyExecutor(Protocol):
         *,
         settle_ms: float = 0.0,
         max_step_delta_raw: float | None = None,
+        hold_tolerance_raw: list[float] | None = None,
     ) -> tuple[bool, RH56Feedback]:
         """Send one transport step and return ``(acknowledged, feedback)``.
 
@@ -48,6 +49,8 @@ class BodyExecutor(Protocol):
         :class:`ExecutorSafetyError` when the request cannot be sent safely.
         When ``max_step_delta_raw`` is given, any per-actuator jump from the
         current position larger than the limit must be refused before sending.
+        When ``hold_tolerance_raw`` is given, implementations may retain the
+        active setpoint for an actuator already within its hold band.
         """
 
     def read_feedback(self) -> RH56Feedback: ...

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -17,9 +18,12 @@ from rosclaw.agent.merge import (
     read_json_if_exists,
 )
 from rosclaw.agent.templates import (
+    CODEX_MANAGED_BEGIN,
+    CODEX_MANAGED_END,
     render_agents_md,
     render_claude_md,
     render_claude_settings_json,
+    render_codex_config_toml,
     render_context_snapshot,
     render_mcp_json,
     render_rosclaw_md,
@@ -28,6 +32,10 @@ from rosclaw.agent.templates import (
 from rosclaw.agent.validate import validate_project
 
 _AGENT_DIR = Path(".rosclaw") / "agent"
+
+
+class AgentConfigConflictError(RuntimeError):
+    """Raised when ROSClaw cannot safely merge an agent configuration."""
 
 
 def _write_markdown(
@@ -97,6 +105,58 @@ def _write_claude_settings(
     return _write_json_file(settings_path, new_settings, backup=backup)
 
 
+def _write_codex_config(path: Path, content: str) -> None:
+    """Merge the managed ROSClaw table into a project Codex config."""
+    if not path.exists():
+        try:
+            tomllib.loads(content)
+        except tomllib.TOMLDecodeError as exc:
+            raise AgentConfigConflictError(
+                f"Generated ROSClaw configuration for {path} is invalid TOML: {exc}"
+            ) from exc
+        atomic_write_text(path, content)
+        return
+
+    existing = path.read_text(encoding="utf-8")
+    begin_count = existing.count(CODEX_MANAGED_BEGIN)
+    end_count = existing.count(CODEX_MANAGED_END)
+    if begin_count != end_count or begin_count > 1:
+        raise AgentConfigConflictError(
+            f"{path} must contain at most one complete ROSClaw managed block; "
+            "repair it before installing."
+        )
+
+    if begin_count == 1:
+        merged = managed_block_merge(
+            existing,
+            content,
+            CODEX_MANAGED_BEGIN,
+            CODEX_MANAGED_END,
+        )
+    else:
+        try:
+            parsed = tomllib.loads(existing)
+        except tomllib.TOMLDecodeError as exc:
+            raise AgentConfigConflictError(f"{path} is invalid TOML: {exc}") from exc
+        servers = parsed.get("mcp_servers", {})
+        if isinstance(servers, dict) and "rosclaw" in servers:
+            raise AgentConfigConflictError(
+                f"{path} already defines mcp_servers.rosclaw outside the managed block."
+            )
+        merged = existing.rstrip() + "\n\n" + content
+
+    try:
+        tomllib.loads(merged)
+    except tomllib.TOMLDecodeError as exc:
+        raise AgentConfigConflictError(
+            f"Merging ROSClaw into {path} would produce invalid TOML: {exc}"
+        ) from exc
+    if merged == existing:
+        return
+    backup_file(path)
+    atomic_write_text(path, merged)
+
+
 def _generate_files(
     project_root: Path,
     profile: ProjectProfile,
@@ -108,13 +168,16 @@ def _generate_files(
     """Generate or update all onboarding files. Returns a mapping of logical
     names to written paths.
     """
-    agent_client = "universal-agent" if include_universal else "claude-code"
+    agent_client = (
+        "${ROSCLAW_AGENT_CLIENT:-universal-agent}" if include_universal else "claude-code"
+    )
     mcp_json = render_mcp_json(profile, check=check_mode, agent_client=agent_client)
     claude_md = render_claude_md(profile)
     rosclaw_md = render_rosclaw_md(profile)
     snapshot = render_context_snapshot(profile)
     agents_md = render_agents_md(profile) if include_universal else ""
     skill_md = render_rosclaw_skill_md(profile) if include_universal else ""
+    codex_config = render_codex_config_toml(profile) if include_universal else ""
 
     generated: dict[str, Path] = {}
 
@@ -129,11 +192,29 @@ def _generate_files(
         / "rosclaw"
         / "SKILL.md",
         ".claude/settings.json": project_root / ".claude" / "settings.json",
+        ".codex/config.toml": project_root / ".codex" / "config.toml",
         "context.snapshot.json": project_root / ".rosclaw" / "agent" / "context.snapshot.json",
     }
 
     if dry_run:
-        return dict(paths)
+        selected = {
+            key: paths[key]
+            for key in (
+                ".mcp.json",
+                "CLAUDE.md",
+                "ROSCLAW.md",
+                ".claude/settings.json",
+                "context.snapshot.json",
+            )
+        }
+        if include_universal:
+            for key in (
+                "AGENTS.md",
+                ".agents/skills/rosclaw/SKILL.md",
+                ".codex/config.toml",
+            ):
+                selected[key] = paths[key]
+        return selected
 
     # .mcp.json
     _write_json_file(paths[".mcp.json"], mcp_json)
@@ -147,6 +228,9 @@ def _generate_files(
         skill_path.parent.mkdir(parents=True, exist_ok=True)
         _write_markdown(skill_path, skill_md)
         generated[".agents/skills/rosclaw/SKILL.md"] = skill_path
+
+        _write_codex_config(paths[".codex/config.toml"], codex_config)
+        generated[".codex/config.toml"] = paths[".codex/config.toml"]
 
     # CLAUDE.md
     _write_markdown(paths["CLAUDE.md"], claude_md)

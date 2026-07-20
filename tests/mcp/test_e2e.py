@@ -20,6 +20,7 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
 
+from rosclaw.agent.tool_catalog import P0_AGENT_MCP_TOOLS
 from rosclaw.body.service import BodyInstanceService
 
 # Ensure the subprocess server imports the branch code, not an installed copy.
@@ -88,9 +89,11 @@ P0_TOOL_CALLS: list[tuple[str, dict[str, Any]]] = [
     ("query_body", {"question": "What robot body is this?"}),
     ("validate_body_action", {"action": "walk forward", "capability_id": "walk", "risk": "medium"}),
     ("get_calibration_status", {"component": "head_rgb_camera"}),
+    ("get_product_status", {}),
+    ("list_product_demos", {}),
 ]
 
-EXPECTED_TOOLS = {name for name, _ in P0_TOOL_CALLS}
+EXPECTED_TOOLS = set(P0_AGENT_MCP_TOOLS)
 EXPECTED_ERROR_TOOLS = {"get_robot_state"}
 
 
@@ -105,6 +108,42 @@ def _prepare_server_workspace(tmp_path: Path) -> tuple[Path, Path]:
         mode="single",
     )
     return project_root, rosclaw_home
+
+
+async def _exercise_p0_tools(session: ClientSession) -> None:
+    """Call every advertised P0 tool, including the receipt-dependent workflow."""
+    called: set[str] = set()
+    for tool_name, arguments in P0_TOOL_CALLS:
+        result = await session.call_tool(tool_name, arguments=arguments)
+        assert len(result.content) == 1
+        _envelope(
+            result.content[0].text,
+            tool_name=tool_name,
+            expected_ok=tool_name not in EXPECTED_ERROR_TOOLS,
+        )
+        called.add(tool_name)
+
+    demo_result = await session.call_tool(
+        "run_product_demo",
+        arguments={"demo_id": "ur5e-reach"},
+    )
+    demo_payload = _envelope(
+        demo_result.content[0].text,
+        tool_name="run_product_demo",
+        expected_ok=True,
+    )
+    run_id = demo_payload["data"]["receipt"]["action_id"]
+    called.add("run_product_demo")
+
+    for tool_name in ("get_execution_receipt", "explain_execution"):
+        result = await session.call_tool(
+            tool_name,
+            arguments={"run_reference": run_id},
+        )
+        _envelope(result.content[0].text, tool_name=tool_name, expected_ok=True)
+        called.add(tool_name)
+
+    assert called == EXPECTED_TOOLS
 
 
 @pytest.mark.asyncio
@@ -137,14 +176,7 @@ async def test_stdio_smoke(tmp_path: Path) -> None:
         discovered = {t.name for t in tools.tools}
         assert discovered == EXPECTED_TOOLS
 
-        for tool_name, arguments in P0_TOOL_CALLS:
-            result = await session.call_tool(tool_name, arguments=arguments)
-            assert len(result.content) == 1
-            _envelope(
-                result.content[0].text,
-                tool_name=tool_name,
-                expected_ok=tool_name not in EXPECTED_ERROR_TOOLS,
-            )
+        await _exercise_p0_tools(session)
 
 
 @pytest.mark.asyncio
@@ -180,14 +212,7 @@ async def test_http_smoke(tmp_path: Path) -> None:
             discovered = {t.name for t in tools.tools}
             assert discovered == EXPECTED_TOOLS
 
-            for tool_name, arguments in P0_TOOL_CALLS:
-                result = await session.call_tool(tool_name, arguments=arguments)
-                assert len(result.content) == 1
-                _envelope(
-                    result.content[0].text,
-                    tool_name=tool_name,
-                    expected_ok=tool_name not in EXPECTED_ERROR_TOOLS,
-                )
+            await _exercise_p0_tools(session)
     finally:
         if proc.returncode is None:
             proc.terminate()

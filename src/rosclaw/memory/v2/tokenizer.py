@@ -14,9 +14,16 @@ Rules:
 from __future__ import annotations
 
 import re
+import warnings
 
 try:
-    import jieba
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"pkg_resources is deprecated as an API.*",
+            category=UserWarning,
+        )
+        import jieba
 
     _HAS_JIEBA = True
 except ImportError:  # pragma: no cover - exercised on minimal installs

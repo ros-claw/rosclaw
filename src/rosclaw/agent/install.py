@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from rosclaw.agent.detectors import build_project_profile
-from rosclaw.agent.init_claude_code import _generate_files
+from rosclaw.agent.init_claude_code import AgentConfigConflictError, _generate_files
 from rosclaw.agent.validate import validate_project
 
 AGENT_TARGETS = ("universal", "all", "claude-code", "codex", "openclaw")
@@ -26,13 +26,17 @@ def cmd_agent_install(args: argparse.Namespace) -> int:
         port=args.port,
     )
 
-    generated = _generate_files(
-        profile.project_root,
-        profile,
-        check_mode=args.check,
-        dry_run=args.dry_run,
-        include_universal=True,
-    )
+    try:
+        generated = _generate_files(
+            profile.project_root,
+            profile,
+            check_mode=args.check,
+            dry_run=args.dry_run,
+            include_universal=True,
+        )
+    except AgentConfigConflictError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
 
     if args.dry_run:
         print("Would generate the following cross-agent ROSClaw files:")
@@ -61,8 +65,16 @@ def cmd_agent_install(args: argparse.Namespace) -> int:
     for key in generated:
         print(f"  - {key}")
     print()
-    print("One-line instruction for any agent:")
-    print("  Run `rosclaw agent install --project-root . --skip-secrets`, then read ROSCLAW.md.")
+    print("Framework bindings:")
+    print("  - Codex: .codex/config.toml + AGENTS.md + workspace skill")
+    print("  - Claude Code: .mcp.json + CLAUDE.md")
+    print("  - OpenClaw: .agents/skills/rosclaw/SKILL.md")
+    print("    Native OpenClaw MCP config remains operator-owned.")
+    print()
+    print("Setup instruction for any agent:")
+    print("  Install and configure ROSClaw for this project:")
+    print("  `rosclaw agent install --project-root . --skip-secrets`")
+    print("  Then read ROSCLAW.md and use only the configured ROSClaw boundary.")
 
     if validation.warnings:
         print("Warnings:")

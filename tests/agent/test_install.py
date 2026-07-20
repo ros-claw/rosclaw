@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -45,7 +46,20 @@ async def test_install_generates_cross_agent_files(
     assert (tmp_path / "CLAUDE.md").exists()
     assert (tmp_path / "ROSCLAW.md").exists()
     assert (tmp_path / ".agents/skills/rosclaw/SKILL.md").exists()
+    assert (tmp_path / ".codex/config.toml").exists()
     assert (tmp_path / ".rosclaw/agent/context.snapshot.json").exists()
+    mcp_config = json.loads((tmp_path / ".mcp.json").read_text(encoding="utf-8"))
+    assert (
+        mcp_config["mcpServers"]["rosclaw"]["env"]["ROSCLAW_AGENT_CLIENT"]
+        == "${ROSCLAW_AGENT_CLIENT:-universal-agent}"
+    )
+    with (tmp_path / ".codex/config.toml").open("rb") as file:
+        codex_config = tomllib.load(file)
+    codex_server = codex_config["mcp_servers"]["rosclaw"]
+    assert codex_server["command"] == "rosclaw"
+    assert codex_server["env"]["ROSCLAW_AGENT_CLIENT"] == "codex"
+    assert codex_server["default_tools_approval_mode"] == "approve"
+    assert len(codex_server["enabled_tools"]) == 18
 
     agents_guide = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
     runtime_guide = (tmp_path / "ROSCLAW.md").read_text(encoding="utf-8")
@@ -56,7 +70,7 @@ async def test_install_generates_cross_agent_files(
     assert "Refuse direct ROS, DDS, serial, SDK, or motor commands" in skill_guide
 
     snapshot = json.loads((tmp_path / ".rosclaw/agent/context.snapshot.json").read_text())
-    assert len(snapshot["tools"]["available"]) == 13
+    assert len(snapshot["tools"]["available"]) == 18
     assert snapshot["policies"]["no_real_execution"] is True
 
     captured = capsys.readouterr()
@@ -82,3 +96,85 @@ async def test_install_preserves_existing_unmanaged_agents_md(tmp_path: Path) ->
     assert "Keep this project rule." in content
     assert "<!-- ROSCLAW-MANAGED-BEGIN -->" in content
     assert "rosclaw agent install --project-root . --skip-secrets" in content
+
+
+async def test_install_preserves_unmanaged_codex_config(tmp_path: Path) -> None:
+    _bootstrap_project(tmp_path)
+    config = tmp_path / ".codex/config.toml"
+    config.parent.mkdir()
+    config.write_text('model_reasoning_effort = "high"\n', encoding="utf-8")
+
+    assert cmd_agent_install(_make_args(tmp_path)) == 0
+    assert cmd_agent_install(_make_args(tmp_path)) == 0
+
+    content = config.read_text(encoding="utf-8")
+    assert 'model_reasoning_effort = "high"' in content
+    assert content.count("# ROSCLAW-MANAGED-BEGIN") == 1
+    with config.open("rb") as file:
+        parsed = tomllib.load(file)
+    assert parsed["mcp_servers"]["rosclaw"]["command"] == "rosclaw"
+
+
+async def test_install_rejects_unmanaged_codex_server_conflict(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _bootstrap_project(tmp_path)
+    config = tmp_path / ".codex/config.toml"
+    config.parent.mkdir()
+    config.write_text(
+        '[mcp_servers.rosclaw]\ncommand = "custom-rosclaw"\n',
+        encoding="utf-8",
+    )
+
+    assert cmd_agent_install(_make_args(tmp_path)) == 1
+    assert "already defines mcp_servers.rosclaw" in capsys.readouterr().err
+    assert "ROSCLAW-MANAGED-BEGIN" not in config.read_text(encoding="utf-8")
+
+
+async def test_install_rejects_conflicting_mcp_command(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _bootstrap_project(tmp_path)
+    mcp_config = tmp_path / ".mcp.json"
+    mcp_config.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "rosclaw": {
+                        "type": "stdio",
+                        "command": "custom-runtime",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert cmd_agent_install(_make_args(tmp_path)) == 1
+
+    captured = capsys.readouterr()
+    assert "has no ROSClaw command or URL" in captured.err
+    merged = json.loads(mcp_config.read_text(encoding="utf-8"))
+    assert merged["mcpServers"]["rosclaw"]["command"] == "custom-runtime"
+
+
+async def test_install_rejects_duplicate_codex_table_without_rewriting(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _bootstrap_project(tmp_path)
+    assert cmd_agent_install(_make_args(tmp_path)) == 0
+    capsys.readouterr()
+    config = tmp_path / ".codex/config.toml"
+    conflicting = (
+        config.read_text(encoding="utf-8")
+        + '\n[mcp_servers.rosclaw]\ncommand = "duplicate"\n'
+    )
+    config.write_text(conflicting, encoding="utf-8")
+
+    assert cmd_agent_install(_make_args(tmp_path)) == 1
+
+    assert "would produce invalid TOML" in capsys.readouterr().err
+    assert config.read_text(encoding="utf-8") == conflicting

@@ -81,6 +81,9 @@ class RH56Transport(Protocol):
 
     def read_state(self) -> RH56Feedback: ...
 
+    def read_angle_setpoints(self) -> list[int]:
+        """Read the transport's currently active actuator setpoints."""
+
     def write_position(
         self,
         positions: list[int],

@@ -1,0 +1,257 @@
+schema_version: rosclaw.product_status.v1
+
+release:
+  version: 1.0.1
+  maturity: alpha
+  supported_python:
+    - "3.11"
+    - "3.12"
+    - "3.13"
+
+evidence_levels:
+  - SYNTHETIC
+  - REQUESTED
+  - DISPATCH_CONFIRMED
+  - DRIVER_CONFIRMED
+  - PHYSICALLY_OBSERVED
+  - TASK_VERIFIED
+
+support_tiers:
+  H0_INDEXED: Asset metadata is indexed; no execution claim.
+  H1_CONTRACT_VERIFIED: Schemas and fail-closed contracts are verified.
+  H2_SIMULATION_VERIFIED: A physics-backed simulation path is verified.
+  H3_HARDWARE_READ_VERIFIED: Hardware state was independently observed and verified.
+  H4_HARDWARE_ACTUATION_VERIFIED: Hardware actuation was independently observed and verified.
+  H5_AGENT_BLACKBOX_VERIFIED: An external Agent completed the guarded path in a black-box test.
+
+golden_paths:
+  ur5e_reach:
+    display:
+      en: UR5e tabletop reach
+      zh: UR5e 桌面 Reach
+    robot: sim_ur5e
+    capability: sandbox.reach
+    claim: simulation_verified
+    support_tier: H2_SIMULATION_VERIFIED
+    candidate_tier: H5_AGENT_BLACKBOX_VERIFIED
+    modes:
+      fixture: fixture_available
+      simulation: verified
+      shadow: not_applicable
+      real: not_run
+    dimensions:
+      simulation: verified
+      hardware_read: not_applicable
+      hardware_actuation: not_applicable
+      agent_blackbox: developer_observed
+      physical_estop: not_applicable
+    agent_ready: false
+    evidence:
+      - id: ur5e-reach-mujoco-system-2c18b7c
+        kind: automated_system_test
+        path: tests/sandbox/test_reach_episode.py
+        commit_sha: 2c18b7c91b7ed102a913f604a102ef49794b575d
+        verified_at: "2026-07-17"
+        observation_scope: physics_simulation
+        fixture: false
+        independent: true
+        receipt_schema: rosclaw.receipt.v1
+      - id: ur5e-reach-codex-blackbox-20260720
+        kind: developer_agent_blackbox
+        path: docs/P0_AGENT_INTEGRATION.md
+        verified_at: "2026-07-20"
+        observation_scope: external_agent_simulation
+        fixture: false
+        independent: false
+        receipt_schema: rosclaw.receipt.v1
+    evidence_summary:
+      en: Real MuJoCo model load and mj_step, Cartesian predicate, collision and workspace blocks, trajectory, trace, and receipt are system-verified. A local Codex CLI black-box completed the five-tool MCP workflow; independent H5 acceptance remains pending.
+      zh: 真实 MuJoCo 模型与 mj_step、笛卡尔成功条件、碰撞和工作区阻止、轨迹、Trace 与 Receipt 已通过系统验证；本地 Codex CLI 黑盒已完成五工具 MCP 工作流，独立 H5 验收仍待完成。
+
+  rh56_single_step:
+    display:
+      en: RH56 LeRobot single-step loop
+      zh: RH56 LeRobot 单步闭环
+    robot: rh56_left_01
+    capability: rh56.single_step
+    claim: developer_observed_revalidation_pending
+    support_tier: H1_CONTRACT_VERIFIED
+    candidate_tier: H4_HARDWARE_ACTUATION_VERIFIED
+    modes:
+      fixture: fixture_verified
+      simulation: not_applicable
+      shadow: developer_observed
+      real: developer_observed
+    dimensions:
+      simulation: not_applicable
+      hardware_read: developer_observed
+      hardware_actuation: developer_observed
+      agent_blackbox: not_run
+      physical_estop: not_verified
+    agent_ready: false
+    evidence:
+      - id: rh56-shadow-exp2-20260717
+        kind: developer_hardware_report
+        path: reports/lerobot_bridge/P5_RH56_SHADOW_REPORT_S2_OBSERVED.md
+        commit_sha: 75a3d481efbef10ed7c7931db130a7092fe0945b
+        verified_at: "2026-07-17"
+        observation_scope: physical_hardware
+        fixture: false
+        independent: false
+      - id: rh56-real-exp3-20260717
+        kind: developer_hardware_report
+        path: reports/lerobot_bridge/P5D_GRADED_REAL_EXECUTION_REPORT.md
+        commit_sha: e013f4a470dfe44d68e70fa0d4599a67d901b46c
+        verified_at: "2026-07-17"
+        observation_scope: physical_hardware
+        fixture: false
+        independent: false
+      - id: rh56-faults-exp4-20260717
+        kind: developer_hardware_report
+        path: reports/lerobot_bridge/P5D_REAL_FAULT_INJECTION_REPORT.md
+        commit_sha: 365f3d9345635a845f96295724c76d1325359087
+        verified_at: "2026-07-17"
+        observation_scope: physical_hardware
+        fixture: false
+        independent: false
+    evidence_summary:
+      en: Real SerialModbusTransport, shadow reads, graded REAL actions, and fault injection were developer-observed; independent v1 hardware revalidation and Agent black-box testing remain open.
+      zh: SerialModbusTransport、Shadow 读取、分级 REAL 动作和故障注入已有开发者真机观察；独立 v1 真机复验与 Agent 黑盒仍未完成。
+
+  realsense_inspect:
+    display:
+      en: RealSense perception-only path
+      zh: RealSense 只读感知路径
+    robot: realsense_d405
+    capability: camera.capture_rgbd
+    claim: experimental
+    support_tier: H1_CONTRACT_VERIFIED
+    candidate_tier: H3_HARDWARE_READ_VERIFIED
+    modes:
+      fixture: fixture_available
+      simulation: not_applicable
+      shadow: not_run
+      real: not_run
+    dimensions:
+      simulation: not_applicable
+      hardware_read: not_run
+      hardware_actuation: not_applicable
+      agent_blackbox: not_run
+      physical_estop: not_applicable
+    agent_ready: false
+    evidence:
+      - id: realsense-component-pr48
+        kind: component_report
+        path: reports/ROSClaw_RealSense_MVP_Fix_Report.md
+        verified_at: "2026-06-27"
+        observation_scope: component
+        fixture: false
+        independent: false
+    evidence_summary:
+      en: Profiles, read-only policy, skill, doctor, bench, and evidence plumbing have component coverage; this repository has no verified hardware capture run.
+      zh: Profile、只读策略、Skill、Doctor、Bench 和证据链已有组件覆盖；仓库中尚无已验证的真机采集 Run。
+
+  turtlesim_guarded_motion:
+    display:
+      en: ROS 2 Turtlesim guarded motion
+      zh: ROS 2 Turtlesim 受控运动
+    robot: turtlesim
+    capability: base.move
+    claim: not_verified
+    support_tier: H1_CONTRACT_VERIFIED
+    candidate_tier: H2_SIMULATION_VERIFIED
+    modes:
+      fixture: fixture_available
+      simulation: not_run
+      shadow: not_applicable
+      real: not_applicable
+    dimensions:
+      simulation: not_run
+      hardware_read: not_applicable
+      hardware_actuation: not_applicable
+      agent_blackbox: not_run
+      physical_estop: not_applicable
+    agent_ready: false
+    evidence: []
+    evidence_summary:
+      en: Connector contracts exist, but the ROS 2 golden path has not been run in the current validation environment.
+      zh: Connector 契约已存在，但当前验证环境尚未运行 ROS 2 黄金路径。
+
+components:
+  action_gateway:
+    display:
+      en: Action contract and gateway
+      zh: Action Contract / Gateway
+    claim: component_system_verified
+    evidence:
+      - id: action-gateway-kernel-tests
+        kind: automated_component_test
+        path: tests/kernel/test_action_gateway.py
+        observation_scope: component
+        fixture: false
+        independent: true
+    evidence_summary:
+      en: Versioned action and receipt, evidence levels, idempotency, exclusive body lease, and fail-closed executor lookup.
+      zh: 版本化 Action/Receipt、证据等级、幂等、Body 独占租约和 Executor 缺失时失败关闭。
+
+  estop:
+    display:
+      en: E-Stop control path
+      zh: E-Stop 控制路径
+    claim: component_verified
+    evidence:
+      - id: estop-component-tests
+        kind: automated_component_test
+        path: tests/kernel/test_emergency_stop.py
+        observation_scope: component
+        fixture: false
+        independent: true
+    evidence_summary:
+      en: Fan-out, timeout, partial ACK, idempotency, latch, and physical-observation fields; no independent physical-stop verification.
+      zh: Fan-out、超时、部分 ACK、幂等、锁存和物理观测字段；尚无独立物理停止验证。
+
+  fixture_surfaces:
+    display:
+      en: Mock Sense, mock Providers, fixture Drivers
+      zh: Mock Sense、Mock Provider、Fixture Driver
+    claim: fixture_only
+    evidence: []
+    evidence_summary:
+      en: Explicit FIXTURE and SYNTHETIC data only; never valid for safety or real acceptance.
+      zh: 仅显式 FIXTURE 与 SYNTHETIC 数据；不能用于安全判断或真实执行验收。
+
+  integrations:
+    display:
+      en: ROS connectors, LeRobot, hardware MCP, real Providers
+      zh: ROS Connector、LeRobot、Hardware MCP、真实 Provider
+    claim: experimental
+    evidence: []
+    evidence_summary:
+      en: Contract and component coverage varies; registration or import does not imply execution readiness.
+      zh: 契约和组件覆盖程度不一；注册成功或能够 import 不代表可执行。
+
+  real_robot_execution:
+    display:
+      en: Repository-wide real robot execution
+      zh: 仓库级真实机器人执行
+    claim: revalidation_pending
+    evidence:
+      - id: rh56-real-exp3-20260717
+        kind: developer_hardware_report
+        path: reports/lerobot_bridge/P5D_GRADED_REAL_EXECUTION_REPORT.md
+        observation_scope: physical_hardware
+        fixture: false
+        independent: false
+    evidence_summary:
+      en: RH56 has developer-run physical evidence, but independent hardware and Agent black-box acceptance are still pending; no repository-wide real-ready claim is made.
+      zh: RH56 已有开发者真机证据，但独立真机与 Agent 黑盒验收仍在进行；当前不声明仓库级 Real Ready。
+
+readme_matrix:
+  - golden_paths.ur5e_reach
+  - components.action_gateway
+  - components.estop
+  - components.fixture_surfaces
+  - golden_paths.rh56_single_step
+  - components.integrations
+  - golden_paths.turtlesim_guarded_motion
+  - components.real_robot_execution

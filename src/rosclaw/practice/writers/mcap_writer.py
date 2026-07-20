@@ -29,7 +29,7 @@ try:
     McapWriterClass = _McapWriter
     CompressionType = _CompressionType
 except Exception as exc:  # noqa: BLE001
-    logger.warning("mcap not available: %s", exc)
+    logger.debug("mcap not available: %s", exc)
 
 
 class McapWriter:

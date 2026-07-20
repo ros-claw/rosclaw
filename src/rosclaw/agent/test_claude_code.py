@@ -18,6 +18,7 @@ from rosclaw.agent.detectors import build_project_profile
 from rosclaw.agent.install import AGENT_TARGETS
 from rosclaw.agent.merge import read_json_if_exists
 from rosclaw.agent.tool_catalog import P0_AGENT_MCP_TOOLS
+from rosclaw.agent.validate import agent_target_paths, validate_project
 
 _SHELL_DEFAULT_PATTERN = re.compile(r"\$\{([^}:]+):-([^}]+)\}")
 _EXPECTED_READINESS_CODES = {
@@ -34,6 +35,7 @@ class McpProbeResult:
     tools: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     readiness_limits: list[str] = field(default_factory=list)
+    verified_run_id: str | None = None
 
 
 def _assess_probe_payload(
@@ -115,10 +117,114 @@ async def _probe_stdio_mcp(
             tools_response = await session.list_tools()
             discovered = sorted(tool.name for tool in tools_response.tools)
             missing = [tool for tool in P0_AGENT_MCP_TOOLS if tool not in discovered]
+            unexpected = [tool for tool in discovered if tool not in P0_AGENT_MCP_TOOLS]
             errors = [f"Missing MCP tools: {missing}"] if missing else []
+            if unexpected:
+                errors.append(f"Unexpected MCP tools outside the P0 boundary: {unexpected}")
             readiness_limits: list[str] = []
 
-            probe_calls: list[tuple[str, dict[str, Any]]] = [
+            async def call_probe_tool(
+                tool_name: str,
+                arguments: dict[str, Any],
+            ) -> dict[str, Any] | None:
+                result = await session.call_tool(tool_name, arguments=arguments)
+                if not result.content:
+                    errors.append(f"{tool_name} returned no content")
+                    return None
+                try:
+                    payload = json.loads(result.content[0].text)
+                except (AttributeError, json.JSONDecodeError, TypeError) as exc:
+                    errors.append(f"{tool_name} returned invalid JSON: {exc}")
+                    return None
+                error, readiness_limit = _assess_probe_payload(tool_name, payload)
+                if error:
+                    errors.append(error)
+                if readiness_limit:
+                    readiness_limits.append(readiness_limit)
+                return payload
+
+            for tool_name in ("get_product_status", "list_product_demos"):
+                await call_probe_tool(tool_name, {})
+
+            verified_run_id: str | None = None
+            demo_payload = await call_probe_tool("run_product_demo", {})
+            if demo_payload and demo_payload.get("ok") is True:
+                data = demo_payload.get("data")
+                receipt = data.get("receipt") if isinstance(data, dict) else None
+                if not isinstance(receipt, dict):
+                    errors.append("run_product_demo returned no receipt")
+                else:
+                    checks = {
+                        "final_state": receipt.get("final_state") == "COMPLETED",
+                        "evidence_level": receipt.get("evidence_level") == "TASK_VERIFIED",
+                        "physics": (
+                            isinstance(receipt.get("simulation_result"), dict)
+                            and receipt["simulation_result"].get("has_physics") is True
+                        ),
+                        "verification": (
+                            isinstance(receipt.get("verification_result"), dict)
+                            and receipt["verification_result"].get("success") is True
+                        ),
+                        "simulation_boundary": (
+                            demo_payload.get("usable_for_real_execution") is False
+                        ),
+                    }
+                    failed_checks = [name for name, passed in checks.items() if not passed]
+                    if failed_checks:
+                        errors.append(
+                            f"run_product_demo failed verified workflow checks: {failed_checks}"
+                        )
+                    action_id = receipt.get("action_id")
+                    if isinstance(action_id, str) and action_id:
+                        verified_run_id = action_id
+                    else:
+                        errors.append("run_product_demo receipt has no action_id")
+
+            if verified_run_id:
+                stored_payload = await call_probe_tool(
+                    "get_execution_receipt",
+                    {"run_reference": verified_run_id},
+                )
+                stored_data = (
+                    stored_payload.get("data")
+                    if stored_payload and stored_payload.get("ok") is True
+                    else None
+                )
+                stored_receipt = (
+                    stored_data.get("receipt") if isinstance(stored_data, dict) else None
+                )
+                if (
+                    not isinstance(stored_receipt, dict)
+                    or stored_receipt.get("action_id") != verified_run_id
+                ):
+                    errors.append("get_execution_receipt did not return the verified run")
+
+                explanation_payload = await call_probe_tool(
+                    "explain_execution",
+                    {"run_reference": verified_run_id},
+                )
+                explanation_data = (
+                    explanation_payload.get("data")
+                    if explanation_payload and explanation_payload.get("ok") is True
+                    else None
+                )
+                explanation = (
+                    explanation_data.get("explanation")
+                    if isinstance(explanation_data, dict)
+                    else None
+                )
+                verification = (
+                    explanation.get("verification") if isinstance(explanation, dict) else None
+                )
+                if (
+                    not isinstance(explanation, dict)
+                    or explanation.get("run_id") != verified_run_id
+                    or not isinstance(verification, dict)
+                    or verification.get("task_verified") is not True
+                ):
+                    errors.append("explain_execution did not verify the persisted run")
+
+            readiness_probe_calls: list[tuple[str, dict[str, Any]]] = [
                 ("get_robot_state", {}),
                 (
                     "validate_trajectory",
@@ -126,27 +232,15 @@ async def _probe_stdio_mcp(
                 ),
                 ("sandbox_run", {"joint_positions": [0.0] * 6}),
             ]
-            for tool_name, arguments in probe_calls:
-                result = await session.call_tool(tool_name, arguments=arguments)
-                if not result.content:
-                    errors.append(f"{tool_name} returned no content")
-                    continue
-                try:
-                    payload = json.loads(result.content[0].text)
-                except (AttributeError, json.JSONDecodeError, TypeError) as exc:
-                    errors.append(f"{tool_name} returned invalid JSON: {exc}")
-                    continue
-                error, readiness_limit = _assess_probe_payload(tool_name, payload)
-                if error:
-                    errors.append(error)
-                if readiness_limit:
-                    readiness_limits.append(readiness_limit)
+            for tool_name, arguments in readiness_probe_calls:
+                await call_probe_tool(tool_name, arguments)
 
             return McpProbeResult(
                 not errors,
                 tools=discovered,
                 errors=errors,
                 readiness_limits=readiness_limits,
+                verified_run_id=verified_run_id,
             )
     except Exception as exc:  # noqa: BLE001
         return McpProbeResult(False, errors=[f"MCP stdio probe failed: {exc}"])
@@ -187,22 +281,15 @@ def cmd_agent_test_claude_code(args: argparse.Namespace) -> int:
     """Implementation of `rosclaw agent test`."""
     project_root = Path(args.project_root) if args.project_root else None
     profile = build_project_profile(project_root=project_root)
+    target = getattr(args, "agent", "claude-code")
 
-    print(f"Agent target: {getattr(args, 'agent', 'claude-code')}")
+    print(f"Agent target: {target}")
     print(f"Project root: {profile.project_root}")
     print(f"Robot ID: {profile.robot_id or '(none detected)'}")
     print(f"MCP transport: {profile.default_transport}")
     print()
 
-    generated_paths = {
-        ".mcp.json": profile.project_root / ".mcp.json",
-        "CLAUDE.md": profile.project_root / "CLAUDE.md",
-        "ROSCLAW.md": profile.project_root / "ROSCLAW.md",
-        "context.snapshot.json": profile.project_root
-        / ".rosclaw"
-        / "agent"
-        / "context.snapshot.json",
-    }
+    generated_paths = agent_target_paths(profile.project_root, target)
 
     all_ok = True
     for name, path in generated_paths.items():
@@ -210,6 +297,15 @@ def cmd_agent_test_claude_code(args: argparse.Namespace) -> int:
         if status == "MISSING":
             all_ok = False
         print(f"{name}: {status}")
+    validation = validate_project(
+        profile.project_root,
+        generated_paths,
+        skip_secrets=True,
+    )
+    for error in validation.errors:
+        print(f"Configuration error: {error}")
+    if not validation.ok:
+        all_ok = False
 
     mcp_data = read_json_if_exists(generated_paths[".mcp.json"])
     server_config = mcp_data.get("mcpServers", {}).get("rosclaw", {})
@@ -229,6 +325,8 @@ def cmd_agent_test_claude_code(args: argparse.Namespace) -> int:
         print(f"MCP stdio probe: {'OK' if probe.ok else 'FAILED'}")
         if probe.tools:
             print(f"MCP tools discovered: {len(probe.tools)}")
+        if probe.verified_run_id:
+            print(f"MCP verified simulation run: {probe.verified_run_id}")
         for error in probe.errors:
             print(f"  - {error}")
         for readiness_limit in probe.readiness_limits:

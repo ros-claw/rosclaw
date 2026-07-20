@@ -7,7 +7,7 @@
 **Ground actions to a body, fail closed, execute with evidence, and return an auditable receipt.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.11--3.13-3776AB?logo=python)](https://www.python.org/)
 [![ROS 2](https://img.shields.io/badge/ROS_2-Humble_|_Jazzy-FF3E00?logo=ros)](https://docs.ros.org/)
 [![Simulation](https://img.shields.io/badge/Verified_Simulation-MuJoCo-black?logo=mujoco)](https://mujoco.org/)
 [![MCP](https://img.shields.io/badge/Protocol-MCP-8A2BE2)](https://modelcontextprotocol.io/)
@@ -45,19 +45,25 @@ asynchronous consumers of that evidence, not substitutes for it.
 ROSClaw is alpha software. The table below is the capability boundary, not a
 roadmap disguised as completed work.
 
+<!-- product-status:start -->
 | Scope | Status | Evidence available today |
 |---|---|---|
-| UR5e tabletop reach | **Simulation verified** | Real MuJoCo model load and `mj_step`, Cartesian success predicate, collision/limit blocks, trajectory artifact, trace, receipt. |
-| Action contract and gateway | **Component/system verified** | Versioned action/receipt, evidence levels, idempotent action IDs, exclusive body lease, fail-closed executor lookup. |
-| E-Stop control path | **Component verified** | Fan-out, timeout, partial ACK, idempotency, latch, and explicit physical-observation fields. No hardware stop was verified here. |
-| Mock Sense, mock Providers, fixture Drivers | **Fixture only** | Explicit `FIXTURE` / `SYNTHETIC`; not valid for safety or acceptance. |
-| RH56 LeRobot single-step loop | **Fixture verified** | Explicit `--fixture`, synthetic Modbus feedback, permit/hash/watchdog checks, and `hardware_actions_executed=0`; the serial backend remains a stub. |
-| ROS connectors, LeRobot, hardware MCP, real Providers | **Experimental** | Contract and component coverage varies; registration or import does not mean execution-ready. |
-| ROS 2 Turtlesim motion golden path | **Not verified in this environment** | ROS 2 is not installed in the current validation environment. |
-| Real robot execution | **Not run** | Requires hardware-specific acceptance with driver ACK and physical feedback. |
+| UR5e tabletop reach | **Simulation verified** | Real MuJoCo model load and mj_step, Cartesian predicate, collision and workspace blocks, trajectory, trace, and receipt are system-verified. A local Codex CLI black-box completed the five-tool MCP workflow; independent H5 acceptance remains pending. |
+| Action contract and gateway | **Component/system verified** | Versioned action and receipt, evidence levels, idempotency, exclusive body lease, and fail-closed executor lookup. |
+| E-Stop control path | **Component verified** | Fan-out, timeout, partial ACK, idempotency, latch, and physical-observation fields; no independent physical-stop verification. |
+| Mock Sense, mock Providers, fixture Drivers | **Fixture only** | Explicit FIXTURE and SYNTHETIC data only; never valid for safety or real acceptance. |
+| RH56 LeRobot single-step loop | **Developer-observed; revalidation pending** | Real SerialModbusTransport, shadow reads, graded REAL actions, and fault injection were developer-observed; independent v1 hardware revalidation and Agent black-box testing remain open. |
+| ROS connectors, LeRobot, hardware MCP, real Providers | **Experimental** | Contract and component coverage varies; registration or import does not imply execution readiness. |
+| ROS 2 Turtlesim guarded motion | **Not verified** | Connector contracts exist, but the ROS 2 golden path has not been run in the current validation environment. |
+| Repository-wide real robot execution | **Revalidation pending** | RH56 has developer-run physical evidence, but independent hardware and Agent black-box acceptance are still pending; no repository-wide real-ready claim is made. |
+<!-- product-status:end -->
 
-The core package supports Python 3.11+. The isolated LeRobot 0.6 runtime and
+The core package supports Python 3.11 through 3.13. The isolated LeRobot 0.6 runtime and
 the bundled RH56 reference-policy plugin require Python 3.12+.
+
+The default install keeps the first verified simulation path lightweight.
+Install `rosclaw[knowledge]` when this process should also host the optional
+Know/How semantic services and their model runtime.
 
 ### Execution modes
 
@@ -119,7 +125,8 @@ rosclaw doctor --level verified
 Run a local simulation demo without any hardware:
 
 ```bash
-rosclaw sandbox run --robot sim_ur5e --world tabletop --task reach
+rosclaw demo run ur5e-reach
+rosclaw explain latest
 ```
 
 For headless or CI environments:
@@ -246,7 +253,8 @@ MCP-aware agent:
 
 > Install and configure ROSClaw for this repository. Run
 > `rosclaw agent install --project-root . --skip-secrets`, then read
-> `ROSCLAW.md`, `AGENTS.md`, and `.agents/skills/rosclaw/SKILL.md`. Validate
+> `ROSCLAW.md`, `AGENTS.md`, `.codex/config.toml`, and
+> `.agents/skills/rosclaw/SKILL.md`. Validate
 > the setup with `rosclaw agent test universal --project-root . --quick
 > --mcp-probe`. After that, use ROSClaw through its CLI and MCP tools for robot
 > state, skills, memory, sandbox simulation, practice records, and safety
@@ -259,14 +267,16 @@ rosclaw agent install --project-root . --skip-secrets
 ```
 
 This installs and configures the agent-facing ROSClaw integration files:
-`.mcp.json`, `AGENTS.md`, `ROSCLAW.md`, `CLAUDE.md`,
+`.mcp.json`, `.codex/config.toml`, `AGENTS.md`, `ROSCLAW.md`, `CLAUDE.md`,
 `.agents/skills/rosclaw/SKILL.md`, and
 `.rosclaw/agent/context.snapshot.json`.
 
 It does not install ROSClaw itself and does not install a native plugin for one
 specific agent framework. ROSClaw remains an independent CLI, Python package,
 MCP server, and robotics infrastructure layer; this command teaches agent
-harnesses how to discover and use it.
+harnesses how to discover and use it. Claude Code receives `.mcp.json`, Codex
+receives a trusted-project `.codex/config.toml`, and OpenClaw discovers the
+workspace skill under `.agents/skills`.
 
 ---
 

@@ -21,7 +21,15 @@ P0_BODY_CONTEXT_TOOLS: tuple[str, ...] = (
     "get_calibration_status",
 )
 
-P0_AGENT_MCP_TOOLS: tuple[str, ...] = P0_CORE_TOOLS + P0_BODY_CONTEXT_TOOLS
+P0_PRODUCT_TOOLS: tuple[str, ...] = (
+    "get_product_status",
+    "list_product_demos",
+    "run_product_demo",
+    "get_execution_receipt",
+    "explain_execution",
+)
+
+P0_AGENT_MCP_TOOLS: tuple[str, ...] = P0_CORE_TOOLS + P0_BODY_CONTEXT_TOOLS + P0_PRODUCT_TOOLS
 
 MCP_TOOL_SAFETY_LEVELS: dict[str, str] = {
     "get_robot_state": "S0_READ_ONLY",
@@ -37,6 +45,11 @@ MCP_TOOL_SAFETY_LEVELS: dict[str, str] = {
     "validate_trajectory": "S2_VALIDATED_PLAN",
     "sandbox_run": "S1_SIMULATION_ONLY",
     "emergency_stop": "S4_EMERGENCY",
+    "get_product_status": "S0_READ_ONLY",
+    "list_product_demos": "S0_READ_ONLY",
+    "run_product_demo": "S1_SIMULATION_ONLY",
+    "get_execution_receipt": "S0_READ_ONLY",
+    "explain_execution": "S0_READ_ONLY",
     # Body registry tools are not registered in the P0 server, but keeping
     # levels here prevents audit drift when they are enabled by a later server.
     "list_bodies": "S0_READ_ONLY",
@@ -57,6 +70,7 @@ def compact_safety_level(tool_name: str) -> str:
 __all__ = [
     "P0_CORE_TOOLS",
     "P0_BODY_CONTEXT_TOOLS",
+    "P0_PRODUCT_TOOLS",
     "P0_AGENT_MCP_TOOLS",
     "MCP_TOOL_SAFETY_LEVELS",
     "compact_safety_level",

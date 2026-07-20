@@ -10,6 +10,7 @@ from rosclaw.agent.tool_catalog import (
     P0_AGENT_MCP_TOOLS,
     P0_BODY_CONTEXT_TOOLS,
     P0_CORE_TOOLS,
+    P0_PRODUCT_TOOLS,
     compact_safety_level,
 )
 
@@ -18,6 +19,8 @@ MANAGED_BEGIN = "<!-- ROSCLAW-MANAGED-BEGIN -->"
 MANAGED_END = "<!-- ROSCLAW-MANAGED-END -->"
 JSON_MANAGED_BEGIN = "/* ROSCLAW-MANAGED-BEGIN */"
 JSON_MANAGED_END = "/* ROSCLAW-MANAGED-END */"
+CODEX_MANAGED_BEGIN = "# ROSCLAW-MANAGED-BEGIN"
+CODEX_MANAGED_END = "# ROSCLAW-MANAGED-END"
 
 
 def _tool_table(tool_names: tuple[str, ...]) -> str:
@@ -35,6 +38,11 @@ def _tool_table(tool_names: tuple[str, ...]) -> str:
         "query_body": "Answer questions about the current body",
         "validate_body_action": "Validate proposed body-level action",
         "get_calibration_status": "Calibration status for body components",
+        "get_product_status": "Canonical release and evidence boundary",
+        "list_product_demos": "Official evidence-bearing simulation demos",
+        "run_product_demo": "Run an official simulation and persist its receipt",
+        "get_execution_receipt": "Read and integrity-check a receipt",
+        "explain_execution": "Explain policy, execution, observation, and evidence",
     }
     lines = ["| Tool | Safety level | Purpose |", "|------|--------------|---------|"]
     for tool in tool_names:
@@ -103,6 +111,44 @@ def render_mcp_json(
     if check:
         mcp_config["rosclaw"]["check_mode"] = True
     return mcp_config
+
+
+def render_codex_config_toml(profile: ProjectProfile) -> str:
+    """Render the project-scoped Codex MCP configuration."""
+    enabled_tools = "\n".join(f'  "{tool}",' for tool in P0_AGENT_MCP_TOOLS)
+    common = f"""enabled = true
+required = false
+startup_timeout_sec = 30.0
+tool_timeout_sec = 300.0
+default_tools_approval_mode = "approve"
+enabled_tools = [
+{enabled_tools}
+]"""
+
+    if profile.default_transport == "stdio":
+        server = f"""[mcp_servers.rosclaw]
+command = "rosclaw"
+args = ["mcp", "serve", "--project", ".", "--log-level", "ERROR"]
+env_vars = ["ROSCLAW_HOME", "ROSCLAW_PROFILE", "ROSCLAW_LOG_LEVEL"]
+{common}
+
+[mcp_servers.rosclaw.env]
+ROSCLAW_AGENT_CLIENT = "codex"
+ROSCLAW_MCP_AUDIT = "1"
+"""
+    else:
+        host = profile.runtime_profile.get("mcp", {}).get("host", "127.0.0.1")
+        port = profile.runtime_profile.get("mcp", {}).get("port", 9090)
+        server = f"""[mcp_servers.rosclaw]
+url = "http://{host}:{port}/mcp"
+http_headers = {{ X-ROSClaw-Agent = "codex" }}
+{common}"""
+
+    return f"""{CODEX_MANAGED_BEGIN}
+# Project-scoped ROSClaw MCP configuration for trusted Codex workspaces.
+{server}
+{CODEX_MANAGED_END}
+"""
 
 
 def render_claude_md(profile: ProjectProfile) -> str:
@@ -176,6 +222,7 @@ managed blocks are preserved by `rosclaw agent install`.
 The MCP server exposes {len(P0_AGENT_MCP_TOOLS)} tools: {", ".join(f"`{t}`" for t in P0_AGENT_MCP_TOOLS)}.
 Core safety tools: {", ".join(f"`{t}`" for t in P0_CORE_TOOLS)}.
 Body context tools: {", ".join(f"`{t}`" for t in P0_BODY_CONTEXT_TOOLS)}.
+Product workflow tools: {", ".join(f"`{t}`" for t in P0_PRODUCT_TOOLS)}.
 
 ## Validate-before-motion workflow
 
@@ -281,10 +328,12 @@ description: Use when operating, validating, or changing ROSClaw physical-AI run
 
 ```bash
 rosclaw doctor --json
-rosclaw runtime backends
+rosclaw status capabilities
+rosclaw demo list
+rosclaw demo run ur5e-reach
+rosclaw explain latest
 rosclaw agent doctor universal --project-root {profile.project_root}
 rosclaw agent test universal --project-root {profile.project_root} --quick --mcp-probe
-rosclaw sandbox verify --case ur5e-joint-preview --json
 ```
 
 ## Practice Evidence Loop
@@ -302,6 +351,10 @@ rosclaw practice distill practice_rh56_minimal_loop --data-root "$TMP/practice" 
 ## MCP Contract
 
 - Expected P0 tools: {", ".join(f"`{tool}`" for tool in P0_AGENT_MCP_TOOLS)}.
+- `run_product_demo` executes an official MuJoCo path and persists an
+  integrity-checked `ExecutionReceipt`; it never commands real hardware.
+- Use `get_execution_receipt` and `explain_execution` instead of inferring
+  success from text output.
 - `sandbox_run` is simulation-only. If no physics state is available, treat the
   result as degraded rather than live.
 - `validate_trajectory` can approve a plan, but it does not authorize direct

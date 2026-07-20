@@ -171,6 +171,16 @@ class TestFirstbootInteractive:
         assert not (home / "config" / "rosclaw.yaml").exists()
         assert any("Apply these settings" in c for c in calls)
 
+    def test_success_recommends_first_verified_receipt(self, tmp_path, capsys):
+        from rosclaw.firstboot.wizard import _print_success
+
+        _print_success(tmp_path, "offline", "PASS", [])
+
+        output = capsys.readouterr().out
+        assert "rosclaw demo run ur5e-reach" in output
+        assert "rosclaw explain latest" in output
+        assert "rosclaw status capabilities" in output
+
 
 class TestFirstbootDoctorIntegration:
     def test_firstboot_then_doctor_bootstrap(self, tmp_path, monkeypatch):
