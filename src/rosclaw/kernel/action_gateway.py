@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 import uuid
@@ -331,22 +332,89 @@ class ActionGateway:
 
             with lease_handle:
                 transitions.append(StateTransition(ActionState.SCHEDULED, reason="lease_acquired"))
-                try:
-                    result = executor(action)
-                except Exception as exc:  # noqa: BLE001
-                    receipt = self._failure_receipt(
-                        action,
-                        ActionState.FAILED,
-                        "EXECUTOR_ERROR",
-                        str(exc),
-                        trace_id=trace_id,
-                        started_at=started_at,
-                        transitions=transitions,
-                        resource_lease=lease_handle.lease.to_dict(),
+                # P0-5: explicit ROBOT_ACTION / ROBOT_STATE child spans under
+                # the SKILL span so a REAL trace proves physical actuation
+                # (command + ACK) and physical observation (positions, forces,
+                # temps, status bits) instead of only "command submitted".
+                physical = action.execution_mode is ExecutionMode.REAL
+                with self._tracer.start_span(
+                    "kernel.robot_action",
+                    "ROBOT_ACTION",
+                    source="action_gateway",
+                    operation=action.capability_id,
+                    attributes={
+                        "action.id": action.action_id,
+                        "execution.mode": action.execution_mode.value,
+                        "physical_actuation": physical,
+                    },
+                    robot_id=action.body_id,
+                    session_id=action.session_id,
+                ) as action_span:
+                    action_span.set_input(self._action_command_summary(action))
+                    try:
+                        result = executor(action)
+                    except Exception as exc:  # noqa: BLE001
+                        action_span.set_output({"error": str(exc), "command_sent": "unknown"})
+                        action_span.set_status("ERROR", str(exc))
+                        receipt = self._failure_receipt(
+                            action,
+                            ActionState.FAILED,
+                            "EXECUTOR_ERROR",
+                            str(exc),
+                            trace_id=trace_id,
+                            started_at=started_at,
+                            transitions=transitions,
+                            resource_lease=lease_handle.lease.to_dict(),
+                        )
+                        span.set_output(receipt.to_dict())
+                        span.set_status("ERROR", str(exc))
+                        return receipt
+
+                    action_span.set_output(
+                        {
+                            "dispatch_result": result.dispatch_result,
+                            "driver_ack": result.driver_ack,
+                            "final_state": result.final_state.value,
+                            "evidence_level": result.evidence_level.value,
+                            "errors": result.errors,
+                        }
                     )
-                    span.set_output(receipt.to_dict())
-                    span.set_status("ERROR", str(exc))
-                    return receipt
+                    for artifact in result.artifacts:
+                        action_span.add_evidence(artifact)
+                    if result.final_state is ActionState.BLOCKED:
+                        action_span.set_status("BLOCKED", self._result_reason(result))
+                    elif result.final_state not in {ActionState.COMPLETED, ActionState.DEGRADED}:
+                        action_span.set_status("ERROR", self._result_reason(result))
+
+                if result.dispatch_result.get("accepted") or result.observations:
+                    observed = physical and result.evidence_level in {
+                        EvidenceLevel.PHYSICALLY_OBSERVED,
+                        EvidenceLevel.TASK_VERIFIED,
+                    }
+                    with self._tracer.start_span(
+                        "kernel.robot_state",
+                        "ROBOT_STATE",
+                        source="action_gateway",
+                        operation=action.capability_id,
+                        attributes={
+                            "action.id": action.action_id,
+                            "execution.mode": action.execution_mode.value,
+                            "physical_observation": observed,
+                        },
+                        robot_id=action.body_id,
+                        session_id=action.session_id,
+                    ) as state_span:
+                        state_span.set_output(
+                            {
+                                "observations": result.observations,
+                                "verification_result": result.verification_result,
+                                "evidence_level": result.evidence_level.value,
+                            }
+                        )
+                        for artifact in result.artifacts:
+                            state_span.add_evidence(artifact)
+                        if result.final_state not in {ActionState.COMPLETED, ActionState.DEGRADED}:
+                            state_span.set_status("ERROR", self._result_reason(result))
 
                 evidence = result.evidence_level
                 final_state = result.final_state
@@ -471,6 +539,36 @@ class ActionGateway:
         if result.errors:
             return str(result.errors[0].get("message", result.errors[0]))
         return str(result.policy_decision.get("reason", result.final_state.value))
+
+    @staticmethod
+    def _action_command_summary(action: ActionEnvelope) -> dict[str, Any]:
+        """Bounded command summary for the ROBOT_ACTION span input.
+
+        Full joint-value payloads are NOT inlined: the span records a hash and
+        count here, while the complete envelope lives on the SKILL span input
+        and (when the executor provides an artifact directory) in the
+        persisted receipt referenced via span evidence.
+        """
+        args = action.arguments or {}
+        names = list(args.get("names") or [])
+        values = list(args.get("values") or [])
+        summary: dict[str, Any] = {
+            "capability_id": action.capability_id,
+            "representation": args.get("representation"),
+            "units": args.get("units"),
+            "joint_count": len(names),
+            "names": names[:12],
+            "permit_id": args.get("permit_id"),
+            "speed": args.get("speed"),
+            "force_limit_g": args.get("force_limit_g"),
+            "observation_timestamp_ns": args.get("observation_timestamp_ns"),
+        }
+        if values:
+            summary["values_count"] = len(values)
+            summary["values_sha256"] = hashlib.sha256(
+                json.dumps(values).encode("utf-8")
+            ).hexdigest()
+        return summary
 
     @staticmethod
     def _remaining_timeout(action: ActionEnvelope) -> float:
