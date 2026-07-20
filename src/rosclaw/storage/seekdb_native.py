@@ -32,13 +32,22 @@ from rosclaw.memory.seekdb_client import SeekDBClient
 logger = logging.getLogger("rosclaw.storage.seekdb_native")
 
 # Fields whose text is used as the embedding document, per table family.
+# Task/outcome fields lead: without them the episode document degrades to an
+# opaque ``artifact_uri=...`` key-value dump, which is useless for retrieval
+# (found while decomposing a CJK-vs-English BM25 check on the RPS episodes).
 _TEXT_FIELDS = (
     "title",
     "document",
     "instruction",
     "description",
-    "error_details",
     "summary",
+    "task_name",
+    "task_id",
+    "task",
+    "skill_id",
+    "outcome",
+    "result",
+    "error_details",
     "subject",
     "predicate",
     "object",
@@ -176,7 +185,22 @@ class SeekDBNativeStore(SeekDBClient):
 
     @staticmethod
     def _document_text(record: dict) -> str:
-        parts = [str(record[key]) for key in _TEXT_FIELDS if record.get(key)]
+        # Text fields from the top level AND the nested metadata dict — the
+        # episode schema nests task_name/session info under ``metadata``, and
+        # without looking inside, the document degenerates to an opaque
+        # ``artifact_uri=...`` dump (useless for both BM25 and embedding).
+        metadata = record.get("metadata")
+        sources = [record]
+        if isinstance(metadata, dict):
+            sources.append(metadata)
+        seen: set[str] = set()
+        parts: list[str] = []
+        for source in sources:
+            for key in _TEXT_FIELDS:
+                value = source.get(key)
+                if value and str(value) not in seen:
+                    seen.add(str(value))
+                    parts.append(str(value))
         if parts:
             return "\n".join(parts)
         # Fallback: embed a compact dump so every record is searchable.
