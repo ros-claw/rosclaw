@@ -90,6 +90,12 @@ def main(argv=None) -> int:
         print(f"session_dir: {session_dir}")
         print(f"catalog:     {data_root / 'indexes' / 'practice_catalog.sqlite'}")
     print(f"summary: {skill_result.get('summary')}")
+    if skill_result.get("status") != "success":
+        # Executor-level failures (skill not found, blocked, precondition)
+        # carry message/error/reason — never fail silently.
+        for key in ("error", "message", "reason"):
+            if skill_result.get(key) or result.get(key):
+                print(f"{key}: {skill_result.get(key) or result.get(key)}")
 
     return 0 if skill_result.get("status") == "success" else 1
 

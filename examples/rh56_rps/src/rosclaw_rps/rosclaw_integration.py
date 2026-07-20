@@ -94,6 +94,60 @@ def _gesture_summary(result: GestureExecutionResult) -> dict[str, Any]:
     }
 
 
+def _load_demo_skill_manifest(
+    loader: SkillLoader, manifest_path: Path, local_skill_id: str
+) -> None:
+    """Load the demo's skill-package manifest into the SkillRegistry.
+
+    The bundled ``skill.yaml`` uses the skill-PACKAGE schema
+    (``kind: Skill`` + ``metadata``/``identity``/``execution``), while
+    :class:`rosclaw.body.schema.SkillManifest` (used by ``load_skill_manifest``)
+    is a flat body-requirements schema (``skill_id``/``requires``).  Translate
+    the package format here instead of weakening the shared schema.
+
+    The registry entry is registered under the demo's LOCAL skill id
+    (``practice.skill_id``, e.g. ``rh56_rps``) — that is the name the
+    SkillExecutor and the runtime plugin handler are wired to.  The canonical
+    package id (``identity.skill_id``, e.g. ``ros-claw/rh56_rps``) is kept in
+    the entry metadata.
+    """
+    import yaml
+
+    from rosclaw.body.schema import SkillManifest
+    from rosclaw.skill_manager.registry import SkillEntry
+
+    data = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+    if "skill_id" in data and "kind" not in data:
+        loader.load_skill_manifest(manifest_path)
+        return
+    metadata = data.get("metadata", {}) if isinstance(data, dict) else {}
+    identity = data.get("identity", {}) if isinstance(data, dict) else {}
+    manifest = SkillManifest(
+        skill_id=local_skill_id,
+        skill_version=str(metadata.get("version") or "1.0.0"),
+        display_name=str(metadata.get("display_name") or metadata.get("name") or ""),
+        schema_version=str(data.get("schema_version") or "rosclaw.skill.v1"),
+        requires=dict(data.get("requires") or {}),
+        degradation_policy=dict(data.get("degradation_policy") or {}),
+        runtime_policy=dict(data.get("runtime_policy") or {}),
+    )
+    # Wrap in a SkillEntry exactly like SkillLoader.load_skill_manifest does.
+    entry = SkillEntry(
+        name=manifest.skill_id,
+        description=manifest.display_name or manifest.skill_id,
+        skill_type="programmed",
+        metadata={
+            "manifest_path": str(manifest_path),
+            "manifest": manifest.to_dict(),
+            "package_skill_id": str(identity.get("skill_id") or ""),
+            "package_name": str(identity.get("package_name") or ""),
+        },
+        version=manifest.skill_version,
+        requirements=manifest.requires,
+    )
+    loader.registry.register(entry)
+
+
 def _build_executor(
     config_section: dict, gestures: Dict[str, GestureConfig]
 ) -> GestureExecutor:
@@ -216,7 +270,7 @@ class RosclawRpsSession:
         )
         loader = SkillLoader(self.registry)
         if manifest_path.exists():
-            loader.load_skill_manifest(manifest_path)
+            _load_demo_skill_manifest(loader, manifest_path, self.skill_id)
         else:
             loader.create_programmed_skill(
                 self.skill_id,
