@@ -67,7 +67,23 @@ class TestBenchRealSenseMetricSemantics:
         assert "aggregate" in saved
 
     def test_report_no_data_still_has_stream_schema(self, tmp_path):
-        report = bench_realsense(duration_sec=0.05, output_dir=str(tmp_path))
+        # Force the no-data path deterministically: a healthy camera on the
+        # test host would otherwise deliver frames within the 50 ms window
+        # and break the (unrelated) schema assertions.
+        from rosclaw.bench import realsense as bench_mod
+
+        def _no_hardware(_duration):
+            raise RuntimeError("no camera")
+
+        original_capture = bench_mod._capture_with_pyrealsense2
+        original_fallback = bench_mod._capture_with_rs_data_collect
+        bench_mod._capture_with_pyrealsense2 = _no_hardware
+        bench_mod._capture_with_rs_data_collect = _no_hardware
+        try:
+            report = bench_realsense(duration_sec=0.05, output_dir=str(tmp_path))
+        finally:
+            bench_mod._capture_with_pyrealsense2 = original_capture
+            bench_mod._capture_with_rs_data_collect = original_fallback
         assert "streams" in report
         assert report["streams"]["color"]["frame_count"] == 0
         assert report["streams"]["depth"]["frame_count"] == 0

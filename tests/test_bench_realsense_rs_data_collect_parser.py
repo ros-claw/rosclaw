@@ -59,7 +59,22 @@ class TestBenchRealSenseNoStub:
     def test_bench_realsense_falls_back_without_hardware(self, tmp_path):
         """Without pyrealsense2 or rs-data-collect, bench still writes a report."""
         output_dir = tmp_path / "bench"
-        report = bench_realsense(duration_sec=0.1, output_dir=str(output_dir))
+        # Force the no-hardware path deterministically — on hosts with a
+        # working camera the bench succeeds and errors stay empty.
+        from rosclaw.bench import realsense as bench_mod
+
+        def _no_hardware(_duration):
+            raise RuntimeError("no camera")
+
+        original_capture = bench_mod._capture_with_pyrealsense2
+        original_fallback = bench_mod._capture_with_rs_data_collect
+        bench_mod._capture_with_pyrealsense2 = _no_hardware
+        bench_mod._capture_with_rs_data_collect = _no_hardware
+        try:
+            report = bench_realsense(duration_sec=0.1, output_dir=str(output_dir))
+        finally:
+            bench_mod._capture_with_pyrealsense2 = original_capture
+            bench_mod._capture_with_rs_data_collect = original_fallback
 
         assert report["schema_version"] == "rosclaw.bench.realsense.v1"
         assert report["duration_requested_sec"] == 0.1
