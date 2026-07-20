@@ -117,6 +117,7 @@ def test_lerobot_export_cli(capsys, monkeypatch, tmp_path):
         assert rc == 0
         captured = capsys.readouterr()
         assert "Exported LeRobot dataset" in captured.out
+        assert "skeleton" not in captured.out.lower()
 
         out = Path(tmp) / "datasets" / "lerobot" / practice_id
         assert (out / "data" / "observation.state.parquet").exists()

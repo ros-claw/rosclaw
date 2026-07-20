@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -37,11 +39,17 @@ class RuntimeClient:
         robot_id: str | None,
         runtime_profile: dict[str, Any],
         fixture_mode: bool = False,
+        daemon_client: Any | None = None,
     ):
         self.project_root = project_root
         self.robot_id = robot_id or "rosclaw_default"
         self.runtime_profile = runtime_profile or {}
         self.fixture_mode = fixture_mode
+        if daemon_client is None:
+            from rosclaw.daemon.client import DaemonClient
+
+            daemon_client = DaemonClient()
+        self._daemon_client = daemon_client
         self._runtime: Any | None = None
         self._runtime_error: str | None = None
         self._adapter_cache: dict[str, Any] | None = None
@@ -98,7 +106,6 @@ class RuntimeClient:
             "skill": SkillRegistryClient(rt.skill_manager)
             if rt.skill_manager is not None
             else None,
-            "safety": SafetyClient(rt),
         }
         return self._adapter_cache
 
@@ -559,8 +566,138 @@ class RuntimeClient:
             )
 
     # ------------------------------------------------------------------
-    # S4 emergency tool
+    # rosclawd control-plane tools
     # ------------------------------------------------------------------
+
+    async def get_runtime_status(self) -> dict[str, Any]:
+        """Return daemon status without initializing an in-process Runtime."""
+
+        try:
+            result = await asyncio.to_thread(self._daemon_client.get_runtime_status)
+        except Exception as exc:  # noqa: BLE001
+            self._raise_daemon_error("get_runtime_status", exc)
+        return {
+            **result,
+            "execution_mode": "NONE",
+            "trust_level": "DAEMON_REPORTED",
+            "usable_for_real_execution": False,
+        }
+
+    async def request_action(
+        self,
+        *,
+        capability_id: str,
+        arguments: dict[str, Any],
+        execution_mode: str = "SHADOW",
+        body_snapshot_hash: str,
+        principal_id: str = "",
+        approval_id: str | None = None,
+        body_id: str | None = None,
+        action_id: str | None = None,
+        required_evidence: str = "TASK_VERIFIED",
+        timeout_sec: float = 30.0,
+        wait_timeout_sec: float = 2.0,
+    ) -> dict[str, Any]:
+        """Submit a structured action request; only rosclawd can authorize REAL."""
+
+        from rosclaw.kernel import (
+            ActionEnvelope,
+            AuthorizationContext,
+            EvidenceLevel,
+            ExecutionMode,
+            VerificationPolicy,
+        )
+
+        if self.fixture_mode:
+            self._unavailable(
+                "request_action",
+                "Fixture mode cannot submit actions to rosclawd.",
+                code="FIXTURE_ACTION_FORBIDDEN",
+            )
+        if not isinstance(arguments, dict):
+            raise MCPError("INVALID_ARGUMENT", "arguments must be an object")
+        try:
+            mode = ExecutionMode(str(execution_mode).upper())
+        except ValueError as exc:
+            raise MCPError(
+                "INVALID_EXECUTION_MODE",
+                f"Unsupported execution mode {execution_mode!r}.",
+            ) from exc
+        if mode not in {ExecutionMode.SHADOW, ExecutionMode.REAL}:
+            raise MCPError(
+                "INVALID_EXECUTION_MODE",
+                "request_action accepts only SHADOW or REAL; use sandbox tools for simulation.",
+            )
+        try:
+            evidence = EvidenceLevel(str(required_evidence).upper())
+        except ValueError as exc:
+            raise MCPError(
+                "INVALID_EVIDENCE_LEVEL",
+                f"Unsupported evidence level {required_evidence!r}.",
+            ) from exc
+
+        action_kwargs: dict[str, Any] = {
+            "actor_id": os.environ.get("ROSCLAW_AGENT_ACTOR", "rosclaw-mcp"),
+            "agent_framework": os.environ.get("ROSCLAW_AGENT_CLIENT", "mcp"),
+            "session_id": os.environ.get("ROSCLAW_AGENT_SESSION", "mcp-session"),
+            "body_id": body_id or self.robot_id,
+            "body_snapshot_hash": body_snapshot_hash,
+            "capability_id": capability_id,
+            "arguments": arguments,
+            "execution_mode": mode,
+            "authorization": AuthorizationContext(
+                principal_id=principal_id,
+                approved=False,
+                approval_id=approval_id,
+                scopes=[],
+            ),
+            "verification_policy": VerificationPolicy(
+                required_evidence=evidence,
+                timeout_sec=timeout_sec,
+                fail_closed=True,
+            ),
+        }
+        if action_id:
+            action_kwargs["action_id"] = action_id
+        try:
+            action = ActionEnvelope(**action_kwargs)
+            ticket = await asyncio.to_thread(self._daemon_client.request_action, action)
+            result = ticket
+            if wait_timeout_sec > 0:
+                result = await asyncio.to_thread(
+                    self._daemon_client.wait_for_action,
+                    action.action_id,
+                    timeout_sec=wait_timeout_sec,
+                )
+        except MCPError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            self._raise_daemon_error("request_action", exc)
+        return self._action_result_metadata(result, mode.value)
+
+    async def get_action_status(self, action_id: str) -> dict[str, Any]:
+        """Read daemon queue state and any terminal ExecutionReceipt."""
+
+        try:
+            result = await asyncio.to_thread(
+                self._daemon_client.get_action_status,
+                action_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._raise_daemon_error("get_action_status", exc)
+        return self._action_result_metadata(result, "UNKNOWN")
+
+    async def cancel_action(self, action_id: str) -> dict[str, Any]:
+        """Cancel only before dispatch; active motion requires emergency_stop."""
+
+        try:
+            result = await asyncio.to_thread(
+                self._daemon_client.cancel_action,
+                action_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._raise_daemon_error("cancel_action", exc)
+        return self._action_result_metadata(result, "UNKNOWN")
 
     async def emergency_stop(self, reason: str) -> dict[str, Any]:
         if self.fixture_mode:
@@ -580,18 +717,52 @@ class RuntimeClient:
                     ),
                 }
             )
-        adapter = self._adapters().get("safety")
-        if adapter is not None:
-            try:
-                return adapter.emergency_stop(reason)
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("emergency_stop failed: %s", exc)
-                self._unavailable(
-                    "emergency_stop",
-                    f"{exc}. Activate the physical E-stop immediately.",
-                    code="EMERGENCY_STOP_FAILED",
-                )
-        self._unavailable(
-            "emergency_stop",
-            "Runtime is not initialized; activate the physical E-stop immediately.",
-        )
+        try:
+            return await asyncio.to_thread(
+                SafetyClient(self._daemon_client).emergency_stop,
+                reason,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("emergency_stop through rosclawd failed: %s", exc)
+            self._raise_daemon_error(
+                "emergency_stop",
+                exc,
+                suffix=" Activate the certified physical E-stop immediately.",
+            )
+
+    @staticmethod
+    def _action_result_metadata(
+        result: dict[str, Any],
+        fallback_mode: str,
+    ) -> dict[str, Any]:
+        receipt = result.get("receipt")
+        receipt_data = receipt if isinstance(receipt, dict) else {}
+        return {
+            **result,
+            "execution_mode": str(
+                receipt_data.get("execution_mode") or result.get("execution_mode") or fallback_mode
+            ),
+            "trust_level": str(receipt_data.get("trust_level", "UNVERIFIED")),
+            "usable_for_real_execution": bool(receipt_data.get("usable_for_real_execution", False)),
+        }
+
+    def _raise_daemon_error(
+        self,
+        operation: str,
+        exc: Exception,
+        *,
+        suffix: str = "",
+    ) -> NoReturn:
+        code = str(getattr(exc, "code", "ROSCLAWD_UNAVAILABLE"))
+        details = getattr(exc, "details", {})
+        raise MCPError(
+            code,
+            f"{operation} through rosclawd failed: {exc}.{suffix}",
+            details={
+                "operation": operation,
+                "daemon_error": details if isinstance(details, dict) else {},
+                "execution_mode": "UNKNOWN",
+                "trust_level": "UNAVAILABLE",
+                "usable_for_real_execution": False,
+            },
+        ) from exc

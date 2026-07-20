@@ -62,7 +62,31 @@ class ActionGateway:
             raise ValueError("capability_id is required")
         if not callable(executor):
             raise TypeError("executor must be callable")
-        self._executors[(capability_id, ExecutionMode(mode))] = executor
+        with self._lock:
+            self._executors[(capability_id, ExecutionMode(mode))] = executor
+
+    @property
+    def registered_executors(self) -> tuple[str, ...]:
+        """Return non-sensitive executor identifiers for status reporting."""
+
+        with self._lock:
+            return tuple(
+                sorted(f"{capability_id}:{mode.value}" for capability_id, mode in self._executors)
+            )
+
+    def get_receipt(self, action_id: str) -> ExecutionReceipt | None:
+        """Return an already-terminal receipt without exposing mutable storage."""
+
+        with self._lock:
+            return self._receipts.get(action_id)
+
+    def discard_receipt(self, action_id: str) -> bool:
+        """Discard one terminal in-memory receipt after external retention."""
+
+        with self._lock:
+            if action_id in self._inflight:
+                return False
+            return self._receipts.pop(action_id, None) is not None
 
     def submit(self, action: ActionEnvelope) -> ExecutionReceipt:
         """Submit one action and return an idempotent evidence receipt."""

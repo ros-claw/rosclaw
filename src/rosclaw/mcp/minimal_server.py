@@ -91,7 +91,10 @@ class ROSClawMinimalMCPServer:
             ),
             Tool(
                 name="system.run_sandbox_task",
-                description="Run a robot task in sandbox: validates through firewall, executes mock/sim action, records episode",
+                description=(
+                    "Run a deterministic mock fixture after a policy check and record "
+                    "synthetic evidence; this is not physics or real execution"
+                ),
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -105,7 +108,11 @@ class ROSClawMinimalMCPServer:
                         },
                         "world": {
                             "type": "string",
-                            "description": "Sandbox world (mock, mujoco, tabletop)",
+                            "enum": ["mock"],
+                            "description": (
+                                "Legacy deterministic fixture world. Use canonical "
+                                "sandbox_run for MuJoCo."
+                            ),
                             "default": "mock",
                         },
                         "parameters": {
@@ -215,11 +222,36 @@ class ROSClawMinimalMCPServer:
         return {"error": f"Unknown system tool: {name}"}
 
     async def _handle_run_sandbox_task(self, arguments: dict) -> dict:
-        """Run a sandbox task: firewall check -> execute -> record episode."""
+        """Run a deterministic fixture without claiming simulation or execution."""
         robot_id = arguments.get("robot_id", "rosclaw_default")
         task = arguments.get("task", "unknown")
         world = arguments.get("world", "mock")
         parameters = arguments.get("parameters", {})
+        metadata = {
+            "execution_mode": "FIXTURE",
+            "trust_level": "SYNTHETIC",
+            "usable_for_real_execution": False,
+            "command_dispatched": False,
+            "physics_executed": False,
+        }
+        if world != "mock":
+            return {
+                "status": "UNSUPPORTED",
+                "error_code": "LEGACY_FIXTURE_ONLY",
+                "message": (
+                    "system.run_sandbox_task supports only the deterministic mock fixture; "
+                    "use canonical sandbox_run for MuJoCo."
+                ),
+                "requested_world": world,
+                **metadata,
+            }
+        if not isinstance(parameters, dict):
+            return {
+                "status": "ERROR",
+                "error_code": "INVALID_PARAMETERS",
+                "message": "parameters must be an object",
+                **metadata,
+            }
 
         # Step 1: Firewall validation
         try:
@@ -236,11 +268,17 @@ class ROSClawMinimalMCPServer:
                     "risk_score": decision.risk_score,
                     "violations": decision.violated_constraints,
                     "replay_id": decision.replay_id,
+                    **metadata,
                 }
         except Exception as e:
-            return {"status": "error", "phase": "firewall", "error": str(e)}
+            return {
+                "status": "ERROR",
+                "phase": "firewall",
+                "error": str(e),
+                **metadata,
+            }
 
-        # Step 2: Simulate execution
+        # Step 2: Produce deterministic fixture output.
         import time
 
         start_time = time.time()
@@ -250,18 +288,23 @@ class ROSClawMinimalMCPServer:
             elif task == "reach":
                 result = {
                     "final_pose": parameters.get("target_pose", [0.5, 0.0, 0.3]),
-                    "success": True,
+                    "fixture_condition_met": True,
                 }
             elif task == "g1_walk":
                 result = {"distance": parameters.get("distance", 3.0), "falls": 0}
             else:
-                result = {"message": f"Mock execution of {task}"}
+                result = {"message": f"Deterministic fixture result for {task}"}
             duration = time.time() - start_time
         except Exception as e:
-            return {"status": "error", "phase": "execution", "error": str(e)}
+            return {
+                "status": "ERROR",
+                "phase": "fixture",
+                "error": str(e),
+                **metadata,
+            }
 
         # Step 3: Record episode
-        episode_id = f"ep_{int(time.time())}"
+        episode_id = f"ep_fixture_{time.time_ns()}"
         try:
             from rosclaw.core.event_bus import Event, EventBus
             from rosclaw.practice.episode_recorder import EpisodeRecorder
@@ -276,37 +319,59 @@ class ROSClawMinimalMCPServer:
                         "episode_id": episode_id,
                         "skill_name": task,
                         "parameters": parameters,
+                        **metadata,
                     },
-                    source="mcp_sandbox",
+                    source="mcp_fixture",
                 )
             )
             bus.publish(
                 Event(
                     topic="skill.execution.complete",
-                    payload={"episode_id": episode_id, "result": result, "duration_sec": duration},
-                    source="mcp_sandbox",
+                    payload={
+                        "episode_id": episode_id,
+                        "result": result,
+                        "duration_sec": duration,
+                        "final_status": "FIXTURE_COMPLETED",
+                        **metadata,
+                    },
+                    source="mcp_fixture",
                 )
             )
             bus.publish(
                 Event(
                     topic="praxis.completed",
-                    payload={"episode_id": episode_id, "outcome": {"reward": 1.0}},
-                    source="mcp_sandbox",
+                    payload={
+                        "episode_id": episode_id,
+                        "outcome": {
+                            "reward": 0.0,
+                            "status": "FIXTURE_COMPLETED",
+                            "trust_level": "SYNTHETIC",
+                        },
+                        **metadata,
+                    },
+                    source="mcp_fixture",
                 )
             )
         except Exception as e:
-            return {"status": "error", "phase": "recording", "error": str(e)}
+            return {
+                "status": "ERROR",
+                "phase": "recording",
+                "error": str(e),
+                **metadata,
+            }
 
         return {
-            "status": "SUCCESS",
+            "status": "FIXTURE_COMPLETED",
             "robot_id": robot_id,
             "task": task,
-            "world": world,
+            "requested_world": world,
+            "effective_world": "deterministic_fixture",
             "duration_sec": round(duration, 3),
             "episode_id": episode_id,
             "firewall": "ALLOWED",
             "risk_score": decision.risk_score if "decision" in dir() else 0.0,
             "result": result,
+            **metadata,
         }
 
     async def _handle_query_memory(self, arguments: dict) -> dict:

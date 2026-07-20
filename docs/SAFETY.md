@@ -28,11 +28,15 @@ Sandbox / Firewall validation
     ↓
 Decision: ALLOW / MODIFY / BLOCK / REQUIRE_HUMAN_CONFIRMATION
     ↓
-Runtime execution (if allowed)
+rosclawd validates peer/body/snapshot/capability/action-intent permit
     ↓
-Practice captures execution trace
+ActionGateway acquires resource lease
     ↓
-Memory and Know retain evidence
+Runtime ActionGateway dispatches a registered executor (if allowed)
+    ↓
+Driver ACK + physical observation + verification + ExecutionReceipt
+    ↓
+Practice / Memory / Know consume the receipt asynchronously
     ↓
 How / Auto may propose improvements
     ↓
@@ -95,6 +99,11 @@ The following actions require explicit human confirmation by default:
 9. **Disable cloud features by default.** Use `--profile offline` unless cloud sync is required.
 10. **Report security issues privately.** Email [ai@rosclaw.io](mailto:ai@rosclaw.io).
 
+For REAL actions, run the Agent and `rosclawd` as different Unix users. The
+Agent user must not have serial/CAN device groups, vendor credentials, or ROS 2
+command-topic permissions. See [rosclawd Control Plane](ROSCLAWD.md) for the
+reference systemd and SROS2 deployment boundary.
+
 ---
 
 ## Fail-Closed Defaults
@@ -103,6 +112,14 @@ The following actions require explicit human confirmation by default:
 - If the Sandbox cannot reach a decision, it defaults to `BLOCK`.
 - If the Skill Registry cannot verify a skill manifest, execution is blocked.
 - If the active body changes without confirmation, real-robot execution is paused.
+- If rosclawd is unavailable, all Agent-side physical action requests fail.
+- Agent-facing physical action requests default to `SHADOW`; `REAL` must be
+  explicit and independently authorized by rosclawd.
+- Caller-provided `authorization.approved` values never create a REAL permit.
+- A permit never accepts a wildcard Capability and cannot be reused with
+  substituted arguments or execution constraints.
+- A software E-stop dispatch or driver ACK is not reported as a successful
+  physical stop without physical stop observation.
 
 ---
 

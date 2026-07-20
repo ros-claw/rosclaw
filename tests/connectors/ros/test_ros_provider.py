@@ -94,8 +94,8 @@ async def test_safe_velocity_command_requires_runtime_gateway():
     )
     response = await provider.infer(request)
     assert response.status == "blocked"
-    assert "Runtime.submit_action" in response.errors[0]
-    assert response.trace["guard_checks"] == [{"check": "RUNTIME_ACTION_GATEWAY_REQUIRED"}]
+    assert "rosclawd request_action" in response.errors[0]
+    assert response.trace["guard_checks"] == [{"check": "ROSCLAWD_REQUEST_ACTION_REQUIRED"}]
     assert transport.requests == []
 
 

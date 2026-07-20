@@ -169,8 +169,9 @@ class TestHandleToolCallNoRuntime:
         hub = MCPHub(event_bus=bus)
         hub.initialize()
         result = await hub.handle_tool_call("emergency_stop", {})
-        assert result["status"] == "requested_unverified"
-        assert result["request_dispatched"] is True
+        assert result["status"] == "failed"
+        assert result["error"] == "DAEMON_UNAVAILABLE"
+        assert result["request_dispatched"] is False
         assert result["physical_stop_observed"] is False
         assert result["stopped"] is False
         hub.stop()
@@ -191,7 +192,7 @@ class TestHandleToolCallNoRuntime:
         hub.initialize()
         result = await hub.handle_tool_call("move_joints", {"joint_positions": [0.1, 0.2]})
         assert result["status"] == "blocked"
-        assert result["error"] == "RUNTIME_ACTION_GATEWAY_REQUIRED"
+        assert result["error"] == "DAEMON_UNAVAILABLE"
         assert bus.get_history("agent.command") == []
         hub.stop()
 
@@ -202,7 +203,7 @@ class TestHandleToolCallNoRuntime:
         hub.initialize()
         result = await hub.handle_tool_call("grasp", {"action": "close"})
         assert result["status"] == "blocked"
-        assert result["error"] == "RUNTIME_ACTION_GATEWAY_REQUIRED"
+        assert result["error"] == "DAEMON_UNAVAILABLE"
         assert bus.get_history("agent.command") == []
         hub.stop()
 
@@ -238,7 +239,7 @@ class TestHandleToolCallNoRuntime:
         bus.subscribe("agent.command", responder)
         result = await hub.handle_tool_call("move_joints", {"joint_positions": [0.1, 0.2]})
         assert result["status"] == "blocked"
-        assert result["error"] == "RUNTIME_ACTION_GATEWAY_REQUIRED"
+        assert result["error"] == "DAEMON_UNAVAILABLE"
         assert responses == []
         hub.stop()
 
@@ -264,7 +265,7 @@ class TestHandleToolCallNoRuntime:
         bus.subscribe("agent.command", responder)
         result = await hub.handle_tool_call("grasp", {"action": "close"})
         assert result["status"] == "blocked"
-        assert result["error"] == "RUNTIME_ACTION_GATEWAY_REQUIRED"
+        assert result["error"] == "DAEMON_UNAVAILABLE"
         assert responses == []
         hub.stop()
 

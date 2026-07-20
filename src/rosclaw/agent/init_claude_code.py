@@ -54,7 +54,12 @@ def _write_markdown(
             and "<!-- ROSCLAW-MANAGED-BEGIN -->" not in existing
             and "<!-- ROSCLAW-MANAGED-END -->" not in existing
         ):
-            merged = existing.rstrip() + "\n\n" + content
+            begin_marker = "<!-- ROSCLAW-MANAGED-BEGIN -->"
+            end_marker = "<!-- ROSCLAW-MANAGED-END -->"
+            begin_idx = content.index(begin_marker)
+            end_idx = content.index(end_marker) + len(end_marker)
+            managed_block = content[begin_idx:end_idx]
+            merged = existing.rstrip() + "\n\n" + managed_block + "\n"
         else:
             merged = managed_block_merge(
                 existing,

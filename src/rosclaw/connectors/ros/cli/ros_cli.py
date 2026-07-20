@@ -1,15 +1,14 @@
 """ROS connector CLI for discovery, validation, and explicit dry runs.
 
-Physical capability execution is blocked until it enters through the runtime
-action gateway. The emergency-stop command remains a best-effort safety path
-and reports dispatch separately from physical stop verification.
+Physical capability execution is blocked until it enters through rosclawd.
+The emergency-stop command is a daemon client and reports request dispatch
+separately from physical stop verification.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import time
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +20,7 @@ from rosclaw.connectors.ros.compiler import (
 from rosclaw.connectors.ros.discovery import RosGraphDiscovery
 from rosclaw.connectors.ros.provider import RosCapabilityProvider
 from rosclaw.connectors.ros.transport import RosbridgeEndpoint, RosbridgeTransport
+from rosclaw.daemon.client import DaemonClient, DaemonClientError
 from rosclaw.provider.core.manifest import ProviderManifest
 from rosclaw.provider.core.request import ProviderRequest
 
@@ -451,111 +451,38 @@ def cmd_ros_execute_capability(args: argparse.Namespace) -> int:
 
 
 def cmd_ros_emergency_stop(args: argparse.Namespace) -> int:
-    """Emergency stop: send zero velocity on all discovered command topics."""
-    endpoint = args.endpoint
+    """Request emergency stop through rosclawd."""
     robot_id = args.robot_id
+    daemon = getattr(args, "_daemon_client", None) or DaemonClient()
     try:
-        ep = RosbridgeEndpoint.from_url(endpoint)
-        transport = RosbridgeTransport(endpoint=ep)
-        zero_twist = {
-            "linear": {"x": 0.0, "y": 0.0, "z": 0.0},
-            "angular": {"x": 0.0, "y": 0.0, "z": 0.0},
-        }
-
-        # Discover current topics and their types from rosapi.
-        topics_types: dict[str, str] = {}
-        try:
-            result = transport.call_service("/rosapi/topics", {})
-            if result.ok and isinstance(result.data, dict):
-                values = result.data.get("values", result.data)
-                if isinstance(values, dict):
-                    topics = values.get("topics", [])
-                    types = values.get("types", [])
-                    topics_types = dict(zip(topics, types, strict=False))
-        except Exception:
-            pass
-
-        # Always cover the canonical topics, plus any other cmd_vel topics.
-        command_topics = {"/cmd_vel", "/turtle1/cmd_vel", f"/{robot_id}/cmd_vel"}
-        command_topics.update({t for t in topics_types if t.endswith("/cmd_vel")})
-
-        # Determine the correct Twist type for this ROS distribution.
-        twist_type: str | None = None
-        for topic in command_topics:
-            if topic in topics_types:
-                twist_type = topics_types[topic]
-                break
-        if twist_type is None:
-            try:
-                version_result = transport.call_service("/rosapi/get_ros_version", {})
-                if version_result.ok and isinstance(version_result.data, dict):
-                    values = version_result.data.get("values", version_result.data)
-                    twist_type = (
-                        "geometry_msgs/msg/Twist"
-                        if (isinstance(values, dict) and values.get("version") == 2)
-                        else "geometry_msgs/Twist"
-                    )
-            except Exception:
-                pass
-        if twist_type is None:
-            twist_type = "geometry_msgs/Twist"
-
-        published_any = False
-        is_ros2 = "/msg/" in (twist_type or "")
-        for topic in sorted(command_topics):
-            try:
-                msg_type = topics_types.get(topic, twist_type)
-                adv = transport.send({"op": "advertise", "topic": topic, "type": msg_type})
-                if adv.ok:
-                    if is_ros2:
-                        # ROS2 needs a moment for publisher-subscriber matching.
-                        transport.receive(timeout_sec=0.3)
-                    else:
-                        # ROS1 advertise does not return a status. Give rosbridge
-                        # and the subscriber a little longer to register the new
-                        # publisher before sending the stop command.
-                        time.sleep(0.3)
-                    # Publish zero velocity for ~0.5 s. A sustained burst ensures
-                    # the stop command is delivered on both ROS1 and ROS2 before
-                    # we unadvertise.
-                    for _ in range(10):
-                        pub = transport.publish(topic, zero_twist)
-                        if pub.ok:
-                            published_any = True
-                        time.sleep(0.05)
-                    transport.send({"op": "unadvertise", "topic": topic})
-            except Exception:
-                pass
-        transport.close()
-
-        if not published_any:
-            return _maybe_json(
-                args,
-                {
-                    "ok": False,
-                    "action": "emergency_stop",
-                    "robot_id": robot_id,
-                    "endpoint": endpoint,
-                    "error": "Could not publish zero velocity to any command topic",
-                },
-            )
+        receipt = daemon.emergency_stop(
+            f"ROS connector CLI emergency stop for {robot_id}",
+            source="rosclaw.ros_cli",
+        )
+        payload = receipt if isinstance(receipt, dict) else receipt.to_dict()
+        return _maybe_json(
+            args,
+            {
+                **payload,
+                "ok": bool(
+                    payload.get("stopped", False) and payload.get("physical_stop_observed", False)
+                ),
+                "action": "emergency_stop",
+                "robot_id": robot_id,
+            },
+        )
+    except DaemonClientError as exc:
         return _maybe_json(
             args,
             {
                 "ok": False,
                 "action": "emergency_stop",
                 "robot_id": robot_id,
-                "endpoint": endpoint,
-                "request_dispatched": True,
-                "driver_acknowledged": False,
-                "physical_stop_observed": False,
+                "error_code": exc.code,
+                "error": exc.message,
+                "request_dispatched": False,
                 "stopped": False,
-                "final_status": "UNVERIFIED",
-                "trust_level": "UNVERIFIED",
-                "message": (
-                    "Zero-velocity requests were published, but no driver acknowledgement or "
-                    "independent stop observation is available. Use the physical E-stop."
-                ),
+                "message": "Activate the certified physical E-stop immediately.",
             },
         )
     except Exception as exc:
@@ -565,8 +492,11 @@ def cmd_ros_emergency_stop(args: argparse.Namespace) -> int:
                 "ok": False,
                 "action": "emergency_stop",
                 "robot_id": robot_id,
-                "endpoint": endpoint,
+                "error_code": "ROSCLAWD_REQUEST_FAILED",
                 "error": str(exc),
+                "request_dispatched": False,
+                "stopped": False,
+                "message": "Activate the certified physical E-stop immediately.",
             },
         )
 
@@ -681,7 +611,10 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
     execute_parser.add_argument("--dry-run", action="store_true", help="Dry run only")
 
     # emergency-stop
-    stop_parser = ros_subparsers.add_parser("emergency-stop", help="Send emergency zero velocity")
+    stop_parser = ros_subparsers.add_parser(
+        "emergency-stop",
+        help="Request emergency stop through rosclawd",
+    )
     _add_common(stop_parser)
 
     return ros_parser

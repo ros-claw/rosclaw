@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from rosclaw.agent.install import cmd_agent_install
+from rosclaw.agent.tool_catalog import P0_AGENT_MCP_TOOLS
 
 
 def _make_args(tmp_path: Path, **overrides: object) -> argparse.Namespace:
@@ -59,23 +60,32 @@ async def test_install_generates_cross_agent_files(
     assert codex_server["command"] == "rosclaw"
     assert codex_server["env"]["ROSCLAW_AGENT_CLIENT"] == "codex"
     assert codex_server["default_tools_approval_mode"] == "approve"
-    assert len(codex_server["enabled_tools"]) == 18
+    assert codex_server["enabled_tools"] == list(P0_AGENT_MCP_TOOLS)
 
     agents_guide = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
     runtime_guide = (tmp_path / "ROSCLAW.md").read_text(encoding="utf-8")
     skill_guide = (tmp_path / ".agents/skills/rosclaw/SKILL.md").read_text(encoding="utf-8")
-    assert "Runtime.submit_action()" in agents_guide
-    assert "Runtime.submit_action()" in runtime_guide
-    assert "Runtime.submit_action()" in skill_guide
-    assert "Refuse direct ROS, DDS, serial, SDK, or motor commands" in skill_guide
+    assert "request_action" in agents_guide
+    assert "request_action" in runtime_guide
+    assert "request_action" in skill_guide
+    assert "Never instantiate" in agents_guide
+    assert "Never instantiate a local Runtime" in skill_guide
+    assert "direct ROS, DDS, serial, CAN, SDK, or motor commands" in skill_guide
+    assert "Request daemon E-Stop; verify physical-stop evidence" in agents_guide
+    assert "Halt all motion immediately" not in agents_guide
 
     snapshot = json.loads((tmp_path / ".rosclaw/agent/context.snapshot.json").read_text())
-    assert len(snapshot["tools"]["available"]) == 18
-    assert snapshot["policies"]["no_real_execution"] is True
+    assert snapshot["schema_version"] == "rosclaw.agent.context.v2"
+    assert snapshot["tools"]["available"] == list(P0_AGENT_MCP_TOOLS)
+    assert snapshot["policies"]["direct_hardware_access"] is False
+    assert snapshot["policies"]["real_execution_requires_rosclawd_permit"] is True
+    assert snapshot["policies"]["agent_may_self_authorize"] is False
 
     captured = capsys.readouterr()
     assert "ROSClaw universal agent integration installed." in captured.out
     assert "rosclaw agent install --project-root . --skip-secrets" in captured.out
+    assert "rosclaw agent test universal --project-root . --quick --mcp-probe" in captured.out
+    assert "same environment and PATH" in captured.out
 
 
 async def test_install_dry_run_does_not_write(tmp_path: Path) -> None:
@@ -96,6 +106,8 @@ async def test_install_preserves_existing_unmanaged_agents_md(tmp_path: Path) ->
     assert "Keep this project rule." in content
     assert "<!-- ROSCLAW-MANAGED-BEGIN -->" in content
     assert "rosclaw agent install --project-root . --skip-secrets" in content
+    assert content.count("# Existing Agent Guide") == 1
+    assert content.count("# ROSClaw Agent Instructions") == 0
 
 
 async def test_install_preserves_unmanaged_codex_config(tmp_path: Path) -> None:
@@ -169,8 +181,7 @@ async def test_install_rejects_duplicate_codex_table_without_rewriting(
     capsys.readouterr()
     config = tmp_path / ".codex/config.toml"
     conflicting = (
-        config.read_text(encoding="utf-8")
-        + '\n[mcp_servers.rosclaw]\ncommand = "duplicate"\n'
+        config.read_text(encoding="utf-8") + '\n[mcp_servers.rosclaw]\ncommand = "duplicate"\n'
     )
     config.write_text(conflicting, encoding="utf-8")
 

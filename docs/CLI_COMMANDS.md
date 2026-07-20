@@ -300,5 +300,5 @@
 | `ros list-capabilities` | List compiled capabilities | `rosclaw ros list-capabilities [-h] [--endpoint ENDPOINT] [--robot-id ROBOT_ID] [--json] [--manifest MANIFEST]` |
 | `ros inspect-capability` | Inspect a capability | `rosclaw ros inspect-capability [-h] [--endpoint ENDPOINT] [--robot-id ROBOT_ID] [--json] [--manifest MANIFEST] capability_id` |
 | `ros validate-capability` | Validate args against safety contract | `rosclaw ros validate-capability [-h] [--endpoint ENDPOINT] [--robot-id ROBOT_ID] [--json] [--manifest MANIFEST] [--args ARGS] capability_id` |
-| `ros execute-capability` | Execute a capability | `rosclaw ros execute-capability [-h] [--endpoint ENDPOINT] [--robot-id ROBOT_ID] [--json] [--manifest MANIFEST] [--args ARGS] [--dry-run] capability_id` |
-| `ros emergency-stop` | Send emergency zero velocity | `rosclaw ros emergency-stop [-h] [--endpoint ENDPOINT] [--robot-id ROBOT_ID] [--json]` |
+| `ros execute-capability` | Explicit dry run; physical execution fails closed | `rosclaw ros execute-capability [-h] [--endpoint ENDPOINT] [--robot-id ROBOT_ID] [--json] [--manifest MANIFEST] [--args ARGS] [--dry-run] capability_id` |
+| `ros emergency-stop` | Request emergency stop through rosclawd | `rosclaw ros emergency-stop [-h] [--endpoint ENDPOINT] [--robot-id ROBOT_ID] [--json]` |

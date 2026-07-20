@@ -7,52 +7,35 @@ description: Use when operating, validating, or changing ROSClaw physical-AI run
 
 ## Safety
 
-- Treat ROSClaw as physical-AI infrastructure. Do not publish ROS topics, actuate hardware, run real robot skills, or mutate a live workspace unless the user explicitly asks for that specific action.
-- Prefer dry-run, read-only, mock, fixture, simulation, or temp-workspace commands for validation.
+- Treat ROSClaw as physical-AI infrastructure. Do not publish ROS topics,
+  actuate hardware, run real robot skills, or mutate a live workspace directly,
+  even when a user asks for that specific action.
+- Prefer dry-run, read-only, mock, fixture, simulation, or temp-workspace
+  commands for validation.
 - Use a temporary `ROSCLAW_HOME` for CLI smoke tests that write persistent state.
 - Prefer `--json` for machine checks, then validate the JSON parses.
+- The only Agent-side action entry is MCP `request_action`, backed by
+  `rosclawd`. Never instantiate a local Runtime or register a hardware
+  driver/executor from the Agent process.
+- REAL actions require an immutable body snapshot, a daemon-issued
+  capability- and action-intent-bound permit, and a registered verified REAL
+  executor. Refuse direct ROS, DDS, serial, CAN, SDK, or motor commands.
 
 ## First Checks
 
-Run from the repo root after installing editable dev dependencies:
-
 ```bash
-python -m compileall -q src tests
-ruff check .
-ruff format --check .
-mypy src/rosclaw
-pytest tests/practice -q
-```
-
-Useful health commands:
-
-```bash
-TMP=$(mktemp -d /tmp/rosclaw-health.XXXXXX)
 rosclaw doctor --json
-rosclaw runtime backends
-rosclaw body init --robot unitree-g1 --workspace "$TMP/ws" --force --validate --render
-rosclaw provider health --json
-rosclaw provider route --capability vlm.scene_graph --json
-rosclaw provider benchmark --dry-run --json
-rosclaw sandbox verify --case ur5e-joint-preview --json
-rosclaw hub search realsense
-rosclaw mcp list
-rosclaw skill list
-```
-
-## Agent Integration
-
-For a project that should expose ROSClaw to Codex, Claude Code, OpenClaw, or
-another MCP-aware agent, use the cross-agent installer:
-
-```bash
-rosclaw agent install --project-root . --skip-secrets
+rosclaw status capabilities
+rosclaw demo list
+rosclaw demo run ur5e-reach
+rosclaw explain latest
+rosclaw agent doctor universal --project-root .
 rosclaw agent test universal --project-root . --quick --mcp-probe
 ```
 
 ## Practice Evidence Loop
 
-Use the RH56 fixture for a safe end-to-end loop:
+Use fixture-based Practice workflows before touching real robots:
 
 ```bash
 TMP=$(mktemp -d /tmp/rosclaw-practice.XXXXXX)
@@ -60,33 +43,20 @@ export ROSCLAW_HOME="$TMP/home"
 rosclaw practice record --fixture tests/fixtures/practice/rh56_minimal_loop.json --out "$TMP/practice" --json
 rosclaw practice verify practice_rh56_minimal_loop --data-root "$TMP/practice" --strict --json
 rosclaw practice distill practice_rh56_minimal_loop --data-root "$TMP/practice" --json
-rosclaw practice ingest-seekdb practice_rh56_minimal_loop --data-root "$TMP/practice" --seekdb-path "$TMP/seekdb.sqlite" --json
-rosclaw memory ingest --episode-id episode_rh56_minimal_loop --data-root "$TMP/practice"
-rosclaw know compile "recover from over contact" --episode-id episode_rh56_minimal_loop --data-root "$TMP/practice" --json
-rosclaw how advise --body body_rh56_left --failure over_contact --episode-id episode_rh56_minimal_loop --data-root "$TMP/practice" --json
 ```
 
-Expected bridge signals:
+## MCP Contract
 
-- `practice record` writes events under `sessions/practice_rh56_minimal_loop/raw/events.jsonl`.
-- `memory ingest` reports `Events: 9` and `Outcome: success`.
-- `know compile --json` reports `robot_id: rh56` and `evidence.event_count: 9`.
-- `how advise --json` reports intervention `how_rh56_001` from `practice_how_intervention`.
-
-## ROS Smoke
-
-For ROS bridge discovery, use read-only commands:
-
-```bash
-rosclaw ros ping --endpoint ws://127.0.0.1:9090
-rosclaw ros discover --endpoint ws://127.0.0.1:9090
-```
-
-Do not use command endpoints or publish topic messages without explicit user confirmation.
-
-## When Changing Code
-
-- Keep changes close to the module interface implied by the command.
-- Add regression tests for any CLI-visible behavior or cross-module contract.
-- For Practice layout changes, verify both old `sessions/{episode_id}` and v2 catalog-backed `episode_id -> session_id -> practice_id` evidence resolution.
-- Re-run the focused test plus the broader gate that covers the touched subsystem.
+- Expected P0 tools: `get_robot_state`, `list_skills`, `query_memory`, `validate_trajectory`, `sandbox_run`, `practice_query`, `emergency_stop`, `get_body_profile`, `get_body_state`, `list_body_capabilities`, `query_body`, `validate_body_action`, `get_calibration_status`, `get_runtime_status`, `request_action`, `get_action_status`, `cancel_action`, `get_product_status`, `list_product_demos`, `run_product_demo`, `get_execution_receipt`, `explain_execution`.
+- `run_product_demo` executes an official MuJoCo path and persists an
+  integrity-checked `ExecutionReceipt`; it never commands real hardware.
+- Use `get_execution_receipt` and `explain_execution` instead of inferring
+  success from text output.
+- `sandbox_run` is simulation-only. If no physics state is available, treat the
+  result as degraded rather than live.
+- `validate_trajectory` can approve a plan, but it does not authorize direct
+  hardware execution.
+- `request_action` sends an unapproved envelope to `rosclawd`; only the daemon
+  may turn a matching server-issued permit into authorization.
+- `cancel_action` never claims that active physical motion stopped. Use
+  `emergency_stop` and the certified hardware E-stop when motion may be active.

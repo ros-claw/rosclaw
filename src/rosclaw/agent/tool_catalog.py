@@ -21,6 +21,13 @@ P0_BODY_CONTEXT_TOOLS: tuple[str, ...] = (
     "get_calibration_status",
 )
 
+P0_CONTROL_PLANE_TOOLS: tuple[str, ...] = (
+    "get_runtime_status",
+    "request_action",
+    "get_action_status",
+    "cancel_action",
+)
+
 P0_PRODUCT_TOOLS: tuple[str, ...] = (
     "get_product_status",
     "list_product_demos",
@@ -29,7 +36,9 @@ P0_PRODUCT_TOOLS: tuple[str, ...] = (
     "explain_execution",
 )
 
-P0_AGENT_MCP_TOOLS: tuple[str, ...] = P0_CORE_TOOLS + P0_BODY_CONTEXT_TOOLS + P0_PRODUCT_TOOLS
+P0_AGENT_MCP_TOOLS: tuple[str, ...] = (
+    P0_CORE_TOOLS + P0_BODY_CONTEXT_TOOLS + P0_CONTROL_PLANE_TOOLS + P0_PRODUCT_TOOLS
+)
 
 MCP_TOOL_SAFETY_LEVELS: dict[str, str] = {
     "get_robot_state": "S0_READ_ONLY",
@@ -45,6 +54,10 @@ MCP_TOOL_SAFETY_LEVELS: dict[str, str] = {
     "validate_trajectory": "S2_VALIDATED_PLAN",
     "sandbox_run": "S1_SIMULATION_ONLY",
     "emergency_stop": "S4_EMERGENCY",
+    "get_runtime_status": "S0_READ_ONLY",
+    "request_action": "S3_GUARDED_ACTION",
+    "get_action_status": "S0_READ_ONLY",
+    "cancel_action": "S3_GUARDED_ACTION",
     "get_product_status": "S0_READ_ONLY",
     "list_product_demos": "S0_READ_ONLY",
     "run_product_demo": "S1_SIMULATION_ONLY",
@@ -70,6 +83,7 @@ def compact_safety_level(tool_name: str) -> str:
 __all__ = [
     "P0_CORE_TOOLS",
     "P0_BODY_CONTEXT_TOOLS",
+    "P0_CONTROL_PLANE_TOOLS",
     "P0_PRODUCT_TOOLS",
     "P0_AGENT_MCP_TOOLS",
     "MCP_TOOL_SAFETY_LEVELS",

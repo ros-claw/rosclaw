@@ -5,8 +5,11 @@ This document describes the P0 integration between agent frameworks and the ROSC
 ## Goals
 
 - An agent that opens a ROSClaw project should immediately understand the runtime boundary.
-- The agent has **read-only**, **simulation-only**, **validated-plan**, and **emergency** tools available.
-- There is **no real-execution tool** in P0. Any request to move the real robot must be refused or routed through `validate_trajectory` with operator confirmation.
+- The agent has **read-only**, **simulation-only**, **validated-plan**,
+  **guarded-action**, and **emergency** tools available.
+- The Agent has no raw execution primitive and cannot approve its own action.
+  SHADOW/REAL requests go only to `rosclawd`; REAL requires a daemon-issued
+  permit plus a daemon-registered executor.
 - If ROSClaw components are unavailable, tools return a structured `ok: false`
   envelope. Synthetic responses are available only when fixture mode is
   explicitly enabled.
@@ -46,9 +49,19 @@ Merge behavior:
   `openclaw mcp add`; the project installer does not silently mutate
   `~/.openclaw/openclaw.json`.
 
+Framework activation remains framework-owned:
+
+- Codex loads `.codex/config.toml` only after the exact Git repository root is
+  trusted. `rosclaw agent doctor codex --project-root .` fails until that is
+  true; trusting only a parent directory is insufficient in current Codex CLI.
+- Claude Code requires the user to approve the project-scoped `rosclaw` entry
+  from `.mcp.json`. `claude mcp get rosclaw` reports pending until approval.
+- These prompts are security boundaries and the installer does not mutate
+  user-level trust or approval state.
+
 ## MCP tool surface
 
-The P0 server exposes 18 tools via `src/rosclaw/mcp/server.py`:
+The P0 server exposes 22 tools via `src/rosclaw/mcp/server.py`:
 
 | Tool | Safety level | Purpose |
 |------|--------------|---------|
@@ -62,6 +75,10 @@ The P0 server exposes 18 tools via `src/rosclaw/mcp/server.py`:
 | `query_body` | S0 read-only | Answer questions about the current body |
 | `validate_body_action` | S0 read-only | Validate a proposed body-level action |
 | `get_calibration_status` | S0 read-only | Calibration status for body components |
+| `get_runtime_status` | S0 read-only | Read rosclawd identity, queue, drivers, permits, and E-Stop latch |
+| `request_action` | S3 guarded action | Submit SHADOW/REAL intent; rosclawd independently authorizes REAL |
+| `get_action_status` | S0 read-only | Read daemon queue state and terminal action receipt |
+| `cancel_action` | S3 guarded action | Cancel queued work; never claims active motion stopped |
 | `validate_trajectory` | S2 validated-plan | Validate a trajectory through the sandbox/firewall; never executes real motion |
 | `sandbox_run` | S1 simulation-only | Run one real MuJoCo step; fails if physics/model loading is unavailable |
 | `emergency_stop` | S4 emergency | Fan out a stop request and return dispatch, driver ACK, timeout, and physical-observation evidence |
@@ -75,7 +92,10 @@ All tool responses share a common envelope defined in `src/rosclaw/mcp/schemas/c
 
 ## Adapter architecture
 
-`src/rosclaw/mcp/adapters/runtime_client.py` is the single facade used by the MCP tool layer. It lazy-initializes a ROSClaw `Runtime` and builds thin adapters around each subsystem:
+`src/rosclaw/mcp/adapters/runtime_client.py` is the single facade used by the
+MCP tool layer. It may lazy-initialize a local Runtime only for read,
+simulation, memory, and product workflows. Every physical action and emergency
+path uses `DaemonClient` and never registers a local hardware driver.
 
 - `MemoryClient` — `src/rosclaw/mcp/adapters/memory_client.py`
 - `PracticeClient` — `src/rosclaw/mcp/adapters/practice_client.py`
@@ -91,12 +111,12 @@ Each adapter is small, independently unit-testable, and translates a subsystem A
 
 ### Emergency stop
 
-`SafetyClient.emergency_stop` delegates to
-`Runtime.request_emergency_stop`. Runtime publishes one managed critical event,
-fans out to registered drivers, waits for bounded acknowledgements, and returns
-an `EmergencyStopReceipt`. `stopped=true` is emitted only when stopped state was
-physically observed in the stated execution mode. Publishing a request alone is
-never reported as a confirmed stop.
+`SafetyClient.emergency_stop` delegates only to `rosclawd`. The daemon calls
+its Runtime emergency path independently of the normal action queue, fans out
+to daemon-owned drivers, waits for bounded acknowledgements, and returns an
+`EmergencyStopReceipt`. `stopped=true` is emitted only when stopped state was
+physically observed in the stated execution mode. Publishing a request alone
+is never reported as a confirmed stop.
 
 ## Usage
 
@@ -117,10 +137,14 @@ rosclaw demo run ur5e-reach
 rosclaw explain latest
 ```
 
-- `doctor` checks file presence, transport reachability, and safety-contract completeness.
+- `doctor` checks file presence, HTTP transport reachability when applicable,
+  harness activation, and safety-contract completeness. For stdio it validates
+  configuration only; use `test --mcp-probe` for a live process check.
 - `test --mcp-probe` starts the configured stdio server, requires the exact
-  18-tool P0 boundary, runs the official MuJoCo demo, reloads its
-  integrity-checked receipt, and verifies its explanation.
+  22-tool P0 boundary, runs the official MuJoCo demo, reloads its
+  integrity-checked receipt, and verifies its explanation. Run it from the
+  same environment and `PATH` as the Agent; it deliberately executes the
+  configured command so stale global installations fail visibly.
 - `demo run` and `explain` expose the same receipt-bearing workflow directly to
   operators.
 
@@ -144,28 +168,45 @@ Environment variables: `ROSCLAW_MCP_TRANSPORT`, `ROSCLAW_MCP_HOST`,
 ## Safety boundaries
 
 - `validate_trajectory` and `sandbox_run` are restricted to planning and simulation. They do not command hardware.
-- `emergency_stop` is the only real-side-effect tool in this MCP surface and is
-  gated at S4. It still does not replace a certified physical E-Stop.
-- The audit logger redacts values for keys matching `{token, password, secret, api_key, apikey, auth}` before writing to `~/.rosclaw/logs/mcp/audit.jsonl`.
+- `request_action` is the only action submission tool. Caller approval flags
+  are discarded; REAL authorization is reconstructed only from daemon-owned
+  permit state.
+- `emergency_stop` is gated at S4 and bypasses the normal action queue. It does
+  not replace a certified physical E-Stop.
+- The audit logger recursively redacts permit IDs, authorization fields, and
+  credential-like keys before writing to a private `0700` directory and `0600`
+  `~/.rosclaw/logs/mcp/audit.jsonl` file.
 - All state tools include `is_stale` and `age_ms` so the agent can judge freshness.
 
 ## Verification
 
 On 2026-07-20, a separate local Codex CLI 0.144.4 process opened a trusted
-project generated by `rosclaw agent install`, discovered the exact 18-tool P0
+project generated by `rosclaw agent install`, discovered the exact 22-tool P0
 allowlist, and called `get_product_status`, `list_product_demos`,
 `run_product_demo`, `get_execution_receipt`, and `explain_execution` through
 MCP. Run `run_20260720T110724603844Z_92bc51fe` completed 237 MuJoCo steps with
 `TASK_VERIFIED`, `has_physics=true`, and `usable_for_real_execution=false`.
-This is developer-observed external-Agent evidence, not independent H5
-acceptance and not real-hardware evidence.
+
+A second isolated Codex run loaded the same 22-tool allowlist, called
+`get_product_status` and daemon-backed `get_runtime_status`, then submitted an
+unauthorized `REAL rh56.finger.move` request. `rosclawd` returned
+`AUTHORIZATION_REQUIRED`; the final receipt was `BLOCKED` and
+`hardware_actions_executed` remained zero. The daemon was process-separated
+but, in this development run, not UID-separated.
+
+Claude Code 2.1.210 independently discovered the generated `rosclaw` server
+from `.mcp.json`, but correctly left it pending user approval. The local Claude
+installation had no model authentication, so no Claude model black-box claim
+is made. These checks are developer-observed external-Agent evidence, not
+independent H5 acceptance and not real-hardware evidence.
 
 ```bash
 ruff check src tests
 mypy --config-file .github/mypy-ci.ini \
-  src/rosclaw/kernel src/rosclaw/sandbox src/rosclaw/provider/core \
+  src/rosclaw/daemon src/rosclaw/kernel src/rosclaw/sandbox src/rosclaw/provider/core \
   src/rosclaw/mcp_drivers src/rosclaw/mcp/adapters src/rosclaw/agent \
-  src/rosclaw/agent_runtime/mcp_hub.py src/rosclaw/core/runtime.py src/rosclaw/cli.py
+  src/rosclaw/agent_runtime/mcp_hub.py src/rosclaw/connectors/ros/mcp/tools.py \
+  src/rosclaw/core/runtime.py src/rosclaw/cli.py
 pytest -q
 rosclaw doctor --level verified --json
 rosclaw agent test universal --project-root . --quick --mcp-probe
@@ -179,9 +220,16 @@ assets can execute a MuJoCo step without resolving files from the source tree.
 
 ## Remaining gaps
 
-1. No real-hardware MCP execution tool is exposed by this P0 server.
-2. ROS2 and DDS Body Sense collectors are still stubs and therefore return
+1. The base rosclawd process does not yet load a hardware pack, REAL executor,
+   operator permit issuer, or pack-specific policy/calibration validator; REAL
+   remains fail-closed without a trusted daemon-side integration.
+2. Production cross-UID, device ACL, credential isolation, and SROS2
+   enforcement require host-level deployment acceptance.
+3. ROS2 and DDS Body Sense collectors are still stubs and therefore return
    unavailable rather than live state.
-3. Legacy physical side-effect adapters outside this P0 MCP surface are still
-   being migrated to `Runtime.submit_action`.
-4. Hardware E-Stop requires device-specific ACK and feedback acceptance tests.
+4. Agent-facing MCPHub, UR5 MCP, and ROS connector emergency paths now use
+   rosclawd or fail closed. Operator-only hardware adapters, including the
+   current LeRobot/RH56 executor, still require daemon-side pack migration.
+5. Hardware E-Stop requires device-specific ACK and feedback acceptance tests.
+
+See [rosclawd Control Plane](ROSCLAWD.md) for deployment and boundary details.

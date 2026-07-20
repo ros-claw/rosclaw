@@ -10,7 +10,12 @@ import pytest
 import rosclaw.agent.test_claude_code as test_module
 from rosclaw.agent.init_claude_code import cmd_agent_init_claude_code
 from rosclaw.agent.install import cmd_agent_install
-from rosclaw.agent.test_claude_code import _assess_probe_payload, cmd_agent_test_claude_code
+from rosclaw.agent.test_claude_code import (
+    _assess_probe_payload,
+    _stdio_command,
+    cmd_agent_test_claude_code,
+)
+from rosclaw.agent.tool_catalog import P0_AGENT_MCP_TOOLS
 
 
 def _make_init_args(tmp_path: Path) -> argparse.Namespace:
@@ -72,15 +77,23 @@ async def test_test_command_quick_passes_after_init(
     assert cmd_agent_test_claude_code(_make_test_args(tmp_path)) == 0
     captured = capsys.readouterr()
     assert ".mcp.json: OK" in captured.out
-    assert "Tools advertised: 18" in captured.out
+    assert f"Tools advertised: {len(P0_AGENT_MCP_TOOLS)}" in captured.out
 
 
 async def test_test_command_accepts_cross_agent_targets(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     _bootstrap_project(tmp_path)
     assert cmd_agent_install(_make_install_args(tmp_path)) == 0
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(
+        f'[projects."{tmp_path.resolve()}"]\ntrust_level = "trusted"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
 
     assert cmd_agent_test_claude_code(_make_test_args(tmp_path, agent="codex")) == 0
     assert cmd_agent_test_claude_code(_make_test_args(tmp_path, agent="openclaw")) == 0
@@ -88,6 +101,24 @@ async def test_test_command_accepts_cross_agent_targets(
     captured = capsys.readouterr()
     assert "Agent target: codex" in captured.out
     assert "Agent target: openclaw" in captured.out
+    assert "Codex project trust: yes" in captured.out
+
+
+async def test_codex_quick_test_fails_when_repository_is_not_trusted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _bootstrap_project(tmp_path)
+    assert cmd_agent_install(_make_install_args(tmp_path)) == 0
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "missing-codex-home"))
+    capsys.readouterr()
+
+    assert cmd_agent_test_claude_code(_make_test_args(tmp_path, agent="codex")) == 1
+
+    captured = capsys.readouterr()
+    assert "Codex project trust: no" in captured.out
+    assert "ignore .codex/config.toml" in captured.out
 
 
 async def test_codex_quick_test_requires_guidance_and_config(
@@ -99,9 +130,7 @@ async def test_codex_quick_test_requires_guidance_and_config(
     capsys.readouterr()
     (tmp_path / "AGENTS.md").unlink()
 
-    assert cmd_agent_test_claude_code(
-        _make_test_args(tmp_path, agent="codex")
-    ) == 1
+    assert cmd_agent_test_claude_code(_make_test_args(tmp_path, agent="codex")) == 1
 
     captured = capsys.readouterr()
     assert "AGENTS.md: MISSING" in captured.out
@@ -115,6 +144,19 @@ async def test_test_command_quick_fails_without_init(
     assert cmd_agent_test_claude_code(_make_test_args(tmp_path)) == 1
     captured = capsys.readouterr()
     assert ".mcp.json: MISSING" in captured.out
+
+
+async def test_full_test_preserves_configuration_failure_exit_code(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bootstrap_project(tmp_path)
+    assert cmd_agent_init_claude_code(_make_init_args(tmp_path)) == 0
+    (tmp_path / "ROSCLAW.md").unlink()
+    (tmp_path / "tests" / "agent").mkdir(parents=True)
+    monkeypatch.setattr(test_module, "_run_pytest", lambda *_args, **_kwargs: 0)
+
+    assert cmd_agent_test_claude_code(_make_test_args(tmp_path, quick=False)) == 1
 
 
 async def test_test_command_mcp_probe_runs(
@@ -183,3 +225,46 @@ def test_probe_rejects_internal_runtime_error() -> None:
 
     assert "returned ok=false" in str(error)
     assert readiness is None
+
+
+def test_stdio_probe_uses_the_framework_configured_command_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ROSCLAW_AGENT_PROBE_USE_CURRENT_PYTHON", raising=False)
+
+    command, args, _env = _stdio_command(
+        {
+            "command": "rosclaw",
+            "args": ["mcp", "serve", "--project", "."],
+        },
+        tmp_path,
+    )
+
+    assert command == "rosclaw"
+    assert args == ["mcp", "serve", "--project", "."]
+
+
+def test_stdio_probe_current_python_fallback_is_explicit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ROSCLAW_AGENT_PROBE_USE_CURRENT_PYTHON", "1")
+
+    command, args, _env = _stdio_command(
+        {
+            "command": "rosclaw",
+            "args": ["mcp", "serve", "--project", "."],
+        },
+        tmp_path,
+    )
+
+    assert command == test_module.sys.executable
+    assert args == [
+        "-m",
+        "rosclaw.entrypoint",
+        "mcp",
+        "serve",
+        "--project",
+        ".",
+    ]

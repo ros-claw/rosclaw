@@ -115,9 +115,10 @@ def test_ros_validate_capability_uses_runtime_registry():
 
 
 def test_ros_emergency_stop_returns_runtime_evidence():
-    class Receipt:
-        @staticmethod
-        def to_dict():
+    class FakeDaemon:
+        def emergency_stop(self, reason, *, source):
+            assert reason == "MCP emergency stop for turtlesim"
+            assert source == "ros_mcp_tools"
             return {
                 "request_dispatched": True,
                 "driver_acknowledged": True,
@@ -127,14 +128,8 @@ def test_ros_emergency_stop_returns_runtime_evidence():
                 "trust_level": "UNVERIFIED",
             }
 
-    class FakeRuntime:
-        def request_emergency_stop(self, reason, *, source):
-            assert reason == "MCP emergency stop for turtlesim"
-            assert source == "ros_mcp_tools"
-            return Receipt()
-
     mcp = FakeMCP()
-    register_ros_tools(mcp, runtime=FakeRuntime())
+    register_ros_tools(mcp, daemon_client=FakeDaemon())
 
     result = mcp.tools["ros_emergency_stop"](robot_id="turtlesim")
 
@@ -143,3 +138,49 @@ def test_ros_emergency_stop_returns_runtime_evidence():
     assert result["driver_acknowledged"] is True
     assert result["stopped"] is False
     assert result["trust_level"] == "UNVERIFIED"
+
+
+def test_ros_emergency_stop_never_uses_attached_runtime():
+    class RuntimeTrap:
+        def request_emergency_stop(self, *_args, **_kwargs):
+            raise AssertionError("legacy ROS MCP bypassed rosclawd")
+
+    class Daemon:
+        def emergency_stop(self, reason, *, source):
+            return {
+                "reason": reason,
+                "source": source,
+                "request_dispatched": False,
+                "stopped": False,
+            }
+
+    mcp = FakeMCP()
+    register_ros_tools(
+        mcp,
+        runtime=RuntimeTrap(),
+        daemon_client=Daemon(),
+    )
+
+    result = mcp.tools["ros_emergency_stop"](robot_id="turtlesim")
+
+    assert result["request_dispatched"] is False
+    assert result["stopped"] is False
+
+
+def test_ros_emergency_stop_requires_physical_observation_for_success():
+    class Daemon:
+        def emergency_stop(self, _reason, *, source):
+            assert source == "ros_mcp_tools"
+            return {
+                "request_dispatched": True,
+                "driver_acknowledged": True,
+                "physical_stop_observed": False,
+                "stopped": True,
+            }
+
+    mcp = FakeMCP()
+    register_ros_tools(mcp, daemon_client=Daemon())
+
+    result = mcp.tools["ros_emergency_stop"](robot_id="turtlesim")
+
+    assert result["ok"] is False

@@ -59,7 +59,7 @@ async def test_init_generates_all_files(tmp_path: Path) -> None:
     assert result.ok, result.errors
 
     snapshot = json.loads((tmp_path / ".rosclaw/agent/context.snapshot.json").read_text())
-    assert snapshot["schema_version"] == "rosclaw.agent.context.v1"
+    assert snapshot["schema_version"] == "rosclaw.agent.context.v2"
     available = snapshot["tools"]["available"]
     for tool in P0_AGENT_MCP_TOOLS:
         assert tool in available

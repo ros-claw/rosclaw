@@ -1796,6 +1796,22 @@ def cmd_practice_export(args: argparse.Namespace) -> int:
 
         writer = getattr(args, "writer", None)
         if writer is None:
+            # A positional practice ID is already backed by ROSClaw's
+            # frame-level exporter and does not require the isolated LeRobot
+            # runtime. Keep that established CLI contract; writer selection
+            # below applies to episode-directory imports.
+            if practice_id and not episode_dir_arg:
+                from rosclaw.practice.exporters import LeRobotExporter
+
+                exporter = LeRobotExporter(args.data_root)
+                try:
+                    out = exporter.export(practice_id, output_path=args.output)
+                    print(f"[ROSClaw] Exported LeRobot dataset to {out}")
+                    return 0
+                except Exception as e:
+                    print(f"[ROSClaw] LeRobot export failed: {e}", file=sys.stderr)
+                    return 1
+
             # Preserve the legacy --episode contract: it explicitly requests
             # the metadata-only skeleton exporter unless the caller asks for
             # the real writer.

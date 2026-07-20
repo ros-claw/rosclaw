@@ -1,4 +1,4 @@
-"""Thin adapter for emergency-stop coordination through the Runtime/EventBus."""
+"""Thin emergency adapter that can only call the rosclawd client."""
 
 from __future__ import annotations
 
@@ -6,16 +6,16 @@ from typing import Any
 
 
 class SafetyClient:
-    """Emergency client that delegates to Runtime's acknowledged stop path."""
+    """Emergency client that never owns a Runtime or hardware driver."""
 
-    def __init__(self, runtime: Any) -> None:
-        self._runtime = runtime
+    def __init__(self, daemon: Any) -> None:
+        self._daemon = daemon
 
     def emergency_stop(self, reason: str) -> dict[str, Any]:
         """Trigger an emergency stop and return its evidence receipt."""
-        request = getattr(self._runtime, "request_emergency_stop", None)
+        request = getattr(self._daemon, "emergency_stop", None)
         if not callable(request):
-            raise RuntimeError("Runtime does not implement acknowledged emergency stop")
+            raise RuntimeError("rosclawd client does not implement acknowledged emergency stop")
         receipt = request(
             reason,
             source="mcp.emergency_stop",
@@ -24,4 +24,4 @@ class SafetyClient:
             return receipt
         if hasattr(receipt, "to_dict"):
             return receipt.to_dict()
-        raise TypeError("Runtime returned an invalid EmergencyStopReceipt")
+        raise TypeError("rosclawd returned an invalid EmergencyStopReceipt")

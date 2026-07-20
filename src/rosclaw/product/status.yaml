@@ -64,9 +64,17 @@ golden_paths:
         fixture: false
         independent: false
         receipt_schema: rosclaw.receipt.v1
+      - id: rosclawd-codex-authorization-blackbox-20260720
+        kind: developer_agent_blackbox
+        path: docs/P0_AGENT_INTEGRATION.md
+        verified_at: "2026-07-20"
+        observation_scope: external_agent_control_boundary
+        fixture: false
+        independent: false
+        receipt_schema: rosclaw.receipt.v1
     evidence_summary:
-      en: Real MuJoCo model load and mj_step, Cartesian predicate, collision and workspace blocks, trajectory, trace, and receipt are system-verified. A local Codex CLI black-box completed the five-tool MCP workflow; independent H5 acceptance remains pending.
-      zh: 真实 MuJoCo 模型与 mj_step、笛卡尔成功条件、碰撞和工作区阻止、轨迹、Trace 与 Receipt 已通过系统验证；本地 Codex CLI 黑盒已完成五工具 MCP 工作流，独立 H5 验收仍待完成。
+      en: Real MuJoCo execution and receipt verification are system-tested. Local Codex CLI black-box runs discovered all 22 MCP tools, completed the simulation workflow, and confirmed that rosclawd blocks unauthorized REAL actions without hardware dispatch; independent H5 acceptance remains pending.
+      zh: 真实 MuJoCo 执行与 Receipt 验证已通过系统测试；本地 Codex CLI 黑盒发现全部 22 个 MCP 工具、完成仿真工作流，并确认 rosclawd 会在无硬件派发的情况下阻止未授权 REAL 动作；独立 H5 验收仍待完成。
 
   rh56_single_step:
     display:
@@ -178,6 +186,40 @@ golden_paths:
       zh: Connector 契约已存在，但当前验证环境尚未运行 ROS 2 黄金路径。
 
 components:
+  rosclawd:
+    display:
+      en: rosclawd Agent/physical boundary
+      zh: rosclawd Agent/物理执行边界
+    claim: component_system_verified
+    evidence:
+      - id: rosclawd-boundary-tests
+        kind: automated_system_test
+        path: tests/daemon/test_process_boundary.py
+        observation_scope: local_process_boundary
+        fixture: false
+        independent: true
+      - id: rosclawd-permit-tests
+        kind: automated_security_test
+        path: tests/daemon/test_permits.py
+        observation_scope: local_process_boundary
+        fixture: false
+        independent: true
+      - id: rosclawd-server-tests
+        kind: automated_system_test
+        path: tests/daemon/test_server.py
+        observation_scope: local_process_boundary
+        fixture: false
+        independent: true
+      - id: rosclawd-blackbox
+        kind: automated_blackbox_test
+        path: scripts/acceptance/daemon_blackbox.sh
+        observation_scope: local_process_boundary
+        fixture: false
+        independent: true
+    evidence_summary:
+      en: Separate-process socket, bounded protocol, SO_PEERCRED, peer-owned actions, exact action-intent permits, forged/replayed/substituted request blocking, queue, E-Stop, and shutdown are system-tested; production cross-UID, SROS2, and hardware acceptance remain pending.
+      zh: 独立进程 socket、有界协议、SO_PEERCRED、动作 peer 所有权、精确 Action Intent Permit、伪造/重放/参数替换阻止、队列、E-Stop 与关闭已通过系统测试；生产跨 UID、SROS2 和真机验收仍待完成。
+
   action_gateway:
     display:
       en: Action contract and gateway
@@ -248,6 +290,7 @@ components:
 
 readme_matrix:
   - golden_paths.ur5e_reach
+  - components.rosclawd
   - components.action_gateway
   - components.estop
   - components.fixture_surfaces

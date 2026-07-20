@@ -228,6 +228,7 @@ class TestLegacyExecutionBoundary:
         server.ros_node = MagicMock()
         server.ros_node.validate_joint_limits.return_value = (True, "")
         server.ros_node.execute_joint_trajectory = AsyncMock()
+        server._daemon_client = MagicMock()
         return server
 
     @pytest.mark.asyncio
@@ -238,7 +239,7 @@ class TestLegacyExecutionBoundary:
 
         response = json.loads(result[0].text)
         assert response["status"] == "blocked"
-        assert response["error_code"] == "RUNTIME_ACTION_GATEWAY_REQUIRED"
+        assert response["error_code"] == "ROSCLAWD_REQUEST_ACTION_REQUIRED"
         assert response["no_command_dispatched"] is True
         server.ros_node.execute_joint_trajectory.assert_not_awaited()
 
@@ -256,20 +257,22 @@ class TestLegacyExecutionBoundary:
     @pytest.mark.asyncio
     async def test_stop_request_does_not_claim_physical_stop(self):
         server = self._server()
-        server.ros_node.emergency_stop.return_value = {
+        server._daemon_client.emergency_stop.return_value = {
             "request_dispatched": True,
             "driver_acknowledged": False,
             "physical_stop_observed": False,
             "stopped": False,
-            "evidence": ["zero_velocity_request_published"],
+            "final_status": "ACKNOWLEDGED",
+            "trust_level": "UNVERIFIED",
         }
 
         result = await server._handle_emergency_stop()
 
         response = json.loads(result[0].text)
-        assert response["status"] == "requested_unverified"
+        assert response["status"] == "acknowledged"
         assert response["trust"] == "UNVERIFIED"
         assert response["stopped"] is False
+        server.ros_node.emergency_stop.assert_not_called()
 
 
 class TestTrajectoryValidation:

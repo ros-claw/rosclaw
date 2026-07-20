@@ -45,10 +45,48 @@ def test_ros_ping_returns_structured_error_without_server():
     assert rc == 1
 
 
-def test_ros_emergency_stop_returns_error_without_server():
-    args = FakeArgs(endpoint="ws://127.0.0.1:9998", robot_id="turtlesim", json=True)
+def test_ros_emergency_stop_returns_error_without_daemon():
+    class MissingDaemon:
+        def emergency_stop(self, *_args, **_kwargs):
+            raise RuntimeError("daemon missing")
+
+    args = FakeArgs(
+        robot_id="turtlesim",
+        json=True,
+        _daemon_client=MissingDaemon(),
+    )
     rc = cmd_ros_emergency_stop(args)
     assert rc == 1
+
+
+def test_ros_emergency_stop_uses_daemon_and_preserves_truthful_evidence(capsys):
+    class FakeDaemon:
+        def emergency_stop(self, reason, *, source):
+            assert reason == "ROS connector CLI emergency stop for turtlesim"
+            assert source == "rosclaw.ros_cli"
+            return {
+                "request_dispatched": True,
+                "driver_acknowledged": True,
+                "physical_stop_observed": False,
+                "stopped": False,
+                "final_status": "ACKNOWLEDGED",
+                "trust_level": "UNVERIFIED",
+            }
+
+    args = FakeArgs(
+        robot_id="turtlesim",
+        json=True,
+        _daemon_client=FakeDaemon(),
+    )
+
+    rc = cmd_ros_emergency_stop(args)
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 1
+    assert payload["ok"] is False
+    assert payload["request_dispatched"] is True
+    assert payload["stopped"] is False
+    assert payload["trust_level"] == "UNVERIFIED"
 
 
 def test_ros_list_capabilities_with_preloaded_manifest():

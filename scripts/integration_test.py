@@ -1,44 +1,47 @@
 #!/usr/bin/env python3
-"""
-ROSClaw-OpenClaw Integration Test
+"""ROSClaw component integration acceptance.
 
-This script tests the complete integration flow:
-1. Digital Twin validation
-2. MCP server initialization
-3. Tool call simulation
-
-Usage:
-    python scripts/integration_test.py
-
-Requirements:
-    - MuJoCo installed
-    - ROS 2 (optional for standalone test)
+This script exercises MuJoCo validation, a simulation-only guarded callback,
+the independent rosclawd process boundary, and the canonical Agent MCP tool
+catalog. It does not connect to ROS 2 or hardware and must not be cited as a
+real-robot acceptance result.
 """
 
-import asyncio
-import json
+# ruff: noqa: E402
+
+from __future__ import annotations
+
+import os
+import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Allow this script to run directly from a source checkout.
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
 
+from rosclaw.agent.tool_catalog import P0_AGENT_MCP_TOOLS
+from rosclaw.daemon.client import DaemonClient, DaemonUnavailableError
 from rosclaw.firewall import DigitalTwinFirewall, SafetyViolationError
+from rosclaw.kernel import ActionEnvelope, AuthorizationContext, ExecutionMode
 
 
-def test_digital_twin():
-    """Test Digital Twin firewall with sample trajectories."""
+def _heading(title: str) -> None:
+    print("\n" + "=" * 60)
+    print(title)
     print("=" * 60)
-    print("TEST 1: Digital Twin Firewall")
-    print("=" * 60)
 
-    model_path = Path(__file__).parent.parent / "src" / "rosclaw" / "specs" / "ur5e.xml"
 
+def test_digital_twin() -> bool:
+    """Validate both accepted and rejected UR5e trajectories in MuJoCo."""
+    _heading("TEST 1: Digital Twin Firewall")
+    model_path = ROOT / "src" / "rosclaw" / "specs" / "ur5e.xml"
     if not model_path.exists():
-        print(f"ERROR: Model not found at {model_path}")
+        print(f"FAIL: model not found at {model_path}")
         return False
 
-    # UR5e joint limits (radians)
     joint_limits = {
         "shoulder_pan_joint": (-6.2831853, 6.2831853),
         "shoulder_lift_joint": (-6.2831853, 6.2831853),
@@ -47,66 +50,42 @@ def test_digital_twin():
         "wrist_2_joint": (-6.2831853, 6.2831853),
         "wrist_3_joint": (-6.2831853, 6.2831853),
     }
-
     firewall = DigitalTwinFirewall(
-        model_path=str(model_path), joint_limits=joint_limits, sim_steps_per_check=10
+        model_path=str(model_path),
+        joint_limits=joint_limits,
+        sim_steps_per_check=10,
     )
 
-    # Test 1: Valid trajectory (within limits) - zero position (no self-collision)
-    print("\nTest 1a: Valid trajectory")
-    valid_trajectory = [
-        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.1, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.2, 0.0, 0.0, 0.0, 0.0, 0.0],
-    ]
-
-    result = firewall.validate_trajectory(
-        trajectory=valid_trajectory,
+    valid = firewall.validate_trajectory(
+        trajectory=[
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.1, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.2, 0.0, 0.0, 0.0, 0.0, 0.0],
+        ],
         time_step=0.001,
     )
-
-    if result.is_safe:
-        print("  ✓ Trajectory valid")
-        print(f"  - Collision detected: {result.collision_detected}")
-        print(f"  - Min self-distance: {result.min_distance_to_collision:.4f}m")
-        print(f"  - Max joint torque: {result.max_predicted_torque:.2f}Nm")
-    else:
-        print(f"  ✗ Unexpected failure: {result.violation_details}")
-        return False
-
-    # Test 2: Invalid trajectory (joint limit violation) - from zero position
-    print("\nTest 1b: Invalid trajectory (joint limits)")
-    invalid_trajectory = [
-        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [10.0, 0.0, 0.0, 0.0, 0.0, 0.0],  # Exceeds joint limit
-    ]
-
-    result = firewall.validate_trajectory(
-        trajectory=invalid_trajectory,
+    invalid = firewall.validate_trajectory(
+        trajectory=[
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [10.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        ],
         time_step=0.001,
     )
-
-    if not result.is_safe:
-        print("  ✓ Correctly rejected unsafe trajectory")
-        print(f"  - Violations: {result.violation_details}")
-    else:
-        print("  ✗ Should have failed!")
+    if not valid.is_safe or invalid.is_safe:
+        print("FAIL: MuJoCo firewall did not preserve accept/reject semantics")
         return False
 
-    print("\n✓ Digital Twin tests passed")
+    print("PASS: safe trajectory accepted in simulation")
+    print(f"PASS: unsafe trajectory rejected: {invalid.violation_details}")
     return True
 
 
-def test_firewall_decorator():
-    """Test decorator-based firewall validation."""
-    print("\n" + "=" * 60)
-    print("TEST 2: Firewall Decorator")
-    print("=" * 60)
-
-    model_path = Path(__file__).parent.parent / "src" / "rosclaw" / "specs" / "ur5e.xml"
-
+def test_simulation_guard() -> bool:
+    """Verify a validated callback without claiming physical execution."""
+    _heading("TEST 2: Simulation-Only Firewall Decorator")
     from rosclaw.firewall import mujoco_firewall
 
+    model_path = ROOT / "src" / "rosclaw" / "specs" / "ur5e.xml"
     joint_limits = {
         "shoulder_pan_joint": (-6.2831853, 6.2831853),
         "shoulder_lift_joint": (-6.2831853, 6.2831853),
@@ -117,157 +96,182 @@ def test_firewall_decorator():
     }
 
     @mujoco_firewall(model_path=str(model_path), joint_limits=joint_limits)
-    def execute_motion(trajectory_points: list):
-        """Simulated motion execution."""
-        return {"status": "executed", "points": len(trajectory_points)}
+    def accept_simulated_plan(trajectory_points: list[list[float]]) -> dict[str, object]:
+        return {
+            "status": "validated_callback_completed",
+            "execution_mode": "SIMULATION",
+            "hardware_command_dispatched": False,
+            "points": len(trajectory_points),
+        }
 
-    # Test valid motion - zero position (no self-collision)
-    print("\nTest 2a: Valid motion via decorator")
     try:
-        result = execute_motion(
+        result = accept_simulated_plan(
             [
                 [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
                 [0.1, 0.0, 0.0, 0.0, 0.0, 0.0],
             ]
         )
-        print(f"  ✓ Motion executed: {result}")
-    except SafetyViolationError as e:
-        print(f"  ✗ Unexpected failure: {e}")
+    except SafetyViolationError as exc:
+        print(f"FAIL: safe simulated plan was rejected: {exc}")
         return False
 
-    print("\n✓ Decorator tests passed")
+    if (
+        result.get("execution_mode") != "SIMULATION"
+        or result.get("hardware_command_dispatched") is not False
+    ):
+        print(f"FAIL: callback crossed its simulation boundary: {result}")
+        return False
+    print(f"PASS: validated simulation callback returned truthful evidence: {result}")
     return True
 
 
-def test_mcp_protocol():
-    """Test MCP protocol message format."""
-    print("\n" + "=" * 60)
-    print("TEST 3: MCP Protocol Format")
-    print("=" * 60)
+def test_rosclawd_boundary() -> bool:
+    """Start rosclawd separately and prove a forged REAL permit is blocked."""
+    _heading("TEST 3: rosclawd Authorization Boundary")
+    with tempfile.TemporaryDirectory(prefix="rosclaw-integration-") as tmp:
+        workspace = Path(tmp)
+        home = workspace / "home"
+        socket_path = home / "run" / "rosclawd.sock"
+        env = os.environ.copy()
+        env["ROSCLAW_HOME"] = str(home)
+        env["ROSCLAW_DAEMON_SOCKET"] = str(socket_path)
+        env["PYTHONPATH"] = str(ROOT / "src")
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "rosclaw.daemon.cli",
+                "--socket",
+                str(socket_path),
+                "--robot-id",
+                "sim_ur5e",
+                "--log-level",
+                "ERROR",
+            ],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        client = DaemonClient(socket_path=socket_path, timeout_sec=2.0)
+        try:
+            deadline = time.monotonic() + 15.0
+            while time.monotonic() < deadline:
+                if process.poll() is not None:
+                    stdout, stderr = process.communicate()
+                    print(f"FAIL: rosclawd exited early ({process.returncode}): {stdout}\n{stderr}")
+                    return False
+                try:
+                    status = client.get_runtime_status()
+                    break
+                except DaemonUnavailableError:
+                    time.sleep(0.05)
+            else:
+                print("FAIL: rosclawd did not become ready")
+                return False
 
-    # Simulate MCP tool call message
-    tool_call = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/call",
-        "params": {
-            "name": "ur5_move_joints",
-            "arguments": {
-                "joint_positions": [0.0, -1.57, 1.57, 0.0, 0.0, 0.0],
-                "duration": 2.0,
-                "validate": True,
-            },
-        },
-    }
-
-    print("\nMCP Request:")
-    print(json.dumps(tool_call, indent=2))
-
-    # Simulate response
-    tool_response = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "result": {
-            "content": [
-                {
-                    "type": "text",
-                    "text": json.dumps(
-                        {
-                            "success": True,
-                            "message": "Motion completed",
-                            "actual_positions": [0.0, -1.57, 1.57, 0.0, 0.0, 0.0],
-                        }
-                    ),
-                }
-            ]
-        },
-    }
-
-    print("\nMCP Response:")
-    print(json.dumps(tool_response, indent=2))
-
-    print("\n✓ MCP protocol format validated")
-    return True
-
-
-async def test_mcp_server():
-    """Test MCP server initialization (no ROS 2 required)."""
-    print("\n" + "=" * 60)
-    print("TEST 4: MCP Server Structure")
-    print("=" * 60)
-
-    # Import and check server structure
-    try:
-        import importlib.util
-
-        if not importlib.util.find_spec("rosclaw.mcp.ur5_server"):
-            print("\n⚠ Skipping MCP server test - ROS 2 not available")
-            print("(This is expected in non-ROS environments)")
+            action = ActionEnvelope(
+                action_id="action-integration-forged",
+                actor_id="integration-agent",
+                agent_framework="integration-test",
+                session_id="integration-session",
+                body_id="sim_ur5e",
+                body_snapshot_hash="sha256:integration-body",
+                capability_id="robot.move_joints",
+                arguments={"joint_positions": [0.0] * 6},
+                execution_mode=ExecutionMode.REAL,
+                authorization=AuthorizationContext(
+                    principal_id="forged-operator",
+                    approved=True,
+                    approval_id="forged-permit",
+                    scopes=["*"],
+                ),
+            )
+            ticket = client.request_action(action)
+            receipt = client.wait_for_action(
+                str(ticket["action_id"]),
+                timeout_sec=5.0,
+            )["receipt"]
+            final_status = client.get_runtime_status()
+            checks = {
+                "separate_process": status["daemon_pid"] == process.pid != os.getpid(),
+                "southbound_owner": status["southbound_owner"] == "rosclawd",
+                "blocked": receipt["final_state"] == "BLOCKED",
+                "authorization_error": (receipt["errors"][0]["code"] == "AUTHORIZATION_REQUIRED"),
+                "not_real_evidence": receipt["usable_for_real_execution"] is False,
+                "no_hardware_action": final_status["hardware_actions_executed"] == 0,
+            }
+            failed = [name for name, passed in checks.items() if not passed]
+            if failed:
+                print(f"FAIL: rosclawd boundary checks failed: {failed}")
+                return False
+            client.shutdown()
+            process.wait(timeout=10.0)
+            if socket_path.exists():
+                print("FAIL: rosclawd left its socket behind")
+                return False
+            print(
+                "PASS: separate rosclawd blocked forged REAL authorization; "
+                "hardware_actions_executed=0"
+            )
             return True
-    except ImportError as e:
-        print(f"\n⚠ Skipping MCP server test - ROS 2 not available: {e}")
-        print("(This is expected in non-ROS environments)")
-        return True
+        except Exception as exc:  # noqa: BLE001
+            print(f"FAIL: rosclawd boundary test raised: {exc}")
+            return False
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=10.0)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5.0)
 
-    print("\nUR5MCPServer tools:")
-    # The actual tools registered in ur5_server.py
-    actual_tools = [
-        "ur5_get_joint_states",
-        "ur5_move_joints",
-        "ur5_execute_trajectory",
-        "ur5_emergency_stop",
-        "ur5_get_limits",
-        "ur5_validate_trajectory",
-    ]
-    for tool in actual_tools:
-        print(f"  - {tool}")
 
-    print("\n✓ MCP server structure validated")
+def test_agent_tool_catalog() -> bool:
+    """Verify the exact canonical Agent-facing tool catalog."""
+    _heading("TEST 4: Agent MCP Tool Catalog")
+    expected_control_tools = {
+        "get_runtime_status",
+        "request_action",
+        "get_action_status",
+        "cancel_action",
+    }
+    tools = tuple(P0_AGENT_MCP_TOOLS)
+    if len(tools) != 22 or len(set(tools)) != 22:
+        print(f"FAIL: expected 22 unique tools, found {len(tools)}")
+        return False
+    missing = sorted(expected_control_tools.difference(tools))
+    if missing:
+        print(f"FAIL: missing daemon-backed tools: {missing}")
+        return False
+    print("PASS: exact 22-tool catalog includes all daemon-backed controls")
     return True
 
 
-async def main():
-    """Run all integration tests."""
-    print("\n" + "=" * 60)
-    print("ROSCLAW-OPENCLAW INTEGRATION TEST")
-    print("=" * 60)
+def main() -> int:
+    """Run component integration acceptance."""
+    _heading("ROSCLAW COMPONENT INTEGRATION ACCEPTANCE")
+    results = [
+        ("Digital Twin", test_digital_twin()),
+        ("Simulation Guard", test_simulation_guard()),
+        ("rosclawd Boundary", test_rosclawd_boundary()),
+        ("Agent MCP Catalog", test_agent_tool_catalog()),
+    ]
 
-    results = []
-
-    # Run tests
-    results.append(("Digital Twin", test_digital_twin()))
-    results.append(("Firewall Decorator", test_firewall_decorator()))
-    results.append(("MCP Protocol", test_mcp_protocol()))
-    results.append(("MCP Server", await test_mcp_server()))
-
-    # Summary
-    print("\n" + "=" * 60)
-    print("TEST SUMMARY")
-    print("=" * 60)
-
+    _heading("TEST SUMMARY")
     for name, passed in results:
-        status = "✓ PASS" if passed else "✗ FAIL"
-        print(f"{name:.<40} {status}")
+        print(f"{name:.<40} {'PASS' if passed else 'FAIL'}")
 
-    all_passed = all(r[1] for r in results)
-
-    if all_passed:
-        print("\n" + "=" * 60)
-        print("ALL TESTS PASSED")
-        print("=" * 60)
-        print("\nROSClaw Phase 1 is ready for OpenClaw integration!")
-        print("\nNext steps:")
-        print("1. Install: pip install -e '.[ros2,dev]'")
-        print("2. Test with real ROS 2: ros2 launch ur_robot_driver ur_control.launch.py")
-        print("3. Connect OpenClaw agent with mcporter bridge")
-        return 0
-    else:
-        print("\n" + "=" * 60)
-        print("SOME TESTS FAILED")
-        print("=" * 60)
+    if not all(passed for _name, passed in results):
+        print("\nComponent integration acceptance failed.")
         return 1
+    print(
+        "\nComponent integration checks passed. Real ROS 2, cross-UID, "
+        "device-specific E-Stop, and robot-hardware acceptance remain required."
+    )
+    return 0
 
 
 if __name__ == "__main__":
-    exit_code = asyncio.run(main())
-    sys.exit(exit_code)
+    sys.exit(main())

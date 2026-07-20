@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from rosclaw.agent.detectors import build_project_profile
+from rosclaw.agent.harness_readiness import inspect_codex_project_trust
 from rosclaw.agent.init_claude_code import AgentConfigConflictError, _generate_files
 from rosclaw.agent.validate import validate_project
 
@@ -71,10 +72,26 @@ def cmd_agent_install(args: argparse.Namespace) -> int:
     print("  - OpenClaw: .agents/skills/rosclaw/SKILL.md")
     print("    Native OpenClaw MCP config remains operator-owned.")
     print()
+    codex_trust = inspect_codex_project_trust(profile.project_root)
+    trust_label = "READY" if codex_trust.trusted else "ACTION REQUIRED"
+    print("Framework activation:")
+    print(f"  - Codex: {trust_label} ({codex_trust.detail})")
+    if not codex_trust.trusted:
+        print("    Reopen this exact repository in Codex and accept workspace trust.")
+        print("    Codex ignores .codex/config.toml until the repository is trusted.")
+    print("  - Claude Code: open the project and approve the rosclaw server from .mcp.json.")
+    print("  - OpenClaw: load the workspace skill; native MCP registration is operator-owned.")
+    print()
     print("Setup instruction for any agent:")
     print("  Install and configure ROSClaw for this project:")
     print("  `rosclaw agent install --project-root . --skip-secrets`")
-    print("  Then read ROSCLAW.md and use only the configured ROSClaw boundary.")
+    print("  Activate the harness as listed above, then read ROSCLAW.md and use")
+    print("  only the configured ROSClaw boundary.")
+    print()
+    print("Validate the framework-resolved CLI and MCP server:")
+    print("  `rosclaw agent test universal --project-root . --quick --mcp-probe`")
+    print("  Run this from the same environment and PATH used to launch the Agent;")
+    print("  it must discover the exact 22-tool boundary.")
 
     if validation.warnings:
         print("Warnings:")

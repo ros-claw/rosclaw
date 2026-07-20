@@ -15,15 +15,22 @@ from rosclaw.connectors.ros.compiler import (
 )
 from rosclaw.connectors.ros.discovery import RosApiResolver, RosGraphDiscovery
 from rosclaw.connectors.ros.transport import RosbridgeEndpoint, RosbridgeTransport
+from rosclaw.daemon.client import DaemonClient, DaemonClientError
 
 logger = logging.getLogger("rosclaw.connectors.ros.mcp.tools")
 
 
-def register_ros_tools(mcp, runtime: Any | None = None) -> None:
+def register_ros_tools(
+    mcp,
+    runtime: Any | None = None,
+    daemon_client: Any | None = None,
+) -> None:
     """Register ROS MCP tools with a FastMCP-like server object.
 
     The ``mcp`` object must support ``@mcp.tool()`` decorator semantics.
     """
+
+    daemon = daemon_client or DaemonClient()
 
     @mcp.tool(
         description=(
@@ -197,8 +204,8 @@ def register_ros_tools(mcp, runtime: Any | None = None) -> None:
 
     @mcp.tool(
         description=(
-            "Dry-run a ROS capability; physical execution is blocked until registered with "
-            "the runtime action gateway.\n"
+            "Dry-run a ROS capability. Physical work must use the canonical rosclawd "
+            "request_action tool.\n"
             "Example: ros_execute_capability(capability_id='turtlesim.base.velocity_command', args={...})"
         ),
     )
@@ -238,33 +245,48 @@ def register_ros_tools(mcp, runtime: Any | None = None) -> None:
 
     @mcp.tool(
         description=(
-            "Request an emergency stop and return its evidence-bearing runtime receipt.\n"
+            "Request an emergency stop through rosclawd and return its evidence receipt.\n"
             "Example: ros_emergency_stop(robot_id='turtlesim')"
         ),
     )
     def ros_emergency_stop(robot_id: str = "unknown") -> dict:
-        if runtime is None:
-            return {"ok": False, "error": "Runtime not available"}
         try:
-            request_stop = getattr(runtime, "request_emergency_stop", None)
-            if not callable(request_stop):
-                return {
-                    "ok": False,
-                    "robot_id": robot_id,
-                    "error": "Runtime emergency-stop manager not available",
-                }
-            receipt = request_stop(
+            receipt = daemon.emergency_stop(
                 f"MCP emergency stop for {robot_id}",
                 source="ros_mcp_tools",
             )
-            result = receipt.to_dict()
+            result = receipt if isinstance(receipt, dict) else receipt.to_dict()
             result.update(
                 {
-                    "ok": bool(result.get("stopped", False)),
+                    "ok": bool(
+                        result.get("stopped", False) and result.get("physical_stop_observed", False)
+                    ),
                     "robot_id": robot_id,
                     "action": "emergency_stop",
                 }
             )
             return result
+        except DaemonClientError as exc:
+            return {
+                "ok": False,
+                "robot_id": robot_id,
+                "action": "emergency_stop",
+                "error_code": exc.code,
+                "error": exc.message,
+                "request_dispatched": False,
+                "stopped": False,
+                "usable_for_real_execution": False,
+                "message": "Activate the certified physical E-stop immediately.",
+            }
         except Exception as exc:
-            return {"ok": False, "robot_id": robot_id, "error": str(exc)}
+            return {
+                "ok": False,
+                "robot_id": robot_id,
+                "action": "emergency_stop",
+                "error_code": "ROSCLAWD_REQUEST_FAILED",
+                "error": str(exc),
+                "request_dispatched": False,
+                "stopped": False,
+                "usable_for_real_execution": False,
+                "message": "Activate the certified physical E-stop immediately.",
+            }

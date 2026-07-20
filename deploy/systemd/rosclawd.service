@@ -1,0 +1,46 @@
+[Unit]
+Description=ROSClaw least-privilege physical execution daemon
+Documentation=https://github.com/ros-claw/rosclaw/blob/main/docs/ROSCLAWD.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rosclaw-hw
+Group=rosclaw-agent
+SupplementaryGroups=dialout
+Environment=ROSCLAW_HOME=/var/lib/rosclaw
+Environment=ROSCLAW_DAEMON_SOCKET=/run/rosclaw/rosclawd.sock
+EnvironmentFile=-/etc/rosclaw/rosclawd.env
+ExecStart=/usr/local/bin/rosclawd --socket /run/rosclaw/rosclawd.sock --socket-mode 0660 --socket-group rosclaw-agent
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=30s
+RuntimeDirectory=rosclaw
+RuntimeDirectoryMode=0750
+StateDirectory=rosclaw
+StateDirectoryMode=0700
+UMask=0077
+
+# Fail closed until an operator explicitly allowlists the actual robot devices
+# in a systemd drop-in. See docs/ROSCLAWD.md.
+DevicePolicy=closed
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

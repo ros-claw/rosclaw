@@ -17,10 +17,24 @@ mkdir -p "${PROJECT}"
 export PYTHONPATH="${ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 export ROSCLAW_HOME="${WORKSPACE}/home"
 export ROSCLAW_AGENT_CLIENT="codex"
+export CODEX_HOME="${WORKSPACE}/codex-home"
 
 "${PYTHON}" -m rosclaw.entrypoint agent install universal \
   --project-root "${PROJECT}" \
   --skip-secrets >/dev/null
+
+"${PYTHON}" - "${CODEX_HOME}" "${PROJECT}" <<'PY'
+import sys
+from pathlib import Path
+
+codex_home = Path(sys.argv[1])
+project = Path(sys.argv[2]).resolve()
+codex_home.mkdir(parents=True, exist_ok=True)
+(codex_home / "config.toml").write_text(
+    f'[projects."{project}"]\ntrust_level = "trusted"\n',
+    encoding="utf-8",
+)
+PY
 
 "${PYTHON}" -m rosclaw.entrypoint agent test codex \
   --project-root "${PROJECT}" \
@@ -49,8 +63,9 @@ for relative in (
 
 probe = (workspace / "probe.txt").read_text(encoding="utf-8")
 assert "MCP stdio probe: OK" in probe
-assert "MCP tools discovered: 18" in probe
+assert "MCP tools discovered: 22" in probe
 assert "MCP verified simulation run:" in probe
+assert "Codex project trust: yes" in probe
 
 latest = json.loads((home / "runs" / "latest.json").read_text(encoding="utf-8"))
 run_id = latest["run_id"]

@@ -119,7 +119,7 @@ def test_provider_blocks_legacy_direct_velocity_command():
     asyncio.run(provider.unload())
 
     assert response.status == "blocked", response.errors
-    assert "Runtime.submit_action" in response.errors[0]
+    assert "rosclawd request_action" in response.errors[0]
 
 
 @pytest.mark.skipif(not _is_reachable(), reason="rosbridge turtlesim not reachable")

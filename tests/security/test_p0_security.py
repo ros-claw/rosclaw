@@ -49,13 +49,17 @@ async def test_settings_json_blocks_dangerous_commands(tmp_path: Path) -> None:
     assert any("sudo" in rule for rule in deny)
 
 
-async def test_no_real_execution_tools_exposed() -> None:
+async def test_only_guarded_action_tool_is_exposed() -> None:
     names = {t.__name__ for t in P0_TOOLS}
-    forbidden = {"execute", "move", "control", "command", "send"}
-    for name in names:
-        assert not any(term in name for term in forbidden), (
-            f"tool {name!r} looks like a real-execution tool"
-        )
+    assert "request_action" in names
+    assert {
+        "serial_write",
+        "raw_modbus_write",
+        "publish_any_topic",
+        "call_any_service",
+        "register_driver",
+        "register_executor",
+    }.isdisjoint(names)
 
 
 async def test_prompt_injection_input_is_not_executed(tmp_path: Path) -> None:

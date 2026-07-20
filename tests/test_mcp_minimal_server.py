@@ -217,7 +217,10 @@ class TestRunSandboxTask:
                         "parameters": {"target": 0.5},
                     }
                 )
-                assert result["status"] == "SUCCESS"
+                assert result["status"] == "FIXTURE_COMPLETED"
+                assert result["execution_mode"] == "FIXTURE"
+                assert result["trust_level"] == "SYNTHETIC"
+                assert result["usable_for_real_execution"] is False
                 assert result["result"]["final_position"] == 0.5
 
     @pytest.mark.asyncio
@@ -240,8 +243,8 @@ class TestRunSandboxTask:
                         "parameters": {"target_pose": [0.5, 0.0, 0.3]},
                     }
                 )
-                assert result["status"] == "SUCCESS"
-                assert result["result"]["success"] is True
+                assert result["status"] == "FIXTURE_COMPLETED"
+                assert result["result"]["fixture_condition_met"] is True
 
     @pytest.mark.asyncio
     async def test_sandbox_g1_walk(self, mock_mcp):
@@ -263,7 +266,7 @@ class TestRunSandboxTask:
                         "parameters": {"distance": 5.0},
                     }
                 )
-                assert result["status"] == "SUCCESS"
+                assert result["status"] == "FIXTURE_COMPLETED"
                 assert result["result"]["distance"] == 5.0
 
     @pytest.mark.asyncio
@@ -285,8 +288,25 @@ class TestRunSandboxTask:
                         "task": "custom_task",
                     }
                 )
-                assert result["status"] == "SUCCESS"
-                assert "Mock execution" in result["result"]["message"]
+                assert result["status"] == "FIXTURE_COMPLETED"
+                assert "Deterministic fixture" in result["result"]["message"]
+
+    @pytest.mark.asyncio
+    async def test_legacy_sandbox_rejects_non_fixture_world(self, mock_mcp):
+        from rosclaw.mcp.minimal_server import ROSClawMinimalMCPServer
+
+        server = ROSClawMinimalMCPServer()
+        result = await server._handle_run_sandbox_task(
+            {
+                "robot_id": "ur5e",
+                "task": "reach",
+                "world": "mujoco",
+            }
+        )
+
+        assert result["status"] == "UNSUPPORTED"
+        assert result["error_code"] == "LEGACY_FIXTURE_ONLY"
+        assert result["physics_executed"] is False
 
     @pytest.mark.asyncio
     async def test_sandbox_firewall_error(self, mock_mcp):
@@ -304,7 +324,7 @@ class TestRunSandboxTask:
                     "task": "reach",
                 }
             )
-            assert result["status"] == "error"
+            assert result["status"] == "ERROR"
             assert result["phase"] == "firewall"
 
 

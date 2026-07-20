@@ -52,6 +52,7 @@ jobs:
         run: >-
           mypy --config-file .github/mypy-ci.ini
           src/rosclaw/kernel
+          src/rosclaw/daemon
           src/rosclaw/sandbox
           src/rosclaw/runtime/doctor_levels.py
           src/rosclaw/provider/core
@@ -97,6 +98,7 @@ jobs:
         run: >-
           pytest
           tests/agent
+          tests/daemon
           tests/mcp
           tests/kernel
           tests/sandbox/test_reach_episode.py
@@ -178,6 +180,9 @@ jobs:
 
       - name: Run Agent MCP black-box
         run: scripts/acceptance/agent_blackbox.sh
+
+      - name: Run rosclawd boundary black-box
+        run: scripts/acceptance/daemon_blackbox.sh
 
       - name: Run clean wheel install
         run: scripts/acceptance/clean_install.sh

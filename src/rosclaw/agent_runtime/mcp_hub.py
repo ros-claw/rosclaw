@@ -7,7 +7,7 @@ between AI agents and the physical world.
 
 The MCP Hub:
 1. Registers semantic capability tools (VLM, Skill, Critic) when provider layer is available
-2. Falls back to low-level control tools when provider layer is unavailable
+2. Routes legacy low-level action tools only through rosclawd
 3. Maintains AgentContext with grounding information
 4. Validates all commands through the Digital Twin Firewall
 5. Publishes events to the EventBus for module coordination
@@ -83,11 +83,17 @@ class MCPHub(LifecycleMixin):
         robot_id: str = "rosclaw_default",
         runtime: Any | None = None,
         tracer: Any | None = None,
+        daemon_client: Any | None = None,
     ):
         super().__init__()
         self.event_bus = event_bus
         self.robot_id = robot_id
         self.runtime = runtime
+        if daemon_client is None:
+            from rosclaw.daemon.client import DaemonClient
+
+            daemon_client = DaemonClient()
+        self._daemon_client = daemon_client
         self.context = AgentContext(
             session_id="default",
             robot_id=robot_id,
@@ -589,7 +595,7 @@ class MCPHub(LifecycleMixin):
         elif name == "validate_trajectory":
             return await self._handle_validate_trajectory(arguments)
         elif name == "emergency_stop":
-            return self._handle_emergency_stop()
+            return await self._handle_emergency_stop()
         elif name == "query_world_objects":
             return self._handle_query_world_objects(arguments)
         elif name == "get_scene_graph":
@@ -853,7 +859,7 @@ class MCPHub(LifecycleMixin):
         """Submit move_joints through the canonical action gateway."""
         positions = arguments.get("joint_positions", [])
         duration = arguments.get("duration", 2.0)
-        return self._submit_physical_action(
+        return await self._submit_physical_action(
             "robot.move_joints",
             {
                 "joint_positions": positions,
@@ -866,37 +872,36 @@ class MCPHub(LifecycleMixin):
         """Submit grasp through the canonical action gateway."""
         action = arguments.get("action", "close")
         force = arguments.get("force", 0.5)
-        return self._submit_physical_action(
+        return await self._submit_physical_action(
             "robot.grasp",
             {"grasp_action": action, "force": force},
             arguments,
         )
 
-    def _submit_physical_action(
+    async def _submit_physical_action(
         self,
         capability_id: str,
         action_arguments: dict[str, Any],
         request_arguments: dict[str, Any],
     ) -> dict[str, Any]:
-        if self.runtime is None or not callable(getattr(self.runtime, "submit_action", None)):
-            return {
-                "status": "blocked",
-                "error": "RUNTIME_ACTION_GATEWAY_REQUIRED",
-                "message": "Physical actions require Runtime.submit_action().",
-                "execution_mode": "UNKNOWN",
-                "trust_level": "UNAVAILABLE",
-                "usable_for_real_execution": False,
-            }
-
         from rosclaw.kernel import ActionEnvelope, ExecutionMode
 
         try:
-            mode = ExecutionMode(str(request_arguments.get("execution_mode", "REAL")).upper())
+            mode = ExecutionMode(str(request_arguments.get("execution_mode", "SHADOW")).upper())
         except ValueError:
             return {
                 "status": "blocked",
                 "error": "INVALID_EXECUTION_MODE",
                 "execution_mode": str(request_arguments.get("execution_mode", "")),
+                "trust_level": "UNAVAILABLE",
+                "usable_for_real_execution": False,
+            }
+        if mode not in {ExecutionMode.SHADOW, ExecutionMode.REAL}:
+            return {
+                "status": "blocked",
+                "error": "INVALID_EXECUTION_MODE",
+                "message": "Legacy MCP actions accept only SHADOW or REAL through rosclawd.",
+                "execution_mode": mode.value,
                 "trust_level": "UNAVAILABLE",
                 "usable_for_real_execution": False,
             }
@@ -910,10 +915,37 @@ class MCPHub(LifecycleMixin):
             arguments=action_arguments,
             execution_mode=mode,
         )
-        receipt = self.runtime.submit_action(envelope)
-        result = receipt.to_dict()
-        result["status"] = receipt.final_state.value.lower()
-        return result
+        try:
+            ticket = await asyncio.to_thread(self._daemon_client.request_action, envelope)
+            wait_timeout = max(0.0, float(request_arguments.get("wait_timeout_sec", 2.0)))
+            result = ticket
+            if wait_timeout > 0:
+                result = await asyncio.to_thread(
+                    self._daemon_client.wait_for_action,
+                    envelope.action_id,
+                    timeout_sec=wait_timeout,
+                )
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "status": "blocked",
+                "error": str(getattr(exc, "code", "ROSCLAWD_REQUIRED")),
+                "message": f"Physical action through rosclawd failed: {exc}",
+                "execution_mode": mode.value,
+                "trust_level": "UNAVAILABLE",
+                "usable_for_real_execution": False,
+            }
+        receipt = result.get("receipt")
+        receipt_data = receipt if isinstance(receipt, dict) else {}
+        final_state = str(receipt_data.get("final_state", result.get("state", "QUEUED")))
+        return {
+            **result,
+            "status": final_state.lower(),
+            "execution_mode": str(
+                receipt_data.get("execution_mode", result.get("execution_mode", mode.value))
+            ),
+            "trust_level": str(receipt_data.get("trust_level", "UNVERIFIED")),
+            "usable_for_real_execution": bool(receipt_data.get("usable_for_real_execution", False)),
+        }
 
     def _handle_get_state(self) -> dict:
         """Handle get_robot_state tool call."""
@@ -945,37 +977,33 @@ class MCPHub(LifecycleMixin):
             }
         return result
 
-    def _handle_emergency_stop(self) -> dict:
-        """Handle emergency_stop tool call."""
-        if self.runtime is not None and callable(
-            getattr(self.runtime, "request_emergency_stop", None)
-        ):
-            receipt = self.runtime.request_emergency_stop(
+    async def _handle_emergency_stop(self) -> dict:
+        """Handle emergency_stop only through the daemon-owned physical path."""
+        try:
+            result = await asyncio.to_thread(
+                self._daemon_client.emergency_stop,
                 "LLM emergency stop command",
                 source="mcp_hub",
             )
-            result = receipt if isinstance(receipt, dict) else receipt.to_dict()
-            result["status"] = str(result.get("final_status", "UNVERIFIED")).lower()
-            return result
-
-        self.event_bus.publish(
-            Event(
-                topic="robot.emergency_stop",
-                payload={"reason": "LLM emergency stop command"},
-                source="mcp_hub",
-                priority=EventPriority.CRITICAL,
-            )
-        )
-        return {
-            "status": "requested_unverified",
-            "request_dispatched": True,
-            "driver_acknowledged": False,
-            "physical_stop_observed": False,
-            "stopped": False,
-            "execution_mode": "UNKNOWN",
-            "trust_level": "UNVERIFIED",
-            "usable_for_real_execution": False,
-        }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "status": "failed",
+                "error": str(getattr(exc, "code", "ROSCLAWD_REQUIRED")),
+                "request_dispatched": False,
+                "driver_acknowledged": False,
+                "physical_stop_observed": False,
+                "stopped": False,
+                "final_status": "FAILED",
+                "execution_mode": "UNKNOWN",
+                "trust_level": "UNAVAILABLE",
+                "usable_for_real_execution": False,
+                "message": (
+                    f"Emergency stop through rosclawd failed: {exc}. "
+                    "Activate the certified physical E-stop immediately."
+                ),
+            }
+        result["status"] = str(result.get("final_status", "UNVERIFIED")).lower()
+        return result
 
     # ------------------------------------------------------------------
     # Physical world handlers

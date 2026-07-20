@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Legacy ROS 2 MCP surface for observing and validating a UR5 robot.
 
-Direct motion through this standalone server is disabled until it is migrated
-behind the runtime action gateway. Read-only state, limit inspection, offline
-validation, and an explicitly unverified best-effort stop request remain
-available.
+The ROS node is observation-only. Direct motion is disabled, and emergency
+requests use the independent rosclawd boundary.
 """
 
 import asyncio
@@ -20,9 +18,7 @@ import numpy as np
 
 try:
     import rclpy
-    from rclpy.action import ActionClient
     from rclpy.callback_groups import ReentrantCallbackGroup
-    from rclpy.executors import SingleThreadedExecutor
     from rclpy.node import Node
     from rclpy.qos import QoSProfile, ReliabilityPolicy
 
@@ -35,9 +31,6 @@ except ImportError:
         def __init__(self, *args, **kwargs):
             pass
 
-    class ActionClient:
-        pass
-
     class ReentrantCallbackGroup:
         pass
 
@@ -47,9 +40,6 @@ except ImportError:
 
     class ReliabilityPolicy:
         BEST_EFFORT = None
-
-    class SingleThreadedExecutor:
-        pass
 
 
 # MCP imports
@@ -63,6 +53,7 @@ from mcp.types import (
 )
 
 # ROSClaw imports
+from rosclaw.daemon.client import DaemonClient, DaemonClientError
 from rosclaw.firewall.decorator import (
     DigitalTwinFirewall,
     SafetyLevel,
@@ -71,10 +62,8 @@ from rosclaw.firewall.decorator import (
 # ROS message imports
 ROS_IMPORT_ERROR: str | None = None
 try:
-    from control_msgs.action import FollowJointTrajectory
-    from geometry_msgs.msg import Pose, Twist
+    from geometry_msgs.msg import Pose
     from sensor_msgs.msg import JointState
-    from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
     ROS_IMPORTS_OK = True
 except ImportError as e:
@@ -104,12 +93,13 @@ class RobotState:
 
 class UR5ROSNode(Node):
     """
-    ROS 2 Node for UR5 robot control.
+    Observation-only ROS 2 Node for UR5 state.
 
-    Handles actual ROS 2 communication:
+    Handles read-only ROS 2 communication:
     - Subscribes to /joint_states for robot feedback
-    - Publishes to /ur_script for URScript commands
-    - Uses FollowJointTrajectory action for motion control
+
+    Command publishers and action clients deliberately do not exist in this
+    Agent-facing compatibility process.
     """
 
     # UR5e joint names in order
@@ -170,33 +160,7 @@ class UR5ROSNode(Node):
             callback_group=self.callback_group,
         )
 
-        # Publishers
-        self.joint_trajectory_pub = self.create_publisher(
-            JointTrajectory,
-            f"/{namespace}/joint_trajectory_controller/command",
-            10,
-        )
-
-        self.velocity_pub = self.create_publisher(
-            Twist,
-            f"/{namespace}/cmd_vel",
-            10,
-        )
-
-        # Action clients
-        self.trajectory_client = ActionClient(
-            self,
-            FollowJointTrajectory,
-            f"/{namespace}/joint_trajectory_controller/follow_joint_trajectory",
-            callback_group=self.callback_group,
-        )
-
-        self.get_logger().info(f"UR5 ROS Node initialized for robot at {robot_ip}")
-        self.get_logger().info("Waiting for action server...")
-
-        # Wait for action server
-        if not self.trajectory_client.wait_for_server(timeout_sec=5.0):
-            self.get_logger().warn("Trajectory action server not available yet")
+        self.get_logger().info(f"UR5 observation-only ROS Node initialized for robot at {robot_ip}")
 
     def _joint_state_callback(self, msg: JointState) -> None:
         """Handle incoming joint state messages."""
@@ -248,86 +212,31 @@ class UR5ROSNode(Node):
         trajectory_points: list[list[float]],
         time_from_start: list[float],
     ) -> tuple[bool, str]:
-        """
-        Execute a joint trajectory using the FollowJointTrajectory action.
-
-        Args:
-            trajectory_points: List of joint position arrays
-            time_from_start: Time in seconds for each point
-
-        Returns:
-            (success, message)
-        """
-        if not self.trajectory_client.server_is_ready():
-            return False, "Trajectory action server not available"
-
-        # Build trajectory message
-        goal_msg = FollowJointTrajectory.Goal()
-        goal_msg.trajectory = JointTrajectory()
-        goal_msg.trajectory.joint_names = self.JOINT_NAMES
-
-        for _i, (positions, t) in enumerate(zip(trajectory_points, time_from_start, strict=False)):
-            point = JointTrajectoryPoint()
-            point.positions = positions
-            point.time_from_start.sec = int(t)
-            point.time_from_start.nanosec = int((t % 1.0) * 1e9)
-            goal_msg.trajectory.points.append(point)
-
-        # Send goal (rclpy Future is not compatible with asyncio.wrap_future)
-        self.get_logger().info(f"Sending trajectory with {len(trajectory_points)} points")
-
-        goal_future = self.trajectory_client.send_goal_async(goal_msg)
-
-        loop = asyncio.get_event_loop()
-        executor = SingleThreadedExecutor()
-        executor.add_node(self)
-
-        def _wait_goal(fut):
-            executor.spin_until_future_complete(fut, timeout_sec=30.0)
-            return fut.result()
-
-        goal_handle = await loop.run_in_executor(None, _wait_goal, goal_future)
-
-        if goal_handle is None or not goal_handle.accepted:
-            executor.remove_node(self)
-            executor.shutdown()
-            return False, "Trajectory goal rejected by controller"
-
-        # Wait for result
-        result_future = goal_handle.get_result_async()
-
-        def _wait_result(fut):
-            executor.spin_until_future_complete(fut, timeout_sec=60.0)
-            return fut.result()
-
-        result = await loop.run_in_executor(None, _wait_result, result_future)
-
-        executor.remove_node(self)
-        executor.shutdown()
-
-        if result.result.error_code == FollowJointTrajectory.Result.SUCCESSFUL:
-            return True, "Controller reported a successful trajectory result"
-        else:
-            return False, f"Trajectory failed with error code: {result.result.error_code}"
+        """Fail closed; this observation node owns no command primitive."""
+        del trajectory_points, time_from_start
+        return False, "Direct trajectory execution is unavailable; use rosclawd request_action"
 
     def emergency_stop(self) -> dict[str, object]:
-        """Publish a best-effort stop request without claiming physical state."""
-        stop_msg = Twist()
-        self.velocity_pub.publish(stop_msg)
-        self.get_logger().warn("Emergency stop request published; physical stop is unverified")
+        """Fail closed; emergency requests belong to the rosclawd client."""
         return {
-            "request_dispatched": True,
+            "request_dispatched": False,
             "driver_acknowledged": False,
             "physical_stop_observed": False,
             "stopped": False,
-            "evidence": ["zero_velocity_request_published"],
+            "error_code": "ROSCLAWD_REQUIRED",
+            "evidence": [],
         }
 
 
 class UR5MCPServer:
     """Legacy UR5 MCP server with direct physical execution fail-closed."""
 
-    def __init__(self, robot_ip: str = "192.168.1.100", firewall_model_path: str | None = None):
+    def __init__(
+        self,
+        robot_ip: str = "192.168.1.100",
+        firewall_model_path: str | None = None,
+        daemon_client: DaemonClient | None = None,
+    ):
         if not RCLPY_AVAILABLE:
             raise RuntimeError(
                 "ROS 2 rclpy is not installed. Install ROS 2 to use the UR5 MCP server."
@@ -340,6 +249,7 @@ class UR5MCPServer:
 
         self.robot_ip = robot_ip
         self.firewall_model_path = firewall_model_path or self._find_default_model()
+        self._daemon_client = daemon_client or DaemonClient()
 
         # Initialize ROS 2
         if not rclpy.ok():
@@ -395,8 +305,8 @@ class UR5MCPServer:
                 Tool(
                     name="ur5_move_joints",
                     description=(
-                        "Legacy move interface; direct execution is blocked until configured "
-                        "through the ROSClaw runtime action gateway"
+                        "Legacy move interface; direct execution is blocked. Use canonical "
+                        "request_action through rosclawd."
                     ),
                     inputSchema={
                         "type": "object",
@@ -423,8 +333,8 @@ class UR5MCPServer:
                 Tool(
                     name="ur5_execute_trajectory",
                     description=(
-                        "Legacy trajectory interface; direct execution is blocked until configured "
-                        "through the ROSClaw runtime action gateway"
+                        "Legacy trajectory interface; direct execution is blocked. Use canonical "
+                        "request_action through rosclawd."
                     ),
                     inputSchema={
                         "type": "object",
@@ -451,8 +361,8 @@ class UR5MCPServer:
                 Tool(
                     name="ur5_emergency_stop",
                     description=(
-                        "Publish a best-effort stop request; physical stop remains unverified "
-                        "without independent acknowledgement"
+                        "Request emergency stop through rosclawd; physical stop remains "
+                        "unverified without independent observation"
                     ),
                     inputSchema={"type": "object", "properties": {}},
                 ),
@@ -562,30 +472,59 @@ class UR5MCPServer:
     def _gateway_required(action: str) -> list[TextContent]:
         response = {
             "status": "blocked",
-            "error_code": "RUNTIME_ACTION_GATEWAY_REQUIRED",
+            "error_code": "ROSCLAWD_REQUEST_ACTION_REQUIRED",
             "action": action,
             "no_command_dispatched": True,
-            "required_entrypoint": "Runtime.submit_action",
+            "required_entrypoint": "MCP request_action -> rosclawd",
             "message": (
-                "Legacy direct physical execution is disabled until a verified REAL executor "
-                "is registered with the ROSClaw runtime action gateway."
+                "Legacy direct physical execution is disabled. Use canonical MCP "
+                "request_action backed by rosclawd and a verified REAL executor."
             ),
         }
         return [TextContent(type="text", text=json.dumps(response, indent=2))]
 
     async def _handle_emergency_stop(self) -> list[TextContent]:
-        """Publish a stop request and report only the evidence actually available."""
-        evidence = self.ros_node.emergency_stop()
-        response = {
-            "status": "requested_unverified",
-            "execution_mode": "REAL",
-            "trust": "UNVERIFIED",
-            **evidence,
-            "message": (
-                "A best-effort stop request was published, but no driver acknowledgement or "
-                "independent physical stop observation is available. Use the physical E-stop."
-            ),
-        }
+        """Request E-Stop through rosclawd and preserve evidence semantics."""
+        try:
+            evidence = await asyncio.to_thread(
+                self._daemon_client.emergency_stop,
+                "Legacy UR5 MCP emergency stop",
+                source="rosclaw-ur5-mcp",
+            )
+            response = {
+                **evidence,
+                "status": str(evidence.get("final_status", "UNVERIFIED")).lower(),
+                "execution_mode": str(evidence.get("execution_mode", "REAL")),
+                "trust": str(evidence.get("trust_level", "UNVERIFIED")),
+            }
+        except DaemonClientError as exc:
+            response = {
+                "status": "failed",
+                "error_code": exc.code,
+                "error": exc.message,
+                "request_dispatched": False,
+                "driver_acknowledged": False,
+                "physical_stop_observed": False,
+                "stopped": False,
+                "execution_mode": "UNKNOWN",
+                "trust": "UNAVAILABLE",
+                "usable_for_real_execution": False,
+                "message": "Activate the certified physical E-stop immediately.",
+            }
+        except Exception as exc:  # noqa: BLE001
+            response = {
+                "status": "failed",
+                "error_code": "ROSCLAWD_REQUEST_FAILED",
+                "error": str(exc),
+                "request_dispatched": False,
+                "driver_acknowledged": False,
+                "physical_stop_observed": False,
+                "stopped": False,
+                "execution_mode": "UNKNOWN",
+                "trust": "UNAVAILABLE",
+                "usable_for_real_execution": False,
+                "message": "Activate the certified physical E-stop immediately.",
+            }
         return [TextContent(type="text", text=json.dumps(response, indent=2))]
 
     async def _handle_get_limits(self) -> list[TextContent]:

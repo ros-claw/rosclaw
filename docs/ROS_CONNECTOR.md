@@ -138,7 +138,7 @@ specific robots.
 | `rosclaw ros inspect-capability ID` | Show capability schema/risk |
 | `rosclaw ros validate-capability ID --args JSON` | Validate args dry-run |
 | `rosclaw ros execute-capability ID --args JSON` | Execute through provider |
-| `rosclaw ros emergency-stop` | Send zero velocity |
+| `rosclaw ros emergency-stop` | Request E-Stop through `rosclawd` and report evidence |
 | `rosclaw doctor --ros --endpoint URL` | Health check without `rclpy` |
 
 All subcommands that talk to rosbridge accept `--endpoint`.

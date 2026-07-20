@@ -1237,6 +1237,18 @@ class Runtime(LifecycleMixin):
         """Get a registered driver by name."""
         return self._mcp_drivers.get(name)
 
+    @property
+    def driver_names(self) -> tuple[str, ...]:
+        """Return registered southbound driver names for daemon status."""
+
+        return tuple(sorted(self._mcp_drivers))
+
+    @property
+    def emergency_stop_latched(self) -> bool:
+        """Report whether the Runtime has latched an emergency stop."""
+
+        return self._emergency_stop_latched
+
     def submit_action(self, action: Any) -> Any:
         """Submit one canonical ActionEnvelope through the action gateway."""
         from rosclaw.kernel import ExecutionMode

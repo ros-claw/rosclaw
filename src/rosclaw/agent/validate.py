@@ -182,7 +182,7 @@ def validate_context_snapshot(path: Path) -> list[str]:
     if not isinstance(data, dict):
         errors.append(f"{path} must be a JSON object")
         return errors
-    if data.get("schema_version") != "rosclaw.agent.context.v1":
+    if data.get("schema_version") != "rosclaw.agent.context.v2":
         errors.append(f"{path} has unexpected schema_version")
     tool_section = data.get("tools")
     tools = tool_section.get("available", []) if isinstance(tool_section, dict) else []
@@ -205,10 +205,7 @@ def agent_target_paths(project_root: Path, target: str) -> dict[str, Path]:
     paths = {
         ".mcp.json": project_root / ".mcp.json",
         "ROSCLAW.md": project_root / "ROSCLAW.md",
-        "context.snapshot.json": project_root
-        / ".rosclaw"
-        / "agent"
-        / "context.snapshot.json",
+        "context.snapshot.json": project_root / ".rosclaw" / "agent" / "context.snapshot.json",
     }
     if target in {"universal", "all", "claude-code"}:
         paths["CLAUDE.md"] = project_root / "CLAUDE.md"
@@ -249,9 +246,7 @@ def validate_project(
     if "ROSCLAW.md" in generated_paths:
         errors.extend(validate_markdown(generated_paths["ROSCLAW.md"], "ROSCLAW.md"))
     if ".agents/skills/rosclaw/SKILL.md" in generated_paths:
-        errors.extend(
-            validate_skill(generated_paths[".agents/skills/rosclaw/SKILL.md"])
-        )
+        errors.extend(validate_skill(generated_paths[".agents/skills/rosclaw/SKILL.md"]))
     if "context.snapshot.json" in generated_paths:
         errors.extend(validate_context_snapshot(generated_paths["context.snapshot.json"]))
 

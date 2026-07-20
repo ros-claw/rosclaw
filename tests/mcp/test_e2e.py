@@ -22,6 +22,7 @@ from mcp.client.streamable_http import streamable_http_client
 
 from rosclaw.agent.tool_catalog import P0_AGENT_MCP_TOOLS
 from rosclaw.body.service import BodyInstanceService
+from rosclaw.daemon.client import DaemonClient, DaemonUnavailableError
 
 # Ensure the subprocess server imports the branch code, not an installed copy.
 _PROJECT_SRC = str(Path(__file__).resolve().parents[2] / "src")
@@ -55,6 +56,49 @@ async def _start_server(*args: str, rosclaw_home: Path) -> asyncio.subprocess.Pr
         env=_server_env(rosclaw_home),
     )
     return proc
+
+
+async def _start_daemon(rosclaw_home: Path) -> tuple[asyncio.subprocess.Process, Path]:
+    socket_path = rosclaw_home / "run" / "rosclawd.sock"
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-m",
+        "rosclaw.daemon.cli",
+        "--socket",
+        str(socket_path),
+        "--robot-id",
+        "sim_ur5e",
+        "--log-level",
+        "ERROR",
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+        env=_server_env(rosclaw_home),
+    )
+    client = DaemonClient(socket_path=socket_path, timeout_sec=1.0)
+    deadline = asyncio.get_running_loop().time() + 30.0
+    while asyncio.get_running_loop().time() < deadline:
+        if proc.returncode is not None:
+            raise RuntimeError(f"rosclawd exited early with status {proc.returncode}")
+        if socket_path.exists():
+            try:
+                await asyncio.to_thread(client.get_runtime_status)
+                return proc, socket_path
+            except DaemonUnavailableError:
+                pass
+        await asyncio.sleep(0.05)
+    await _terminate_process(proc)
+    raise TimeoutError("rosclawd did not become ready")
+
+
+async def _terminate_process(proc: asyncio.subprocess.Process) -> None:
+    if proc.returncode is not None:
+        return
+    proc.terminate()
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=10.0)
+    except TimeoutError:
+        proc.kill()
+        await proc.wait()
 
 
 def _envelope(text: str, *, tool_name: str, expected_ok: bool) -> dict[str, Any]:
@@ -123,6 +167,51 @@ async def _exercise_p0_tools(session: ClientSession) -> None:
         )
         called.add(tool_name)
 
+    runtime_result = await session.call_tool("get_runtime_status", arguments={})
+    runtime_payload = _envelope(
+        runtime_result.content[0].text,
+        tool_name="get_runtime_status",
+        expected_ok=True,
+    )
+    assert runtime_payload["data"]["southbound_owner"] == "rosclawd"
+    called.add("get_runtime_status")
+
+    action_result = await session.call_tool(
+        "request_action",
+        arguments={
+            "capability_id": "robot.move_joints",
+            "arguments": {"joint_positions": [0.0] * 6},
+            "execution_mode": "REAL",
+            "body_snapshot_hash": "sha256:e2e-body",
+            "principal_id": "forged-operator",
+            "approval_id": "forged-permit",
+            "body_id": "sim_ur5e",
+            "action_id": "action-mcp-e2e-forged",
+            "required_evidence": "DRIVER_CONFIRMED",
+            "wait_timeout_sec": 5.0,
+        },
+    )
+    action_payload = _envelope(
+        action_result.content[0].text,
+        tool_name="request_action",
+        expected_ok=True,
+    )
+    action_data = action_payload["data"]
+    assert action_data["receipt"]["final_state"] == "BLOCKED"
+    assert action_data["receipt"]["errors"][0]["code"] == "AUTHORIZATION_REQUIRED"
+    action_id = action_data["action_id"]
+    called.add("request_action")
+
+    for tool_name in ("get_action_status", "cancel_action"):
+        result = await session.call_tool(tool_name, arguments={"action_id": action_id})
+        payload = _envelope(
+            result.content[0].text,
+            tool_name=tool_name,
+            expected_ok=True,
+        )
+        assert payload["data"]["state"] == "FINISHED"
+        called.add(tool_name)
+
     demo_result = await session.call_tool(
         "run_product_demo",
         arguments={"demo_id": "ur5e-reach"},
@@ -150,33 +239,37 @@ async def _exercise_p0_tools(session: ClientSession) -> None:
 async def test_stdio_smoke(tmp_path: Path) -> None:
     """Discover and exercise every P0 tool through the stdio transport."""
     project_root, rosclaw_home = _prepare_server_workspace(tmp_path)
-    params = StdioServerParameters(
-        command=sys.executable,
-        args=[
-            "-m",
-            "rosclaw.mcp.server",
-            "--transport",
-            "stdio",
-            "--log-level",
-            "WARNING",
-            "--project-root",
-            str(project_root),
-            "--robot-id",
-            "sim_ur5e",
-        ],
-        env=_server_env(rosclaw_home),
-    )
+    daemon_proc, _socket_path = await _start_daemon(rosclaw_home)
+    try:
+        params = StdioServerParameters(
+            command=sys.executable,
+            args=[
+                "-m",
+                "rosclaw.mcp.server",
+                "--transport",
+                "stdio",
+                "--log-level",
+                "WARNING",
+                "--project-root",
+                str(project_root),
+                "--robot-id",
+                "sim_ur5e",
+            ],
+            env=_server_env(rosclaw_home),
+        )
 
-    async with (
-        stdio_client(params) as (read, write),
-        ClientSession(read, write) as session,
-    ):
-        await session.initialize()
-        tools = await session.list_tools()
-        discovered = {t.name for t in tools.tools}
-        assert discovered == EXPECTED_TOOLS
+        async with (
+            stdio_client(params) as (read, write),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            tools = await session.list_tools()
+            discovered = {t.name for t in tools.tools}
+            assert discovered == EXPECTED_TOOLS
 
-        await _exercise_p0_tools(session)
+            await _exercise_p0_tools(session)
+    finally:
+        await _terminate_process(daemon_proc)
 
 
 @pytest.mark.asyncio
@@ -185,6 +278,7 @@ async def test_http_smoke(tmp_path: Path) -> None:
     host = "127.0.0.1"
     port = _find_free_port(host)
     project_root, rosclaw_home = _prepare_server_workspace(tmp_path)
+    daemon_proc, _socket_path = await _start_daemon(rosclaw_home)
     proc = await _start_server(
         "--transport",
         "http",
@@ -214,13 +308,8 @@ async def test_http_smoke(tmp_path: Path) -> None:
 
             await _exercise_p0_tools(session)
     finally:
-        if proc.returncode is None:
-            proc.terminate()
-            try:
-                await asyncio.wait_for(proc.wait(), timeout=5.0)
-            except TimeoutError:
-                proc.kill()
-                await proc.wait()
+        await _terminate_process(proc)
+        await _terminate_process(daemon_proc)
 
 
 def _find_free_port(host: str = "127.0.0.1") -> int:

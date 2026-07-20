@@ -128,9 +128,9 @@ def test_skill_registry_client_falls_back_to_skill_manager() -> None:
     assert response["skills"] == ["skill-a"]
 
 
-def test_safety_client_publishes_emergency_event() -> None:
-    runtime = MagicMock()
-    runtime.request_emergency_stop.return_value = {
+def test_safety_client_calls_daemon_emergency_path() -> None:
+    daemon = MagicMock()
+    daemon.emergency_stop.return_value = {
         "request_id": "stop-1",
         "reason": "collision imminent",
         "request_dispatched": True,
@@ -139,22 +139,22 @@ def test_safety_client_publishes_emergency_event() -> None:
         "stopped": False,
         "final_status": "ACKNOWLEDGED",
     }
-    client = SafetyClient(runtime)
+    client = SafetyClient(daemon)
     response = client.emergency_stop("collision imminent")
     assert response["stopped"] is False
     assert response["final_status"] == "ACKNOWLEDGED"
-    runtime.request_emergency_stop.assert_called_once_with(
+    daemon.emergency_stop.assert_called_once_with(
         "collision imminent",
         source="mcp.emergency_stop",
     )
 
 
 def test_safety_client_does_not_call_private_handler() -> None:
-    runtime = MagicMock()
-    runtime.request_emergency_stop.return_value = {
+    daemon = MagicMock()
+    daemon.emergency_stop.return_value = {
         "stopped": False,
         "final_status": "UNVERIFIED",
     }
-    client = SafetyClient(runtime)
+    client = SafetyClient(daemon)
     client.emergency_stop("test")
-    runtime._on_emergency_stop.assert_not_called()
+    daemon._on_emergency_stop.assert_not_called()

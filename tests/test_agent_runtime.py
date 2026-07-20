@@ -1,7 +1,45 @@
 """Tests for Agent Runtime."""
 
+from typing import Any
+
 from rosclaw.agent_runtime.mcp_hub import AgentContext, MCPHub
 from rosclaw.core.event_bus import Event, EventBus
+from rosclaw.kernel import ActionEnvelope, ExecutionMode
+
+
+class _FakeDaemon:
+    def __init__(self) -> None:
+        self.actions: list[ActionEnvelope] = []
+        self.stop_reasons: list[str] = []
+
+    def request_action(self, action: ActionEnvelope) -> dict[str, Any]:
+        self.actions.append(action)
+        return {"action_id": action.action_id, "state": "QUEUED"}
+
+    def wait_for_action(self, action_id: str, *, timeout_sec: float) -> dict[str, Any]:
+        action = next(item for item in self.actions if item.action_id == action_id)
+        return {
+            "action_id": action_id,
+            "state": "FINISHED",
+            "receipt": {
+                "action_id": action_id,
+                "execution_mode": action.execution_mode.value,
+                "final_state": "FAILED",
+                "trust_level": "UNVERIFIED",
+                "usable_for_real_execution": False,
+                "errors": [{"code": "EXECUTOR_UNAVAILABLE"}],
+            },
+        }
+
+    def emergency_stop(self, reason: str, *, source: str) -> dict[str, Any]:
+        self.stop_reasons.append(reason)
+        return {
+            "request_dispatched": True,
+            "driver_acknowledged": True,
+            "physical_stop_observed": False,
+            "stopped": False,
+            "final_status": "ACKNOWLEDGED",
+        }
 
 
 def test_agent_context():
@@ -43,7 +81,7 @@ async def test_mcp_hub_handle_move_joints_timeout():
         "move_joints", {"joint_positions": [0.1] * 6, "duration": 1.0}
     )
     assert result["status"] == "blocked"
-    assert result["error"] == "RUNTIME_ACTION_GATEWAY_REQUIRED"
+    assert result["error"] == "DAEMON_UNAVAILABLE"
     hub.stop()
 
 
@@ -76,7 +114,7 @@ async def test_mcp_hub_handle_move_joints_with_response():
         "move_joints", {"joint_positions": [0.1] * 6, "duration": 1.0}
     )
     assert result["status"] == "blocked"
-    assert result["error"] == "RUNTIME_ACTION_GATEWAY_REQUIRED"
+    assert result["error"] == "DAEMON_UNAVAILABLE"
     hub.stop()
 
 
@@ -86,7 +124,7 @@ async def test_mcp_hub_handle_grasp():
     hub.initialize()
     result = await hub.handle_tool_call("grasp", {"action": "close", "force": 0.8})
     assert result["status"] == "blocked"
-    assert result["error"] == "RUNTIME_ACTION_GATEWAY_REQUIRED"
+    assert result["error"] == "DAEMON_UNAVAILABLE"
     hub.stop()
 
 
@@ -95,8 +133,48 @@ async def test_mcp_hub_handle_emergency_stop():
     hub = MCPHub(bus, robot_id="test")
     hub.initialize()
     result = await hub.handle_tool_call("emergency_stop", {})
-    assert result["status"] == "requested_unverified"
+    assert result["status"] == "failed"
+    assert result["error"] == "DAEMON_UNAVAILABLE"
+    assert result["request_dispatched"] is False
     assert result["stopped"] is False
+    hub.stop()
+
+
+async def test_legacy_physical_tools_use_daemon_not_attached_runtime():
+    class _RuntimeTrap:
+        capability_router = None
+
+        def submit_action(self, _action):
+            raise AssertionError("MCPHub attempted in-process physical execution")
+
+        def request_emergency_stop(self, _reason, **_kwargs):
+            raise AssertionError("MCPHub attempted in-process emergency stop")
+
+    bus = EventBus()
+    daemon = _FakeDaemon()
+    hub = MCPHub(
+        bus,
+        robot_id="test",
+        runtime=_RuntimeTrap(),
+        daemon_client=daemon,
+    )
+    hub.initialize()
+
+    action = await hub.handle_tool_call(
+        "move_joints",
+        {
+            "joint_positions": [0.1] * 6,
+            "body_snapshot_hash": "sha256:test-body",
+        },
+    )
+    stop = await hub.handle_tool_call("emergency_stop", {})
+
+    assert action["status"] == "failed"
+    assert action["receipt"]["errors"][0]["code"] == "EXECUTOR_UNAVAILABLE"
+    assert daemon.actions[0].authorization.approved is False
+    assert daemon.actions[0].execution_mode is ExecutionMode.SHADOW
+    assert stop["status"] == "acknowledged"
+    assert daemon.stop_reasons == ["LLM emergency stop command"]
     hub.stop()
 
 

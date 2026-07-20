@@ -1,7 +1,7 @@
 """ROS capability discovery, validation, and explicit dry-run provider.
 
-Legacy direct rosbridge execution is fail-closed until each physical capability
-is registered as a verified runtime action-gateway executor.
+Legacy direct rosbridge execution is fail-closed. Agent-triggered physical
+work must enter through rosclawd and a verified daemon-side executor.
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ class RosCapabilityResult:
 
 
 class RosCapabilityProvider(Provider):
-    """Discover ROS capabilities without bypassing the runtime action gateway."""
+    """Discover ROS capabilities without bypassing rosclawd."""
 
     name = "ros_capability_provider"
     version = "0.1.0"
@@ -368,12 +368,12 @@ class RosCapabilityProvider(Provider):
             )
             raise GuardBlockedError(
                 message=(
-                    f"ROS capability '{capability_id}' requires Runtime.submit_action(); "
+                    f"ROS capability '{capability_id}' requires rosclawd request_action; "
                     "legacy direct rosbridge execution is disabled and no command was dispatched"
                 ),
                 provider=self.name,
-                checks=[{"check": "RUNTIME_ACTION_GATEWAY_REQUIRED"}],
-                recommended_action="register_verified_runtime_executor",
+                checks=[{"check": "ROSCLAWD_REQUEST_ACTION_REQUIRED"}],
+                recommended_action="use_rosclawd_request_action",
             )
 
         # 2. Produce an explicit dry-run result without touching ROS transport.
@@ -406,13 +406,7 @@ class RosCapabilityProvider(Provider):
         if raw_response and raw_response.data:
             result_data["ros_response"] = raw_response.data
 
-        # 3. Stop guard for velocity commands: send zero command after duration.
-        stop_guard_triggered = False
-        if ok and cap.risk.requires_stop_guard and not dry_run:
-            stop_guard_triggered = self._run_stop_guard(cap)
-            result_data["stop_guard_triggered"] = stop_guard_triggered
-
-        # 4. Practice capture.
+        # 3. Practice capture.
         success = ok and exec_error is None
         self._emit_practice_event(
             capability_id=capability_id,
@@ -425,7 +419,7 @@ class RosCapabilityProvider(Provider):
             raw_response=raw_response.data if raw_response else None,
         )
 
-        # 5. Memory / KNOW / HOW integration events.
+        # 4. Memory / KNOW / HOW integration events.
         self._publish_event(
             "rosclaw.runtime.execution.completed",
             {
@@ -487,38 +481,6 @@ class RosCapabilityProvider(Provider):
             practice_trace_id=trace_id,
             raw_ros_response=raw_response.data if raw_response else None,
         )
-
-    def _invoke_ros_interface(self, cap: RosCapability, args: dict[str, Any]) -> RosTransportResult:
-        """Dispatch to transport based on ROS interface kind."""
-        if self._transport is None:
-            return RosTransportResult(ok=False, error="transport not initialized")
-
-        if cap.interface.ros_kind == "topic":
-            return self._transport.publish(cap.interface.name, args)
-        if cap.interface.ros_kind == "service":
-            return self._transport.call_service(
-                service=cap.interface.name,
-                args=args,
-                service_type=cap.interface.msg_type or None,
-            )
-        if cap.interface.ros_kind == "action":
-            # Actions require topic-level goal publishing via rosbridge.
-            goal_topic = f"{cap.interface.name}/goal"
-            return self._transport.publish(goal_topic, args)
-        return RosTransportResult(ok=False, error=f"Unsupported ros_kind: {cap.interface.ros_kind}")
-
-    def _run_stop_guard(self, cap: RosCapability) -> bool:
-        """Send a zero command to a command topic to stop motion."""
-        if cap.interface.ros_kind != "topic":
-            return False
-        if "cmd_vel" in cap.interface.name.lower():
-            zero = {
-                "linear": {"x": 0.0, "y": 0.0, "z": 0.0},
-                "angular": {"x": 0.0, "y": 0.0, "z": 0.0},
-            }
-            result = self._transport.publish(cap.interface.name, zero)
-            return result.ok
-        return False
 
     # ------------------------------------------------------------------
     # Discovery helper exposed as a capability

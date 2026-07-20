@@ -2,15 +2,17 @@
 
 ## Mission
 
-**Self-Evolving Runtime Infrastructure for Physical AI & Embodied Agents**
+**Trustworthy Physical Execution Runtime and Control Plane for Embodied Agents**
 
-Ground AI agents into robot bodies. Validate every action. Learn from every trace. Evolve every skill.
+Ground Agent intent into a body, authorize and execute through a daemon-owned
+control plane, verify physical outcomes, and return auditable receipts.
 
 ## Engineering Identity
 
 ```text
 ROSClaw 1.0 =
-  Physical Runtime
+  rosclawd Physical Control Plane
+  + Physical Runtime
   + Capability Provider
   + Sandbox Safety Gate
   + Praxis Capture
@@ -45,6 +47,7 @@ ROSClaw 1.0 =
 
 | Module | Owns | Must NOT Do |
 |--------|------|-------------|
+| rosclawd | Southbound privileges, action queue, permits, leases, E-Stop latch, receipts | Trust Agent approval flags, expose raw device/ROS writes |
 | Runtime | Lifecycle, config, plugin registration, dependency injection | Bypass sandbox, allow unapproved code patches |
 | EventBus | Module communication, topic routing, trace correlation | Hold business logic, mutate payloads |
 | Provider | Capability routing, schema, safety boundary | Direct robot control, raw model inference |
@@ -61,18 +64,23 @@ ROSClaw 1.0 =
 ## Execution Loop
 
 ```text
-1. Agent receives task
-2. agent-runtime constructs AgentContext
-3. provider routes capabilities
-4. provider outputs structured results
-5. sandbox enters firewall mode
-6. sandbox decides ALLOW/BLOCK/MODIFY/REQUIRE_CONFIRMATION
-7. runtime executes on physical robot
-8. practice captures execution trace
-9. critic judges success/failure
-10. memory writes experience
-11. how decides intervention
-12. auto decides self-evolution
+1. Agent receives task and inspects Body/Capability.
+2. Agent submits a structured ActionEnvelope through MCP/CLI/SDK.
+3. rosclawd authenticates the Unix peer and matches an expiring, use-bounded
+   permit to the Body Snapshot, explicit Capability, and exact Action Intent.
+4. Sandbox/Firewall decides ALLOW/BLOCK/MODIFY/REQUIRE_CONFIRMATION.
+5. ActionGateway acquires the physical resource lease.
+6. A daemon-registered executor dispatches and obtains Driver ACK.
+7. Observation and task verification produce an ExecutionReceipt.
+8. Practice, Memory, Know, How, Auto, and Darwin consume receipts asynchronously.
+
+The Agent process must not construct a second physical Runtime or load a
+southbound driver. See [docs/ROSCLAWD.md](docs/ROSCLAWD.md).
+
+This is the target REAL contract. The current base `rosclawd` deliberately
+loads no hardware pack, REAL executor, permit issuer, or pack-specific policy
+validator, so REAL fails closed until those daemon-side pieces are installed
+and accepted for a specific body.
 ```
 
 ## Self-Evolution Loop

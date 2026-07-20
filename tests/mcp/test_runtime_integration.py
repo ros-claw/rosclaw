@@ -13,6 +13,9 @@ from typing import Any
 import pytest
 
 from rosclaw.core.runtime import Runtime, RuntimeConfig
+from rosclaw.daemon.client import DaemonClient
+from rosclaw.daemon.server import RosclawDaemon
+from rosclaw.daemon.service import DaemonControlPlane
 from rosclaw.mcp.adapters.runtime_client import RuntimeClient
 from rosclaw.mcp.schemas.common import MCPError
 
@@ -36,18 +39,25 @@ def live_runtime_client(tmp_path: Path) -> RuntimeClient:
     )
     rt = Runtime(config)
     rt.initialize()
+    socket_path = tmp_path / "run" / "rosclawd.sock"
+    daemon = RosclawDaemon(
+        service=DaemonControlPlane(runtime=rt),
+        socket_path=socket_path,
+    )
+    daemon.start()
 
     client = RuntimeClient(
         project_root=tmp_path,
         robot_id="sim_ur5e",
         runtime_profile={},
+        daemon_client=DaemonClient(socket_path=socket_path),
     )
     client._runtime = rt
     client._adapter_cache = None
 
     yield client
 
-    rt.stop()
+    daemon.stop()
 
 
 async def test_mock_sense_is_rejected_without_explicit_fixture_mode(

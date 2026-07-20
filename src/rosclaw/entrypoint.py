@@ -8,6 +8,12 @@ import sys
 def main() -> int:
     """Dispatch product workflows without importing the full legacy CLI."""
 
+    from rosclaw.daemon.cli import dispatch_daemon_argv
+
+    result = dispatch_daemon_argv(sys.argv[1:])
+    if result is not None:
+        return result
+
     from rosclaw.product.cli import dispatch_product_argv
 
     result = dispatch_product_argv(sys.argv[1:])

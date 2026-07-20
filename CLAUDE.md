@@ -8,15 +8,19 @@ It is safe to edit the human sections below. Managed blocks are updated by
 ## ROSClaw Runtime Boundary (managed)
 
 - Project: `rosclaw-v1.0`
-- Project root: `/home/ubuntu/rosclaw/rosclaw/rosclaw-v1.0`
+- Project root: `.`
 - Default robot: (none detected)
 - MCP transport: `stdio`
 
 This project exposes a P0 ROSClaw MCP server. Connect via the configured `stdio` transport defined in `.mcp.json`.
 
+Claude Code must approve the project-scoped `rosclaw` server from `.mcp.json`
+before it can use these tools. Approval is owned by Claude Code and is not
+bypassed by the ROSClaw installer.
+
 ### Safety contract (P0)
 
-Read-only / body-context / simulation / emergency tools only:
+Read-only, body-context, simulation, guarded-action, and emergency tools:
 
 | Tool | Safety level | Purpose |
 |------|--------------|---------|
@@ -26,16 +30,28 @@ Read-only / body-context / simulation / emergency tools only:
 | `validate_trajectory` | S2 | Plan validation, never real motion |
 | `sandbox_run` | S1 | MuJoCo simulation preview only |
 | `practice_query` | S0 | Query practice episodes |
-| `emergency_stop` | S4 | Halt all motion immediately |
+| `emergency_stop` | S4 | Request daemon E-Stop; verify physical-stop evidence |
 | `get_body_profile` | S0 | Static effective body profile |
 | `get_body_state` | S0 | Body safety state and capability matrix |
 | `list_body_capabilities` | S0 | Capabilities grouped by status |
 | `query_body` | S0 | Answer questions about the current body |
 | `validate_body_action` | S0 | Validate proposed body-level action |
 | `get_calibration_status` | S0 | Calibration status for body components |
+| `get_runtime_status` | S0 | rosclawd health and privilege-boundary status |
+| `request_action` | S3 | Submit a guarded SHADOW or REAL action to rosclawd |
+| `get_action_status` | S0 | Read daemon queue state and terminal receipt |
+| `cancel_action` | S3 | Cancel queued work; active motion requires E-Stop |
+| `get_product_status` | S0 | Canonical release and evidence boundary |
+| `list_product_demos` | S0 | Official evidence-bearing simulation demos |
+| `run_product_demo` | S1 | Run an official simulation and persist its receipt |
+| `get_execution_receipt` | S0 | Read and integrity-check a receipt |
+| `explain_execution` | S0 | Explain policy, execution, observation, and evidence |
 
-There is **no real-execution tool** in P0. Any request to move the real robot
-must be refused or routed through `validate_trajectory` + operator confirmation.
+`request_action` is a request to `rosclawd`, not execution authority. A REAL
+request succeeds only when the daemon independently matches a server-issued,
+body- and action-intent-bound permit. Never instantiate a local Runtime,
+register a driver, or use ROS, DDS, serial, CAN, or a vendor SDK as an
+alternate motion path.
 <!-- ROSCLAW-MANAGED-END -->
 
 ## Human notes

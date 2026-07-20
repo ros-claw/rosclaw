@@ -32,10 +32,24 @@ This document lists ROSClaw CLI commands and their implementation status.
 
 | Command | Status | Description |
 |---------|--------|-------------|
+| `rosclawd` | Experimental | Run the least-privilege physical control plane in the foreground |
+| `rosclaw daemon serve` | Experimental | Run rosclawd through the main CLI |
+| `rosclaw daemon status --json` | Experimental | Inspect daemon identity, queue, drivers, permits, and E-Stop latch |
+| `rosclaw daemon request-action <action.json>` | Experimental | Submit one canonical ActionEnvelope |
+| `rosclaw daemon action-status <action-id>` | Experimental | Read daemon queue state and terminal receipt |
+| `rosclaw daemon cancel <action-id>` | Experimental | Cancel only before dispatch |
+| `rosclaw daemon emergency-stop --reason <text>` | Experimental | Request the daemon emergency path |
+| `rosclaw daemon security-check --json` | Experimental | Check local process/UID/device separation |
 | `rosclaw run` | Stable | Start the ROSClaw runtime |
 | `rosclaw start` | Stable | Alias for `run` |
 | `rosclaw stop` | Stable | Stop the runtime |
 | `rosclaw logs` | Stable | Show runtime logs |
+
+See [docs/ROSCLAWD.md](ROSCLAWD.md) before using daemon commands with hardware.
+The compatibility `rosclaw ros emergency-stop` command is also a rosclawd
+client; it no longer advertises or publishes command topics itself. Both
+emergency-stop commands exit nonzero unless the receipt confirms physical stop
+observation; a dispatch or driver ACK alone is not reported as success.
 
 ---
 

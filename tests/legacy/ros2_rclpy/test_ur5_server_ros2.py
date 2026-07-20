@@ -49,7 +49,7 @@ for _mod in list(sys.modules.keys()):
 sys.modules.pop("rclpy", None)
 
 from pathlib import Path  # noqa: E402
-from unittest.mock import patch  # noqa: E402
+from unittest.mock import MagicMock, patch  # noqa: E402
 
 import rclpy  # noqa: E402
 from sensor_msgs.msg import JointState  # noqa: E402
@@ -170,15 +170,15 @@ class TestUR5ROSNodeInit:
         assert node.joint_state_sub is not None
         node.destroy_node()
 
-    def test_publishers_created(self, ros_context):
+    def test_command_publishers_are_not_created(self, ros_context):
         node = UR5ROSNode(robot_ip="127.0.0.1")
-        assert node.joint_trajectory_pub is not None
-        assert node.velocity_pub is not None
+        assert not hasattr(node, "joint_trajectory_pub")
+        assert not hasattr(node, "velocity_pub")
         node.destroy_node()
 
-    def test_action_client_created(self, ros_context):
+    def test_command_action_client_is_not_created(self, ros_context):
         node = UR5ROSNode(robot_ip="127.0.0.1")
-        assert node.trajectory_client is not None
+        assert not hasattr(node, "trajectory_client")
         node.destroy_node()
 
 
@@ -276,13 +276,10 @@ class TestUR5ROSNodeValidateLimits:
 
 
 class TestUR5ROSNodeEmergencyStop:
-    def test_emergency_stop_publishes(self, ros_node):
-        # Just verify it doesn't crash
-        ros_node.emergency_stop()
-
-    def test_emergency_stop_twist_message(self, ros_node):
-        ros_node.emergency_stop()
-        # The Twist message has zero velocity by default
+    def test_emergency_stop_requires_daemon(self, ros_node):
+        result = ros_node.emergency_stop()
+        assert result["request_dispatched"] is False
+        assert result["error_code"] == "ROSCLAWD_REQUIRED"
 
 
 class TestUR5ROSNodeExecuteTrajectory:
@@ -294,7 +291,7 @@ class TestUR5ROSNodeExecuteTrajectory:
             [1.0],
         )
         assert success is False
-        assert "not available" in msg
+        assert "rosclawd request_action" in msg
 
 
 # ------------------------------------------------------------------
@@ -504,12 +501,14 @@ class TestUR5MCPServerHandleEmergencyStop:
             robot_ip="127.0.0.1",
             firewall_model_path="/nonexistent/model.xml",
         )
+        server._daemon_client = MagicMock()
+        server._daemon_client.emergency_stop.side_effect = RuntimeError("daemon unavailable")
 
         result = await server._handle_emergency_stop()
         assert len(result) == 1
         response = __import__("json").loads(result[0].text)
-        assert response["status"] == "requested_unverified"
-        assert response["request_dispatched"] is True
+        assert response["status"] == "failed"
+        assert response["request_dispatched"] is False
         assert response["stopped"] is False
 
         server.ros_node.destroy_node()
@@ -570,7 +569,7 @@ class TestUR5MCPServerHandleMoveJoints:
         )
         response = __import__("json").loads(result[0].text)
         assert response["status"] == "blocked"
-        assert response["error_code"] == "RUNTIME_ACTION_GATEWAY_REQUIRED"
+        assert response["error_code"] == "ROSCLAWD_REQUEST_ACTION_REQUIRED"
         assert response["no_command_dispatched"] is True
 
         server.ros_node.destroy_node()

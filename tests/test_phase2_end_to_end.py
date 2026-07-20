@@ -171,7 +171,9 @@ class TestPhase2MCPTools:
                 },
             )
         )
-        assert result["status"] == "SUCCESS"
+        assert result["status"] == "FIXTURE_COMPLETED"
+        assert result["trust_level"] == "SYNTHETIC"
+        assert result["usable_for_real_execution"] is False
         assert "episode_id" in result
         assert "firewall" in result
 

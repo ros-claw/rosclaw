@@ -58,15 +58,54 @@ def _client() -> RuntimeClient:
 
 
 def _redact_for_audit(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Return a shallow copy of arguments safe for the audit log."""
-    sensitive = {"token", "password", "secret", "api_key", "apikey", "auth", "key"}
-    out: dict[str, Any] = {}
-    for key, value in arguments.items():
-        if isinstance(key, str) and key.lower() in sensitive:
-            out[key] = "<REDACTED>"
-        else:
-            out[key] = value
-    return out
+    """Return a recursively redacted copy of arguments safe for audit logs."""
+
+    sensitive = {
+        "approval_id",
+        "api_key",
+        "apikey",
+        "auth",
+        "authorization",
+        "credential",
+        "credentials",
+        "key",
+        "password",
+        "permit",
+        "permit_id",
+        "private_key",
+        "secret",
+        "token",
+    }
+    sensitive_suffixes = (
+        "_api_key",
+        "_apikey",
+        "_credential",
+        "_password",
+        "_permit",
+        "_private_key",
+        "_secret",
+        "_token",
+    )
+
+    def redact(value: Any, *, depth: int = 0) -> Any:
+        if depth >= 12:
+            return "<REDACTED_DEPTH_LIMIT>"
+        if isinstance(value, dict):
+            redacted: dict[Any, Any] = {}
+            for key, item in value.items():
+                normalized = key.lower().replace("-", "_") if isinstance(key, str) else ""
+                if normalized in sensitive or normalized.endswith(sensitive_suffixes):
+                    redacted[key] = "<REDACTED>"
+                else:
+                    redacted[key] = redact(item, depth=depth + 1)
+            return redacted
+        if isinstance(value, list):
+            return [redact(item, depth=depth + 1) for item in value]
+        if isinstance(value, tuple):
+            return tuple(redact(item, depth=depth + 1) for item in value)
+        return value
+
+    return redact(arguments)
 
 
 def _audit(
@@ -80,7 +119,8 @@ def _audit(
     home = os.environ.get("ROSCLAW_HOME", str(get_rosclaw_home()))
     log_dir = Path(home) / "logs" / "mcp"
     try:
-        log_dir.mkdir(parents=True, exist_ok=True)
+        log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        log_dir.chmod(0o700)
         line = json.dumps(
             {
                 "trace_id": trace_id,
@@ -97,8 +137,17 @@ def _audit(
             ensure_ascii=False,
             default=str,
         )
-        with (log_dir / "audit.jsonl").open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(log_dir / "audit.jsonl", flags, 0o600)
+        try:
+            os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "a", encoding="utf-8") as file:
+                descriptor = -1
+                file.write(line + "\n")
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
     except Exception:
         # Audit must never break a tool call.
         pass
@@ -188,8 +237,57 @@ async def _practice_query(episode_id: str | None = None, limit: int = 10) -> dic
 
 
 async def _emergency_stop(reason: str) -> dict[str, Any]:
-    """Trigger an emergency stop. This is the only destructive P0 tool."""
+    """Request daemon E-Stop and return its physical-stop evidence."""
     return await _client().emergency_stop(reason)
+
+
+# ---------------------------------------------------------------------------
+# rosclawd control-plane tools
+# ---------------------------------------------------------------------------
+
+
+async def _get_runtime_status() -> dict[str, Any]:
+    """Return rosclawd health, queue, driver, permit, and boundary status."""
+    return await _client().get_runtime_status()
+
+
+async def _request_action(
+    capability_id: str,
+    arguments: dict[str, Any],
+    execution_mode: str = "SHADOW",
+    body_snapshot_hash: str = "",
+    principal_id: str = "",
+    approval_id: str | None = None,
+    body_id: str | None = None,
+    action_id: str | None = None,
+    required_evidence: str = "TASK_VERIFIED",
+    timeout_sec: float = 30.0,
+    wait_timeout_sec: float = 2.0,
+) -> dict[str, Any]:
+    """Submit one structured action; rosclawd independently verifies authorization."""
+    return await _client().request_action(
+        capability_id=capability_id,
+        arguments=arguments,
+        execution_mode=execution_mode,
+        body_snapshot_hash=body_snapshot_hash,
+        principal_id=principal_id,
+        approval_id=approval_id,
+        body_id=body_id,
+        action_id=action_id,
+        required_evidence=required_evidence,
+        timeout_sec=timeout_sec,
+        wait_timeout_sec=wait_timeout_sec,
+    )
+
+
+async def _get_action_status(action_id: str) -> dict[str, Any]:
+    """Read daemon queue state and any terminal ExecutionReceipt."""
+    return await _client().get_action_status(action_id)
+
+
+async def _cancel_action(action_id: str) -> dict[str, Any]:
+    """Cancel queued work without claiming that active hardware stopped."""
+    return await _client().cancel_action(action_id)
 
 
 # ---------------------------------------------------------------------------
@@ -274,10 +372,7 @@ async def _run_product_demo(
     if target is not None:
         if len(target) != 3:
             raise MCPError("INVALID_ARGUMENT", "target must contain exactly three coordinates.")
-        if any(
-            isinstance(value, bool) or not isinstance(value, (int, float))
-            for value in target
-        ):
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in target):
             raise MCPError(
                 "INVALID_ARGUMENT",
                 "target coordinates must be finite numbers.",
@@ -391,6 +486,10 @@ validate_trajectory = _tool_wrapper("validate_trajectory", _validate_trajectory)
 sandbox_run = _tool_wrapper("sandbox_run", _sandbox_run)
 practice_query = _tool_wrapper("practice_query", _practice_query)
 emergency_stop = _tool_wrapper("emergency_stop", _emergency_stop)
+get_runtime_status = _tool_wrapper("get_runtime_status", _get_runtime_status)
+request_action = _tool_wrapper("request_action", _request_action)
+get_action_status = _tool_wrapper("get_action_status", _get_action_status)
+cancel_action = _tool_wrapper("cancel_action", _cancel_action)
 get_body_profile = _tool_wrapper("get_body_profile", _get_body_profile)
 get_body_state = _tool_wrapper("get_body_state", _get_body_state)
 list_body_capabilities = _tool_wrapper("list_body_capabilities", _list_body_capabilities)
@@ -423,6 +522,10 @@ P0_TOOLS: list[ToolFunc] = [
     query_body,
     validate_body_action,
     get_calibration_status,
+    get_runtime_status,
+    request_action,
+    get_action_status,
+    cancel_action,
     get_product_status,
     list_product_demos,
     run_product_demo,
@@ -453,6 +556,10 @@ __all__ = [
     "sandbox_run",
     "practice_query",
     "emergency_stop",
+    "get_runtime_status",
+    "request_action",
+    "get_action_status",
+    "cancel_action",
     "get_body_profile",
     "get_body_state",
     "list_body_capabilities",

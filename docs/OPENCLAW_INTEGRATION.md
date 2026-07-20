@@ -12,14 +12,16 @@ edit the user's global OpenClaw configuration.
 ## Safety Boundary
 
 The current P0 Agent surface is read-only, validation, simulation, product
-evidence, and emergency control. It contains no real-execution tool.
+evidence, daemon-backed guarded action, and emergency control. It contains no
+raw hardware primitive, and the Agent cannot authorize its own REAL request.
 
 The legacy `rosclaw-ur5-mcp` entry point remains available for compatibility,
-but its motion handlers fail closed behind the runtime action gateway. Do not
-use it as a direct hardware integration path. A real action must enter through
-`Runtime.submit_action()` with an immutable body snapshot, scoped
-authorization, safety policy, a registered verified executor, feedback, and an
-execution receipt.
+but its ROS node is observation-only, motion handlers fail closed, and its
+emergency tool calls `rosclawd`. Do not use it as a direct hardware integration
+path. Agent actions must enter through MCP `request_action` and `rosclawd`, with
+an immutable body snapshot, daemon-issued capability/action-intent permit,
+safety policy, registered verified executor, feedback, and an execution
+receipt.
 
 ## 1. Install ROSClaw Into an OpenClaw Workspace
 
@@ -70,12 +72,12 @@ openclaw mcp add rosclaw \
   --env ROSCLAW_MCP_AUDIT=1 \
   --timeout 300 \
   --include \
-  'get_robot_state,list_skills,query_memory,validate_trajectory,sandbox_run,practice_query,emergency_stop,get_body_profile,get_body_state,list_body_capabilities,query_body,validate_body_action,get_calibration_status,get_product_status,list_product_demos,run_product_demo,get_execution_receipt,explain_execution'
+  'get_robot_state,list_skills,query_memory,validate_trajectory,sandbox_run,practice_query,emergency_stop,get_body_profile,get_body_state,list_body_capabilities,query_body,validate_body_action,get_calibration_status,get_runtime_status,request_action,get_action_status,cancel_action,get_product_status,list_product_demos,run_product_demo,get_execution_receipt,explain_execution'
 openclaw mcp doctor rosclaw --probe
 ```
 
 `openclaw mcp doctor rosclaw --probe` must report a live server with exactly
-the 18 tools listed above. If it reports more tools, remove the server and
+the 22 tools listed above. If it reports more tools, remove the server and
 investigate before giving it to an Agent:
 
 ```bash
@@ -114,8 +116,9 @@ check are the product evidence.
 |---|---|---|
 | Read-only | `get_robot_state`, `list_skills`, `query_memory`, `practice_query` | Inspect runtime state and evidence |
 | Validation/simulation | `validate_trajectory`, `sandbox_run` | Validate or simulate; never authorize real motion |
-| Emergency | `emergency_stop` | Request an immediate stop |
+| Emergency | `emergency_stop` | Request daemon E-Stop and inspect physical-stop evidence |
 | Body context | `get_body_profile`, `get_body_state`, `list_body_capabilities`, `query_body`, `validate_body_action`, `get_calibration_status` | Inspect and validate the effective body |
+| Guarded control | `get_runtime_status`, `request_action`, `get_action_status`, `cancel_action` | Use rosclawd; REAL requires a daemon-issued permit |
 | Product evidence | `get_product_status`, `list_product_demos`, `run_product_demo`, `get_execution_receipt`, `explain_execution` | Run and explain official evidence workflows |
 
 OpenClaw's MCP registry and skill behavior can change between releases. Check
@@ -126,10 +129,11 @@ installation.
 
 - The workspace skill and ROSClaw MCP protocol probe are covered by automated
   tests.
-- The full product evidence workflow has been exercised through an independent
-  local Codex CLI process.
+- The full product evidence workflow and daemon authorization block have been
+  exercised through separate, developer-observed local Codex CLI processes.
 - OpenClaw native registry configuration is documented but has not been
   independently verified in this repository's CI because OpenClaw is not a
   test dependency.
-- Agent-controlled real actuation is not verified and remains unavailable from
-  the P0 MCP surface.
+- Agent-controlled real actuation is not verified. `request_action` remains
+  fail-closed unless a trusted daemon-side hardware integration and permit are
+  present.

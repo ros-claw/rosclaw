@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from rosclaw.agent.detectors import build_project_profile
+from rosclaw.agent.harness_readiness import inspect_codex_project_trust
 from rosclaw.agent.install import AGENT_TARGETS
 from rosclaw.agent.merge import read_json_if_exists
 from rosclaw.agent.tool_catalog import P0_AGENT_MCP_TOOLS
@@ -80,7 +81,18 @@ def cmd_agent_doctor_claude_code(args: argparse.Namespace) -> int:
         if missing:
             print(f"Missing tools: {missing}")
 
-    return 0 if validation.ok else 1
+    harness_ok = True
+    if target == "codex":
+        trust = inspect_codex_project_trust(profile.project_root)
+        print(f"Codex project trust: {'yes' if trust.trusted else 'no'} ({trust.detail})")
+        if not trust.trusted:
+            print(
+                "  - Reopen this exact repository in Codex and accept workspace "
+                "trust; project MCP config is ignored until then."
+            )
+            harness_ok = False
+
+    return 0 if validation.ok and reachable and harness_ok else 1
 
 
 def add_doctor_parser(subparsers: Any) -> None:

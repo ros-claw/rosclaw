@@ -48,7 +48,8 @@ roadmap disguised as completed work.
 <!-- product-status:start -->
 | Scope | Status | Evidence available today |
 |---|---|---|
-| UR5e tabletop reach | **Simulation verified** | Real MuJoCo model load and mj_step, Cartesian predicate, collision and workspace blocks, trajectory, trace, and receipt are system-verified. A local Codex CLI black-box completed the five-tool MCP workflow; independent H5 acceptance remains pending. |
+| UR5e tabletop reach | **Simulation verified** | Real MuJoCo execution and receipt verification are system-tested. Local Codex CLI black-box runs discovered all 22 MCP tools, completed the simulation workflow, and confirmed that rosclawd blocks unauthorized REAL actions without hardware dispatch; independent H5 acceptance remains pending. |
+| rosclawd Agent/physical boundary | **Component/system verified** | Separate-process socket, bounded protocol, SO_PEERCRED, peer-owned actions, exact action-intent permits, forged/replayed/substituted request blocking, queue, E-Stop, and shutdown are system-tested; production cross-UID, SROS2, and hardware acceptance remain pending. |
 | Action contract and gateway | **Component/system verified** | Versioned action and receipt, evidence levels, idempotency, exclusive body lease, and fail-closed executor lookup. |
 | E-Stop control path | **Component verified** | Fan-out, timeout, partial ACK, idempotency, latch, and physical-observation fields; no independent physical-stop verification. |
 | Mock Sense, mock Providers, fixture Drivers | **Fixture only** | Explicit FIXTURE and SYNTHETIC data only; never valid for safety or real acceptance. |
@@ -99,7 +100,7 @@ Physical worlds have gravity, friction, collision, latency, sensor noise, torque
 ## Runtime Loop
 
 ```text
-Action Intent → Body/Capability → Policy/Authorization → Resource Lease
+Action Intent → Body/Capability → rosclawd Permit/Policy → Resource Lease
               → Dispatch/ACK → Physical Observation → Verification → Receipt
 
 Receipt → Trace/Practice → Memory/How/Auto/Darwin (asynchronous)
@@ -109,6 +110,26 @@ Receipt → Trace/Practice → Memory/How/Auto/Darwin (asynchronous)
 > requires evidence.**
 
 Auto may propose changes, but it cannot approve them alone. Sandbox validation, Darwin evaluation, the promotion gate, and human approval together decide whether a change reaches the real world.
+
+### rosclawd boundary
+
+For Agent-driven physical work, `rosclawd` is the only supported control-plane
+entry. MCP and CLI clients submit structured actions over a protected local
+socket; the daemon independently checks peer/body/snapshot/capability/action
+intent, expiry, and use count before accepting a permit. It owns the queue,
+physical Runtime, drivers, E-Stop latch, and receipts.
+
+```bash
+# Development/process-boundary smoke test only
+rosclawd --robot-id sim_ur5e
+rosclaw daemon status --json
+rosclaw daemon security-check --json
+```
+
+Same-UID development mode is not a hardware privilege boundary. REAL
+deployments require the dedicated-user systemd setup, device ACLs, credential
+isolation, and SROS2/DDS access control in
+[docs/ROSCLAWD.md](docs/ROSCLAWD.md).
 
 ---
 
@@ -256,9 +277,13 @@ MCP-aware agent:
 > `ROSCLAW.md`, `AGENTS.md`, `.codex/config.toml`, and
 > `.agents/skills/rosclaw/SKILL.md`. Validate
 > the setup with `rosclaw agent test universal --project-root . --quick
-> --mcp-probe`. After that, use ROSClaw through its CLI and MCP tools for robot
+> --mcp-probe`. For Codex, reopen this exact repository and accept workspace
+> trust; for Claude Code, approve the project-scoped `rosclaw` MCP server.
+> After that, use ROSClaw through its CLI and MCP tools for robot
 > state, skills, memory, sandbox simulation, practice records, and safety
-> checks.
+> checks. For physical work, use only the daemon-backed `request_action`,
+> action-status, cancellation, and emergency tools; never open a device or
+> publish a command topic directly.
 
 If you are doing the setup yourself, the core install command is:
 
@@ -277,6 +302,17 @@ MCP server, and robotics infrastructure layer; this command teaches agent
 harnesses how to discover and use it. Claude Code receives `.mcp.json`, Codex
 receives a trusted-project `.codex/config.toml`, and OpenClaw discovers the
 workspace skill under `.agents/skills`.
+
+The installer cannot bypass harness security prompts. Codex ignores the
+project `.codex/config.toml` until the exact Git repository root is trusted;
+check it with `rosclaw agent doctor codex --project-root .`. Claude Code shows
+the project server as pending until the user approves it; check it with
+`claude mcp get rosclaw`.
+
+Run the MCP probe from the same environment and `PATH` used to launch the
+Agent. The probe executes the configured `rosclaw` command and requires the
+exact 22-tool boundary, so an older global CLI cannot silently pass by using
+the source checkout's Python process.
 
 ---
 
@@ -321,9 +357,11 @@ The new canonical physical-action path is:
 1. Provider produces a structured action proposal.
 2. Sandbox / Firewall checks it against the effective body model and safety policy.
 3. The decision is one of `ALLOW`, `MODIFY`, `BLOCK`, or `REQUIRE_HUMAN_CONFIRMATION`.
-4. `ActionGateway` acquires an exclusive resource lease and dispatches an executor.
-5. Driver ACK, observations, verification, trace, and artifacts are assembled into a receipt.
-6. Practice, Memory, How, Auto, and Darwin may consume the receipt asynchronously.
+4. `rosclawd` authenticates the peer and matches an expiring, use-bounded permit
+   to the Body Snapshot, explicit Capability, and exact Action Intent.
+5. `ActionGateway` acquires an exclusive resource lease and dispatches a daemon-owned executor.
+6. Driver ACK, observations, verification, trace, and artifacts are assembled into a receipt.
+7. Practice, Memory, How, Auto, and Darwin may consume the receipt asynchronously.
 
 Legacy execution adapters are still being migrated to this gateway. Do not
 assume that every historical CLI, Skill, ROS connector, or vendor path is
@@ -333,7 +371,7 @@ tests and keep southbound credentials outside the agent process.
 The known MCPHub low-level actions, standalone UR5 MCP motion tools, and ROS
 connector capability execution now fail closed instead of dispatching directly.
 The ROS connector still supports discovery, validation, explicit dry runs, and
-truthful emergency-stop request receipts while its executors are migrated.
+daemon-backed emergency-stop request receipts while its executors are migrated.
 
 ROSClaw is research infrastructure. It does not replace certified industrial safety systems. Always test in simulation first, keep emergency stops engaged, and use human supervision.
 
@@ -348,6 +386,7 @@ Read [docs/SAFETY.md](docs/SAFETY.md) for the full safety model.
 - [docs/FIRSTBOOT.md](docs/FIRSTBOOT.md) — Bootstrap and first boot reference.
 - [docs/CLI.md](docs/CLI.md) — CLI command reference.
 - [docs/SAFETY.md](docs/SAFETY.md) — Safety model and deployment rules.
+- [docs/ROSCLAWD.md](docs/ROSCLAWD.md) — Agent/physical process and privilege boundary.
 - [docs/ASSETS.md](docs/ASSETS.md) — Physical-AI Asset Hub.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — Runtime architecture.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Development standards.
@@ -358,7 +397,7 @@ Read [docs/SAFETY.md](docs/SAFETY.md) for the full safety model.
 
 | Phase | Focus |
 |---|---|
-| **Current / Alpha** | Truthful action/receipt contracts, fail-closed fixtures/providers/drivers, MuJoCo UR5e reach golden path, readiness-level Doctor. |
+| **Current / Alpha** | rosclawd process-boundary prototype, truthful action/receipt contracts, fail-closed fixtures/providers/drivers, MuJoCo UR5e reach golden path, readiness-level Doctor. |
 | **Next** | Migrate every physical side-effect path to the gateway; cancellation/preemption; ROS 2 Turtlesim observed-motion golden path. |
 | **Hardware acceptance** | RealSense read-only capture, then bounded actuator tasks with ACK, feedback, stop verification, and receipts. |
 | **Later** | Receipt-driven Memory/How/Auto/Darwin promotion with independent evaluation and rollback. |

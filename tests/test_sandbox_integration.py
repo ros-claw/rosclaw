@@ -83,7 +83,7 @@ class TestFirewallDynamicCollision:
 
 
 class TestMCPLegacyExecutionBoundary:
-    def test_ur5_server_requires_runtime_action_gateway(self):
+    def test_ur5_server_requires_rosclawd_action_boundary(self):
         """Verify the standalone UR5 MCP cannot dispatch direct motion."""
 
         # Read source without importing (avoids rclpy dependency)
@@ -91,6 +91,9 @@ class TestMCPLegacyExecutionBoundary:
         with open(mcp_path) as f:
             source = f.read()
 
-        assert "RUNTIME_ACTION_GATEWAY_REQUIRED" in source
+        assert "ROSCLAWD_REQUEST_ACTION_REQUIRED" in source
+        assert "from rosclaw.daemon.client import DaemonClient" in source
         assert '"no_command_dispatched": True' in source
+        assert "from rclpy.action import ActionClient" not in source
+        assert "FollowJointTrajectory" not in source
         assert "firewall.validation_request" not in source

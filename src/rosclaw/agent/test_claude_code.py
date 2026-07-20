@@ -7,7 +7,6 @@ import asyncio
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -15,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from rosclaw.agent.detectors import build_project_profile
+from rosclaw.agent.harness_readiness import inspect_codex_project_trust
 from rosclaw.agent.install import AGENT_TARGETS
 from rosclaw.agent.merge import read_json_if_exists
 from rosclaw.agent.tool_catalog import P0_AGENT_MCP_TOOLS
@@ -84,12 +84,10 @@ def _stdio_command(
     env = os.environ.copy()
     for key, value in server_config.get("env", {}).items():
         env[str(key)] = _expand_config_value(value, project_root)
-    uses_config_command = os.environ.get("ROSCLAW_AGENT_PROBE_USE_CONFIG_COMMAND") == "1"
-    if Path(command).name == "rosclaw" and (
-        not uses_config_command or shutil.which(command) is None
-    ):
+    use_current_python = os.environ.get("ROSCLAW_AGENT_PROBE_USE_CURRENT_PYTHON") == "1"
+    if Path(command).name == "rosclaw" and use_current_python:
         command = sys.executable
-        args = ["-m", "rosclaw.cli", *args]
+        args = ["-m", "rosclaw.entrypoint", *args]
     return command, args, env
 
 
@@ -320,6 +318,15 @@ def cmd_agent_test_claude_code(args: argparse.Namespace) -> int:
         print(f"Missing tools: {missing}")
         all_ok = False
 
+    if target == "codex":
+        trust = inspect_codex_project_trust(profile.project_root)
+        print(f"Codex project trust: {'yes' if trust.trusted else 'no'} ({trust.detail})")
+        if not trust.trusted:
+            print(
+                "  - Codex will ignore .codex/config.toml until this exact repository is trusted."
+            )
+            all_ok = False
+
     if args.mcp_probe:
         probe = _run_mcp_probe(server_config, project_root=profile.project_root)
         print(f"MCP stdio probe: {'OK' if probe.ok else 'FAILED'}")
@@ -349,7 +356,7 @@ def cmd_agent_test_claude_code(args: argparse.Namespace) -> int:
     if pytest_exit != 0:
         all_ok = False
 
-    return 0 if all_ok else pytest_exit
+    return 0 if all_ok else (pytest_exit or 1)
 
 
 def add_test_parser(subparsers: Any) -> None:

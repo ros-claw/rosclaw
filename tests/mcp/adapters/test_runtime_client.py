@@ -68,10 +68,24 @@ class _FakeRuntime:
 
 @pytest.fixture
 def client_with_runtime() -> RuntimeClient:
+    daemon = MagicMock()
+    daemon.emergency_stop.return_value = {
+        "request_id": "stop-fake",
+        "reason": "integration test",
+        "source": "mcp.emergency_stop",
+        "targets": ["fake_driver"],
+        "request_dispatched": True,
+        "driver_acknowledged": True,
+        "physical_stop_observed": False,
+        "stopped": False,
+        "final_status": "ACKNOWLEDGED",
+        "mode": "runtime",
+    }
     client = RuntimeClient(
         project_root=Path("/tmp/rosclaw-test"),
         robot_id="test_bot",
         runtime_profile={},
+        daemon_client=daemon,
     )
     client._runtime = _FakeRuntime()
     client._adapter_cache = None
@@ -137,11 +151,15 @@ async def test_practice_query_delegates_to_recorder(client_with_runtime: Runtime
     assert response["episodes"][0]["episode_id"] == "ep-1"
 
 
-async def test_emergency_stop_publishes_via_event_bus(client_with_runtime: RuntimeClient) -> None:
+async def test_emergency_stop_delegates_to_daemon(client_with_runtime: RuntimeClient) -> None:
     response = await client_with_runtime.emergency_stop("integration test")
     assert response["stopped"] is False
     assert response["mode"] == "runtime"
     assert response["final_status"] == "ACKNOWLEDGED"
+    client_with_runtime._daemon_client.emergency_stop.assert_called_once_with(
+        "integration test",
+        source="mcp.emergency_stop",
+    )
 
 
 async def test_emergency_stop_degraded_without_runtime() -> None:
