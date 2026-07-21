@@ -363,10 +363,22 @@ class SingleStepExecutor:
         )
         # Best-effort emergency stop.
         self.executor.emergency_stop()
+        # A fault after dispatch is not "never sent": carry the driver's
+        # dispatch/acknowledge state into the result so the receipt and the
+        # trace can distinguish command-sent-observation-lost (TRACE-03).
+        command_sent = getattr(exc, "command_sent", False)
+        if command_sent:
+            self.commands_executed += 1
+            if self.execution_mode is ExecutionMode.FIXTURE:
+                self.fixture_actions_executed += 1
+            else:
+                self.hardware_actions_executed += 1
         return self._result(
             status="fault",
             error_code="communication_lost",
             message=str(exc),
+            command_sent=command_sent,
+            command_acknowledged=getattr(exc, "driver_acknowledged", False),
         )
 
     def emergency_stop(self) -> bool:

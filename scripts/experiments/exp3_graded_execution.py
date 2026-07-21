@@ -75,6 +75,8 @@ from rosclaw.kernel.contracts import (
     ExecutionMode,
     VerificationPolicy,
 )
+from rosclaw.observability.exporters.jsonl import JsonlTraceExporter
+from rosclaw.observability.tracer import Tracer
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PRACTICE_ROOT = Path.home() / ".rosclaw" / "practice" / "runs" / "lerobot_bridge"
@@ -94,8 +96,38 @@ REQUIRED = {"noop": 20, "micro": 10, "motion": 10, "gesture": 10, "ok": 9}
 TRIALS = {"noop": 20, "micro": 10, "motion": 10, "gesture": 10, "ok": 10}
 
 
+# OK contact geometry per hand.  Left: measured on this rig 2026-07-17
+# (settle-wait grid search).  Right: promoted pose from the v2 OK contact
+# experiments on this same physical hand (ok_contact_safe_v2_together_test:
+# thumb 420 / index 410 / thumb_rot 300, force window thumb 80-180 g).
+OK_GEOMETRY = {
+    "left": {
+        "coarse": [1000.0, 1000.0, 1000.0, 400.0, 400.0, 250.0],
+        "floor": [1000.0, 1000.0, 1000.0, 400.0, 210.0, 250.0],
+    },
+    "right": {
+        "coarse": [1000.0, 1000.0, 1000.0, 410.0, 700.0, 300.0],
+        "floor": [1000.0, 1000.0, 1000.0, 410.0, 340.0, 300.0],
+    },
+}
+
+
 class GradedDriver:
-    def __init__(self, profile_path: str, calibration_path: str, trace_path: Path):
+    def __init__(
+        self,
+        profile_path: str,
+        calibration_path: str,
+        trace_path: Path,
+        *,
+        body_id: str = "rh56_left_01",
+        robot_id: str | None = None,
+        hand: str = "left",
+    ):
+        self.body_id = body_id
+        self.robot_id = robot_id or body_id
+        if hand not in OK_GEOMETRY:
+            raise ValueError(f"unknown hand {hand!r}; expected one of {sorted(OK_GEOMETRY)}")
+        self.ok_geometry = OK_GEOMETRY[hand]
         self.profile = load_transport_profile(profile_path)
         self.calibration = load_rh56_calibration(calibration_path)
         validate_transport_binding(
@@ -112,7 +144,11 @@ class GradedDriver:
 
         self.permit_manager = PermitManager()
         self.arming = ArmingController(self.permit_manager)
-        self.gateway = ActionGateway()
+        # P0-5: persist ROBOT_ACTION/ROBOT_STATE spans next to the rollout
+        # JSONL so the acceptance trace gate can replay the causal tree.
+        self.span_exporter = JsonlTraceExporter(output_path=trace_path.with_suffix(".spans.jsonl"))
+        self.tracer = Tracer(exporters=[self.span_exporter])
+        self.gateway = ActionGateway(tracer=self.tracer)
         self.step = SingleStepExecutor(
             executor=RH56Executor(self.transport, self.profile),
             profile=self.profile,
@@ -128,8 +164,8 @@ class GradedDriver:
 
         self.recorder = RolloutRecorder(
             trace_path=trace_path,
-            robot_id="rh56_left_01",
-            body_id="rh56_left_01",
+            robot_id=self.robot_id,
+            body_id=self.body_id,
             policy_id=str(rh56_reference_policy_path()),
             task_id="exp3_graded_execution",
         )
@@ -148,8 +184,8 @@ class GradedDriver:
             if contract.exists()
             else "sha256:no_contract"
         )
-        body_hash = hashlib.sha256(b"rh56_left_01").hexdigest()
-        mapping_hash = hashlib.sha256((str(policy_dir) + "rh56_left_01").encode()).hexdigest()
+        body_hash = hashlib.sha256(self.body_id.encode()).hexdigest()
+        mapping_hash = hashlib.sha256((str(policy_dir) + self.body_id).encode()).hexdigest()
         return {
             "policy_contract_hash": contract_hash,
             "body_hash": f"sha256:{body_hash}",
@@ -172,7 +208,7 @@ class GradedDriver:
         self.arming.begin_preflight()
         self.arming.mark_shadow_validated(**self.hashes)
         self.permit = self.permit_manager.issue(
-            body_id="rh56_left_01",
+            body_id=self.body_id,
             **self.hashes,
             max_step_delta_raw=50.0,
             max_speed=WALK_SPEED,
@@ -249,7 +285,7 @@ class GradedDriver:
             actor_id="exp3_driver",
             agent_framework="rosclaw.exp3",
             session_id=f"exp3_{uuid.uuid4().hex[:8]}",
-            body_id="rh56_left_01",
+            body_id=self.body_id,
             capability_id=CAPABILITY_ID,
             arguments={
                 "permit_id": self.permit.permit_id,
@@ -479,9 +515,9 @@ class GradedDriver:
     def trial_ok_contact(self, index: int) -> dict[str, Any]:
         fb, _ = self.read_observation()
         base = [float(p) for p in fb.position]
-        # OK contact region measured on this hand (2026-07-17 grid search with
-        # settle-wait): the thumb presses the index side around index=400,
-        # thumb_rot=250, thumb≈220-260.  Either contact channel may register
+        # OK contact region: per-hand geometry from OK_GEOMETRY (left hand
+        # measured 2026-07-17 on this rig; right hand from the promoted v2
+        # contact pose on the same physical hand).  Either contact channel may register
         # the press (f_th 69-463 or f_idx 76-463 depending on micro-geometry);
         # contact is judged on the max FORCE_ACT of any channel.  Threshold
         # 70 g = clear rise over the ~49 g rest baseline / ~58 g motion
@@ -489,7 +525,7 @@ class GradedDriver:
         # then 10-raw steps (max ~120 g per step at ~12 g/raw gradient) so
         # the contact threshold is always caught before the >=250 g abort.
         coarse = self.walk_to(
-            [1000.0, 1000.0, 1000.0, 400.0, 400.0, 250.0],
+            list(self.ok_geometry["coarse"]),
             force_limit_g=CONTACT_APPROACH_FORCE_G,
             settle_ms=800.0,
         )
@@ -503,7 +539,7 @@ class GradedDriver:
                 "reason": "coarse approach failed",
             }
         approach = self.walk_to(
-            [1000.0, 1000.0, 1000.0, 400.0, 210.0, 250.0],
+            list(self.ok_geometry["floor"]),
             force_limit_g=CONTACT_APPROACH_FORCE_G,
             stop_on_contact=True,
             abort_on_over_contact=True,
@@ -568,6 +604,8 @@ class GradedDriver:
             if self.permit is not None:
                 self.disarm("driver close")
         with contextlib.suppress(Exception):
+            self.tracer.close()
+        with contextlib.suppress(Exception):
             self.transport.close()
 
 
@@ -587,11 +625,23 @@ def main() -> int:
     parser.add_argument("--levels", default=",".join(LEVELS))
     parser.add_argument("--transport-profile", default="configs/rh56_left_rs485_v1.yaml")
     parser.add_argument("--calibration", default="configs/rh56_left_01_calibration.yaml")
+    parser.add_argument("--body-id", default="rh56_left_01")
+    parser.add_argument("--hand", choices=["left", "right"], default="left")
+    parser.add_argument("--robot-id", default=None)
+    parser.add_argument("--practice-root", default=None)
     args = parser.parse_args()
     levels = [lv for lv in LEVELS if lv in args.levels.split(",")]
 
     trace_path = Path(f"/tmp/rosclaw_exp3_graded_{uuid.uuid4().hex[:8]}.jsonl")
-    driver = GradedDriver(args.transport_profile, args.calibration, trace_path)
+    driver = GradedDriver(
+        args.transport_profile,
+        args.calibration,
+        trace_path,
+        body_id=args.body_id,
+        robot_id=args.robot_id,
+        hand=args.hand,
+    )
+    practice_root = args.practice_root or str(PRACTICE_ROOT)
     summary: dict[str, Any] = {
         "experiment": "exp3_graded_execution",
         "levels": [],
@@ -631,8 +681,8 @@ def main() -> int:
         try:
             summary["practice_id"] = finalize_rollout_practice_session(
                 trace_path,
-                {"robot_id": "rh56_left_01", "task_id": "exp3_graded_execution"},
-                data_root=str(PRACTICE_ROOT),
+                {"robot_id": driver.robot_id, "task_id": "exp3_graded_execution"},
+                data_root=practice_root,
             )
         except Exception as exc:  # noqa: BLE001
             summary["practice_error"] = str(exc)

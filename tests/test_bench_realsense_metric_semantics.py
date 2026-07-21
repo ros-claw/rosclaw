@@ -89,3 +89,31 @@ class TestBenchRealSenseMetricSemantics:
         assert report["streams"]["depth"]["frame_count"] == 0
         assert "aggregate" in report
         assert report["aggregate"]["total_frame_count"] == 0
+
+
+def test_interval_stats_reports_acceptance_fields() -> None:
+    """RS-01 acceptance fields: drop rate, P99, max gap, jitter."""
+    from rosclaw.bench.realsense import _interval_stats
+
+    # 10 frames at perfect 30 fps over 0.3 s -> no drops, ~33.3 ms intervals.
+    arrivals = [i / 30.0 for i in range(10)]
+    stats = _interval_stats(arrivals, elapsed=0.3)
+    assert stats["frame_count"] == 10
+    assert stats["drop_rate"] == 0.0
+    assert 33.0 <= stats["inter_frame_p99_ms"] <= 34.0
+    assert 33.0 <= stats["max_gap_ms"] <= 34.0
+    assert stats["jitter_ms"] < 1.0
+
+    # One 1.2 s hole: max_gap surfaces the >1 s no-frame violation and the
+    # missing frames count into the drop rate.
+    gapped = [0.0, 0.033, 0.066, 1.266, 1.3, 1.333]
+    stats = _interval_stats(gapped, elapsed=1.333)
+    assert stats["max_gap_ms"] >= 1200.0
+    assert stats["drop_rate"] > 0.5
+
+
+def test_interval_stats_degenerate_inputs() -> None:
+    from rosclaw.bench.realsense import _interval_stats
+
+    assert _interval_stats([], 1.0)["max_gap_ms"] is None
+    assert _interval_stats([0.5], 1.0)["drop_rate"] is None

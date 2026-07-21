@@ -24,13 +24,17 @@ TEST_PATH = "/tmp/seekdb_native_tests"
 
 
 @pytest.fixture(scope="module")
-def embedded_path(tmp_path_factory):
-    return tmp_path_factory.mktemp("seekdb_native")
+def embedded_path(shared_embedded_seekdb_target):
+    # One embedded target per process — shared via tests/conftest.py.
+    return shared_embedded_seekdb_target["path"]
 
 
 @pytest.fixture
-def store(embedded_path):
-    store = SeekDBEmbeddedStore(path=str(embedded_path), database="test_db")
+def store(shared_embedded_seekdb_target):
+    store = SeekDBEmbeddedStore(
+        path=shared_embedded_seekdb_target["path"],
+        database=shared_embedded_seekdb_target["database"],
+    )
     store.connect()
     store.delete_where("memory_items", {})
     try:

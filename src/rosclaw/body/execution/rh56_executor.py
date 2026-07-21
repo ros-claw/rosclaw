@@ -123,7 +123,16 @@ class RH56Executor:
         if settle_ms > 0:
             time.sleep(settle_ms / 1000.0)
 
-        feedback = self.read_feedback()
+        try:
+            feedback = self.read_feedback()
+        except ExecutorCommunicationError as exc:
+            # The command was already dispatched (and possibly ACKed) — this
+            # is a post-dispatch observation loss, not a never-sent fault.
+            raise ExecutorCommunicationError(
+                f"post_dispatch_feedback_failed: {exc}",
+                command_sent=True,
+                driver_acknowledged=bool(acknowledged),
+            ) from exc
         return acknowledged, feedback
 
     def emergency_stop(self) -> bool:

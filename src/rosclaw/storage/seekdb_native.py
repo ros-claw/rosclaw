@@ -447,6 +447,32 @@ class SeekDBNativeStore(SeekDBClient):
             info["dimension"] = None
         return info
 
+    # ------------------------------------------------------------------
+    # Diagnostics (db doctor)
+    # ------------------------------------------------------------------
+
+    def list_collections(self) -> list[str]:
+        """Names of all collections in the current database (engine catalog)."""
+        client = self._client
+        if client is None:
+            raise RuntimeError("SeekDBNativeStore is not connected")
+        return sorted(getattr(c, "name", str(c)) for c in client.list_collections())
+
+    def deployment_info(self) -> dict[str, Any]:
+        """Deployment descriptor for diagnostics (embedded path / server DSN).
+
+        Never includes the password.
+        """
+        if self._path is not None:
+            return {"mode": "embedded", "path": self._path, "database": self._database}
+        return {
+            "mode": "server",
+            "host": self._host,
+            "port": self._port,
+            "user": self._user,
+            "database": self._database,
+        }
+
 
 # Deployment-specific aliases matching the PR-SDB-1 naming (§7.3).
 class SeekDBEmbeddedStore(SeekDBNativeStore):

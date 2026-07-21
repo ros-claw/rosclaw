@@ -6,6 +6,7 @@ Adds ``rosclaw db status`` and ``rosclaw db doctor``.
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import json
 import os
@@ -21,6 +22,8 @@ from rosclaw.storage.factory import StorageFactory, _sanitize_url
 from rosclaw.storage.migrations import MigrationRunner
 from rosclaw.storage.outbox import OutboxStore
 
+_NATIVE_SEEKDB_BACKENDS = {"seekdb_embedded", "seekdb_server"}
+
 
 def _close_client(client: Any) -> None:
     """Best-effort close/disconnect for a knowledge-store client."""
@@ -28,6 +31,32 @@ def _close_client(client: Any) -> None:
     if close:
         with contextlib.suppress(Exception):
             close()
+
+
+def _flush_stdout() -> None:
+    """Flush stdout/stderr before returning from a db command.
+
+    The embedded SeekDB engine's teardown can bypass Python's stdio flush at
+    process exit; without this, block-buffered output (pipe/file redirect) is
+    silently lost and the command exits 0 having printed nothing.
+    """
+    with contextlib.suppress(Exception):
+        sys.stdout.flush()
+    with contextlib.suppress(Exception):
+        sys.stderr.flush()
+
+
+def _with_stdout_flush(fn: Any) -> Any:
+    """Decorator: guarantee buffered output lands before process teardown."""
+
+    @functools.wraps(fn)
+    def wrapper(args: argparse.Namespace) -> int:
+        try:
+            return fn(args)
+        finally:
+            _flush_stdout()
+
+    return wrapper
 
 
 def _load_storage_config(args: argparse.Namespace) -> dict[str, Any]:
@@ -146,8 +175,17 @@ def _outbox_status(cfg: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _vector_status(client: Any) -> dict[str, Any]:
-    """Return vector-store status for SQLite-backed clients."""
+    """Return vector-store status for the connected client."""
     status: dict[str, Any] = {"enabled": False}
+    if type(client).__name__ in {"SeekDBEmbeddedStore", "SeekDBServerStore", "SeekDBNativeStore"}:
+        # Native SeekDB embeds server-side on every write; there is no local
+        # warmup step.  Report the deployment mode honestly instead of the
+        # SQLite-only "disabled".
+        status["enabled"] = True
+        status["mode"] = "seekdb_native_server_side"
+        with contextlib.suppress(Exception):
+            status["collections"] = len(client.list_collections())
+        return status
     if type(client).__name__ != "SQLiteKnowledgeStore":
         return status
     enabled = getattr(client, "_vector_enabled", False)
@@ -247,6 +285,7 @@ def _session_event_consistency(
     return event_count, events_lines, consistent, timeline_exists
 
 
+@_with_stdout_flush
 def cmd_db_status(args: argparse.Namespace) -> int:
     """Show storage backend status and capabilities."""
     cfg = _load_storage_config(args)
@@ -334,6 +373,122 @@ def cmd_db_status(args: argparse.Namespace) -> int:
     return 0 if ping.get("connected") else 1
 
 
+def _native_seekdb_checks(
+    client: Any,
+    backend: str,
+    args: argparse.Namespace,
+    checks: list[tuple[str, str, bool]],
+    issues: list[str],
+    result: dict[str, Any],
+) -> None:
+    """Doctor checks for native SeekDB backends (embedded / server).
+
+    Covers the P0 acceptance set: engine readiness, collections, embedder
+    model + dimension, per-collection counts, restart persistence (embedded),
+    and DSN/auth disclosure (server).
+    """
+    import time
+
+    deployment = client.deployment_info()
+    result["seekdb"] = {"backend": backend, "deployment": deployment}
+
+    # 1. Engine readiness: the store's connect() already probes with a 30 s
+    # deadline; time a live catalog round-trip as the observable probe.
+    t0 = time.perf_counter()
+    try:
+        collections = client.list_collections()
+        ready_ms = round((time.perf_counter() - t0) * 1000, 1)
+        checks.append(("engine ready", f"catalog probe {ready_ms} ms", True))
+    except Exception as exc:  # noqa: BLE001
+        checks.append(("engine ready", f"catalog probe failed: {exc}", False))
+        issues.append(f"SeekDB engine not ready: {exc}")
+        return
+
+    # 2. Collections + 3. counts + 4. embedder model/dimension
+    checks.append(("collections", f"{len(collections)} present", True))
+    counts: dict[str, int] = {}
+    dimensions: dict[str, Any] = {}
+    models: dict[str, Any] = {}
+    for name in collections:
+        try:
+            counts[name] = client.count(name)
+        except Exception as exc:  # noqa: BLE001
+            counts[name] = -1
+            issues.append(f"count({name}) failed: {exc}")
+        try:
+            info = client.embedding_info(name)
+            dimensions[name] = info.get("dimension")
+            models[name] = info.get("model_name") or info.get("embedder_type")
+        except Exception as exc:  # noqa: BLE001
+            dimensions[name] = None
+            models[name] = None
+            issues.append(f"embedding_info({name}) failed: {exc}")
+    result["seekdb"]["collections"] = {
+        name: {
+            "count": counts.get(name),
+            "dimension": dimensions.get(name),
+            "embedder": models.get(name),
+        }
+        for name in collections
+    }
+    dim_set = {d for d in dimensions.values() if d is not None}
+    dim_ok = len(dim_set) <= 1
+    checks.append(
+        (
+            "vector dimension",
+            f"{sorted(dim_set) if dim_set else 'n/a'} across {len(dimensions)} collections",
+            dim_ok,
+        )
+    )
+    if not dim_ok:
+        issues.append(f"Mixed vector dimensions across collections: {dimensions}")
+    model_set = {m for m in models.values() if m}
+    checks.append(
+        (
+            "embedder model",
+            ", ".join(sorted(model_set)) if model_set else "n/a",
+            bool(model_set) or not collections,
+        )
+    )
+    if collections and not model_set:
+        issues.append("No embedder model reported for any collection.")
+    total = sum(c for c in counts.values() if c > 0)
+    checks.append(("collection counts", f"{total} records total", True))
+
+    # 5a. Restart persistence (embedded): disconnect + reconnect must see the
+    # same collections — proves the on-disk engine state survives a restart.
+    if deployment["mode"] == "embedded":
+        path = deployment.get("path")
+        try:
+            client.disconnect()
+            client.connect()
+            after = client.list_collections()
+            persisted = set(after) >= set(collections)
+            checks.append(
+                (
+                    "restart persistence",
+                    f"{len(after)}/{len(collections)} collections after reopen at {path}",
+                    persisted,
+                )
+            )
+            if not persisted:
+                issues.append(
+                    f"Embedded engine lost collections across reopen: "
+                    f"{sorted(set(collections) - set(after))}"
+                )
+        except Exception as exc:  # noqa: BLE001
+            checks.append(("restart persistence", f"reopen failed: {exc}", False))
+            issues.append(f"Embedded engine reopen failed: {exc}")
+
+    # 5b. DSN/auth (server): successful connect + catalog listing already
+    # proves auth; disclose the DSN with password redacted.
+    if deployment["mode"] == "server":
+        dsn = f"{deployment.get('user')}@{deployment.get('host')}:{deployment.get('port')}/{deployment.get('database')}"
+        checks.append(("dsn auth", f"authenticated as {dsn}", True))
+        result["seekdb"]["dsn"] = dsn
+
+
+@_with_stdout_flush
 def cmd_db_doctor(args: argparse.Namespace) -> int:
     """Run storage health checks and optionally apply safe fixes."""
     cfg = _load_storage_config(args)
@@ -358,7 +513,7 @@ def cmd_db_doctor(args: argparse.Namespace) -> int:
     # 2. Backend resolution and URL sanity
     backend = cfg["backend"]
     url = cfg["url"]
-    resolved_ok = backend in {"memory", "sqlite", "mysql"}
+    resolved_ok = backend in {"memory", "sqlite", "mysql"} | _NATIVE_SEEKDB_BACKENDS
     checks.append(("backend", backend, resolved_ok))
     if not resolved_ok:
         issues.append(f"Unknown backend '{backend}'.")
@@ -468,6 +623,9 @@ def cmd_db_doctor(args: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001
             issues.append(f"MySQL table listing failed: {exc}")
 
+    if client is not None and backend in _NATIVE_SEEKDB_BACKENDS:
+        _native_seekdb_checks(client, backend, args, checks, issues, result)
+
     # 5. Schema migrations
     if client is not None and backend in {"sqlite", "mysql"}:
         try:
@@ -514,11 +672,19 @@ def cmd_db_doctor(args: argparse.Namespace) -> int:
             "schema_migrations table",
             "present"
             if "schema_migrations" in tables
-            else ("n/a" if backend == "memory" else "missing"),
-            "schema_migrations" in tables or backend == "memory",
+            else (
+                "n/a" if backend == "memory" or backend in _NATIVE_SEEKDB_BACKENDS else "missing"
+            ),
+            "schema_migrations" in tables
+            or backend == "memory"
+            or backend in _NATIVE_SEEKDB_BACKENDS,
         )
     )
-    if "schema_migrations" not in tables and backend != "memory":
+    if (
+        "schema_migrations" not in tables
+        and backend != "memory"
+        and backend not in _NATIVE_SEEKDB_BACKENDS
+    ):
         issues.append("schema_migrations table is missing.")
 
     # 6. Outbox check
@@ -671,8 +837,13 @@ def _jsonl_event_stats(events_path: Path) -> dict[str, Any]:
                 duplicates += 1
             else:
                 ids.add(event_id)
-    return {"count": count, "duplicates": duplicates, "parse_errors": parse_errors,
-            "ids": ids, "exists": True}
+    return {
+        "count": count,
+        "duplicates": duplicates,
+        "parse_errors": parse_errors,
+        "ids": ids,
+        "exists": True,
+    }
 
 
 def _manifest_event_count(session_dir: Path) -> int | None:
@@ -810,10 +981,7 @@ def reconcile_practice(
         and (episode_count is None or episode_count == jsonl["count"])
     )
     local_ok = (
-        counts_match
-        and hash_match
-        and jsonl["duplicates"] == 0
-        and jsonl["parse_errors"] == 0
+        counts_match and hash_match and jsonl["duplicates"] == 0 and jsonl["parse_errors"] == 0
     )
 
     if remote_client is not None:
@@ -831,6 +999,7 @@ def reconcile_practice(
     return report
 
 
+@_with_stdout_flush
 def cmd_db_reconcile(args: argparse.Namespace) -> int:
     """Reconcile practice event persistence across all local/remote paths."""
     cfg = _load_storage_config(args)
@@ -882,10 +1051,14 @@ def cmd_db_reconcile(args: argparse.Namespace) -> int:
 
     all_passed = all(r["passed"] for r in reports)
     if getattr(args, "json", False):
-        output: Any = reports[0] if len(reports) == 1 else {
-            "passed": all_passed,
-            "sessions": reports,
-        }
+        output: Any = (
+            reports[0]
+            if len(reports) == 1
+            else {
+                "passed": all_passed,
+                "sessions": reports,
+            }
+        )
         print(json.dumps(output, indent=2))
     else:
         for report in reports:

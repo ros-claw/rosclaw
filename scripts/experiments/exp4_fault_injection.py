@@ -65,6 +65,8 @@ from rosclaw.kernel.contracts import (
     ExecutionMode,
     VerificationPolicy,
 )
+from rosclaw.observability.exporters.jsonl import JsonlTraceExporter
+from rosclaw.observability.tracer import Tracer
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -78,7 +80,12 @@ class FaultHarness:
         calibration_path: str,
         slave_id: int | None = None,
         sysfs_id: str | None = None,
+        body_id: str = "rh56_left_01",
+        robot_id: str | None = None,
+        spans_path: str | None = None,
     ):
+        self.body_id = body_id
+        self.robot_id = robot_id or body_id
         self.profile = load_transport_profile(profile_path)
         if sysfs_id:
             # When a sysfs id is declared, ALWAYS resolve by it — the node
@@ -100,7 +107,11 @@ class FaultHarness:
         self.transport.connect()
         self.permit_manager = PermitManager()
         self.arming = ArmingController(self.permit_manager)
-        self.gateway = ActionGateway()
+        # P0-5: persist ROBOT_ACTION/ROBOT_STATE spans so the acceptance trace
+        # gate can replay the fault-injection causal tree.
+        self.span_exporter = JsonlTraceExporter(output_path=spans_path) if spans_path else None
+        self.tracer = Tracer(exporters=[self.span_exporter] if self.span_exporter else [])
+        self.gateway = ActionGateway(tracer=self.tracer)
         self.step = SingleStepExecutor(
             executor=RH56Executor(self.transport, self.profile),
             profile=self.profile,
@@ -123,8 +134,8 @@ class FaultHarness:
             if contract.exists()
             else "sha256:no_contract"
         )
-        body_hash = hashlib.sha256(b"rh56_left_01").hexdigest()
-        mapping_hash = hashlib.sha256((str(policy_dir) + "rh56_left_01").encode()).hexdigest()
+        body_hash = hashlib.sha256(self.body_id.encode()).hexdigest()
+        mapping_hash = hashlib.sha256((str(policy_dir) + self.body_id).encode()).hexdigest()
         return {
             "policy_contract_hash": contract_hash,
             "body_hash": f"sha256:{body_hash}",
@@ -137,7 +148,7 @@ class FaultHarness:
         self.arming.begin_preflight()
         self.arming.mark_shadow_validated(**self.hashes)
         self.permit = self.permit_manager.issue(
-            body_id="rh56_left_01",
+            body_id=self.body_id,
             **self.hashes,
             max_step_delta_raw=50.0,
             max_speed=400,
@@ -168,7 +179,7 @@ class FaultHarness:
             actor_id="exp4_fault_injection",
             agent_framework="rosclaw.exp4",
             session_id=f"exp4_{uuid.uuid4().hex[:8]}",
-            body_id="rh56_left_01",
+            body_id=self.body_id,
             capability_id=CAPABILITY_ID,
             arguments=args,
             execution_mode=ExecutionMode.REAL,
@@ -194,6 +205,8 @@ class FaultHarness:
         return [1000.0] * 6
 
     def close(self) -> None:
+        with contextlib.suppress(Exception):
+            self.tracer.close()
         with contextlib.suppress(Exception):
             self.transport.close()
 
@@ -337,10 +350,15 @@ def s3_sandbox_block(h: FaultHarness) -> dict[str, Any]:
 
 
 def s4_slave_no_response(
-    profile_path: str, calibration_path: str, sysfs_id: str | None = None
+    profile_path: str,
+    calibration_path: str,
+    sysfs_id: str | None = None,
+    harness_kwargs: dict | None = None,
 ) -> dict[str, Any]:
     """A silent slave (no unit answers) must escalate to COMMUNICATION_LOST."""
-    h = FaultHarness(profile_path, calibration_path, slave_id=2, sysfs_id=sysfs_id)
+    kwargs = dict(harness_kwargs or {})
+    kwargs.pop("sysfs_id", None)
+    h = FaultHarness(profile_path, calibration_path, slave_id=2, sysfs_id=sysfs_id, **kwargs)
     outcome: dict[str, Any] = {"scenario": "S4 slave_no_response"}
     try:
         h.arm()
@@ -671,12 +689,22 @@ def main() -> int:
     )
     parser.add_argument("--transport-profile", default="configs/rh56_left_rs485_v1.yaml")
     parser.add_argument("--calibration", default="configs/rh56_left_01_calibration.yaml")
+    parser.add_argument("--body-id", default="rh56_left_01")
+    parser.add_argument("--robot-id", default=None)
     args = parser.parse_args()
+    spans_path = f"/tmp/exp4_fault_injection_{uuid.uuid4().hex[:8]}.spans.jsonl"
+    harness_kwargs = {
+        "sysfs_id": getattr(args, "usb_sysfs", None),
+        "body_id": args.body_id,
+        "robot_id": args.robot_id,
+        "spans_path": spans_path,
+    }
+    print(f"spans: {spans_path}", flush=True)
 
     results: list[dict[str, Any]] = []
 
     if args.only == "s8":
-        h = FaultHarness(args.transport_profile, args.calibration, sysfs_id=args.usb_sysfs)
+        h = FaultHarness(args.transport_profile, args.calibration, **harness_kwargs)
         try:
             results.append(
                 s8_usb_unplug(h, sysfs_id=args.usb_sysfs, set_transport=h.update_transport)
@@ -698,21 +726,21 @@ def main() -> int:
         print(f"EXP4 S8 {'PASSED' if passed else 'FAILED'}")
         return 0 if passed else 1
 
-    h = FaultHarness(args.transport_profile, args.calibration, sysfs_id=args.usb_sysfs)
+    h = FaultHarness(args.transport_profile, args.calibration, **harness_kwargs)
     try:
         results.append(s1_stale_observation(h))
     finally:
         h.close()
         time.sleep(1.0)  # FTDI settle between rapid harness reopen cycles
 
-    h = FaultHarness(args.transport_profile, args.calibration, sysfs_id=args.usb_sysfs)
+    h = FaultHarness(args.transport_profile, args.calibration, **harness_kwargs)
     try:
         results.append(s2_calibration_hash_changed(h))
     finally:
         h.close()
         time.sleep(1.0)
 
-    h = FaultHarness(args.transport_profile, args.calibration, sysfs_id=args.usb_sysfs)
+    h = FaultHarness(args.transport_profile, args.calibration, **harness_kwargs)
     try:
         results.append(s3_sandbox_block(h))
     finally:
@@ -720,17 +748,22 @@ def main() -> int:
         time.sleep(1.0)
 
     results.append(
-        s4_slave_no_response(args.transport_profile, args.calibration, sysfs_id=args.usb_sysfs)
+        s4_slave_no_response(
+            args.transport_profile,
+            args.calibration,
+            sysfs_id=args.usb_sysfs,
+            harness_kwargs=harness_kwargs,
+        )
     )
 
-    h = FaultHarness(args.transport_profile, args.calibration, sysfs_id=args.usb_sysfs)
+    h = FaultHarness(args.transport_profile, args.calibration, **harness_kwargs)
     try:
         results.append(s5_worker_restart(h))
     finally:
         h.close()
         time.sleep(1.0)
 
-    h = FaultHarness(args.transport_profile, args.calibration, sysfs_id=args.usb_sysfs)
+    h = FaultHarness(args.transport_profile, args.calibration, **harness_kwargs)
     try:
         results.append(s6_status_protection(h))
     finally:
@@ -739,7 +772,7 @@ def main() -> int:
     results.append(s7_ctrl_c())
 
     if not args.skip_usb:
-        h = FaultHarness(args.transport_profile, args.calibration, sysfs_id=args.usb_sysfs)
+        h = FaultHarness(args.transport_profile, args.calibration, **harness_kwargs)
         try:
             results.append(
                 s8_usb_unplug(h, sysfs_id=args.usb_sysfs, set_transport=h.update_transport)

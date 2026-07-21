@@ -25,7 +25,26 @@ if TYPE_CHECKING:  # avoid a body → integrations runtime dependency
 
 
 class ExecutorCommunicationError(RuntimeError):
-    """Transport-level failure during command or feedback."""
+    """Transport-level failure during command or feedback.
+
+    ``command_sent`` records whether the physical command had already been
+    dispatched when the failure occurred, and ``driver_acknowledged``
+    whether the driver confirmed it.  A fault *after* dispatch (e.g. the
+    post-write feedback read fails) is evidence-wise different from a fault
+    before it: the trace and the receipt must be able to distinguish
+    "command sent, observation lost" from "never sent" (TRACE-03).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        command_sent: bool = False,
+        driver_acknowledged: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.command_sent = command_sent
+        self.driver_acknowledged = driver_acknowledged
 
 
 class ExecutorSafetyError(RuntimeError):
