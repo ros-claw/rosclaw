@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -12,7 +13,7 @@ import pytest
 import rosclaw.daemon.cli as daemon_cli
 import rosclaw.daemon.service as daemon_service
 from rosclaw.core.runtime import Runtime, RuntimeConfig
-from rosclaw.daemon.cli import _parse_octal_mode, dispatch_daemon_argv
+from rosclaw.daemon.cli import _any_effective_access, _parse_octal_mode, dispatch_daemon_argv
 from rosclaw.daemon.ledger import DaemonLedger, LedgerIntegrityError
 from rosclaw.daemon.server import RosclawDaemon
 from rosclaw.daemon.service import DaemonControlPlane
@@ -77,6 +78,51 @@ def test_daemon_status_missing_socket_fails_closed(
     assert payload["error"]["code"] == "DAEMON_UNAVAILABLE"
 
 
+def test_daemon_security_check_same_uid_and_readable_ledger_fail_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
+    socket_path = tmp_path / "run" / "rosclawd.sock"
+    database = tmp_path / "state" / "ledger.sqlite3"
+    key = tmp_path / "state" / "ledger.key"
+    monkeypatch.setenv("ROSCLAW_DAEMON_UID", str(os.geteuid()))
+    with DaemonLedger(database, key_path=key) as ledger:
+        daemon = RosclawDaemon(
+            service=DaemonControlPlane(runtime=_runtime(), ledger=ledger),
+            socket_path=socket_path,
+        )
+        daemon.start()
+        try:
+            result = dispatch_daemon_argv(
+                ["daemon", "security-check", "--socket", str(socket_path), "--json"]
+            )
+        finally:
+            daemon.stop()
+
+    payload = json.loads(capsys.readouterr().out)
+    assert result == 3
+    assert payload["schema_version"] == "rosclaw.daemon.security_check.v2"
+    assert payload["process_separated"] is False
+    assert payload["privilege_separated"] is False
+    assert payload["daemon_observed_client"] is True
+    assert payload["daemon_peer_matches_status"] is True
+    assert payload["daemon_uid_pinned"] is True
+    assert payload["daemon_uid_pin_matches"] is True
+    assert payload["socket_owner_matches_daemon"] is True
+    assert payload["socket_client_read_write"] is True
+    assert payload["runtime_directory_owner_trusted"] is True
+    assert payload["ledger_integrity_verified"] is True
+    assert payload["ledger_write_available"] is True
+    assert payload["ledger_state_private"] is False
+    assert set(payload["ledger_state_client_accessible"]) == {
+        str(database.resolve()),
+        str(database.resolve()) + ".anchor",
+        str(key.resolve()),
+    }
+    assert payload["boundary_ready"] is False
+
+
 def test_socket_mode_parser_requires_owner_access_and_blocks_world_access() -> None:
     assert _parse_octal_mode("0600") == 0o600
     assert _parse_octal_mode("0660") == 0o660
@@ -84,6 +130,18 @@ def test_socket_mode_parser_requires_owner_access_and_blocks_world_access() -> N
     for mode in ("0000", "0060", "0606", "0666"):
         with pytest.raises(argparse.ArgumentTypeError):
             _parse_octal_mode(mode)
+
+
+def test_security_access_probe_detects_read_only_or_write_only_paths(tmp_path: Path) -> None:
+    read_only = tmp_path / "read-only"
+    read_only.write_text("private", encoding="utf-8")
+    read_only.chmod(0o400)
+    write_only = tmp_path / "write-only"
+    write_only.write_text("private", encoding="utf-8")
+    write_only.chmod(0o200)
+
+    assert _any_effective_access(read_only) is True
+    assert _any_effective_access(write_only) is True
 
 
 @pytest.mark.parametrize(

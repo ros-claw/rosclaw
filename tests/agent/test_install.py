@@ -96,12 +96,17 @@ async def test_install_generates_cross_agent_files(
         assert "does not clear E-stop" in guide
         assert "emergency_stop_latched" in guide
         assert "boundary_ready=true" in guide
+        assert "daemon_uid_pinned=true" in guide
+        assert "ledger_state_private=true" in guide
 
     snapshot = json.loads((tmp_path / ".rosclaw/agent/context.snapshot.json").read_text())
     assert snapshot["schema_version"] == "rosclaw.agent.context.v2"
     assert snapshot["tools"]["available"] == list(P0_AGENT_MCP_TOOLS)
     assert snapshot["policies"]["direct_hardware_access"] is False
     assert snapshot["policies"]["real_execution_requires_rosclawd_permit"] is True
+    assert snapshot["policies"]["production_real_requires_privilege_separation"] is True
+    assert snapshot["policies"]["production_real_requires_pinned_daemon_uid"] is True
+    assert snapshot["policies"]["production_real_requires_private_ledger_state"] is True
     assert snapshot["policies"]["agent_may_self_authorize"] is False
     assert snapshot["runtime"]["cli"]["command"] == sys.executable
     assert snapshot["runtime"]["cli"]["args"] == ["-m", "rosclaw.entrypoint"]

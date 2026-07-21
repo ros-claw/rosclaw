@@ -267,8 +267,9 @@ def main() -> int:
         print("\nComponent integration acceptance failed.")
         return 1
     print(
-        "\nComponent integration checks passed. Real ROS 2, cross-UID, "
-        "device-specific E-Stop, and robot-hardware acceptance remain required."
+        "\nComponent integration checks passed. Site-specific device/credential ACLs, "
+        "SROS2, real ROS 2, device-specific E-Stop, and robot-hardware acceptance "
+        "remain required."
     )
     return 0
 

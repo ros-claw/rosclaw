@@ -49,7 +49,7 @@ roadmap disguised as completed work.
 | Scope | Status | Evidence available today |
 |---|---|---|
 | UR5e tabletop reach | **Simulation verified** | Real MuJoCo execution and receipt verification are system-tested. Local Codex CLI black-box runs discovered all 22 MCP tools, completed the simulation workflow, and confirmed that rosclawd blocks unauthorized REAL actions without hardware dispatch; independent H5 acceptance remains pending. |
-| rosclawd Agent/physical boundary | **Component/system verified** | Separate-process socket, SO_PEERCRED, exact permits, and an HMAC-chained SQLite ledger for permit consumption, action/receipt restart recovery, and interrupted-REAL operator review are system-tested; owner-level coordinated rollback, production cross-UID, SROS2, and hardware acceptance remain pending. |
+| rosclawd Agent/physical boundary | **Component/system verified** | Separate-process and clean-wheel cross-UID sockets, pinned SO_PEERCRED identity, private daemon state, exact permits, and durable restart recovery are system-tested, including a reference systemd sandbox; owner-level coordinated rollback, site-specific device/credential ACLs, SROS2, and hardware acceptance remain pending. |
 | Action contract and gateway | **Component/system verified** | Versioned action and receipt, evidence levels, idempotency, exclusive body lease, and fail-closed executor lookup. |
 | E-Stop control path | **Component verified** | Fan-out, timeout, partial ACK, idempotency, latch, and physical-observation fields; no independent physical-stop verification. |
 | Mock Sense, mock Providers, fixture Drivers | **Fixture only** | Explicit FIXTURE and SYNTHETIC data only; never valid for safety or real acceptance. |
@@ -132,9 +132,11 @@ rosclaw daemon security-check --json
 rosclaw daemon acknowledge-recovery --reason "reviewed interrupted action evidence" --json
 ```
 
-Same-UID development mode is not a hardware privilege boundary. REAL
-deployments require the dedicated-user systemd setup, device ACLs, credential
-isolation, and SROS2/DDS access control in
+Same-UID development mode is not a hardware privilege boundary. The clean-wheel
+cross-UID and reference-systemd acceptance scripts verify the generic Linux
+identity, socket, and private-state boundary. A deployed Agent must additionally
+pin `ROSCLAW_DAEMON_UID` to the service account. REAL deployments still require
+site-specific device ACLs, credential isolation, and SROS2/DDS access control in
 [docs/ROSCLAWD.md](docs/ROSCLAWD.md). The local HMAC key and signed head detect
 ordinary tampering and one-sided rollback; they are not a TPM or remote witness
 against an owner-level attacker who can replace all daemon state.

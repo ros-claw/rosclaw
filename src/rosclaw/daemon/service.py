@@ -625,6 +625,8 @@ class DaemonControlPlane:
             status = {
                 "schema_version": "rosclaw.daemon.ledger.v1",
                 "path": str(self.ledger.path),
+                "anchor_path": str(self.ledger.anchor_path),
+                "key_path": str(self.ledger.key_path),
                 "integrity_verified": False,
             }
         status["write_failed"] = self._ledger_write_failed

@@ -379,36 +379,107 @@ def _cmd_emergency_stop(args: argparse.Namespace) -> int:
 def _cmd_security_check(args: argparse.Namespace) -> int:
     client = _client(args)
     status = client.get_runtime_status()
-    socket_metadata = get_daemon_socket_path(args.socket).stat()
-    writable_devices = [
-        str(path)
+    socket_path = get_daemon_socket_path(args.socket)
+    socket_metadata = socket_path.stat()
+    runtime_directory = socket_path.parent
+    runtime_metadata = runtime_directory.stat()
+    serial_devices = {
+        path
         for pattern in ("/dev/ttyUSB*", "/dev/ttyACM*", "/dev/serial/by-id/*")
         for path in Path("/").glob(pattern.lstrip("/"))
-        if os.access(path, os.R_OK | os.W_OK)
-    ]
-    group_ids = [os.getegid(), *os.getgroups()]
+    }
+    readable_devices = sorted(
+        str(path) for path in serial_devices if _effective_access(path, os.R_OK)
+    )
+    writable_devices = sorted(
+        str(path) for path in serial_devices if _effective_access(path, os.W_OK)
+    )
+    accessible_devices = sorted(set(readable_devices) | set(writable_devices))
+    group_ids = sorted({os.getegid(), *os.getgroups()})
     group_names = _group_names(group_ids)
+    daemon_uid = status.get("daemon_uid")
+    daemon_peer = status.get("daemon_peer")
+    client_peer = status.get("client_peer")
+    expected_daemon_uid = client.expected_daemon_uid
+    ledger = status.get("ledger")
+    ledger_paths = []
+    if isinstance(ledger, dict):
+        ledger_paths = [
+            str(value)
+            for key in ("path", "anchor_path", "key_path")
+            if isinstance((value := ledger.get(key)), str) and value
+        ]
+    accessible_ledger_paths = [path for path in ledger_paths if _any_effective_access(Path(path))]
+    socket_mode = stat.S_IMODE(socket_metadata.st_mode)
+    runtime_mode = stat.S_IMODE(runtime_metadata.st_mode)
+    daemon_peer_uid = daemon_peer.get("uid") if isinstance(daemon_peer, dict) else None
+    observed_client = isinstance(client_peer, dict) and (
+        client_peer.get("pid") == os.getpid()
+        and client_peer.get("uid") == os.geteuid()
+        and client_peer.get("gid") == os.getegid()
+    )
     check = {
-        "schema_version": "rosclaw.daemon.security_check.v1",
+        "schema_version": "rosclaw.daemon.security_check.v2",
         "client_pid": os.getpid(),
         "client_uid": os.geteuid(),
         "client_groups": group_names,
         "daemon_pid": status.get("daemon_pid"),
-        "daemon_uid": status.get("daemon_uid"),
+        "daemon_uid": daemon_uid,
+        "daemon_peer_uid": daemon_peer_uid,
+        "expected_daemon_uid": expected_daemon_uid,
         "process_separated": status.get("daemon_pid") != os.getpid(),
-        "privilege_separated": status.get("daemon_uid") != os.geteuid(),
-        "socket_path": str(get_daemon_socket_path(args.socket)),
-        "socket_mode": f"{stat.S_IMODE(socket_metadata.st_mode):04o}",
-        "socket_world_writable": bool(stat.S_IMODE(socket_metadata.st_mode) & stat.S_IWOTH),
+        "privilege_separated": daemon_uid != os.geteuid(),
+        "daemon_observed_client": observed_client,
+        "daemon_peer_matches_status": daemon_peer_uid == daemon_uid,
+        "daemon_uid_pinned": expected_daemon_uid is not None,
+        "daemon_uid_pin_matches": expected_daemon_uid == daemon_uid,
+        "socket_path": str(socket_path),
+        "socket_mode": f"{socket_mode:04o}",
+        "socket_uid": socket_metadata.st_uid,
+        "socket_gid": socket_metadata.st_gid,
+        "socket_owner_matches_daemon": socket_metadata.st_uid == daemon_uid,
+        "socket_group_member": socket_metadata.st_gid in group_ids,
+        "socket_client_read_write": _effective_access(socket_path, os.R_OK | os.W_OK),
+        "socket_world_accessible": bool(socket_mode & 0o007),
+        "runtime_directory": str(runtime_directory),
+        "runtime_directory_mode": f"{runtime_mode:04o}",
+        "runtime_directory_uid": runtime_metadata.st_uid,
+        "runtime_directory_gid": runtime_metadata.st_gid,
+        "runtime_directory_owner_trusted": runtime_metadata.st_uid in {0, daemon_uid},
+        "runtime_directory_group_world_writable": bool(runtime_mode & 0o022),
+        "runtime_directory_client_writable": _effective_access(runtime_directory, os.W_OK),
+        "ledger_enabled": isinstance(ledger, dict),
+        "ledger_integrity_verified": isinstance(ledger, dict)
+        and ledger.get("integrity_verified") is True,
+        "ledger_write_available": isinstance(ledger, dict) and ledger.get("write_failed") is False,
+        "ledger_state_paths": ledger_paths,
+        "ledger_state_client_accessible": accessible_ledger_paths,
+        "ledger_state_private": len(ledger_paths) == 3 and not accessible_ledger_paths,
         "client_in_dialout": "dialout" in group_names,
+        "readable_serial_devices": readable_devices,
         "writable_serial_devices": writable_devices,
+        "accessible_serial_devices": accessible_devices,
     }
     check["boundary_ready"] = bool(
         check["process_separated"]
         and check["privilege_separated"]
-        and not check["socket_world_writable"]
+        and check["daemon_observed_client"]
+        and check["daemon_peer_matches_status"]
+        and check["daemon_uid_pinned"]
+        and check["daemon_uid_pin_matches"]
+        and check["socket_owner_matches_daemon"]
+        and check["socket_group_member"]
+        and check["socket_client_read_write"]
+        and not check["socket_world_accessible"]
+        and check["runtime_directory_owner_trusted"]
+        and not check["runtime_directory_group_world_writable"]
+        and not check["runtime_directory_client_writable"]
+        and check["ledger_enabled"]
+        and check["ledger_integrity_verified"]
+        and check["ledger_write_available"]
+        and check["ledger_state_private"]
         and not check["client_in_dialout"]
-        and not check["writable_serial_devices"]
+        and not check["accessible_serial_devices"]
     )
     _print_payload(args, check)
     return 0 if check["boundary_ready"] else 3
@@ -448,6 +519,17 @@ def _group_names(group_ids: list[int]) -> list[str]:
         except KeyError:
             names.append(str(group_id))
     return sorted(set(names))
+
+
+def _effective_access(path: Path, mode: int) -> bool:
+    try:
+        return os.access(path, mode, effective_ids=True)
+    except (NotImplementedError, TypeError):
+        return os.access(path, mode)
+
+
+def _any_effective_access(path: Path) -> bool:
+    return _effective_access(path, os.R_OK) or _effective_access(path, os.W_OK)
 
 
 __all__ = [

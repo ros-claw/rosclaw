@@ -314,7 +314,8 @@ For a healthy daemon, require `running` and `ledger.integrity_verified` to be
 `true`, and require `ledger.write_failed`, `recovery.required`, and
 `emergency_stop_latched` to be `false`. Production REAL work additionally
 requires `privilege_separated=true` and a `daemon security-check --json` result
-with `boundary_ready=true`; same-UID development is not deployment evidence.
+with `boundary_ready=true`, `daemon_uid_pinned=true`, and
+`ledger_state_private=true`; same-UID development is not deployment evidence.
 Treat `daemon acknowledge-recovery` as an operator incident-review command,
 not an Agent workflow; it does not clear E-stop or prove physical state.
 
@@ -406,7 +407,8 @@ request.
   `recovery.required`, and `emergency_stop_latched` to be `false` before
   relying on the control plane.
 - Production REAL work also requires `privilege_separated=true` and
-  `{cli} daemon security-check --json` with `boundary_ready=true`. Same-UID
+  `{cli} daemon security-check --json` with `boundary_ready=true`,
+  `daemon_uid_pinned=true`, and `ledger_state_private=true`. Same-UID
   development proves only a process boundary.
 - Inspect an existing action with `{cli} daemon action-status <ACTION_ID>
   --json` and `{cli} daemon receipt <ACTION_ID> --json`.
@@ -481,7 +483,8 @@ For `daemon status`, require `running` and `ledger.integrity_verified` to be
 `true`; require `ledger.write_failed`, `recovery.required`, and
 `emergency_stop_latched` to be `false`. Production REAL work also requires
 `privilege_separated=true` and `{cli} daemon security-check --json` with
-`boundary_ready=true`; same-UID development proves only process separation.
+`boundary_ready=true`, `daemon_uid_pinned=true`, and
+`ledger_state_private=true`; same-UID development proves only process separation.
 Read an existing durable result with `{cli} daemon action-status <ACTION_ID>
 --json` and `{cli} daemon receipt <ACTION_ID> --json`. Do not use
 `daemon acknowledge-recovery` as Agent automation: it is an operator
@@ -590,6 +593,9 @@ def render_context_snapshot(profile: ProjectProfile) -> dict[str, Any]:
         "policies": {
             "direct_hardware_access": False,
             "real_execution_requires_rosclawd_permit": True,
+            "production_real_requires_privilege_separation": True,
+            "production_real_requires_pinned_daemon_uid": True,
+            "production_real_requires_private_ledger_state": True,
             "agent_may_self_authorize": False,
             "fixture_allowed_for_real": False,
             "validate_before_motion": True,

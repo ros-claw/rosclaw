@@ -220,11 +220,14 @@ assets can execute a MuJoCo step without resolving files from the source tree.
 
 ## Remaining gaps
 
-1. The base rosclawd process does not yet load a hardware pack, REAL executor,
-   operator permit issuer, or pack-specific policy/calibration validator; REAL
-   remains fail-closed without a trusted daemon-side integration.
-2. Production cross-UID, device ACL, credential isolation, and SROS2
-   enforcement require host-level deployment acceptance.
+1. rosclawd can load a configured signed Robot Pack, but the built-in RealSense
+   Pack is perception-only. No production actuator Pack or operator permit
+   issuer is shipped; REAL actuation remains fail-closed without a trusted
+   daemon-side integration and pack-specific policy/calibration validation.
+2. Clean-wheel cross-UID and the reference systemd sandbox are automated and
+   verified. Site-specific service identities, exact device ACLs, credential
+   isolation, and SROS2 enforcement still require operator deployment
+   acceptance.
 3. ROS2 and DDS Body Sense collectors are still stubs and therefore return
    unavailable rather than live state.
 4. Agent-facing MCPHub, UR5 MCP, and ROS connector emergency paths now use

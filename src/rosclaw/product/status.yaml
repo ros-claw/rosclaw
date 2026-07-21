@@ -231,9 +231,23 @@ components:
         observation_scope: local_durable_control_boundary
         fixture: false
         independent: true
+      - id: rosclawd-cross-uid-blackbox
+        kind: automated_deployment_test
+        path: scripts/acceptance/daemon_cross_uid.sh
+        verified_at: "2026-07-21"
+        observation_scope: clean_wheel_cross_uid_linux
+        fixture: false
+        independent: true
+      - id: rosclawd-systemd-blackbox
+        kind: automated_deployment_test
+        path: scripts/acceptance/daemon_systemd.sh
+        verified_at: "2026-07-21"
+        observation_scope: reference_systemd_sandbox
+        fixture: false
+        independent: true
     evidence_summary:
-      en: Separate-process socket, SO_PEERCRED, exact permits, and an HMAC-chained SQLite ledger for permit consumption, action/receipt restart recovery, and interrupted-REAL operator review are system-tested; owner-level coordinated rollback, production cross-UID, SROS2, and hardware acceptance remain pending.
-      zh: 独立进程 socket、SO_PEERCRED、精确 Permit，以及用于持久化 Permit 消耗、重启恢复 Action/Receipt 和中断 REAL 动作人工复核的 HMAC 链式 SQLite 账本已通过系统测试；同所有者协同回滚、生产跨 UID、SROS2 与真机验收仍待完成。
+      en: Separate-process and clean-wheel cross-UID sockets, pinned SO_PEERCRED identity, private daemon state, exact permits, and durable restart recovery are system-tested, including a reference systemd sandbox; owner-level coordinated rollback, site-specific device/credential ACLs, SROS2, and hardware acceptance remain pending.
+      zh: 独立进程与 clean-wheel 跨 UID socket、固定的 SO_PEERCRED 身份、Agent 不可读写的 daemon 私有状态、精确 Permit 和持久重启恢复已通过系统测试，并包含参考 systemd sandbox；同所有者协同回滚、站点设备/凭证 ACL、SROS2 与真机验收仍待完成。
 
   action_gateway:
     display:

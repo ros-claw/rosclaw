@@ -41,7 +41,7 @@ This document lists ROSClaw CLI commands and their implementation status.
 | `rosclaw daemon cancel <action-id>` | Experimental | Cancel only before dispatch |
 | `rosclaw daemon emergency-stop --reason <text>` | Experimental | Request the daemon emergency path |
 | `rosclaw daemon acknowledge-recovery --reason <text>` | Experimental | As daemon UID, persist review of interrupted REAL evidence |
-| `rosclaw daemon security-check --json` | Experimental | Check local process/UID/device separation |
+| `rosclaw daemon security-check --json` | Experimental | Check pinned daemon identity, socket/runtime ACLs, private ledger state, and client device separation |
 | `rosclaw daemon stop` | Experimental | As daemon UID, request orderly daemon shutdown |
 | `rosclaw run` | Stable | Start the ROSClaw runtime |
 | `rosclaw start` | Stable | Alias for `run` |

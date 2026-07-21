@@ -167,6 +167,7 @@ class DaemonLedger:
                 "schema_version": LEDGER_SCHEMA_VERSION,
                 "path": str(self.path),
                 "anchor_path": str(self.anchor_path),
+                "key_path": str(self.key_path),
                 "integrity_verified": True,
                 "event_count": sequence,
                 "head_sequence": sequence,

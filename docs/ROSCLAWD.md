@@ -45,13 +45,13 @@ The current implementation provides:
 - MCP action and emergency tools that call the daemon instead of constructing a
   physical Runtime in the Agent process.
 
-The base daemon intentionally loads no hardware pack or REAL executor. REAL
-actions therefore fail closed unless a trusted daemon-side integration
-registers both the executor and permit. Permit issuance and hardware-pack
-loading are not exposed to Agent RPC in this phase. A future REAL pack must
-validate its body policy, calibration, mapping, and action limits on the daemon
-side before registering a permit; the base daemon does not yet provide that
-pack-specific validation.
+An unconfigured daemon loads no hardware pack or REAL executor. A configured,
+signed Robot Pack may be loaded only on the daemon side; the current built-in
+RealSense path is perception-only and no production actuator Pack is claimed.
+REAL actions therefore fail closed unless a trusted daemon-side integration
+validates its Body policy, calibration, mapping, and action limits before it
+registers both an executor and an exact permit. Permit issuance, Pack loading,
+and executor registration are not exposed to Agent RPC.
 
 ## Development Mode
 
@@ -153,6 +153,11 @@ sudo install -D -m 0644 deploy/systemd/rosclawd.service \
   /etc/systemd/system/rosclawd.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now rosclawd
+
+# Configure these in the Agent/MCP service environment, not in a prompt.
+export ROSCLAW_DAEMON_SOCKET=/run/rosclaw/rosclawd.sock
+export ROSCLAW_DAEMON_UID="$(id -u rosclaw-hw)"
+rosclaw daemon security-check --json
 ```
 
 The service starts with `DevicePolicy=closed`; it cannot touch a robot until an
@@ -197,18 +202,35 @@ Run:
 ```bash
 scripts/acceptance/daemon_blackbox.sh
 rosclaw daemon security-check --json
+
+# These require ROSClaw installed from a wheel outside a protected user home.
+ROSCLAW_ACCEPTANCE_PYTHON=/opt/rosclaw/bin/python \
+  scripts/acceptance/daemon_cross_uid.sh
+ROSCLAW_ACCEPTANCE_PYTHON=/opt/rosclaw/bin/python \
+  scripts/acceptance/daemon_systemd.sh
 ```
 
 `security-check` returns success only when:
 
 - daemon and client PIDs differ;
 - daemon and client UIDs differ;
-- the socket is not world-writable;
+- `ROSCLAW_DAEMON_UID` pins the kernel-authenticated daemon peer;
+- the daemon owns the socket and its protected runtime directory;
+- the Agent reaches the socket through the configured client group, while the
+  socket and directory remain non-world-accessible and non-client-writable;
+- the durable ledger is healthy and its database, anchor, and key are not
+  readable or writable by the Agent UID;
 - the Agent is not in `dialout`;
 - the Agent cannot read/write detected serial devices.
 
-It does not prove SROS2 policy, vendor-credential isolation, CAN ACLs, network
-firewalls, or a physical E-stop. Those remain deployment acceptance items.
+`daemon_cross_uid.sh` uses two existing low-privilege Linux accounts, rejects a
+source-tree import, verifies daemon-only RPC denial and forged REAL denial, and
+restarts the daemon to prove durable ownership and Receipt recovery.
+`daemon_systemd.sh` additionally launches a transient service with the reference
+`DevicePolicy`, directory modes, empty capability set, and filesystem hardening.
+Neither script creates users or accesses hardware. They do not prove a site's
+SROS2 policy, vendor-credential isolation, exact device/CAN ACLs, network
+firewalls, or physical E-stop; those remain deployment acceptance items.
 
 The daemon protocol relies on Linux pathname socket permissions and peer
 credentials described by

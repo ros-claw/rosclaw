@@ -35,6 +35,7 @@ def test_authenticated_event_survives_ledger_reopen(tmp_path: Path) -> None:
 
     assert [event.to_dict() for event in events] == [written.to_dict()]
     assert status["integrity_verified"] is True
+    assert status["key_path"] == str(key.resolve())
     assert status["event_count"] == 2  # LEDGER_CREATED + domain event
 
 
