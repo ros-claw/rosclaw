@@ -52,6 +52,7 @@ roadmap disguised as completed work.
 | rosclawd Agent/physical boundary | **Component/system verified** | Cross-UID sockets, SO_PEERCRED identity, private state, exact permits, restart recovery, DISARMED generations, Agent Sessions, Action Leases, orphan handling, watchdogs, and isolated worker restart budgets are system-tested; site-specific device ACLs, controller deadman wiring, and hardware acceptance remain pending. |
 | Action contract and gateway | **Component/system verified** | Versioned action and receipt, finite deadline and lease, orphan policy, stop capability, strict acknowledgement stages, idempotency, exclusive body lease, and fail-closed executor lookup. |
 | Capability-only App runtime | **Component verified** | Local and bundled App manifests, digest-locked installation, low-code authoring, and daemon-only workflow execution are tested; remote App registry and independent Agent acceptance remain pending. |
+| Generic Hub asset supply chain | **Component/system verified** | Complete payload hashes, detached Ed25519 signatures, independently scoped trust roots, canonical-reference and copied-manifest binding, target re-verification, bounded extraction, explicit install permissions, owner-only local credentials, and local/file registry lifecycle are system-tested. The packaged trust store is empty; public registry, TUF rollback protection, OS-keyring integration, and builder-attestation verification remain pending. |
 | E-Stop control path | **Component verified** | Fan-out, timeout, partial ACK, idempotency, latch, and physical-observation fields; no independent physical-stop verification. |
 | Mock Sense, mock Providers, fixture Drivers | **Fixture only** | Explicit FIXTURE and SYNTHETIC data only; never valid for safety or real acceptance. |
 | RealSense perception-only path | **Experimental** | A signed, commit-locked RealSense Robot Integration covers install/configure/verify/status, Body binding, daemon-side RGB-D execution, artifact hashing, and bounded MCP subprocess faults; this repository still has no independently verified hardware capture run. |
@@ -261,7 +262,12 @@ Dashboard endpoints.
 
 ## Hub & Assets
 
-The ROSClaw Hub is a **Physical-AI Asset Hub** for skills, providers, hardware MCP servers, digital twins, and cognitive wikis. Assets can be kept entirely local or synced with a registry.
+The generic ROSClaw Hub is a **Physical-AI developer asset pipeline** for
+skills, providers, hardware MCP servers, digital twins, and cognitive wikis.
+It now enforces complete payload hashes, detached Ed25519 signatures,
+independent scoped trust roots, and safe archive extraction. Its registry is
+still local/file-backed; this is not yet a supported public asset registry and
+is separate from the existing `rosclaw mcp` discovery service.
 
 Supported asset types:
 
@@ -274,8 +280,14 @@ Supported asset types:
 ```bash
 rosclaw hub validate tests/fixtures/hub_assets/hardware_mcp_valid/manifest.yaml
 rosclaw hub search g1
-rosclaw hub install rosclaw://hardware_mcp/rosclaw/unitree-g1@1.0.0 --yes
+rosclaw hub verify tests/fixtures/hub_assets/hardware_mcp_valid \
+  --trust-store tests/fixtures/hub_keys/trust.json
+rosclaw hub install tests/fixtures/hub_assets/hardware_mcp_valid --dry-run \
+  --trust-store tests/fixtures/hub_keys/trust.json --allow-real-robot
 ```
+
+The committed trust key is test-only. Production trust roots must be
+provisioned independently; the packaged trust store is intentionally empty.
 
 See [docs/ASSETS.md](docs/ASSETS.md) and [docs/hub/README.md](docs/hub/README.md).
 

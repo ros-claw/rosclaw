@@ -24,27 +24,36 @@ cognitive wikis.
 
 ## One-page workflow
 
-Use a temporary copy of the fixture registry so publishes do not mutate the
-committed fixtures:
+The repository fixture key is intentionally public and is suitable only for
+this local demonstration. Use a temporary registry so the workflow does not
+mutate committed fixtures:
 
 ```bash
 # 1. Validate a local asset
 rosclaw hub validate tests/fixtures/hub_assets/hardware_mcp_valid/manifest.yaml
 
-# 2. Start a local fake registry from a temporary copy
-REGISTRY_DIR=$(mktemp -d)
-cp -r tests/fixtures/fake_registry/* "$REGISTRY_DIR/"
-python -m tests.fixtures.fake_registry.server --directory "$REGISTRY_DIR" --port 8787 &
+# 2. Configure test-only signing and trust material
+export ROSCLAW_HUB_SIGNING_KEY="$PWD/tests/fixtures/hub_keys/fixture-private.pem"
+export ROSCLAW_HUB_SIGNING_KEY_ID=rosclaw-hub-fixture-v1
+export ROSCLAW_HUB_TRUST_STORE="$PWD/tests/fixtures/hub_keys/trust.json"
 
-# 3. Login, publish a skill, sync, and search
+# 3. Start an empty local fake registry
+REGISTRY_DIR=$(mktemp -d)
+touch "$REGISTRY_DIR/catalog.jsonl"
+PYTHONPATH=src python3 tests/fixtures/fake_registry/server.py \
+  --directory "$REGISTRY_DIR" --port 8787 &
+
+# 4. Login, publish a signed skill, sync, and search
 export ROSCLAW_HOME=$(mktemp -d)
 rosclaw hub login --registry http://localhost:8787 --token fake-valid-token --insecure-local
-rosclaw hub publish tests/fixtures/hub_assets/skill_valid --private
+rosclaw hub publish tests/fixtures/hub_assets/skill_valid --private --sign
 rosclaw hub sync
 rosclaw hub search g1-pick-place
 
-# 4. Install / uninstall the published asset
-rosclaw hub install rosclaw://skill/rosclaw/g1-pick-place@1.2.0 --yes --skip-health
+# 5. Verify, install, and uninstall the published asset
+rosclaw hub verify tests/fixtures/hub_assets/skill_valid
+rosclaw hub install rosclaw://skill/rosclaw/g1-pick-place@1.2.0 \
+  --yes --allow-real-robot --skip-health
 rosclaw hub list --installed
 rosclaw hub uninstall rosclaw://skill/rosclaw/g1-pick-place@1.2.0 --yes
 ```
@@ -56,7 +65,11 @@ rosclaw hub uninstall rosclaw://skill/rosclaw/g1-pick-place@1.2.0 --yes
 
 ## Known limitations
 
-- Signing uses placeholder material and must be replaced before production.
-- The fake registry is local/file-based; cloud registry client is stubbed.
-- `tarfile.extractall()` deprecation warnings are suppressed on Python 3.12+
-  via a compatibility helper that uses `filter='data'`.
+- Detached Ed25519 signing, scoped trust, complete payload integrity, and safe
+  extraction are implemented and tested on Python 3.11 through 3.13.
+- The packaged trust store is intentionally empty; there is no governed public
+  generic-Hub release root yet.
+- The registry is local/file-backed. A production public client, TUF metadata,
+  rollback protection, and builder-attestation verification remain open.
+- The generic `rosclaw hub` registry is separate from the existing
+  `rosclaw mcp` discovery service.

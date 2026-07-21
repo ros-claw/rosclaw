@@ -117,6 +117,63 @@ class TestInstallRollback:
         mcp_path = home / ".mcp.json"
         assert not mcp_path.exists() or str(ref) not in mcp_path.read_text()
 
+    def test_copy_failure_removes_partial_target(self, tmp_path: Path, monkeypatch) -> None:
+        """A copytree failure cannot leave a directory that blocks repair."""
+        home = tmp_path / "home"
+        installer = Installer(home=home, project_root=home)
+        target_dir = installer._asset_install_dir(_hardware_ref())
+
+        def fail_after_partial_copy(_source: Path, target: Path) -> None:
+            target.mkdir(parents=True)
+            (target / "partial.bin").write_bytes(b"partial")
+            raise OSError("forced copy failure")
+
+        monkeypatch.setattr("rosclaw.hub.installer.shutil.copytree", fail_after_partial_copy)
+
+        with pytest.raises(OSError, match="forced copy failure"):
+            installer.install_local(HARDWARE_MCP_FIXTURE, options=_install_options())
+
+        assert not target_dir.exists()
+
+    def test_copied_payload_is_reverified(self, tmp_path: Path, monkeypatch) -> None:
+        """Corruption during local copy is rejected before registry mutation."""
+        home = tmp_path / "home"
+        installer = Installer(home=home, project_root=home)
+        original_copy = Installer._copy_asset_files
+
+        def copy_and_tamper(source: Path, target: Path) -> None:
+            original_copy(source, target)
+            (target / "artifacts" / "mcp_server").write_text("tampered", encoding="utf-8")
+
+        monkeypatch.setattr(Installer, "_copy_asset_files", staticmethod(copy_and_tamper))
+
+        with pytest.raises(HubError, match="Copied asset verification failed") as exc_info:
+            installer.install_local(HARDWARE_MCP_FIXTURE, options=_install_options())
+
+        assert exc_info.value.code == HubErrorCode.CHECKSUM_MISMATCH
+        assert not installer._asset_install_dir(_hardware_ref()).exists()
+
+    def test_copied_manifest_is_bound_to_verified_snapshot(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A manifest change during copy cannot alter transaction identity."""
+        home = tmp_path / "home"
+        installer = Installer(home=home, project_root=home)
+        original_copy = Installer._copy_asset_files
+
+        def copy_and_tamper(source: Path, target: Path) -> None:
+            original_copy(source, target)
+            manifest_path = target / "manifest.yaml"
+            manifest_path.write_bytes(manifest_path.read_bytes() + b"\n")
+
+        monkeypatch.setattr(Installer, "_copy_asset_files", staticmethod(copy_and_tamper))
+
+        with pytest.raises(HubError, match="manifest changed") as exc_info:
+            installer.install_local(HARDWARE_MCP_FIXTURE, options=_install_options())
+
+        assert exc_info.value.code == HubErrorCode.CHECKSUM_MISMATCH
+        assert not installer._asset_install_dir(_hardware_ref()).exists()
+
     def test_post_mcp_failure_rolls_back_all_side_effects(self, tmp_path: Path) -> None:
         """If a step after MCP merge fails, registry and MCP are both cleaned."""
         home = tmp_path / "home"

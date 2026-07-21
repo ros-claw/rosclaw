@@ -266,14 +266,14 @@
 | `hub logout` | Forget stored Hub credentials | `rosclaw hub logout [-h] [--registry REGISTRY]` |
 | `hub sync` | Sync the local catalog index | `rosclaw hub sync [-h] [--registry REGISTRY] [--clear]` |
 | `hub search` | Search the local catalog index | `rosclaw hub search [-h] [--type TYPE] [--namespace NAMESPACE] [--official] [--license LICENSE] [--robot ROBOT] [--compatible] [--limit LIMIT] [--json] [query]` |
-| `hub verify` | Verify asset integrity (checksums, artifacts, signatures) | `rosclaw hub verify [-h] [--no-signature] [--json] asset_dir` |
+| `hub verify` | Verify asset integrity (checksums, artifacts, signatures) | `rosclaw hub verify [-h] [--no-signature] [--trust-store TRUST_STORE] [--json] asset_dir` |
 | `hub policy` | Check asset against local permission and license policy | `rosclaw hub policy [-h] {check} ...` |
 | `hub policy check` | Check permissions and license policy | `rosclaw hub policy check [-h] [--allow-real-robot] [--accept-license] [--json] asset_dir` |
-| `hub install` | Install an asset from a local directory or registry reference | `rosclaw hub install [-h] [--dry-run] [--yes] [--accept-license] [--no-mcp-merge] [--skip-health] [--no-verify-signature] [--allow-real-robot] [--allow-safety-config-changes] [--allow-network-inbound] [--json] asset_dir` |
+| `hub install` | Install an asset from a local directory or registry reference | `rosclaw hub install [-h] [--dry-run] [--yes] [--accept-license] [--no-mcp-merge] [--skip-health] [--no-verify-signature] [--trust-store TRUST_STORE] [--allow-real-robot] [--allow-safety-config-changes] [--allow-network-inbound] [--json] asset_dir` |
 | `hub uninstall` | Uninstall an asset by reference | `rosclaw hub uninstall [-h] [--yes] [--json] ref` |
-| `hub update` | Update an installed asset from a local directory | `rosclaw hub update [-h] [--dry-run] [--yes] [--accept-license] [--no-mcp-merge] [--skip-health] [--no-verify-signature] [--allow-real-robot] [--allow-safety-config-changes] [--allow-network-inbound] [--json] ref asset_dir` |
+| `hub update` | Update an installed asset from a local directory | `rosclaw hub update [-h] [--dry-run] [--yes] [--accept-license] [--no-mcp-merge] [--skip-health] [--no-verify-signature] [--trust-store TRUST_STORE] [--allow-real-robot] [--allow-safety-config-changes] [--allow-network-inbound] [--json] ref asset_dir` |
 | `hub list` | List installed assets | `rosclaw hub list [-h] [--installed] [--json]` |
-| `hub publish` | Prepare and publish a ROSClaw Hub asset | `rosclaw hub publish [-h] [--dry-run] [--private] [--public] [--sign] [--registry REGISTRY] [--output OUTPUT] [--json] asset_dir` |
+| `hub publish` | Prepare and publish a ROSClaw Hub asset | `rosclaw hub publish [-h] [--dry-run] [--private] [--public] [--sign] [--signing-key SIGNING_KEY] [--signing-key-id SIGNING_KEY_ID] [--registry REGISTRY] [--output OUTPUT] [--json] asset_dir` |
 
 ## Mcp commands
 

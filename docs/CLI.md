@@ -132,16 +132,21 @@ issue a Permit, arm the Runtime, or prove hardware execution.
 | Command | Status | Description |
 |---------|--------|-------------|
 | `rosclaw hub validate <manifest.yaml>` | Stable | Validate a local asset manifest |
-| `rosclaw hub login --registry <url> --token <token>` | Stable | Log in to a registry |
-| `rosclaw hub sync` | Stable | Sync registry metadata |
-| `rosclaw hub search <term>` | Stable | Search available assets |
-| `rosclaw hub verify <uri>` | Stable | Verify an asset bundle |
-| `rosclaw hub publish --dry-run` | Stable | Validate before publishing |
+| `rosclaw hub login --registry <url> --token <token>` | Experimental | Configure the local/file or fixture registry client |
+| `rosclaw hub sync` | Experimental | Sync fixture registry metadata into the local catalog |
+| `rosclaw hub search <term>` | Experimental | Search the local or synchronized fixture catalog |
+| `rosclaw hub verify <asset_dir>` | Stable | Verify complete payload integrity and scoped Ed25519 trust |
+| `rosclaw hub publish <asset_dir> --dry-run` | Stable | Prepare and validate a signed asset without bundle or registry output |
 | `rosclaw hub policy check <asset_dir>` | Stable | Check license/permission policy |
-| `rosclaw hub install <uri>` | Stable | Install an asset locally |
+| `rosclaw hub install <asset_dir-or-bundle>` | Stable | Safely verify and install a local directory or `.rosclaw` bundle |
+| `rosclaw hub install <uri>` | Experimental | Install from the local/file or fixture registry |
 | `rosclaw hub list --installed` | Stable | List installed assets |
 | `rosclaw hub uninstall <uri>` | Stable | Remove an installed asset |
 | `rosclaw hub update <uri> <asset_dir>` | Stable | Update an installed asset from a local directory |
+
+The generic Hub has no production public registry or populated packaged trust
+root yet. See [ASSETS.md](ASSETS.md) for the boundary between this subsystem
+and `rosclaw mcp` discovery.
 
 ---
 

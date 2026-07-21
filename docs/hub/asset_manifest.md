@@ -100,8 +100,9 @@ data_rights:
 security:
   signing:
     required: true
-    scheme: sigstore
-    certificate: signatures/cert.pem
+    scheme: ed25519
+    key_id: rosclaw-release-2026
+    file: signatures/manifest.ed25519
   checksums:
     algorithm: sha256
     file: checksums.txt
@@ -191,13 +192,24 @@ personal data, and what usage is allowed.
 
 ### `security`
 
-- `signing.required` — whether a signature is mandatory
-- `signing.certificate` — path to PEM certificate inside the asset
+- `signing.required` — whether publication must produce a signature; remote
+  installation still requires a trusted signature even if an untrusted
+  manifest sets this to `false`
+- `signing.scheme` — currently only `ed25519` is accepted for signed bundles
+- `signing.key_id` — lookup key in an operator-controlled Hub trust store
+- `signing.file` — base64-encoded detached signature beneath `signatures/`;
+  the filename must end in `.ed25519`
 - `checksums.file` — path to `checksums.txt`
 - `sbom` — path to SPDX SBOM
 - `provenance` — path to SLSA-style provenance statement
 - `sandbox_required` — whether sandbox validation is mandatory
 - `network_isolation_recommended` — recommendation for network isolation
+
+The detached signature covers the exact `manifest.yaml` and `checksums.txt`
+bytes with a ROSClaw domain separator. Trust keys are not embedded in the
+asset. They are resolved from `--trust-store`, `ROSCLAW_HUB_TRUST_STORE`, or
+the packaged trust store. The packaged store is intentionally empty until a
+public release-key governance process exists.
 
 ### `artifacts`
 
@@ -236,6 +248,9 @@ Validate a manifest from the command line:
 rosclaw hub validate ./my_asset/manifest.yaml
 rosclaw hub validate ./my_asset/manifest.yaml --json
 ```
+
+`hub validate` checks schema only. Use `rosclaw hub verify` with an independent
+trust store to check complete payload hashes and publisher authenticity.
 
 Export the JSON Schema for editors or CI:
 

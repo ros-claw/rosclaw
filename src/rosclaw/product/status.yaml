@@ -358,6 +358,51 @@ components:
       en: Local and bundled App manifests, digest-locked installation, low-code authoring, and daemon-only workflow execution are tested; remote App registry and independent Agent acceptance remain pending.
       zh: 本地及内置 App Manifest、摘要锁定安装、低代码编排与仅经 daemon 的工作流执行已测试；远程 App Registry 与独立 Agent 验收仍待完成。
 
+  hub_supply_chain:
+    display:
+      en: Generic Hub asset supply chain
+      zh: 通用 Hub 资产供应链
+    claim: component_system_verified
+    evidence:
+      - id: hub-ed25519-trust-tests-20260722
+        kind: automated_security_test
+        path: tests/hub/test_signature_trust.py
+        verified_at: "2026-07-22"
+        observation_scope: local_asset_integrity_and_publisher_trust
+        fixture: true
+        independent: true
+      - id: hub-safe-archive-tests-20260722
+        kind: automated_security_test
+        path: tests/hub/test_archive_security.py
+        verified_at: "2026-07-22"
+        observation_scope: bounded_local_and_remote_bundle_extraction
+        fixture: true
+        independent: true
+      - id: hub-file-registry-e2e-20260722
+        kind: automated_system_test
+        path: tests/hub/test_e2e_fake_registry.py
+        verified_at: "2026-07-22"
+        observation_scope: local_file_registry_publish_sync_install_lifecycle
+        fixture: true
+        independent: true
+      - id: hub-install-copy-transaction-tests-20260722
+        kind: automated_security_test
+        path: tests/hub/test_installer_transaction.py
+        verified_at: "2026-07-22"
+        observation_scope: copied_manifest_binding_target_reverification_and_rollback
+        fixture: true
+        independent: true
+      - id: hub-owner-only-auth-store-tests-20260722
+        kind: automated_security_test
+        path: tests/hub/test_auth.py
+        verified_at: "2026-07-22"
+        observation_scope: atomic_owner_only_registry_credential_storage
+        fixture: true
+        independent: true
+    evidence_summary:
+      en: Complete payload hashes, detached Ed25519 signatures, independently scoped trust roots, canonical-reference and copied-manifest binding, target re-verification, bounded extraction, explicit install permissions, owner-only local credentials, and local/file registry lifecycle are system-tested. The packaged trust store is empty; public registry, TUF rollback protection, OS-keyring integration, and builder-attestation verification remain pending.
+      zh: 完整 Payload 哈希、Ed25519 分离签名、独立作用域信任根、Canonical Reference 与复制 Manifest 绑定、安装目标二次验证、有界解压、显式安装权限、Owner-only 本地凭据及本地/文件 Registry 生命周期已通过系统测试；随包 Trust Store 为空，公共 Registry、TUF 防回滚、OS Keyring 集成与 Builder Attestation 验证仍待完成。
+
   estop:
     display:
       en: E-Stop control path
@@ -415,6 +460,7 @@ readme_matrix:
   - components.rosclawd
   - components.action_gateway
   - components.app_runtime
+  - components.hub_supply_chain
   - components.estop
   - components.fixture_surfaces
   - golden_paths.realsense_inspect

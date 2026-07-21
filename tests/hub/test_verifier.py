@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from rosclaw.hub.verifier import VerificationResult, verify_asset_dir
@@ -28,7 +29,7 @@ def test_verify_tampered_checksum_fails() -> None:
 def test_verify_tampered_signature_fails() -> None:
     result = verify_asset_dir(FIXTURES / "tampered_signature")
     assert not result.ok
-    assert any("certificate" in e.lower() for e in result.errors)
+    assert any("signature is invalid" in e.lower() for e in result.errors)
 
 
 def test_verify_no_signature_skips_signature_checks() -> None:
@@ -186,45 +187,55 @@ def test_verify_missing_provenance(tmp_path) -> None:
     assert any("Provenance file missing" in e for e in result.errors)
 
 
-def test_verify_missing_signing_certificate(tmp_path) -> None:
-    """Verification fails when signing is required but the certificate is absent."""
+def test_verify_missing_ed25519_signature(tmp_path) -> None:
+    """Verification fails when a required Ed25519 signature is absent."""
     _write_manifest(
         tmp_path / "manifest.yaml",
         security={
             "signing": {
                 "required": True,
-                "scheme": "sigstore",
-                "certificate": "signatures/cert.pem",
+                "scheme": "ed25519",
+                "key_id": "rosclaw-hub-fixture-v1",
+                "file": "signatures/manifest.ed25519",
             },
             "checksums": {"algorithm": "sha256", "file": "checksums.txt"},
         },
     )
-    (tmp_path / "checksums.txt").write_text("\n", encoding="utf-8")
+    manifest_bytes = (tmp_path / "manifest.yaml").read_bytes()
+    (tmp_path / "checksums.txt").write_text(
+        f"sha256:{hashlib.sha256(manifest_bytes).hexdigest()}  manifest.yaml\n",
+        encoding="utf-8",
+    )
     result = verify_asset_dir(tmp_path)
     assert not result.ok
-    assert any("Signing certificate missing" in e for e in result.errors)
+    assert any("trusted signature is missing" in e.lower() for e in result.errors)
 
 
-def test_verify_invalid_certificate_pem(tmp_path) -> None:
-    """Verification fails when the certificate is not a valid PEM."""
-    cert_path = tmp_path / "signatures" / "cert.pem"
-    cert_path.parent.mkdir(parents=True, exist_ok=True)
-    cert_path.write_text("this is not a certificate", encoding="utf-8")
+def test_verify_malformed_ed25519_signature(tmp_path) -> None:
+    """Verification fails when the detached signature is malformed."""
+    signature_path = tmp_path / "signatures" / "manifest.ed25519"
+    signature_path.parent.mkdir(parents=True, exist_ok=True)
+    signature_path.write_text("not-base64!", encoding="ascii")
     _write_manifest(
         tmp_path / "manifest.yaml",
         security={
             "signing": {
                 "required": True,
-                "scheme": "sigstore",
-                "certificate": "signatures/cert.pem",
+                "scheme": "ed25519",
+                "key_id": "rosclaw-hub-fixture-v1",
+                "file": "signatures/manifest.ed25519",
             },
             "checksums": {"algorithm": "sha256", "file": "checksums.txt"},
         },
     )
-    (tmp_path / "checksums.txt").write_text("\n", encoding="utf-8")
+    manifest_bytes = (tmp_path / "manifest.yaml").read_bytes()
+    (tmp_path / "checksums.txt").write_text(
+        f"sha256:{hashlib.sha256(manifest_bytes).hexdigest()}  manifest.yaml\n",
+        encoding="utf-8",
+    )
     result = verify_asset_dir(tmp_path)
     assert not result.ok
-    assert any("not a valid PEM" in e for e in result.errors)
+    assert any("signature verification failed" in e.lower() for e in result.errors)
 
 
 def test_verify_unsupported_checksum_algorithm(tmp_path) -> None:
@@ -319,24 +330,25 @@ def test_verify_unsupported_artifact_digest_algorithm(tmp_path) -> None:
 
 
 def test_verify_file_in_checksums_not_declared(tmp_path) -> None:
-    """A file listed in checksums but not declared as an artifact emits a warning."""
+    """Tracked documentation need not also be declared as an executable artifact."""
     data_path = tmp_path / "extra.txt"
     data_path.write_text("extra", encoding="utf-8")
     digest = "sha256:" + __import__("hashlib").sha256(b"extra").hexdigest()
     _write_manifest(tmp_path / "manifest.yaml")
+    manifest_digest = hashlib.sha256((tmp_path / "manifest.yaml").read_bytes()).hexdigest()
     (tmp_path / "checksums.txt").write_text(
-        f"{digest}  extra.txt\n",
+        f"sha256:{manifest_digest}  manifest.yaml\n{digest}  extra.txt\n",
         encoding="utf-8",
     )
-    result = verify_asset_dir(tmp_path)
+    result = verify_asset_dir(tmp_path, require_signature=False)
     assert result.ok
-    assert any("not declared as artifact" in w for w in result.warnings)
+    assert result.checked_files == ["extra.txt", "manifest.yaml"]
 
 
-def test_verify_empty_checksums_warning(tmp_path) -> None:
-    """An empty checksums file produces a warning but does not fail."""
+def test_verify_empty_checksums_fails(tmp_path) -> None:
+    """An empty checksums file cannot establish complete payload integrity."""
     _write_manifest(tmp_path / "manifest.yaml")
     (tmp_path / "checksums.txt").write_text("\n", encoding="utf-8")
-    result = verify_asset_dir(tmp_path)
-    assert result.ok
-    assert any("Checksums file contains no entries" in w for w in result.warnings)
+    result = verify_asset_dir(tmp_path, require_signature=False)
+    assert not result.ok
+    assert any("no payload entries" in error.lower() for error in result.errors)

@@ -343,6 +343,7 @@ jobs:
               "rosclaw/robot_pack/packs/realsense-d400/signatures/manifest.ed25519",
               "rosclaw/robot_pack/packs/realsense-d400/verification/read-only.yaml",
               "rosclaw/robot_pack/trust/keys.json",
+              "rosclaw/hub/trust/keys.json",
               "lerobot_policy_rosclaw_rh56/__init__.py",
           }
           missing = sorted(required - names)

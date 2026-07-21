@@ -1,0 +1,13 @@
+{
+  "schema_version": "rosclaw.hub.trust.v1",
+  "keys": {
+    "rosclaw-hub-fixture-v1": {
+      "algorithm": "ed25519",
+      "public_key_base64": "MAYxTr8qEpT+az8ld+vH6Vz4CX9Z7CfKhq3Zjnl+Iww=",
+      "status": "trusted",
+      "scopes": [
+        "rosclaw://*/rosclaw/*@*"
+      ]
+    }
+  }
+}

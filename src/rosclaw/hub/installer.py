@@ -28,8 +28,8 @@ from rosclaw.hub.mcp_merge import McpMerger
 from rosclaw.hub.permissions import check_permissions
 from rosclaw.hub.refs import AssetRef, parse_ref
 from rosclaw.hub.registry_writer import RegistryWriter
-from rosclaw.hub.resolver import Resolver, resolve_dependencies
-from rosclaw.hub.schema import AssetManifest, load_manifest, load_manifest_from_bytes
+from rosclaw.hub.resolver import Resolver, ref_from_manifest, resolve_dependencies
+from rosclaw.hub.schema import AssetManifest, load_manifest_from_bytes
 from rosclaw.hub.verifier import verify_asset_dir
 
 
@@ -39,13 +39,14 @@ class InstallOptions:
 
     dry_run: bool = False
     accept_license: bool = False
-    allow_real_robot: bool | None = None
+    allow_real_robot: bool | None = False
     allow_safety_config_changes: bool = False
     allow_network_inbound: bool = False
     verify_signature: bool = True
     skip_health: bool = False
     skip_mcp_merge: bool = False
     project_root: Path | None = None
+    trust_store_path: str | Path | None = None
 
 
 @dataclass
@@ -116,14 +117,75 @@ class Installer:
                 code=HubErrorCode.ASSET_ALREADY_INSTALLED,
                 message=f"Asset directory already exists: {target_dir}",
             )
-        shutil.copytree(source_dir, target_dir)
+        try:
+            shutil.copytree(source_dir, target_dir)
+        except BaseException:
+            # copytree can leave a partial destination when a source entry
+            # changes or cannot be copied. Never let that block future repair.
+            shutil.rmtree(target_dir, ignore_errors=True)
+            raise
+
+    @staticmethod
+    def _bundle_root(staging_dir: Path) -> Path:
+        entries = [entry for entry in staging_dir.iterdir() if entry.name != ".tmp"]
+        if len(entries) == 1 and entries[0].is_dir():
+            return entries[0]
+        return staging_dir
+
+    @staticmethod
+    def _extract_bundle(archive: tarfile.TarFile, staging_dir: Path) -> None:
+        try:
+            extractall_tar(archive, staging_dir)
+        except (OSError, tarfile.TarError, ValueError) as exc:
+            raise HubError(
+                code=HubErrorCode.INDEX_VERIFY_FAILED,
+                message=f"Hub bundle archive is invalid: {exc}",
+            ) from exc
+
+    def install_bundle(
+        self,
+        bundle_path: str | Path,
+        options: InstallOptions | None = None,
+    ) -> InstallResult:
+        """Safely extract and install a local ``.rosclaw`` bundle."""
+
+        options = options or InstallOptions()
+        bundle = Path(bundle_path).expanduser()
+        if not bundle.is_file():
+            raise HubError(
+                code=HubErrorCode.ASSET_NOT_FOUND,
+                message=f"Asset bundle not found: {bundle}",
+            )
+
+        staging_dir = self.cache.staging_path(prefix="install-bundle")
+        try:
+            try:
+                with tarfile.open(bundle, mode="r:gz") as archive:
+                    self._extract_bundle(archive, staging_dir)
+            except HubError:
+                raise
+            except (OSError, tarfile.TarError, ValueError) as exc:
+                raise HubError(
+                    code=HubErrorCode.INDEX_VERIFY_FAILED,
+                    message=f"Hub bundle archive is invalid: {exc}",
+                ) from exc
+            return self.install_local(
+                self._bundle_root(staging_dir),
+                options=options,
+                _source_record=bundle,
+            )
+        finally:
+            if staging_dir.exists():
+                shutil.rmtree(staging_dir)
 
     def install_local(
         self,
         asset_dir: str | Path,
         options: InstallOptions | None = None,
+        *,
+        _source_record: str | Path | None = None,
     ) -> InstallResult:
-        """Install an asset from a local directory.
+        """Install an asset from a local directory or ``.rosclaw`` bundle.
 
         The transaction performs verification, policy checks, dependency
         resolution, file copy, registry/MCP updates, health checks, and finally
@@ -132,20 +194,13 @@ class Installer:
         """
         options = options or InstallOptions()
         source_dir = Path(asset_dir)
+        if source_dir.is_file() and source_dir.suffix == ".rosclaw":
+            return self.install_bundle(source_dir, options=options)
         if not source_dir.is_dir():
             raise HubError(
                 code=HubErrorCode.ASSET_NOT_FOUND,
                 message=f"Asset directory not found: {source_dir}",
             )
-
-        manifest = load_manifest(source_dir / "manifest.yaml")
-        ref = AssetRef(
-            type=manifest.asset.type.value,
-            namespace=manifest.asset.namespace,
-            name=manifest.asset.name,
-            version=manifest.asset.version,
-        )
-        target_dir = self._asset_install_dir(ref)
 
         messages: list[str] = []
 
@@ -153,6 +208,7 @@ class Installer:
         verification = verify_asset_dir(
             source_dir,
             require_signature=options.verify_signature,
+            trust_store_path=options.trust_store_path,
         )
         if not verification.ok:
             raise HubError(
@@ -161,6 +217,24 @@ class Installer:
             )
         if verification.warnings:
             messages.extend(f"Warning: {w}" for w in verification.warnings)
+
+        # Parse the exact manifest snapshot used by the rest of the
+        # transaction. The copied tree is bound back to these bytes below.
+        try:
+            manifest_bytes = (source_dir / "manifest.yaml").read_bytes()
+        except OSError as exc:
+            raise HubError(
+                code=HubErrorCode.MANIFEST_INVALID,
+                message=f"Manifest could not be read after verification: {exc}",
+            ) from exc
+        manifest = load_manifest_from_bytes(manifest_bytes)
+        ref = AssetRef(
+            type=manifest.asset.type.value,
+            namespace=manifest.asset.namespace,
+            name=manifest.asset.name,
+            version=manifest.asset.version,
+        )
+        target_dir = self._asset_install_dir(ref)
 
         # License / policy.
         license_result = check_license(
@@ -214,11 +288,38 @@ class Installer:
                     suggested_fix="Uninstall first or use `rosclaw hub update`.",
                 )
 
-            self._copy_asset_files(source_dir, target_dir)
-
             registry_path: Path | None = None
             mcp_server_name: str | None = None
             try:
+                self._copy_asset_files(source_dir, target_dir)
+
+                try:
+                    copied_manifest_bytes = (target_dir / "manifest.yaml").read_bytes()
+                except OSError as exc:
+                    raise HubError(
+                        code=HubErrorCode.CHECKSUM_MISMATCH,
+                        message=f"Copied manifest could not be read: {exc}",
+                    ) from exc
+                if copied_manifest_bytes != manifest_bytes:
+                    raise HubError(
+                        code=HubErrorCode.CHECKSUM_MISMATCH,
+                        message="Asset manifest changed while the installation copy was in progress",
+                    )
+
+                copied_verification = verify_asset_dir(
+                    target_dir,
+                    require_signature=options.verify_signature,
+                    trust_store_path=options.trust_store_path,
+                )
+                if not copied_verification.ok:
+                    raise HubError(
+                        code=HubErrorCode.CHECKSUM_MISMATCH,
+                        message=(
+                            "Copied asset verification failed: "
+                            + "; ".join(copied_verification.errors)
+                        ),
+                    )
+
                 registry_path = self.registry.add_asset(manifest, target_dir)
 
                 if not options.skip_mcp_merge and self._has_mcp_entrypoint(manifest):
@@ -245,9 +346,13 @@ class Installer:
                         HealthStatus.HEALTHY if health.healthy else HealthStatus.UNHEALTHY
                     )
 
+                source_record = _source_record if _source_record is not None else source_dir
+                source_text = str(source_record)
+                if "://" not in source_text:
+                    source_text = str(Path(source_record).expanduser().resolve())
                 entry = LockEntry(
                     ref=str(ref),
-                    source=str(source_dir.resolve()),
+                    source=source_text,
                     asset_dir=str(target_dir.resolve()),
                     lifecycle_status=lifecycle_status,
                     health_status=health_status,
@@ -318,20 +423,32 @@ class Installer:
             token = store.get_token(registry)
             registry_client = FakeRegistryClient(registry, token=token)
 
-        # Fetch manifest from registry (sync should have cached it, but be safe).
-        manifest_bytes = registry_client.fetch_manifest(concrete_ref)
-        load_manifest_from_bytes(manifest_bytes)
-        self.cache.put_manifest(concrete_ref, manifest_bytes)
+        try:
+            synchronized_manifest_bytes = resolved.manifest_path.read_bytes()
+        except OSError as exc:
+            raise HubError(
+                code=HubErrorCode.INDEX_VERIFY_FAILED,
+                message=f"Synchronized manifest could not be read: {resolved.manifest_path}",
+                suggested_fix="Run `rosclaw hub sync` again before installing.",
+            ) from exc
 
-        if options.dry_run:
-            return InstallResult(
-                success=True,
-                ref=concrete_ref,
-                asset_dir=self._asset_install_dir(concrete_ref),
-                lifecycle_status=AssetLifecycleState.INSTALLED.value,
-                health_status=HealthStatus.PENDING,
-                dry_run=True,
-                messages=[f"Dry-run: would install {concrete_ref.canonical()} from registry"],
+        # A versioned manifest is immutable. Reject a registry split view before
+        # replacing the synchronized cache entry.
+        manifest_bytes = registry_client.fetch_manifest(concrete_ref)
+        fetched_manifest = load_manifest_from_bytes(manifest_bytes)
+        if manifest_bytes != synchronized_manifest_bytes:
+            raise HubError(
+                code=HubErrorCode.INDEX_VERIFY_FAILED,
+                message=(
+                    "Fetched manifest does not match the synchronized manifest for "
+                    f"{concrete_ref.canonical()}"
+                ),
+                suggested_fix="Re-sync and investigate the registry before retrying.",
+            )
+        if ref_from_manifest(fetched_manifest) != concrete_ref:
+            raise HubError(
+                code=HubErrorCode.INDEX_VERIFY_FAILED,
+                message=f"Fetched manifest identity does not match {concrete_ref.canonical()}",
             )
 
         # Fetch bundle and extract to staging.
@@ -339,23 +456,62 @@ class Installer:
         staging_dir = self.cache.staging_path(prefix="install-by-ref")
         result: InstallResult | None = None
         try:
-            with tarfile.open(fileobj=io.BytesIO(bundle_bytes), mode="r:gz") as tar:
-                extractall_tar(tar, staging_dir)
+            try:
+                with tarfile.open(fileobj=io.BytesIO(bundle_bytes), mode="r:gz") as tar:
+                    self._extract_bundle(tar, staging_dir)
+            except HubError:
+                raise
+            except (OSError, tarfile.TarError, ValueError) as exc:
+                raise HubError(
+                    code=HubErrorCode.INDEX_VERIFY_FAILED,
+                    message=f"Registry bundle archive is invalid: {exc}",
+                ) from exc
 
-            source_dir = staging_dir
-            # Some bundles have a single top-level directory; unwrap it.
-            entries = [e for e in staging_dir.iterdir() if e.name not in (".tmp",)]
-            if len(entries) == 1 and entries[0].is_dir():
-                source_dir = entries[0]
+            source_dir = self._bundle_root(staging_dir)
 
-            result = self.install_local(source_dir, options=options)
+            bundled_manifest_path = source_dir / "manifest.yaml"
+            try:
+                bundled_manifest_bytes = bundled_manifest_path.read_bytes()
+            except OSError as exc:
+                raise HubError(
+                    code=HubErrorCode.INDEX_VERIFY_FAILED,
+                    message="Registry bundle does not contain a readable manifest.yaml",
+                ) from exc
+            bundled_manifest = load_manifest_from_bytes(bundled_manifest_bytes)
+            bundled_ref = ref_from_manifest(bundled_manifest)
+            if bundled_ref != concrete_ref:
+                raise HubError(
+                    code=HubErrorCode.INDEX_VERIFY_FAILED,
+                    message=(
+                        f"Registry bundle identity {bundled_ref.canonical()} does not match "
+                        f"requested {concrete_ref.canonical()}"
+                    ),
+                )
+            if bundled_manifest_bytes != manifest_bytes:
+                raise HubError(
+                    code=HubErrorCode.INDEX_VERIFY_FAILED,
+                    message=(
+                        "Registry bundle manifest does not match the fetched manifest for "
+                        f"{concrete_ref.canonical()}"
+                    ),
+                )
+
+            result = self.install_local(
+                source_dir,
+                options=options,
+                _source_record=concrete_ref.canonical(),
+            )
+            if result.ref != concrete_ref:
+                raise HubError(
+                    code=HubErrorCode.INDEX_VERIFY_FAILED,
+                    message="Installed asset identity changed during the registry transaction",
+                )
         except Exception:
             if staging_dir.exists():
                 shutil.rmtree(staging_dir)
             raise
         finally:
-            # Leave staging in place on success; installer copied the files.
-            if result is not None and staging_dir.exists() and not result.success:
+            if staging_dir.exists():
                 shutil.rmtree(staging_dir)
 
         return result
