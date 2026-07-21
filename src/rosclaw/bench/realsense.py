@@ -93,6 +93,40 @@ def _reset_device_before_capture(rs: Any, max_wait_sec: float = 15.0) -> bool:
     return False
 
 
+def _interval_stats(
+    arrivals: list[float], elapsed: float, target_fps: float = 30.0
+) -> dict[str, Any]:
+    """Inter-frame timing stats from monotonic arrival timestamps.
+
+    Acceptance fields (真机验收大纲 RS-01): true drop rate vs the nominal
+    frame budget, inter-frame P99, worst gap (the >1 s no-frame detector),
+    and interval jitter (population stddev).
+    """
+    if len(arrivals) < 2:
+        return {
+            "frame_count": len(arrivals),
+            "drop_rate": None,
+            "inter_frame_p99_ms": None,
+            "max_gap_ms": None,
+            "jitter_ms": None,
+        }
+    # Consecutive pairs are intentionally one shorter — strict=False.
+    intervals_ms = [(b - a) * 1000.0 for a, b in zip(arrivals, arrivals[1:], strict=False)]
+    ordered = sorted(intervals_ms)
+    p99 = ordered[min(len(ordered) - 1, int(len(ordered) * 0.99))]
+    expected = elapsed * target_fps
+    drop_rate = max(0.0, 1.0 - len(arrivals) / expected) if expected > 0 else 0.0
+    mean = sum(intervals_ms) / len(intervals_ms)
+    jitter = (sum((x - mean) ** 2 for x in intervals_ms) / len(intervals_ms)) ** 0.5
+    return {
+        "frame_count": len(arrivals),
+        "drop_rate": round(drop_rate, 4),
+        "inter_frame_p99_ms": round(p99, 2),
+        "max_gap_ms": round(max(intervals_ms), 2),
+        "jitter_ms": round(jitter, 3),
+    }
+
+
 def _capture_with_pyrealsense2(duration_sec: float) -> dict[str, Any]:
     """Capture frames using pyrealsense2 and return report fields."""
     import pyrealsense2 as rs
@@ -104,49 +138,69 @@ def _capture_with_pyrealsense2(duration_sec: float) -> dict[str, Any]:
     config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
 
     pipeline = rs.pipeline()
+    t_start = time.monotonic()
     profile = pipeline.start(config)
     device_info = _detect_device_info(profile)
     usb_mode = device_info.get("usb_speed") or _detect_usb_mode(profile)
 
-    color_frames = 0
-    depth_frames = 0
+    color_arrivals: list[float] = []
+    depth_arrivals: list[float] = []
+    first_frame_ms: float | None = None
     dropped = 0
     t0 = time.time()
     try:
         while time.time() - t0 < duration_sec:
             frames = pipeline.wait_for_frames(timeout_ms=1000)
             if frames:
+                now = time.monotonic()
+                got = False
                 if frames.get_color_frame():
-                    color_frames += 1
+                    color_arrivals.append(now)
+                    got = True
                 if frames.get_depth_frame():
-                    depth_frames += 1
+                    depth_arrivals.append(now)
+                    got = True
+                if got and first_frame_ms is None:
+                    first_frame_ms = round((now - t_start) * 1000.0, 1)
             else:
                 dropped += 1
     finally:
         pipeline.stop()
 
     elapsed = time.time() - t0
-    color_fps = round(color_frames / elapsed, 2) if elapsed > 0 else 0.0
-    depth_fps = round(depth_frames / elapsed, 2) if elapsed > 0 else 0.0
+    color_fps = round(len(color_arrivals) / elapsed, 2) if elapsed > 0 else 0.0
+    depth_fps = round(len(depth_arrivals) / elapsed, 2) if elapsed > 0 else 0.0
+    color_stats = _interval_stats(color_arrivals, elapsed)
+    depth_stats = _interval_stats(depth_arrivals, elapsed)
+    color_count = len(color_arrivals)
+    depth_count = len(depth_arrivals)
     return {
         "backend": "pyrealsense2",
         "device_reset": device_reset,
-        "color_frames": color_frames,
-        "depth_frames": depth_frames,
-        "fps": round((color_fps + depth_fps) / 2, 2) if (color_frames or depth_frames) else 0.0,
+        "first_frame_ms": first_frame_ms,
+        "color_frames": color_count,
+        "depth_frames": depth_count,
+        "fps": round((color_fps + depth_fps) / 2, 2) if (color_count or depth_count) else 0.0,
         "drops": dropped,
         "usb_mode": usb_mode,
         "degraded": "USB2" in str(usb_mode).upper(),
         "streams": {
-            "color": {"frame_count": color_frames, "fps": color_fps},
-            "depth": {"frame_count": depth_frames, "fps": depth_fps},
+            "color": {"frame_count": color_count, "fps": color_fps, **color_stats},
+            "depth": {"frame_count": depth_count, "fps": depth_fps, **depth_stats},
         },
         "aggregate": {
-            "total_frame_count": color_frames + depth_frames,
+            "total_frame_count": color_count + depth_count,
             "average_fps": round((color_fps + depth_fps) / 2, 2)
-            if (color_frames or depth_frames)
+            if (color_count or depth_count)
             else 0.0,
             "drop_count": dropped,
+            "worst_max_gap_ms": max(
+                gap
+                for gap in (color_stats["max_gap_ms"], depth_stats["max_gap_ms"])
+                if gap is not None
+            )
+            if (color_stats["max_gap_ms"] is not None or depth_stats["max_gap_ms"] is not None)
+            else None,
         },
         **device_info,
     }
