@@ -364,7 +364,9 @@ def s4_slave_no_response(
     # either hand (P0-1 parameterization).
     real_slave = int(load_transport_profile(profile_path).transport.slave_id)
     phantom_slave = 2 if real_slave == 1 else 1
-    h = FaultHarness(profile_path, calibration_path, slave_id=phantom_slave, sysfs_id=sysfs_id, **kwargs)
+    h = FaultHarness(
+        profile_path, calibration_path, slave_id=phantom_slave, sysfs_id=sysfs_id, **kwargs
+    )
     outcome: dict[str, Any] = {"scenario": "S4 slave_no_response"}
     try:
         h.arm()
