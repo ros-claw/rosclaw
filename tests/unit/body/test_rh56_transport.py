@@ -124,10 +124,20 @@ def test_calibration_schema_and_gate() -> None:
     calib = load_rh56_calibration(CALIBRATION)
     profile = load_transport_profile(RS485_PROFILE)
     calib.validate_against_profile(profile)
-    assert calib.status == "uncalibrated"
-    from rosclaw.body.rh56.calibration import CalibrationError, RH56CalibrationGate
+    # The shipped config is marked validated after on-hardware acceptance
+    # (HAND-01). Exercise the gate-denial path with an explicit uncalibrated
+    # copy so the test does not depend on the shipped config's mutable status.
+    import dataclasses
 
-    gate = RH56CalibrationGate(calib, profile)
+    from rosclaw.body.rh56.calibration import (
+        CalibrationError,
+        CalibrationValidation,
+        RH56CalibrationGate,
+    )
+
+    uncalibrated = dataclasses.replace(calib, validation=CalibrationValidation())
+    assert uncalibrated.status == "uncalibrated"
+    gate = RH56CalibrationGate(uncalibrated, profile)
     with pytest.raises(CalibrationError, match="calibration_not_validated"):
         gate.check()
     validated = gate.mark_validated(rounds=5, body_hash="sha256:b")
