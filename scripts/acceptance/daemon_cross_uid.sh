@@ -31,12 +31,16 @@ require_principal() {
   getent "${database}" "${principal}" >/dev/null || fail "missing ${database} principal: ${principal}"
 }
 
+# Enter through root so sudoers need not authorize arbitrary Runas groups.
 run_as() {
   local user="$1"
+  local uid
   shift
+  uid="$(id -u "${user}")"
   (
     cd /
-    sudo -n -u "${user}" -g "${CLIENT_GROUP}" env -u PYTHONPATH \
+    sudo -n "${SETPRIV}" --reuid "${uid}" --regid "${CLIENT_GID}" --clear-groups \
+      env -u PYTHONPATH \
       PYTHONNOUSERSITE=1 \
       ROSCLAW_DAEMON_SOCKET="${SOCKET}" \
       ROSCLAW_DAEMON_UID="${DAEMON_UID}" \
@@ -53,7 +57,8 @@ start_daemon() {
   : >>"${STDERR_LOG}"
   (
     cd /
-    sudo -n -u "${DAEMON_USER}" -g "${CLIENT_GROUP}" env -u PYTHONPATH \
+    sudo -n "${SETPRIV}" --reuid "${DAEMON_UID}" --regid "${CLIENT_GID}" --clear-groups \
+      env -u PYTHONPATH \
       PYTHONNOUSERSITE=1 \
       ROSCLAW_HOME="${HOME_DIR}" \
       ROSCLAW_DAEMON_SOCKET="${SOCKET}" \
@@ -129,6 +134,7 @@ trap cleanup EXIT
 
 [[ "$(uname -s)" == "Linux" ]] || fail "cross-UID acceptance requires Linux SO_PEERCRED"
 command -v sudo >/dev/null || fail "sudo is required"
+SETPRIV="$(command -v setpriv)" || fail "setpriv is required"
 sudo -n true || fail "passwordless sudo is required"
 PYTHON="$(command -v "${PYTHON}")"
 [[ -x "${PYTHON}" ]] || fail "Python is not executable: ${PYTHON}"
