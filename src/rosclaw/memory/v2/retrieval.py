@@ -132,7 +132,7 @@ class MemoryRetriever:
             return []
 
         # 3. Candidate scoring per source.
-        lexical = self._lexical_scores(candidates, query_tokens)
+        lexical, lexical_raw = self._lexical_scores(candidates, query_tokens)
         vector = self._vector_scores(candidates, query.text)
 
         # 4-5. Normalize + fuse.
@@ -140,14 +140,29 @@ class MemoryRetriever:
         scored: list[tuple[MemoryItem, dict[str, Any]]] = []
         for item in candidates:
             parts = self._score_parts(item, query, query_tokens, lexical, vector, now)
+            # Tie-break on the UNCAPPED lexical score: the capped fusion can
+            # saturate (min(1.0, overlap + 0.5*title) → 1.0 for several docs),
+            # and an arbitrary order on ties can rank the wrong joint/body
+            # first (MEM-02 acceptance finding).  The raw score keeps the
+            # more specific document ahead without changing fusion values.
+            parts["lexical_raw"] = lexical_raw.get(item.memory_id, 0.0)
             fusion = sum(self._weights[key] * parts[key] for key in self._weights)
             scored.append((item, {"parts": parts, "fusion": fusion}))
 
         # 6. Safety/validity filter.
         scored = [(item, meta) for item, meta in scored if self._passes_validity(item, meta)]
 
-        # 7. Rank + explain.
-        scored.sort(key=lambda pair: pair[1]["fusion"], reverse=True)
+        # 7. Rank + explain.  Fusion is quantized to 1e-6 for ordering so
+        # microsecond-level recency jitter between same-batch items does not
+        # mask the lexical_raw tie-breaker (real recency differences are
+        # orders of magnitude larger).
+        scored.sort(
+            key=lambda pair: (
+                round(pair[1]["fusion"], 6),
+                pair[1]["parts"].get("lexical_raw", 0.0),
+            ),
+            reverse=True,
+        )
         results: list[RetrievalResult] = []
         for rank, (item, meta) in enumerate(scored[: query.limit], start=1):
             parts = meta["parts"]
@@ -214,21 +229,32 @@ class MemoryRetriever:
 
     def _lexical_scores(
         self, candidates: list[MemoryItem], query_tokens: set[str]
-    ) -> dict[str, float]:
-        """Token-overlap score in [0, 1] with a title-match boost."""
-        scores: dict[str, float] = {}
+    ) -> tuple[dict[str, float], dict[str, float]]:
+        """Token-overlap score in [0, 1] with a title-match boost.
+
+        Returns ``(capped, raw)``: the capped score feeds the fusion, the
+        uncapped raw score is the deterministic tie-breaker so a saturated
+        cap never leaves the wrong joint/body on top.
+        """
+        capped: dict[str, float] = {}
+        raw: dict[str, float] = {}
         if not query_tokens:
-            return {item.memory_id: 0.0 for item in candidates}
+            return {item.memory_id: 0.0 for item in candidates}, {
+                item.memory_id: 0.0 for item in candidates
+            }
         for item in candidates:
             doc_tokens = token_set(f"{item.title} {item.document}")
             if not doc_tokens:
-                scores[item.memory_id] = 0.0
+                capped[item.memory_id] = 0.0
+                raw[item.memory_id] = 0.0
                 continue
             overlap = len(query_tokens & doc_tokens) / len(query_tokens)
             title_tokens = token_set(item.title)
             title_overlap = len(query_tokens & title_tokens) / len(query_tokens)
-            scores[item.memory_id] = min(1.0, overlap + 0.5 * title_overlap)
-        return scores
+            score = overlap + 0.5 * title_overlap
+            capped[item.memory_id] = min(1.0, score)
+            raw[item.memory_id] = score
+        return capped, raw
 
     def _vector_scores(
         self, candidates: list[MemoryItem], query_text: str

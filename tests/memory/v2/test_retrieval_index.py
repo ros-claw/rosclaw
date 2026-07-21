@@ -208,9 +208,7 @@ def test_index_rebuild_replaces_stale_corpus(sqlite_stack) -> None:
     second = manager.build(kept, TfidfEmbedder())
     assert second["record_count"] == 1
     assert vector.count("memory_items") == 1
-    assert {row["record_id"] for row in vector._all_rows("memory_items")} == {
-        kept[0].memory_id
-    }
+    assert {row["record_id"] for row in vector._all_rows("memory_items")} == {kept[0].memory_id}
 
 
 def test_index_manager_fits_tfidf_over_full_corpus(sqlite_stack) -> None:
@@ -309,3 +307,44 @@ def test_dimension_guard(sqlite_stack) -> None:
 
     with pytest.raises(IndexModelMismatchError):
         manager.build(repo.query(limit=100), _BadDimEmbedder())
+
+
+def test_retrieval_tie_break_prefers_more_specific_document() -> None:
+    """MEM-02 acceptance regression: a saturated fusion cap must not rank the
+    wrong joint first — the uncapped lexical score breaks same-batch ties."""
+    from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
+    from rosclaw.memory.v2.models import MemoryItem
+    from rosclaw.memory.v2.repository import MemoryRepository
+    from rosclaw.memory.v2.retrieval import MemoryQuery, MemoryRetriever
+
+    client = SQLiteKnowledgeStore(":memory:")
+    client.connect()
+    repo = MemoryRepository(client)
+    repo.store(
+        MemoryItem(
+            memory_type="failure",
+            robot_id="r1",
+            body_id="rh56_left_01",
+            title="左手拇指旋转不到位 thumb_rot joint_not_reached",
+            document="thumb_rot evidence",
+            tags=["thumb_rot"],
+            evidence_refs=["e1"],
+        )
+    )
+    repo.store(
+        MemoryItem(
+            memory_type="failure",
+            robot_id="r1",
+            body_id="rh56_left_01",
+            title="左手中指不到位 middle joint_not_reached",
+            document="middle evidence",
+            tags=["middle"],
+            evidence_refs=["e2"],
+        )
+    )
+    hits = MemoryRetriever(repo).retrieve(
+        MemoryQuery(text="左手中指不到位", body_id="rh56_left_01", limit=2)
+    )
+    assert hits[0].memory.tags == ["middle"]
+    assert hits[1].memory.tags == ["thumb_rot"]
+    client.disconnect()
