@@ -1,13 +1,5 @@
-# RH56 right hand calibration (sample; starts uncalibrated).
-#
-# Per P5: `calibration.status != validated` denies any execution permit.
-# Use `rosclaw body calibrate-rh56` + `rosclaw body validate-calibration`
-# with the physical hand to produce a validated calibration.
-schema_version: rosclaw.rh56.calibration.v1
-
 body_id: rh56_right_01
 transport_profile: rh56_right_rs485_v1
-
 actuators:
   little:
     open_raw: 1000
@@ -51,19 +43,20 @@ actuators:
     safe_max_raw: 1000
     direction: -1
     position_tolerance_raw: 30
-
 feedback:
   force_baseline_file: force_baseline.yaml
   force_soft_limit_g: 100
   force_hard_limit_g: 300
   temperature_warning_c: 55
   temperature_stop_c: 60
-  thresholds_source: conservative_default  # no authoritative HW profile yet
-
+  thresholds_source: conservative_default
 validation:
-  status: uncalibrated
-  validated_at: ""
-  rounds: 0
-  body_hash: ""
-  transport_profile_hash: ""
-  evidence: []
+  status: validated
+  validated_at: '2026-07-21T03:22:06.986429Z'
+  rounds: 5
+  body_hash: ''
+  transport_profile_hash: sha256:d088e29de0b9f649f193822829bb02a9fc6c30f207705eef986f51dabe31c6c4
+  evidence:
+  - probe_rounds=5/5
+  - mock=False
+schema_version: rosclaw.rh56.calibration.v1
