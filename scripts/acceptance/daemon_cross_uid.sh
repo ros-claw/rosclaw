@@ -160,12 +160,18 @@ case "${IMPORT_PATH}" in
   "${ROOT}"/*) fail "cross-UID acceptance requires an installed wheel, not the source tree" ;;
 esac
 run_agent "${PYTHON}" -c "import rosclaw" || fail "the Agent UID cannot import installed ROSClaw"
-run_as "${DAEMON_USER}" test ! -w "${PYTHON}"
-run_as "${DAEMON_USER}" test ! -w "${IMPORT_PATH}"
-run_agent test ! -w "${PYTHON}"
-run_agent test ! -w "${IMPORT_PATH}"
-run_agent test ! -w "$(dirname "${PYTHON}")"
-run_agent test ! -w "$(dirname "${IMPORT_PATH}")"
+run_as "${DAEMON_USER}" test ! -w "${PYTHON}" || \
+  fail "the daemon UID can modify the acceptance Python interpreter"
+run_as "${DAEMON_USER}" test ! -w "${IMPORT_PATH}" || \
+  fail "the daemon UID can modify the installed ROSClaw package"
+run_agent test ! -w "${PYTHON}" || \
+  fail "the Agent UID can modify the acceptance Python interpreter"
+run_agent test ! -w "${IMPORT_PATH}" || \
+  fail "the Agent UID can modify the installed ROSClaw package"
+run_agent test ! -w "$(dirname "${PYTHON}")" || \
+  fail "the Agent UID can modify the Python executable directory"
+run_agent test ! -w "$(dirname "${IMPORT_PATH}")" || \
+  fail "the Agent UID can modify the installed ROSClaw package directory"
 
 mkdir -p "${WORKSPACE}"
 chmod 0755 "${WORKSPACE}"

@@ -208,15 +208,21 @@ jobs:
         with:
           version: 'latest'
 
-      - name: Build and install wheel
+      - name: Build root-owned wheel environment
         run: |
           uvx hatch build -t wheel
           wheel="$(find dist -maxdepth 1 -name 'rosclaw-*.whl' -print -quit)"
           test -n "${wheel}"
-          uv pip install "${wheel}" --system
+          sudo -n "$(command -v python)" -m venv --copies /opt/rosclaw-crossuid-ci
+          sudo -n "$(command -v uv)" pip install "${wheel}" \
+            --python /opt/rosclaw-crossuid-ci/bin/python
 
       - name: Run clean-wheel cross-UID boundary acceptance
-        run: ROSCLAW_ACCEPTANCE_PYTHON="$(command -v python)" scripts/acceptance/daemon_cross_uid.sh
+        run: ROSCLAW_ACCEPTANCE_PYTHON=/opt/rosclaw-crossuid-ci/bin/python scripts/acceptance/daemon_cross_uid.sh
+
+      - name: Remove wheel environment
+        if: always()
+        run: sudo -n rm -rf /opt/rosclaw-crossuid-ci
 
   hub-test:
     name: Hub Tests

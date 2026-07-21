@@ -226,6 +226,8 @@ ROSCLAW_ACCEPTANCE_PYTHON=/opt/rosclaw/bin/python \
 `daemon_cross_uid.sh` uses two existing low-privilege Linux accounts, rejects a
 source-tree import, verifies daemon-only RPC denial and forged REAL denial, and
 restarts the daemon to prove durable ownership and Receipt recovery.
+It requires passwordless `sudo` plus util-linux `setpriv` to enter the test UIDs
+without changing the host's account database.
 `daemon_systemd.sh` additionally launches a transient service with the reference
 `DevicePolicy`, directory modes, empty capability set, and filesystem hardening.
 Neither script creates users or accesses hardware. They do not prove a site's
