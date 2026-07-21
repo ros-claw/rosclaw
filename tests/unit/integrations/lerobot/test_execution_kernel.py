@@ -7,7 +7,7 @@ from pathlib import Path
 
 from rosclaw.body.execution.rh56_executor import RH56Executor
 from rosclaw.body.rh56.calibration import load_rh56_calibration
-from rosclaw.body.rh56.transport import MockModbusTransport
+from rosclaw.body.rh56.transport import CommandDelivery, MockModbusTransport
 from rosclaw.body.rh56.transport_profile import load_transport_profile
 from rosclaw.integrations.lerobot.execution import (
     ArmingController,
@@ -184,6 +184,24 @@ def test_command_ack_required() -> None:
     assert result.command_sent is True
     assert result.command_acknowledged is False
     assert result.status == "fault"
+
+
+def test_lost_protocol_ack_can_complete_only_as_delivery_inferred() -> None:
+    _, transport, _, permit, _, executor, events = _stack()
+    original_write = transport.write_position
+
+    def _lose_ack(positions, *, speed, force_limit):
+        assert original_write(positions, speed=speed, force_limit=force_limit)
+        transport.last_command_delivery = CommandDelivery.DELIVERY_INFERRED
+        return False
+
+    transport.write_position = _lose_ack  # type: ignore[method-assign]
+    result = _run(executor, permit.permit_id)
+
+    assert result.status == "completed"
+    assert result.command_acknowledged is False
+    assert result.command_delivery == "DELIVERY_INFERRED"
+    assert "execution.command.delivery_inferred" in {name for name, _payload in events}
 
 
 def test_feedback_required() -> None:

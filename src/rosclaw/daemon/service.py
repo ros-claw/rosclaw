@@ -6,11 +6,14 @@ import contextlib
 import logging
 import os
 import threading
+import time
+import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from rosclaw.daemon.health import SupervisionState
 from rosclaw.daemon.ledger import (
     DaemonLedger,
     LedgerError,
@@ -19,12 +22,20 @@ from rosclaw.daemon.ledger import (
 )
 from rosclaw.daemon.permits import PermitAuthority
 from rosclaw.daemon.protocol import DAEMON_PROTOCOL_VERSION, PeerCredentials
+from rosclaw.daemon.session_manager import (
+    AgentSession,
+    SessionError,
+    SessionManager,
+)
+from rosclaw.daemon.watchdog import RuntimeWatchdog
+from rosclaw.daemon.worker_manager import WorkerError, WorkerManager
 from rosclaw.kernel import (
     RECEIPT_SCHEMA_VERSION,
     ActionEnvelope,
     ActionState,
     EvidenceLevel,
     ExecutionMode,
+    OrphanPolicy,
 )
 from rosclaw.kernel.contracts import utc_now
 
@@ -50,6 +61,14 @@ class _ActionJob:
     finished_at: datetime | None = None
     receipt: dict[str, Any] | None = None
     future: Future[dict[str, Any]] | None = None
+    lease_expires_at: datetime | None = None
+    lease_expires_monotonic: float = 0.0
+    last_lease_renewed_at: datetime | None = None
+    session_lost: bool = False
+    terminal_override: tuple[ActionState, str, str] | None = None
+    stop_requested: bool = False
+    stop_receipt: dict[str, Any] | None = None
+    stop_completed: threading.Event = field(default_factory=threading.Event)
 
     def to_dict(self) -> dict[str, Any]:
         receipt = self.receipt if isinstance(self.receipt, dict) else {}
@@ -67,6 +86,15 @@ class _ActionJob:
             "submitted_at": _iso(self.submitted_at),
             "started_at": _iso(self.started_at),
             "finished_at": _iso(self.finished_at),
+            "session_id": self.action.session_id,
+            "orphan_policy": self.action.orphan_policy.value,
+            "action_lease": {
+                "ttl_ms": self.action.lease_ttl_ms,
+                "renew_interval_ms": self.action.renew_interval_ms,
+                "last_renewed_at": _iso(self.last_lease_renewed_at),
+                "expires_at": _iso(self.lease_expires_at),
+                "active": self.state in {"QUEUED", "RUNNING"} and self.terminal_override is None,
+            },
             "receipt": self.receipt,
         }
 
@@ -80,6 +108,8 @@ class DaemonControlPlane:
         runtime: Any,
         permits: PermitAuthority | None = None,
         ledger: DaemonLedger | None = None,
+        sessions: SessionManager | None = None,
+        worker_manager: WorkerManager | None = None,
         max_workers: int = 4,
         max_queued_actions: int = 64,
         max_retained_actions: int = 1024,
@@ -91,6 +121,7 @@ class DaemonControlPlane:
         elif ledger is not None and permits.ledger is not ledger:
             raise ValueError("DaemonControlPlane permit authority must use the same ledger")
         self.permits = permits
+        self.sessions = sessions or SessionManager()
         queue_capacity = max(1, max_queued_actions)
         self._executor = ThreadPoolExecutor(
             max_workers=max(1, max_workers),
@@ -105,6 +136,8 @@ class DaemonControlPlane:
         self._jobs: dict[str, _ActionJob] = {}
         self._lock = threading.RLock()
         self._started_at = utc_now()
+        self._instance_id = f"daemon_{uuid.uuid4().hex}"
+        self._supervision_state = SupervisionState.STARTING
         self._running = False
         self._closed = False
         self._hardware_actions_executed = 0
@@ -114,6 +147,10 @@ class DaemonControlPlane:
         self._recovery_real_action_ids: list[str] = []
         self._ledger_write_failed = False
         self._ledger_failure: str | None = None
+        self.workers = worker_manager or WorkerManager(
+            on_generation_change=self._on_worker_generation_change
+        )
+        self._watchdog = RuntimeWatchdog(self._watchdog_tick)
         if self.ledger is not None:
             self._restore_jobs_from_ledger()
             self._restore_recovery_from_ledger()
@@ -127,6 +164,9 @@ class DaemonControlPlane:
             self._recover_incomplete_jobs_locked()
             self._evict_terminal_jobs_locked(reserve_slot=False)
             self._running = True
+            self._supervision_state = SupervisionState.DISARMED
+        self._watchdog.start()
+        self.workers.start()
 
     def get_runtime_status(self, peer: PeerCredentials) -> dict[str, Any]:
         with self._lock:
@@ -145,6 +185,8 @@ class DaemonControlPlane:
                 "process_separated": peer.pid != __import__("os").getpid(),
                 "privilege_separated": peer.uid != __import__("os").geteuid(),
                 "southbound_owner": "rosclawd",
+                "daemon_instance_id": self._instance_id,
+                "supervision_state": self._supervision_state.value,
                 "runtime_state": runtime_state,
                 "robot_id": str(getattr(getattr(self.runtime, "config", None), "robot_id", "")),
                 "emergency_stop_latched": bool(
@@ -160,6 +202,9 @@ class DaemonControlPlane:
                     "evicted": self._evicted_actions,
                 },
                 "permits": self.permits.status(),
+                "sessions": self.sessions.status(),
+                "watchdog": self._watchdog.status(),
+                "workers": self.workers.status(),
                 "ledger": self._ledger_status_locked(),
                 "recovery": {
                     "required": self._recovery_required,
@@ -170,6 +215,173 @@ class DaemonControlPlane:
                 "emergency_stop_requests": self._emergency_stop_requests,
                 "started_at": _iso(self._started_at),
             }
+
+    def create_session(
+        self,
+        *,
+        session_id: str,
+        actor_id: str,
+        agent_framework: str,
+        body_scope: list[str],
+        capability_scope: list[str],
+        ttl_ms: int,
+        peer: PeerCredentials,
+    ) -> dict[str, Any]:
+        self._require_running()
+        try:
+            session = self.sessions.create_session(
+                session_id=session_id,
+                actor_id=actor_id,
+                agent_framework=agent_framework,
+                body_scope=body_scope,
+                capability_scope=capability_scope,
+                ttl_ms=ttl_ms,
+                peer=peer,
+            )
+        except SessionError as exc:
+            raise ControlPlaneError(exc.code, exc.message) from exc
+        self._append_session_event("SESSION_CREATED", session)
+        return {"session": session.to_dict()}
+
+    def heartbeat_session(self, session_id: str, peer: PeerCredentials) -> dict[str, Any]:
+        self._require_running()
+        try:
+            session = self.sessions.heartbeat(session_id, peer)
+        except SessionError as exc:
+            if exc.code == "SESSION_EXPIRED":
+                with contextlib.suppress(SessionError):
+                    expired = self.sessions.get_session(session_id, peer)
+                    self._handle_lost_session(expired)
+            raise ControlPlaneError(exc.code, exc.message) from exc
+        return {"session": session.to_dict()}
+
+    def close_session(
+        self,
+        session_id: str,
+        peer: PeerCredentials,
+        *,
+        reason: str = "client_closed",
+    ) -> dict[str, Any]:
+        self._require_running()
+        try:
+            session = self.sessions.close_session(session_id, peer, reason=reason)
+        except SessionError as exc:
+            raise ControlPlaneError(exc.code, exc.message) from exc
+        self._handle_lost_session(session)
+        return {"session": session.to_dict()}
+
+    def get_session(self, session_id: str, peer: PeerCredentials) -> dict[str, Any]:
+        try:
+            session = self.sessions.get_session(session_id, peer)
+        except SessionError as exc:
+            raise ControlPlaneError(exc.code, exc.message) from exc
+        return {"session": session.to_dict()}
+
+    def renew_action_lease(
+        self,
+        action_id: str,
+        session_id: str,
+        peer: PeerCredentials,
+    ) -> dict[str, Any]:
+        self._require_running()
+        try:
+            self.sessions.heartbeat(session_id, peer)
+        except SessionError as exc:
+            raise ControlPlaneError(exc.code, exc.message) from exc
+        with self._lock:
+            job = self._jobs.get(action_id) or self._load_persisted_job(action_id)
+            if job is None:
+                raise ControlPlaneError("ACTION_NOT_FOUND", f"No action {action_id!r} exists")
+            self._require_job_owner(job, peer)
+            if job.action.session_id != session_id:
+                raise ControlPlaneError(
+                    "ACTION_SESSION_MISMATCH",
+                    "Action lease belongs to a different Agent Session",
+                )
+            if job.state not in {"QUEUED", "RUNNING"} or job.terminal_override is not None:
+                raise ControlPlaneError("ACTION_NOT_ACTIVE", "Action lease is no longer active")
+            now = utc_now()
+            job.last_lease_renewed_at = now
+            job.lease_expires_at = now + timedelta(milliseconds=job.action.lease_ttl_ms)
+            job.lease_expires_monotonic = time.monotonic() + job.action.lease_ttl_ms / 1000.0
+            lease = job.to_dict()["action_lease"]
+        self._append_lease_event(action_id, session_id, "ACTION_LEASE_RENEWED", lease)
+        return {"action_id": action_id, "session_id": session_id, "action_lease": lease}
+
+    def arm_runtime(self, reason: str, peer: PeerCredentials) -> dict[str, Any]:
+        self._require_daemon_uid(peer, "arm rosclawd")
+        normalized = self._reason(reason, "arm reason")
+        with self._lock:
+            if self._recovery_required:
+                raise ControlPlaneError(
+                    "RECOVERY_REVIEW_REQUIRED",
+                    "Interrupted REAL work must be reviewed before arming",
+                )
+            if bool(getattr(self.runtime, "emergency_stop_latched", False)):
+                raise ControlPlaneError(
+                    "EMERGENCY_STOP_LATCHED",
+                    "Restart rosclawd and complete preflight before re-arming",
+                )
+            if not self._running or self._closed:
+                raise ControlPlaneError("DAEMON_STOPPING", "rosclawd is not running")
+            self._supervision_state = SupervisionState.ARMED
+        self._append_supervision_event("RUNTIME_ARMED", normalized, peer)
+        return {
+            "supervision_state": self._supervision_state.value,
+            "reason": normalized,
+            "daemon_instance_id": self._instance_id,
+        }
+
+    def disarm_runtime(self, reason: str, peer: PeerCredentials) -> dict[str, Any]:
+        self._require_daemon_uid(peer, "disarm rosclawd")
+        normalized = self._reason(reason, "disarm reason")
+        stop_receipt = self._request_safety_stop(f"runtime disarmed: {normalized}")
+        with self._lock:
+            self._supervision_state = SupervisionState.ESTOPPED
+        self._append_supervision_event("RUNTIME_DISARMED", normalized, peer)
+        return {
+            "supervision_state": self._supervision_state.value,
+            "reason": normalized,
+            "stop_receipt": stop_receipt,
+        }
+
+    def get_worker_status(
+        self,
+        peer: PeerCredentials,
+        *,
+        worker_id: str | None = None,
+    ) -> dict[str, Any]:
+        self._require_running()
+        try:
+            if worker_id is None:
+                return self.workers.status()
+            return {"worker": self.workers.get_status(worker_id)}
+        except WorkerError as exc:
+            raise ControlPlaneError(exc.code, exc.message) from exc
+
+    def control_worker(
+        self,
+        operation: str,
+        worker_id: str,
+        peer: PeerCredentials,
+    ) -> dict[str, Any]:
+        self._require_daemon_uid(peer, f"{operation} Adapter workers")
+        self._require_running()
+        try:
+            if operation == "start":
+                status = self.workers.start_worker(worker_id)
+            elif operation == "stop":
+                status = self.workers.stop_worker(worker_id)
+            elif operation == "restart":
+                status = self.workers.restart_worker(worker_id)
+            else:
+                raise ControlPlaneError(
+                    "INVALID_WORKER_OPERATION",
+                    f"Unsupported worker operation {operation!r}",
+                )
+        except WorkerError as exc:
+            raise ControlPlaneError(exc.code, exc.message) from exc
+        return {"worker": status}
 
     def request_action(
         self,
@@ -185,6 +397,16 @@ class DaemonControlPlane:
                 "INVALID_ACTION",
                 "action_id must contain at most 256 characters and no control characters",
             )
+        try:
+            try:
+                self.sessions.require_action(action, peer)
+            except SessionError as exc:
+                if exc.code != "SESSION_NOT_FOUND":
+                    raise
+                self.sessions.adopt_action(action, peer)
+            self.sessions.require_action(action, peer)
+        except SessionError as exc:
+            raise ControlPlaneError(exc.code, exc.message) from exc
         with self._lock:
             if not self._running or self._closed:
                 raise ControlPlaneError("DAEMON_STOPPING", "rosclawd is not accepting actions")
@@ -202,6 +424,11 @@ class DaemonControlPlane:
                         ),
                     )
                 return existing.to_dict()
+            if action.deadline_at is None or utc_now() >= action.deadline_at:
+                raise ControlPlaneError(
+                    "ACTION_DEADLINE_EXPIRED",
+                    "Action deadline expired before rosclawd accepted it for dispatch",
+                )
             if self._ledger_write_failed:
                 raise ControlPlaneError(
                     "LEDGER_UNAVAILABLE",
@@ -227,7 +454,14 @@ class DaemonControlPlane:
                             "ledger or archive evidence under operator control."
                         ),
                     )
-                job = _ActionJob(action=action, peer=peer)
+                now = utc_now()
+                job = _ActionJob(
+                    action=action,
+                    peer=peer,
+                    last_lease_renewed_at=now,
+                    lease_expires_at=now + timedelta(milliseconds=action.lease_ttl_ms),
+                    lease_expires_monotonic=time.monotonic() + action.lease_ttl_ms / 1000.0,
+                )
                 if self.ledger is not None:
                     try:
                         self.ledger.append(
@@ -238,6 +472,7 @@ class DaemonControlPlane:
                                 "action": action.to_dict(),
                                 "peer": peer.to_dict(),
                                 "submitted_at": _iso(job.submitted_at),
+                                "action_lease": job.to_dict()["action_lease"],
                             },
                         )
                     except Exception as exc:  # noqa: BLE001
@@ -273,6 +508,12 @@ class DaemonControlPlane:
                 self._queue_slots.release()
                 return job.to_dict()
             job.future.add_done_callback(lambda _future: self._queue_slots.release())
+            self._append_lease_event(
+                action.action_id,
+                action.session_id,
+                "ACTION_LEASE_CREATED",
+                job.to_dict()["action_lease"],
+            )
             return job.to_dict()
 
     def get_action_status(
@@ -377,6 +618,7 @@ class DaemonControlPlane:
 
         with self._lock:
             self._emergency_stop_requests += 1
+            self._supervision_state = SupervisionState.ESTOPPED
         authenticated_source = f"rosclawd.peer.uid{peer.uid}.pid{peer.pid}/{source[:128]}"
         receipt = self.runtime.request_emergency_stop(
             reason,
@@ -477,11 +719,13 @@ class DaemonControlPlane:
                 return
             self._running = False
             self._closed = True
+            self._supervision_state = SupervisionState.STOPPING
             queued = [
                 job
                 for job in self._jobs.values()
                 if job.state == "QUEUED" and job.future is not None
             ]
+        self._watchdog.stop()
         for job in queued:
             try:
                 self.cancel_action(job.action.action_id)
@@ -497,12 +741,30 @@ class DaemonControlPlane:
                 source="rosclawd.shutdown",
                 timeout_sec=1.0,
             )
+        self.workers.close()
         self._executor.shutdown(wait=True, cancel_futures=True)
         with contextlib.suppress(Exception):
             self.runtime.stop()
 
     def _run_action(self, job: _ActionJob) -> dict[str, Any]:
         with self._lock:
+            if job.terminal_override is not None:
+                return self._finish_overridden_job_locked(job)
+            now = utc_now()
+            if job.action.deadline_at is None or now >= job.action.deadline_at:
+                job.terminal_override = (
+                    ActionState.TIMED_OUT,
+                    "ACTION_DEADLINE_EXPIRED",
+                    "Action expired while queued; no executor dispatch occurred.",
+                )
+                return self._finish_overridden_job_locked(job)
+            if time.monotonic() >= job.lease_expires_monotonic:
+                job.terminal_override = (
+                    ActionState.TIMED_OUT,
+                    "ACTION_LEASE_EXPIRED",
+                    "Action lease expired while queued; no executor dispatch occurred.",
+                )
+                return self._finish_overridden_job_locked(job)
             job.state = "RUNNING"
             job.started_at = utc_now()
             if self.ledger is not None:
@@ -546,9 +808,22 @@ class DaemonControlPlane:
                         state=ActionState.BLOCKED,
                     )
                 else:
-                    payload = action.to_dict()
-                    payload["authorization"] = decision.authorization.to_dict()
-                    receipt = self.runtime.submit_action(ActionEnvelope.from_dict(payload))
+                    with self._lock:
+                        armed = self._supervision_state is SupervisionState.ARMED
+                    if not armed:
+                        receipt = self.runtime.action_gateway.reject(
+                            action,
+                            code="RUNTIME_DISARMED",
+                            message=(
+                                "rosclawd must be explicitly armed by its service UID "
+                                "before REAL executor dispatch"
+                            ),
+                            state=ActionState.BLOCKED,
+                        )
+                    else:
+                        payload = action.to_dict()
+                        payload["authorization"] = decision.authorization.to_dict()
+                        receipt = self.runtime.submit_action(ActionEnvelope.from_dict(payload))
             else:
                 receipt = self.runtime.submit_action(action)
             receipt_payload = receipt if isinstance(receipt, dict) else receipt.to_dict()
@@ -568,6 +843,12 @@ class DaemonControlPlane:
             )
             receipt_payload = receipt.to_dict()
         with self._lock:
+            overridden = job.terminal_override is not None
+        if overridden:
+            self._stop_overridden_action(job)
+        with self._lock:
+            if job.terminal_override is not None:
+                receipt_payload = self._apply_terminal_override(job, receipt_payload)
             job.state = "FINISHED"
             job.finished_at = utc_now()
             job.receipt = receipt_payload
@@ -609,6 +890,283 @@ class DaemonControlPlane:
             ):
                 self._hardware_actions_executed += 1
         return receipt_payload
+
+    def _watchdog_tick(self) -> None:
+        expired_sessions = self.sessions.expire_sessions()
+        for session in expired_sessions:
+            self._handle_lost_session(session)
+
+        now_monotonic = time.monotonic()
+        now = datetime.now(UTC)
+        queued: list[_ActionJob] = []
+        running: list[_ActionJob] = []
+        with self._lock:
+            if not self._running or self._closed:
+                return
+            for job in self._jobs.values():
+                if job.state not in {"QUEUED", "RUNNING"} or job.terminal_override is not None:
+                    continue
+                override: tuple[ActionState, str, str] | None = None
+                if job.action.deadline_at is not None and now >= job.action.deadline_at:
+                    override = (
+                        ActionState.TIMED_OUT,
+                        "ACTION_DEADLINE_EXPIRED",
+                        "Action exceeded its immutable deadline; safety stop requested.",
+                    )
+                elif now_monotonic >= job.lease_expires_monotonic and not (
+                    job.session_lost
+                    and job.action.orphan_policy is OrphanPolicy.CONTINUE_UNTIL_DEADLINE
+                ):
+                    override = (
+                        ActionState.TIMED_OUT,
+                        "ACTION_LEASE_EXPIRED",
+                        "Action lease was not renewed; safety stop requested.",
+                    )
+                if override is None:
+                    continue
+                job.terminal_override = override
+                (queued if job.state == "QUEUED" else running).append(job)
+        for job in queued:
+            self._terminalize_queued_override(job)
+        for job in running:
+            self._stop_overridden_action(job)
+
+    def _handle_lost_session(self, session: AgentSession) -> None:
+        try:
+            revoked = self.permits.revoke_session(
+                session.session_id,
+                reason=f"session_{session.state.value.lower()}",
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Session safety is in-memory and must continue even if audit I/O fails.
+            revoked = -1
+            with self._lock:
+                self._mark_ledger_failure_locked(exc)
+        queued: list[_ActionJob] = []
+        running: list[_ActionJob] = []
+        with self._lock:
+            for job in self._jobs.values():
+                if job.action.session_id != session.session_id or job.state not in {
+                    "QUEUED",
+                    "RUNNING",
+                }:
+                    continue
+                job.session_lost = True
+                if (
+                    job.state == "RUNNING"
+                    and job.action.orphan_policy is OrphanPolicy.CONTINUE_UNTIL_DEADLINE
+                ):
+                    continue
+                if job.terminal_override is None:
+                    job.terminal_override = (
+                        ActionState.ORPHANED,
+                        "AGENT_SESSION_LOST",
+                        (
+                            "Owning Agent Session was lost; orphan policy "
+                            f"{job.action.orphan_policy.value} was applied."
+                        ),
+                    )
+                (queued if job.state == "QUEUED" else running).append(job)
+        for job in queued:
+            self._terminalize_queued_override(job)
+        for job in running:
+            self._stop_overridden_action(job)
+        self._append_session_event(
+            "SESSION_LOST" if session.state.value == "LOST" else "SESSION_CLOSED",
+            session,
+            extra={"revoked_permits": revoked},
+        )
+
+    def _terminalize_queued_override(self, job: _ActionJob) -> None:
+        with self._lock:
+            future = job.future
+            if job.state != "QUEUED" or future is None or not future.cancel():
+                return
+            self._finish_overridden_job_locked(job)
+
+    def _finish_overridden_job_locked(self, job: _ActionJob) -> dict[str, Any]:
+        assert job.terminal_override is not None
+        state, code, message = job.terminal_override
+        receipt = self.runtime.action_gateway.reject(
+            job.action,
+            code=code,
+            message=message,
+            state=state,
+        )
+        job.state = "FINISHED"
+        job.finished_at = utc_now()
+        job.receipt = receipt.to_dict()
+        try:
+            self._persist_terminal_job(job)
+        except Exception as exc:  # noqa: BLE001
+            self._mark_ledger_failure_locked(exc)
+        return job.receipt
+
+    def _stop_overridden_action(self, job: _ActionJob) -> None:
+        with self._lock:
+            if job.stop_requested:
+                leader = False
+            else:
+                job.stop_requested = True
+                leader = True
+        if not leader:
+            job.stop_completed.wait(timeout=2.0)
+            return
+        try:
+            receipt = self._request_safety_stop(
+                f"action {job.action.action_id} terminated by rosclawd watchdog"
+            )
+            with self._lock:
+                job.stop_receipt = receipt
+        finally:
+            job.stop_completed.set()
+
+    def _request_safety_stop(self, reason: str) -> dict[str, Any]:
+        with self._lock:
+            self._emergency_stop_requests += 1
+            self._supervision_state = SupervisionState.ESTOPPED
+        try:
+            receipt = self.runtime.request_emergency_stop(
+                reason,
+                source="rosclawd.watchdog",
+                timeout_sec=1.0,
+            )
+            if isinstance(receipt, dict):
+                return dict(receipt)
+            if hasattr(receipt, "to_dict"):
+                return receipt.to_dict()
+            return {"final_status": "FAILED", "error": "invalid stop receipt"}
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("rosclawd watchdog safety stop failed")
+            return {
+                "final_status": "FAILED",
+                "error": f"{type(exc).__name__}: {exc}"[:512],
+            }
+
+    def _on_worker_generation_change(
+        self,
+        worker_id: str,
+        old_connection_id: str | None,
+        new_connection_id: str,
+    ) -> None:
+        if old_connection_id is None:
+            return
+        try:
+            self.permits.revoke_all(reason=f"worker_generation_changed:{worker_id}")
+        except Exception as exc:  # noqa: BLE001
+            with self._lock:
+                self._mark_ledger_failure_locked(exc)
+        self._request_safety_stop(
+            f"Adapter worker {worker_id} changed connection generation "
+            f"from {old_connection_id} to {new_connection_id}"
+        )
+
+    @staticmethod
+    def _apply_terminal_override(job: _ActionJob, receipt: dict[str, Any]) -> dict[str, Any]:
+        assert job.terminal_override is not None
+        state, code, message = job.terminal_override
+        payload = dict(receipt)
+        errors = list(payload.get("errors", []))
+        errors.append({"code": code, "message": message})
+        transitions = list(payload.get("transitions", []))
+        transitions.append({"state": state.value, "at": _iso(utc_now()), "reason": code})
+        payload.update(
+            {
+                "final_state": state.value,
+                "errors": errors,
+                "transitions": transitions,
+                "finished_at": _iso(utc_now()),
+                "usable_for_real_execution": False,
+                "safety_stop": job.stop_receipt
+                or {
+                    "final_status": "UNKNOWN",
+                    "error": "safety-stop request did not complete before receipt finalization",
+                },
+            }
+        )
+        return payload
+
+    def _append_session_event(
+        self,
+        event_type: str,
+        session: AgentSession,
+        *,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        if self.ledger is None:
+            return
+        payload = {"session": session.to_dict(), **(extra or {})}
+        try:
+            self.ledger.append(
+                event_type,
+                entity_kind="SESSION",
+                entity_id=session.session_id,
+                payload=payload,
+            )
+        except Exception as exc:  # noqa: BLE001
+            with self._lock:
+                self._mark_ledger_failure_locked(exc)
+
+    def _append_lease_event(
+        self,
+        action_id: str,
+        session_id: str,
+        event_type: str,
+        lease: dict[str, Any],
+    ) -> None:
+        if self.ledger is None:
+            return
+        try:
+            self.ledger.append(
+                event_type,
+                entity_kind="ACTION_LEASE",
+                entity_id=action_id,
+                payload={"session_id": session_id, "lease": lease},
+            )
+        except Exception as exc:  # noqa: BLE001
+            with self._lock:
+                self._mark_ledger_failure_locked(exc)
+
+    def _append_supervision_event(
+        self,
+        event_type: str,
+        reason: str,
+        peer: PeerCredentials,
+    ) -> None:
+        if self.ledger is None:
+            return
+        try:
+            self.ledger.append(
+                event_type,
+                entity_kind="SUPERVISION",
+                entity_id=self._instance_id,
+                payload={"reason": reason, "peer": peer.to_dict(), "at": _iso(utc_now())},
+            )
+        except Exception as exc:  # noqa: BLE001
+            with self._lock:
+                self._mark_ledger_failure_locked(exc)
+
+    def _require_running(self) -> None:
+        with self._lock:
+            if not self._running or self._closed:
+                raise ControlPlaneError("DAEMON_STOPPING", "rosclawd is not accepting work")
+
+    @staticmethod
+    def _require_daemon_uid(peer: PeerCredentials, operation: str) -> None:
+        if peer.uid != os.geteuid():
+            raise ControlPlaneError(
+                "PERMISSION_DENIED",
+                f"Only the rosclawd service UID may {operation}",
+            )
+
+    @staticmethod
+    def _reason(value: str, field: str) -> str:
+        if not isinstance(value, str) or not value.strip() or len(value) > 1024:
+            raise ControlPlaneError(
+                "INVALID_ARGUMENT",
+                f"{field} must contain 1 to 1024 characters",
+            )
+        return value.strip()
 
     def _mark_ledger_failure_locked(self, error: Exception) -> None:
         self._ledger_write_failed = True
@@ -695,6 +1253,29 @@ class DaemonControlPlane:
                         event.payload.get("submitted_at"),
                         "submitted_at",
                     )
+                    raw_lease = event.payload.get("action_lease")
+                    if raw_lease is None:
+                        last_renewed_at = submitted_at
+                        lease_expires_at = submitted_at + timedelta(
+                            milliseconds=action.lease_ttl_ms
+                        )
+                    else:
+                        if not isinstance(raw_lease, dict):
+                            raise ValueError("action_lease must be an object")
+                        last_renewed_at = _parse_persisted_time(
+                            raw_lease.get("last_renewed_at"),
+                            "action_lease.last_renewed_at",
+                        )
+                        lease_expires_at = _parse_persisted_time(
+                            raw_lease.get("expires_at"),
+                            "action_lease.expires_at",
+                        )
+                        if (
+                            raw_lease.get("ttl_ms") != action.lease_ttl_ms
+                            or raw_lease.get("renew_interval_ms") != action.renew_interval_ms
+                            or lease_expires_at <= last_renewed_at
+                        ):
+                            raise ValueError("action_lease does not match action contract")
                 except (KeyError, TypeError, ValueError) as exc:
                     raise LedgerIntegrityError("persisted action submission is invalid") from exc
                 if action.action_id != event.entity_id:
@@ -705,6 +1286,8 @@ class DaemonControlPlane:
                     action=action,
                     peer=peer,
                     submitted_at=submitted_at,
+                    last_lease_renewed_at=last_renewed_at,
+                    lease_expires_at=lease_expires_at,
                 )
                 continue
             if job is None:
@@ -1032,9 +1615,13 @@ def _validate_persisted_receipt(
         receipt.get("verified") is not verified
         or receipt.get("trust_level") != trust_level
         or receipt.get("usable_for_real_execution")
-        is not (action.execution_mode is ExecutionMode.REAL and verified)
+        is not (
+            action.execution_mode is ExecutionMode.REAL
+            and final_state is ActionState.COMPLETED
+            and verified
+        )
     ):
         raise LedgerIntegrityError("persisted receipt trust fields are inconsistent")
 
 
-__all__ = ["ControlPlaneError", "DaemonControlPlane"]
+__all__ = ["ControlPlaneError", "DaemonControlPlane", "SupervisionState"]

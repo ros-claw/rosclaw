@@ -1,7 +1,7 @@
 # ROSClaw CLI Command Form
 
 > Auto-generated from `src/rosclaw/cli.py` argparse definitions.
-> Generated: 2026-06-23
+> Generated: 2026-07-21 (supplemental Runtime/App command refresh)
 
 这份表单根据当前 `src/rosclaw/cli.py` 中的 argparse 注册信息，列出所有 `rosclaw` 子命令、说明和用法。
 
@@ -9,7 +9,9 @@
 
 | Command | Description | Usage |
 |---------|-------------|-------|
-| `rosclaw` | ROSClaw - Self-Evolving Runtime Infrastructure for Physical AI & Embodied Agents | `rosclaw [-h] [--version] {init,run,start,status,stop,restart,dashboard,doctor,firstboot,config,profile,uninstall,logs,events,ros,body,hub,robot,how,provider,auto,skill,sandbox,runtime,firewall,forge,memory,practice,know,sense,fleet,demo,agent,mcp} ...` |
+| `rosclaw` | ROSClaw - Self-Evolving Runtime Infrastructure for Physical AI & Embodied Agents | `rosclaw [-h] [--version] {init,setup,daemon,app,run,start,status,...} ...` |
+| `daemon` | Inspect or call the local rosclawd control plane | `rosclaw daemon [-h] {serve,status,arm,disarm,session-create,session-heartbeat,session-status,session-close,request-action,action-status,receipt,cancel,renew-action,worker-status,worker-start,worker-stop,worker-restart,emergency-stop,security-check,stop} ...` |
+| `app` | Install, author, and run Capability Apps | `rosclaw app [-h] {install,list,init,add,validate,run} ...` |
 | `init` | Initialize a ROSClaw workspace | `rosclaw init [-h] [--force] [dir]` |
 | `run` | Start ROSClaw runtime | `rosclaw run [-h] [--robot-id ROBOT_ID] [--model-path MODEL_PATH] [--firewall] [--memory] [--practice] [--swarm]` |
 | `start` | Start ROSClaw runtime | `rosclaw start [-h] [--robot-id ROBOT_ID] [--model-path MODEL_PATH] [--firewall] [--memory] [--practice] [--swarm]` |
@@ -27,7 +29,7 @@
 | `ros` | ROS bridge commands | `rosclaw ros [-h] {ping,discover,compile,list-capabilities,inspect-capability,validate-capability,execute-capability,emergency-stop} ...` |
 | `body` | Body / embodiment commands | `rosclaw body [-h] {init,create,switch,remove,list,validate,render,show,state,query,fault,maintenance,calibration,retrofit,capability,link-eurdf,inspect,diff,update-state,note,history,export,fleet-compat} ...` |
 | `hub` | ROSClaw Hub asset discovery, verification, and lifecycle | `rosclaw hub [-h] {validate,ref,schema,login,whoami,logout,sync,search,verify,policy,install,uninstall,update,list,publish} ...` |
-| `robot` | Robot registry commands | `rosclaw robot [-h] {list,install,inspect,validate} ...` |
+| `robot` | Robot registry and Integration commands | `rosclaw robot [-h] {discover,install,add,configure,verify,status,list,inspect,validate} ...` |
 | `how` | How recovery commands | `rosclaw how [-h] {explain,recover} ...` |
 | `provider` | Provider commands | `rosclaw provider [-h] {list,invoke} ...` |
 | `auto` | Auto self-evolution commands | `rosclaw auto [-h] {init,run,status,champion,deadends,report} ...` |
@@ -116,13 +118,41 @@
 | Command | Description | Usage |
 |---------|-------------|-------|
 | `robot list` | List available robots | `rosclaw robot list [-h]` |
-| `robot install` | Install/register a robot | `rosclaw robot install [-h] robot_id` |
+| `robot install` | Install and verify a signed Robot Integration | `rosclaw robot install SOURCE [--install-adapter] [--json]` |
 | `robot inspect` | Inspect robot profile | `rosclaw robot inspect [-h] [--json] robot_id` |
 | `robot validate` | Validate robot e-URDF | `rosclaw robot validate [-h] robot_id` |
 | `robot discover` | Read-only supported-device discovery | `rosclaw robot discover [--type camera] [--backend auto\|sdk\|sysfs] [--json]` |
-| `robot add` | Install and verify a signed Robot Pack | `rosclaw robot add SOURCE [--install-adapter] [--json]` |
-| `robot configure` | Bind a Pack to a device and Body instance | `rosclaw robot configure PACK [--instance ID] [--serial SERIAL] [--json]` |
+| `robot add` | Compatibility alias for `robot install` | `rosclaw robot add SOURCE [--install-adapter] [--json]` |
+| `robot configure` | Bind an Integration to a device and Body instance | `rosclaw robot configure INTEGRATION [--instance ID] [--serial SERIAL] [--json]` |
 | `robot verify` | Produce contract or hardware-read evidence | `rosclaw robot verify TARGET [--stage contract\|read-only] [--receipt FILE] [--json]` |
+| `robot status` | Show installed Integration or instance readiness | `rosclaw robot status TARGET [--json]` |
+
+## Daemon commands
+
+| Command | Description | Usage |
+|---------|-------------|-------|
+| `daemon status` | Show Runtime supervision, Sessions, workers, ledger, and recovery | `rosclaw daemon status [--json]` |
+| `daemon arm` | Arm this daemon generation as the service UID | `rosclaw daemon arm --reason REASON [--json]` |
+| `daemon disarm` | Disarm and request coordinated safety stop | `rosclaw daemon disarm --reason REASON [--json]` |
+| `daemon session-create` | Create a scoped Agent Session | `rosclaw daemon session-create --session-id ID --actor-id ID --agent-framework NAME --body BODY --capability CAPABILITY [--ttl-ms MS] [--json]` |
+| `daemon session-heartbeat` | Renew a Session heartbeat | `rosclaw daemon session-heartbeat SESSION_ID [--json]` |
+| `daemon session-status` | Read one Session | `rosclaw daemon session-status SESSION_ID [--json]` |
+| `daemon session-close` | Close a Session and apply orphan policy | `rosclaw daemon session-close SESSION_ID [--reason REASON] [--json]` |
+| `daemon request-action` | Submit canonical ActionEnvelope JSON | `rosclaw daemon request-action ACTION_JSON [--json]` |
+| `daemon renew-action` | Renew Action Lease and Session heartbeat | `rosclaw daemon renew-action ACTION_ID SESSION_ID [--json]` |
+| `daemon worker-status` | Show Adapter Worker health | `rosclaw daemon worker-status [WORKER_ID] [--json]` |
+| `daemon emergency-stop` | Request emergency stop outside the action queue | `rosclaw daemon emergency-stop --reason REASON [--json]` |
+
+## App commands
+
+| Command | Description | Usage |
+|---------|-------------|-------|
+| `app install` | Install a local or bundled App | `rosclaw app install SOURCE [--home HOME] [--force] [--json]` |
+| `app list` | List installed Apps | `rosclaw app list [--home HOME] [--json]` |
+| `app init` | Create a minimal App manifest | `rosclaw app init NAME [--path PATH] [--force] [--json]` |
+| `app add` | Add a declared Capability step | `rosclaw app add CAPABILITY [--app APP] [--save-as NAME] [--input JSON] [--json]` |
+| `app validate` | Validate a local or installed App | `rosclaw app validate [TARGET] [--json]` |
+| `app run` | Run an App through rosclawd | `rosclaw app run NAME --body BODY [--snapshot HASH] [--mode MODE] [--permit CAPABILITY=ID] [--input JSON] [--json]` |
 
 ## Sandbox commands
 

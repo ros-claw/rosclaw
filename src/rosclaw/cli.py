@@ -36,6 +36,7 @@ from rosclaw.agent.doctor import add_doctor_parser as _add_agent_doctor_parser
 from rosclaw.agent.init_claude_code import add_init_parser as _add_agent_init_parser
 from rosclaw.agent.install import add_install_parser as _add_agent_install_parser
 from rosclaw.agent.test_claude_code import add_test_parser as _add_agent_test_parser
+from rosclaw.app.cli import add_app_subparsers, dispatch_app_command
 from rosclaw.body.cli import add_body_subparser, dispatch_body_command
 from rosclaw.body.registry import BodyRegistryManager
 from rosclaw.body.resolver import BodyResolver
@@ -6590,6 +6591,10 @@ def main() -> int:
         add_help=False,
     )
 
+    app_parser = subparsers.add_parser("app", help="Install, author, and run Capability Apps")
+    app_subparsers = app_parser.add_subparsers(dest="app_command")
+    add_app_subparsers(app_subparsers)
+
     # run / start
     for name in ("run", "start"):
         run_parser = subparsers.add_parser(name, help="Start ROSClaw runtime")
@@ -6874,9 +6879,6 @@ def main() -> int:
     add_robot_pack_subparsers(robot_subparsers)
 
     robot_subparsers.add_parser("list", help="List available robots")
-
-    robot_install_parser = robot_subparsers.add_parser("install", help="Install/register a robot")
-    robot_install_parser.add_argument("robot_id", help="Robot identifier (e.g., ur5e)")
 
     robot_inspect_parser = robot_subparsers.add_parser("inspect", help="Inspect robot profile")
     robot_inspect_parser.add_argument("robot_id", help="Robot identifier")
@@ -8492,12 +8494,17 @@ def main() -> int:
         elif args.command == "logs":
             return cmd_logs(args)
         elif args.command == "robot":
-            if args.robot_command in {"discover", "add", "configure", "verify"}:
+            if args.robot_command in {
+                "discover",
+                "install",
+                "add",
+                "configure",
+                "verify",
+                "status",
+            }:
                 return dispatch_robot_pack_command(args)
             elif args.robot_command == "list":
                 return cmd_robot_list(args)
-            elif args.robot_command == "install":
-                return cmd_robot_install(args)
             elif args.robot_command == "inspect":
                 return cmd_robot_inspect(args)
             elif args.robot_command == "validate":
@@ -8505,6 +8512,11 @@ def main() -> int:
             else:
                 robot_parser.print_help()
                 return 1
+        elif args.command == "app":
+            if getattr(args, "app_command", None):
+                return dispatch_app_command(args)
+            app_parser.print_help()
+            return 1
         elif args.command == "provider":
             if args.provider_command == "list":
                 return cmd_provider_list(args)

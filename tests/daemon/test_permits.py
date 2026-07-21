@@ -21,6 +21,8 @@ from rosclaw.kernel import (
     ExecutionMode,
 )
 
+_ACTION_DEADLINE = datetime(2099, 1, 1, tzinfo=UTC)
+
 
 def _action(
     *,
@@ -37,6 +39,7 @@ def _action(
         capability_id="rh56.finger.move",
         arguments={"finger": "index", "delta_raw": 20},
         execution_mode=ExecutionMode.REAL,
+        deadline_at=_ACTION_DEADLINE,
         authorization=AuthorizationContext(
             principal_id="operator-1",
             approved=True,
@@ -87,7 +90,7 @@ def test_permit_is_bound_to_peer_body_snapshot_capability_and_single_use() -> No
     assert second.code == "PERMIT_EXHAUSTED"
 
 
-def test_single_use_permit_consumption_survives_daemon_restart(tmp_path: Path) -> None:
+def test_daemon_restart_invalidates_even_consumed_permit_generation(tmp_path: Path) -> None:
     database = tmp_path / "state" / "ledger.sqlite3"
     key = tmp_path / "state" / "ledger.key"
     permitted_action = _action(action_id="action-before-restart")
@@ -115,9 +118,10 @@ def test_single_use_permit_consumption_survives_daemon_restart(tmp_path: Path) -
         same_action = restored.authorize(permitted_action, peer)
         replay = restored.authorize(_action(action_id="action-after-restart"), peer)
 
-    assert same_action.allowed is True
+    assert same_action.allowed is False
+    assert same_action.code == "PERMIT_REVOKED"
     assert replay.allowed is False
-    assert replay.code == "PERMIT_EXHAUSTED"
+    assert replay.code == "PERMIT_REVOKED"
 
 
 def test_concurrent_single_use_permit_has_one_durable_winner(tmp_path: Path) -> None:

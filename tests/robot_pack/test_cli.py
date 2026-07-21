@@ -34,6 +34,29 @@ def test_fast_path_add_and_contract_verify(tmp_path: Path, capsys) -> None:
     assert verify_payload["support_tier"] == "H1_CONTRACT_VERIFIED"
 
 
+def test_install_and_status_use_robot_integration_product_language(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    home = tmp_path / "home"
+    install_code = dispatch_robot_pack_argv(
+        ["robot", "install", "realsense", "--home", str(home), "--json"]
+    )
+    install_payload = json.loads(capsys.readouterr().out)
+    status_code = dispatch_robot_pack_argv(
+        ["robot", "status", "realsense", "--home", str(home), "--json"]
+    )
+    status_payload = json.loads(capsys.readouterr().out)
+
+    assert install_code == 0
+    assert install_payload["kind"] == "RobotIntegration"
+    assert install_payload["internal_kind"] == "RobotPack"
+    assert status_code == 0
+    assert status_payload["kind"] == "RobotIntegration"
+    assert status_payload["configured"] is False
+    assert status_payload["readiness"]["contract_verified"] is True
+
+
 def test_offline_configuration_does_not_pass_read_only_verification(
     tmp_path: Path,
     capsys,

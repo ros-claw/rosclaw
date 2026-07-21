@@ -5,6 +5,9 @@ description: Use when operating, validating, or changing ROSClaw physical-AI run
 
 # ROSClaw Agent Skill
 
+Use this exact launcher for every ROSClaw CLI command: `rosclaw`. Do not replace
+it with a different `rosclaw` found on `PATH`.
+
 ## Safety
 
 - Treat ROSClaw as physical-AI infrastructure. Do not publish ROS topics,
@@ -26,12 +29,61 @@ description: Use when operating, validating, or changing ROSClaw physical-AI run
 ```bash
 rosclaw doctor --json
 rosclaw status capabilities
+rosclaw daemon status --json
 rosclaw demo list
 rosclaw demo run ur5e-reach
 rosclaw explain latest
 rosclaw agent doctor universal --project-root .
 rosclaw agent test universal --project-root . --quick --mcp-probe
 ```
+
+For `daemon status`, require `running` and `ledger.integrity_verified` to be
+`true`; require `ledger.write_failed`, `recovery.required`, and
+`emergency_stop_latched` to be `false`. Production REAL work also requires
+`supervision_state=ARMED`, `privilege_separated=true`, and
+`rosclaw daemon security-check --json` with
+`boundary_ready=true`, `daemon_uid_pinned=true`, and
+`ledger_state_private=true`; same-UID development proves only process separation.
+Read an existing durable result with `rosclaw daemon action-status <ACTION_ID>
+--json` and `rosclaw daemon receipt <ACTION_ID> --json`. Do not use
+`daemon acknowledge-recovery` as Agent automation: it is an operator
+incident-review command and does not clear E-stop or prove physical state.
+
+## Robot Integration Workflow
+
+Robot Integration installation/configuration is a CLI lifecycle around the MCP
+runtime. It is not an additional MCP tool surface.
+
+```bash
+rosclaw robot discover --json
+rosclaw robot install realsense --json
+rosclaw robot verify realsense --stage contract --json
+```
+
+- `robot install` verifies and installs the signed contract. Pass
+  `--install-adapter` only when the operator explicitly authorizes dependency
+  installation in the selected Python environment.
+- Bind a discovered device with `robot configure` only when an exact model and
+  stable serial are available. `--allow-offline` creates configuration, never
+  hardware evidence.
+- A read-only hardware check requires a configured instance and canonical
+  `rosclawd` receipt. Treat local success as candidate evidence; never promote
+  product support or claim physical success from CLI text alone.
+- Do not call the vendor SDK directly. Runtime device access stays behind MCP
+  `request_action` and the daemon boundary.
+
+## Capability App Workflow
+
+```bash
+rosclaw app list
+rosclaw app validate realsense-inspect --json
+```
+
+- Apps call named Capabilities only. They do not install drivers, issue
+  permits, arm rosclawd, or authorize direct hardware access.
+- Run SHADOW first with `app run <APP> --body <BODY> --mode SHADOW --json`.
+  Treat a local success as component evidence, never an independent hardware
+  or Agent verification claim.
 
 ## Practice Evidence Loop
 

@@ -39,6 +39,8 @@ from rosclaw.kernel import (
     VerificationPolicy,
 )
 
+_ACTION_DEADLINE = datetime(2099, 1, 1, tzinfo=UTC)
+
 
 def _runtime() -> Runtime:
     return Runtime(
@@ -74,6 +76,7 @@ def _real_action(
         capability_id="rh56.finger.move",
         arguments={"finger": "index", "delta_raw": 20},
         execution_mode=ExecutionMode.REAL,
+        deadline_at=_ACTION_DEADLINE,
         authorization=AuthorizationContext(
             principal_id="operator-1",
             approved=True,
@@ -110,6 +113,7 @@ def daemon_client(tmp_path: Path) -> tuple[DaemonClient, Runtime, PermitAuthorit
     daemon = RosclawDaemon(service=service, socket_path=socket_path)
     daemon.start()
     client = DaemonClient(socket_path=socket_path, timeout_sec=2.0)
+    client.arm_runtime("daemon test fixture preflight complete")
     try:
         yield client, runtime, permits, daemon
     finally:
@@ -937,6 +941,7 @@ def test_real_terminal_write_failure_revokes_success_and_requests_estop(
             ledger=ledger,
         )
         service.start()
+        service.arm_runtime("test preflight complete", peer)
         service.request_action(action, peer)
         deadline = time.monotonic() + 2.0
         while time.monotonic() < deadline:
@@ -1021,6 +1026,7 @@ def test_concurrent_real_terminal_failures_accumulate_unknown_outcomes(
             max_queued_actions=2,
         )
         service.start()
+        service.arm_runtime("test preflight complete", peer)
         for action in actions:
             service.request_action(action, peer)
         start_deadline = time.monotonic() + 2.0

@@ -192,6 +192,43 @@ def _build_client_parser() -> argparse.ArgumentParser:
     _add_client_arguments(acknowledge)
     acknowledge.set_defaults(daemon_handler=_cmd_acknowledge_recovery)
 
+    arm = subparsers.add_parser("arm", help="Arm this daemon generation for REAL actions")
+    arm.add_argument("--reason", required=True)
+    _add_client_arguments(arm)
+    arm.set_defaults(daemon_handler=_cmd_arm)
+
+    disarm = subparsers.add_parser("disarm", help="Disarm and request a safety stop")
+    disarm.add_argument("--reason", required=True)
+    _add_client_arguments(disarm)
+    disarm.set_defaults(daemon_handler=_cmd_disarm)
+
+    session_create = subparsers.add_parser("session-create", help="Create an Agent Session")
+    session_create.add_argument("--session-id", required=True)
+    session_create.add_argument("--actor-id", required=True)
+    session_create.add_argument("--agent-framework", required=True)
+    session_create.add_argument("--body", action="append", required=True, dest="body_scope")
+    session_create.add_argument(
+        "--capability",
+        action="append",
+        required=True,
+        dest="capability_scope",
+    )
+    session_create.add_argument("--ttl-ms", type=int, default=10_000)
+    _add_client_arguments(session_create)
+    session_create.set_defaults(daemon_handler=_cmd_session_create)
+
+    for command, help_text, handler in (
+        ("session-heartbeat", "Renew an Agent Session heartbeat", _cmd_session_heartbeat),
+        ("session-status", "Read an Agent Session", _cmd_session_status),
+        ("session-close", "Close an Agent Session and apply orphan policy", _cmd_session_close),
+    ):
+        session_parser = subparsers.add_parser(command, help=help_text)
+        session_parser.add_argument("session_id")
+        if command == "session-close":
+            session_parser.add_argument("--reason", default="client_closed")
+        _add_client_arguments(session_parser)
+        session_parser.set_defaults(daemon_handler=handler)
+
     request = subparsers.add_parser(
         "request-action",
         help="Submit a canonical ActionEnvelope JSON file through rosclawd",
@@ -220,6 +257,29 @@ def _build_client_parser() -> argparse.ArgumentParser:
     cancel.add_argument("action_id")
     _add_client_arguments(cancel)
     cancel.set_defaults(daemon_handler=_cmd_cancel)
+
+    renew = subparsers.add_parser("renew-action", help="Renew an active Action Lease")
+    renew.add_argument("action_id")
+    renew.add_argument("session_id")
+    _add_client_arguments(renew)
+    renew.set_defaults(daemon_handler=_cmd_renew_action)
+
+    worker_status = subparsers.add_parser("worker-status", help="Show Adapter worker health")
+    worker_status.add_argument("worker_id", nargs="?")
+    _add_client_arguments(worker_status)
+    worker_status.set_defaults(daemon_handler=_cmd_worker_status)
+
+    for operation in ("start", "stop", "restart"):
+        worker_control = subparsers.add_parser(
+            f"worker-{operation}",
+            help=f"{operation.title()} an Adapter worker",
+        )
+        worker_control.add_argument("worker_id")
+        _add_client_arguments(worker_control)
+        worker_control.set_defaults(
+            daemon_handler=_cmd_worker_control,
+            worker_operation=operation,
+        )
 
     emergency = subparsers.add_parser(
         "emergency-stop",
@@ -321,6 +381,43 @@ def _cmd_acknowledge_recovery(args: argparse.Namespace) -> int:
     return 0 if payload.get("recovery_required") is False else 3
 
 
+def _cmd_arm(args: argparse.Namespace) -> int:
+    return _print_payload(args, _client(args).arm_runtime(args.reason))
+
+
+def _cmd_disarm(args: argparse.Namespace) -> int:
+    payload = _client(args).disarm_runtime(args.reason)
+    _print_payload(args, payload)
+    return 0 if payload.get("supervision_state") == "ESTOPPED" else 3
+
+
+def _cmd_session_create(args: argparse.Namespace) -> int:
+    payload = _client(args).create_session(
+        session_id=args.session_id,
+        actor_id=args.actor_id,
+        agent_framework=args.agent_framework,
+        body_scope=args.body_scope,
+        capability_scope=args.capability_scope,
+        ttl_ms=args.ttl_ms,
+    )
+    return _print_payload(args, payload)
+
+
+def _cmd_session_heartbeat(args: argparse.Namespace) -> int:
+    return _print_payload(args, _client(args).heartbeat_session(args.session_id))
+
+
+def _cmd_session_status(args: argparse.Namespace) -> int:
+    return _print_payload(args, _client(args).get_session(args.session_id))
+
+
+def _cmd_session_close(args: argparse.Namespace) -> int:
+    return _print_payload(
+        args,
+        _client(args).close_session(args.session_id, reason=args.reason),
+    )
+
+
 def _cmd_request_action(args: argparse.Namespace) -> int:
     if args.action_file == "-":
         raw = sys.stdin.read()
@@ -361,6 +458,24 @@ def _cmd_cancel(args: argparse.Namespace) -> int:
     payload = _client(args).cancel_action(args.action_id)
     _print_payload(args, payload)
     return 0 if payload.get("cancelled") is True else 3
+
+
+def _cmd_renew_action(args: argparse.Namespace) -> int:
+    return _print_payload(
+        args,
+        _client(args).renew_action_lease(args.action_id, args.session_id),
+    )
+
+
+def _cmd_worker_status(args: argparse.Namespace) -> int:
+    return _print_payload(args, _client(args).get_worker_status(args.worker_id))
+
+
+def _cmd_worker_control(args: argparse.Namespace) -> int:
+    return _print_payload(
+        args,
+        _client(args).control_worker(args.worker_operation, args.worker_id),
+    )
 
 
 def _cmd_emergency_stop(args: argparse.Namespace) -> int:

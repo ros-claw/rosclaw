@@ -531,18 +531,28 @@ def _validate_receipt(
     )
     transitions = receipt.get("transitions")
     transition_items = transitions if isinstance(transitions, list) else []
-    transition_states = [
-        item.get("state") for item in transition_items if isinstance(item, dict)
-    ]
+    transition_states = [item.get("state") for item in transition_items if isinstance(item, dict)]
     transition_times = [
         _parse_timestamp(item.get("at")) for item in transition_items if isinstance(item, dict)
     ]
-    required_transitions = [
-        "DISPATCHED",
-        "DRIVER_ACKNOWLEDGED",
-        "PHYSICALLY_OBSERVED",
-        "COMPLETED",
-    ]
+    acknowledgement_stage = receipt.get("acknowledgement_stage")
+    if acknowledgement_stage is None:
+        # Receipts written before strict acknowledgement stages remain verifiable.
+        required_transitions = [
+            "DISPATCHED",
+            "DRIVER_ACKNOWLEDGED",
+            "PHYSICALLY_OBSERVED",
+            "COMPLETED",
+        ]
+        acknowledgement_ok = True
+    else:
+        required_transitions = [
+            "COMMAND_DISPATCHED",
+            "PROTOCOL_ACKNOWLEDGED",
+            "EFFECT_OBSERVED",
+            "COMPLETED",
+        ]
+        acknowledgement_ok = acknowledgement_stage in {"EFFECT_OBSERVED", "TASK_VERIFIED"}
     transitions_ok = bool(
         started_at is not None
         and finished_at is not None
@@ -551,9 +561,7 @@ def _validate_receipt(
         and _ordered_subsequence(required_transitions, transition_states)
         and _timestamps_are_ordered(transition_times)
         and all(
-            started_at - timedelta(seconds=5)
-            <= item
-            <= finished_at + timedelta(seconds=5)
+            started_at - timedelta(seconds=5) <= item <= finished_at + timedelta(seconds=5)
             for item in transition_times
             if item is not None
         )
@@ -585,7 +593,7 @@ def _validate_receipt(
                 "action_id": action_id,
             },
         )
-    if not control_plane_ok or not transitions_ok:
+    if not control_plane_ok or not acknowledgement_ok or not transitions_ok:
         return (
             False,
             "receipt control-plane decisions, ACK, verification, or transitions are incomplete",

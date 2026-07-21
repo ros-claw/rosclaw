@@ -285,6 +285,7 @@ class CommandDelivery:
     """Delivery state of the last write_position call (§doc: acknowledged/rejected/uncertain)."""
 
     ACKNOWLEDGED = "acknowledged"
+    DELIVERY_INFERRED = "delivery_inferred"
     REJECTED = "rejected"
     UNCERTAIN = "uncertain"
 
@@ -552,8 +553,9 @@ class SerialModbusTransport:
 
         Returns True only when the device acknowledged the write.  On write
         timeout the actual position is re-read: if it already matches the
-        target (within tolerance) delivery is ``acknowledged`` (the command
-        went through but the ACK was lost); otherwise delivery is
+        target (within tolerance) delivery is ``delivery_inferred`` (the
+        physical effect is evidence, but the protocol ACK is still absent);
+        otherwise delivery is
         ``uncertain`` and the call fails closed WITHOUT re-sending.
         """
         from rosclaw.body.rh56.modbus import (
@@ -610,8 +612,8 @@ class SerialModbusTransport:
             abs(actual - want) <= self._DELIVERY_TOLERANCE
             for actual, want in zip(state.position, target, strict=True)
         ):
-            self._last_command_delivery = CommandDelivery.ACKNOWLEDGED
-            return True
+            self._last_command_delivery = CommandDelivery.DELIVERY_INFERRED
+            return False
         self._last_command_delivery = CommandDelivery.UNCERTAIN
         return False
 

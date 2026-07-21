@@ -34,7 +34,10 @@ SOCKET="${ROSCLAW_HOME}/run/rosclawd.sock"
 
 "${CLI}" --version
 "${CLI}" daemon --help >/dev/null
+"${CLI}" app --help >/dev/null
 "${DAEMON}" --help >/dev/null
+"${CLI}" app install ros-claw/realsense-inspect --json >"${WORKSPACE}/app-install.json"
+"${CLI}" app validate realsense-inspect --json >"${WORKSPACE}/app-validate.json"
 "${CLI}" firstboot --yes --profile offline --no-telemetry >/dev/null
 "${CLI}" demo run ur5e-reach --json >"${WORKSPACE}/receipt.json"
 "${CLI}" explain latest --json >"${WORKSPACE}/explanation.json"
@@ -165,6 +168,8 @@ from pathlib import Path
 root = Path(sys.argv[1])
 receipt = json.loads((root / "receipt.json").read_text(encoding="utf-8"))
 explanation = json.loads((root / "explanation.json").read_text(encoding="utf-8"))
+app_install = json.loads((root / "app-install.json").read_text(encoding="utf-8"))
+app_validate = json.loads((root / "app-validate.json").read_text(encoding="utf-8"))
 daemon_status = json.loads((root / "daemon-status.json").read_text(encoding="utf-8"))
 daemon_stop = json.loads((root / "daemon-stop.json").read_text(encoding="utf-8"))
 daemon_action = json.loads((root / "daemon-action.json").read_text(encoding="utf-8"))
@@ -184,6 +189,13 @@ assert receipt["simulation_result"]["has_physics"] is True
 assert receipt["verification_result"]["success"] is True
 assert explanation["run_id"] == receipt["action_id"]
 assert explanation["verification"]["task_verified"] is True
+assert app_install["kind"] == "App"
+assert app_install["name"] == "realsense-inspect"
+assert app_validate["valid"] is True
+assert app_validate["capabilities"] == [
+    "camera.capture_rgbd",
+    "vlm.risk_assessment",
+]
 assert daemon_status["running"] is True
 assert daemon_status["southbound_owner"] == "rosclawd"
 assert daemon_status["robot_id"] == "clean_install"
@@ -207,6 +219,11 @@ assert restart_stop["shutdown_requested"] is True
 
 installed = root / "venv" / "lib"
 assert any(installed.glob("python*/site-packages/rosclaw/product/status.yaml"))
+assert any(
+    installed.glob(
+        "python*/site-packages/rosclaw/app/builtins/realsense-inspect/app.yaml"
+    )
+)
 assert find_spec("rosclaw_how") is None
 assert find_spec("rosclaw_know") is None
 print("PASS clean install", receipt["action_id"])

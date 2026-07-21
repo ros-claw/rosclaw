@@ -11,6 +11,7 @@ It is safe to edit the human sections below. Managed blocks are updated by
 - Project root: `.`
 - Default robot: (none detected)
 - MCP transport: `stdio`
+- Pinned ROSClaw CLI: `rosclaw`
 
 This project exposes a P0 ROSClaw MCP server. Connect via the configured `stdio` transport defined in `.mcp.json`.
 
@@ -52,6 +53,24 @@ request succeeds only when the daemon independently matches a server-issued,
 body- and action-intent-bound permit. Never instantiate a local Runtime,
 register a driver, or use ROS, DDS, serial, CAN, or a vendor SDK as an
 alternate motion path.
+
+### Robot Integration setup
+
+Robot Integration installation and configuration are operator CLI workflows,
+separate from the MCP tool surface. It is safe to inspect discovery and signed contracts
+with `rosclaw robot discover --json`, `rosclaw robot install realsense --json`, and
+`rosclaw robot verify realsense --stage contract --json`. Installing native
+adapter dependencies, binding a live serial number, and running read-only
+hardware verification require an explicit operator request. A local successful
+check is candidate evidence only and must not be reported as canonical support.
+
+### Capability Apps
+
+Apps are capability-only task manifests, not drivers or permissions. Inspect
+them with `rosclaw app list` and `rosclaw app validate <APP> --json`. Run an App
+only through `rosclaw app run <APP> --body <BODY> --mode SHADOW --json` unless the
+operator explicitly establishes every REAL prerequisite. App installation does
+not install hardware, arm rosclawd, issue a Permit, or prove execution.
 <!-- ROSCLAW-MANAGED-END -->
 
 ## Human notes

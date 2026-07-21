@@ -39,6 +39,7 @@ from rosclaw.integrations.lerobot.execution.schema import (
     ActionExecutionResult as StepResult,
 )
 from rosclaw.kernel.contracts import (
+    AcknowledgementStage,
     ActionEnvelope,
     ActionExecutionResult,
     ActionState,
@@ -115,11 +116,17 @@ class RH56RealStepExecutor:
             )
 
         if result.status == "completed":
+            driver_ack = RH56RealStepExecutor._driver_ack(result)
             return ActionExecutionResult(
                 final_state=ActionState.COMPLETED,
                 evidence_level=EvidenceLevel.PHYSICALLY_OBSERVED,
                 dispatch_result={"accepted": True, "command_sent": True},
-                driver_ack={"acknowledged": bool(result.command_acknowledged)},
+                driver_ack=driver_ack,
+                acknowledgement_stage=(
+                    AcknowledgementStage.DELIVERY_INFERRED
+                    if result.command_delivery == "DELIVERY_INFERRED"
+                    else AcknowledgementStage.PROTOCOL_ACKNOWLEDGED
+                ),
                 observations=observations,
                 verification_result=verification,
             )
@@ -145,9 +152,7 @@ class RH56RealStepExecutor:
                 EvidenceLevel.DISPATCH_CONFIRMED if result.command_sent else EvidenceLevel.REQUESTED
             ),
             dispatch_result={"accepted": bool(result.command_sent)},
-            driver_ack=(
-                {"acknowledged": bool(result.command_acknowledged)} if result.command_sent else None
-            ),
+            driver_ack=(RH56RealStepExecutor._driver_ack(result) if result.command_sent else None),
             observations=observations,
             verification_result=verification if result.command_sent else None,
             errors=[
@@ -157,6 +162,21 @@ class RH56RealStepExecutor:
                 }
             ],
         )
+
+    @staticmethod
+    def _driver_ack(result: StepResult) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "acknowledged": bool(result.command_acknowledged),
+            "delivery": result.command_delivery,
+        }
+        if result.command_delivery in {
+            "PROTOCOL_ACKNOWLEDGED",
+            "DELIVERY_INFERRED",
+        }:
+            payload["stage"] = result.command_delivery
+        if result.command_delivery == "DELIVERY_INFERRED":
+            payload["delivery_inferred"] = True
+        return payload
 
 
 __all__ = ["CAPABILITY_ID", "RH56RealStepExecutor"]

@@ -32,6 +32,7 @@ class ExecutionPermit:
     action_intent_hash: str
     expires_at: datetime
     max_uses: int = 1
+    session_id: str | None = None
 
     def __post_init__(self) -> None:
         required = {
@@ -69,6 +70,8 @@ class ExecutionPermit:
             raise ValueError("ExecutionPermit.max_uses must be positive")
         if self.expires_at.tzinfo is None:
             raise ValueError("ExecutionPermit.expires_at must be timezone-aware")
+        if self.session_id is not None and not self.session_id.strip():
+            raise ValueError("ExecutionPermit.session_id must be non-empty when provided")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -82,6 +85,7 @@ class ExecutionPermit:
             "action_intent_hash": self.action_intent_hash,
             "expires_at": self.expires_at.isoformat().replace("+00:00", "Z"),
             "max_uses": self.max_uses,
+            "session_id": self.session_id,
         }
 
     @classmethod
@@ -116,6 +120,11 @@ class ExecutionPermit:
             ),
             expires_at=parsed_expiry,
             max_uses=_strict_int(value.get("max_uses"), "max_uses"),
+            session_id=(
+                _strict_string(value.get("session_id"), "session_id")
+                if value.get("session_id") is not None
+                else None
+            ),
         )
 
 
@@ -136,10 +145,12 @@ class PermitAuthority:
         self._permits: dict[str, ExecutionPermit] = {}
         self._uses: dict[str, int] = {}
         self._consumed_actions: dict[str, str] = {}
+        self._revoked: dict[str, str] = {}
         self._lock = threading.RLock()
         self.ledger = ledger
         if ledger is not None:
             self._restore_from_ledger()
+            self._invalidate_restored_permits()
 
     def register(self, permit: ExecutionPermit) -> None:
         """Register a permit from a trusted daemon/operator integration."""
@@ -199,6 +210,13 @@ class PermitAuthority:
                     f"Permit {permit_id!r} has expired.",
                     denied,
                 )
+            if permit_id in self._revoked:
+                return PermitDecision(
+                    False,
+                    "PERMIT_REVOKED",
+                    f"Permit {permit_id!r} was revoked: {self._revoked[permit_id]}",
+                    denied,
+                )
             if peer.uid != permit.peer_uid:
                 return PermitDecision(
                     False,
@@ -211,6 +229,13 @@ class PermitAuthority:
                     False,
                     "PERMIT_PRINCIPAL_MISMATCH",
                     "Permit principal does not match the action authorization context.",
+                    denied,
+                )
+            if permit.session_id is not None and action.session_id != permit.session_id:
+                return PermitDecision(
+                    False,
+                    "PERMIT_SESSION_MISMATCH",
+                    "Permit is bound to a different Agent Session.",
                     denied,
                 )
             if action.body_id != permit.body_id:
@@ -287,13 +312,49 @@ class PermitAuthority:
                 1
                 for permit_id, permit in self._permits.items()
                 if datetime.now(UTC) < permit.expires_at
+                and permit_id not in self._revoked
                 and self._uses.get(permit_id, 0) < permit.max_uses
             )
             return {
                 "registered": len(self._permits),
                 "active": active,
                 "consumed_actions": len(self._consumed_actions),
+                "revoked": len(self._revoked),
             }
+
+    def revoke_session(self, session_id: str, *, reason: str = "session_lost") -> int:
+        """Revoke every unused permit explicitly bound to an Agent Session."""
+
+        with self._lock:
+            targets = [
+                permit_id
+                for permit_id, permit in self._permits.items()
+                if permit.session_id == session_id
+                and permit_id not in self._revoked
+                and self._uses.get(permit_id, 0) < permit.max_uses
+            ]
+            for permit_id in targets:
+                self._revoke_locked(permit_id, reason)
+            return len(targets)
+
+    def revoke_all(self, *, reason: str) -> int:
+        """Revoke all permits from the current trust generation."""
+
+        with self._lock:
+            targets = [permit_id for permit_id in self._permits if permit_id not in self._revoked]
+            for permit_id in targets:
+                self._revoke_locked(permit_id, reason)
+            return len(targets)
+
+    def _revoke_locked(self, permit_id: str, reason: str) -> None:
+        self._revoked[permit_id] = reason
+        if self.ledger is not None:
+            self.ledger.append(
+                "PERMIT_REVOKED",
+                entity_kind="PERMIT",
+                entity_id=permit_id,
+                payload={"permit_id": permit_id, "reason": reason},
+            )
 
     @staticmethod
     def _allow(permit: ExecutionPermit) -> PermitDecision:
@@ -366,7 +427,26 @@ class PermitAuthority:
                 self._consumed_actions[action_id] = permit_id
                 self._uses[permit_id] = next_uses
                 continue
+            if event.event_type == "PERMIT_REVOKED":
+                try:
+                    permit_id = _strict_string(event.payload.get("permit_id"), "permit_id")
+                    reason = _strict_string(event.payload.get("reason"), "reason")
+                except ValueError as exc:
+                    raise LedgerIntegrityError("persisted permit revocation is invalid") from exc
+                if (
+                    permit_id != event.entity_id
+                    or permit_id not in self._permits
+                    or permit_id in self._revoked
+                ):
+                    raise LedgerIntegrityError("persisted permit revocation is invalid")
+                self._revoked[permit_id] = reason
+                continue
             raise LedgerIntegrityError(f"unsupported permit ledger event: {event.event_type!r}")
+
+    def _invalidate_restored_permits(self) -> None:
+        # A daemon restart creates a new trust generation. Historical permits
+        # remain auditable but may never authorize new physical work.
+        self.revoke_all(reason="daemon_restart_generation_changed")
 
 
 def action_intent_hash(action: ActionEnvelope) -> str:
@@ -383,6 +463,10 @@ def action_intent_hash(action: ActionEnvelope) -> str:
         "deadline_at": payload["deadline_at"],
         "expected_effect": payload["expected_effect"],
         "verification_policy": payload["verification_policy"],
+        "lease_ttl_ms": payload["lease_ttl_ms"],
+        "renew_interval_ms": payload["renew_interval_ms"],
+        "orphan_policy": payload["orphan_policy"],
+        "stop_capability": payload["stop_capability"],
     }
     encoded = json.dumps(
         intent,

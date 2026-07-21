@@ -1,4 +1,4 @@
-"""CLI lifecycle for discover/add/configure/verify Robot Pack workflows."""
+"""CLI lifecycle for Robot Integration onboarding and verification."""
 
 from __future__ import annotations
 
@@ -10,15 +10,20 @@ from typing import Any
 
 from rosclaw.robot_pack.catalog import RobotPackCatalog, RobotPackNotFoundError
 from rosclaw.robot_pack.discovery import discover_realsense_devices
-from rosclaw.robot_pack.instance import RobotInstanceError, configure_robot_instance
+from rosclaw.robot_pack.instance import (
+    RobotInstanceError,
+    configure_robot_instance,
+    load_robot_instance,
+    resolve_adapter_binding,
+)
 from rosclaw.robot_pack.store import RobotPackStore, RobotPackStoreError
 from rosclaw.robot_pack.verification import verify_installed_robot_pack
 
-_ROBOT_PACK_COMMANDS = frozenset({"discover", "add", "configure", "verify"})
+_ROBOT_PACK_COMMANDS = frozenset({"discover", "install", "add", "configure", "verify", "status"})
 
 
 def add_robot_pack_subparsers(subparsers: Any) -> None:
-    """Add new Pack commands to an existing ``robot`` subparser collection."""
+    """Add Robot Integration commands to an existing ``robot`` parser."""
 
     discover = subparsers.add_parser("discover", help="Discover supported physical devices")
     discover.add_argument("--type", choices=["camera"], default="camera")
@@ -26,22 +31,16 @@ def add_robot_pack_subparsers(subparsers: Any) -> None:
     discover.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     discover.set_defaults(robot_pack_handler=cmd_robot_discover)
 
-    add = subparsers.add_parser("add", help="Install a signed Robot Pack")
-    add.add_argument("source", help="Pack ref, alias, manifest, or local directory")
-    add.add_argument("--home", default=None, help="ROSCLAW_HOME override")
-    add.add_argument("--force", action="store_true", help="Replace the same locked Pack version")
-    add.add_argument(
-        "--install-adapter",
-        action="store_true",
-        help="Install the Pack's hardware MCP at its locked git revision",
-    )
-    add.add_argument("--adapter-python", default=None, help="Python for the isolated MCP adapter")
-    add.add_argument("--no-install-adapter-deps", action="store_true")
-    add.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+    install = subparsers.add_parser("install", help="Install a signed Robot Integration")
+    _add_install_arguments(install)
+    install.set_defaults(robot_pack_handler=cmd_robot_install)
+
+    add = subparsers.add_parser("add", help="Alias for 'robot install'")
+    _add_install_arguments(add)
     add.set_defaults(robot_pack_handler=cmd_robot_add)
 
-    configure = subparsers.add_parser("configure", help="Bind a Pack to a device and Body")
-    configure.add_argument("pack", help="Installed Pack ref, name, or alias")
+    configure = subparsers.add_parser("configure", help="Bind an Integration to a device and Body")
+    configure.add_argument("pack", help="Installed Integration ref, name, or alias")
     configure.add_argument("--instance", default=None, help="Stable Body instance id")
     configure.add_argument("--serial", default=None, help="Exact hardware serial")
     configure.add_argument("--model", default=None, help="Exact supported model")
@@ -53,15 +52,48 @@ def add_robot_pack_subparsers(subparsers: Any) -> None:
     configure.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     configure.set_defaults(robot_pack_handler=cmd_robot_configure)
 
-    verify = subparsers.add_parser("verify", help="Verify Pack contracts or read-only hardware")
-    verify.add_argument("target", help="Installed Pack ref/name or configured instance id")
+    verify = subparsers.add_parser("verify", help="Verify Integration contracts or hardware")
+    verify.add_argument("target", help="Installed Integration or configured instance id")
     verify.add_argument("--stage", choices=["contract", "read-only"], default="contract")
+    verify.add_argument(
+        "--read-only",
+        action="store_const",
+        const="read-only",
+        dest="stage",
+        help="Alias for --stage read-only",
+    )
     verify.add_argument("--instance", default=None, help="Configured instance id")
     verify.add_argument("--receipt", default=None, help="Canonical rosclawd receipt JSON")
     verify.add_argument("--output", default=None, help="Evidence report output path")
     verify.add_argument("--home", default=None, help="ROSCLAW_HOME override")
     verify.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     verify.set_defaults(robot_pack_handler=cmd_robot_verify)
+
+    status = subparsers.add_parser("status", help="Show Robot Integration readiness")
+    status.add_argument("target", help="Installed Integration or configured instance id")
+    status.add_argument("--home", default=None, help="ROSCLAW_HOME override")
+    status.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+    status.set_defaults(robot_pack_handler=cmd_robot_status)
+
+
+def _add_install_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("source", help="Integration ref, alias, manifest, or local directory")
+    parser.add_argument("--home", default=None, help="ROSCLAW_HOME override")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace the same locked Integration version",
+    )
+    parser.add_argument(
+        "--install-adapter",
+        action="store_true",
+        help="Install the Integration's hardware MCP at its locked git revision",
+    )
+    parser.add_argument(
+        "--adapter-python", default=None, help="Python for the isolated MCP adapter"
+    )
+    parser.add_argument("--no-install-adapter-deps", action="store_true")
+    parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
 
 def dispatch_robot_pack_argv(argv: list[str]) -> int | None:
@@ -94,7 +126,7 @@ def cmd_robot_discover(args: argparse.Namespace) -> int:
         print(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
     else:
         print("ROSClaw Device Discovery")
-        print(f"Pack: {entry.manifest.canonical_ref}")
+        print(f"Integration: {entry.manifest.canonical_ref}")
         print(f"Backends: {', '.join(report.attempted_backends) or 'none'}")
         if not report.devices:
             print("Devices: 0")
@@ -149,6 +181,8 @@ def cmd_robot_add(args: argparse.Namespace) -> int:
     real_actuation = "forbidden" if manifest.safety.actuation == "forbidden" else "locked"
     payload = {
         "ok": adapter_error is None,
+        "kind": "RobotIntegration",
+        "internal_kind": "RobotPack",
         "status": "installed" if adapter_error is None else "pack_installed_adapter_failed",
         "pack_installed": True,
         "pack_ref": record.ref,
@@ -173,8 +207,8 @@ def cmd_robot_add(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
-        print("Robot Pack installed")
-        print(f"Pack: {record.ref}")
+        print("Robot Integration installed")
+        print(f"Integration: {record.ref}")
         print(f"Signature: {record.signature_status} (trusted={str(record.trusted).lower()})")
         print(f"Support tier: {record.support_tier}")
         print(f"Body profiles: {', '.join(body_profiles)}")
@@ -190,6 +224,46 @@ def cmd_robot_add(args: argparse.Namespace) -> int:
         print(f"[ROSClaw] ADAPTER_INSTALL_FAILED: {adapter_error}", file=sys.stderr)
         return 2
     return 0
+
+
+def cmd_robot_install(args: argparse.Namespace) -> int:
+    """Install an Integration, falling back to the legacy e-URDF registry."""
+
+    source = str(args.source)
+    try:
+        RobotPackCatalog().resolve(source)
+    except RobotPackNotFoundError:
+        candidate = Path(source).expanduser()
+        if candidate.exists() or "/" in source or source.startswith("rosclaw:"):
+            return cmd_robot_add(args)
+        from rosclaw.runtime import RobotRegistry
+
+        registry = RobotRegistry()
+        try:
+            profile = registry.install(source)
+        except FileNotFoundError as exc:
+            if getattr(args, "json", False):
+                return _print_error(args, "ROBOT_INTEGRATION_NOT_FOUND", str(exc))
+            print(f"[ROSClaw] Installation failed: {exc}")
+            available = registry.list_available()
+            if available:
+                print(f"[ROSClaw] Available robots: {', '.join(available)}")
+            return 1
+        except Exception as exc:  # noqa: BLE001 - legacy registry boundary
+            return _print_error(args, "ROBOT_INTEGRATION_NOT_FOUND", str(exc))
+        payload = {
+            "ok": True,
+            "kind": "BodyProfile",
+            "legacy": True,
+            "robot_id": profile.robot_id,
+            "name": profile.name,
+        }
+        if args.json:
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+        else:
+            print(f"Legacy Body profile installed: {profile.name} ({profile.robot_id})")
+        return 0
+    return cmd_robot_add(args)
 
 
 def cmd_robot_configure(args: argparse.Namespace) -> int:
@@ -211,9 +285,9 @@ def cmd_robot_configure(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
-        print("Robot Pack configured")
+        print("Robot Integration configured")
         print(f"Instance: {config.instance_id}")
-        print(f"Pack: {config.pack.ref}")
+        print(f"Integration: {config.pack.ref}")
         print(f"Device: {config.device.model} serial={config.device.serial}")
         print(f"Stable URI: {config.device.stable_uri}")
         print(f"Body snapshot: {config.body_snapshot_hash}")
@@ -242,9 +316,9 @@ def cmd_robot_verify(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
-        print(f"Robot Pack verification: {'PASS' if report.passed else 'FAIL'}")
+        print(f"Robot Integration verification: {'PASS' if report.passed else 'FAIL'}")
         print(f"Evidence ID: {report.evidence_id}")
-        print(f"Pack: {report.pack_ref}")
+        print(f"Integration: {report.pack_ref}")
         print(f"Stage: {report.stage}")
         print(f"Support tier: {report.support_tier}")
         if report.observed_candidate_tier:
@@ -255,6 +329,59 @@ def cmd_robot_verify(args: argparse.Namespace) -> int:
             print(f"BLOCKER: {blocker}")
         print(f"Evidence report: {report.report_path}")
     return 0 if report.passed else 3
+
+
+def cmd_robot_status(args: argparse.Namespace) -> int:
+    store = RobotPackStore(args.home)
+    instance = None
+    instance_path = None
+    try:
+        instance, instance_path = load_robot_instance(args.target, home=args.home)
+        record, manifest = store.resolve_installed(instance.pack.ref)
+    except RobotInstanceError:
+        try:
+            record, manifest = store.resolve_installed(args.target)
+        except RobotPackStoreError as exc:
+            return _print_error(args, "ROBOT_INTEGRATION_NOT_FOUND", str(exc))
+    adapter = resolve_adapter_binding(manifest, store.home)
+    payload = {
+        "ok": True,
+        "kind": "RobotIntegration",
+        "internal_kind": "RobotPack",
+        "name": manifest.pack.name,
+        "ref": record.ref,
+        "version": record.version,
+        "trusted": record.trusted,
+        "signature_status": record.signature_status,
+        "support_tier": record.support_tier,
+        "latest_verification_id": record.latest_verification_id,
+        "capabilities": [capability.id for capability in manifest.capabilities],
+        "adapter": adapter.model_dump(mode="json"),
+        "configured": instance is not None,
+        "instance": instance.model_dump(mode="json") if instance is not None else None,
+        "instance_path": str(instance_path) if instance_path is not None else None,
+        "readiness": {
+            "contract_verified": record.support_tier != "H0_INDEXED",
+            "hardware_read_verified": record.support_tier
+            in {
+                "H3_HARDWARE_READ_VERIFIED",
+                "H4_HARDWARE_ACTUATION_VERIFIED",
+                "H5_AGENT_BLACKBOX_VERIFIED",
+                "H6_REFERENCE_SUPPORTED",
+            },
+            "adapter_installed": adapter.status == "installed",
+        },
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print(f"Robot Integration: {record.ref}")
+        print(f"Trust: {record.signature_status} (trusted={str(record.trusted).lower()})")
+        print(f"Support tier: {record.support_tier}")
+        print(f"Configured: {str(instance is not None).lower()}")
+        print(f"Adapter: {adapter.status} ({adapter.component_id})")
+        print(f"Capabilities: {', '.join(payload['capabilities'])}")
+    return 0
 
 
 def _print_error(args: argparse.Namespace, code: str, message: str) -> int:
@@ -276,4 +403,5 @@ __all__ = [
     "add_robot_pack_subparsers",
     "dispatch_robot_pack_argv",
     "dispatch_robot_pack_command",
+    "cmd_robot_status",
 ]

@@ -1,0 +1,28 @@
+apiVersion: rosclaw.io/v1
+kind: App
+metadata:
+  name: rh56-rps
+  version: 1.0.0
+  title: RH56 Single Step
+  summary: Execute one bounded RH56 receding-horizon step through rosclawd.
+requires:
+  capabilities:
+    - rh56.single_step
+workflow:
+  - call: rh56.single_step
+    save_as: step
+    input:
+      permit_id: ${input.step_permit_id}
+      names: ${input.names}
+      values: ${input.values}
+      representation: joint_position
+      units: raw_device_unit
+      hashes: ${input.hashes}
+      speed: ${input.speed}
+      force_limit_g: ${input.force_limit_g}
+      observation_timestamp_ns: ${input.observation_timestamp_ns}
+    timeout_sec: 5
+verification:
+  require:
+    - step.final_state == COMPLETED
+    - step.observations.0.position.exists

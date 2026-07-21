@@ -49,14 +49,16 @@ roadmap disguised as completed work.
 | Scope | Status | Evidence available today |
 |---|---|---|
 | UR5e tabletop reach | **Simulation verified** | Real MuJoCo execution and receipt verification are system-tested. Local Codex CLI black-box runs discovered all 22 MCP tools, completed the simulation workflow, and confirmed that rosclawd blocks unauthorized REAL actions without hardware dispatch; independent H5 acceptance remains pending. |
-| rosclawd Agent/physical boundary | **Component/system verified** | Separate-process and clean-wheel cross-UID sockets, pinned SO_PEERCRED identity, private daemon state, exact permits, and durable restart recovery are system-tested, including a reference systemd sandbox; owner-level coordinated rollback, site-specific device/credential ACLs, SROS2, and hardware acceptance remain pending. |
-| Action contract and gateway | **Component/system verified** | Versioned action and receipt, evidence levels, idempotency, exclusive body lease, and fail-closed executor lookup. |
+| rosclawd Agent/physical boundary | **Component/system verified** | Cross-UID sockets, SO_PEERCRED identity, private state, exact permits, restart recovery, DISARMED generations, Agent Sessions, Action Leases, orphan handling, watchdogs, and isolated worker restart budgets are system-tested; site-specific device ACLs, controller deadman wiring, and hardware acceptance remain pending. |
+| Action contract and gateway | **Component/system verified** | Versioned action and receipt, finite deadline and lease, orphan policy, stop capability, strict acknowledgement stages, idempotency, exclusive body lease, and fail-closed executor lookup. |
+| Capability-only App runtime | **Component verified** | Local and bundled App manifests, digest-locked installation, low-code authoring, and daemon-only workflow execution are tested; remote App registry and independent Agent acceptance remain pending. |
 | E-Stop control path | **Component verified** | Fan-out, timeout, partial ACK, idempotency, latch, and physical-observation fields; no independent physical-stop verification. |
 | Mock Sense, mock Providers, fixture Drivers | **Fixture only** | Explicit FIXTURE and SYNTHETIC data only; never valid for safety or real acceptance. |
-| RealSense perception-only path | **Experimental** | A signed, commit-locked RealSense Robot Pack now covers discover/add/configure/verify, Body binding, daemon-side RGB-D execution, artifact hashing, and truthful H3-candidate evidence; this repository still has no independently verified hardware capture run. |
-| RH56 LeRobot single-step loop | **Developer-observed; revalidation pending** | Real SerialModbusTransport, shadow reads, graded REAL actions, and fault injection were developer-observed; independent v1 hardware revalidation and Agent black-box testing remain open. |
+| RealSense perception-only path | **Experimental** | A signed, commit-locked RealSense Robot Integration covers install/configure/verify/status, Body binding, daemon-side RGB-D execution, artifact hashing, and bounded MCP subprocess faults; this repository still has no independently verified hardware capture run. |
+| RH56 LeRobot single-step loop | **Developer-observed; revalidation pending** | Real SerialModbusTransport, shadow reads, graded REAL actions, and fault injection were developer-observed. Loopback fault tests now prove that target-near readback is DELIVERY_INFERRED rather than a protocol ACK; independent v1 hardware revalidation and Agent black-box testing remain open. |
 | ROS connectors, LeRobot, hardware MCP, real Providers | **Experimental** | Contract and component coverage varies; registration or import does not imply execution readiness. |
 | ROS 2 Turtlesim guarded motion | **Not verified** | Connector contracts exist, but the ROS 2 golden path has not been run in the current validation environment. |
+| Mobile base continuous-lease deadman | **Simulation verified** | A MuJoCo mobile base reaches a bounded velocity, loses a 60 ms controller lease, trips its deadman, and reaches below 0.01 m/s with bounded post-loss travel. No physical mobile-base claim is made. |
 | Repository-wide real robot execution | **Revalidation pending** | RH56 has developer-run physical evidence, but independent hardware and Agent black-box acceptance are still pending; no repository-wide real-ready claim is made. |
 <!-- product-status:end -->
 
@@ -117,16 +119,21 @@ Auto may propose changes, but it cannot approve them alone. Sandbox validation, 
 For Agent-driven physical work, `rosclawd` is the only supported control-plane
 entry. MCP and CLI clients submit structured actions over a protected local
 socket; the daemon independently checks peer/body/snapshot/capability/action
-intent, expiry, and use count before accepting a permit. It owns the queue,
-physical Runtime, drivers, E-Stop latch, and receipts. An authenticated local
-ledger persists permit consumption and action transitions, restores terminal
-receipts after restart, and fails closed for interrupted REAL actions pending
-daemon-UID operator review.
+intent, Session, expiry, and use count before accepting a permit. Every action
+has a finite Deadline and renewable Lease; Session loss applies the declared
+orphan policy. The daemon owns the queue, isolated Adapter workers, physical
+Runtime, E-Stop latch, watchdogs, and receipts. An authenticated local ledger
+persists permit consumption and action transitions, restores terminal receipts
+after restart, and fails closed for interrupted REAL actions pending daemon-UID
+operator review. Every daemon generation starts `DISARMED` and never resumes an
+old physical action.
 
 ```bash
 # Development/process-boundary smoke test only
 rosclawd --robot-id sim_ur5e
 rosclaw daemon status --json
+rosclaw daemon session-create --session-id agent-1 --actor-id codex-1 \
+  --agent-framework codex --body sim_ur5e --capability sandbox.reach --json
 rosclaw daemon security-check --json
 # Only when status reports recovery.required=true, run as the daemon UID:
 rosclaw daemon acknowledge-recovery --reason "reviewed interrupted action evidence" --json
@@ -170,20 +177,22 @@ See [QUICKSTART.md](QUICKSTART.md) for four guided paths: local simulation, agen
 
 ---
 
-## Robot Packs
+## Robot Integrations
 
-A Robot Pack is the signed, versioned onboarding unit above individual Body,
-Hardware MCP, capability, policy, calibration, and verification assets. The
-first built-in Pack supports perception-only RealSense D405/D435i onboarding:
+A Robot Integration is the user-facing, signed and versioned onboarding unit
+above individual Body, Hardware MCP, capability, policy, calibration, and
+verification assets. Its internal manifest remains `RobotPack`; it is an asset
+bundle, not another execution framework. The first built-in Integration
+supports perception-only RealSense D405/D435i onboarding:
 
 ```bash
 rosclaw robot discover --type camera --json
-rosclaw robot add ros-claw/realsense-d400
+rosclaw robot install ros-claw/realsense-d400
 rosclaw robot verify realsense-d400 --stage contract
 rosclaw robot configure realsense-d400 --instance lab-d405 --serial SERIAL
 ```
 
-Add `--install-adapter` only when the host should install the Pack's native MCP
+Add `--install-adapter` only when the host should install the Integration's native MCP
 dependencies at its locked commit. Installation and offline configuration are
 not hardware verification. H3 additionally requires complete live identity,
 stream profiles, real RGB-D artifacts and hashes, a canonical `rosclawd`
@@ -191,6 +200,23 @@ receipt, and independent physical observation.
 
 See [docs/ROBOT_PACKS.md](docs/ROBOT_PACKS.md) for trust, daemon loading, support
 tiers, and the hardware acceptance procedure.
+
+## Capability Apps
+
+Apps are small capability-only task manifests. They never name device paths,
+registers, ROS command topics, or Adapter APIs, and every step is submitted
+through `rosclawd`:
+
+```bash
+rosclaw app install ros-claw/realsense-inspect
+rosclaw app validate realsense-inspect --json
+rosclaw app run realsense-inspect --body lab-d405 --mode SHADOW --json
+```
+
+The bundled `realsense-inspect` and `rh56-rps` manifests are component-tested.
+This does not claim a verified camera capture or RH56 Agent run: RealSense H3
+still needs independent hardware evidence, and RH56 production Robot
+Integration/Worker migration is still pending. See [docs/APPS.md](docs/APPS.md).
 
 ---
 

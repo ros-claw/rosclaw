@@ -35,13 +35,20 @@ This document lists ROSClaw CLI commands and their implementation status.
 | `rosclawd [--ledger <db>] [--ledger-key <key>]` | Experimental | Run the least-privilege physical control plane with its durable ledger |
 | `rosclaw daemon serve` | Experimental | Run rosclawd through the main CLI |
 | `rosclaw daemon status --json` | Experimental | Inspect daemon identity, queue, ledger integrity, recovery gate, permits, and E-Stop latch |
+| `rosclaw daemon arm --reason <text>` | Experimental | As daemon UID, arm only the current daemon generation for REAL dispatch |
+| `rosclaw daemon disarm --reason <text>` | Experimental | As daemon UID, disarm and request a coordinated safety stop |
+| `rosclaw daemon session-create ...` | Experimental | Create a UID-bound Agent Session with explicit Body and Capability scope |
+| `rosclaw daemon session-heartbeat <session-id>` | Experimental | Renew an active Agent Session |
+| `rosclaw daemon session-close <session-id>` | Experimental | Close a Session, revoke permits, and apply orphan policy |
 | `rosclaw daemon request-action <action.json>` | Experimental | Submit one canonical ActionEnvelope |
+| `rosclaw daemon renew-action <action-id> <session-id>` | Experimental | Renew an active Action Lease and Session heartbeat |
 | `rosclaw daemon action-status <action-id>` | Experimental | Read daemon queue state and terminal receipt |
 | `rosclaw daemon receipt <action-id>` | Experimental | Read a terminal daemon ExecutionReceipt |
 | `rosclaw daemon cancel <action-id>` | Experimental | Cancel only before dispatch |
 | `rosclaw daemon emergency-stop --reason <text>` | Experimental | Request the daemon emergency path |
 | `rosclaw daemon acknowledge-recovery --reason <text>` | Experimental | As daemon UID, persist review of interrupted REAL evidence |
 | `rosclaw daemon security-check --json` | Experimental | Check pinned daemon identity, socket/runtime ACLs, private ledger state, and client device separation |
+| `rosclaw daemon worker-status [worker-id]` | Experimental | Inspect registered Adapter worker generation and heartbeat health |
 | `rosclaw daemon stop` | Experimental | As daemon UID, request orderly daemon shutdown |
 | `rosclaw run` | Stable | Start the ROSClaw runtime |
 | `rosclaw start` | Stable | Alias for `run` |
@@ -67,11 +74,26 @@ the E-Stop latch or change an unknown-outcome receipt.
 | `rosclaw robot inspect <id>` | Stable | Show complete robot profile |
 | `rosclaw robot validate <id>` | Stable | Validate e-URDF completeness |
 | `rosclaw robot discover --type camera` | Experimental | Read-only discovery with complete/partial identity labels |
-| `rosclaw robot add <pack>` | Experimental | Verify and transactionally install a signed Robot Pack |
-| `rosclaw robot configure <pack>` | Experimental | Bind a Pack, physical identity, and immutable Body snapshot |
+| `rosclaw robot install <integration>` | Experimental | Verify and transactionally install a signed Robot Integration |
+| `rosclaw robot add <integration>` | Experimental | Compatibility alias for `robot install` |
+| `rosclaw robot configure <integration>` | Experimental | Bind an Integration, physical identity, and immutable Body snapshot |
 | `rosclaw robot verify <target> --stage <stage>` | Experimental | Persist evidence without automatic support-tier promotion |
 
 See [ROBOT_PACKS.md](ROBOT_PACKS.md) for the Pack trust model and RealSense path.
+
+## Capability Apps
+
+| Command | Status | Description |
+|---------|--------|-------------|
+| `rosclaw app install <source>` | Experimental | Digest-lock a bundled or local capability-only App manifest |
+| `rosclaw app list` | Experimental | List installed Apps |
+| `rosclaw app init <name>` | Experimental | Create a minimal low-code App manifest |
+| `rosclaw app add <capability>` | Experimental | Add one declared Capability workflow step |
+| `rosclaw app validate <target>` | Experimental | Validate schema, capability declarations, and southbound-data exclusions |
+| `rosclaw app run <name> --body <id> --mode <mode>` | Experimental | Run every App step through a rosclawd Agent Session |
+
+See [APPS.md](APPS.md). Installation does not install a Robot Integration,
+issue a Permit, arm the Runtime, or prove hardware execution.
 
 ---
 

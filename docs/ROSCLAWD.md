@@ -2,9 +2,9 @@
 
 `rosclawd` is the experimental local daemon boundary for ROSClaw physical
 actions. CLI, MCP, SDK, and Agent processes are northbound clients. The daemon
-owns the action queue, daemon-issued permits, resource leases, driver/executor
-registration, emergency-stop latch, execution receipts, and authenticated
-restart ledger.
+owns Agent Sessions, the action queue, daemon-issued permits, renewable Action
+Leases, Adapter worker supervision, driver/executor registration,
+emergency-stop latch, execution receipts, and authenticated restart ledger.
 
 ```text
 Codex / Claude Code / OpenClaw / operator CLI
@@ -29,6 +29,20 @@ The current implementation provides:
 - an exact RPC allowlist, with no arbitrary import, ROS publish, serial write,
   driver registration, or executor registration operation;
 - a bounded action queue and idempotent action IDs;
+- UID-bound Agent Sessions with explicit Body/Capability scope, monotonic
+  heartbeat expiry, and permit revocation on loss;
+- immutable action Deadlines, renewable Action Leases, required stop
+  capabilities, and explicit orphan policies that default to
+  `STOP_ON_CLIENT_LOSS`;
+- rejection of already-expired actions and a second Deadline/Lease gate before
+  queued work can reach an executor;
+- a 50 ms supervision watchdog that expires Sessions and Action Leases without
+  depending on the durable database;
+- a bounded subprocess Worker manager with line/message limits, heartbeat
+  timeout, restart budget, process-generation identity, and permit invalidation
+  after a worker generation changes;
+- every process generation starting `DISARMED`, with daemon-UID-only arm/disarm
+  operations and no automatic physical-action resume;
 - daemon-owned, peer/body/snapshot/capability/action-intent-bound, expiring
   permits with no wildcard capability;
 - rejection of caller-forged `authorization.approved=true`;
@@ -45,9 +59,10 @@ The current implementation provides:
 - MCP action and emergency tools that call the daemon instead of constructing a
   physical Runtime in the Agent process.
 
-An unconfigured daemon loads no hardware pack or REAL executor. A configured,
-signed Robot Pack may be loaded only on the daemon side; the current built-in
-RealSense path is perception-only and no production actuator Pack is claimed.
+An unconfigured daemon loads no hardware Integration or REAL executor. A
+configured, signed Robot Integration may be loaded only on the daemon side;
+the current built-in RealSense path is perception-only and no production
+actuator Integration is claimed.
 REAL actions therefore fail closed unless a trusted daemon-side integration
 validates its Body policy, calibration, mapping, and action limits before it
 registers both an executor and an exact permit. Permit issuance, Pack loading,
@@ -66,6 +81,14 @@ Inspect it from another process:
 
 ```bash
 rosclaw daemon status --json
+rosclaw daemon session-create \
+  --session-id agent-session-1 \
+  --actor-id codex-1 \
+  --agent-framework codex \
+  --body sim_ur5e \
+  --capability sandbox.reach \
+  --ttl-ms 10000 \
+  --json
 rosclaw daemon emergency-stop --reason "operator test" --json
 rosclaw daemon stop --json
 ```
@@ -73,6 +96,34 @@ rosclaw daemon stop --json
 This proves process separation, protocol behavior, and fail-closed dispatch.
 When both processes use the same Unix UID, it is **not** a privilege boundary
 and must not be treated as a non-bypassable real-hardware deployment.
+
+Each daemon generation reports `DISARMED`. Only the service UID may arm it,
+after recovery review and site preflight:
+
+```bash
+sudo -u rosclaw-hw rosclaw daemon arm \
+  --reason "operator preflight and controller deadman verified" --json
+```
+
+Arming is not a Permit and does not bypass per-action authorization. Disarm,
+Session loss, Action Lease expiry, Adapter generation change, and daemon close
+all request a coordinated safety stop. A controller-side deadman and physical
+E-Stop remain mandatory because a hung or killed daemon cannot protect itself.
+
+## Adapter Worker Isolation
+
+Registered Adapter workers use newline-delimited JSON over private pipes. The
+supervisor rejects malformed, oversized, or non-object messages; bounds pending
+requests and output queues; tracks heartbeat health; terminates a failed
+process; and applies a finite restart budget. A new process receives a new
+connection generation. That generation change revokes outstanding permits and
+requests a safety stop before further work.
+
+`rosclaw daemon worker-status [WORKER_ID] --json` inspects registered workers.
+Worker start/stop/restart commands are daemon-UID-only. Worker registration and
+raw protocol access are not Agent RPC operations. RealSense MCP stdio uses the
+same fail-closed process principles with bounded stdout/stderr and strict
+JSON-RPC response IDs.
 
 ## Durable Ledger and Restart Recovery
 
@@ -249,6 +300,13 @@ credentials described by
 - Action IDs are immutable. Reusing an ID with changed content is rejected, and
   status, receipt, and cancellation are restricted to the submitting peer UID
   or the daemon service UID.
+- Every action belongs to one Agent Session and has a finite Deadline plus a
+  renewable Lease. `renew-action` also heartbeats the Session. If renewal stops,
+  the watchdog terminalizes the action and requests safety stop according to
+  its orphan policy; `CONTINUE_UNTIL_DEADLINE` is allowed only for bounded work.
+- Closing or losing a Session revokes its unused permits, prevents queued work
+  from dispatching, and records a Session terminal event. A Session or Lease
+  from an earlier daemon process is never restored as active.
 - A REAL permit is rejected if the Agent changes its arguments, body snapshot,
   explicit capability, execution mode, deadline, expected effect, or
   verification policy.

@@ -27,6 +27,7 @@ Welcome to the ROSClaw documentation index. This directory contains all project 
 - **[CLI.md](CLI.md)** — CLI command reference with Stable / Experimental / Planned / Research labels.
 - **[SAFETY.md](SAFETY.md)** — Safety model, hard rules, and deployment checklist.
 - **[ROBOT_PACKS.md](ROBOT_PACKS.md)** — Signed hardware bundles, lifecycle, support tiers, and RealSense acceptance.
+- **[APPS.md](APPS.md)** — Capability-only task manifests, CLI lifecycle, and Runtime safety boundary.
 - **[ASSETS.md](ASSETS.md)** — Physical-AI Asset Hub and asset lifecycle.
 - **[hub/README.md](hub/README.md)** — Hub workflows and registry setup.
 

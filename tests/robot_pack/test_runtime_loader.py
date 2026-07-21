@@ -476,6 +476,7 @@ def test_signed_pack_runs_through_daemon_permit_and_canonical_receipt(
     service = DaemonControlPlane(runtime=runtime, permits=permits)
     service.start()
     try:
+        service.arm_runtime("Robot Integration test preflight complete", peer)
         service.request_action(action, peer)
         deadline = time.monotonic() + 2.0
         while True:

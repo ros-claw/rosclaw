@@ -89,6 +89,7 @@ class ActionExecutionResult:
     status: str = "blocked"  # completed | blocked | fault | stale_action | aborted
     command_sent: bool = False
     command_acknowledged: bool = False
+    command_delivery: str = "NOT_DISPATCHED"
     target: list[float] = field(default_factory=list)
     actual: list[float] = field(default_factory=list)
     position_error: list[float] = field(default_factory=list)

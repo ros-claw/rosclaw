@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from rosclaw.kernel.contracts import (
+    AcknowledgementStage,
     ActionEnvelope,
     ActionExecutionResult,
     ActionState,
@@ -164,7 +165,10 @@ class ActionGateway:
     def _execute(self, action: ActionEnvelope) -> ExecutionReceipt:
         started_at = utc_now()
         trace_id = action.parent_trace_id or f"trace_{uuid.uuid4().hex[:24]}"
-        transitions = [StateTransition(ActionState.PROPOSED, reason="action_submitted")]
+        transitions = [
+            StateTransition(ActionState.PROPOSED, reason="action_submitted"),
+            StateTransition(ActionState.REQUEST_ACCEPTED, reason="request_accepted"),
+        ]
         executor = self._executors.get((action.capability_id, action.execution_mode))
 
         with self._tracer.start_span(
@@ -381,6 +385,7 @@ class ActionGateway:
 
                 transitions.extend(self._evidence_transitions(result, evidence))
                 transitions.append(StateTransition(final_state, reason="executor_completed"))
+                acknowledgement_stage = self._acknowledgement_stage(result, evidence)
                 receipt = ExecutionReceipt(
                     action_id=action.action_id,
                     trace_id=trace_id,
@@ -394,6 +399,7 @@ class ActionGateway:
                     simulation_result=result.simulation_result,
                     dispatch_result=result.dispatch_result,
                     driver_ack=result.driver_ack,
+                    acknowledgement_stage=acknowledgement_stage,
                     observations=result.observations,
                     verification_result=result.verification_result,
                     final_state=final_state,
@@ -451,20 +457,75 @@ class ActionGateway:
                 StateTransition(ActionState.AUTHORIZED, reason="authorization_granted")
             )
         if result.dispatch_result.get("accepted") is True:
-            transitions.append(StateTransition(ActionState.DISPATCHED, reason="dispatch_accepted"))
-        if result.driver_ack and result.driver_ack.get("acknowledged") is True:
             transitions.append(
-                StateTransition(ActionState.DRIVER_ACKNOWLEDGED, reason="driver_acknowledged")
+                StateTransition(ActionState.COMMAND_DISPATCHED, reason="command_dispatched")
+            )
+        acknowledgement = ActionGateway._driver_acknowledgement_stage(result)
+        if acknowledgement is AcknowledgementStage.PROTOCOL_ACKNOWLEDGED:
+            transitions.append(
+                StateTransition(
+                    ActionState.PROTOCOL_ACKNOWLEDGED,
+                    reason="protocol_acknowledged",
+                )
+            )
+        elif acknowledgement is AcknowledgementStage.DELIVERY_INFERRED:
+            transitions.append(
+                StateTransition(ActionState.DELIVERY_INFERRED, reason="delivery_inferred")
             )
         if evidence in {EvidenceLevel.PHYSICALLY_OBSERVED, EvidenceLevel.TASK_VERIFIED}:
             transitions.append(
-                StateTransition(ActionState.PHYSICALLY_OBSERVED, reason="state_observed")
+                StateTransition(ActionState.EFFECT_OBSERVED, reason="effect_observed")
             )
         if evidence is EvidenceLevel.TASK_VERIFIED:
             transitions.append(
                 StateTransition(ActionState.TASK_VERIFIED, reason="predicate_verified")
             )
         return transitions
+
+    @staticmethod
+    def _driver_acknowledgement_stage(
+        result: ActionExecutionResult,
+    ) -> AcknowledgementStage | None:
+        if result.acknowledgement_stage in {
+            AcknowledgementStage.PROTOCOL_ACKNOWLEDGED,
+            AcknowledgementStage.DELIVERY_INFERRED,
+        }:
+            return AcknowledgementStage(result.acknowledgement_stage)
+        if result.driver_ack:
+            raw_stage = result.driver_ack.get("stage")
+            if isinstance(raw_stage, str):
+                try:
+                    parsed = AcknowledgementStage(raw_stage.upper())
+                except ValueError:
+                    parsed = None
+                if parsed in {
+                    AcknowledgementStage.PROTOCOL_ACKNOWLEDGED,
+                    AcknowledgementStage.DELIVERY_INFERRED,
+                }:
+                    return parsed
+            if result.driver_ack.get("acknowledged") is True:
+                return AcknowledgementStage.PROTOCOL_ACKNOWLEDGED
+            if result.driver_ack.get("delivery_inferred") is True:
+                return AcknowledgementStage.DELIVERY_INFERRED
+        return None
+
+    @staticmethod
+    def _acknowledgement_stage(
+        result: ActionExecutionResult,
+        evidence: EvidenceLevel,
+    ) -> AcknowledgementStage:
+        if evidence is EvidenceLevel.TASK_VERIFIED:
+            return AcknowledgementStage.TASK_VERIFIED
+        if evidence is EvidenceLevel.PHYSICALLY_OBSERVED:
+            return AcknowledgementStage.EFFECT_OBSERVED
+        driver_stage = ActionGateway._driver_acknowledgement_stage(result)
+        if driver_stage is not None:
+            return driver_stage
+        if result.acknowledgement_stage is not None:
+            return AcknowledgementStage(result.acknowledgement_stage)
+        if result.dispatch_result.get("accepted") is True:
+            return AcknowledgementStage.COMMAND_DISPATCHED
+        return AcknowledgementStage.REQUEST_ACCEPTED
 
     @staticmethod
     def _result_reason(result: ActionExecutionResult) -> str:
@@ -505,6 +566,7 @@ class ActionGateway:
                 if action.execution_mode is ExecutionMode.FIXTURE
                 else EvidenceLevel.REQUESTED
             ),
+            acknowledgement_stage=AcknowledgementStage.REQUEST_ACCEPTED,
             resource_lease=resource_lease,
             errors=[{"code": code, "message": message}],
             transitions=state_transitions,

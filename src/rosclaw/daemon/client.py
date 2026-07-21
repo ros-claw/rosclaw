@@ -75,6 +75,7 @@ class DaemonClient:
         if expected_daemon_uid is not None and expected_daemon_uid < 0:
             raise ValueError("expected_daemon_uid must be non-negative")
         self.expected_daemon_uid = expected_daemon_uid
+        self._action_leases: dict[str, tuple[str, float, float]] = {}
 
     def call(
         self,
@@ -144,7 +145,20 @@ class DaemonClient:
 
     def request_action(self, action: ActionEnvelope | dict[str, Any]) -> dict[str, Any]:
         payload = action.to_dict() if isinstance(action, ActionEnvelope) else action
-        return self.call("action.request", {"action": payload})
+        result = self.call("action.request", {"action": payload})
+        action_id = result.get("action_id")
+        session_id = result.get("session_id")
+        lease = result.get("action_lease")
+        if isinstance(action_id, str) and isinstance(session_id, str) and isinstance(lease, dict):
+            interval_ms = lease.get("renew_interval_ms", 3_000)
+            if isinstance(interval_ms, int) and not isinstance(interval_ms, bool):
+                interval_sec = max(0.1, interval_ms / 1000.0)
+                self._action_leases[action_id] = (
+                    session_id,
+                    time.monotonic() + interval_sec,
+                    interval_sec,
+                )
+        return result
 
     def get_action_status(self, action_id: str) -> dict[str, Any]:
         return self.call("action.status", {"action_id": action_id})
@@ -154,6 +168,57 @@ class DaemonClient:
 
     def cancel_action(self, action_id: str) -> dict[str, Any]:
         return self.call("action.cancel", {"action_id": action_id})
+
+    def create_session(
+        self,
+        *,
+        session_id: str,
+        actor_id: str,
+        agent_framework: str,
+        body_scope: list[str],
+        capability_scope: list[str],
+        ttl_ms: int = 10_000,
+    ) -> dict[str, Any]:
+        return self.call(
+            "session.create",
+            {
+                "session_id": session_id,
+                "actor_id": actor_id,
+                "agent_framework": agent_framework,
+                "body_scope": body_scope,
+                "capability_scope": capability_scope,
+                "ttl_ms": ttl_ms,
+            },
+        )
+
+    def heartbeat_session(self, session_id: str) -> dict[str, Any]:
+        return self.call("session.heartbeat", {"session_id": session_id})
+
+    def get_session(self, session_id: str) -> dict[str, Any]:
+        return self.call("session.status", {"session_id": session_id})
+
+    def close_session(self, session_id: str, *, reason: str = "client_closed") -> dict[str, Any]:
+        return self.call("session.close", {"session_id": session_id, "reason": reason})
+
+    def renew_action_lease(self, action_id: str, session_id: str) -> dict[str, Any]:
+        return self.call(
+            "action.lease.renew",
+            {"action_id": action_id, "session_id": session_id},
+        )
+
+    def arm_runtime(self, reason: str) -> dict[str, Any]:
+        return self.call("runtime.arm", {"reason": reason})
+
+    def disarm_runtime(self, reason: str) -> dict[str, Any]:
+        return self.call("runtime.disarm", {"reason": reason})
+
+    def get_worker_status(self, worker_id: str | None = None) -> dict[str, Any]:
+        return self.call("worker.status", {"worker_id": worker_id} if worker_id else {})
+
+    def control_worker(self, operation: str, worker_id: str) -> dict[str, Any]:
+        if operation not in {"start", "stop", "restart"}:
+            raise ValueError("operation must be start, stop, or restart")
+        return self.call(f"worker.{operation}", {"worker_id": worker_id})
 
     def wait_for_action(
         self,
@@ -168,7 +233,17 @@ class DaemonClient:
         while True:
             status = self.get_action_status(action_id)
             if status.get("state") in {"FINISHED", "CANCELLED"}:
+                self._action_leases.pop(action_id, None)
                 return status
+            lease = self._action_leases.get(action_id)
+            if lease is not None and time.monotonic() >= lease[1]:
+                session_id, _next_renewal, interval_sec = lease
+                self.renew_action_lease(action_id, session_id)
+                self._action_leases[action_id] = (
+                    session_id,
+                    time.monotonic() + interval_sec,
+                    interval_sec,
+                )
             if time.monotonic() >= deadline:
                 raise DaemonRequestError(
                     "ACTION_WAIT_TIMEOUT",

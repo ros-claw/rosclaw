@@ -1,9 +1,11 @@
-# Robot Packs
+# Robot Integrations
 
-Robot Pack is the signed hardware onboarding unit above individual e-URDF,
-Hardware MCP, skill, policy, and verification assets. It does not replace those
-assets. It locks their relationship so an operator and `rosclawd` agree on the
-same body, device, capability, adapter revision, policy, and evidence rules.
+Robot Integration is the public name for the signed hardware onboarding unit
+above individual e-URDF, Hardware MCP, skill, policy, and verification assets.
+The internal schema remains `rosclaw.robot_pack.v1`. An Integration does not
+replace those assets or create another execution framework; it locks their
+relationship so an operator and `rosclawd` agree on the same body, device,
+capability, adapter revision, policy, and evidence rules.
 
 ## Command Lifecycle
 
@@ -11,11 +13,11 @@ same body, device, capability, adapter revision, policy, and evidence rules.
 # Read-only enumeration; no stream is opened.
 rosclaw robot discover --type camera --json
 
-# Install the signed Pack metadata and verify every payload hash.
-rosclaw robot add ros-claw/realsense-d400
+# Install the signed Integration metadata and verify every payload hash.
+rosclaw robot install ros-claw/realsense-d400
 
 # Optionally install the native adapter at the Pack's exact git commit.
-rosclaw robot add ros-claw/realsense-d400 --install-adapter
+rosclaw robot install ros-claw/realsense-d400 --install-adapter
 
 # Bind one discovered physical identity to a persistent Body.
 rosclaw robot configure realsense-d400 --instance lab-d405 --serial SERIAL
@@ -27,13 +29,14 @@ rosclaw robot verify realsense-d400 --stage contract
 rosclaw robot verify lab-d405 --stage read-only --receipt receipt.json
 ```
 
-`robot add` is the Pack lifecycle. The older `robot install` command registers
-an in-process e-URDF profile and remains for compatibility; it does not install
-a Pack, adapter, policy, instance, or evidence suite.
+`robot install` is the primary Integration lifecycle. `robot add` is retained
+as a compatibility alias and performs the same signed, transactional install.
+Legacy e-URDF profile operations remain under the other `robot`/`eurdf`
+commands; neither command silently installs native Adapter dependencies.
 
-## RealSense D400 Pack
+## RealSense D400 Integration
 
-The first built-in Pack supports D405 and D435i on Linux x86_64 and aarch64.
+The first built-in Integration supports D405 and D435i on Linux x86_64 and aarch64.
 It is perception-only and exposes one capability:
 
 ```text
@@ -127,7 +130,7 @@ $ROSCLAW_HOME/robots/evidence/<evidence-id>.json
 ## Daemon Boundary
 
 At startup, `rosclawd --robot-id <instance>` loads the instance only if the
-Pack signature, installed digest, Body snapshot, safety policy, and configured
+Integration signature, installed digest, Body snapshot, safety policy, and configured
 identity all match. It registers only declared daemon-side executors. For the
 RealSense Pack that is `camera.capture_rgbd:REAL`; no actuator executor exists.
 
@@ -164,7 +167,7 @@ scope, and authorization. The Agent-facing MCP surface does not expose raw
 A local read-only run can produce an `H3_HARDWARE_READ_VERIFIED` candidate.
 It never edits canonical product status and never self-declares independent
 observation. Until an independent hardware report is reviewed, the bundled
-RealSense Pack remains H1 in `src/rosclaw/product/status.yaml`.
+RealSense Integration remains H1 in `src/rosclaw/product/status.yaml`.
 
 Candidate receipt validation requires the canonical REAL action/body contract,
 an exclusive body resource lease, ordered timestamped control transitions,
@@ -180,6 +183,10 @@ times consistent with the receipt execution window.
 - Execution receipts are canonical Runtime records but are not yet signed by a
   machine identity; H3 therefore still requires independent evidence review.
 - Native device ACL isolation must still be validated on the hardware host.
-- The daemon permit/action ledger is not yet durable across restart.
-- The current Pack installer supports trusted built-in/local Pack directories;
-  Hub publication and remote Robot Pack resolution remain Phase 5 work.
+- The daemon permit/action ledger is durable and authenticated across restart,
+  but automatic compaction, TPM-backed keys, and a remote witness are not implemented.
+- The current Integration installer supports trusted built-in/local Integration
+  directories; Hub publication and remote Robot Integration resolution remain open.
+- RH56 has a real LeRobot/SerialModbus path and developer-observed hardware
+  evidence, but it is not yet packaged as a production daemon-side signed Robot
+  Integration Worker. Do not advertise an RH56 install command until that migration passes.

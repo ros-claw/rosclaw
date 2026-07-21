@@ -217,15 +217,23 @@ body- and action-intent-bound permit. Never instantiate a local Runtime,
 register a driver, or use ROS, DDS, serial, CAN, or a vendor SDK as an
 alternate motion path.
 
-### Robot Pack setup
+### Robot Integration setup
 
-Robot Pack installation and configuration are operator CLI workflows, separate
-from the MCP tool surface. It is safe to inspect discovery and signed contracts
-with `{cli} robot discover --json`, `{cli} robot add realsense --json`, and
+Robot Integration installation and configuration are operator CLI workflows,
+separate from the MCP tool surface. It is safe to inspect discovery and signed contracts
+with `{cli} robot discover --json`, `{cli} robot install realsense --json`, and
 `{cli} robot verify realsense --stage contract --json`. Installing native
 adapter dependencies, binding a live serial number, and running read-only
 hardware verification require an explicit operator request. A local successful
 check is candidate evidence only and must not be reported as canonical support.
+
+### Capability Apps
+
+Apps are capability-only task manifests, not drivers or permissions. Inspect
+them with `{cli} app list` and `{cli} app validate <APP> --json`. Run an App
+only through `{cli} app run <APP> --body <BODY> --mode SHADOW --json` unless the
+operator explicitly establishes every REAL prerequisite. App installation does
+not install hardware, arm rosclawd, issue a Permit, or prove execution.
 {MANAGED_END}
 
 ## Human notes
@@ -276,15 +284,15 @@ Body context tools: {", ".join(f"`{t}`" for t in P0_BODY_CONTEXT_TOOLS)}.
 Product workflow tools: {", ".join(f"`{t}`" for t in P0_PRODUCT_TOOLS)}.
 Control-plane tools: {", ".join(f"`{t}`" for t in P0_CONTROL_PLANE_TOOLS)}.
 
-## Robot Pack lifecycle
+## Robot Integration lifecycle
 
-Robot Pack setup is an operator CLI lifecycle, not an additional MCP tool:
+Robot Integration setup is an operator CLI lifecycle, not an additional MCP tool:
 
 Use the pinned launcher above for every ROSClaw shell command; do not substitute
 a different `rosclaw` found on `PATH`.
 
 1. `{cli} robot discover --json` performs read-only supported-device discovery.
-2. `{cli} robot add realsense --json` installs and verifies the signed Pack;
+2. `{cli} robot install realsense --json` installs and verifies the signed Integration;
    it does not install the native adapter unless `--install-adapter` is explicit.
 3. `{cli} robot verify realsense --stage contract --json` verifies schema,
    payload hashes, signature trust, Body profiles, policy, and host compatibility.
@@ -296,8 +304,16 @@ a different `rosclaw` found on `PATH`.
    discovery, configuration, adapter output, or conversational text.
 
 Native adapter installation mutates the Python environment and remains
-operator-owned. Robot Pack CLI commands never authorize direct SDK use by the
-Agent; runtime hardware access remains behind `request_action` and `rosclawd`.
+operator-owned. Robot Integration CLI commands never authorize direct SDK use
+by the Agent; runtime hardware access remains behind `request_action` and `rosclawd`.
+
+## Capability App lifecycle
+
+Apps declare Capability calls and verification expressions only. Use
+`{cli} app list`, `{cli} app validate <APP> --json`, and SHADOW mode before any
+REAL request. Never treat App installation or a successful local expression as
+hardware evidence. Every App step must remain behind rosclawd Session, Lease,
+Permit, policy, and Receipt checks.
 
 ## rosclawd read-only inspection
 
@@ -313,11 +329,15 @@ ledger without submitting work:
 For a healthy daemon, require `running` and `ledger.integrity_verified` to be
 `true`, and require `ledger.write_failed`, `recovery.required`, and
 `emergency_stop_latched` to be `false`. Production REAL work additionally
-requires `privilege_separated=true` and a `daemon security-check --json` result
+requires `supervision_state=ARMED`, `privilege_separated=true`, and a
+`daemon security-check --json` result
 with `boundary_ready=true`, `daemon_uid_pinned=true`, and
 `ledger_state_private=true`; same-UID development is not deployment evidence.
 Treat `daemon acknowledge-recovery` as an operator incident-review command,
 not an Agent workflow; it does not clear E-stop or prove physical state.
+Every action belongs to an expiring Agent Session and renewable Action Lease.
+Do not continue after Session or Lease loss, and never reuse state from an
+earlier daemon generation.
 
 ## Validate-before-motion workflow
 
@@ -389,15 +409,22 @@ request.
 
 {_tool_table(P0_AGENT_MCP_TOOLS)}
 
-## Robot Pack setup
+## Robot Integration setup
 
-- Robot Pack setup is an operator CLI workflow, not an MCP tool. Use
-  `{cli} robot discover --json`, `{cli} robot add realsense --json`, and
+- Robot Integration setup is an operator CLI workflow, not an MCP tool. Use
+  `{cli} robot discover --json`, `{cli} robot install realsense --json`, and
   `{cli} robot verify realsense --stage contract --json` for read-only
   discovery and signed-contract checks.
 - Install native adapter dependencies or bind a live device only when the
   operator explicitly requests it. Offline configuration is not physical
   evidence, and local verification never promotes canonical support status.
+
+## Capability Apps
+
+- Apps are capability-only task manifests. Use `{cli} app list` and
+  `{cli} app validate <APP> --json` for inspection.
+- App installation grants no hardware access. Every step remains subject to
+  rosclawd Session, Lease, Permit, policy, executor, and Receipt checks.
 
 ## rosclawd read-only inspection
 
@@ -406,8 +433,8 @@ request.
   `ledger.integrity_verified` to be `true`; require `ledger.write_failed`,
   `recovery.required`, and `emergency_stop_latched` to be `false` before
   relying on the control plane.
-- Production REAL work also requires `privilege_separated=true` and
-  `{cli} daemon security-check --json` with `boundary_ready=true`,
+- Production REAL work also requires `supervision_state=ARMED`,
+  `privilege_separated=true`, and `{cli} daemon security-check --json` with `boundary_ready=true`,
   `daemon_uid_pinned=true`, and `ledger_state_private=true`. Same-UID
   development proves only a process boundary.
 - Inspect an existing action with `{cli} daemon action-status <ACTION_ID>
@@ -415,6 +442,8 @@ request.
 - `daemon acknowledge-recovery` is an operator incident-review command. Do
   not invoke it as routine Agent automation; it does not clear E-stop or prove
   physical state.
+- Session or Action Lease loss is terminal according to orphan policy. Do not
+  recreate direct motion or reuse a Session from an earlier daemon generation.
 
 ## Safety
 
@@ -482,7 +511,8 @@ it with a different `rosclaw` found on `PATH`.
 For `daemon status`, require `running` and `ledger.integrity_verified` to be
 `true`; require `ledger.write_failed`, `recovery.required`, and
 `emergency_stop_latched` to be `false`. Production REAL work also requires
-`privilege_separated=true` and `{cli} daemon security-check --json` with
+`supervision_state=ARMED`, `privilege_separated=true`, and
+`{cli} daemon security-check --json` with
 `boundary_ready=true`, `daemon_uid_pinned=true`, and
 `ledger_state_private=true`; same-UID development proves only process separation.
 Read an existing durable result with `{cli} daemon action-status <ACTION_ID>
@@ -490,18 +520,18 @@ Read an existing durable result with `{cli} daemon action-status <ACTION_ID>
 `daemon acknowledge-recovery` as Agent automation: it is an operator
 incident-review command and does not clear E-stop or prove physical state.
 
-## Robot Pack Workflow
+## Robot Integration Workflow
 
-Robot Pack installation/configuration is a CLI lifecycle around the MCP
+Robot Integration installation/configuration is a CLI lifecycle around the MCP
 runtime. It is not an additional MCP tool surface.
 
 ```bash
 {cli} robot discover --json
-{cli} robot add realsense --json
+{cli} robot install realsense --json
 {cli} robot verify realsense --stage contract --json
 ```
 
-- `robot add` verifies and installs the signed contract. Pass
+- `robot install` verifies and installs the signed contract. Pass
   `--install-adapter` only when the operator explicitly authorizes dependency
   installation in the selected Python environment.
 - Bind a discovered device with `robot configure` only when an exact model and
@@ -512,6 +542,19 @@ runtime. It is not an additional MCP tool surface.
   product support or claim physical success from CLI text alone.
 - Do not call the vendor SDK directly. Runtime device access stays behind MCP
   `request_action` and the daemon boundary.
+
+## Capability App Workflow
+
+```bash
+{cli} app list
+{cli} app validate realsense-inspect --json
+```
+
+- Apps call named Capabilities only. They do not install drivers, issue
+  permits, arm rosclawd, or authorize direct hardware access.
+- Run SHADOW first with `app run <APP> --body <BODY> --mode SHADOW --json`.
+  Treat a local success as component evidence, never an independent hardware
+  or Agent verification claim.
 
 ## Practice Evidence Loop
 
@@ -596,16 +639,19 @@ def render_context_snapshot(profile: ProjectProfile) -> dict[str, Any]:
             "production_real_requires_privilege_separation": True,
             "production_real_requires_pinned_daemon_uid": True,
             "production_real_requires_private_ledger_state": True,
+            "production_real_requires_current_generation_armed": True,
+            "actions_require_session_and_lease": True,
             "agent_may_self_authorize": False,
             "fixture_allowed_for_real": False,
             "validate_before_motion": True,
             "emergency_stop_available": True,
         },
         "robot_pack": {
+            "public_name": "Robot Integration",
             "interface": "operator_cli",
             "commands": {
                 "discover": f"{_cli_launcher(profile)} robot discover --json",
-                "install_contract": f"{_cli_launcher(profile)} robot add realsense --json",
+                "install_contract": f"{_cli_launcher(profile)} robot install realsense --json",
                 "verify_contract": (
                     f"{_cli_launcher(profile)} robot verify realsense --stage contract --json"
                 ),
@@ -614,6 +660,13 @@ def render_context_snapshot(profile: ProjectProfile) -> dict[str, Any]:
             "live_device_binding_requires_operator_request": True,
             "offline_configuration_is_hardware_evidence": False,
             "local_verification_may_promote_canonical_support": False,
+        },
+        "apps": {
+            "interface": "capability_only_manifest",
+            "list": f"{_cli_launcher(profile)} app list",
+            "validate": f"{_cli_launcher(profile)} app validate <APP> --json",
+            "installation_grants_hardware_access": False,
+            "steps_require_rosclawd": True,
         },
     }
 
