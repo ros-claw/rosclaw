@@ -1,0 +1,14 @@
+{
+  "schema_version": "rosclaw.robot_pack.trust.v1",
+  "keys": {
+    "rosclaw-realsense-pack-v1": {
+      "algorithm": "ed25519",
+      "public_key_base64": "QsAxh7ynpZ8b0Z7e9VIAnlfjCuGPtIQTiDsqtdMZ4Mk=",
+      "status": "trusted",
+      "scopes": [
+        "ros-claw/realsense-d400@1.0.0"
+      ],
+      "created_at": "2026-07-21T00:00:00Z"
+    }
+  }
+}

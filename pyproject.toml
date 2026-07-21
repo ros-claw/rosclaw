@@ -42,6 +42,7 @@ dependencies = [
     "requests>=2.25.0",
     "semver>=3.0.0",
     "filelock>=3.0.0",
+    "cryptography>=42.0.0",
     "mcap>=1.2.0",
 ]
 

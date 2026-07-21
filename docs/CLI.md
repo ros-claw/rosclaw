@@ -61,6 +61,12 @@ observation; a dispatch or driver ACK alone is not reported as success.
 | `rosclaw robot list` | Stable | List available robots |
 | `rosclaw robot inspect <id>` | Stable | Show complete robot profile |
 | `rosclaw robot validate <id>` | Stable | Validate e-URDF completeness |
+| `rosclaw robot discover --type camera` | Experimental | Read-only discovery with complete/partial identity labels |
+| `rosclaw robot add <pack>` | Experimental | Verify and transactionally install a signed Robot Pack |
+| `rosclaw robot configure <pack>` | Experimental | Bind a Pack, physical identity, and immutable Body snapshot |
+| `rosclaw robot verify <target> --stage <stage>` | Experimental | Persist evidence without automatic support-tier promotion |
+
+See [ROBOT_PACKS.md](ROBOT_PACKS.md) for the Pack trust model and RealSense path.
 
 ---
 

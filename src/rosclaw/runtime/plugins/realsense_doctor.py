@@ -8,6 +8,7 @@ from pathlib import Path
 from rosclaw.runtime.doctor import DoctorCheck, RuntimeDoctorPlugin
 
 _SYSFS_USB = Path("/sys/bus/usb/devices")
+_SUPPORTED_PRODUCT_IDS = {"0b3a", "0b5b"}  # D435i, D405 (librealsense d400-private.h)
 
 
 def _read_sysfs_autosuspend() -> str | None:
@@ -23,7 +24,7 @@ def _read_sysfs_autosuspend() -> str | None:
                 if (entry / "idVendor").read_text(encoding="utf-8").strip() != "8086":
                     continue
                 product = (entry / "idProduct").read_text(encoding="utf-8").strip()
-                if product not in {"0b3a", "0b3d", "0b5c", "0b64"}:  # D435i/D405/D455/D456
+                if product not in _SUPPORTED_PRODUCT_IDS:
                     continue
                 control = entry / "power" / "control"
                 if control.exists():
@@ -98,7 +99,13 @@ class RealSenseDoctor(RuntimeDoctorPlugin):
             ("usb_speed", "camera_info_usb_type_descriptor"),
         ):
             try:
-                info[key] = dev.get_info(getattr(rs, attr))
+                camera_info = getattr(rs, attr, None)
+                if camera_info is None:
+                    enum = getattr(rs, "camera_info", None)
+                    camera_info = getattr(enum, attr.removeprefix("camera_info_"), None)
+                if camera_info is None:
+                    raise AttributeError(attr)
+                info[key] = dev.get_info(camera_info)
             except Exception:
                 info[key] = "unknown"
         usb_speed = str(info.get("usb_speed", "unknown"))

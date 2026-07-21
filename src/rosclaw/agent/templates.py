@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from typing import Any
 
 from rosclaw.agent.detectors import ProjectProfile
@@ -22,6 +23,10 @@ JSON_MANAGED_BEGIN = "/* ROSCLAW-MANAGED-BEGIN */"
 JSON_MANAGED_END = "/* ROSCLAW-MANAGED-END */"
 CODEX_MANAGED_BEGIN = "# ROSCLAW-MANAGED-BEGIN"
 CODEX_MANAGED_END = "# ROSCLAW-MANAGED-END"
+
+
+def _cli_launcher(profile: ProjectProfile) -> str:
+    return shlex.join((profile.cli_command, *profile.cli_args))
 
 
 def _tool_table(tool_names: tuple[str, ...]) -> str:
@@ -70,8 +75,9 @@ def render_mcp_json(
     if transport == "stdio":
         server = {
             "type": "stdio",
-            "command": "rosclaw",
+            "command": profile.cli_command,
             "args": [
+                *profile.cli_args,
                 "mcp",
                 "serve",
                 "--profile",
@@ -111,6 +117,10 @@ def render_mcp_json(
             "robot_id": profile.robot_id,
             "transport": transport,
             "project_root": str(profile.project_root),
+            "cli": {
+                "command": profile.cli_command,
+                "args": list(profile.cli_args),
+            },
         },
     }
     if check:
@@ -131,9 +141,13 @@ enabled_tools = [
 ]"""
 
     if profile.default_transport == "stdio":
+        command = json.dumps(profile.cli_command)
+        args = json.dumps(
+            [*profile.cli_args, "mcp", "serve", "--project", ".", "--log-level", "ERROR"]
+        )
         server = f"""[mcp_servers.rosclaw]
-command = "rosclaw"
-args = ["mcp", "serve", "--project", ".", "--log-level", "ERROR"]
+command = {command}
+args = {args}
 env_vars = ["ROSCLAW_HOME", "ROSCLAW_PROFILE", "ROSCLAW_LOG_LEVEL"]
 {common}
 
@@ -164,6 +178,7 @@ def render_claude_md(profile: ProjectProfile) -> str:
         else "- Default robot: (none detected)"
     )
     transport = profile.default_transport
+    cli = _cli_launcher(profile)
     mcp_section = (
         "This project exposes a P0 ROSClaw MCP server. Connect via the configured "
         f"`{transport}` transport defined in `.mcp.json`."
@@ -182,6 +197,7 @@ hand-edited.
 - Project root: `.`
 {robot_line}
 - MCP transport: `{transport}`
+- Pinned ROSClaw CLI: `{cli}`
 
 {mcp_section}
 
@@ -200,6 +216,16 @@ request succeeds only when the daemon independently matches a server-issued,
 body- and action-intent-bound permit. Never instantiate a local Runtime,
 register a driver, or use ROS, DDS, serial, CAN, or a vendor SDK as an
 alternate motion path.
+
+### Robot Pack setup
+
+Robot Pack installation and configuration are operator CLI workflows, separate
+from the MCP tool surface. It is safe to inspect discovery and signed contracts
+with `{cli} robot discover --json`, `{cli} robot add realsense --json`, and
+`{cli} robot verify realsense --stage contract --json`. Installing native
+adapter dependencies, binding a live serial number, and running read-only
+hardware verification require an explicit operator request. A local successful
+check is candidate evidence only and must not be reported as canonical support.
 {MANAGED_END}
 
 ## Human notes
@@ -216,6 +242,7 @@ def render_rosclaw_md(profile: ProjectProfile) -> str:
         if profile.robot_id
         else "- **Robot ID:** (none detected)"
     )
+    cli = _cli_launcher(profile)
     return f"""# ROSCLAW.md — Physical AI Runtime Manifest
 
 This file is the authoritative boundary description for the ROSClaw runtime in
@@ -227,6 +254,7 @@ managed blocks are preserved by `rosclaw agent install`.
 
 - **Project root:** `.`
 - **MCP transport:** `{profile.default_transport}`
+- **Pinned ROSClaw CLI:** `{cli}`
 {robot_line}
 
 ## Agent harness activation
@@ -247,6 +275,29 @@ Core safety tools: {", ".join(f"`{t}`" for t in P0_CORE_TOOLS)}.
 Body context tools: {", ".join(f"`{t}`" for t in P0_BODY_CONTEXT_TOOLS)}.
 Product workflow tools: {", ".join(f"`{t}`" for t in P0_PRODUCT_TOOLS)}.
 Control-plane tools: {", ".join(f"`{t}`" for t in P0_CONTROL_PLANE_TOOLS)}.
+
+## Robot Pack lifecycle
+
+Robot Pack setup is an operator CLI lifecycle, not an additional MCP tool:
+
+Use the pinned launcher above for every ROSClaw shell command; do not substitute
+a different `rosclaw` found on `PATH`.
+
+1. `{cli} robot discover --json` performs read-only supported-device discovery.
+2. `{cli} robot add realsense --json` installs and verifies the signed Pack;
+   it does not install the native adapter unless `--install-adapter` is explicit.
+3. `{cli} robot verify realsense --stage contract --json` verifies schema,
+   payload hashes, signature trust, Body profiles, policy, and host compatibility.
+4. `{cli} robot configure realsense --serial <SERIAL> --model <MODEL> --json`
+   binds an exact device identity and immutable Body snapshot. Do this only on an
+   explicit operator request. `--allow-offline` is configuration, not observation.
+5. `{cli} robot verify <INSTANCE> --stage read-only --receipt <RECEIPT> --json`
+   checks read-only hardware evidence. Never infer hardware success from
+   discovery, configuration, adapter output, or conversational text.
+
+Native adapter installation mutates the Python environment and remains
+operator-owned. Robot Pack CLI commands never authorize direct SDK use by the
+Agent; runtime hardware access remains behind `request_action` and `rosclawd`.
 
 ## Validate-before-motion workflow
 
@@ -290,6 +341,7 @@ def render_agents_md(profile: ProjectProfile) -> str:
         if profile.robot_id
         else "- Default robot: (none detected)"
     )
+    cli = _cli_launcher(profile)
     return f"""# ROSClaw Agent Instructions
 
 ROSClaw is physical-AI runtime infrastructure. Treat robot, ROS, actuator,
@@ -302,6 +354,7 @@ Claude Code, OpenClaw, and other agent frameworks that read project guidance.
 - Project root: `.`
 {robot_line}
 - MCP transport: `{profile.default_transport}`
+- Pinned ROSClaw CLI: `{cli}`; use it instead of another `rosclaw` on `PATH`.
 - One-line setup: `rosclaw agent install --project-root . --skip-secrets`
 - Codex activation: trust this exact repository, then run
   `rosclaw agent doctor codex --project-root .`.
@@ -315,6 +368,16 @@ hardware primitive and gives the Agent no authority to approve its own REAL
 request.
 
 {_tool_table(P0_AGENT_MCP_TOOLS)}
+
+## Robot Pack setup
+
+- Robot Pack setup is an operator CLI workflow, not an MCP tool. Use
+  `{cli} robot discover --json`, `{cli} robot add realsense --json`, and
+  `{cli} robot verify realsense --stage contract --json` for read-only
+  discovery and signed-contract checks.
+- Install native adapter dependencies or bind a live device only when the
+  operator explicitly requests it. Offline configuration is not physical
+  evidence, and local verification never promotes canonical support status.
 
 ## Safety
 
@@ -339,12 +402,16 @@ Add project-specific notes here. They will be preserved across install runs.
 
 def render_rosclaw_skill_md(profile: ProjectProfile) -> str:
     """Render a repo-local Codex/agent skill for ROSClaw projects."""
+    cli = _cli_launcher(profile)
     return f"""---
 name: rosclaw
 description: Use when operating, validating, or changing ROSClaw physical-AI runtime workflows, especially CLI smoke tests, Practice evidence loops, body/runtime checks, MCP integration, MuJoCo sandbox verification, and safe ROS or hardware boundaries.
 ---
 
 # ROSClaw Agent Skill
+
+Use this exact launcher for every ROSClaw CLI command: `{cli}`. Do not replace
+it with a different `rosclaw` found on `PATH`.
 
 ## Safety
 
@@ -365,14 +432,37 @@ description: Use when operating, validating, or changing ROSClaw physical-AI run
 ## First Checks
 
 ```bash
-rosclaw doctor --json
-rosclaw status capabilities
-rosclaw demo list
-rosclaw demo run ur5e-reach
-rosclaw explain latest
-rosclaw agent doctor universal --project-root .
-rosclaw agent test universal --project-root . --quick --mcp-probe
+{cli} doctor --json
+{cli} status capabilities
+{cli} demo list
+{cli} demo run ur5e-reach
+{cli} explain latest
+{cli} agent doctor universal --project-root .
+{cli} agent test universal --project-root . --quick --mcp-probe
 ```
+
+## Robot Pack Workflow
+
+Robot Pack installation/configuration is a CLI lifecycle around the MCP
+runtime. It is not an additional MCP tool surface.
+
+```bash
+{cli} robot discover --json
+{cli} robot add realsense --json
+{cli} robot verify realsense --stage contract --json
+```
+
+- `robot add` verifies and installs the signed contract. Pass
+  `--install-adapter` only when the operator explicitly authorizes dependency
+  installation in the selected Python environment.
+- Bind a discovered device with `robot configure` only when an exact model and
+  stable serial are available. `--allow-offline` creates configuration, never
+  hardware evidence.
+- A read-only hardware check requires a configured instance and canonical
+  `rosclawd` receipt. Treat local success as candidate evidence; never promote
+  product support or claim physical success from CLI text alone.
+- Do not call the vendor SDK directly. Runtime device access stays behind MCP
+  `request_action` and the daemon boundary.
 
 ## Practice Evidence Loop
 
@@ -381,9 +471,9 @@ Use fixture-based Practice workflows before touching real robots:
 ```bash
 TMP=$(mktemp -d /tmp/rosclaw-practice.XXXXXX)
 export ROSCLAW_HOME="$TMP/home"
-rosclaw practice record --fixture tests/fixtures/practice/rh56_minimal_loop.json --out "$TMP/practice" --json
-rosclaw practice verify practice_rh56_minimal_loop --data-root "$TMP/practice" --strict --json
-rosclaw practice distill practice_rh56_minimal_loop --data-root "$TMP/practice" --json
+{cli} practice record --fixture tests/fixtures/practice/rh56_minimal_loop.json --out "$TMP/practice" --json
+{cli} practice verify practice_rh56_minimal_loop --data-root "$TMP/practice" --strict --json
+{cli} practice distill practice_rh56_minimal_loop --data-root "$TMP/practice" --json
 ```
 
 ## MCP Contract
@@ -441,6 +531,11 @@ def render_context_snapshot(profile: ProjectProfile) -> dict[str, Any]:
             "profile_path": str(profile.profile_path) if profile.profile_path else None,
             "transport": profile.default_transport,
             "mcp": profile.runtime_profile.get("mcp", {}),
+            "cli": {
+                "command": profile.cli_command,
+                "args": list(profile.cli_args),
+                "display": _cli_launcher(profile),
+            },
         },
         "tools": {
             "available": list(P0_AGENT_MCP_TOOLS),
@@ -453,6 +548,20 @@ def render_context_snapshot(profile: ProjectProfile) -> dict[str, Any]:
             "fixture_allowed_for_real": False,
             "validate_before_motion": True,
             "emergency_stop_available": True,
+        },
+        "robot_pack": {
+            "interface": "operator_cli",
+            "commands": {
+                "discover": f"{_cli_launcher(profile)} robot discover --json",
+                "install_contract": f"{_cli_launcher(profile)} robot add realsense --json",
+                "verify_contract": (
+                    f"{_cli_launcher(profile)} robot verify realsense --stage contract --json"
+                ),
+            },
+            "native_adapter_install_requires_operator_request": True,
+            "live_device_binding_requires_operator_request": True,
+            "offline_configuration_is_hardware_evidence": False,
+            "local_verification_may_promote_canonical_support": False,
         },
     }
 

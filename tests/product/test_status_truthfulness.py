@@ -45,16 +45,12 @@ def test_hardware_verified_requires_independent_physical_observation() -> None:
 
     errors = validate_product_status(status)
 
-    assert any(
-        "without independent physical observation evidence" in error for error in errors
-    )
+    assert any("without independent physical observation evidence" in error for error in errors)
 
 
 def test_simulation_verified_requires_physics_evidence() -> None:
     status = deepcopy(load_product_status())
-    status["golden_paths"]["ur5e_reach"]["evidence"][0][
-        "observation_scope"
-    ] = "component"
+    status["golden_paths"]["ur5e_reach"]["evidence"][0]["observation_scope"] = "component"
 
     errors = validate_product_status(status)
 
@@ -70,9 +66,7 @@ def test_agent_blackbox_verified_requires_independent_external_agent() -> None:
 
     errors = validate_product_status(status)
 
-    assert any(
-        "without independent external Agent evidence" in error for error in errors
-    )
+    assert any("without independent external Agent evidence" in error for error in errors)
 
 
 def test_agent_ready_requires_blackbox_verification() -> None:
@@ -82,6 +76,16 @@ def test_agent_ready_requires_blackbox_verification() -> None:
     errors = validate_product_status(status)
 
     assert any("cannot be agent_ready" in error for error in errors)
+
+
+def test_h6_requires_blackbox_execution_dimension_and_reference_contract() -> None:
+    status = deepcopy(load_product_status())
+    path = status["golden_paths"]["ur5e_reach"]
+    path["support_tier"] = "H6_REFERENCE_SUPPORTED"
+
+    errors = validate_product_status(status)
+
+    assert any("H6_REFERENCE_SUPPORTED requires" in error for error in errors)
 
 
 def test_fixture_cannot_be_marked_verified() -> None:

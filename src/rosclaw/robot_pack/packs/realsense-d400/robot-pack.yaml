@@ -1,0 +1,159 @@
+schema_version: rosclaw.robot_pack.v1
+
+pack:
+  namespace: ros-claw
+  name: realsense-d400
+  version: 1.0.0
+  title: RealSense D400 Read-only Pack
+  summary: Guarded RGB-D onboarding for Intel RealSense D405 and D435i cameras.
+  vendor: RealSense
+  kind: sensor
+  aliases:
+    - realsense
+    - realsense-d405
+    - realsense-d435i
+
+compatibility:
+  os: [linux]
+  arch: [x86_64, aarch64]
+  python: ">=3.11,<3.14"
+  ros_distributions: [humble, jazzy]
+
+components:
+  - kind: body
+    id: realsense-d405-body
+    ref: builtin://eurdf/realsense_d405
+    version: 1.0.0
+  - kind: body
+    id: realsense-d435i-body
+    ref: builtin://eurdf/realsense_d435i
+    version: 1.0.0
+  - kind: hardware_adapter
+    id: librealsense-mcp
+    ref: https://github.com/ros-claw/librealsense-mcp
+    version: fdea4c3cfd03e7acf1adb664a9ffca5733d44b59
+    required: true
+  - kind: capability
+    id: camera-capture-rgbd
+    ref: rosclaw://capability/camera.capture_rgbd@1
+    version: "1"
+    path: capabilities/camera.capture_rgbd.yaml
+    digest: sha256:6571cec1a5e35eccc70c029d2cbe79ac33c1f1e112fa8939f16dbe6d44c49a73
+  - kind: policy
+    id: perception-only-policy
+    ref: rosclaw://policy/perception-only@1
+    version: "1"
+    path: policies/perception-only.yaml
+    digest: sha256:a0d17be3f998454c7bd1f3adf592afa8931c8ffed649973652ca9f6daaecd2b7
+  - kind: calibration
+    id: factory-calibration
+    ref: device://realsense/factory-calibration
+    required: true
+  - kind: verification
+    id: realsense-read-only-verification
+    ref: rosclaw://verification/realsense-read-only@1
+    version: "1"
+    path: verification/read-only.yaml
+    digest: sha256:947b20fdce7dd2a7fa946e37beb6632fbad44b3482613df4f1403a6e2e41e579
+  - kind: example_app
+    id: realsense-capture-request
+    ref: rosclaw://example/realsense-capture-request@1
+    version: "1"
+    path: examples/capture-action.json
+    digest: sha256:21b4faaa3f8f00bb7b502ed98e33909acb0b07e11f545a2687cd5d2df50dc87f
+  - kind: documentation
+    id: realsense-pack-docs
+    ref: docs://robot-pack/realsense-d400
+    path: docs/README.md
+    digest: sha256:d05dff40846353bbfc91084ff313bdbdbb82ab62bd53066287fc5520db603145
+
+device:
+  type: camera
+  vendor_ids: ["8086"]
+  variants:
+    - model: D405
+      model_patterns: ["Intel RealSense D405", "RealSense D405", "D405"]
+      product_ids: ["0b5b"]
+      body_profile: realsense_d405
+    - model: D435i
+      model_patterns: ["Intel RealSense D435I", "RealSense D435I", "D435I"]
+      product_ids: ["0b3a"]
+      body_profile: realsense_d435i
+
+discovery:
+  backend: realsense
+  fallback_backends: [linux_sysfs]
+  required_identity_fields:
+    - vendor_id
+    - product_id
+    - model
+    - serial
+    - firmware
+    - usb_speed
+    - stable_uri
+    - stream_profiles
+    - backend
+
+adapter:
+  component_id: librealsense-mcp
+  transport: mcp_stdio
+  server_name_patterns: [librealsense, realsense]
+  tools:
+    - id: enumerate
+      any_of: [list_devices]
+    - id: pipeline
+      any_of: [start_pipeline]
+    - id: capture
+      any_of: [capture_aligned_rgbd, capture_frames]
+  direct_driver_access: forbidden
+
+capabilities:
+  - id: camera.capture_rgbd
+    title: Capture an aligned RGB-D frame pair
+    safety_class: read_only
+    adapter_component_id: librealsense-mcp
+    adapter_tools_any_of: [capture_aligned_rgbd, capture_frames]
+    execution_modes: [REAL]
+    required_evidence: PHYSICALLY_OBSERVED
+
+safety:
+  perception_only: true
+  actuation: forbidden
+  direct_driver_access: forbidden
+  agent_southbound_access: daemon_only
+
+verification:
+  - id: contract
+    target_tier: H1_CONTRACT_VERIFIED
+    checks:
+      - signed-pack-integrity
+      - platform-compatibility
+      - body-profile-availability
+      - perception-only-policy
+      - daemon-loader-contract
+    requires_hardware: false
+  - id: read-only
+    target_tier: H3_HARDWARE_READ_VERIFIED
+    checks:
+      - configured-device-binding
+      - mcp-adapter-tool-contract
+      - live-device-identity
+      - stream-profile-enumeration
+      - rgbd-artifact-receipt
+    requires_hardware: true
+    requires_independent_observer: true
+
+support:
+  baseline_tier: H1_CONTRACT_VERIFIED
+  candidate_tier: H3_HARDWARE_READ_VERIFIED
+  evidence_ids:
+    - realsense-robot-pack-contract-tests
+
+integrity:
+  checksums_file: checksums.txt
+  signature:
+    required: true
+    scheme: ed25519
+    key_id: rosclaw-realsense-pack-v1
+    file: signatures/manifest.ed25519
+    payload: manifest-and-checksums-v1

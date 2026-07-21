@@ -23,6 +23,7 @@ support_tiers:
   H3_HARDWARE_READ_VERIFIED: Hardware state was independently observed and verified.
   H4_HARDWARE_ACTUATION_VERIFIED: Hardware actuation was independently observed and verified.
   H5_AGENT_BLACKBOX_VERIFIED: An external Agent completed the guarded path in a black-box test.
+  H6_REFERENCE_SUPPORTED: A maintained reference release passed H5 and its published support contract.
 
 golden_paths:
   ur5e_reach:
@@ -148,6 +149,13 @@ golden_paths:
       physical_estop: not_applicable
     agent_ready: false
     evidence:
+      - id: realsense-robot-pack-contract-tests
+        kind: automated_security_and_contract_test
+        path: tests/robot_pack/test_verification.py
+        verified_at: "2026-07-21"
+        observation_scope: component
+        fixture: false
+        independent: false
       - id: realsense-component-pr48
         kind: component_report
         path: reports/ROSClaw_RealSense_MVP_Fix_Report.md
@@ -156,8 +164,8 @@ golden_paths:
         fixture: false
         independent: false
     evidence_summary:
-      en: Profiles, read-only policy, skill, doctor, bench, and evidence plumbing have component coverage; this repository has no verified hardware capture run.
-      zh: Profile、只读策略、Skill、Doctor、Bench 和证据链已有组件覆盖；仓库中尚无已验证的真机采集 Run。
+      en: A signed, commit-locked RealSense Robot Pack now covers discover/add/configure/verify, Body binding, daemon-side RGB-D execution, artifact hashing, and truthful H3-candidate evidence; this repository still has no independently verified hardware capture run.
+      zh: 已签名且锁定依赖 commit 的 RealSense Robot Pack 已覆盖 discover/add/configure/verify、Body 绑定、daemon 侧 RGB-D 执行、Artifact 哈希和如实的 H3 候选证据；仓库中仍无独立验证的真机采集 Run。
 
   turtlesim_guarded_motion:
     display:
@@ -294,6 +302,7 @@ readme_matrix:
   - components.action_gateway
   - components.estop
   - components.fixture_surfaces
+  - golden_paths.realsense_inspect
   - golden_paths.rh56_single_step
   - components.integrations
   - golden_paths.turtlesim_guarded_motion

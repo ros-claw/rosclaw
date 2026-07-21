@@ -39,6 +39,9 @@ def build_daemon_runtime(robot_id: str) -> Any:
         )
     )
     runtime.initialize()
+    from rosclaw.robot_pack.runtime_loader import load_daemon_robot_pack
+
+    load_daemon_robot_pack(runtime, robot_id=robot_id)
     runtime.start()
     return runtime
 

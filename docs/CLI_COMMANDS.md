@@ -119,6 +119,10 @@
 | `robot install` | Install/register a robot | `rosclaw robot install [-h] robot_id` |
 | `robot inspect` | Inspect robot profile | `rosclaw robot inspect [-h] [--json] robot_id` |
 | `robot validate` | Validate robot e-URDF | `rosclaw robot validate [-h] robot_id` |
+| `robot discover` | Read-only supported-device discovery | `rosclaw robot discover [--type camera] [--backend auto\|sdk\|sysfs] [--json]` |
+| `robot add` | Install and verify a signed Robot Pack | `rosclaw robot add SOURCE [--install-adapter] [--json]` |
+| `robot configure` | Bind a Pack to a device and Body instance | `rosclaw robot configure PACK [--instance ID] [--serial SERIAL] [--json]` |
+| `robot verify` | Produce contract or hardware-read evidence | `rosclaw robot verify TARGET [--stage contract\|read-only] [--receipt FILE] [--json]` |
 
 ## Sandbox commands
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import tomllib
 from pathlib import Path
 
@@ -57,7 +58,13 @@ async def test_install_generates_cross_agent_files(
     with (tmp_path / ".codex/config.toml").open("rb") as file:
         codex_config = tomllib.load(file)
     codex_server = codex_config["mcp_servers"]["rosclaw"]
-    assert codex_server["command"] == "rosclaw"
+    assert codex_server["command"] == sys.executable
+    assert codex_server["args"][:2] == ["-m", "rosclaw.entrypoint"]
+    assert mcp_config["mcpServers"]["rosclaw"]["command"] == sys.executable
+    assert mcp_config["mcpServers"]["rosclaw"]["args"][:2] == [
+        "-m",
+        "rosclaw.entrypoint",
+    ]
     assert codex_server["env"]["ROSCLAW_AGENT_CLIENT"] == "codex"
     assert codex_server["default_tools_approval_mode"] == "approve"
     assert codex_server["enabled_tools"] == list(P0_AGENT_MCP_TOOLS)
@@ -68,6 +75,15 @@ async def test_install_generates_cross_agent_files(
     assert "request_action" in agents_guide
     assert "request_action" in runtime_guide
     assert "request_action" in skill_guide
+    assert "robot discover --json" in agents_guide
+    assert "robot discover --json" in runtime_guide
+    assert "robot discover --json" in skill_guide
+    assert sys.executable in agents_guide
+    assert sys.executable in runtime_guide
+    assert sys.executable in skill_guide
+    assert "operator CLI workflow" in agents_guide
+    assert "not an additional MCP tool" in runtime_guide
+    assert "Treat local success as candidate evidence" in skill_guide
     assert "Never instantiate" in agents_guide
     assert "Never instantiate a local Runtime" in skill_guide
     assert "direct ROS, DDS, serial, CAN, SDK, or motor commands" in skill_guide
@@ -80,12 +96,17 @@ async def test_install_generates_cross_agent_files(
     assert snapshot["policies"]["direct_hardware_access"] is False
     assert snapshot["policies"]["real_execution_requires_rosclawd_permit"] is True
     assert snapshot["policies"]["agent_may_self_authorize"] is False
+    assert snapshot["runtime"]["cli"]["command"] == sys.executable
+    assert snapshot["runtime"]["cli"]["args"] == ["-m", "rosclaw.entrypoint"]
+    assert snapshot["robot_pack"]["interface"] == "operator_cli"
+    assert snapshot["robot_pack"]["offline_configuration_is_hardware_evidence"] is False
+    assert snapshot["robot_pack"]["local_verification_may_promote_canonical_support"] is False
 
     captured = capsys.readouterr()
     assert "ROSClaw universal agent integration installed." in captured.out
     assert "rosclaw agent install --project-root . --skip-secrets" in captured.out
     assert "rosclaw agent test universal --project-root . --quick --mcp-probe" in captured.out
-    assert "same environment and PATH" in captured.out
+    assert "Generated configs pin the exact Python environment" in captured.out
 
 
 async def test_install_dry_run_does_not_write(tmp_path: Path) -> None:
@@ -124,7 +145,11 @@ async def test_install_preserves_unmanaged_codex_config(tmp_path: Path) -> None:
     assert content.count("# ROSCLAW-MANAGED-BEGIN") == 1
     with config.open("rb") as file:
         parsed = tomllib.load(file)
-    assert parsed["mcp_servers"]["rosclaw"]["command"] == "rosclaw"
+    assert parsed["mcp_servers"]["rosclaw"]["command"] == sys.executable
+    assert parsed["mcp_servers"]["rosclaw"]["args"][:2] == [
+        "-m",
+        "rosclaw.entrypoint",
+    ]
 
 
 async def test_install_rejects_unmanaged_codex_server_conflict(

@@ -68,6 +68,7 @@ from rosclaw.practice.storage.catalog import PracticeCatalog
 from rosclaw.practice.storage.fallback_sync import FallbackSync
 from rosclaw.practice.storage.layout import PracticeLayout
 from rosclaw.provider.core.registry import ProviderRegistry
+from rosclaw.robot_pack.cli import add_robot_pack_subparsers, dispatch_robot_pack_command
 from rosclaw.sense.cli import (
     cmd_sense_events,
     cmd_sense_explain,
@@ -6862,6 +6863,8 @@ def main() -> int:
     robot_parser = subparsers.add_parser("robot", help="Robot registry commands")
     robot_subparsers = robot_parser.add_subparsers(dest="robot_command")
 
+    add_robot_pack_subparsers(robot_subparsers)
+
     robot_subparsers.add_parser("list", help="List available robots")
 
     robot_install_parser = robot_subparsers.add_parser("install", help="Install/register a robot")
@@ -8481,7 +8484,9 @@ def main() -> int:
         elif args.command == "logs":
             return cmd_logs(args)
         elif args.command == "robot":
-            if args.robot_command == "list":
+            if args.robot_command in {"discover", "add", "configure", "verify"}:
+                return dispatch_robot_pack_command(args)
+            elif args.robot_command == "list":
                 return cmd_robot_list(args)
             elif args.robot_command == "install":
                 return cmd_robot_install(args)

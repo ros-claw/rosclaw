@@ -10,9 +10,11 @@ configuration.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -334,24 +336,23 @@ def install_from_git(
     home: Path | str | None = None,
     python: str | None = None,
     no_install_deps: bool = False,
+    revision: str | None = None,
 ) -> SourceInstallResult:
-    """Clone a git repository and register it as an installed MCP server."""
+    """Clone a git repository at an optional exact revision and register it.
+
+    A candidate checkout is prepared and validated in a sibling directory before
+    it replaces an existing source tree.  Clone, fetch, checkout, or manifest
+    failures therefore leave the previously installed server runnable.
+    """
     home_path: Path = resolve_home(str(home) if home else None)
     name = server_name or _default_name(url)
     installed_dir = home_path / "mcp" / "installed" / name
     source_dir = installed_dir / "source"
+    runtime_config_path = home_path / "mcp" / "runtime" / f"{name}.yaml"
 
     errors: list[str] = []
 
-    installed_dir.mkdir(parents=True, exist_ok=True)
-    if source_dir.exists():
-        shutil.rmtree(source_dir)
-
-    proc = _run(["git", "clone", "--depth=1", url, str(source_dir)], timeout=120)
-    if proc.returncode != 0:
-        errors.append(
-            f"git clone failed (exit {proc.returncode}): {proc.stderr.strip() or proc.stdout.strip()}"
-        )
+    def failed_result(commit: str | None = None) -> SourceInstallResult:
         return SourceInstallResult(
             success=False,
             server_name=name,
@@ -360,46 +361,192 @@ def install_from_git(
             source_type="git",
             source_url=url,
             local_path=source_dir,
-            commit=None,
+            commit=commit,
             manifest_path=source_dir / "manifest.yaml",
-            runtime_config_path=home_path / "mcp" / "runtime" / f"{name}.yaml",
+            runtime_config_path=runtime_config_path,
             errors=errors,
         )
 
-    commit = _git_commit(source_dir)
-    manifest, manifest_path, warnings = _build_manifest(source_dir, name)
-    errors.extend(warnings)
+    def remove_tree(path: Path) -> None:
+        if path.is_symlink():
+            path.unlink()
+        elif path.exists():
+            shutil.rmtree(path)
 
-    _install_dependencies(source_dir, python, no_install_deps, errors)
+    def snapshot_file(path: Path) -> tuple[bytes, int] | None:
+        if path.is_symlink():
+            raise OSError(f"managed install metadata cannot be a symbolic link: {path}")
+        if not path.exists():
+            return None
+        if not path.is_file():
+            raise OSError(f"managed install metadata is not a file: {path}")
+        return path.read_bytes(), path.stat().st_mode & 0o777
 
-    py = str(Path(python or sys.executable).expanduser().resolve())
-    entrypoint = (
-        manifest.artifact.entrypoint
-        if (manifest.artifact and manifest.artifact.entrypoint)
-        else "mcp_server.py"
-    )
-    wrapper = _write_wrapper(source_dir, installed_dir, py, entrypoint)
-    runtime_config_path = _write_runtime_config(manifest, home_path, wrapper)
-    write_runner_script(home_path / "mcp" / "bin")
+    def restore_file(path: Path, snapshot: tuple[bytes, int] | None) -> None:
+        if path.is_symlink():
+            path.unlink()
+        elif path.exists() and not path.is_file():
+            remove_tree(path)
+        if snapshot is None:
+            path.unlink(missing_ok=True)
+            return
+        payload, mode = snapshot
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(f"{path.suffix}.rollback-{uuid.uuid4().hex}")
+        try:
+            temporary.write_bytes(payload)
+            temporary.chmod(mode)
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
-    record = InstalledRecord(
-        server_name=manifest.server_name,
-        manifest_id=manifest.id,
-        name=manifest.name,
-        version=manifest.version,
-        installed_at=_now(),
-        artifact_type="git",
-        server_dir=str(source_dir),
-        runtime_config_path=str(runtime_config_path),
-        extra={
-            "source_type": "git",
-            "source_url": url,
-            "repo_commit": commit,
-            "manifest_path": str(manifest_path),
-            "transport_command": f"{sys.executable} {wrapper}",
-        },
-    )
-    InstalledRegistry(home=home_path).add(record)
+    if revision is not None and not _valid_git_revision(revision):
+        errors.append(f"invalid git revision: {revision!r}")
+        return failed_result()
+
+    installed_dir.mkdir(parents=True, exist_ok=True)
+    transaction_id = uuid.uuid4().hex
+    staging_dir = installed_dir / f".source-staging-{transaction_id}"
+    backup_dir = installed_dir / f".source-backup-{transaction_id}"
+
+    clone_command = ["git", "clone", "--depth=1"]
+    if revision:
+        clone_command.append("--no-checkout")
+    clone_command.extend(["--", url, str(staging_dir)])
+    proc = _run(clone_command, timeout=120)
+    if proc.returncode != 0:
+        remove_tree(staging_dir)
+        errors.append(
+            f"git clone failed (exit {proc.returncode}): {proc.stderr.strip() or proc.stdout.strip()}"
+        )
+        return failed_result()
+
+    if revision:
+        fetch = _run(
+            ["git", "-C", str(staging_dir), "fetch", "--depth=1", "origin", revision],
+            timeout=120,
+        )
+        if fetch.returncode != 0:
+            remove_tree(staging_dir)
+            errors.append(
+                "git revision fetch failed "
+                f"(exit {fetch.returncode}): {fetch.stderr.strip() or fetch.stdout.strip()}"
+            )
+            return failed_result()
+        checkout = _run(
+            ["git", "-C", str(staging_dir), "checkout", "--detach", "FETCH_HEAD"],
+            timeout=60,
+        )
+        if checkout.returncode != 0:
+            remove_tree(staging_dir)
+            errors.append(
+                "git revision checkout failed "
+                f"(exit {checkout.returncode}): {checkout.stderr.strip() or checkout.stdout.strip()}"
+            )
+            return failed_result()
+
+    commit = _git_commit(staging_dir)
+    if revision and re.fullmatch(r"[0-9a-fA-F]{40}", revision) and commit != revision.lower():
+        remove_tree(staging_dir)
+        errors.append(
+            f"checked out commit {commit!r} does not match requested revision {revision!r}"
+        )
+        return failed_result(commit)
+
+    try:
+        candidate_manifest, _candidate_manifest_path, _candidate_warnings = _build_manifest(
+            staging_dir,
+            name,
+        )
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:
+        remove_tree(staging_dir)
+        errors.append(f"manifest validation failed: {exc}")
+        return failed_result(commit)
+
+    registry = InstalledRegistry(home=home_path)
+    wrapper_path = installed_dir / "run_server.py"
+    runtime_config_path = home_path / "mcp" / "runtime" / f"{candidate_manifest.server_name}.yaml"
+    runner_path = home_path / "mcp" / "bin" / "rosclaw-mcp-run"
+    metadata_paths = (wrapper_path, runtime_config_path, runner_path, registry.path)
+    try:
+        metadata_snapshots = {path: snapshot_file(path) for path in metadata_paths}
+    except OSError as exc:
+        remove_tree(staging_dir)
+        errors.append(f"install metadata validation failed: {exc}")
+        return failed_result(commit)
+
+    had_previous_source = source_dir.exists() or source_dir.is_symlink()
+    try:
+        if had_previous_source:
+            source_dir.replace(backup_dir)
+        staging_dir.replace(source_dir)
+    except OSError as exc:
+        remove_tree(staging_dir)
+        if backup_dir.exists() or backup_dir.is_symlink():
+            backup_dir.replace(source_dir)
+        errors.append(f"source activation failed: {exc}")
+        return failed_result(commit)
+
+    def rollback_source() -> None:
+        remove_tree(source_dir)
+        if backup_dir.exists() or backup_dir.is_symlink():
+            backup_dir.replace(source_dir)
+
+    try:
+        manifest, manifest_path, warnings = _build_manifest(source_dir, name)
+        errors.extend(warnings)
+
+        dependency_error_start = len(errors)
+        _install_dependencies(source_dir, python, no_install_deps, errors)
+        if any("failed" in error.lower() for error in errors[dependency_error_start:]):
+            rollback_source()
+            return failed_result(commit)
+
+        py = str(Path(python or sys.executable).expanduser().resolve())
+        entrypoint = (
+            manifest.artifact.entrypoint
+            if (manifest.artifact and manifest.artifact.entrypoint)
+            else "mcp_server.py"
+        )
+        wrapper = _write_wrapper(source_dir, installed_dir, py, entrypoint)
+        runtime_config_path = _write_runtime_config(manifest, home_path, wrapper)
+        write_runner_script(home_path / "mcp" / "bin")
+
+        record = InstalledRecord(
+            server_name=manifest.server_name,
+            manifest_id=manifest.id,
+            name=manifest.name,
+            version=manifest.version,
+            installed_at=_now(),
+            artifact_type="git",
+            server_dir=str(source_dir),
+            runtime_config_path=str(runtime_config_path),
+            extra={
+                "source_type": "git",
+                "source_url": url,
+                "repo_commit": commit,
+                "requested_revision": revision,
+                "manifest_path": str(manifest_path),
+                "transport_command": f"{sys.executable} {wrapper}",
+            },
+        )
+        registry.add(record)
+    except Exception as exc:  # noqa: BLE001 - restore all managed install state on failure
+        rollback_errors: list[str] = []
+        try:
+            rollback_source()
+        except OSError as rollback_exc:
+            rollback_errors.append(f"source rollback failed: {rollback_exc}")
+        for path, snapshot in metadata_snapshots.items():
+            try:
+                restore_file(path, snapshot)
+            except OSError as rollback_exc:
+                rollback_errors.append(f"metadata rollback failed for {path}: {rollback_exc}")
+        errors.append(f"source install finalization failed: {exc}")
+        errors.extend(rollback_errors)
+        return failed_result(commit)
+
+    remove_tree(backup_dir)
 
     return SourceInstallResult(
         success=len([e for e in errors if "failed" in e.lower()]) == 0,
@@ -413,6 +560,18 @@ def install_from_git(
         manifest_path=manifest_path,
         runtime_config_path=runtime_config_path,
         errors=errors,
+    )
+
+
+def _valid_git_revision(value: str) -> bool:
+    """Accept ordinary commit/tag/branch syntax while blocking option injection."""
+
+    return bool(
+        re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,127}", value)
+        and ".." not in value
+        and "@{" not in value
+        and "//" not in value
+        and not value.endswith(("/", "."))
     )
 
 

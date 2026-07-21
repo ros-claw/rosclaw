@@ -94,7 +94,11 @@ def _is_perception_only(body: dict[str, Any], profile: dict[str, Any] | None = N
     return False
 
 
-def _discover_realsense_mcp(home: Path | None) -> tuple[str, str] | tuple[None, None]:
+def _discover_realsense_mcp(
+    home: Path | None,
+    *,
+    required_server_name: str | None = None,
+) -> tuple[str, str] | tuple[None, None]:
     """Return (server_name, tool_name) for an installed RealSense MCP."""
     from rosclaw.mcp.onboarding.installed import InstalledRegistry
     from rosclaw.mcp.onboarding.stdio_client import list_server_tools
@@ -102,6 +106,8 @@ def _discover_realsense_mcp(home: Path | None) -> tuple[str, str] | tuple[None, 
     registry = InstalledRegistry(home=home) if home else InstalledRegistry()
     candidates = []
     for rec in registry.list():
+        if required_server_name is not None and rec.server_name != required_server_name:
+            continue
         name = rec.server_name.lower()
         if "realsense" in name or "librealsense" in name:
             candidates.append(("prefer", rec.server_name))
@@ -234,11 +240,32 @@ def run(params: dict[str, Any]) -> dict[str, Any]:
     output_dir = output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    server_name, tool_name = _discover_realsense_mcp(home)
-    if not server_name:
+    required_server_name = params.get("server_name")
+    if required_server_name is not None and not isinstance(required_server_name, str):
         return {
             "status": "error",
-            "reason": "No RealSense MCP server installed or healthy. Run: rosclaw mcp install --from-git https://github.com/ros-claw/librealsense-mcp",
+            "reason": "Required RealSense MCP server name must be a string",
+            "body_id": body_id,
+            "artifacts": {},
+        }
+    server_name, tool_name = _discover_realsense_mcp(
+        home,
+        required_server_name=required_server_name,
+    )
+    if not server_name:
+        if required_server_name:
+            reason = (
+                f"Required RealSense MCP server {required_server_name!r} is not installed, "
+                "healthy, or compatible"
+            )
+        else:
+            reason = (
+                "No RealSense MCP server installed or healthy. Run: rosclaw mcp install "
+                "--from-git https://github.com/ros-claw/librealsense-mcp"
+            )
+        return {
+            "status": "error",
+            "reason": reason,
             "body_id": body_id,
             "artifacts": {},
         }

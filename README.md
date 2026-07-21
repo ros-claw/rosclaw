@@ -53,6 +53,7 @@ roadmap disguised as completed work.
 | Action contract and gateway | **Component/system verified** | Versioned action and receipt, evidence levels, idempotency, exclusive body lease, and fail-closed executor lookup. |
 | E-Stop control path | **Component verified** | Fan-out, timeout, partial ACK, idempotency, latch, and physical-observation fields; no independent physical-stop verification. |
 | Mock Sense, mock Providers, fixture Drivers | **Fixture only** | Explicit FIXTURE and SYNTHETIC data only; never valid for safety or real acceptance. |
+| RealSense perception-only path | **Experimental** | A signed, commit-locked RealSense Robot Pack now covers discover/add/configure/verify, Body binding, daemon-side RGB-D execution, artifact hashing, and truthful H3-candidate evidence; this repository still has no independently verified hardware capture run. |
 | RH56 LeRobot single-step loop | **Developer-observed; revalidation pending** | Real SerialModbusTransport, shadow reads, graded REAL actions, and fault injection were developer-observed; independent v1 hardware revalidation and Agent black-box testing remain open. |
 | ROS connectors, LeRobot, hardware MCP, real Providers | **Experimental** | Contract and component coverage varies; registration or import does not imply execution readiness. |
 | ROS 2 Turtlesim guarded motion | **Not verified** | Connector contracts exist, but the ROS 2 golden path has not been run in the current validation environment. |
@@ -157,6 +158,30 @@ rosclaw firstboot --yes --profile offline --no-telemetry
 ```
 
 See [QUICKSTART.md](QUICKSTART.md) for four guided paths: local simulation, agent integration, robot body setup, and developer setup.
+
+---
+
+## Robot Packs
+
+A Robot Pack is the signed, versioned onboarding unit above individual Body,
+Hardware MCP, capability, policy, calibration, and verification assets. The
+first built-in Pack supports perception-only RealSense D405/D435i onboarding:
+
+```bash
+rosclaw robot discover --type camera --json
+rosclaw robot add ros-claw/realsense-d400
+rosclaw robot verify realsense-d400 --stage contract
+rosclaw robot configure realsense-d400 --instance lab-d405 --serial SERIAL
+```
+
+Add `--install-adapter` only when the host should install the Pack's native MCP
+dependencies at its locked commit. Installation and offline configuration are
+not hardware verification. H3 additionally requires complete live identity,
+stream profiles, real RGB-D artifacts and hashes, a canonical `rosclawd`
+receipt, and independent physical observation.
+
+See [docs/ROBOT_PACKS.md](docs/ROBOT_PACKS.md) for trust, daemon loading, support
+tiers, and the hardware acceptance procedure.
 
 ---
 

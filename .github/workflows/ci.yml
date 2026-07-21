@@ -59,6 +59,7 @@ jobs:
           src/rosclaw/mcp_drivers
           src/rosclaw/mcp/adapters
           src/rosclaw/mcp/onboarding
+          src/rosclaw/robot_pack
           src/rosclaw/agent
           src/rosclaw/agent_runtime/mcp_hub.py
           src/rosclaw/integrations/lerobot/execution
@@ -106,6 +107,8 @@ jobs:
           tests/provider
           tests/security
           tests/practice
+          tests/robot_pack
+          tests/product
           tests/body
           tests/test_mcp_drivers.py
           tests/test_mcp_drivers_coverage.py
@@ -117,6 +120,7 @@ jobs:
           tests/test_cli.py
           tests/test_skill_manager.py
           tests/test_skill_metadata.py
+          tests/test_realsense_capture_rgbd_skill.py
           -m 'not integration and not deployment'
           -v
           --cov=src/rosclaw
@@ -294,6 +298,15 @@ jobs:
               "rosclaw/rh56_data/policies/rh56_reference_policy_v1/config.json",
               "rosclaw/rh56_data/policies/rh56_reference_policy_v1/model.safetensors",
               "rosclaw/benchmarks/memory/run_benchmark.py",
+              "rosclaw/robot_pack/packs/realsense-d400/robot-pack.yaml",
+              "rosclaw/robot_pack/packs/realsense-d400/checksums.txt",
+              "rosclaw/robot_pack/packs/realsense-d400/capabilities/camera.capture_rgbd.yaml",
+              "rosclaw/robot_pack/packs/realsense-d400/docs/README.md",
+              "rosclaw/robot_pack/packs/realsense-d400/examples/capture-action.json",
+              "rosclaw/robot_pack/packs/realsense-d400/policies/perception-only.yaml",
+              "rosclaw/robot_pack/packs/realsense-d400/signatures/manifest.ed25519",
+              "rosclaw/robot_pack/packs/realsense-d400/verification/read-only.yaml",
+              "rosclaw/robot_pack/trust/keys.json",
               "lerobot_policy_rosclaw_rh56/__init__.py",
           }
           missing = sorted(required - names)

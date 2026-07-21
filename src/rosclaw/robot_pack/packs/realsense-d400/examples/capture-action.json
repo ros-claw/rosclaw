@@ -1,0 +1,14 @@
+{
+  "schema_version": "rosclaw.action.v1",
+  "actor_id": "example-agent",
+  "agent_framework": "mcp-aware-agent",
+  "session_id": "replace-me",
+  "body_id": "realsense-d405-001",
+  "body_snapshot_hash": "replace-with-effective-body-hash",
+  "capability_id": "camera.capture_rgbd",
+  "arguments": {
+    "output_dir": "realsense-capture"
+  },
+  "execution_mode": "REAL",
+  "risk_class": "low"
+}

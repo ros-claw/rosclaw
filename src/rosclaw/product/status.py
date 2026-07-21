@@ -199,8 +199,7 @@ def _validate_entry(
     if modes.get("simulation") == "verified" or dimensions.get("simulation") == "verified":
         _require_simulation_evidence(name, evidence_records, errors)
     if modes.get("real") == "verified" or any(
-        dimensions.get(field) == "verified"
-        for field in ("hardware_read", "hardware_actuation")
+        dimensions.get(field) == "verified" for field in ("hardware_read", "hardware_actuation")
     ):
         _require_physical_evidence(name, evidence_records, errors)
     if dimensions.get("agent_blackbox") == "verified":
@@ -210,7 +209,12 @@ def _validate_entry(
         errors.append(f"{name} cannot be agent_ready without verified agent_blackbox evidence")
 
     tier = str(entry.get("support_tier", ""))
-    if tier not in {"H0_INDEXED", "H1_CONTRACT_VERIFIED", *TIER_REQUIREMENTS}:
+    if tier not in {
+        "H0_INDEXED",
+        "H1_CONTRACT_VERIFIED",
+        "H6_REFERENCE_SUPPORTED",
+        *TIER_REQUIREMENTS,
+    }:
         errors.append(f"{name}.support_tier has unsupported value {tier!r}")
     requirement = TIER_REQUIREMENTS.get(tier)
     if requirement is not None:
@@ -219,6 +223,18 @@ def _validate_entry(
             errors.append(
                 f"{name}.support_tier {tier} requires dimensions.{dimension}={required_state}"
             )
+    if tier == "H6_REFERENCE_SUPPORTED" and (
+        dimensions.get("agent_blackbox") != "verified"
+        or entry.get("reference_supported") is not True
+        or not any(
+            dimensions.get(dimension) == "verified"
+            for dimension in ("simulation", "hardware_read", "hardware_actuation")
+        )
+    ):
+        errors.append(
+            f"{name}.support_tier H6_REFERENCE_SUPPORTED requires verified Agent black-box "
+            "evidence, a verified execution dimension, and reference_supported=true"
+        )
 
     verified_states = [
         state for state in [*modes.values(), *dimensions.values()] if str(state) == "verified"
@@ -261,9 +277,7 @@ def _require_simulation_evidence(
         and str(item.get("id", "")).strip()
         for item in evidence
     ):
-        errors.append(
-            f"{name} claims simulation verified without physics simulation evidence"
-        )
+        errors.append(f"{name} claims simulation verified without physics simulation evidence")
 
 
 def _require_agent_blackbox_evidence(
@@ -274,15 +288,12 @@ def _require_agent_blackbox_evidence(
     matching = [
         item
         for item in evidence
-        if item.get("observation_scope")
-        in {"external_agent_simulation", "external_agent_hardware"}
+        if item.get("observation_scope") in {"external_agent_simulation", "external_agent_hardware"}
         and item.get("fixture") is not True
         and str(item.get("id", "")).strip()
     ]
     if not matching:
-        errors.append(
-            f"{name} claims agent blackbox verified without external Agent evidence"
-        )
+        errors.append(f"{name} claims agent blackbox verified without external Agent evidence")
     elif not any(item.get("independent") is True for item in matching):
         errors.append(
             f"{name} claims agent blackbox verified without independent external Agent evidence"

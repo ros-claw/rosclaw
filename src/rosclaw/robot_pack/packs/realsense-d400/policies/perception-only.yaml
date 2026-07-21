@@ -1,0 +1,23 @@
+schema_version: rosclaw.robot_policy.v1
+id: perception-only
+applies_to:
+  - camera.capture_rgbd
+allow:
+  - enumerate_device
+  - read_stream_profiles
+  - capture_rgbd
+deny:
+  - motion
+  - actuator_write
+  - firmware_update
+  - calibration_write
+  - direct_agent_driver_access
+real_execution:
+  gateway: rosclawd
+  human_authorization_required: true
+  body_snapshot_required: true
+failure:
+  default: fail_closed
+  missing_device: block
+  identity_mismatch: block
+  missing_artifact: fail

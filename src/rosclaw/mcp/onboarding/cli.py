@@ -39,6 +39,11 @@ def add_mcp_subparser(mcp_subparsers: Any) -> None:
         "--from-git", dest="from_git", default=None, help="Install from a public git URL"
     )
     install_parser.add_argument(
+        "--revision",
+        default=None,
+        help="Exact git commit, tag, or branch to install with --from-git",
+    )
+    install_parser.add_argument(
         "--local-path", dest="local_path", default=None, help="Install from a local directory path"
     )
     install_parser.add_argument(
@@ -159,6 +164,7 @@ def dispatch_mcp_install(args: argparse.Namespace) -> int:
             plan = {
                 "source_type": "git" if args.from_git else "local_path",
                 "source_url": args.from_git or args.local_path,
+                "revision": args.revision if args.from_git else None,
                 "server_name": args.alias
                 or source_installer._default_name(args.from_git or args.local_path),
                 "python": _resolve_python(args),
@@ -185,6 +191,7 @@ def dispatch_mcp_install(args: argparse.Namespace) -> int:
                     server_name=args.alias,
                     python=_resolve_python(args),
                     no_install_deps=args.no_install_deps,
+                    revision=args.revision,
                 )
             else:
                 source_result = source_installer.install_from_local_path(

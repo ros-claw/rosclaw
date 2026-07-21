@@ -122,6 +122,7 @@ class DaemonControlPlane:
                 ),
                 "drivers": driver_names,
                 "registered_executors": executors,
+                "robot_pack": getattr(self.runtime, "robot_pack_status", None),
                 "queue": counts,
                 "history": {
                     "retained": len(self._jobs),

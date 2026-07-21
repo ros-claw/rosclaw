@@ -62,6 +62,7 @@ def cmd_agent_install(args: argparse.Namespace) -> int:
     print(f"Target: {target}")
     print(f"Project root: {profile.project_root}")
     print(f"MCP transport: {profile.default_transport}")
+    print(f"Pinned CLI: {profile.cli_command} {' '.join(profile.cli_args)}")
     print("Generated files:")
     for key in generated:
         print(f"  - {key}")
@@ -90,8 +91,8 @@ def cmd_agent_install(args: argparse.Namespace) -> int:
     print()
     print("Validate the framework-resolved CLI and MCP server:")
     print("  `rosclaw agent test universal --project-root . --quick --mcp-probe`")
-    print("  Run this from the same environment and PATH used to launch the Agent;")
-    print("  it must discover the exact 22-tool boundary.")
+    print("  Generated configs pin the exact Python environment used above; the")
+    print("  probe must discover the exact 22-tool boundary.")
 
     if validation.warnings:
         print("Warnings:")
