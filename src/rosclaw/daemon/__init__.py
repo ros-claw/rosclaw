@@ -7,6 +7,14 @@ from rosclaw.daemon.client import (
     DaemonSecurityError,
     DaemonUnavailableError,
 )
+from rosclaw.daemon.ledger import (
+    DaemonLedger,
+    LedgerError,
+    LedgerEvent,
+    LedgerIntegrityError,
+    get_daemon_ledger_key_path,
+    get_daemon_ledger_path,
+)
 from rosclaw.daemon.permits import (
     ExecutionPermit,
     PermitAuthority,
@@ -19,11 +27,17 @@ __all__ = [
     "DaemonClient",
     "DaemonClientError",
     "DaemonControlPlane",
+    "DaemonLedger",
     "DaemonRequestError",
     "DaemonSecurityError",
     "DaemonUnavailableError",
     "ExecutionPermit",
+    "LedgerError",
+    "LedgerEvent",
+    "LedgerIntegrityError",
     "PermitAuthority",
     "RosclawDaemon",
     "action_intent_hash",
+    "get_daemon_ledger_key_path",
+    "get_daemon_ledger_path",
 ]

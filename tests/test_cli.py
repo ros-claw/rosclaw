@@ -21,6 +21,17 @@ class TestVersion:
         captured = capsys.readouterr()
         assert "rosclaw 1.0.1" in captured.out
 
+    def test_top_level_help_discovers_daemon_control_plane(self, capsys):
+        from rosclaw.entrypoint import main
+
+        with pytest.raises(SystemExit) as exc:
+            sys.argv = ["rosclaw", "--help"]
+            main()
+        assert exc.value.code == 0
+        captured = capsys.readouterr()
+        assert "daemon" in captured.out
+        assert "Inspect or call the local rosclawd control plane" in captured.out
+
 
 class TestInit:
     def test_init_creates_workspace(self, tmp_path):

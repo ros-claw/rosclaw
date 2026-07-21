@@ -49,7 +49,7 @@ roadmap disguised as completed work.
 | Scope | Status | Evidence available today |
 |---|---|---|
 | UR5e tabletop reach | **Simulation verified** | Real MuJoCo execution and receipt verification are system-tested. Local Codex CLI black-box runs discovered all 22 MCP tools, completed the simulation workflow, and confirmed that rosclawd blocks unauthorized REAL actions without hardware dispatch; independent H5 acceptance remains pending. |
-| rosclawd Agent/physical boundary | **Component/system verified** | Separate-process socket, bounded protocol, SO_PEERCRED, peer-owned actions, exact action-intent permits, forged/replayed/substituted request blocking, queue, E-Stop, and shutdown are system-tested; production cross-UID, SROS2, and hardware acceptance remain pending. |
+| rosclawd Agent/physical boundary | **Component/system verified** | Separate-process socket, SO_PEERCRED, exact permits, and an HMAC-chained SQLite ledger for permit consumption, action/receipt restart recovery, and interrupted-REAL operator review are system-tested; owner-level coordinated rollback, production cross-UID, SROS2, and hardware acceptance remain pending. |
 | Action contract and gateway | **Component/system verified** | Versioned action and receipt, evidence levels, idempotency, exclusive body lease, and fail-closed executor lookup. |
 | E-Stop control path | **Component verified** | Fan-out, timeout, partial ACK, idempotency, latch, and physical-observation fields; no independent physical-stop verification. |
 | Mock Sense, mock Providers, fixture Drivers | **Fixture only** | Explicit FIXTURE and SYNTHETIC data only; never valid for safety or real acceptance. |
@@ -118,19 +118,26 @@ For Agent-driven physical work, `rosclawd` is the only supported control-plane
 entry. MCP and CLI clients submit structured actions over a protected local
 socket; the daemon independently checks peer/body/snapshot/capability/action
 intent, expiry, and use count before accepting a permit. It owns the queue,
-physical Runtime, drivers, E-Stop latch, and receipts.
+physical Runtime, drivers, E-Stop latch, and receipts. An authenticated local
+ledger persists permit consumption and action transitions, restores terminal
+receipts after restart, and fails closed for interrupted REAL actions pending
+daemon-UID operator review.
 
 ```bash
 # Development/process-boundary smoke test only
 rosclawd --robot-id sim_ur5e
 rosclaw daemon status --json
 rosclaw daemon security-check --json
+# Only when status reports recovery.required=true, run as the daemon UID:
+rosclaw daemon acknowledge-recovery --reason "reviewed interrupted action evidence" --json
 ```
 
 Same-UID development mode is not a hardware privilege boundary. REAL
 deployments require the dedicated-user systemd setup, device ACLs, credential
 isolation, and SROS2/DDS access control in
-[docs/ROSCLAWD.md](docs/ROSCLAWD.md).
+[docs/ROSCLAWD.md](docs/ROSCLAWD.md). The local HMAC key and signed head detect
+ordinary tampering and one-sided rollback; they are not a TPM or remote witness
+against an owner-level attacker who can replace all daemon state.
 
 ---
 
@@ -422,8 +429,8 @@ Read [docs/SAFETY.md](docs/SAFETY.md) for the full safety model.
 
 | Phase | Focus |
 |---|---|
-| **Current / Alpha** | rosclawd process-boundary prototype, truthful action/receipt contracts, fail-closed fixtures/providers/drivers, MuJoCo UR5e reach golden path, readiness-level Doctor. |
-| **Next** | Migrate every physical side-effect path to the gateway; cancellation/preemption; ROS 2 Turtlesim observed-motion golden path. |
+| **Current / Alpha** | rosclawd process boundary and durable local control ledger, truthful action/receipt contracts, fail-closed fixtures/providers/drivers, MuJoCo UR5e reach golden path, readiness-level Doctor. |
+| **Next** | Migrate every physical side-effect path to the gateway; ledger compaction/external witnessing; cancellation/preemption; ROS 2 Turtlesim observed-motion golden path. |
 | **Hardware acceptance** | RealSense read-only capture, then bounded actuator tasks with ACK, feedback, stop verification, and receipts. |
 | **Later** | Receipt-driven Memory/How/Auto/Darwin promotion with independent evaluation and rollback. |
 

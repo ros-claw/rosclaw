@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
 import os
@@ -53,9 +54,16 @@ def run_daemon(
     socket_group: str | None,
     robot_id: str,
     log_level: str,
+    ledger_path: str | Path | None = None,
+    ledger_key_path: str | Path | None = None,
 ) -> int:
     """Run rosclawd in the foreground for systemd or an operator terminal."""
 
+    from rosclaw.daemon.ledger import (
+        DaemonLedger,
+        get_daemon_ledger_key_path,
+        get_daemon_ledger_path,
+    )
     from rosclaw.daemon.server import RosclawDaemon
     from rosclaw.daemon.service import DaemonControlPlane
 
@@ -64,29 +72,46 @@ def run_daemon(
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         stream=sys.stderr,
     )
-    runtime = build_daemon_runtime(robot_id)
-    service = DaemonControlPlane(runtime=runtime)
-    daemon = RosclawDaemon(
-        service=service,
-        socket_path=socket_path,
-        socket_mode=socket_mode,
-        socket_group=socket_group,
-    )
+    with DaemonLedger(
+        get_daemon_ledger_path(ledger_path),
+        key_path=get_daemon_ledger_key_path(ledger_key_path),
+    ) as ledger:
+        runtime = build_daemon_runtime(robot_id)
+        service: DaemonControlPlane | None = None
+        try:
+            service = DaemonControlPlane(runtime=runtime, ledger=ledger)
+            daemon = RosclawDaemon(
+                service=service,
+                socket_path=socket_path,
+                socket_mode=socket_mode,
+                socket_group=socket_group,
+            )
 
-    previous_handlers: dict[signal.Signals, Any] = {}
+            previous_handlers: dict[signal.Signals, Any] = {}
 
-    def _request_shutdown(_signum: int, _frame: Any) -> None:
-        daemon.request_shutdown()
+            def _request_shutdown(_signum: int, _frame: Any) -> None:
+                daemon.request_shutdown()
 
-    for signum in (signal.SIGINT, signal.SIGTERM):
-        previous_handlers[signum] = signal.getsignal(signum)
-        signal.signal(signum, _request_shutdown)
-    try:
-        daemon.serve_forever()
-    finally:
-        service.close()
-        for signum, handler in previous_handlers.items():
-            signal.signal(signum, handler)
+            for signum in (signal.SIGINT, signal.SIGTERM):
+                previous_handlers[signum] = signal.getsignal(signum)
+                signal.signal(signum, _request_shutdown)
+            try:
+                daemon.serve_forever()
+            finally:
+                for signum, handler in previous_handlers.items():
+                    signal.signal(signum, handler)
+        finally:
+            if service is not None:
+                service.close()
+            else:
+                with contextlib.suppress(Exception):
+                    runtime.request_emergency_stop(
+                        "rosclawd startup failed after Runtime initialization",
+                        source="rosclawd.startup_failure",
+                        timeout_sec=1.0,
+                    )
+                with contextlib.suppress(Exception):
+                    runtime.stop()
     return 0
 
 
@@ -106,6 +131,8 @@ def main(argv: list[str] | None = None) -> int:
             socket_group=args.socket_group,
             robot_id=args.robot_id,
             log_level=args.log_level,
+            ledger_path=args.ledger,
+            ledger_key_path=args.ledger_key,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"[rosclawd] startup failed: {exc}", file=sys.stderr)
@@ -156,6 +183,14 @@ def _build_client_parser() -> argparse.ArgumentParser:
     status = subparsers.add_parser("status", help="Show daemon and privilege-boundary status")
     _add_client_arguments(status)
     status.set_defaults(daemon_handler=_cmd_status)
+
+    acknowledge = subparsers.add_parser(
+        "acknowledge-recovery",
+        help="Persist daemon-UID review of interrupted REAL action evidence",
+    )
+    acknowledge.add_argument("--reason", required=True)
+    _add_client_arguments(acknowledge)
+    acknowledge.set_defaults(daemon_handler=_cmd_acknowledge_recovery)
 
     request = subparsers.add_parser(
         "request-action",
@@ -237,6 +272,16 @@ def _add_serve_arguments(parser: argparse.ArgumentParser) -> None:
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         default=os.environ.get("ROSCLAW_LOG_LEVEL", "INFO").upper(),
     )
+    parser.add_argument(
+        "--ledger",
+        default=os.environ.get("ROSCLAW_DAEMON_LEDGER"),
+        help="Durable daemon ledger path (default: $ROSCLAW_HOME/state/daemon/ledger.sqlite3)",
+    )
+    parser.add_argument(
+        "--ledger-key",
+        default=os.environ.get("ROSCLAW_DAEMON_LEDGER_KEY"),
+        help="Daemon-private ledger HMAC key path",
+    )
 
 
 def _add_client_arguments(parser: argparse.ArgumentParser) -> None:
@@ -260,12 +305,20 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         socket_group=args.socket_group,
         robot_id=args.robot_id,
         log_level=args.log_level,
+        ledger_path=args.ledger,
+        ledger_key_path=args.ledger_key,
     )
 
 
 def _cmd_status(args: argparse.Namespace) -> int:
     payload = _client(args).get_runtime_status()
     return _print_payload(args, payload)
+
+
+def _cmd_acknowledge_recovery(args: argparse.Namespace) -> int:
+    payload = _client(args).acknowledge_recovery(args.reason)
+    _print_payload(args, payload)
+    return 0 if payload.get("recovery_required") is False else 3
 
 
 def _cmd_request_action(args: argparse.Namespace) -> int:

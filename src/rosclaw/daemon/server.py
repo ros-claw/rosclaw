@@ -28,6 +28,7 @@ from rosclaw.kernel import ActionEnvelope
 _ALLOWED_METHODS = frozenset(
     {
         "runtime.status",
+        "runtime.recovery.acknowledge",
         "runtime.shutdown",
         "action.request",
         "action.status",
@@ -308,6 +309,9 @@ class RosclawDaemon:
             )
         if method == "runtime.status":
             return self.service.get_runtime_status(peer), False
+        if method == "runtime.recovery.acknowledge":
+            reason = _required_id(params, "reason", max_length=1024)
+            return self.service.acknowledge_recovery(reason, peer), False
         if method == "runtime.shutdown":
             if peer.uid != os.geteuid():
                 raise ControlPlaneError(

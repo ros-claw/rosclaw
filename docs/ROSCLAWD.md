@@ -3,7 +3,8 @@
 `rosclawd` is the experimental local daemon boundary for ROSClaw physical
 actions. CLI, MCP, SDK, and Agent processes are northbound clients. The daemon
 owns the action queue, daemon-issued permits, resource leases, driver/executor
-registration, emergency-stop latch, and execution receipts.
+registration, emergency-stop latch, execution receipts, and authenticated
+restart ledger.
 
 ```text
 Codex / Claude Code / OpenClaw / operator CLI
@@ -19,7 +20,7 @@ Codex / Claude Code / OpenClaw / operator CLI
 
 ## Current Boundary
 
-The Phase 2 implementation provides:
+The current implementation provides:
 
 - a versioned, length-bounded Unix-socket protocol;
 - a fixed upper bound on concurrent client connections and per-request
@@ -33,7 +34,13 @@ The Phase 2 implementation provides:
 - rejection of caller-forged `authorization.approved=true`;
 - emergency stop outside the normal action queue;
 - truthful queued-action cancellation and terminal receipts;
-- bounded in-memory action retention that evicts only terminal non-REAL records;
+- an append-only SQLite event ledger with an HMAC forward chain, a separately
+  signed head, and daemon-private file permissions;
+- durable permit registration/consumption and action/receipt replay protection
+  across process restarts;
+- bounded runtime action retention backed by lazy durable-history lookup;
+- restart recovery that cancels undispatched work and treats interrupted REAL
+  outcomes as unknown, requests E-Stop, and requires operator review;
 - refusal to replace files, symlinks, live sockets, or unresponsive sockets;
 - MCP action and emergency tools that call the daemon instead of constructing a
   physical Runtime in the Agent process.
@@ -66,6 +73,58 @@ rosclaw daemon stop --json
 This proves process separation, protocol behavior, and fail-closed dispatch.
 When both processes use the same Unix UID, it is **not** a privilege boundary
 and must not be treated as a non-bypassable real-hardware deployment.
+
+## Durable Ledger and Restart Recovery
+
+By default, rosclawd creates these daemon-private files:
+
+```text
+$ROSCLAW_HOME/state/daemon/ledger.sqlite3
+$ROSCLAW_HOME/state/daemon/ledger.sqlite3.anchor
+$ROSCLAW_HOME/state/daemon/ledger.key
+```
+
+The directories must be owned by the daemon UID and deny group/world access;
+the files must be regular, non-symlink files with mode `0600`. Paths can be
+overridden with `--ledger` / `ROSCLAW_DAEMON_LEDGER` and `--ledger-key` /
+`ROSCLAW_DAEMON_LEDGER_KEY`.
+
+The ledger records permit registration and consumption before REAL dispatch,
+action submission before scheduling, action start before authorization and
+dispatch, and the terminal receipt. Startup verifies SQLite integrity, every
+event HMAC, the forward chain, and the signed head before the daemon loads a
+Robot Pack or opens its socket. A failed or uncertain ledger write locks out
+new actions for that process.
+
+On restart:
+
+- a previously terminal action and receipt remain queryable and action IDs stay
+  immutable;
+- a queued action is sealed `CANCELLED` without claiming dispatch;
+- an interrupted non-REAL action is sealed `FAILED`;
+- an interrupted REAL action is sealed `FAILED` with physical outcome unknown,
+  E-Stop is requested, and new REAL work is blocked;
+- pending REAL recovery requests E-Stop again on every restart;
+- pending review action IDs are cumulative across repeated recovery attempts
+  and are removed only by one acknowledgement covering the complete set.
+
+After reviewing the retained action, receipt, robot state, and external
+evidence, an operator may persist the review **as the rosclawd service UID**:
+
+```bash
+sudo -u rosclaw-hw rosclaw daemon acknowledge-recovery \
+  --reason "reviewed interrupted action and physical state" --json
+```
+
+Acknowledgement removes the recovery gate only. It does not rewrite the unknown
+receipt, clear the Runtime E-Stop latch, or prove a physical stop.
+
+This is a machine-local integrity boundary, not an external audit witness. A
+root or daemon-state owner that can read the HMAC key can forge history, and an
+attacker that replaces the database and signed anchor together can roll both
+back. TPM-backed keys, monotonic counters, remote transparency logs, ledger
+compaction/materialized snapshots, and long-history startup bounds remain
+future work. Keep independent hardware/controller logs for production evidence.
 
 ## Production User Boundary
 
@@ -177,16 +236,14 @@ credentials described by
   is present.
 - Stopping rosclawd latches E-stop, rejects new work, waits for active daemon
   work, stops Runtime, and removes only the socket inode it created.
-- Queue, retained action, and permit state are in-memory in this prototype and
-  do not survive a daemon restart. Terminal non-REAL records are evicted at the
-  configured retention limit. Terminal REAL records are never evicted during a
-  process lifetime because doing so could make an action ID executable twice;
-  a full REAL history fails closed with `ACTION_HISTORY_FULL` until an operator
-  archives evidence and restarts the daemon.
-- A production REAL deployment therefore requires a durable, integrity-checked
-  permit-consumption and action-ID ledger plus an operator-reviewed restart
-  recovery procedure. The current in-memory authority must not be used as
-  production replay protection across daemon restarts.
+- Permit use counts, immutable action IDs, transitions, and terminal receipts
+  survive restart in the authenticated ledger. Runtime memory is bounded and
+  may evict terminal records; older records remain queryable from the ledger.
+- Startup currently verifies and replays the complete ledger. Operators must
+  monitor ledger growth; automatic compaction and archival are not implemented.
+- Running without a durable ledger remains supported only for direct component
+  tests and embedded development. In that mode REAL history is retained in
+  memory and fails closed with `ACTION_HISTORY_FULL`; it is not restart-safe.
 
 ## MCP Tools
 

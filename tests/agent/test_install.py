@@ -89,6 +89,13 @@ async def test_install_generates_cross_agent_files(
     assert "direct ROS, DDS, serial, CAN, SDK, or motor commands" in skill_guide
     assert "Request daemon E-Stop; verify physical-stop evidence" in agents_guide
     assert "Halt all motion immediately" not in agents_guide
+    for guide in (agents_guide, runtime_guide, skill_guide):
+        assert "daemon status --json" in guide
+        assert "ledger.integrity_verified" in guide
+        assert "daemon acknowledge-recovery" in guide
+        assert "does not clear E-stop" in guide
+        assert "emergency_stop_latched" in guide
+        assert "boundary_ready=true" in guide
 
     snapshot = json.loads((tmp_path / ".rosclaw/agent/context.snapshot.json").read_text())
     assert snapshot["schema_version"] == "rosclaw.agent.context.v2"

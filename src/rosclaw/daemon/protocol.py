@@ -209,8 +209,11 @@ def receive_frame(
         )
     body = _receive_exact(connection, length)
     try:
-        payload = json.loads(body.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        payload = json.loads(
+            body.decode("utf-8"),
+            parse_constant=_reject_non_finite_json,
+        )
+    except (UnicodeDecodeError, ValueError) as exc:
         raise DaemonProtocolError("INVALID_JSON", f"Invalid JSON frame: {exc}") from exc
     if not isinstance(payload, dict):
         raise DaemonProtocolError("INVALID_MESSAGE", "Top-level message must be a JSON object")
@@ -244,6 +247,10 @@ def _receive_exact(connection: socket.socket, length: int) -> bytes:
         chunks.append(chunk)
         remaining -= len(chunk)
     return b"".join(chunks)
+
+
+def _reject_non_finite_json(value: str) -> None:
+    raise ValueError(f"non-finite JSON number is forbidden: {value}")
 
 
 __all__ = [

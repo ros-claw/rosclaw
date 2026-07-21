@@ -299,6 +299,25 @@ Native adapter installation mutates the Python environment and remains
 operator-owned. Robot Pack CLI commands never authorize direct SDK use by the
 Agent; runtime hardware access remains behind `request_action` and `rosclawd`.
 
+## rosclawd read-only inspection
+
+Use the pinned launcher to inspect the daemon boundary and durable control
+ledger without submitting work:
+
+```bash
+{cli} daemon status --json
+{cli} daemon action-status <ACTION_ID> --json
+{cli} daemon receipt <ACTION_ID> --json
+```
+
+For a healthy daemon, require `running` and `ledger.integrity_verified` to be
+`true`, and require `ledger.write_failed`, `recovery.required`, and
+`emergency_stop_latched` to be `false`. Production REAL work additionally
+requires `privilege_separated=true` and a `daemon security-check --json` result
+with `boundary_ready=true`; same-UID development is not deployment evidence.
+Treat `daemon acknowledge-recovery` as an operator incident-review command,
+not an Agent workflow; it does not clear E-stop or prove physical state.
+
 ## Validate-before-motion workflow
 
 1. Call `get_runtime_status` and inspect the effective Body and Capability.
@@ -379,6 +398,22 @@ request.
   operator explicitly requests it. Offline configuration is not physical
   evidence, and local verification never promotes canonical support status.
 
+## rosclawd read-only inspection
+
+- Inspect daemon health and the durable control ledger with
+  `{cli} daemon status --json`. Require `running` and
+  `ledger.integrity_verified` to be `true`; require `ledger.write_failed`,
+  `recovery.required`, and `emergency_stop_latched` to be `false` before
+  relying on the control plane.
+- Production REAL work also requires `privilege_separated=true` and
+  `{cli} daemon security-check --json` with `boundary_ready=true`. Same-UID
+  development proves only a process boundary.
+- Inspect an existing action with `{cli} daemon action-status <ACTION_ID>
+  --json` and `{cli} daemon receipt <ACTION_ID> --json`.
+- `daemon acknowledge-recovery` is an operator incident-review command. Do
+  not invoke it as routine Agent automation; it does not clear E-stop or prove
+  physical state.
+
 ## Safety
 
 - Do not publish ROS topics, actuate hardware, run real robot skills, or mutate
@@ -434,12 +469,23 @@ it with a different `rosclaw` found on `PATH`.
 ```bash
 {cli} doctor --json
 {cli} status capabilities
+{cli} daemon status --json
 {cli} demo list
 {cli} demo run ur5e-reach
 {cli} explain latest
 {cli} agent doctor universal --project-root .
 {cli} agent test universal --project-root . --quick --mcp-probe
 ```
+
+For `daemon status`, require `running` and `ledger.integrity_verified` to be
+`true`; require `ledger.write_failed`, `recovery.required`, and
+`emergency_stop_latched` to be `false`. Production REAL work also requires
+`privilege_separated=true` and `{cli} daemon security-check --json` with
+`boundary_ready=true`; same-UID development proves only process separation.
+Read an existing durable result with `{cli} daemon action-status <ACTION_ID>
+--json` and `{cli} daemon receipt <ACTION_ID> --json`. Do not use
+`daemon acknowledge-recovery` as Agent automation: it is an operator
+incident-review command and does not clear E-stop or prove physical state.
 
 ## Robot Pack Workflow
 

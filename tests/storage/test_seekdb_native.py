@@ -13,6 +13,7 @@ import pytest
 pyseekdb = pytest.importorskip(  # noqa: E402
     "pyseekdb", reason="pyseekdb optional dependency not installed"
 )
+pytestmark = pytest.mark.integration
 
 from rosclaw.memory.v2.models import MemoryItem
 from rosclaw.memory.v2.repository import MemoryRepository

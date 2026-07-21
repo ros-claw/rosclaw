@@ -32,14 +32,17 @@ This document lists ROSClaw CLI commands and their implementation status.
 
 | Command | Status | Description |
 |---------|--------|-------------|
-| `rosclawd` | Experimental | Run the least-privilege physical control plane in the foreground |
+| `rosclawd [--ledger <db>] [--ledger-key <key>]` | Experimental | Run the least-privilege physical control plane with its durable ledger |
 | `rosclaw daemon serve` | Experimental | Run rosclawd through the main CLI |
-| `rosclaw daemon status --json` | Experimental | Inspect daemon identity, queue, drivers, permits, and E-Stop latch |
+| `rosclaw daemon status --json` | Experimental | Inspect daemon identity, queue, ledger integrity, recovery gate, permits, and E-Stop latch |
 | `rosclaw daemon request-action <action.json>` | Experimental | Submit one canonical ActionEnvelope |
 | `rosclaw daemon action-status <action-id>` | Experimental | Read daemon queue state and terminal receipt |
+| `rosclaw daemon receipt <action-id>` | Experimental | Read a terminal daemon ExecutionReceipt |
 | `rosclaw daemon cancel <action-id>` | Experimental | Cancel only before dispatch |
 | `rosclaw daemon emergency-stop --reason <text>` | Experimental | Request the daemon emergency path |
+| `rosclaw daemon acknowledge-recovery --reason <text>` | Experimental | As daemon UID, persist review of interrupted REAL evidence |
 | `rosclaw daemon security-check --json` | Experimental | Check local process/UID/device separation |
+| `rosclaw daemon stop` | Experimental | As daemon UID, request orderly daemon shutdown |
 | `rosclaw run` | Stable | Start the ROSClaw runtime |
 | `rosclaw start` | Stable | Alias for `run` |
 | `rosclaw stop` | Stable | Stop the runtime |
@@ -50,6 +53,8 @@ The compatibility `rosclaw ros emergency-stop` command is also a rosclawd
 client; it no longer advertises or publishes command topics itself. Both
 emergency-stop commands exit nonzero unless the receipt confirms physical stop
 observation; a dispatch or driver ACK alone is not reported as success.
+Recovery acknowledgement clears only the restart review gate; it does not clear
+the E-Stop latch or change an unknown-outcome receipt.
 
 ---
 

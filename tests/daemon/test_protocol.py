@@ -98,3 +98,17 @@ def test_receive_frame_rejects_non_object_json() -> None:
         receiver.close()
 
     assert error.value.code == "INVALID_MESSAGE"
+
+
+def test_receive_frame_rejects_non_finite_json_numbers() -> None:
+    sender, receiver = socket.socketpair()
+    body = b'{"value":NaN}'
+    try:
+        sender.sendall(struct.pack("!I", len(body)) + body)
+        with pytest.raises(DaemonProtocolError) as error:
+            receive_frame(receiver)
+    finally:
+        sender.close()
+        receiver.close()
+
+    assert error.value.code == "INVALID_JSON"

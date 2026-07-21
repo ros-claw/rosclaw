@@ -193,6 +193,11 @@ class DaemonClient:
             timeout_sec=max(self.timeout_sec, timeout_sec + 1.0),
         )
 
+    def acknowledge_recovery(self, reason: str) -> dict[str, Any]:
+        """Persist operator review; the daemon accepts only its service UID."""
+
+        return self.call("runtime.recovery.acknowledge", {"reason": reason})
+
     def shutdown(self) -> dict[str, Any]:
         """Request shutdown; rosclawd permits this only to its own service UID."""
 

@@ -224,9 +224,16 @@ components:
         observation_scope: local_process_boundary
         fixture: false
         independent: true
+      - id: rosclawd-durable-ledger-tests
+        kind: automated_security_test
+        path: tests/daemon/test_ledger.py
+        verified_at: "2026-07-21"
+        observation_scope: local_durable_control_boundary
+        fixture: false
+        independent: true
     evidence_summary:
-      en: Separate-process socket, bounded protocol, SO_PEERCRED, peer-owned actions, exact action-intent permits, forged/replayed/substituted request blocking, queue, E-Stop, and shutdown are system-tested; production cross-UID, SROS2, and hardware acceptance remain pending.
-      zh: 独立进程 socket、有界协议、SO_PEERCRED、动作 peer 所有权、精确 Action Intent Permit、伪造/重放/参数替换阻止、队列、E-Stop 与关闭已通过系统测试；生产跨 UID、SROS2 和真机验收仍待完成。
+      en: Separate-process socket, SO_PEERCRED, exact permits, and an HMAC-chained SQLite ledger for permit consumption, action/receipt restart recovery, and interrupted-REAL operator review are system-tested; owner-level coordinated rollback, production cross-UID, SROS2, and hardware acceptance remain pending.
+      zh: 独立进程 socket、SO_PEERCRED、精确 Permit，以及用于持久化 Permit 消耗、重启恢复 Action/Receipt 和中断 REAL 动作人工复核的 HMAC 链式 SQLite 账本已通过系统测试；同所有者协同回滚、生产跨 UID、SROS2 与真机验收仍待完成。
 
   action_gateway:
     display:

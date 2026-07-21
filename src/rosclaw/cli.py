@@ -6582,6 +6582,14 @@ def main() -> int:
     )
     setup_lerobot_parser.add_argument("--json", action="store_true", help="Output JSON details")
 
+    # The public entrypoint dispatches this command before importing the legacy
+    # CLI. Keep it in top-level help so operators and agents can discover it.
+    subparsers.add_parser(
+        "daemon",
+        help="Inspect or call the local rosclawd control plane",
+        add_help=False,
+    )
+
     # run / start
     for name in ("run", "start"):
         run_parser = subparsers.add_parser(name, help="Start ROSClaw runtime")
