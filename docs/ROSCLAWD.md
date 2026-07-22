@@ -65,8 +65,10 @@ the current built-in RealSense path is perception-only and no production
 actuator Integration is claimed.
 REAL actions therefore fail closed unless a trusted daemon-side integration
 validates its Body policy, calibration, mapping, and action limits before it
-registers both an executor and an exact permit. Permit issuance, Pack loading,
-and executor registration are not exposed to Agent RPC.
+registers an executor. Pack loading and executor registration are not exposed
+to client RPC. Exact Permit issuance is a separate daemon-UID-only operator
+operation; an Agent UID can reach the method through the protected socket but
+is rejected by kernel-authenticated peer credentials.
 
 ## Development Mode
 
@@ -109,6 +111,39 @@ Arming is not a Permit and does not bypass per-action authorization. Disarm,
 Session loss, Action Lease expiry, Adapter generation change, and daemon close
 all request a coordinated safety stop. A controller-side deadman and physical
 E-Stop remain mandatory because a hung or killed daemon cannot protect itself.
+
+## Operator Permit Issuance
+
+The Agent first creates a scoped Session and writes an unapproved canonical
+`ActionEnvelope` proposal. After reviewing that exact file and the physical
+workspace, an operator may issue one Permit as the rosclawd service UID:
+
+```bash
+sudo -u rosclaw-hw rosclaw daemon permit-issue proposed-action.json \
+  --principal-id operator-shift-a \
+  --target-uid "$(id -u AGENT_USER)" \
+  --expires-in 60 \
+  --reason "reviewed body, limits, workspace, and controller deadman" \
+  --json
+```
+
+The daemon accepts issuance only when all of the following are true:
+
+- the durable ledger is healthy and restart recovery is clear;
+- this daemon generation is `ARMED` and its E-Stop latch is clear;
+- the target UID owns an active Session matching actor, Body, and Capability;
+- the action is explicitly `REAL`, has an unexpired Deadline and Body Snapshot;
+- the exact Capability has a daemon-side `REAL` executor.
+
+The Permit is bound to the target UID, Session, Body, snapshot, Capability,
+action arguments and constraints, operator principal, current daemon trust
+generation, and the earlier of its requested expiry or action Deadline. It is
+single-use and its TTL is limited to 1..300 seconds. The response contains an
+`authorized_action` copy with daemon-generated authorization fields; transfer
+that object to the target Agent through an operator-controlled file or pipe.
+Do not paste Permit IDs into prompts, manifests, source control, or chat logs.
+The Agent submits `authorized_action` with `request-action` or the guarded MCP
+tool and cannot issue or widen its own Permit.
 
 ## Adapter Worker Isolation
 

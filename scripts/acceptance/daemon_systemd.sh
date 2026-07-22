@@ -170,6 +170,8 @@ done
 run_agent "${PYTHON}" -m rosclaw.entrypoint daemon security-check --json >"${SECURITY_JSON}"
 
 run_agent "${PYTHON}" - <<'PY'
+import os
+
 from rosclaw.daemon.client import DaemonClient, DaemonRequestError
 from rosclaw.kernel import ActionEnvelope, AuthorizationContext, ExecutionMode
 
@@ -200,6 +202,18 @@ action = ActionEnvelope(
         scopes=["*"],
     ),
 )
+try:
+    client.issue_execution_permit(
+        action,
+        principal_id="self-approved-agent",
+        target_peer_uid=os.geteuid(),
+        reason="Agent must not issue its own REAL permit",
+    )
+except DaemonRequestError as error:
+    assert error.code == "PERMISSION_DENIED"
+else:
+    raise AssertionError("Agent UID issued a REAL permit through the systemd daemon")
+
 ticket = client.request_action(action)
 receipt = client.wait_for_action(ticket["action_id"], timeout_sec=5.0)["receipt"]
 assert receipt["final_state"] == "BLOCKED"

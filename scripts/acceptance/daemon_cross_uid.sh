@@ -228,21 +228,12 @@ assert security["ledger_state_client_accessible"] == []
 PY
 
 run_agent "${PYTHON}" - <<'PY'
+import os
+
 from rosclaw.daemon.client import DaemonClient, DaemonRequestError
 from rosclaw.kernel import ActionEnvelope, AuthorizationContext, ExecutionMode
 
 client = DaemonClient()
-for operation in (
-    client.shutdown,
-    lambda: client.acknowledge_recovery("Agent must not review recovery"),
-):
-    try:
-        operation()
-    except DaemonRequestError as error:
-        assert error.code == "PERMISSION_DENIED", error.code
-    else:
-        raise AssertionError("Agent UID invoked a daemon-UID-only operation")
-
 action = ActionEnvelope(
     action_id="cross-uid-forged-real",
     actor_id="cross-uid-agent",
@@ -260,6 +251,23 @@ action = ActionEnvelope(
         scopes=["*"],
     ),
 )
+for operation in (
+    client.shutdown,
+    lambda: client.acknowledge_recovery("Agent must not review recovery"),
+    lambda: client.issue_execution_permit(
+        action,
+        principal_id="self-approved-agent",
+        target_peer_uid=os.geteuid(),
+        reason="Agent must not issue its own REAL permit",
+    ),
+):
+    try:
+        operation()
+    except DaemonRequestError as error:
+        assert error.code == "PERMISSION_DENIED", error.code
+    else:
+        raise AssertionError("Agent UID invoked a daemon-UID-only operation")
+
 ticket = client.request_action(action)
 receipt = client.wait_for_action(ticket["action_id"], timeout_sec=5.0)["receipt"]
 assert receipt["final_state"] == "BLOCKED"

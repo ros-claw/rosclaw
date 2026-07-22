@@ -126,8 +126,9 @@ orphan policy. The daemon owns the queue, isolated Adapter workers, physical
 Runtime, E-Stop latch, watchdogs, and receipts. An authenticated local ledger
 persists permit consumption and action transitions, restores terminal receipts
 after restart, and fails closed for interrupted REAL actions pending daemon-UID
-operator review. Every daemon generation starts `DISARMED` and never resumes an
-old physical action.
+operator review. A daemon-UID-only CLI can issue one audited, short-lived
+Permit for an exact Agent proposal; the Agent cannot self-approve it. Every
+daemon generation starts `DISARMED` and never resumes an old physical action.
 
 ```bash
 # Development/process-boundary smoke test only

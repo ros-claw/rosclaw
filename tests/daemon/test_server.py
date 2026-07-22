@@ -721,6 +721,175 @@ def test_daemon_side_single_use_permit_allows_exactly_one_dispatch(
     assert client.get_runtime_status()["hardware_actions_executed"] == 1
 
 
+def test_operator_permit_rpc_audits_and_dispatches_one_exact_action(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "state" / "ledger.sqlite3"
+    key = tmp_path / "state" / "ledger.key"
+    runtime = _runtime()
+    dispatched: list[str] = []
+
+    def execute(action: ActionEnvelope) -> ActionExecutionResult:
+        dispatched.append(action.action_id)
+        return ActionExecutionResult(
+            final_state=ActionState.COMPLETED,
+            evidence_level=EvidenceLevel.DRIVER_CONFIRMED,
+            authorization_decision={"authorized": True},
+            dispatch_result={"accepted": True},
+            driver_ack={"acknowledged": True},
+        )
+
+    runtime.action_gateway.register_executor(
+        "rh56.finger.move",
+        ExecutionMode.REAL,
+        execute,
+    )
+    with DaemonLedger(database, key_path=key) as ledger:
+        daemon = RosclawDaemon(
+            service=DaemonControlPlane(runtime=runtime, ledger=ledger),
+            socket_path=tmp_path / "run" / "rosclawd.sock",
+        )
+        daemon.start()
+        client = DaemonClient(socket_path=daemon.socket_path)
+        try:
+            client.create_session(
+                session_id="session-1",
+                actor_id="codex-agent",
+                agent_framework="codex",
+                body_scope=["rh56-test"],
+                capability_scope=["rh56.finger.move"],
+                ttl_ms=60_000,
+            )
+            client.arm_runtime("operator preflight complete")
+            proposal = _real_action(
+                action_id="action-operator-approved",
+                approval_id="caller-supplied-value-is-replaced",
+            )
+            issued = client.issue_execution_permit(
+                proposal,
+                principal_id="operator-reviewer",
+                target_peer_uid=os.geteuid(),
+                expires_in_sec=30.0,
+                reason="reviewed bounded hand motion and clear workspace",
+            )
+            authorized = issued["authorized_action"]
+            first_receipt = client.wait_for_action(
+                client.request_action(authorized)["action_id"],
+                timeout_sec=2.0,
+            )["receipt"]
+            replay = {**authorized, "action_id": "action-operator-replay"}
+            second_receipt = client.wait_for_action(
+                client.request_action(replay)["action_id"],
+                timeout_sec=2.0,
+            )["receipt"]
+            registration = next(
+                event
+                for event in ledger.events(entity_kind="PERMIT")
+                if event.event_type == "PERMIT_REGISTERED"
+            )
+        finally:
+            daemon.stop()
+
+    permit = issued["permit"]
+    assert permit["peer_uid"] == os.geteuid()
+    assert permit["max_uses"] == 1
+    assert permit["session_id"] == "session-1"
+    assert authorized["authorization"] == {
+        "principal_id": "operator-reviewer",
+        "approved": True,
+        "approval_id": permit["permit_id"],
+        "scopes": ["rh56.finger.move"],
+    }
+    assert issued["operator_approval"]["operator_peer"]["uid"] == os.geteuid()
+    assert registration.payload["audit_context"]["reason"].startswith("reviewed bounded")
+    assert first_receipt["final_state"] == "COMPLETED"
+    assert second_receipt["final_state"] == "BLOCKED"
+    assert second_receipt["errors"][0]["code"] == "PERMIT_EXHAUSTED"
+    assert dispatched == ["action-operator-approved"]
+
+
+def test_operator_permit_rpc_rejects_non_daemon_uid_before_other_checks(
+    tmp_path: Path,
+) -> None:
+    with DaemonLedger(
+        tmp_path / "state" / "ledger.sqlite3",
+        key_path=tmp_path / "state" / "ledger.key",
+    ) as ledger:
+        service = DaemonControlPlane(runtime=_runtime(), ledger=ledger)
+        service.start()
+        with pytest.raises(ControlPlaneError) as denied:
+            service.issue_execution_permit(
+                _real_action(action_id="action-untrusted-issuer"),
+                principal_id="untrusted-agent",
+                target_peer_uid=os.geteuid() + 1,
+                expires_in_sec=60.0,
+                reason="Agent attempted self-approval",
+                peer=PeerCredentials(
+                    pid=123,
+                    uid=os.geteuid() + 1,
+                    gid=os.getegid(),
+                ),
+            )
+        service.close()
+
+    assert denied.value.code == "PERMISSION_DENIED"
+
+
+def test_operator_permit_rpc_fails_closed_for_unusable_proposals(tmp_path: Path) -> None:
+    peer = PeerCredentials(pid=123, uid=os.geteuid(), gid=os.getegid())
+    proposal = _real_action(action_id="action-issuer-preconditions")
+    runtime = _runtime()
+    with DaemonLedger(
+        tmp_path / "state" / "ledger.sqlite3",
+        key_path=tmp_path / "state" / "ledger.key",
+    ) as ledger:
+        service = DaemonControlPlane(runtime=runtime, ledger=ledger)
+        service.start()
+        service.create_session(
+            session_id=proposal.session_id,
+            actor_id=proposal.actor_id,
+            agent_framework=proposal.agent_framework,
+            body_scope=[proposal.body_id],
+            capability_scope=[proposal.capability_id],
+            ttl_ms=60_000,
+            peer=peer,
+        )
+
+        with pytest.raises(ControlPlaneError) as disarmed:
+            service.issue_execution_permit(
+                proposal,
+                principal_id="operator-1",
+                target_peer_uid=peer.uid,
+                expires_in_sec=30.0,
+                reason="preflight",
+                peer=peer,
+            )
+        service.arm_runtime("test preflight complete", peer)
+        with pytest.raises(ControlPlaneError) as no_executor:
+            service.issue_execution_permit(
+                proposal,
+                principal_id="operator-1",
+                target_peer_uid=peer.uid,
+                expires_in_sec=30.0,
+                reason="preflight",
+                peer=peer,
+            )
+        with pytest.raises(ControlPlaneError) as invalid_ttl:
+            service.issue_execution_permit(
+                proposal,
+                principal_id="operator-1",
+                target_peer_uid=peer.uid,
+                expires_in_sec=float("nan"),
+                reason="preflight",
+                peer=peer,
+            )
+        service.close()
+
+    assert disarmed.value.code == "RUNTIME_DISARMED"
+    assert no_executor.value.code == "REAL_EXECUTOR_UNAVAILABLE"
+    assert invalid_ttl.value.code == "INVALID_ARGUMENT"
+
+
 def test_emergency_stop_uses_daemon_driver_even_if_async_subsystems_are_absent(
     daemon_client: tuple[DaemonClient, Runtime, PermitAuthority, RosclawDaemon],
 ) -> None:

@@ -209,6 +209,29 @@ class DaemonClient:
     def arm_runtime(self, reason: str) -> dict[str, Any]:
         return self.call("runtime.arm", {"reason": reason})
 
+    def issue_execution_permit(
+        self,
+        action: ActionEnvelope | dict[str, Any],
+        *,
+        principal_id: str,
+        target_peer_uid: int,
+        expires_in_sec: float = 60.0,
+        reason: str,
+    ) -> dict[str, Any]:
+        """Request an audited permit; rosclawd accepts only its service UID."""
+
+        payload = action.to_dict() if isinstance(action, ActionEnvelope) else action
+        return self.call(
+            "permit.issue",
+            {
+                "action": payload,
+                "principal_id": principal_id,
+                "target_peer_uid": target_peer_uid,
+                "expires_in_sec": expires_in_sec,
+                "reason": reason,
+            },
+        )
+
     def disarm_runtime(self, reason: str) -> dict[str, Any]:
         return self.call("runtime.disarm", {"reason": reason})
 

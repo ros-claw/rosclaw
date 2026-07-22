@@ -222,6 +222,69 @@ def test_daemon_recovery_acknowledgement_cli(
     }
 
 
+def test_daemon_operator_permit_issue_cli(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
+    proposal = {
+        "actor_id": "codex-agent",
+        "agent_framework": "codex",
+        "session_id": "hardware-session",
+        "body_id": "camera-lab",
+        "body_snapshot_hash": "sha256:body",
+        "capability_id": "camera.capture_rgbd",
+        "arguments": {},
+        "execution_mode": "REAL",
+    }
+    action_path = tmp_path / "proposed-action.json"
+    action_path.write_text(json.dumps(proposal), encoding="utf-8")
+
+    class FakeDaemon:
+        def issue_execution_permit(
+            self,
+            action: dict[str, object],
+            *,
+            principal_id: str,
+            target_peer_uid: int,
+            expires_in_sec: float,
+            reason: str,
+        ) -> dict[str, object]:
+            assert action == proposal
+            assert principal_id == "operator-7"
+            assert target_peer_uid == 1234
+            assert expires_in_sec == 45.0
+            assert reason == "reviewed camera-only capture"
+            return {
+                "permit": {"permit_id": "permit-test"},
+                "authorized_action": {**proposal, "authorization": {"approved": True}},
+            }
+
+    monkeypatch.setattr(daemon_cli, "_client", lambda _args: FakeDaemon())
+
+    result = dispatch_daemon_argv(
+        [
+            "daemon",
+            "permit-issue",
+            str(action_path),
+            "--principal-id",
+            "operator-7",
+            "--target-uid",
+            "1234",
+            "--expires-in",
+            "45",
+            "--reason",
+            "reviewed camera-only capture",
+            "--json",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert result == 0
+    assert payload["permit"]["permit_id"] == "permit-test"
+    assert payload["authorized_action"]["authorization"]["approved"] is True
+
+
 def test_daemon_serve_forwards_explicit_ledger_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -133,6 +133,7 @@
 |---------|-------------|-------|
 | `daemon status` | Show Runtime supervision, Sessions, workers, ledger, and recovery | `rosclaw daemon status [--json]` |
 | `daemon arm` | Arm this daemon generation as the service UID | `rosclaw daemon arm --reason REASON [--json]` |
+| `daemon permit-issue` | As the service UID, approve one exact REAL action for a target Agent UID | `rosclaw daemon permit-issue ACTION_JSON --principal-id ID --target-uid UID --reason REASON [--expires-in SEC] [--json]` |
 | `daemon disarm` | Disarm and request coordinated safety stop | `rosclaw daemon disarm --reason REASON [--json]` |
 | `daemon session-create` | Create a scoped Agent Session | `rosclaw daemon session-create --session-id ID --actor-id ID --agent-framework NAME --body BODY --capability CAPABILITY [--ttl-ms MS] [--json]` |
 | `daemon session-heartbeat` | Renew a Session heartbeat | `rosclaw daemon session-heartbeat SESSION_ID [--json]` |

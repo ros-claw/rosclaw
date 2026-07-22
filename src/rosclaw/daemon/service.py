@@ -11,6 +11,7 @@ import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from math import isfinite
 from typing import Any
 
 from rosclaw.daemon.health import SupervisionState
@@ -20,7 +21,7 @@ from rosclaw.daemon.ledger import (
     LedgerEvent,
     LedgerIntegrityError,
 )
-from rosclaw.daemon.permits import PermitAuthority
+from rosclaw.daemon.permits import ExecutionPermit, PermitAuthority, action_intent_hash
 from rosclaw.daemon.protocol import DAEMON_PROTOCOL_VERSION, PeerCredentials
 from rosclaw.daemon.session_manager import (
     AgentSession,
@@ -33,6 +34,7 @@ from rosclaw.kernel import (
     RECEIPT_SCHEMA_VERSION,
     ActionEnvelope,
     ActionState,
+    AuthorizationContext,
     EvidenceLevel,
     ExecutionMode,
     OrphanPolicy,
@@ -40,6 +42,9 @@ from rosclaw.kernel import (
 from rosclaw.kernel.contracts import utc_now
 
 logger = logging.getLogger("rosclaw.daemon.service")
+
+MIN_OPERATOR_PERMIT_TTL_SEC = 1.0
+MAX_OPERATOR_PERMIT_TTL_SEC = 300.0
 
 
 class ControlPlaneError(RuntimeError):
@@ -330,6 +335,156 @@ class DaemonControlPlane:
             "supervision_state": self._supervision_state.value,
             "reason": normalized,
             "daemon_instance_id": self._instance_id,
+        }
+
+    def issue_execution_permit(
+        self,
+        action: ActionEnvelope,
+        *,
+        principal_id: str,
+        target_peer_uid: int,
+        expires_in_sec: float,
+        reason: str,
+        peer: PeerCredentials,
+    ) -> dict[str, Any]:
+        """Issue one audited, exact-action REAL permit as the daemon service UID."""
+
+        self._require_daemon_uid(peer, "issue REAL execution permits")
+        self._require_running()
+        normalized_reason = self._reason(reason, "permit reason")
+        normalized_principal = self._identifier(principal_id, "principal_id")
+        if isinstance(target_peer_uid, bool) or not isinstance(target_peer_uid, int):
+            raise ControlPlaneError("INVALID_ARGUMENT", "target_peer_uid must be an integer")
+        if target_peer_uid < 0:
+            raise ControlPlaneError(
+                "INVALID_ARGUMENT",
+                "target_peer_uid must be non-negative",
+            )
+        if isinstance(expires_in_sec, bool) or not isinstance(expires_in_sec, (int, float)):
+            raise ControlPlaneError(
+                "INVALID_ARGUMENT",
+                "expires_in_sec must be numeric",
+            )
+        permit_ttl = float(expires_in_sec)
+        if (
+            not isfinite(permit_ttl)
+            or not MIN_OPERATOR_PERMIT_TTL_SEC <= permit_ttl <= MAX_OPERATOR_PERMIT_TTL_SEC
+        ):
+            raise ControlPlaneError(
+                "INVALID_ARGUMENT",
+                (
+                    "expires_in_sec must be finite and between "
+                    f"{MIN_OPERATOR_PERMIT_TTL_SEC:g} and "
+                    f"{MAX_OPERATOR_PERMIT_TTL_SEC:g} seconds"
+                ),
+            )
+        if action.execution_mode is not ExecutionMode.REAL:
+            raise ControlPlaneError(
+                "PERMIT_REAL_ACTION_REQUIRED",
+                "Operator permits may be issued only for explicit REAL actions",
+            )
+        if not action.body_snapshot_hash.strip():
+            raise ControlPlaneError(
+                "INVALID_ACTION",
+                "REAL permit proposals require a non-empty body_snapshot_hash",
+            )
+        if len(action.action_id) > 256 or any(
+            ord(character) < 0x20 for character in action.action_id
+        ):
+            raise ControlPlaneError(
+                "INVALID_ACTION",
+                "action_id must contain at most 256 characters and no control characters",
+            )
+        if self.ledger is None:
+            raise ControlPlaneError(
+                "PERMIT_LEDGER_REQUIRED",
+                "Official operator permit issuance requires the durable daemon ledger",
+            )
+
+        target_peer = PeerCredentials(pid=0, uid=target_peer_uid, gid=0)
+        try:
+            session = self.sessions.require_action(action, target_peer)
+        except SessionError as exc:
+            raise ControlPlaneError(exc.code, exc.message) from exc
+
+        now = utc_now()
+        deadline = action.deadline_at
+        if deadline is None or now >= deadline:
+            raise ControlPlaneError(
+                "ACTION_DEADLINE_EXPIRED",
+                "Action deadline expired before operator permit issuance",
+            )
+        expires_at = min(now + timedelta(seconds=permit_ttl), deadline)
+        expected_executor = f"{action.capability_id}:{ExecutionMode.REAL.value}"
+        with self._lock:
+            if self._supervision_state is not SupervisionState.ARMED:
+                raise ControlPlaneError(
+                    "RUNTIME_DISARMED",
+                    "rosclawd must be armed before an operator can issue a REAL permit",
+                )
+            if self._recovery_required:
+                raise ControlPlaneError(
+                    "RECOVERY_REVIEW_REQUIRED",
+                    "Interrupted REAL work must be reviewed before permit issuance",
+                )
+            if self._ledger_write_failed:
+                raise ControlPlaneError(
+                    "LEDGER_UNAVAILABLE",
+                    "rosclawd durable ledger failed; no REAL permit can be issued",
+                )
+            if bool(getattr(self.runtime, "emergency_stop_latched", False)):
+                raise ControlPlaneError(
+                    "EMERGENCY_STOP_LATCHED",
+                    "Restart rosclawd and complete preflight before permit issuance",
+                )
+            registered = set(getattr(self.runtime.action_gateway, "registered_executors", ()))
+            if expected_executor not in registered:
+                raise ControlPlaneError(
+                    "REAL_EXECUTOR_UNAVAILABLE",
+                    (f"No daemon-side REAL executor is registered for {action.capability_id!r}"),
+                )
+            issued_at = _iso(now)
+            permit = ExecutionPermit(
+                permit_id=f"permit_{uuid.uuid4().hex}",
+                principal_id=normalized_principal,
+                peer_uid=target_peer_uid,
+                body_id=action.body_id,
+                body_snapshot_hash=action.body_snapshot_hash,
+                capabilities=(action.capability_id,),
+                action_intent_hash=action_intent_hash(action),
+                expires_at=expires_at,
+                max_uses=1,
+                session_id=action.session_id,
+            )
+            approval = {
+                "schema_version": "rosclaw.daemon.operator_approval.v1",
+                "reason": normalized_reason,
+                "operator_peer": peer.to_dict(),
+                "target_peer_uid": target_peer_uid,
+                "daemon_instance_id": self._instance_id,
+                "issued_at": issued_at,
+            }
+            try:
+                self.permits.register(permit, audit_context=approval)
+            except Exception as exc:  # noqa: BLE001
+                self._mark_ledger_failure_locked(exc)
+                raise ControlPlaneError(
+                    "LEDGER_UNAVAILABLE",
+                    "rosclawd could not durably record the operator permit",
+                ) from exc
+
+        authorized_action = action.to_dict()
+        authorized_action["authorization"] = AuthorizationContext(
+            principal_id=normalized_principal,
+            approved=True,
+            approval_id=permit.permit_id,
+            scopes=[action.capability_id],
+        ).to_dict()
+        return {
+            "permit": permit.to_dict(),
+            "authorized_action": authorized_action,
+            "operator_approval": approval,
+            "session": session.to_dict(),
         }
 
     def disarm_runtime(self, reason: str, peer: PeerCredentials) -> dict[str, Any]:
@@ -1165,6 +1320,20 @@ class DaemonControlPlane:
             raise ControlPlaneError(
                 "INVALID_ARGUMENT",
                 f"{field} must contain 1 to 1024 characters",
+            )
+        return value.strip()
+
+    @staticmethod
+    def _identifier(value: str, field: str) -> str:
+        if (
+            not isinstance(value, str)
+            or not value.strip()
+            or len(value) > 256
+            or any(ord(character) < 0x20 for character in value)
+        ):
+            raise ControlPlaneError(
+                "INVALID_ARGUMENT",
+                f"{field} must contain 1 to 256 printable characters",
             )
         return value.strip()
 

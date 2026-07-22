@@ -26,7 +26,9 @@ rosclaw app run realsense-inspect \
 
 `REAL` additionally requires a capability-bound daemon Permit for every
 physical step, an armed current daemon generation, and a registered verified
-executor. Use `--permit CAPABILITY=PERMIT_ID`; never place permits in a manifest.
+executor. A human operator issues each Permit with
+`rosclaw daemon permit-issue`; the Agent cannot call that operation as itself.
+Use `--permit CAPABILITY=PERMIT_ID`; never place permits in a manifest.
 
 ## Low-code Authoring
 

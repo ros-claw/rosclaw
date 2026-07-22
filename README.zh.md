@@ -113,8 +113,9 @@ Snapshot、Capability、精确 Action Intent、有效期和使用次数，并持
 Orphan Policy 处理。daemon 持有隔离的 Adapter Worker、物理 Runtime、
 E-Stop Latch、Watchdog 和 Receipt。经过认证的本地账本会持久化 Permit 消耗
 和 Action 状态迁移，在重启后恢复终态 Receipt；若 REAL 动作执行中断，则
-失败关闭并等待 daemon UID 操作员复核。每一代 daemon 都从 `DISARMED` 启动，
-绝不恢复旧物理动作。
+失败关闭并等待 daemon UID 操作员复核。daemon UID 专用 CLI 可针对 Agent 的
+精确提案签发一份有审计记录、短时、一次性的 Permit，Agent 无法自行批准。
+每一代 daemon 都从 `DISARMED` 启动，绝不恢复旧物理动作。
 
 ```bash
 # 仅用于开发环境的进程边界冒烟测试

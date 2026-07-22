@@ -36,6 +36,7 @@ This document lists ROSClaw CLI commands and their implementation status.
 | `rosclaw daemon serve` | Experimental | Run rosclawd through the main CLI |
 | `rosclaw daemon status --json` | Experimental | Inspect daemon identity, queue, ledger integrity, recovery gate, permits, and E-Stop latch |
 | `rosclaw daemon arm --reason <text>` | Experimental | As daemon UID, arm only the current daemon generation for REAL dispatch |
+| `rosclaw daemon permit-issue <action.json> --principal-id <id> --target-uid <uid> --reason <text>` | Experimental | As daemon UID, issue one audited, short-lived, exact-action REAL Permit |
 | `rosclaw daemon disarm --reason <text>` | Experimental | As daemon UID, disarm and request a coordinated safety stop |
 | `rosclaw daemon session-create ...` | Experimental | Create a UID-bound Agent Session with explicit Body and Capability scope |
 | `rosclaw daemon session-heartbeat <session-id>` | Experimental | Renew an active Agent Session |

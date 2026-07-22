@@ -152,7 +152,12 @@ class PermitAuthority:
             self._restore_from_ledger()
             self._invalidate_restored_permits()
 
-    def register(self, permit: ExecutionPermit) -> None:
+    def register(
+        self,
+        permit: ExecutionPermit,
+        *,
+        audit_context: dict[str, Any] | None = None,
+    ) -> None:
         """Register a permit from a trusted daemon/operator integration."""
 
         with self._lock:
@@ -162,11 +167,14 @@ class PermitAuthority:
                     return
                 raise ValueError(f"Permit {permit.permit_id!r} is already registered")
             if self.ledger is not None:
+                payload: dict[str, Any] = {"permit": permit.to_dict()}
+                if audit_context is not None:
+                    payload["audit_context"] = dict(audit_context)
                 self.ledger.append(
                     "PERMIT_REGISTERED",
                     entity_kind="PERMIT",
                     entity_id=permit.permit_id,
-                    payload={"permit": permit.to_dict()},
+                    payload=payload,
                 )
             self._permits[permit.permit_id] = permit
             self._uses[permit.permit_id] = 0

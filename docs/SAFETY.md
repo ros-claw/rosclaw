@@ -128,6 +128,9 @@ review but does not clear the E-Stop latch or prove the physical outcome.
 - Agent-facing physical action requests default to `SHADOW`; `REAL` must be
   explicit and independently authorized by rosclawd.
 - Caller-provided `authorization.approved` values never create a REAL permit.
+- Official Permit issuance requires the daemon service UID, a healthy durable
+  ledger, an armed generation, an active target-UID Session, and a registered
+  exact-capability REAL executor.
 - A permit never accepts a wildcard Capability and cannot be reused with
   substituted arguments or execution constraints.
 - Permit consumption, immutable action IDs, and terminal receipts are persisted

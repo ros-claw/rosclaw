@@ -197,6 +197,18 @@ def _build_client_parser() -> argparse.ArgumentParser:
     _add_client_arguments(arm)
     arm.set_defaults(daemon_handler=_cmd_arm)
 
+    permit_issue = subparsers.add_parser(
+        "permit-issue",
+        help="Approve one exact REAL ActionEnvelope as the rosclawd service UID",
+    )
+    permit_issue.add_argument("action_file", help="Proposed ActionEnvelope JSON path, or -")
+    permit_issue.add_argument("--principal-id", required=True)
+    permit_issue.add_argument("--target-uid", required=True, type=int)
+    permit_issue.add_argument("--expires-in", type=float, default=60.0, metavar="SECONDS")
+    permit_issue.add_argument("--reason", required=True)
+    _add_client_arguments(permit_issue)
+    permit_issue.set_defaults(daemon_handler=_cmd_permit_issue)
+
     disarm = subparsers.add_parser("disarm", help="Disarm and request a safety stop")
     disarm.add_argument("--reason", required=True)
     _add_client_arguments(disarm)
@@ -385,6 +397,20 @@ def _cmd_arm(args: argparse.Namespace) -> int:
     return _print_payload(args, _client(args).arm_runtime(args.reason))
 
 
+def _cmd_permit_issue(args: argparse.Namespace) -> int:
+    action = _read_action_payload(args.action_file)
+    return _print_payload(
+        args,
+        _client(args).issue_execution_permit(
+            action,
+            principal_id=args.principal_id,
+            target_peer_uid=args.target_uid,
+            expires_in_sec=args.expires_in,
+            reason=args.reason,
+        ),
+    )
+
+
 def _cmd_disarm(args: argparse.Namespace) -> int:
     payload = _client(args).disarm_runtime(args.reason)
     _print_payload(args, payload)
@@ -419,16 +445,7 @@ def _cmd_session_close(args: argparse.Namespace) -> int:
 
 
 def _cmd_request_action(args: argparse.Namespace) -> int:
-    if args.action_file == "-":
-        raw = sys.stdin.read()
-    else:
-        raw = Path(args.action_file).read_text(encoding="utf-8")
-    try:
-        action = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise DaemonClientError("INVALID_ACTION_JSON", str(exc)) from exc
-    if not isinstance(action, dict):
-        raise DaemonClientError("INVALID_ACTION_JSON", "ActionEnvelope must be a JSON object")
+    action = _read_action_payload(args.action_file)
     client = _client(args)
     payload = client.request_action(action)
     if args.wait > 0:
@@ -444,6 +461,17 @@ def _cmd_request_action(args: argparse.Namespace) -> int:
     }:
         return 3
     return result
+
+
+def _read_action_payload(action_file: str) -> dict[str, Any]:
+    raw = sys.stdin.read() if action_file == "-" else Path(action_file).read_text(encoding="utf-8")
+    try:
+        action = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise DaemonClientError("INVALID_ACTION_JSON", str(exc)) from exc
+    if not isinstance(action, dict):
+        raise DaemonClientError("INVALID_ACTION_JSON", "ActionEnvelope must be a JSON object")
+    return action
 
 
 def _cmd_action_status(args: argparse.Namespace) -> int:

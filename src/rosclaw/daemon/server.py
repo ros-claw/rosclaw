@@ -32,6 +32,7 @@ _ALLOWED_METHODS = frozenset(
         "runtime.disarm",
         "runtime.recovery.acknowledge",
         "runtime.shutdown",
+        "permit.issue",
         "action.request",
         "action.status",
         "action.receipt",
@@ -342,15 +343,20 @@ class RosclawDaemon:
                     "Only the rosclawd service UID may request daemon shutdown",
                 )
             return {"shutdown_requested": True}, True
+        if method == "permit.issue":
+            return (
+                self.service.issue_execution_permit(
+                    _required_action(params),
+                    principal_id=_required_id(params, "principal_id"),
+                    target_peer_uid=_required_int(params, "target_peer_uid"),
+                    expires_in_sec=_required_number(params, "expires_in_sec"),
+                    reason=_required_id(params, "reason", max_length=1024),
+                    peer=peer,
+                ),
+                False,
+            )
         if method == "action.request":
-            action_payload = params.get("action")
-            if not isinstance(action_payload, dict):
-                raise ControlPlaneError("INVALID_ACTION", "action must be a JSON object")
-            try:
-                action = ActionEnvelope.from_dict(action_payload)
-            except (TypeError, ValueError, KeyError) as exc:
-                raise ControlPlaneError("INVALID_ACTION", str(exc)) from exc
-            return self.service.request_action(action, peer), False
+            return self.service.request_action(_required_action(params), peer), False
         if method == "action.status":
             return (
                 self.service.get_action_status(
@@ -516,6 +522,23 @@ def _required_int(params: dict[str, Any], key: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ControlPlaneError("INVALID_ARGUMENT", f"{key} must be an integer")
     return value
+
+
+def _required_number(params: dict[str, Any], key: str) -> float:
+    value = params.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ControlPlaneError("INVALID_ARGUMENT", f"{key} must be numeric")
+    return float(value)
+
+
+def _required_action(params: dict[str, Any]) -> ActionEnvelope:
+    action_payload = params.get("action")
+    if not isinstance(action_payload, dict):
+        raise ControlPlaneError("INVALID_ACTION", "action must be a JSON object")
+    try:
+        return ActionEnvelope.from_dict(action_payload)
+    except (TypeError, ValueError, KeyError) as exc:
+        raise ControlPlaneError("INVALID_ACTION", str(exc)) from exc
 
 
 __all__ = ["RosclawDaemon"]

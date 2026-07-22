@@ -148,8 +148,9 @@ The executor enforces:
 - SHA-256 hashes are placed in the physical observation;
 - `PHYSICALLY_OBSERVED` is emitted only after those checks pass.
 
-REAL requests still need the normal daemon permit, Body snapshot, capability
-scope, and authorization. The Agent-facing MCP surface does not expose raw
+REAL requests still need a Body snapshot, capability scope, and the normal
+daemon Permit issued by a human operator with `rosclaw daemon permit-issue`.
+The Agent-facing MCP surface cannot issue that Permit and does not expose raw
 `pyrealsense2`, arbitrary MCP invocation, or device paths.
 
 ## Support Tiers

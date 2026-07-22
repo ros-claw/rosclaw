@@ -221,9 +221,10 @@ assets can execute a MuJoCo step without resolving files from the source tree.
 ## Remaining gaps
 
 1. rosclawd can load a configured signed Robot Pack, but the built-in RealSense
-   Pack is perception-only. No production actuator Pack or operator permit
-   issuer is shipped; REAL actuation remains fail-closed without a trusted
-   daemon-side integration and pack-specific policy/calibration validation.
+   Pack is perception-only. A daemon-UID-only audited Permit issuer is shipped,
+   but no production actuator Pack is available; REAL actuation remains
+   fail-closed without a trusted daemon-side integration and pack-specific
+   policy/calibration validation.
 2. Clean-wheel cross-UID and the reference systemd sandbox are automated and
    verified. Site-specific service identities, exact device ACLs, credential
    isolation, and SROS2 enforcement still require operator deployment
