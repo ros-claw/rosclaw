@@ -21,9 +21,16 @@ from .protocol import EmbeddingProfile
 class LocalSentenceTransformerProvider:
     """Qwen3-Embedding (or any ST model) on local torch."""
 
-    def __init__(self, profile: EmbeddingProfile, *, device: str | None = None) -> None:
+    def __init__(
+        self,
+        profile: EmbeddingProfile,
+        *,
+        device: str | None = None,
+        trust_remote_code: bool = False,
+    ) -> None:
         self._profile = profile
         self._device = device
+        self._trust_remote_code = trust_remote_code
         self._model: Any | None = None
 
     @property
@@ -48,6 +55,7 @@ class LocalSentenceTransformerProvider:
                 revision=self._profile.model_revision,
                 model_kwargs=kwargs,
                 device=device,
+                trust_remote_code=self._trust_remote_code,
             )
         except Exception as exc:  # noqa: BLE001
             raise EmbeddingUnavailableError(
@@ -79,13 +87,23 @@ class LocalSentenceTransformerProvider:
         except Exception as exc:  # noqa: BLE001
             raise EmbeddingUnavailableError(f"encode failed ({kind}): {exc}") from exc
         out = [list(map(float, row)) for row in vectors]
+        fixed: list[list[float]] = []
         for row in out:
             if len(row) != self._profile.dimension:
-                raise EmbeddingDimensionMismatchError(
-                    f"{self._profile.profile_id} produced dim {len(row)}, "
-                    f"expected {self._profile.dimension}"
-                )
-        return out
+                if len(row) > self._profile.dimension:
+                    # Matryoshka truncation (Qwen3 supports 32-1024 via
+                    # prefix truncation + renormalization).
+                    row = row[: self._profile.dimension]
+                    if self._profile.normalize:
+                        norm = sum(v * v for v in row) ** 0.5 or 1.0
+                        row = [v / norm for v in row]
+                else:
+                    raise EmbeddingDimensionMismatchError(
+                        f"{self._profile.profile_id} produced dim {len(row)}, "
+                        f"expected {self._profile.dimension}"
+                    )
+            fixed.append(row)
+        return fixed
 
     def encode_documents(self, texts: list[str]) -> list[list[float]]:
         return self._encode(texts, kind="document")

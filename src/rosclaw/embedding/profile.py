@@ -58,6 +58,53 @@ QWEN3_06B_512 = EmbeddingProfile(
     provider_type="local_sentence_transformer",
 )
 
+GTE_MULTI_768 = EmbeddingProfile(
+    profile_id="gte_multi_768_v1",
+    model_id="Alibaba-NLP/gte-multilingual-base",
+    model_revision="9bbca17d9273fd0d03d5725c7a4b0f6b45142062",
+    dimension=768,
+    normalize=True,
+    distance="cosine",
+    query_instruction=None,
+    document_instruction=None,
+    max_tokens=8192,
+    provider_type="local_sentence_transformer",
+)
+
+GTE_MULTI_512 = EmbeddingProfile(
+    profile_id="gte_multi_512_v1",
+    model_id="Alibaba-NLP/gte-multilingual-base",
+    model_revision="9bbca17d9273fd0d03d5725c7a4b0f6b45142062",
+    dimension=512,
+    normalize=True,
+    distance="cosine",
+    query_instruction=None,
+    document_instruction=None,
+    max_tokens=8192,
+    provider_type="local_sentence_transformer",
+)
+
+BGE_M3_1024 = EmbeddingProfile(
+    profile_id="bge_m3_1024_v1",
+    model_id="BAAI/bge-m3",
+    model_revision="5617a9f61b028005a4858fdac845db406aefb181",
+    dimension=1024,
+    normalize=True,
+    distance="cosine",
+    query_instruction=None,
+    document_instruction=None,
+    max_tokens=8192,
+    provider_type="local_sentence_transformer",
+)
+
 PROFILES: dict[str, EmbeddingProfile] = {
-    p.profile_id: p for p in (QWEN3_06B_1024, QWEN3_06B_768, QWEN3_06B_512)
+    p.profile_id: p
+    for p in (
+        QWEN3_06B_1024,
+        QWEN3_06B_768,
+        QWEN3_06B_512,
+        GTE_MULTI_768,
+        GTE_MULTI_512,
+        BGE_M3_1024,
+    )
 }

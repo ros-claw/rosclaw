@@ -30,7 +30,13 @@ def get_provider(
     profile: EmbeddingProfile = PROFILES[profile_id]
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
     if profile.provider_type == "local_sentence_transformer":
-        provider: EmbeddingProvider = LocalSentenceTransformerProvider(profile, device=device)
+        # gte-multilingual-base ships a custom new-impl modeling file;
+        # the snapshot is pinned + locally cached, so the trust scope is
+        # exactly this one reviewed revision.
+        trust = profile_id.startswith("gte_multi")
+        provider: EmbeddingProvider = LocalSentenceTransformerProvider(
+            profile, device=device, trust_remote_code=trust
+        )
     else:  # pragma: no cover - defensive
         raise KeyError(f"no provider factory for type {profile.provider_type!r}")
     if cache_path is not None:
