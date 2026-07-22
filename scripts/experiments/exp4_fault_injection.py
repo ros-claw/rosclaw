@@ -358,7 +358,15 @@ def s4_slave_no_response(
     """A silent slave (no unit answers) must escalate to COMMUNICATION_LOST."""
     kwargs = dict(harness_kwargs or {})
     kwargs.pop("sysfs_id", None)
-    h = FaultHarness(profile_path, calibration_path, slave_id=2, sysfs_id=sysfs_id, **kwargs)
+    # The phantom slave must be an id that does NOT exist on this bus:
+    # left bus has slave 1 (real) so phantom is 2; right bus has slave 2
+    # (real) so phantom is 1.  Deriving it keeps the scenario valid for
+    # either hand (P0-1 parameterization).
+    real_slave = int(load_transport_profile(profile_path).transport.slave_id)
+    phantom_slave = 2 if real_slave == 1 else 1
+    h = FaultHarness(
+        profile_path, calibration_path, slave_id=phantom_slave, sysfs_id=sysfs_id, **kwargs
+    )
     outcome: dict[str, Any] = {"scenario": "S4 slave_no_response"}
     try:
         h.arm()
