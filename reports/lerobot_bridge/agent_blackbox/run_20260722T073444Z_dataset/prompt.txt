@@ -1,0 +1,1 @@
+请验证最近一次 RH56 Practice，并导出为 LeRobotDataset。不要训练模型，也不要上传到网络。Practice root: /tmp/rh56_agent_blackbox.M1rOww/rosclaw_home/practice_demo

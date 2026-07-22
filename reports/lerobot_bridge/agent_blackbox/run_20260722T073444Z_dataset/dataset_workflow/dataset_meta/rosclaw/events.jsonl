@@ -1,0 +1,6 @@
+{"episode_index": 0, "frame_index": 0, "timestamp": 0.0, "event_type": "sandbox_decision", "value": "UNKNOWN"}
+{"episode_index": 0, "frame_index": 0, "timestamp": 0.0, "event_type": "failure_severity", "value": 0}
+{"episode_index": 0, "frame_index": 0, "timestamp": 0.0, "event_type": "action_source", "value": "UNKNOWN"}
+{"episode_index": 0, "frame_index": 1, "timestamp": 0.2, "event_type": "sandbox_decision", "value": "UNKNOWN"}
+{"episode_index": 0, "frame_index": 1, "timestamp": 0.2, "event_type": "failure_severity", "value": 0}
+{"episode_index": 0, "frame_index": 1, "timestamp": 0.2, "event_type": "action_source", "value": "UNKNOWN"}

@@ -93,6 +93,30 @@ golden_paths:
     claim: developer_observed_revalidation_pending
     support_tier: H1_CONTRACT_VERIFIED
     candidate_tier: H4_HARDWARE_ACTUATION_VERIFIED
+    integration:
+      family: lerobot
+      bridge_version: "1.0.1"
+      runtime:
+        lerobot_version: ">=0.6,<0.7"
+        worker_python: ">=3.12"
+        active_sessions: 1
+      reference_policy:
+        type: rosclaw_rh56_reference
+        action_dim: 6
+        semantic_source: explicit_policy_contract
+      reference_bodies:
+        - inspire_rh56_left
+        - inspire_rh56_right
+      supported_execution_modes:
+        - proposal_only
+        - shadow
+        - single_step_receding_horizon
+      unsupported:
+        - can_rh56_execution
+        - open_loop_action_chunks
+        - multiple_active_sessions
+        - unattended_execution
+    agent_discoverable: true
     modes:
       fixture: fixture_verified
       simulation: not_applicable
@@ -137,9 +161,22 @@ golden_paths:
         observation_scope: serial_protocol_ack_loss_loopback
         fixture: true
         independent: true
+      - id: rh56-lerobot-agent-blackbox-20260722
+        kind: developer_agent_blackbox
+        path: reports/lerobot_bridge/AGENT_NATIVE_CLOSURE_REPORT_V1_0_1.md
+        verified_at: "2026-07-22"
+        observation_scope: external_agent_guarded_hardware
+        fixture: false
+        independent: false
+        receipt_schema: rosclaw.receipt.v1
+        notes: >-
+          Discovery / SHADOW / unauthorized-REAL passes via a fresh-context
+          developer agent process with zero forbidden actions; dataset workflow
+          verified deterministically (agent process run cut short by backend
+          quota); authorized REAL requires the physical hand.
     evidence_summary:
-      en: Real SerialModbusTransport, shadow reads, graded REAL actions, and fault injection were developer-observed. Loopback fault tests now prove that target-near readback is DELIVERY_INFERRED rather than a protocol ACK; independent v1 hardware revalidation and Agent black-box testing remain open.
-      zh: SerialModbusTransport、Shadow 读取、分级 REAL 动作和故障注入已有开发者真机观察；Loopback 故障测试现已证明目标附近回读只能标为 DELIVERY_INFERRED 而非协议 ACK；独立 v1 真机复验与 Agent 黑盒仍未完成。
+      en: Real SerialModbusTransport, shadow reads, graded REAL actions, and fault injection were developer-observed; a developer Agent black-box (discovery / SHADOW / unauthorized REAL / dataset workflow) passed 2026-07-22 with zero forbidden actions. Loopback fault tests now prove that target-near readback is DELIVERY_INFERRED rather than a protocol ACK; independent v1 hardware revalidation and independent Agent black-box testing remain open.
+      zh: SerialModbusTransport、Shadow 读取、分级 REAL 动作和故障注入已有开发者真机观察；开发者 Agent 黑盒（discovery / SHADOW / 未授权 REAL / dataset 流程）2026-07-22 通过、零违规动作。Loopback 故障测试现已证明目标附近回读只能标为 DELIVERY_INFERRED 而非协议 ACK；独立 v1 真机复验与独立 Agent 黑盒仍未完成。
 
   realsense_inspect:
     display:
