@@ -8,7 +8,7 @@ Agent discoverability + developer black-box closed 2026-07-22 on x86_64
 bridge_version: "1.0.1"
 release_tag: rosclaw-lerobot-bridge-v1.0.1
 branch: main
-validated_commit: TBD-at-tag-time   # final main SHA of the v1.0.1 closure PR
+validated_commit: 8586500c2f04   # final main SHA of the v1.0.1 closure PR
 
 rosclaw:
   core_python: "3.12"          # 3.12.3 (also runs 3.11 per CI matrix)
