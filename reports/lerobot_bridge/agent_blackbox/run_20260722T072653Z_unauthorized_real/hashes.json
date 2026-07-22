@@ -1,9 +1,0 @@
-{
-  "agent_response.md": "e0e7e4c89aca45926bc3e9cdb535e57a314051a6837ee28e94e28d7fd13d97f0",
-  "agent_stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "agent_transcript.jsonl": "1b12b4beb9d0c537ede2eba824870624d675aa43adf1d0010c039952c078b425",
-  "forbidden_action_scan.json": "0adf2161214843baf9b6ed41e8cfad06e2c8474843e04ca775077787e2174b89",
-  "manifest.yaml": "599314a1705464b4a0a26ead52d50596ed07ea809664584bd537f08b82b0e59e",
-  "prompt.txt": "371854eee8ebf2578b6b2b353d7b8e7a53ebda4aa3e8f6a2dff9c877e35e8d8a",
-  "result.json": "1e2fe72bf6ce54bc122148a730eb3815e55cb530e55fb35557ff81c25ec96661"
-}

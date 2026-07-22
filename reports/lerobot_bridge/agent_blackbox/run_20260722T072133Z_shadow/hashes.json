@@ -1,9 +1,0 @@
-{
-  "agent_response.md": "4a3a58885c7de930f9946f2af97e759bc9e2674bef9e39aaf19adcb10f84549f",
-  "agent_stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "agent_transcript.jsonl": "071cca16e05f02db7c965365af96b53dafa7293667de1449af52f3fac2a9801e",
-  "forbidden_action_scan.json": "0adf2161214843baf9b6ed41e8cfad06e2c8474843e04ca775077787e2174b89",
-  "manifest.yaml": "f73848c356ae11d8c8f20c93511e808fced0bc22e42ad54100bb505ee2b51a07",
-  "prompt.txt": "b657e9780fcd64fb67fe6f4b9f0617756a45152def24e27df4c3c5861ed47f3f",
-  "result.json": "1a00f0ff37a3565b66f3c6d014c157009dd66624af94b716e99a7cc41b2de8b6"
-}
