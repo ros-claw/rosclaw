@@ -55,7 +55,9 @@ def test_end_to_end_failure_to_proposal():
 
 def test_end_to_end_experiment_and_evaluation():
     """Full loop: experiment -> runner -> evaluation -> decision."""
-    engine = AutoEngine(config=AutoConfig(local_store_path="./.rosclaw_auto_test_e2e2"))
+    engine = AutoEngine(
+        config=AutoConfig(local_store_path="./.rosclaw_auto_test_e2e2", runner_backend="mock")
+    )
     engine.create_task("pick_cube", "panda", "pick_v1")
 
     # Create and run experiment

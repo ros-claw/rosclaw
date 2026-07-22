@@ -8,6 +8,7 @@ through the Runtime's module registry.
 from __future__ import annotations
 
 import logging
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,16 @@ class SandboxRuntimeAdapter(LifecycleMixin):
         self._robot_id = config.get("robot_id", "")
         self._artifact_root = Path(
             config.get("artifact_root") or Path.home() / ".rosclaw" / "artifacts" / "sandbox"
+        )
+        from rosclaw.sandbox.episode import run_reach_action
+        from rosclaw.sandbox.executors import SandboxTaskExecutorRegistry
+
+        self._executor_registry = SandboxTaskExecutorRegistry()
+        self._executor_registry.register(
+            "sandbox.reach",
+            lambda sandbox, action: run_reach_action(
+                sandbox, action, artifact_root=self._artifact_root
+            ),
         )
         from rosclaw.observability.tracer import Tracer, get_tracer
 
@@ -146,50 +157,92 @@ class SandboxRuntimeAdapter(LifecycleMixin):
         safety_level: str = "MODERATE",
         event_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Run static policy checks for a proposed trajectory.
-
-        This legacy endpoint does not advance MuJoCo.  Its result is explicitly
-        labeled ``StaticPolicyValidation`` so callers cannot mistake it for a
-        simulation rollout.
-        """
+        """Run a full interpolated CPU MuJoCo trajectory rollout."""
         if self._sandbox_service is None:
-            return {"is_safe": False, "reason": "Sandbox not initialized"}
+            return {
+                "is_safe": False,
+                "reason": "Sandbox not initialized",
+                "validation_type": "PhysicsTrajectoryValidation",
+                "physics_executed": False,
+                "evidence_domain": "SIMULATION",
+            }
 
         try:
-            from rosclaw.sandbox.firewall.gate import FirewallGate
-
-            # Build action from trajectory
             if not trajectory:
-                return {"is_safe": True, "risk_score": 0.0, "replay_id": None}
+                return {
+                    "is_safe": False,
+                    "reason": "EMPTY_TRAJECTORY",
+                    "validation_type": "PhysicsTrajectoryValidation",
+                    "physics_executed": False,
+                    "evidence_domain": "SIMULATION",
+                }
+            if not self.has_physics:
+                return {
+                    "is_safe": False,
+                    "reason": self._initialization_error or "PHYSICS_UNAVAILABLE",
+                    "validation_type": "PhysicsTrajectoryValidation",
+                    "physics_executed": False,
+                    "evidence_domain": (
+                        "FIXTURE"
+                        if self._engine_name.lower() in {"fixture", "mock"}
+                        else "SIMULATION"
+                    ),
+                }
 
-            gate = FirewallGate(
-                robot_id=self._robot_id,
-                world_id=self._world_id,
-                engine=self._engine_name,
-            )
+            from rosclaw.sandbox.backends import MujocoCpuBackend, RolloutRequest, ScenarioSpec
+            from rosclaw.sandbox.backends.fingerprints import file_hash
 
-            # Check first and last waypoint for joint limits
-            action = {
-                "type": "joint_position",
-                "values": trajectory[-1] if trajectory else [],
-            }
-            # Inject body sense snapshot via sense-aware adapter for sense-aware firewall rules
+            model_hash = file_hash(self.model_path)
+            scenario_metadata: dict[str, Any] = {}
             if self._sandbox_context_adapter is not None:
                 try:
-                    action = self._sandbox_context_adapter.apply(action)
+                    enriched = self._sandbox_context_adapter.apply(
+                        {"type": "joint_trajectory", "waypoints": trajectory}
+                    )
+                    snapshot = enriched.get("body_sense_snapshot")
+                    if isinstance(snapshot, dict):
+                        scenario_metadata["body_sense_snapshot"] = snapshot
                 except Exception:
                     logger.warning(
-                        "SandboxContextAdapter failed; validating without body sense", exc_info=True
+                        "SandboxContextAdapter failed; validating without body sense",
+                        exc_info=True,
                     )
-            decision = gate.check(action)
-            # CRITICAL FIX: Publish firewall event for BOTH blocked AND allowed
+            body_snapshot_hash = str(
+                self._config.get("body_snapshot_hash")
+                or getattr(self._e_urdf_model, "effective_body_hash", "")
+                or model_hash
+            )
+            scenario_id = f"trajectory_{uuid.uuid4().hex[:16]}"
+            scenario = ScenarioSpec(
+                scenario_id=scenario_id,
+                robot_id=self._robot_id,
+                world_id=self._world_id,
+                body_snapshot_hash=body_snapshot_hash,
+                model_hash=model_hash,
+                seed=int(self._config.get("trajectory_seed", 0)),
+                metadata=scenario_metadata,
+            )
+            backend = MujocoCpuBackend(self._sandbox_service)
+            artifact_dir = self._artifact_root / scenario_id
+            receipt = backend.rollout(
+                RolloutRequest(
+                    scenario=scenario,
+                    trajectory=trajectory,
+                    max_joint_delta_rad=float(
+                        self._config.get("trajectory_max_joint_delta_rad", 0.005)
+                    ),
+                    max_joint_velocity_radps=float(
+                        self._config.get("trajectory_max_joint_velocity_radps", 3.15)
+                    ),
+                    artifact_dir=artifact_dir,
+                )
+            )
+            replay_id = (artifact_dir / "simulation_receipt.json").as_uri()
             if self._event_bus:
                 from rosclaw.core.event_bus import Event, EventPriority
 
                 topic = (
-                    "firewall.action_blocked"
-                    if not decision.is_allowed
-                    else "firewall.action_allowed"
+                    "firewall.action_blocked" if not receipt.is_safe else "firewall.action_allowed"
                 )
                 self._event_bus.publish(
                     Event(
@@ -198,13 +251,16 @@ class SandboxRuntimeAdapter(LifecycleMixin):
                             **(event_context or {}),
                             "robot_id": self._robot_id,
                             "world_id": self._world_id,
-                            "action": action,
-                            "reason": decision.reason,
-                            "risk_score": decision.risk_score,
-                            "violations": decision.violated_constraints,
-                            "replay_id": decision.replay_id,
+                            "action": {"type": "joint_trajectory", "waypoints": trajectory},
+                            "reason": receipt.reason,
+                            "risk_score": 0.0 if receipt.is_safe else 1.0,
+                            "violations": receipt.violations,
+                            "replay_id": replay_id,
                             "safety_level": safety_level,
-                            "decision": "BLOCK" if not decision.is_allowed else "ALLOW",
+                            "decision": "ALLOW" if receipt.is_safe else "BLOCK",
+                            "physics_executed": receipt.physics_executed,
+                            "evidence_domain": receipt.evidence_domain,
+                            "simulation_receipt": receipt.to_dict(),
                         },
                         source="sandbox.firewall",
                         priority=EventPriority.HIGH,
@@ -212,18 +268,22 @@ class SandboxRuntimeAdapter(LifecycleMixin):
                 )
 
             result = {
-                "is_safe": decision.is_allowed,
-                "validation_type": "StaticPolicyValidation",
-                "simulation_executed": False,
-                "risk_score": decision.risk_score,
-                "predicted_collision": decision.predicted_collision,
-                "reason": decision.reason,
-                "violations": decision.violated_constraints,
-                "replay_id": decision.replay_id,
+                "is_safe": receipt.is_safe,
+                "validation_type": "PhysicsTrajectoryValidation",
+                "simulation_executed": receipt.physics_executed,
+                "physics_executed": receipt.physics_executed,
+                "evidence_domain": receipt.evidence_domain,
+                "valid_for_promotion": receipt.valid_for_promotion,
+                "risk_score": 0.0 if receipt.is_safe else 1.0,
+                "predicted_collision": bool(receipt.collision_pairs),
+                "reason": receipt.reason,
+                "violations": receipt.violations,
+                "collision_pairs": receipt.collision_pairs,
+                "metrics": receipt.metrics,
+                "replay_id": replay_id,
+                "simulation_receipt": receipt.to_dict(),
                 "event_published": self._event_bus is not None,
             }
-
-            gate.close()
             return result
 
         except Exception as e:
@@ -244,14 +304,11 @@ class SandboxRuntimeAdapter(LifecycleMixin):
 
     def execute_action(self, action: Any) -> Any:
         """Execute one sandbox ActionEnvelope and return gateway-ready evidence."""
+        return self._executor_registry.execute(self._sandbox_service, action)
 
-        from rosclaw.sandbox.episode import run_reach_action
-
-        return run_reach_action(
-            self._sandbox_service,
-            action,
-            artifact_root=self._artifact_root,
-        )
+    @property
+    def supported_capabilities(self) -> tuple[str, ...]:
+        return self._executor_registry.capabilities()
 
     def get_observation(self, normalize: bool = True) -> dict[str, Any]:
         """Get rich normalized observation from scene state.

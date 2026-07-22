@@ -1,4 +1,8 @@
-"""FirewallGate - dynamic trajectory validation via MuJoCo simulation."""
+"""Fast static action checks.
+
+This module deliberately does not claim to execute physics.  Full trajectory
+validation lives in :mod:`rosclaw.sandbox.backends.mujoco_cpu`.
+"""
 
 from __future__ import annotations
 
@@ -19,28 +23,51 @@ class Decision:
     violated_constraints: list[str] = field(default_factory=list)
     replay_id: str | None = None
     modified_action: dict[str, Any] | None = None
+    validation_type: str = "STATIC_POLICY"
+    physics_executed: bool = False
 
 
-class FirewallGate:
-    """Dynamic safety gate using MuJoCo mj_step simulation."""
+class StaticActionGate:
+    """Low-latency policy checks using model-derived constraints only."""
 
-    JOINT_LIMITS = [
-        (-6.28, 6.28),
-        (-6.28, 6.28),
-        (-6.28, 6.28),
-        (-6.28, 6.28),
-        (-6.28, 6.28),
-        (-6.28, 6.28),
-    ]
     WORKSPACE_RADIUS = 1.5
     MAX_JOINT_VELOCITY = 3.15
     MAX_TCP_FORCE = 150.0
     MAX_TCP_TORQUE = 8.0
 
-    def __init__(self, robot_id: str, world_id: str, engine: str = "mujoco"):
+    def __init__(
+        self,
+        robot_id: str,
+        world_id: str,
+        engine: str = "mujoco",
+        *,
+        joint_limits: list[tuple[float, float]] | None = None,
+    ):
         self.robot_id = robot_id
         self.world_id = world_id
         self.engine = engine
+        self.joint_limits = joint_limits or self._load_joint_limits()
+
+    def _load_joint_limits(self) -> list[tuple[float, float]]:
+        """Resolve limits from the effective simulation model, never constants."""
+        if self.engine.lower() != "mujoco":
+            return []
+        from rosclaw.sandbox.sandbox_api import Sandbox
+
+        sandbox = Sandbox.create(self.robot_id, self.world_id, self.engine)
+        try:
+            model = sandbox.physics_model
+            if model is None or int(model.nu) <= 0:
+                return []
+            return [
+                (
+                    float(model.actuator_ctrlrange[index][0]),
+                    float(model.actuator_ctrlrange[index][1]),
+                )
+                for index in range(int(model.nu))
+            ]
+        finally:
+            sandbox.close()
 
     def _generate_replay_id(self) -> str:
         return f"sandbox://replay/{uuid.uuid4().hex[:12]}"
@@ -50,14 +77,33 @@ class FirewallGate:
         if not values:
             return Decision(action="ALLOW", is_allowed=True, risk_score=0.0)
 
+        if not self.joint_limits:
+            return Decision(
+                action="BLOCK",
+                is_allowed=False,
+                risk_score=1.0,
+                reason="Static gate blocked: joint limits unavailable",
+                violated_constraints=["joint_limits_unavailable"],
+                replay_id=self._generate_replay_id(),
+            )
+        if len(values) != len(self.joint_limits):
+            return Decision(
+                action="BLOCK",
+                is_allowed=False,
+                risk_score=1.0,
+                reason="Static gate blocked: action dimension mismatch",
+                violated_constraints=["action_dimension_mismatch"],
+                replay_id=self._generate_replay_id(),
+            )
+
         max_violation = 0.0
         violations = []
         replay_id = self._generate_replay_id()
 
         # Joint limits
         for i, v in enumerate(values):
-            if i < len(self.JOINT_LIMITS):
-                lo, hi = self.JOINT_LIMITS[i]
+            if i < len(self.joint_limits):
+                lo, hi = self.joint_limits[i]
                 if v < lo or v > hi:
                     max_violation = max(max_violation, abs(v) - max(abs(lo), abs(hi)))
                     violations.append(f"joint_{i}_limit")
@@ -159,7 +205,7 @@ class FirewallGate:
             if "joint_" in v and "_limit" in v:
                 idx = int(v.split("_")[1])
                 if idx < len(values):
-                    lo, hi = self.JOINT_LIMITS[idx]
+                    lo, hi = self.joint_limits[idx]
                     values[idx] = max(lo, min(hi, values[idx]))
             elif "pfl_force" in v:
                 modified["force"] = self.MAX_TCP_FORCE * 0.8
@@ -174,3 +220,11 @@ class FirewallGate:
 
     def close(self):
         pass
+
+
+class FirewallGate(StaticActionGate):
+    """Compatibility alias for :class:`StaticActionGate`.
+
+    The class name is retained for integrations, while every decision states
+    that it is a static policy result and that no physics was executed.
+    """

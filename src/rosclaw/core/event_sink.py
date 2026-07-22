@@ -31,12 +31,14 @@ class JsonlEventSink:
         home: str | Path | None = None,
         filename: str = "live.jsonl",
         rotate_mb: float = 64.0,
+        max_record_mb: float = 1.0,
     ):
         self._home = resolve_home(str(home) if home else None)
         self._events_dir = self._home / "events"
         self._events_dir.mkdir(parents=True, exist_ok=True)
         self._path = self._events_dir / filename
         self._rotate_bytes = int(rotate_mb * 1024 * 1024)
+        self._max_record_bytes = int(max_record_mb * 1024 * 1024)
         self._file: Any | None = None
         self._subscription: Any | None = None
         self._open()
@@ -68,8 +70,44 @@ class JsonlEventSink:
             logger.warning("Failed to serialize event for persistence: %s", exc)
             return
 
+        encoded_size = len((line + "\n").encode("utf-8"))
+        if self._max_record_bytes and encoded_size > self._max_record_bytes:
+            payload = record.get("payload")
+            line = json.dumps(
+                {
+                    **{
+                        key: value
+                        for key, value in record.items()
+                        if key not in {"metadata", "payload"}
+                    },
+                    "metadata": {
+                        "persistence_truncated": True,
+                        "original_size_bytes": encoded_size,
+                    },
+                    "payload": {
+                        "persistence_truncated": True,
+                        "original_size_bytes": encoded_size,
+                        "keys": list(payload)[:50] if isinstance(payload, dict) else [],
+                    },
+                },
+                ensure_ascii=False,
+                default=str,
+            )
+            encoded_size = len((line + "\n").encode("utf-8"))
+            logger.warning(
+                "Event persistence record exceeded %s bytes and was summarized",
+                self._max_record_bytes,
+            )
+
         if self._file is None:
             self._open()
+        if (
+            self._rotate_bytes
+            and self._path.exists()
+            and self._path.stat().st_size > 0
+            and self._path.stat().st_size + encoded_size > self._rotate_bytes
+        ):
+            self._rotate()
         self._file.write(line + "\n")
         self._file.flush()
 

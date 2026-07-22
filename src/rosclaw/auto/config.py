@@ -23,6 +23,7 @@ class AutoConfig:
     default_episodes: int = 50
     default_seeds: list[int] = field(default_factory=lambda: [0, 1, 2])
     default_policy: str = "failure_guided"
+    runner_backend: Literal["unconfigured", "mock"] = "unconfigured"
     promotion_min_success_improvement: float = 0.05
     promotion_max_collision_increase: float = 0.0
     promotion_require_second_seed: bool = True
@@ -51,4 +52,5 @@ class AutoConfig:
             max_rounds=d.get("max_rounds", 10),
             default_episodes=d.get("default_episodes", 50),
             default_policy=d.get("default_policy", "failure_guided"),
+            runner_backend=d.get("runner_backend", "unconfigured"),
         )

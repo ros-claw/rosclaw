@@ -10,6 +10,7 @@ from rosclaw.skill.eval import evaluate_skill
 from rosclaw.skill.mining import mine_skill_candidate
 from rosclaw.skill.models import SkillPackage
 from rosclaw.skill.promote import promote_candidate
+from tests.skill.evidence_helpers import write_promotion_evidence
 
 
 @pytest.fixture(autouse=True)
@@ -23,25 +24,33 @@ TEMPLATE_DIR = (
 FIXTURES = Path(__file__).parent / "fixtures" / "practice_sessions"
 
 
-def _mine_and_eval(tmp_path: Path):
+def _mine_and_eval(tmp_path: Path, *, with_physics_evidence: bool = False):
     dest = tmp_path / "g1_kick_ball"
     context = _init_context("g1_kick_ball", "unitree_g1", "manipulation", "ros-claw")
     _copy_template(TEMPLATE_DIR, dest, context)
     pkg = SkillPackage(dest).try_load()
     mine_skill_candidate(pkg, FIXTURES, candidate_id="candidate_0001")
     pkg = SkillPackage(dest).try_load()
+    if with_physics_evidence:
+        write_promotion_evidence(pkg, "candidate_0001")
+        pkg = SkillPackage(dest).try_load()
+    else:
+        from rosclaw.skill.eval import refresh_hashes
+
+        refresh_hashes(pkg)
     report = evaluate_skill(pkg, candidate_id="candidate_0001", mode="replay")
     return pkg, report
 
 
-def test_eval_passes_after_mining(tmp_path: Path):
+def test_eval_needs_physics_evidence_after_mining(tmp_path: Path):
     _, report = _mine_and_eval(tmp_path)
-    assert report.decision == "pass"
-    assert report.checks.get("promotion_gate_check") is True
+    assert report.decision == "need_more_evidence"
+    assert report.checks.get("sandbox_eval") is False
+    assert report.checks.get("promotion_gate_check") is False
 
 
 def test_promote_after_eval_pass(tmp_path: Path):
-    pkg, report = _mine_and_eval(tmp_path)
+    pkg, report = _mine_and_eval(tmp_path, with_physics_evidence=True)
     assert report.decision == "pass"
     result = promote_candidate(pkg, "candidate_0001", "0.1.0")
     assert result["version"] == "0.1.0"

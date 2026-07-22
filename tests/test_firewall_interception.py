@@ -82,13 +82,14 @@ class TestFirewallEventPublishing:
             safety_level="MODERATE",
         )
         assert result["is_safe"] is False
-        assert "Firewall blocked" in result["reason"]
+        assert result["reason"] == "JOINT_0_LIMIT"
+        assert result["physics_executed"] is False
         assert result["replay_id"] is not None
         assert len(received_events) == 1
         event = received_events[0]
         assert event.topic == "firewall.action_blocked"
         assert event.payload["robot_id"] == "ur5e"
-        assert "joint_0_limit" in event.payload["violations"]
+        assert "JOINT_0_LIMIT" in event.payload["violations"]
         assert event.payload["replay_id"] == result["replay_id"]
         assert event.source == "sandbox.firewall"
         adapter._do_stop()

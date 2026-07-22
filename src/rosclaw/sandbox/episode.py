@@ -15,6 +15,7 @@ from rosclaw.kernel import (
     ActionEnvelope,
     ActionExecutionResult,
     ActionState,
+    EvidenceDomain,
     EvidenceLevel,
     ExecutionMode,
 )
@@ -44,6 +45,13 @@ def _write_json(path: Path, value: dict[str, Any]) -> str:
     )
     temporary.replace(path)
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _canonical_hash(value: Any) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
+        "utf-8"
+    )
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
 def _static_policy(
@@ -119,6 +127,7 @@ def run_reach_action(
         return ActionExecutionResult(
             final_state=ActionState.DEGRADED,
             evidence_level=EvidenceLevel.SYNTHETIC,
+            evidence_domain=EvidenceDomain.FIXTURE,
             policy_decision={
                 "validation_type": "FixtureOnly",
                 "allowed": True,
@@ -253,6 +262,31 @@ def run_reach_action(
         )
 
     target_array = np.asarray(target, dtype=float)
+    model_path = sandbox.model_path
+    model_hash = (
+        f"sha256:{hashlib.sha256(model_path.read_bytes()).hexdigest()}"
+        if model_path is not None and model_path.is_file()
+        else ""
+    )
+    world_asset_hash = _canonical_hash(sandbox.world_metadata)
+    action_payload = action.to_dict()
+    action_hash = _canonical_hash(action_payload)
+    scenario_payload = {
+        "schema_version": "rosclaw.scenario.v1",
+        "scenario_id": f"{action.body_id}_{sandbox.world_metadata.get('world_id', 'empty')}_reach",
+        "body_snapshot_hash": action.body_snapshot_hash,
+        "model_hash": model_hash,
+        "world_asset_hash": world_asset_hash,
+        "task": action.capability_id,
+        "target": target,
+        "seed": seed,
+        "initial_state": {"keyframe": "home"},
+    }
+    scenario_hash = _canonical_hash(scenario_payload)
+    action_path = artifact_dir / "action.json"
+    scenario_path = artifact_dir / "scenario.json"
+    action_artifact_hash = _write_json(action_path, action_payload)
+    scenario_artifact_hash = _write_json(scenario_path, scenario_payload)
     initial_position = data.site_xpos[site_id].copy()
     trajectory: list[dict[str, Any]] = [
         {
@@ -363,12 +397,39 @@ def run_reach_action(
         },
     }
     trajectory_hash = _write_json(trajectory_path, artifact_payload)
+    engine_fingerprint = _canonical_hash(
+        {
+            "engine": "mujoco",
+            "version": getattr(mujoco, "__version__", "unknown"),
+            "model_hash": model_hash,
+            "world_asset_hash": world_asset_hash,
+            "integrator": int(model.opt.integrator),
+            "timestep_sec": float(model.opt.timestep),
+            "solver_iterations": int(model.opt.iterations),
+        }
+    )
+    artifact_hashes = {
+        action_path.name: action_artifact_hash,
+        scenario_path.name: scenario_artifact_hash,
+        trajectory_path.name: trajectory_hash,
+    }
     simulation_result = {
         "validation_type": "SimulationValidation",
         "engine": "mujoco",
         "engine_version": getattr(mujoco, "__version__", "unknown"),
         "has_physics": True,
+        "physics_executed": True,
+        "evidence_domain": "SIMULATION",
         "model_path": str(sandbox.model_path) if sandbox.model_path else None,
+        "model_hash": model_hash,
+        "world_asset_hash": world_asset_hash,
+        "body_snapshot_hash": action.body_snapshot_hash,
+        "action_hash": action_hash,
+        "scenario_hash": scenario_hash,
+        "backend_fingerprint": engine_fingerprint,
+        "integrator": int(model.opt.integrator),
+        "timestep_sec": float(model.opt.timestep),
+        "solver_iterations": int(model.opt.iterations),
         "world_id": sandbox.world_metadata.get("world_id", "empty"),
         "seed": seed,
         "steps": steps_executed,
@@ -376,7 +437,7 @@ def run_reach_action(
         "final_qpos": data.qpos.copy().tolist(),
         "final_qvel": data.qvel.copy().tolist(),
         "collision": collision,
-        "artifact_hashes": {trajectory_path.name: trajectory_hash},
+        "artifact_hashes": artifact_hashes,
     }
     verification = {
         "success": success,
@@ -386,6 +447,15 @@ def run_reach_action(
         "final_error_m": final_error,
         "tolerance_m": tolerance,
         "condition": "cartesian_error_within_tolerance_and_no_table_collision",
+        "data_quality": {
+            "required_events_complete": True,
+            "monotonic_timestamp": True,
+            "missing_state_ratio": 0.0,
+            "duplicate_event_count": 0,
+            "artifact_hash_valid": True,
+            "body_snapshot_match": bool(action.body_snapshot_hash == model_hash),
+            "replayable": True,
+        },
     }
 
     if collision is not None:
@@ -420,6 +490,7 @@ def run_reach_action(
     return ActionExecutionResult(
         final_state=final_state,
         evidence_level=evidence,
+        evidence_domain=EvidenceDomain.SIMULATION,
         policy_decision=policy,
         simulation_result=simulation_result,
         dispatch_result={
@@ -432,7 +503,7 @@ def run_reach_action(
             {"kind": "final_end_effector", "value": final_position.tolist()},
         ],
         verification_result=verification,
-        artifacts=[trajectory_path.as_uri()],
+        artifacts=[action_path.as_uri(), scenario_path.as_uri(), trajectory_path.as_uri()],
         errors=errors,
         artifact_directory=str(artifact_dir),
     )

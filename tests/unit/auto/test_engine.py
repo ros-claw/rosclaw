@@ -78,7 +78,7 @@ def test_full_workflow():
             {"success_rate": 0.42, "collision_rate": 0.12},
             {"success_rate": 0.68, "collision_rate": 0.03},
         )
-        assert ev.decision.startswith("promote")
+        assert ev.decision == "need_more_evidence"
 
         # 6. Promote champion
         champ = engine.promote_champion(

@@ -10,6 +10,7 @@ from typing import Any
 
 from rosclaw.provider.core.response import ProviderResponse
 from rosclaw.provider.reasoners.base import PhysicalReasoner
+from rosclaw.utils.http import urlopen_with_loopback_bypass
 
 
 class CosmosReasoner(PhysicalReasoner):
@@ -104,7 +105,7 @@ class CosmosReasoner(PhysicalReasoner):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=30.0) as response:
+            with urlopen_with_loopback_bypass(request, timeout=30.0) as response:
                 raw_text = response.read().decode("utf-8")
             return raw_text, "ok", []
         except urllib.error.HTTPError as exc:

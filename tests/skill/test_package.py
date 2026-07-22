@@ -18,6 +18,7 @@ from rosclaw.skill.package import (
 )
 from rosclaw.skill.promote import promote_candidate
 from rosclaw.skill.upload import build_hub_payload, upload_skill
+from tests.skill.evidence_helpers import write_promotion_evidence
 
 
 @pytest.fixture(autouse=True)
@@ -37,6 +38,8 @@ def _validated_pkg(tmp_path: Path):
     _copy_template(TEMPLATE_DIR, dest, context)
     pkg = SkillPackage(dest).try_load()
     mine_skill_candidate(pkg, FIXTURES, candidate_id="candidate_0001")
+    pkg = SkillPackage(dest).try_load()
+    write_promotion_evidence(pkg, "candidate_0001")
     pkg = SkillPackage(dest).try_load()
     evaluate_skill(pkg, candidate_id="candidate_0001", mode="replay")
     pkg = SkillPackage(dest).try_load()

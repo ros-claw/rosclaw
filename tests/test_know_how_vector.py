@@ -110,6 +110,42 @@ async def test_how_engine_memory_analogy_fallback(memory_interface):
         await engine.shutdown()
 
 
+@pytest.mark.asyncio
+async def test_how_engine_extracts_bounded_hint_from_nested_metadata(memory_interface):
+    memory_interface.store_experience(
+        event_id="nested-hint",
+        event_type="praxis",
+        instruction="quasar kinematic dimensionality mismatch",
+        outcome="failure",
+        error_details="quasar kinematic dimensionality mismatch",
+        tags=["quasar", "dimensionality"],
+        metadata={
+            "recovery_hint": {
+                "hint": "Use the matching mobile-base executor" + "x" * 10_000,
+                "body_readiness": {"nested": "y" * 100_000},
+            }
+        },
+    )
+
+    analogy = memory_interface.find_analogy("quasar kinematic dimensionality mismatch", limit=1)
+    assert analogy is not None
+    assert analogy["action_suggestion"].startswith("Use the matching mobile-base executor")
+    assert len(analogy["action_suggestion"]) == 4096
+
+    engine = HeuristicEngine(
+        seekdb_client=memory_interface.seekdb_client,
+        memory_interface=memory_interface,
+    )
+    await engine.initialize()
+    try:
+        result = await engine.suggest_recovery("quasar kinematic dimensionality mismatch")
+        assert result is not None
+        assert result["source"] == "memory_analogy"
+        assert len(result["action"]) == 4096
+    finally:
+        await engine.shutdown()
+
+
 def test_knowledge_interface_falls_back_to_keyword_without_memory(vector_client):
     know = KnowledgeInterface(
         robot_id="test_robot",

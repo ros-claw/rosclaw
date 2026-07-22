@@ -5,16 +5,42 @@ from rosclaw.auto.promotion import ChampionStore, LineageTracker, PromotionGate,
 from rosclaw.auto.storage.local_store import LocalStore
 
 
+def _simulation_receipt(seed: int) -> dict:
+    return {
+        "execution_mode": "SIMULATION",
+        "evidence_domain": "SIMULATION",
+        "body_snapshot_hash": "sha256:body",
+        "dispatch_result": {"physics_executed": True},
+        "simulation_result": {
+            "seed": seed,
+            "has_physics": True,
+            "physics_executed": True,
+            "model_hash": "sha256:model",
+            "action_hash": f"sha256:action-{seed}",
+            "artifact_hashes": {"trajectory.json": f"sha256:artifact-{seed}"},
+        },
+        "verification_result": {
+            "data_quality": {"artifact_hash_valid": True, "body_snapshot_match": True}
+        },
+    }
+
+
 def test_promotion_gate_passes():
     gate = PromotionGate({"min_success_improvement": 0.05, "max_collision_increase": 0.0})
     baseline = {"success_rate": 0.40, "collision_rate": 0.10}
     candidate = {"success_rate": 0.55, "collision_rate": 0.08}
     per_seed = {
-        0: {"candidate": {"success_rate": 0.54}},
-        1: {"candidate": {"success_rate": 0.56}},
+        0: {"baseline": {"success_rate": 0.40}, "candidate": {"success_rate": 0.54}},
+        1: {"baseline": {"success_rate": 0.40}, "candidate": {"success_rate": 0.56}},
     }
     result = gate.evaluate(
-        baseline, candidate, current_level="baseline", per_seed=per_seed, sandbox_risk_score=0.1
+        baseline,
+        candidate,
+        current_level="baseline",
+        per_seed=per_seed,
+        sandbox_risk_score=0.1,
+        simulation_receipts=[_simulation_receipt(0), _simulation_receipt(1)],
+        regression_results={"passed": True, "critical_regressions": []},
     )
     assert result.passed is True
     assert result.decision == "promote_to_sim"
@@ -30,13 +56,13 @@ def test_promotion_gate_rejects_worse():
     assert result.decision == "reject"
 
 
-def test_promotion_gate_need_more_data():
+def test_promotion_gate_needs_physics_evidence():
     gate = PromotionGate()
     baseline = {"success_rate": 0.40, "collision_rate": 0.10}
     candidate = {"success_rate": 0.42, "collision_rate": 0.10}  # small improvement
     result = gate.evaluate(baseline, candidate)
     assert result.passed is False
-    assert result.decision == "need_more_data"
+    assert result.decision == "need_more_evidence"
 
 
 def test_champion_store_save_and_get():

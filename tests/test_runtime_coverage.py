@@ -59,6 +59,23 @@ def fresh_runtime():
     return rt
 
 
+def _install_explicit_safe_fixture(rt):
+    """Keep non-sandbox unit tests explicit about their synthetic executor."""
+    sandbox = MagicMock()
+    sandbox.has_physics = False
+    sandbox._world_id = "fixture"
+    sandbox.validate_trajectory = MagicMock(
+        return_value={
+            "is_safe": True,
+            "validation_type": "FIXTURE",
+            "physics_executed": False,
+            "evidence_domain": "FIXTURE",
+            "valid_for_promotion": False,
+        }
+    )
+    rt._sandbox = sandbox
+
+
 @pytest.fixture
 def mock_event_bus():
     """Return a real EventBus for integration-style tests."""
@@ -1926,6 +1943,7 @@ class TestExecute:
         rt = fresh_runtime
         rt.initialize()
         rt.start()
+        _install_explicit_safe_fixture(rt)
         result = rt.execute(
             {
                 "instruction": "pick cup",
@@ -1940,6 +1958,7 @@ class TestExecute:
         rt = fresh_runtime
         rt.initialize()
         rt.start()
+        _install_explicit_safe_fixture(rt)
         events = []
         rt.event_bus.subscribe("rosclaw.critic.success.detected", events.append)
 
@@ -1987,6 +2006,7 @@ class TestExecute:
         rt = fresh_runtime
         rt.initialize()
         rt.start()
+        _install_explicit_safe_fixture(rt)
         events = []
         rt.event_bus.subscribe("praxis.completed", events.append)
 
@@ -2041,6 +2061,7 @@ class TestExecute:
         rt = fresh_runtime
         rt.initialize()
         rt.start()
+        _install_explicit_safe_fixture(rt)
         mock_know = MagicMock()
         mock_know.record_knowledge_usage = MagicMock(side_effect=RuntimeError("know fail"))
         rt._knowledge = mock_know
@@ -2078,6 +2099,7 @@ class TestExecute:
         rt = fresh_runtime
         rt.initialize()
         rt.start()
+        _install_explicit_safe_fixture(rt)
         # capability_invoke will fallback to mock since no router
         result = rt.execute(
             {

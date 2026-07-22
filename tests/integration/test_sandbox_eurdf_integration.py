@@ -96,10 +96,11 @@ class TestSandboxEURDFIntegration:
         )
         adapter.initialize()
 
-        # Empty trajectory should be safe
+        # Missing actions are not physical evidence and must fail closed.
         result = adapter.validate_trajectory([], safety_level="MODERATE")
-        assert result["is_safe"] is True
-        assert result["risk_score"] == 0.0
+        assert result["is_safe"] is False
+        assert result["reason"] == "EMPTY_TRAJECTORY"
+        assert result["physics_executed"] is False
 
     def test_robot_workspace_spherical(self):
         """UR5e workspace should be spherical for sandbox collision checks."""

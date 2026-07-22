@@ -14,11 +14,13 @@ from rosclaw.provider.core.request import ProviderRequest
 def runtime_with_go2(tmp_path):
     """Runtime with Go2 quadruped and MuJoCo sandbox."""
     config = RuntimeConfig(
+        workspace_home=str(tmp_path / "rosclaw-home"),
         robot_id="go2",
         enable_provider=True,
         enable_practice=True,
         enable_memory=True,
         timeline_output_dir=str(tmp_path / "practice"),
+        seekdb_path=str(tmp_path / "knowledge.sqlite"),
     )
     runtime = Runtime(config)
     runtime.initialize()
@@ -55,7 +57,7 @@ async def test_scenario_d_inspect_point_a_gauge(runtime_with_go2):
     runtime = runtime_with_go2
 
     events = []
-    for topic in ["rosclaw.provider.inference.completed", "rosclaw.sandbox.action.allowed"]:
+    for topic in ["rosclaw.provider.inference.completed", "firewall.action_blocked"]:
         runtime.event_bus.subscribe(topic, lambda e, t=topic: events.append(t))
 
     result = runtime.execute(
@@ -66,15 +68,12 @@ async def test_scenario_d_inspect_point_a_gauge(runtime_with_go2):
         },
     )
     assert result is not None
-    assert "trajectory_data" in result
-    assert len(result["trajectory_data"]) > 0
-
-    # Real physics verification
-    first_jp = result["trajectory_data"][0].get("joint_positions", [])
-    assert len(first_jp) >= 6, "Go2 physics must return joint_positions"
+    assert result["status"] == "blocked"
+    assert result["reason"] == "ACTION_DIMENSION_MISMATCH"
+    assert result["validation"]["physics_executed"] is False
 
     assert "rosclaw.provider.inference.completed" in events
-    assert "rosclaw.sandbox.action.allowed" in events
+    assert "firewall.action_blocked" in events
 
 
 @pytest.mark.asyncio
@@ -90,7 +89,8 @@ async def test_scenario_d_inspect_point_b_valve(runtime_with_go2):
         },
     )
     assert result is not None
-    assert "trajectory_data" in result
+    assert result["status"] == "blocked"
+    assert result["reason"] == "ACTION_DIMENSION_MISMATCH"
 
 
 @pytest.mark.asyncio
@@ -106,7 +106,8 @@ async def test_scenario_d_inspect_point_c_doorway(runtime_with_go2):
         },
     )
     assert result is not None
-    assert "trajectory_data" in result
+    assert result["status"] == "blocked"
+    assert result["reason"] == "ACTION_DIMENSION_MISMATCH"
 
 
 @pytest.mark.asyncio
@@ -136,7 +137,7 @@ async def test_scenario_d_full_patrol_closed_loop(runtime_with_go2):
     all_events = []
     for topic in [
         "rosclaw.provider.inference.completed",
-        "rosclaw.sandbox.action.allowed",
+        "firewall.action_blocked",
         "rosclaw.dashboard.trace.updated",
     ]:
         runtime.event_bus.subscribe(topic, lambda e, t=topic: all_events.append(t))
@@ -166,15 +167,14 @@ async def test_scenario_d_full_patrol_closed_loop(runtime_with_go2):
             },
         )
         assert exec_result is not None
-        assert "trajectory_data" in exec_result
-        if exec_result["trajectory_data"]:
-            assert "joint_positions" in exec_result["trajectory_data"][0]
+        assert exec_result["status"] == "blocked"
+        assert exec_result["reason"] == "ACTION_DIMENSION_MISMATCH"
 
     # Verify events
     assert "rosclaw.provider.inference.completed" in all_events
-    assert "rosclaw.sandbox.action.allowed" in all_events
+    assert "firewall.action_blocked" in all_events
     assert "rosclaw.dashboard.trace.updated" in all_events
 
-    print("\n✅ Scenario D 巡检端到端闭环验证通过！")
-    print("   Waypoints visited: " + str(len(waypoints)))
+    print("\n✅ Scenario D correctly failed closed without a mobile-base executor.")
+    print("   Waypoints rejected: " + str(len(waypoints)))
     print("   Events captured: " + str(len(all_events)))

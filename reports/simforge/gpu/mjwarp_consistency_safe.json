@@ -1,0 +1,45 @@
+{
+  "all_worlds_expected_collision": null,
+  "backend": "mujoco_warp",
+  "backend_version": "3.10.0.2",
+  "collision_world_count": 0,
+  "collision_worlds": [],
+  "device": "cuda:0",
+  "device_name": "NVIDIA RTX A6000",
+  "finite_state": true,
+  "gpu_memory_used_bytes": 71303168,
+  "model_hash": "sha256:ffd0a7b336d3c2d27c35a15cc0d4aaa95196769aca190ac8d6522d3318c345a0",
+  "physical_gpu": "1",
+  "pose": "safe",
+  "qpos_checksum": "sha256:a302c0d8e9814b671a62ee043d7e8d69059243d2eba3562d956816894af2b73f",
+  "randomization": {
+    "joint_control_offset_rad": [
+      [
+        0.0010958241764456034,
+        -0.0002444862329866737,
+        0.0014343917137011886,
+        0.000789472134783864,
+        -0.001623290590941906,
+        0.0019024894572794437
+      ],
+      [
+        0.0010445588268339634,
+        0.0011442572576925159,
+        -0.0014875454362481833,
+        -0.00019845625502057374,
+        -0.0005168078932911158,
+        0.001707059913314879
+      ]
+    ],
+    "parameter_hash": "sha256:55efaa0497190c4c5887d7c67e416074777319ba29e0c1440f2247f0a0304c87"
+  },
+  "schema_version": "rosclaw.mjwarp_shard.v1",
+  "seed": 42,
+  "steps": 350,
+  "visible_devices": "1",
+  "wall_time_sec": 2.8529979219892994,
+  "warp_version": "1.15.0",
+  "world_steps": 700,
+  "world_steps_per_sec": 245.3559445679209,
+  "worlds": 2
+}

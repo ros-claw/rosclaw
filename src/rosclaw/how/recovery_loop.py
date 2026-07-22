@@ -24,6 +24,16 @@ from typing import Any
 logger = logging.getLogger("rosclaw.how.recovery_loop")
 
 
+def _trusted_physics_outcome(payload: dict[str, Any]) -> bool:
+    """Only verified simulation evidence may change rule efficacy."""
+    return bool(
+        payload.get("physics_executed") is True
+        and payload.get("receipt_verified") is True
+        and payload.get("data_quality_pass") is True
+        and payload.get("evidence_domain") == "SIMULATION"
+    )
+
+
 class RecoveryLoop:
     """Orchestrate failure → recovery → retry → compare → learn.
 
@@ -146,7 +156,7 @@ class RecoveryLoop:
 
         # Update rule efficacy (+1 success)
         rule_id = retry.get("rule_id", "")
-        if rule_id and self._how:
+        if rule_id and self._how and _trusted_physics_outcome(payload):
             self._run_async(self._how.record_outcome(rule_id, success=True))
 
         # Store success pattern in Memory
@@ -216,7 +226,7 @@ class RecoveryLoop:
 
         # Update rule efficacy (-1 success = +1 failure)
         rule_id = retry.get("rule_id", "")
-        if rule_id and self._how:
+        if rule_id and self._how and _trusted_physics_outcome(payload):
             self._run_async(self._how.record_outcome(rule_id, success=False))
 
         # If max retries reached, store as new failure

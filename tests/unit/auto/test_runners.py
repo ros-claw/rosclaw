@@ -15,8 +15,9 @@ def test_runner_result_roundtrip():
 def test_local_runner_health():
     runner = LocalRunner()
     h = runner.health()
-    assert h["status"] == "healthy"
+    assert h["status"] == "unconfigured"
     assert h["runner"] == "local"
+    assert h["valid_for_promotion"] is False
 
 
 def test_local_runner_simulated_experiment_with_patch():

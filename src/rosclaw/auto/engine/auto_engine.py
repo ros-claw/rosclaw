@@ -54,9 +54,10 @@ class AutoEngine:
                 pass
         self.store = LocalStore(self.config.local_store_path)
         # Sprint C: runners
-        self.local_runner = LocalRunner({"simulate": True, "latency_sec": 0.01})
-        self.sandbox_runner = SandboxRunner({"simulate": True})
-        self.darwin_runner = DarwinRunner({"simulate": True})
+        runner_backend = self.config.runner_backend
+        self.local_runner = LocalRunner({"backend": runner_backend, "latency_sec": 0.01})
+        self.sandbox_runner = SandboxRunner({"backend": runner_backend})
+        self.darwin_runner = DarwinRunner({"backend": runner_backend})
         # Sprint D: promotion
         self.promotion_gate = PromotionGate(
             {
@@ -313,6 +314,8 @@ class AutoEngine:
         candidate_metrics: dict,
         per_seed: dict | None = None,
         sandbox_risk_score: float = 0.0,
+        simulation_receipts: list[dict] | None = None,
+        regression_results: dict | None = None,
     ) -> EvaluationResult:
         delta = {}
         for k in set(baseline_metrics) | set(candidate_metrics):
@@ -329,6 +332,8 @@ class AutoEngine:
             current_level="baseline",
             per_seed=per_seed,
             sandbox_risk_score=sandbox_risk_score,
+            simulation_receipts=simulation_receipts,
+            regression_results=regression_results,
         )
 
         ev = EvaluationResult(
@@ -598,7 +603,15 @@ class AutoEngine:
             per_seed = raw_darwin["metrics"].get("per_seed")
             sandbox_risk = 0.0 if not raw_sandbox.get("safety_violations") else 0.5
 
-            eval_res = self.create_evaluation(exp.id, b_metrics, c_metrics, per_seed, sandbox_risk)
+            eval_res = self.create_evaluation(
+                exp.id,
+                b_metrics,
+                c_metrics,
+                per_seed,
+                sandbox_risk,
+                simulation_receipts=raw_darwin["metrics"].get("receipts"),
+                regression_results=raw_darwin["metrics"].get("regression"),
+            )
 
             if eval_res.decision.startswith("promote"):
                 level = eval_res.decision.replace("promote_to_", "")

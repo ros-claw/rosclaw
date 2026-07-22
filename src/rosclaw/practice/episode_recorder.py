@@ -25,6 +25,31 @@ from rosclaw.core.types import PraxisEvent, RobotState
 
 logger = logging.getLogger("rosclaw.practice.episode_recorder")
 
+_MAX_ARTIFACT_RECORD_BYTES = 1024 * 1024
+
+
+def _bounded_artifact_line(entry: dict[str, Any]) -> str:
+    """Serialize one artifact record without allowing a single-line disk blow-up."""
+    line = json.dumps(entry, default=str)
+    size = len((line + "\n").encode("utf-8"))
+    if size <= _MAX_ARTIFACT_RECORD_BYTES:
+        return line
+    result = entry.get("result") if isinstance(entry.get("result"), dict) else {}
+    return json.dumps(
+        {
+            "phase": entry.get("phase"),
+            "timestamp": entry.get("timestamp"),
+            "persistence_truncated": True,
+            "original_size_bytes": size,
+            "result_summary": {
+                "status": result.get("status"),
+                "reason": result.get("reason"),
+                "keys": list(result)[:50],
+            },
+        },
+        default=str,
+    )
+
 
 @dataclass
 class _EpisodeBuffer:
@@ -309,9 +334,12 @@ class EpisodeRecorder(LifecycleMixin):
         buf.received_events.add("firewall.action_blocked")
         buf.sandbox_blocked = True
         violations = payload.get("violations", [])
-        buf.sandbox_block_reason = (
-            violations[0].get("description", "blocked") if violations else "blocked"
-        )
+        if violations and isinstance(violations[0], dict):
+            buf.sandbox_block_reason = violations[0].get("description", "blocked")
+        elif violations:
+            buf.sandbox_block_reason = str(violations[0])
+        else:
+            buf.sandbox_block_reason = "blocked"
         buf.sandbox_actions.append(
             {
                 "timestamp": time.time(),
@@ -435,13 +463,18 @@ class EpisodeRecorder(LifecycleMixin):
             self._finalize_episode(episode_id, reason="critic_terminal")
 
     def _on_sandbox_episode_finished(self, event: Event) -> None:
-        """Stub for rosclaw.sandbox.episode.finished (Sprint 3)."""
+        """Capture a physics-backed sandbox terminal outcome."""
         payload = event.payload if isinstance(event.payload, dict) else {}
         episode_id = self._extract_episode_id(payload)
         buf = self._get_or_create_buffer(episode_id)
         buf.received_events.add("rosclaw.sandbox.episode.finished")
         if payload.get("final_state"):
             buf.final_state = payload["final_state"]
+        success = bool(payload.get("success"))
+        buf.praxis_status = "success" if success else "failure"
+        buf.praxis_reward = float(payload.get("reward", 1.0 if success else -1.0))
+        if not success:
+            buf.runtime_error = str(payload.get("reason") or "sandbox rollout failed")
         buf.last_event_at = time.time()
         # Terminal event — finalize
         self._finalize_episode(episode_id)
@@ -561,11 +594,11 @@ class EpisodeRecorder(LifecycleMixin):
 
         with open(episode_dir / "trajectory.jsonl", "w", encoding="utf-8") as f:
             for entry in buf.trajectory:
-                f.write(json.dumps(entry, default=str) + "\n")
+                f.write(_bounded_artifact_line(entry) + "\n")
 
         with open(episode_dir / "provider_trace.jsonl", "w", encoding="utf-8") as f:
             for entry in buf.provider_traces:
-                f.write(json.dumps(entry, default=str) + "\n")
+                f.write(_bounded_artifact_line(entry) + "\n")
 
         with open(episode_dir / "sandbox_replay.json", "w", encoding="utf-8") as f:
             json.dump(

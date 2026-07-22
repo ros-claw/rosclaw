@@ -75,6 +75,7 @@ except ImportError:
 class RuntimeConfig:
     """Configuration for ROSClaw Runtime."""
 
+    workspace_home: str | None = field(default_factory=lambda: os.environ.get("ROSCLAW_HOME"))
     robot_id: str = "rosclaw_default"
     robot_model_path: str | None = None
     robot_zoo_path: str | None = None
@@ -99,9 +100,7 @@ class RuntimeConfig:
     # consistent whether a config file is present or not.
     seekdb_backend: str = "sqlite"
     seekdb_path: str = field(
-        default_factory=lambda: str(
-            Path.home() / ".rosclaw" / "data" / "memory" / "knowledge.sqlite"
-        )
+        default_factory=lambda: str(get_rosclaw_home() / "data" / "memory" / "knowledge.sqlite")
     )
     # SQL DSN for sqlite/mysql knowledge-store backends.
     # Examples: "sqlite:///home/user/.rosclaw/memory/knowledge.sqlite"
@@ -203,6 +202,7 @@ class Runtime(LifecycleMixin):
         self._robot_profile: Any | None = None
         self._sandbox: Any | None = None
         self._episode_recorder: Any | None = None
+        self._sandbox_practice_bridge: Any | None = None
         self._seekdb_bridge: Any | None = None
         self._mcp_drivers: dict[str, Any] = {}
         self._emergency_stop_receipts: dict[str, Any] = {}
@@ -226,6 +226,11 @@ class Runtime(LifecycleMixin):
     def _do_initialize(self) -> None:
         """Initialize all enabled grounding engines."""
         logger.info(f"Initializing ROSClaw Runtime for {self.config.robot_id}")
+        workspace_home = (
+            Path(self.config.workspace_home).expanduser().resolve()
+            if self.config.workspace_home
+            else get_rosclaw_home()
+        )
 
         # Shared SeekDB client reused by Memory, Knowledge, HOW, Auto, and SkillManager.
         seekdb: Any | None = None
@@ -237,7 +242,7 @@ class Runtime(LifecycleMixin):
         if self.config.enable_event_persistence:
             from rosclaw.core.event_sink import JsonlEventSink
 
-            self._event_sink = JsonlEventSink()
+            self._event_sink = JsonlEventSink(home=workspace_home)
             self._event_sink.attach(self.event_bus)
 
         # Trace persistence has its own bounded writer thread: observation
@@ -250,7 +255,7 @@ class Runtime(LifecycleMixin):
                 trace_config = ObservabilityConfig(
                     enabled=True,
                     capture_mode=self.config.trace_capture_mode,
-                    home=self.config.trace_home,
+                    home=self.config.trace_home or str(workspace_home),
                     queue_size=self.config.trace_queue_size,
                     rotate_mb=self.config.trace_rotate_mb,
                 )
@@ -391,7 +396,7 @@ class Runtime(LifecycleMixin):
                     if outbox_enabled:
                         outbox_path = self.config.storage.get(
                             "outbox_path",
-                            str(Path.home() / ".rosclaw" / "storage" / "outbox.sqlite"),
+                            str(workspace_home / "storage" / "outbox.sqlite"),
                         )
                         outbox = OutboxStore(
                             db_path=outbox_path,
@@ -429,6 +434,7 @@ class Runtime(LifecycleMixin):
                 self._episode_recorder = EpisodeRecorder(
                     robot_id=self.config.robot_id,
                     event_bus=self.event_bus,
+                    artifact_base_dir=str(workspace_home / "artifacts"),
                     seekdb_bridge=seekdb_bridge,
                     sense_runtime=self._sense,
                 )
@@ -436,6 +442,19 @@ class Runtime(LifecycleMixin):
                 logger.info("EpisodeRecorder initialized")
             except ImportError as e:
                 logger.info(f"EpisodeRecorder not available: {e}")
+
+            try:
+                from rosclaw.practice.bridges import SandboxPracticeBridge
+
+                self._sandbox_practice_bridge = SandboxPracticeBridge(
+                    robot_id=self.config.robot_id,
+                    event_bus=self.event_bus,
+                    output_dir=self.config.timeline_output_dir,
+                )
+                self._modules.append(self._sandbox_practice_bridge)
+                logger.info("SandboxPracticeBridge initialized")
+            except ImportError as e:
+                logger.info(f"SandboxPracticeBridge not available: {e}")
 
             # Initialize Critic for automatic success detection
             try:

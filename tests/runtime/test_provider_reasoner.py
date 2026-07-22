@@ -47,7 +47,11 @@ class TestPhysicalReasonerFactory:
 class TestReasonerInterface:
     """Every PhysicalReasoner exposes reason/plan/analyze."""
 
-    def test_cosmos_interface(self) -> None:
+    def test_cosmos_interface(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+        monkeypatch.setenv("http_proxy", "http://127.0.0.1:1")
+        monkeypatch.delenv("NO_PROXY", raising=False)
+        monkeypatch.delenv("no_proxy", raising=False)
         reasoner = CosmosReasoner(endpoint="http://localhost:9")
         assert isinstance(reasoner, PhysicalReasoner)
 

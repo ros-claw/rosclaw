@@ -3,14 +3,14 @@
 Exports:
     SandboxSession, Sandbox          — MuJoCo-backed physics sandbox
     SandboxRuntimeAdapter            — Runtime lifecycle integration
-    Decision, FirewallGate           — Dynamic trajectory safety validation
+    Decision, StaticActionGate       — Static policy validation (no physics)
 """
 
 from pkgutil import extend_path
 
 __path__ = extend_path(__path__, __name__)
 
-from .firewall.gate import Decision, FirewallGate
+from .firewall.gate import Decision, FirewallGate, StaticActionGate
 from .runtime_adapter import SandboxRuntimeAdapter
 from .sandbox_api import Sandbox, SandboxSession
 
@@ -20,4 +20,5 @@ __all__ = [
     "SandboxRuntimeAdapter",
     "Decision",
     "FirewallGate",
+    "StaticActionGate",
 ]

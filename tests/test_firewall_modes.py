@@ -47,7 +47,7 @@ class TestFirewallModifyMode:
         assert d.action == "MODIFY"
         assert d.is_allowed is False
         assert d.modified_action is not None
-        assert d.modified_action["values"][0] <= 6.28
+        assert d.modified_action["values"][0] <= gate.joint_limits[0][1]
         assert d.modified_action["_firewall_modified"] is True
         gate.close()
 

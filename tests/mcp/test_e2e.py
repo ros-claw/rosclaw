@@ -273,8 +273,14 @@ async def test_stdio_smoke(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_http_smoke(tmp_path: Path) -> None:
+async def test_http_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Discover and exercise every P0 tool through the streamable HTTP transport."""
+    # The MCP SDK delegates proxy handling to httpx.  Some developer machines
+    # intentionally configure a loopback HTTP proxy, so make the local smoke
+    # server an explicit direct-connection target for both conventional spellings.
+    loopback_hosts = "127.0.0.1,localhost,::1"
+    monkeypatch.setenv("NO_PROXY", loopback_hosts)
+    monkeypatch.setenv("no_proxy", loopback_hosts)
     host = "127.0.0.1"
     port = _find_free_port(host)
     project_root, rosclaw_home = _prepare_server_workspace(tmp_path)

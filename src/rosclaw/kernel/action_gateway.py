@@ -16,10 +16,12 @@ from rosclaw.kernel.contracts import (
     ActionEnvelope,
     ActionExecutionResult,
     ActionState,
+    EvidenceDomain,
     EvidenceLevel,
     ExecutionMode,
     ExecutionReceipt,
     StateTransition,
+    evidence_domain_for_mode,
     utc_now,
 )
 from rosclaw.kernel.resource_manager import ResourceManager
@@ -380,6 +382,11 @@ class ActionGateway:
                             "driver_ack": result.driver_ack,
                             "final_state": result.final_state.value,
                             "evidence_level": result.evidence_level.value,
+                            "evidence_domain": (
+                                result.evidence_domain.value
+                                if result.evidence_domain is not None
+                                else evidence_domain_for_mode(action.execution_mode).value
+                            ),
                             "errors": result.errors,
                         }
                     )
@@ -421,8 +428,27 @@ class ActionGateway:
                             state_span.set_status("ERROR", self._result_reason(result))
 
                 evidence = result.evidence_level
+                expected_domain = evidence_domain_for_mode(action.execution_mode)
+                evidence_domain = (
+                    EvidenceDomain(result.evidence_domain)
+                    if result.evidence_domain is not None
+                    else expected_domain
+                )
                 final_state = result.final_state
                 errors = list(result.errors)
+                if evidence_domain is not expected_domain:
+                    evidence_domain = expected_domain
+                    evidence = EvidenceLevel.REQUESTED
+                    final_state = ActionState.FAILED
+                    errors.append(
+                        {
+                            "code": "EVIDENCE_DOMAIN_MISMATCH",
+                            "message": (
+                                "Executor evidence domain does not match action execution mode; "
+                                f"expected {expected_domain.value}."
+                            ),
+                        }
+                    )
                 if action.execution_mode is ExecutionMode.FIXTURE:
                     evidence = EvidenceLevel.SYNTHETIC
                     if final_state is ActionState.COMPLETED:
@@ -472,6 +498,7 @@ class ActionGateway:
                     verification_result=result.verification_result,
                     final_state=final_state,
                     evidence_level=evidence,
+                    evidence_domain=evidence_domain,
                     artifacts=list(result.artifacts),
                     errors=errors,
                     transitions=transitions,
@@ -664,6 +691,7 @@ class ActionGateway:
                 if action.execution_mode is ExecutionMode.FIXTURE
                 else EvidenceLevel.REQUESTED
             ),
+            evidence_domain=evidence_domain_for_mode(action.execution_mode),
             acknowledgement_stage=AcknowledgementStage.REQUEST_ACCEPTED,
             resource_lease=resource_lease,
             errors=[{"code": code, "message": message}],

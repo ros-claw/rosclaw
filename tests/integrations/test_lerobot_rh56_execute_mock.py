@@ -115,6 +115,7 @@ def test_execution_events_complete(tmp_path: Path, real_lerobot_runtime_config) 
         "execution.step.completed",
     }
     assert required <= trace_events
+    assert "execution.command.acknowledged" not in trace_events
 
     trace_path = Path(result.trace_path)
     recorded_types = {

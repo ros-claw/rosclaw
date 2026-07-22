@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from .base import BaseRunner, RunnerResult
+from .base import BaseRunner, RunnerResult, stable_seed
 from .mock_physics import MockPhysicsModel
 
 logger = logging.getLogger("rosclaw.auto.runners.sandbox")
@@ -25,16 +25,27 @@ class SandboxRunner(BaseRunner):
 
     def __init__(self, config: dict | None = None):
         super().__init__(config)
-        self._sandbox_client = config.get("sandbox_client") if config else None
-        self._simulate = config.get("simulate", True) if config else True
-        self._fixed_seed = config.get("fixed_seed") if config else None
+        config = config or {}
+        self._sandbox_client = config.get("sandbox_client")
+        self._backend = config.get("backend") or (
+            "mock" if config.get("simulate") is True else "unconfigured"
+        )
+        self._simulate = self._backend in {"mock", "fixture"}
+        self._fixed_seed = config.get("fixed_seed")
 
     def health(self) -> dict:
         return {
-            "status": "healthy",
+            "status": (
+                "connected"
+                if self._sandbox_client is not None
+                else ("fixture" if self._simulate else "unconfigured")
+            ),
             "runner": self.name,
+            "backend": self._backend,
             "sandbox_connected": self._sandbox_client is not None,
             "simulate": self._simulate,
+            "evidence_domain": "FIXTURE" if self._simulate else None,
+            "valid_for_promotion": False,
         }
 
     def run(self, experiment_spec: Any) -> RunnerResult:
@@ -57,7 +68,7 @@ class SandboxRunner(BaseRunner):
         if self._simulate:
             import random
 
-            seed = self._fixed_seed if self._fixed_seed is not None else hash(candidate) % 10000
+            seed = self._fixed_seed if self._fixed_seed is not None else stable_seed(candidate)
             rng = random.Random(seed)
 
             # Deterministic physics based on patch parameters
@@ -112,13 +123,19 @@ class SandboxRunner(BaseRunner):
                     "collision_count": collision_count,
                 },
                 logs=[f"Sandbox cleared {candidate} after {episodes} episodes"],
+                evidence_domain="FIXTURE",
+                physics_executed=False,
+                valid_for_promotion=False,
             )
 
         # Real sandbox execution via client
         if self._sandbox_client is None:
             return RunnerResult(
                 success=False,
-                error="Sandbox client not configured and simulate=False",
+                error=(
+                    "Sandbox backend is unconfigured; provide a physics sandbox client or "
+                    "explicitly select backend=mock for fixtures"
+                ),
             )
 
         try:
@@ -128,6 +145,9 @@ class SandboxRunner(BaseRunner):
                 metrics=result.get("metrics", {}),
                 logs=result.get("logs", []),
                 safety_violations=result.get("safety_violations", []),
+                evidence_domain=result.get("evidence_domain"),
+                physics_executed=bool(result.get("physics_executed", False)),
+                valid_for_promotion=bool(result.get("valid_for_promotion", False)),
             )
         except Exception as exc:
             logger.exception("Sandbox execution failed")

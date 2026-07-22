@@ -107,6 +107,8 @@ class DeepSeekProvider(Provider):
         import urllib.error
         import urllib.request
 
+        from rosclaw.utils.http import urlopen_with_loopback_bypass
+
         start = time.time()
 
         payload = json.dumps(
@@ -118,8 +120,9 @@ class DeepSeekProvider(Provider):
             }
         ).encode()
 
+        api_url = f"{self._base_url}/chat/completions"
         req = urllib.request.Request(
-            f"{self._base_url}/chat/completions",
+            api_url,
             data=payload,
             headers={
                 "Authorization": f"Bearer {self._api_key}",
@@ -129,7 +132,7 @@ class DeepSeekProvider(Provider):
 
         # Run blocking HTTP call in executor
         loop = asyncio.get_event_loop()
-        open_request = partial(urllib.request.urlopen, req, timeout=30)
+        open_request = partial(urlopen_with_loopback_bypass, req, timeout=30)
         try:
             resp = await loop.run_in_executor(None, open_request)
         except urllib.error.HTTPError as exc:

@@ -16,7 +16,7 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.core.lifecycle import LifecycleMixin
@@ -24,6 +24,28 @@ from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore, SeekDBClient
 from rosclaw.memory.types import ArtifactRef, FailureMemory, PraxisEvent
 
 logger = logging.getLogger("rosclaw.memory.interface")
+
+_MAX_RECOVERY_HINT_CHARS: Final[int] = 4096
+
+
+def _recovery_hint_text(value: Any) -> str:
+    """Extract bounded recovery text without stringifying nested metadata."""
+    candidate = value
+    for _ in range(3):
+        if not isinstance(candidate, dict):
+            break
+        candidate = next(
+            (
+                candidate[key]
+                for key in ("hint", "action", "recovery_hint")
+                if candidate.get(key) not in (None, "")
+            ),
+            "",
+        )
+    if not isinstance(candidate, str):
+        return ""
+    return candidate[:_MAX_RECOVERY_HINT_CHARS]
+
 
 # Conditional import: powermem Protocol types for type-safe proxy methods
 try:
@@ -814,10 +836,13 @@ class MemoryInterface(LifecycleMixin):
         scored.sort(key=lambda x: x[0], reverse=True)
         best = scored[0][1]
         metadata = best.get("metadata", {})
+        recovery_hint = _recovery_hint_text(
+            metadata.get("recovery_hint", "") if isinstance(metadata, dict) else ""
+        )
 
         return {
             "id": best.get("id", ""),
-            "action_suggestion": metadata.get("recovery_hint", ""),
+            "action_suggestion": recovery_hint,
             "similarity_score": scored[0][0] / len(query_tokens) if query_tokens else 0.0,
             "source_experience": best.get("id", ""),
         }

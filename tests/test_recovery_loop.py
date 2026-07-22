@@ -100,6 +100,10 @@ class TestRecoveryLoop:
                     "episode_id": "ep2",
                     "skill_id": "grasp",
                     "duration_sec": 1.5,
+                    "physics_executed": True,
+                    "receipt_verified": True,
+                    "data_quality_pass": True,
+                    "evidence_domain": "SIMULATION",
                 },
                 source="test",
             )
@@ -160,6 +164,10 @@ class TestRecoveryLoop:
                 payload={
                     "request_id": "req3",
                     "episode_id": "ep3",
+                    "physics_executed": True,
+                    "receipt_verified": True,
+                    "data_quality_pass": True,
+                    "evidence_domain": "SIMULATION",
                 },
                 source="test",
             )

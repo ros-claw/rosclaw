@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from rosclaw.body.resolver import BodyResolver
-from rosclaw.skill.evidence import load_eval_report_dict, write_eval_report
+from rosclaw.skill.evidence import write_eval_report
 from rosclaw.skill.hash import compute_skill_hashes
 from rosclaw.skill.models import EvalReport, SkillPackage
 from rosclaw.skill.validators import validate_package
@@ -48,15 +52,17 @@ def evaluate_skill(
     except Exception:  # noqa: BLE001
         report.checks["e_urdf_compat_check"] = False
 
-    # 3. Replay check (evidence-based heuristic).
-    replay_ok = _replay_check(pkg, candidate_id)
+    # 3. Sandbox receipt and strict replay evidence. Missing evidence is not a
+    # pass: it yields NEED_MORE_EVIDENCE below.
+    receipt = _load_simulation_receipt(pkg, candidate_id)
+    sandbox_ok = _simulation_receipt_check(pkg, receipt)
+    report.checks["sandbox_eval"] = sandbox_ok
+    replay_ok = _replay_check(receipt)
     report.checks["replay_check"] = replay_ok
 
-    # 4. Sandbox eval stub.
-    report.checks["sandbox_eval"] = True
-
-    # 5. Darwin eval against thresholds.
-    metrics, darwin_ok = _darwin_eval(pkg)
+    # 4. Darwin eval against thresholds. Metrics must come from a
+    # physics-backed report, never a mining-count heuristic.
+    metrics, darwin_ok = _darwin_eval(pkg, candidate_id)
     report.metrics = metrics
     report.checks["darwin_eval"] = darwin_ok
 
@@ -68,11 +74,28 @@ def evaluate_skill(
             report.checks.get("provider_route_check", False),
             report.checks.get("e_urdf_compat_check", False),
             report.checks.get("safety_policy_check", False),
+            sandbox_ok,
+            replay_ok,
             darwin_ok,
         ]
     )
 
-    report.decision = "pass" if report.checks["promotion_gate_check"] else "fail"
+    if report.checks["promotion_gate_check"]:
+        report.decision = "pass"
+    elif all(
+        report.checks.get(name, False)
+        for name in (
+            "schema_lint",
+            "package_integrity_check",
+            "behavior_tree_lint",
+            "provider_route_check",
+            "e_urdf_compat_check",
+            "safety_policy_check",
+        )
+    ) and not (sandbox_ok and replay_ok and darwin_ok):
+        report.decision = "need_more_evidence"
+    else:
+        report.decision = "fail"
 
     if save_evidence:
         report.artifacts = {"report": str(write_eval_report(pkg.root, report))}
@@ -80,55 +103,109 @@ def evaluate_skill(
     return report
 
 
-def _replay_check(pkg: SkillPackage, candidate_id: str | None) -> bool:
-    if candidate_id is None:
-        return False
-    params_path = pkg.root / "policies" / "params" / f"{candidate_id}.yaml"
-    mining_report_path = pkg.root / "evidence" / "reports" / f"{candidate_id}_mining.json"
-    if not params_path.exists() and not mining_report_path.exists():
-        return False
-    # If a prior eval report exists, use it as replay evidence.
-    prior = load_eval_report_dict(pkg.root, candidate_id)
-    if prior:
-        return prior.get("decision") == "pass"
-    # Heuristic: candidate must have mining report with at least one success.
-    if mining_report_path.exists():
-        import json
+def _load_simulation_receipt(pkg: SkillPackage, candidate_id: str | None) -> dict[str, Any] | None:
+    if not candidate_id:
+        return None
+    receipt_path = pkg.root / "evidence" / "receipts" / f"{candidate_id}.json"
+    if not receipt_path.is_file():
+        return None
+    try:
+        value = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
 
-        data = json.loads(mining_report_path.read_text(encoding="utf-8"))
-        return data.get("metrics", {}).get("success", 0) > 0
+
+def _artifact_path(pkg: SkillPackage, reference: str) -> Path | None:
+    parsed = urlparse(reference)
+    if parsed.scheme == "file":
+        return Path(unquote(parsed.path)).resolve()
+    if parsed.scheme:
+        return None
+    return (pkg.root / reference).resolve()
+
+
+def _simulation_receipt_check(pkg: SkillPackage, receipt: dict[str, Any] | None) -> bool:
+    if not receipt:
+        return False
+    simulation = receipt.get("simulation_result") or {}
+    dispatch = receipt.get("dispatch_result") or {}
+    quality = (receipt.get("verification_result") or {}).get("data_quality") or {}
+    artifact_hashes = simulation.get("artifact_hashes")
+    if not (
+        receipt.get("execution_mode", receipt.get("mode")) == "SIMULATION"
+        and receipt.get("evidence_domain") == "SIMULATION"
+        and receipt.get("body_snapshot_hash")
+        and simulation.get("has_physics") is True
+        and simulation.get("physics_executed") is True
+        and dispatch.get("physics_executed") is True
+        and simulation.get("model_hash")
+        and simulation.get("action_hash")
+        and isinstance(artifact_hashes, dict)
+        and artifact_hashes
+        and quality.get("body_snapshot_match") is True
+    ):
+        return False
+
+    artifacts = receipt.get("artifacts") or []
+    paths = {
+        path.name: path
+        for reference in artifacts
+        if isinstance(reference, str) and (path := _artifact_path(pkg, reference)) is not None
+    }
+    for name, expected in artifact_hashes.items():
+        path = paths.get(str(name))
+        if path is None or not path.is_file():
+            return False
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual != str(expected).removeprefix("sha256:"):
+            return False
     return True
 
 
-def _darwin_eval(pkg: SkillPackage) -> tuple[dict[str, Any], bool]:
+def _replay_check(receipt: dict[str, Any] | None) -> bool:
+    if not receipt:
+        return False
+    verification = receipt.get("verification_result") or {}
+    quality = verification.get("data_quality") or {}
+    replay = receipt.get("replay") or {}
+    return bool(
+        (quality.get("replayable") is True or replay.get("verified") is True)
+        and replay.get("environment_match", True) is True
+        and replay.get("hashes_verified", True) is True
+    )
+
+
+def _darwin_eval(pkg: SkillPackage, candidate_id: str | None) -> tuple[dict[str, Any], bool]:
     if pkg.darwin_eval is None or not pkg.darwin_eval.metrics:
         return {}, False
-
-    # In P1, generate deterministic evidence-based metrics from package state.
-    # If a prior eval report exists, reuse its metrics.
-    prior = load_eval_report_dict(pkg.root, pkg.candidate_id)
-    if prior and prior.get("metrics"):
-        metrics = prior["metrics"]
-    else:
-        # Deterministic heuristic: use mining report success rate or default.
-        import json
-
-        mining_path = (
-            pkg.root / "evidence" / "reports" / f"{pkg.candidate_id or 'default'}_mining.json"
+    if not candidate_id:
+        return {}, False
+    report_path = pkg.root / "evidence" / "reports" / f"{candidate_id}_darwin.json"
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}, False
+    per_seed = report.get("per_seed")
+    regression = report.get("regression") or {}
+    if not (
+        report.get("evidence_domain") == "SIMULATION"
+        and report.get("physics_executed") is True
+        and isinstance(per_seed, dict)
+        and len(per_seed) >= 2
+        and all(
+            isinstance(item, dict)
+            and isinstance(item.get("baseline"), dict)
+            and isinstance(item.get("candidate"), dict)
+            for item in per_seed.values()
         )
-        success_count = 0
-        if mining_path.exists():
-            data = json.loads(mining_path.read_text(encoding="utf-8"))
-            success_count = data.get("metrics", {}).get("success", 0)
-
-        success_rate = round(0.75 + 0.05 * min(success_count, 5), 2)
-        metrics = {
-            "success_rate": success_rate,
-            "no_fall_rate": 1.0,
-            "sandbox_block_rate": 0.08,
-            "recovery_success_rate": 0.67,
-            "ball_target_error_deg_mean": 18.4,
-        }
+        and regression.get("passed") is True
+        and not regression.get("critical_regressions")
+    ):
+        return {}, False
+    metrics = report.get("candidate_metrics") or report.get("metrics") or {}
+    if not isinstance(metrics, dict):
+        return {}, False
 
     ok = True
     for metric_name, threshold in pkg.darwin_eval.metrics.items():
