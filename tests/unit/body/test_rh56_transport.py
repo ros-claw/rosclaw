@@ -73,6 +73,20 @@ def test_actuator_count_mismatch_blocked() -> None:
         validate_transport_binding(profile, action_names=["a", "b", "c", "d", "e", "f"])
 
 
+def test_physical_identity_mismatch_blocked() -> None:
+    profile = load_transport_profile(RS485_PROFILE)
+    validate_transport_binding(
+        profile,
+        device_path=profile.transport.device,
+        slave_id=profile.transport.slave_id,
+        hand="right",
+    )
+    with pytest.raises(TransportBindingError, match="transport_profile_mismatch"):
+        validate_transport_binding(profile, slave_id=profile.transport.slave_id + 1)
+    with pytest.raises(TransportBindingError, match="transport_profile_mismatch"):
+        validate_transport_binding(profile, hand="left")
+
+
 def test_device_path_missing() -> None:
     profile = load_transport_profile(RS485_PROFILE)
     # Deterministic: point the profile at a device that never exists.

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Experiment 1: real RH56 calibration (replaces mock evidence).
+"""Experiment 1: measure an RH56 and write an unvalidated calibration candidate.
 
-Measures on the physical hand and writes a validated calibration document:
+Measures on the physical hand and writes a candidate that must be reviewed and
+then bound to the frozen transport profile with ``validate-calibration``:
 
 * serial identity (HAND_ID / VLTAGE / slave address);
 * real open/closed range per actuator (commanded vs measured);
@@ -14,7 +15,7 @@ Measures on the physical hand and writes a validated calibration document:
 Usage (repo root, venv):
     python scripts/experiments/exp1_real_calibration.py \
         --device /dev/ttyUSB1 --slave-id 1 --body rh56_left_01 \
-        --transport-profile configs/rh56_right_rs485_v1.yaml \
+        --hand left --transport-profile configs/rh56_left_rs485_v1.yaml \
         --output configs/rh56_left_01_calibration.yaml
 """
 
@@ -37,10 +38,16 @@ from rosclaw.body.rh56.calibration import (
     write_rh56_calibration,
 )
 from rosclaw.body.rh56.transport import SerialModbusTransport
-from rosclaw.body.rh56.transport_profile import load_transport_profile
+from rosclaw.body.rh56.transport_profile import (
+    TransportBindingError,
+    load_transport_profile,
+    validate_transport_binding,
+)
 
 
-def _wait_settled(transport: SerialModbusTransport, timeout_s: float = 3.0, window: int = 3) -> None:
+def _wait_settled(
+    transport: SerialModbusTransport, timeout_s: float = 3.0, window: int = 3
+) -> None:
     """Wait until positions stop changing between consecutive reads."""
     last = None
     stable = 0
@@ -62,6 +69,7 @@ def main() -> int:
     parser.add_argument("--device", required=True)
     parser.add_argument("--slave-id", type=int, required=True)
     parser.add_argument("--body", required=True)
+    parser.add_argument("--hand", choices=("left", "right"), required=True)
     parser.add_argument("--transport-profile", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--thermal-seconds", type=float, default=90.0)
@@ -69,18 +77,43 @@ def main() -> int:
     args = parser.parse_args()
 
     profile = load_transport_profile(args.transport_profile)
-    profile.transport.device = args.device
-    profile.transport.slave_id = args.slave_id
+    try:
+        validate_transport_binding(
+            profile,
+            device_path=args.device,
+            slave_id=args.slave_id,
+            hand=args.hand,
+        )
+    except TransportBindingError as exc:
+        print(f"[exp1] {exc}", file=sys.stderr)
+        return 2
 
     transport = SerialModbusTransport(profile)
     transport.connect()
-    report: dict = {"body": args.body, "device": args.device, "slave_id": args.slave_id}
+    report: dict = {
+        "body": args.body,
+        "hand": args.hand,
+        "device": args.device,
+        "slave_id": args.slave_id,
+        "transport_profile": profile.id,
+        "transport_profile_hash": profile.content_hash(),
+    }
 
     # 1. Serial identity -------------------------------------------------------
     hand_id = transport._read_registers(modbus.Register.HAND_ID, 1)[0]
     voltage = transport._read_registers(modbus.Register.VLTAGE, 1)[0]
-    report["serial_identity"] = {"hand_id": hand_id, "voltage_raw": voltage,
-                                 "slave_matches": hand_id == args.slave_id}
+    report["serial_identity"] = {
+        "hand_id": hand_id,
+        "voltage_raw": voltage,
+        "slave_matches": hand_id == args.slave_id,
+    }
+    if hand_id != args.slave_id:
+        report["result"] = "BLOCKED"
+        report["reason"] = "serial_identity_mismatch"
+        Path(args.report).write_text(json.dumps(report, indent=2, ensure_ascii=False))
+        transport.close()
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        return 2
 
     # 2. Force + idle temperature baseline (open pose, resting) ---------------
     _wait_settled(transport)
@@ -100,8 +133,11 @@ def main() -> int:
         time.sleep(0.2)
     force_baseline_max = max(forces) if forces else 200.0
     idle_temp_c = statistics.mean(temps)
-    report["force_baseline"] = {"max_abs_g": force_baseline_max, "samples": len(forces),
-                                "discarded_artifacts": attempts - len(forces)}
+    report["force_baseline"] = {
+        "max_abs_g": force_baseline_max,
+        "samples": len(forces),
+        "discarded_artifacts": attempts - len(forces),
+    }
     report["idle_temp_baseline_c"] = round(idle_temp_c, 1)
 
     # 3. Open / closed range ---------------------------------------------------
@@ -111,8 +147,12 @@ def main() -> int:
     transport.write_position([0] * 6, speed=400, force_limit=400)
     _wait_settled(transport)
     closed_actual = transport.read_state().position
-    report["range"] = {"open_commanded": 1000, "open_actual": open_actual,
-                       "closed_commanded": 0, "closed_actual": closed_actual}
+    report["range"] = {
+        "open_commanded": 1000,
+        "open_actual": open_actual,
+        "closed_commanded": 0,
+        "closed_actual": closed_actual,
+    }
 
     # 4. Position tolerance (mid-range targets) --------------------------------
     tolerances = []
@@ -122,8 +162,10 @@ def main() -> int:
         actual = transport.read_state().position
         tolerances.append(max(abs(a - target) for a in actual))
     position_tolerance = max(tolerances) + 5  # margin
-    report["position_tolerance_raw"] = {"measured_max": max(tolerances),
-                                        "calibrated": position_tolerance}
+    report["position_tolerance_raw"] = {
+        "measured_max": max(tolerances),
+        "calibrated": position_tolerance,
+    }
 
     # 5. Usable speed ladder ----------------------------------------------------
     closed_reference = max(closed_actual) + 40  # measured closed pose + margin
@@ -137,8 +179,14 @@ def main() -> int:
         elapsed = time.monotonic() - t0
         final = transport.read_state().position
         reached = max(final) <= closed_reference
-        speed_results.append({"speed": speed, "close_time_s": round(elapsed, 2),
-                              "final_max": max(final), "reached": reached})
+        speed_results.append(
+            {
+                "speed": speed,
+                "close_time_s": round(elapsed, 2),
+                "final_max": max(final),
+                "reached": reached,
+            }
+        )
     reached_speeds = [r["speed"] for r in speed_results if r["reached"]]
     usable = max(reached_speeds) if reached_speeds else 200
     report["speed_ladder"] = speed_results
@@ -161,7 +209,8 @@ def main() -> int:
     temp_end = max(transport.read_state().temperature_c)
     slope = (temp_end - temp_start) / (args.thermal_seconds / 60.0)
     report["thermal"] = {
-        "start_c": temp_start, "end_c": temp_end,
+        "start_c": temp_start,
+        "end_c": temp_end,
         "slope_c_per_min": round(slope, 3),
         "samples": samples[:: max(1, len(samples) // 8)],
     }
@@ -199,6 +248,12 @@ def main() -> int:
     out = Path(args.output).expanduser()
     write_rh56_calibration(calib, out)
     report["calibration_file"] = str(out)
+    report["calibration_status"] = calib.status
+    report["next_step"] = (
+        "Review this candidate, then run rosclaw body validate-calibration "
+        "against the same frozen transport profile."
+    )
+    report["result"] = "PASS_CANDIDATE_ONLY"
     Path(args.report).write_text(json.dumps(report, indent=2, ensure_ascii=False))
     print(json.dumps(report, indent=2, ensure_ascii=False))
     return 0

@@ -184,6 +184,8 @@ def validate_transport_binding(
     *,
     provider_ref: str | None = None,
     device_path: str | None = None,
+    slave_id: int | None = None,
+    hand: str | None = None,
     action_dim: int | None = None,
     action_names: list[str] | None = None,
     position_range: tuple[int, int] | None = None,
@@ -223,6 +225,29 @@ def validate_transport_binding(
             f"transport_profile_mismatch: device {device_path!r} != profile device "
             f"{profile.transport.device!r}"
         )
+
+    if slave_id is not None:
+        if profile.transport.type != "serial_modbus_rtu":
+            raise TransportBindingError(
+                f"transport_profile_mismatch: slave_id {slave_id} cannot bind to "
+                f"{profile.transport.type!r} profile {profile.id!r}"
+            )
+        if int(slave_id) != profile.transport.slave_id:
+            raise TransportBindingError(
+                f"transport_profile_mismatch: slave_id {slave_id} != profile slave_id "
+                f"{profile.transport.slave_id}"
+            )
+
+    if hand is not None:
+        expected_hand = profile.metadata.get("hand")
+        if expected_hand is None:
+            raise TransportBindingError(
+                f"transport_profile_mismatch: profile {profile.id!r} does not declare metadata.hand"
+            )
+        if hand != expected_hand:
+            raise TransportBindingError(
+                f"transport_profile_mismatch: hand {hand!r} != profile hand {expected_hand!r}"
+            )
 
     if action_dim is not None and action_dim != profile.command.actuator_count:
         raise TransportBindingError(
