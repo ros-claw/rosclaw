@@ -110,7 +110,7 @@ def test_execution_events_complete(tmp_path: Path, real_lerobot_runtime_config) 
         "execution.armed",
         "execution.command.requested",
         "execution.command.sent",
-        "execution.command.acknowledged",
+        "execution.command.protocol_acknowledged",
         "execution.feedback.verified",
         "execution.step.completed",
     }
