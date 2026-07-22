@@ -91,6 +91,10 @@ generated/
 /ROSCLAW_LEROBOT_*REPORT.md
 /reports/P2.1_Gate_*_Implementation_Report.md
 
+# Raw acceptance evidence belongs in an access-controlled evidence store.
+# Keep reviewed summaries in Git, never full Agent transcripts or generated datasets.
+/reports/lerobot_bridge/agent_blackbox/
+
 # Agent/backup churn
 .backups/
 .agents/skills/rosclaw/.backups/

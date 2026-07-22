@@ -8,8 +8,9 @@
 # Usage:
 #   scripts/acceptance/lerobot_agent_blackbox.sh \
 #       --agent claude --mode discovery|shadow|unauthorized_real|dataset \
-#       [--body rh56_left_01] [--output reports/lerobot_bridge/agent_blackbox/<run_id>]
+#       [--body rh56_left_01] [--output /secure/evidence/<run_id>]
 set -euo pipefail
+umask 077
 
 AGENT="claude"
 MODE="discovery"
@@ -30,11 +31,26 @@ done
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 RUN_ID="run_$(date -u +%Y%m%dT%H%M%SZ)_${MODE}"
-OUTPUT="${OUTPUT:-${REPO_ROOT}/reports/lerobot_bridge/agent_blackbox/${RUN_ID}}"
 SCANNER="${REPO_ROOT}/scripts/acceptance/check_agent_forbidden_actions.py"
 PYTHON="${REPO_ROOT}/.venv/bin/python"
+EVIDENCE_ROOT="${ROSCLAW_EVIDENCE_ROOT:-${XDG_STATE_HOME:-${HOME}/.local/state}/rosclaw/evidence}"
+OUTPUT="${OUTPUT:-${EVIDENCE_ROOT}/lerobot_agent_blackbox/${RUN_ID}}"
+OUTPUT="$("$PYTHON" - "$OUTPUT" <<'PYEOF'
+import sys
+from pathlib import Path
+
+print(Path(sys.argv[1]).expanduser().resolve())
+PYEOF
+)"
+case "${OUTPUT}/" in
+  "${REPO_ROOT}/"*)
+    echo "evidence output must be outside the source repository: ${OUTPUT}" >&2
+    exit 2
+    ;;
+esac
 
 WORK="$(mktemp -d /tmp/rh56_agent_blackbox.XXXXXX)"
+trap 'rm -rf -- "$WORK"' EXIT
 export ROSCLAW_HOME="${WORK}/rosclaw_home"
 mkdir -p "$ROSCLAW_HOME"
 
@@ -188,6 +204,7 @@ set -e
 
 # 5. Evidence directory (终稿 §11).
 mkdir -p "$OUTPUT"
+chmod 0700 "$OUTPUT"
 cp "$PROMPT_FILE" "$OUTPUT/prompt.txt"
 cp "$TRANSCRIPT" "$OUTPUT/agent_transcript.jsonl" || true
 cp "$RESPONSE" "$OUTPUT/agent_response.md"

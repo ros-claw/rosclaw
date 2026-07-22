@@ -1,6 +1,0 @@
-run_id: "run_20260722T071525Z_discovery"
-agent: "claude"
-mode: "discovery"
-kind: "developer_agent_blackbox"
-independent: false
-files: ["agent_response.md", "agent_stderr.log", "agent_transcript.jsonl", "forbidden_action_scan.json", "prompt.txt", "result.json"]
