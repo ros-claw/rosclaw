@@ -8,11 +8,12 @@ Real-machine validation on the SeekDB server:
 2. verify record counts + dimension;
 3. shadow-query both analyzers (CJK / EN / error-code probes) and the
    MiniLM 384 baseline collection;
-4. activate the winner, verify registry switch, rollback;
-5. write a JSON report (truth fields per §13).
+4. optionally activate an operator-selected analyzer after an explicit ack;
+5. write a JSON report (truth fields per §13) outside the repository.
 
 Usage:
     build_qwen3_index.py --sqlite /tmp/mem3_scratch/knowledge.sqlite \
+        --cache /secure/evidence/embedding_cache.sqlite \
         --out /tmp/qwen3_index_report.json
 """
 
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import time
 from pathlib import Path
@@ -45,16 +47,16 @@ PROBES = [
 
 
 def load_memories(sqlite_path: str) -> list[dict]:
-    conn = sqlite3.connect(sqlite_path)
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        "SELECT id, memory_type, robot_id, tenant_id, project_id, site_id,"
-        " body_id, practice_id, session_id, episode_id, task_id, task_name,"
-        " skill_id, policy_id, failure_type, joint_name, gesture_name, title,"
-        " document, summary, outcome, confidence, importance, evidence_refs,"
-        " artifact_refs, tags, metadata, event_time, status"
-        " FROM memory_items WHERE status='active'"
-    ).fetchall()
+    with sqlite3.connect(sqlite_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT id, memory_type, robot_id, tenant_id, project_id, site_id,"
+            " body_id, practice_id, session_id, episode_id, task_id, task_name,"
+            " skill_id, policy_id, failure_type, joint_name, gesture_name, title,"
+            " document, summary, outcome, confidence, importance, evidence_refs,"
+            " artifact_refs, tags, metadata, event_time, status"
+            " FROM memory_items WHERE status='active'"
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -65,15 +67,37 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=2881)
     parser.add_argument("--database", default="rosclaw")
     parser.add_argument("--out", required=True)
+    parser.add_argument("--cache", required=True, help="embedding cache path outside the repo")
+    parser.add_argument("--activate-analyzer", choices=["ik", "ngram"], default=None)
+    parser.add_argument(
+        "--confirm-activation",
+        default=None,
+        help="must equal ACTIVATE when --activate-analyzer is used",
+    )
     args = parser.parse_args()
+    os.umask(0o077)
+    if args.activate_analyzer and args.confirm_activation != "ACTIVATE":
+        parser.error("--activate-analyzer requires --confirm-activation ACTIVATE")
+    repo_root = Path(__file__).resolve().parents[2]
+    for label, raw_path in (("--out", args.out), ("--cache", args.cache)):
+        if Path(raw_path).expanduser().resolve().is_relative_to(repo_root):
+            parser.error(f"{label} must point outside the source repository")
 
     records = load_memories(args.sqlite)
     print(f"loaded {len(records)} memories from {args.sqlite}")
 
-    provider = get_provider(PROFILE_ID, cache_path="/tmp/mem3_scratch/embedding_cache.sqlite")
+    provider = get_provider(PROFILE_ID, cache_path=args.cache)
     store = SeekDBServerStore(host=args.host, port=args.port, database=args.database)
     store.connect()
+    try:
+        return _run(args, records, store, provider)
+    finally:
+        store.disconnect()
+
+
+def _run(args, records: list[dict], store, provider) -> int:
     mgr = VersionedCollectionManager(store, provider)
+    baseline_available = bool(store._client.has_collection(BASELINE_COLLECTION))
 
     report: dict = {
         "profile": mgr.describe(LOGICAL)["embedding"],
@@ -116,55 +140,56 @@ def main() -> int:
                     for r in rows
                 ],
             }
-        t0 = time.monotonic()
-        baseline = store.hybrid_search(BASELINE_COLLECTION, text, limit=3)
-        probe["minilm_384"] = {
-            "ms": round((time.monotonic() - t0) * 1000.0, 1),
-            "top": [{"id": r.get("id"), "title": str(r.get("title") or "")[:60]} for r in baseline],
-        }
+        if baseline_available:
+            t0 = time.monotonic()
+            baseline = store.hybrid_search(BASELINE_COLLECTION, text, limit=3)
+            probe["minilm_384"] = {
+                "available": True,
+                "ms": round((time.monotonic() - t0) * 1000.0, 1),
+                "top": [
+                    {"id": r.get("id"), "title": str(r.get("title") or "")[:60]} for r in baseline
+                ],
+            }
+        else:
+            probe["minilm_384"] = {
+                "available": False,
+                "reason": f"baseline collection {BASELINE_COLLECTION!r} does not exist",
+                "top": [],
+            }
         report["probes"].append(probe)
         print(
             f"probe {probe_id}: ik={len(probe['ik']['top'])} ngram={len(probe['ngram']['top'])} baseline={len(probe['minilm_384']['top'])}"
         )
 
-    # --- pick the analyzer with more non-empty CJK probes (honest heuristic)
+    # Non-empty hit counts are diagnostic only. They do not measure relevance
+    # and must never select or promote a production analyzer automatically.
     cjk_probes = [p for p in report["probes"] if p["id"].startswith("cjk")]
     ik_hits = sum(len(p["ik"]["top"]) for p in cjk_probes)
     ngram_hits = sum(len(p["ngram"]["top"]) for p in cjk_probes)
     winner = "ik" if ik_hits >= ngram_hits else "ngram"
     report["analyzer_decision"] = {
-        "winner": winner,
+        "diagnostic_preference_only": winner,
         "ik_cjk_hits": ik_hits,
         "ngram_cjk_hits": ngram_hits,
+        "promotion_eligible": False,
+        "reason": "non-empty hit count is not a labeled relevance benchmark",
     }
 
-    # --- switch exercise: activate winner -> activate other -> rollback
-    # -> winner ACTIVE again (first rollback before any OLD generation
-    # must fail HONESTLY, proven below).
-    activated = mgr.activate(LOGICAL, analyzer=winner)
-    active = mgr.active(LOGICAL)
-    loser = "ngram" if winner == "ik" else "ik"
-    first_rollback_error = None
-    try:
-        mgr.rollback(LOGICAL)
-    except RuntimeError as exc:
-        first_rollback_error = str(exc)
-    mgr.activate(LOGICAL, analyzer=loser)  # winner -> OLD
-    rollback = mgr.rollback(LOGICAL)  # loser -> OLD, winner -> ACTIVE
-    report["switch"] = {
-        "activated": activated["physical_collection"],
-        "active_after_switch": (active or {}).get("physical_collection"),
-        "first_rollback_error": first_rollback_error,
-        "second_active": loser,
-        "rollback_to": rollback["physical_collection"],
-        "final_active": (mgr.active(LOGICAL) or {}).get("physical_collection"),
-    }
+    report["switch"] = {"requested": args.activate_analyzer, "performed": False}
+    if args.activate_analyzer:
+        activated = mgr.activate(LOGICAL, analyzer=args.activate_analyzer)
+        report["switch"] = {
+            "requested": args.activate_analyzer,
+            "performed": True,
+            "active_collection": activated["physical_collection"],
+        }
     report["final"] = mgr.describe(LOGICAL)
 
-    Path(args.out).write_text(json.dumps(report, indent=1, ensure_ascii=False))
-    print(f"winner={winner} active={report['switch']['final_active']}")
+    output_path = Path(args.out)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(report, indent=1, ensure_ascii=False))
+    print(f"diagnostic_preference={winner} active={report['final']['active_collection']}")
     print(f"report -> {args.out}")
-    store.disconnect()
     return 0
 
 

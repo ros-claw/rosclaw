@@ -352,19 +352,32 @@ def cmd_memory_v2_index_describe(args: argparse.Namespace) -> int:
     """Truth fields for a versioned multilingual index (数据库优化v3 §13):
     backend, collection, embedding model + revision + dimension,
     analyzer, vector source, score semantics, reranker, fallback state."""
-    client, repo, vector, _, _meta = _open_stack(args, with_vector=True)
+    client, _, _, _, _meta = _open_stack(args)
+    exit_code = 0
     try:
         from rosclaw.embedding.registry import get_provider
         from rosclaw.storage.versioned_collections import VersionedCollectionManager
 
-        provider = get_provider(args.profile, cache_path=args.cache or None)
-        mgr = VersionedCollectionManager(client, provider)
-        output = mgr.describe(args.logical)
-        output["embedding"]["provider_health"] = provider.health()
+        if not isinstance(client, SeekDBNativeStore):
+            output = {
+                "ok": False,
+                "error": "versioned multilingual indexes require a native SeekDB backend",
+                "backend": type(client).__name__,
+            }
+            exit_code = 2
+        else:
+            provider = get_provider(args.profile, cache_path=args.cache or None)
+            mgr = VersionedCollectionManager(client, provider)
+            output = mgr.describe(args.logical)
+            output["requested_provider_health"] = (
+                provider.health()
+                if getattr(args, "probe_provider", False)
+                else {"checked": False, "reason": "use --probe-provider to load and test the model"}
+            )
     finally:
         _close(client)
     _emit(output, indent=2, ensure_ascii=False, default=str)
-    return 0
+    return exit_code
 
 
 def cmd_memory_v2_index_rebuild(args: argparse.Namespace) -> int:
@@ -467,6 +480,11 @@ def register_memory_v2_commands(memory_subparsers: Any) -> None:
     pi.add_argument("--logical", default="memory_items")
     pi.add_argument("--profile", default="qwen3_06b_1024_v1")
     pi.add_argument("--cache", default=None, help="embedding cache sqlite path (optional)")
+    pi.add_argument(
+        "--probe-provider",
+        action="store_true",
+        help="load the requested local model and include a health probe",
+    )
     _add_backend_arguments(pi)
     pi.set_defaults(v2_handler=cmd_memory_v2_index_describe)
 

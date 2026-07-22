@@ -99,6 +99,11 @@ def _event_time(event: dict[str, Any]) -> float:
     return time.time()
 
 
+def _gesture_failed(payload: dict[str, Any]) -> bool:
+    """Only explicit negative status is failure evidence."""
+    return payload.get("verified") is False or payload.get("command_success") is False
+
+
 # ---------------------------------------------------------------------------
 # Extractors (pure functions)
 # ---------------------------------------------------------------------------
@@ -159,7 +164,7 @@ def extract_failure_memories(
         payload = event.get("payload") or {}
         event_id = event.get("event_id")
         if event_type.endswith("gesture.executed"):
-            if payload.get("command_success") and payload.get("verified") is not False:
+            if not _gesture_failed(payload):
                 continue
             reason = payload.get("failure_reason") or "unverified"
             hand = payload.get("hand", "unknown")

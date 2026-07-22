@@ -166,11 +166,12 @@ class MultilingualMemoryDocumentBuilder:
         robot: str = "RH56",
     ) -> MemoryDocument:
         """Canonical bilingual document for a joint_not_reached-style failure."""
-        hand_zh = "左手" if hand == "left" else "右手"
+        hand_zh = {"left": "左手", "right": "右手"}.get(hand, "未知手别")
         joint_zh = _zh_alias(joint) if joint else None
-        gesture_zh = _zh_alias(gesture) if gesture else None
+        gesture_canonical = _canonical_gesture(gesture)
+        gesture_zh = _zh_alias(gesture_canonical) if gesture_canonical else None
         joint_en = joint or "unknown joint"
-        gesture_en = gesture or "unknown gesture"
+        gesture_en = gesture_canonical or "unknown gesture"
 
         zh = f"{robot} {hand_zh}执行{gesture_zh or '手势'}时，{joint_zh or '有关关节'}未到达目标位置。"
         if round_index is not None:
@@ -211,9 +212,11 @@ class MultilingualMemoryDocumentBuilder:
         alias_terms = [failure_type]
         if joint:
             alias_terms.append(joint)
-        if gesture:
-            alias_terms.append(gesture)
-        exact = [v for v in (joint, gesture, failure_type, hand) if v]
+        if gesture_canonical:
+            alias_terms.append(gesture_canonical)
+        exact = [v for v in (joint, gesture_canonical, failure_type) if v]
+        if hand in ("left", "right"):
+            exact.append(hand)
         return self.build(
             zh=zh,
             en=en,
@@ -230,3 +233,12 @@ def _zh_alias(canonical: str | None) -> str | None:
     if entry and entry.get("zh"):
         return entry["zh"][0]
     return canonical
+
+
+def _canonical_gesture(gesture: str | None) -> str | None:
+    if not gesture:
+        return None
+    for prefix in ("left_", "right_"):
+        if gesture.startswith(prefix):
+            return gesture.removeprefix(prefix)
+    return gesture

@@ -8,22 +8,25 @@ recall, joint confusion (hard-negative top1 in forbidden), cross-body
 leakage, and query latency.  Optionally add a reranker lane for the
 high-risk kinds.
 
-Writes reports/embedding_bakeoff/<timestamp>/ per §16.
+Writes raw and aggregate evidence outside the repository by default.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
 import sys
 import time
+import uuid
 from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent.parent / "src"))
 
 from evaluate import ndcg_at_k, recall_at_k  # noqa: E402
+from generate_dataset_v3 import validate_benchmark_shape, validate_queries  # noqa: E402
 
 from rosclaw.embedding.registry import get_provider  # noqa: E402
 from rosclaw.storage.seekdb_native import SeekDBServerStore  # noqa: E402
@@ -71,29 +74,60 @@ def _mrr(ranked_ids: list[str], labels: dict[str, int]) -> float:
 
 
 def main() -> int:
+    evidence_root = Path(
+        os.environ.get(
+            "ROSCLAW_EVIDENCE_ROOT",
+            Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
+            / "rosclaw/evidence",
+        )
+    )
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data-dir", default=str(HERE / "v3"))
+    parser.add_argument(
+        "--data-dir",
+        required=True,
+        help="externally retained validated dataset.jsonl + queries.jsonl directory",
+    )
     parser.add_argument("--profiles", default=",".join(PROFILES))
     parser.add_argument("--include-minilm", action="store_true")
     parser.add_argument("--reranker", action="store_true")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=2881)
-    parser.add_argument("--database", default="rosclaw")
-    parser.add_argument("--cache", default="/tmp/mem3_scratch/embedding_cache.sqlite")
+    parser.add_argument("--database", default="rosclaw_benchmark")
+    parser.add_argument("--cache", default=str(evidence_root / "embedding_cache.sqlite"))
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
+    os.umask(0o077)
 
     data_dir = Path(args.data_dir)
     corpus = load_jsonl(data_dir / "dataset.jsonl")
     queries = load_jsonl(data_dir / "queries.jsonl")
+    validate_queries(corpus, queries)
+    validate_benchmark_shape(queries)
+    if not corpus:
+        parser.error("the benchmark corpus is empty")
     print(f"corpus={len(corpus)} queries={len(queries)}")
 
     ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-    out_dir = Path(args.out or f"reports/embedding_bakeoff/{ts}")
+    out_dir = Path(args.out) if args.out else evidence_root / "embedding_bakeoff" / ts
+    repo_root = HERE.parent.parent.resolve()
+    for label, raw_path in (
+        ("--data-dir", data_dir),
+        ("--cache", Path(args.cache)),
+        ("--out", out_dir),
+    ):
+        if raw_path.expanduser().resolve().is_relative_to(repo_root):
+            parser.error(f"{label} must point outside the source repository")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     store = SeekDBServerStore(host=args.host, port=args.port, database=args.database)
     store.connect()
+    try:
+        return _run(args, corpus, queries, out_dir, store)
+    finally:
+        store.disconnect()
+
+
+def _run(args, corpus: list[dict], queries: list[dict], out_dir: Path, store) -> int:
     records = corpus
 
     results: dict[str, dict] = {}
@@ -103,7 +137,7 @@ def main() -> int:
         mgr = VersionedCollectionManager(store, provider)
         print(f"--- building {profile_id} ({provider.profile.dimension}d)")
         t0 = time.monotonic()
-        mgr.build(LOGICAL, records, analyzer="ngram")
+        build = mgr.build(LOGICAL, records, analyzer="ngram")
         build_s = time.monotonic() - t0
         per_query = []
         lat: list[float] = []
@@ -122,6 +156,7 @@ def main() -> int:
             per_query.append(entry)
         results[profile_id] = {
             "build_s": round(build_s, 1),
+            "physical_collection": build["physical_collection"],
             "per_query": per_query,
             "latency": {
                 "p50": percentile(lat, 0.50),
@@ -134,18 +169,10 @@ def main() -> int:
     # MiniLM 384 built-in baseline on the same corpus (server-side embedder)
     if args.include_minilm:
         lane = "minilm_384_builtin"
-        name = f"{LOGICAL}__minilm384_baseline"
+        name = f"{LOGICAL}__minilm384_baseline__g{uuid.uuid4().hex[:10]}"
         print(f"--- building {lane}")
-        import contextlib
-
-        with contextlib.suppress(Exception):
-            store._client.delete_collection(name)
         t0 = time.monotonic()
-        for record in records:
-            row = dict(record)
-            row.setdefault("id", record["id"])
-            store.insert(name, row)
-        store.refresh_index(name)
+        store.insert_many(name, records)
         build_s = time.monotonic() - t0
         per_query = []
         lat = []
@@ -162,6 +189,7 @@ def main() -> int:
             per_query.append(entry)
         results[lane] = {
             "build_s": round(build_s, 1),
+            "physical_collection": name,
             "per_query": per_query,
             "latency": {
                 "p50": percentile(lat, 0.50),
@@ -245,6 +273,9 @@ def main() -> int:
                 "profiles": profiles_run,
                 "minilm_baseline": args.include_minilm,
                 "reranker": args.reranker,
+                "collections": {
+                    lane: data.get("physical_collection") for lane, data in results.items()
+                },
             },
             indent=1,
         )
@@ -259,7 +290,6 @@ def main() -> int:
     (out_dir / "summary.md").write_text("\n".join(lines) + "\n")
     print(json.dumps(summary, indent=1))
     print(f"report -> {out_dir}")
-    store.disconnect()
     return 0
 
 

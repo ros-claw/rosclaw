@@ -70,9 +70,7 @@ class Rh56RpsAdapter(TaskDistillationAdapter):
 
     # ------------------------------------------------------------------
     def matches_events(self, events: list[dict[str, Any]]) -> bool:
-        return any(
-            str(e.get("event_type", "")).startswith(_RPS_EVENT_PREFIXES) for e in events[:200]
-        )
+        return any(str(e.get("event_type", "")).startswith(_RPS_EVENT_PREFIXES) for e in events)
 
     # ------------------------------------------------------------------
     def extract_failures(self, context: Any, events: list[dict[str, Any]]) -> list[MemoryItem]:
@@ -81,35 +79,12 @@ class Rh56RpsAdapter(TaskDistillationAdapter):
         # -> time window).  Current rps.gesture.executed events carry NO
         # round_id, so windows built from round.started -> round.resolved
         # are the real linkage on production sessions.
-        windows: list[tuple[float, float, str]] = []  # (start_ts, end_ts, round_id)
-        started: dict[str, float] = {}
-        for event in events:
-            etype = str(event.get("event_type", ""))
-            if etype == "rps.stress.round.started":
-                rid = _round_key(event)
-                if rid:
-                    started[rid] = _event_time(event)
-            elif etype == "rps.stress.round.resolved":
-                rid = _round_key(event)
-                if rid and rid in started:
-                    windows.append((started[rid], _event_time(event), rid))
-
-        def window_for(event: dict[str, Any]) -> str | None:
-            ts = _event_time(event)
-            for start, end, rid in windows:
-                if start <= ts <= end:
-                    return rid
-            return None
-
-        gestures_by_round: dict[str, list[dict[str, Any]]] = {}
+        windows = _round_windows(events)
+        gestures_by_round = _gestures_by_round(events, windows)
         health_checks: list[dict[str, Any]] = []
         for event in events:
             etype = str(event.get("event_type", ""))
-            if etype == "rps.gesture.executed":
-                key = _round_key(event) or window_for(event)
-                if key:
-                    gestures_by_round.setdefault(key, []).append(event)
-            elif etype == "health_check":
+            if etype == "health_check":
                 health_checks.append(event)
 
         memories: list[MemoryItem] = []
@@ -190,7 +165,7 @@ class Rh56RpsAdapter(TaskDistillationAdapter):
                 continue  # already covered by the round-level failure
             for event in gesture_events:
                 payload = _payload(event)
-                if payload.get("command_success") and payload.get("verified") is not False:
+                if not _gesture_failed(payload):
                     continue
                 if event.get("event_id") in covered_ids:
                     continue
@@ -214,11 +189,11 @@ class Rh56RpsAdapter(TaskDistillationAdapter):
             if event.get("event_type") != "rps.gesture.executed":
                 continue
             payload = _payload(event)
-            if payload.get("command_success") and payload.get("verified") is not False:
+            if not _gesture_failed(payload):
                 continue
             if event.get("event_id") in covered_ids:
                 continue
-            key = _round_key(event) or window_for(event)
+            key = _round_key(event) or _window_for(event, windows)
             if key is not None:
                 continue  # handled above (windowed gestures)
             hand = payload.get("hand")
@@ -433,6 +408,46 @@ def _round_index(round_id: str) -> int | None:
     return int(digits) if digits else None
 
 
+def _gesture_failed(payload: dict[str, Any]) -> bool:
+    """A missing status is unknown, not evidence of a failure."""
+    return payload.get("verified") is False or payload.get("command_success") is False
+
+
+def _round_windows(events: list[dict[str, Any]]) -> list[tuple[float, float, str]]:
+    windows: list[tuple[float, float, str]] = []
+    started: dict[str, float] = {}
+    for event in events:
+        event_type = str(event.get("event_type", ""))
+        round_id = _round_key(event)
+        if event_type == "rps.stress.round.started" and round_id:
+            started[round_id] = _event_time(event)
+        elif event_type == "rps.stress.round.resolved" and round_id in started:
+            windows.append((started[round_id], _event_time(event), round_id))
+    return windows
+
+
+def _window_for(event: dict[str, Any], windows: list[tuple[float, float, str]]) -> str | None:
+    timestamp = _event_time(event)
+    for start, end, round_id in windows:
+        if start <= timestamp <= end:
+            return round_id
+    return None
+
+
+def _gestures_by_round(
+    events: list[dict[str, Any]],
+    windows: list[tuple[float, float, str]],
+) -> dict[str, list[dict[str, Any]]]:
+    linked: dict[str, list[dict[str, Any]]] = {}
+    for event in events:
+        if event.get("event_type") != "rps.gesture.executed":
+            continue
+        round_id = _round_key(event) or _window_for(event, windows)
+        if round_id:
+            linked.setdefault(round_id, []).append(event)
+    return linked
+
+
 def _gesture_facts(
     linked: list[dict[str, Any]], resolved: dict[str, Any]
 ) -> tuple[str | None, str | None, str | None]:
@@ -486,6 +501,7 @@ def _invalid_temperatures(events: list[dict[str, Any]]) -> dict[str, float]:
     """First invalid-round temperature per side (observation only)."""
     out: dict[str, float] = {}
     health = [e for e in events if e.get("event_type") == "health_check"]
+    gestures_by_round = _gestures_by_round(events, _round_windows(events))
     for event in events:
         if event.get("event_type") != "rps.stress.round.resolved":
             continue
@@ -493,13 +509,13 @@ def _invalid_temperatures(events: list[dict[str, Any]]) -> dict[str, float]:
         rnd = payload.get("round") if isinstance(payload.get("round"), dict) else payload
         if rnd.get("result") != "invalid":
             continue
-        hand, _, _ = _gesture_facts([], rnd)
-        for side in (hand,) if hand in ("left", "right") else ("left", "right"):
-            if side in out:
-                continue
-            temp = _temperature_near(health, event, side)
-            if temp is not None:
-                out[side] = temp
+        round_id = _round_key(event)
+        hand, _, _ = _gesture_facts(gestures_by_round.get(round_id or "", []), rnd)
+        if hand not in ("left", "right") or hand in out:
+            continue
+        temp = _temperature_near(health, event, hand)
+        if temp is not None:
+            out[hand] = temp
     return out
 
 

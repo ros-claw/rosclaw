@@ -152,6 +152,8 @@ def test_exception_narrowing_classifier():
     # Auth/permission/network must never look like a missing collection:
     assert not _is_collection_not_found(RuntimeError("access denied for user 'root'"))
     assert not _is_collection_not_found(OSError("connection refused"))
+    assert not _is_collection_not_found(OSError("TLS certificate file not found"))
+    assert not _is_collection_not_found(OSError("host does not exist"))
 
 
 def test_unknown_database_surfaces_not_creates(shared_embedded_seekdb_target):

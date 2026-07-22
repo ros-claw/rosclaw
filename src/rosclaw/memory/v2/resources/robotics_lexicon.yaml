@@ -42,6 +42,12 @@ terms:
   scissors:
     zh: [剪刀, 剪刀手势]
     en: [scissors, scissors gesture]
+  ready:
+    zh: [准备, 准备姿态]
+    en: [ready, ready pose]
+  ok:
+    zh: [OK 手势, 确认手势]
+    en: [ok, ok gesture]
 
   # joints (RH56 6-DOF order)
   little:

@@ -8,7 +8,8 @@ embedder vectorizes the document text, giving:
 * native vector search (:meth:`similar`);
 * native BM25 full-text (``hybrid_search`` ``where_document.$contains``);
 * native metadata filters (``where``);
-* native RRF hybrid fusion (:meth:`hybrid_search`).
+* native RRF hybrid fusion on server deployments (:meth:`hybrid_search`);
+* deterministic RRF over two engine-filtered legs on embedded pyseekdb 1.3.0.
 
 Nothing here is a Python full-table scan masquerading as native SeekDB:
 relational ``query()`` with filters uses SeekDB's own metadata filtering;
@@ -94,21 +95,26 @@ def _is_collection_not_found(exc: Exception) -> bool:
     treated as a missing collection (数据库优化v3 §2.4).
     """
     msg = str(exc)
+    lowered = msg.lower()
     if "OB_ERR_BAD_DATABASE" in msg or "(1049)" in msg:
         return False
     return (
         "OB_TABLE_NOT_EXIST" in msg
         or "(1146)" in msg
-        or "not found" in msg
-        or "doesn't exist" in msg
-        or "does not exist" in msg
+        or (
+            ("collection" in lowered or "table" in lowered)
+            and any(
+                marker in lowered
+                for marker in ("not found", "not exists", "doesn't exist", "does not exist")
+            )
+        )
     )
 
 
 def _is_database_exists(exc: Exception) -> bool:
     """True only for the benign 'database already exists' condition."""
     msg = str(exc).lower()
-    return "already exists" in msg or "ob_err_database_exist" in msg
+    return "ob_err_database_exist" in msg or ("database" in msg and "already exists" in msg)
 
 
 class UnsupportedOperationError(RuntimeError):
@@ -521,6 +527,20 @@ class SeekDBNativeStore(SeekDBClient):
         }
         if filters:
             query_leg["where"] = filters
+        if self._path is not None:
+            # pyseekdb 1.3.0's embedded DBMS_HYBRID_SEARCH emits malformed
+            # FULL JOIN SQL when both filtered legs are combined (the server
+            # engine does not).  Keep both filters inside the engine, execute
+            # the BM25/KNN legs independently, then apply the same RRF formula
+            # deterministically.  This is not a post-retrieval security filter.
+            return self._embedded_filtered_rrf(
+                collection,
+                query_leg=query_leg,
+                knn_leg=knn,
+                window=window,
+                limit=limit,
+            )
+
         result = collection.hybrid_search(
             query=query_leg,
             knn=knn,
@@ -529,6 +549,79 @@ class SeekDBNativeStore(SeekDBClient):
             include=["metadatas"],
         )
         return self._records_from_result(result)
+
+    def fulltext_search(
+        self,
+        table: str,
+        query_text: str,
+        filters: dict | None = None,
+        limit: int = 5,
+    ) -> list[dict]:
+        """Native BM25 search with an engine-side metadata filter.
+
+        This is the explicit degradation path for manual-embedding
+        collections when their local embedding provider is unavailable.
+        """
+        query_leg: dict[str, Any] = {
+            "where_document": {"$contains": query_text},
+            "n_results": limit,
+        }
+        if filters:
+            query_leg["where"] = filters
+        result = self._collection(table).hybrid_search(
+            query=query_leg,
+            n_results=limit,
+            include=["metadatas"],
+        )
+        return self._records_from_result(result)
+
+    def _embedded_filtered_rrf(
+        self,
+        collection: Any,
+        *,
+        query_leg: dict[str, Any],
+        knn_leg: dict[str, Any],
+        window: int,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Fuse two natively filtered embedded searches with RRF.
+
+        pyseekdb returns each leg in rank order.  Metadata is retained from
+        either leg and IDs provide a stable final tie-break, so identical
+        inputs produce identical output even when two documents have the same
+        fused rank.
+        """
+        bm25_result = collection.hybrid_search(
+            query=query_leg,
+            n_results=window,
+            include=["metadatas"],
+        )
+        knn_result = collection.hybrid_search(
+            knn=knn_leg,
+            n_results=window,
+            include=["metadatas"],
+        )
+        legs = (
+            self._records_from_result(bm25_result),
+            self._records_from_result(knn_result),
+        )
+        scores: dict[str, float] = {}
+        best_rank: dict[str, int] = {}
+        records: dict[str, dict[str, Any]] = {}
+        rank_constant = 60
+        for leg in legs:
+            for rank, record in enumerate(leg[:window], start=1):
+                record_id = str(record.get("id") or "")
+                if not record_id:
+                    continue
+                records.setdefault(record_id, record)
+                scores[record_id] = scores.get(record_id, 0.0) + 1.0 / (rank_constant + rank)
+                best_rank[record_id] = min(best_rank.get(record_id, rank), rank)
+        ranked_ids = sorted(
+            records,
+            key=lambda record_id: (-scores[record_id], best_rank[record_id], record_id),
+        )
+        return [records[record_id] for record_id in ranked_ids[:limit]]
 
     def embedding_info(self, table: str) -> dict[str, Any]:
         """Model identity of the collection's built-in embedder (for §6.5 registry)."""

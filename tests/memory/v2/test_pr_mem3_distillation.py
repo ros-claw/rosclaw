@@ -16,7 +16,11 @@ import json
 
 from rosclaw.memory.v2.adapters import adapter_for
 from rosclaw.memory.v2.adapters.rh56_rps import Rh56RpsAdapter
-from rosclaw.memory.v2.distill import SessionContext, build_candidates
+from rosclaw.memory.v2.distill import (
+    SessionContext,
+    build_candidates,
+    extract_failure_memories,
+)
 from rosclaw.memory.v2.document import (
     MultilingualMemoryDocumentBuilder,
     extract_exact_terms,
@@ -124,9 +128,29 @@ def test_rps_gesture_failure_in_valid_round_also_captured():
     assert failures[0].gesture_name == "left_ready"
 
 
+def test_missing_gesture_status_is_not_invented_as_failure():
+    event = {
+        "event_type": "rps.gesture.executed",
+        "event_id": "evt_unknown",
+        "timestamp_ns": 1_000_000_000,
+        "payload": {"round_id": "stress_000001", "hand": "left"},
+    }
+
+    assert Rh56RpsAdapter().extract_failures(_ctx(), [event]) == []
+    assert extract_failure_memories(_ctx(), [event]) == []
+
+
 def test_rps_adapter_selected_by_event_shape():
     adapter = adapter_for(_ctx(), [_round_event("stress_000001", "draw")])
     assert isinstance(adapter, Rh56RpsAdapter)
+
+
+def test_rps_adapter_event_sniffing_is_not_limited_to_first_200_events():
+    context = SessionContext(practice_id="old", task_id=None)
+    events = [{"event_type": "unrelated"} for _ in range(250)]
+    events.append(_round_event("stress_000001", "draw"))
+
+    assert isinstance(adapter_for(context, events), Rh56RpsAdapter)
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +200,7 @@ def test_body_temperature_is_observation_not_limit():
     events = [
         _health("right", 38.0, 0.0),
         _health("right", 48.0, 600.0),
+        _gesture_event("stress_000033", "right", "rock", False, "joint_not_reached"),
         _round_event("stress_000033", "invalid", "joint_not_reached"),
     ]
     body = Rh56RpsAdapter().extract_body_patterns(_ctx(), events)
@@ -186,6 +211,22 @@ def test_body_temperature_is_observation_not_limit():
     assert meta["causal_status"] == "observed_correlation"
     assert "thermal_limit" not in json.dumps(meta)
     assert "NOT a thermal limit" in body[0].document
+
+
+def test_unattributed_invalid_round_does_not_claim_a_hand_correlation():
+    events = [
+        _health("left", 38.0, 0.0),
+        _health("right", 39.0, 0.0),
+        _health("left", 48.0, 600.0),
+        _health("right", 49.0, 600.0),
+        _round_event("stress_000033", "invalid", "joint_not_reached"),
+    ]
+
+    body = Rh56RpsAdapter().extract_body_patterns(_ctx(), events)
+
+    assert len(body) == 2
+    assert all(item.metadata["first_failure_temperature"] is None for item in body)
+    assert all(item.metadata["causal_status"] == "insufficient_data" for item in body)
 
 
 def test_empty_body_memory_ignored():
@@ -215,6 +256,32 @@ def test_bilingual_document_builder():
     assert "middle" in doc.exact_terms
     for section in ("[ZH]", "[EN]", "[CANONICAL]", "[ALIASES]"):
         assert section in doc.combined
+
+
+def test_unknown_hand_is_not_rendered_as_right_hand():
+    doc = MultilingualMemoryDocumentBuilder().build_failure(
+        hand="unknown",
+        joint=None,
+        gesture="ready",
+        failure_type="unverified",
+    )
+
+    assert "未知手别" in doc.zh
+    assert "右手" not in doc.zh
+
+
+def test_prefixed_gesture_is_canonicalized_only_in_derived_document():
+    doc = MultilingualMemoryDocumentBuilder().build_failure(
+        hand="left",
+        joint=None,
+        gesture="left_scissors",
+        failure_type="joint_not_reached",
+    )
+
+    assert "剪刀" in doc.zh
+    assert "gesture=scissors" in doc.canonical
+    assert "left_scissors" not in doc.combined
+    assert "scissors" in doc.exact_terms
 
 
 def test_exact_joint_extraction():

@@ -58,13 +58,16 @@ class Qwen3RerankerProvider:
                 f"sentence-transformers/torch unavailable for reranker: {exc}"
             ) from exc
         device = self._device or ("cuda" if torch.cuda.is_available() else "cpu")
+        dtype = torch.float16 if str(device).startswith("cuda") else torch.float32
         try:
             self._model = CrossEncoder(
                 RERANKER_MODEL_ID,
                 revision=self._revision,
                 max_length=self._max_length,
                 device=device,
-                model_kwargs={"torch_dtype": torch.float16},
+                prompts={"rosclaw": RERANKER_INSTRUCTION},
+                default_prompt_name="rosclaw",
+                model_kwargs={"torch_dtype": dtype},
             )
         except Exception as exc:  # noqa: BLE001
             raise EmbeddingUnavailableError(

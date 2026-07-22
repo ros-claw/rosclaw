@@ -10,7 +10,10 @@
 
 from __future__ import annotations
 
+import argparse
+import json
 import os
+import sqlite3
 
 import pytest
 
@@ -23,6 +26,8 @@ from rosclaw.embedding.local_sentence_transformer import LocalSentenceTransforme
 from rosclaw.embedding.profile import QWEN3_06B_512, QWEN3_06B_1024
 from rosclaw.embedding.protocol import EmbeddingProfile
 from rosclaw.embedding.registry import get_provider
+from rosclaw.embedding.reranker import RERANKER_INSTRUCTION, Qwen3RerankerProvider
+from rosclaw.memory.v2.cli import cmd_memory_v2_index_describe
 
 
 class FakeProvider:
@@ -117,6 +122,47 @@ def test_cache_dimension_guard(tmp_path):
     assert cache.get(FAKE_PROFILE, "document", "x") is None
 
 
+def test_cache_never_deserializes_legacy_pickle_rows(tmp_path):
+    path = tmp_path / "c.sqlite"
+    cache = EmbeddingCache(path)
+    cache.put(FAKE_PROFILE, "document", "x", [0.1] * 8)
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "UPDATE embedding_cache SET encoding='legacy_pickle', embedding_blob=?",
+            (b"cos\nsystem\n(S'false'\ntR.",),
+        )
+
+    assert cache.get(FAKE_PROFILE, "document", "x") is None
+
+
+def test_reranker_loads_with_rosclaw_prompt_and_cpu_safe_dtype(monkeypatch):
+    import sys
+    from types import ModuleType, SimpleNamespace
+
+    captured = {}
+    float32 = object()
+
+    def fake_cross_encoder(*args, **kwargs):
+        captured.update(kwargs)
+        return object()
+
+    sentence_transformers = ModuleType("sentence_transformers")
+    sentence_transformers.CrossEncoder = fake_cross_encoder
+    torch = ModuleType("torch")
+    torch.float16 = object()
+    torch.float32 = float32
+    torch.cuda = SimpleNamespace(is_available=lambda: False)
+    monkeypatch.setitem(sys.modules, "sentence_transformers", sentence_transformers)
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    provider = Qwen3RerankerProvider(device="cpu")
+
+    provider._load()
+
+    assert captured["prompts"] == {"rosclaw": RERANKER_INSTRUCTION}
+    assert captured["default_prompt_name"] == "rosclaw"
+    assert captured["model_kwargs"]["torch_dtype"] is float32
+
+
 def test_dimension_mismatch_fails():
     class BadProvider(FakeProvider):
         def encode_documents(self, texts):
@@ -162,3 +208,21 @@ def test_embedding_unavailable_degrades_not_blocks():
     provider = FakeProvider(FAKE_PROFILE, fail=True)
     with pytest.raises(EmbeddingUnavailableError):
         provider.encode_queries(["x"])
+
+
+def test_index_describe_rejects_non_native_backend_without_loading_model(tmp_path, capsys):
+    args = argparse.Namespace(
+        v2_path=str(tmp_path / "memory.sqlite"),
+        backend="sqlite",
+        seekdb_url=None,
+        logical="memory_items",
+        profile="qwen3_06b_1024_v1",
+        cache=None,
+        probe_provider=False,
+    )
+
+    assert cmd_memory_v2_index_describe(args) == 2
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["ok"] is False
+    assert output["backend"] == "SQLiteKnowledgeStore"

@@ -8,8 +8,9 @@ old entries (a revision change is a different key, §17.4).
 
 from __future__ import annotations
 
-import pickle
+import os
 import sqlite3
+import struct
 import threading
 import time
 from pathlib import Path
@@ -23,6 +24,7 @@ CREATE TABLE IF NOT EXISTS embedding_cache (
     text_sha256 TEXT NOT NULL,
     text_type TEXT NOT NULL,
     embedding_blob BLOB NOT NULL,
+    encoding TEXT NOT NULL DEFAULT 'f64le',
     dimension INTEGER NOT NULL,
     created_at REAL NOT NULL,
     last_accessed_at REAL NOT NULL
@@ -35,9 +37,18 @@ class EmbeddingCache:
     def __init__(self, path: str | Path) -> None:
         self._path = str(path)
         self._lock = threading.RLock()
-        Path(self._path).parent.mkdir(parents=True, exist_ok=True)
+        parent = Path(self._path).parent
+        parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(embedding_cache)")}
+            if "encoding" not in columns:
+                conn.execute(
+                    "ALTER TABLE embedding_cache ADD COLUMN encoding TEXT NOT NULL "
+                    "DEFAULT 'legacy_pickle'"
+                )
+        if self._path != ":memory:":
+            os.chmod(self._path, 0o600)
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._path, check_same_thread=False)
@@ -55,19 +66,21 @@ class EmbeddingCache:
         key = profile.cache_namespace(kind=kind, text_hash=self._text_hash(text))
         with self._lock, self._connect() as conn:
             row = conn.execute(
-                "SELECT embedding_blob, dimension FROM embedding_cache WHERE cache_key=?",
+                "SELECT embedding_blob, dimension, encoding FROM embedding_cache WHERE cache_key=?",
                 (key,),
             ).fetchone()
             if row is None:
                 return None
-            blob, dim = row
-            if dim != profile.dimension:
+            blob, dim, encoding = row
+            if dim != profile.dimension or encoding != "f64le":
                 return None  # defensive: key already encodes dimension
+            if len(blob) != dim * 8:
+                return None
             conn.execute(
                 "UPDATE embedding_cache SET last_accessed_at=? WHERE cache_key=?",
                 (time.time(), key),
             )
-        return list(pickle.loads(blob))
+        return list(struct.unpack(f"<{dim}d", blob))
 
     def put(self, profile: EmbeddingProfile, kind: str, text: str, vector: list[float]) -> None:
         if len(vector) != profile.dimension:
@@ -77,18 +90,20 @@ class EmbeddingCache:
         with self._lock, self._connect() as conn:
             conn.execute(
                 "INSERT INTO embedding_cache"
-                " (cache_key, profile_id, text_sha256, text_type, embedding_blob,"
+                " (cache_key, profile_id, text_sha256, text_type, embedding_blob, encoding,"
                 "  dimension, created_at, last_accessed_at)"
-                " VALUES (?,?,?,?,?,?,?,?)"
+                " VALUES (?,?,?,?,?,?,?,?,?)"
                 " ON CONFLICT(cache_key) DO UPDATE SET"
                 " embedding_blob=excluded.embedding_blob,"
+                " encoding=excluded.encoding,"
                 " last_accessed_at=excluded.last_accessed_at",
                 (
                     key,
                     profile.profile_id,
                     self._text_hash(text),
                     kind,
-                    pickle.dumps(vector),
+                    struct.pack(f"<{len(vector)}d", *vector),
+                    "f64le",
                     profile.dimension,
                     now,
                     now,

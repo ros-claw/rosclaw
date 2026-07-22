@@ -2,7 +2,7 @@
 
 ## Model and profile
 
-Production profile: **`qwen3_06b_768_v1`**
+Candidate profile: **`qwen3_06b_768_v1`** (not promoted by default)
 
 ```yaml
 model: Qwen/Qwen3-Embedding-0.6B
@@ -14,7 +14,10 @@ query_instruction: English task instruction (query side ONLY)
 provider: local_sentence_transformer (Jetson GPU, FP16)
 ```
 
-Selection evidence (`reports/embedding_bakeoff/v3_run1/`): R@1 0.970 vs 1024-dim 0.940 and MiniLM 0.910; error-code queries 0.8 vs 0.4; nDCG 0.655 vs 0.448; joint confusion 0; query p50 14 ms. The 768 profile satisfies the §1.2 downsize rule (no Recall@1 loss vs 1024, no confusion increase).
+The first v3 run was invalidated during review because several query labels and
+hard negatives did not represent their stated intent. Keep 768 as an explicit
+candidate only; rerun the corrected benchmark and satisfy all promotion gates
+before changing an ACTIVE production pointer.
 
 ## Query instruction (§7.2)
 
@@ -40,6 +43,12 @@ export HF_HUB_OFFLINE=1                    # runtime, pinned snapshot only
 
 ## Usage
 
+Install the optional local-model runtime together with SeekDB:
+
+```bash
+pip install 'rosclaw[seekdb,embedding]'
+```
+
 ```python
 from rosclaw.embedding.registry import get_provider
 
@@ -57,6 +66,10 @@ health = provider.health()                              # profile + probe + cach
 
 `EmbeddingUnavailableError` → caller degrades to SeekDB BM25 + metadata filter. Never substitute another model's vectors into a Qwen collection (§11).
 
+This degradation is implemented by `VersionedCollectionManager.shadow_query`.
+The general `rosclaw memory query --v2` command has not yet been routed through
+the versioned ACTIVE pointer.
+
 ## Reranker (high-risk paths only)
 
 ```python
@@ -65,4 +78,5 @@ reranker = Qwen3RerankerProvider()          # pinned e61197ed
 top5 = reranker.rerank(query, top20_rows, top_k=5)
 ```
 
-Use for failure recovery / HOW / hard negatives only; ~266 ms per call is acceptable there, not on the dashboard or hot path.
+Use for failure recovery / HOW / hard negatives only after a deployment-local
+latency check; never place it on the motion hot path.

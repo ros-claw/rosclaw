@@ -47,13 +47,15 @@ class LocalSentenceTransformerProvider:
             raise EmbeddingUnavailableError(
                 f"sentence-transformers/torch unavailable: {exc}"
             ) from exc
-        kwargs: dict[str, Any] = {"torch_dtype": torch.float16}
         device = self._device or ("cuda" if torch.cuda.is_available() else "cpu")
+        dtype = torch.float16 if str(device).startswith("cuda") else torch.float32
+        kwargs: dict[str, Any] = {"torch_dtype": dtype}
         try:
             self._model = SentenceTransformer(
                 self._profile.model_id,
                 revision=self._profile.model_revision,
                 model_kwargs=kwargs,
+                tokenizer_kwargs={"padding_side": "left"},
                 device=device,
                 trust_remote_code=self._trust_remote_code,
             )
