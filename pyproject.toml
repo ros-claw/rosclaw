@@ -90,6 +90,9 @@ dev = [
     "rank-bm25>=0.2",
     "Pillow>=10.0",
     "httpx2>=2.0.0",
+    # rosclaw-how permits newer pyseekdb releases, but the native-memory
+    # integration and Jetson validation currently target the 1.3 API.
+    "pyseekdb==1.3.0",
     "rosclaw-know>=1.0.2",
     "rosclaw-how>=1.0.2",
 ]
