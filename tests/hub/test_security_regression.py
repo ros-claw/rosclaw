@@ -7,6 +7,7 @@ expected layer: verification, policy, license, or secret scanning.
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 from pathlib import Path
 
@@ -33,21 +34,19 @@ def _copy_asset(source: Path, dest: Path) -> Path:
 
 
 def _regenerate_checksums(asset_dir: Path) -> None:
-    """Rewrite checksums.txt to match the current manifest and artifact files."""
+    """Rewrite checksums.txt to cover the complete payload."""
     manifest = _load_manifest_yaml(asset_dir)
+    checksums_file = manifest["security"]["checksums"]["file"]
+    signature_file = manifest["security"]["signing"].get("file", "signatures/manifest.ed25519")
     lines: list[str] = []
-    manifest_path = asset_dir / "manifest.yaml"
-    lines.append(f"sha256:{hashlib.sha256(manifest_path.read_bytes()).hexdigest()}  manifest.yaml")
-    for artifact in manifest.get("artifacts", []):
-        rel = artifact.get("path")
-        if not rel:
+    for path in sorted(asset_dir.rglob("*")):
+        if not path.is_file():
             continue
-        file_path = asset_dir / rel
-        if file_path.exists():
-            lines.append(f"sha256:{hashlib.sha256(file_path.read_bytes()).hexdigest()}  {rel}")
-    (asset_dir / manifest["security"]["checksums"]["file"]).write_text(
-        "\n".join(lines) + "\n", encoding="utf-8"
-    )
+        relative = path.relative_to(asset_dir).as_posix()
+        if relative in {checksums_file, signature_file}:
+            continue
+        lines.append(f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}  {relative}")
+    (asset_dir / checksums_file).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def test_tampered_checksum_blocked_by_verifier() -> None:
@@ -74,14 +73,14 @@ def test_tampered_checksum_blocks_install(tmp_path: Path) -> None:
 
 
 def test_tampered_signature_blocked_by_verifier() -> None:
-    """An invalid signing certificate is rejected when signatures are required."""
+    """An invalid detached signature is rejected when signatures are required."""
     result = verify_asset_dir(FIXTURES / "tampered_signature")
     assert not result.ok
-    assert any("certificate" in e.lower() for e in result.errors)
+    assert any("signature is invalid" in e.lower() for e in result.errors)
 
 
 def test_tampered_signature_blocks_install(tmp_path: Path) -> None:
-    """The installer refuses to install an asset with an invalid certificate."""
+    """The installer refuses to install an asset with an invalid signature."""
     installer = Installer(home=tmp_path / "home")
     with pytest.raises(HubError) as exc_info:
         installer.install_local(
@@ -94,6 +93,36 @@ def test_tampered_signature_blocks_install(tmp_path: Path) -> None:
             ),
         )
     assert exc_info.value.code == HubErrorCode.CHECKSUM_MISMATCH
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO creation requires POSIX")
+def test_non_regular_payload_blocked_by_verifier(tmp_path: Path) -> None:
+    """Local directory verification rejects entries tar extraction forbids."""
+    asset_dir = _copy_asset(SKILL_VALID, tmp_path / "special-entry-asset")
+    os.mkfifo(asset_dir / "payload.fifo")
+
+    result = verify_asset_dir(asset_dir, require_signature=False)
+
+    assert not result.ok
+    assert any("Non-regular filesystem entries" in error for error in result.errors)
+
+
+def test_real_robot_asset_requires_explicit_install_opt_in(tmp_path: Path) -> None:
+    """License acceptance must not implicitly grant real-robot capability."""
+    installer = Installer(home=tmp_path / "home")
+
+    with pytest.raises(HubError) as exc_info:
+        installer.install_local(
+            SKILL_VALID,
+            options=InstallOptions(
+                accept_license=True,
+                skip_health=True,
+                skip_mcp_merge=True,
+            ),
+        )
+
+    assert exc_info.value.code == HubErrorCode.PERMISSION_DENIED
+    assert "real robot execution" in exc_info.value.message.lower()
 
 
 def test_missing_sbom_and_provenance_block_install(tmp_path: Path) -> None:
@@ -229,7 +258,7 @@ def test_secret_scan_warning_does_not_block_when_configured(tmp_path: Path) -> N
     """A publisher can be configured to warn instead of fail on secret finds."""
     home = tmp_path / "home"
     asset_dir = tmp_path / "leaky_asset"
-    asset_dir.mkdir()
+    shutil.copytree(SKILL_VALID, asset_dir)
     manifest = _load_manifest_yaml(SKILL_VALID)
     manifest["security"]["signing"]["required"] = False
     (asset_dir / "manifest.yaml").write_text(

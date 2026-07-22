@@ -149,9 +149,11 @@ rosclaw hub login \
   --insecure-local
 ```
 
-Credentials are stored in `~/.rosclaw/config/hub_auth.json` with a JSON
-fallback for testing. Production deployments should migrate this store to the
-OS keyring.
+Credentials are stored atomically in `~/.rosclaw/config/hub_auth.json`. On
+POSIX systems the `config` directory is forced to mode `0700` and the file to
+mode `0600`; symbolic links, non-regular files, and files owned by another user
+are rejected. The store is still plaintext JSON, so production deployments may
+prefer an OS keyring or external secret manager.
 
 ### `rosclaw hub whoami`
 
@@ -229,26 +231,31 @@ rosclaw hub search g1 --type skill --official --limit 5
 Verify a local asset directory without installing it. Checks:
 
 - Manifest schema validation
-- `checksums.txt` existence and digest matches
+- strict `checksums.txt` parsing and complete regular-payload coverage
 - Declared artifact digests match on-disk files
-- Signing certificate and detached signature presence (when required)
+- trusted, scope-matched detached Ed25519 signature validity
+- path containment and symbolic-link rejection
 - SBOM / provenance file existence (when declared)
 
 ```text
-rosclaw hub verify [-h] [--no-signature] [--json] asset_dir
+rosclaw hub verify [-h] [--no-signature] [--trust-store TRUST_STORE]
+                   [--json] asset_dir
 ```
 
 | Option | Description |
 |--------|-------------|
 | `asset_dir` | Path to the asset directory |
-| `--no-signature` | Skip signature/certificate checks |
+| `--no-signature` | Skip trusted signature verification; local development only |
+| `--trust-store` | Independent Hub trusted-key JSON; otherwise use `ROSCLAW_HUB_TRUST_STORE` or packaged keys |
 | `--json` | Output as JSON |
 
 Example:
 
 ```bash
-rosclaw hub verify tests/fixtures/hub_assets/skill_valid
-rosclaw hub verify tests/fixtures/hub_assets/skill_valid --json
+rosclaw hub verify tests/fixtures/hub_assets/skill_valid \
+  --trust-store tests/fixtures/hub_keys/trust.json
+rosclaw hub verify tests/fixtures/hub_assets/skill_valid \
+  --trust-store tests/fixtures/hub_keys/trust.json --json
 ```
 
 ### `rosclaw hub policy check`
@@ -301,13 +308,16 @@ Output example:
 ### `rosclaw hub install`
 
 Install an asset from a local directory or a `rosclaw://` registry reference.
-The install transaction acquires the cross-process `assets.lock`, verifies the
-asset, checks policy, resolves dependencies, copies files, updates registries,
-optionally merges MCP config, runs health checks, and records the result.
+The install transaction verifies the asset, checks policy, resolves
+dependencies, then acquires the cross-process `assets.lock`, copies files,
+updates registries, optionally merges MCP config, runs health checks, and
+records the result. A remote dry-run still downloads, safely extracts, binds,
+and verifies the bundle.
 
 ```text
 rosclaw hub install [-h] [--dry-run] [--yes] [--accept-license]
                     [--no-mcp-merge] [--skip-health] [--no-verify-signature]
+                    [--trust-store TRUST_STORE]
                     [--allow-real-robot] [--allow-safety-config-changes]
                     [--allow-network-inbound] [--json]
                     asset_dir
@@ -315,13 +325,14 @@ rosclaw hub install [-h] [--dry-run] [--yes] [--accept-license]
 
 | Option | Description |
 |--------|-------------|
-| `asset_dir` | Local directory or `rosclaw://` reference |
+| `asset_dir` | Local directory, `.rosclaw` bundle, or `rosclaw://` reference |
 | `--dry-run` | Simulate without writing files |
-| `--yes` | Auto-accept license and dangerous permissions |
+| `--yes` | Accept license prompts; does not grant safety permissions |
 | `--accept-license` | Explicitly accept the asset license |
 | `--no-mcp-merge` | Skip updating `.mcp.json` / MCP config |
 | `--skip-health` | Skip post-install health checks |
-| `--no-verify-signature` | Skip signature/certificate checks |
+| `--no-verify-signature` | Skip trusted signature verification; local development only |
+| `--trust-store` | Independent Hub trusted-key JSON |
 | `--allow-real-robot` | Allow real robot execution |
 | `--allow-safety-config-changes` | Allow modifications to safety configuration |
 | `--allow-network-inbound` | Allow non-local inbound network access |
@@ -330,8 +341,10 @@ rosclaw hub install [-h] [--dry-run] [--yes] [--accept-license]
 Local install example:
 
 ```bash
-rosclaw hub install ./fixtures/hub_assets/hardware_mcp_valid --dry-run
-rosclaw hub install ./fixtures/hub_assets/hardware_mcp_valid --yes
+rosclaw hub install tests/fixtures/hub_assets/hardware_mcp_valid --dry-run \
+  --trust-store tests/fixtures/hub_keys/trust.json --allow-real-robot
+rosclaw hub install tests/fixtures/hub_assets/hardware_mcp_valid --yes \
+  --trust-store tests/fixtures/hub_keys/trust.json --allow-real-robot
 ```
 
 Registry install example:
@@ -363,6 +376,7 @@ Replace an installed asset with a new version from a local directory.
 ```text
 rosclaw hub update [-h] [--dry-run] [--yes] [--accept-license]
                    [--no-mcp-merge] [--skip-health] [--no-verify-signature]
+                   [--trust-store TRUST_STORE]
                    [--allow-real-robot] [--allow-safety-config-changes]
                    [--allow-network-inbound] [--json]
                    ref asset_dir
@@ -401,6 +415,8 @@ bundle. When a registry is configured, the bundle is uploaded.
 
 ```text
 rosclaw hub publish [-h] [--dry-run] [--private] [--public] [--sign]
+                    [--signing-key SIGNING_KEY]
+                    [--signing-key-id SIGNING_KEY_ID]
                     [--registry REGISTRY] [--output OUTPUT] [--json]
                     asset_dir
 ```
@@ -408,20 +424,30 @@ rosclaw hub publish [-h] [--dry-run] [--private] [--public] [--sign]
 | Option | Description |
 |--------|-------------|
 | `asset_dir` | Source asset directory containing `manifest.yaml` |
-| `--dry-run` | Validate and scan without writing |
+| `--dry-run` | Prepare and scan without creating an output bundle or registry entry |
 | `--private` | Publish as a private asset |
 | `--public` | Publish as a public asset |
-| `--sign` | Create a placeholder signature |
+| `--sign` | Create a detached Ed25519 signature |
+| `--signing-key` | Ed25519 PKCS8 PEM private key outside the asset directory |
+| `--signing-key-id` | Trust-store key ID declared by the manifest |
 | `--registry` | Registry URL (defaults to active profile) |
 | `--output` | Write the bundle to this path or directory |
 | `--json` | Output as JSON |
 
+`--output` is a complete local destination and does not require registry
+login. Without `--output`, `--registry`, or an active registry profile, a
+non-dry-run publish fails instead of choosing an implicit destination.
+
 Example:
 
 ```bash
-rosclaw hub publish ./fixtures/hub_assets/skill_valid --dry-run
-rosclaw hub publish ./fixtures/hub_assets/skill_valid --private --sign
-rosclaw hub publish ./fixtures/hub_assets/skill_valid --registry http://localhost:8787
+rosclaw hub publish ./my_skill --dry-run --sign \
+  --signing-key /secure/path/hub-signing-key.pem \
+  --signing-key-id my-org-hub-release-2026
+rosclaw hub publish ./my_skill --private --sign \
+  --signing-key /secure/path/hub-signing-key.pem \
+  --signing-key-id my-org-hub-release-2026 \
+  --registry file:///tmp/rosclaw-registry
 ```
 
 See [publish_guide.md](publish_guide.md) for the full publishing workflow.
@@ -435,6 +461,7 @@ Hub commands use the standard `rosclaw` CLI exit code conventions:
   `suggested_fix` in JSON output
 
 Common failure reasons include manifest validation errors (`MANIFEST_INVALID`),
-checksum mismatches (`CHECKSUM_MISMATCH`), permission denials
+checksum/signature verification failures (`CHECKSUM_MISMATCH`), registry
+identity or archive failures (`INDEX_VERIFY_FAILED`), permission denials
 (`PERMISSION_DENIED`), license denials (`LICENSE_DENIED`), missing assets
 (`ASSET_NOT_FOUND`), and authentication failures (`AUTH_REQUIRED`).

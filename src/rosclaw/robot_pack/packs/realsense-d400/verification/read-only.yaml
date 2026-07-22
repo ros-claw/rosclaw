@@ -1,0 +1,22 @@
+schema_version: rosclaw.robot_pack.verification.v1
+id: realsense-read-only
+pack: rosclaw://robot_pack/ros-claw/realsense-d400@1.0.0
+stage: read-only
+requires:
+  hardware: true
+  independent_observer_for_tier: true
+checks:
+  - id: configured-device-binding
+    pass: configured serial and model match a discovered device
+  - id: mcp-adapter-tool-contract
+    pass: one installed MCP server exposes enumerate, pipeline, and RGB-D capture tools
+  - id: live-device-identity
+    pass: model, serial, firmware, USB speed, and stable URI are present
+  - id: stream-profile-enumeration
+    pass: at least one depth profile and one color or RGB profile are reported
+  - id: rgbd-artifact-receipt
+    pass: color and depth artifacts exist, have SHA-256 hashes, and are linked from a receipt
+promotion:
+  candidate_tier: H3_HARDWARE_READ_VERIFIED
+  automatic: false
+  reason: independent physical observation evidence must be reviewed

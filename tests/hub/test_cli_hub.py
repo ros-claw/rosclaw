@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -135,6 +136,22 @@ def test_sync_explicit_registry(fake_registry_path, store, capsys) -> None:
     assert "Synced" in capsys.readouterr().out
 
 
+def test_sync_rejects_manifest_digest_mismatch(fake_registry_path, store, tmp_path, capsys) -> None:
+    registry = tmp_path / "registry"
+    shutil.copytree(fake_registry_path, registry)
+    manifest_path = registry / "manifests" / "skill" / "rosclaw" / "g1-pick-place" / "1.2.0.yaml"
+    manifest_path.write_text(
+        manifest_path.read_text(encoding="utf-8") + "\n",
+        encoding="utf-8",
+    )
+    store.login(str(registry), "fake-valid-token", insecure_local=True)
+
+    rc = cmd_hub_sync(_namespace(registry=None, clear=False))
+
+    assert rc == 1
+    assert "digest" in capsys.readouterr().out.lower()
+
+
 def test_search_after_sync(fake_registry_path, store, capsys) -> None:
     """search queries the local index built by sync."""
     store.login(str(fake_registry_path), "fake-valid-token", insecure_local=True)
@@ -224,8 +241,8 @@ def test_verify_tampered_checksum_fails(capsys) -> None:
     assert "Checksum mismatch" in capsys.readouterr().out
 
 
-def test_policy_check_valid_asset(asset_fixture_dir, capsys) -> None:
-    """hub policy check passes for the valid fixture with warnings."""
+def test_policy_check_denies_real_robot_by_default(asset_fixture_dir, capsys) -> None:
+    """hub policy check fails closed for real-robot permissions."""
     args = _namespace(
         asset_dir=str(asset_fixture_dir),
         allow_real_robot=False,
@@ -233,7 +250,22 @@ def test_policy_check_valid_asset(asset_fixture_dir, capsys) -> None:
         json=False,
     )
     rc = cmd_hub_policy_check(args)
-    assert rc == 0
+    assert rc == 1
+    captured = capsys.readouterr()
+    assert "Policy check failed" in captured.out
+    assert "denied by policy" in captured.out
+
+
+def test_policy_check_allows_explicit_real_robot_opt_in(asset_fixture_dir, capsys) -> None:
+    """hub policy check accepts the explicit real-robot permission flag."""
+    args = _namespace(
+        asset_dir=str(asset_fixture_dir),
+        allow_real_robot=True,
+        accept_license=False,
+        json=False,
+    )
+
+    assert cmd_hub_policy_check(args) == 0
     captured = capsys.readouterr()
     assert "Policy check passed" in captured.out
     assert "requires human approval" in captured.out
@@ -400,7 +432,7 @@ def _install_args(asset_dir: str | Path, **overrides) -> argparse.Namespace:
         "no_mcp_merge": True,
         "skip_health": True,
         "verify_signature": True,
-        "allow_real_robot": False,
+        "allow_real_robot": True,
         "allow_safety_config_changes": False,
         "allow_network_inbound": False,
         "json": False,
@@ -417,6 +449,18 @@ def test_install_local_dry_run(skill_valid_dir, monkeypatch, tmp_path, capsys) -
     assert rc == 0
     captured = capsys.readouterr()
     assert "Dry-run" in captured.out
+
+
+def test_install_yes_does_not_grant_real_robot_permission(
+    skill_valid_dir, monkeypatch, tmp_path, capsys
+) -> None:
+    monkeypatch.setenv("ROSCLAW_HOME", str(tmp_path))
+    args = _install_args(skill_valid_dir, yes=True, allow_real_robot=False)
+
+    rc = cmd_hub_install(args)
+
+    assert rc == 1
+    assert "real robot execution" in capsys.readouterr().out.lower()
 
 
 def test_install_local_then_list_then_uninstall(
@@ -485,7 +529,7 @@ def test_update_installed_asset(skill_valid_dir, monkeypatch, tmp_path, capsys) 
         no_mcp_merge=True,
         skip_health=True,
         verify_signature=True,
-        allow_real_robot=False,
+        allow_real_robot=True,
         allow_safety_config_changes=False,
         allow_network_inbound=False,
         json=False,
@@ -563,6 +607,32 @@ def test_publish_private_and_public_conflict(skill_valid_dir, capsys) -> None:
     rc = cmd_hub_publish(args)
     assert rc == 1
     assert "Cannot specify both" in capsys.readouterr().out
+
+
+def test_publish_output_builds_local_bundle_without_registry(
+    skill_valid_dir, monkeypatch, tmp_path, capsys
+) -> None:
+    """An explicit output path is a complete local publish destination."""
+    monkeypatch.setenv("ROSCLAW_HOME", str(tmp_path / "home"))
+    output = tmp_path / "asset.rosclaw"
+    args = _publish_args(skill_valid_dir, output=output, json=True)
+
+    assert cmd_hub_publish(args) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["success"] is True
+    assert result["bundle_path"] == str(output)
+    assert output.is_file()
+
+
+def test_publish_requires_output_registry_or_active_profile(
+    skill_valid_dir, monkeypatch, tmp_path, capsys
+) -> None:
+    """A non-dry-run publish cannot silently choose a destination."""
+    monkeypatch.setenv("ROSCLAW_HOME", str(tmp_path / "home"))
+
+    assert cmd_hub_publish(_publish_args(skill_valid_dir)) == 1
+    assert "No publish destination" in capsys.readouterr().out
 
 
 def test_publish_secret_scan_rejects(

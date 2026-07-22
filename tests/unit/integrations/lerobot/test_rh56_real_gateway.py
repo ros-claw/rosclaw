@@ -232,7 +232,47 @@ def test_real_step_through_gateway_completes() -> None:
 
     assert receipt.final_state is ActionState.COMPLETED
     assert receipt.evidence_level is EvidenceLevel.PHYSICALLY_OBSERVED
-    assert receipt.driver_ack == {"acknowledged": True}
+    assert receipt.driver_ack == {
+        "acknowledged": True,
+        "delivery": "PROTOCOL_ACKNOWLEDGED",
+        "stage": "PROTOCOL_ACKNOWLEDGED",
+    }
+
+
+def test_lost_modbus_ack_is_delivery_inferred_not_protocol_acknowledged() -> None:
+    step, permit, transport = _armed_stack()
+    device = transport._ser._device
+    original = device.handle
+
+    def _drop_angle_ack(request: bytes) -> bytes:
+        if request[1] == 0x10 and struct.unpack(">H", request[2:4])[0] == modbus.Register.ANGLE_SET:
+            start, quantity = struct.unpack(">HH", request[2:6])
+            data = request[7 : 7 + quantity * 2]
+            device.registers[start] = [
+                struct.unpack(">H", data[index : index + 2])[0]
+                for index in range(0, quantity * 2, 2)
+            ]
+            return b""
+        return original(request)
+
+    device.handle = _drop_angle_ack
+    gateway = ActionGateway()
+    gateway.register_executor(CAPABILITY_ID, ExecutionMode.REAL, RH56RealStepExecutor(step))
+
+    receipt = gateway.submit(_envelope(permit.permit_id, [990.0] * 6))
+    transitions = [transition.state for transition in receipt.transitions]
+
+    assert receipt.final_state is ActionState.COMPLETED
+    assert receipt.driver_ack == {
+        "acknowledged": False,
+        "delivery": "DELIVERY_INFERRED",
+        "stage": "DELIVERY_INFERRED",
+        "delivery_inferred": True,
+    }
+    assert receipt.acknowledgement_stage.value == "EFFECT_OBSERVED"
+    assert ActionState.DELIVERY_INFERRED in transitions
+    assert ActionState.EFFECT_OBSERVED in transitions
+    assert ActionState.PROTOCOL_ACKNOWLEDGED not in transitions
     assert receipt.verified
     assert receipt.trust_level == "VERIFIED"
     assert receipt.usable_for_real_execution

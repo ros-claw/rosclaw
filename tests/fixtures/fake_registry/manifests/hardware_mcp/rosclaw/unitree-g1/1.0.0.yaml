@@ -100,8 +100,9 @@ data_rights:
 security:
   signing:
     required: true
-    scheme: "sigstore"
-    certificate: "signatures/cert.pem"
+    scheme: "ed25519"
+    key_id: "rosclaw-hub-fixture-v1"
+    file: "signatures/manifest.ed25519"
   checksums:
     algorithm: "sha256"
     file: "checksums.txt"

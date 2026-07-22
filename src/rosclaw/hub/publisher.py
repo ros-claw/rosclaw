@@ -6,49 +6,35 @@ The :class:`Publisher` prepares a local asset directory for publication:
 2. Scans the asset directory for secrets and other dangerous content.
 3. Computes sha256 digests for all artifacts and updates the manifest.
 4. Generates ``checksums.txt`` and optional SBOM / provenance files.
-5. Optionally creates a placeholder signing certificate and signature.
+5. Creates a detached Ed25519 signature when publication signing is enabled.
 6. Bundles the prepared directory into a ``.rosclaw`` tar.gz package.
 7. Uploads the bundle to a registry when requested.
 """
 
 from __future__ import annotations
 
+import base64
 import hashlib
-import hmac
 import json
+import os
 import re
 import shutil
 import tarfile
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 import yaml
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from rosclaw.hub.cache import HubCache
 from rosclaw.hub.errors import HubError, HubErrorCode
 from rosclaw.hub.refs import AssetRef, ref_from_dict
 from rosclaw.hub.schema import AssetManifest, load_manifest
-
-# ---------------------------------------------------------------------------
-# Placeholder signing material
-# ---------------------------------------------------------------------------
-DUMMY_SIGNING_KEY = b"rosclaw-hub-placeholder-signing-key"
-
-DUMMY_CERT_PEM = """-----BEGIN CERTIFICATE-----
-MIIBkTCB+wIJAJHGTVDEAIbdMA0GCSqGSIb3DQEBCwUAMBExDzANBgNVBAMMBnJv
-c2NsYXdBMB4XDTI2MDEwMTAwMDAwMFoXDTM2MDEwMTAwMDAwMFowETEPMA0GA1UE
-AwwGcm9zY2xhdzCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEAyV0P5fF2Kb3v
-2TEqK2h7mM7R1gM0w1j6xK3g8WJG8f7a4Vt6b8lX7M0PBPYe3mP8Qr7lN7hQ9vQ6
-yK2h7mM7R1gM0w1j6xK3g8WJG8f7a4Vt6b8lX7M0PBPYe3mP8Qr7lN7hQ9vQ6yK2
-h7mM7R1gM0w1j6xK3g8WJG8f7a4Vt6b8lX7M0CAwEAATANBgkqhkiG9w0BAQsFAANB
-AF3rXn3jR7Xy2h7mM7R1gM0w1j6xK3g8WJG8f7a4Vt6b8lX7M0PBPYe3mP8Qr7lN
-7hQ9vQ6yK2h7mM7R1gM0w1j6xK3g8WJG8f7a4Vt6b8lX7M0=
------END CERTIFICATE-----
-"""
-
+from rosclaw.hub.verifier import is_supported_signature_path, signature_payload
 
 # ---------------------------------------------------------------------------
 # Secret scanner patterns
@@ -90,6 +76,8 @@ class PublishOptions:
     output: Path | None = None
     home: str | Path | None = None
     secret_scan_fail_on_find: bool = True
+    signing_key: str | Path | None = None
+    signing_key_id: str | None = None
 
 
 @dataclass
@@ -111,6 +99,131 @@ class PublishResult:
 # ---------------------------------------------------------------------------
 def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _safe_relative_path(relative: str) -> bool:
+    if (
+        not relative
+        or "\\" in relative
+        or any(ord(character) < 32 or ord(character) == 127 for character in relative)
+    ):
+        return False
+    candidate = PurePosixPath(relative)
+    return (
+        not candidate.is_absolute()
+        and candidate.parts not in ((), (".",))
+        and ".." not in candidate.parts
+    )
+
+
+def _asset_path(asset_dir: Path, relative: object, *, label: str) -> Path:
+    if not isinstance(relative, str) or not _safe_relative_path(relative):
+        raise HubError(
+            code=HubErrorCode.PUBLISH_REJECTED,
+            message=f"Unsafe {label} path: {relative!r}",
+        )
+    candidate = (asset_dir / relative).resolve()
+    try:
+        candidate.relative_to(asset_dir.resolve())
+    except ValueError as exc:
+        raise HubError(
+            code=HubErrorCode.PUBLISH_REJECTED,
+            message=f"Unsafe {label} path: {relative!r}",
+        ) from exc
+    return candidate
+
+
+def _validate_source_tree(source: Path) -> None:
+    issues: list[str] = []
+    for path in source.rglob("*"):
+        relative = path.relative_to(source).as_posix()
+        if path.is_symlink():
+            issues.append(f"symbolic link: {relative}")
+        elif not path.is_dir() and not path.is_file():
+            issues.append(f"non-regular entry: {relative}")
+        if not _safe_relative_path(relative):
+            issues.append(f"unsafe path: {relative!r}")
+    if issues:
+        raise HubError(
+            code=HubErrorCode.PUBLISH_REJECTED,
+            message="Hub asset source tree is unsafe: " + "; ".join(issues),
+        )
+
+
+def _validate_security_layout(
+    asset_dir: Path,
+    manifest: AssetManifest,
+    *,
+    signature_file: str | None,
+) -> tuple[str, str | None, str | None]:
+    """Validate control-file paths before staging can overwrite payload data."""
+
+    checksums = manifest.security.get("checksums")
+    if not isinstance(checksums, dict):
+        raise HubError(
+            code=HubErrorCode.PUBLISH_REJECTED,
+            message="security.checksums must be a mapping",
+        )
+    if checksums.get("algorithm", "sha256") != "sha256":
+        raise HubError(
+            code=HubErrorCode.PUBLISH_REJECTED,
+            message="Hub publication only supports security.checksums.algorithm=sha256",
+        )
+    checksums_file = checksums.get("file", "checksums.txt")
+    if not isinstance(checksums_file, str) or not checksums_file:
+        raise HubError(
+            code=HubErrorCode.PUBLISH_REJECTED,
+            message="security.checksums.file must be a non-empty relative path",
+        )
+
+    optional_paths: dict[str, str | None] = {}
+    for label, value in (
+        ("SBOM", manifest.security.get("sbom")),
+        ("provenance", manifest.security.get("provenance")),
+    ):
+        if value is not None and (not isinstance(value, str) or not value):
+            raise HubError(
+                code=HubErrorCode.PUBLISH_REJECTED,
+                message=f"security.{label.lower()} must be a non-empty relative path",
+            )
+        optional_paths[label] = value
+
+    controls: dict[Path, str] = {}
+    for label, relative in (
+        ("manifest", "manifest.yaml"),
+        ("checksums", checksums_file),
+        ("signature", signature_file),
+        ("SBOM", optional_paths["SBOM"]),
+        ("provenance", optional_paths["provenance"]),
+    ):
+        if relative is None:
+            continue
+        target = _asset_path(asset_dir, relative, label=label)
+        prior = controls.get(target)
+        if prior is not None:
+            raise HubError(
+                code=HubErrorCode.PUBLISH_REJECTED,
+                message=(
+                    f"Security control path collision: {prior} and {label} both use {relative!r}"
+                ),
+            )
+        controls[target] = label
+
+    for index, artifact in enumerate(manifest.artifacts):
+        relative = artifact.get("path")
+        if not relative:
+            continue
+        target = _asset_path(asset_dir, relative, label=f"artifacts[{index}]")
+        control_label = controls.get(target)
+        if control_label is not None:
+            raise HubError(
+                code=HubErrorCode.PUBLISH_REJECTED,
+                message=(
+                    f"Artifact path collides with the {control_label} control file: {relative!r}"
+                ),
+            )
+
+    return checksums_file, optional_paths["SBOM"], optional_paths["provenance"]
 
 
 def _now_iso() -> str:
@@ -149,13 +262,18 @@ def _scan_file(path: Path, rel_path: str) -> list[str]:
     return findings
 
 
-def scan_secrets(asset_dir: Path) -> list[str]:
+def scan_secrets(
+    asset_dir: Path,
+    *,
+    excluded_paths: set[str] | None = None,
+) -> list[str]:
     """Recursively scan *asset_dir* for leaked secrets.
 
     Returns:
         A list of human-readable findings.
     """
     findings: list[str] = []
+    excluded_paths = excluded_paths or set()
     for path in sorted(asset_dir.rglob("*")):
         if not path.is_file():
             continue
@@ -163,6 +281,8 @@ def scan_secrets(asset_dir: Path) -> list[str]:
             rel = path.relative_to(asset_dir)
         except ValueError:
             rel = path
+        if str(rel) in excluded_paths:
+            continue
         findings.extend(_scan_file(path, str(rel)))
     return findings
 
@@ -174,7 +294,7 @@ def _artifact_files(asset_dir: Path, manifest: AssetManifest) -> list[Path]:
         rel = artifact.get("path")
         if not rel:
             continue
-        path = asset_dir / rel
+        path = _asset_path(asset_dir, rel, label="artifact")
         if path.exists():
             files.append(path)
     return files
@@ -191,7 +311,7 @@ def _update_artifact_digests(manifest: AssetManifest, asset_dir: Path) -> list[s
         rel_path = artifact.get("path")
         if not rel_path:
             continue
-        file_path = asset_dir / rel_path
+        file_path = _asset_path(asset_dir, rel_path, label="artifact")
         if not file_path.exists():
             warnings.append(f"Declared artifact missing on disk: {rel_path}")
             continue
@@ -210,27 +330,25 @@ def _manifest_to_yaml_bytes(manifest: AssetManifest) -> bytes:
     )
 
 
-def _build_checksums_text(asset_dir: Path, manifest: AssetManifest) -> bytes:
-    """Build the canonical ``checksums.txt`` content.
+def _build_checksums_text(
+    asset_dir: Path,
+    *,
+    checksums_file: str,
+    signature_file: str | None,
+) -> bytes:
+    """Hash every payload file except the checksum list and detached signature."""
 
-    Includes ``manifest.yaml`` and every declared artifact. Files are listed
-    in a stable order.
-    """
     lines: list[str] = []
-    manifest_path = asset_dir / "manifest.yaml"
-    if manifest_path.exists():
-        digest = _sha256_hex(manifest_path.read_bytes())
-        lines.append(f"sha256:{digest}  manifest.yaml")
-
-    for artifact in manifest.artifacts:
-        rel_path = artifact.get("path")
-        if not rel_path:
+    excluded = {checksums_file}
+    if signature_file:
+        excluded.add(signature_file)
+    for path in sorted(asset_dir.rglob("*")):
+        if not path.is_file():
             continue
-        file_path = asset_dir / rel_path
-        if not file_path.exists():
+        relative = path.relative_to(asset_dir).as_posix()
+        if relative in excluded:
             continue
-        digest = _sha256_hex(file_path.read_bytes())
-        lines.append(f"sha256:{digest}  {rel_path}")
+        lines.append(f"sha256:{_sha256_hex(path.read_bytes())}  {relative}")
 
     return ("\n".join(lines) + "\n").encode("utf-8")
 
@@ -253,7 +371,7 @@ def _build_sbom(manifest: AssetManifest, asset_dir: Path) -> dict[str, Any]:
         rel_path = artifact.get("path")
         if not rel_path:
             continue
-        file_path = asset_dir / rel_path
+        file_path = _asset_path(asset_dir, rel_path, label="artifact")
         if not file_path.exists():
             continue
         files.append(
@@ -326,12 +444,34 @@ def _build_provenance(
     }
 
 
-def _sign_checksums(checksums_path: Path, signature_path: Path) -> None:
-    """Create a placeholder HMAC signature over the checksums file."""
-    data = checksums_path.read_bytes()
-    signature = hmac.new(DUMMY_SIGNING_KEY, data, hashlib.sha256).digest()
+def _load_signing_key(path: str | Path) -> Ed25519PrivateKey:
+    try:
+        key = serialization.load_pem_private_key(
+            Path(path).expanduser().read_bytes(),
+            password=None,
+        )
+    except Exception as exc:  # noqa: BLE001 - invalid operator key input
+        raise HubError(
+            code=HubErrorCode.PUBLISH_REJECTED,
+            message=f"Ed25519 private key could not be loaded: {exc}",
+        ) from exc
+    if not isinstance(key, Ed25519PrivateKey):
+        raise HubError(
+            code=HubErrorCode.PUBLISH_REJECTED,
+            message="Signing private key must be an Ed25519 PKCS8 PEM key",
+        )
+    return key
+
+
+def _sign_asset(
+    private_key: Ed25519PrivateKey,
+    manifest_bytes: bytes,
+    checksums_bytes: bytes,
+    signature_path: Path,
+) -> None:
+    signature = private_key.sign(signature_payload(manifest_bytes, checksums_bytes))
     signature_path.parent.mkdir(parents=True, exist_ok=True)
-    signature_path.write_bytes(signature)
+    signature_path.write_text(base64.b64encode(signature).decode("ascii") + "\n", encoding="ascii")
 
 
 def _catalog_entry_from_manifest(
@@ -364,18 +504,33 @@ class Publisher:
         Returns:
             A tuple of (prepared directory, validated manifest, warnings).
         """
-        source = Path(asset_dir).expanduser().resolve()
+        requested_source = Path(asset_dir).expanduser().absolute()
+        if requested_source.is_symlink():
+            raise HubError(
+                code=HubErrorCode.PUBLISH_REJECTED,
+                message="Hub asset root cannot be a symbolic link",
+            )
+        source = requested_source.resolve()
         if not source.is_dir():
             raise HubError(
                 code=HubErrorCode.ASSET_NOT_FOUND,
                 message=f"Asset directory not found: {source}",
             )
+        _validate_source_tree(source)
 
         manifest = load_manifest(source / "manifest.yaml")
         warnings: list[str] = []
 
-        # Secret scanning.
-        secret_findings = scan_secrets(source)
+        declared_signing = manifest.security.get("signing", {})
+        declared_signature_file = (
+            declared_signing.get("file") if isinstance(declared_signing, dict) else None
+        )
+        secret_findings = scan_secrets(
+            source,
+            excluded_paths=(
+                {declared_signature_file} if isinstance(declared_signature_file, str) else set()
+            ),
+        )
         if secret_findings:
             if self.options.secret_scan_fail_on_find and not self.options.dry_run:
                 raise HubError(
@@ -390,53 +545,162 @@ class Publisher:
             manifest.visibility["scope"] = self.options.visibility
 
         # Artifact digests.
-        warnings.extend(_update_artifact_digests(manifest, source))
-
-        # Prepare a staging copy.
-        prepared = self.cache.staging_path(prefix="publish")
-        shutil.copytree(source, prepared, dirs_exist_ok=True)
-
-        # Write the updated manifest.
-        manifest_bytes = _manifest_to_yaml_bytes(manifest)
-        self.cache._atomic_write(prepared / "manifest.yaml", manifest_bytes)
-
-        # Checksums.
-        checksums_file = manifest.security.get("checksums", {}).get("file", "checksums.txt")
-        checksums_path = prepared / checksums_file
-        checksums_bytes = _build_checksums_text(prepared, manifest)
-        self.cache._atomic_write(checksums_path, checksums_bytes)
-
-        # SBOM.
-        sbom_file = manifest.security.get("sbom")
-        if sbom_file:
-            sbom = _build_sbom(manifest, prepared)
-            self.cache._atomic_write(
-                prepared / sbom_file,
-                json.dumps(sbom, indent=2, ensure_ascii=False).encode("utf-8"),
+        artifact_warnings = _update_artifact_digests(manifest, source)
+        if artifact_warnings and not self.options.dry_run:
+            raise HubError(
+                code=HubErrorCode.PUBLISH_REJECTED,
+                message="Asset artifacts are incomplete:\n  - " + "\n  - ".join(artifact_warnings),
             )
+        warnings.extend(artifact_warnings)
 
-        # Provenance (needs final bundle digest, so write a placeholder now
-        # and replace after bundling).
-        provenance_file = manifest.security.get("provenance")
-        if provenance_file:
-            placeholder_digest = _sha256_hex(b"")
-            provenance = _build_provenance(manifest, placeholder_digest)
-            self.cache._atomic_write(
-                prepared / provenance_file,
-                json.dumps(provenance, indent=2, ensure_ascii=False).encode("utf-8"),
-            )
-
-        # Signing.
         signing = manifest.security.get("signing", {})
-        if self.options.sign or signing.get("required", False):
-            cert_rel = signing.get("certificate", "signatures/cert.pem")
-            cert_path = prepared / cert_rel
-            cert_path.parent.mkdir(parents=True, exist_ok=True)
-            self.cache._atomic_write(cert_path, DUMMY_CERT_PEM.encode("utf-8"))
-            sig_path = prepared / "signatures" / "signature.bin"
-            _sign_checksums(checksums_path, sig_path)
+        if not isinstance(signing, dict):
+            raise HubError(
+                code=HubErrorCode.PUBLISH_REJECTED,
+                message="security.signing must be a mapping",
+            )
+        should_sign = self.options.sign or bool(signing.get("required", False))
+        signing_key: Ed25519PrivateKey | None = None
+        signature_file: str | None = None
+        if should_sign:
+            if signing.get("scheme") not in (None, "ed25519"):
+                raise HubError(
+                    code=HubErrorCode.PUBLISH_REJECTED,
+                    message="Signed Hub publication requires security.signing.scheme=ed25519",
+                )
+            configured_key_id = signing.get("key_id")
+            option_key_id = self.options.signing_key_id or os.environ.get(
+                "ROSCLAW_HUB_SIGNING_KEY_ID"
+            )
+            key_id = option_key_id or configured_key_id
+            if not isinstance(key_id, str) or not key_id:
+                raise HubError(
+                    code=HubErrorCode.PUBLISH_REJECTED,
+                    message="Signed Hub publication requires a signing key ID",
+                )
+            if option_key_id and configured_key_id and option_key_id != configured_key_id:
+                raise HubError(
+                    code=HubErrorCode.PUBLISH_REJECTED,
+                    message="Signing key ID does not match security.signing.key_id",
+                )
+            signing_key_path = self.options.signing_key or os.environ.get("ROSCLAW_HUB_SIGNING_KEY")
+            if signing_key_path is None:
+                raise HubError(
+                    code=HubErrorCode.PUBLISH_REJECTED,
+                    message="Signed Hub publication requires an Ed25519 private key",
+                    suggested_fix="Pass --signing-key with a PKCS8 PEM key outside the asset directory.",
+                )
+            signing_key = _load_signing_key(signing_key_path)
+            signature_file_value = signing.get("file", "signatures/manifest.ed25519")
+            if not isinstance(signature_file_value, str) or not signature_file_value:
+                raise HubError(
+                    code=HubErrorCode.PUBLISH_REJECTED,
+                    message="security.signing.file must be a non-empty relative path",
+                )
+            signature_file = signature_file_value
+            if not is_supported_signature_path(signature_file):
+                raise HubError(
+                    code=HubErrorCode.PUBLISH_REJECTED,
+                    message=(
+                        "security.signing.file must be beneath signatures/ and end in .ed25519"
+                    ),
+                )
+            _asset_path(source, signature_file, label="signature")
+            signing.update(
+                {
+                    "required": True,
+                    "scheme": "ed25519",
+                    "key_id": key_id,
+                    "file": signature_file,
+                }
+            )
+        elif isinstance(signing.get("file"), str):
+            # An unsigned rebuild must not retain a stale detached signature.
+            signature_file = signing["file"]
+            if not is_supported_signature_path(signature_file):
+                raise HubError(
+                    code=HubErrorCode.PUBLISH_REJECTED,
+                    message=(
+                        "security.signing.file must be beneath signatures/ and end in .ed25519"
+                    ),
+                )
+            _asset_path(source, signature_file, label="signature")
 
+        checksums_file, sbom_file, provenance_file = _validate_security_layout(
+            source,
+            manifest,
+            signature_file=signature_file,
+        )
+
+        prepared = self._stage_prepared_asset(
+            source=source,
+            manifest=manifest,
+            checksums_file=checksums_file,
+            sbom_file=sbom_file,
+            provenance_file=provenance_file,
+            signature_file=signature_file,
+            signing_key=signing_key,
+        )
         return prepared, manifest, warnings
+
+    def _stage_prepared_asset(
+        self,
+        *,
+        source: Path,
+        manifest: AssetManifest,
+        checksums_file: str,
+        sbom_file: str | None,
+        provenance_file: str | None,
+        signature_file: str | None,
+        signing_key: Ed25519PrivateKey | None,
+    ) -> Path:
+        """Build a prepared staging tree and remove partial output on failure."""
+
+        prepared = self.cache.staging_path(prefix="publish")
+        try:
+            shutil.copytree(source, prepared, dirs_exist_ok=True)
+
+            manifest_bytes = _manifest_to_yaml_bytes(manifest)
+            self.cache._atomic_write(prepared / "manifest.yaml", manifest_bytes)
+
+            if sbom_file:
+                sbom = _build_sbom(manifest, prepared)
+                self.cache._atomic_write(
+                    _asset_path(prepared, sbom_file, label="SBOM"),
+                    json.dumps(sbom, indent=2, ensure_ascii=False).encode("utf-8"),
+                )
+
+            # Provenance is bound to the immutable manifest. Embedding a
+            # bundle's digest inside that same bundle would be self-referential.
+            if provenance_file:
+                provenance = _build_provenance(manifest, _sha256_hex(manifest_bytes))
+                self.cache._atomic_write(
+                    _asset_path(prepared, provenance_file, label="provenance"),
+                    json.dumps(provenance, indent=2, ensure_ascii=False).encode("utf-8"),
+                )
+
+            checksums_path = _asset_path(prepared, checksums_file, label="checksums")
+            if signature_file:
+                _asset_path(prepared, signature_file, label="signature").unlink(missing_ok=True)
+            checksums_bytes = _build_checksums_text(
+                prepared,
+                checksums_file=checksums_file,
+                signature_file=signature_file,
+            )
+            self.cache._atomic_write(checksums_path, checksums_bytes)
+
+            if signing_key is not None and signature_file is not None:
+                _sign_asset(
+                    signing_key,
+                    manifest_bytes,
+                    checksums_bytes,
+                    _asset_path(prepared, signature_file, label="signature"),
+                )
+        except BaseException:
+            shutil.rmtree(prepared, ignore_errors=True)
+            raise
+
+        return prepared
 
     def bundle(
         self,
@@ -477,28 +741,6 @@ class Publisher:
         bundle_digest = _sha256_hex(bundle_bytes)
         size_bytes = len(bundle_bytes)
 
-        # Update provenance with real bundle digest if present.
-        provenance_file = manifest.security.get("provenance")
-        if provenance_file:
-            provenance_path = prepared_dir / provenance_file
-            if provenance_path.exists():
-                provenance = _build_provenance(manifest, bundle_digest)
-                self.cache._atomic_write(
-                    provenance_path,
-                    json.dumps(provenance, indent=2, ensure_ascii=False).encode("utf-8"),
-                )
-                # Re-create the bundle so the provenance file is final.
-                bundle_name.unlink()
-                with tarfile.open(bundle_name, "w:gz") as tar:
-                    for path in sorted(prepared_dir.rglob("*")):
-                        if not path.is_file():
-                            continue
-                        arcname = str(path.relative_to(prepared_dir))
-                        tar.add(path, arcname=arcname)
-                bundle_bytes = bundle_name.read_bytes()
-                bundle_digest = _sha256_hex(bundle_bytes)
-                size_bytes = len(bundle_bytes)
-
         return bundle_name, bundle_digest, size_bytes
 
     def publish(
@@ -518,6 +760,24 @@ class Publisher:
             :class:`PublishResult` describing the outcome.
         """
         prepared_dir, manifest, warnings = self.prepare(asset_dir)
+        try:
+            return self._publish_prepared(
+                prepared_dir,
+                manifest,
+                warnings,
+                registry_client=registry_client,
+            )
+        finally:
+            shutil.rmtree(prepared_dir, ignore_errors=True)
+
+    def _publish_prepared(
+        self,
+        prepared_dir: Path,
+        manifest: AssetManifest,
+        warnings: list[str],
+        *,
+        registry_client: Any | None,
+    ) -> PublishResult:
         ref = ref_from_dict(
             {
                 "type": manifest.asset.type.value,
@@ -529,6 +789,21 @@ class Publisher:
 
         manifest_bytes = _manifest_to_yaml_bytes(manifest)
         manifest_digest = f"sha256:{_sha256_hex(manifest_bytes)}"
+
+        if self.options.registry:
+            signing = manifest.security.get("signing", {})
+            signature_file = signing.get("file") if isinstance(signing, dict) else None
+            if (
+                not isinstance(signing, dict)
+                or signing.get("scheme") != "ed25519"
+                or not isinstance(signature_file, str)
+                or not _asset_path(prepared_dir, signature_file, label="signature").is_file()
+            ):
+                raise HubError(
+                    code=HubErrorCode.PUBLISH_REJECTED,
+                    message="Registry publication requires a detached Ed25519 signature",
+                    suggested_fix="Declare Ed25519 signing and pass --signing-key/--signing-key-id.",
+                )
 
         if self.options.dry_run:
             return PublishResult(

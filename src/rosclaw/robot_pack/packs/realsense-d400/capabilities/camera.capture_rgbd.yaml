@@ -1,0 +1,33 @@
+schema_version: rosclaw.capability.v1
+id: camera.capture_rgbd
+title: Capture aligned RGB-D
+input:
+  type: object
+  additionalProperties: false
+  properties:
+    output_dir:
+      type: string
+    serial:
+      type: string
+  required: []
+output:
+  required:
+    - device_identity
+    - captured_at
+    - artifacts
+    - artifact_hashes
+    - receipt
+safety:
+  class: read_only
+  actuation: forbidden
+  direct_driver_access: forbidden
+  gateway: rosclawd
+execution:
+  mode: REAL
+  adapter: librealsense-mcp
+  tools_any_of:
+    - capture_aligned_rgbd
+    - capture_frames
+evidence:
+  minimum: PHYSICALLY_OBSERVED
+  artifact_hash: sha256

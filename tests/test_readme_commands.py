@@ -6,6 +6,7 @@ they run successfully. They prevent README/CLI drift on future releases.
 
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -43,15 +44,15 @@ def _extract_commands(markdown: str) -> list[str]:
 
 
 def _run_command(cmd: str, timeout: int = 30) -> subprocess.CompletedProcess:
-    """Run a README command through the CLI module."""
+    """Run a README command through the installed public entrypoint."""
     match = _ROSCLAW_CMD_RE.match(cmd)
-    args = match.group(1).split() if match else []
+    args = shlex.split(match.group(1)) if match else []
     if args[:2] == ["agent", "install"] and "--dry-run" not in args:
         args.append("--dry-run")
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT / "src")
     return subprocess.run(
-        [sys.executable, "-m", "rosclaw.cli", *args],
+        [sys.executable, "-m", "rosclaw.entrypoint", *args],
         cwd=PROJECT_ROOT,
         env=env,
         capture_output=True,

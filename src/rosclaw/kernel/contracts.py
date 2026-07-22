@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from math import isfinite
 from typing import Any
 
 ACTION_SCHEMA_VERSION = "rosclaw.action.v1"
@@ -47,6 +48,26 @@ class ExecutionMode(StrEnum):
     REAL = "REAL"
 
 
+class OrphanPolicy(StrEnum):
+    """Required behavior when the owning Agent Session is lost."""
+
+    STOP_ON_CLIENT_LOSS = "STOP_ON_CLIENT_LOSS"
+    CANCEL_ON_CLIENT_LOSS = "CANCEL_ON_CLIENT_LOSS"
+    CONTINUE_UNTIL_DEADLINE = "CONTINUE_UNTIL_DEADLINE"
+    OPERATOR_HANDOFF_REQUIRED = "OPERATOR_HANDOFF_REQUIRED"
+
+
+class AcknowledgementStage(StrEnum):
+    """Strongest acknowledgement that can be truthfully claimed."""
+
+    REQUEST_ACCEPTED = "REQUEST_ACCEPTED"
+    COMMAND_DISPATCHED = "COMMAND_DISPATCHED"
+    PROTOCOL_ACKNOWLEDGED = "PROTOCOL_ACKNOWLEDGED"
+    DELIVERY_INFERRED = "DELIVERY_INFERRED"
+    EFFECT_OBSERVED = "EFFECT_OBSERVED"
+    TASK_VERIFIED = "TASK_VERIFIED"
+
+
 class ActionState(StrEnum):
     """Observable states in the physical action lifecycle."""
 
@@ -58,6 +79,12 @@ class ActionState(StrEnum):
     AUTHORIZED = "AUTHORIZED"
     WAITING_RESOURCE = "WAITING_RESOURCE"
     SCHEDULED = "SCHEDULED"
+    REQUEST_ACCEPTED = "REQUEST_ACCEPTED"
+    COMMAND_DISPATCHED = "COMMAND_DISPATCHED"
+    PROTOCOL_ACKNOWLEDGED = "PROTOCOL_ACKNOWLEDGED"
+    DELIVERY_INFERRED = "DELIVERY_INFERRED"
+    EFFECT_OBSERVED = "EFFECT_OBSERVED"
+    # Kept for parsing v1 receipts. New receipts use the precise states above.
     DISPATCHED = "DISPATCHED"
     DRIVER_ACKNOWLEDGED = "DRIVER_ACKNOWLEDGED"
     PHYSICALLY_OBSERVED = "PHYSICALLY_OBSERVED"
@@ -67,6 +94,7 @@ class ActionState(StrEnum):
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
     TIMED_OUT = "TIMED_OUT"
+    ORPHANED = "ORPHANED"
     DEGRADED = "DEGRADED"
 
 
@@ -117,6 +145,15 @@ class VerificationPolicy:
     timeout_sec: float = 30.0
     fail_closed: bool = True
 
+    def __post_init__(self) -> None:
+        if isinstance(self.timeout_sec, bool) or not isinstance(self.timeout_sec, (int, float)):
+            raise TypeError("VerificationPolicy.timeout_sec must be numeric")
+        self.timeout_sec = float(self.timeout_sec)
+        if not isfinite(self.timeout_sec) or not 0.0 < self.timeout_sec <= 3_600.0:
+            raise ValueError("VerificationPolicy.timeout_sec must be finite and between 0 and 3600")
+        if not isinstance(self.fail_closed, bool):
+            raise TypeError("VerificationPolicy.fail_closed must be a boolean")
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "required_evidence": self.required_evidence.value,
@@ -153,12 +190,17 @@ class ActionEnvelope:
     authorization: AuthorizationContext = field(default_factory=AuthorizationContext)
     risk_class: str = "medium"
     deadline_at: datetime | None = None
+    lease_ttl_ms: int = 10_000
+    renew_interval_ms: int = 3_000
+    orphan_policy: OrphanPolicy = OrphanPolicy.STOP_ON_CLIENT_LOSS
+    stop_capability: str = "safety.emergency_stop"
     parent_trace_id: str | None = None
     expected_effect: dict[str, Any] | None = None
     verification_policy: VerificationPolicy = field(default_factory=VerificationPolicy)
 
     def __post_init__(self) -> None:
         self.execution_mode = ExecutionMode(str(self.execution_mode).upper())
+        self.orphan_policy = OrphanPolicy(str(self.orphan_policy).upper())
         required = {
             "schema_version": self.schema_version,
             "action_id": self.action_id,
@@ -177,8 +219,23 @@ class ActionEnvelope:
             )
         if not isinstance(self.arguments, dict):
             raise TypeError("ActionEnvelope.arguments must be a dict")
-        if self.deadline_at is not None and self.deadline_at.tzinfo is None:
+        if self.deadline_at is None:
+            bounded_timeout = max(0.1, float(self.verification_policy.timeout_sec))
+            self.deadline_at = utc_now() + timedelta(seconds=bounded_timeout)
+        elif self.deadline_at.tzinfo is None:
             self.deadline_at = self.deadline_at.replace(tzinfo=UTC)
+        for name, value in (
+            ("lease_ttl_ms", self.lease_ttl_ms),
+            ("renew_interval_ms", self.renew_interval_ms),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise TypeError(f"ActionEnvelope.{name} must be an integer")
+            if not 100 <= value <= 3_600_000:
+                raise ValueError(f"ActionEnvelope.{name} must be between 100 and 3600000")
+        if self.renew_interval_ms >= self.lease_ttl_ms:
+            raise ValueError("ActionEnvelope.renew_interval_ms must be less than lease_ttl_ms")
+        if not isinstance(self.stop_capability, str) or not self.stop_capability.strip():
+            raise ValueError("ActionEnvelope.stop_capability must be a non-empty string")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -195,6 +252,10 @@ class ActionEnvelope:
             "authorization": self.authorization.to_dict(),
             "risk_class": self.risk_class,
             "deadline_at": _iso(self.deadline_at),
+            "lease_ttl_ms": self.lease_ttl_ms,
+            "renew_interval_ms": self.renew_interval_ms,
+            "orphan_policy": self.orphan_policy.value,
+            "stop_capability": self.stop_capability,
             "parent_trace_id": self.parent_trace_id,
             "expected_effect": self.expected_effect,
             "verification_policy": self.verification_policy.to_dict(),
@@ -216,6 +277,17 @@ class ActionEnvelope:
             authorization=AuthorizationContext.from_dict(value.get("authorization")),
             risk_class=str(value.get("risk_class", "medium")),
             deadline_at=_parse_datetime(value.get("deadline_at")),
+            lease_ttl_ms=value.get("lease_ttl_ms", 10_000),
+            renew_interval_ms=value.get("renew_interval_ms", 3_000),
+            orphan_policy=OrphanPolicy(
+                str(
+                    value.get(
+                        "orphan_policy",
+                        OrphanPolicy.STOP_ON_CLIENT_LOSS.value,
+                    )
+                ).upper()
+            ),
+            stop_capability=value.get("stop_capability", "safety.emergency_stop"),
             parent_trace_id=value.get("parent_trace_id"),
             expected_effect=value.get("expected_effect"),
             verification_policy=VerificationPolicy.from_dict(value.get("verification_policy")),
@@ -250,6 +322,7 @@ class ActionExecutionResult:
     artifacts: list[str] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
     artifact_directory: str | None = None
+    acknowledgement_stage: AcknowledgementStage | None = None
 
 
 @dataclass
@@ -271,6 +344,7 @@ class ExecutionReceipt:
     simulation_result: dict[str, Any] | None = None
     dispatch_result: dict[str, Any] = field(default_factory=dict)
     driver_ack: dict[str, Any] | None = None
+    acknowledgement_stage: AcknowledgementStage = AcknowledgementStage.REQUEST_ACCEPTED
     observations: list[dict[str, Any]] = field(default_factory=list)
     verification_result: dict[str, Any] | None = None
     artifacts: list[str] = field(default_factory=list)
@@ -302,7 +376,11 @@ class ExecutionReceipt:
 
     @property
     def usable_for_real_execution(self) -> bool:
-        return self.mode is ExecutionMode.REAL and self.verified
+        return (
+            self.mode is ExecutionMode.REAL
+            and self.final_state is ActionState.COMPLETED
+            and self.verified
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -320,6 +398,7 @@ class ExecutionReceipt:
             "simulation_result": self.simulation_result,
             "dispatch_result": self.dispatch_result,
             "driver_ack": self.driver_ack,
+            "acknowledgement_stage": self.acknowledgement_stage.value,
             "observations": self.observations,
             "verification_result": self.verification_result,
             "final_state": self.final_state.value,
@@ -416,12 +495,14 @@ __all__ = [
     "ActionEnvelope",
     "ActionExecutionResult",
     "ActionState",
+    "AcknowledgementStage",
     "AuthorizationContext",
     "EmergencyStopReceipt",
     "EmergencyStopStatus",
     "EvidenceLevel",
     "ExecutionMode",
     "ExecutionReceipt",
+    "OrphanPolicy",
     "StateTransition",
     "VerificationPolicy",
     "utc_now",

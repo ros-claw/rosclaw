@@ -287,9 +287,9 @@ def test_uncertain_write_needs_reread(transport: SerialModbusTransport) -> None:
 
     device.handle = _drop_ack  # type: ignore[method-assign]
     ok = transport.write_position([600] * 6, speed=200, force_limit=300)
-    # Read-back finds setpoints (and actuals) already at target → acknowledged via re-read.
-    assert ok
-    assert transport.last_command_delivery == CommandDelivery.ACKNOWLEDGED
+    # Physical read-back supports delivery inference, never a missing protocol ACK.
+    assert not ok
+    assert transport.last_command_delivery == CommandDelivery.DELIVERY_INFERRED
 
 
 def test_uncertain_write_stays_fail_closed(transport: SerialModbusTransport) -> None:

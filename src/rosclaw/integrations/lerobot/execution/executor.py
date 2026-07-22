@@ -27,6 +27,7 @@ from rosclaw.body.execution.interface import (
     ExecutorCommunicationError,
     ExecutorSafetyError,
 )
+from rosclaw.body.rh56.transport import CommandDelivery
 from rosclaw.body.rh56.transport_profile import TransportProfile
 from rosclaw.integrations.lerobot.execution.arming import ArmingController
 from rosclaw.integrations.lerobot.execution.feedback_verifier import FeedbackVerifier
@@ -224,14 +225,19 @@ class SingleStepExecutor:
             self.hardware_actions_executed += 1
         self._emit(
             "execution.command.sent",
-            {"proposal_id": proposal_id, "acknowledged": acknowledged},
+            {
+                "proposal_id": proposal_id,
+                "acknowledged": acknowledged,
+                "delivery": (delivery := self._command_delivery(acknowledged)),
+            },
         )
-        self._emit(
-            "execution.command.acknowledged"
-            if acknowledged
-            else "execution.command.not_acknowledged",
-            {"proposal_id": proposal_id},
-        )
+        if acknowledged:
+            delivery_event = "execution.command.protocol_acknowledged"
+        elif delivery == "DELIVERY_INFERRED":
+            delivery_event = "execution.command.delivery_inferred"
+        else:
+            delivery_event = "execution.command.not_acknowledged"
+        self._emit(delivery_event, {"proposal_id": proposal_id, "delivery": delivery})
 
         # 7. Verify transport feedback. In the currently allowed path this is
         # synthetic fixture feedback, as recorded on the result envelope.
@@ -262,11 +268,13 @@ class SingleStepExecutor:
             else float("nan")
             for i in range(len(request.values))
         ]
-        ok = self.verifier.is_step_ok(verification) and acknowledged
+        delivery_supported = acknowledged or delivery == "DELIVERY_INFERRED"
+        ok = self.verifier.is_step_ok(verification) and delivery_supported
         result = self._result(
             status="completed" if ok else "fault",
             command_sent=True,
             command_acknowledged=acknowledged,
+            command_delivery=delivery,
             target=list(request.values),
             actual=[float(p) for p in feedback.position],
             position_error=position_error,
@@ -295,6 +303,17 @@ class SingleStepExecutor:
                 {"proposal_id": proposal_id, "verification": verification.to_dict()},
             )
         return result
+
+    def _command_delivery(self, acknowledged: bool) -> str:
+        if acknowledged:
+            return "PROTOCOL_ACKNOWLEDGED"
+        transport = getattr(self.executor, "transport", None)
+        raw = getattr(transport, "last_command_delivery", CommandDelivery.UNCERTAIN)
+        if raw == CommandDelivery.DELIVERY_INFERRED:
+            return "DELIVERY_INFERRED"
+        if raw == CommandDelivery.REJECTED:
+            return "REJECTED"
+        return "UNCERTAIN"
 
     # ------------------------------------------------------------------
 

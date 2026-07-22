@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,8 @@ class ProjectProfile:
     has_pyproject: bool
     has_rosclaw_src: bool
     default_transport: str
+    cli_command: str
+    cli_args: tuple[str, ...]
 
 
 ROSCLAW_MARKER_FILES = [
@@ -215,4 +218,8 @@ def build_project_profile(
         has_pyproject=(root / "pyproject.toml").exists(),
         has_rosclaw_src=(root / "src" / "rosclaw").is_dir() or (root / "rosclaw").is_dir(),
         default_transport=default_transport,
+        # Pin the environment that executed onboarding. Agent login shells may
+        # reorder PATH and otherwise select an older ROSClaw installation.
+        cli_command=str(Path(sys.executable).absolute()),
+        cli_args=("-m", "rosclaw.entrypoint"),
     )

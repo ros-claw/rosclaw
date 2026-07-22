@@ -1,0 +1,26 @@
+apiVersion: rosclaw.io/v1
+kind: App
+metadata:
+  name: realsense-inspect
+  version: 1.0.0
+  title: RealSense Inspect
+  summary: Capture aligned RGB-D evidence and request a visual risk assessment.
+requires:
+  capabilities:
+    - camera.capture_rgbd
+    - vlm.risk_assessment
+workflow:
+  - call: camera.capture_rgbd
+    save_as: frame
+    input: {}
+    timeout_sec: 30
+  - call: vlm.risk_assessment
+    save_as: assessment
+    input:
+      image: ${frame.observations.0.artifacts.color}
+    timeout_sec: 60
+verification:
+  require:
+    - frame.observations.0.artifacts.color.exists
+    - frame.observations.0.artifacts.depth.exists
+    - assessment.final_state == COMPLETED

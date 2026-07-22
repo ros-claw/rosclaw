@@ -7,10 +7,11 @@ It is safe to edit the human sections below. Managed blocks are updated by
 <!-- ROSCLAW-MANAGED-BEGIN -->
 ## ROSClaw Runtime Boundary (managed)
 
-- Project: `rosclaw-v1.0`
+- Project: `rosclaw_repo`
 - Project root: `.`
 - Default robot: (none detected)
 - MCP transport: `stdio`
+- Pinned ROSClaw CLI: `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint`
 
 This project exposes a P0 ROSClaw MCP server. Connect via the configured `stdio` transport defined in `.mcp.json`.
 
@@ -52,6 +53,53 @@ request succeeds only when the daemon independently matches a server-issued,
 body- and action-intent-bound permit. Never instantiate a local Runtime,
 register a driver, or use ROS, DDS, serial, CAN, or a vendor SDK as an
 alternate motion path.
+
+### Robot Integration setup
+
+Robot Integration installation and configuration are operator CLI workflows,
+separate from the MCP tool surface. It is safe to inspect discovery and signed contracts
+with `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot discover --json`, `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot install realsense --json`, and
+`/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot verify realsense --stage contract --json`. Installing native
+adapter dependencies, binding a live serial number, and running read-only
+hardware verification require an explicit operator request. A local successful
+check is candidate evidence only and must not be reported as canonical support.
+
+### Capability Apps
+
+Apps are capability-only task manifests, not drivers or permissions. Inspect
+them with `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint app list` and `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint app validate <APP> --json`. Run an App
+only through `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint app run <APP> --body <BODY> --mode SHADOW --json` unless the
+operator explicitly establishes every REAL prerequisite. App installation does
+not install hardware, arm rosclawd, issue a Permit, or prove execution.
+
+## LeRobot Bridge v1.0.1
+
+LeRobot is a policy backend inside ROSClaw. Do not operate its worker,
+robot transport, executor, serial device, or vendor SDK directly.
+
+### Discovery
+
+1. Call `get_product_status`.
+2. Call `get_runtime_status`.
+3. Call `get_body_profile` and `get_body_state`.
+4. Call `get_calibration_status`.
+5. Check that `rh56.single_step` is available before requesting RH56 motion.
+
+### Supported Reference Path
+
+- Policy: `rosclaw_rh56_reference`
+- Bodies: `inspire_rh56_left`, `inspire_rh56_right`
+- Modes: proposal-only, SHADOW, single-step REAL
+- REAL is submitted only through MCP `request_action`.
+
+### Safety
+
+- Use SHADOW before REAL.
+- Never run `rosclaw lerobot rollout execute` from an Agent process.
+- Never open serial/CAN devices directly.
+- Never create or approve a Permit.
+- Read `get_execution_receipt` and `explain_execution` before claiming success.
+
 <!-- ROSCLAW-MANAGED-END -->
 
 ## Human notes

@@ -16,6 +16,14 @@ evidence_levels:
   - PHYSICALLY_OBSERVED
   - TASK_VERIFIED
 
+acknowledgement_stages:
+  - REQUEST_ACCEPTED
+  - COMMAND_DISPATCHED
+  - PROTOCOL_ACKNOWLEDGED
+  - DELIVERY_INFERRED
+  - EFFECT_OBSERVED
+  - TASK_VERIFIED
+
 support_tiers:
   H0_INDEXED: Asset metadata is indexed; no execution claim.
   H1_CONTRACT_VERIFIED: Schemas and fail-closed contracts are verified.
@@ -23,6 +31,7 @@ support_tiers:
   H3_HARDWARE_READ_VERIFIED: Hardware state was independently observed and verified.
   H4_HARDWARE_ACTUATION_VERIFIED: Hardware actuation was independently observed and verified.
   H5_AGENT_BLACKBOX_VERIFIED: An external Agent completed the guarded path in a black-box test.
+  H6_REFERENCE_SUPPORTED: A maintained reference release passed H5 and its published support contract.
 
 golden_paths:
   ur5e_reach:
@@ -55,7 +64,6 @@ golden_paths:
         observation_scope: physics_simulation
         fixture: false
         independent: true
-        receipt_schema: rosclaw.receipt.v1
       - id: ur5e-reach-codex-blackbox-20260720
         kind: developer_agent_blackbox
         path: docs/P0_AGENT_INTEGRATION.md
@@ -85,6 +93,30 @@ golden_paths:
     claim: developer_observed_revalidation_pending
     support_tier: H1_CONTRACT_VERIFIED
     candidate_tier: H4_HARDWARE_ACTUATION_VERIFIED
+    integration:
+      family: lerobot
+      bridge_version: "1.0.1"
+      runtime:
+        lerobot_version: ">=0.6,<0.7"
+        worker_python: ">=3.12"
+        active_sessions: 1
+      reference_policy:
+        type: rosclaw_rh56_reference
+        action_dim: 6
+        semantic_source: explicit_policy_contract
+      reference_bodies:
+        - inspire_rh56_left
+        - inspire_rh56_right
+      supported_execution_modes:
+        - proposal_only
+        - shadow
+        - single_step_receding_horizon
+      unsupported:
+        - can_rh56_execution
+        - open_loop_action_chunks
+        - multiple_active_sessions
+        - unattended_execution
+    agent_discoverable: true
     modes:
       fixture: fixture_verified
       simulation: not_applicable
@@ -122,9 +154,29 @@ golden_paths:
         observation_scope: physical_hardware
         fixture: false
         independent: false
+      - id: rh56-truthful-delivery-inference-tests
+        kind: automated_protocol_fault_test
+        path: tests/unit/integrations/lerobot/test_rh56_real_gateway.py
+        verified_at: "2026-07-21"
+        observation_scope: serial_protocol_ack_loss_loopback
+        fixture: true
+        independent: true
+      - id: rh56-lerobot-agent-blackbox-20260722
+        kind: developer_agent_blackbox
+        path: reports/lerobot_bridge/AGENT_NATIVE_CLOSURE_REPORT_V1_0_1.md
+        verified_at: "2026-07-22"
+        observation_scope: external_agent_guarded_hardware
+        fixture: false
+        independent: false
+        receipt_schema: rosclaw.receipt.v1
+        notes: >-
+          Discovery / SHADOW / unauthorized-REAL passes via a fresh-context
+          developer agent process with zero forbidden actions; dataset workflow
+          verified deterministically (agent process run cut short by backend
+          quota); authorized REAL requires the physical hand.
     evidence_summary:
-      en: Real SerialModbusTransport, shadow reads, graded REAL actions, and fault injection were developer-observed; independent v1 hardware revalidation and Agent black-box testing remain open.
-      zh: SerialModbusTransport、Shadow 读取、分级 REAL 动作和故障注入已有开发者真机观察；独立 v1 真机复验与 Agent 黑盒仍未完成。
+      en: Real SerialModbusTransport, shadow reads, graded REAL actions, and fault injection were developer-observed; a developer Agent black-box (discovery / SHADOW / unauthorized REAL / dataset workflow) passed 2026-07-22 with zero forbidden actions. Loopback fault tests now prove that target-near readback is DELIVERY_INFERRED rather than a protocol ACK; independent v1 hardware revalidation and independent Agent black-box testing remain open.
+      zh: SerialModbusTransport、Shadow 读取、分级 REAL 动作和故障注入已有开发者真机观察；开发者 Agent 黑盒（discovery / SHADOW / 未授权 REAL / dataset 流程）2026-07-22 通过、零违规动作。Loopback 故障测试现已证明目标附近回读只能标为 DELIVERY_INFERRED 而非协议 ACK；独立 v1 真机复验与独立 Agent 黑盒仍未完成。
 
   realsense_inspect:
     display:
@@ -148,6 +200,20 @@ golden_paths:
       physical_estop: not_applicable
     agent_ready: false
     evidence:
+      - id: realsense-robot-pack-contract-tests
+        kind: automated_security_and_contract_test
+        path: tests/robot_pack/test_verification.py
+        verified_at: "2026-07-21"
+        observation_scope: component
+        fixture: false
+        independent: false
+      - id: realsense-mcp-process-fault-tests
+        kind: automated_process_fault_test
+        path: tests/mcp/onboarding/test_stdio_worker.py
+        verified_at: "2026-07-21"
+        observation_scope: isolated_mcp_subprocess
+        fixture: true
+        independent: true
       - id: realsense-component-pr48
         kind: component_report
         path: reports/ROSClaw_RealSense_MVP_Fix_Report.md
@@ -156,8 +222,8 @@ golden_paths:
         fixture: false
         independent: false
     evidence_summary:
-      en: Profiles, read-only policy, skill, doctor, bench, and evidence plumbing have component coverage; this repository has no verified hardware capture run.
-      zh: Profile、只读策略、Skill、Doctor、Bench 和证据链已有组件覆盖；仓库中尚无已验证的真机采集 Run。
+      en: A signed, commit-locked RealSense Robot Integration covers install/configure/verify/status, Body binding, daemon-side RGB-D execution, artifact hashing, and bounded MCP subprocess faults; this repository still has no independently verified hardware capture run.
+      zh: 已签名且锁定依赖 commit 的 RealSense Robot Integration 已覆盖 install/configure/verify/status、Body 绑定、daemon 侧 RGB-D 执行、Artifact 哈希和有界 MCP 子进程故障；仓库中仍无独立验证的真机采集 Run。
 
   turtlesim_guarded_motion:
     display:
@@ -184,6 +250,40 @@ golden_paths:
     evidence_summary:
       en: Connector contracts exist, but the ROS 2 golden path has not been run in the current validation environment.
       zh: Connector 契约已存在，但当前验证环境尚未运行 ROS 2 黄金路径。
+
+  mobile_base_deadman:
+    display:
+      en: Mobile base continuous-lease deadman
+      zh: 移动底盘持续租约 Deadman
+    robot: mujoco_mobile_base
+    capability: base.velocity_command
+    claim: simulation_verified
+    support_tier: H2_SIMULATION_VERIFIED
+    candidate_tier: H5_AGENT_BLACKBOX_VERIFIED
+    modes:
+      fixture: fixture_available
+      simulation: verified
+      shadow: not_run
+      real: not_run
+    dimensions:
+      simulation: verified
+      hardware_read: not_run
+      hardware_actuation: not_run
+      agent_blackbox: not_run
+      physical_estop: not_verified
+    agent_ready: false
+    evidence:
+      - id: mobile-deadman-mujoco-20260721
+        kind: automated_physics_system_test
+        path: tests/sandbox/test_mobile_deadman.py
+        verified_at: "2026-07-21"
+        observation_scope: physics_simulation
+        fixture: false
+        independent: true
+        receipt_schema: rosclaw.receipt.v1
+    evidence_summary:
+      en: A MuJoCo mobile base reaches a bounded velocity, loses a 60 ms controller lease, trips its deadman, and reaches below 0.01 m/s with bounded post-loss travel. No physical mobile-base claim is made.
+      zh: MuJoCo 移动底盘在持续速度下停止续租 60 ms Controller Lease，Deadman 触发后速度降至 0.01 m/s 以下且失联后滑行距离有界；不据此声明真机底盘能力。
 
 components:
   rosclawd:
@@ -216,9 +316,44 @@ components:
         observation_scope: local_process_boundary
         fixture: false
         independent: true
+      - id: rosclawd-durable-ledger-tests
+        kind: automated_security_test
+        path: tests/daemon/test_ledger.py
+        verified_at: "2026-07-21"
+        observation_scope: local_durable_control_boundary
+        fixture: false
+        independent: true
+      - id: rosclawd-cross-uid-blackbox
+        kind: automated_deployment_test
+        path: scripts/acceptance/daemon_cross_uid.sh
+        verified_at: "2026-07-21"
+        observation_scope: clean_wheel_cross_uid_linux
+        fixture: false
+        independent: true
+      - id: rosclawd-systemd-blackbox
+        kind: automated_deployment_test
+        path: scripts/acceptance/daemon_systemd.sh
+        verified_at: "2026-07-21"
+        observation_scope: reference_systemd_sandbox
+        fixture: false
+        independent: true
+      - id: rosclawd-session-lease-watchdog-tests
+        kind: automated_fault_system_test
+        path: tests/daemon/test_sessions.py
+        verified_at: "2026-07-21"
+        observation_scope: agent_session_action_lease_orphan_policy
+        fixture: true
+        independent: true
+      - id: rosclawd-worker-manager-tests
+        kind: automated_process_fault_test
+        path: tests/daemon/test_worker_manager.py
+        verified_at: "2026-07-21"
+        observation_scope: adapter_worker_process_boundary
+        fixture: true
+        independent: true
     evidence_summary:
-      en: Separate-process socket, bounded protocol, SO_PEERCRED, peer-owned actions, exact action-intent permits, forged/replayed/substituted request blocking, queue, E-Stop, and shutdown are system-tested; production cross-UID, SROS2, and hardware acceptance remain pending.
-      zh: 独立进程 socket、有界协议、SO_PEERCRED、动作 peer 所有权、精确 Action Intent Permit、伪造/重放/参数替换阻止、队列、E-Stop 与关闭已通过系统测试；生产跨 UID、SROS2 和真机验收仍待完成。
+      en: Cross-UID sockets, SO_PEERCRED identity, private state, exact permits, restart recovery, DISARMED generations, Agent Sessions, Action Leases, orphan handling, watchdogs, and isolated worker restart budgets are system-tested; site-specific device ACLs, controller deadman wiring, and hardware acceptance remain pending.
+      zh: 跨 UID socket、SO_PEERCRED 身份、私有状态、精确 Permit、重启恢复、每代 DISARMED、Agent Session、Action Lease、孤儿处理、Watchdog 和隔离 Worker 重启预算已通过系统测试；站点设备 ACL、Controller Deadman 接线与真机验收仍待完成。
 
   action_gateway:
     display:
@@ -232,9 +367,78 @@ components:
         observation_scope: component
         fixture: false
         independent: true
+      - id: action-contract-lease-ack-tests
+        kind: automated_component_test
+        path: tests/kernel/test_action_contracts_v2.py
+        verified_at: "2026-07-21"
+        observation_scope: action_lease_orphan_and_ack_schema
+        fixture: false
+        independent: true
     evidence_summary:
-      en: Versioned action and receipt, evidence levels, idempotency, exclusive body lease, and fail-closed executor lookup.
-      zh: 版本化 Action/Receipt、证据等级、幂等、Body 独占租约和 Executor 缺失时失败关闭。
+      en: Versioned action and receipt, finite deadline and lease, orphan policy, stop capability, strict acknowledgement stages, idempotency, exclusive body lease, and fail-closed executor lookup.
+      zh: 版本化 Action/Receipt、有限 Deadline/Lease、Orphan Policy、停止能力、严格 ACK 阶段、幂等、Body 独占租约和 Executor 缺失时失败关闭。
+
+  app_runtime:
+    display:
+      en: Capability-only App runtime
+      zh: 仅 Capability 的 App Runtime
+    claim: component_verified
+    evidence:
+      - id: app-schema-store-runner-tests
+        kind: automated_component_test
+        path: tests/app/test_app.py
+        verified_at: "2026-07-21"
+        observation_scope: capability_only_app_workflow
+        fixture: true
+        independent: true
+    evidence_summary:
+      en: Local and bundled App manifests, digest-locked installation, low-code authoring, and daemon-only workflow execution are tested; remote App registry and independent Agent acceptance remain pending.
+      zh: 本地及内置 App Manifest、摘要锁定安装、低代码编排与仅经 daemon 的工作流执行已测试；远程 App Registry 与独立 Agent 验收仍待完成。
+
+  hub_supply_chain:
+    display:
+      en: Generic Hub asset supply chain
+      zh: 通用 Hub 资产供应链
+    claim: component_system_verified
+    evidence:
+      - id: hub-ed25519-trust-tests-20260722
+        kind: automated_security_test
+        path: tests/hub/test_signature_trust.py
+        verified_at: "2026-07-22"
+        observation_scope: local_asset_integrity_and_publisher_trust
+        fixture: true
+        independent: true
+      - id: hub-safe-archive-tests-20260722
+        kind: automated_security_test
+        path: tests/hub/test_archive_security.py
+        verified_at: "2026-07-22"
+        observation_scope: bounded_local_and_remote_bundle_extraction
+        fixture: true
+        independent: true
+      - id: hub-file-registry-e2e-20260722
+        kind: automated_system_test
+        path: tests/hub/test_e2e_fake_registry.py
+        verified_at: "2026-07-22"
+        observation_scope: local_file_registry_publish_sync_install_lifecycle
+        fixture: true
+        independent: true
+      - id: hub-install-copy-transaction-tests-20260722
+        kind: automated_security_test
+        path: tests/hub/test_installer_transaction.py
+        verified_at: "2026-07-22"
+        observation_scope: copied_manifest_binding_target_reverification_and_rollback
+        fixture: true
+        independent: true
+      - id: hub-owner-only-auth-store-tests-20260722
+        kind: automated_security_test
+        path: tests/hub/test_auth.py
+        verified_at: "2026-07-22"
+        observation_scope: atomic_owner_only_registry_credential_storage
+        fixture: true
+        independent: true
+    evidence_summary:
+      en: Complete payload hashes, detached Ed25519 signatures, independently scoped trust roots, canonical-reference and copied-manifest binding, target re-verification, bounded extraction, explicit install permissions, owner-only local credentials, and local/file registry lifecycle are system-tested. The packaged trust store is empty; public registry, TUF rollback protection, OS-keyring integration, and builder-attestation verification remain pending.
+      zh: 完整 Payload 哈希、Ed25519 分离签名、独立作用域信任根、Canonical Reference 与复制 Manifest 绑定、安装目标二次验证、有界解压、显式安装权限、Owner-only 本地凭据及本地/文件 Registry 生命周期已通过系统测试；随包 Trust Store 为空，公共 Registry、TUF 防回滚、OS Keyring 集成与 Builder Attestation 验证仍待完成。
 
   estop:
     display:
@@ -292,9 +496,13 @@ readme_matrix:
   - golden_paths.ur5e_reach
   - components.rosclawd
   - components.action_gateway
+  - components.app_runtime
+  - components.hub_supply_chain
   - components.estop
   - components.fixture_surfaces
+  - golden_paths.realsense_inspect
   - golden_paths.rh56_single_step
   - components.integrations
   - golden_paths.turtlesim_guarded_motion
+  - golden_paths.mobile_base_deadman
   - components.real_robot_execution

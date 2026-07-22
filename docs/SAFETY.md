@@ -30,6 +30,8 @@ Decision: ALLOW / MODIFY / BLOCK / REQUIRE_HUMAN_CONFIRMATION
     ↓
 rosclawd validates peer/body/snapshot/capability/action-intent permit
     ↓
+rosclawd durably records the action and consumes the exact REAL permit
+    ↓
 ActionGateway acquires resource lease
     ↓
 Runtime ActionGateway dispatches a registered executor (if allowed)
@@ -83,6 +85,9 @@ The following actions require explicit human confirmation by default:
 - ROSClaw does not replace functional safety hardware (e.g., physical e-stops, light curtains, force limits).
 - ROSClaw does not certify robots or skills for regulatory compliance.
 - ROSClaw cannot prevent misuse if the operator disables gates or feeds malicious configuration.
+- The local rosclawd HMAC ledger cannot prevent a root/daemon-state owner from
+  forging or jointly rolling back the database and signed head. It is not a TPM,
+  monotonic counter, or remote transparency log.
 
 ---
 
@@ -104,6 +109,13 @@ Agent user must not have serial/CAN device groups, vendor credentials, or ROS 2
 command-topic permissions. See [rosclawd Control Plane](ROSCLAWD.md) for the
 reference systemd and SROS2 deployment boundary.
 
+Before allowing new REAL work after an unclean daemon restart, inspect
+`rosclaw daemon status --json`. If `recovery.required` is true, retain external
+controller logs, inspect the robot and interrupted receipt, and keep the
+physical E-Stop engaged. Only the daemon service UID may then run
+`rosclaw daemon acknowledge-recovery --reason <review-record>`. This records
+review but does not clear the E-Stop latch or prove the physical outcome.
+
 ---
 
 ## Fail-Closed Defaults
@@ -116,8 +128,16 @@ reference systemd and SROS2 deployment boundary.
 - Agent-facing physical action requests default to `SHADOW`; `REAL` must be
   explicit and independently authorized by rosclawd.
 - Caller-provided `authorization.approved` values never create a REAL permit.
+- Official Permit issuance requires the daemon service UID, a healthy durable
+  ledger, an armed generation, an active target-UID Session, and a registered
+  exact-capability REAL executor.
 - A permit never accepts a wildcard Capability and cannot be reused with
   substituted arguments or execution constraints.
+- Permit consumption, immutable action IDs, and terminal receipts are persisted
+  before or at their safety-relevant transitions. Ledger integrity or write
+  failure blocks new actions.
+- An interrupted REAL action is never automatically retried. rosclawd requests
+  E-Stop, records an unknown outcome, and blocks new REAL work pending review.
 - A software E-stop dispatch or driver ACK is not reported as a successful
   physical stop without physical stop observation.
 

@@ -1,163 +1,198 @@
 # ROSClaw Hub Security Model
 
-The ROSClaw Hub is a distribution system for executable physical-AI assets. A
-single malicious or accidentally dangerous asset could move a real robot, alter
-safety limits, or exfiltrate logs. The Hub therefore uses **defense in depth**:
-manifest schema validation, integrity verification, permission policy, license
-policy, secret scanning, sandbox gating, and rollback on failure.
+The ROSClaw Hub distributes executable physical-AI assets. A malicious or
+accidentally dangerous asset could expose credentials, alter configuration, or
+make hardware capabilities available to an Agent. The Hub therefore combines
+schema validation, complete payload integrity, independent publisher trust,
+permission and license policy, bounded extraction, secret scanning, and
+transaction rollback.
+
+These controls secure asset preparation and installation. They do not replace
+`rosclawd` runtime authorization, controller watchdogs, physical E-Stop, or
+body-specific hardware acceptance.
 
 ## Threat model
 
-| Threat | Mitigation |
-|--------|------------|
-| Tampered asset after download | sha256 checksums on every file |
-| Man-in-the-middle registry | Placeholder signing + certificate checks (Sigstore-ready) |
-| Leaked secrets in published asset | Secret scan at publish time |
-| Unauthorized real-robot motion | Permission policy requires explicit opt-in |
-| Safety configuration changes | `safety_config` and `body_yaml` flags require approval |
-| Incompatible robot / OS / ROS | Compatibility checks before install |
-| Network exfiltration | Network policy restricts inbound/outbound scope |
-| License violation | SPDX whitelist, acceptance gates, data-rights checks |
-| Failed install leaves system dirty | Transactional install with `_rollback()` cleanup |
-| Malicious registry upload | Registry token auth; future TUF-style metadata planned |
+| Threat | Current mitigation and boundary |
+|--------|---------------------------------|
+| Payload changed after signing | sha256 coverage of every regular payload file plus a detached Ed25519 signature over the exact manifest and checksum bytes |
+| Registry substitutes another valid asset | catalog digest/identity validation plus byte-identical synchronized, fetched, and bundled manifests bound to the resolved canonical reference |
+| Untrusted publisher key | independent trust store with active status and canonical-reference scopes |
+| Archive path traversal or link escape | version-independent bounded extractor rejects absolute/parent paths, links, special files, duplicates, and file-parent conflicts |
+| Leaked text credentials | publish-time pattern scan; this is a guard, not proof that binary payloads contain no secrets |
+| Unauthorized real-robot capability | install defaults to deny and requires `--allow-real-robot`; runtime execution still requires daemon authorization |
+| Safety configuration changes | explicit `--allow-safety-config-changes` gate |
+| Non-local inbound listener | explicit `--allow-network-inbound` gate |
+| Failed or changed installation copy | partial copies are removed; the copied manifest must match the verified snapshot and the complete target tree is verified again before registry mutation |
+| Catalog rollback or freeze | Not yet solved; TUF-style root, snapshot, timestamp, and rollback protection remain required for a public registry |
 
 ## Verification (`rosclaw hub verify`)
 
-The verifier (`src/rosclaw/hub/verifier.py`) checks an asset directory without
-executing anything:
+The verifier checks an asset directory without executing asset code:
 
-1. `manifest.yaml` loads and validates against the Pydantic schema.
-2. The checksums file exists and matches the security section.
-3. Every file listed in `checksums.txt` exists and its sha256 digest matches.
-4. Every artifact declared in the manifest exists and its declared digest
-   matches.
-5. If signing is required, a valid PEM certificate and a detached signature are
-   present.
-6. SBOM / provenance files declared in `security` exist.
+1. Reject a symlinked root, symlinks, special filesystem entries, and control-character paths beneath it.
+2. Load and validate `manifest.yaml` with the Pydantic schema.
+3. Require sha256 and parse every checksum line strictly.
+4. Reject malformed, duplicate, absolute, parent-traversing, and backslash paths.
+5. Verify every listed file and reject regular payload files not covered by the checksum list.
+6. Verify every declared artifact digest and required SBOM/provenance file.
+7. Load the signing key from an independent trust store, require an active
+   Ed25519 key whose scope matches the canonical asset reference, and verify the
+   detached signature.
 
 ```bash
-rosclaw hub verify ./path/to/asset
-rosclaw hub verify ./path/to/asset --no-signature --json
+rosclaw hub verify ./path/to/asset \
+  --trust-store /etc/rosclaw/hub-trust.json
+rosclaw hub verify ./path/to/asset \
+  --trust-store /etc/rosclaw/hub-trust.json \
+  --json
 ```
 
-### Checksum file format
+`--no-signature` is an explicit local-development escape hatch. It emits a
+warning and must not be used for registry or production installation. A
+manifest cannot disable signature verification requested by the caller.
 
-`checksums.txt` is a newline-delimited list of file digests:
+### Checksum format
+
+`checksums.txt` uses one sha256 digest per line, with exactly two spaces before
+the relative path:
 
 ```text
-sha256:<hexdigest>  <relative/path>
-```
-
-Two spaces separate the digest and the relative path. Example:
-
-```text
-sha256:6b4ffdb036f30ddd0adb5c3b1fed6483e64abe3c3711b9aa8e3405f2dcaea444  artifacts/skill/behavior_tree.xml
+sha256:6b4ffdb036f30ddd0adb5c3b1fed6483e64abe3c3711b9aa8e3405f2dcaea444  manifest.yaml
 sha256:e43cf11f0181ccb99d92e54d51df5170a60b9ccc8a81ea2ce6335dc4517a0437  artifacts/models/policy.safetensors
 ```
 
-### Signature placeholders
+The checksum file and detached signature are excluded to avoid self-reference.
+Every other regular file must be listed.
 
-The current release uses a **placeholder** HMAC-SHA256 signature and a dummy
-certificate so the verifier and installer can exercise the full signing
-pipeline without requiring Sigstore network access. The signing key is
-hardcoded for testing and must be replaced with production material before
-connecting to a real registry.
+### Detached Ed25519 signature
 
-## Permission policy (`src/rosclaw/hub/permissions.py`)
+The signed bytes are:
 
-Permissions declared in `manifest.yaml` are evaluated by the installer unless
-`--allow-real-robot`, `--allow-safety-config-changes`, or
-`--allow-network-inbound` is passed.
+```text
+"ROSCLAW-HUB-ASSET-SIGNATURE-V1\0"
++ exact manifest.yaml bytes
++ "\0"
++ exact checksums.txt bytes
+```
 
-| Permission category | Examples | Dangerous? |
-|---------------------|----------|------------|
-| `hardware.real_robot_execution` | Move real motors | Yes — requires `--allow-real-robot` |
-| `hardware.actuators` | arms, gripper, legs | Listed for audit |
-| `ros.topics_write` | `/cmd_vel`, `/arm_controller/command` | Yes for motion topics |
-| `filesystem.write` | `$ROSCLAW_HOME/runtime/mcp.d` | Yes if not under runtime tree |
-| `network.inbound` | `localhost` vs `0.0.0.0` | Yes if non-local |
-| `modifies.safety_config` | Joint limits, collision geometry | Yes — requires `--allow-safety-config-changes` |
-| `requires_human_approval` | Real robot, body.yaml, mcp_config | Blocks unattended install unless `--yes` |
+The signature file contains base64-encoded 64-byte Ed25519 signature material.
+The public key is never trusted because it appears in an asset. Instead,
+`security.signing.key_id` selects a 32-byte Ed25519 public key from an
+operator-controlled trust store.
 
-Check policy locally:
+```json
+{
+  "schema_version": "rosclaw.hub.trust.v1",
+  "keys": {
+    "publisher-release-2026": {
+      "algorithm": "ed25519",
+      "public_key_base64": "<base64 public key>",
+      "status": "trusted",
+      "scopes": ["rosclaw://skill/publisher/*@*"]
+    }
+  }
+}
+```
+
+Trust-store precedence is `--trust-store`, then `ROSCLAW_HUB_TRUST_STORE`, then
+the packaged `rosclaw/hub/trust/keys.json`. The packaged store is intentionally
+empty. Test keys exist only under `tests/fixtures/hub_keys/`.
+
+## Safe bundle extraction
+
+Remote `.rosclaw` archives are fully validated before the first member is
+written. The extractor applies the same behavior on Python 3.11, 3.12, and
+3.13 and enforces default limits of 10,000 members and 2 GiB uncompressed data.
+It accepts only regular files and directories and removes set-user-ID and
+set-group-ID permission bits. Invalid archives return
+`HUB_INDEX_VERIFY_FAILED`, and staging directories are removed on success and
+failure.
+
+## Permission policy
+
+`src/rosclaw/hub/permissions.py` evaluates declared installation capability.
+High-risk categories require their own explicit flags; `--yes` does not grant
+them.
+
+| Permission category | Installation behavior |
+|---------------------|-----------------------|
+| `hardware.real_robot_execution` | denied unless `--allow-real-robot` is present |
+| `modifies.safety_config` | denied unless `--allow-safety-config-changes` is present |
+| non-local `network.inbound` | denied unless `--allow-network-inbound` is present |
+| actuator and ROS motion declarations | retained as dangerous-permission audit labels |
+| sensitive filesystem writes | retained as dangerous-permission audit labels |
+
+Installing an asset only makes it available. Actual physical execution must
+still pass the daemon's body binding, Permit, Session, Action Lease, safety,
+and executor checks.
+
+Inspect policy without installing:
 
 ```bash
 rosclaw hub policy check ./path/to/asset --json
 ```
 
-## License policy (`src/rosclaw/hub/licenses.py`)
+## License policy
 
-License checks enforce:
+License checks enforce the accepted SPDX set, declared license-file presence,
+commercial and redistribution terms, export-control declarations, and data
+rights. A license that requires acceptance needs `--accept-license` or `--yes`.
+Neither flag grants real-robot, safety-config, or inbound-network permission.
 
-- The `spdx` identifier is in the allowed whitelist (OSI-approved + custom
-  ROSClaw licenses).
-- A `license_file` exists in the asset directory.
-- `commercial_use`, `redistribution`, `export_control`, and `data_rights`
-  declarations match policy.
-- If `requires_acceptance` is implied by a non-standard license, the user must
-  pass `--accept-license` or `--yes`.
+## Secret scanning
 
-## Secret scanning (`src/rosclaw/hub/publisher.py`)
+The publisher scans UTF-8 text files for private-key blocks, AWS credentials,
+API keys, bearer tokens, generic secrets, and password literals. Findings fail
+a non-dry-run publish by default and are warnings in dry-run mode. Signing keys
+must remain outside the asset root.
 
-Before any publish, the publisher scans the asset directory for:
+Pattern scanning can miss encoded or binary secrets. Production publishing
+should add organization-specific scanners and artifact provenance controls.
 
-- Private keys (RSA, OpenSSH, EC, DSA, PGP)
-- AWS access / secret keys
-- API keys, bearer tokens, generic secrets
-- Password literals
+## Remote install binding
 
-By default, any finding fails the publish. In warning mode the publish succeeds
-but the finding is recorded.
+For a registry reference, installation performs the following checks before
+writing installed state:
 
-## Install-time guards
+1. Resolve an immutable concrete version from the synchronized local catalog.
+2. Require catalog reference, manifest digest, and manifest identity to agree;
+   rebuild searchable metadata from that manifest instead of trusting duplicate
+   catalog fields.
+3. Require the fetched manifest to match the synchronized bytes and identity.
+4. Safely extract the fetched bundle into a private staging directory.
+5. Require the bundled manifest to match both the fetched bytes and requested
+   canonical reference.
+6. Run complete payload, signature, compatibility, license, permission, and
+   dependency checks through the local installer.
+7. Copy files, require the copied manifest to match the verified snapshot, and
+   verify the complete copied tree again before updating runtime registries
+   transactionally. Partial copies are removed on failure.
 
-The installer (`src/rosclaw/hub/installer.py`) performs an atomic transaction:
+Remote `--dry-run` performs steps 1 through 6 and skips step 7.
 
-1. Acquire `assets.lock`.
-2. Verify asset integrity.
-3. Check compatibility (OS, arch, Python, ROS, robot).
-4. Check permission and license policy.
-5. Resolve dependencies.
-6. Copy artifacts to `~/.rosclaw/hub/installed/`.
-7. Write runtime registry JSON.
-8. Optionally merge MCP config.
-9. Run health checks.
-10. Save the lockfile entry and installed-state record.
+## State and audit boundary
 
-If any step fails, staged files are removed via `_rollback()`.
+The Hub lockfile and installed-state JSON record the active installation,
+source, dependencies, health, and timestamps. Uninstall removes active state;
+this is not an immutable security audit log. Physical actions are audited by
+the separate `rosclawd` receipt and durable-ledger path.
 
-## Network policy
+## Remaining production hardening
 
-The manifest `permissions.network` section declares:
+- Add TUF-style signed root, targets, snapshot, and timestamp metadata with
+  rollback and freeze protection.
+- Establish public key ownership, offline root, rotation, revocation, and
+  incident-response governance before populating the packaged trust store.
+- Verify provenance attestations against an approved builder identity instead
+  of checking only file integrity.
+- Add transparency or an external append-only witness for public releases.
+- Replace the local/file registry stub with a production client and anonymous
+  verified download path.
+- Expand secret and malware scanning to model weights and binary artifacts.
 
-- `outbound`: allowed destinations (`robot-local`, `internet`, etc.)
-- `inbound`: allowed bind addresses
-
-Non-local inbound access is denied unless `--allow-network-inbound` is
-provided.
-
-## Audit trail
-
-Every install, update, and uninstall records:
-
-- The canonical `rosclaw://` reference
-- Source path or registry URL
-- Lifecycle and health status
-- Dependency graph
-- Timestamps in the lockfile and installed-state JSON
-
-```bash
-rosclaw hub list --installed --json
-```
-
-## Future hardening
-
-- Replace placeholder signing with Sigstore / cosign verification.
-- Add TUF metadata (`root.json`, `timestamp.json`, `snapshot.json`) to the fake
-  registry.
-- Sandbox every install verification step inside an isolated process.
-- Add provenance attestation verification against builder identity.
-- Add secret scanning for model weight files and binary artifacts.
+Until those items exist, the generic Hub is a verified local developer asset
+pipeline, not a production public software-supply-chain service.
 
 ## See also
 
@@ -165,6 +200,6 @@ rosclaw hub list --installed --json
 - [Publish guide](publish_guide.md)
 - [Asset manifest reference](asset_manifest.md)
 - `src/rosclaw/hub/verifier.py`
-- `src/rosclaw/hub/permissions.py`
-- `src/rosclaw/hub/licenses.py`
-- `tests/hub/test_security_regression.py`
+- `src/rosclaw/hub/_compat.py`
+- `tests/hub/test_signature_trust.py`
+- `tests/hub/test_archive_security.py`

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 
 import pytest
 
@@ -159,3 +161,61 @@ def test_store_saves_valid_json(tmp_path) -> None:
     data = json.loads((tmp_path / "config" / "hub_auth.json").read_text(encoding="utf-8"))
     assert data["active"] == "http://a.example"
     assert data["profiles"]["http://a.example"]["token"] == "token-a"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission semantics")
+def test_store_uses_owner_only_permissions(tmp_path) -> None:
+    """Credential directories and files are private regardless of umask."""
+    store = AuthStore(home=tmp_path)
+    store.login("https://hub.example", "secret")
+
+    assert stat.S_IMODE((tmp_path / "config").stat().st_mode) == 0o700
+    assert stat.S_IMODE(store.path.stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission semantics")
+def test_store_tightens_existing_permissions(tmp_path) -> None:
+    """An existing user-owned credential file is migrated to mode 0600."""
+    auth_path = tmp_path / "config" / "hub_auth.json"
+    auth_path.parent.mkdir(parents=True)
+    auth_path.write_text('{"profiles": {}, "active": null}', encoding="utf-8")
+    auth_path.chmod(0o666)
+    auth_path.parent.chmod(0o755)
+
+    AuthStore(home=tmp_path)
+
+    assert stat.S_IMODE(auth_path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(auth_path.parent.stat().st_mode) == 0o700
+
+
+def test_store_rejects_credential_symlink(tmp_path) -> None:
+    """A pre-positioned credential symlink cannot redirect reads or writes."""
+    outside = tmp_path / "outside.json"
+    outside.write_text("do not overwrite", encoding="utf-8")
+    auth_path = tmp_path / "config" / "hub_auth.json"
+    auth_path.parent.mkdir(parents=True)
+    auth_path.symlink_to(outside)
+
+    with pytest.raises(HubError, match="must be a regular file"):
+        AuthStore(home=tmp_path)
+
+    assert outside.read_text(encoding="utf-8") == "do not overwrite"
+
+
+def test_store_rejects_config_directory_symlink(tmp_path) -> None:
+    """The private config boundary cannot be redirected through a symlink."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (tmp_path / "config").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(HubError, match="must be a real directory"):
+        AuthStore(home=tmp_path)
+
+
+def test_store_rejects_non_regular_credential_path(tmp_path) -> None:
+    """Directories and device-like paths are not accepted as token files."""
+    auth_path = tmp_path / "config" / "hub_auth.json"
+    auth_path.mkdir(parents=True)
+
+    with pytest.raises(HubError, match="must be a regular file"):
+        AuthStore(home=tmp_path)

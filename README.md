@@ -49,13 +49,17 @@ roadmap disguised as completed work.
 | Scope | Status | Evidence available today |
 |---|---|---|
 | UR5e tabletop reach | **Simulation verified** | Real MuJoCo execution and receipt verification are system-tested. Local Codex CLI black-box runs discovered all 22 MCP tools, completed the simulation workflow, and confirmed that rosclawd blocks unauthorized REAL actions without hardware dispatch; independent H5 acceptance remains pending. |
-| rosclawd Agent/physical boundary | **Component/system verified** | Separate-process socket, bounded protocol, SO_PEERCRED, peer-owned actions, exact action-intent permits, forged/replayed/substituted request blocking, queue, E-Stop, and shutdown are system-tested; production cross-UID, SROS2, and hardware acceptance remain pending. |
-| Action contract and gateway | **Component/system verified** | Versioned action and receipt, evidence levels, idempotency, exclusive body lease, and fail-closed executor lookup. |
+| rosclawd Agent/physical boundary | **Component/system verified** | Cross-UID sockets, SO_PEERCRED identity, private state, exact permits, restart recovery, DISARMED generations, Agent Sessions, Action Leases, orphan handling, watchdogs, and isolated worker restart budgets are system-tested; site-specific device ACLs, controller deadman wiring, and hardware acceptance remain pending. |
+| Action contract and gateway | **Component/system verified** | Versioned action and receipt, finite deadline and lease, orphan policy, stop capability, strict acknowledgement stages, idempotency, exclusive body lease, and fail-closed executor lookup. |
+| Capability-only App runtime | **Component verified** | Local and bundled App manifests, digest-locked installation, low-code authoring, and daemon-only workflow execution are tested; remote App registry and independent Agent acceptance remain pending. |
+| Generic Hub asset supply chain | **Component/system verified** | Complete payload hashes, detached Ed25519 signatures, independently scoped trust roots, canonical-reference and copied-manifest binding, target re-verification, bounded extraction, explicit install permissions, owner-only local credentials, and local/file registry lifecycle are system-tested. The packaged trust store is empty; public registry, TUF rollback protection, OS-keyring integration, and builder-attestation verification remain pending. |
 | E-Stop control path | **Component verified** | Fan-out, timeout, partial ACK, idempotency, latch, and physical-observation fields; no independent physical-stop verification. |
 | Mock Sense, mock Providers, fixture Drivers | **Fixture only** | Explicit FIXTURE and SYNTHETIC data only; never valid for safety or real acceptance. |
-| RH56 LeRobot single-step loop | **Developer-observed; revalidation pending** | Real SerialModbusTransport, shadow reads, graded REAL actions, and fault injection were developer-observed; independent v1 hardware revalidation and Agent black-box testing remain open. |
+| RealSense perception-only path | **Experimental** | A signed, commit-locked RealSense Robot Integration covers install/configure/verify/status, Body binding, daemon-side RGB-D execution, artifact hashing, and bounded MCP subprocess faults; this repository still has no independently verified hardware capture run. |
+| RH56 LeRobot single-step loop | **Developer-observed; revalidation pending** | Real SerialModbusTransport, shadow reads, graded REAL actions, and fault injection were developer-observed; a developer Agent black-box (discovery / SHADOW / unauthorized REAL / dataset workflow) passed 2026-07-22 with zero forbidden actions. Loopback fault tests now prove that target-near readback is DELIVERY_INFERRED rather than a protocol ACK; independent v1 hardware revalidation and independent Agent black-box testing remain open. |
 | ROS connectors, LeRobot, hardware MCP, real Providers | **Experimental** | Contract and component coverage varies; registration or import does not imply execution readiness. |
 | ROS 2 Turtlesim guarded motion | **Not verified** | Connector contracts exist, but the ROS 2 golden path has not been run in the current validation environment. |
+| Mobile base continuous-lease deadman | **Simulation verified** | A MuJoCo mobile base reaches a bounded velocity, loses a 60 ms controller lease, trips its deadman, and reaches below 0.01 m/s with bounded post-loss travel. No physical mobile-base claim is made. |
 | Repository-wide real robot execution | **Revalidation pending** | RH56 has developer-run physical evidence, but independent hardware and Agent black-box acceptance are still pending; no repository-wide real-ready claim is made. |
 <!-- product-status:end -->
 
@@ -116,20 +120,35 @@ Auto may propose changes, but it cannot approve them alone. Sandbox validation, 
 For Agent-driven physical work, `rosclawd` is the only supported control-plane
 entry. MCP and CLI clients submit structured actions over a protected local
 socket; the daemon independently checks peer/body/snapshot/capability/action
-intent, expiry, and use count before accepting a permit. It owns the queue,
-physical Runtime, drivers, E-Stop latch, and receipts.
+intent, Session, expiry, and use count before accepting a permit. Every action
+has a finite Deadline and renewable Lease; Session loss applies the declared
+orphan policy. The daemon owns the queue, isolated Adapter workers, physical
+Runtime, E-Stop latch, watchdogs, and receipts. An authenticated local ledger
+persists permit consumption and action transitions, restores terminal receipts
+after restart, and fails closed for interrupted REAL actions pending daemon-UID
+operator review. A daemon-UID-only CLI can issue one audited, short-lived
+Permit for an exact Agent proposal; the Agent cannot self-approve it. Every
+daemon generation starts `DISARMED` and never resumes an old physical action.
 
 ```bash
 # Development/process-boundary smoke test only
 rosclawd --robot-id sim_ur5e
 rosclaw daemon status --json
+rosclaw daemon session-create --session-id agent-1 --actor-id codex-1 \
+  --agent-framework codex --body sim_ur5e --capability sandbox.reach --json
 rosclaw daemon security-check --json
+# Only when status reports recovery.required=true, run as the daemon UID:
+rosclaw daemon acknowledge-recovery --reason "reviewed interrupted action evidence" --json
 ```
 
-Same-UID development mode is not a hardware privilege boundary. REAL
-deployments require the dedicated-user systemd setup, device ACLs, credential
-isolation, and SROS2/DDS access control in
-[docs/ROSCLAWD.md](docs/ROSCLAWD.md).
+Same-UID development mode is not a hardware privilege boundary. The clean-wheel
+cross-UID and reference-systemd acceptance scripts verify the generic Linux
+identity, socket, and private-state boundary. A deployed Agent must additionally
+pin `ROSCLAW_DAEMON_UID` to the service account. REAL deployments still require
+site-specific device ACLs, credential isolation, and SROS2/DDS access control in
+[docs/ROSCLAWD.md](docs/ROSCLAWD.md). The local HMAC key and signed head detect
+ordinary tampering and one-sided rollback; they are not a TPM or remote witness
+against an owner-level attacker who can replace all daemon state.
 
 ---
 
@@ -157,6 +176,49 @@ rosclaw firstboot --yes --profile offline --no-telemetry
 ```
 
 See [QUICKSTART.md](QUICKSTART.md) for four guided paths: local simulation, agent integration, robot body setup, and developer setup.
+
+---
+
+## Robot Integrations
+
+A Robot Integration is the user-facing, signed and versioned onboarding unit
+above individual Body, Hardware MCP, capability, policy, calibration, and
+verification assets. Its internal manifest remains `RobotPack`; it is an asset
+bundle, not another execution framework. The first built-in Integration
+supports perception-only RealSense D405/D435i onboarding:
+
+```bash
+rosclaw robot discover --type camera --json
+rosclaw robot install ros-claw/realsense-d400
+rosclaw robot verify realsense-d400 --stage contract
+rosclaw robot configure realsense-d400 --instance lab-d405 --serial SERIAL
+```
+
+Add `--install-adapter` only when the host should install the Integration's native MCP
+dependencies at its locked commit. Installation and offline configuration are
+not hardware verification. H3 additionally requires complete live identity,
+stream profiles, real RGB-D artifacts and hashes, a canonical `rosclawd`
+receipt, and independent physical observation.
+
+See [docs/ROBOT_PACKS.md](docs/ROBOT_PACKS.md) for trust, daemon loading, support
+tiers, and the hardware acceptance procedure.
+
+## Capability Apps
+
+Apps are small capability-only task manifests. They never name device paths,
+registers, ROS command topics, or Adapter APIs, and every step is submitted
+through `rosclawd`:
+
+```bash
+rosclaw app install ros-claw/realsense-inspect
+rosclaw app validate realsense-inspect --json
+rosclaw app run realsense-inspect --body lab-d405 --mode SHADOW --json
+```
+
+The bundled `realsense-inspect` and `rh56-rps` manifests are component-tested.
+This does not claim a verified camera capture or RH56 Agent run: RealSense H3
+still needs independent hardware evidence, and RH56 production Robot
+Integration/Worker migration is still pending. See [docs/APPS.md](docs/APPS.md).
 
 ---
 
@@ -201,7 +263,12 @@ Dashboard endpoints.
 
 ## Hub & Assets
 
-The ROSClaw Hub is a **Physical-AI Asset Hub** for skills, providers, hardware MCP servers, digital twins, and cognitive wikis. Assets can be kept entirely local or synced with a registry.
+The generic ROSClaw Hub is a **Physical-AI developer asset pipeline** for
+skills, providers, hardware MCP servers, digital twins, and cognitive wikis.
+It now enforces complete payload hashes, detached Ed25519 signatures,
+independent scoped trust roots, and safe archive extraction. Its registry is
+still local/file-backed; this is not yet a supported public asset registry and
+is separate from the existing `rosclaw mcp` discovery service.
 
 Supported asset types:
 
@@ -214,8 +281,14 @@ Supported asset types:
 ```bash
 rosclaw hub validate tests/fixtures/hub_assets/hardware_mcp_valid/manifest.yaml
 rosclaw hub search g1
-rosclaw hub install rosclaw://hardware_mcp/rosclaw/unitree-g1@1.0.0 --yes
+rosclaw hub verify tests/fixtures/hub_assets/hardware_mcp_valid \
+  --trust-store tests/fixtures/hub_keys/trust.json
+rosclaw hub install tests/fixtures/hub_assets/hardware_mcp_valid --dry-run \
+  --trust-store tests/fixtures/hub_keys/trust.json --allow-real-robot
 ```
+
+The committed trust key is test-only. Production trust roots must be
+provisioned independently; the packaged trust store is intentionally empty.
 
 See [docs/ASSETS.md](docs/ASSETS.md) and [docs/hub/README.md](docs/hub/README.md).
 
@@ -397,8 +470,8 @@ Read [docs/SAFETY.md](docs/SAFETY.md) for the full safety model.
 
 | Phase | Focus |
 |---|---|
-| **Current / Alpha** | rosclawd process-boundary prototype, truthful action/receipt contracts, fail-closed fixtures/providers/drivers, MuJoCo UR5e reach golden path, readiness-level Doctor. |
-| **Next** | Migrate every physical side-effect path to the gateway; cancellation/preemption; ROS 2 Turtlesim observed-motion golden path. |
+| **Current / Alpha** | rosclawd process boundary and durable local control ledger, truthful action/receipt contracts, fail-closed fixtures/providers/drivers, MuJoCo UR5e reach golden path, readiness-level Doctor. |
+| **Next** | Migrate every physical side-effect path to the gateway; ledger compaction/external witnessing; cancellation/preemption; ROS 2 Turtlesim observed-motion golden path. |
 | **Hardware acceptance** | RealSense read-only capture, then bounded actuator tasks with ACK, feedback, stop verification, and receipts. |
 | **Later** | Receipt-driven Memory/How/Auto/Darwin promotion with independent evaluation and rollback. |
 

@@ -18,8 +18,12 @@ from rosclaw.integrations.lerobot.subprocess_runner import run_command, which
 
 RuntimeMode = Literal["auto", "current-env", "isolated", "external"]
 RuntimeState = Literal["not_found", "ready", "degraded", "error"]
-LEROBOT_MIN_VERSION = semver.Version(0, 6, 0)
-LEROBOT_MAX_VERSION = semver.Version(0, 7, 0)
+try:
+    _SemVerVersion = semver.Version
+except AttributeError:  # semver 2.x, still present in some system Python images
+    _SemVerVersion = semver.VersionInfo
+LEROBOT_MIN_VERSION = _SemVerVersion(0, 6, 0)
+LEROBOT_MAX_VERSION = _SemVerVersion(0, 7, 0)
 LEROBOT_REQUIREMENT = ">=0.6,<0.7"
 LEROBOT_INFO_MODULE = "lerobot.scripts.lerobot_info"
 
@@ -171,7 +175,7 @@ def is_supported_lerobot_version(version: str | None) -> bool:
     if not version:
         return False
     try:
-        parsed = semver.Version.parse(version)
+        parsed = _SemVerVersion.parse(version)
     except ValueError:
         return False
     return LEROBOT_MIN_VERSION <= parsed < LEROBOT_MAX_VERSION

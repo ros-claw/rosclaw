@@ -83,7 +83,7 @@ def test_legal_reach_advances_physics_and_writes_real_artifacts(tmp_path: Path) 
     transition_states = [transition.state for transition in receipt.transitions]
     assert ActionState.POLICY_VALIDATED in transition_states
     assert ActionState.SIMULATION_VALIDATED in transition_states
-    assert ActionState.PHYSICALLY_OBSERVED in transition_states
+    assert ActionState.EFFECT_OBSERVED in transition_states
     assert ActionState.TASK_VERIFIED in transition_states
 
     artifact_paths = [_file_from_uri(uri) for uri in receipt.artifacts]

@@ -32,14 +32,25 @@ This document lists ROSClaw CLI commands and their implementation status.
 
 | Command | Status | Description |
 |---------|--------|-------------|
-| `rosclawd` | Experimental | Run the least-privilege physical control plane in the foreground |
+| `rosclawd [--ledger <db>] [--ledger-key <key>]` | Experimental | Run the least-privilege physical control plane with its durable ledger |
 | `rosclaw daemon serve` | Experimental | Run rosclawd through the main CLI |
-| `rosclaw daemon status --json` | Experimental | Inspect daemon identity, queue, drivers, permits, and E-Stop latch |
+| `rosclaw daemon status --json` | Experimental | Inspect daemon identity, queue, ledger integrity, recovery gate, permits, and E-Stop latch |
+| `rosclaw daemon arm --reason <text>` | Experimental | As daemon UID, arm only the current daemon generation for REAL dispatch |
+| `rosclaw daemon permit-issue <action.json> --principal-id <id> --target-uid <uid> --reason <text>` | Experimental | As daemon UID, issue one audited, short-lived, exact-action REAL Permit |
+| `rosclaw daemon disarm --reason <text>` | Experimental | As daemon UID, disarm and request a coordinated safety stop |
+| `rosclaw daemon session-create ...` | Experimental | Create a UID-bound Agent Session with explicit Body and Capability scope |
+| `rosclaw daemon session-heartbeat <session-id>` | Experimental | Renew an active Agent Session |
+| `rosclaw daemon session-close <session-id>` | Experimental | Close a Session, revoke permits, and apply orphan policy |
 | `rosclaw daemon request-action <action.json>` | Experimental | Submit one canonical ActionEnvelope |
+| `rosclaw daemon renew-action <action-id> <session-id>` | Experimental | Renew an active Action Lease and Session heartbeat |
 | `rosclaw daemon action-status <action-id>` | Experimental | Read daemon queue state and terminal receipt |
+| `rosclaw daemon receipt <action-id>` | Experimental | Read a terminal daemon ExecutionReceipt |
 | `rosclaw daemon cancel <action-id>` | Experimental | Cancel only before dispatch |
 | `rosclaw daemon emergency-stop --reason <text>` | Experimental | Request the daemon emergency path |
-| `rosclaw daemon security-check --json` | Experimental | Check local process/UID/device separation |
+| `rosclaw daemon acknowledge-recovery --reason <text>` | Experimental | As daemon UID, persist review of interrupted REAL evidence |
+| `rosclaw daemon security-check --json` | Experimental | Check pinned daemon identity, socket/runtime ACLs, private ledger state, and client device separation |
+| `rosclaw daemon worker-status [worker-id]` | Experimental | Inspect registered Adapter worker generation and heartbeat health |
+| `rosclaw daemon stop` | Experimental | As daemon UID, request orderly daemon shutdown |
 | `rosclaw run` | Stable | Start the ROSClaw runtime |
 | `rosclaw start` | Stable | Alias for `run` |
 | `rosclaw stop` | Stable | Stop the runtime |
@@ -50,6 +61,8 @@ The compatibility `rosclaw ros emergency-stop` command is also a rosclawd
 client; it no longer advertises or publishes command topics itself. Both
 emergency-stop commands exit nonzero unless the receipt confirms physical stop
 observation; a dispatch or driver ACK alone is not reported as success.
+Recovery acknowledgement clears only the restart review gate; it does not clear
+the E-Stop latch or change an unknown-outcome receipt.
 
 ---
 
@@ -61,6 +74,27 @@ observation; a dispatch or driver ACK alone is not reported as success.
 | `rosclaw robot list` | Stable | List available robots |
 | `rosclaw robot inspect <id>` | Stable | Show complete robot profile |
 | `rosclaw robot validate <id>` | Stable | Validate e-URDF completeness |
+| `rosclaw robot discover --type camera` | Experimental | Read-only discovery with complete/partial identity labels |
+| `rosclaw robot install <integration>` | Experimental | Verify and transactionally install a signed Robot Integration |
+| `rosclaw robot add <integration>` | Experimental | Compatibility alias for `robot install` |
+| `rosclaw robot configure <integration>` | Experimental | Bind an Integration, physical identity, and immutable Body snapshot |
+| `rosclaw robot verify <target> --stage <stage>` | Experimental | Persist evidence without automatic support-tier promotion |
+
+See [ROBOT_PACKS.md](ROBOT_PACKS.md) for the Pack trust model and RealSense path.
+
+## Capability Apps
+
+| Command | Status | Description |
+|---------|--------|-------------|
+| `rosclaw app install <source>` | Experimental | Digest-lock a bundled or local capability-only App manifest |
+| `rosclaw app list` | Experimental | List installed Apps |
+| `rosclaw app init <name>` | Experimental | Create a minimal low-code App manifest |
+| `rosclaw app add <capability>` | Experimental | Add one declared Capability workflow step |
+| `rosclaw app validate <target>` | Experimental | Validate schema, capability declarations, and southbound-data exclusions |
+| `rosclaw app run <name> --body <id> --mode <mode>` | Experimental | Run every App step through a rosclawd Agent Session |
+
+See [APPS.md](APPS.md). Installation does not install a Robot Integration,
+issue a Permit, arm the Runtime, or prove hardware execution.
 
 ---
 
@@ -99,16 +133,21 @@ observation; a dispatch or driver ACK alone is not reported as success.
 | Command | Status | Description |
 |---------|--------|-------------|
 | `rosclaw hub validate <manifest.yaml>` | Stable | Validate a local asset manifest |
-| `rosclaw hub login --registry <url> --token <token>` | Stable | Log in to a registry |
-| `rosclaw hub sync` | Stable | Sync registry metadata |
-| `rosclaw hub search <term>` | Stable | Search available assets |
-| `rosclaw hub verify <uri>` | Stable | Verify an asset bundle |
-| `rosclaw hub publish --dry-run` | Stable | Validate before publishing |
+| `rosclaw hub login --registry <url> --token <token>` | Experimental | Configure the local/file or fixture registry client |
+| `rosclaw hub sync` | Experimental | Sync fixture registry metadata into the local catalog |
+| `rosclaw hub search <term>` | Experimental | Search the local or synchronized fixture catalog |
+| `rosclaw hub verify <asset_dir>` | Stable | Verify complete payload integrity and scoped Ed25519 trust |
+| `rosclaw hub publish <asset_dir> --dry-run` | Stable | Prepare and validate a signed asset without bundle or registry output |
 | `rosclaw hub policy check <asset_dir>` | Stable | Check license/permission policy |
-| `rosclaw hub install <uri>` | Stable | Install an asset locally |
+| `rosclaw hub install <asset_dir-or-bundle>` | Stable | Safely verify and install a local directory or `.rosclaw` bundle |
+| `rosclaw hub install <uri>` | Experimental | Install from the local/file or fixture registry |
 | `rosclaw hub list --installed` | Stable | List installed assets |
 | `rosclaw hub uninstall <uri>` | Stable | Remove an installed asset |
 | `rosclaw hub update <uri> <asset_dir>` | Stable | Update an installed asset from a local directory |
+
+The generic Hub has no production public registry or populated packaged trust
+root yet. See [ASSETS.md](ASSETS.md) for the boundary between this subsystem
+and `rosclaw mcp` discovery.
 
 ---
 

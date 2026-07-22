@@ -1,7 +1,7 @@
 # ROSClaw CLI Command Form
 
 > Auto-generated from `src/rosclaw/cli.py` argparse definitions.
-> Generated: 2026-06-23
+> Generated: 2026-07-21 (supplemental Runtime/App command refresh)
 
 这份表单根据当前 `src/rosclaw/cli.py` 中的 argparse 注册信息，列出所有 `rosclaw` 子命令、说明和用法。
 
@@ -9,7 +9,9 @@
 
 | Command | Description | Usage |
 |---------|-------------|-------|
-| `rosclaw` | ROSClaw - Self-Evolving Runtime Infrastructure for Physical AI & Embodied Agents | `rosclaw [-h] [--version] {init,run,start,status,stop,restart,dashboard,doctor,firstboot,config,profile,uninstall,logs,events,ros,body,hub,robot,how,provider,auto,skill,sandbox,runtime,firewall,forge,memory,practice,know,sense,fleet,demo,agent,mcp} ...` |
+| `rosclaw` | ROSClaw - Self-Evolving Runtime Infrastructure for Physical AI & Embodied Agents | `rosclaw [-h] [--version] {init,setup,daemon,app,run,start,status,...} ...` |
+| `daemon` | Inspect or call the local rosclawd control plane | `rosclaw daemon [-h] {serve,status,acknowledge-recovery,arm,permit-issue,disarm,session-create,session-heartbeat,session-status,session-close,request-action,action-status,receipt,cancel,renew-action,worker-status,worker-start,worker-stop,worker-restart,emergency-stop,security-check,stop} ...` |
+| `app` | Install, author, and run Capability Apps | `rosclaw app [-h] {install,list,init,add,validate,run} ...` |
 | `init` | Initialize a ROSClaw workspace | `rosclaw init [-h] [--force] [dir]` |
 | `run` | Start ROSClaw runtime | `rosclaw run [-h] [--robot-id ROBOT_ID] [--model-path MODEL_PATH] [--firewall] [--memory] [--practice] [--swarm]` |
 | `start` | Start ROSClaw runtime | `rosclaw start [-h] [--robot-id ROBOT_ID] [--model-path MODEL_PATH] [--firewall] [--memory] [--practice] [--swarm]` |
@@ -27,7 +29,7 @@
 | `ros` | ROS bridge commands | `rosclaw ros [-h] {ping,discover,compile,list-capabilities,inspect-capability,validate-capability,execute-capability,emergency-stop} ...` |
 | `body` | Body / embodiment commands | `rosclaw body [-h] {init,create,switch,remove,list,validate,render,show,state,query,fault,maintenance,calibration,retrofit,capability,link-eurdf,inspect,diff,update-state,note,history,export,fleet-compat} ...` |
 | `hub` | ROSClaw Hub asset discovery, verification, and lifecycle | `rosclaw hub [-h] {validate,ref,schema,login,whoami,logout,sync,search,verify,policy,install,uninstall,update,list,publish} ...` |
-| `robot` | Robot registry commands | `rosclaw robot [-h] {list,install,inspect,validate} ...` |
+| `robot` | Robot registry and Integration commands | `rosclaw robot [-h] {discover,install,add,configure,verify,status,list,inspect,validate} ...` |
 | `how` | How recovery commands | `rosclaw how [-h] {explain,recover} ...` |
 | `provider` | Provider commands | `rosclaw provider [-h] {list,invoke} ...` |
 | `auto` | Auto self-evolution commands | `rosclaw auto [-h] {init,run,status,champion,deadends,report} ...` |
@@ -116,9 +118,52 @@
 | Command | Description | Usage |
 |---------|-------------|-------|
 | `robot list` | List available robots | `rosclaw robot list [-h]` |
-| `robot install` | Install/register a robot | `rosclaw robot install [-h] robot_id` |
+| `robot install` | Install and verify a signed Robot Integration | `rosclaw robot install SOURCE [--install-adapter] [--json]` |
 | `robot inspect` | Inspect robot profile | `rosclaw robot inspect [-h] [--json] robot_id` |
 | `robot validate` | Validate robot e-URDF | `rosclaw robot validate [-h] robot_id` |
+| `robot discover` | Read-only supported-device discovery | `rosclaw robot discover [--type camera] [--backend auto\|sdk\|sysfs] [--json]` |
+| `robot add` | Compatibility alias for `robot install` | `rosclaw robot add SOURCE [--install-adapter] [--json]` |
+| `robot configure` | Bind an Integration to a device and Body instance | `rosclaw robot configure INTEGRATION [--instance ID] [--serial SERIAL] [--json]` |
+| `robot verify` | Produce contract or hardware-read evidence | `rosclaw robot verify TARGET [--stage contract\|read-only] [--receipt FILE] [--json]` |
+| `robot status` | Show installed Integration or instance readiness | `rosclaw robot status TARGET [--json]` |
+
+## Daemon commands
+
+| Command | Description | Usage |
+|---------|-------------|-------|
+| `daemon serve` | Run rosclawd in the foreground | `rosclaw daemon serve [--socket PATH] [--socket-mode MODE] [--socket-group GROUP] [--robot-id ID]` |
+| `daemon status` | Show Runtime supervision, Sessions, workers, ledger, and recovery | `rosclaw daemon status [--json]` |
+| `daemon acknowledge-recovery` | Persist daemon-UID review of interrupted REAL evidence | `rosclaw daemon acknowledge-recovery --reason REASON [--json]` |
+| `daemon arm` | Arm this daemon generation as the service UID | `rosclaw daemon arm --reason REASON [--json]` |
+| `daemon permit-issue` | As the service UID, approve one exact REAL action for a target Agent UID | `rosclaw daemon permit-issue ACTION_JSON --principal-id ID --target-uid UID --reason REASON [--expires-in SEC] [--json]` |
+| `daemon disarm` | Disarm and request coordinated safety stop | `rosclaw daemon disarm --reason REASON [--json]` |
+| `daemon session-create` | Create a scoped Agent Session | `rosclaw daemon session-create --session-id ID --actor-id ID --agent-framework NAME --body BODY --capability CAPABILITY [--ttl-ms MS] [--json]` |
+| `daemon session-heartbeat` | Renew a Session heartbeat | `rosclaw daemon session-heartbeat SESSION_ID [--json]` |
+| `daemon session-status` | Read one Session | `rosclaw daemon session-status SESSION_ID [--json]` |
+| `daemon session-close` | Close a Session and apply orphan policy | `rosclaw daemon session-close SESSION_ID [--reason REASON] [--json]` |
+| `daemon request-action` | Submit canonical ActionEnvelope JSON and optionally wait for terminal status | `rosclaw daemon request-action ACTION_JSON [--wait SEC] [--json]` |
+| `daemon action-status` | Read queued or terminal Action status | `rosclaw daemon action-status ACTION_ID [--json]` |
+| `daemon receipt` | Read one daemon ExecutionReceipt | `rosclaw daemon receipt ACTION_ID [--json]` |
+| `daemon cancel` | Cancel an Action before dispatch | `rosclaw daemon cancel ACTION_ID [--json]` |
+| `daemon renew-action` | Renew Action Lease and Session heartbeat | `rosclaw daemon renew-action ACTION_ID SESSION_ID [--json]` |
+| `daemon worker-status` | Show Adapter Worker health | `rosclaw daemon worker-status [WORKER_ID] [--json]` |
+| `daemon worker-start` | Start an Adapter Worker as the service UID | `rosclaw daemon worker-start WORKER_ID [--json]` |
+| `daemon worker-stop` | Stop an Adapter Worker as the service UID | `rosclaw daemon worker-stop WORKER_ID [--json]` |
+| `daemon worker-restart` | Restart an Adapter Worker as the service UID | `rosclaw daemon worker-restart WORKER_ID [--json]` |
+| `daemon emergency-stop` | Request emergency stop outside the action queue | `rosclaw daemon emergency-stop --reason REASON [--json]` |
+| `daemon security-check` | Check the caller's local least-privilege boundary | `rosclaw daemon security-check [--json]` |
+| `daemon stop` | Request daemon shutdown as the service UID | `rosclaw daemon stop [--json]` |
+
+## App commands
+
+| Command | Description | Usage |
+|---------|-------------|-------|
+| `app install` | Install a local or bundled App | `rosclaw app install SOURCE [--home HOME] [--force] [--json]` |
+| `app list` | List installed Apps | `rosclaw app list [--home HOME] [--json]` |
+| `app init` | Create a minimal App manifest | `rosclaw app init NAME [--path PATH] [--force] [--json]` |
+| `app add` | Add a declared Capability step | `rosclaw app add CAPABILITY [--app APP] [--save-as NAME] [--input JSON] [--json]` |
+| `app validate` | Validate a local or installed App | `rosclaw app validate [TARGET] [--json]` |
+| `app run` | Run an App through rosclawd | `rosclaw app run NAME --body BODY [--snapshot HASH] [--mode MODE] [--permit CAPABILITY=ID] [--input JSON] [--json]` |
 
 ## Sandbox commands
 
@@ -232,14 +277,14 @@
 | `hub logout` | Forget stored Hub credentials | `rosclaw hub logout [-h] [--registry REGISTRY]` |
 | `hub sync` | Sync the local catalog index | `rosclaw hub sync [-h] [--registry REGISTRY] [--clear]` |
 | `hub search` | Search the local catalog index | `rosclaw hub search [-h] [--type TYPE] [--namespace NAMESPACE] [--official] [--license LICENSE] [--robot ROBOT] [--compatible] [--limit LIMIT] [--json] [query]` |
-| `hub verify` | Verify asset integrity (checksums, artifacts, signatures) | `rosclaw hub verify [-h] [--no-signature] [--json] asset_dir` |
+| `hub verify` | Verify asset integrity (checksums, artifacts, signatures) | `rosclaw hub verify [-h] [--no-signature] [--trust-store TRUST_STORE] [--json] asset_dir` |
 | `hub policy` | Check asset against local permission and license policy | `rosclaw hub policy [-h] {check} ...` |
 | `hub policy check` | Check permissions and license policy | `rosclaw hub policy check [-h] [--allow-real-robot] [--accept-license] [--json] asset_dir` |
-| `hub install` | Install an asset from a local directory or registry reference | `rosclaw hub install [-h] [--dry-run] [--yes] [--accept-license] [--no-mcp-merge] [--skip-health] [--no-verify-signature] [--allow-real-robot] [--allow-safety-config-changes] [--allow-network-inbound] [--json] asset_dir` |
+| `hub install` | Install an asset from a local directory or registry reference | `rosclaw hub install [-h] [--dry-run] [--yes] [--accept-license] [--no-mcp-merge] [--skip-health] [--no-verify-signature] [--trust-store TRUST_STORE] [--allow-real-robot] [--allow-safety-config-changes] [--allow-network-inbound] [--json] asset_dir` |
 | `hub uninstall` | Uninstall an asset by reference | `rosclaw hub uninstall [-h] [--yes] [--json] ref` |
-| `hub update` | Update an installed asset from a local directory | `rosclaw hub update [-h] [--dry-run] [--yes] [--accept-license] [--no-mcp-merge] [--skip-health] [--no-verify-signature] [--allow-real-robot] [--allow-safety-config-changes] [--allow-network-inbound] [--json] ref asset_dir` |
+| `hub update` | Update an installed asset from a local directory | `rosclaw hub update [-h] [--dry-run] [--yes] [--accept-license] [--no-mcp-merge] [--skip-health] [--no-verify-signature] [--trust-store TRUST_STORE] [--allow-real-robot] [--allow-safety-config-changes] [--allow-network-inbound] [--json] ref asset_dir` |
 | `hub list` | List installed assets | `rosclaw hub list [-h] [--installed] [--json]` |
-| `hub publish` | Prepare and publish a ROSClaw Hub asset | `rosclaw hub publish [-h] [--dry-run] [--private] [--public] [--sign] [--registry REGISTRY] [--output OUTPUT] [--json] asset_dir` |
+| `hub publish` | Prepare and publish a ROSClaw Hub asset | `rosclaw hub publish [-h] [--dry-run] [--private] [--public] [--sign] [--signing-key SIGNING_KEY] [--signing-key-id SIGNING_KEY_ID] [--registry REGISTRY] [--output OUTPUT] [--json] asset_dir` |
 
 ## Mcp commands
 

@@ -59,6 +59,7 @@ jobs:
           src/rosclaw/mcp_drivers
           src/rosclaw/mcp/adapters
           src/rosclaw/mcp/onboarding
+          src/rosclaw/robot_pack
           src/rosclaw/agent
           src/rosclaw/agent_runtime/mcp_hub.py
           src/rosclaw/integrations/lerobot/execution
@@ -106,6 +107,8 @@ jobs:
           tests/provider
           tests/security
           tests/practice
+          tests/robot_pack
+          tests/product
           tests/body
           tests/test_mcp_drivers.py
           tests/test_mcp_drivers_coverage.py
@@ -117,6 +120,7 @@ jobs:
           tests/test_cli.py
           tests/test_skill_manager.py
           tests/test_skill_metadata.py
+          tests/test_realsense_capture_rgbd_skill.py
           -m 'not integration and not deployment'
           -v
           --cov=src/rosclaw
@@ -186,6 +190,42 @@ jobs:
 
       - name: Run clean wheel install
         run: scripts/acceptance/clean_install.sh
+
+  cross-uid-boundary:
+    name: Cross-UID Boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6.3.0
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          version: 'latest'
+
+      - name: Build root-owned wheel environment
+        run: |
+          umask 022
+          uvx hatch build -t wheel
+          wheel="$(find dist -maxdepth 1 -name 'rosclaw-*.whl' -print -quit)"
+          test -n "${wheel}"
+          sudo -n "$(command -v python)" -m venv --copies /opt/rosclaw-crossuid-ci
+          sudo -n "$(command -v uv)" pip install "${wheel}" \
+            --python /opt/rosclaw-crossuid-ci/bin/python
+          sudo -n chown -R root:root /opt/rosclaw-crossuid-ci
+          sudo -n chmod -R go-w /opt/rosclaw-crossuid-ci
+
+      - name: Run clean-wheel cross-UID boundary acceptance
+        run: ROSCLAW_ACCEPTANCE_PYTHON=/opt/rosclaw-crossuid-ci/bin/python scripts/acceptance/daemon_cross_uid.sh
+
+      - name: Remove wheel environment
+        if: always()
+        run: sudo -n rm -rf /opt/rosclaw-crossuid-ci
 
   hub-test:
     name: Hub Tests
@@ -259,7 +299,7 @@ jobs:
   build:
     name: Build Package
     runs-on: ubuntu-latest
-    needs: [lint, type-check, test, full-regression, product-acceptance]
+    needs: [lint, type-check, test, full-regression, product-acceptance, cross-uid-boundary]
     steps:
       - uses: actions/checkout@v7.0.0
 
@@ -294,6 +334,16 @@ jobs:
               "rosclaw/rh56_data/policies/rh56_reference_policy_v1/config.json",
               "rosclaw/rh56_data/policies/rh56_reference_policy_v1/model.safetensors",
               "rosclaw/benchmarks/memory/run_benchmark.py",
+              "rosclaw/robot_pack/packs/realsense-d400/robot-pack.yaml",
+              "rosclaw/robot_pack/packs/realsense-d400/checksums.txt",
+              "rosclaw/robot_pack/packs/realsense-d400/capabilities/camera.capture_rgbd.yaml",
+              "rosclaw/robot_pack/packs/realsense-d400/docs/README.md",
+              "rosclaw/robot_pack/packs/realsense-d400/examples/capture-action.json",
+              "rosclaw/robot_pack/packs/realsense-d400/policies/perception-only.yaml",
+              "rosclaw/robot_pack/packs/realsense-d400/signatures/manifest.ed25519",
+              "rosclaw/robot_pack/packs/realsense-d400/verification/read-only.yaml",
+              "rosclaw/robot_pack/trust/keys.json",
+              "rosclaw/hub/trust/keys.json",
               "lerobot_policy_rosclaw_rh56/__init__.py",
           }
           missing = sorted(required - names)

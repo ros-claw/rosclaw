@@ -112,3 +112,59 @@ except DaemonUnavailableError:
 else:
     raise AssertionError("client remained usable after rosclawd stopped")
 PY
+
+"${PYTHON}" -m rosclaw.daemon.cli \
+  --socket "${SOCKET}" \
+  --robot-id sim_ur5e \
+  --log-level ERROR \
+  >>"${WORKSPACE}/rosclawd.stdout" \
+  2>>"${WORKSPACE}/rosclawd.stderr" &
+DAEMON_PID="$!"
+
+"${PYTHON}" - "${SOCKET}" "${DAEMON_PID}" <<'PY'
+import os
+import sys
+import time
+from pathlib import Path
+
+from rosclaw.daemon.client import DaemonClient, DaemonUnavailableError
+
+socket_path = Path(sys.argv[1])
+expected_pid = int(sys.argv[2])
+client = DaemonClient(socket_path=socket_path, timeout_sec=2.0)
+
+deadline = time.monotonic() + 30.0
+while time.monotonic() < deadline:
+    try:
+        status = client.get_runtime_status()
+        break
+    except DaemonUnavailableError:
+        time.sleep(0.05)
+else:
+    raise AssertionError("restarted rosclawd did not become ready")
+
+assert status["daemon_pid"] == expected_pid
+assert status["daemon_pid"] != os.getpid()
+assert status["ledger"]["integrity_verified"] is True
+assert status["ledger"]["write_failed"] is False
+assert status["ledger"]["event_count"] >= 4
+assert status["recovery"]["required"] is False
+
+action_id = "action-daemon-acceptance-forged"
+restored = client.get_action_status(action_id)
+assert restored["state"] == "FINISHED"
+assert restored["final_state"] == "BLOCKED"
+assert restored["error_code"] == "AUTHORIZATION_REQUIRED"
+receipt = client.get_execution_receipt(action_id)["receipt"]
+assert receipt == restored["receipt"]
+assert client.shutdown()["shutdown_requested"] is True
+print("PASS rosclawd durable receipt survives a clean process restart")
+PY
+
+wait "${DAEMON_PID}"
+DAEMON_PID=""
+
+if [[ -e "${SOCKET}" ]]; then
+  echo "restarted rosclawd left its control socket behind" >&2
+  exit 1
+fi

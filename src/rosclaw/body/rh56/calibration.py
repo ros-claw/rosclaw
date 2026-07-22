@@ -211,6 +211,19 @@ class RH56CalibrationGate:
             raise CalibrationError(
                 f"calibration_not_validated: status {status!r}; execution permit denied"
             )
+        recorded_hash = self.calibration.validation.transport_profile_hash
+        if not recorded_hash:
+            raise CalibrationError(
+                "calibration_transport_hash_missing: validated calibration is not bound "
+                "to a transport profile; execution permit denied"
+            )
+        expected_hash = self.profile.content_hash()
+        if recorded_hash != expected_hash:
+            raise CalibrationError(
+                "calibration_transport_hash_mismatch: validated calibration was created "
+                f"for {recorded_hash!r}, but the active transport profile is "
+                f"{expected_hash!r}; execution permit denied"
+            )
 
     def mark_validated(
         self,

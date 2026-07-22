@@ -2,8 +2,9 @@
 
 `rosclawd` is the experimental local daemon boundary for ROSClaw physical
 actions. CLI, MCP, SDK, and Agent processes are northbound clients. The daemon
-owns the action queue, daemon-issued permits, resource leases, driver/executor
-registration, emergency-stop latch, and execution receipts.
+owns Agent Sessions, the action queue, daemon-issued permits, renewable Action
+Leases, Adapter worker supervision, driver/executor registration,
+emergency-stop latch, execution receipts, and authenticated restart ledger.
 
 ```text
 Codex / Claude Code / OpenClaw / operator CLI
@@ -19,7 +20,7 @@ Codex / Claude Code / OpenClaw / operator CLI
 
 ## Current Boundary
 
-The Phase 2 implementation provides:
+The current implementation provides:
 
 - a versioned, length-bounded Unix-socket protocol;
 - a fixed upper bound on concurrent client connections and per-request
@@ -28,23 +29,46 @@ The Phase 2 implementation provides:
 - an exact RPC allowlist, with no arbitrary import, ROS publish, serial write,
   driver registration, or executor registration operation;
 - a bounded action queue and idempotent action IDs;
+- UID-bound Agent Sessions with explicit Body/Capability scope, monotonic
+  heartbeat expiry, and permit revocation on loss;
+- immutable action Deadlines, renewable Action Leases, required stop
+  capabilities, and explicit orphan policies that default to
+  `STOP_ON_CLIENT_LOSS`;
+- rejection of already-expired actions and a second Deadline/Lease gate before
+  queued work can reach an executor;
+- a 50 ms supervision watchdog that expires Sessions and Action Leases without
+  depending on the durable database;
+- a bounded subprocess Worker manager with line/message limits, heartbeat
+  timeout, restart budget, process-generation identity, and permit invalidation
+  after a worker generation changes;
+- every process generation starting `DISARMED`, with daemon-UID-only arm/disarm
+  operations and no automatic physical-action resume;
 - daemon-owned, peer/body/snapshot/capability/action-intent-bound, expiring
   permits with no wildcard capability;
 - rejection of caller-forged `authorization.approved=true`;
 - emergency stop outside the normal action queue;
 - truthful queued-action cancellation and terminal receipts;
-- bounded in-memory action retention that evicts only terminal non-REAL records;
+- an append-only SQLite event ledger with an HMAC forward chain, a separately
+  signed head, and daemon-private file permissions;
+- durable permit registration/consumption and action/receipt replay protection
+  across process restarts;
+- bounded runtime action retention backed by lazy durable-history lookup;
+- restart recovery that cancels undispatched work and treats interrupted REAL
+  outcomes as unknown, requests E-Stop, and requires operator review;
 - refusal to replace files, symlinks, live sockets, or unresponsive sockets;
 - MCP action and emergency tools that call the daemon instead of constructing a
   physical Runtime in the Agent process.
 
-The base daemon intentionally loads no hardware pack or REAL executor. REAL
-actions therefore fail closed unless a trusted daemon-side integration
-registers both the executor and permit. Permit issuance and hardware-pack
-loading are not exposed to Agent RPC in this phase. A future REAL pack must
-validate its body policy, calibration, mapping, and action limits on the daemon
-side before registering a permit; the base daemon does not yet provide that
-pack-specific validation.
+An unconfigured daemon loads no hardware Integration or REAL executor. A
+configured, signed Robot Integration may be loaded only on the daemon side;
+the current built-in RealSense path is perception-only and no production
+actuator Integration is claimed.
+REAL actions therefore fail closed unless a trusted daemon-side integration
+validates its Body policy, calibration, mapping, and action limits before it
+registers an executor. Pack loading and executor registration are not exposed
+to client RPC. Exact Permit issuance is a separate daemon-UID-only operator
+operation; an Agent UID can reach the method through the protected socket but
+is rejected by kernel-authenticated peer credentials.
 
 ## Development Mode
 
@@ -59,6 +83,14 @@ Inspect it from another process:
 
 ```bash
 rosclaw daemon status --json
+rosclaw daemon session-create \
+  --session-id agent-session-1 \
+  --actor-id codex-1 \
+  --agent-framework codex \
+  --body sim_ur5e \
+  --capability sandbox.reach \
+  --ttl-ms 10000 \
+  --json
 rosclaw daemon emergency-stop --reason "operator test" --json
 rosclaw daemon stop --json
 ```
@@ -66,6 +98,119 @@ rosclaw daemon stop --json
 This proves process separation, protocol behavior, and fail-closed dispatch.
 When both processes use the same Unix UID, it is **not** a privilege boundary
 and must not be treated as a non-bypassable real-hardware deployment.
+
+Each daemon generation reports `DISARMED`. Only the service UID may arm it,
+after recovery review and site preflight:
+
+```bash
+sudo -u rosclaw-hw rosclaw daemon arm \
+  --reason "operator preflight and controller deadman verified" --json
+```
+
+Arming is not a Permit and does not bypass per-action authorization. Disarm,
+Session loss, Action Lease expiry, Adapter generation change, and daemon close
+all request a coordinated safety stop. A controller-side deadman and physical
+E-Stop remain mandatory because a hung or killed daemon cannot protect itself.
+
+## Operator Permit Issuance
+
+The Agent first creates a scoped Session and writes an unapproved canonical
+`ActionEnvelope` proposal. After reviewing that exact file and the physical
+workspace, an operator may issue one Permit as the rosclawd service UID:
+
+```bash
+sudo -u rosclaw-hw rosclaw daemon permit-issue proposed-action.json \
+  --principal-id operator-shift-a \
+  --target-uid "$(id -u AGENT_USER)" \
+  --expires-in 60 \
+  --reason "reviewed body, limits, workspace, and controller deadman" \
+  --json
+```
+
+The daemon accepts issuance only when all of the following are true:
+
+- the durable ledger is healthy and restart recovery is clear;
+- this daemon generation is `ARMED` and its E-Stop latch is clear;
+- the target UID owns an active Session matching actor, Body, and Capability;
+- the action is explicitly `REAL`, has an unexpired Deadline and Body Snapshot;
+- the exact Capability has a daemon-side `REAL` executor.
+
+The Permit is bound to the target UID, Session, Body, snapshot, Capability,
+action arguments and constraints, operator principal, current daemon trust
+generation, and the earlier of its requested expiry or action Deadline. It is
+single-use and its TTL is limited to 1..300 seconds. The response contains an
+`authorized_action` copy with daemon-generated authorization fields; transfer
+that object to the target Agent through an operator-controlled file or pipe.
+Do not paste Permit IDs into prompts, manifests, source control, or chat logs.
+The Agent submits `authorized_action` with `request-action` or the guarded MCP
+tool and cannot issue or widen its own Permit.
+
+## Adapter Worker Isolation
+
+Registered Adapter workers use newline-delimited JSON over private pipes. The
+supervisor rejects malformed, oversized, or non-object messages; bounds pending
+requests and output queues; tracks heartbeat health; terminates a failed
+process; and applies a finite restart budget. A new process receives a new
+connection generation. That generation change revokes outstanding permits and
+requests a safety stop before further work.
+
+`rosclaw daemon worker-status [WORKER_ID] --json` inspects registered workers.
+Worker start/stop/restart commands are daemon-UID-only. Worker registration and
+raw protocol access are not Agent RPC operations. RealSense MCP stdio uses the
+same fail-closed process principles with bounded stdout/stderr and strict
+JSON-RPC response IDs.
+
+## Durable Ledger and Restart Recovery
+
+By default, rosclawd creates these daemon-private files:
+
+```text
+$ROSCLAW_HOME/state/daemon/ledger.sqlite3
+$ROSCLAW_HOME/state/daemon/ledger.sqlite3.anchor
+$ROSCLAW_HOME/state/daemon/ledger.key
+```
+
+The directories must be owned by the daemon UID and deny group/world access;
+the files must be regular, non-symlink files with mode `0600`. Paths can be
+overridden with `--ledger` / `ROSCLAW_DAEMON_LEDGER` and `--ledger-key` /
+`ROSCLAW_DAEMON_LEDGER_KEY`.
+
+The ledger records permit registration and consumption before REAL dispatch,
+action submission before scheduling, action start before authorization and
+dispatch, and the terminal receipt. Startup verifies SQLite integrity, every
+event HMAC, the forward chain, and the signed head before the daemon loads a
+Robot Pack or opens its socket. A failed or uncertain ledger write locks out
+new actions for that process.
+
+On restart:
+
+- a previously terminal action and receipt remain queryable and action IDs stay
+  immutable;
+- a queued action is sealed `CANCELLED` without claiming dispatch;
+- an interrupted non-REAL action is sealed `FAILED`;
+- an interrupted REAL action is sealed `FAILED` with physical outcome unknown,
+  E-Stop is requested, and new REAL work is blocked;
+- pending REAL recovery requests E-Stop again on every restart;
+- pending review action IDs are cumulative across repeated recovery attempts
+  and are removed only by one acknowledgement covering the complete set.
+
+After reviewing the retained action, receipt, robot state, and external
+evidence, an operator may persist the review **as the rosclawd service UID**:
+
+```bash
+sudo -u rosclaw-hw rosclaw daemon acknowledge-recovery \
+  --reason "reviewed interrupted action and physical state" --json
+```
+
+Acknowledgement removes the recovery gate only. It does not rewrite the unknown
+receipt, clear the Runtime E-Stop latch, or prove a physical stop.
+
+This is a machine-local integrity boundary, not an external audit witness. A
+root or daemon-state owner that can read the HMAC key can forge history, and an
+attacker that replaces the database and signed anchor together can roll both
+back. TPM-backed keys, monotonic counters, remote transparency logs, ledger
+compaction/materialized snapshots, and long-history startup bounds remain
+future work. Keep independent hardware/controller logs for production evidence.
 
 ## Production User Boundary
 
@@ -94,6 +239,11 @@ sudo install -D -m 0644 deploy/systemd/rosclawd.service \
   /etc/systemd/system/rosclawd.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now rosclawd
+
+# Configure these in the Agent/MCP service environment, not in a prompt.
+export ROSCLAW_DAEMON_SOCKET=/run/rosclaw/rosclawd.sock
+export ROSCLAW_DAEMON_UID="$(id -u rosclaw-hw)"
+rosclaw daemon security-check --json
 ```
 
 The service starts with `DevicePolicy=closed`; it cannot touch a robot until an
@@ -138,18 +288,37 @@ Run:
 ```bash
 scripts/acceptance/daemon_blackbox.sh
 rosclaw daemon security-check --json
+
+# These require ROSClaw installed from a wheel outside a protected user home.
+ROSCLAW_ACCEPTANCE_PYTHON=/opt/rosclaw/bin/python \
+  scripts/acceptance/daemon_cross_uid.sh
+ROSCLAW_ACCEPTANCE_PYTHON=/opt/rosclaw/bin/python \
+  scripts/acceptance/daemon_systemd.sh
 ```
 
 `security-check` returns success only when:
 
 - daemon and client PIDs differ;
 - daemon and client UIDs differ;
-- the socket is not world-writable;
+- `ROSCLAW_DAEMON_UID` pins the kernel-authenticated daemon peer;
+- the daemon owns the socket and its protected runtime directory;
+- the Agent reaches the socket through the configured client group, while the
+  socket and directory remain non-world-accessible and non-client-writable;
+- the durable ledger is healthy and its database, anchor, and key are not
+  readable or writable by the Agent UID;
 - the Agent is not in `dialout`;
 - the Agent cannot read/write detected serial devices.
 
-It does not prove SROS2 policy, vendor-credential isolation, CAN ACLs, network
-firewalls, or a physical E-stop. Those remain deployment acceptance items.
+`daemon_cross_uid.sh` uses two existing low-privilege Linux accounts, rejects a
+source-tree import, verifies daemon-only RPC denial and forged REAL denial, and
+restarts the daemon to prove durable ownership and Receipt recovery.
+It requires passwordless `sudo` plus util-linux `setpriv` to enter the test UIDs
+without changing the host's account database.
+`daemon_systemd.sh` additionally launches a transient service with the reference
+`DevicePolicy`, directory modes, empty capability set, and filesystem hardening.
+Neither script creates users or accesses hardware. They do not prove a site's
+SROS2 policy, vendor-credential isolation, exact device/CAN ACLs, network
+firewalls, or physical E-stop; those remain deployment acceptance items.
 
 The daemon protocol relies on Linux pathname socket permissions and peer
 credentials described by
@@ -166,6 +335,13 @@ credentials described by
 - Action IDs are immutable. Reusing an ID with changed content is rejected, and
   status, receipt, and cancellation are restricted to the submitting peer UID
   or the daemon service UID.
+- Every action belongs to one Agent Session and has a finite Deadline plus a
+  renewable Lease. `renew-action` also heartbeats the Session. If renewal stops,
+  the watchdog terminalizes the action and requests safety stop according to
+  its orphan policy; `CONTINUE_UNTIL_DEADLINE` is allowed only for bounded work.
+- Closing or losing a Session revokes its unused permits, prevents queued work
+  from dispatching, and records a Session terminal event. A Session or Lease
+  from an earlier daemon process is never restored as active.
 - A REAL permit is rejected if the Agent changes its arguments, body snapshot,
   explicit capability, execution mode, deadline, expected effect, or
   verification policy.
@@ -177,16 +353,14 @@ credentials described by
   is present.
 - Stopping rosclawd latches E-stop, rejects new work, waits for active daemon
   work, stops Runtime, and removes only the socket inode it created.
-- Queue, retained action, and permit state are in-memory in this prototype and
-  do not survive a daemon restart. Terminal non-REAL records are evicted at the
-  configured retention limit. Terminal REAL records are never evicted during a
-  process lifetime because doing so could make an action ID executable twice;
-  a full REAL history fails closed with `ACTION_HISTORY_FULL` until an operator
-  archives evidence and restarts the daemon.
-- A production REAL deployment therefore requires a durable, integrity-checked
-  permit-consumption and action-ID ledger plus an operator-reviewed restart
-  recovery procedure. The current in-memory authority must not be used as
-  production replay protection across daemon restarts.
+- Permit use counts, immutable action IDs, transitions, and terminal receipts
+  survive restart in the authenticated ledger. Runtime memory is bounded and
+  may evict terminal records; older records remain queryable from the ledger.
+- Startup currently verifies and replays the complete ledger. Operators must
+  monitor ledger growth; automatic compaction and archival are not implemented.
+- Running without a durable ledger remains supported only for direct component
+  tests and embedded development. In that mode REAL history is retained in
+  memory and fails closed with `ACTION_HISTORY_FULL`; it is not restart-safe.
 
 ## MCP Tools
 

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import json
+import os
+import shutil
 import tarfile
 from pathlib import Path
 
@@ -80,12 +83,9 @@ def test_prepare_signs_when_required(tmp_path: Path) -> None:
     publisher = Publisher(PublishOptions(home=home))
     prepared, _manifest, _warnings = publisher.prepare(SKILL_VALID)
 
-    cert_path = prepared / "signatures" / "cert.pem"
-    sig_path = prepared / "signatures" / "signature.bin"
-    assert cert_path.exists()
+    sig_path = prepared / "signatures" / "manifest.ed25519"
     assert sig_path.exists()
-    assert "BEGIN CERTIFICATE" in cert_path.read_text(encoding="utf-8")
-    assert len(sig_path.read_bytes()) == 32  # HMAC-SHA256
+    assert len(base64.b64decode(sig_path.read_text(encoding="ascii"))) == 64
 
 
 def test_bundle_creates_rosclaw_tarball(tmp_path: Path) -> None:
@@ -105,8 +105,7 @@ def test_bundle_creates_rosclaw_tarball(tmp_path: Path) -> None:
     assert "checksums.txt" in names
     assert "SBOM.spdx.json" in names
     assert "PROVENANCE.json" in names
-    assert "signatures/cert.pem" in names
-    assert "signatures/signature.bin" in names
+    assert "signatures/manifest.ed25519" in names
     assert "artifacts/skill/behavior_tree.xml" in names
 
 
@@ -120,6 +119,7 @@ def test_publish_dry_run_returns_no_bundle(tmp_path: Path) -> None:
     assert result.bundle_path is None
     assert result.size_bytes == 0
     assert result.ref.canonical() == "rosclaw://skill/rosclaw/g1-pick-place@1.2.0"
+    assert not list((home / "hub" / "staging").glob("publish-*"))
 
 
 def test_publish_local_file_registry_uploads(tmp_path: Path) -> None:
@@ -148,6 +148,7 @@ def test_publish_local_file_registry_uploads(tmp_path: Path) -> None:
     entry = json.loads(catalog_lines.splitlines()[-1])
     assert entry["asset"]["name"] == "g1-pick-place"
     assert entry["size_bytes"] == result.size_bytes
+    assert not list((home / "hub" / "staging").glob("publish-*"))
 
 
 def test_publish_secret_scan_fails(tmp_path: Path) -> None:
@@ -183,8 +184,8 @@ def test_scan_secrets_skips_binary_files(tmp_path: Path) -> None:
     assert not findings
 
 
-def test_prepare_warns_on_missing_artifact(tmp_path: Path) -> None:
-    """A declared artifact that is missing on disk produces a warning."""
+def test_prepare_rejects_missing_artifact(tmp_path: Path) -> None:
+    """A real publication cannot produce a bundle with missing artifacts."""
     home = tmp_path / "home"
     publisher = Publisher(PublishOptions(home=home))
     asset_dir = tmp_path / "asset"
@@ -203,8 +204,64 @@ def test_prepare_warns_on_missing_artifact(tmp_path: Path) -> None:
         yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8"
     )
 
+    with pytest.raises(HubError, match="Asset artifacts are incomplete"):
+        publisher.prepare(asset_dir)
+
+
+def test_prepare_dry_run_warns_on_missing_artifact(tmp_path: Path) -> None:
+    """Dry-run retains diagnostics for incomplete source trees."""
+    home = tmp_path / "home"
+    publisher = Publisher(PublishOptions(home=home, dry_run=True))
+    asset_dir = tmp_path / "asset"
+    asset_dir.mkdir()
+    manifest = _load_manifest_yaml(SKILL_VALID)
+    (asset_dir / "manifest.yaml").write_text(
+        yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8"
+    )
+
     _prepared, _manifest, warnings = publisher.prepare(asset_dir)
+
     assert any("Declared artifact missing on disk" in w for w in warnings)
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO creation requires POSIX")
+def test_prepare_rejects_non_regular_source_entry(tmp_path: Path) -> None:
+    """Publisher input cannot contain FIFOs, sockets, or device-like entries."""
+    asset_dir = tmp_path / "asset"
+    shutil.copytree(SKILL_VALID, asset_dir)
+    os.mkfifo(asset_dir / "payload.fifo")
+
+    with pytest.raises(HubError, match="non-regular entry"):
+        Publisher(PublishOptions(home=tmp_path / "home")).prepare(asset_dir)
+
+
+def test_prepare_rejects_control_character_path(tmp_path: Path) -> None:
+    """Paths that cannot be represented safely in checksums are rejected."""
+    asset_dir = tmp_path / "asset"
+    shutil.copytree(SKILL_VALID, asset_dir)
+    (asset_dir / "bad\nname.txt").write_text("payload", encoding="utf-8")
+
+    with pytest.raises(HubError, match="unsafe path"):
+        Publisher(PublishOptions(home=tmp_path / "home")).prepare(asset_dir)
+
+
+def test_prepare_failure_removes_partial_staging_tree(tmp_path: Path) -> None:
+    """A control-path write failure cannot leak a publish staging tree."""
+    home = tmp_path / "home"
+    asset_dir = tmp_path / "asset"
+    shutil.copytree(SKILL_VALID, asset_dir)
+    manifest = _load_manifest_yaml(asset_dir)
+    manifest["security"]["sbom"] = "blocked/SBOM.spdx.json"
+    (asset_dir / "manifest.yaml").write_text(
+        yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8"
+    )
+    (asset_dir / "blocked").write_text("not a directory", encoding="utf-8")
+    publisher = Publisher(PublishOptions(home=home))
+
+    with pytest.raises(OSError):
+        publisher.prepare(asset_dir)
+
+    assert not list((home / "hub" / "staging").glob("publish-*"))
 
 
 def test_publish_asset_dir_not_found(tmp_path: Path) -> None:
@@ -227,17 +284,17 @@ def test_prepare_signs_via_options(tmp_path: Path) -> None:
     """Signing is performed when options.sign is True even if not required."""
     home = tmp_path / "home"
     asset_dir = tmp_path / "asset"
-    asset_dir.mkdir()
+    shutil.copytree(SKILL_VALID, asset_dir)
     manifest = _load_manifest_yaml(SKILL_VALID)
     manifest["security"]["signing"] = {"required": False}
+    (asset_dir / "signatures" / "manifest.ed25519").unlink()
     (asset_dir / "manifest.yaml").write_text(
         yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8"
     )
 
     publisher = Publisher(PublishOptions(home=home, sign=True))
     prepared, _manifest, _warnings = publisher.prepare(asset_dir)
-    assert (prepared / "signatures" / "cert.pem").exists()
-    assert (prepared / "signatures" / "signature.bin").exists()
+    assert (prepared / "signatures" / "manifest.ed25519").exists()
 
 
 def test_bundle_output_directory(tmp_path: Path) -> None:

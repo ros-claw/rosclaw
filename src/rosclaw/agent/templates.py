@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from typing import Any
 
 from rosclaw.agent.detectors import ProjectProfile
@@ -22,6 +23,10 @@ JSON_MANAGED_BEGIN = "/* ROSCLAW-MANAGED-BEGIN */"
 JSON_MANAGED_END = "/* ROSCLAW-MANAGED-END */"
 CODEX_MANAGED_BEGIN = "# ROSCLAW-MANAGED-BEGIN"
 CODEX_MANAGED_END = "# ROSCLAW-MANAGED-END"
+
+
+def _cli_launcher(profile: ProjectProfile) -> str:
+    return shlex.join((profile.cli_command, *profile.cli_args))
 
 
 def _tool_table(tool_names: tuple[str, ...]) -> str:
@@ -70,8 +75,9 @@ def render_mcp_json(
     if transport == "stdio":
         server = {
             "type": "stdio",
-            "command": "rosclaw",
+            "command": profile.cli_command,
             "args": [
+                *profile.cli_args,
                 "mcp",
                 "serve",
                 "--profile",
@@ -111,6 +117,10 @@ def render_mcp_json(
             "robot_id": profile.robot_id,
             "transport": transport,
             "project_root": str(profile.project_root),
+            "cli": {
+                "command": profile.cli_command,
+                "args": list(profile.cli_args),
+            },
         },
     }
     if check:
@@ -131,9 +141,13 @@ enabled_tools = [
 ]"""
 
     if profile.default_transport == "stdio":
+        command = json.dumps(profile.cli_command)
+        args = json.dumps(
+            [*profile.cli_args, "mcp", "serve", "--project", ".", "--log-level", "ERROR"]
+        )
         server = f"""[mcp_servers.rosclaw]
-command = "rosclaw"
-args = ["mcp", "serve", "--project", ".", "--log-level", "ERROR"]
+command = {command}
+args = {args}
 env_vars = ["ROSCLAW_HOME", "ROSCLAW_PROFILE", "ROSCLAW_LOG_LEVEL"]
 {common}
 
@@ -156,6 +170,38 @@ http_headers = {{ X-ROSClaw-Agent = "codex" }}
 """
 
 
+def _lerobot_bridge_section() -> str:
+    """Shared LeRobot Bridge v1.0.1 guidance for agent onboarding files."""
+    return """## LeRobot Bridge v1.0.1
+
+LeRobot is a policy backend inside ROSClaw. Do not operate its worker,
+robot transport, executor, serial device, or vendor SDK directly.
+
+### Discovery
+
+1. Call `get_product_status`.
+2. Call `get_runtime_status`.
+3. Call `get_body_profile` and `get_body_state`.
+4. Call `get_calibration_status`.
+5. Check that `rh56.single_step` is available before requesting RH56 motion.
+
+### Supported Reference Path
+
+- Policy: `rosclaw_rh56_reference`
+- Bodies: `inspire_rh56_left`, `inspire_rh56_right`
+- Modes: proposal-only, SHADOW, single-step REAL
+- REAL is submitted only through MCP `request_action`.
+
+### Safety
+
+- Use SHADOW before REAL.
+- Never run `rosclaw lerobot rollout execute` from an Agent process.
+- Never open serial/CAN devices directly.
+- Never create or approve a Permit.
+- Read `get_execution_receipt` and `explain_execution` before claiming success.
+"""
+
+
 def render_claude_md(profile: ProjectProfile) -> str:
     """Render the project-level CLAUDE.md onboarding file."""
     robot_line = (
@@ -164,6 +210,7 @@ def render_claude_md(profile: ProjectProfile) -> str:
         else "- Default robot: (none detected)"
     )
     transport = profile.default_transport
+    cli = _cli_launcher(profile)
     mcp_section = (
         "This project exposes a P0 ROSClaw MCP server. Connect via the configured "
         f"`{transport}` transport defined in `.mcp.json`."
@@ -182,6 +229,7 @@ hand-edited.
 - Project root: `.`
 {robot_line}
 - MCP transport: `{transport}`
+- Pinned ROSClaw CLI: `{cli}`
 
 {mcp_section}
 
@@ -200,6 +248,26 @@ request succeeds only when the daemon independently matches a server-issued,
 body- and action-intent-bound permit. Never instantiate a local Runtime,
 register a driver, or use ROS, DDS, serial, CAN, or a vendor SDK as an
 alternate motion path.
+
+### Robot Integration setup
+
+Robot Integration installation and configuration are operator CLI workflows,
+separate from the MCP tool surface. It is safe to inspect discovery and signed contracts
+with `{cli} robot discover --json`, `{cli} robot install realsense --json`, and
+`{cli} robot verify realsense --stage contract --json`. Installing native
+adapter dependencies, binding a live serial number, and running read-only
+hardware verification require an explicit operator request. A local successful
+check is candidate evidence only and must not be reported as canonical support.
+
+### Capability Apps
+
+Apps are capability-only task manifests, not drivers or permissions. Inspect
+them with `{cli} app list` and `{cli} app validate <APP> --json`. Run an App
+only through `{cli} app run <APP> --body <BODY> --mode SHADOW --json` unless the
+operator explicitly establishes every REAL prerequisite. App installation does
+not install hardware, arm rosclawd, issue a Permit, or prove execution.
+
+{_lerobot_bridge_section()}
 {MANAGED_END}
 
 ## Human notes
@@ -216,6 +284,7 @@ def render_rosclaw_md(profile: ProjectProfile) -> str:
         if profile.robot_id
         else "- **Robot ID:** (none detected)"
     )
+    cli = _cli_launcher(profile)
     return f"""# ROSCLAW.md — Physical AI Runtime Manifest
 
 This file is the authoritative boundary description for the ROSClaw runtime in
@@ -227,6 +296,7 @@ managed blocks are preserved by `rosclaw agent install`.
 
 - **Project root:** `.`
 - **MCP transport:** `{profile.default_transport}`
+- **Pinned ROSClaw CLI:** `{cli}`
 {robot_line}
 
 ## Agent harness activation
@@ -247,6 +317,61 @@ Core safety tools: {", ".join(f"`{t}`" for t in P0_CORE_TOOLS)}.
 Body context tools: {", ".join(f"`{t}`" for t in P0_BODY_CONTEXT_TOOLS)}.
 Product workflow tools: {", ".join(f"`{t}`" for t in P0_PRODUCT_TOOLS)}.
 Control-plane tools: {", ".join(f"`{t}`" for t in P0_CONTROL_PLANE_TOOLS)}.
+
+## Robot Integration lifecycle
+
+Robot Integration setup is an operator CLI lifecycle, not an additional MCP tool:
+
+Use the pinned launcher above for every ROSClaw shell command; do not substitute
+a different `rosclaw` found on `PATH`.
+
+1. `{cli} robot discover --json` performs read-only supported-device discovery.
+2. `{cli} robot install realsense --json` installs and verifies the signed Integration;
+   it does not install the native adapter unless `--install-adapter` is explicit.
+3. `{cli} robot verify realsense --stage contract --json` verifies schema,
+   payload hashes, signature trust, Body profiles, policy, and host compatibility.
+4. `{cli} robot configure realsense --serial <SERIAL> --model <MODEL> --json`
+   binds an exact device identity and immutable Body snapshot. Do this only on an
+   explicit operator request. `--allow-offline` is configuration, not observation.
+5. `{cli} robot verify <INSTANCE> --stage read-only --receipt <RECEIPT> --json`
+   checks read-only hardware evidence. Never infer hardware success from
+   discovery, configuration, adapter output, or conversational text.
+
+Native adapter installation mutates the Python environment and remains
+operator-owned. Robot Integration CLI commands never authorize direct SDK use
+by the Agent; runtime hardware access remains behind `request_action` and `rosclawd`.
+
+## Capability App lifecycle
+
+Apps declare Capability calls and verification expressions only. Use
+`{cli} app list`, `{cli} app validate <APP> --json`, and SHADOW mode before any
+REAL request. Never treat App installation or a successful local expression as
+hardware evidence. Every App step must remain behind rosclawd Session, Lease,
+Permit, policy, and Receipt checks.
+
+## rosclawd read-only inspection
+
+Use the pinned launcher to inspect the daemon boundary and durable control
+ledger without submitting work:
+
+```bash
+{cli} daemon status --json
+{cli} daemon action-status <ACTION_ID> --json
+{cli} daemon receipt <ACTION_ID> --json
+```
+
+For a healthy daemon, require `running` and `ledger.integrity_verified` to be
+`true`, and require `ledger.write_failed`, `recovery.required`, and
+`emergency_stop_latched` to be `false`. Production REAL work additionally
+requires `supervision_state=ARMED`, `privilege_separated=true`, and a
+`daemon security-check --json` result
+with `boundary_ready=true`, `daemon_uid_pinned=true`, and
+`ledger_state_private=true`; same-UID development is not deployment evidence.
+Treat `daemon acknowledge-recovery` as an operator incident-review command,
+not an Agent workflow; it does not clear E-stop or prove physical state.
+Every action belongs to an expiring Agent Session and renewable Action Lease.
+Do not continue after Session or Lease loss, and never reuse state from an
+earlier daemon generation.
 
 ## Validate-before-motion workflow
 
@@ -275,6 +400,8 @@ Claude Code must never run these commands directly:
 - `ros2 topic pub /cmd_vel ...`
 - Any direct motor/DDS/hardware write, including after operator confirmation
 - Any `sudo` command on the robot host without explicit justification
+
+{_lerobot_bridge_section()}
 {MANAGED_END}
 
 ## Maintainer notes
@@ -290,6 +417,7 @@ def render_agents_md(profile: ProjectProfile) -> str:
         if profile.robot_id
         else "- Default robot: (none detected)"
     )
+    cli = _cli_launcher(profile)
     return f"""# ROSClaw Agent Instructions
 
 ROSClaw is physical-AI runtime infrastructure. Treat robot, ROS, actuator,
@@ -302,6 +430,7 @@ Claude Code, OpenClaw, and other agent frameworks that read project guidance.
 - Project root: `.`
 {robot_line}
 - MCP transport: `{profile.default_transport}`
+- Pinned ROSClaw CLI: `{cli}`; use it instead of another `rosclaw` on `PATH`.
 - One-line setup: `rosclaw agent install --project-root . --skip-secrets`
 - Codex activation: trust this exact repository, then run
   `rosclaw agent doctor codex --project-root .`.
@@ -316,6 +445,42 @@ request.
 
 {_tool_table(P0_AGENT_MCP_TOOLS)}
 
+## Robot Integration setup
+
+- Robot Integration setup is an operator CLI workflow, not an MCP tool. Use
+  `{cli} robot discover --json`, `{cli} robot install realsense --json`, and
+  `{cli} robot verify realsense --stage contract --json` for read-only
+  discovery and signed-contract checks.
+- Install native adapter dependencies or bind a live device only when the
+  operator explicitly requests it. Offline configuration is not physical
+  evidence, and local verification never promotes canonical support status.
+
+## Capability Apps
+
+- Apps are capability-only task manifests. Use `{cli} app list` and
+  `{cli} app validate <APP> --json` for inspection.
+- App installation grants no hardware access. Every step remains subject to
+  rosclawd Session, Lease, Permit, policy, executor, and Receipt checks.
+
+## rosclawd read-only inspection
+
+- Inspect daemon health and the durable control ledger with
+  `{cli} daemon status --json`. Require `running` and
+  `ledger.integrity_verified` to be `true`; require `ledger.write_failed`,
+  `recovery.required`, and `emergency_stop_latched` to be `false` before
+  relying on the control plane.
+- Production REAL work also requires `supervision_state=ARMED`,
+  `privilege_separated=true`, and `{cli} daemon security-check --json` with `boundary_ready=true`,
+  `daemon_uid_pinned=true`, and `ledger_state_private=true`. Same-UID
+  development proves only a process boundary.
+- Inspect an existing action with `{cli} daemon action-status <ACTION_ID>
+  --json` and `{cli} daemon receipt <ACTION_ID> --json`.
+- `daemon acknowledge-recovery` is an operator incident-review command. Do
+  not invoke it as routine Agent automation; it does not clear E-stop or prove
+  physical state.
+- Session or Action Lease loss is terminal according to orphan policy. Do not
+  recreate direct motion or reuse a Session from an earlier daemon generation.
+
 ## Safety
 
 - Do not publish ROS topics, actuate hardware, run real robot skills, or mutate
@@ -329,6 +494,8 @@ request.
   any are unavailable, refuse the action and explain the missing prerequisite.
 - Never instantiate `Runtime`, register a driver/executor, or open ROS, DDS,
   serial, CAN, or a vendor SDK from the Agent process.
+
+{_lerobot_bridge_section()}
 {MANAGED_END}
 
 ## Human notes
@@ -339,12 +506,16 @@ Add project-specific notes here. They will be preserved across install runs.
 
 def render_rosclaw_skill_md(profile: ProjectProfile) -> str:
     """Render a repo-local Codex/agent skill for ROSClaw projects."""
+    cli = _cli_launcher(profile)
     return f"""---
 name: rosclaw
 description: Use when operating, validating, or changing ROSClaw physical-AI runtime workflows, especially CLI smoke tests, Practice evidence loops, body/runtime checks, MCP integration, MuJoCo sandbox verification, and safe ROS or hardware boundaries.
 ---
 
 # ROSClaw Agent Skill
+
+Use this exact launcher for every ROSClaw CLI command: `{cli}`. Do not replace
+it with a different `rosclaw` found on `PATH`.
 
 ## Safety
 
@@ -365,14 +536,63 @@ description: Use when operating, validating, or changing ROSClaw physical-AI run
 ## First Checks
 
 ```bash
-rosclaw doctor --json
-rosclaw status capabilities
-rosclaw demo list
-rosclaw demo run ur5e-reach
-rosclaw explain latest
-rosclaw agent doctor universal --project-root .
-rosclaw agent test universal --project-root . --quick --mcp-probe
+{cli} doctor --json
+{cli} status capabilities
+{cli} daemon status --json
+{cli} demo list
+{cli} demo run ur5e-reach
+{cli} explain latest
+{cli} agent doctor universal --project-root .
+{cli} agent test universal --project-root . --quick --mcp-probe
 ```
+
+For `daemon status`, require `running` and `ledger.integrity_verified` to be
+`true`; require `ledger.write_failed`, `recovery.required`, and
+`emergency_stop_latched` to be `false`. Production REAL work also requires
+`supervision_state=ARMED`, `privilege_separated=true`, and
+`{cli} daemon security-check --json` with
+`boundary_ready=true`, `daemon_uid_pinned=true`, and
+`ledger_state_private=true`; same-UID development proves only process separation.
+Read an existing durable result with `{cli} daemon action-status <ACTION_ID>
+--json` and `{cli} daemon receipt <ACTION_ID> --json`. Do not use
+`daemon acknowledge-recovery` as Agent automation: it is an operator
+incident-review command and does not clear E-stop or prove physical state.
+
+## Robot Integration Workflow
+
+Robot Integration installation/configuration is a CLI lifecycle around the MCP
+runtime. It is not an additional MCP tool surface.
+
+```bash
+{cli} robot discover --json
+{cli} robot install realsense --json
+{cli} robot verify realsense --stage contract --json
+```
+
+- `robot install` verifies and installs the signed contract. Pass
+  `--install-adapter` only when the operator explicitly authorizes dependency
+  installation in the selected Python environment.
+- Bind a discovered device with `robot configure` only when an exact model and
+  stable serial are available. `--allow-offline` creates configuration, never
+  hardware evidence.
+- A read-only hardware check requires a configured instance and canonical
+  `rosclawd` receipt. Treat local success as candidate evidence; never promote
+  product support or claim physical success from CLI text alone.
+- Do not call the vendor SDK directly. Runtime device access stays behind MCP
+  `request_action` and the daemon boundary.
+
+## Capability App Workflow
+
+```bash
+{cli} app list
+{cli} app validate realsense-inspect --json
+```
+
+- Apps call named Capabilities only. They do not install drivers, issue
+  permits, arm rosclawd, or authorize direct hardware access.
+- Run SHADOW first with `app run <APP> --body <BODY> --mode SHADOW --json`.
+  Treat a local success as component evidence, never an independent hardware
+  or Agent verification claim.
 
 ## Practice Evidence Loop
 
@@ -381,9 +601,9 @@ Use fixture-based Practice workflows before touching real robots:
 ```bash
 TMP=$(mktemp -d /tmp/rosclaw-practice.XXXXXX)
 export ROSCLAW_HOME="$TMP/home"
-rosclaw practice record --fixture tests/fixtures/practice/rh56_minimal_loop.json --out "$TMP/practice" --json
-rosclaw practice verify practice_rh56_minimal_loop --data-root "$TMP/practice" --strict --json
-rosclaw practice distill practice_rh56_minimal_loop --data-root "$TMP/practice" --json
+{cli} practice record --fixture tests/fixtures/practice/rh56_minimal_loop.json --out "$TMP/practice" --json
+{cli} practice verify practice_rh56_minimal_loop --data-root "$TMP/practice" --strict --json
+{cli} practice distill practice_rh56_minimal_loop --data-root "$TMP/practice" --json
 ```
 
 ## MCP Contract
@@ -401,6 +621,76 @@ rosclaw practice distill practice_rh56_minimal_loop --data-root "$TMP/practice" 
   may turn a matching server-issued permit into authorization.
 - `cancel_action` never claims that active physical motion stopped. Use
   `emergency_stop` and the certified hardware E-stop when motion may be active.
+
+## LeRobot Bridge Workflow
+
+### Operator setup
+
+These are operator workflows. Do not install dependencies unless explicitly requested.
+
+```bash
+{cli} setup lerobot --reference-policy rh56
+{cli} lerobot doctor --json
+```
+
+### Read-only Agent discovery
+
+Use MCP tools:
+
+1. `get_product_status`
+2. `get_runtime_status`
+3. `get_body_profile`
+4. `get_body_state`
+5. `get_calibration_status`
+6. `list_body_capabilities`
+
+### SHADOW request
+
+Submit through `request_action` with execution mode SHADOW.
+Poll with `get_action_status`.
+Read the final result with `get_execution_receipt`.
+Explain it with `explain_execution`.
+
+### REAL request
+
+Submit the exact requested action through `request_action`.
+The Agent does not issue or approve a Permit.
+If rosclawd reports AUTHORIZATION_REQUIRED, stop and explain the missing authorization.
+Never fall back to shell, serial, CAN, ROS topic, MCP driver, or vendor SDK execution.
+
+### Dataset workflow
+
+For non-physical data operations, use the ROSClaw CLI:
+
+```bash
+{cli} practice verify <PRACTICE_ID> --strict --json
+{cli} practice export \
+  --practice-id <PRACTICE_ID> \
+  --format lerobot \
+  --profile physical \
+  --output <OUTPUT_DIR> \
+  --json
+```
+
+### Unsupported requests
+
+Training, DAgger, reward models, Hub publishing, arbitrary-policy robot mapping,
+CAN RH56 execution, open-loop chunks, and unattended execution are outside
+LeRobot Bridge v1.0.1.
+
+### Decision table
+
+| User intent | Agent should do | Agent must not do |
+|---|---|---|
+| "Is LeRobot installed?" | `get_product_status` + `get_runtime_status` | import lerobot |
+| "Can I use the RH56 now?" | body/profile/state/calibration/capability tools | open the serial port |
+| "Preview what it would do" | `request_action(SHADOW)` | run `rollout execute` directly |
+| "Do the real OK gesture" | `request_action(REAL)`, wait for rosclawd | self-issue a Permit |
+| "Try it without authorization" | refuse and explain AUTHORIZATION_REQUIRED | switch to serial commands |
+| "Did it succeed?" | `get_action_status` + receipt + `explain_execution` | guess success from text |
+| "Export data for training" | `practice verify` / `export` | train automatically |
+| "Control RH56 with any VLA" | explain v1.0.1 supports only the reference contract | guess mapping by action_dim |
+| "Control RH56 over CAN" | explain CAN is fail-closed unsupported | reuse RS485 mapping on CAN |
 """
 
 
@@ -428,6 +718,14 @@ def render_claude_settings_json(profile: ProjectProfile) -> dict[str, Any]:
 
 def render_context_snapshot(profile: ProjectProfile) -> dict[str, Any]:
     """Render the machine-readable .rosclaw/agent/context.snapshot.json."""
+    lerobot_integration: dict[str, Any] = {"configured": False, "state": "not_configured"}
+    try:
+        from rosclaw.agent.lerobot_status import detect_lerobot_integration
+
+        lerobot_integration = detect_lerobot_integration()
+    except Exception:  # noqa: BLE001
+        # Snapshot generation must never fail because LeRobot is absent.
+        pass
     return {
         "schema_version": "rosclaw.agent.context.v2",
         "project": {
@@ -441,18 +739,53 @@ def render_context_snapshot(profile: ProjectProfile) -> dict[str, Any]:
             "profile_path": str(profile.profile_path) if profile.profile_path else None,
             "transport": profile.default_transport,
             "mcp": profile.runtime_profile.get("mcp", {}),
+            "cli": {
+                "command": profile.cli_command,
+                "args": list(profile.cli_args),
+                "display": _cli_launcher(profile),
+            },
         },
         "tools": {
             "available": list(P0_AGENT_MCP_TOOLS),
             "safety_levels": {tool: compact_safety_level(tool) for tool in P0_AGENT_MCP_TOOLS},
         },
+        "integrations": {
+            "lerobot": lerobot_integration,
+        },
         "policies": {
             "direct_hardware_access": False,
             "real_execution_requires_rosclawd_permit": True,
+            "production_real_requires_privilege_separation": True,
+            "production_real_requires_pinned_daemon_uid": True,
+            "production_real_requires_private_ledger_state": True,
+            "production_real_requires_current_generation_armed": True,
+            "actions_require_session_and_lease": True,
             "agent_may_self_authorize": False,
             "fixture_allowed_for_real": False,
             "validate_before_motion": True,
             "emergency_stop_available": True,
+        },
+        "robot_pack": {
+            "public_name": "Robot Integration",
+            "interface": "operator_cli",
+            "commands": {
+                "discover": f"{_cli_launcher(profile)} robot discover --json",
+                "install_contract": f"{_cli_launcher(profile)} robot install realsense --json",
+                "verify_contract": (
+                    f"{_cli_launcher(profile)} robot verify realsense --stage contract --json"
+                ),
+            },
+            "native_adapter_install_requires_operator_request": True,
+            "live_device_binding_requires_operator_request": True,
+            "offline_configuration_is_hardware_evidence": False,
+            "local_verification_may_promote_canonical_support": False,
+        },
+        "apps": {
+            "interface": "capability_only_manifest",
+            "list": f"{_cli_launcher(profile)} app list",
+            "validate": f"{_cli_launcher(profile)} app validate <APP> --json",
+            "installation_grants_hardware_access": False,
+            "steps_require_rosclawd": True,
         },
     }
 

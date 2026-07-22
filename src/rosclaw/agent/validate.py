@@ -76,6 +76,21 @@ def _has_managed_block(content: str) -> bool:
     return MANAGED_BEGIN in content and MANAGED_END in content
 
 
+def _has_rosclaw_stdio_command(server: dict[str, Any]) -> bool:
+    command = server.get("command")
+    args = server.get("args", [])
+    if not isinstance(command, str) or not command:
+        return False
+    if Path(command).name == "rosclaw":
+        return True
+    return (
+        isinstance(args, list)
+        and len(args) >= 2
+        and args[:2] == ["-m", "rosclaw.entrypoint"]
+        and Path(command).name.startswith("python")
+    )
+
+
 def validate_mcp_json(path: Path) -> list[str]:
     """Validate .mcp.json structure."""
     errors: list[str] = []
@@ -101,7 +116,7 @@ def validate_mcp_json(path: Path) -> list[str]:
         server = servers["rosclaw"]
         if not isinstance(server, dict):
             errors.append(f"{path} rosclaw server must be a JSON object")
-        elif server.get("command") != "rosclaw" and not isinstance(server.get("url"), str):
+        elif not _has_rosclaw_stdio_command(server) and not isinstance(server.get("url"), str):
             errors.append(f"{path} rosclaw server has no ROSClaw command or URL")
     return errors
 
@@ -121,7 +136,7 @@ def validate_codex_config(path: Path) -> list[str]:
     server = servers.get("rosclaw") if isinstance(servers, dict) else None
     if not isinstance(server, dict):
         return [f"{path} is missing mcp_servers.rosclaw"]
-    if server.get("command") != "rosclaw" and not isinstance(server.get("url"), str):
+    if not _has_rosclaw_stdio_command(server) and not isinstance(server.get("url"), str):
         errors.append(f"{path} has no ROSClaw command or URL")
     enabled_tools = server.get("enabled_tools")
     if enabled_tools != list(P0_AGENT_MCP_TOOLS):

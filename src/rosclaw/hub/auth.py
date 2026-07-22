@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
+import tempfile
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -24,32 +28,148 @@ class AuthProfile:
 class AuthStore:
     """Persist hub login credentials in ``~/.rosclaw/config/hub_auth.json``.
 
-    In production this should be backed by the OS keyring; the JSON fallback
-    exists so the fake-registry testing loop works without extra dependencies.
+    The JSON store is owner-only and written atomically. Production deployments
+    may still prefer an OS keyring or external secret manager.
     """
 
     def __init__(self, home: str | Path | None = None) -> None:
         home_arg = str(home) if isinstance(home, Path) else home
         self.home = resolve_home(home_arg)
         self.path = self.home / "config" / "hub_auth.json"
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._prepare_config_dir()
         self._data: dict[str, Any] = self._load()
 
-    def _load(self) -> dict[str, Any]:
-        if self.path.exists():
-            try:
-                data = json.loads(self.path.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
-                    return data
-            except (OSError, json.JSONDecodeError):
-                pass
+    @staticmethod
+    def _empty_data() -> dict[str, Any]:
         return {"profiles": {}, "active": None}
 
-    def _save(self) -> None:
-        self.path.write_text(
-            json.dumps(self._data, indent=2, ensure_ascii=False),
-            encoding="utf-8",
+    def _storage_error(self, message: str) -> HubError:
+        return HubError(
+            code=HubErrorCode.AUTH_FAILED,
+            message=f"Unsafe Hub credential store: {message}",
+            suggested_fix=(
+                f"Remove or repair {self.path} and ensure it is owned by the current user."
+            ),
         )
+
+    def _prepare_config_dir(self) -> None:
+        config_dir = self.path.parent
+        try:
+            config_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            info = config_dir.lstat()
+        except OSError as exc:
+            raise self._storage_error(f"cannot prepare {config_dir}: {exc}") from exc
+
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            raise self._storage_error(f"{config_dir} must be a real directory")
+        self._require_current_owner(info, config_dir)
+        self._chmod_owner_only(config_dir, 0o700)
+
+    def _require_current_owner(self, info: os.stat_result, path: Path) -> None:
+        if hasattr(os, "getuid") and info.st_uid != os.getuid():
+            raise self._storage_error(f"{path} is owned by another user")
+
+    def _chmod_owner_only(self, path: Path, mode: int) -> None:
+        if os.name == "posix":
+            try:
+                path.chmod(mode, follow_symlinks=False)
+            except OSError as exc:
+                raise self._storage_error(f"cannot secure permissions on {path}: {exc}") from exc
+
+    def _validate_existing_file(self) -> os.stat_result | None:
+        try:
+            info = self.path.lstat()
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            raise self._storage_error(f"cannot inspect {self.path}: {exc}") from exc
+
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise self._storage_error(f"{self.path} must be a regular file, not a link")
+        self._require_current_owner(info, self.path)
+        self._chmod_owner_only(self.path, 0o600)
+        return info
+
+    def _load(self) -> dict[str, Any]:
+        if self._validate_existing_file() is None:
+            return self._empty_data()
+
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(self.path, flags)
+            with os.fdopen(descriptor, encoding="utf-8") as auth_file:
+                info = os.fstat(auth_file.fileno())
+                if not stat.S_ISREG(info.st_mode):
+                    raise self._storage_error(f"{self.path} is no longer a regular file")
+                self._require_current_owner(info, self.path)
+                data = json.load(auth_file)
+        except HubError:
+            raise
+        except FileNotFoundError:
+            return self._empty_data()
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return self._empty_data()
+        except OSError as exc:
+            raise self._storage_error(f"cannot read {self.path}: {exc}") from exc
+
+        if not isinstance(data, dict) or not isinstance(data.get("profiles"), dict):
+            return self._empty_data()
+        if data.get("active") is not None and not isinstance(data.get("active"), str):
+            return self._empty_data()
+        return data
+
+    def _save(self) -> None:
+        self._validate_existing_file()
+        payload = (json.dumps(self._data, indent=2, ensure_ascii=False) + "\n").encode()
+        descriptor = -1
+        temporary_path: Path | None = None
+        try:
+            descriptor, temporary_name = tempfile.mkstemp(
+                dir=self.path.parent,
+                prefix=f".{self.path.name}.",
+                suffix=".tmp",
+            )
+            temporary_path = Path(temporary_name)
+            if os.name == "posix":
+                os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "wb") as auth_file:
+                descriptor = -1
+                auth_file.write(payload)
+                auth_file.flush()
+                os.fsync(auth_file.fileno())
+
+            # Reject a link introduced after construction instead of silently
+            # replacing it. os.replace itself never writes through the link.
+            self._validate_existing_file()
+            os.replace(temporary_path, self.path)
+            temporary_path = None
+            self._chmod_owner_only(self.path, 0o600)
+            self._fsync_config_dir()
+        except HubError:
+            raise
+        except OSError as exc:
+            raise self._storage_error(f"cannot write {self.path}: {exc}") from exc
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            if temporary_path is not None:
+                with suppress(OSError):
+                    temporary_path.unlink(missing_ok=True)
+
+    def _fsync_config_dir(self) -> None:
+        if os.name != "posix":
+            return
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        try:
+            descriptor = os.open(self.path.parent, flags)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        except OSError as exc:
+            raise self._storage_error(
+                f"credentials were written but {self.path.parent} could not be synced: {exc}"
+            ) from exc
 
     # ------------------------------------------------------------------
     # Login / logout

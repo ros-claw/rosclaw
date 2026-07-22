@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from argparse import ArgumentParser
 from pathlib import Path
@@ -18,7 +19,8 @@ from rosclaw.hub.licenses import check_license
 from rosclaw.hub.permissions import check_permissions
 from rosclaw.hub.publisher import Publisher, PublishOptions
 from rosclaw.hub.refs import AssetRef, parse_ref
-from rosclaw.hub.schema import dump_manifest_schema, load_manifest
+from rosclaw.hub.resolver import ref_from_manifest
+from rosclaw.hub.schema import dump_manifest_schema, load_manifest, load_manifest_from_bytes
 from rosclaw.hub.verifier import verify_asset_dir
 
 
@@ -109,7 +111,13 @@ def add_hub_subparser(
     verify_parser.add_argument(
         "--no-signature",
         action="store_true",
-        help="Skip signature/certificate checks",
+        help="Skip trusted Ed25519 signature verification (local development only)",
+    )
+    verify_parser.add_argument(
+        "--trust-store",
+        type=Path,
+        default=None,
+        help="Hub trusted-key JSON (defaults to ROSCLAW_HUB_TRUST_STORE or packaged keys)",
     )
     verify_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -126,7 +134,7 @@ def add_hub_subparser(
         "--allow-real-robot",
         action="store_true",
         default=None,
-        help="Allow assets that require real robot execution (default: allow but flag)",
+        help="Explicitly allow assets that require real robot execution",
     )
     policy_check_parser.add_argument(
         "--accept-license",
@@ -142,13 +150,13 @@ def add_hub_subparser(
     )
     install_parser.add_argument(
         "asset_dir",
-        help="Path to asset directory or rosclaw:// reference",
+        help="Asset directory, .rosclaw bundle, or rosclaw:// reference",
     )
     install_parser.add_argument("--dry-run", action="store_true", help="Simulate without writing")
     install_parser.add_argument(
         "--yes",
         action="store_true",
-        help="Accept license and dangerous permissions automatically",
+        help="Accept license prompts; explicit safety permission flags are still required",
     )
     install_parser.add_argument(
         "--accept-license", action="store_true", help="Explicitly accept the asset license"
@@ -168,8 +176,9 @@ def add_hub_subparser(
         dest="verify_signature",
         action="store_false",
         default=True,
-        help="Skip signature/certificate checks",
+        help="Skip trusted Ed25519 signature verification (local development only)",
     )
+    install_parser.add_argument("--trust-store", type=Path, default=None)
     install_parser.add_argument(
         "--allow-real-robot",
         action="store_true",
@@ -205,7 +214,7 @@ def add_hub_subparser(
     update_parser.add_argument(
         "--yes",
         action="store_true",
-        help="Accept license and dangerous permissions automatically",
+        help="Accept license prompts; explicit safety permission flags are still required",
     )
     update_parser.add_argument(
         "--accept-license", action="store_true", help="Explicitly accept the asset license"
@@ -225,8 +234,9 @@ def add_hub_subparser(
         dest="verify_signature",
         action="store_false",
         default=True,
-        help="Skip signature/certificate checks",
+        help="Skip trusted Ed25519 signature verification (local development only)",
     )
+    update_parser.add_argument("--trust-store", type=Path, default=None)
     update_parser.add_argument(
         "--allow-real-robot",
         action="store_true",
@@ -255,11 +265,24 @@ def add_hub_subparser(
     )
     publish_parser.add_argument("asset_dir", help="Path to asset directory")
     publish_parser.add_argument(
-        "--dry-run", action="store_true", help="Validate and scan without writing"
+        "--dry-run",
+        action="store_true",
+        help="Prepare and scan without creating a bundle or registry entry",
     )
     publish_parser.add_argument("--private", action="store_true", help="Publish as a private asset")
     publish_parser.add_argument("--public", action="store_true", help="Publish as a public asset")
-    publish_parser.add_argument("--sign", action="store_true", help="Create placeholder signature")
+    publish_parser.add_argument("--sign", action="store_true", help="Create an Ed25519 signature")
+    publish_parser.add_argument(
+        "--signing-key",
+        type=Path,
+        default=None,
+        help="Ed25519 PKCS8 PEM private key (must remain outside the asset directory)",
+    )
+    publish_parser.add_argument(
+        "--signing-key-id",
+        default=None,
+        help="Trusted key ID declared by security.signing.key_id",
+    )
     publish_parser.add_argument(
         "--registry", default=None, help="Registry URL (defaults to active profile)"
     )
@@ -527,37 +550,93 @@ def cmd_hub_sync(args: argparse.Namespace) -> int:
 
     try:
         entries = client.sync()
+        validated_manifests: list[tuple[AssetRef, bytes]] = []
+        validated_entries: list[dict[str, Any]] = []
+        seen_refs: set[str] = set()
+        for entry_number, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                raise HubError(
+                    code=HubErrorCode.INDEX_VERIFY_FAILED,
+                    message=f"Catalog entry {entry_number} must be a JSON object",
+                )
+            asset = entry.get("asset")
+            if not isinstance(asset, dict):
+                raise HubError(
+                    code=HubErrorCode.INDEX_VERIFY_FAILED,
+                    message=f"Catalog entry {entry_number} has no asset identity",
+                )
+            identity = {
+                field: asset.get(field) for field in ("type", "namespace", "name", "version")
+            }
+            if not all(isinstance(value, str) and value for value in identity.values()):
+                raise HubError(
+                    code=HubErrorCode.INDEX_VERIFY_FAILED,
+                    message=f"Catalog entry {entry_number} has an incomplete asset identity",
+                )
+            ref = AssetRef(
+                type=cast(str, identity["type"]),
+                namespace=cast(str, identity["namespace"]),
+                name=cast(str, identity["name"]),
+                version=cast(str, identity["version"]),
+            )
+            if entry.get("ref") != ref.canonical():
+                raise HubError(
+                    code=HubErrorCode.INDEX_VERIFY_FAILED,
+                    message=f"Catalog reference does not match asset identity: {ref.canonical()}",
+                )
+            if ref.canonical() in seen_refs:
+                raise HubError(
+                    code=HubErrorCode.INDEX_VERIFY_FAILED,
+                    message=f"Catalog contains a duplicate reference: {ref.canonical()}",
+                )
+            seen_refs.add(ref.canonical())
+
+            manifest_bytes = client.fetch_manifest(ref)
+            manifest = load_manifest_from_bytes(manifest_bytes)
+            if ref_from_manifest(manifest) != ref:
+                raise HubError(
+                    code=HubErrorCode.INDEX_VERIFY_FAILED,
+                    message=f"Catalog manifest identity does not match {ref.canonical()}",
+                )
+            expected_digest = entry.get("manifest_digest")
+            actual_digest = f"sha256:{hashlib.sha256(manifest_bytes).hexdigest()}"
+            if expected_digest != actual_digest:
+                raise HubError(
+                    code=HubErrorCode.INDEX_VERIFY_FAILED,
+                    message=(
+                        f"Catalog manifest digest mismatch for {ref.canonical()}: "
+                        f"expected {expected_digest}, got {actual_digest}"
+                    ),
+                )
+            validated_manifests.append((ref, manifest_bytes))
+            canonical_entry = manifest.model_dump(mode="json")
+            canonical_entry.update(
+                {
+                    "schema_version": "hub.catalog.v1",
+                    "ref": ref.canonical(),
+                    "manifest_digest": actual_digest,
+                    "manifest_url": (
+                        f"manifests/{ref.type}/{ref.namespace}/{ref.name}/{ref.version}.yaml"
+                    ),
+                    "size_bytes": entry.get("size_bytes", 0),
+                }
+            )
+            validated_entries.append(canonical_entry)
     except HubError as exc:
         print(f"[ROSClaw] ❌ Sync failed: {exc}")
         return 1
 
     cache = HubCache()
-    index = CatalogIndex(registry, cache)
+    catalog_index = CatalogIndex(registry, cache)
     if args.clear:
-        index.clear()
-    index.index_entries(entries)
+        catalog_index.clear()
+    catalog_index.index_entries(validated_entries)
 
-    # Cache manifest YAMLs so the resolver can find them for install-by-ref.
-    for entry in entries:
-        asset = entry.get("asset", {})
-        version = asset.get("version")
-        if not version:
-            continue
-        ref = AssetRef(
-            type=asset.get("type", ""),
-            namespace=asset.get("namespace", ""),
-            name=asset.get("name", ""),
-            version=version,
-        )
-        try:
-            manifest_bytes = client.fetch_manifest(ref)
-            cache.put_manifest(ref, manifest_bytes)
-        except HubError:
-            # A catalog entry without a reachable manifest is not fatal for sync.
-            pass
+    for ref, manifest_bytes in validated_manifests:
+        cache.put_manifest(ref, manifest_bytes)
 
     print(f"[ROSClaw] ✅ Synced {len(entries)} assets from {registry}")
-    print(f"  Indexed: {index.count()}")
+    print(f"  Indexed: {catalog_index.count()}")
     return 0
 
 
@@ -722,7 +801,11 @@ def cmd_hub_search(args: argparse.Namespace) -> int:
 def cmd_hub_verify(args: argparse.Namespace) -> int:
     """Verify a local asset directory."""
     asset_dir = Path(args.asset_dir)
-    result = verify_asset_dir(asset_dir, require_signature=not args.no_signature)
+    result = verify_asset_dir(
+        asset_dir,
+        require_signature=not args.no_signature,
+        trust_store_path=getattr(args, "trust_store", None),
+    )
 
     if args.json:
         print(
@@ -731,6 +814,10 @@ def cmd_hub_verify(args: argparse.Namespace) -> int:
                     "ok": result.ok,
                     "errors": result.errors,
                     "warnings": result.warnings,
+                    "checked_files": result.checked_files,
+                    "signature_status": result.signature_status,
+                    "signature_key_id": result.signature_key_id,
+                    "trusted": result.trusted,
                 },
                 indent=2,
             )
@@ -762,10 +849,9 @@ def cmd_hub_policy_check(args: argparse.Namespace) -> int:
             print(f"[ROSClaw] ❌ Policy check failed: {exc}")
         return 1
 
-    allow_real_robot = args.allow_real_robot if args.allow_real_robot else None
     perm_result = check_permissions(
         manifest,
-        allow_real_robot=allow_real_robot,
+        allow_real_robot=bool(args.allow_real_robot),
     )
     license_result = check_license(
         manifest,
@@ -822,12 +908,13 @@ def _install_options_from_args(args: argparse.Namespace) -> InstallOptions:
     return InstallOptions(
         dry_run=args.dry_run,
         accept_license=args.accept_license or args.yes,
-        allow_real_robot=True if args.allow_real_robot else None,
+        allow_real_robot=bool(args.allow_real_robot),
         allow_safety_config_changes=args.allow_safety_config_changes,
         allow_network_inbound=args.allow_network_inbound,
         verify_signature=args.verify_signature,
         skip_health=args.skip_health,
         skip_mcp_merge=args.no_mcp_merge,
+        trust_store_path=getattr(args, "trust_store", None),
     )
 
 
@@ -1048,10 +1135,10 @@ def cmd_hub_publish(args: argparse.Namespace) -> int:
         profile = store.get_active_profile()
         if profile:
             registry = cast(str, profile["registry"])
-        else:
+        elif args.output is None:
             print(
-                "[ROSClaw] ❌ No registry specified and no active profile. "
-                "Use --registry or run `rosclaw hub login`."
+                "[ROSClaw] ❌ No publish destination. Use --output for a local bundle, "
+                "--registry for upload, or run `rosclaw hub login`."
             )
             return 1
 
@@ -1061,6 +1148,8 @@ def cmd_hub_publish(args: argparse.Namespace) -> int:
         sign=args.sign,
         registry=registry,
         output=args.output,
+        signing_key=getattr(args, "signing_key", None),
+        signing_key_id=getattr(args, "signing_key_id", None),
     )
     publisher = Publisher(options)
     try:

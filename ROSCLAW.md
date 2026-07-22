@@ -9,6 +9,7 @@ outside managed blocks are preserved by `rosclaw agent init claude-code`.
 
 - **Project root:** `.`
 - **MCP transport:** `stdio`
+- **Pinned ROSClaw CLI:** `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint`
 - **Robot ID:** (none detected)
 
 ## Agent harness activation
@@ -29,6 +30,61 @@ Core safety tools: `get_robot_state`, `list_skills`, `query_memory`, `validate_t
 Body context tools: `get_body_profile`, `get_body_state`, `list_body_capabilities`, `query_body`, `validate_body_action`, `get_calibration_status`.
 Product workflow tools: `get_product_status`, `list_product_demos`, `run_product_demo`, `get_execution_receipt`, `explain_execution`.
 Control-plane tools: `get_runtime_status`, `request_action`, `get_action_status`, `cancel_action`.
+
+## Robot Integration lifecycle
+
+Robot Integration setup is an operator CLI lifecycle, not an additional MCP tool:
+
+Use the pinned launcher above for every ROSClaw shell command; do not substitute
+a different `rosclaw` found on `PATH`.
+
+1. `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot discover --json` performs read-only supported-device discovery.
+2. `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot install realsense --json` installs and verifies the signed Integration;
+   it does not install the native adapter unless `--install-adapter` is explicit.
+3. `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot verify realsense --stage contract --json` verifies schema,
+   payload hashes, signature trust, Body profiles, policy, and host compatibility.
+4. `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot configure realsense --serial <SERIAL> --model <MODEL> --json`
+   binds an exact device identity and immutable Body snapshot. Do this only on an
+   explicit operator request. `--allow-offline` is configuration, not observation.
+5. `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot verify <INSTANCE> --stage read-only --receipt <RECEIPT> --json`
+   checks read-only hardware evidence. Never infer hardware success from
+   discovery, configuration, adapter output, or conversational text.
+
+Native adapter installation mutates the Python environment and remains
+operator-owned. Robot Integration CLI commands never authorize direct SDK use
+by the Agent; runtime hardware access remains behind `request_action` and `rosclawd`.
+
+## Capability App lifecycle
+
+Apps declare Capability calls and verification expressions only. Use
+`/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint app list`, `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint app validate <APP> --json`, and SHADOW mode before any
+REAL request. Never treat App installation or a successful local expression as
+hardware evidence. Every App step must remain behind rosclawd Session, Lease,
+Permit, policy, and Receipt checks.
+
+## rosclawd read-only inspection
+
+Use the pinned launcher to inspect the daemon boundary and durable control
+ledger without submitting work:
+
+```bash
+/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint daemon status --json
+/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint daemon action-status <ACTION_ID> --json
+/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint daemon receipt <ACTION_ID> --json
+```
+
+For a healthy daemon, require `running` and `ledger.integrity_verified` to be
+`true`, and require `ledger.write_failed`, `recovery.required`, and
+`emergency_stop_latched` to be `false`. Production REAL work additionally
+requires `supervision_state=ARMED`, `privilege_separated=true`, and a
+`daemon security-check --json` result
+with `boundary_ready=true`, `daemon_uid_pinned=true`, and
+`ledger_state_private=true`; same-UID development is not deployment evidence.
+Treat `daemon acknowledge-recovery` as an operator incident-review command,
+not an Agent workflow; it does not clear E-stop or prove physical state.
+Every action belongs to an expiring Agent Session and renewable Action Lease.
+Do not continue after Session or Lease loss, and never reuse state from an
+earlier daemon generation.
 
 ## Validate-before-motion workflow
 
@@ -57,6 +113,35 @@ Claude Code must never run these commands directly:
 - `ros2 topic pub /cmd_vel ...`
 - Any direct motor/DDS/hardware write, including after operator confirmation
 - Any `sudo` command on the robot host without explicit justification
+
+## LeRobot Bridge v1.0.1
+
+LeRobot is a policy backend inside ROSClaw. Do not operate its worker,
+robot transport, executor, serial device, or vendor SDK directly.
+
+### Discovery
+
+1. Call `get_product_status`.
+2. Call `get_runtime_status`.
+3. Call `get_body_profile` and `get_body_state`.
+4. Call `get_calibration_status`.
+5. Check that `rh56.single_step` is available before requesting RH56 motion.
+
+### Supported Reference Path
+
+- Policy: `rosclaw_rh56_reference`
+- Bodies: `inspire_rh56_left`, `inspire_rh56_right`
+- Modes: proposal-only, SHADOW, single-step REAL
+- REAL is submitted only through MCP `request_action`.
+
+### Safety
+
+- Use SHADOW before REAL.
+- Never run `rosclaw lerobot rollout execute` from an Agent process.
+- Never open serial/CAN devices directly.
+- Never create or approve a Permit.
+- Read `get_execution_receipt` and `explain_execution` before claiming success.
+
 <!-- ROSCLAW-MANAGED-END -->
 
 ## Maintainer notes

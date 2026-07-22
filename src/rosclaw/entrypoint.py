@@ -14,6 +14,18 @@ def main() -> int:
     if result is not None:
         return result
 
+    from rosclaw.robot_pack.cli import dispatch_robot_pack_argv
+
+    result = dispatch_robot_pack_argv(sys.argv[1:])
+    if result is not None:
+        return result
+
+    from rosclaw.app.cli import dispatch_app_argv
+
+    result = dispatch_app_argv(sys.argv[1:])
+    if result is not None:
+        return result
+
     from rosclaw.product.cli import dispatch_product_argv
 
     result = dispatch_product_argv(sys.argv[1:])

@@ -264,6 +264,22 @@ class TestRealsenseCaptureRgbdSkill:
         assert result["status"] == "error"
         assert "mcp" in result["reason"].lower()
 
+    def test_run_does_not_fall_back_from_required_mcp_server(
+        self, workspace_with_realsense_body, tmp_path
+    ):
+        result = runner.run(
+            {
+                "workspace": str(workspace_with_realsense_body),
+                "body_id": "d405_lab_01",
+                "output_dir": str(tmp_path / "required-server"),
+                "serial": "123456789",
+                "server_name": "realsense-ros-mcp",
+            }
+        )
+
+        assert result["status"] == "error"
+        assert "realsense-ros-mcp" in result["reason"]
+
     def test_skill_executor_runs_builtin_handler(
         self, workspace_with_realsense_body, tmp_path, monkeypatch
     ):

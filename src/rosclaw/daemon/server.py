@@ -28,11 +28,24 @@ from rosclaw.kernel import ActionEnvelope
 _ALLOWED_METHODS = frozenset(
     {
         "runtime.status",
+        "runtime.arm",
+        "runtime.disarm",
+        "runtime.recovery.acknowledge",
         "runtime.shutdown",
+        "permit.issue",
         "action.request",
         "action.status",
         "action.receipt",
         "action.cancel",
+        "action.lease.renew",
+        "session.create",
+        "session.heartbeat",
+        "session.status",
+        "session.close",
+        "worker.status",
+        "worker.start",
+        "worker.stop",
+        "worker.restart",
         "safety.emergency_stop",
     }
 )
@@ -308,6 +321,21 @@ class RosclawDaemon:
             )
         if method == "runtime.status":
             return self.service.get_runtime_status(peer), False
+        if method == "runtime.arm":
+            return self.service.arm_runtime(
+                _required_id(params, "reason", max_length=1024), peer
+            ), False
+        if method == "runtime.disarm":
+            return (
+                self.service.disarm_runtime(
+                    _required_id(params, "reason", max_length=1024),
+                    peer,
+                ),
+                False,
+            )
+        if method == "runtime.recovery.acknowledge":
+            reason = _required_id(params, "reason", max_length=1024)
+            return self.service.acknowledge_recovery(reason, peer), False
         if method == "runtime.shutdown":
             if peer.uid != os.geteuid():
                 raise ControlPlaneError(
@@ -315,15 +343,20 @@ class RosclawDaemon:
                     "Only the rosclawd service UID may request daemon shutdown",
                 )
             return {"shutdown_requested": True}, True
+        if method == "permit.issue":
+            return (
+                self.service.issue_execution_permit(
+                    _required_action(params),
+                    principal_id=_required_id(params, "principal_id"),
+                    target_peer_uid=_required_int(params, "target_peer_uid"),
+                    expires_in_sec=_required_number(params, "expires_in_sec"),
+                    reason=_required_id(params, "reason", max_length=1024),
+                    peer=peer,
+                ),
+                False,
+            )
         if method == "action.request":
-            action_payload = params.get("action")
-            if not isinstance(action_payload, dict):
-                raise ControlPlaneError("INVALID_ACTION", "action must be a JSON object")
-            try:
-                action = ActionEnvelope.from_dict(action_payload)
-            except (TypeError, ValueError, KeyError) as exc:
-                raise ControlPlaneError("INVALID_ACTION", str(exc)) from exc
-            return self.service.request_action(action, peer), False
+            return self.service.request_action(_required_action(params), peer), False
         if method == "action.status":
             return (
                 self.service.get_action_status(
@@ -344,6 +377,73 @@ class RosclawDaemon:
             return (
                 self.service.cancel_action(
                     _required_id(params, "action_id"),
+                    peer,
+                ),
+                False,
+            )
+        if method == "action.lease.renew":
+            return (
+                self.service.renew_action_lease(
+                    _required_id(params, "action_id"),
+                    _required_id(params, "session_id"),
+                    peer,
+                ),
+                False,
+            )
+        if method == "session.create":
+            return (
+                self.service.create_session(
+                    session_id=_required_id(params, "session_id"),
+                    actor_id=_required_id(params, "actor_id"),
+                    agent_framework=_required_id(params, "agent_framework"),
+                    body_scope=_required_string_list(params, "body_scope"),
+                    capability_scope=_required_string_list(params, "capability_scope"),
+                    ttl_ms=_required_int(params, "ttl_ms"),
+                    peer=peer,
+                ),
+                False,
+            )
+        if method == "session.heartbeat":
+            return (
+                self.service.heartbeat_session(
+                    _required_id(params, "session_id"),
+                    peer,
+                ),
+                False,
+            )
+        if method == "session.status":
+            return (
+                self.service.get_session(
+                    _required_id(params, "session_id"),
+                    peer,
+                ),
+                False,
+            )
+        if method == "session.close":
+            reason = params.get("reason", "client_closed")
+            if not isinstance(reason, str) or not reason.strip() or len(reason) > 256:
+                raise ControlPlaneError(
+                    "INVALID_ARGUMENT",
+                    "reason must contain 1 to 256 characters",
+                )
+            return (
+                self.service.close_session(
+                    _required_id(params, "session_id"),
+                    peer,
+                    reason=reason,
+                ),
+                False,
+            )
+        if method == "worker.status":
+            worker_id = params.get("worker_id")
+            if worker_id is not None:
+                worker_id = _required_id(params, "worker_id", max_length=128)
+            return self.service.get_worker_status(peer, worker_id=worker_id), False
+        if method in {"worker.start", "worker.stop", "worker.restart"}:
+            return (
+                self.service.control_worker(
+                    method.removeprefix("worker."),
+                    _required_id(params, "worker_id", max_length=128),
                     peer,
                 ),
                 False,
@@ -401,6 +501,44 @@ def _required_id(
             f"{key} must be a non-empty string of at most {max_length} characters",
         )
     return value
+
+
+def _required_string_list(params: dict[str, Any], key: str) -> list[str]:
+    value = params.get(key)
+    if (
+        not isinstance(value, list)
+        or not value
+        or not all(isinstance(item, str) and item.strip() for item in value)
+    ):
+        raise ControlPlaneError(
+            "INVALID_ARGUMENT",
+            f"{key} must be a non-empty string list",
+        )
+    return value
+
+
+def _required_int(params: dict[str, Any], key: str) -> int:
+    value = params.get(key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ControlPlaneError("INVALID_ARGUMENT", f"{key} must be an integer")
+    return value
+
+
+def _required_number(params: dict[str, Any], key: str) -> float:
+    value = params.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ControlPlaneError("INVALID_ARGUMENT", f"{key} must be numeric")
+    return float(value)
+
+
+def _required_action(params: dict[str, Any]) -> ActionEnvelope:
+    action_payload = params.get("action")
+    if not isinstance(action_payload, dict):
+        raise ControlPlaneError("INVALID_ACTION", "action must be a JSON object")
+    try:
+        return ActionEnvelope.from_dict(action_payload)
+    except (TypeError, ValueError, KeyError) as exc:
+        raise ControlPlaneError("INVALID_ACTION", str(exc)) from exc
 
 
 __all__ = ["RosclawDaemon"]

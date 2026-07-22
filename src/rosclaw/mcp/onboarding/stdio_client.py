@@ -10,7 +10,12 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import queue
+import signal
 import subprocess
+import threading
+import time
+from collections import deque
 from pathlib import Path
 from typing import Any, cast
 
@@ -23,6 +28,11 @@ class McpStdioError(Exception):
     """Raised when an MCP stdio interaction fails."""
 
 
+MAX_MCP_STDIO_LINE_BYTES = 1024 * 1024
+MAX_PENDING_RESPONSES = 128
+MAX_MCP_STDERR_LINE_CHARS = 4096
+
+
 class McpStdioClient:
     """Line-delimited JSON-RPC client for an MCP stdio server."""
 
@@ -32,9 +42,21 @@ class McpStdioClient:
         self.env = {**os.environ, **(env or {})}
         self._proc: subprocess.Popen[str] | None = None
         self._request_id = 0
+        self._responses: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=MAX_PENDING_RESPONSES)
+        self._pending: dict[int, dict[str, Any]] = {}
+        self._reader_thread: threading.Thread | None = None
+        self._stderr_thread: threading.Thread | None = None
+        self._reader_done = threading.Event()
+        self._reader_error: str | None = None
+        self._stderr_tail: deque[str] = deque(maxlen=40)
 
     def start(self, timeout: float = 10.0) -> None:
         """Start the server subprocess."""
+        if self._proc is not None:
+            raise McpStdioError("MCP server is already started; stop it before restarting")
+        self._responses = queue.Queue(maxsize=MAX_PENDING_RESPONSES)
+        self._pending.clear()
+        self._stderr_tail.clear()
         try:
             self._proc = subprocess.Popen(
                 [self.command, *self.args],
@@ -43,30 +65,50 @@ class McpStdioClient:
                 stderr=subprocess.PIPE,
                 text=True,
                 env=self.env,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+                close_fds=True,
+                start_new_session=True,
             )
         except Exception as exc:
             raise McpStdioError(f"Failed to start MCP server: {exc}") from exc
 
-        # Perform initialize handshake.
-        init_id = self._next_id()
-        self._send(
-            {
-                "jsonrpc": "2.0",
-                "id": init_id,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {},
-                    "clientInfo": {"name": "rosclaw-mcp-cli", "version": "1.0.0"},
-                },
-            }
+        self._reader_done.clear()
+        self._reader_error = None
+        self._reader_thread = threading.Thread(
+            target=self._read_stdout,
+            name="rosclaw-mcp-stdout",
+            daemon=True,
         )
-        response = self._read_response(init_id, timeout=timeout)
-        if "error" in response:
-            raise McpStdioError(f"Initialize error: {response['error']}")
-
-        # Send initialized notification.
-        self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        self._stderr_thread = threading.Thread(
+            target=self._drain_stderr,
+            name="rosclaw-mcp-stderr",
+            daemon=True,
+        )
+        self._reader_thread.start()
+        self._stderr_thread.start()
+        try:
+            init_id = self._next_id()
+            self._send(
+                {
+                    "jsonrpc": "2.0",
+                    "id": init_id,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "rosclaw-mcp-cli", "version": "1.0.0"},
+                    },
+                }
+            )
+            response = self._read_response(init_id, timeout=timeout)
+            if "error" in response:
+                raise McpStdioError(f"Initialize error: {response['error']}")
+            self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        except Exception:
+            self.stop(timeout=min(1.0, timeout))
+            raise
 
     def call_tool(
         self, tool_name: str, arguments: dict[str, Any], timeout: float = 30.0
@@ -108,7 +150,8 @@ class McpStdioClient:
         """Stop the server subprocess."""
         if self._proc is None:
             return
-        stdin = self._proc.stdin
+        process = self._proc
+        stdin = process.stdin
         if stdin is not None:
             try:
                 # The server may have already exited (e.g. after a tool crash or
@@ -120,18 +163,11 @@ class McpStdioClient:
                 pass
             except Exception:
                 pass
-        try:
-            self._proc.terminate()
-            self._proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            self._proc.kill()
-            self._proc.wait()
-        except Exception:
-            pass
+        self._terminate_process(process, timeout=timeout)
         # Explicitly close stdio streams so the Popen finalizer does not emit
         # BrokenPipe warnings when the server has already exited.
         for stream_name in ("stdin", "stdout", "stderr"):
-            stream = getattr(self._proc, stream_name, None)
+            stream = getattr(process, stream_name, None)
             if stream is not None:
                 with contextlib.suppress(BrokenPipeError, OSError, ValueError):
                     stream.close()
@@ -142,11 +178,11 @@ class McpStdioClient:
         return self._request_id
 
     def _send(self, message: dict[str, Any]) -> None:
-        if self._proc is None or self._proc.stdin is None:
+        if self._proc is None or self._proc.stdin is None or self._proc.poll() is not None:
             raise McpStdioError("MCP server not started")
         stdin = self._proc.stdin
         try:
-            stdin.write(json.dumps(message) + "\n")
+            stdin.write(json.dumps(message, allow_nan=False) + "\n")
             stdin.flush()
         except Exception as exc:
             raise McpStdioError(f"Failed to send MCP request: {exc}") from exc
@@ -154,49 +190,113 @@ class McpStdioClient:
     def _read_response(self, expected_id: int, timeout: float) -> dict[str, Any]:
         if self._proc is None:
             raise McpStdioError("MCP server not started")
-        stdout = self._proc.stdout
-        if stdout is None:
-            raise McpStdioError("MCP server not started")
-
-        import threading
-
-        result: dict[str, Any] | None = None
-        error: Exception | None = None
-
-        def _read() -> None:
-            nonlocal result, error
+        pending = self._pending.pop(expected_id, None)
+        if pending is not None:
+            return pending
+        deadline = time.monotonic() + max(0.0, timeout)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                process = self._proc
+                if process is not None:
+                    self._terminate_process(process, timeout=0.25)
+                stderr = "\n".join(self._stderr_tail)
+                detail = f" stderr: {stderr}" if stderr else ""
+                raise McpStdioError(f"Timeout waiting for MCP response (id={expected_id}).{detail}")
             try:
-                for line in stdout:
-                    line = line.strip()
-                    if not line or not line.startswith("{"):
-                        continue
-                    try:
-                        msg = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    msg_id = msg.get("id")
-                    if msg_id == expected_id:
-                        result = msg
-                        return
-            except Exception as exc:
-                error = exc
+                message = self._responses.get(timeout=min(remaining, 0.05))
+            except queue.Empty:
+                if self._reader_done.is_set():
+                    detail = self._reader_error or f"server exited with {self._proc.poll()}"
+                    raise McpStdioError(f"MCP response stream ended: {detail}") from None
+                continue
+            message_id = message.get("id")
+            if (
+                isinstance(message_id, int)
+                and not isinstance(message_id, bool)
+                and message_id == expected_id
+            ):
+                return message
+            if isinstance(message_id, int) and not isinstance(message_id, bool):
+                if len(self._pending) >= MAX_PENDING_RESPONSES:
+                    process = self._proc
+                    if process is not None:
+                        self._terminate_process(process, timeout=0.25)
+                    raise McpStdioError("MCP server exceeded the pending response limit")
+                self._pending[message_id] = message
 
-        thread = threading.Thread(target=_read, daemon=True)
-        thread.start()
-        thread.join(timeout=timeout)
+    def _read_stdout(self) -> None:
+        process = self._proc
+        if process is None or process.stdout is None:
+            self._reader_error = "stdout is unavailable"
+            self._reader_done.set()
+            return
+        stdout = process.stdout
+        try:
+            while True:
+                line = stdout.readline(MAX_MCP_STDIO_LINE_BYTES + 1)
+                if not line:
+                    return
+                if len(line.encode("utf-8")) > MAX_MCP_STDIO_LINE_BYTES or not line.endswith("\n"):
+                    self._fail_reader(process, "MCP response exceeded the stdio line limit")
+                    return
+                stripped = line.strip()
+                if not stripped or not stripped.startswith("{"):
+                    continue
+                try:
+                    message = json.loads(stripped)
+                except json.JSONDecodeError:
+                    self._fail_reader(process, "MCP server emitted malformed JSON-RPC")
+                    return
+                if not isinstance(message, dict) or message.get("jsonrpc") != "2.0":
+                    self._fail_reader(process, "MCP server emitted invalid JSON-RPC")
+                    return
+                message_id = message.get("id")
+                if message_id is None:
+                    continue
+                if isinstance(message_id, bool) or not isinstance(message_id, int):
+                    self._fail_reader(process, "MCP response id must be an integer")
+                    return
+                try:
+                    self._responses.put_nowait(message)
+                except queue.Full:
+                    self._fail_reader(process, "MCP response queue exceeded its limit")
+                    return
+        except Exception as exc:  # noqa: BLE001
+            self._reader_error = f"{type(exc).__name__}: {exc}"[:512]
+        finally:
+            self._reader_done.set()
 
-        if error is not None:
-            raise McpStdioError(f"Error reading MCP response: {error}")
-        if result is None:
-            # Try to capture stderr for diagnosis.
-            stderr = ""
-            if self._proc.stderr is not None:
-                with contextlib.suppress(Exception):
-                    stderr = self._proc.stderr.read(4096)
-            raise McpStdioError(
-                f"Timeout waiting for MCP response (id={expected_id}).{f' stderr: {stderr}' if stderr else ''}"
-            )
-        return result
+    def _drain_stderr(self) -> None:
+        process = self._proc
+        stderr = process.stderr if process is not None else None
+        if stderr is None:
+            return
+        while True:
+            line = stderr.readline(MAX_MCP_STDERR_LINE_CHARS + 1)
+            if not line:
+                return
+            self._stderr_tail.append(line.rstrip()[:1024])
+
+    def _fail_reader(self, process: subprocess.Popen[str], message: str) -> None:
+        self._reader_error = message
+        self._terminate_process(process, timeout=0.25)
+
+    @staticmethod
+    def _terminate_process(process: subprocess.Popen[str], *, timeout: float) -> None:
+        if process.poll() is not None:
+            return
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        try:
+            process.wait(timeout=max(0.01, timeout))
+        except subprocess.TimeoutExpired:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                process.wait(timeout=max(0.01, timeout))
 
 
 def load_runtime_config(server_name: str, home: Path | str | None = None) -> dict[str, Any]:

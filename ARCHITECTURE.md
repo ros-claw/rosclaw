@@ -47,7 +47,7 @@ ROSClaw 1.0 =
 
 | Module | Owns | Must NOT Do |
 |--------|------|-------------|
-| rosclawd | Southbound privileges, action queue, permits, leases, E-Stop latch, receipts | Trust Agent approval flags, expose raw device/ROS writes |
+| rosclawd | Southbound privileges, action queue, durable permit/action ledger, leases, E-Stop latch, receipts | Trust Agent approval flags, expose raw device/ROS writes |
 | Runtime | Lifecycle, config, plugin registration, dependency injection | Bypass sandbox, allow unapproved code patches |
 | EventBus | Module communication, topic routing, trace correlation | Hold business logic, mutate payloads |
 | Provider | Capability routing, schema, safety boundary | Direct robot control, raw model inference |
@@ -68,11 +68,14 @@ ROSClaw 1.0 =
 2. Agent submits a structured ActionEnvelope through MCP/CLI/SDK.
 3. rosclawd authenticates the Unix peer and matches an expiring, use-bounded
    permit to the Body Snapshot, explicit Capability, and exact Action Intent.
-4. Sandbox/Firewall decides ALLOW/BLOCK/MODIFY/REQUIRE_CONFIRMATION.
-5. ActionGateway acquires the physical resource lease.
-6. A daemon-registered executor dispatches and obtains Driver ACK.
-7. Observation and task verification produce an ExecutionReceipt.
-8. Practice, Memory, Know, How, Auto, and Darwin consume receipts asynchronously.
+4. rosclawd durably records action transitions and consumes the exact permit
+   before REAL dispatch.
+5. Sandbox/Firewall decides ALLOW/BLOCK/MODIFY/REQUIRE_CONFIRMATION.
+6. ActionGateway acquires the physical resource lease.
+7. A daemon-registered executor dispatches and obtains Driver ACK.
+8. Observation and task verification produce a durable ExecutionReceipt.
+9. Practice, Memory, Know, How, Auto, and Darwin consume receipts asynchronously.
+```
 
 The Agent process must not construct a second physical Runtime or load a
 southbound driver. See [docs/ROSCLAWD.md](docs/ROSCLAWD.md).
@@ -81,7 +84,11 @@ This is the target REAL contract. The current base `rosclawd` deliberately
 loads no hardware pack, REAL executor, permit issuer, or pack-specific policy
 validator, so REAL fails closed until those daemon-side pieces are installed
 and accepted for a specific body.
-```
+
+The local daemon ledger restores terminal receipts and permit consumption after
+restart. An interrupted REAL action is not retried: its outcome becomes unknown,
+E-Stop is requested, and daemon-UID operator review is required. The HMAC key
+and signed head are local integrity controls, not TPM or remote audit witnesses.
 
 ## Self-Evolution Loop
 

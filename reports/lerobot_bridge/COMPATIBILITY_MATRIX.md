@@ -1,13 +1,17 @@
-# ROSClaw × LeRobot Bridge v1.0 — Compatibility Matrix
+# ROSClaw × LeRobot Bridge v1.0.1 — Compatibility Matrix
 
-Validated 2026-07-17 on the Jetson (aarch64) + Inspire RH56 left hand.
+Validated 2026-07-17 on the Jetson (aarch64) + Inspire RH56 left hand;
+Agent discoverability + developer black-box closed 2026-07-22 on x86_64
+(no physical hand) via MCP action tools.
 
 ```yaml
-bridge_version: "1.0"
+bridge_version: "1.0.1"
+release_tag: rosclaw-lerobot-bridge-v1.0.1
+branch: main
+validated_commit: 8586500c2f04   # final main SHA of the v1.0.1 closure PR
 
 rosclaw:
   core_python: "3.12"          # 3.12.3 (also runs 3.11 per CI matrix)
-  repo: feat/lerobot-bridge-real-hardware
 
 lerobot:
   tested_version: "0.6.0"      # pip: lerobot>=0.6,<0.7
@@ -21,6 +25,14 @@ policy_runtime:
     - proposal_only
     - shadow                   # 1000 steps @5Hz OBSERVED gate pass
     - single_step_receding_horizon   # REAL via ActionGateway rh56.single_step
+
+agent_surface:
+  mcp_tools: 22                # 7 core + 6 body + 4 control-plane + 5 product
+  product_status_tool: get_product_status
+  action_entry: request_action # SHADOW/FIXTURE always; REAL requires operator permit
+  receipt_tools: [get_action_status, get_execution_receipt, explain_execution]
+  guidance: AGENTS.md / CLAUDE.md / ROSCLAW.md / .agents skill (managed blocks)
+  agent_blackbox: developer_agent_blackbox (independent: false)
 
 reference_policy:
   type: rosclaw_rh56_reference
