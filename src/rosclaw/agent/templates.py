@@ -170,6 +170,38 @@ http_headers = {{ X-ROSClaw-Agent = "codex" }}
 """
 
 
+def _lerobot_bridge_section() -> str:
+    """Shared LeRobot Bridge v1.0.1 guidance for agent onboarding files."""
+    return """## LeRobot Bridge v1.0.1
+
+LeRobot is a policy backend inside ROSClaw. Do not operate its worker,
+robot transport, executor, serial device, or vendor SDK directly.
+
+### Discovery
+
+1. Call `get_product_status`.
+2. Call `get_runtime_status`.
+3. Call `get_body_profile` and `get_body_state`.
+4. Call `get_calibration_status`.
+5. Check that `rh56.single_step` is available before requesting RH56 motion.
+
+### Supported Reference Path
+
+- Policy: `rosclaw_rh56_reference`
+- Bodies: `inspire_rh56_left`, `inspire_rh56_right`
+- Modes: proposal-only, SHADOW, single-step REAL
+- REAL is submitted only through MCP `request_action`.
+
+### Safety
+
+- Use SHADOW before REAL.
+- Never run `rosclaw lerobot rollout execute` from an Agent process.
+- Never open serial/CAN devices directly.
+- Never create or approve a Permit.
+- Read `get_execution_receipt` and `explain_execution` before claiming success.
+"""
+
+
 def render_claude_md(profile: ProjectProfile) -> str:
     """Render the project-level CLAUDE.md onboarding file."""
     robot_line = (
@@ -234,6 +266,8 @@ them with `{cli} app list` and `{cli} app validate <APP> --json`. Run an App
 only through `{cli} app run <APP> --body <BODY> --mode SHADOW --json` unless the
 operator explicitly establishes every REAL prerequisite. App installation does
 not install hardware, arm rosclawd, issue a Permit, or prove execution.
+
+{_lerobot_bridge_section()}
 {MANAGED_END}
 
 ## Human notes
@@ -366,6 +400,8 @@ Claude Code must never run these commands directly:
 - `ros2 topic pub /cmd_vel ...`
 - Any direct motor/DDS/hardware write, including after operator confirmation
 - Any `sudo` command on the robot host without explicit justification
+
+{_lerobot_bridge_section()}
 {MANAGED_END}
 
 ## Maintainer notes
@@ -458,6 +494,8 @@ request.
   any are unavailable, refuse the action and explain the missing prerequisite.
 - Never instantiate `Runtime`, register a driver/executor, or open ROS, DDS,
   serial, CAN, or a vendor SDK from the Agent process.
+
+{_lerobot_bridge_section()}
 {MANAGED_END}
 
 ## Human notes
@@ -583,6 +621,76 @@ export ROSCLAW_HOME="$TMP/home"
   may turn a matching server-issued permit into authorization.
 - `cancel_action` never claims that active physical motion stopped. Use
   `emergency_stop` and the certified hardware E-stop when motion may be active.
+
+## LeRobot Bridge Workflow
+
+### Operator setup
+
+These are operator workflows. Do not install dependencies unless explicitly requested.
+
+```bash
+{cli} setup lerobot --reference-policy rh56
+{cli} lerobot doctor --json
+```
+
+### Read-only Agent discovery
+
+Use MCP tools:
+
+1. `get_product_status`
+2. `get_runtime_status`
+3. `get_body_profile`
+4. `get_body_state`
+5. `get_calibration_status`
+6. `list_body_capabilities`
+
+### SHADOW request
+
+Submit through `request_action` with execution mode SHADOW.
+Poll with `get_action_status`.
+Read the final result with `get_execution_receipt`.
+Explain it with `explain_execution`.
+
+### REAL request
+
+Submit the exact requested action through `request_action`.
+The Agent does not issue or approve a Permit.
+If rosclawd reports AUTHORIZATION_REQUIRED, stop and explain the missing authorization.
+Never fall back to shell, serial, CAN, ROS topic, MCP driver, or vendor SDK execution.
+
+### Dataset workflow
+
+For non-physical data operations, use the ROSClaw CLI:
+
+```bash
+{cli} practice verify <PRACTICE_ID> --strict --json
+{cli} practice export \
+  --practice-id <PRACTICE_ID> \
+  --format lerobot \
+  --profile physical \
+  --output <OUTPUT_DIR> \
+  --json
+```
+
+### Unsupported requests
+
+Training, DAgger, reward models, Hub publishing, arbitrary-policy robot mapping,
+CAN RH56 execution, open-loop chunks, and unattended execution are outside
+LeRobot Bridge v1.0.1.
+
+### Decision table
+
+| User intent | Agent should do | Agent must not do |
+|---|---|---|
+| "Is LeRobot installed?" | `get_product_status` + `get_runtime_status` | import lerobot |
+| "Can I use the RH56 now?" | body/profile/state/calibration/capability tools | open the serial port |
+| "Preview what it would do" | `request_action(SHADOW)` | run `rollout execute` directly |
+| "Do the real OK gesture" | `request_action(REAL)`, wait for rosclawd | self-issue a Permit |
+| "Try it without authorization" | refuse and explain AUTHORIZATION_REQUIRED | switch to serial commands |
+| "Did it succeed?" | `get_action_status` + receipt + `explain_execution` | guess success from text |
+| "Export data for training" | `practice verify` / `export` | train automatically |
+| "Control RH56 with any VLA" | explain v1.0.1 supports only the reference contract | guess mapping by action_dim |
+| "Control RH56 over CAN" | explain CAN is fail-closed unsupported | reuse RS485 mapping on CAN |
 """
 
 
@@ -610,6 +718,14 @@ def render_claude_settings_json(profile: ProjectProfile) -> dict[str, Any]:
 
 def render_context_snapshot(profile: ProjectProfile) -> dict[str, Any]:
     """Render the machine-readable .rosclaw/agent/context.snapshot.json."""
+    lerobot_integration: dict[str, Any] = {"configured": False, "state": "not_configured"}
+    try:
+        from rosclaw.agent.lerobot_status import detect_lerobot_integration
+
+        lerobot_integration = detect_lerobot_integration()
+    except Exception:  # noqa: BLE001
+        # Snapshot generation must never fail because LeRobot is absent.
+        pass
     return {
         "schema_version": "rosclaw.agent.context.v2",
         "project": {
@@ -632,6 +748,9 @@ def render_context_snapshot(profile: ProjectProfile) -> dict[str, Any]:
         "tools": {
             "available": list(P0_AGENT_MCP_TOOLS),
             "safety_levels": {tool: compact_safety_level(tool) for tool in P0_AGENT_MCP_TOOLS},
+        },
+        "integrations": {
+            "lerobot": lerobot_integration,
         },
         "policies": {
             "direct_hardware_access": False,

@@ -1,0 +1,25 @@
+{
+  "schema_version": "rosclaw.lerobot.units.v1",
+  "units": {
+    "observation.contact": {
+      "unit": "bool",
+      "description": "Binary contact flag per contact sensor"
+    },
+    "observation.force_torque": {
+      "unit": "N_Nm",
+      "description": "Force/torque wrench [Fx, Fy, Fz, Tx, Ty, Tz]"
+    },
+    "observation.joint_temperature": {
+      "unit": "degC",
+      "description": "Per-joint temperature"
+    },
+    "observation.motor_current": {
+      "unit": "A",
+      "description": "Per-motor current draw"
+    },
+    "rosclaw.sandbox.risk_score": {
+      "unit": "scalar",
+      "description": "Normalized risk score (0-1, NaN if unknown)"
+    }
+  }
+}

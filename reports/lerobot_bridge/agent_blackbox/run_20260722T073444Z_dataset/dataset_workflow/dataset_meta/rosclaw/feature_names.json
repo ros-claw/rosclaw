@@ -1,0 +1,55 @@
+{
+  "schema_version": "rosclaw.lerobot.feature_names.v1",
+  "features": {
+    "action": {
+      "name": "action"
+    },
+    "observation.contact": {
+      "name": "contact",
+      "axis_names": [
+        "contact"
+      ]
+    },
+    "observation.force_torque": {
+      "name": "force_torque",
+      "axis_names": [
+        "Fx",
+        "Fy",
+        "Fz",
+        "Tx",
+        "Ty",
+        "Tz"
+      ]
+    },
+    "observation.joint_temperature": {
+      "name": "joint_temperature",
+      "axis_names": [
+        "joint"
+      ]
+    },
+    "observation.motor_current": {
+      "name": "motor_current",
+      "axis_names": [
+        "motor"
+      ]
+    },
+    "observation.state": {
+      "name": "state"
+    },
+    "rosclaw.action.source": {
+      "name": "action_source"
+    },
+    "rosclaw.action.was_clamped": {
+      "name": "action_was_clamped"
+    },
+    "rosclaw.sandbox.decision": {
+      "name": "sandbox_decision"
+    },
+    "rosclaw.sandbox.modified": {
+      "name": "sandbox_modified"
+    },
+    "rosclaw.sandbox.risk_score": {
+      "name": "risk_score"
+    }
+  }
+}
