@@ -10,7 +10,7 @@
 | Command | Description | Usage |
 |---------|-------------|-------|
 | `rosclaw` | ROSClaw - Self-Evolving Runtime Infrastructure for Physical AI & Embodied Agents | `rosclaw [-h] [--version] {init,setup,daemon,app,run,start,status,...} ...` |
-| `daemon` | Inspect or call the local rosclawd control plane | `rosclaw daemon [-h] {serve,status,arm,disarm,session-create,session-heartbeat,session-status,session-close,request-action,action-status,receipt,cancel,renew-action,worker-status,worker-start,worker-stop,worker-restart,emergency-stop,security-check,stop} ...` |
+| `daemon` | Inspect or call the local rosclawd control plane | `rosclaw daemon [-h] {serve,status,acknowledge-recovery,arm,permit-issue,disarm,session-create,session-heartbeat,session-status,session-close,request-action,action-status,receipt,cancel,renew-action,worker-status,worker-start,worker-stop,worker-restart,emergency-stop,security-check,stop} ...` |
 | `app` | Install, author, and run Capability Apps | `rosclaw app [-h] {install,list,init,add,validate,run} ...` |
 | `init` | Initialize a ROSClaw workspace | `rosclaw init [-h] [--force] [dir]` |
 | `run` | Start ROSClaw runtime | `rosclaw run [-h] [--robot-id ROBOT_ID] [--model-path MODEL_PATH] [--firewall] [--memory] [--practice] [--swarm]` |
@@ -131,7 +131,9 @@
 
 | Command | Description | Usage |
 |---------|-------------|-------|
+| `daemon serve` | Run rosclawd in the foreground | `rosclaw daemon serve [--socket PATH] [--socket-mode MODE] [--socket-group GROUP] [--robot-id ID]` |
 | `daemon status` | Show Runtime supervision, Sessions, workers, ledger, and recovery | `rosclaw daemon status [--json]` |
+| `daemon acknowledge-recovery` | Persist daemon-UID review of interrupted REAL evidence | `rosclaw daemon acknowledge-recovery --reason REASON [--json]` |
 | `daemon arm` | Arm this daemon generation as the service UID | `rosclaw daemon arm --reason REASON [--json]` |
 | `daemon permit-issue` | As the service UID, approve one exact REAL action for a target Agent UID | `rosclaw daemon permit-issue ACTION_JSON --principal-id ID --target-uid UID --reason REASON [--expires-in SEC] [--json]` |
 | `daemon disarm` | Disarm and request coordinated safety stop | `rosclaw daemon disarm --reason REASON [--json]` |
@@ -139,10 +141,18 @@
 | `daemon session-heartbeat` | Renew a Session heartbeat | `rosclaw daemon session-heartbeat SESSION_ID [--json]` |
 | `daemon session-status` | Read one Session | `rosclaw daemon session-status SESSION_ID [--json]` |
 | `daemon session-close` | Close a Session and apply orphan policy | `rosclaw daemon session-close SESSION_ID [--reason REASON] [--json]` |
-| `daemon request-action` | Submit canonical ActionEnvelope JSON | `rosclaw daemon request-action ACTION_JSON [--json]` |
+| `daemon request-action` | Submit canonical ActionEnvelope JSON and optionally wait for terminal status | `rosclaw daemon request-action ACTION_JSON [--wait SEC] [--json]` |
+| `daemon action-status` | Read queued or terminal Action status | `rosclaw daemon action-status ACTION_ID [--json]` |
+| `daemon receipt` | Read one daemon ExecutionReceipt | `rosclaw daemon receipt ACTION_ID [--json]` |
+| `daemon cancel` | Cancel an Action before dispatch | `rosclaw daemon cancel ACTION_ID [--json]` |
 | `daemon renew-action` | Renew Action Lease and Session heartbeat | `rosclaw daemon renew-action ACTION_ID SESSION_ID [--json]` |
 | `daemon worker-status` | Show Adapter Worker health | `rosclaw daemon worker-status [WORKER_ID] [--json]` |
+| `daemon worker-start` | Start an Adapter Worker as the service UID | `rosclaw daemon worker-start WORKER_ID [--json]` |
+| `daemon worker-stop` | Stop an Adapter Worker as the service UID | `rosclaw daemon worker-stop WORKER_ID [--json]` |
+| `daemon worker-restart` | Restart an Adapter Worker as the service UID | `rosclaw daemon worker-restart WORKER_ID [--json]` |
 | `daemon emergency-stop` | Request emergency stop outside the action queue | `rosclaw daemon emergency-stop --reason REASON [--json]` |
+| `daemon security-check` | Check the caller's local least-privilege boundary | `rosclaw daemon security-check [--json]` |
+| `daemon stop` | Request daemon shutdown as the service UID | `rosclaw daemon stop [--json]` |
 
 ## App commands
 

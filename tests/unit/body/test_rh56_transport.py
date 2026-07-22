@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 import pytest
@@ -127,8 +128,6 @@ def test_calibration_schema_and_gate() -> None:
     # The shipped config is marked validated after on-hardware acceptance
     # (HAND-01). Exercise the gate-denial path with an explicit uncalibrated
     # copy so the test does not depend on the shipped config's mutable status.
-    import dataclasses
-
     from rosclaw.body.rh56.calibration import (
         CalibrationError,
         CalibrationValidation,
@@ -143,3 +142,30 @@ def test_calibration_schema_and_gate() -> None:
     validated = gate.mark_validated(rounds=5, body_hash="sha256:b")
     assert validated.status == "validated"
     RH56CalibrationGate(validated, profile).check()
+
+
+def test_calibration_gate_rejects_missing_transport_profile_hash() -> None:
+    from rosclaw.body.rh56.calibration import CalibrationError, RH56CalibrationGate
+
+    calib = load_rh56_calibration(CALIBRATION)
+    profile = load_transport_profile(RS485_PROFILE)
+    validation = dataclasses.replace(calib.validation, transport_profile_hash="")
+    calib = dataclasses.replace(calib, validation=validation)
+
+    with pytest.raises(CalibrationError, match="calibration_transport_hash_missing"):
+        RH56CalibrationGate(calib, profile).check()
+
+
+def test_calibration_gate_rejects_changed_transport_profile_content() -> None:
+    from rosclaw.body.rh56.calibration import CalibrationError, RH56CalibrationGate
+
+    calib = load_rh56_calibration(CALIBRATION)
+    profile = load_transport_profile(RS485_PROFILE)
+    changed_transport = dataclasses.replace(
+        profile.transport,
+        device="/dev/serial/by-id/changed-after-calibration",
+    )
+    changed_profile = dataclasses.replace(profile, transport=changed_transport)
+
+    with pytest.raises(CalibrationError, match="calibration_transport_hash_mismatch"):
+        RH56CalibrationGate(calib, changed_profile).check()
