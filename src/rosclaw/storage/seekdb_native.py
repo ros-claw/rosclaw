@@ -78,6 +78,47 @@ def _require_pyseekdb():
     return pyseekdb
 
 
+def _is_collection_not_found(exc: Exception) -> bool:
+    """True only when pyseekdb reports the collection itself is missing.
+
+    pyseekdb raises plain ``ValueError``/``RuntimeError`` for most SDK
+    failures; the missing-collection shapes observed on the real engine
+    are::
+
+        RuntimeError  OB_TABLE_NOT_EXIST(1146): Table ... doesn't exist
+        ValueError    Collection ('x') not found: Table('...') not exists
+        ValueError    Collection 'x' does not exist
+
+    Anything else — including ``OB_ERR_BAD_DATABASE(1049)`` (unknown
+    database), auth, permission, network, SQL syntax — must NOT be
+    treated as a missing collection (数据库优化v3 §2.4).
+    """
+    msg = str(exc)
+    if "OB_ERR_BAD_DATABASE" in msg or "(1049)" in msg:
+        return False
+    return (
+        "OB_TABLE_NOT_EXIST" in msg
+        or "(1146)" in msg
+        or "not found" in msg
+        or "doesn't exist" in msg
+        or "does not exist" in msg
+    )
+
+
+def _is_database_exists(exc: Exception) -> bool:
+    """True only for the benign 'database already exists' condition."""
+    msg = str(exc).lower()
+    return "already exists" in msg or "ob_err_database_exist" in msg
+
+
+class UnsupportedOperationError(RuntimeError):
+    """Raised when a backend cannot honor the requested semantics.
+
+    数据库优化v3 §2.3 — never wrap a partial/client-side approximation
+    as if it were the global operation.
+    """
+
+
 class SeekDBNativeStore(SeekDBClient):
     """Native SeekDB knowledge store (embedded or server)."""
 
@@ -193,9 +234,12 @@ class SeekDBNativeStore(SeekDBClient):
         try:
             admin.create_database(self._database)
             logger.info("Created SeekDB database %s", self._database)
-        except Exception as exc:  # noqa: BLE001
-            # Database already exists — expected on every start after the first.
-            logger.debug("create_database(%s): %s", self._database, exc)
+        except Exception as exc:
+            # 数据库优化v3 §2.4: only "already exists" is benign; auth,
+            # permission and network failures must surface immediately.
+            if not _is_database_exists(exc):
+                raise
+            logger.debug("create_database(%s): already exists", self._database)
 
     def is_connected(self) -> bool:
         return self._client is not None
@@ -220,7 +264,12 @@ class SeekDBNativeStore(SeekDBClient):
             raise RuntimeError("SeekDBNativeStore is not connected")
         try:
             collection = client.get_collection(table)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:
+            # 数据库优化v3 §2.4: only a genuine "collection not found" may
+            # trigger creation.  Auth/permission/network/unknown failures
+            # must surface, never masquerade as a missing collection.
+            if not _is_collection_not_found(exc):
+                raise
             collection = client.create_collection(name=table)
         self._collections[table] = collection
         return collection
@@ -324,9 +373,16 @@ class SeekDBNativeStore(SeekDBClient):
         )
         records = self._records_from_result(result)
         if order_by:
-            reverse = order_by.startswith("-")
-            key = order_by.lstrip("+-")
-            records.sort(key=lambda r: (r.get(key) is None, r.get(key)), reverse=reverse)
+            # 数据库优化v3 §2.3: pyseekdb ``get`` exposes no global ORDER BY
+            # (limit+offset only).  Sorting the first ``limit`` rows
+            # client-side is a LOCAL order masquerading as a global one, so
+            # the native store fails loudly instead.
+            raise UnsupportedOperationError(
+                "SeekDBNativeStore does not support order_by "
+                "(pyseekdb has no global ORDER BY; client-side top-N sorting "
+                "is not a substitute). Use time-indexed tables or filter + "
+                "paginate instead."
+            )
         return records[:limit]
 
     @staticmethod
@@ -366,7 +422,17 @@ class SeekDBNativeStore(SeekDBClient):
         collection = self._collection(table)
         if not filters:
             return int(collection.count())
-        return len(self.query(table, filters=filters, limit=100_000))
+        # 数据库优化v3 §2.3: cursor-paginate instead of a hidden 100k cap.
+        total = 0
+        page = 1000
+        offset = 0
+        while True:
+            result = collection.get(where=filters, limit=page, offset=offset, include=[])
+            n = len((result or {}).get("ids") or [])
+            total += n
+            if n < page:
+                return total
+            offset += n
 
     def delete(self, table: str, record_id: str) -> bool:
         collection = self._collection(table)
@@ -377,11 +443,20 @@ class SeekDBNativeStore(SeekDBClient):
         return True
 
     def delete_where(self, table: str, filters: dict) -> int:
-        records = self.query(table, filters=filters, limit=100_000)
-        ids = [record["id"] for record in records]
-        if ids:
-            self._collection(table).delete(ids=ids)
-        return len(ids)
+        # 数据库优化v3 §2.3: paginated collection + chunked delete (no cap).
+        # Empty filter dict means "all rows" (matches historical
+        # ``delete_where(table, {})`` cleanup semantics).
+        collection = self._collection(table)
+        where = filters or None
+        deleted = 0
+        page = 1000
+        while True:
+            result = collection.get(where=where, limit=page, include=[])
+            ids = list((result or {}).get("ids") or [])
+            if not ids:
+                return deleted
+            collection.delete(ids=ids)
+            deleted += len(ids)
 
     # ------------------------------------------------------------------
     # Native retrieval
@@ -415,17 +490,41 @@ class SeekDBNativeStore(SeekDBClient):
         query_text: str,
         filters: dict | None = None,
         limit: int = 5,
+        candidate_window: int | None = None,
+        query_embedding: list[float] | None = None,
     ) -> list[dict]:
-        """Native BM25 + vector + metadata filter with RRF fusion."""
+        """Native BM25 + vector + metadata filter with RRF fusion.
+
+        数据库优化v3 §2.1: BOTH legs receive the SAME hard metadata
+        filter — previously only the KNN leg was filtered, so BM25 hits
+        from other robots/bodies/tenants leaked through RRF fusion.
+
+        ``candidate_window`` widens each leg's shortlist before fusion
+        (defaults to ``limit``).  ``query_embedding`` switches the KNN leg
+        from the collection's built-in embedder to a caller-supplied
+        vector (manual multilingual embeddings, 数据库优化v3 §8.1); the
+        caller is responsible for using the model/dimension that matches
+        the collection — mixing models is forbidden.
+        """
         collection = self._collection(table)
+        window = max(candidate_window or 0, limit)
+        knn: dict[str, Any] = {"n_results": window}
+        if query_embedding is not None:
+            knn["query_embeddings"] = [query_embedding]
+        else:
+            knn["query_texts"] = [query_text]
+        if filters:
+            knn["where"] = filters
+        query_leg: dict[str, Any] = {
+            "where_document": {"$contains": query_text},
+            "n_results": window,
+        }
+        if filters:
+            query_leg["where"] = filters
         result = collection.hybrid_search(
-            query={"where_document": {"$contains": query_text}, "n_results": limit},
-            knn={
-                "query_texts": [query_text],
-                "n_results": limit,
-                **({"where": filters} if filters else {}),
-            },
-            rank={"rrf": {}},
+            query=query_leg,
+            knn=knn,
+            rank={"rrf": {"rank_window_size": window, "rank_constant": 60}},
             n_results=limit,
             include=["metadatas"],
         )

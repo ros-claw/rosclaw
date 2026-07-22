@@ -387,11 +387,36 @@ def extract_skill_memories(
 
 
 def build_candidates(context: SessionContext, events: list[dict[str, Any]]) -> list[MemoryItem]:
-    """Run every extractor and collect candidates (MemoryCandidateBuilder)."""
+    """Run every extractor and collect candidates (MemoryCandidateBuilder).
+
+    When a task adapter matches (数据库优化v3 §4), it OWNS failure and
+    body-pattern semantics for its task (implicit failures, observed
+    correlations) and decorates the episode memory with a quality
+    distribution (verified-rate, not a blanket SUCCESS).  Generic
+    extractors still cover episode, intervention, and skill evidence.
+    """
+    from rosclaw.memory.v2.adapters import adapter_for
+
+    adapter = adapter_for(context, events)
+    episode_items = extract_episode_memory(context, events)
+    if adapter is not None:
+        quality = adapter.build_episode_quality(context, events)
+        if quality and episode_items:
+            episode_items[0].outcome = quality.get("outcome", episode_items[0].outcome)
+            episode_items[0].metadata = {
+                **episode_items[0].metadata,
+                "quality": quality.get("quality", {}),
+            }
+        failures = adapter.extract_failures(context, events)
+        body = adapter.extract_body_patterns(context, events)
+    else:
+        failures = extract_failure_memories(context, events)
+        body = extract_body_memories(context, events)
+
     candidates: list[MemoryItem] = []
-    candidates.extend(extract_episode_memory(context, events))
-    candidates.extend(extract_failure_memories(context, events))
-    candidates.extend(extract_body_memories(context, events))
+    candidates.extend(episode_items)
+    candidates.extend(failures)
+    candidates.extend(body)
     candidates.extend(extract_intervention_memories(context, events))
     candidates.extend(extract_skill_memories(context, events))
     return candidates

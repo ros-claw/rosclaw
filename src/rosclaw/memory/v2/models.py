@@ -101,8 +101,15 @@ class MemoryItem:
     session_id: str | None = None
     episode_id: str | None = None
     task_id: str | None = None
+    task_name: str | None = None
     skill_id: str | None = None
     policy_id: str | None = None
+
+    # Failure semantics, top-level for NATIVE metadata filtering
+    # (数据库优化v3 §2.2 — never hide hot filter fields inside a JSON blob).
+    failure_type: str | None = None
+    joint_name: str | None = None
+    gesture_name: str | None = None
 
     outcome: str | None = None
     reward: float | None = None
@@ -118,6 +125,7 @@ class MemoryItem:
 
     embedding_model: str | None = None
     embedding_version: str | None = None
+    embedding_profile_id: str | None = None
     content_hash: str = ""
 
     event_time: float = field(default_factory=time.time)
@@ -170,8 +178,12 @@ class MemoryItem:
             "session_id": self.session_id,
             "episode_id": self.episode_id,
             "task_id": self.task_id,
+            "task_name": self.task_name,
             "skill_id": self.skill_id,
             "policy_id": self.policy_id,
+            "failure_type": self.failure_type,
+            "joint_name": self.joint_name,
+            "gesture_name": self.gesture_name,
             "title": self.title,
             "document": self.document,
             "summary": self.summary,
@@ -187,6 +199,7 @@ class MemoryItem:
             "metadata": json.dumps(self.metadata, ensure_ascii=False),
             "embedding_model": self.embedding_model,
             "embedding_version": self.embedding_version,
+            "embedding_profile_id": self.embedding_profile_id,
             "content_hash": self.content_hash,
             "event_time": self.event_time,
             "created_at": self.created_at,
@@ -235,8 +248,12 @@ class MemoryItem:
             session_id=record.get("session_id"),
             episode_id=record.get("episode_id"),
             task_id=record.get("task_id"),
+            task_name=record.get("task_name"),
             skill_id=record.get("skill_id"),
             policy_id=record.get("policy_id"),
+            failure_type=record.get("failure_type"),
+            joint_name=record.get("joint_name"),
+            gesture_name=record.get("gesture_name"),
             title=record.get("title", ""),
             document=record.get("document", ""),
             summary=record.get("summary", ""),
@@ -252,6 +269,7 @@ class MemoryItem:
             metadata=_json_dict(record.get("metadata")),
             embedding_model=record.get("embedding_model"),
             embedding_version=record.get("embedding_version"),
+            embedding_profile_id=record.get("embedding_profile_id"),
             content_hash=record.get("content_hash", ""),
             event_time=_float_or_default(record.get("event_time"), time.time()),
             created_at=_float_or_default(record.get("created_at"), time.time()),

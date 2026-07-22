@@ -28,6 +28,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from rosclaw.memory.v2.document import extract_exact_terms
 from rosclaw.memory.v2.models import MemoryItem
 from rosclaw.memory.v2.repository import MemoryRepository
 from rosclaw.memory.v2.tokenizer import token_set
@@ -126,6 +127,12 @@ class MemoryRetriever:
         # 1. Query normalization (bilingual tokenization).
         query_tokens = token_set(query.text)
 
+        # 1b. Exact-entity extraction (数据库优化v3 §6.3): joints, hands,
+        # gestures, failure types, error codes, devices.  These become
+        # hard boost/demote multipliers — an embedding must never be
+        # allowed to treat "middle" and "thumb_rot" as interchangeable.
+        exact = extract_exact_terms(query.text)
+
         # 2. Metadata pre-filter (hard constraints, incl. cross-robot isolation).
         candidates = self._metadata_prefilter(query)
         if not candidates:
@@ -147,6 +154,11 @@ class MemoryRetriever:
             # more specific document ahead without changing fusion values.
             parts["lexical_raw"] = lexical_raw.get(item.memory_id, 0.0)
             fusion = sum(self._weights[key] * parts[key] for key in self._weights)
+            exact_mult, exact_note = _exact_entity_multiplier(item, exact)
+            parts["exact_entity"] = exact_mult
+            if exact_note:
+                parts["exact_entity_note"] = exact_note
+            fusion *= exact_mult
             scored.append((item, {"parts": parts, "fusion": fusion}))
 
         # 6. Safety/validity filter.
@@ -336,6 +348,7 @@ class MemoryRetriever:
             "fusion_score": fusion,
             "rank": rank,
             "query_tokens": sorted(token_set(query.text))[:20],
+            "exact_terms": extract_exact_terms(query.text),
             "matched_filters": {
                 key: value
                 for key, value in (
@@ -367,6 +380,54 @@ TIER_HOW_VERIFIED = 2  # verified HOW rules
 TIER_KNOW_CURATED = 3  # curated KNOW patterns
 TIER_MEMORY = 4  # similar memory experience
 TIER_LLM = 5  # LLM suggestions
+
+
+def _exact_entity_multiplier(item: MemoryItem, exact: dict[str, list[str]]) -> tuple[float, str]:
+    """Boost/demote from query-time exact entities (数据库优化v3 §6.3).
+
+    ``middle`` and ``thumb_rot`` (and left/right hands, failure types)
+    are NOT synonyms the embedding gets to blur: when the query names a
+    specific joint, memories attributed to a DIFFERENT joint are
+    demoted hard, matching-joint memories are boosted, and unattributed
+    memories (joint_name=None) stay neutral — we never invent
+    attribution, we only honor what is recorded.
+    """
+    if not exact:
+        return 1.0, ""
+    mult = 1.0
+    notes: list[str] = []
+
+    joints = exact.get("joints") or []
+    if len(joints) == 1 and item.memory_type == "failure":
+        wanted = joints[0]
+        if item.joint_name == wanted:
+            mult *= 1.5
+            notes.append(f"joint={wanted} boost")
+        elif item.joint_name is not None and item.joint_name != wanted:
+            mult *= 0.25
+            notes.append(f"joint!={wanted} demote (item has {item.joint_name})")
+
+    failure_types = exact.get("failure_types") or []
+    if len(failure_types) == 1 and item.memory_type == "failure":
+        wanted = failure_types[0]
+        if item.failure_type == wanted:
+            mult *= 1.4
+            notes.append(f"failure_type={wanted} boost")
+        elif item.failure_type is not None and item.failure_type != wanted:
+            mult *= 0.4
+            notes.append(f"failure_type!={wanted} demote")
+
+    hands = exact.get("hands") or []
+    if len(hands) == 1:
+        wanted_body = f"rh56_{hands[0]}_01"
+        if item.body_id == wanted_body:
+            mult *= 1.3
+            notes.append(f"hand={hands[0]} boost")
+        elif item.body_id in ("rh56_left_01", "rh56_right_01") and item.body_id != wanted_body:
+            mult *= 0.3
+            notes.append(f"hand!={hands[0]} demote (item body {item.body_id})")
+
+    return mult, "; ".join(notes)
 
 
 @dataclass
