@@ -96,6 +96,8 @@ generated/
 # Keep reviewed summaries in Git, never full Agent transcripts or generated datasets.
 /reports/lerobot_bridge/agent_blackbox/
 /reports/simforge/
+/reports/embedding_bakeoff/
+/benchmarks/memory/v3/
 
 # Agent/backup churn
 .backups/

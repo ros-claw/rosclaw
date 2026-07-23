@@ -8,7 +8,8 @@ embedder vectorizes the document text, giving:
 * native vector search (:meth:`similar`);
 * native BM25 full-text (``hybrid_search`` ``where_document.$contains``);
 * native metadata filters (``where``);
-* native RRF hybrid fusion (:meth:`hybrid_search`).
+* native RRF hybrid fusion on server deployments (:meth:`hybrid_search`);
+* deterministic RRF over two engine-filtered legs on embedded pyseekdb 1.3.0.
 
 Nothing here is a Python full-table scan masquerading as native SeekDB:
 relational ``query()`` with filters uses SeekDB's own metadata filtering;
@@ -76,6 +77,52 @@ def _require_pyseekdb():
             "Install it with: pip install 'rosclaw[seekdb]' (or pip install pyseekdb)"
         ) from exc
     return pyseekdb
+
+
+def _is_collection_not_found(exc: Exception) -> bool:
+    """True only when pyseekdb reports the collection itself is missing.
+
+    pyseekdb raises plain ``ValueError``/``RuntimeError`` for most SDK
+    failures; the missing-collection shapes observed on the real engine
+    are::
+
+        RuntimeError  OB_TABLE_NOT_EXIST(1146): Table ... doesn't exist
+        ValueError    Collection ('x') not found: Table('...') not exists
+        ValueError    Collection 'x' does not exist
+
+    Anything else — including ``OB_ERR_BAD_DATABASE(1049)`` (unknown
+    database), auth, permission, network, SQL syntax — must NOT be
+    treated as a missing collection (数据库优化v3 §2.4).
+    """
+    msg = str(exc)
+    lowered = msg.lower()
+    if "OB_ERR_BAD_DATABASE" in msg or "(1049)" in msg:
+        return False
+    return (
+        "OB_TABLE_NOT_EXIST" in msg
+        or "(1146)" in msg
+        or (
+            ("collection" in lowered or "table" in lowered)
+            and any(
+                marker in lowered
+                for marker in ("not found", "not exists", "doesn't exist", "does not exist")
+            )
+        )
+    )
+
+
+def _is_database_exists(exc: Exception) -> bool:
+    """True only for the benign 'database already exists' condition."""
+    msg = str(exc).lower()
+    return "ob_err_database_exist" in msg or ("database" in msg and "already exists" in msg)
+
+
+class UnsupportedOperationError(RuntimeError):
+    """Raised when a backend cannot honor the requested semantics.
+
+    数据库优化v3 §2.3 — never wrap a partial/client-side approximation
+    as if it were the global operation.
+    """
 
 
 class SeekDBNativeStore(SeekDBClient):
@@ -193,9 +240,12 @@ class SeekDBNativeStore(SeekDBClient):
         try:
             admin.create_database(self._database)
             logger.info("Created SeekDB database %s", self._database)
-        except Exception as exc:  # noqa: BLE001
-            # Database already exists — expected on every start after the first.
-            logger.debug("create_database(%s): %s", self._database, exc)
+        except Exception as exc:
+            # 数据库优化v3 §2.4: only "already exists" is benign; auth,
+            # permission and network failures must surface immediately.
+            if not _is_database_exists(exc):
+                raise
+            logger.debug("create_database(%s): already exists", self._database)
 
     def is_connected(self) -> bool:
         return self._client is not None
@@ -220,7 +270,12 @@ class SeekDBNativeStore(SeekDBClient):
             raise RuntimeError("SeekDBNativeStore is not connected")
         try:
             collection = client.get_collection(table)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:
+            # 数据库优化v3 §2.4: only a genuine "collection not found" may
+            # trigger creation.  Auth/permission/network/unknown failures
+            # must surface, never masquerade as a missing collection.
+            if not _is_collection_not_found(exc):
+                raise
             collection = client.create_collection(name=table)
         self._collections[table] = collection
         return collection
@@ -324,9 +379,16 @@ class SeekDBNativeStore(SeekDBClient):
         )
         records = self._records_from_result(result)
         if order_by:
-            reverse = order_by.startswith("-")
-            key = order_by.lstrip("+-")
-            records.sort(key=lambda r: (r.get(key) is None, r.get(key)), reverse=reverse)
+            # 数据库优化v3 §2.3: pyseekdb ``get`` exposes no global ORDER BY
+            # (limit+offset only).  Sorting the first ``limit`` rows
+            # client-side is a LOCAL order masquerading as a global one, so
+            # the native store fails loudly instead.
+            raise UnsupportedOperationError(
+                "SeekDBNativeStore does not support order_by "
+                "(pyseekdb has no global ORDER BY; client-side top-N sorting "
+                "is not a substitute). Use time-indexed tables or filter + "
+                "paginate instead."
+            )
         return records[:limit]
 
     @staticmethod
@@ -366,7 +428,17 @@ class SeekDBNativeStore(SeekDBClient):
         collection = self._collection(table)
         if not filters:
             return int(collection.count())
-        return len(self.query(table, filters=filters, limit=100_000))
+        # 数据库优化v3 §2.3: cursor-paginate instead of a hidden 100k cap.
+        total = 0
+        page = 1000
+        offset = 0
+        while True:
+            result = collection.get(where=filters, limit=page, offset=offset, include=[])
+            n = len((result or {}).get("ids") or [])
+            total += n
+            if n < page:
+                return total
+            offset += n
 
     def delete(self, table: str, record_id: str) -> bool:
         collection = self._collection(table)
@@ -377,11 +449,20 @@ class SeekDBNativeStore(SeekDBClient):
         return True
 
     def delete_where(self, table: str, filters: dict) -> int:
-        records = self.query(table, filters=filters, limit=100_000)
-        ids = [record["id"] for record in records]
-        if ids:
-            self._collection(table).delete(ids=ids)
-        return len(ids)
+        # 数据库优化v3 §2.3: paginated collection + chunked delete (no cap).
+        # Empty filter dict means "all rows" (matches historical
+        # ``delete_where(table, {})`` cleanup semantics).
+        collection = self._collection(table)
+        where = filters or None
+        deleted = 0
+        page = 1000
+        while True:
+            result = collection.get(where=where, limit=page, include=[])
+            ids = list((result or {}).get("ids") or [])
+            if not ids:
+                return deleted
+            collection.delete(ids=ids)
+            deleted += len(ids)
 
     # ------------------------------------------------------------------
     # Native retrieval
@@ -415,21 +496,132 @@ class SeekDBNativeStore(SeekDBClient):
         query_text: str,
         filters: dict | None = None,
         limit: int = 5,
+        candidate_window: int | None = None,
+        query_embedding: list[float] | None = None,
     ) -> list[dict]:
-        """Native BM25 + vector + metadata filter with RRF fusion."""
+        """Native BM25 + vector + metadata filter with RRF fusion.
+
+        数据库优化v3 §2.1: BOTH legs receive the SAME hard metadata
+        filter — previously only the KNN leg was filtered, so BM25 hits
+        from other robots/bodies/tenants leaked through RRF fusion.
+
+        ``candidate_window`` widens each leg's shortlist before fusion
+        (defaults to ``limit``).  ``query_embedding`` switches the KNN leg
+        from the collection's built-in embedder to a caller-supplied
+        vector (manual multilingual embeddings, 数据库优化v3 §8.1); the
+        caller is responsible for using the model/dimension that matches
+        the collection — mixing models is forbidden.
+        """
         collection = self._collection(table)
+        window = max(candidate_window or 0, limit)
+        knn: dict[str, Any] = {"n_results": window}
+        if query_embedding is not None:
+            knn["query_embeddings"] = [query_embedding]
+        else:
+            knn["query_texts"] = [query_text]
+        if filters:
+            knn["where"] = filters
+        query_leg: dict[str, Any] = {
+            "where_document": {"$contains": query_text},
+            "n_results": window,
+        }
+        if filters:
+            query_leg["where"] = filters
+        if self._path is not None:
+            # pyseekdb 1.3.0's embedded DBMS_HYBRID_SEARCH emits malformed
+            # FULL JOIN SQL when both filtered legs are combined (the server
+            # engine does not).  Keep both filters inside the engine, execute
+            # the BM25/KNN legs independently, then apply the same RRF formula
+            # deterministically.  This is not a post-retrieval security filter.
+            return self._embedded_filtered_rrf(
+                collection,
+                query_leg=query_leg,
+                knn_leg=knn,
+                window=window,
+                limit=limit,
+            )
+
         result = collection.hybrid_search(
-            query={"where_document": {"$contains": query_text}, "n_results": limit},
-            knn={
-                "query_texts": [query_text],
-                "n_results": limit,
-                **({"where": filters} if filters else {}),
-            },
-            rank={"rrf": {}},
+            query=query_leg,
+            knn=knn,
+            rank={"rrf": {"rank_window_size": window, "rank_constant": 60}},
             n_results=limit,
             include=["metadatas"],
         )
         return self._records_from_result(result)
+
+    def fulltext_search(
+        self,
+        table: str,
+        query_text: str,
+        filters: dict | None = None,
+        limit: int = 5,
+    ) -> list[dict]:
+        """Native BM25 search with an engine-side metadata filter.
+
+        This is the explicit degradation path for manual-embedding
+        collections when their local embedding provider is unavailable.
+        """
+        query_leg: dict[str, Any] = {
+            "where_document": {"$contains": query_text},
+            "n_results": limit,
+        }
+        if filters:
+            query_leg["where"] = filters
+        result = self._collection(table).hybrid_search(
+            query=query_leg,
+            n_results=limit,
+            include=["metadatas"],
+        )
+        return self._records_from_result(result)
+
+    def _embedded_filtered_rrf(
+        self,
+        collection: Any,
+        *,
+        query_leg: dict[str, Any],
+        knn_leg: dict[str, Any],
+        window: int,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Fuse two natively filtered embedded searches with RRF.
+
+        pyseekdb returns each leg in rank order.  Metadata is retained from
+        either leg and IDs provide a stable final tie-break, so identical
+        inputs produce identical output even when two documents have the same
+        fused rank.
+        """
+        bm25_result = collection.hybrid_search(
+            query=query_leg,
+            n_results=window,
+            include=["metadatas"],
+        )
+        knn_result = collection.hybrid_search(
+            knn=knn_leg,
+            n_results=window,
+            include=["metadatas"],
+        )
+        legs = (
+            self._records_from_result(bm25_result),
+            self._records_from_result(knn_result),
+        )
+        scores: dict[str, float] = {}
+        best_rank: dict[str, int] = {}
+        records: dict[str, dict[str, Any]] = {}
+        rank_constant = 60
+        for leg in legs:
+            for rank, record in enumerate(leg[:window], start=1):
+                record_id = str(record.get("id") or "")
+                if not record_id:
+                    continue
+                records.setdefault(record_id, record)
+                scores[record_id] = scores.get(record_id, 0.0) + 1.0 / (rank_constant + rank)
+                best_rank[record_id] = min(best_rank.get(record_id, rank), rank)
+        ranked_ids = sorted(
+            records,
+            key=lambda record_id: (-scores[record_id], best_rank[record_id], record_id),
+        )
+        return [records[record_id] for record_id in ranked_ids[:limit]]
 
     def embedding_info(self, table: str) -> dict[str, Any]:
         """Model identity of the collection's built-in embedder (for §6.5 registry)."""
