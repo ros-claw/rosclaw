@@ -5571,12 +5571,20 @@ def cmd_sandbox_replay(args: argparse.Namespace) -> int:
     receipt_arg = getattr(args, "receipt", None)
     if receipt_arg:
         receipt_path = Path(receipt_arg).expanduser().resolve()
-        if not receipt_path.is_file():
-            print(f"[ROSClaw] Receipt not found: {receipt_path}", file=sys.stderr)
-            return 2
         try:
+            if not receipt_path.is_file():
+                print(f"[ROSClaw] Receipt not found: {receipt_path}", file=sys.stderr)
+                return 2
+            if receipt_path.stat().st_size > 16 * 1024 * 1024:
+                print("[ROSClaw] Replay receipt exceeds the 16 MiB limit.", file=sys.stderr)
+                return 2
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-            scenario = (receipt.get("request") or {}).get("scenario") or {}
+            if not isinstance(receipt, dict):
+                raise ValueError("receipt root must be a JSON object")
+            request = receipt.get("request")
+            scenario = request.get("scenario") if isinstance(request, dict) else None
+            if not isinstance(scenario, dict):
+                raise ValueError("receipt scenario is missing")
             robot_id = str(getattr(args, "robot", None) or scenario["robot_id"])
             world_id = str(getattr(args, "world", None) or scenario["world_id"])
             from rosclaw.sandbox.backends import MujocoCpuBackend
@@ -5584,9 +5592,7 @@ def cmd_sandbox_replay(args: argparse.Namespace) -> int:
 
             sandbox = Sandbox.create(robot_id, world_id, "mujoco")
             try:
-                report = MujocoCpuBackend(sandbox).replay(
-                    receipt, strict=bool(getattr(args, "strict", False))
-                )
+                report = MujocoCpuBackend(sandbox).replay(receipt, strict=True)
             finally:
                 sandbox.close()
         except (KeyError, json.JSONDecodeError, OSError, TypeError, ValueError) as exc:
@@ -5608,8 +5614,12 @@ def cmd_sandbox_replay(args: argparse.Namespace) -> int:
         print("[ROSClaw] Provide an episode_id or --receipt.", file=sys.stderr)
         return 2
     print(f"[ROSClaw] Replaying sandbox episode: {args.episode_id}")
-    artifact_dir = Path("./practice_data") / args.episode_id
-    if not artifact_dir.exists():
+    artifact_root = Path("./practice_data").resolve()
+    artifact_dir = (artifact_root / str(args.episode_id)).resolve()
+    if not artifact_dir.is_relative_to(artifact_root):
+        print("[ROSClaw] Invalid legacy episode identifier.", file=sys.stderr)
+        return 2
+    if not artifact_dir.is_dir():
         print(f"[ROSClaw] ⚠️  Episode artifacts not found: {artifact_dir}")
         return 1
 
@@ -5619,7 +5629,7 @@ def cmd_sandbox_replay(args: argparse.Namespace) -> int:
     for f in sorted(artifact_dir.glob("*")):
         print(f"  📄 {f.name}")
     metadata_file = artifact_dir / "metadata.json"
-    if metadata_file.exists():
+    if metadata_file.is_file() and metadata_file.stat().st_size <= 1024 * 1024:
         try:
             data = json.loads(metadata_file.read_text())
             print(f"\n  Status:     {data.get('status', 'N/A')}")
@@ -7822,12 +7832,6 @@ def main() -> int:
     sandbox_replay_parser.add_argument("--receipt", help="SimulationReceipt JSON to replay")
     sandbox_replay_parser.add_argument("--robot", help="Override receipt robot identifier")
     sandbox_replay_parser.add_argument("--world", help="Override receipt world identifier")
-    sandbox_replay_parser.add_argument(
-        "--verify-hashes", action="store_true", help="Verify all referenced artifact hashes"
-    )
-    sandbox_replay_parser.add_argument(
-        "--strict", action="store_true", help="Reject any environment or artifact mismatch"
-    )
     sandbox_replay_parser.add_argument("--json", action="store_true", help="Output JSON")
     sandbox_check_parser = sandbox_subparsers.add_parser(
         "check", help="Check action safety in sandbox"

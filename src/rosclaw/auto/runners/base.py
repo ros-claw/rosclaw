@@ -36,15 +36,15 @@ class RunnerResult:
     @classmethod
     def from_dict(cls, d: dict) -> "RunnerResult":
         return cls(
-            success=d.get("success", False),
+            success=d.get("success") is True,
             metrics=d.get("metrics", {}),
             logs=d.get("logs", []),
             artifacts=d.get("artifacts", {}),
             safety_violations=d.get("safety_violations", []),
             error=d.get("error", ""),
             evidence_domain=d.get("evidence_domain"),
-            physics_executed=bool(d.get("physics_executed", False)),
-            valid_for_promotion=bool(d.get("valid_for_promotion", False)),
+            physics_executed=d.get("physics_executed") is True,
+            valid_for_promotion=d.get("valid_for_promotion") is True,
         )
 
 

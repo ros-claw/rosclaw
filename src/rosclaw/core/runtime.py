@@ -229,7 +229,25 @@ class Runtime(LifecycleMixin):
         workspace_home = (
             Path(self.config.workspace_home).expanduser().resolve()
             if self.config.workspace_home
-            else get_rosclaw_home()
+            else get_rosclaw_home().expanduser().resolve()
+        )
+        default_home = get_rosclaw_home().expanduser().resolve()
+        if Path(self.config.seekdb_path).expanduser().resolve() == (
+            default_home / "data" / "memory" / "knowledge.sqlite"
+        ):
+            self.config.seekdb_path = str(
+                workspace_home / "data" / "memory" / "knowledge.sqlite"
+            )
+        if Path(self.config.seekdb_fallback_dir).expanduser().resolve() == (
+            default_home / "data" / "practice" / "fallback"
+        ):
+            self.config.seekdb_fallback_dir = str(
+                workspace_home / "data" / "practice" / "fallback"
+            )
+        timeline_output_dir = (
+            workspace_home / "data" / "practice"
+            if self.config.timeline_output_dir == "./practice_data"
+            else Path(self.config.timeline_output_dir).expanduser().resolve()
         )
 
         # Shared SeekDB client reused by Memory, Knowledge, HOW, Auto, and SkillManager.
@@ -313,7 +331,8 @@ class Runtime(LifecycleMixin):
                 "engine": self.config.sandbox_engine,
                 "world_id": self.config.sandbox_world_id,
                 "robot_id": canonical_robot_id,
-                "artifact_root": self.config.sandbox_artifact_root,
+                "artifact_root": self.config.sandbox_artifact_root
+                or str(workspace_home / "artifacts" / "sandbox"),
             }
             self._sandbox = SandboxRuntimeAdapter(
                 config=sandbox_config,
@@ -376,7 +395,7 @@ class Runtime(LifecycleMixin):
                 self._practice = UnifiedTimeline(
                     robot_id=self.config.robot_id,
                     event_bus=self.event_bus,
-                    output_dir=self.config.timeline_output_dir,
+                    output_dir=str(timeline_output_dir),
                     enable_mcap=self.config.enable_mcap,
                 )
                 self._modules.append(self._practice)
@@ -449,7 +468,7 @@ class Runtime(LifecycleMixin):
                 self._sandbox_practice_bridge = SandboxPracticeBridge(
                     robot_id=self.config.robot_id,
                     event_bus=self.event_bus,
-                    output_dir=self.config.timeline_output_dir,
+                    output_dir=str(timeline_output_dir),
                 )
                 self._modules.append(self._sandbox_practice_bridge)
                 logger.info("SandboxPracticeBridge initialized")
@@ -576,7 +595,7 @@ class Runtime(LifecycleMixin):
                 if self._memory is not None:
                     seekdb = getattr(self._memory, "seekdb_client", None)
                 self._auto = AutoPlugin(
-                    config={},
+                    config={"local_store_path": str(workspace_home / "data" / "auto")},
                     event_bus=self.event_bus,
                     seekdb_client=seekdb,
                     skill_registry=getattr(self._skill_manager, "registry", None)

@@ -123,6 +123,9 @@ class TestSandboxRuntimeAdapterValidateTrajectory:
             result = adapter.validate_trajectory([[0.0, 0.0, 0.0]])
         assert result["is_safe"] is False
         assert "Validation error" in result["reason"]
+        assert result["physics_executed"] is False
+        assert result["valid_for_promotion"] is False
+        assert result["evidence_domain"] == "SIMULATION"
 
     def test_validate_publishes_blocked_event(self):
         bus = EventBus()

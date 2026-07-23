@@ -46,6 +46,7 @@ class RolloutRequest:
     max_joint_velocity_radps: float = 3.15
     max_final_tracking_error_rad: float = 0.25
     settle_steps: int = 100
+    max_steps: int = 250_000
     artifact_dir: Path | None = None
 
 
@@ -69,6 +70,11 @@ class TrajectorySimulationReceipt:
     artifacts: list[str] = field(default_factory=list)
     artifact_hashes: dict[str, str] = field(default_factory=dict)
     request: dict[str, Any] = field(default_factory=dict)
+    randomization: dict[str, Any] = field(default_factory=dict)
+    replay_report: dict[str, Any] = field(default_factory=dict)
+    data_quality: dict[str, Any] = field(default_factory=dict)
+    evaluation_variant: str = ""
+    pair_id: str = ""
     evidence_domain: str = "SIMULATION"
     schema_version: str = "rosclaw.simulation_receipt.v1"
 
@@ -81,7 +87,29 @@ class TrajectorySimulationReceipt:
             and self.model_hash
             and self.action_hash
             and self.artifact_hashes
+            and self.evaluation_variant in {"baseline", "candidate"}
+            and self.pair_id
+            and self.randomization.get("seed_applied") is True
+            and self.randomization.get("initial_state_hash")
+            and self.replay_report.get("verified") is True
+            and self.replay_report.get("environment_match") is True
+            and self.replay_report.get("hashes_verified") is True
+            and self.replay_report.get("deterministic_label") is True
+            and not self.replay_report.get("mismatches")
+            and self.data_quality.get("artifact_hash_valid") is True
+            and self.data_quality.get("body_snapshot_match") is True
+            and self.data_quality.get("replayable") is True
         )
+
+    def record_replay(self, report: ReplayReport) -> None:
+        """Attach a strict replay result without changing rollout facts."""
+
+        self.replay_report = report.to_dict()
+        self.data_quality = {
+            "artifact_hash_valid": report.hashes_verified,
+            "body_snapshot_match": "body_snapshot_hash" not in report.mismatches,
+            "replayable": report.verified,
+        }
 
     def to_dict(self) -> dict[str, Any]:
         value = asdict(self)

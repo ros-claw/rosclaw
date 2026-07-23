@@ -6,6 +6,21 @@ from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
 
 
 class TestFirewallGateChecks:
+    def test_empty_or_non_finite_action_is_blocked(self):
+        gate = FirewallGate(robot_id="ur5e", world_id="empty")
+        try:
+            empty = gate.check({"type": "joint_position", "values": []})
+            non_finite = gate.check(
+                {"type": "joint_position", "values": [float("nan")] * 6}
+            )
+        finally:
+            gate.close()
+
+        assert empty.is_allowed is False
+        assert empty.violated_constraints == ["invalid_joint_values"]
+        assert non_finite.is_allowed is False
+        assert non_finite.violated_constraints == ["invalid_joint_values"]
+
     def test_joint_limit_violation_blocked(self):
         gate = FirewallGate(robot_id="ur5e", world_id="empty")
         action = {"type": "joint_position", "values": [10.0, 0.0, 0.0, 0.0, 0.0, 0.0]}

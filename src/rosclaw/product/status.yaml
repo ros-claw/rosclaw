@@ -109,29 +109,14 @@ golden_paths:
       - id: ur5e-shield-cpu-paired-20260722
         kind: automated_physics_system_test
         path: tests/darwin/test_physics_runner.py
-        verified_at: "2026-07-22"
+        verified_at: "2026-07-23"
         observation_scope: physics_simulation
         fixture: false
         independent: true
         receipt_schema: rosclaw.simulation_receipt.v1
-      - id: ur5e-shield-mjwarp-four-gpu-20260722
-        kind: developer_gpu_qualification
-        path: reports/simforge/gpu/mjwarp_four_gpu/summary.json
-        verified_at: "2026-07-22"
-        observation_scope: four_gpu_mjwarp_small_batch
-        fixture: false
-        independent: false
-        receipt_schema: rosclaw.mjwarp_four_gpu.v1
-      - id: ur5e-shield-closed-loop-20260722
-        kind: developer_closed_loop_report
-        path: reports/simforge/evolution/ur5e_shield_v1/closed_loop_report.json
-        verified_at: "2026-07-22"
-        observation_scope: same_seed_retry_paired_darwin_promotion
-        fixture: false
-        independent: false
     evidence_summary:
-      en: Full CPU MuJoCo trajectory rollout catches an endpoint-safe midpath tabletop collision, strict replay verifies hashes and deterministic state, same-seed retry succeeds, paired two-seed Darwin improves success from 0 to 1 and collision rate from 1 to 0, and a small shared four-A6000 MJWarp run confirms the collision label. Promotion is limited to SIM.
-      zh: CPU MuJoCo 完整轨迹执行可检出“终点安全但中段撞桌”，严格回放验证哈希与确定性状态，同 seed 重试成功，两 seed 配对 Darwin 将成功率从 0 提升到 1、碰撞率从 1 降到 0，并由共享的四卡 A6000 MJWarp 小批次校验碰撞标签；晋级上限为 SIM。
+      en: The automated CPU MuJoCo test catches an endpoint-safe midpath tabletop collision, verifies artifact hashes and deterministic strict replay, and compares paired baseline/candidate rollouts over two effective initial-state seeds. The code enforces a SIM promotion ceiling; generated operator and GPU evidence remains outside Git.
+      zh: 自动化 CPU MuJoCo 测试可检出“终点安全但中段撞桌”，验证 Artifact 哈希与确定性严格重放，并在两个实际改变初始物理状态的 seed 上配对比较 baseline/candidate。代码强制晋级上限为 SIM；操作员与 GPU 运行证据保存在 Git 仓库之外。
 
   rh56_single_step:
     display:

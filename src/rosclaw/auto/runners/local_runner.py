@@ -74,7 +74,8 @@ class LocalRunner(BaseRunner):
                     },
                 },
                 logs=[
-                    f"Simulated {episodes} episodes for {candidate} vs {baseline} with parametric physics"
+                    f"Evaluated {episodes} fixture episodes for {candidate} vs {baseline} "
+                    "with the deterministic local model"
                 ],
                 evidence_domain="FIXTURE",
                 physics_executed=False,

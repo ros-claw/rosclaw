@@ -18,7 +18,7 @@ from rosclaw.auto.storage.local_store import LocalStore
 class TestChaosFaultInjection:
     """AUTO-CHAOS: System resilience under failure."""
 
-    def test_storage_disk_full_simulation(self):
+    def test_storage_disk_full_simulation(self, store_test_champion):
         """AUTO-CHAOS-001: Storage failure should not lose champion decision."""
         store_path = "./.rosclaw_auto_test_chaos_storage"
         shutil.rmtree(store_path, ignore_errors=True)
@@ -26,7 +26,7 @@ class TestChaosFaultInjection:
         engine = AutoEngine(config=AutoConfig(local_store_path=store_path))
 
         # Write champion
-        engine.promote_champion("pick_v1.5", "task_1", "sim", {"sr": 0.76}, "", "", "")
+        store_test_champion(engine, "pick_v1.5", "task_1", "sim", {"sr": 0.76})
 
         # Inject ENOSPC (disk full) on next write
         call_count = [0]
@@ -46,7 +46,7 @@ class TestChaosFaultInjection:
         assert loaded is not None
         assert loaded.skill_id == "pick_v1.5"
 
-    def test_concurrent_task_isolation(self):
+    def test_concurrent_task_isolation(self, store_test_champion):
         """AUTO-CHAOS-002: Multiple tasks must not interfere."""
         store_path = "./.rosclaw_auto_test_chaos_concurrent"
         shutil.rmtree(store_path, ignore_errors=True)
@@ -56,8 +56,8 @@ class TestChaosFaultInjection:
         task2 = engine.create_task("push_cube", "panda", "push_v1")
         task3 = engine.create_task("press_button", "ur5e", "press_v1")
 
-        engine.promote_champion("pick_v1.5", task1.id, "sim", {"sr": 0.76}, "", "", "")
-        engine.promote_champion("push_v1.2", task2.id, "sim", {"sr": 0.65}, "", "", "")
+        store_test_champion(engine, "pick_v1.5", task1.id, "sim", {"sr": 0.76})
+        store_test_champion(engine, "push_v1.2", task2.id, "sim", {"sr": 0.65})
         engine.register_deadend(task3.id, "increase_force", "dangerous", [])
 
         # Verify isolation
@@ -121,7 +121,7 @@ class TestChaosFaultInjection:
         baseline = {"success_rate": 0.4}
         candidate = {"collision_rate": 0.05}  # missing success_rate
         eval_res = engine.create_evaluation("exp_1", baseline, candidate)
-        assert eval_res.decision in ["promote", "reject", "need_more_data"]
+        assert eval_res.decision in ["promote_to_sim", "reject", "need_more_evidence"]
 
     def test_100_proposals_performance(self):
         """AUTO-PERF-001: 100 proposals generation latency."""

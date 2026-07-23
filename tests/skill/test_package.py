@@ -18,6 +18,7 @@ from rosclaw.skill.package import (
 )
 from rosclaw.skill.promote import promote_candidate
 from rosclaw.skill.upload import build_hub_payload, upload_skill
+from rosclaw.skill.validators import validate_package
 from tests.skill.evidence_helpers import write_promotion_evidence
 
 
@@ -34,7 +35,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "practice_sessions"
 
 def _validated_pkg(tmp_path: Path):
     dest = tmp_path / "g1_kick_ball"
-    context = _init_context("g1_kick_ball", "unitree_g1", "manipulation", "ros-claw")
+    context = _init_context("g1_kick_ball", "ur5e", "manipulation", "ros-claw")
     _copy_template(TEMPLATE_DIR, dest, context)
     pkg = SkillPackage(dest).try_load()
     mine_skill_candidate(pkg, FIXTURES, candidate_id="candidate_0001")
@@ -52,6 +53,16 @@ def test_hash_stability(tmp_path: Path):
     h1 = compute_skill_hashes(pkg.root, include_evidence=False)
     h2 = compute_skill_hashes(pkg.root, include_evidence=False)
     assert h1["package_hash"] == h2["package_hash"]
+
+
+def test_promoted_package_hashes_and_snapshot_match_final_state(tmp_path: Path):
+    pkg = _validated_pkg(tmp_path)
+    validation = validate_package(pkg)
+    assert validation.checks["package_integrity"] is True
+
+    snapshot = SkillPackage(pkg.root / ".rosclaw" / "snapshots" / "0.1.0").try_load()
+    assert snapshot.skill.metadata.stage == "validated"
+    assert snapshot.skill.metadata.version == "0.1.0"
 
 
 def test_package_creates_archive(tmp_path: Path):
@@ -81,8 +92,8 @@ def test_build_hub_payload(tmp_path: Path):
     assert payload["name"] == "ros-claw/g1_kick_ball"
     assert payload["version"] == "0.1.0"
     assert payload["category"] == "manipulation"
-    assert "unitree_g1" in payload["compatible_robots"]
-    assert "humanoid" in payload["robot_types"]
+    assert "ur5e" in payload["compatible_robots"]
+    assert "manipulator" in payload["robot_types"]
 
 
 class FakeHubClient:

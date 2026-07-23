@@ -16,6 +16,7 @@ Targets:
 
 import asyncio
 import threading
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -231,6 +232,35 @@ class TestRuntimeSeekDBBackendSelection:
 
 
 class TestRuntimeInit:
+    def test_explicit_workspace_owns_default_mutable_runtime_storage(self, tmp_path):
+        workspace = tmp_path / "workspace"
+        cfg = RuntimeConfig(
+            workspace_home=str(workspace),
+            robot_id="storage_test_bot",
+            robot_zoo_path=str(tmp_path / "missing-zoo"),
+            enable_firewall=False,
+            enable_memory=False,
+            enable_practice=True,
+            enable_swarm=False,
+            enable_skill_manager=False,
+            enable_knowledge=False,
+            enable_how=False,
+            enable_auto=True,
+            enable_provider=False,
+            enable_sense=False,
+            enable_event_persistence=False,
+            enable_tracing=False,
+        )
+        runtime = Runtime(config=cfg)
+        runtime.initialize()
+        try:
+            assert Path(cfg.seekdb_path) == workspace / "data" / "memory" / "knowledge.sqlite"
+            assert Path(cfg.seekdb_fallback_dir) == workspace / "data" / "practice" / "fallback"
+            assert runtime._practice._output_dir == workspace / "data" / "practice"
+            assert runtime._auto.engine.store.base == workspace / "data" / "auto"
+        finally:
+            runtime.stop()
+
     def test_init_no_args(self):
         rt = Runtime()
         assert rt.config.robot_id == "rosclaw_default"

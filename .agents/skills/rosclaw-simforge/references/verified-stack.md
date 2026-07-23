@@ -1,8 +1,12 @@
 # Verified stack and evidence rules
 
-## Stack exercised on 2026-07-22
+## Historical operator run (2026-07-22)
 
-- ROSClaw checkout: `1ce343a369750bef0449c1bf750cf7b4be18704f`
+This section records an operator-reported environment. Its raw logs are kept in
+the external evidence store, not in Git. Re-run the bundled verification scripts
+before making a claim for the current checkout.
+
+- ROSClaw checkout used by that run: `1ce343a369750bef0449c1bf750cf7b4be18704f`
 - Ubuntu 22.04, four NVIDIA RTX A6000 GPUs, driver 595.71.05
 - ROS 2 Humble, rosbridge 2.0.7, turtlesim 1.4.3
 - Gazebo Fortress / Ignition Gazebo 6 through `ros-humble-ros-gz` 0.244.25
@@ -16,7 +20,7 @@
 Re-check all versions before a new report; this file records evidence, not a
 promise that these remain latest.
 
-## Passing evidence
+## Reported evidence from that run
 
 - ROS 2: live `/rosapi/topics`, turtlesim command/pose discovery, pose
   subscription, capability compilation, and fail-closed direct velocity calls.

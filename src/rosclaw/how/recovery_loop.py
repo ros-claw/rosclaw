@@ -19,19 +19,87 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Callable
 from typing import Any
 
+from rosclaw.sandbox.evidence import (
+    SimulationEvidenceVerification,
+    verify_simulation_receipt,
+)
+
 logger = logging.getLogger("rosclaw.how.recovery_loop")
+MAX_RETRIES = 10
+MAX_RETRY_HINT_BYTES = 16 * 1024
 
 
-def _trusted_physics_outcome(payload: dict[str, Any]) -> bool:
+def _valid_text(value: Any, *, maximum: int, allow_empty: bool = True) -> bool:
+    return isinstance(value, str) and (allow_empty or bool(value)) and len(value) <= maximum
+
+
+def _validated_retry_hint(payload: Any) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    request_id = payload.get("request_id")
+    failure_type = payload.get("failure_type", "")
+    retry_plan = payload.get("retry_plan", {})
+    if (
+        not _valid_text(request_id, maximum=256, allow_empty=False)
+        or not _valid_text(failure_type, maximum=256)
+        or not isinstance(retry_plan, dict)
+    ):
+        return None
+
+    rule_id = retry_plan.get("rule_id", "")
+    max_retries = retry_plan.get("max_retries", 3)
+    parameter_patch = retry_plan.get("parameter_patch", {})
+    if (
+        not _valid_text(rule_id, maximum=256)
+        or isinstance(max_retries, bool)
+        or not isinstance(max_retries, int)
+        or not 1 <= max_retries <= MAX_RETRIES
+        or not isinstance(parameter_patch, dict)
+        or len(parameter_patch) > 64
+    ):
+        return None
+    try:
+        encoded_patch = json.dumps(
+            parameter_patch,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError):
+        return None
+    if len(encoded_patch) > MAX_RETRY_HINT_BYTES:
+        return None
+    return {
+        "request_id": request_id,
+        "failure_type": failure_type,
+        "rule_id": rule_id,
+        "max_retries": max_retries,
+        "parameter_patch": parameter_patch,
+    }
+
+
+def _trusted_physics_outcome(
+    payload: dict[str, Any],
+    verifier: Callable[[dict[str, Any]], SimulationEvidenceVerification],
+) -> bool:
     """Only verified simulation evidence may change rule efficacy."""
-    return bool(
+    receipt = payload.get("simulation_receipt")
+    attached_evidence = bool(
         payload.get("physics_executed") is True
         and payload.get("receipt_verified") is True
         and payload.get("data_quality_pass") is True
         and payload.get("evidence_domain") == "SIMULATION"
+        and isinstance(receipt, dict)
     )
+    if not attached_evidence:
+        return False
+    try:
+        return verifier(receipt).verified
+    except Exception:  # noqa: BLE001 - learning must fail closed
+        return False
 
 
 class RecoveryLoop:
@@ -48,10 +116,13 @@ class RecoveryLoop:
         event_bus: Any,
         memory_interface: Any,
         heuristic_engine: Any,
+        *,
+        receipt_verifier: Callable[[dict[str, Any]], SimulationEvidenceVerification] | None = None,
     ) -> None:
         self._bus = event_bus
         self._memory = memory_interface
         self._how = heuristic_engine
+        self._receipt_verifier = receipt_verifier or verify_simulation_receipt
         self._table = "retries"
         self._ensure_table()
 
@@ -91,19 +162,21 @@ class RecoveryLoop:
 
     def _on_recovery_hint(self, event: Any) -> None:
         """Store recovery hint and mark original episode for retry."""
-        payload = event.payload
-        request_id = payload.get("request_id", "")
-        failure_type = payload.get("failure_type", "")
-        retry_plan = payload.get("retry_plan", {})
-        rule_id = retry_plan.get("rule_id", "")
-        max_retries = retry_plan.get("max_retries", 3)
+        hint = _validated_retry_hint(getattr(event, "payload", None))
+        if hint is None:
+            logger.warning("Ignoring malformed recovery hint")
+            return
+        request_id = hint["request_id"]
+        failure_type = hint["failure_type"]
+        rule_id = hint["rule_id"]
+        max_retries = hint["max_retries"]
 
         # Record retry intent in SeekDB
         record = {
             "id": request_id,
             "failure_type": failure_type,
             "rule_id": rule_id,
-            "parameter_patch": retry_plan.get("parameter_patch", {}),
+            "parameter_patch": hint["parameter_patch"],
             "max_retries": max_retries,
             "attempt_count": 0,
             "status": "pending",
@@ -134,9 +207,14 @@ class RecoveryLoop:
 
     def _on_retry_success(self, event: Any) -> None:
         """Mark retry as succeeded and update rule efficacy."""
-        payload = event.payload
+        payload = getattr(event, "payload", None)
+        if not isinstance(payload, dict):
+            return
         request_id = payload.get("request_id", "")
         episode_id = payload.get("episode_id", "")
+        if not _trusted_physics_outcome(payload, self._receipt_verifier):
+            logger.warning("Ignoring unverified retry-success evidence for %s", request_id)
+            return
 
         # Find pending retry record
         retry = self._get_retry(request_id)
@@ -144,19 +222,23 @@ class RecoveryLoop:
             return
 
         # Update retry record
+        attempt_count = retry.get("attempt_count", 0)
+        if isinstance(attempt_count, bool) or not isinstance(attempt_count, int):
+            logger.warning("Ignoring malformed retry record for %s", request_id)
+            return
         self._update_retry(
             request_id,
             {
                 "status": "succeeded",
                 "retry_outcome": "success",
-                "attempt_count": retry.get("attempt_count", 0) + 1,
+                "attempt_count": attempt_count + 1,
                 "updated_at": time.time(),
             },
         )
 
         # Update rule efficacy (+1 success)
         rule_id = retry.get("rule_id", "")
-        if rule_id and self._how and _trusted_physics_outcome(payload):
+        if rule_id and self._how:
             self._run_async(self._how.record_outcome(rule_id, success=True))
 
         # Store success pattern in Memory
@@ -202,16 +284,32 @@ class RecoveryLoop:
 
     def _on_retry_failure(self, event: Any) -> None:
         """Mark retry as failed and update rule efficacy."""
-        payload = event.payload
+        payload = getattr(event, "payload", None)
+        if not isinstance(payload, dict):
+            return
         request_id = payload.get("request_id", "")
         episode_id = payload.get("episode_id", "")
+        if not _trusted_physics_outcome(payload, self._receipt_verifier):
+            logger.warning("Ignoring unverified retry-failure evidence for %s", request_id)
+            return
 
         retry = self._get_retry(request_id)
         if retry is None:
             return
 
-        attempt_count = retry.get("attempt_count", 0) + 1
+        previous_attempts = retry.get("attempt_count", 0)
         max_retries = retry.get("max_retries", 3)
+        if (
+            isinstance(previous_attempts, bool)
+            or not isinstance(previous_attempts, int)
+            or previous_attempts < 0
+            or isinstance(max_retries, bool)
+            or not isinstance(max_retries, int)
+            or not 1 <= max_retries <= MAX_RETRIES
+        ):
+            logger.warning("Ignoring malformed retry record for %s", request_id)
+            return
+        attempt_count = previous_attempts + 1
         status = "failed" if attempt_count >= max_retries else "pending"
 
         self._update_retry(
@@ -226,7 +324,7 @@ class RecoveryLoop:
 
         # Update rule efficacy (-1 success = +1 failure)
         rule_id = retry.get("rule_id", "")
-        if rule_id and self._how and _trusted_physics_outcome(payload):
+        if rule_id and self._how:
             self._run_async(self._how.record_outcome(rule_id, success=False))
 
         # If max retries reached, store as new failure

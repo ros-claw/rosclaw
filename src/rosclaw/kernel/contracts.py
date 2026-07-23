@@ -354,6 +354,12 @@ class ActionExecutionResult:
     artifact_directory: str | None = None
     acknowledgement_stage: AcknowledgementStage | None = None
 
+    def __post_init__(self) -> None:
+        self.final_state = ActionState(self.final_state)
+        self.evidence_level = EvidenceLevel(self.evidence_level)
+        if self.evidence_domain is not None:
+            self.evidence_domain = EvidenceDomain(self.evidence_domain)
+
 
 @dataclass
 class ExecutionReceipt:
@@ -410,25 +416,14 @@ class ExecutionReceipt:
 
     @property
     def valid_for_promotion(self) -> bool:
-        """Whether this receipt contains promotion-grade simulation evidence."""
+        """A generic action receipt is never sufficient promotion evidence.
 
-        simulation = self.simulation_result or {}
-        artifact_hashes = simulation.get("artifact_hashes")
-        quality = (self.verification_result or {}).get("data_quality") or {}
-        return bool(
-            self.mode is ExecutionMode.SIMULATION
-            and self.evidence_domain is EvidenceDomain.SIMULATION
-            and simulation.get("has_physics") is True
-            and simulation.get("physics_executed") is True
-            and self.dispatch_result.get("physics_executed") is True
-            and self.body_snapshot_hash
-            and simulation.get("model_hash")
-            and simulation.get("action_hash")
-            and isinstance(artifact_hashes, dict)
-            and artifact_hashes
-            and quality.get("artifact_hash_valid") is True
-            and quality.get("body_snapshot_match") is True
-        )
+        Promotion requires independently replaying the typed simulation receipt
+        through ``verify_promotion_receipt``; attached booleans are not an
+        attestation boundary.
+        """
+
+        return False
 
     @property
     def trust_level(self) -> str:

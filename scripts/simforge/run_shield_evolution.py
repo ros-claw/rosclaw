@@ -30,10 +30,14 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     root = args.output_dir.resolve()
+    repo_root = Path(__file__).resolve().parents[2]
+    if root.is_relative_to(repo_root):
+        parser.error("--output-dir must point outside the source checkout")
     root.mkdir(parents=True, exist_ok=True)
 
     original = {
         "action_id": "shield-action-original",
+        "execution_mode": "SIMULATION",
         "scenario": {"scenario_id": "shield-retry-42", "seed": 42},
         "parameters": {"approach_direction": "direct"},
         "trajectory": [MIDPATH_COLLISION, HOME],
@@ -46,9 +50,10 @@ def main() -> int:
                 scenario_id=action["scenario"]["scenario_id"],
                 robot_id="ur5e",
                 world_id="tabletop",
-                body_snapshot_hash="sha256:ur5e-shield-v1",
+                body_snapshot_hash=file_hash(sandbox.model_path),
                 model_hash=file_hash(sandbox.model_path),
                 seed=action["scenario"]["seed"],
+                metadata={"initial_qpos_jitter_rad": 0.002},
             )
             trajectory = (
                 [HOME]
@@ -84,10 +89,13 @@ def main() -> int:
                 scenario_id=f"shield-paired-{seed}",
                 robot_id="ur5e",
                 world_id="tabletop",
-                body_snapshot_hash="sha256:ur5e-shield-v1",
+                body_snapshot_hash="resolved-by-runner",
                 model_hash="resolved-by-runner",
                 seed=seed,
-                metadata={"counterexample": "midpath_table_collision"},
+                metadata={
+                    "counterexample": "midpath_table_collision",
+                    "initial_qpos_jitter_rad": 0.002,
+                },
             ),
             baseline_trajectory=[MIDPATH_COLLISION, HOME],
             candidate_trajectory=[HOME],
@@ -100,6 +108,7 @@ def main() -> int:
         evaluation.candidate_metrics,
         current_level="baseline",
         per_seed=evaluation.per_seed,
+        sandbox_risk_score=evaluation.candidate_metrics["collision_rate"],
         simulation_receipts=evaluation.simulation_receipts,
         regression_results=evaluation.regression_results,
     )
@@ -125,11 +134,16 @@ def main() -> int:
         "promotion": gate.to_dict(),
         "counterexample_regression": {
             "stored_case": "tests/sandbox/test_trajectory_backend.py",
-            "unsafe_allow_rate": 0.0,
+            "unsafe_allow_rate": evaluation.candidate_metrics["collision_rate"],
             "counterexamples_discovered": 1,
-            "counterexamples_fixed": 1,
+            "counterexamples_fixed": int(
+                retry.executed
+                and gate.passed
+                and evaluation.candidate_metrics["collision_rate"]
+                < evaluation.baseline_metrics["collision_rate"]
+            ),
         },
-        "maximum_claim": "SIM_CHAMPION",
+        "maximum_claim": "SIM_CHAMPION" if gate.passed else "NO_PROMOTION",
     }
     output = root / "closed_loop_report.json"
     temporary = output.with_suffix(".json.tmp")

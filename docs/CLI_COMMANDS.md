@@ -173,7 +173,7 @@
 | `sandbox verify` | Run deterministic MuJoCo sandbox verification | `rosclaw sandbox verify [-h] [--case {ur5e-joint-preview}] [--robot ROBOT] [--world WORLD] [--steps STEPS] [--json]` |
 | `sandbox validate` | Validate robot in sandbox | `rosclaw sandbox validate [-h] robot_id` |
 | `sandbox run` | Run a sandbox episode | `rosclaw sandbox run [-h] --robot ROBOT [--world WORLD] --task TASK [--backend BACKEND] [--trace-id TRACE_ID]` |
-| `sandbox replay` | Replay a sandbox episode | `rosclaw sandbox replay [-h] episode_id` |
+| `sandbox replay` | Strictly replay and verify simulation evidence, or inspect a legacy episode | `rosclaw sandbox replay [episode_id] [--receipt RECEIPT] [--robot ROBOT] [--world WORLD] [--json]` |
 | `sandbox check` | Check action safety in sandbox | `rosclaw sandbox check [-h] --robot ROBOT --action ACTION [--trace-id TRACE_ID]` |
 
 ## Practice commands

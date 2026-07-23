@@ -399,6 +399,25 @@ class TestPublicAPI:
 
 
 class TestStubTopics:
+    def test_sandbox_string_false_and_invalid_reward_fail_closed(self, recorder, temp_artifact_dir):
+        recorder._event_bus.publish(
+            Event(
+                topic="rosclaw.sandbox.episode.finished",
+                payload={
+                    "episode_id": "ep_sandbox_invalid",
+                    "success": "false",
+                    "reward": "not-a-number",
+                },
+            )
+        )
+        meta_path = os.path.join(
+            temp_artifact_dir, "episodes", "ep_sandbox_invalid", "metadata.json"
+        )
+        with open(meta_path) as f:
+            metadata = json.load(f)
+        assert metadata["status"] == "failure"
+        assert metadata["reward"] == -1.0
+
     def test_provider_inference_stub(self, recorder, temp_artifact_dir):
         recorder._event_bus.publish(
             Event(

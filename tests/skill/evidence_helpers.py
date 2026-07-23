@@ -1,65 +1,83 @@
-"""Helpers for constructing explicit promotion evidence in skill tests."""
+"""Build real, replayed MuJoCo evidence for skill lifecycle tests."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 
+import yaml
+
+from rosclaw.darwin.physics_runner import PairedTrajectoryCase, PhysicsDarwinRunner
+from rosclaw.sandbox.backends import ScenarioSpec
 from rosclaw.skill.eval import refresh_hashes
+from rosclaw.skill.hash import compute_candidate_evidence_hash
 from rosclaw.skill.models import SkillPackage
+
+HOME = [-1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+COLLISION = [
+    3.4426358094526863,
+    -0.7680767522686045,
+    2.253070730803216,
+    2.480201653011009,
+    -5.099721659051599,
+    5.976851207161098,
+]
 
 
 def write_promotion_evidence(pkg: SkillPackage, candidate_id: str) -> None:
     receipts = pkg.root / "evidence" / "receipts"
     reports = pkg.root / "evidence" / "reports"
+    rollout_root = pkg.root / "evidence" / "rollouts" / candidate_id
     receipts.mkdir(parents=True, exist_ok=True)
     reports.mkdir(parents=True, exist_ok=True)
+    candidate_hash = compute_candidate_evidence_hash(pkg.root, candidate_id)
 
-    trajectory = receipts / f"{candidate_id}_trajectory.json"
-    trajectory.write_text('{"physics_executed":true}\n', encoding="utf-8")
-    trajectory_hash = hashlib.sha256(trajectory.read_bytes()).hexdigest()
-    receipt = {
-        "execution_mode": "SIMULATION",
-        "evidence_domain": "SIMULATION",
-        "evidence_level": "TASK_VERIFIED",
-        "body_snapshot_hash": "sha256:test-body",
-        "dispatch_result": {"physics_executed": True},
-        "simulation_result": {
-            "seed": 7,
-            "has_physics": True,
-            "physics_executed": True,
-            "model_hash": "sha256:test-model",
-            "action_hash": f"sha256:{candidate_id}",
-            "artifact_hashes": {trajectory.name: trajectory_hash},
-        },
-        "verification_result": {
-            "data_quality": {
-                "artifact_hash_valid": True,
-                "body_snapshot_match": True,
-                "replayable": True,
-            }
-        },
-        "replay": {"verified": True, "environment_match": True, "hashes_verified": True},
-        "artifacts": [f"evidence/receipts/{trajectory.name}"],
-    }
-    (receipts / f"{candidate_id}.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
+    cases = [
+        PairedTrajectoryCase(
+            scenario=ScenarioSpec(
+                scenario_id=f"{candidate_id}-{seed}",
+                robot_id="ur5e",
+                world_id="tabletop",
+                body_snapshot_hash="resolved-by-runner",
+                model_hash="resolved-by-runner",
+                seed=seed,
+                metadata={
+                    "initial_qpos_jitter_rad": 0.002,
+                    "skill_candidate_id": candidate_id,
+                    "skill_candidate_hash": candidate_hash,
+                },
+            ),
+            baseline_trajectory=[COLLISION, HOME],
+            candidate_trajectory=[HOME],
+        )
+        for seed in (7, 8)
+    ]
+    result = PhysicsDarwinRunner().run(cases, artifact_root=rollout_root)
+    candidate_receipt = next(
+        receipt
+        for receipt in result.simulation_receipts
+        if receipt["evaluation_variant"] == "candidate"
+    )
+    (receipts / f"{candidate_id}.json").write_text(
+        json.dumps(candidate_receipt, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
 
-    darwin = {
+    report = {
+        "schema_version": "rosclaw.physics_darwin_report.v1",
         "evidence_domain": "SIMULATION",
         "physics_executed": True,
-        "candidate_metrics": {
-            "success_rate": 0.85,
-            "no_fall_rate": 1.0,
-            "sandbox_block_rate": 0.08,
-            "recovery_success_rate": 0.67,
-        },
-        "per_seed": {
-            "7": {"baseline": {"success_rate": 0.70}, "candidate": {"success_rate": 0.84}},
-            "8": {"baseline": {"success_rate": 0.72}, "candidate": {"success_rate": 0.86}},
-        },
-        "regression": {"passed": True, "critical_regressions": []},
+        **result.to_dict(),
     }
     (reports / f"{candidate_id}_darwin.json").write_text(
-        json.dumps(darwin, indent=2), encoding="utf-8"
+        json.dumps(report, indent=2, sort_keys=True),
+        encoding="utf-8",
     )
+
+    darwin_path = pkg.root / "darwin_eval.yaml"
+    darwin = yaml.safe_load(darwin_path.read_text(encoding="utf-8"))
+    darwin["metrics"] = {
+        "success_rate": {"required": True, "promote_threshold": 0.75},
+        "collision_rate": {"required": True, "max_allowed": 0.0},
+    }
+    darwin_path.write_text(yaml.safe_dump(darwin, sort_keys=False), encoding="utf-8")
     refresh_hashes(pkg)

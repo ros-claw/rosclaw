@@ -14,7 +14,7 @@ fi
 if [[ -n "$host_https_proxy" ]]; then
   proxy_args+=(--build-arg "https_proxy=$host_https_proxy")
 fi
-if [[ "$host_http_proxy" == *"127.0.0.1"* || "$host_https_proxy" == *"127.0.0.1"* ]]; then
+if [[ "$host_http_proxy" =~ (127\.0\.0\.1|localhost|\[::1\]) || "$host_https_proxy" =~ (127\.0\.0\.1|localhost|\[::1\]) ]]; then
   build_network=host
 fi
 
@@ -28,7 +28,15 @@ set -eo pipefail
 ign gazebo -r -s /usr/share/ignition/ignition-gazebo6/worlds/grid.sdf >/tmp/gazebo.log 2>&1 &
 gazebo_pid=$!
 bridge_pid=
-trap "kill $gazebo_pid ${bridge_pid:-} 2>/dev/null || true" EXIT
+cleanup() {
+  if [[ -n "$bridge_pid" ]]; then
+    kill "$bridge_pid" 2>/dev/null || true
+    wait "$bridge_pid" 2>/dev/null || true
+  fi
+  kill "$gazebo_pid" 2>/dev/null || true
+  wait "$gazebo_pid" 2>/dev/null || true
+}
+trap cleanup EXIT
 for attempt in {1..30}; do
   if ign topic -l | grep -qx /clock; then break; fi
   sleep 1

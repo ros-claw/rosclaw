@@ -32,8 +32,9 @@ WORKSPACE_BOUNDS = {
 def _safe_action_directory(root: Path, action_id: str) -> Path:
     safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", action_id).strip("._")
     if not safe_id:
-        safe_id = hashlib.sha256(action_id.encode("utf-8")).hexdigest()[:16]
-    return (root / safe_id).resolve()
+        safe_id = "action"
+    digest = hashlib.sha256(action_id.encode("utf-8")).hexdigest()[:12]
+    return (root / f"{safe_id[:80]}-{digest}").resolve()
 
 
 def _write_json(path: Path, value: dict[str, Any]) -> str:
@@ -212,9 +213,33 @@ def run_reach_action(
             dispatch_result={"accepted": False, "physics_executed": False},
         )
 
-    max_steps = int(action.arguments.get("max_steps", 1200))
-    tolerance = float(action.arguments.get("tolerance_m", 0.008))
-    seed = int(action.arguments.get("seed", 0))
+    raw_max_steps = action.arguments.get("max_steps", 1200)
+    raw_tolerance = action.arguments.get("tolerance_m", 0.008)
+    raw_seed = action.arguments.get("seed", 0)
+    if (
+        isinstance(raw_max_steps, bool)
+        or not isinstance(raw_max_steps, int)
+        or isinstance(raw_tolerance, bool)
+        or not isinstance(raw_tolerance, (int, float))
+        or not math.isfinite(float(raw_tolerance))
+        or isinstance(raw_seed, bool)
+        or not isinstance(raw_seed, int)
+        or not 0 <= raw_seed < 2**63
+    ):
+        return ActionExecutionResult(
+            final_state=ActionState.BLOCKED,
+            evidence_level=EvidenceLevel.REQUESTED,
+            policy_decision={
+                "validation_type": "StaticPolicyValidation",
+                "allowed": False,
+                "reason": "invalid_simulation_parameters",
+                "violations": ["simulation_parameters"],
+                "simulation_executed": False,
+            },
+        )
+    max_steps = raw_max_steps
+    tolerance = float(raw_tolerance)
+    seed = raw_seed
     if not 1 <= max_steps <= 100_000:
         return ActionExecutionResult(
             final_state=ActionState.BLOCKED,
@@ -344,7 +369,7 @@ def run_reach_action(
             )
             item = {"geom1": geom1, "geom2": geom2, "distance": float(contact.dist)}
             contacts.append(item)
-            if "tabletop_surface" in {geom1, geom2}:
+            if "tabletop_surface" in {geom1, geom2} and float(contact.dist) <= -1e-6:
                 collision = item
 
         if step_index % 10 == 0 or collision is not None:
@@ -454,7 +479,8 @@ def run_reach_action(
             "duplicate_event_count": 0,
             "artifact_hash_valid": True,
             "body_snapshot_match": bool(action.body_snapshot_hash == model_hash),
-            "replayable": True,
+            "replayable": False,
+            "strict_replay_verified": False,
         },
     }
 

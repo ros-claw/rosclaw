@@ -11,6 +11,7 @@ later sprints.
 
 import json
 import logging
+import math
 import os
 import re
 import time
@@ -35,20 +36,26 @@ def _bounded_artifact_line(entry: dict[str, Any]) -> str:
     if size <= _MAX_ARTIFACT_RECORD_BYTES:
         return line
     result = entry.get("result") if isinstance(entry.get("result"), dict) else {}
-    return json.dumps(
+    bounded = json.dumps(
         {
-            "phase": entry.get("phase"),
-            "timestamp": entry.get("timestamp"),
+            "phase": str(entry.get("phase", ""))[:256],
+            "timestamp": str(entry.get("timestamp", ""))[:128],
             "persistence_truncated": True,
             "original_size_bytes": size,
             "result_summary": {
-                "status": result.get("status"),
-                "reason": result.get("reason"),
-                "keys": list(result)[:50],
+                "status": str(result.get("status", ""))[:256],
+                "reason": str(result.get("reason", ""))[:1024],
+                "keys": [str(key)[:128] for key in list(result)[:50]],
             },
         },
         default=str,
     )
+    if len((bounded + "\n").encode("utf-8")) > _MAX_ARTIFACT_RECORD_BYTES:
+        return json.dumps(
+            {"persistence_truncated": True, "original_size_bytes": size},
+            separators=(",", ":"),
+        )
+    return bounded
 
 
 @dataclass
@@ -470,9 +477,16 @@ class EpisodeRecorder(LifecycleMixin):
         buf.received_events.add("rosclaw.sandbox.episode.finished")
         if payload.get("final_state"):
             buf.final_state = payload["final_state"]
-        success = bool(payload.get("success"))
+        success = payload.get("success") is True
         buf.praxis_status = "success" if success else "failure"
-        buf.praxis_reward = float(payload.get("reward", 1.0 if success else -1.0))
+        raw_reward = payload.get("reward")
+        if (
+            isinstance(raw_reward, bool)
+            or not isinstance(raw_reward, (int, float))
+            or not math.isfinite(float(raw_reward))
+        ):
+            raw_reward = 1.0 if success else -1.0
+        buf.praxis_reward = float(raw_reward)
         if not success:
             buf.runtime_error = str(payload.get("reason") or "sandbox rollout failed")
         buf.last_event_at = time.time()

@@ -61,6 +61,7 @@ class RosbridgeTransport:
             if self._ws is not None and getattr(self._ws, "connected", False):
                 return RosTransportResult(ok=True)
 
+            direct_socket: socket.socket | None = None
             try:
                 import websocket
 
@@ -71,15 +72,17 @@ class RosbridgeTransport:
                     # tunneled through an external proxy.  Supplying an already
                     # connected socket is the library's race-free proxy bypass;
                     # changing process-wide NO_PROXY here would affect peers.
-                    connection_options["socket"] = socket.create_connection(
+                    direct_socket = socket.create_connection(
                         (self.endpoint.host.strip("[]"), self.endpoint.port),
                         timeout=self.endpoint.timeout_sec,
                     )
+                    connection_options["socket"] = direct_socket
                 self._ws = websocket.create_connection(
                     self.endpoint.url,
                     timeout=self.endpoint.timeout_sec,
                     **connection_options,
                 )
+                direct_socket = None  # websocket-client owns it after a successful handshake.
                 logger.info("Connected to rosbridge at %s", self.endpoint.url)
                 return RosTransportResult(ok=True)
             except ImportError as exc:
@@ -90,6 +93,8 @@ class RosbridgeTransport:
                 logger.error(error)
                 return RosTransportResult(ok=False, error=error, raw=str(exc))
             except Exception as exc:
+                if direct_socket is not None:
+                    direct_socket.close()
                 error = f"Failed to connect to {self.endpoint.url}: {exc}"
                 logger.error(error)
                 self._ws = None

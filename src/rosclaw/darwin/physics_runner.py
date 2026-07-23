@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import statistics
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -73,8 +74,30 @@ class PhysicsDarwinRunner:
         *,
         artifact_root: Path,
     ) -> PhysicsDarwinResult:
-        if len({case.scenario.seed for case in cases}) < 2:
+        if not 2 <= len(cases) <= 100:
+            raise ValueError("PHYSICS_DARWIN_CASE_COUNT_OUT_OF_RANGE")
+        seeds = [case.scenario.seed for case in cases]
+        if any(
+            isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed < 2**63
+            for seed in seeds
+        ):
+            raise ValueError("PHYSICS_DARWIN_INVALID_SEED")
+        if len(set(seeds)) < 2:
             raise ValueError("PHYSICS_DARWIN_REQUIRES_AT_LEAST_TWO_SEEDS")
+        if len(set(seeds)) != len(seeds):
+            raise ValueError("PHYSICS_DARWIN_REQUIRES_UNIQUE_SEED_CASES")
+        for case in cases:
+            metadata = case.scenario.metadata
+            if not isinstance(metadata, dict):
+                raise ValueError("PHYSICS_DARWIN_REQUIRES_SEED_RANDOMIZATION")
+            jitter = metadata.get("initial_qpos_jitter_rad")
+            if (
+                isinstance(jitter, bool)
+                or not isinstance(jitter, (int, float))
+                or not math.isfinite(float(jitter))
+                or not 0.0 < float(jitter) <= 0.1
+            ):
+                raise ValueError("PHYSICS_DARWIN_REQUIRES_SEED_RANDOMIZATION")
         per_seed: dict[str, dict[str, dict[str, float]]] = {}
         all_receipts: list[dict[str, Any]] = []
         baseline_outcomes: list[dict[str, Any]] = []
@@ -93,9 +116,16 @@ class PhysicsDarwinRunner:
                 try:
                     if not sandbox.has_physics:
                         raise RuntimeError(sandbox.load_error or "PHYSICS_UNAVAILABLE")
+                    resolved_model_hash = file_hash(sandbox.model_path)
+                    if case.scenario.body_snapshot_hash not in {
+                        "resolved-by-runner",
+                        resolved_model_hash,
+                    }:
+                        raise ValueError("BODY_SNAPSHOT_HASH_MISMATCH")
                     scenario = replace(
                         case.scenario,
-                        model_hash=file_hash(sandbox.model_path),
+                        body_snapshot_hash=resolved_model_hash,
+                        model_hash=resolved_model_hash,
                     )
                     backend = MujocoCpuBackend(sandbox)
                     receipt = backend.rollout(
@@ -105,16 +135,12 @@ class PhysicsDarwinRunner:
                             artifact_dir=artifact_root / str(case.scenario.seed) / variant,
                         )
                     )
+                    receipt.evaluation_variant = variant
+                    receipt.pair_id = scenario.scenario_id
                     replay = backend.replay(receipt, strict=True)
                 finally:
                     sandbox.close()
                 value = receipt.to_dict()
-                value["replay_report"] = replay.to_dict()
-                value["data_quality"] = {
-                    "artifact_hash_valid": replay.hashes_verified,
-                    "body_snapshot_match": True,
-                    "replayable": replay.verified,
-                }
                 all_receipts.append(value)
                 outcome = {
                     "is_safe": receipt.is_safe,

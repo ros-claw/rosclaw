@@ -106,6 +106,35 @@ def test_rosbridge_loopback_connection_bypasses_environment_proxy(monkeypatch):
     assert captured["socket"] is direct_socket
 
 
+def test_rosbridge_closes_direct_socket_when_handshake_fails(monkeypatch):
+    import socket
+
+    import websocket
+
+    class FakeSocket:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    direct_socket = FakeSocket()
+
+    def fail_handshake(*args, **kwargs):
+        raise RuntimeError("handshake failed")
+
+    monkeypatch.setattr(socket, "create_connection", lambda *args, **kwargs: direct_socket)
+    monkeypatch.setattr(websocket, "create_connection", fail_handshake)
+    transport = RosbridgeTransport(
+        endpoint=RosbridgeEndpoint(host="127.0.0.1", port=9090),
+        max_retries=0,
+    )
+
+    result = transport.connect()
+
+    assert result.ok is False
+    assert direct_socket.closed is True
+
+
 def test_rosbridge_transport_send_invalid_json():
     transport = RosbridgeTransport(dry_run=False)
     # No websocket server; connect will fail, returning structured error.

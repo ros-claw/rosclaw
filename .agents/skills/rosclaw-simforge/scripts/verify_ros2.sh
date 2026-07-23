@@ -14,7 +14,7 @@ fi
 if [[ -n "$host_https_proxy" ]]; then
   proxy_args+=(--build-arg "https_proxy=$host_https_proxy")
 fi
-if [[ "$host_http_proxy" == *"127.0.0.1"* || "$host_https_proxy" == *"127.0.0.1"* ]]; then
+if [[ "$host_http_proxy" =~ (127\.0\.0\.1|localhost|\[::1\]) || "$host_https_proxy" =~ (127\.0\.0\.1|localhost|\[::1\]) ]]; then
   build_network=host
 fi
 
@@ -25,7 +25,11 @@ docker build --network "$build_network" --pull=false "${proxy_args[@]}" \
 .venv/bin/pytest -q -m "deployment and integration" \
   tests/connectors/ros/integration/test_ros2_container_smoke.py
 
-port="${ROSCLAW_ROS_TEST_PORT:-39090}"
+port="${ROSCLAW_ROS_TEST_PORT:-$(.venv/bin/python -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')}"
+if [[ ! "$port" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
+  echo "ROSCLAW_ROS_TEST_PORT must be an integer from 1 to 65535" >&2
+  exit 2
+fi
 export ROSBRIDGE_HOST_PORT="$port"
 export ROSBRIDGE_CONTAINER_NAME=rosclaw-ros2-turtlesim-simforge
 export COMPOSE_PROJECT_NAME=rosclaw-turtlesim-simforge

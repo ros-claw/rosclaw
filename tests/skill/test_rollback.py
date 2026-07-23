@@ -27,7 +27,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "practice_sessions"
 
 def _validated_pkg(tmp_path: Path):
     dest = tmp_path / "g1_kick_ball"
-    context = _init_context("g1_kick_ball", "unitree_g1", "manipulation", "ros-claw")
+    context = _init_context("g1_kick_ball", "ur5e", "manipulation", "ros-claw")
     _copy_template(TEMPLATE_DIR, dest, context)
     pkg = SkillPackage(dest).try_load()
     mine_skill_candidate(pkg, FIXTURES, candidate_id="candidate_0001")

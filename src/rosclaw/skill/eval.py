@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
+import math
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
 
+from rosclaw.auto.promotion.gate import PromotionGate
 from rosclaw.body.resolver import BodyResolver
+from rosclaw.sandbox.evidence import artifacts_within, verify_promotion_receipt
 from rosclaw.skill.evidence import write_eval_report
-from rosclaw.skill.hash import compute_skill_hashes
+from rosclaw.skill.hash import (
+    compute_candidate_evidence_hash,
+    compute_skill_hashes,
+    validate_candidate_id,
+)
 from rosclaw.skill.models import EvalReport, SkillPackage
 from rosclaw.skill.validators import validate_package
 
@@ -26,6 +31,8 @@ def evaluate_skill(
 
     if candidate_id is None:
         candidate_id = pkg.skill.metadata.candidate_id
+    if candidate_id is not None:
+        candidate_id = validate_candidate_id(candidate_id)
 
     report = EvalReport(
         skill=pkg.name,
@@ -55,9 +62,9 @@ def evaluate_skill(
     # 3. Sandbox receipt and strict replay evidence. Missing evidence is not a
     # pass: it yields NEED_MORE_EVIDENCE below.
     receipt = _load_simulation_receipt(pkg, candidate_id)
-    sandbox_ok = _simulation_receipt_check(pkg, receipt)
+    sandbox_ok = _simulation_receipt_check(pkg, receipt, candidate_id)
     report.checks["sandbox_eval"] = sandbox_ok
-    replay_ok = _replay_check(receipt)
+    replay_ok = sandbox_ok
     report.checks["replay_check"] = replay_ok
 
     # 4. Darwin eval against thresholds. Metrics must come from a
@@ -70,6 +77,7 @@ def evaluate_skill(
     report.checks["promotion_gate_check"] = all(
         [
             report.checks.get("schema_lint", False),
+            report.checks.get("package_integrity_check", False),
             report.checks.get("behavior_tree_lint", False),
             report.checks.get("provider_route_check", False),
             report.checks.get("e_urdf_compat_check", False),
@@ -82,6 +90,8 @@ def evaluate_skill(
 
     if report.checks["promotion_gate_check"]:
         report.decision = "pass"
+        report.evidence_domain = "SIMULATION"
+        report.promotion_ceiling = "SIM"
     elif all(
         report.checks.get(name, False)
         for name in (
@@ -107,72 +117,67 @@ def _load_simulation_receipt(pkg: SkillPackage, candidate_id: str | None) -> dic
     if not candidate_id:
         return None
     receipt_path = pkg.root / "evidence" / "receipts" / f"{candidate_id}.json"
-    if not receipt_path.is_file():
-        return None
+    return _load_json_mapping(receipt_path)
+
+
+def _load_json_mapping(path: Path, *, max_bytes: int = 16 * 1024 * 1024) -> dict[str, Any] | None:
     try:
-        value = json.loads(receipt_path.read_text(encoding="utf-8"))
+        if not path.is_file() or path.stat().st_size > max_bytes:
+            return None
+        value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
     return value if isinstance(value, dict) else None
 
 
-def _artifact_path(pkg: SkillPackage, reference: str) -> Path | None:
-    parsed = urlparse(reference)
-    if parsed.scheme == "file":
-        return Path(unquote(parsed.path)).resolve()
-    if parsed.scheme:
-        return None
-    return (pkg.root / reference).resolve()
-
-
-def _simulation_receipt_check(pkg: SkillPackage, receipt: dict[str, Any] | None) -> bool:
-    if not receipt:
+def _simulation_receipt_check(
+    pkg: SkillPackage,
+    receipt: dict[str, Any] | None,
+    candidate_id: str | None,
+) -> bool:
+    if not receipt or not candidate_id:
         return False
-    simulation = receipt.get("simulation_result") or {}
-    dispatch = receipt.get("dispatch_result") or {}
-    quality = (receipt.get("verification_result") or {}).get("data_quality") or {}
-    artifact_hashes = simulation.get("artifact_hashes")
-    if not (
-        receipt.get("execution_mode", receipt.get("mode")) == "SIMULATION"
-        and receipt.get("evidence_domain") == "SIMULATION"
-        and receipt.get("body_snapshot_hash")
-        and simulation.get("has_physics") is True
-        and simulation.get("physics_executed") is True
-        and dispatch.get("physics_executed") is True
-        and simulation.get("model_hash")
-        and simulation.get("action_hash")
-        and isinstance(artifact_hashes, dict)
-        and artifact_hashes
-        and quality.get("body_snapshot_match") is True
+    if not artifacts_within(receipt, pkg.root):
+        return False
+    if receipt.get("evaluation_variant") != "candidate":
+        return False
+    if not _receipt_robot_compatible(pkg, receipt) or not _receipt_candidate_compatible(
+        pkg, receipt, candidate_id
     ):
         return False
-
-    artifacts = receipt.get("artifacts") or []
-    paths = {
-        path.name: path
-        for reference in artifacts
-        if isinstance(reference, str) and (path := _artifact_path(pkg, reference)) is not None
-    }
-    for name, expected in artifact_hashes.items():
-        path = paths.get(str(name))
-        if path is None or not path.is_file():
-            return False
-        actual = hashlib.sha256(path.read_bytes()).hexdigest()
-        if actual != str(expected).removeprefix("sha256:"):
-            return False
-    return True
-
-
-def _replay_check(receipt: dict[str, Any] | None) -> bool:
-    if not receipt:
+    try:
+        return verify_promotion_receipt(receipt).verified
+    except Exception:  # noqa: BLE001 - skill promotion must fail closed
         return False
-    verification = receipt.get("verification_result") or {}
-    quality = verification.get("data_quality") or {}
-    replay = receipt.get("replay") or {}
+
+
+def _receipt_robot_compatible(pkg: SkillPackage, receipt: dict[str, Any]) -> bool:
+    if pkg.eurdf_compat is None:
+        return False
+    compatible = {item.robot for item in pkg.eurdf_compat.compatible_robots}
+    request = receipt.get("request")
+    if not isinstance(request, dict):
+        return False
+    scenario = request.get("scenario")
+    if not isinstance(scenario, dict):
+        return False
+    return str(scenario.get("robot_id") or "") in compatible
+
+
+def _receipt_candidate_compatible(
+    pkg: SkillPackage, receipt: dict[str, Any], candidate_id: str
+) -> bool:
+    try:
+        expected_hash = compute_candidate_evidence_hash(pkg.root, candidate_id)
+    except (OSError, ValueError):
+        return False
+    request = receipt.get("request")
+    scenario = request.get("scenario") if isinstance(request, dict) else None
+    metadata = scenario.get("metadata") if isinstance(scenario, dict) else None
     return bool(
-        (quality.get("replayable") is True or replay.get("verified") is True)
-        and replay.get("environment_match", True) is True
-        and replay.get("hashes_verified", True) is True
+        isinstance(metadata, dict)
+        and metadata.get("skill_candidate_id") == candidate_id
+        and metadata.get("skill_candidate_hash") == expected_hash
     )
 
 
@@ -182,38 +187,60 @@ def _darwin_eval(pkg: SkillPackage, candidate_id: str | None) -> tuple[dict[str,
     if not candidate_id:
         return {}, False
     report_path = pkg.root / "evidence" / "reports" / f"{candidate_id}_darwin.json"
-    try:
-        report = json.loads(report_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    report = _load_json_mapping(report_path)
+    if report is None:
         return {}, False
     per_seed = report.get("per_seed")
-    regression = report.get("regression") or {}
+    receipts = report.get("simulation_receipts")
+    regression = report.get("regression_results") or {}
+    baseline_metrics = report.get("baseline_metrics")
+    candidate_metrics = report.get("candidate_metrics")
     if not (
         report.get("evidence_domain") == "SIMULATION"
         and report.get("physics_executed") is True
+        and isinstance(baseline_metrics, dict)
+        and isinstance(candidate_metrics, dict)
         and isinstance(per_seed, dict)
         and len(per_seed) >= 2
+        and isinstance(receipts, list)
+        and receipts
         and all(
-            isinstance(item, dict)
-            and isinstance(item.get("baseline"), dict)
-            and isinstance(item.get("candidate"), dict)
-            for item in per_seed.values()
+            isinstance(receipt, dict)
+            and artifacts_within(receipt, pkg.root)
+            and _receipt_robot_compatible(pkg, receipt)
+            and _receipt_candidate_compatible(pkg, receipt, candidate_id)
+            for receipt in receipts
         )
-        and regression.get("passed") is True
-        and not regression.get("critical_regressions")
     ):
         return {}, False
-    metrics = report.get("candidate_metrics") or report.get("metrics") or {}
-    if not isinstance(metrics, dict):
+    gate = PromotionGate().evaluate(
+        baseline_metrics,
+        candidate_metrics,
+        current_level="baseline",
+        per_seed=per_seed,
+        sandbox_risk_score=candidate_metrics.get("collision_rate"),
+        simulation_receipts=receipts,
+        regression_results=regression,
+    )
+    if not gate.passed:
         return {}, False
 
     ok = True
+    metrics: dict[str, float] = {}
     for metric_name, threshold in pkg.darwin_eval.metrics.items():
-        value = metrics.get(metric_name)
+        value = candidate_metrics.get(metric_name)
         if value is None:
             if threshold.required:
                 ok = False
             continue
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+        ):
+            ok = False
+            continue
+        metrics[metric_name] = float(value)
         if threshold.promote_threshold is not None and value < threshold.promote_threshold:
             ok = False
         if threshold.max_allowed is not None and value > threshold.max_allowed:

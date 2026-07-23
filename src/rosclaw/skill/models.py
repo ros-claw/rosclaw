@@ -96,6 +96,8 @@ class EvalReport:
     mode: str = "replay"
     metrics: dict[str, Any] = field(default_factory=dict)
     decision: str = "pending"
+    evidence_domain: str = "UNVERIFIED"
+    promotion_ceiling: str = "DRAFT"
     artifacts: dict[str, Any] = field(default_factory=dict)
     checks: dict[str, bool] = field(default_factory=dict)
 
@@ -110,6 +112,8 @@ class EvalReport:
             "mode": self.mode,
             "metrics": self.metrics,
             "decision": self.decision,
+            "evidence_domain": self.evidence_domain,
+            "promotion_ceiling": self.promotion_ceiling,
             "artifacts": self.artifacts,
             "checks": self.checks,
         }

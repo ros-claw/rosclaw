@@ -141,13 +141,13 @@ class SandboxRunner(BaseRunner):
         try:
             result = self._sandbox_client.run_experiment(experiment_spec)
             return RunnerResult(
-                success=result.get("success", False),
+                success=result.get("success") is True,
                 metrics=result.get("metrics", {}),
                 logs=result.get("logs", []),
                 safety_violations=result.get("safety_violations", []),
                 evidence_domain=result.get("evidence_domain"),
-                physics_executed=bool(result.get("physics_executed", False)),
-                valid_for_promotion=bool(result.get("valid_for_promotion", False)),
+                physics_executed=result.get("physics_executed") is True,
+                valid_for_promotion=result.get("valid_for_promotion") is True,
             )
         except Exception as exc:
             logger.exception("Sandbox execution failed")

@@ -14,6 +14,8 @@ scope unless the user separately authorizes it.
 - Use the exact `rosclaw` CLI from the checkout's `.venv/bin`; report a stale
   global CLI before changing it.
 - Use a temporary `ROSCLAW_HOME` for smoke tests and Hub operations.
+- Write raw trajectories, logs, receipts, and reports to an evidence directory
+  outside the source checkout. Commit only reproducible code and tests.
 - ROS graph discovery, subscription, and simulation are allowed. Never publish
   actuator commands directly, call a motion service, or send an action goal.
 - Route any action request through `rosclawd request_action` / ROSClaw MCP so
@@ -88,8 +90,8 @@ uninstall, and empty final state. Never reuse the fixture key for production.
 
 Separate `PASS`, `PARTIAL`, `FAIL`, and `OUT OF SCOPE`. Include exact commit,
 versions, commands, exit codes, test counts, GPU mapping, and artifact paths.
-The maximum claim must match the strongest verified evidence domain; simulation
-evidence never proves real-robot safety.
+The maximum claim must match the strongest verified evidence domain. Simulation
+evidence can promote only from baseline to SIM and never proves real-robot safety.
 
 ## Resources
 

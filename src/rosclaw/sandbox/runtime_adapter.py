@@ -49,8 +49,10 @@ class SandboxRuntimeAdapter(LifecycleMixin):
         self._engine_name = config.get("engine", "mujoco")
         self._world_id = config.get("world_id", "empty")
         self._robot_id = config.get("robot_id", "")
-        self._artifact_root = Path(
-            config.get("artifact_root") or Path.home() / ".rosclaw" / "artifacts" / "sandbox"
+        self._artifact_root = (
+            Path(config.get("artifact_root") or Path.home() / ".rosclaw" / "artifacts" / "sandbox")
+            .expanduser()
+            .resolve()
         )
         from rosclaw.sandbox.episode import run_reach_action
         from rosclaw.sandbox.executors import SandboxTaskExecutorRegistry
@@ -163,8 +165,10 @@ class SandboxRuntimeAdapter(LifecycleMixin):
                 "is_safe": False,
                 "reason": "Sandbox not initialized",
                 "validation_type": "PhysicsTrajectoryValidation",
+                "simulation_executed": False,
                 "physics_executed": False,
                 "evidence_domain": "SIMULATION",
+                "valid_for_promotion": False,
             }
 
         try:
@@ -173,20 +177,24 @@ class SandboxRuntimeAdapter(LifecycleMixin):
                     "is_safe": False,
                     "reason": "EMPTY_TRAJECTORY",
                     "validation_type": "PhysicsTrajectoryValidation",
+                    "simulation_executed": False,
                     "physics_executed": False,
                     "evidence_domain": "SIMULATION",
+                    "valid_for_promotion": False,
                 }
             if not self.has_physics:
                 return {
                     "is_safe": False,
                     "reason": self._initialization_error or "PHYSICS_UNAVAILABLE",
                     "validation_type": "PhysicsTrajectoryValidation",
+                    "simulation_executed": False,
                     "physics_executed": False,
                     "evidence_domain": (
                         "FIXTURE"
                         if self._engine_name.lower() in {"fixture", "mock"}
                         else "SIMULATION"
                     ),
+                    "valid_for_promotion": False,
                 }
 
             from rosclaw.sandbox.backends import MujocoCpuBackend, RolloutRequest, ScenarioSpec
@@ -234,9 +242,11 @@ class SandboxRuntimeAdapter(LifecycleMixin):
                     max_joint_velocity_radps=float(
                         self._config.get("trajectory_max_joint_velocity_radps", 3.15)
                     ),
+                    max_steps=int(self._config.get("trajectory_max_steps", 250_000)),
                     artifact_dir=artifact_dir,
                 )
             )
+            replay_report = backend.replay(receipt, strict=True)
             replay_id = (artifact_dir / "simulation_receipt.json").as_uri()
             if self._event_bus:
                 from rosclaw.core.event_bus import Event, EventPriority
@@ -282,12 +292,23 @@ class SandboxRuntimeAdapter(LifecycleMixin):
                 "metrics": receipt.metrics,
                 "replay_id": replay_id,
                 "simulation_receipt": receipt.to_dict(),
+                "replay_report": replay_report.to_dict(),
                 "event_published": self._event_bus is not None,
             }
             return result
 
         except Exception as e:
-            return {"is_safe": False, "reason": f"Validation error: {e}"}
+            return {
+                "is_safe": False,
+                "reason": f"Validation error: {e}",
+                "validation_type": "PhysicsTrajectoryValidation",
+                "simulation_executed": False,
+                "physics_executed": False,
+                "evidence_domain": (
+                    "FIXTURE" if self._engine_name.lower() in {"fixture", "mock"} else "SIMULATION"
+                ),
+                "valid_for_promotion": False,
+            }
 
     def simulate_step(self, joint_positions: list[float]) -> dict[str, Any]:
         """Step the sandbox physics with given joint positions.

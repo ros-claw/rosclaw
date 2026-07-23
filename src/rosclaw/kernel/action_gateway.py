@@ -376,29 +376,106 @@ class ActionGateway:
                         span.set_status("ERROR", str(exc))
                         return receipt
 
+                    expected_domain = evidence_domain_for_mode(action.execution_mode)
+                    errors = list(result.errors)
+                    final_state = result.final_state
+                    try:
+                        evidence = EvidenceLevel(result.evidence_level)
+                    except (TypeError, ValueError):
+                        evidence = EvidenceLevel.REQUESTED
+                        final_state = ActionState.FAILED
+                        errors.append(
+                            {
+                                "code": "INVALID_EVIDENCE_LEVEL",
+                                "message": "Executor returned an unknown evidence level.",
+                            }
+                        )
+                    try:
+                        evidence_domain = (
+                            EvidenceDomain(result.evidence_domain)
+                            if result.evidence_domain is not None
+                            else expected_domain
+                        )
+                    except (TypeError, ValueError):
+                        evidence_domain = expected_domain
+                        evidence = EvidenceLevel.REQUESTED
+                        final_state = ActionState.FAILED
+                        errors.append(
+                            {
+                                "code": "INVALID_EVIDENCE_DOMAIN",
+                                "message": "Executor returned an unknown evidence domain.",
+                            }
+                        )
+                    if evidence_domain is not expected_domain:
+                        evidence_domain = expected_domain
+                        evidence = EvidenceLevel.REQUESTED
+                        final_state = ActionState.FAILED
+                        errors.append(
+                            {
+                                "code": "EVIDENCE_DOMAIN_MISMATCH",
+                                "message": (
+                                    "Executor evidence domain does not match action execution "
+                                    f"mode; expected {expected_domain.value}."
+                                ),
+                            }
+                        )
+                    if action.execution_mode is ExecutionMode.FIXTURE:
+                        evidence = EvidenceLevel.SYNTHETIC
+                        if final_state is ActionState.COMPLETED:
+                            final_state = ActionState.DEGRADED
+
+                    if (
+                        action.execution_mode is not ExecutionMode.FIXTURE
+                        and final_state is ActionState.COMPLETED
+                        and not self._meets_evidence_requirement(
+                            evidence,
+                            action.verification_policy.required_evidence,
+                        )
+                    ):
+                        final_state = (
+                            ActionState.FAILED
+                            if action.verification_policy.fail_closed
+                            else ActionState.DEGRADED
+                        )
+                        errors.append(
+                            {
+                                "code": "VERIFICATION_REQUIREMENT_NOT_MET",
+                                "message": (
+                                    f"Executor produced {evidence.value}; action requires "
+                                    f"{action.verification_policy.required_evidence.value}."
+                                ),
+                            }
+                        )
+
                     action_span.set_output(
                         {
                             "dispatch_result": result.dispatch_result,
                             "driver_ack": result.driver_ack,
-                            "final_state": result.final_state.value,
-                            "evidence_level": result.evidence_level.value,
-                            "evidence_domain": (
-                                result.evidence_domain.value
-                                if result.evidence_domain is not None
-                                else evidence_domain_for_mode(action.execution_mode).value
+                            "final_state": final_state.value,
+                            "evidence_level": evidence.value,
+                            "evidence_domain": evidence_domain.value,
+                            "executor_reported_evidence_level": str(
+                                getattr(result.evidence_level, "value", result.evidence_level)
                             ),
-                            "errors": result.errors,
+                            "executor_reported_evidence_domain": (
+                                str(
+                                    getattr(result.evidence_domain, "value", result.evidence_domain)
+                                )
+                                if result.evidence_domain is not None
+                                else None
+                            ),
+                            "errors": errors,
                         }
                     )
                     for artifact in result.artifacts:
                         action_span.add_evidence(artifact)
-                    if result.final_state is ActionState.BLOCKED:
+                    if final_state is ActionState.BLOCKED:
                         action_span.set_status("BLOCKED", self._result_reason(result))
-                    elif result.final_state not in {ActionState.COMPLETED, ActionState.DEGRADED}:
+                    elif final_state not in {ActionState.COMPLETED, ActionState.DEGRADED}:
                         action_span.set_status("ERROR", self._result_reason(result))
 
                 if result.dispatch_result.get("accepted") or result.observations:
-                    observed = physical and result.evidence_level in {
+                    observed = physical and evidence in {
                         EvidenceLevel.PHYSICALLY_OBSERVED,
                         EvidenceLevel.TASK_VERIFIED,
                     }
@@ -419,63 +496,14 @@ class ActionGateway:
                             {
                                 "observations": result.observations,
                                 "verification_result": result.verification_result,
-                                "evidence_level": result.evidence_level.value,
+                                "evidence_level": evidence.value,
+                                "evidence_domain": evidence_domain.value,
                             }
                         )
                         for artifact in result.artifacts:
                             state_span.add_evidence(artifact)
-                        if result.final_state not in {ActionState.COMPLETED, ActionState.DEGRADED}:
+                        if final_state not in {ActionState.COMPLETED, ActionState.DEGRADED}:
                             state_span.set_status("ERROR", self._result_reason(result))
-
-                evidence = result.evidence_level
-                expected_domain = evidence_domain_for_mode(action.execution_mode)
-                evidence_domain = (
-                    EvidenceDomain(result.evidence_domain)
-                    if result.evidence_domain is not None
-                    else expected_domain
-                )
-                final_state = result.final_state
-                errors = list(result.errors)
-                if evidence_domain is not expected_domain:
-                    evidence_domain = expected_domain
-                    evidence = EvidenceLevel.REQUESTED
-                    final_state = ActionState.FAILED
-                    errors.append(
-                        {
-                            "code": "EVIDENCE_DOMAIN_MISMATCH",
-                            "message": (
-                                "Executor evidence domain does not match action execution mode; "
-                                f"expected {expected_domain.value}."
-                            ),
-                        }
-                    )
-                if action.execution_mode is ExecutionMode.FIXTURE:
-                    evidence = EvidenceLevel.SYNTHETIC
-                    if final_state is ActionState.COMPLETED:
-                        final_state = ActionState.DEGRADED
-
-                if (
-                    action.execution_mode is not ExecutionMode.FIXTURE
-                    and final_state is ActionState.COMPLETED
-                    and not self._meets_evidence_requirement(
-                        evidence,
-                        action.verification_policy.required_evidence,
-                    )
-                ):
-                    final_state = (
-                        ActionState.FAILED
-                        if action.verification_policy.fail_closed
-                        else ActionState.DEGRADED
-                    )
-                    errors.append(
-                        {
-                            "code": "VERIFICATION_REQUIREMENT_NOT_MET",
-                            "message": (
-                                f"Executor produced {evidence.value}; action requires "
-                                f"{action.verification_policy.required_evidence.value}."
-                            ),
-                        }
-                    )
 
                 transitions.extend(self._evidence_transitions(result, evidence))
                 transitions.append(StateTransition(final_state, reason="executor_completed"))

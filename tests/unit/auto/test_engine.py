@@ -6,6 +6,7 @@ import pytest
 
 from rosclaw.auto.config import AutoConfig
 from rosclaw.auto.engine import AutoEngine
+from rosclaw.auto.promotion.gate import GateResult
 from rosclaw.auto.storage import LocalStore
 from rosclaw.core.event_bus import EventBus
 from rosclaw.sense.config import SenseConfig
@@ -80,11 +81,12 @@ def test_full_workflow():
         )
         assert ev.decision == "need_more_evidence"
 
-        # 6. Promote champion
-        champ = engine.promote_champion(
-            "pick_v2", task.id, "sim", ev.candidate_metrics, "pick_v1", patch.id, exp.id
-        )
-        assert champ.level == "sim"
+        # 6. An evidence-deficient evaluation cannot be used as a promotion bypass.
+        with pytest.raises(ValueError, match="AUTHORIZATION_REQUIRED"):
+            engine.promote_champion(
+                "pick_v2", task.id, "sim", ev.candidate_metrics, "pick_v1", patch.id, exp.id
+            )
+        assert engine.list_champions(task.id) == []
 
         # 7. Register dead-end
         de = engine.register_deadend(task.id, "scale > 0.8", "collision spikes")
@@ -93,12 +95,78 @@ def test_full_workflow():
         # 8. Generate report
         report = engine.generate_report(task.id)
         assert report.proposals_created >= 1
-        assert report.champions_promoted >= 1
+        assert report.champions_promoted == 0
         assert report.deadends_registered >= 1
 
         # 9. Run dry-run evolution
         report2 = engine.run(task.id, rounds=2, dry_run=True)
         assert report2.proposals_created >= 1
+
+
+def test_sim_promotion_consumes_bound_evaluation_authorization(tmp_path, monkeypatch):
+    engine = AutoEngine(AutoConfig(local_store_path=str(tmp_path)))
+    task = engine.create_task("pick_cube", "panda", "pick_v1")
+    patch = engine.create_patch("proposal", "pick_v1", [])
+    experiment = engine.create_experiment(
+        "proposal",
+        patch.id,
+        task.name,
+        "pick_v1",
+        "pick_v1_candidate",
+    )
+    monkeypatch.setattr(
+        engine.promotion_gate,
+        "evaluate",
+        lambda *_args, **_kwargs: GateResult(
+            passed=True,
+            decision="promote_to_sim",
+            next_level="sim",
+            reason="verified test evidence",
+        ),
+    )
+    metrics = {"success_rate": 1.0, "collision_rate": 0.0}
+    evaluation = engine.create_evaluation(
+        experiment.id,
+        {"success_rate": 0.0, "collision_rate": 1.0},
+        metrics,
+    )
+
+    with pytest.raises(ValueError, match="AUTHORIZATION_MISMATCH"):
+        engine.promote_champion(
+            "different_candidate",
+            task.id,
+            "sim",
+            metrics,
+            "pick_v1",
+            patch.id,
+            experiment.id,
+            evaluation.id,
+        )
+
+    champion = engine.promote_champion(
+        "pick_v1_candidate",
+        task.id,
+        "sim",
+        metrics,
+        "pick_v1",
+        patch.id,
+        experiment.id,
+        evaluation.id,
+    )
+    assert champion.evaluation_id == evaluation.id
+    assert champion.validation_summary["promotion_verified"] is True
+
+    with pytest.raises(ValueError, match="AUTHORIZATION_REQUIRED"):
+        engine.promote_champion(
+            "pick_v1_candidate",
+            task.id,
+            "sim",
+            metrics,
+            "pick_v1",
+            patch.id,
+            experiment.id,
+            evaluation.id,
+        )
 
 
 class TestAutoEngineBodySense:

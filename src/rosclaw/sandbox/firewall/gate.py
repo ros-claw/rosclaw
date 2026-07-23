@@ -6,6 +6,7 @@ validation lives in :mod:`rosclaw.sandbox.backends.mujoco_cpu`.
 
 from __future__ import annotations
 
+import math
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -74,8 +75,25 @@ class StaticActionGate:
 
     def check(self, action: dict[str, Any]) -> Decision:
         values = action.get("values", [])
-        if not values:
-            return Decision(action="ALLOW", is_allowed=True, risk_score=0.0)
+        replay_id = self._generate_replay_id()
+        if (
+            not isinstance(values, (list, tuple))
+            or not values
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in values
+            )
+        ):
+            return Decision(
+                action="BLOCK",
+                is_allowed=False,
+                risk_score=1.0,
+                reason="Static gate blocked: finite joint values are required",
+                violated_constraints=["invalid_joint_values"],
+                replay_id=replay_id,
+            )
 
         if not self.joint_limits:
             return Decision(
@@ -98,8 +116,6 @@ class StaticActionGate:
 
         max_violation = 0.0
         violations = []
-        replay_id = self._generate_replay_id()
-
         # Joint limits
         for i, v in enumerate(values):
             if i < len(self.joint_limits):
@@ -111,6 +127,24 @@ class StaticActionGate:
         # Velocity limits
         current = action.get("current")
         if current is not None:
+            if (
+                not isinstance(current, (list, tuple))
+                or len(current) != len(values)
+                or any(
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(float(value))
+                    for value in current
+                )
+            ):
+                return Decision(
+                    action="BLOCK",
+                    is_allowed=False,
+                    risk_score=1.0,
+                    reason="Static gate blocked: current joint state is invalid",
+                    violated_constraints=["invalid_current_joint_values"],
+                    replay_id=replay_id,
+                )
             for i, (target, curr) in enumerate(zip(values, current, strict=False)):
                 if abs(target - curr) > self.MAX_JOINT_VELOCITY * 0.002:
                     violations.append(f"joint_{i}_velocity")
@@ -126,6 +160,21 @@ class StaticActionGate:
         # PFL
         planned_force = action.get("force", 0.0)
         planned_torque = action.get("torque", 0.0)
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) < 0.0
+            for value in (planned_force, planned_torque)
+        ):
+            return Decision(
+                action="BLOCK",
+                is_allowed=False,
+                risk_score=1.0,
+                reason="Static gate blocked: force and torque must be finite and non-negative",
+                violated_constraints=["invalid_force_or_torque"],
+                replay_id=replay_id,
+            )
         if planned_force > self.MAX_TCP_FORCE:
             violations.append("pfl_force")
             max_violation = max(max_violation, planned_force - self.MAX_TCP_FORCE)

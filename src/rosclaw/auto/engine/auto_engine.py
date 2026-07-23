@@ -1,6 +1,7 @@
 """AutoEngine — ROSClaw Self-Evolution Control Plane."""
 
 import contextlib
+import copy
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -68,6 +69,9 @@ class AutoEngine:
         self.champion_store = ChampionStore(self.store)
         self.rollback_manager = RollbackManager(self.store)
         self.lineage = LineageTracker(self.store)
+        # Promotion grants are deliberately process-local and one-shot. A
+        # persisted decision string is not an authorization to mint a champion.
+        self._promotion_authorizations: dict[str, dict[str, Any]] = {}
         # Event publishing
         self.publisher = AutoPublisher(event_bus=event_bus)
 
@@ -313,22 +317,24 @@ class AutoEngine:
         baseline_metrics: dict,
         candidate_metrics: dict,
         per_seed: dict | None = None,
-        sandbox_risk_score: float = 0.0,
+        sandbox_risk_score: float | None = None,
         simulation_receipts: list[dict] | None = None,
         regression_results: dict | None = None,
     ) -> EvaluationResult:
+        baseline_snapshot = copy.deepcopy(baseline_metrics)
+        candidate_snapshot = copy.deepcopy(candidate_metrics)
         delta = {}
-        for k in set(baseline_metrics) | set(candidate_metrics):
-            b = baseline_metrics.get(k, 0)
-            c = candidate_metrics.get(k, 0)
+        for k in set(baseline_snapshot) | set(candidate_snapshot):
+            b = baseline_snapshot.get(k, 0)
+            c = candidate_snapshot.get(k, 0)
             if isinstance(b, (int, float)) and isinstance(c, (int, float)):
                 delta[k] = c - b
             else:
                 delta[k] = "n/a"
 
         gate_result = self.promotion_gate.evaluate(
-            baseline_metrics,
-            candidate_metrics,
+            baseline_snapshot,
+            candidate_snapshot,
             current_level="baseline",
             per_seed=per_seed,
             sandbox_risk_score=sandbox_risk_score,
@@ -336,15 +342,60 @@ class AutoEngine:
             regression_results=regression_results,
         )
 
+        experiment_data = self._load("experiments", experiment_id)
+        experiment = ExperimentSpec.from_dict(experiment_data) if experiment_data else None
+        task = next(
+            (
+                item
+                for item in self.list_tasks()
+                if experiment is not None and item.id == experiment.task
+            ),
+            None,
+        )
+        if task is None:
+            task = next(
+                (
+                    item
+                    for item in self.list_tasks()
+                    if experiment is not None and item.name == experiment.task
+                ),
+                None,
+            )
+        provenance_ok = experiment is not None and task is not None
+        gate_result.checks.append(
+            {
+                "name": "experiment_provenance",
+                "passed": provenance_ok,
+                "missing_evidence": not provenance_ok,
+                "detail": "evaluation must resolve to a persisted experiment and task",
+            }
+        )
+        if gate_result.passed and not provenance_ok:
+            gate_result.passed = False
+            gate_result.decision = "need_more_evidence"
+            gate_result.next_level = ""
+            gate_result.reason = "Persisted experiment and task provenance are required"
+
         ev = EvaluationResult(
             id=f"eval_{uuid.uuid4().hex[:8]}",
             experiment_id=experiment_id,
-            baseline_metrics=baseline_metrics,
-            candidate_metrics=candidate_metrics,
+            baseline_metrics=baseline_snapshot,
+            candidate_metrics=candidate_snapshot,
             delta=delta,
+            safety_result=gate_result.to_dict(),
             decision=gate_result.decision,
         )
         self._save("evaluations", ev.id, ev.to_dict())
+        if gate_result.passed and experiment is not None and task is not None:
+            self._promotion_authorizations[ev.id] = {
+                "experiment_id": experiment.id,
+                "task_id": task.id,
+                "patch_id": experiment.patch_id,
+                "skill_id": experiment.candidate_skill_id,
+                "parent_skill": experiment.baseline_skill_id,
+                "level": gate_result.next_level,
+                "metrics": copy.deepcopy(candidate_snapshot),
+            }
         if self._seekdb is not None:
             with contextlib.suppress(Exception):
                 self._seekdb.insert(
@@ -371,7 +422,28 @@ class AutoEngine:
         parent_skill: str = "",
         patch_id: str = "",
         experiment_id: str = "",
+        evaluation_id: str = "",
     ) -> Champion:
+        if level not in PromotionGate.LEVEL_ORDER:
+            raise ValueError(f"Unknown champion level: {level}")
+
+        authorization: dict[str, Any] | None = None
+        if level != "baseline":
+            authorization = self._promotion_authorizations.get(evaluation_id)
+            if authorization is None:
+                raise ValueError("PROMOTION_EVALUATION_AUTHORIZATION_REQUIRED")
+            expected = {
+                "experiment_id": experiment_id,
+                "task_id": task_id,
+                "patch_id": patch_id,
+                "skill_id": skill_id,
+                "parent_skill": parent_skill,
+                "level": level,
+                "metrics": metrics,
+            }
+            if authorization != expected:
+                raise ValueError("PROMOTION_EVALUATION_AUTHORIZATION_MISMATCH")
+
         champ = Champion(
             id=f"champ_{uuid.uuid4().hex[:8]}",
             skill_id=skill_id,
@@ -380,9 +452,16 @@ class AutoEngine:
             parent_skill_id=parent_skill,
             patch_id=patch_id,
             metrics=metrics,
+            validation_summary={
+                "promotion_verified": authorization is not None,
+                "evaluation_id": evaluation_id or None,
+            },
             experiment_id=experiment_id,
+            evaluation_id=evaluation_id,
         )
         self.champion_store.save_champion(champ)
+        if authorization is not None:
+            self._promotion_authorizations.pop(evaluation_id, None)
         self.lineage.record(
             skill_id=skill_id,
             parent_skill=parent_skill,
@@ -413,6 +492,7 @@ class AutoEngine:
                             "parent_skill": parent_skill,
                             "patch_id": patch_id,
                             "experiment_id": experiment_id,
+                            "evaluation_id": evaluation_id,
                             "level": level,
                         },
                     )
@@ -430,6 +510,7 @@ class AutoEngine:
                         "level": level,
                         "parent_skill": parent_skill,
                         "metrics": metrics,
+                        "evaluation_id": evaluation_id,
                         "promoted_at": datetime.now(UTC).isoformat(),
                     },
                 )
@@ -616,13 +697,14 @@ class AutoEngine:
             if eval_res.decision.startswith("promote"):
                 level = eval_res.decision.replace("promote_to_", "")
                 self.promote_champion(
-                    f"{task.target_skill_id}_{level}",
+                    exp.candidate_skill_id,
                     task_id,
                     level,
                     eval_res.candidate_metrics,
-                    task.target_skill_id,
+                    exp.baseline_skill_id,
                     patch.id,
                     exp.id,
+                    eval_res.id,
                 )
             elif eval_res.decision == "reject":
                 self.register_deadend(

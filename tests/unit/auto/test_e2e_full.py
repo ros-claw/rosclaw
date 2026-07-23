@@ -97,7 +97,7 @@ class TestE2EFullLoop:
         assert result.passed is False
         assert "reject" in result.decision or "need_more_data" in result.decision
 
-    def test_e2e_champion_rollback(self):
+    def test_e2e_champion_rollback(self, store_test_champion):
         """AUTO-E2E-005: Champion rollback restores previous skill."""
         store_path = "./.rosclaw_auto_test_e2e_rollback_v2"
         shutil.rmtree(store_path, ignore_errors=True)
@@ -105,8 +105,15 @@ class TestE2EFullLoop:
         task = engine.create_task("pick_cube", "panda", "pick_v1")
 
         engine.promote_champion("pick_v1", task.id, "baseline", {}, "", "", "")
-        engine.promote_champion(
-            "pick_v1.5", task.id, "sim", {"success_rate": 0.76}, "pick_v1", "p1", "e1"
+        store_test_champion(
+            engine,
+            "pick_v1.5",
+            task.id,
+            "sim",
+            {"success_rate": 0.76},
+            "pick_v1",
+            "p1",
+            "e1",
         )
 
         rolled = engine.rollback_skill(task.id)
