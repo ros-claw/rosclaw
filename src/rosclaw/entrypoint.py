@@ -32,6 +32,12 @@ def main() -> int:
     if result is not None:
         return result
 
+    from rosclaw.simforge.cli import dispatch_simforge_argv
+
+    result = dispatch_simforge_argv(sys.argv[1:])
+    if result is not None:
+        return result
+
     from rosclaw.cli import main as legacy_main
 
     return legacy_main()

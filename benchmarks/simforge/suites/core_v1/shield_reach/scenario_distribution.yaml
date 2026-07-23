@@ -1,0 +1,37 @@
+schema_version: rosclaw.simforge.scenario_distribution.v1
+variables:
+  target_x:
+    distribution: uniform
+    min: -0.55
+    max: 0.20
+  target_y:
+    distribution: uniform
+    min: 0.25
+    max: 0.75
+  target_z:
+    distribution: uniform
+    min: 0.25
+    max: 0.80
+  obstacle_x:
+    distribution: uniform
+    min: -0.50
+    max: 0.10
+  obstacle_height:
+    distribution: list
+    values: [0.10, 0.20, 0.35]
+  payload_kg:
+    distribution: uniform
+    min: 0.0
+    max: 2.0
+  control_latency_ms:
+    distribution: choice
+    values: [0, 10, 25, 50, 80]
+constraints:
+  - finite_values
+  - target_not_inside_obstacle
+  - target_reachable
+  - initial_state_collision_free
+  - name: start_goal_distance
+    parameters:
+      minimum_m: 0.15
+max_sampling_attempts: 10000

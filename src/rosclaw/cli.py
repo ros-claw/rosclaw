@@ -6563,6 +6563,14 @@ def cmd_restart(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "simforge":
+        from rosclaw.simforge.cli import dispatch_simforge_argv
+
+        result = dispatch_simforge_argv(sys.argv[1:])
+        if result is None:
+            raise RuntimeError("simforge command was not dispatched")
+        return result
+
     parser = argparse.ArgumentParser(
         prog="rosclaw",
         description="ROSClaw - Self-Evolving Runtime Infrastructure for Physical AI & Embodied Agents",
@@ -6573,6 +6581,9 @@ def main() -> int:
         version=f"%(prog)s {_version()}",
     )
     subparsers = parser.add_subparsers(dest="command")
+
+    # The full SimForge parser is loaded lazily by the early dispatch above.
+    subparsers.add_parser("simforge", help="Run simulation qualification and evolution")
 
     # init
     init_parser = subparsers.add_parser("init", help="Initialize a ROSClaw workspace")

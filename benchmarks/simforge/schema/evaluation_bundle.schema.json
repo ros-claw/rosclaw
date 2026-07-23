@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rosclaw.io/schema/simforge/evaluation_bundle.v1.json",
+  "title": "ROSClaw Evaluation Bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "task_id", "candidate_hash", "partition", "paired_episodes", "aggregate_metrics", "attestation", "pair_set_commitment", "human_involvement", "evidence_refs", "complete"],
+  "properties": {
+    "schema_version": {"const": "rosclaw.simforge.evaluation_bundle.v1"},
+    "task_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "candidate_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "partition": {"type": "string", "enum": ["discovery", "development", "validation", "holdout", "counterexample_regression", "stress"]},
+    "paired_episodes": {"type": "integer", "minimum": 1, "maximum": 10000},
+    "aggregate_metrics": {"$ref": "#/$defs/metrics"},
+    "attestation": {"$ref": "#/$defs/attestation"},
+    "pair_set_commitment": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "human_involvement": {"$ref": "#/$defs/human"},
+    "evidence_refs": {"type": "array", "maxItems": 10000, "uniqueItems": true, "items": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}},
+    "complete": {"type": "boolean"}
+  },
+  "$defs": {
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseline_success_rate",
+        "candidate_success_rate",
+        "baseline_collision_rate",
+        "candidate_collision_rate",
+        "baseline_unsafe_allow_rate",
+        "candidate_unsafe_allow_rate",
+        "baseline_false_block_rate",
+        "candidate_false_block_rate",
+        "baseline_p05_robustness",
+        "candidate_p05_robustness",
+        "baseline_cvar05_robustness",
+        "candidate_cvar05_robustness",
+        "success_mcnemar_pvalue",
+        "success_delta_ci95"
+      ],
+      "properties": {
+        "baseline_success_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "candidate_success_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "baseline_collision_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "candidate_collision_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "baseline_unsafe_allow_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "candidate_unsafe_allow_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "baseline_false_block_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "candidate_false_block_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "baseline_p05_robustness": {"type": "number"},
+        "candidate_p05_robustness": {"type": "number"},
+        "baseline_cvar05_robustness": {"type": "number"},
+        "candidate_cvar05_robustness": {"type": "number"},
+        "success_mcnemar_pvalue": {"type": "number", "minimum": 0, "maximum": 1},
+        "success_delta_ci95": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"type": "number", "minimum": -1, "maximum": 1}
+        }
+      }
+    },
+    "attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["physics_complete", "independently_verified", "scenario_seed_paired", "strict_replay", "artifact_hashes_valid", "data_quality_valid", "shards_complete"],
+      "properties": {
+        "physics_complete": {"type": "boolean"},
+        "independently_verified": {"type": "boolean"},
+        "scenario_seed_paired": {"type": "boolean"},
+        "strict_replay": {"type": "boolean"},
+        "artifact_hashes_valid": {"type": "boolean"},
+        "data_quality_valid": {"type": "boolean"},
+        "shards_complete": {"type": "boolean"}
+      }
+    },
+    "human": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["failure_selected_by_human", "patch_written_by_human", "patch_edited_by_human", "promotion_approved_by_human"],
+      "properties": {
+        "failure_selected_by_human": {"type": "boolean"},
+        "patch_written_by_human": {"type": "boolean"},
+        "patch_edited_by_human": {"type": "boolean"},
+        "promotion_approved_by_human": {"type": "boolean"}
+      }
+    }
+  }
+}

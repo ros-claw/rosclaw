@@ -1,0 +1,27 @@
+schema_version: rosclaw.simforge.task.v1
+task_id: contact_push_v1
+suite_id: core_v1
+body:
+  body_id: sim_contact_pusher
+  required_capabilities: [end_effector.push]
+backends:
+  discovery: [mujoco_cpu]
+  evaluation: [mujoco_cpu]
+  differential: []
+scenario_distribution:
+  ref: scenario_distribution.yaml
+success_spec:
+  eventually:
+    condition: object_displacement_m >= 0.08
+    within_sec: 2.0
+safety_spec:
+  always: [peak_contact_force_n <= 200, nan_detected == false]
+candidate_space:
+  type: parameter_patch
+  allowed_paths: [/controller/push_velocity_mps, /controller/force_limit_n]
+evidence_requirements:
+  physics_executed: true
+  strict_replay: true
+  artifact_hashes: true
+  minimum_seeds: 20
+  holdout_required: true

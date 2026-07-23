@@ -1,0 +1,25 @@
+schema_version: rosclaw.simforge.task.v1
+task_id: body_mutation_v1
+suite_id: core_v1
+body:
+  body_id: generated_effective_body
+  required_capabilities: [body.resolve]
+backends:
+  discovery: [body_adapter]
+  evaluation: [body_adapter]
+  differential: []
+scenario_distribution:
+  ref: scenario_distribution.yaml
+success_spec:
+  eventually: {condition: valid_mutation_compiles_or_invalid_mutation_rejects, within_sec: 1.0}
+safety_spec:
+  always: [body_invariants_preserved == true, invalid_values_fail_closed == true]
+candidate_space:
+  type: parameter_patch
+  allowed_paths: [/adapter/max_calibration_offset_rad]
+evidence_requirements:
+  physics_executed: true
+  strict_replay: true
+  artifact_hashes: true
+  minimum_seeds: 100
+  holdout_required: true

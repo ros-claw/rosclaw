@@ -15,6 +15,7 @@ from typing import Any
 
 _MAX_WORLDS_PER_GPU = 4096
 _MAX_STEPS = 1_000_000
+_MAX_WORLD_STEPS_PER_GPU = 10_000_000
 _MAX_TIMEOUT_SEC = 86_400.0
 
 
@@ -39,7 +40,7 @@ def _shard_error(
     }
     if any(shard.get(name) != value for name, value in expected.items()):
         return "contract_mismatch"
-    for name in ("wall_time_sec", "world_steps_per_sec"):
+    for name in ("wall_time_sec", "world_steps_per_sec", "cpu_baseline_time_sec"):
         value = shard.get(name)
         if (
             isinstance(value, bool)
@@ -52,7 +53,68 @@ def _shard_error(
         return "non_finite_state"
     if shard.get("expected_collision_label") is not True:
         return "collision_label_mismatch"
+    if shard.get("scenario_label_valid") is not True:
+        return "scenario_label_mismatch"
+    collisions = shard.get("collision_worlds")
+    if (
+        not isinstance(collisions, list)
+        or shard.get("cpu_collision_worlds") != collisions
+        or shard.get("scenario_collision_worlds") != collisions
+        or shard.get("collision_world_count") != len(collisions)
+    ):
+        return "cpu_baseline_mismatch"
+    randomization = shard.get("randomization")
+    if (
+        shard.get("device") != "cuda:0"
+        or not isinstance(shard.get("device_name"), str)
+        or not 1 <= len(shard["device_name"]) <= 256
+        or not _is_sha256(shard.get("model_hash"))
+        or not _is_sha256(shard.get("qpos_checksum"))
+        or isinstance(shard.get("gpu_memory_used_bytes"), bool)
+        or not isinstance(shard.get("gpu_memory_used_bytes"), int)
+        or shard["gpu_memory_used_bytes"] < 0
+        or not isinstance(randomization, dict)
+        or not _is_sha256(randomization.get("parameter_hash"))
+        or not _valid_offsets(randomization.get("joint_control_offset_rad"), worlds)
+    ):
+        return "runtime_identity_mismatch"
+    differential = shard.get("differential")
+    if (
+        not isinstance(differential, dict)
+        or differential.get("baseline_backend") != "mujoco_cpu"
+        or differential.get("comparison_backend") != "mujoco_warp"
+        or differential.get("critical_disagreement_count") != 0
+    ):
+        return "cross_backend_disagreement"
     return None
+
+
+def _valid_offsets(value: Any, worlds: int) -> bool:
+    return bool(
+        isinstance(value, list)
+        and len(value) == worlds
+        and all(
+            isinstance(row, list)
+            and len(row) == 6
+            and all(
+                not isinstance(item, bool)
+                and isinstance(item, (int, float))
+                and math.isfinite(float(item))
+                and abs(float(item)) <= 0.0021
+                for item in row
+            )
+            for row in value
+        )
+    )
+
+
+def _is_sha256(value: Any) -> bool:
+    return bool(
+        isinstance(value, str)
+        and len(value) == 71
+        and value.startswith("sha256:")
+        and all(character in "0123456789abcdef" for character in value[7:])
+    )
 
 
 def main() -> int:
@@ -61,7 +123,8 @@ def main() -> int:
     parser.add_argument("--worlds-per-gpu", type=int, default=4)
     parser.add_argument("--steps", type=int, default=350)
     parser.add_argument("--timeout-sec", type=float, default=1800.0)
-    parser.add_argument("--pose", choices=("safe", "collision"), default="collision")
+    parser.add_argument("--pose", choices=("safe", "collision", "mixed"), default="collision")
+    parser.add_argument("--candidate-threshold", type=float, default=0.5)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
 
@@ -80,8 +143,12 @@ def main() -> int:
         parser.error(f"--worlds-per-gpu must be between 1 and {_MAX_WORLDS_PER_GPU}")
     if not 1 <= args.steps <= _MAX_STEPS:
         parser.error(f"--steps must be between 1 and {_MAX_STEPS}")
+    if args.worlds_per_gpu * args.steps > _MAX_WORLD_STEPS_PER_GPU:
+        parser.error(f"--worlds-per-gpu * --steps cannot exceed {_MAX_WORLD_STEPS_PER_GPU}")
     if not math.isfinite(args.timeout_sec) or not 0 < args.timeout_sec <= _MAX_TIMEOUT_SEC:
         parser.error(f"--timeout-sec must be between 0 and {_MAX_TIMEOUT_SEC:g}")
+    if not math.isfinite(args.candidate_threshold) or not 0.1 <= args.candidate_threshold <= 0.9:
+        parser.error("--candidate-threshold must be in [0.1, 0.9]")
     if not python.is_file() or not worker.is_file():
         parser.error("MJWarp environment or worker script is missing")
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -106,6 +173,10 @@ def main() -> int:
                     str(42 + shard),
                     "--pose",
                     args.pose,
+                    "--world-offset",
+                    str(shard * args.worlds_per_gpu),
+                    "--candidate-threshold",
+                    str(args.candidate_threshold),
                     "--output",
                     str(output),
                 ],

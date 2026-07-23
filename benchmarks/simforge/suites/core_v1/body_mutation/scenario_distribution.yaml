@@ -1,0 +1,6 @@
+schema_version: rosclaw.simforge.scenario_distribution.v1
+variables:
+  mutation_kind:
+    distribution: choice
+    values: [safe_joint_offset, safe_speed_reduction, disable_actuator, invert_joint_limit, nonfinite_joint_limit, negative_velocity, oversized_calibration, recursive_runtime_state]
+constraints: []

@@ -83,6 +83,7 @@ Welcome to the ROSClaw documentation index. This directory contains all project 
 ## Development
 
 - **[BENCHMARK.md](BENCHMARK.md)** — Performance benchmarks (EventBus, SeekDB, SkillRegistry, FirewallValidator).
+- **[simforge/corebench_v1.md](simforge/corebench_v1.md)** — CoreBench schemas, evidence boundary, Gate V3, and reproduction commands.
 - **[INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md)** — Integration guide.
 - **[G1_SENSE_DEMO.md](G1_SENSE_DEMO.md)** — Unitree G1 sense demo.
 
