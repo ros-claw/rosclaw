@@ -268,6 +268,20 @@ golden_paths:
           PHYSICALLY_OBSERVED, PROTOCOL_ACKNOWLEDGED, replay
           PERMIT_EXHAUSTED); practice chain verify --strict passes. Developer-
           run, not independent.
+      - id: rh56-dataset-agent-rerun-20260723
+        kind: developer_agent_blackbox
+        path: docs/evidence/lerobot/RH56_DATASET_AGENT_RERUN_V1_0_1.md
+        verified_at: "2026-07-23"
+        observation_scope: external_agent_dataset_workflow
+        fixture: false
+        independent: false
+        notes: >-
+          Dataset workflow rerun by a fresh-context agent: practice identified,
+          strict verify passed via the pinned CLI (0 issues), the
+          physical-feedback export path failed honestly on rollout sessions
+          exactly as the agent predicted from source, and the deterministic
+          P2.1 export completed with load/index/dataloader validation all OK.
+          No training, no upload.
     evidence_summary:
       en: Real SerialModbusTransport, shadow reads, graded REAL actions, and fault injection were developer-observed; a developer Agent black-box (discovery / SHADOW / unauthorized REAL / dataset workflow) passed 2026-07-22 with zero forbidden actions. Loopback fault tests now prove that target-near readback is DELIVERY_INFERRED rather than a protocol ACK. On 2026-07-23 the full v1.0.1 chain was revalidated on the physical RIGHT hand rh56_right_01 — 6/6 register widths declared, measured-envelope calibration, shadow S2 1000 steps, graded REAL noop/micro/motion/gesture/OK all passing (OK 10/10), fault injection 8/8, and an authorized developer agent blackbox executing exactly one permitted noop single step (hardware_actions_executed == 1, PHYSICALLY_OBSERVED). Independent v1 hardware revalidation and independent Agent black-box testing remain open.
       zh: SerialModbusTransport、Shadow 读取、分级 REAL 动作和故障注入已有开发者真机观察；开发者 Agent 黑盒（discovery / SHADOW / 未授权 REAL / dataset 流程）2026-07-22 通过、零违规动作。Loopback 故障测试现已证明目标附近回读只能标为 DELIVERY_INFERRED 而非协议 ACK。2026-07-23 已在右手真机（rh56_right_01）完成 v1.0.1 全链路复验：6/6 寄存器宽度声明、运行包络实测标定、Shadow S2 1000 步、分级 REAL noop/micro/motion/gesture/OK 全通过（OK 10/10）、故障注入 8/8，以及授权开发者 Agent 黑盒精确执行一次许可 noop 单步（hardware_actions_executed == 1，PHYSICALLY_OBSERVED）。独立 v1 真机复验与独立 Agent 黑盒仍未完成。
