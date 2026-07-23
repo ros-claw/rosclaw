@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rosclaw.io/schema/simforge/evaluation_bundle.v1.json",
+  "title": "ROSClaw Evaluation Bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "task_id", "candidate_hash", "partition", "paired_episodes", "aggregate_metrics", "attestation", "pair_set_commitment", "human_involvement", "evidence_refs", "complete"],
+  "properties": {
+    "schema_version": {"const": "rosclaw.simforge.evaluation_bundle.v1"},
+    "task_id": {"type": "string", "minLength": 1},
+    "candidate_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "partition": {"type": "string", "enum": ["discovery", "development", "validation", "holdout", "counterexample_regression", "stress"]},
+    "paired_episodes": {"type": "integer", "minimum": 1},
+    "aggregate_metrics": {"type": "object"},
+    "attestation": {"$ref": "#/$defs/attestation"},
+    "pair_set_commitment": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "human_involvement": {"$ref": "#/$defs/human"},
+    "evidence_refs": {"type": "array", "items": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}},
+    "complete": {"type": "boolean"}
+  },
+  "$defs": {
+    "attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["physics_complete", "independently_verified", "scenario_seed_paired", "strict_replay", "artifact_hashes_valid", "data_quality_valid", "shards_complete"],
+      "properties": {
+        "physics_complete": {"type": "boolean"},
+        "independently_verified": {"type": "boolean"},
+        "scenario_seed_paired": {"type": "boolean"},
+        "strict_replay": {"type": "boolean"},
+        "artifact_hashes_valid": {"type": "boolean"},
+        "data_quality_valid": {"type": "boolean"},
+        "shards_complete": {"type": "boolean"}
+      }
+    },
+    "human": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["failure_selected_by_human", "patch_written_by_human", "patch_edited_by_human", "promotion_approved_by_human"],
+      "properties": {
+        "failure_selected_by_human": {"type": "boolean"},
+        "patch_written_by_human": {"type": "boolean"},
+        "patch_edited_by_human": {"type": "boolean"},
+        "promotion_approved_by_human": {"type": "boolean"}
+      }
+    }
+  }
+}

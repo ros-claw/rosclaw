@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rosclaw.io/schema/simforge/evolution_run.v1.json",
+  "title": "ROSClaw Evolution Run v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "task_id", "state", "candidate_hash", "human_involvement"],
+  "properties": {
+    "schema_version": {"const": "rosclaw.simforge.evolution_run.v1"},
+    "run_id": {"type": "string", "minLength": 1},
+    "task_id": {"type": "string", "minLength": 1},
+    "state": {"type": "string", "enum": ["FAILURE_DISCOVERED", "FAILURE_CLUSTERED", "DIAGNOSED", "CANDIDATES_GENERATED", "SAME_SEED_RETRY", "DEVELOPMENT_EVAL", "VALIDATION_EVAL", "HOLDOUT_EVAL", "FALSIFICATION", "CROSS_BACKEND_CHECK", "SIM_CHAMPION", "REJECTED", "NEED_MORE_EVIDENCE", "DEAD_END", "RESOURCE_EXHAUSTED", "SIMULATOR_DISAGREEMENT", "HUMAN_REVIEW_REQUIRED"]},
+    "candidate_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "human_involvement": {"$ref": "#/$defs/human"}
+  },
+  "$defs": {
+    "human": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["failure_selected_by_human", "patch_written_by_human", "patch_edited_by_human", "promotion_approved_by_human"],
+      "properties": {
+        "failure_selected_by_human": {"type": "boolean"},
+        "patch_written_by_human": {"type": "boolean"},
+        "patch_edited_by_human": {"type": "boolean"},
+        "promotion_approved_by_human": {"type": "boolean"}
+      }
+    }
+  }
+}

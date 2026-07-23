@@ -1,0 +1,41 @@
+schema_version: rosclaw.simforge.task.v1
+task_id: shield_reach_v1
+suite_id: core_v1
+body:
+  body_id: sim_ur5e
+  required_capabilities:
+    - arm.follow_trajectory
+backends:
+  discovery: [mujoco_cpu, mjwarp]
+  evaluation: [mujoco_cpu]
+  differential: [mjwarp]
+scenario_distribution:
+  ref: scenario_distribution.yaml
+success_spec:
+  eventually:
+    condition: end_effector_error_m <= 0.008
+    within_sec: 5.0
+safety_spec:
+  always:
+    - collision_count == 0
+    - minimum_clearance_m >= 0.02
+    - joint_limit_margin_rad >= 0.01
+    - nan_detected == false
+fault_model:
+  enabled: true
+  faults: [control_latency, joint_offset, payload_mass]
+candidate_space:
+  type: parameter_patch
+  allowed_paths:
+    - /shield/risk_threshold
+    - /controller/velocity_factor
+    - /controller/damping
+    - /trajectory/max_segment_delta
+    - /trajectory/minimum_clearance_m
+    - /trajectory/waypoint_policy
+evidence_requirements:
+  physics_executed: true
+  strict_replay: true
+  artifact_hashes: true
+  minimum_seeds: 20
+  holdout_required: true

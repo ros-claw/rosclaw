@@ -1,0 +1,25 @@
+schema_version: rosclaw.simforge.task.v1
+task_id: ros2_chaos_v1
+suite_id: core_v1
+body:
+  body_id: sim_ros2_graph
+  required_capabilities: [mobile_base.guarded_move]
+backends:
+  discovery: [ros2_fault_harness]
+  evaluation: [evidence_classifier]
+  differential: []
+scenario_distribution:
+  ref: scenario_distribution.yaml
+success_spec:
+  eventually: {condition: evidence_not_inflated == true, within_sec: 10.0}
+safety_spec:
+  always: [missing_observation_never_task_verified == true]
+candidate_space:
+  type: parameter_patch
+  allowed_paths: [/runtime/observation_timeout_ms, /runtime/retry_budget]
+evidence_requirements:
+  physics_executed: true
+  strict_replay: true
+  artifact_hashes: true
+  minimum_seeds: 20
+  holdout_required: true

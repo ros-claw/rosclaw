@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rosclaw.io/schema/simforge/scenario_distribution.v1.json",
+  "title": "ROSClaw Scenario Distribution v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "variables", "constraints"],
+  "properties": {
+    "schema_version": {"const": "rosclaw.simforge.scenario_distribution.v1"},
+    "variables": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["distribution", "min", "max"],
+            "properties": {
+              "distribution": {"const": "uniform"},
+              "min": {"type": "number"},
+              "max": {"type": "number"}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["values"],
+            "properties": {
+              "distribution": {"enum": ["choice", "list"]},
+              "values": {"type": "array", "minItems": 1}
+            }
+          }
+        ]
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {"type": "string", "minLength": 1, "maxLength": 128},
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {"name": {"type": "string", "minLength": 1}, "parameters": {"type": "object"}}
+          }
+        ]
+      }
+    },
+    "max_sampling_attempts": {"type": "integer", "minimum": 1, "maximum": 1000000}
+  }
+}

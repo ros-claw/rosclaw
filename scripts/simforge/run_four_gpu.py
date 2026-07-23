@@ -52,6 +52,14 @@ def _shard_error(
         return "non_finite_state"
     if shard.get("expected_collision_label") is not True:
         return "collision_label_mismatch"
+    differential = shard.get("differential")
+    if (
+        not isinstance(differential, dict)
+        or differential.get("baseline_backend") != "mujoco_cpu"
+        or differential.get("comparison_backend") != "mujoco_warp"
+        or differential.get("critical_disagreement_count") != 0
+    ):
+        return "cross_backend_disagreement"
     return None
 
 
@@ -61,7 +69,8 @@ def main() -> int:
     parser.add_argument("--worlds-per-gpu", type=int, default=4)
     parser.add_argument("--steps", type=int, default=350)
     parser.add_argument("--timeout-sec", type=float, default=1800.0)
-    parser.add_argument("--pose", choices=("safe", "collision"), default="collision")
+    parser.add_argument("--pose", choices=("safe", "collision", "mixed"), default="collision")
+    parser.add_argument("--candidate-threshold", type=float, default=0.5)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
 
@@ -82,6 +91,8 @@ def main() -> int:
         parser.error(f"--steps must be between 1 and {_MAX_STEPS}")
     if not math.isfinite(args.timeout_sec) or not 0 < args.timeout_sec <= _MAX_TIMEOUT_SEC:
         parser.error(f"--timeout-sec must be between 0 and {_MAX_TIMEOUT_SEC:g}")
+    if not math.isfinite(args.candidate_threshold) or not 0.1 <= args.candidate_threshold <= 0.9:
+        parser.error("--candidate-threshold must be in [0.1, 0.9]")
     if not python.is_file() or not worker.is_file():
         parser.error("MJWarp environment or worker script is missing")
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -106,6 +117,10 @@ def main() -> int:
                     str(42 + shard),
                     "--pose",
                     args.pose,
+                    "--world-offset",
+                    str(shard * args.worlds_per_gpu),
+                    "--candidate-threshold",
+                    str(args.candidate_threshold),
                     "--output",
                     str(output),
                 ],

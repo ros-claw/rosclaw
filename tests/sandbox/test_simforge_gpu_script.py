@@ -28,6 +28,11 @@ def _shard() -> dict:
         "world_steps_per_sec": 1400.0,
         "finite_state": True,
         "expected_collision_label": True,
+        "differential": {
+            "baseline_backend": "mujoco_cpu",
+            "comparison_backend": "mujoco_warp",
+            "critical_disagreement_count": 0,
+        },
     }
 
 
