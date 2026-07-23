@@ -62,6 +62,13 @@ env PYTHONPATH="${REPO_ROOT}/src" "$PYTHON" -m rosclaw.cli agent install \
 
 # Pin the MCP server to THIS repo's code (the PATH `rosclaw` entry point may
 # resolve to a different installed copy without the v1.0.1 tools).
+# ROSCLAW_DAEMON_SOCKET (when provided by the operator) lets the Agent's
+# request_action reach a pre-started rosclawd outside the fresh ROSCLAW_HOME —
+# required for --mode real, where the operator owns daemon + permit issuance.
+DAEMON_SOCKET_ENV=""
+if [[ -n "${ROSCLAW_DAEMON_SOCKET:-}" ]]; then
+  DAEMON_SOCKET_ENV=$',\n        "ROSCLAW_DAEMON_SOCKET": "'"${ROSCLAW_DAEMON_SOCKET}"'"'
+fi
 cat > .mcp.json <<EOF
 {
   "mcpServers": {
@@ -71,11 +78,21 @@ cat > .mcp.json <<EOF
       "args": ["-m", "rosclaw.mcp.server", "--transport", "stdio", "--project-root", "${WORK}", "--log-level", "WARNING"],
       "env": {
         "PYTHONPATH": "${REPO_ROOT}/src",
-        "ROSCLAW_HOME": "${ROSCLAW_HOME}"
+        "ROSCLAW_HOME": "${ROSCLAW_HOME}"${DAEMON_SOCKET_ENV}
       },
       "timeout": 300000
     }
   }
+}
+EOF
+
+# Approve the project-scoped MCP server for the non-interactive agent run
+# (Claude Code 2.x requires explicit approval of .mcp.json servers; an
+# interactive session prompts, a headless -p run cannot).
+mkdir -p .claude
+cat > .claude/settings.json <<'EOF'
+{
+  "enableAllProjectMcpServers": true
 }
 EOF
 

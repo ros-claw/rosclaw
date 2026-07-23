@@ -23,9 +23,9 @@ sys.path.insert(0, "/home/nvidia/workspace/rosclaw/rosclaw_test/rosclaw/src")
 from rosclaw.body.rh56.transport import SerialModbusTransport
 from rosclaw.body.rh56.transport_profile import load_transport_profile
 
-STEP = 40
+STEP = 300
 SETTLE_S = 1.6
-SPEED = 80
+SPEED = 400
 FORCE_LIMIT = 100
 MARGIN = 5
 PROFILE = "/home/nvidia/workspace/rosclaw/rosclaw_test/rosclaw/configs/rh56_right_rs485_v1.yaml"

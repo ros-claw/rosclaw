@@ -7,42 +7,42 @@ actuators:
     safe_min_raw: 100
     safe_max_raw: 1000
     direction: -1
-    position_tolerance_raw: 10
+    position_tolerance_raw: 13
   ring:
     open_raw: 1000
     closed_raw: 0
     safe_min_raw: 100
     safe_max_raw: 1000
     direction: -1
-    position_tolerance_raw: 8
+    position_tolerance_raw: 9
   middle:
     open_raw: 1000
     closed_raw: 0
     safe_min_raw: 100
     safe_max_raw: 1000
     direction: -1
-    position_tolerance_raw: 8
+    position_tolerance_raw: 10
   index:
     open_raw: 1000
     closed_raw: 0
     safe_min_raw: 100
     safe_max_raw: 1000
     direction: -1
-    position_tolerance_raw: 9
+    position_tolerance_raw: 10
   thumb:
     open_raw: 1000
     closed_raw: 0
     safe_min_raw: 100
     safe_max_raw: 1000
     direction: -1
-    position_tolerance_raw: 8
+    position_tolerance_raw: 11
   thumb_rot:
     open_raw: 1000
     closed_raw: 0
     safe_min_raw: 100
     safe_max_raw: 1000
     direction: -1
-    position_tolerance_raw: 19
+    position_tolerance_raw: 28
 feedback:
   force_baseline_file: ''
   force_soft_limit_g: 100.0
@@ -52,7 +52,7 @@ feedback:
   thresholds_source: measured_conservative
 validation:
   status: validated
-  validated_at: '2026-07-23T08:21:20.962059Z'
+  validated_at: '2026-07-23T09:12:27.570653Z'
   rounds: 5
   body_hash: ''
   transport_profile_hash: sha256:38e62c1ae57ebd40ee1d849aef779020ddf3d2bdd20ba0570d4a7164e9f7e351

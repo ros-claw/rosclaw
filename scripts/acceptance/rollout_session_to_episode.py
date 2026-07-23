@@ -54,8 +54,8 @@ def main() -> int:
         snap = (ev.get("payload") or {}).get("snapshot") or {}
         features = snap.get("features") or {}
 
-        def values(feature: str) -> list[float]:
-            block = features.get(feature) or {}
+        def values(feature: str, _features: dict = features) -> list[float]:
+            block = _features.get(feature) or {}
             return [float(v) for v in (block.get("values") or [])]
 
         state = values("observation.state") or [0.0] * 6
