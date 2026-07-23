@@ -130,6 +130,37 @@ def test_task_spec_rejects_non_whitelisted_shape() -> None:
     with pytest.raises(ValueError, match="JSON pointers"):
         SimForgeTaskSpec(**value)
 
+    malformed = task.__dict__.copy()
+    malformed["evidence_requirements"] = {
+        "physics_executed": "false",
+        "strict_replay": True,
+        "artifact_hashes": True,
+        "minimum_seeds": 20,
+        "holdout_required": True,
+    }
+    with pytest.raises(ValueError, match="physics_executed must be boolean"):
+        SimForgeTaskSpec.from_dict(
+            {
+                "schema_version": "rosclaw.simforge.task.v1",
+                "task_id": "strict_bool",
+                "suite_id": "core_v1",
+                "body": {
+                    "body_id": "sim",
+                    "required_capabilities": ["arm.follow_trajectory"],
+                },
+                "backends": {
+                    "discovery": ["mujoco_cpu"],
+                    "evaluation": ["mujoco_cpu"],
+                    "differential": [],
+                },
+                "scenario_distribution": {"ref": "scenario_distribution.yaml"},
+                "success_spec": {"eventually": True},
+                "safety_spec": {"always": True},
+                "candidate_space": {"allowed_paths": ["/shield/threshold"]},
+                "evidence_requirements": malformed["evidence_requirements"],
+            }
+        )
+
 
 def test_continuous_and_temporal_robustness() -> None:
     monitor = SafetyPredicateMonitor(
@@ -203,6 +234,10 @@ def test_data_budget_attacks_fail_closed_without_serializing_full_record() -> No
         manager.account_external_bytes(scope=BudgetScope.RUN, size=1024).action
         is BudgetAction.ABORT_FAIL_CLOSED
     )
+    with pytest.raises(ValueError, match="non-negative integer"):
+        manager.account_external_bytes(scope=BudgetScope.RUN, size=True)
+    non_string_key = manager.inspect_record({1: "value"}, scope=BudgetScope.EVENT)
+    assert not non_string_key.accepted
 
     accepted = manager.inspect_record({"event": "ok"}, scope=BudgetScope.EVENT)
     assert accepted.accepted

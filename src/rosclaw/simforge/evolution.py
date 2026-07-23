@@ -63,9 +63,23 @@ class EvolutionRun:
     state: EvolutionState = EvolutionState.FAILURE_DISCOVERED
     history: list[tuple[str, str]] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        for name in ("run_id", "task_id"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not 1 <= len(value) <= 128:
+                raise ValueError(f"{name} must contain 1..128 characters")
+        if not isinstance(self.state, EvolutionState):
+            raise ValueError("evolution state must be EvolutionState")
+        if not isinstance(self.history, list) or len(self.history) > 100:
+            raise ValueError("evolution history cannot exceed 100 transitions")
+
     def transition(self, target: EvolutionState, *, reason: str) -> None:
-        if not reason:
-            raise ValueError("evolution transitions require an audit reason")
+        if not isinstance(target, EvolutionState):
+            raise ValueError("evolution transition target must be EvolutionState")
+        if not isinstance(reason, str) or not 1 <= len(reason) <= 1024:
+            raise ValueError("evolution transitions require a bounded audit reason")
+        if len(self.history) >= 100:
+            raise RuntimeError("evolution transition history is exhausted")
         if self.state.terminal:
             raise RuntimeError(f"cannot transition terminal evolution state {self.state.value}")
         current_index = _PIPELINE.index(self.state)

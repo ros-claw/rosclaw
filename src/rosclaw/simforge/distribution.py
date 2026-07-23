@@ -51,8 +51,22 @@ class ScenarioSampler:
         partition: Partition,
         strategy: SamplingStrategy = SamplingStrategy.RANDOM,
     ) -> tuple[ScenarioSample, ...]:
-        if count < 1 or count > 1_000_000:
-            raise ValueError("sample count must be in [1, 1000000]")
+        if (
+            isinstance(count, bool)
+            or not isinstance(count, int)
+            or count < 1
+            or count > 10_000
+            or count > self.spec.max_sampling_attempts
+        ):
+            raise ValueError(
+                "sample count must be in [1, 10000] and not exceed max_sampling_attempts"
+            )
+        if isinstance(seed, bool) or not isinstance(seed, int) or not -(2**63) <= seed < 2**63:
+            raise ValueError("sample seed must be a signed 63-bit integer")
+        if not isinstance(partition, Partition):
+            raise ValueError("sample partition must be a Partition")
+        if not isinstance(strategy, SamplingStrategy):
+            raise ValueError("sample strategy must be a SamplingStrategy")
         rng = random.Random(seed)
         raw = self._candidate_stream(count=count, rng=rng, strategy=strategy)
         accepted: list[ScenarioSample] = []
@@ -103,7 +117,7 @@ class ScenarioSampler:
         return result
 
     def _latin_hypercube(self, count: int, rng: random.Random) -> list[dict[str, Any]]:
-        rows = [{} for _ in range(count)]
+        rows: list[dict[str, Any]] = [{} for _ in range(count)]
         for name, variable in self.spec.variables:
             if variable.distribution is DistributionKind.UNIFORM:
                 assert variable.minimum is not None and variable.maximum is not None

@@ -30,8 +30,12 @@ class SimulatorLabels:
         for name in ("safe", "collision", "success", "stopped", "task_verified"):
             if not isinstance(getattr(self, name), bool):
                 raise ValueError(f"simulator label {name} must be boolean")
-        if not self.clearance_category:
-            raise ValueError("clearance_category cannot be empty")
+        if not isinstance(self.clearance_category, str) or not (
+            1 <= len(self.clearance_category) <= 128
+        ):
+            raise ValueError("clearance_category must contain 1..128 characters")
+        if not isinstance(self.failure_signature, str) or len(self.failure_signature) > 512:
+            raise ValueError("failure_signature cannot exceed 512 characters")
         for name in ("final_error_m", "peak_force_n", "minimum_clearance_m"):
             value = getattr(self, name)
             if value is not None and (
@@ -52,6 +56,16 @@ class SimulatorDisagreementEvent:
     numeric_deltas: tuple[tuple[str, float], ...]
     promotion_blocked: bool
 
+    def __post_init__(self) -> None:
+        for name in ("scenario_id", "baseline_backend", "comparison_backend"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not 1 <= len(value) <= 128:
+                raise ValueError(f"{name} must contain 1..128 characters")
+        if not isinstance(self.status, DisagreementStatus):
+            raise ValueError("disagreement status must be DisagreementStatus")
+        if not isinstance(self.promotion_blocked, bool):
+            raise ValueError("promotion_blocked must be boolean")
+
 
 def compare_simulators(
     *,
@@ -61,6 +75,17 @@ def compare_simulators(
     baseline: SimulatorLabels,
     comparison: SimulatorLabels,
 ) -> SimulatorDisagreementEvent:
+    for name, value in (
+        ("scenario_id", scenario_id),
+        ("baseline_backend", baseline_backend),
+        ("comparison_backend", comparison_backend),
+    ):
+        if not isinstance(value, str) or not 1 <= len(value) <= 128:
+            raise ValueError(f"{name} must contain 1..128 characters")
+    if baseline_backend == comparison_backend:
+        raise ValueError("cross-simulator comparison requires distinct backends")
+    if not isinstance(baseline, SimulatorLabels) or not isinstance(comparison, SimulatorLabels):
+        raise ValueError("cross-simulator comparison requires typed labels")
     critical = tuple(
         name
         for name in (

@@ -45,7 +45,14 @@ class BodyMutationResult:
 
 class BodyInvariantValidator:
     def __init__(self, *, max_calibration_offset_rad: float = 0.5) -> None:
-        self.max_calibration_offset_rad = max_calibration_offset_rad
+        if (
+            isinstance(max_calibration_offset_rad, bool)
+            or not isinstance(max_calibration_offset_rad, (int, float))
+            or not math.isfinite(float(max_calibration_offset_rad))
+            or not 0 < float(max_calibration_offset_rad) <= math.pi
+        ):
+            raise ValueError("maximum calibration offset must be in (0, pi]")
+        self.max_calibration_offset_rad = float(max_calibration_offset_rad)
 
     def validate(self, body: EffectiveBody) -> tuple[str, ...]:
         errors: list[str] = []
@@ -66,7 +73,7 @@ class BodyInvariantValidator:
             ):
                 errors.append(f"joint:{name}:finite")
                 continue
-            lower, upper, velocity, effort = map(float, values)
+            lower, upper, velocity, effort = (float(value) for value in values if value is not None)
             if lower >= upper:
                 errors.append(f"joint:{name}:range")
             if velocity <= 0 or effort <= 0:
@@ -75,9 +82,17 @@ class BodyInvariantValidator:
         for name, actuator in (body.actuators or {}).items():
             if not isinstance(actuator, dict) or actuator.get("status") not in valid_status:
                 errors.append(f"actuator:{name}:status")
+        budget = DataBudgetManager().inspect_record(
+            body.runtime_state or {}, scope=BudgetScope.EVENT
+        )
+        if not budget.accepted:
+            errors.append("runtime_state:data_budget")
+            return tuple(dict.fromkeys(errors))
         try:
             calibration = (body.runtime_state or {}).get("calibration", {})
             offsets = calibration.get("joint_offsets", {})
+            if not isinstance(offsets, dict) or len(offsets) > 4096:
+                raise TypeError("joint offsets must be a bounded mapping")
             for name, value in offsets.items():
                 if (
                     isinstance(value, bool)
@@ -88,17 +103,14 @@ class BodyInvariantValidator:
                     errors.append(f"calibration:{name}:offset")
         except (AttributeError, TypeError):
             errors.append("calibration:schema")
-        budget = DataBudgetManager().inspect_record(
-            body.runtime_state or {}, scope=BudgetScope.EVENT
-        )
-        if not budget.accepted:
-            errors.append("runtime_state:data_budget")
         return tuple(dict.fromkeys(errors))
 
 
 def generate_body_mutations(*, count: int, seed: int) -> tuple[BodyMutation, ...]:
-    if not 100 <= count <= 1000:
+    if isinstance(count, bool) or not isinstance(count, int) or not 100 <= count <= 1000:
         raise ValueError("BodyMutation suite size must be in [100, 1000]")
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise ValueError("BodyMutation seed must be an integer")
     rng = random.Random(seed)
     kinds = list(BodyMutationKind)
     result = []

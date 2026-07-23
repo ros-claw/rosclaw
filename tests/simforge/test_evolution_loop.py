@@ -24,7 +24,15 @@ from rosclaw.simforge.differential import (
     compare_simulators,
 )
 from rosclaw.simforge.distribution import ScenarioSampler
-from rosclaw.simforge.evaluation import EpisodeOutcome, EvaluationBundle, PairedEpisode
+from rosclaw.simforge.evaluation import (
+    EpisodeOutcome,
+    EvaluationBundle,
+    EvidenceVerificationSource,
+    PairedEpisode,
+    StressEvidence,
+    _attest_evaluation_bundle,
+    _attest_stress_evidence,
+)
 from rosclaw.simforge.evolution import EvolutionRun, EvolutionState
 from rosclaw.simforge.falsification import CounterexampleStore, Falsifier
 from rosclaw.simforge.holdout import HiddenHoldoutService, create_holdout_signing_key
@@ -138,29 +146,57 @@ def _bundle(
     )
 
 
+def _verified_bundle(
+    partition: Partition,
+    candidate_hash: str,
+    *,
+    unsafe_candidate: bool = False,
+) -> EvaluationBundle:
+    source = (
+        EvidenceVerificationSource.SIGNED_HOLDOUT
+        if partition is Partition.HOLDOUT
+        else EvidenceVerificationSource.PHYSICS_RECEIPTS
+    )
+    return _attest_evaluation_bundle(
+        _bundle(partition, candidate_hash, unsafe_candidate=unsafe_candidate),
+        source,
+    )
+
+
+def _stress(candidate_hash: str) -> StressEvidence:
+    return _attest_stress_evidence(
+        StressEvidence(
+            task_id="shield_reach_v1",
+            candidate_hash=candidate_hash,
+            worlds=1000,
+            complete=True,
+            critical_backend_disagreements=0,
+            scale_curve_commitment="sha256:" + "f" * 64,
+        )
+    )
+
+
 def test_gate_v3_requires_all_fourteen_checks_and_rejects_safety_regression() -> None:
     candidate_hash = "sha256:" + "a" * 64
-    validation = _bundle(Partition.VALIDATION, candidate_hash)
-    holdout = _bundle(Partition.HOLDOUT, candidate_hash)
+    validation = _verified_bundle(Partition.VALIDATION, candidate_hash)
+    holdout = _verified_bundle(Partition.HOLDOUT, candidate_hash)
+    counterexample = _verified_bundle(Partition.COUNTEREXAMPLE_REGRESSION, candidate_hash)
+    stress = _stress(candidate_hash)
     gate = StatisticalGateV3()
 
     missing = gate.evaluate(
         validation=validation,
         holdout=None,
-        stress_worlds=None,
-        stress_complete=None,
-        counterexample_regression_passed=None,
-        critical_backend_disagreements=None,
+        stress=None,
+        counterexample_regression=None,
     )
     assert missing.decision is GateDecision.NEED_MORE_EVIDENCE
 
     passed = gate.evaluate(
         validation=validation,
         holdout=holdout,
-        stress_worlds=1000,
-        stress_complete=True,
-        counterexample_regression_passed=True,
-        critical_backend_disagreements=0,
+        stress=stress,
+        counterexample_regression=counterexample,
     )
     assert passed.decision is GateDecision.SIM_CHAMPION
     assert [check.gate for check in passed.checks] == [f"G{index}" for index in range(1, 15)]
@@ -171,26 +207,58 @@ def test_gate_v3_requires_all_fourteen_checks_and_rejects_safety_regression() ->
     Draft202012Validator(json.loads(schema_path.read_text())).validate(validation.aggregate_dict())
 
     undersized = gate.evaluate(
-        validation=replace(validation, paired_episodes=199),
+        validation=_attest_evaluation_bundle(
+            replace(validation, paired_episodes=199),
+            EvidenceVerificationSource.PHYSICS_RECEIPTS,
+        ),
         holdout=holdout,
-        stress_worlds=999,
-        stress_complete=True,
-        counterexample_regression_passed=True,
-        critical_backend_disagreements=0,
+        stress=_attest_stress_evidence(replace(stress, worlds=999)),
+        counterexample_regression=counterexample,
     )
     assert undersized.decision is GateDecision.NEED_MORE_EVIDENCE
     assert next(check for check in undersized.checks if check.gate == "G3").missing
 
     rejected = gate.evaluate(
-        validation=_bundle(Partition.VALIDATION, candidate_hash, unsafe_candidate=True),
+        validation=_verified_bundle(
+            Partition.VALIDATION,
+            candidate_hash,
+            unsafe_candidate=True,
+        ),
         holdout=holdout,
-        stress_worlds=1000,
-        stress_complete=True,
-        counterexample_regression_passed=True,
-        critical_backend_disagreements=0,
+        stress=stress,
+        counterexample_regression=counterexample,
     )
     assert rejected.decision is GateDecision.REJECTED
     assert not next(check for check in rejected.checks if check.gate == "G6").passed
+
+
+def test_gate_v3_rejects_caller_constructed_truthy_evidence() -> None:
+    candidate_hash = "sha256:" + "a" * 64
+    result = StatisticalGateV3().evaluate(
+        validation=_bundle(Partition.VALIDATION, candidate_hash),
+        holdout=_bundle(Partition.HOLDOUT, candidate_hash),
+        stress=StressEvidence(
+            task_id="shield_reach_v1",
+            candidate_hash=candidate_hash,
+            worlds=1000,
+            complete=True,
+            critical_backend_disagreements=0,
+            scale_curve_commitment="sha256:" + "f" * 64,
+        ),
+        counterexample_regression=_bundle(
+            Partition.COUNTEREXAMPLE_REGRESSION,
+            candidate_hash,
+        ),
+    )
+
+    assert result.decision is GateDecision.NEED_MORE_EVIDENCE
+    assert {check.gate for check in result.checks if check.missing} >= {
+        "G1",
+        "G3",
+        "G10",
+        "G13",
+        "G14",
+    }
 
 
 def test_pair_attestation_rejects_reused_scenario_seed_under_new_pair_id() -> None:

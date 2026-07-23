@@ -24,6 +24,16 @@ candidate-visible manifests disclose commitments rather than hidden seeds.
 Holdout execution occurs in a spawned worker with private mode-0600 inputs and
 returns an Ed25519-signed aggregate, never raw cases or seeds.
 
+External MJWarp scale evidence is also Ed25519-signed. The evolution command
+verifies it against an independently supplied public key, then recomputes the
+generated candidate's shield decision from the signed per-world risk and
+collision labels. Each MJWarp shard runs the same controls through CPU MuJoCo
+outside the GPU throughput timing window and requires exact agreement on the
+critical collision label. A self-consistent JSON document is not trusted
+evidence. The verifier also requires comparable workload dimensions, nested GPU
+identity sets, one model hash, one device model, and no failed shards across the
+1/2/4-GPU curve.
+
 Scenario distributions support deterministic random, Latin hypercube,
 boundary, and pairwise coverage sampling. Candidate search supports bounded
 random, CMA-ES-style, cross-entropy, and Bayesian-style strategies. Every
@@ -47,7 +57,10 @@ G1–G14, including:
 
 Absent or undersized critical evidence returns `NEED_MORE_EVIDENCE`. A safety
 or quality regression returns `REJECTED`. Only a complete pass returns
-`SIM_CHAMPION`.
+`SIM_CHAMPION`. In-process verification seals bind each Gate input to the
+specific content that passed receipt, signature, and provenance checks;
+caller-constructed booleans, counts, or modified bundles are treated as
+missing evidence.
 
 `DataBudgetManager` bounds event/trace size, nesting, strings, episode/run/
 workspace use, and fails closed for recursive or oversized input. Raw physics
@@ -56,9 +69,14 @@ states and private Holdout inputs must be written outside the source checkout.
 ## ROS command boundary
 
 `GenericMobileBaseSimulationExecutor` is a SHADOW-only executor. A ROS command
-sink must be bound to the same `daemon_*` identity as the executor. The
-rosbridge adapter exposes only bounded Twist motion and stop; it captures a
-fresh pose before and after motion. The canonical live route is:
+sink must be bound to the same configured `daemon_*` instance identity as the
+executor. This is an application binding, not a cryptographic daemon identity.
+The rosbridge adapter accepts only turtlesim or explicit simulation-namespace
+topics, exposes bounded straight-line Twist motion and stop, and captures a
+fresh pose before and after motion. Angular commands remain blocked until an
+orientation predicate is implemented. Every path after dispatch attempts a
+zero-velocity stop, including observation exceptions. The canonical tested
+route is:
 
 ```text
 MCP request_action → rosclawd Unix socket → ActionGateway
@@ -71,27 +89,34 @@ no valid fresh observation can reach only `DISPATCH_CONFIRMED`, never
 
 ## Reproduction
 
-Use the repository checkout on `PYTHONPATH` with the required project launcher:
+Run these commands from the repository checkout. Store all keys and evidence
+outside the checkout. The qualification operator must keep the private signing
+key unavailable to candidate generation and pin the corresponding public key
+independently:
 
 ```bash
-PYTHONPATH=/code/rosclaw/rosclaw_test/src \
-  /code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python \
-  -m rosclaw.entrypoint simforge suite validate --json
+rosclaw simforge suite validate --json
 
-PYTHONPATH=/code/rosclaw/rosclaw_test/src \
-  /code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python \
-  -m rosclaw.entrypoint simforge scenarios generate \
+rosclaw simforge scenarios generate \
   --task shield-reach --output-dir /path/outside/checkout/scenarios
 
-PYTHONPATH=/code/rosclaw/rosclaw_test/src \
-  /code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python \
-  -m rosclaw.entrypoint simforge evolve shield-reach \
+rosclaw simforge key create \
+  --private-key /path/outside/checkout/simforge-private.pem \
+  --public-key /path/outside/checkout/simforge-public.pem
+
+.venv/bin/python scripts/simforge/run_scale_curve.py \
+  --signing-key /path/outside/checkout/simforge-private.pem \
+  --output-dir /path/outside/checkout/scale
+
+rosclaw simforge evolve shield-reach \
   --output-dir /path/outside/checkout/evolution \
-  --scale-curve /path/outside/checkout/scale_curve.json
+  --scale-curve /path/outside/checkout/scale/scale_curve.json \
+  --scale-curve-public-key /path/outside/checkout/simforge-public.pem
 ```
 
-The four-GPU stress runner is `scripts/simforge/run_scale_curve.py`; the finite
-Isaac Lab UR10 qualification is `scripts/simforge/isaac_reach_smoke.py`.
+The four-GPU stress runner requires the separately provisioned `.venv-mjwarp`
+worker environment. The finite Isaac Lab UR10 qualification is
+`scripts/simforge/isaac_reach_smoke.py`.
 
 ## Safety interpretation
 

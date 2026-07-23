@@ -14,8 +14,8 @@
       "additionalProperties": false,
       "required": ["body_id", "required_capabilities"],
       "properties": {
-        "body_id": {"type": "string", "minLength": 1},
-        "required_capabilities": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+        "body_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "required_capabilities": {"type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}}
       }
     },
     "backends": {
@@ -32,18 +32,18 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["ref"],
-      "properties": {"ref": {"type": "string", "minLength": 1}}
+      "properties": {"ref": {"type": "string", "minLength": 1, "maxLength": 512}}
     },
-    "success_spec": {"type": "object", "minProperties": 1},
-    "safety_spec": {"type": "object", "minProperties": 1},
-    "fault_model": {"type": "object"},
+    "success_spec": {"type": "object", "minProperties": 1, "maxProperties": 64},
+    "safety_spec": {"type": "object", "minProperties": 1, "maxProperties": 64},
+    "fault_model": {"type": "object", "maxProperties": 64},
     "candidate_space": {
       "type": "object",
       "additionalProperties": false,
       "required": ["type", "allowed_paths"],
       "properties": {
         "type": {"const": "parameter_patch"},
-        "allowed_paths": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^/"}}
+        "allowed_paths": {"type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^/"}}
       }
     },
     "evidence_requirements": {
@@ -54,13 +54,13 @@
         "physics_executed": {"const": true},
         "strict_replay": {"const": true},
         "artifact_hashes": {"const": true},
-        "minimum_seeds": {"type": "integer", "minimum": 2},
+        "minimum_seeds": {"type": "integer", "minimum": 2, "maximum": 10000},
         "holdout_required": {"const": true}
       }
     }
   },
   "$defs": {
-    "strings": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "strings": {"type": "array", "maxItems": 128, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
     "nonEmptyStrings": {"allOf": [{"$ref": "#/$defs/strings"}, {"minItems": 1}]}
   }
 }

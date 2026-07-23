@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from rosclaw.simforge.tasks.contact_push import run_contact_push
 from rosclaw.simforge.tasks.guarded_base import (
     GenericMobileBaseSimulationExecutor,
     MobileBaseObservation,
+    RosbridgeMobileBaseSink,
 )
 from rosclaw.simforge.tasks.ros2_chaos import (
     Ros2ChaosObservation,
@@ -42,6 +44,8 @@ class _DaemonSink:
     observation: MobileBaseObservation | None
     commands: int = 0
     stops: int = 0
+    raise_observation: bool = False
+    fresh_observation: bool = True
 
     def publish_velocity(
         self,
@@ -54,7 +58,18 @@ class _DaemonSink:
 
     def observe_effect(self, timeout_sec: float) -> MobileBaseObservation | None:
         assert timeout_sec > 0
-        return self.observation
+        if self.raise_observation:
+            raise RuntimeError("injected observation failure")
+        if self.observation is None:
+            return None
+        return MobileBaseObservation(
+            start_x_m=self.observation.start_x_m,
+            final_x_m=self.observation.final_x_m,
+            final_velocity_mps=self.observation.final_velocity_mps,
+            timestamp_monotonic=(
+                time.monotonic() if self.fresh_observation else self.observation.timestamp_monotonic
+            ),
+        )
 
     def stop(self) -> bool:
         self.stops += 1
@@ -106,12 +121,55 @@ def test_guarded_base_executor_is_gateway_owned_and_requires_observation() -> No
     assert lost.evidence_level is EvidenceLevel.DISPATCH_CONFIRMED
     assert lost.acknowledgement_stage is AcknowledgementStage.COMMAND_DISPATCHED
     assert lost.verification_result["success"] is False
+    assert lost.verification_result["stop_confirmed"] is True
+
+    failing_sink = _DaemonSink(
+        daemon_owner_id="daemon_test",
+        observation=None,
+        raise_observation=True,
+    )
+    failing = GenericMobileBaseSimulationExecutor(
+        failing_sink,
+        daemon_instance_id="daemon_test",
+    )(_guarded_action("guarded-observation-exception"))
+    assert failing.final_state is ActionState.DEGRADED
+    assert failing.errors[0]["code"] == "OBSERVATION_FAILED"
+    assert failing_sink.commands == failing_sink.stops == 1
+
+    stale_sink = _DaemonSink(
+        daemon_owner_id="daemon_test",
+        observation=MobileBaseObservation(0.0, 0.2, 0.0, 0.0),
+        fresh_observation=False,
+    )
+    stale = GenericMobileBaseSimulationExecutor(
+        stale_sink,
+        daemon_instance_id="daemon_test",
+    )(_guarded_action("guarded-stale-observation"))
+    assert stale.evidence_level is EvidenceLevel.DISPATCH_CONFIRMED
+    assert stale.errors[0]["code"] == "STALE_OBSERVATION"
+
+    angular_action = _guarded_action("guarded-angular-unverified")
+    angular_action.arguments["angular_z_radps"] = 0.2
+    angular = GenericMobileBaseSimulationExecutor(
+        sink,
+        daemon_instance_id="daemon_test",
+    )(angular_action)
+    assert angular.final_state is ActionState.BLOCKED
+    assert angular.errors[0]["code"] == "ANGULAR_MOTION_UNVERIFIED"
 
     with pytest.raises(ValueError, match="finite and positive"):
         GenericMobileBaseSimulationExecutor(
             sink,
             daemon_instance_id="daemon_test",
             max_linear_speed_mps=float("nan"),
+        )
+
+    with pytest.raises(ValueError, match="simulation sink"):
+        RosbridgeMobileBaseSink(
+            object(),  # type: ignore[arg-type]
+            daemon_owner_id="daemon_test",
+            command_topic="/cmd_vel",
+            pose_topic="/odom",
         )
 
 
@@ -222,6 +280,10 @@ def test_ros2_chaos_never_upgrades_dispatch_without_observation() -> None:
             and observation.task_predicate_verified
         ):
             assert verdict.evidence_level is not EvidenceLevel.TASK_VERIFIED
+    duplicate = next(item for item in matrix if item.fault is Ros2Fault.DUPLICATE_COMMAND)
+    duplicate_verdict = classify_ros2_evidence(duplicate)
+    assert not duplicate_verdict.task_verified
+    assert duplicate_verdict.fail_closed
 
 
 def test_body_mutation_1000_preserves_or_rejects_every_invariant() -> None:

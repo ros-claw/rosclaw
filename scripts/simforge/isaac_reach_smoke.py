@@ -42,6 +42,8 @@ def main() -> int:
         parser.error("--num-envs must be in [1, 8192]")
     if not 1 <= args_cli.steps <= 100_000:
         parser.error("--steps must be in [1, 100000]")
+    if args_cli.num_envs * args_cli.steps > 10_000_000:
+        parser.error("--num-envs * --steps cannot exceed 10000000")
     torch.manual_seed(args_cli.seed)
     env_cfg, _ = resolve_task_config(args_cli.task, "")
     started = time.perf_counter()

@@ -26,6 +26,7 @@ COLLISION_POSE = np.array(
 )
 _MAX_WORLDS = 4096
 _MAX_STEPS = 1_000_000
+_MAX_WORLD_STEPS = 10_000_000
 
 
 def main() -> int:
@@ -46,6 +47,8 @@ def main() -> int:
         parser.error(f"--worlds must be between 1 and {_MAX_WORLDS}")
     if not 1 <= args.steps <= _MAX_STEPS:
         parser.error(f"--steps must be between 1 and {_MAX_STEPS}")
+    if args.worlds * args.steps > _MAX_WORLD_STEPS:
+        parser.error(f"worlds * steps cannot exceed {_MAX_WORLD_STEPS}")
     if args.world_offset < 0:
         parser.error("--world-offset must be non-negative")
     if not math.isfinite(args.candidate_threshold) or not 0.1 <= args.candidate_threshold <= 0.9:
@@ -92,7 +95,7 @@ def main() -> int:
     rng = np.random.default_rng(args.seed)
     categories: list[str] = []
     risks: list[float] = []
-    expected_collision_worlds: set[int] = set()
+    scenario_collision_worlds: set[int] = set()
     if args.pose == "mixed":
         bases = np.empty((args.worlds, SAFE_POSE.size), dtype=np.float32)
         for local_world in range(args.worlds):
@@ -101,7 +104,7 @@ def main() -> int:
                 category, base, risk = "safe", SAFE_POSE, rng.uniform(0.08, 0.44)
             elif bucket < 6:
                 category, base, risk = "unsafe", COLLISION_POSE, rng.uniform(0.56, 0.95)
-                expected_collision_worlds.add(local_world)
+                scenario_collision_worlds.add(local_world)
             elif bucket in {6, 8}:
                 category, base, risk = "boundary_safe", SAFE_POSE, rng.uniform(0.44, 0.495)
             else:
@@ -110,7 +113,7 @@ def main() -> int:
                     COLLISION_POSE,
                     rng.uniform(0.505, 0.56),
                 )
-                expected_collision_worlds.add(local_world)
+                scenario_collision_worlds.add(local_world)
             categories.append(category)
             risks.append(float(risk))
             bases[local_world] = base.astype(np.float32)
@@ -120,13 +123,24 @@ def main() -> int:
         categories = [args.pose] * args.worlds
         risks = [0.2 if args.pose == "safe" else 0.8] * args.worlds
         if args.pose == "collision":
-            expected_collision_worlds = set(range(args.worlds))
+            scenario_collision_worlds = set(range(args.worlds))
     offsets = rng.uniform(-0.002, 0.002, size=(args.worlds, SAFE_POSE.size)).astype(np.float32)
     controls = bases + offsets
     data.ctrl.assign(controls)
 
     wp.synchronize()
     setup_time = time.perf_counter() - setup_started
+    cpu_baseline_started = time.perf_counter()
+    cpu_collision_worlds = _cpu_collision_labels(
+        mujoco=mujoco,
+        model=cpu_model,
+        initial_data=cpu_data,
+        controls=controls,
+        steps=args.steps + 1,
+        table_geom_id=table_geom_id,
+    )
+    cpu_baseline_time = time.perf_counter() - cpu_baseline_started
+
     warmup_started = time.perf_counter()
     mjw.step(model, data)
     wp.synchronize()
@@ -151,9 +165,10 @@ def main() -> int:
     )
     qpos = data.qpos.numpy()
     actual_collision_worlds = set(collision_worlds)
-    expected_collision_label = actual_collision_worlds == expected_collision_worlds
+    expected_collision_label = actual_collision_worlds == cpu_collision_worlds
+    scenario_label_valid = cpu_collision_worlds == scenario_collision_worlds
     critical_disagreement_worlds = sorted(
-        actual_collision_worlds.symmetric_difference(expected_collision_worlds)
+        actual_collision_worlds.symmetric_difference(cpu_collision_worlds)
     )
     baseline_threshold = 0.82
     baseline_allowed = [risk <= baseline_threshold for risk in risks]
@@ -186,6 +201,7 @@ def main() -> int:
         "wall_time_sec": elapsed if math.isfinite(elapsed) else 0.0,
         "compile_time_sec": setup_time if math.isfinite(setup_time) else 0.0,
         "warmup_time_sec": warmup_time if math.isfinite(warmup_time) else 0.0,
+        "cpu_baseline_time_sec": (cpu_baseline_time if math.isfinite(cpu_baseline_time) else 0.0),
         "world_steps_per_sec": (
             args.worlds * args.steps / max(elapsed, 1e-9) if math.isfinite(elapsed) else 0.0
         ),
@@ -195,6 +211,7 @@ def main() -> int:
         "category_counts": {
             category: categories.count(category) for category in sorted(set(categories))
         },
+        "risk_values": risks,
         "candidate_threshold": args.candidate_threshold,
         "randomization": {
             "joint_control_offset_rad": offsets.tolist(),
@@ -203,6 +220,9 @@ def main() -> int:
         "model_hash": file_hash(sandbox.model_path),
         "collision_worlds": collision_worlds,
         "collision_world_count": len(collision_worlds),
+        "cpu_collision_worlds": sorted(cpu_collision_worlds),
+        "scenario_collision_worlds": sorted(scenario_collision_worlds),
+        "scenario_label_valid": scenario_label_valid,
         "expected_collision_label": expected_collision_label,
         "differential": {
             "baseline_backend": "mujoco_cpu",
@@ -231,7 +251,47 @@ def main() -> int:
     temporary.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     temporary.replace(args.output)
     print(json.dumps(payload, sort_keys=True))
-    return 0 if payload["finite_state"] and payload["expected_collision_label"] else 2
+    return (
+        0
+        if payload["finite_state"]
+        and payload["expected_collision_label"]
+        and payload["scenario_label_valid"]
+        else 2
+    )
+
+
+def _cpu_collision_labels(
+    *,
+    mujoco: object,
+    model: object,
+    initial_data: object,
+    controls: np.ndarray,
+    steps: int,
+    table_geom_id: int,
+) -> set[int]:
+    collision_worlds: set[int] = set()
+    data = mujoco.MjData(model)  # type: ignore[attr-defined]
+    for world, control in enumerate(controls):
+        mujoco.mj_resetData(model, data)  # type: ignore[attr-defined]
+        data.qpos[:] = initial_data.qpos  # type: ignore[attr-defined]
+        data.qvel[:] = initial_data.qvel  # type: ignore[attr-defined]
+        if model.na:  # type: ignore[attr-defined]
+            data.act[:] = initial_data.act  # type: ignore[attr-defined]
+        data.ctrl[:] = control
+        mujoco.mj_forward(model, data)  # type: ignore[attr-defined]
+        for _ in range(steps):
+            mujoco.mj_step(model, data)  # type: ignore[attr-defined]
+        if any(
+            float(data.contact[index].dist) < -1e-6
+            and table_geom_id
+            in (
+                int(data.contact[index].geom1),
+                int(data.contact[index].geom2),
+            )
+            for index in range(int(data.ncon))
+        ):
+            collision_worlds.add(world)
+    return collision_worlds
 
 
 if __name__ == "__main__":

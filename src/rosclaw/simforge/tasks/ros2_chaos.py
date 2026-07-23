@@ -66,7 +66,13 @@ def classify_ros2_evidence(observation: Ros2ChaosObservation) -> Ros2ChaosVerdic
         and observation.observation_fresh
         and observation.observation_valid
     )
-    task_verified = valid_effect and observation.task_predicate_verified
+    integrity_compromised = observation.fault in {
+        Ros2Fault.DUPLICATE_COMMAND,
+        Ros2Fault.DAEMON_RESTART,
+    }
+    task_verified = (
+        valid_effect and observation.task_predicate_verified and not integrity_compromised
+    )
     if task_verified:
         evidence = EvidenceLevel.TASK_VERIFIED
         stage = AcknowledgementStage.TASK_VERIFIED
@@ -93,8 +99,10 @@ def classify_ros2_evidence(observation: Ros2ChaosObservation) -> Ros2ChaosVerdic
 
 
 def generate_ros2_chaos_matrix(*, count: int, seed: int) -> tuple[Ros2ChaosObservation, ...]:
-    if count < 1 or count > 1_000_000:
-        raise ValueError("ROS2Chaos case count must be in [1, 1000000]")
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1 or count > 10_000:
+        raise ValueError("ROS2Chaos case count must be in [1, 10000]")
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise ValueError("ROS2Chaos seed must be an integer")
     rng = random.Random(seed)
     faults = list(Ros2Fault)
     result = []

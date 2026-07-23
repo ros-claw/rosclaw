@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -55,6 +56,8 @@ async def test_mcp_daemon_gateway_is_the_only_live_ros_command_path(tmp_path: Pa
     """A live Twist is emitted only inside the daemon-owned SHADOW executor."""
 
     transport = RosbridgeTransport(endpoint=RosbridgeEndpoint.from_url(ENDPOINT_URL))
+    reset = transport.call_service("/reset", {})
+    assert reset.ok, f"turtlesim reset failed: {reset.error}"
     daemon_id = "daemon_simforge_ros_live"
     sink = RosbridgeMobileBaseSink(
         transport,
@@ -111,7 +114,7 @@ async def test_mcp_daemon_gateway_is_the_only_live_ros_command_path(tmp_path: Pa
 
     receipt = result["receipt"]
     assert result["state"] == "FINISHED"
-    assert receipt["final_state"] == "COMPLETED"
+    assert receipt["final_state"] == "COMPLETED", json.dumps(receipt, indent=2, sort_keys=True)
     assert receipt["evidence_level"] == "TASK_VERIFIED"
     assert receipt["dispatch_result"]["owner"] == daemon_id
     assert receipt["verification_result"]["stop_confirmed"] is True

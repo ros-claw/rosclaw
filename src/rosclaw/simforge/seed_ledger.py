@@ -24,18 +24,22 @@ class SeedLedger:
     """Derive disjoint partition seeds and reveal only cryptographic commitments."""
 
     def __init__(self, *, task_id: str, secret: bytes | None = None) -> None:
-        if not task_id:
-            raise ValueError("task_id is required")
+        if not isinstance(task_id, str) or not 1 <= len(task_id) <= 128:
+            raise ValueError("task_id must contain 1..128 characters")
+        if secret is not None and not isinstance(secret, bytes):
+            raise ValueError("seed ledger secret must be bytes")
         self.task_id = task_id
-        self._secret = secret or secrets.token_bytes(32)
+        self._secret = secret if secret is not None else secrets.token_bytes(32)
         if len(self._secret) < 16:
             raise ValueError("seed ledger secret must contain at least 16 bytes")
         self._records: dict[tuple[Partition, int], SeedRecord] = {}
         self._owners: dict[int, tuple[Partition, int]] = {}
 
     def derive(self, partition: Partition, index: int) -> SeedRecord:
-        if index < 0 or index > 10_000_000:
-            raise ValueError("seed index must be in [0, 10000000]")
+        if not isinstance(partition, Partition):
+            raise ValueError("seed partition must be a Partition")
+        if isinstance(index, bool) or not isinstance(index, int) or index < 0 or index >= 10_000:
+            raise ValueError("seed index must be in [0, 9999]")
         key = (partition, index)
         existing = self._records.get(key)
         if existing is not None:
@@ -53,8 +57,8 @@ class SeedLedger:
         return record
 
     def allocate(self, partition: Partition, count: int) -> tuple[SeedRecord, ...]:
-        if count < 1 or count > 1_000_000:
-            raise ValueError("seed count must be in [1, 1000000]")
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1 or count > 10_000:
+            raise ValueError("seed count must be in [1, 10000]")
         return tuple(self.derive(partition, index) for index in range(count))
 
     def public_manifest(self) -> dict[str, Any]:

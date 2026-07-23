@@ -39,7 +39,9 @@ class DataBudgetSpec:
 
     def __post_init__(self) -> None:
         values = tuple(self.__dict__.values())
-        if any(not isinstance(value, int) or value < 1 for value in values):
+        if any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 1 for value in values
+        ):
             raise ValueError("all data budget limits must be positive integers")
         if self.max_nested_depth > 128:
             raise ValueError("max_nested_depth cannot exceed 128")
@@ -71,6 +73,13 @@ class DataBudgetManager:
                 reason=str(violation),
                 estimated_bytes=violation.estimated_bytes,
             )
+        except (TypeError, ValueError, OverflowError, UnicodeError) as error:
+            return BudgetDecision(
+                accepted=False,
+                action=self._overflow_action(scope),
+                reason=f"record cannot be measured safely: {type(error).__name__}",
+                estimated_bytes=0,
+            )
         projected = self._usage[scope] + estimated
         if projected > record_limit:
             return BudgetDecision(
@@ -90,7 +99,7 @@ class DataBudgetManager:
         self._usage[scope] = projected
 
     def account_external_bytes(self, *, scope: BudgetScope, size: int) -> BudgetDecision:
-        if not isinstance(size, int) or size < 0:
+        if isinstance(size, bool) or not isinstance(size, int) or size < 0:
             raise ValueError("external byte size must be a non-negative integer")
         limit = self._limit(scope)
         projected = self._usage[scope] + size
@@ -133,9 +142,14 @@ class DataBudgetManager:
                 seen.add(identity)
                 total += 2
                 for key, child in value.items():
+                    if not isinstance(key, str):
+                        raise _BudgetViolationError(
+                            "record mapping keys must be strings",
+                            total,
+                        )
                     stack.append((child, depth + 1))
-                    stack.append((str(key), depth + 1))
-            elif isinstance(value, (list, tuple, set)):
+                    stack.append((key, depth + 1))
+            elif isinstance(value, (list, tuple)):
                 identity = id(value)
                 if identity in seen:
                     raise _BudgetViolationError("recursive record detected", total)

@@ -49,14 +49,33 @@ def run_contact_push(
     required_displacement_m: float = 0.08,
     force_limit_n: float = 200.0,
 ) -> ContactPushEvidence:
-    if not 0 < command_velocity_mps <= 0.5:
-        raise ValueError("command velocity must be in (0, 0.5]")
-    if not 0.1 <= duration_sec <= 10:
-        raise ValueError("duration must be in [0.1, 10]")
-    if not 0 < required_displacement_m <= 1:
-        raise ValueError("required displacement must be in (0, 1]")
-    if not 0 < force_limit_n <= 10_000:
-        raise ValueError("force limit must be in (0, 10000]")
+    command_velocity_mps = _bounded_number(
+        command_velocity_mps,
+        name="command velocity",
+        minimum=0.0,
+        maximum=0.5,
+        minimum_inclusive=False,
+    )
+    duration_sec = _bounded_number(
+        duration_sec,
+        name="duration",
+        minimum=0.1,
+        maximum=10.0,
+    )
+    required_displacement_m = _bounded_number(
+        required_displacement_m,
+        name="required displacement",
+        minimum=0.0,
+        maximum=1.0,
+        minimum_inclusive=False,
+    )
+    force_limit_n = _bounded_number(
+        force_limit_n,
+        name="force limit",
+        minimum=0.0,
+        maximum=10_000.0,
+        minimum_inclusive=False,
+    )
     import mujoco
     import numpy as np
 
@@ -101,6 +120,24 @@ def run_contact_push(
         steps=steps,
         success=success,
     )
+
+
+def _bounded_number(
+    value: float,
+    *,
+    name: str,
+    minimum: float,
+    maximum: float,
+    minimum_inclusive: bool = True,
+) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be numeric")
+    normalized = float(value)
+    lower_ok = normalized >= minimum if minimum_inclusive else normalized > minimum
+    if not math.isfinite(normalized) or not lower_ok or normalized > maximum:
+        interval = "[" if minimum_inclusive else "("
+        raise ValueError(f"{name} must be in {interval}{minimum:g}, {maximum:g}]")
+    return normalized
 
 
 __all__ = ["ContactPushEvidence", "run_contact_push"]

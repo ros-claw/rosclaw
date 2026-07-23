@@ -34,4 +34,4 @@ constraints:
   - name: start_goal_distance
     parameters:
       minimum_m: 0.15
-max_sampling_attempts: 100000
+max_sampling_attempts: 10000

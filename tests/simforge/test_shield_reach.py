@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 
+import mujoco
+import numpy as np
+
+from rosclaw.sandbox.sandbox_api import Sandbox
 from rosclaw.simforge.candidates import CandidateCompiler, CandidateGenerator, ParameterBound
 from rosclaw.simforge.models import Partition
 from rosclaw.simforge.seed_ledger import SeedLedger
@@ -24,6 +29,15 @@ def _candidate():
         failure_signature_id="MIDPATH_COLLISION",
         generator=CandidateGenerator(type="search", algorithm="cross_entropy"),
     )
+
+
+def _gpu_worker_module():
+    path = Path(__file__).resolve().parents[2] / "scripts" / "simforge" / "mjwarp_gpu_worker.py"
+    spec = importlib.util.spec_from_file_location("rosclaw_mjwarp_gpu_worker", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_shield_reach_1k_has_exact_public_and_hidden_partition_counts() -> None:
@@ -82,3 +96,33 @@ def test_candidate_threshold_is_selected_from_labeled_cases_without_human_patch(
     assert candidate.human_involvement.fully_autonomous
     assert len(trace) == 60
     assert all((case.risk <= threshold) is physically_safe for case, physically_safe in labeled)
+
+
+def test_mjwarp_worker_cpu_baseline_uses_real_mujoco_collision_labels() -> None:
+    worker = _gpu_worker_module()
+    sandbox = Sandbox.create("ur5e", "tabletop", "mujoco")
+    assert sandbox.has_physics
+    sandbox.reset("home")
+    model = sandbox.physics_model
+    data = sandbox.physics_data
+    table_geom_id = mujoco.mj_name2id(
+        model,
+        mujoco.mjtObj.mjOBJ_GEOM,
+        "tabletop_surface",
+    )
+    try:
+        labels = worker._cpu_collision_labels(
+            mujoco=mujoco,
+            model=model,
+            initial_data=data,
+            controls=np.asarray(
+                [worker.SAFE_POSE, worker.COLLISION_POSE],
+                dtype=np.float32,
+            ),
+            steps=351,
+            table_geom_id=table_geom_id,
+        )
+    finally:
+        sandbox.close()
+
+    assert labels == {1}

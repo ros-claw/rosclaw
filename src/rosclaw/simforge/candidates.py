@@ -34,12 +34,24 @@ class ParameterBound:
         if numeric:
             if self.minimum is None or self.maximum is None or self.choices:
                 raise ValueError("numeric bounds require min/max and cannot define choices")
-            if not math.isfinite(self.minimum) or not math.isfinite(self.maximum):
+            if (
+                isinstance(self.minimum, bool)
+                or isinstance(self.maximum, bool)
+                or not isinstance(self.minimum, (int, float))
+                or not isinstance(self.maximum, (int, float))
+                or not math.isfinite(float(self.minimum))
+                or not math.isfinite(float(self.maximum))
+            ):
                 raise ValueError("candidate bounds must be finite")
             if self.minimum > self.maximum:
                 raise ValueError("candidate minimum must not exceed maximum")
         elif not self.choices:
             raise ValueError("candidate bounds require either min/max or choices")
+        elif len(self.choices) > 256:
+            raise ValueError("candidate choices cannot exceed 256 values")
+        else:
+            for index, value in enumerate(self.choices):
+                _validate_json_scalar(f"choice[{index}]", value)
 
     @property
     def numeric(self) -> bool:
@@ -64,12 +76,35 @@ class CandidateChange:
     old: JsonScalar
     new: JsonScalar
 
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.path, str)
+            or not 1 <= len(self.path) <= 256
+            or not self.path.startswith("/")
+            or ".." in self.path
+        ):
+            raise ValueError("candidate change path must be a safe absolute JSON pointer")
+        _validate_json_scalar(self.path, self.old)
+        _validate_json_scalar(self.path, self.new)
+        if self.old == self.new:
+            raise ValueError("candidate changes must modify the parent value")
+
 
 @dataclass(frozen=True)
 class CandidateGenerator:
     type: str
     algorithm: str
     model: str | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("type", "algorithm"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not 1 <= len(value) <= 128:
+                raise ValueError(f"candidate generator {name} must contain 1..128 characters")
+        if self.model is not None and (
+            not isinstance(self.model, str) or not 1 <= len(self.model) <= 256
+        ):
+            raise ValueError("candidate generator model must contain 1..256 characters")
 
 
 @dataclass(frozen=True)
@@ -83,18 +118,38 @@ class CandidatePatch:
     schema_version: str = "rosclaw.candidate_patch.v1"
 
     def __post_init__(self) -> None:
-        if not self.patch_id.startswith("patch_"):
+        if (
+            not isinstance(self.patch_id, str)
+            or not self.patch_id.startswith("patch_")
+            or not 7 <= len(self.patch_id) <= 128
+        ):
             raise ValueError("patch_id must begin with patch_")
         if not _sha256_id(self.parent_policy_hash):
             raise ValueError("parent_policy_hash must be a sha256 identifier")
-        if not self.failure_signature_id or not self.changes:
+        if (
+            not isinstance(self.failure_signature_id, str)
+            or not 1 <= len(self.failure_signature_id) <= 512
+            or not self.changes
+            or len(self.changes) > 128
+        ):
             raise ValueError("failure signature and at least one change are required")
+        if not isinstance(self.generator, CandidateGenerator):
+            raise ValueError("candidate generator must be CandidateGenerator")
+        if not isinstance(self.human_involvement, HumanInvolvement):
+            raise ValueError("candidate human involvement must be HumanInvolvement")
+        if self.schema_version != "rosclaw.candidate_patch.v1":
+            raise ValueError("unsupported candidate patch schema")
         if len({change.path for change in self.changes}) != len(self.changes):
             raise ValueError("candidate patch cannot change the same path twice")
 
     @property
     def candidate_hash(self) -> str:
-        canonical = json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
+        canonical = json.dumps(
+            self.to_dict(),
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
         return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
 
     def to_dict(self) -> dict[str, Any]:
@@ -126,6 +181,12 @@ class CandidateCompiler:
     ) -> None:
         if not parent_policy or not allowed_bounds:
             raise ValueError("parent policy and allowed bounds cannot be empty")
+        if len(parent_policy) > 128 or len(allowed_bounds) > 128:
+            raise ValueError("candidate compiler cannot exceed 128 policy paths")
+        if any(not isinstance(path, str) for path in (*parent_policy, *allowed_bounds)):
+            raise ValueError("candidate policy paths must be strings")
+        if any(not isinstance(bound, ParameterBound) for bound in allowed_bounds.values()):
+            raise ValueError("candidate bounds must be ParameterBound values")
         if set(allowed_bounds) - set(parent_policy):
             raise ValueError("all candidate paths must exist in the parent policy")
         if any(not path.startswith("/") or ".." in path for path in allowed_bounds):
@@ -152,8 +213,16 @@ class CandidateCompiler:
         generator: CandidateGenerator,
         human_involvement: HumanInvolvement | None = None,
     ) -> CandidatePatch:
-        if not proposed_values:
+        if not isinstance(proposed_values, Mapping) or not proposed_values:
             raise ValueError("candidate proposal cannot be empty")
+        if len(proposed_values) > 128 or any(not isinstance(path, str) for path in proposed_values):
+            raise ValueError("candidate proposal paths must be bounded strings")
+        if not isinstance(failure_signature_id, str) or not (1 <= len(failure_signature_id) <= 512):
+            raise ValueError("failure_signature_id must contain 1..512 characters")
+        if not isinstance(generator, CandidateGenerator):
+            raise ValueError("generator must be CandidateGenerator")
+        if human_involvement is not None and not isinstance(human_involvement, HumanInvolvement):
+            raise ValueError("human_involvement must be HumanInvolvement")
         unknown = sorted(set(proposed_values) - set(self._allowed_bounds))
         if unknown:
             raise ValueError(f"candidate paths are not whitelisted: {', '.join(unknown)}")
@@ -228,6 +297,10 @@ class SearchCandidateGenerator:
     """Bounded Random/CMA-ES/CEM/Bayesian-style search over compiler inputs."""
 
     def __init__(self, compiler: CandidateCompiler, *, seed: int) -> None:
+        if not isinstance(compiler, CandidateCompiler):
+            raise ValueError("search compiler must be CandidateCompiler")
+        if isinstance(seed, bool) or not isinstance(seed, int):
+            raise ValueError("search seed must be an integer")
         self.compiler = compiler
         self._rng = random.Random(seed)
 
@@ -239,8 +312,10 @@ class SearchCandidateGenerator:
         objective: Callable[[CandidatePatch], float],
         budget: int,
     ) -> tuple[CandidatePatch, tuple[tuple[str, float], ...]]:
-        if budget < 2 or budget > 100_000:
-            raise ValueError("search budget must be in [2, 100000]")
+        if not isinstance(algorithm, SearchAlgorithm):
+            raise ValueError("search algorithm must be a SearchAlgorithm")
+        if isinstance(budget, bool) or not isinstance(budget, int) or budget < 2 or budget > 10_000:
+            raise ValueError("search budget must be in [2, 10000]")
         history: list[tuple[CandidatePatch, float, dict[str, JsonScalar]]] = []
         numeric_state = self._initial_numeric_state()
         for iteration in range(budget):
@@ -287,7 +362,7 @@ class SearchCandidateGenerator:
                     value = self._rng.gauss(mean, sigma)
                 elif algorithm is SearchAlgorithm.BAYESIAN and history:
                     best = max(history, key=lambda item: item[1])[2]
-                    incumbent = float(best[path])
+                    incumbent = _numeric_candidate_value(best[path], path)
                     radius = (bound.maximum - bound.minimum) / math.sqrt(iteration + 2)
                     value = self._rng.gauss(incumbent, radius)
                 else:
@@ -312,9 +387,9 @@ class SearchCandidateGenerator:
                         proposal[path] = value
                         return proposal
             else:
-                for value in bound.choices:
-                    if value != parent[path]:
-                        proposal[path] = value
+                for choice in bound.choices:
+                    if choice != parent[path]:
+                        proposal[path] = choice
                         return proposal
         raise ValueError("candidate bounds contain no value different from the parent policy")
 
@@ -329,7 +404,7 @@ class SearchCandidateGenerator:
         updated = dict(state)
         learning_rate = 0.45 if algorithm is SearchAlgorithm.CROSS_ENTROPY else 0.25
         for path, (old_mean, old_sigma) in state.items():
-            values = [float(item[2][path]) for item in elite]
+            values = [_numeric_candidate_value(item[2][path], path) for item in elite]
             mean = sum(values) / len(values)
             variance = sum((value - mean) ** 2 for value in values) / len(values)
             sigma = max(math.sqrt(variance), old_sigma * 0.1, 1e-12)
@@ -343,8 +418,23 @@ class SearchCandidateGenerator:
 def _validate_json_scalar(path: str, value: Any) -> None:
     if not isinstance(value, (str, int, float, bool)) and value is not None:
         raise ValueError(f"candidate values must be JSON scalars: {path}")
-    if isinstance(value, float) and not math.isfinite(value):
+    if (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and not math.isfinite(float(value))
+    ):
         raise ValueError(f"candidate values must be finite: {path}")
+    if isinstance(value, str) and len(value) > 4096:
+        raise ValueError(f"candidate string values cannot exceed 4096 characters: {path}")
+
+
+def _numeric_candidate_value(value: JsonScalar, path: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"candidate value is not numeric: {path}")
+    normalized = float(value)
+    if not math.isfinite(normalized):
+        raise ValueError(f"candidate value is not finite: {path}")
+    return normalized
 
 
 def _policy_hash(policy: Mapping[str, JsonScalar]) -> str:
@@ -354,7 +444,8 @@ def _policy_hash(policy: Mapping[str, JsonScalar]) -> str:
 
 def _sha256_id(value: str) -> bool:
     return (
-        value.startswith("sha256:")
+        isinstance(value, str)
+        and value.startswith("sha256:")
         and len(value) == 71
         and all(char in "0123456789abcdef" for char in value[7:])
     )

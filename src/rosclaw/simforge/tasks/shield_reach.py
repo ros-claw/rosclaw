@@ -22,7 +22,13 @@ from rosclaw.simforge.candidates import (
     SearchAlgorithm,
     SearchCandidateGenerator,
 )
-from rosclaw.simforge.evaluation import EpisodeOutcome, EvaluationBundle, PairedEpisode
+from rosclaw.simforge.evaluation import (
+    EpisodeOutcome,
+    EvaluationBundle,
+    EvidenceVerificationSource,
+    PairedEpisode,
+    _attest_evaluation_bundle,
+)
 from rosclaw.simforge.models import HumanInvolvement, Partition
 from rosclaw.simforge.seed_ledger import SeedLedger
 
@@ -51,12 +57,36 @@ class ShieldReachCase:
     scenario_commitment: str
 
     def __post_init__(self) -> None:
+        if not isinstance(self.case_id, str) or not 1 <= len(self.case_id) <= 256:
+            raise ValueError("ShieldReach case_id must contain 1..256 characters")
+        if not isinstance(self.partition, Partition):
+            raise ValueError("ShieldReach partition must be a Partition")
         if self.category not in {"safe", "unsafe", "boundary"}:
             raise ValueError("invalid ShieldReach category")
         if self.pose not in {"safe", "collision"}:
             raise ValueError("invalid ShieldReach pose")
-        if not math.isfinite(self.risk) or not 0 <= self.risk <= 1:
+        if (
+            isinstance(self.risk, bool)
+            or not isinstance(self.risk, (int, float))
+            or not math.isfinite(float(self.risk))
+            or not 0 <= float(self.risk) <= 1
+        ):
             raise ValueError("ShieldReach risk must be in [0, 1]")
+        if (
+            isinstance(self.seed, bool)
+            or not isinstance(self.seed, int)
+            or not 0 <= self.seed < 2**63
+        ):
+            raise ValueError("ShieldReach seed must be a non-negative 63-bit integer")
+        for name in ("seed_commitment", "scenario_commitment"):
+            value = getattr(self, name)
+            if (
+                not isinstance(value, str)
+                or not value.startswith("sha256:")
+                or len(value) != 71
+                or any(character not in "0123456789abcdef" for character in value[7:])
+            ):
+                raise ValueError(f"ShieldReach {name} must be a sha256 digest")
 
     def to_private_dict(self) -> dict[str, Any]:
         value = asdict(self)
@@ -90,8 +120,12 @@ def generate_shield_reach_cases(
 ) -> tuple[ShieldReachCase, ...]:
     """Generate deterministic, balanced cases; holdout seeds stay in the private bundle."""
 
-    if count < 1:
-        raise ValueError("ShieldReach case count must be positive")
+    if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 10_000:
+        raise ValueError("ShieldReach case count must be in [1, 10000]")
+    if isinstance(root_seed, bool) or not isinstance(root_seed, int):
+        raise ValueError("ShieldReach root_seed must be an integer")
+    if not isinstance(partition, Partition):
+        raise ValueError("ShieldReach partition must be a Partition")
     rng = random.Random(root_seed)
     records = ledger.allocate(partition, count)
     if category_counts is None:
@@ -99,6 +133,12 @@ def generate_shield_reach_cases(
         unsafe_count = count * 4 // 10
         boundary_count = count - safe_count - unsafe_count
     else:
+        if (
+            not isinstance(category_counts, tuple)
+            or len(category_counts) != 3
+            or any(isinstance(item, bool) or not isinstance(item, int) for item in category_counts)
+        ):
+            raise ValueError("ShieldReach category counts must be three integers")
         safe_count, unsafe_count, boundary_count = category_counts
         if min(category_counts) < 0 or sum(category_counts) != count:
             raise ValueError("ShieldReach category counts must be non-negative and sum to count")
@@ -202,8 +242,17 @@ def compile_automatic_candidate(
 
     if not cases_with_labels:
         raise ValueError("automatic ShieldReach search requires labeled discovery cases")
-    if budget < 5 or budget > 100_000:
-        raise ValueError("automatic ShieldReach search budget must be in [5, 100000]")
+    if (
+        isinstance(search_seed, bool)
+        or not isinstance(search_seed, int)
+        or isinstance(budget, bool)
+        or not isinstance(budget, int)
+        or budget < 5
+        or budget > 10_000
+    ):
+        raise ValueError(
+            "automatic ShieldReach search requires an integer seed and budget in [5, 10000]"
+        )
     safe_risks = [case.risk for case, physically_safe in cases_with_labels if physically_safe]
     unsafe_risks = [case.risk for case, physically_safe in cases_with_labels if not physically_safe]
     if not safe_risks or not unsafe_risks:
@@ -271,8 +320,19 @@ def run_shield_reach_evaluation(
         raise ValueError("ShieldReach artifacts must be outside the source checkout")
     if not cases:
         raise ValueError("ShieldReach evaluation requires cases")
+    if len(cases) > 10_000:
+        raise ValueError("ShieldReach evaluation cannot exceed 10000 cases")
     if len({case.partition for case in cases}) != 1:
         raise ValueError("ShieldReach evaluation cannot mix data partitions")
+    if len({case.case_id for case in cases}) != len(cases):
+        raise ValueError("ShieldReach evaluation case ids must be unique")
+    if (
+        isinstance(baseline_threshold, bool)
+        or not isinstance(baseline_threshold, (int, float))
+        or not math.isfinite(float(baseline_threshold))
+        or not 0.1 <= float(baseline_threshold) <= 0.9
+    ):
+        raise ValueError("ShieldReach baseline threshold must be in [0.1, 0.9]")
     threshold = _candidate_threshold(candidate)
     sandbox = Sandbox.create("ur5e", "tabletop", "mujoco")
     if not sandbox.has_physics:
@@ -287,7 +347,7 @@ def run_shield_reach_evaluation(
                 scenario_id=case.case_id,
                 robot_id="ur5e",
                 world_id="tabletop",
-                body_snapshot_hash="sha256:" + hashlib.sha256(b"sim_ur5e-v1").hexdigest(),
+                body_snapshot_hash=model_hash,
                 model_hash=model_hash,
                 seed=case.seed,
                 metadata={"initial_qpos_jitter_rad": 0.001},
@@ -342,18 +402,22 @@ def run_shield_reach_evaluation(
             receipts.append(receipt_dict)
     finally:
         sandbox.close()
+    bundle = EvaluationBundle.from_pairs(
+        task_id="shield_reach_v1",
+        candidate_hash=candidate.candidate_hash,
+        partition=cases[0].partition,
+        pairs=pairs,
+        human_involvement=candidate.human_involvement,
+        bootstrap_seed=cases[0].seed & 0x7FFF_FFFF,
+        evidence_refs=tuple(
+            "sha256:" + hashlib.sha256(json.dumps(item, sort_keys=True).encode()).hexdigest()
+            for item in receipts
+        ),
+    )
     return (
-        EvaluationBundle.from_pairs(
-            task_id="shield_reach_v1",
-            candidate_hash=candidate.candidate_hash,
-            partition=cases[0].partition,
-            pairs=pairs,
-            human_involvement=candidate.human_involvement,
-            bootstrap_seed=cases[0].seed & 0x7FFF_FFFF,
-            evidence_refs=tuple(
-                "sha256:" + hashlib.sha256(json.dumps(item, sort_keys=True).encode()).hexdigest()
-                for item in receipts
-            ),
+        _attest_evaluation_bundle(
+            bundle,
+            EvidenceVerificationSource.PHYSICS_RECEIPTS,
         ),
         tuple(receipts),
     )
@@ -430,8 +494,21 @@ def _policy_outcome(*, risk: float, threshold: float, physically_safe: bool) -> 
 
 
 def _candidate_threshold(candidate: CandidatePatch) -> float:
-    changes = {change.path: change.new for change in candidate.changes}
-    value = changes.get(RISK_THRESHOLD_PATH)
+    expected_parent = CandidateCompiler(
+        parent_policy={RISK_THRESHOLD_PATH: DEFAULT_BASELINE_THRESHOLD},
+        allowed_bounds={RISK_THRESHOLD_PATH: ParameterBound(0.1, 0.9)},
+    ).parent_policy_hash
+    if candidate.parent_policy_hash != expected_parent or len(candidate.changes) != 1:
+        raise ValueError("ShieldReach candidate is not based on the expected parent policy")
+    change = candidate.changes[0]
+    if (
+        change.path != RISK_THRESHOLD_PATH
+        or isinstance(change.old, bool)
+        or not isinstance(change.old, (int, float))
+        or not math.isclose(float(change.old), DEFAULT_BASELINE_THRESHOLD)
+    ):
+        raise ValueError("ShieldReach candidate changed outside the allowed threshold")
+    value = change.new
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("ShieldReach candidate must change /shield/risk_threshold")
     threshold = float(value)
