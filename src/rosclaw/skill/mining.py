@@ -11,6 +11,7 @@ from typing import Any
 import yaml
 
 from rosclaw.skill.evidence import write_mining_report
+from rosclaw.skill.hash import validate_candidate_id
 from rosclaw.skill.models import (
     LineageCandidate,
     LineageYaml,
@@ -284,6 +285,7 @@ def mine_skill_candidate(
     episodes = load_episodes(source_dir, query)
     if candidate_id is None:
         candidate_id = _next_candidate_id(pkg)
+    candidate_id = validate_candidate_id(candidate_id)
 
     success_episodes = [e for e in episodes if e.outcome == "success"]
     failure_episodes = [e for e in episodes if e.outcome in ("failure", "failure_recovered")]

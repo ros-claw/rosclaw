@@ -7,7 +7,21 @@ import tempfile
 import pytest
 
 from rosclaw.core.event_bus import Event, EventBus
-from rosclaw.practice.episode_recorder import EpisodeRecorder
+from rosclaw.practice.episode_recorder import EpisodeRecorder, _bounded_artifact_line
+
+
+def test_artifact_line_summarizes_oversized_nested_result():
+    line = _bounded_artifact_line(
+        {
+            "phase": "complete",
+            "timestamp": 1.0,
+            "result": {"status": "blocked", "reason": "test", "hint": "x" * 2_000_000},
+        }
+    )
+    payload = json.loads(line)
+    assert payload["persistence_truncated"] is True
+    assert payload["result_summary"]["status"] == "blocked"
+    assert len(line.encode("utf-8")) < 1024
 
 
 @pytest.fixture
@@ -385,6 +399,25 @@ class TestPublicAPI:
 
 
 class TestStubTopics:
+    def test_sandbox_string_false_and_invalid_reward_fail_closed(self, recorder, temp_artifact_dir):
+        recorder._event_bus.publish(
+            Event(
+                topic="rosclaw.sandbox.episode.finished",
+                payload={
+                    "episode_id": "ep_sandbox_invalid",
+                    "success": "false",
+                    "reward": "not-a-number",
+                },
+            )
+        )
+        meta_path = os.path.join(
+            temp_artifact_dir, "episodes", "ep_sandbox_invalid", "metadata.json"
+        )
+        with open(meta_path) as f:
+            metadata = json.load(f)
+        assert metadata["status"] == "failure"
+        assert metadata["reward"] == -1.0
+
     def test_provider_inference_stub(self, recorder, temp_artifact_dir):
         recorder._event_bus.publish(
             Event(

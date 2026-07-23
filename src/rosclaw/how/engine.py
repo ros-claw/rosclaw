@@ -42,6 +42,7 @@ logger = logging.getLogger("rosclaw.how.engine")
 # Rule-ID prefix for SAFETY_TAXONOMY-derived rules. Distinct prefix so the
 # reactive rule_id namespace (``rule_<n>_<slug>``) never collides.
 _TAXONOMY_RULE_PREFIX: Final[str] = "tax_"
+_MAX_ANALOGY_ACTION_CHARS: Final[int] = 4096
 
 # S0 (info) → 0 … S4 (emergency stop) → 4. Hoisted to module level so the
 # dict is built once at import time, not per-call.
@@ -67,6 +68,11 @@ def _severity_priority(severity: str) -> int:
 def _format_taxonomy_action(symptom: str, severity: str, strategy: str) -> str:
     """Human-readable action text for a taxonomy-derived rule."""
     return f"[{severity}/{strategy}] inject {symptom} guard (safety taxonomy)"
+
+
+def _bounded_analogy_action(value: Any) -> str:
+    """Accept only scalar recovery text and bound its persistence footprint."""
+    return value[:_MAX_ANALOGY_ACTION_CHARS] if isinstance(value, str) else ""
 
 
 class HeuristicEngine:
@@ -529,11 +535,14 @@ class HeuristicEngine:
         if self._memory is not None:
             try:
                 analogy = self._memory.find_analogy(error_log, limit=1)
-                if analogy:
+                action = _bounded_analogy_action(
+                    analogy.get("action_suggestion", "") if analogy else ""
+                )
+                if analogy and action:
                     return {
                         "rule_id": "analogy_" + str(analogy.get("id", "")),
                         "condition": error_log,
-                        "action": str(analogy.get("action_suggestion", "")),
+                        "action": action,
                         "priority": 0,
                         "source": "memory_analogy",
                     }
@@ -553,24 +562,28 @@ class HeuristicEngine:
                         if not analogies and analogy.get("action_suggestion"):
                             analogies = [analogy]
                     first = analogies[0] if analogies else {}
-                    if first.get("action_suggestion"):
+                    action = _bounded_analogy_action(first.get("action_suggestion", ""))
+                    if action:
                         pattern_id = (
                             analogy.get("pattern_id", "") if isinstance(analogy, dict) else ""
                         )
                         return {
                             "rule_id": "analogy_" + str(pattern_id),
                             "condition": error_log,
-                            "action": str(first.get("action_suggestion", "")),
+                            "action": action,
                             "priority": 0,
                             "source": "knowledge_analogy",
                         }
                 if hasattr(self._knowledge, "find_analogy"):
                     analogy = self._knowledge.find_analogy(error_log, limit=1)
-                    if analogy:
+                    action = _bounded_analogy_action(
+                        analogy.get("action_suggestion", "") if analogy else ""
+                    )
+                    if analogy and action:
                         return {
                             "rule_id": "analogy_" + str(analogy.get("id", "")),
                             "condition": error_log,
-                            "action": str(analogy.get("action_suggestion", "")),
+                            "action": action,
                             "priority": 0,
                             "source": "knowledge_analogy",
                         }

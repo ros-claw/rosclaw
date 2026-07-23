@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
+
+_CANDIDATE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+_MAX_CANDIDATE_FILE_BYTES = 4 * 1024 * 1024
 
 
 def sha256_hex(data: bytes) -> str:
@@ -14,6 +18,35 @@ def sha256_hex(data: bytes) -> str:
 
 def sha256_file(path: Path) -> str:
     return sha256_hex(path.read_bytes())
+
+
+def validate_candidate_id(candidate_id: str) -> str:
+    """Validate an identifier before using it in package-relative paths."""
+
+    if not isinstance(candidate_id, str) or not _CANDIDATE_ID_RE.fullmatch(candidate_id):
+        raise ValueError("Candidate id must use 1-64 lowercase letters, digits, '_' or '-'")
+    return candidate_id
+
+
+def candidate_artifact_paths(root: Path, candidate_id: str) -> dict[str, Path]:
+    candidate_id = validate_candidate_id(candidate_id)
+    resolved_root = root.expanduser().resolve()
+    return {
+        "parameters": resolved_root / "policies" / "params" / f"{candidate_id}.yaml",
+        "behavior_tree": resolved_root / f"behavior_tree.{candidate_id}.xml",
+    }
+
+
+def compute_candidate_evidence_hash(root: Path, candidate_id: str) -> str:
+    """Bind simulation evidence to the exact candidate inputs it evaluates."""
+
+    hashes: dict[str, str] = {}
+    for name, path in candidate_artifact_paths(root, candidate_id).items():
+        if not path.is_file() or path.stat().st_size > _MAX_CANDIDATE_FILE_BYTES:
+            raise ValueError(f"Candidate artifact is missing or too large: {name}")
+        hashes[name] = f"sha256:{sha256_file(path)}"
+    payload = json.dumps(hashes, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return f"sha256:{sha256_hex(payload)}"
 
 
 def compute_skill_hashes(

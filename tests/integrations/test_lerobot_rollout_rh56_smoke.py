@@ -112,7 +112,8 @@ def test_rh56_shadow_rollout_exact_mapping_and_trace(
         robot_id="rh56_mock",
         steps=3,
         control_hz=10.0,
-        run_sandbox_preflight=True,
+        # Mapping is under test here; the mock RH56 has no physics model.
+        run_sandbox_preflight=False,
         trace_path=trace_path,
         python_executable="python3",
     )
@@ -133,11 +134,12 @@ def test_rh56_shadow_rollout_exact_mapping_and_trace(
     assert trace["payload"]["hardware_actions_executed"] == 0
     assert trace["payload"]["outcome"] == "completed"
 
-    # Every step should have produced an action mapping event and a sandbox decision.
+    # Every step produces a mapping event; preflight is explicitly disabled,
+    # so no event may imply that a physics sandbox decision occurred.
     lines = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
     event_types = [line["event_type"] for line in lines]
     assert event_types.count("rollout.action.mapped") == 3
-    assert event_types.count("rollout.sandbox.decision") == 3
+    assert event_types.count("rollout.sandbox.decision") == 0
 
     # The first proposal must carry the RH56 joint names and exact-mapping safety.
     first_proposal = result.proposals[0]
@@ -146,10 +148,9 @@ def test_rh56_shadow_rollout_exact_mapping_and_trace(
     assert first_proposal.get("action", {}).get("names") == RH56_JOINTS
     assert first_proposal.get("safety", {}).get("executable") is False
 
-    # Sandbox preflight should have allowed the small nominal actions.
+    # Disabled preflight records an empty placeholder, never a false ALLOW.
     first_sandbox = result.sandbox_decisions[0]
-    assert first_sandbox.get("is_safe") is True
-    assert first_sandbox.get("decision") == "ALLOW"
+    assert first_sandbox == {}
 
 
 @patch("rosclaw.integrations.lerobot.rollout.loop.PersistentRuntimeManager")

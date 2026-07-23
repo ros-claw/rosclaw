@@ -1,0 +1,4 @@
+interface:
+  display_name: "ROSClaw SimForge"
+  short_description: "Validate ROSClaw across ROS 2, Gazebo, Isaac Lab, and Hub"
+  default_prompt: "Use $rosclaw-simforge to run a safe, evidence-backed ROSClaw simulation validation."

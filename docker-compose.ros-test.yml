@@ -14,6 +14,14 @@ services:
     build:
       context: .
       dockerfile: docker/ros2-humble-bridge.Dockerfile
+      # BuildKit does not automatically forward shell proxy variables.  Keep
+      # the defaults portable, while allowing deployment tests on hosts whose
+      # proxy only listens on loopback to opt into host networking.
+      network: ${ROSCLAW_DOCKER_BUILD_NETWORK:-default}
+      args:
+        http_proxy: ${ROSCLAW_DOCKER_BUILD_HTTP_PROXY:-}
+        https_proxy: ${ROSCLAW_DOCKER_BUILD_HTTPS_PROXY:-}
+        no_proxy: ${ROSCLAW_DOCKER_BUILD_NO_PROXY:-}
     image: rosclaw/ros2-humble-bridge:latest
     container_name: ${ROSBRIDGE_CONTAINER_NAME:-rosclaw-ros2-humble-bridge}
     command: ["turtlesim"]

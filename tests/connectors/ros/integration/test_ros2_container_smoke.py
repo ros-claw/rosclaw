@@ -16,6 +16,7 @@ import subprocess
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlparse
 
 import pytest
 
@@ -53,6 +54,29 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def _configure_build_proxy(env: dict[str, str]) -> None:
+    """Forward host proxy settings to BuildKit without persisting them.
+
+    A proxy bound to loopback is only reachable from a build step when the
+    build uses host networking.  Compose consumes these ROSClaw-specific
+    variables in ``docker-compose.ros-test.yml``.
+    """
+    http_proxy = env.get("http_proxy") or env.get("HTTP_PROXY")
+    https_proxy = env.get("https_proxy") or env.get("HTTPS_PROXY")
+    no_proxy = env.get("no_proxy") or env.get("NO_PROXY")
+
+    if http_proxy:
+        env["ROSCLAW_DOCKER_BUILD_HTTP_PROXY"] = http_proxy
+    if https_proxy:
+        env["ROSCLAW_DOCKER_BUILD_HTTPS_PROXY"] = https_proxy
+    if no_proxy:
+        env["ROSCLAW_DOCKER_BUILD_NO_PROXY"] = no_proxy
+
+    proxy_hosts = {urlparse(proxy).hostname for proxy in (http_proxy, https_proxy) if proxy}
+    if proxy_hosts & {"127.0.0.1", "localhost", "::1"}:
+        env["ROSCLAW_DOCKER_BUILD_NETWORK"] = "host"
+
+
 def _wait_for_rosbridge(endpoint: str, timeout: float = 30.0) -> bool:
     """Poll the rosbridge /rosapi/topics service until turtlesim topics appear."""
     ep = RosbridgeEndpoint.from_url(endpoint)
@@ -77,7 +101,7 @@ def _wait_for_rosbridge(endpoint: str, timeout: float = 30.0) -> bool:
 def deployed_ros_stack():
     """Bring up the Docker Compose stack on a free host port and tear it down."""
     if not COMPOSE_FILE.exists():
-        pytest.skip(f"Compose file not found: {COMPOSE_FILE}")
+        pytest.fail(f"Compose file not found: {COMPOSE_FILE}")
 
     if not _docker_available():
         pytest.skip("docker compose is not available")
@@ -91,6 +115,7 @@ def deployed_ros_stack():
     env["ROSBRIDGE_HOST_PORT"] = str(host_port)
     env["ROSBRIDGE_CONTAINER_NAME"] = container_name
     env["COMPOSE_PROJECT_NAME"] = project_name
+    _configure_build_proxy(env)
 
     def _run(args: list[str], **kwargs) -> subprocess.CompletedProcess:
         return subprocess.run(
@@ -103,13 +128,13 @@ def deployed_ros_stack():
 
     up = _run(["up", "--build", "-d", "--wait"], timeout=300.0)
     if up.returncode != 0:
-        pytest.skip(f"docker compose up failed:\n{up.stdout}\n{up.stderr}")
+        pytest.fail(f"docker compose up failed:\n{up.stdout}\n{up.stderr}")
 
     # --wait waits for the container healthcheck, but turtlesim needs a moment
     # to register its topics after rosbridge is already listening.
     if not _wait_for_rosbridge(endpoint, timeout=STACK_READY_TIMEOUT):
         _run(["down", "-v", "--remove-orphans"])
-        pytest.skip(f"rosbridge did not become reachable at {endpoint}")
+        pytest.fail(f"rosbridge did not become reachable at {endpoint}")
 
     yield endpoint
 

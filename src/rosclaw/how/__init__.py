@@ -58,6 +58,7 @@ from .intervention import (
 )
 from .recovery import RecoveryEngine, RecoveryFormatter, format_recovery_suggestion
 from .recovery_loop import RecoveryLoop
+from .retry_orchestrator import CandidatePatch, RetryExecutionResult, RetryOrchestrator
 
 __all__ = [
     # service client
@@ -68,6 +69,9 @@ __all__ = [
     "RecoveryFormatter",
     "format_recovery_suggestion",
     "RecoveryLoop",
+    "CandidatePatch",
+    "RetryExecutionResult",
+    "RetryOrchestrator",
     # intervention schemas
     "AgentContext",
     "ArtifactContext",

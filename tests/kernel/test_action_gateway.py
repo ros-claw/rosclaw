@@ -9,6 +9,7 @@ from rosclaw.kernel import (
     ActionGateway,
     ActionState,
     AuthorizationContext,
+    EvidenceDomain,
     EvidenceLevel,
     ExecutionMode,
     VerificationPolicy,
@@ -79,6 +80,27 @@ def test_gateway_returns_idempotent_receipt_for_duplicate_action_id() -> None:
     assert first.to_dict() == second.to_dict()
     assert calls == ["action-1"]
     assert first.verified is True
+    assert first.evidence_domain is EvidenceDomain.SIMULATION
+    assert first.valid_for_promotion is False
+
+
+def test_gateway_rejects_evidence_domain_escalation() -> None:
+    def execute(_action: ActionEnvelope) -> ActionExecutionResult:
+        return ActionExecutionResult(
+            final_state=ActionState.COMPLETED,
+            evidence_level=EvidenceLevel.TASK_VERIFIED,
+            evidence_domain=EvidenceDomain.HARDWARE,
+        )
+
+    gateway = ActionGateway()
+    gateway.register_executor("sandbox.reach", ExecutionMode.SIMULATION, execute)
+
+    receipt = gateway.submit(_action())
+
+    assert receipt.final_state is ActionState.FAILED
+    assert receipt.evidence_level is EvidenceLevel.REQUESTED
+    assert receipt.evidence_domain is EvidenceDomain.SIMULATION
+    assert any(error["code"] == "EVIDENCE_DOMAIN_MISMATCH" for error in receipt.errors)
 
 
 def test_fixture_receipt_can_never_be_verified() -> None:
@@ -318,6 +340,35 @@ def test_real_execution_emits_robot_action_and_state_spans() -> None:
     observation = robot_state.output["observations"][0]
     for key in ("position", "force_g", "current_ma", "temperature_c", "status_bits"):
         assert key in observation, key
+
+
+def test_trace_uses_gateway_sanitized_evidence_domain() -> None:
+    exporter = _RecordingExporter()
+
+    def execute(_action: ActionEnvelope) -> ActionExecutionResult:
+        return ActionExecutionResult(
+            final_state=ActionState.COMPLETED,
+            evidence_level=EvidenceLevel.TASK_VERIFIED,
+            evidence_domain=EvidenceDomain.HARDWARE,
+            dispatch_result={"accepted": True},
+            observations=[{"position": [0.0]}],
+        )
+
+    gateway = ActionGateway(tracer=Tracer(exporters=[exporter]))
+    gateway.register_executor("sandbox.reach", ExecutionMode.SIMULATION, execute)
+
+    receipt = gateway.submit(_action(action_id="mismatched-domain-trace"))
+
+    assert receipt.final_state is ActionState.FAILED
+    spans = _finished_spans(exporter)
+    robot_action = spans["kernel.robot_action"]
+    robot_state = spans["kernel.robot_state"]
+    assert robot_action.output["evidence_level"] == "REQUESTED"
+    assert robot_action.output["evidence_domain"] == "SIMULATION"
+    assert robot_action.output["executor_reported_evidence_domain"] == "HARDWARE"
+    assert robot_state.output["evidence_level"] == "REQUESTED"
+    assert robot_state.output["evidence_domain"] == "SIMULATION"
+    assert robot_state.attributes["physical_observation"] is False
 
 
 def test_fixture_execution_keeps_physical_flags_false() -> None:

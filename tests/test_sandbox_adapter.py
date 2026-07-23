@@ -108,8 +108,9 @@ class TestSandboxRuntimeAdapterValidateTrajectory:
         adapter = SandboxRuntimeAdapter(config, event_bus=bus)
         adapter._sandbox_service = MagicMock()
         result = adapter.validate_trajectory([])
-        assert result["is_safe"] is True
-        assert result["risk_score"] == 0.0
+        assert result["is_safe"] is False
+        assert result["reason"] == "EMPTY_TRAJECTORY"
+        assert result["physics_executed"] is False
 
     def test_validate_exception_fallback(self):
         bus = EventBus()
@@ -122,57 +123,38 @@ class TestSandboxRuntimeAdapterValidateTrajectory:
             result = adapter.validate_trajectory([[0.0, 0.0, 0.0]])
         assert result["is_safe"] is False
         assert "Validation error" in result["reason"]
+        assert result["physics_executed"] is False
+        assert result["valid_for_promotion"] is False
+        assert result["evidence_domain"] == "SIMULATION"
 
     def test_validate_publishes_blocked_event(self):
         bus = EventBus()
         received = []
         bus.subscribe("firewall.action_blocked", lambda e: received.append(e.payload))
-        config = {"engine": "mujoco", "world_id": "empty", "robot_id": "test_bot"}
+        config = {"engine": "mujoco", "world_id": "empty", "robot_id": "ur5e"}
         adapter = SandboxRuntimeAdapter(config, event_bus=bus)
-        adapter._sandbox_service = MagicMock()
-
-        mock_decision = MagicMock()
-        mock_decision.is_allowed = False
-        mock_decision.risk_score = 0.8
-        mock_decision.reason = "collision"
-        mock_decision.predicted_collision = True
-        mock_decision.violated_constraints = ["joint_limit"]
-        mock_decision.replay_id = "rep_1"
-
-        with patch("rosclaw.sandbox.firewall.gate.FirewallGate") as mock_gate:
-            instance = mock_gate.return_value
-            instance.check.return_value = mock_decision
-            result = adapter.validate_trajectory([[0.0, 0.0, 0.0]])
+        adapter.initialize()
+        result = adapter.validate_trajectory([[10.0, 0.0, 0.0, 0.0, 0.0, 0.0]])
 
         assert result["is_safe"] is False
         assert len(received) == 1
         assert received[0]["decision"] == "BLOCK"
-        assert received[0]["robot_id"] == "test_bot"
+        assert received[0]["robot_id"] == "ur5e"
+        adapter.stop()
 
     def test_validate_publishes_allowed_event(self):
         bus = EventBus()
         received = []
         bus.subscribe("firewall.action_allowed", lambda e: received.append(e.payload))
-        config = {"engine": "mujoco", "world_id": "empty", "robot_id": "test_bot"}
+        config = {"engine": "mujoco", "world_id": "empty", "robot_id": "ur5e"}
         adapter = SandboxRuntimeAdapter(config, event_bus=bus)
-        adapter._sandbox_service = MagicMock()
-
-        mock_decision = MagicMock()
-        mock_decision.is_allowed = True
-        mock_decision.risk_score = 0.1
-        mock_decision.reason = "safe"
-        mock_decision.predicted_collision = False
-        mock_decision.violated_constraints = []
-        mock_decision.replay_id = None
-
-        with patch("rosclaw.sandbox.firewall.gate.FirewallGate") as mock_gate:
-            instance = mock_gate.return_value
-            instance.check.return_value = mock_decision
-            result = adapter.validate_trajectory([[0.0, 0.0, 0.0]])
+        adapter.initialize()
+        result = adapter.validate_trajectory([[0.0, -1.0, 1.5, 0.0, 1.5, 0.0]])
 
         assert result["is_safe"] is True
         assert len(received) == 1
         assert received[0]["decision"] == "ALLOW"
+        adapter.stop()
 
 
 class TestSandboxRuntimeAdapterSimulateStep:
@@ -276,61 +258,29 @@ class TestSandboxRuntimeAdapterSenseAware:
 
     def _make_adapter(self, sense_runtime=None):
         bus = EventBus()
-        config = {"engine": "mujoco", "world_id": "empty", "robot_id": "test_bot"}
+        config = {"engine": "mujoco", "world_id": "empty", "robot_id": "ur5e"}
         runtime_wrapper = (
             type("FakeRuntime", (), {"sense": sense_runtime})() if sense_runtime else None
         )
         adapter = SandboxRuntimeAdapter(config, event_bus=bus, runtime=runtime_wrapper)
-        adapter._sandbox_service = MagicMock()
+        adapter.initialize()
         return adapter
 
     def test_validate_injects_body_sense_snapshot(self, sense_runtime):
         adapter = self._make_adapter(sense_runtime)
-        captured_action = {}
-
-        with patch("rosclaw.sandbox.firewall.gate.FirewallGate") as mock_gate:
-            instance = mock_gate.return_value
-            decision = MagicMock()
-            decision.is_allowed = True
-            decision.risk_score = 0.1
-            decision.reason = "safe"
-            decision.predicted_collision = False
-            decision.violated_constraints = []
-            decision.replay_id = None
-            instance.check.return_value = decision
-
-            def capture_check(action):
-                captured_action.update(action)
-                return decision
-
-            instance.check.side_effect = capture_check
-            adapter.validate_trajectory([[0.0, 0.0, 0.0]])
-
-        assert "body_sense_snapshot" in captured_action
-        assert captured_action["body_sense_snapshot"]["overall_status"] == "not_ready"
+        result = adapter.validate_trajectory([[0.0, -1.0, 1.5, 0.0, 1.5, 0.0]])
+        snapshot = result["simulation_receipt"]["request"]["scenario"]["metadata"][
+            "body_sense_snapshot"
+        ]
+        assert snapshot["overall_status"] == "not_ready"
+        adapter.stop()
 
     def test_validate_without_runtime_does_not_inject_snapshot(self):
         adapter = self._make_adapter(None)
-        captured_action = {}
-
-        with patch("rosclaw.sandbox.firewall.gate.FirewallGate") as mock_gate:
-            instance = mock_gate.return_value
-            decision = MagicMock()
-            decision.is_allowed = True
-            decision.risk_score = 0.1
-            decision.reason = "safe"
-            decision.predicted_collision = False
-            decision.violated_constraints = []
-            decision.replay_id = None
-
-            def capture_check(action):
-                captured_action.update(action)
-                return decision
-
-            instance.check.side_effect = capture_check
-            adapter.validate_trajectory([[0.0, 0.0, 0.0]])
-
-        assert "body_sense_snapshot" not in captured_action
+        result = adapter.validate_trajectory([[0.0, -1.0, 1.5, 0.0, 1.5, 0.0]])
+        metadata = result["simulation_receipt"]["request"]["scenario"]["metadata"]
+        assert "body_sense_snapshot" not in metadata
+        adapter.stop()
 
     def test_validate_adapter_failure_falls_back(self, sense_runtime, caplog):
         import logging
@@ -339,18 +289,9 @@ class TestSandboxRuntimeAdapterSenseAware:
         adapter._sandbox_context_adapter = MagicMock()
         adapter._sandbox_context_adapter.apply.side_effect = RuntimeError("adapter broken")
 
-        with patch("rosclaw.sandbox.firewall.gate.FirewallGate") as mock_gate:
-            instance = mock_gate.return_value
-            decision = MagicMock()
-            decision.is_allowed = True
-            decision.risk_score = 0.0
-            decision.reason = "safe"
-            decision.predicted_collision = False
-            decision.violated_constraints = []
-            decision.replay_id = None
-            instance.check.return_value = decision
-            with caplog.at_level(logging.WARNING, logger="rosclaw.sandbox.runtime_adapter"):
-                result = adapter.validate_trajectory([[0.0, 0.0, 0.0]])
+        with caplog.at_level(logging.WARNING, logger="rosclaw.sandbox.runtime_adapter"):
+            result = adapter.validate_trajectory([[0.0, -1.0, 1.5, 0.0, 1.5, 0.0]])
 
         assert result["is_safe"] is True
         assert "without body sense" in caplog.text or "adapter broken" in caplog.text
+        adapter.stop()

@@ -46,3 +46,14 @@ def test_mine_generates_candidate(tmp_path: Path):
     assert (dest / "evidence" / "reports" / "candidate_0001_mining.json").exists()
     assert pkg.skill.metadata.candidate_id == "candidate_0001"
     assert any(c.id == "candidate_0001" for c in pkg.lineage.candidates)
+
+
+def test_candidate_id_cannot_escape_package(tmp_path: Path):
+    dest = tmp_path / "g1_kick_ball"
+    context = _init_context("g1_kick_ball", "unitree_g1", "manipulation", "ros-claw")
+    _copy_template(TEMPLATE_DIR, dest, context)
+    pkg = SkillPackage(dest).try_load()
+
+    with pytest.raises(ValueError, match="Candidate id"):
+        mine_skill_candidate(pkg, FIXTURES, candidate_id="../../outside")
+    assert not (tmp_path / "outside.yaml").exists()

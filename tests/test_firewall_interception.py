@@ -6,6 +6,35 @@ from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
 
 
 class TestFirewallGateChecks:
+    def test_mock_fixture_non_joint_action_gets_structural_validation(self):
+        gate = FirewallGate(robot_id="turtlebot", world_id="mock")
+
+        safe = gate.check({"type": "pid_move", "parameters": {"target": 1.0, "Kp": 1.0, "Kd": 0.1}})
+        unsafe = gate.check({"type": "pid_move", "parameters": {"target": float("nan")}})
+        cyclic_parameters = {}
+        cyclic_parameters["self"] = cyclic_parameters
+        cyclic = gate.check({"type": "pid_move", "parameters": cyclic_parameters})
+
+        assert safe.is_allowed is True
+        assert safe.physics_executed is False
+        assert unsafe.is_allowed is False
+        assert unsafe.violated_constraints == ["invalid_fixture_parameters"]
+        assert cyclic.is_allowed is False
+        assert cyclic.violated_constraints == ["invalid_fixture_parameters"]
+
+    def test_empty_or_non_finite_action_is_blocked(self):
+        gate = FirewallGate(robot_id="ur5e", world_id="empty")
+        try:
+            empty = gate.check({"type": "joint_position", "values": []})
+            non_finite = gate.check({"type": "joint_position", "values": [float("nan")] * 6})
+        finally:
+            gate.close()
+
+        assert empty.is_allowed is False
+        assert empty.violated_constraints == ["invalid_joint_values"]
+        assert non_finite.is_allowed is False
+        assert non_finite.violated_constraints == ["invalid_joint_values"]
+
     def test_joint_limit_violation_blocked(self):
         gate = FirewallGate(robot_id="ur5e", world_id="empty")
         action = {"type": "joint_position", "values": [10.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
@@ -82,13 +111,14 @@ class TestFirewallEventPublishing:
             safety_level="MODERATE",
         )
         assert result["is_safe"] is False
-        assert "Firewall blocked" in result["reason"]
+        assert result["reason"] == "JOINT_0_LIMIT"
+        assert result["physics_executed"] is False
         assert result["replay_id"] is not None
         assert len(received_events) == 1
         event = received_events[0]
         assert event.topic == "firewall.action_blocked"
         assert event.payload["robot_id"] == "ur5e"
-        assert "joint_0_limit" in event.payload["violations"]
+        assert "JOINT_0_LIMIT" in event.payload["violations"]
         assert event.payload["replay_id"] == result["replay_id"]
         assert event.source == "sandbox.firewall"
         adapter._do_stop()

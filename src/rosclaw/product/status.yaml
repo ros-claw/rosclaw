@@ -84,6 +84,40 @@ golden_paths:
       en: Real MuJoCo execution and receipt verification are system-tested. Local Codex CLI black-box runs discovered all 22 MCP tools, completed the simulation workflow, and confirmed that rosclawd blocks unauthorized REAL actions without hardware dispatch; independent H5 acceptance remains pending.
       zh: 真实 MuJoCo 执行与 Receipt 验证已通过系统测试；本地 Codex CLI 黑盒发现全部 22 个 MCP 工具、完成仿真工作流，并确认 rosclawd 会在无硬件派发的情况下阻止未授权 REAL 动作；独立 H5 验收仍待完成。
 
+  ur5e_shield_evolution:
+    display:
+      en: UR5e physics shield evolution
+      zh: UR5e 物理安全门自进化
+    robot: sim_ur5e
+    capability: sandbox.follow_trajectory
+    claim: simulation_verified
+    support_tier: H2_SIMULATION_VERIFIED
+    candidate_tier: H2_SIMULATION_VERIFIED
+    modes:
+      fixture: fixture_available
+      simulation: verified
+      shadow: not_run
+      real: not_run
+    dimensions:
+      simulation: verified
+      hardware_read: not_run
+      hardware_actuation: not_run
+      agent_blackbox: developer_observed
+      physical_estop: not_applicable
+    agent_ready: false
+    evidence:
+      - id: ur5e-shield-cpu-paired-20260722
+        kind: automated_physics_system_test
+        path: tests/darwin/test_physics_runner.py
+        verified_at: "2026-07-23"
+        observation_scope: physics_simulation
+        fixture: false
+        independent: true
+        receipt_schema: rosclaw.simulation_receipt.v1
+    evidence_summary:
+      en: The automated CPU MuJoCo test catches an endpoint-safe midpath tabletop collision, verifies artifact hashes and deterministic strict replay, and compares paired baseline/candidate rollouts over two effective initial-state seeds. The code enforces a SIM promotion ceiling; generated operator and GPU evidence remains outside Git.
+      zh: 自动化 CPU MuJoCo 测试可检出“终点安全但中段撞桌”，验证 Artifact 哈希与确定性严格重放，并在两个实际改变初始物理状态的 seed 上配对比较 baseline/candidate。代码强制晋级上限为 SIM；操作员与 GPU 运行证据保存在 Git 仓库之外。
+
   rh56_single_step:
     display:
       en: RH56 LeRobot single-step loop

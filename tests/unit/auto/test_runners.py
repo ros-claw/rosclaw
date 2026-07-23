@@ -12,11 +12,25 @@ def test_runner_result_roundtrip():
     assert restored.metrics["a"] == 1
 
 
+def test_runner_result_does_not_coerce_truthy_strings():
+    restored = RunnerResult.from_dict(
+        {
+            "success": "false",
+            "physics_executed": "false",
+            "valid_for_promotion": "false",
+        }
+    )
+    assert restored.success is False
+    assert restored.physics_executed is False
+    assert restored.valid_for_promotion is False
+
+
 def test_local_runner_health():
     runner = LocalRunner()
     h = runner.health()
-    assert h["status"] == "healthy"
+    assert h["status"] == "unconfigured"
     assert h["runner"] == "local"
+    assert h["valid_for_promotion"] is False
 
 
 def test_local_runner_simulated_experiment_with_patch():
@@ -167,3 +181,26 @@ def test_darwin_runner_no_global_random_pollution():
     random.random()  # consume the 'before' value
     expected_next = random.random()
     assert after == expected_next, "DarwinRunner polluted global random state"
+
+
+def test_external_runner_does_not_trust_string_booleans():
+    class SandboxClient:
+        def run_experiment(self, _experiment):
+            return {
+                "success": "false",
+                "physics_executed": "false",
+                "valid_for_promotion": "false",
+            }
+
+    exp = ExperimentSpec(
+        id="exp_external",
+        proposal_id="proposal",
+        patch_id="patch",
+        task="pick_cube",
+        baseline_skill_id="baseline",
+        candidate_skill_id="candidate",
+    )
+    result = SandboxRunner(config={"backend": "mujoco", "sandbox_client": SandboxClient()}).run(exp)
+    assert result.success is False
+    assert result.physics_executed is False
+    assert result.valid_for_promotion is False

@@ -55,7 +55,9 @@ def test_end_to_end_failure_to_proposal():
 
 def test_end_to_end_experiment_and_evaluation():
     """Full loop: experiment -> runner -> evaluation -> decision."""
-    engine = AutoEngine(config=AutoConfig(local_store_path="./.rosclaw_auto_test_e2e2"))
+    engine = AutoEngine(
+        config=AutoConfig(local_store_path="./.rosclaw_auto_test_e2e2", runner_backend="mock")
+    )
     engine.create_task("pick_cube", "panda", "pick_v1")
 
     # Create and run experiment
@@ -74,16 +76,23 @@ def test_end_to_end_experiment_and_evaluation():
     c = raw["metrics"]["candidate"]
     per_seed = raw["metrics"].get("per_seed")
     eval_res = engine.create_evaluation(exp.id, b, c, per_seed)
-    assert eval_res.decision in ["promote", "reject", "need_more_data"]
+    assert eval_res.decision in ["promote_to_sim", "reject", "need_more_evidence"]
 
 
-def test_end_to_end_champion_and_lineage():
+def test_end_to_end_champion_and_lineage(store_test_champion):
     """Test champion promotion + lineage tracking."""
     engine = AutoEngine(config=AutoConfig(local_store_path="./.rosclaw_auto_test_e2e3"))
     task = engine.create_task("pick_cube", "panda", "pick_v1")
 
-    champ = engine.promote_champion(
-        "pick_v1.5", task.id, "sim", {"success_rate": 0.76}, "pick_v1", "patch_001", "exp_001"
+    champ = store_test_champion(
+        engine,
+        "pick_v1.5",
+        task.id,
+        "sim",
+        {"success_rate": 0.76},
+        "pick_v1",
+        "patch_001",
+        "exp_001",
     )
     assert champ.level == "sim"
 
@@ -95,14 +104,14 @@ def test_end_to_end_champion_and_lineage():
     assert "pick_v1.5" in tree
 
 
-def test_end_to_end_rollback():
+def test_end_to_end_rollback(store_test_champion):
     """Test rollback from sim to baseline."""
     engine = AutoEngine(config=AutoConfig(local_store_path="./.rosclaw_auto_test_e2e4"))
     task = engine.create_task("pick_cube", "panda", "pick_v1")
 
     engine.promote_champion("pick_v1", task.id, "baseline", {}, "", "", "")
-    engine.promote_champion(
-        "pick_v1.5", task.id, "sim", {"success_rate": 0.76}, "pick_v1", "p1", "e1"
+    store_test_champion(
+        engine, "pick_v1.5", task.id, "sim", {"success_rate": 0.76}, "pick_v1", "p1", "e1"
     )
 
     rolled = engine.rollback_skill(task.id)

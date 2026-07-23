@@ -18,6 +18,7 @@ class Champion:
     known_limits: list[str] = field(default_factory=list)
     rollback_to: str | None = None
     experiment_id: str = ""
+    evaluation_id: str = ""
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_dict(self) -> dict:
@@ -33,6 +34,7 @@ class Champion:
             "known_limits": self.known_limits,
             "rollback_to": self.rollback_to,
             "experiment_id": self.experiment_id,
+            "evaluation_id": self.evaluation_id,
             "created_at": self.created_at,
         }
 
@@ -50,5 +52,6 @@ class Champion:
             known_limits=d.get("known_limits", []),
             rollback_to=d.get("rollback_to"),
             experiment_id=d.get("experiment_id", ""),
+            evaluation_id=d.get("evaluation_id", ""),
             created_at=d.get("created_at", ""),
         )

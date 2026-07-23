@@ -22,11 +22,22 @@ class LocalRunner(BaseRunner):
 
     def __init__(self, config: dict | None = None):
         super().__init__(config)
-        self._simulate = config.get("simulate", True) if config else True
+        config = config or {}
+        self._backend = config.get("backend") or (
+            "mock" if config.get("simulate") is True else "unconfigured"
+        )
+        self._simulate = self._backend in {"mock", "fixture"}
         self._latency_sec = config.get("latency_sec", 0.1) if config else 0.1
 
     def health(self) -> dict:
-        return {"status": "healthy", "runner": self.name, "simulate": self._simulate}
+        return {
+            "status": "fixture" if self._simulate else "unconfigured",
+            "runner": self.name,
+            "backend": self._backend,
+            "simulate": self._simulate,
+            "evidence_domain": "FIXTURE" if self._simulate else None,
+            "valid_for_promotion": False,
+        }
 
     def run(self, experiment_spec: Any) -> RunnerResult:
         violations = self.validate_safety(experiment_spec)
@@ -63,12 +74,16 @@ class LocalRunner(BaseRunner):
                     },
                 },
                 logs=[
-                    f"Simulated {episodes} episodes for {candidate} vs {baseline} with parametric physics"
+                    f"Evaluated {episodes} fixture episodes for {candidate} vs {baseline} "
+                    "with the deterministic local model"
                 ],
+                evidence_domain="FIXTURE",
+                physics_executed=False,
+                valid_for_promotion=False,
             )
 
         # Non-simulate mode: placeholder for real local execution
         return RunnerResult(
             success=False,
-            error="LocalRunner non-simulate mode not yet implemented",
+            error="LocalRunner backend is unconfigured; explicitly select backend=mock for fixtures",
         )

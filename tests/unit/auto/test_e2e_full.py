@@ -14,7 +14,7 @@ class TestE2EFullLoop:
         """AUTO-E2E-001: PickCube param self-optimization through 3-tier runners."""
         store_path = "./.rosclaw_auto_test_e2e_pickcube_v2"
         shutil.rmtree(store_path, ignore_errors=True)
-        engine = AutoEngine(config=AutoConfig(local_store_path=store_path))
+        engine = AutoEngine(config=AutoConfig(local_store_path=store_path, runner_backend="mock"))
 
         task = engine.create_task("pick_cube", "panda", "pick_v1")
 
@@ -61,16 +61,9 @@ class TestE2EFullLoop:
             exp.id, b_metrics, c_metrics, per_seed, sandbox_risk_score=0.0
         )
 
-        # With optimal pregrasp_height, candidate should be promoted
-        if eval_res.decision.startswith("promote"):
-            champ = engine.promote_champion(
-                "pick_v1_sim", task.id, "sim", c_metrics, "pick_v1", patch.id, exp.id
-            )
-            assert champ.level == "sim"
-
-        # Verify lineage
-        lineage = engine.get_lineage("pick_v1_sim")
-        assert len(lineage) >= 1
+        # Fixture-only runners can exercise orchestration but cannot promote.
+        assert eval_res.decision == "need_more_evidence"
+        assert engine.get_lineage("pick_v1_sim") == []
 
         # Generate report
         report = engine.generate_report(task.id)
@@ -80,7 +73,7 @@ class TestE2EFullLoop:
         """AUTO-E2E-003: Dangerous direction registered as DeadEnd."""
         store_path = "./.rosclaw_auto_test_e2e_deadend_v2"
         shutil.rmtree(store_path, ignore_errors=True)
-        engine = AutoEngine(config=AutoConfig(local_store_path=store_path))
+        engine = AutoEngine(config=AutoConfig(local_store_path=store_path, runner_backend="mock"))
 
         # Register dead-end for torque increase
         de = engine.register_deadend(
@@ -104,7 +97,7 @@ class TestE2EFullLoop:
         assert result.passed is False
         assert "reject" in result.decision or "need_more_data" in result.decision
 
-    def test_e2e_champion_rollback(self):
+    def test_e2e_champion_rollback(self, store_test_champion):
         """AUTO-E2E-005: Champion rollback restores previous skill."""
         store_path = "./.rosclaw_auto_test_e2e_rollback_v2"
         shutil.rmtree(store_path, ignore_errors=True)
@@ -112,8 +105,15 @@ class TestE2EFullLoop:
         task = engine.create_task("pick_cube", "panda", "pick_v1")
 
         engine.promote_champion("pick_v1", task.id, "baseline", {}, "", "", "")
-        engine.promote_champion(
-            "pick_v1.5", task.id, "sim", {"success_rate": 0.76}, "pick_v1", "p1", "e1"
+        store_test_champion(
+            engine,
+            "pick_v1.5",
+            task.id,
+            "sim",
+            {"success_rate": 0.76},
+            "pick_v1",
+            "p1",
+            "e1",
         )
 
         rolled = engine.rollback_skill(task.id)

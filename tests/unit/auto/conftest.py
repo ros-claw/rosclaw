@@ -3,10 +3,13 @@
 import os
 import subprocess
 import sys
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+
+from rosclaw.auto.core import Champion
 
 
 def _subprocess_env() -> dict[str, str]:
@@ -60,3 +63,42 @@ def run_isolated_python(
         )
 
     return run
+
+
+@pytest.fixture
+def store_test_champion():
+    """Persist an explicitly unverified champion for read-only view tests."""
+
+    def store(
+        engine,
+        skill_id: str,
+        task_id: str,
+        level: str = "sim",
+        metrics: dict | None = None,
+        parent_skill: str = "",
+        patch_id: str = "",
+        experiment_id: str = "",
+    ) -> Champion:
+        champion = Champion(
+            id=f"champ_fixture_{uuid.uuid4().hex[:8]}",
+            skill_id=skill_id,
+            task_id=task_id,
+            level=level,
+            parent_skill_id=parent_skill,
+            patch_id=patch_id,
+            metrics=metrics or {},
+            validation_summary={"promotion_verified": False, "test_fixture": True},
+            experiment_id=experiment_id,
+        )
+        engine.champion_store.save_champion(champion)
+        engine.lineage.record(
+            skill_id=skill_id,
+            parent_skill=parent_skill,
+            patch_id=patch_id,
+            experiment_id=experiment_id,
+            result="fixture",
+            metrics=metrics or {},
+        )
+        return champion
+
+    return store

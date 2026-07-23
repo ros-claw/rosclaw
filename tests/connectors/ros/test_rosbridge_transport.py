@@ -73,6 +73,68 @@ def test_rosbridge_transport_close_is_idempotent():
     transport.close()  # should not raise
 
 
+def test_rosbridge_loopback_connection_bypasses_environment_proxy(monkeypatch):
+    import socket
+
+    import websocket
+
+    captured: dict[str, object] = {}
+
+    class FakeWebSocket:
+        connected = True
+
+    class FakeSocket:
+        pass
+
+    def fake_create_connection(url, **options):
+        captured["url"] = url
+        captured.update(options)
+        return FakeWebSocket()
+
+    direct_socket = FakeSocket()
+    monkeypatch.setattr(socket, "create_connection", lambda *args, **kwargs: direct_socket)
+    monkeypatch.setattr(websocket, "create_connection", fake_create_connection)
+    transport = RosbridgeTransport(
+        endpoint=RosbridgeEndpoint(host="127.0.0.1", port=9090),
+        max_retries=0,
+    )
+
+    result = transport.connect()
+
+    assert result.ok
+    assert captured["url"] == "ws://127.0.0.1:9090"
+    assert captured["socket"] is direct_socket
+
+
+def test_rosbridge_closes_direct_socket_when_handshake_fails(monkeypatch):
+    import socket
+
+    import websocket
+
+    class FakeSocket:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    direct_socket = FakeSocket()
+
+    def fail_handshake(*args, **kwargs):
+        raise RuntimeError("handshake failed")
+
+    monkeypatch.setattr(socket, "create_connection", lambda *args, **kwargs: direct_socket)
+    monkeypatch.setattr(websocket, "create_connection", fail_handshake)
+    transport = RosbridgeTransport(
+        endpoint=RosbridgeEndpoint(host="127.0.0.1", port=9090),
+        max_retries=0,
+    )
+
+    result = transport.connect()
+
+    assert result.ok is False
+    assert direct_socket.closed is True
+
+
 def test_rosbridge_transport_send_invalid_json():
     transport = RosbridgeTransport(dry_run=False)
     # No websocket server; connect will fail, returning structured error.

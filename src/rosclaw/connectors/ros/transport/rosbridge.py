@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 import threading
 import time
 import uuid
@@ -19,6 +20,8 @@ from rosclaw.connectors.ros.transport.base import (
 )
 
 logger = logging.getLogger("rosclaw.connectors.ros.transport.rosbridge")
+
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
 
 
 class RosbridgeTransport:
@@ -58,13 +61,28 @@ class RosbridgeTransport:
             if self._ws is not None and getattr(self._ws, "connected", False):
                 return RosTransportResult(ok=True)
 
+            direct_socket: socket.socket | None = None
             try:
                 import websocket
 
+                connection_options: dict[str, Any] = {}
+                if self.endpoint.scheme == "ws" and self.endpoint.host.lower() in _LOOPBACK_HOSTS:
+                    # websocket-client otherwise honors HTTP(S)_PROXY from the
+                    # environment.  A local rosbridge endpoint must never be
+                    # tunneled through an external proxy.  Supplying an already
+                    # connected socket is the library's race-free proxy bypass;
+                    # changing process-wide NO_PROXY here would affect peers.
+                    direct_socket = socket.create_connection(
+                        (self.endpoint.host.strip("[]"), self.endpoint.port),
+                        timeout=self.endpoint.timeout_sec,
+                    )
+                    connection_options["socket"] = direct_socket
                 self._ws = websocket.create_connection(
                     self.endpoint.url,
                     timeout=self.endpoint.timeout_sec,
+                    **connection_options,
                 )
+                direct_socket = None  # websocket-client owns it after a successful handshake.
                 logger.info("Connected to rosbridge at %s", self.endpoint.url)
                 return RosTransportResult(ok=True)
             except ImportError as exc:
@@ -75,6 +93,8 @@ class RosbridgeTransport:
                 logger.error(error)
                 return RosTransportResult(ok=False, error=error, raw=str(exc))
             except Exception as exc:
+                if direct_socket is not None:
+                    direct_socket.close()
                 error = f"Failed to connect to {self.endpoint.url}: {exc}"
                 logger.error(error)
                 self._ws = None

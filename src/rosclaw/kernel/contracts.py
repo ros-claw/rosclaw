@@ -109,6 +109,35 @@ class EvidenceLevel(StrEnum):
     TASK_VERIFIED = "TASK_VERIFIED"
 
 
+class EvidenceDomain(StrEnum):
+    """Where execution evidence was produced.
+
+    Evidence strength and evidence provenance are deliberately orthogonal.  A
+    task can be verified inside a simulator without becoming hardware
+    evidence.
+    """
+
+    FIXTURE = "FIXTURE"
+    SIMULATION = "SIMULATION"
+    REPLAY = "REPLAY"
+    SHADOW = "SHADOW"
+    HARDWARE = "HARDWARE"
+
+
+def evidence_domain_for_mode(mode: ExecutionMode) -> EvidenceDomain:
+    """Return the only truthful default evidence domain for ``mode``."""
+
+    normalized = ExecutionMode(mode)
+    return {
+        ExecutionMode.FIXTURE: EvidenceDomain.FIXTURE,
+        ExecutionMode.DRY_RUN: EvidenceDomain.FIXTURE,
+        ExecutionMode.REPLAY: EvidenceDomain.REPLAY,
+        ExecutionMode.SIMULATION: EvidenceDomain.SIMULATION,
+        ExecutionMode.SHADOW: EvidenceDomain.SHADOW,
+        ExecutionMode.REAL: EvidenceDomain.HARDWARE,
+    }[normalized]
+
+
 @dataclass
 class AuthorizationContext:
     """Authorization facts attached by the caller or approval service."""
@@ -312,6 +341,7 @@ class ActionExecutionResult:
 
     final_state: ActionState
     evidence_level: EvidenceLevel
+    evidence_domain: EvidenceDomain | None = None
     policy_decision: dict[str, Any] = field(default_factory=dict)
     authorization_decision: dict[str, Any] = field(default_factory=dict)
     simulation_result: dict[str, Any] | None = None
@@ -323,6 +353,12 @@ class ActionExecutionResult:
     errors: list[dict[str, Any]] = field(default_factory=list)
     artifact_directory: str | None = None
     acknowledgement_stage: AcknowledgementStage | None = None
+
+    def __post_init__(self) -> None:
+        self.final_state = ActionState(self.final_state)
+        self.evidence_level = EvidenceLevel(self.evidence_level)
+        if self.evidence_domain is not None:
+            self.evidence_domain = EvidenceDomain(self.evidence_domain)
 
 
 @dataclass
@@ -337,6 +373,7 @@ class ExecutionReceipt:
     capability_id: str
     final_state: ActionState
     evidence_level: EvidenceLevel
+    evidence_domain: EvidenceDomain | None = None
     schema_version: str = RECEIPT_SCHEMA_VERSION
     policy_decision: dict[str, Any] = field(default_factory=dict)
     authorization_decision: dict[str, Any] = field(default_factory=dict)
@@ -353,6 +390,21 @@ class ExecutionReceipt:
     started_at: datetime = field(default_factory=utc_now)
     finished_at: datetime = field(default_factory=utc_now)
 
+    def __post_init__(self) -> None:
+        self.mode = ExecutionMode(self.mode)
+        self.final_state = ActionState(self.final_state)
+        self.evidence_level = EvidenceLevel(self.evidence_level)
+        expected_domain = evidence_domain_for_mode(self.mode)
+        if self.evidence_domain is None:
+            self.evidence_domain = expected_domain
+        else:
+            self.evidence_domain = EvidenceDomain(self.evidence_domain)
+        if self.evidence_domain is not expected_domain:
+            raise ValueError(
+                f"Execution mode {self.mode.value} cannot produce "
+                f"{self.evidence_domain.value} evidence; expected {expected_domain.value}"
+            )
+
     @property
     def verified(self) -> bool:
         if self.mode is ExecutionMode.FIXTURE:
@@ -361,6 +413,17 @@ class ExecutionReceipt:
             EvidenceLevel.PHYSICALLY_OBSERVED,
             EvidenceLevel.TASK_VERIFIED,
         }
+
+    @property
+    def valid_for_promotion(self) -> bool:
+        """A generic action receipt is never sufficient promotion evidence.
+
+        Promotion requires independently replaying the typed simulation receipt
+        through ``verify_promotion_receipt``; attached booleans are not an
+        attestation boundary.
+        """
+
+        return False
 
     @property
     def trust_level(self) -> str:
@@ -403,7 +466,9 @@ class ExecutionReceipt:
             "verification_result": self.verification_result,
             "final_state": self.final_state.value,
             "evidence_level": self.evidence_level.value,
+            "evidence_domain": self.evidence_domain.value,
             "verified": self.verified,
+            "valid_for_promotion": self.valid_for_promotion,
             "trust_level": self.trust_level,
             "usable_for_real_execution": self.usable_for_real_execution,
             "artifacts": list(self.artifacts),
@@ -500,10 +565,12 @@ __all__ = [
     "EmergencyStopReceipt",
     "EmergencyStopStatus",
     "EvidenceLevel",
+    "EvidenceDomain",
     "ExecutionMode",
     "ExecutionReceipt",
     "OrphanPolicy",
     "StateTransition",
     "VerificationPolicy",
+    "evidence_domain_for_mode",
     "utc_now",
 ]

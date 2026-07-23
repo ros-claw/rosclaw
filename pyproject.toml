@@ -27,7 +27,9 @@ classifiers = [
 requires-python = ">=3.11,<3.14"
 dependencies = [
     "jieba",
-    "numpy>=1.24.0",
+    # NumPy 2.5 type stubs require Python 3.12 syntax, while ROSClaw and its
+    # CI still support Python 3.11 and run mypy with python_version=3.11.
+    "numpy>=1.24.0,<2.5",
     "mujoco>=3.0.0",
     "mcp>=1.0.0,<2.0.0",
     "pyyaml>=6.0",

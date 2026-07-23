@@ -16,6 +16,7 @@ Targets:
 
 import asyncio
 import threading
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -57,6 +58,23 @@ def fresh_runtime():
     )
     rt = Runtime(config=cfg)
     return rt
+
+
+def _install_explicit_safe_fixture(rt):
+    """Keep non-sandbox unit tests explicit about their synthetic executor."""
+    sandbox = MagicMock()
+    sandbox.has_physics = False
+    sandbox._world_id = "fixture"
+    sandbox.validate_trajectory = MagicMock(
+        return_value={
+            "is_safe": True,
+            "validation_type": "FIXTURE",
+            "physics_executed": False,
+            "evidence_domain": "FIXTURE",
+            "valid_for_promotion": False,
+        }
+    )
+    rt._sandbox = sandbox
 
 
 @pytest.fixture
@@ -214,6 +232,35 @@ class TestRuntimeSeekDBBackendSelection:
 
 
 class TestRuntimeInit:
+    def test_explicit_workspace_owns_default_mutable_runtime_storage(self, tmp_path):
+        workspace = tmp_path / "workspace"
+        cfg = RuntimeConfig(
+            workspace_home=str(workspace),
+            robot_id="storage_test_bot",
+            robot_zoo_path=str(tmp_path / "missing-zoo"),
+            enable_firewall=False,
+            enable_memory=False,
+            enable_practice=True,
+            enable_swarm=False,
+            enable_skill_manager=False,
+            enable_knowledge=False,
+            enable_how=False,
+            enable_auto=True,
+            enable_provider=False,
+            enable_sense=False,
+            enable_event_persistence=False,
+            enable_tracing=False,
+        )
+        runtime = Runtime(config=cfg)
+        runtime.initialize()
+        try:
+            assert Path(cfg.seekdb_path) == workspace / "data" / "memory" / "knowledge.sqlite"
+            assert Path(cfg.seekdb_fallback_dir) == workspace / "data" / "practice" / "fallback"
+            assert runtime._practice._output_dir == workspace / "data" / "practice"
+            assert runtime._auto.engine.store.base == workspace / "data" / "auto"
+        finally:
+            runtime.stop()
+
     def test_init_no_args(self):
         rt = Runtime()
         assert rt.config.robot_id == "rosclaw_default"
@@ -1926,6 +1973,7 @@ class TestExecute:
         rt = fresh_runtime
         rt.initialize()
         rt.start()
+        _install_explicit_safe_fixture(rt)
         result = rt.execute(
             {
                 "instruction": "pick cup",
@@ -1940,6 +1988,7 @@ class TestExecute:
         rt = fresh_runtime
         rt.initialize()
         rt.start()
+        _install_explicit_safe_fixture(rt)
         events = []
         rt.event_bus.subscribe("rosclaw.critic.success.detected", events.append)
 
@@ -1987,6 +2036,7 @@ class TestExecute:
         rt = fresh_runtime
         rt.initialize()
         rt.start()
+        _install_explicit_safe_fixture(rt)
         events = []
         rt.event_bus.subscribe("praxis.completed", events.append)
 
@@ -2041,6 +2091,7 @@ class TestExecute:
         rt = fresh_runtime
         rt.initialize()
         rt.start()
+        _install_explicit_safe_fixture(rt)
         mock_know = MagicMock()
         mock_know.record_knowledge_usage = MagicMock(side_effect=RuntimeError("know fail"))
         rt._knowledge = mock_know
@@ -2078,6 +2129,7 @@ class TestExecute:
         rt = fresh_runtime
         rt.initialize()
         rt.start()
+        _install_explicit_safe_fixture(rt)
         # capability_invoke will fallback to mock since no router
         result = rt.execute(
             {

@@ -46,13 +46,17 @@ class BenchmarkRunner:
         In production this would invoke sandbox / real robot.
         Here we provide a deterministic simulation fallback.
         """
+        import hashlib
         import random
 
         seed_results: list[SeedResult] = []
         for seed in self.seeds:
             rng = random.Random(seed)
             # Deterministic simulation: skill_id hash influences base rate
-            base_success = 0.35 + (hash(skill_id) % 100) / 300.0
+            stable_skill_seed = int.from_bytes(
+                hashlib.sha256(skill_id.encode("utf-8")).digest()[:8], "big"
+            )
+            base_success = 0.35 + (stable_skill_seed % 100) / 300.0
             if scenario and hasattr(scenario, "difficulty"):
                 if scenario.difficulty == "hard":
                     base_success -= 0.1

@@ -10,14 +10,14 @@ from rosclaw.auto.engine.auto_engine import AutoEngine
 class TestDashboardExporter:
     """AUTO-DASH-001~005: Dashboard data export tests."""
 
-    def test_export_summary(self):
+    def test_export_summary(self, store_test_champion):
         store_path = "./.rosclaw_auto_test_dash_summary"
         shutil.rmtree(store_path, ignore_errors=True)
         engine = AutoEngine(config=AutoConfig(local_store_path=store_path))
         exporter = DashboardExporter(engine)
 
         task = engine.create_task("pick_cube", "panda", "pick_v1")
-        engine.promote_champion("pick_v1.5", task.id, "sim", {"sr": 0.76}, "", "", "")
+        store_test_champion(engine, "pick_v1.5", task.id, "sim", {"sr": 0.76})
         engine.register_deadend(task.id, "bad_dir", "test", [])
 
         data = exporter.export(task.id)
@@ -38,15 +38,22 @@ class TestDashboardExporter:
         assert len(data["tasks"]) == 1
         assert data["tasks"][0]["name"] == "pick_cube"
 
-    def test_export_champions(self):
+    def test_export_champions(self, store_test_champion):
         store_path = "./.rosclaw_auto_test_dash_champs"
         shutil.rmtree(store_path, ignore_errors=True)
         engine = AutoEngine(config=AutoConfig(local_store_path=store_path))
         exporter = DashboardExporter(engine)
 
         task = engine.create_task("pick_cube", "panda", "pick_v1")
-        engine.promote_champion(
-            "pick_v1.5", task.id, "sim", {"success_rate": 0.76}, "pick_v1", "p1", "e1"
+        store_test_champion(
+            engine,
+            "pick_v1.5",
+            task.id,
+            "sim",
+            {"success_rate": 0.76},
+            "pick_v1",
+            "p1",
+            "e1",
         )
 
         data = exporter.export(task.id)
@@ -54,7 +61,7 @@ class TestDashboardExporter:
         assert data["champions"][0]["skill_id"] == "pick_v1.5"
         assert data["champions"][0]["level"] == "sim"
 
-    def test_export_lineage_graph(self):
+    def test_export_lineage_graph(self, store_test_champion):
         store_path = "./.rosclaw_auto_test_dash_lineage"
         shutil.rmtree(store_path, ignore_errors=True)
         engine = AutoEngine(config=AutoConfig(local_store_path=store_path))
@@ -62,7 +69,9 @@ class TestDashboardExporter:
 
         task = engine.create_task("pick_cube", "panda", "pick_v1")
         engine.promote_champion("pick_v1", task.id, "baseline", {}, "", "", "")
-        engine.promote_champion("pick_v1.5", task.id, "sim", {"sr": 0.76}, "pick_v1", "p1", "e1")
+        store_test_champion(
+            engine, "pick_v1.5", task.id, "sim", {"sr": 0.76}, "pick_v1", "p1", "e1"
+        )
 
         data = exporter.export(task.id)
         lineage = data["lineage"]

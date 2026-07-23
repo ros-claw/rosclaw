@@ -90,7 +90,7 @@ def test_evaluation_decision_promote():
 
     engine = AutoEngine()
     ev = engine.create_evaluation("e1", {"success_rate": 0.4}, {"success_rate": 0.6})
-    assert ev.decision.startswith("promote")
+    assert ev.decision == "need_more_evidence"
 
 
 def test_evaluation_decision_reject():

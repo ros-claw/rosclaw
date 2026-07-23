@@ -97,8 +97,20 @@ def test_failure_evolves_through_how_auto_darwin_and_skill_registry(
         engine.store.save("experiments", experiment.id, experiment.to_dict())
 
         sandbox_result = engine.run_experiment(experiment, runner="sandbox")
+        assert sandbox_result["success"] is False
+        assert sandbox_result["evidence_domain"] is None
+
+        # Explicit fixtures may exercise orchestration but remain ineligible
+        # for physics-backed promotion.
+        from rosclaw.auto.runners.darwin_runner import DarwinRunner
+        from rosclaw.auto.runners.sandbox_runner import SandboxRunner
+
+        engine.sandbox_runner = SandboxRunner({"backend": "mock"})
+        engine.darwin_runner = DarwinRunner({"backend": "mock"})
+        sandbox_result = engine.run_experiment(experiment, runner="sandbox")
         assert sandbox_result["success"] is True
-        assert sandbox_result["metrics"]["sandbox_clearance"] is True
+        assert sandbox_result["evidence_domain"] == "FIXTURE"
+        assert sandbox_result["valid_for_promotion"] is False
 
         darwin_result = engine.run_experiment(experiment, runner="darwin")
         assert darwin_result["success"] is True
@@ -114,23 +126,7 @@ def test_failure_evolves_through_how_auto_darwin_and_skill_registry(
             darwin_result["metrics"]["per_seed"],
             sandbox_risk_score=0.0,
         )
-        assert evaluation.decision.startswith("promote")
-
-        champion = engine.promote_champion(
-            "reach_candidate",
-            "reach_fixture",
-            "sim",
-            darwin_result["metrics"]["candidate"],
-            parent_skill="reach",
-            patch_id=patch.id,
-            experiment_id=experiment.id,
-        )
-        assert champion.level == "sim"
-
-        registry = runtime.skill_manager.registry
-        registered = registry.get("reach_candidate")
-        assert registered is not None
-        assert registered.skill_type == "learned"
-        assert registered.metadata["level"] == "sim"
+        assert evaluation.decision == "need_more_evidence"
+        assert engine.list_champions("reach_fixture") == []
     finally:
         runtime.stop()

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("rosclaw.sandbox.sandbox_api")
+_SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
 
 class SandboxSession:
@@ -56,6 +58,10 @@ class Sandbox:
 
     def _load_model(self) -> None:
         """Attempt to load a MuJoCo XML for the robot."""
+        if not isinstance(self._robot_id, str) or not _SAFE_IDENTIFIER_RE.fullmatch(self._robot_id):
+            self._load_error = "Invalid robot identifier."
+            logger.warning("%s", self._load_error)
+            return
         if self._engine.lower() != "mujoco":
             self._load_error = f"Engine '{self._engine}' does not execute physics."
             return
@@ -74,10 +80,10 @@ class Sandbox:
         # Resolve both editable-source and wheel-installed robot data.
         from rosclaw.runtime.eurdf_loader import _default_zoo_path
 
-        zoo_path = _default_zoo_path()
+        zoo_path = _default_zoo_path().expanduser().resolve()
 
         # Canonical robot directory lookup
-        robot_dir = zoo_path / self._robot_id
+        robot_dir = (zoo_path / self._robot_id).resolve()
         if not robot_dir.exists():
             aliases = {
                 "ur5e": "ur5e",
@@ -88,9 +94,9 @@ class Sandbox:
                 "go2": "unitree_go2",
                 "unitree_go2": "unitree_go2",
             }
-            robot_dir = zoo_path / aliases.get(self._robot_id, self._robot_id)
+            robot_dir = (zoo_path / aliases.get(self._robot_id, self._robot_id)).resolve()
 
-        if not robot_dir.exists():
+        if not robot_dir.is_relative_to(zoo_path) or not robot_dir.exists():
             self._load_error = f"No robot model directory for '{self._robot_id}'."
             logger.warning("%s", self._load_error)
             return

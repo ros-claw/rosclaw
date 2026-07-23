@@ -11,6 +11,7 @@ from rosclaw.skill.mining import mine_skill_candidate
 from rosclaw.skill.models import SkillPackage
 from rosclaw.skill.promote import promote_candidate
 from rosclaw.skill.rollback import rollback_skill
+from tests.skill.evidence_helpers import write_promotion_evidence
 
 
 @pytest.fixture(autouse=True)
@@ -26,10 +27,12 @@ FIXTURES = Path(__file__).parent / "fixtures" / "practice_sessions"
 
 def _validated_pkg(tmp_path: Path):
     dest = tmp_path / "g1_kick_ball"
-    context = _init_context("g1_kick_ball", "unitree_g1", "manipulation", "ros-claw")
+    context = _init_context("g1_kick_ball", "ur5e", "manipulation", "ros-claw")
     _copy_template(TEMPLATE_DIR, dest, context)
     pkg = SkillPackage(dest).try_load()
     mine_skill_candidate(pkg, FIXTURES, candidate_id="candidate_0001")
+    pkg = SkillPackage(dest).try_load()
+    write_promotion_evidence(pkg, "candidate_0001")
     pkg = SkillPackage(dest).try_load()
     evaluate_skill(pkg, candidate_id="candidate_0001", mode="replay")
     pkg = SkillPackage(dest).try_load()
@@ -42,6 +45,8 @@ def test_rollback_restores_validated_version(tmp_path: Path):
     original_version = pkg.skill.metadata.version
     # Promote to 0.2.0 to create a newer version, then rollback.
     mine_skill_candidate(pkg, FIXTURES, candidate_id="candidate_0002")
+    pkg = SkillPackage(tmp_path / "g1_kick_ball").try_load()
+    write_promotion_evidence(pkg, "candidate_0002")
     pkg = SkillPackage(tmp_path / "g1_kick_ball").try_load()
     evaluate_skill(pkg, candidate_id="candidate_0002", mode="replay")
     pkg = SkillPackage(tmp_path / "g1_kick_ball").try_load()

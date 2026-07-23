@@ -9,11 +9,12 @@ from pathlib import Path
 from threading import Thread
 from typing import Any
 from unittest.mock import MagicMock
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 import pytest
 
 from rosclaw.storage.outbox import OutboxRecord, OutboxStore, OutboxWorker
+from rosclaw.utils.http import urlopen_with_loopback_bypass
 
 
 @pytest.fixture
@@ -235,7 +236,7 @@ def http_committer(tmp_path: Path):
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urlopen(req, timeout=2.0) as resp:
+            with urlopen_with_loopback_bypass(req, timeout=2.0) as resp:
                 if resp.status != 200:
                     raise RuntimeError(f"unexpected status {resp.status}")
 
@@ -246,7 +247,7 @@ def http_committer(tmp_path: Path):
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urlopen(req, timeout=2.0) as resp:
+            with urlopen_with_loopback_bypass(req, timeout=2.0) as resp:
                 if resp.status != 200:
                     raise RuntimeError(f"unexpected status {resp.status}")
 

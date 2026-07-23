@@ -23,15 +23,26 @@ class DarwinRunner(BaseRunner):
 
     def __init__(self, config: dict | None = None):
         super().__init__(config)
-        self._darwin_client = config.get("darwin_client") if config else None
-        self._simulate = config.get("simulate", True) if config else True
+        config = config or {}
+        self._darwin_client = config.get("darwin_client")
+        self._backend = config.get("backend") or (
+            "mock" if config.get("simulate") is True else "unconfigured"
+        )
+        self._simulate = self._backend in {"mock", "fixture"}
 
     def health(self) -> dict:
         return {
-            "status": "healthy",
+            "status": (
+                "connected"
+                if self._darwin_client is not None
+                else ("fixture" if self._simulate else "unconfigured")
+            ),
             "runner": self.name,
+            "backend": self._backend,
             "darwin_connected": self._darwin_client is not None,
             "simulate": self._simulate,
+            "evidence_domain": "FIXTURE" if self._simulate else None,
+            "valid_for_promotion": False,
         }
 
     def run(self, experiment_spec: Any) -> RunnerResult:
@@ -56,8 +67,9 @@ class DarwinRunner(BaseRunner):
             seed_results = {}
             for seed in seeds:
                 # Isolated random state per seed — no global pollution
-                baseline_metrics = MockPhysicsModel.evaluate([], seed=seed * 1000)
-                candidate_metrics = MockPhysicsModel.evaluate(patch_changes, seed=seed * 1000 + 1)
+                paired_seed = int(seed) * 1000
+                baseline_metrics = MockPhysicsModel.evaluate([], seed=paired_seed)
+                candidate_metrics = MockPhysicsModel.evaluate(patch_changes, seed=paired_seed)
                 seed_results[seed] = {
                     "baseline": baseline_metrics,
                     "candidate": candidate_metrics,
@@ -97,21 +109,30 @@ class DarwinRunner(BaseRunner):
                 logs=[
                     f"Darwin benchmark completed on {len(seeds)} seeds, {episodes} episodes each"
                 ],
+                evidence_domain="FIXTURE",
+                physics_executed=False,
+                valid_for_promotion=False,
             )
 
         if self._darwin_client is None:
             return RunnerResult(
                 success=False,
-                error="Darwin client not configured and simulate=False",
+                error=(
+                    "Darwin backend is unconfigured; provide a physics Darwin client or "
+                    "explicitly select backend=mock for fixtures"
+                ),
             )
 
         try:
             result = self._darwin_client.run_benchmark(experiment_spec)
             return RunnerResult(
-                success=result.get("success", False),
+                success=result.get("success") is True,
                 metrics=result.get("metrics", {}),
                 logs=result.get("logs", []),
                 safety_violations=result.get("safety_violations", []),
+                evidence_domain=result.get("evidence_domain"),
+                physics_executed=result.get("physics_executed") is True,
+                valid_for_promotion=result.get("valid_for_promotion") is True,
             )
         except Exception as exc:
             logger.exception("Darwin execution failed")

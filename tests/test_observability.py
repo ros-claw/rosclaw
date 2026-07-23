@@ -298,7 +298,7 @@ def test_runtime_closed_loop_persists_replayable_trace(tmp_path):
 
     runtime = Runtime(
         RuntimeConfig(
-            robot_id="trace-test-robot",
+            robot_id="ur5e",
             enable_firewall=False,
             enable_memory=False,
             enable_practice=False,
@@ -324,7 +324,7 @@ def test_runtime_closed_loop_persists_replayable_trace(tmp_path):
             "request_id": "mission-123",
             "instruction": "dry-run test",
             "skill_name": "inspect",
-            "trajectory": [[0.0] * 6],
+            "trajectory": [[-1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]],
         }
     )
     runtime.stop()
@@ -358,7 +358,7 @@ def test_runtime_mission_links_provider_decision_and_sandbox(tmp_path):
 
     runtime = Runtime(
         RuntimeConfig(
-            robot_id="trace-test-robot",
+            robot_id="ur5e",
             enable_firewall=False,
             enable_memory=False,
             enable_practice=False,
@@ -395,7 +395,7 @@ def test_runtime_mission_links_provider_decision_and_sandbox(tmp_path):
             "skill_name": "inspect",
             "capability": "vlm.scene_understanding",
             "parameters": {"image": _ArrayLike(), "text": "find the door"},
-            "trajectory": [[0.0] * 6],
+            "trajectory": [[-1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]],
         }
     )
     runtime.stop()
@@ -443,7 +443,7 @@ def test_runtime_navigation_decision_preserves_auditable_model_evidence(tmp_path
 
     runtime = Runtime(
         RuntimeConfig(
-            robot_id="trace-navigation-robot",
+            robot_id="ur5e",
             enable_firewall=False,
             enable_memory=False,
             enable_practice=False,
@@ -483,7 +483,10 @@ def test_runtime_navigation_decision_preserves_auditable_model_evidence(tmp_path
                 "scenario": "corridor_patrol",
                 "api_key": "must-not-leak",
             },
-            "trajectory": [[0.0] * 6, [0.3, 0.1, 0.0, 0.0, 0.0, 0.0]],
+            "trajectory": [
+                [-1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0],
+                [-1.5208, -1.5708, 1.5708, -1.5708, -1.5708, 0.0],
+            ],
         }
     )
     runtime.stop()
