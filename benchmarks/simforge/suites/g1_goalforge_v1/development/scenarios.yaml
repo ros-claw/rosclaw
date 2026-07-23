@@ -1,0 +1,10 @@
+schema_version: rosclaw.simforge.goalforge_partition.v1
+partition: development
+candidate_may_view_cases: true
+variables:
+  ball_x_m: [0.86, 1.14]
+  ball_y_m: [-0.20, 0.20]
+  target_y_m: [-0.55, 0.55]
+  target_z_m: [0.20, 0.90]
+  support_ground_friction: [0.50, 1.20]
+  control_latency_ms: [0.0, 70.0]

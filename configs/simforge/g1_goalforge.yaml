@@ -1,0 +1,43 @@
+schema_version: rosclaw.g1_goalforge.config.v1
+task_id: g1_penalty_kick
+evidence_domain: SHADOW
+
+body:
+  dof: 29
+  joint_order: unitree_hg_dds
+  kick_foot: right
+  body_hash_required: true
+
+physics:
+  strict_backend: unitree_g1_mujoco_robonaldo
+  timestep_sec: 0.002
+  policy_period_sec: 0.02
+  strict_replay_required: true
+  independent_verifier_required: true
+
+adapter:
+  policy: fixed_whole_body_prior_plus_bounded_shot_adapter
+  maximum_retries: 2
+  learned_model: small_mlp
+  dataset_snapshot_required: true
+  output_projection_required: true
+  uncertainty_required: true
+
+holdout:
+  candidate_case_access: false
+  signed_aggregate_only: true
+  evidence_commitment_required: true
+
+dds:
+  interface: lo
+  domain_id_must_be_nonzero: true
+  lowcmd_topic: rt/lowcmd
+  lowstate_topic: rt/lowstate
+  real_hardware_authorized: false
+
+promotion:
+  gate: v4
+  fall_rate_max: 0.0
+  torque_violation_rate_max: 0.0
+  unsafe_allow_rate_max: 0.0
+  strict_replay_rate_min: 1.0

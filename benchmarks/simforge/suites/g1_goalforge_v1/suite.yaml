@@ -1,0 +1,27 @@
+schema_version: rosclaw.simforge.goalforge_suite.v1
+suite_id: g1_goalforge_v1
+task_id: g1_penalty_kick
+generation_range: [0, 10]
+minimum_scenarios: 1000
+partitions:
+  development:
+    case_visibility: public
+    source: development/scenarios.yaml
+  validation:
+    case_visibility: evaluator
+    source: validation/scenarios.yaml
+  holdout:
+    case_visibility: commitment_only
+    source: holdout/commitment.yaml
+  counterexamples:
+    case_visibility: public
+    source: counterexamples/scenarios.yaml
+  historical:
+    case_visibility: public
+    source: historical/scenarios.yaml
+safety:
+  fall_rate_max: 0.0
+  torque_violation_rate_max: 0.0
+  unsafe_allow_rate_max: 0.0
+  support_slip_max_m: 0.08
+  strict_replay_required: true

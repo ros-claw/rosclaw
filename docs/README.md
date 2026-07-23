@@ -88,6 +88,8 @@ Welcome to the ROSClaw documentation index. This directory contains all project 
 - **[simforge/failure_to_success_arena.md](simforge/failure_to_success_arena.md)** — Phase 3 ContactPush causal loop, module proofs, four-GPU acceptance, Gazebo process chaos, and showcase export.
 - **[help/rosclaw-simforge-phase2-implementation-report.md](help/rosclaw-simforge-phase2-implementation-report.md)** — Phase 2 implementation and local simulation evidence report.
 - **[help/rosclaw-simforge-phase3-implementation-report.md](help/rosclaw-simforge-phase3-implementation-report.md)** — Phase 3 implementation, causal results, process-chaos evidence, hashes, and evidence ceiling.
+- **[validation/GOALFORGE_PHASE4.md](validation/GOALFORGE_PHASE4.md)** — Phase 4 G1 GoalForge physical kick loop, Practice-to-MLP flywheel, four-GPU holdout isolation, Promotion Gate V4, Unitree DDS fail-closed execution, and MP4 evidence replay.
+- **[help/rosclaw-simforge-phase4-implementation-report.md](help/rosclaw-simforge-phase4-implementation-report.md)** — Phase 4 implementation, physical recovery, Practice flywheel, four-GPU screening, DDS chaos, proof hashes, and evidence ceiling.
 - **[INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md)** — Integration guide.
 - **[G1_SENSE_DEMO.md](G1_SENSE_DEMO.md)** — Unitree G1 sense demo.
 

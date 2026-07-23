@@ -1,0 +1,15 @@
+schema_version: rosclaw.simforge.goalforge_partition.v1
+partition: counterexample_regression
+cases:
+  - id: unreachable_ball
+    expected_route: STOP
+    retry_budget: 0
+  - id: incompatible_body_policy
+    expected_route: STOP
+    retry_budget: 0
+  - id: low_support_friction
+    expected_outcome: safe_reject_or_recovery
+  - id: stale_ball_observation
+    expected_outcome: not_task_verified
+  - id: duplicate_action_id
+    expected_trigger_replays: 0

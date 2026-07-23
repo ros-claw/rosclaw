@@ -26,6 +26,12 @@ def main() -> int:
     if result is not None:
         return result
 
+    from rosclaw.simforge.phase4_cli import dispatch_phase4_argv
+
+    result = dispatch_phase4_argv(sys.argv[1:])
+    if result is not None:
+        return result
+
     from rosclaw.simforge.phase3_cli import dispatch_phase3_argv
 
     result = dispatch_phase3_argv(sys.argv[1:])
