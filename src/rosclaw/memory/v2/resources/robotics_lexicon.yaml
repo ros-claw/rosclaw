@@ -1,0 +1,110 @@
+# Robotics domain lexicon for multilingual memory (数据库优化v3 §6.2).
+#
+# Used for: query normalization, BM25 document expansion, explain,
+# hard-negative construction.  NEVER mutates the original evidence —
+# expansion happens only in the derived MemoryDocument.
+#
+# Each entry: canonical term -> zh aliases + en aliases.
+# `exact_terms` below are entities that must be extracted as hard
+# metadata constraints / lexical boosts, never traded off as
+# "similar words" by an embedding (§6.3).
+
+terms:
+  joint_not_reached:
+    zh: [关节未到位, 目标位置未达到, 位置跟踪失败, 关节没到位置, 未到位, 不到位]
+    en: [joint not reached, target position not reached, position tracking failure]
+  overcurrent:
+    zh: [过流, 电流异常, 电机电流过高]
+    en: [overcurrent, current spike, motor current high]
+  camera_wedge:
+    zh: [相机卡死, 无帧, 相机失联]
+    en: [camera wedge, no frames, camera unavailable]
+  camera_no_frame:
+    zh: [无帧, 相机无数据, 帧超时]
+    en: [no frames, camera no data, frame timeout]
+  usb_disconnect:
+    zh: [USB 断开, USB 拔出, 设备掉线]
+    en: [usb disconnect, usb unplugged, device lost]
+  serial_io_error:
+    zh: [串口错误, 串口输入输出错误, 串口掉线]
+    en: [serial io error, tty error, serial device lost]
+  thermal_drift:
+    zh: [温升, 温度漂移, 温度上升]
+    en: [thermal drift, temperature rise, temperature increase]
+
+  # gestures
+  rock:
+    zh: [石头, 石头手势, 握拳]
+    en: [rock, rock gesture, fist]
+  paper:
+    zh: [布, 布手势, 张开手掌, 开掌]
+    en: [paper, paper gesture, open palm]
+  scissors:
+    zh: [剪刀, 剪刀手势]
+    en: [scissors, scissors gesture]
+  ready:
+    zh: [准备, 准备姿态]
+    en: [ready, ready pose]
+  ok:
+    zh: [OK 手势, 确认手势]
+    en: [ok, ok gesture]
+
+  # joints (RH56 6-DOF order)
+  little:
+    zh: [小指]
+    en: [little finger, pinkie]
+  ring:
+    zh: [无名指]
+    en: [ring finger]
+  middle:
+    zh: [中指]
+    en: [middle finger]
+  index:
+    zh: [食指]
+    en: [index finger]
+  thumb:
+    zh: [拇指]
+    en: [thumb]
+  thumb_rot:
+    zh: [拇指根, 拇指旋转, 拇指根关节]
+    en: [thumb rotation, thumb rotator, thumb base rotation]
+
+  # bodies / devices
+  left:
+    zh: [左手]
+    en: [left hand]
+  right:
+    zh: [右手]
+    en: [right hand]
+  rh56:
+    zh: [因时灵巧手, 灵巧手]
+    en: [rh56, inspire rh56, dexterous hand]
+  d435i:
+    zh: [深度相机]
+    en: [d435i, realsense, depth camera]
+
+# Entities extracted as HARD constraints (§6.3).  Presence in a query
+# yields a metadata constraint or a strong lexical boost; two different
+# values of the same dimension (e.g. middle vs thumb_rot) must never
+# be blurred together.
+exact_terms:
+  joints: [little, ring, middle, index, thumb, thumb_rot]
+  gestures: [rock, paper, scissors, ready, ok]
+  hands: [left, right]
+  error_codes:
+    # regex patterns matched verbatim (case-sensitive where it matters)
+    - EIO
+    - "-110"
+    - "-110\\b"
+    - ETIMEDOUT
+    - ENOSPC
+    - OB_TABLE_NOT_EXIST
+    - OB_ERR_BAD_DATABASE
+  devices: [D435i, D405, RH56, LH56, CH340, FTDI]
+  failure_types:
+    - joint_not_reached
+    - overcurrent
+    - camera_wedge
+    - camera_no_frame
+    - usb_disconnect
+    - serial_io_error

@@ -67,6 +67,12 @@ seekdb = [
     # version validated on Jetson aarch64 (glibc 2.39, Python 3.12).
     "pyseekdb==1.3.0",
 ]
+embedding = [
+    # Qwen3 CrossEncoder prompt support landed in sentence-transformers 5.4.
+    "sentence-transformers>=5.4,<6",
+    # Qwen3 model support requires Transformers 4.51+ (upstream model card).
+    "transformers>=4.51,<6",
+]
 knowledge = [
     "rosclaw-know>=1.0.2",
     "rosclaw-how>=1.0.2",
@@ -84,6 +90,9 @@ dev = [
     "rank-bm25>=0.2",
     "Pillow>=10.0",
     "httpx2>=2.0.0",
+    # rosclaw-how permits newer pyseekdb releases, but the native-memory
+    # integration and Jetson validation currently target the 1.3 API.
+    "pyseekdb==1.3.0",
     "rosclaw-know>=1.0.2",
     "rosclaw-how>=1.0.2",
 ]
@@ -91,7 +100,7 @@ dashboard = [
     "rosclaw-dashboard>=1.0.0",
 ]
 all = [
-    "rosclaw[ros2,dev,dashboard,knowledge,lerobot]",
+    "rosclaw[ros2,dev,dashboard,knowledge,lerobot,seekdb,embedding]",
 ]
 
 [project.scripts]

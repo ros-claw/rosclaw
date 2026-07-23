@@ -348,6 +348,38 @@ def cmd_memory_v2_index_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_memory_v2_index_describe(args: argparse.Namespace) -> int:
+    """Truth fields for a versioned multilingual index (数据库优化v3 §13):
+    backend, collection, embedding model + revision + dimension,
+    analyzer, vector source, score semantics, reranker, fallback state."""
+    client, _, _, _, _meta = _open_stack(args)
+    exit_code = 0
+    try:
+        from rosclaw.embedding.registry import get_provider
+        from rosclaw.storage.versioned_collections import VersionedCollectionManager
+
+        if not isinstance(client, SeekDBNativeStore):
+            output = {
+                "ok": False,
+                "error": "versioned multilingual indexes require a native SeekDB backend",
+                "backend": type(client).__name__,
+            }
+            exit_code = 2
+        else:
+            provider = get_provider(args.profile, cache_path=args.cache or None)
+            mgr = VersionedCollectionManager(client, provider)
+            output = mgr.describe(args.logical)
+            output["requested_provider_health"] = (
+                provider.health()
+                if getattr(args, "probe_provider", False)
+                else {"checked": False, "reason": "use --probe-provider to load and test the model"}
+            )
+    finally:
+        _close(client)
+    _emit(output, indent=2, ensure_ascii=False, default=str)
+    return exit_code
+
+
 def cmd_memory_v2_index_rebuild(args: argparse.Namespace) -> int:
     client, repo, vector, _, _meta = _open_stack(args, with_vector=True)
     try:
@@ -441,6 +473,20 @@ def register_memory_v2_commands(memory_subparsers: Any) -> None:
     pi.add_argument("--v2-path", default=None)
     _add_backend_arguments(pi)
     pi.set_defaults(v2_handler=cmd_memory_v2_index_rebuild)
+    pi = index_sub.add_parser(
+        "describe", help="Versioned multilingual index truth fields (profile, analyzer, registry)"
+    )
+    pi.add_argument("--v2-path", default=None)
+    pi.add_argument("--logical", default="memory_items")
+    pi.add_argument("--profile", default="qwen3_06b_1024_v1")
+    pi.add_argument("--cache", default=None, help="embedding cache sqlite path (optional)")
+    pi.add_argument(
+        "--probe-provider",
+        action="store_true",
+        help="load the requested local model and include a health probe",
+    )
+    _add_backend_arguments(pi)
+    pi.set_defaults(v2_handler=cmd_memory_v2_index_describe)
 
     p = memory_subparsers.add_parser("benchmark", help="Run the retrieval benchmark (v2)")
     p.set_defaults(v2_handler=cmd_memory_v2_benchmark)

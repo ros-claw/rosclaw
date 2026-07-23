@@ -58,10 +58,12 @@ class EmbeddingIndexManager:
     # ------------------------------------------------------------------
 
     def active_index(self, table: str = VECTOR_TABLE) -> dict[str, Any] | None:
+        # No order_by: the native SeekDB store raises on fake global
+        # ordering (数据库优化v3 §2.3), and max() over the READY set is a
+        # well-defined selection that needs no ORDER BY at all.
         rows = self._client.query(
             REGISTRY_TABLE,
             filters={"table_or_collection": table, "status": "READY"},
-            order_by="-index_version",
             limit=100_000,
         )
         return max(rows, key=lambda row: int(row.get("index_version") or 0)) if rows else None
