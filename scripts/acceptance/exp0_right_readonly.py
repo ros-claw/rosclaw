@@ -19,13 +19,13 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, "/home/nvidia/workspace/rosclaw/rosclaw_test/rosclaw/src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from rosclaw.body.rh56.transport import SerialModbusTransport
 from rosclaw.body.rh56.transport_profile import load_transport_profile
 
 READS = 1000
-PROFILE = "/home/nvidia/workspace/rosclaw/rosclaw_test/rosclaw/configs/rh56_right_rs485_v1.yaml"
+PROFILE = str(Path(__file__).resolve().parents[2] / "configs" / "rh56_right_rs485_v1.yaml")
 
 
 def main() -> int:
