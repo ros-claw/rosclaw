@@ -38,6 +38,11 @@ feedback:
   current_channel: CURRENT     # motion/stall auxiliary signal (returns ~0 at rest)
   status_channel: STATUS       # protection hard criterion
   temperature_channel: TEMP    # thermal hard criterion
+  # Register widths MEASURED on this unit (Exp 0 readonly probe,
+  # /tmp/rh56_exp0_readonly.json): right hand is 6/6 per-DOF registers
+  # (the LEFT hand is 3/3 grouped — never share defaults between hands).
+  status_registers: 6
+  temperature_registers: 6
 
 metadata:
   provider_ref: inspire_rh56_serial

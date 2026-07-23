@@ -160,7 +160,7 @@ golden_paths:
       simulation: not_applicable
       hardware_read: developer_observed
       hardware_actuation: developer_observed
-      agent_blackbox: not_run
+      agent_blackbox: developer_observed
       physical_estop: not_verified
     agent_ready: false
     evidence:
@@ -208,9 +208,83 @@ golden_paths:
           developer agent process with zero forbidden actions; dataset workflow
           verified deterministically (agent process run cut short by backend
           quota); authorized REAL requires the physical hand.
+      - id: rh56-right-shadow-exp2-20260723
+        kind: developer_hardware_report
+        path: docs/evidence/lerobot/P5_RH56_RIGHT_SHADOW_REPORT_S2_OBSERVED.md
+        commit_sha: 8d34f67
+        verified_at: "2026-07-23"
+        observation_scope: physical_hardware
+        fixture: false
+        independent: false
+        notes: >-
+          Right-hand shadow gate on the real SerialModbusTransport: S1 100
+          steps then S2 1000 steps, hardware_actions_executed == 0, effective
+          5.0 Hz, zero deadline misses; STATUS/TEMP register widths measured
+          6/6 and declared in the transport profile.
+      - id: rh56-right-real-exp3-20260723
+        kind: developer_hardware_report
+        path: docs/evidence/lerobot/RH56_RIGHT_GRADED_EXECUTION_REPORT.md
+        commit_sha: 8d34f67
+        verified_at: "2026-07-23"
+        observation_scope: physical_hardware
+        fixture: false
+        independent: false
+        notes: >-
+          Right-hand graded REAL execution: noop 20/20, micro 10/10, motion
+          10/10, gesture 10/10, OK contact 10/10 with protection_events=0 and
+          emergency_over_contact=0. Position tolerances measured at the real
+          operating envelope (little 13, ring 9, middle 10, index 10, thumb 11,
+          thumb_rot 28) after three failing-trial-driven iterations; every
+          level's practice session passes verify --strict.
+      - id: rh56-right-faults-exp4-20260723
+        kind: developer_hardware_report
+        path: docs/evidence/lerobot/RH56_RIGHT_FAULT_INJECTION_REPORT.md
+        commit_sha: 8d34f67
+        verified_at: "2026-07-23"
+        observation_scope: physical_hardware
+        fixture: false
+        independent: false
+        notes: >-
+          Right-hand fault injection 8/8: stale observation command_not_sent,
+          calibration-hash permit refusal, sandbox BLOCK, slave-no-response
+          COMMUNICATION_LOST + permit revoked, worker restart, STATUS
+          protection estop, Ctrl+C DISARMED, sysfs USB unbind with clean
+          recovery (FTDI cycles limited to 4 on the day).
+      - id: rh56-right-agent-blackbox-real-20260723
+        kind: developer_agent_blackbox
+        path: docs/evidence/lerobot/RH56_RIGHT_AGENT_BLACKBOX_REAL_V1_0_1.md
+        commit_sha: 8d34f67
+        verified_at: "2026-07-23"
+        observation_scope: external_agent_guarded_hardware
+        fixture: false
+        independent: false
+        receipt_schema: rosclaw.receipt.v1
+        notes: >-
+          Authorized REAL blackbox on the physical right hand: fresh-context
+          agent discovers, is blocked AUTHORIZATION_REQUIRED, and never
+          attempts a forbidden path (scan 0 violations); operator issues the
+          single-use daemon permit and one noop single-step ActionEnvelope
+          executes exactly once (hardware_actions_executed == 1,
+          PHYSICALLY_OBSERVED, PROTOCOL_ACKNOWLEDGED, replay
+          PERMIT_EXHAUSTED); practice chain verify --strict passes. Developer-
+          run, not independent.
+      - id: rh56-dataset-agent-rerun-20260723
+        kind: developer_agent_blackbox
+        path: docs/evidence/lerobot/RH56_DATASET_AGENT_RERUN_V1_0_1.md
+        verified_at: "2026-07-23"
+        observation_scope: external_agent_dataset_workflow
+        fixture: false
+        independent: false
+        notes: >-
+          Dataset workflow rerun by a fresh-context agent: practice identified,
+          strict verify passed via the pinned CLI (0 issues), the
+          physical-feedback export path failed honestly on rollout sessions
+          exactly as the agent predicted from source, and the deterministic
+          P2.1 export completed with load/index/dataloader validation all OK.
+          No training, no upload.
     evidence_summary:
-      en: Real SerialModbusTransport, shadow reads, graded REAL actions, and fault injection were developer-observed; a developer Agent black-box (discovery / SHADOW / unauthorized REAL / dataset workflow) passed 2026-07-22 with zero forbidden actions. Loopback fault tests now prove that target-near readback is DELIVERY_INFERRED rather than a protocol ACK; independent v1 hardware revalidation and independent Agent black-box testing remain open.
-      zh: SerialModbusTransport、Shadow 读取、分级 REAL 动作和故障注入已有开发者真机观察；开发者 Agent 黑盒（discovery / SHADOW / 未授权 REAL / dataset 流程）2026-07-22 通过、零违规动作。Loopback 故障测试现已证明目标附近回读只能标为 DELIVERY_INFERRED 而非协议 ACK；独立 v1 真机复验与独立 Agent 黑盒仍未完成。
+      en: Real SerialModbusTransport, shadow reads, graded REAL actions, and fault injection were developer-observed; a developer Agent black-box (discovery / SHADOW / unauthorized REAL / dataset workflow) passed 2026-07-22 with zero forbidden actions. Loopback fault tests now prove that target-near readback is DELIVERY_INFERRED rather than a protocol ACK. On 2026-07-23 the full v1.0.1 chain was revalidated on the physical RIGHT hand rh56_right_01 — 6/6 register widths declared, measured-envelope calibration, shadow S2 1000 steps, graded REAL noop/micro/motion/gesture/OK all passing (OK 10/10), fault injection 8/8, and an authorized developer agent blackbox executing exactly one permitted noop single step (hardware_actions_executed == 1, PHYSICALLY_OBSERVED). Independent v1 hardware revalidation and independent Agent black-box testing remain open.
+      zh: SerialModbusTransport、Shadow 读取、分级 REAL 动作和故障注入已有开发者真机观察；开发者 Agent 黑盒（discovery / SHADOW / 未授权 REAL / dataset 流程）2026-07-22 通过、零违规动作。Loopback 故障测试现已证明目标附近回读只能标为 DELIVERY_INFERRED 而非协议 ACK。2026-07-23 已在右手真机（rh56_right_01）完成 v1.0.1 全链路复验：6/6 寄存器宽度声明、运行包络实测标定、Shadow S2 1000 步、分级 REAL noop/micro/motion/gesture/OK 全通过（OK 10/10）、故障注入 8/8，以及授权开发者 Agent 黑盒精确执行一次许可 noop 单步（hardware_actions_executed == 1，PHYSICALLY_OBSERVED）。独立 v1 真机复验与独立 Agent 黑盒仍未完成。
 
   realsense_inspect:
     display:
