@@ -86,16 +86,28 @@ def main() -> int:
     for mem in structured[: LANES["cjk_to_cjk"]]:
         hand = _hand_of(mem) or "right"
         gesture = (mem.get("gesture_name") or "rock").replace("left_", "")
-        add("cjk_to_cjk", f"{ZH_HAND.get(hand, hand)}{ZH_GESTURE.get(gesture, gesture)}手势失败原因", mem)
+        add(
+            "cjk_to_cjk",
+            f"{ZH_HAND.get(hand, hand)}{ZH_GESTURE.get(gesture, gesture)}手势失败原因",
+            mem,
+        )
 
-    for mem in structured[60:60 + LANES["en_to_cjk"]]:
+    for mem in structured[60 : 60 + LANES["en_to_cjk"]]:
         hand = _hand_of(mem) or "right"
         gesture = (mem.get("gesture_name") or "rock").replace("left_", "")
-        add("en_to_cjk", f"{hand} hand {EN_GESTURE.get(gesture, gesture)} gesture failed joint not reached", mem)
+        add(
+            "en_to_cjk",
+            f"{hand} hand {EN_GESTURE.get(gesture, gesture)} gesture failed joint not reached",
+            mem,
+        )
 
-    for mem in structured[105:105 + LANES["mixed"]]:
+    for mem in structured[105 : 105 + LANES["mixed"]]:
         hand = _hand_of(mem) or "right"
-        add("mixed", f"RH56 {ZH_HAND.get(hand, hand)} {mem.get('failure_type') or 'joint_not_reached'} 失败", mem)
+        add(
+            "mixed",
+            f"RH56 {ZH_HAND.get(hand, hand)} {mem.get('failure_type') or 'joint_not_reached'} 失败",
+            mem,
+        )
 
     error_queries = [
         "EIO -110 串口",
@@ -107,11 +119,11 @@ def main() -> int:
     for i in range(LANES["error_code"]):
         add("error_code", error_queries[i % len(error_queries)], structured[i % len(structured)])
 
-    for mem in structured[150:150 + LANES["same_symptom_diff_cause"]]:
+    for mem in structured[150 : 150 + LANES["same_symptom_diff_cause"]]:
         hand = _hand_of(mem) or "right"
         add("same_symptom_diff_cause", f"{hand} 手位置跟踪失败是温度原因还是机械原因", mem)
 
-    for mem in structured[180:180 + LANES["hard_negative_body"]]:
+    for mem in structured[180 : 180 + LANES["hard_negative_body"]]:
         hand = _hand_of(mem)
         # The FORBIDDEN set must be the OPPOSITE body (run1's builder had
         # this ternary inverted, which made its confusion=0 metric
@@ -129,15 +141,13 @@ def main() -> int:
                 "id": f"q_{len(queries):04d}",
                 "kind": "hard_negative_body",
                 "text": f"{ZH_HAND.get(hand, '右手')} {ZH_GESTURE.get(gesture, gesture)} 未到位",
-                "labels": {
-                    k: v for k, v in _label_for(mem, memories).items() if k in body_ids
-                },
+                "labels": {k: v for k, v in _label_for(mem, memories).items() if k in body_ids},
                 "forbidden": forbidden,
                 "source_memory": mem["id"],
             }
         )
 
-    for mem in structured[210:210 + LANES["cross_lingual_bilingual"]]:
+    for mem in structured[210 : 210 + LANES["cross_lingual_bilingual"]]:
         hand = _hand_of(mem) or "right"
         gesture = (mem.get("gesture_name") or "rock").replace("left_", "")
         add(
@@ -155,7 +165,9 @@ def main() -> int:
         for query in queries:
             fh.write(json.dumps(query, ensure_ascii=False) + "\n")
     (out / "LANES.json").write_text(
-        json.dumps({"lanes": {k: v for k, v in LANES.items()}, "not_applicable": NOT_APPLICABLE}, indent=1, ensure_ascii=False)
+        json.dumps(
+            {"lanes": dict(LANES), "not_applicable": NOT_APPLICABLE}, indent=1, ensure_ascii=False
+        )
     )
     no_labels = sum(1 for q in queries if not q["labels"])
     print(f"queries={len(queries)} no_labels={no_labels}")
