@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import tomllib
 from pathlib import Path
@@ -12,6 +13,8 @@ import pytest
 
 from rosclaw.agent.install import cmd_agent_install
 from rosclaw.agent.tool_catalog import P0_AGENT_MCP_TOOLS
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _make_args(tmp_path: Path, **overrides: object) -> argparse.Namespace:
@@ -128,6 +131,24 @@ async def test_install_dry_run_does_not_write(tmp_path: Path) -> None:
     assert not (tmp_path / ".agents/skills/rosclaw/SKILL.md").exists()
 
 
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        "AGENTS.md",
+        "CLAUDE.md",
+        "ROSCLAW.md",
+        ".agents/skills/rosclaw/SKILL.md",
+        ".codex/config.toml",
+    ),
+)
+def test_checked_in_agent_entrypoints_are_portable(relative_path: str) -> None:
+    content = (REPOSITORY_ROOT / relative_path).read_text(encoding="utf-8")
+
+    assert ".venv/bin/python" in content
+    assert re.search(r"(?:^|[=` ])(?:/home|/Users|/code|/mnt)/", content) is None
+    assert re.search(r"(?:^|[=` ])[A-Za-z]:\\\\", content) is None
+
+
 async def test_install_preserves_existing_unmanaged_agents_md(tmp_path: Path) -> None:
     _bootstrap_project(tmp_path)
     agents = tmp_path / "AGENTS.md"
@@ -162,6 +183,55 @@ async def test_install_preserves_unmanaged_codex_config(tmp_path: Path) -> None:
         "-m",
         "rosclaw.entrypoint",
     ]
+
+
+async def test_install_upgrades_legacy_managed_mcp_server(tmp_path: Path) -> None:
+    _bootstrap_project(tmp_path)
+    mcp_config = tmp_path / ".mcp.json"
+    mcp_config.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "other": {"type": "stdio", "command": "other-server"},
+                    "rosclaw": {
+                        "type": "stdio",
+                        "command": "rosclaw",
+                        "args": [
+                            "mcp",
+                            "serve",
+                            "--profile",
+                            "${ROSCLAW_PROFILE:-default}",
+                            "--project",
+                            "${PWD}",
+                            "--log-level",
+                            "${ROSCLAW_LOG_LEVEL:-ERROR}",
+                            "-m",
+                            "rosclaw.entrypoint",
+                        ],
+                    },
+                },
+                "rosclaw": {
+                    "schema_version": "rosclaw.agent.context.v1",
+                    "cli": {"command": "/old/venv/bin/python"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert cmd_agent_install(_make_args(tmp_path)) == 0
+
+    upgraded = json.loads(mcp_config.read_text(encoding="utf-8"))
+    assert upgraded["mcpServers"]["other"]["command"] == "other-server"
+    assert upgraded["mcpServers"]["rosclaw"]["command"] == sys.executable
+    assert upgraded["mcpServers"]["rosclaw"]["args"][:4] == [
+        "-m",
+        "rosclaw.entrypoint",
+        "mcp",
+        "serve",
+    ]
+    assert upgraded["mcpServers"]["rosclaw"]["args"].count("-m") == 1
+    assert upgraded["rosclaw"]["schema_version"] == "rosclaw.agent.context.v2"
 
 
 async def test_install_rejects_unmanaged_codex_server_conflict(

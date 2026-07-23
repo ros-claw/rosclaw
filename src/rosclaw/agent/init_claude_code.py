@@ -98,6 +98,44 @@ def _write_json_file(
     return conflicts
 
 
+def _is_rosclaw_managed_mcp_config(data: dict[str, Any]) -> bool:
+    metadata = data.get("rosclaw")
+    if isinstance(metadata, dict):
+        schema_version = str(metadata.get("schema_version", ""))
+        if schema_version.startswith("rosclaw.agent.context."):
+            return True
+
+    servers = data.get("mcpServers")
+    server = servers.get("rosclaw") if isinstance(servers, dict) else None
+    if not isinstance(server, dict):
+        return False
+    command = str(server.get("command", ""))
+    args = server.get("args")
+    return (
+        Path(command).name == "rosclaw" and isinstance(args, list) and args[:2] == ["mcp", "serve"]
+    )
+
+
+def _write_mcp_json(path: Path, new_data: dict[str, Any]) -> list[str]:
+    """Upgrade ROSClaw-owned MCP entries while preserving unrelated servers."""
+    existing = read_json_if_exists(path)
+    if not existing or not _is_rosclaw_managed_mcp_config(existing):
+        return _write_json_file(path, new_data)
+
+    backup_file(path)
+    existing_servers = existing.get("mcpServers")
+    new_servers = new_data.get("mcpServers")
+    merged_servers = dict(existing_servers) if isinstance(existing_servers, dict) else {}
+    if isinstance(new_servers, dict):
+        merged_servers["rosclaw"] = new_servers["rosclaw"]
+
+    merged = dict(existing)
+    merged["mcpServers"] = merged_servers
+    merged["rosclaw"] = new_data["rosclaw"]
+    atomic_write_json(path, merged)
+    return []
+
+
 def _write_claude_settings(
     project_root: Path,
     profile: ProjectProfile,
@@ -222,7 +260,7 @@ def _generate_files(
         return selected
 
     # .mcp.json
-    _write_json_file(paths[".mcp.json"], mcp_json)
+    _write_mcp_json(paths[".mcp.json"], mcp_json)
     generated[".mcp.json"] = paths[".mcp.json"]
 
     if include_universal:

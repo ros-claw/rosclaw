@@ -166,7 +166,7 @@ golden_paths:
     evidence:
       - id: rh56-shadow-exp2-20260717
         kind: developer_hardware_report
-        path: reports/lerobot_bridge/P5_RH56_SHADOW_REPORT_S2_OBSERVED.md
+        path: docs/evidence/lerobot/P5_RH56_SHADOW_REPORT_S2_OBSERVED.md
         commit_sha: 75a3d481efbef10ed7c7931db130a7092fe0945b
         verified_at: "2026-07-17"
         observation_scope: physical_hardware
@@ -174,7 +174,7 @@ golden_paths:
         independent: false
       - id: rh56-real-exp3-20260717
         kind: developer_hardware_report
-        path: reports/lerobot_bridge/P5D_GRADED_REAL_EXECUTION_REPORT.md
+        path: docs/evidence/lerobot/P5D_GRADED_REAL_EXECUTION_REPORT.md
         commit_sha: e013f4a470dfe44d68e70fa0d4599a67d901b46c
         verified_at: "2026-07-17"
         observation_scope: physical_hardware
@@ -182,7 +182,7 @@ golden_paths:
         independent: false
       - id: rh56-faults-exp4-20260717
         kind: developer_hardware_report
-        path: reports/lerobot_bridge/P5D_REAL_FAULT_INJECTION_REPORT.md
+        path: docs/evidence/lerobot/P5D_REAL_FAULT_INJECTION_REPORT.md
         commit_sha: 365f3d9345635a845f96295724c76d1325359087
         verified_at: "2026-07-17"
         observation_scope: physical_hardware
@@ -197,7 +197,7 @@ golden_paths:
         independent: true
       - id: rh56-lerobot-agent-blackbox-20260722
         kind: developer_agent_blackbox
-        path: reports/lerobot_bridge/AGENT_NATIVE_CLOSURE_REPORT_V1_0_1.md
+        path: docs/evidence/lerobot/AGENT_NATIVE_CLOSURE_REPORT_V1_0_1.md
         verified_at: "2026-07-22"
         observation_scope: external_agent_guarded_hardware
         fixture: false
@@ -250,7 +250,7 @@ golden_paths:
         independent: true
       - id: realsense-component-pr48
         kind: component_report
-        path: reports/ROSClaw_RealSense_MVP_Fix_Report.md
+        path: docs/evidence/realsense/ROSClaw_RealSense_MVP_Fix_Report.md
         verified_at: "2026-06-27"
         observation_scope: component
         fixture: false
@@ -518,7 +518,7 @@ components:
     evidence:
       - id: rh56-real-exp3-20260717
         kind: developer_hardware_report
-        path: reports/lerobot_bridge/P5D_GRADED_REAL_EXECUTION_REPORT.md
+        path: docs/evidence/lerobot/P5D_GRADED_REAL_EXECUTION_REPORT.md
         observation_scope: physical_hardware
         fixture: false
         independent: false

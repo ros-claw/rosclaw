@@ -65,7 +65,7 @@ print(json.dumps({"observations": obs}))
 PYEOF
 log "proposal-only smoke"
 "${ROSCLAW_PYTHON}" -m rosclaw.cli lerobot rollout proposal-only \
-  --policy.path "${REPO_ROOT}/policies/rh56_reference_policy_v1" \
+  --policy.path "${REPO_ROOT}/worker_plugins/lerobot_policy_rosclaw_rh56/policies/rh56_reference_policy_v1" \
   --observation-fixture "${SMOKE_FIXTURE}" \
   --steps 5 --json || {
     echo "[setup-lerobot-rh56] proposal-only smoke FAILED" >&2; exit 1; }

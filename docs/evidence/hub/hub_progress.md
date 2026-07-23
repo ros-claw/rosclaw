@@ -79,8 +79,8 @@ assets from a registry. It supports five asset types: `skill`, `provider`,
   - `docs/hub/private_assets.md`
   - `docs/hub/asset_manifest.md`
 - Reports:
-  - `reports/hub_progress.md`
-  - `reports/hub_validation_report.md`
+  - `docs/evidence/hub/hub_progress.md`
+  - `docs/evidence/hub/hub_validation_report.md`
 - README / QUICKSTART / `.github/workflows/ci.yml` updated with Hub quickstart
   and a dedicated `hub-test` CI job running `pytest tests/hub -v`
 

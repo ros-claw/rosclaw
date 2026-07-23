@@ -90,13 +90,10 @@ generated/
 /P0_CLAUDE_CODE_AGENT_HELP.md
 /PYEOF
 /ROSCLAW_LEROBOT_*REPORT.md
-/reports/P2.1_Gate_*_Implementation_Report.md
 
 # Raw acceptance evidence belongs in an access-controlled evidence store.
-# Keep reviewed summaries in Git, never full Agent transcripts or generated datasets.
-/reports/lerobot_bridge/agent_blackbox/
-/reports/simforge/
-/reports/embedding_bakeoff/
+# Keep reviewed summaries under docs/evidence/, never root reports or transcripts.
+/reports/
 /benchmarks/memory/v3/
 
 # Agent/backup churn

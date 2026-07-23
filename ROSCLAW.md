@@ -9,7 +9,7 @@ outside managed blocks are preserved by `rosclaw agent init claude-code`.
 
 - **Project root:** `.`
 - **MCP transport:** `stdio`
-- **Pinned ROSClaw CLI:** `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint`
+- **Pinned ROSClaw CLI:** `.venv/bin/python -m rosclaw.entrypoint`
 - **Robot ID:** (none detected)
 
 ## Agent harness activation
@@ -38,15 +38,15 @@ Robot Integration setup is an operator CLI lifecycle, not an additional MCP tool
 Use the pinned launcher above for every ROSClaw shell command; do not substitute
 a different `rosclaw` found on `PATH`.
 
-1. `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot discover --json` performs read-only supported-device discovery.
-2. `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot install realsense --json` installs and verifies the signed Integration;
+1. `.venv/bin/python -m rosclaw.entrypoint robot discover --json` performs read-only supported-device discovery.
+2. `.venv/bin/python -m rosclaw.entrypoint robot install realsense --json` installs and verifies the signed Integration;
    it does not install the native adapter unless `--install-adapter` is explicit.
-3. `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot verify realsense --stage contract --json` verifies schema,
+3. `.venv/bin/python -m rosclaw.entrypoint robot verify realsense --stage contract --json` verifies schema,
    payload hashes, signature trust, Body profiles, policy, and host compatibility.
-4. `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot configure realsense --serial <SERIAL> --model <MODEL> --json`
+4. `.venv/bin/python -m rosclaw.entrypoint robot configure realsense --serial <SERIAL> --model <MODEL> --json`
    binds an exact device identity and immutable Body snapshot. Do this only on an
    explicit operator request. `--allow-offline` is configuration, not observation.
-5. `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot verify <INSTANCE> --stage read-only --receipt <RECEIPT> --json`
+5. `.venv/bin/python -m rosclaw.entrypoint robot verify <INSTANCE> --stage read-only --receipt <RECEIPT> --json`
    checks read-only hardware evidence. Never infer hardware success from
    discovery, configuration, adapter output, or conversational text.
 
@@ -57,7 +57,7 @@ by the Agent; runtime hardware access remains behind `request_action` and `roscl
 ## Capability App lifecycle
 
 Apps declare Capability calls and verification expressions only. Use
-`/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint app list`, `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint app validate <APP> --json`, and SHADOW mode before any
+`.venv/bin/python -m rosclaw.entrypoint app list`, `.venv/bin/python -m rosclaw.entrypoint app validate <APP> --json`, and SHADOW mode before any
 REAL request. Never treat App installation or a successful local expression as
 hardware evidence. Every App step must remain behind rosclawd Session, Lease,
 Permit, policy, and Receipt checks.
@@ -68,9 +68,9 @@ Use the pinned launcher to inspect the daemon boundary and durable control
 ledger without submitting work:
 
 ```bash
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint daemon status --json
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint daemon action-status <ACTION_ID> --json
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint daemon receipt <ACTION_ID> --json
+.venv/bin/python -m rosclaw.entrypoint daemon status --json
+.venv/bin/python -m rosclaw.entrypoint daemon action-status <ACTION_ID> --json
+.venv/bin/python -m rosclaw.entrypoint daemon receipt <ACTION_ID> --json
 ```
 
 For a healthy daemon, require `running` and `ledger.integrity_verified` to be

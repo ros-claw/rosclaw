@@ -1,7 +1,7 @@
 # ROSCLAW-MANAGED-BEGIN
 # Project-scoped ROSClaw MCP configuration for trusted Codex workspaces.
 [mcp_servers.rosclaw]
-command = "/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python"
+command = ".venv/bin/python"
 args = ["-m", "rosclaw.entrypoint", "mcp", "serve", "--project", ".", "--log-level", "ERROR"]
 env_vars = ["ROSCLAW_HOME", "ROSCLAW_PROFILE", "ROSCLAW_LOG_LEVEL"]
 enabled = true

@@ -14,7 +14,7 @@ Welcome to the ROSClaw documentation index. This directory contains all project 
 | [API & Integration](#api--integration) | API reference, MCP, ROS, OpenClaw |
 | [Development](#development) | Collaboration framework, contributing, benchmarks |
 | [Planning](#planning) | Roadmaps, sprints, release checklist |
-| [Testing](#testing) | Test reports, verification, ROS integration |
+| [Testing](#testing) | Reviewed evidence, verification, ROS integration |
 
 ---
 
@@ -82,6 +82,7 @@ Welcome to the ROSClaw documentation index. This directory contains all project 
 
 ## Development
 
+- **[REPOSITORY_LAYOUT.md](REPOSITORY_LAYOUT.md)** — Root contracts, source ownership, and artifact retention rules.
 - **[BENCHMARK.md](BENCHMARK.md)** — Performance benchmarks (EventBus, SeekDB, SkillRegistry, FirewallValidator).
 - **[simforge/corebench_v1.md](simforge/corebench_v1.md)** — CoreBench schemas, evidence boundary, Gate V3, and reproduction commands.
 - **[INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md)** — Integration guide.
@@ -98,6 +99,7 @@ Welcome to the ROSClaw documentation index. This directory contains all project 
 
 ## Testing
 
+- **[evidence/README.md](evidence/README.md)** — Retention and review rules for product evidence.
 - **[ROS_INTEGRATION_TESTING.md](ROS_INTEGRATION_TESTING.md)** — Cross-project ROS 1 / ROS 2 integration test matrix.
 
 ---

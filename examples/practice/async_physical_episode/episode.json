@@ -13,7 +13,5 @@
   "environment": "mock_tabletop",
   "operator": "test_operator",
   "frames": [],
-  "metadata": {
-    "source_dir": "/code/rosclaw/rosclaw_lerobot/rosclaw_repo/examples/practice/async_physical_episode"
-  }
+  "metadata": {}
 }

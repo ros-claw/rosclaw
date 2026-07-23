@@ -5,7 +5,7 @@ description: Use when operating, validating, or changing ROSClaw physical-AI run
 
 # ROSClaw Agent Skill
 
-Use this exact launcher for every ROSClaw CLI command: `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint`. Do not replace
+Use this exact launcher for every ROSClaw CLI command: `.venv/bin/python -m rosclaw.entrypoint`. Do not replace
 it with a different `rosclaw` found on `PATH`.
 
 ## Safety
@@ -27,25 +27,25 @@ it with a different `rosclaw` found on `PATH`.
 ## First Checks
 
 ```bash
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint doctor --json
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint status capabilities
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint daemon status --json
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint demo list
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint demo run ur5e-reach
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint explain latest
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint agent doctor universal --project-root .
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint agent test universal --project-root . --quick --mcp-probe
+.venv/bin/python -m rosclaw.entrypoint doctor --json
+.venv/bin/python -m rosclaw.entrypoint status capabilities
+.venv/bin/python -m rosclaw.entrypoint daemon status --json
+.venv/bin/python -m rosclaw.entrypoint demo list
+.venv/bin/python -m rosclaw.entrypoint demo run ur5e-reach
+.venv/bin/python -m rosclaw.entrypoint explain latest
+.venv/bin/python -m rosclaw.entrypoint agent doctor universal --project-root .
+.venv/bin/python -m rosclaw.entrypoint agent test universal --project-root . --quick --mcp-probe
 ```
 
 For `daemon status`, require `running` and `ledger.integrity_verified` to be
 `true`; require `ledger.write_failed`, `recovery.required`, and
 `emergency_stop_latched` to be `false`. Production REAL work also requires
 `supervision_state=ARMED`, `privilege_separated=true`, and
-`/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint daemon security-check --json` with
+`.venv/bin/python -m rosclaw.entrypoint daemon security-check --json` with
 `boundary_ready=true`, `daemon_uid_pinned=true`, and
 `ledger_state_private=true`; same-UID development proves only process separation.
-Read an existing durable result with `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint daemon action-status <ACTION_ID>
---json` and `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint daemon receipt <ACTION_ID> --json`. Do not use
+Read an existing durable result with `.venv/bin/python -m rosclaw.entrypoint daemon action-status <ACTION_ID>
+--json` and `.venv/bin/python -m rosclaw.entrypoint daemon receipt <ACTION_ID> --json`. Do not use
 `daemon acknowledge-recovery` as Agent automation: it is an operator
 incident-review command and does not clear E-stop or prove physical state.
 
@@ -55,9 +55,9 @@ Robot Integration installation/configuration is a CLI lifecycle around the MCP
 runtime. It is not an additional MCP tool surface.
 
 ```bash
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot discover --json
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot install realsense --json
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot verify realsense --stage contract --json
+.venv/bin/python -m rosclaw.entrypoint robot discover --json
+.venv/bin/python -m rosclaw.entrypoint robot install realsense --json
+.venv/bin/python -m rosclaw.entrypoint robot verify realsense --stage contract --json
 ```
 
 - `robot install` verifies and installs the signed contract. Pass
@@ -75,8 +75,8 @@ runtime. It is not an additional MCP tool surface.
 ## Capability App Workflow
 
 ```bash
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint app list
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint app validate realsense-inspect --json
+.venv/bin/python -m rosclaw.entrypoint app list
+.venv/bin/python -m rosclaw.entrypoint app validate realsense-inspect --json
 ```
 
 - Apps call named Capabilities only. They do not install drivers, issue
@@ -92,9 +92,9 @@ Use fixture-based Practice workflows before touching real robots:
 ```bash
 TMP=$(mktemp -d /tmp/rosclaw-practice.XXXXXX)
 export ROSCLAW_HOME="$TMP/home"
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint practice record --fixture tests/fixtures/practice/rh56_minimal_loop.json --out "$TMP/practice" --json
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint practice verify practice_rh56_minimal_loop --data-root "$TMP/practice" --strict --json
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint practice distill practice_rh56_minimal_loop --data-root "$TMP/practice" --json
+.venv/bin/python -m rosclaw.entrypoint practice record --fixture tests/fixtures/practice/rh56_minimal_loop.json --out "$TMP/practice" --json
+.venv/bin/python -m rosclaw.entrypoint practice verify practice_rh56_minimal_loop --data-root "$TMP/practice" --strict --json
+.venv/bin/python -m rosclaw.entrypoint practice distill practice_rh56_minimal_loop --data-root "$TMP/practice" --json
 ```
 
 ## MCP Contract
@@ -120,8 +120,8 @@ export ROSCLAW_HOME="$TMP/home"
 These are operator workflows. Do not install dependencies unless explicitly requested.
 
 ```bash
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint setup lerobot --reference-policy rh56
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint lerobot doctor --json
+.venv/bin/python -m rosclaw.entrypoint setup lerobot --reference-policy rh56
+.venv/bin/python -m rosclaw.entrypoint lerobot doctor --json
 ```
 
 ### Read-only Agent discovery
@@ -154,8 +154,8 @@ Never fall back to shell, serial, CAN, ROS topic, MCP driver, or vendor SDK exec
 For non-physical data operations, use the ROSClaw CLI:
 
 ```bash
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint practice verify <PRACTICE_ID> --strict --json
-/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint practice export   --practice-id <PRACTICE_ID>   --format lerobot   --profile physical   --output <OUTPUT_DIR>   --json
+.venv/bin/python -m rosclaw.entrypoint practice verify <PRACTICE_ID> --strict --json
+.venv/bin/python -m rosclaw.entrypoint practice export   --practice-id <PRACTICE_ID>   --format lerobot   --profile physical   --output <OUTPUT_DIR>   --json
 ```
 
 ### Unsupported requests

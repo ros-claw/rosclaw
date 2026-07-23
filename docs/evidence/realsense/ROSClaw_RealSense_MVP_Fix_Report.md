@@ -2,9 +2,7 @@
 
 **Report date:** 2026-06-27  
 **ROSClaw version:** v1.0.1  
-**Fix guide:** `~/workspace/rosclaw/rosclaw_fix/fix_for_realsense_test.md`  
-**Branch / working tree:** `/home/nvidia/workspace/rosclaw/rosclaw_fix/rosclaw`  
-**Pull request:** https://github.com/ros-claw/rosclaw/pull/48
+**Source:** [Pull request #48](https://github.com/ros-claw/rosclaw/pull/48)
 
 ---
 

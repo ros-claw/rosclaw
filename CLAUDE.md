@@ -7,11 +7,11 @@ It is safe to edit the human sections below. Managed blocks are updated by
 <!-- ROSCLAW-MANAGED-BEGIN -->
 ## ROSClaw Runtime Boundary (managed)
 
-- Project: `rosclaw_repo`
+- Project: `rosclaw-v1.0`
 - Project root: `.`
 - Default robot: (none detected)
 - MCP transport: `stdio`
-- Pinned ROSClaw CLI: `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint`
+- Pinned ROSClaw CLI: `.venv/bin/python -m rosclaw.entrypoint`
 
 This project exposes a P0 ROSClaw MCP server. Connect via the configured `stdio` transport defined in `.mcp.json`.
 
@@ -58,8 +58,8 @@ alternate motion path.
 
 Robot Integration installation and configuration are operator CLI workflows,
 separate from the MCP tool surface. It is safe to inspect discovery and signed contracts
-with `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot discover --json`, `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot install realsense --json`, and
-`/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot verify realsense --stage contract --json`. Installing native
+with `.venv/bin/python -m rosclaw.entrypoint robot discover --json`, `.venv/bin/python -m rosclaw.entrypoint robot install realsense --json`, and
+`.venv/bin/python -m rosclaw.entrypoint robot verify realsense --stage contract --json`. Installing native
 adapter dependencies, binding a live serial number, and running read-only
 hardware verification require an explicit operator request. A local successful
 check is candidate evidence only and must not be reported as canonical support.
@@ -67,8 +67,8 @@ check is candidate evidence only and must not be reported as canonical support.
 ### Capability Apps
 
 Apps are capability-only task manifests, not drivers or permissions. Inspect
-them with `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint app list` and `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint app validate <APP> --json`. Run an App
-only through `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint app run <APP> --body <BODY> --mode SHADOW --json` unless the
+them with `.venv/bin/python -m rosclaw.entrypoint app list` and `.venv/bin/python -m rosclaw.entrypoint app validate <APP> --json`. Run an App
+only through `.venv/bin/python -m rosclaw.entrypoint app run <APP> --body <BODY> --mode SHADOW --json` unless the
 operator explicitly establishes every REAL prerequisite. App installation does
 not install hardware, arm rosclawd, issue a Permit, or prove execution.
 

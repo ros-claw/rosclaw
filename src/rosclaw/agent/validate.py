@@ -79,15 +79,17 @@ def _has_managed_block(content: str) -> bool:
 def _has_rosclaw_stdio_command(server: dict[str, Any]) -> bool:
     command = server.get("command")
     args = server.get("args", [])
-    if not isinstance(command, str) or not command:
+    if not isinstance(command, str) or not command or not isinstance(args, list):
         return False
     if Path(command).name == "rosclaw":
-        return True
+        return (
+            args[:2] == ["mcp", "serve"] and "-m" not in args and "rosclaw.entrypoint" not in args
+        )
     return (
-        isinstance(args, list)
-        and len(args) >= 2
-        and args[:2] == ["-m", "rosclaw.entrypoint"]
-        and Path(command).name.startswith("python")
+        len(args) >= 4
+        and args[:4] == ["-m", "rosclaw.entrypoint", "mcp", "serve"]
+        and args.count("-m") == 1
+        and Path(command).name.lower().startswith("python")
     )
 
 

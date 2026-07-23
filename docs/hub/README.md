@@ -60,8 +60,8 @@ rosclaw hub uninstall rosclaw://skill/rosclaw/g1-pick-place@1.2.0 --yes
 
 ## Reports
 
-- [`reports/hub_progress.md`](../../reports/hub_progress.md) — implementation summary by phase
-- [`reports/hub_validation_report.md`](../../reports/hub_validation_report.md) — acceptance criteria and sign-off
+- [`hub_progress.md`](../evidence/hub/hub_progress.md) — implementation summary by phase
+- [`hub_validation_report.md`](../evidence/hub/hub_validation_report.md) — acceptance criteria and sign-off
 
 ## Known limitations
 

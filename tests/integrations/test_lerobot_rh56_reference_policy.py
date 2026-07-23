@@ -1,6 +1,6 @@
 """P5-A reference policy integration test (real persistent worker).
 
-Loads ``policies/rh56_reference_policy_v1`` into the persistent runtime,
+Loads the LeRobot worker's bundled RH56 reference policy into the persistent runtime,
 verifies the authoritative action contract metadata, runs WARMUP and several
 task-mode inferences, and checks the resulting proposals carry
 ``semantic_source=explicit_policy_contract`` and ``authoritative=True``.
@@ -8,15 +8,13 @@ task-mode inferences, and checks the resulting proposals carry
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
+from rosclaw.body.rh56.resources import rh56_reference_policy_path
 from rosclaw.integrations.lerobot.action_adapter import adapt_action_to_proposal
 from rosclaw.integrations.lerobot.policy_runtime.manager import PersistentRuntimeManager
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-POLICY_PATH = REPO_ROOT / "policies" / "rh56_reference_policy_v1"
+POLICY_PATH = rh56_reference_policy_path()
 
 pytestmark = pytest.mark.skipif(
     not (POLICY_PATH / "config.json").exists(),

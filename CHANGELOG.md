@@ -129,9 +129,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Repository ownership is now explicit: reviewed product evidence lives under
+  `docs/evidence/`, raw `reports/` output is ignored, the RH56 deterministic
+  reference policy is co-located with its LeRobot worker plugin, and website
+  Supabase migrations are owned only by `ros-claw/rosclaw-website`.
 - `SkillExecutor._check_body_compatibility()` is now **fail-closed**: resolver
   errors and `unknown` compatibility statuses block execution instead of
   allowing it.
+
+### Fixed
+
+- `rosclaw agent install` now replaces ROSClaw-owned legacy MCP entries while
+  preserving unrelated MCP servers, and validation rejects malformed stdio
+  command ordering instead of accepting a configuration that cannot start.
+- Checked-in Agent guidance and LeRobot fixtures no longer contain
+  developer-machine absolute paths.
 
 ### Tests
 

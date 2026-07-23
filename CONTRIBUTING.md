@@ -87,7 +87,20 @@ Then open a Pull Request against the `main` branch.
 2. **Description**: Explain what changed and why
 3. **Tests**: All CI checks must pass (lint, type-check, test matrix)
 4. **Review**: At least one maintainer approval required
-5. **Merge**: Squash and merge after approval
+5. **Merge**: Use the repository's configured merge strategy after approval
+
+## Repository Hygiene
+
+Read [docs/REPOSITORY_LAYOUT.md](docs/REPOSITORY_LAYOUT.md) before adding a
+new top-level file or directory.
+
+- Keep raw reports, command transcripts, datasets, keys, and local evidence
+  outside Git.
+- Put reviewed evidence summaries under `docs/evidence/`.
+- Keep independently installable worker packages under `worker_plugins/`.
+- Website database migrations belong only to `ros-claw/rosclaw-website`.
+- Checked-in Agent instructions must not contain machine-specific absolute
+  paths.
 
 ## Code Style
 
@@ -136,4 +149,4 @@ def move_joints(self, positions: list[float], duration: float = 2.0) -> bool:
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the Apache-2.0 License.
+By contributing, you agree that your contributions will be licensed under the MIT License.

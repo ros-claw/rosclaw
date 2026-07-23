@@ -213,7 +213,7 @@ def test_observation_failure_estops_and_revokes(
     transport.fail_next_read()  # observation read at step 0 fails
 
     result, report = run_rh56_execute(
-        policy_path="policies/rh56_reference_policy_v1",
+        policy_path="worker_plugins/lerobot_policy_rosclaw_rh56/policies/rh56_reference_policy_v1",
         transport_profile_path=str(CONFIGS / "rh56_right_rs485_v1.yaml"),
         permit_id=permit.permit_id,
         permit_manager=pm,
@@ -245,7 +245,7 @@ def test_fixture_actions_survive_fault_exit(
     profile, calib, pm, permit, arming, transport = _armed_stack(tmp_path)
 
     result, report = run_rh56_execute(
-        policy_path="policies/rh56_reference_policy_v1",
+        policy_path="worker_plugins/lerobot_policy_rosclaw_rh56/policies/rh56_reference_policy_v1",
         transport_profile_path=str(CONFIGS / "rh56_right_rs485_v1.yaml"),
         permit_id=permit.permit_id,
         permit_manager=pm,
@@ -343,7 +343,7 @@ def test_frames_episode_uses_trace_timestamps(tmp_path: Path) -> None:
         events,
         robot_id="rh56_mock",
         task_id="hold_current",
-        policy_path="policies/rh56_reference_policy_v1",
+        policy_path="worker_plugins/lerobot_policy_rosclaw_rh56/policies/rh56_reference_policy_v1",
         episode_id="ep_test",
     )
     assert path is not None

@@ -58,9 +58,9 @@ reference_body:
 evidence:
   exp0_modbus_audit: /tmp/exp0_modbus_audit.json
   exp1_calibration: configs/rh56_left_01_calibration.yaml (validated, mock=false)
-  exp2_shadow_gate: reports/lerobot_bridge/P5_RH56_SHADOW_REPORT_S2_OBSERVED.md
-  exp3_graded_execution: reports/lerobot_bridge/P5D_GRADED_REAL_EXECUTION_REPORT.md
-  exp4_fault_injection: reports/lerobot_bridge/P5D_REAL_FAULT_INJECTION_REPORT.md
+  exp2_shadow_gate: docs/evidence/lerobot/P5_RH56_SHADOW_REPORT_S2_OBSERVED.md
+  exp3_graded_execution: docs/evidence/lerobot/P5D_GRADED_REAL_EXECUTION_REPORT.md
+  exp4_fault_injection: docs/evidence/lerobot/P5D_REAL_FAULT_INJECTION_REPORT.md
   practice_root: ~/.rosclaw/practice/runs/lerobot_bridge (verify --strict pass)
 
 not_supported:

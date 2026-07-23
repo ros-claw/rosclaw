@@ -3,6 +3,10 @@
 Deterministic LeRobot reference policy for the Inspire RH56 dexterous hand
 (RS485/Modbus-RTU, 6 actuators, 0-1000 raw device units).
 
+This fixture is owned by and co-located with the
+`lerobot_policy_rosclaw_rh56` worker plugin. RosClaw distributions bundle it
+for offline smoke tests and contract validation.
+
 This artifact validates the **LeRobot → ROSClaw → RH56** deployment loop
 without any training.  It runs inside the real persistent worker, goes through
 the real `policy_preprocessor.json` / `policy_postprocessor.json` pipelines,

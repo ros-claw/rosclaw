@@ -13,16 +13,17 @@ from pathlib import Path
 import pytest
 
 from rosclaw.body.rh56.calibration import load_rh56_calibration
+from rosclaw.body.rh56.resources import rh56_reference_policy_path
 from rosclaw.body.rh56.transport_profile import load_transport_profile
 from rosclaw.integrations.lerobot.execution import ArmingController, PermitManager
 from rosclaw.integrations.lerobot.rollout.rh56_execute import run_rh56_execute
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIGS = REPO_ROOT / "configs"
-POLICIES = REPO_ROOT / "policies"
+POLICY_PATH = rh56_reference_policy_path()
 
 pytestmark = pytest.mark.skipif(
-    not (POLICIES / "rh56_reference_policy_v1" / "config.json").exists(),
+    not (POLICY_PATH / "config.json").exists(),
     reason="rh56 reference policy artifact missing",
 )
 
@@ -68,7 +69,7 @@ def _run_execute(tmp_path: Path, *, task: str = "hold_current", steps: int = 3):
     profile, calib, pm, permit, arming = _armed_stack(tmp_path)
     practice_root = tmp_path / "practice"
     result, report = run_rh56_execute(
-        policy_path=str(POLICIES / "rh56_reference_policy_v1"),
+        policy_path=str(POLICY_PATH),
         transport_profile_path=str(CONFIGS / "rh56_right_rs485_v1.yaml"),
         permit_id=permit.permit_id,
         permit_manager=pm,

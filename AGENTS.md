@@ -10,7 +10,7 @@ Claude Code, OpenClaw, and other agent frameworks that read project guidance.
 - Project root: `.`
 - Default robot: (none detected)
 - MCP transport: `stdio`
-- Pinned ROSClaw CLI: `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint`; use it instead of another `rosclaw` on `PATH`.
+- Pinned ROSClaw CLI: `.venv/bin/python -m rosclaw.entrypoint`; use it instead of another `rosclaw` on `PATH`.
 - One-line setup: `rosclaw agent install --project-root . --skip-secrets`
 - Codex activation: trust this exact repository, then run
   `rosclaw agent doctor codex --project-root .`.
@@ -51,8 +51,8 @@ request.
 ## Robot Integration setup
 
 - Robot Integration setup is an operator CLI workflow, not an MCP tool. Use
-  `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot discover --json`, `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot install realsense --json`, and
-  `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint robot verify realsense --stage contract --json` for read-only
+  `.venv/bin/python -m rosclaw.entrypoint robot discover --json`, `.venv/bin/python -m rosclaw.entrypoint robot install realsense --json`, and
+  `.venv/bin/python -m rosclaw.entrypoint robot verify realsense --stage contract --json` for read-only
   discovery and signed-contract checks.
 - Install native adapter dependencies or bind a live device only when the
   operator explicitly requests it. Offline configuration is not physical
@@ -60,24 +60,24 @@ request.
 
 ## Capability Apps
 
-- Apps are capability-only task manifests. Use `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint app list` and
-  `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint app validate <APP> --json` for inspection.
+- Apps are capability-only task manifests. Use `.venv/bin/python -m rosclaw.entrypoint app list` and
+  `.venv/bin/python -m rosclaw.entrypoint app validate <APP> --json` for inspection.
 - App installation grants no hardware access. Every step remains subject to
   rosclawd Session, Lease, Permit, policy, executor, and Receipt checks.
 
 ## rosclawd read-only inspection
 
 - Inspect daemon health and the durable control ledger with
-  `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint daemon status --json`. Require `running` and
+  `.venv/bin/python -m rosclaw.entrypoint daemon status --json`. Require `running` and
   `ledger.integrity_verified` to be `true`; require `ledger.write_failed`,
   `recovery.required`, and `emergency_stop_latched` to be `false` before
   relying on the control plane.
 - Production REAL work also requires `supervision_state=ARMED`,
-  `privilege_separated=true`, and `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint daemon security-check --json` with `boundary_ready=true`,
+  `privilege_separated=true`, and `.venv/bin/python -m rosclaw.entrypoint daemon security-check --json` with `boundary_ready=true`,
   `daemon_uid_pinned=true`, and `ledger_state_private=true`. Same-UID
   development proves only a process boundary.
-- Inspect an existing action with `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint daemon action-status <ACTION_ID>
-  --json` and `/code/rosclaw/rosclaw_lerobot/rosclaw_repo/.venv/bin/python -m rosclaw.entrypoint daemon receipt <ACTION_ID> --json`.
+- Inspect an existing action with `.venv/bin/python -m rosclaw.entrypoint daemon action-status <ACTION_ID>
+  --json` and `.venv/bin/python -m rosclaw.entrypoint daemon receipt <ACTION_ID> --json`.
 - `daemon acknowledge-recovery` is an operator incident-review command. Do
   not invoke it as routine Agent automation; it does not clear E-stop or prove
   physical state.

@@ -17,7 +17,7 @@ the master implementation plan.
 | 6 | Security regressions covered | `tests/hub/test_security_regression.py` | PASS |
 | 7 | Client and publisher coverage | `tests/hub/test_client.py`, expanded `tests/hub/test_publisher.py` | PASS |
 | 8 | Documentation written | `docs/hub/*.md` created | PASS |
-| 9 | Progress / validation reports written | `reports/hub_*.md` created | PASS |
+| 9 | Progress / validation reports retained | `docs/evidence/hub/*.md` reviewed | PASS |
 | 10 | README / QUICKSTART updated | Hub quickstart added | PASS |
 | 11 | CI updated | Dedicated `hub-test` job added to `.github/workflows/ci.yml` | PASS |
 | 12 | Installer transaction / rollback tests | `tests/hub/test_installer_transaction.py` | PASS |
@@ -195,8 +195,8 @@ and appends a new entry to `catalog.jsonl`.
 
 ### Reports
 
-- `reports/hub_progress.md` — implementation summary by phase.
-- `reports/hub_validation_report.md` — this report.
+- `docs/evidence/hub/hub_progress.md` — implementation summary by phase.
+- `docs/evidence/hub/hub_validation_report.md` — this report.
 
 ### README / QUICKSTART / CI
 

@@ -4,7 +4,7 @@
   "robot": {
     "robot_id": "mock_robot",
     "body_profile": "mock_body",
-    "body_yaml_path": "/code/rosclaw/rosclaw_lerobot/rosclaw_repo/examples/practice/rich_lerobot_episode/body.yaml",
+    "body_yaml_path": "examples/practice/rich_lerobot_episode/body.yaml",
     "body_hash": "mock_body_hash_abc123"
   },
   "task": {

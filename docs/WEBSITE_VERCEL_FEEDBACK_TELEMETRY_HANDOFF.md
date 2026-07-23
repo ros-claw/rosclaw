@@ -98,22 +98,24 @@ lib/
     auth.ts                     # 管理员权限校验
 
 supabase/migrations/
-  004_telemetry_feedback_schema.sql   # 从 rosclaw 主仓库复制
+  004_telemetry_feedback_schema.sql   # 由 rosclaw-website 仓库维护
 
 vercel.json                         # Cron 配置
 ```
 
 ---
 
-## 5. Supabase 数据库 Schema（从 rosclaw 主仓库复制）
+## 5. Supabase 数据库 Schema（website 仓库为唯一真源）
 
-完整迁移文件已存在于：
+完整迁移文件由网站仓库维护：
 
 ```text
-rosclaw/supabase/migrations/004_telemetry_feedback_schema.sql
+rosclaw-website/supabase/migrations/004_telemetry_feedback_schema.sql
 ```
 
-请把它**原样复制**到 `rosclaw-website/supabase/migrations/004_telemetry_feedback_schema.sql`，并用 `supabase db reset` / `supabase migration up` 应用。
+不要在 ROSClaw runtime 仓库保存同编号副本。迁移只能在
+`ros-claw/rosclaw-website` 修改、审查和应用，避免两份 migration history
+在相同版本号下产生不同 schema。
 
 ### 5.1 表清单
 
@@ -790,7 +792,7 @@ curl -X POST http://localhost:3000/api/telemetry/event \
 |---|---|
 | `app/api/telemetry/event/route.ts` | `src/rosclaw/feedback/telemetry_client.py` |
 | `app/api/feedback/upload/route.ts` | `src/rosclaw/feedback/upload.py` |
-| `supabase/migrations/004_telemetry_feedback_schema.sql` | `supabase/migrations/004_telemetry_feedback_schema.sql`（已提供） |
+| `supabase/migrations/004_telemetry_feedback_schema.sql` | 网站仓库独立维护；CLI 仓库不复制 SQL |
 | `lib/telemetry/schema.ts` | `src/rosclaw/feedback/telemetry_client.py` 中的 `ALLOWED_EVENT_TYPES` / `FORBIDDEN_FIELDS` |
 | `lib/feedback/schema.ts` | `src/rosclaw/feedback/config.py` 中的 `FeedbackConfig` |
 

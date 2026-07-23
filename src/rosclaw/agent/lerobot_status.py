@@ -18,14 +18,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from rosclaw.body.rh56.resources import rh56_reference_policy_path
 from rosclaw.firstboot.workspace import get_rosclaw_home
 
-_REFERENCE_POLICY_DIR = "policies/rh56_reference_policy_v1"
+_REFERENCE_POLICY_DIR = Path("policies") / "rh56_reference_policy_v1"
 _PLUGIN_MODULE = "lerobot_policy_rosclaw_rh56"
-
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
 
 
 def detect_lerobot_integration() -> dict[str, Any]:
@@ -58,10 +55,13 @@ def _detect() -> dict[str, Any]:
     state = str(runtime.get("state", "unknown"))
     lerobot_version = runtime.get("lerobot_version")
 
-    # Reference policy artifact: prefer the repo checkout, else the cached copy.
-    repo_policy = _repo_root() / _REFERENCE_POLICY_DIR
+    # Prefer the bundled/source artifact, then a separately downloaded cache.
+    try:
+        bundled_policy = rh56_reference_policy_path()
+    except FileNotFoundError:
+        bundled_policy = None
     cache_policy = get_rosclaw_home() / "cache" / "lerobot" / _REFERENCE_POLICY_DIR
-    policy_dir = repo_policy if repo_policy.exists() else cache_policy
+    policy_dir = bundled_policy if bundled_policy is not None else cache_policy
     policy_ok = (policy_dir / "policy_contract.yaml").exists()
 
     if not Path(python_exe).exists():
