@@ -7,55 +7,55 @@ actuators:
     safe_min_raw: 100
     safe_max_raw: 1000
     direction: -1
-    position_tolerance_raw: 25
+    position_tolerance_raw: 10
   ring:
     open_raw: 1000
     closed_raw: 0
     safe_min_raw: 100
     safe_max_raw: 1000
     direction: -1
-    position_tolerance_raw: 25
+    position_tolerance_raw: 8
   middle:
     open_raw: 1000
     closed_raw: 0
     safe_min_raw: 100
     safe_max_raw: 1000
     direction: -1
-    position_tolerance_raw: 25
+    position_tolerance_raw: 8
   index:
     open_raw: 1000
     closed_raw: 0
     safe_min_raw: 100
     safe_max_raw: 1000
     direction: -1
-    position_tolerance_raw: 25
+    position_tolerance_raw: 9
   thumb:
     open_raw: 1000
     closed_raw: 0
     safe_min_raw: 100
     safe_max_raw: 1000
     direction: -1
-    position_tolerance_raw: 25
+    position_tolerance_raw: 8
   thumb_rot:
     open_raw: 1000
     closed_raw: 0
     safe_min_raw: 100
     safe_max_raw: 1000
     direction: -1
-    position_tolerance_raw: 30
+    position_tolerance_raw: 19
 feedback:
-  force_baseline_file: force_baseline.yaml
-  force_soft_limit_g: 100
-  force_hard_limit_g: 300
-  temperature_warning_c: 55
-  temperature_stop_c: 60
-  thresholds_source: conservative_default
+  force_baseline_file: ''
+  force_soft_limit_g: 100.0
+  force_hard_limit_g: 300.0
+  temperature_warning_c: 55.0
+  temperature_stop_c: 60.0
+  thresholds_source: measured_conservative
 validation:
   status: validated
-  validated_at: '2026-07-21T03:22:06.986429Z'
+  validated_at: '2026-07-23T08:21:20.962059Z'
   rounds: 5
   body_hash: ''
-  transport_profile_hash: sha256:d088e29de0b9f649f193822829bb02a9fc6c30f207705eef986f51dabe31c6c4
+  transport_profile_hash: sha256:38e62c1ae57ebd40ee1d849aef779020ddf3d2bdd20ba0570d4a7164e9f7e351
   evidence:
   - probe_rounds=5/5
   - mock=False
