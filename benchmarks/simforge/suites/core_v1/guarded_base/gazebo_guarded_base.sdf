@@ -1,0 +1,245 @@
+<?xml version="1.0"?>
+<!--
+  Headless Gazebo Fortress world for the ROSClaw GuardedBase acceptance test.
+  All motion is simulation-only. The physical DiffDrive input is intentionally
+  separate from /guarded_base/guarded_cmd_vel; a ROS deadman node owns the
+  guarded-input -> physical-input transition.
+-->
+<sdf version="1.8">
+  <world name="rosclaw_guarded_base">
+    <physics name="deterministic_1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin
+      filename="libignition-gazebo-physics-system.so"
+      name="ignition::gazebo::systems::Physics"/>
+    <plugin
+      filename="libignition-gazebo-user-commands-system.so"
+      name="ignition::gazebo::systems::UserCommands"/>
+    <plugin
+      filename="libignition-gazebo-scene-broadcaster-system.so"
+      name="ignition::gazebo::systems::SceneBroadcaster"/>
+    <plugin
+      filename="libignition-gazebo-sensors-system.so"
+      name="ignition::gazebo::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+
+    <light type="directional" name="sun">
+      <pose>0 0 10 0 0 0</pose>
+      <direction>-0.5 0.1 -0.9</direction>
+      <diffuse>0.9 0.9 0.9 1</diffuse>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="ground">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>20 20</size>
+            </plane>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>1.0</mu>
+                <mu2>1.0</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>20 20</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.25 0.28 0.32 1</ambient>
+            <diffuse>0.35 0.38 0.42 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="lidar_target">
+      <static>true</static>
+      <pose>2.0 0 0.5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.25 1.0 1.0</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.25 1.0 1.0</size></box></geometry>
+          <material>
+            <ambient>0.85 0.25 0.15 1</ambient>
+            <diffuse>0.85 0.25 0.15 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="guarded_base">
+      <pose>0 0 0.10 0 0 0</pose>
+
+      <link name="base_link">
+        <inertial>
+          <mass>8.0</mass>
+          <inertia>
+            <ixx>0.10</ixx>
+            <iyy>0.18</iyy>
+            <izz>0.22</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <pose>0 0 0.10 0 0 0</pose>
+          <geometry><box><size>0.50 0.34 0.16</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <pose>0 0 0.10 0 0 0</pose>
+          <geometry><box><size>0.50 0.34 0.16</size></box></geometry>
+          <material>
+            <ambient>0.10 0.45 0.85 1</ambient>
+            <diffuse>0.10 0.45 0.85 1</diffuse>
+          </material>
+        </visual>
+        <sensor name="front_lidar" type="gpu_lidar">
+          <pose>0.22 0 0.22 0 0 0</pose>
+          <topic>/guarded_base/scan</topic>
+          <update_rate>15</update_rate>
+          <lidar>
+            <scan>
+              <horizontal>
+                <samples>181</samples>
+                <resolution>1</resolution>
+                <min_angle>-1.570796</min_angle>
+                <max_angle>1.570796</max_angle>
+              </horizontal>
+              <vertical>
+                <samples>1</samples>
+                <resolution>1</resolution>
+                <min_angle>0</min_angle>
+                <max_angle>0</max_angle>
+              </vertical>
+            </scan>
+            <range>
+              <min>0.08</min>
+              <max>8.0</max>
+              <resolution>0.01</resolution>
+            </range>
+          </lidar>
+          <always_on>true</always_on>
+          <visualize>false</visualize>
+        </sensor>
+      </link>
+
+      <link name="left_wheel">
+        <pose>0 0.19 0.08 1.570796 0 0</pose>
+        <inertial>
+          <mass>0.6</mass>
+          <inertia>
+            <ixx>0.002</ixx>
+            <iyy>0.002</iyy>
+            <izz>0.002</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry><cylinder><radius>0.08</radius><length>0.04</length></cylinder></geometry>
+          <surface>
+            <friction><ode><mu>1.2</mu><mu2>1.2</mu2></ode></friction>
+          </surface>
+        </collision>
+        <visual name="visual">
+          <geometry><cylinder><radius>0.08</radius><length>0.04</length></cylinder></geometry>
+          <material><ambient>0.05 0.05 0.05 1</ambient></material>
+        </visual>
+      </link>
+
+      <link name="right_wheel">
+        <pose>0 -0.19 0.08 1.570796 0 0</pose>
+        <inertial>
+          <mass>0.6</mass>
+          <inertia>
+            <ixx>0.002</ixx>
+            <iyy>0.002</iyy>
+            <izz>0.002</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry><cylinder><radius>0.08</radius><length>0.04</length></cylinder></geometry>
+          <surface>
+            <friction><ode><mu>1.2</mu><mu2>1.2</mu2></ode></friction>
+          </surface>
+        </collision>
+        <visual name="visual">
+          <geometry><cylinder><radius>0.08</radius><length>0.04</length></cylinder></geometry>
+          <material><ambient>0.05 0.05 0.05 1</ambient></material>
+        </visual>
+      </link>
+
+      <link name="rear_caster">
+        <pose>-0.19 0 0.045 0 0 0</pose>
+        <inertial>
+          <mass>0.2</mass>
+          <inertia>
+            <ixx>0.0002</ixx>
+            <iyy>0.0002</iyy>
+            <izz>0.0002</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry><sphere><radius>0.045</radius></sphere></geometry>
+          <surface>
+            <friction><ode><mu>0.05</mu><mu2>0.05</mu2></ode></friction>
+          </surface>
+        </collision>
+        <visual name="visual">
+          <geometry><sphere><radius>0.045</radius></sphere></geometry>
+        </visual>
+      </link>
+
+      <joint name="left_wheel_joint" type="revolute">
+        <parent>base_link</parent>
+        <child>left_wheel</child>
+        <axis><xyz>0 1 0</xyz></axis>
+      </joint>
+      <joint name="right_wheel_joint" type="revolute">
+        <parent>base_link</parent>
+        <child>right_wheel</child>
+        <axis><xyz>0 1 0</xyz></axis>
+      </joint>
+      <joint name="rear_caster_joint" type="ball">
+        <parent>base_link</parent>
+        <child>rear_caster</child>
+      </joint>
+
+      <plugin
+        filename="libignition-gazebo-diff-drive-system.so"
+        name="ignition::gazebo::systems::DiffDrive">
+        <left_joint>left_wheel_joint</left_joint>
+        <right_joint>right_wheel_joint</right_joint>
+        <wheel_separation>0.38</wheel_separation>
+        <wheel_radius>0.08</wheel_radius>
+        <topic>/guarded_base/cmd_vel</topic>
+        <odom_topic>/guarded_base/odom</odom_topic>
+        <tf_topic>/guarded_base/tf</tf_topic>
+        <frame_id>odom</frame_id>
+        <child_frame_id>base_link</child_frame_id>
+        <odom_publish_frequency>30</odom_publish_frequency>
+        <max_linear_acceleration>8.0</max_linear_acceleration>
+        <min_linear_acceleration>-8.0</min_linear_acceleration>
+        <max_angular_acceleration>12.0</max_angular_acceleration>
+        <min_angular_acceleration>-12.0</min_angular_acceleration>
+        <max_linear_velocity>0.5</max_linear_velocity>
+        <min_linear_velocity>-0.5</min_linear_velocity>
+        <max_angular_velocity>1.0</max_angular_velocity>
+        <min_angular_velocity>-1.0</min_angular_velocity>
+      </plugin>
+    </model>
+  </world>
+</sdf>

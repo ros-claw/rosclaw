@@ -62,6 +62,15 @@ specific content that passed receipt, signature, and provenance checks;
 caller-constructed booleans, counts, or modified bundles are treated as
 missing evidence.
 
+Phase 3 adds evidence-derived `ModuleProof` levels E0-E5,
+`FailureSignatureV2` with eight safety-first routes, immutable
+`PracticeDatasetSnapshot` artifacts, a learned ContactPush contextual policy,
+and a body-scoped simulation Champion Registry. A ContactPush promotion also
+requires same-seed failure-to-success evidence, a measured Memory ON/OFF
+benefit, Know filtering with zero safety overrides, and candidate/stress/
+dataset/Body identity agreement. Activation, ordinary Champion use, Canary,
+freeze, and rollback are hash-chained after promotion.
+
 `DataBudgetManager` bounds event/trace size, nesting, strings, episode/run/
 workspace use, and fails closed for recursive or oversized input. Raw physics
 states and private Holdout inputs must be written outside the source checkout.
@@ -114,9 +123,14 @@ rosclaw simforge evolve shield-reach \
   --scale-curve-public-key /path/outside/checkout/simforge-public.pem
 ```
 
-The four-GPU stress runner requires the separately provisioned `.venv-mjwarp`
-worker environment. The finite Isaac Lab UR10 qualification is
-`scripts/simforge/isaac_reach_smoke.py`.
+The CoreBench four-GPU scale runner is
+`scripts/simforge/run_scale_curve.py`; the Phase 3 ContactPush runner is
+`scripts/simforge/run_contact_push_four_gpu.py`. Both require the separately
+provisioned `.venv-mjwarp` worker environment. The finite Isaac Lab UR10
+qualification is `scripts/simforge/isaac_reach_smoke.py`.
+For the Phase 3 flagship and Gazebo process-chaos commands, evidence layout,
+and interpretation rules, see
+[Failure-to-Success Arena](failure_to_success_arena.md).
 
 ## Safety interpretation
 

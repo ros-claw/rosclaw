@@ -44,7 +44,23 @@ promise that these remain latest.
 - ROSClaw generic Hub is currently local/file-backed and separate from the
   legacy MCP discovery endpoint. It is not a production public registry.
 - ClawHub ROS skills must be audited before use. Prefer read-only introspection;
-  direct ROS publish skills conflict with ROSClaw's daemon/firewall boundary.
+direct ROS publish skills conflict with ROSClaw's daemon/firewall boundary.
+
+## Phase 3 GuardedBase acceptance (2026-07-23)
+
+The current verifier supersedes the historical `/clock`-only Gazebo check. It
+requires a real Fortress diff-drive body, `Odometry`, `LaserScan`, rosbridge,
+the daemon-owned guarded executor, and a ROS-side command deadman.
+
+`launch_testing` supervises the Gazebo server, command/odometry/scan bridges,
+deadman, and command worker. It injects real `SIGKILL` / `SIGTERM` faults.
+The product CLI additionally kills and restarts rosbridge while an action is
+running, verifies that missing observation cannot become `TASK_VERIFIED`,
+rebinds to the new connection generation, uses a new Action ID, and checks that
+the old action produces no duplicate physical effect.
+
+Use `scripts/verify_gazebo.sh` for the bounded process test and
+`rosclaw chaos run gazebo-guarded-base ...` for the complete canonical path.
 
 ## Primary documentation
 

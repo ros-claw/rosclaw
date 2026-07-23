@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rosclaw.io/schema/simforge/failure_signature_v2.json",
+  "title": "ROSClaw FailureSignatureV2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "failure_id", "task_id", "body_id", "action_id", "primary_class", "secondary_classes", "root_cause_candidates", "recoverability", "recommended_route", "evidence_refs", "classification_basis"],
+  "properties": {
+    "schema_version": {"const": "rosclaw.failure_signature.v2"},
+    "failure_id": {"type": "string", "pattern": "^failure_[a-zA-Z0-9_-]+$"},
+    "task_id": {"type": "string", "minLength": 1},
+    "body_id": {"type": "string", "minLength": 1},
+    "action_id": {"type": "string", "minLength": 1},
+    "primary_class": {"enum": ["SKILL_DEFECT", "EXECUTION_LAPSE", "PERCEPTION_ERROR", "BODY_MISMATCH", "ENVIRONMENT_SHIFT", "RUNTIME_FAULT", "SAFETY_POLICY_DEFECT", "IMPOSSIBLE_TASK"]},
+    "secondary_classes": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "root_cause_candidates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["cause", "confidence"],
+        "properties": {
+          "cause": {"type": "string", "pattern": "^[a-z][a-z0-9_]{1,95}$"},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+        }
+      }
+    },
+    "recoverability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "retry_budget"],
+      "properties": {
+        "status": {"enum": ["RECOVERABLE", "RETRY_AFTER_OBSERVATION", "HUMAN_REVIEW_REQUIRED", "UNRECOVERABLE"]},
+        "retry_budget": {"type": "integer", "minimum": 0, "maximum": 3}
+      }
+    },
+    "recommended_route": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"enum": ["MEMORY", "KNOW", "HOW", "AUTO_PARAMETER_PATCH", "AUTO_TRAJECTORY_PATCH", "SENSE", "PROVIDER", "BODY", "SKILL_COMPATIBILITY", "RUNTIME", "WORKER_MANAGER", "SANDBOX_SHIELD", "FALSIFICATION", "STOP", "HUMAN"]}
+    },
+    "evidence_refs": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[a-z][a-z0-9+.-]*://"}},
+    "classification_basis": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+  }
+}

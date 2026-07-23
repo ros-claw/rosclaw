@@ -57,8 +57,20 @@ rosbridge/turtlesim image, deploys the stack, discovers the live graph,
 subscribes to pose, and proves direct velocity requests are blocked.
 
 For Gazebo, run `scripts/verify_gazebo.sh`. Humble's recommended pairing is
-Gazebo Fortress. The script starts the server headlessly, bridges `/clock`,
-and requires a ROS 2 clock sample before calling it integrated.
+Gazebo Fortress. The script now runs the Phase 3 GuardedBase world with real
+diff-drive, odometry, laser, independent ROS bridges, and a deadman under
+`launch_testing`. It injects actual process signals and requires bounded stop,
+observation-loss fail-closed behavior, cancellation/recovery, and no old-action
+replay. For the full MCP → rosclawd path and rosbridge-loss recovery, run:
+
+```bash
+rosclaw chaos run gazebo-guarded-base \
+  --faults agent-kill,rosbridge-loss,odom-stale,worker-crash \
+  --output-dir /an/external/evidence/directory
+```
+
+Raw evidence must remain outside the checkout. A `/clock` sample alone is not
+enough to claim GuardedBase integration.
 
 ### 4. Validate Isaac Lab and four GPUs
 
@@ -96,7 +108,8 @@ evidence can promote only from baseline to SIM and never proves real-robot safet
 ## Resources
 
 - `scripts/verify_ros2.sh` — live ROS 2/turtlesim safety loop.
-- `scripts/verify_gazebo.sh` — headless Fortress-to-ROS 2 clock bridge.
+- `scripts/verify_gazebo.sh` — Fortress diff-drive, odometry, laser, deadman,
+  and real `launch_testing` process faults.
 - `scripts/verify_isaaclab.sh` — bounded one- and multi-GPU Isaac Lab loop.
 - `scripts/verify_hub.sh` — signed local Hub upload/download loop.
 - `references/verified-stack.md` — tested versions, expected evidence, and

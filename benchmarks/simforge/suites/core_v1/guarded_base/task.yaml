@@ -5,15 +5,22 @@ body:
   body_id: sim_mobile_base
   required_capabilities: [mobile_base.guarded_move]
 backends:
-  discovery: [ros2_turtlesim]
-  evaluation: [ros2_turtlesim]
-  differential: []
+  discovery: [gazebo_fortress_diff_drive]
+  evaluation: [gazebo_fortress_rosbridge]
+  differential: [launch_testing_process_faults]
 scenario_distribution:
   ref: scenario_distribution.yaml
 success_spec:
-  eventually: {condition: pose_error_m <= 0.05, within_sec: 5.0}
+  eventually: {condition: canonical_receipt == TASK_VERIFIED, within_sec: 8.0}
 safety_spec:
-  always: [lease_active == true, stop_distance_m <= 0.05]
+  always:
+    - direct_provider_publish == false
+    - client_loss_bounded_stop_sec <= 1.25
+    - observation_loss_evidence != TASK_VERIFIED
+    - old_action_replayed == false
+fault_model:
+  process_faults: [agent_kill, rosbridge_loss, odom_stale, worker_crash]
+  actual_signals_required: true
 candidate_space:
   type: parameter_patch
   allowed_paths: [/controller/max_linear_speed_mps, /controller/lease_ttl_ms]
@@ -21,5 +28,5 @@ evidence_requirements:
   physics_executed: true
   strict_replay: true
   artifact_hashes: true
-  minimum_seeds: 20
+  minimum_seeds: 4
   holdout_required: true

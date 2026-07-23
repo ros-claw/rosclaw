@@ -12,7 +12,12 @@ ENV ROS_DISTRO=humble
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+        procps \
+        ros-${ROS_DISTRO}-launch-testing \
+        ros-${ROS_DISTRO}-launch-testing-ros \
         ros-${ROS_DISTRO}-ros-gz \
+        ros-${ROS_DISTRO}-rosapi \
+        ros-${ROS_DISTRO}-rosbridge-server \
     && rm -rf /var/lib/apt/lists/*
 
 SHELL ["/bin/bash", "-c"]

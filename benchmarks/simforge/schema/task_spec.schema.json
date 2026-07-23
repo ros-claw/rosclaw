@@ -42,8 +42,15 @@
       "additionalProperties": false,
       "required": ["type", "allowed_paths"],
       "properties": {
-        "type": {"const": "parameter_patch"},
-        "allowed_paths": {"type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^/"}}
+        "type": {"enum": ["parameter_patch", "multi_candidate"]},
+        "allowed_paths": {"type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^/"}},
+        "allowed_candidate_types": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {"enum": ["parameter", "trajectory", "skill_graph", "learned_policy"]}
+        }
       }
     },
     "evidence_requirements": {

@@ -85,6 +85,9 @@ Welcome to the ROSClaw documentation index. This directory contains all project 
 - **[REPOSITORY_LAYOUT.md](REPOSITORY_LAYOUT.md)** — Root contracts, source ownership, and artifact retention rules.
 - **[BENCHMARK.md](BENCHMARK.md)** — Performance benchmarks (EventBus, SeekDB, SkillRegistry, FirewallValidator).
 - **[simforge/corebench_v1.md](simforge/corebench_v1.md)** — CoreBench schemas, evidence boundary, Gate V3, and reproduction commands.
+- **[simforge/failure_to_success_arena.md](simforge/failure_to_success_arena.md)** — Phase 3 ContactPush causal loop, module proofs, four-GPU acceptance, Gazebo process chaos, and showcase export.
+- **[help/rosclaw-simforge-phase2-implementation-report.md](help/rosclaw-simforge-phase2-implementation-report.md)** — Phase 2 implementation and local simulation evidence report.
+- **[help/rosclaw-simforge-phase3-implementation-report.md](help/rosclaw-simforge-phase3-implementation-report.md)** — Phase 3 implementation, causal results, process-chaos evidence, hashes, and evidence ceiling.
 - **[INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md)** — Integration guide.
 - **[G1_SENSE_DEMO.md](G1_SENSE_DEMO.md)** — Unitree G1 sense demo.
 

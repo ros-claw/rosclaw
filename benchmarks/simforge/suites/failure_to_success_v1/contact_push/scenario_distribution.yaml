@@ -1,0 +1,12 @@
+schema_version: rosclaw.simforge.scenario_distribution.v1
+variables:
+  object_mass_kg: {distribution: uniform, min: 0.22, max: 0.75}
+  floor_friction: {distribution: uniform, min: 0.14, max: 0.85}
+  target_distance_m: {distribution: uniform, min: 0.13, max: 0.34}
+  initial_offset_y_m: {distribution: uniform, min: -0.018, max: 0.018}
+  control_delay_sec: {distribution: uniform, min: 0.0, max: 0.08}
+  friction_sensor_noise: {distribution: uniform, min: -0.06, max: 0.06}
+constraints:
+  - finite_values
+  - name: exact_seed_pairing
+    parameters: {baseline_and_candidate: true}
