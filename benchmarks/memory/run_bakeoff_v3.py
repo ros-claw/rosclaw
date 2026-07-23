@@ -102,7 +102,11 @@ def main() -> int:
     corpus = load_jsonl(data_dir / "dataset.jsonl")
     queries = load_jsonl(data_dir / "queries.jsonl")
     validate_queries(corpus, queries)
-    validate_benchmark_shape(queries)
+    lanes_sidecar = data_dir / "LANES.json"
+    expected_lanes = None
+    if lanes_sidecar.exists():
+        expected_lanes = json.loads(lanes_sidecar.read_text()).get("lanes")
+    validate_benchmark_shape(queries, expected=expected_lanes)
     if not corpus:
         parser.error("the benchmark corpus is empty")
     print(f"corpus={len(corpus)} queries={len(queries)}")

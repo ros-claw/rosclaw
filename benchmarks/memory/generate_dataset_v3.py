@@ -304,14 +304,22 @@ def validate_queries(memories: list[dict], queries: list[dict]) -> None:
                 )
 
 
-def validate_benchmark_shape(queries: list[dict]) -> None:
-    """Enforce the declared 300-query lane distribution."""
+def validate_benchmark_shape(
+    queries: list[dict], expected: dict[str, int] | None = None
+) -> None:
+    """Enforce the declared lane distribution.
+
+    ``expected`` defaults to EXPECTED_KIND_COUNTS; a dataset dir may carry
+    a ``LANES.json`` sidecar declaring an honest variant (e.g. a lane
+    reported not_applicable on a bilingual corpus).
+    """
     counts: dict[str, int] = defaultdict(int)
     for query in queries:
         counts[str(query.get("kind"))] += 1
-    if dict(counts) != EXPECTED_KIND_COUNTS:
+    want = expected if expected is not None else EXPECTED_KIND_COUNTS
+    if dict(counts) != want:
         raise ValueError(
-            f"invalid benchmark lane distribution: expected {EXPECTED_KIND_COUNTS}, got {dict(counts)}"
+            f"invalid benchmark lane distribution: expected {want}, got {dict(counts)}"
         )
 
 
