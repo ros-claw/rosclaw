@@ -358,7 +358,12 @@ class VersionedCollectionManager:
         *,
         require_provider_match: bool = True,
     ) -> dict[str, Any]:
-        profile = self._require_provider().profile
+        # The provider may be absent (registry-only manager): verification
+        # then covers count + dimension, and provider fields report None —
+        # provider identity can only be asserted when one is attached.
+        profile = self._provider.profile if self._provider is not None else None
+        if profile is None and require_provider_match:
+            self._require_provider()  # raises: provider match needs a provider
         name = str(row["physical_collection"])
         client = self._store._client
         if client is None:
@@ -370,15 +375,19 @@ class VersionedCollectionManager:
                 "expected": row.get("record_count"),
                 "actual": None,
                 "dimension": None,
-                "profile_dimension": profile.dimension,
+                "profile_dimension": profile.dimension if profile else None,
                 "physical_collection": name,
             }
         actual = self._store.count(name)
         actual_dimension = self._store.embedding_info(name).get("dimension")
         expected_dimension = int(row.get("dimension") or 0)
         provider_matches = (
-            row.get("embedding_profile_id") == profile.profile_id
-            and expected_dimension == profile.dimension
+            (
+                row.get("embedding_profile_id") == profile.profile_id
+                and expected_dimension == profile.dimension
+            )
+            if profile is not None
+            else None
         )
         ok = (
             actual == int(row.get("record_count") or 0)
@@ -390,7 +399,7 @@ class VersionedCollectionManager:
             "expected": row.get("record_count"),
             "actual": actual,
             "dimension": actual_dimension,
-            "profile_dimension": profile.dimension,
+            "profile_dimension": profile.dimension if profile else None,
             "provider_matches": provider_matches,
             "physical_collection": name,
         }
@@ -544,8 +553,15 @@ class VersionedCollectionManager:
         activated["activated_at"] = now
         return activated
 
-    def rollback(self, logical_name: str) -> dict[str, Any]:
-        """Atomically swap the active and previous generation pointers."""
+    def rollback(self, logical_name: str, *, catch_up: Any | None = None) -> dict[str, Any]:
+        """Atomically swap the active and previous generation pointers.
+
+        ``catch_up`` (v4 §3.8): optional callable invoked with the target
+        build row BEFORE verification and the pointer switch.  An OLD
+        collection is never assumed in sync with the source of truth — the
+        callable must bring it current and raise to abort the rollback when
+        it cannot.
+        """
         pointer = self._pointer(logical_name)
         current = self.active(logical_name)
         if pointer is not None:
@@ -558,6 +574,15 @@ class VersionedCollectionManager:
             )
         if target is None:
             raise RuntimeError(f"no OLD build of {logical_name} to roll back to")
+        if catch_up is not None:
+            catch_up(target)
+            # The catch-up resynchronized the collection with the source of
+            # truth, so verify against the CURRENT count, not the stale
+            # build-time snapshot.
+            target = {
+                **target,
+                "record_count": self._store.count(str(target["physical_collection"])),
+            }
         verification = self._verify_row(target, require_provider_match=False)
         if not verification["ok"]:
             raise RuntimeError(f"refusing to roll back to unverified build: {verification}")

@@ -108,6 +108,13 @@ def _open_stack(args: argparse.Namespace, *, with_vector: bool = False):
     )
     client.connect()
     repo = MemoryRepository(client)
+    if isinstance(client, SeekDBNativeStore):
+        # PR-MEM-5 (v4 §3.8): every write through this repository is also
+        # projected into the ACTIVE versioned collection (best-effort,
+        # watermarked) so runtime queries never serve a stale generation.
+        from rosclaw.storage.versioned_projection import ActiveProjection
+
+        repo = MemoryRepository(client, projection=ActiveProjection(client))
 
     meta: dict[str, Any] = {
         "backend": type(client).__name__,
@@ -437,6 +444,9 @@ def cmd_memory_v2_forget(args: argparse.Namespace) -> int:
         if isinstance(client, SeekDBNativeStore):
             # The server-side embedder re-indexes on delete; nudge visibility.
             client.refresh_index("memory_items")
+            from rosclaw.storage.versioned_projection import ActiveProjection
+
+            ActiveProjection(client).project_delete(args.memory_id)
             index_deleted = True
         else:
             index_deleted = EmbeddingIndexManager(client, vector).on_memory_deleted(args.memory_id)
@@ -566,6 +576,109 @@ def cmd_memory_v2_benchmark(args: argparse.Namespace) -> int:
     return subprocess.call([sys.executable, str(script)])
 
 
+def cmd_memory_v2_index_sync(args: argparse.Namespace) -> int:
+    """Catch up the ACTIVE physical collection to the source of truth (v4 §3.8).
+
+    Repairs projection lag: memories written while no ACTIVE pointer existed,
+    or whose projection failed (provider unavailable), are embedded and
+    upserted; rows whose memory is no longer active are removed.
+    """
+    client, repo, _, _, _meta = _open_stack(args)
+    exit_code = 0
+    try:
+        if not isinstance(client, SeekDBNativeStore):
+            _emit(
+                {
+                    "ok": False,
+                    "error": "index sync requires a native SeekDB backend",
+                    "backend": type(client).__name__,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+            return 2
+        from rosclaw.embedding.registry import get_provider
+        from rosclaw.memory.v2.runtime_retrieval import (
+            ActiveCollectionResolver,
+            ActiveIndexUnavailableError,
+        )
+        from rosclaw.storage.versioned_projection import catch_up_collection
+
+        logical = getattr(args, "logical", "memory_items")
+        try:
+            descriptor = ActiveCollectionResolver(client).resolve(logical)
+        except ActiveIndexUnavailableError as exc:
+            _emit({"ok": False, "reason": exc.reason, "detail": exc.detail}, indent=2)
+            return 2
+        provider = get_provider(descriptor.embedding_profile_id)
+        report = catch_up_collection(
+            client,
+            repo,
+            logical,
+            descriptor.physical_collection,
+            provider,
+        )
+        output = {"ok": True, **report}
+    finally:
+        _close(client)
+    _emit(output, indent=2, ensure_ascii=False, default=str)
+    return exit_code
+
+
+def cmd_memory_v2_index_rollback(args: argparse.Namespace) -> int:
+    """Roll the ACTIVE pointer back to the previous generation (v4 §3.8).
+
+    The OLD collection is never assumed current: catch-up against the
+    source of truth runs first and the pointer switch aborts if the
+    catch-up cannot verify.
+    """
+    client, repo, _, _, _meta = _open_stack(args)
+    try:
+        if not isinstance(client, SeekDBNativeStore):
+            _emit(
+                {
+                    "ok": False,
+                    "error": "index rollback requires a native SeekDB backend",
+                    "backend": type(client).__name__,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+            return 2
+        from rosclaw.embedding.registry import get_provider
+        from rosclaw.storage.versioned_collections import VersionedCollectionManager
+        from rosclaw.storage.versioned_projection import (
+            catch_up_collection,
+            descriptor_for_row,
+        )
+
+        logical = getattr(args, "logical", "memory_items")
+
+        def _catch_up(target_row: dict) -> None:
+            descriptor = descriptor_for_row(target_row, logical)
+            provider = get_provider(descriptor.embedding_profile_id)
+            catch_up_collection(client, repo, logical, descriptor.physical_collection, provider)
+
+        # Provider for the post-switch verify: resolved after the pointer
+        # flip is known; the manager verifies with require_provider_match=False.
+        mgr = VersionedCollectionManager(client, None)
+        restored = mgr.rollback(logical, catch_up=_catch_up)
+        output = {
+            "ok": True,
+            "active_collection": restored.get("physical_collection"),
+            "embedding_profile_id": restored.get("embedding_profile_id"),
+            "activated_at": restored.get("activated_at"),
+            "catch_up": "completed",
+        }
+        _emit(output, indent=2, ensure_ascii=False, default=str)
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        _emit({"ok": False, "error": str(exc)}, indent=2, ensure_ascii=False)
+        return 2
+    finally:
+        _close(client)
+
+
 def _add_backend_arguments(p: Any) -> None:
     """Add StorageFactory backend selection args to a v2 parser."""
     p.add_argument(
@@ -643,6 +756,21 @@ def register_memory_v2_commands(memory_subparsers: Any) -> None:
     )
     _add_backend_arguments(pi)
     pi.set_defaults(v2_handler=cmd_memory_v2_index_describe)
+    pi = index_sub.add_parser(
+        "sync", help="Catch up the ACTIVE physical collection to the source of truth (PR-MEM-5)"
+    )
+    pi.add_argument("--v2-path", default=None)
+    pi.add_argument("--logical", default="memory_items")
+    _add_backend_arguments(pi)
+    pi.set_defaults(v2_handler=cmd_memory_v2_index_sync)
+    pi = index_sub.add_parser(
+        "rollback",
+        help="Roll ACTIVE back to the previous generation (catch-up enforced, PR-MEM-5)",
+    )
+    pi.add_argument("--v2-path", default=None)
+    pi.add_argument("--logical", default="memory_items")
+    _add_backend_arguments(pi)
+    pi.set_defaults(v2_handler=cmd_memory_v2_index_rollback)
 
     p = memory_subparsers.add_parser("benchmark", help="Run the retrieval benchmark (v2)")
     p.set_defaults(v2_handler=cmd_memory_v2_benchmark)
