@@ -6,13 +6,27 @@ from rosclaw.sandbox.runtime_adapter import SandboxRuntimeAdapter
 
 
 class TestFirewallGateChecks:
+    def test_mock_fixture_non_joint_action_gets_structural_validation(self):
+        gate = FirewallGate(robot_id="turtlebot", world_id="mock")
+
+        safe = gate.check({"type": "pid_move", "parameters": {"target": 1.0, "Kp": 1.0, "Kd": 0.1}})
+        unsafe = gate.check({"type": "pid_move", "parameters": {"target": float("nan")}})
+        cyclic_parameters = {}
+        cyclic_parameters["self"] = cyclic_parameters
+        cyclic = gate.check({"type": "pid_move", "parameters": cyclic_parameters})
+
+        assert safe.is_allowed is True
+        assert safe.physics_executed is False
+        assert unsafe.is_allowed is False
+        assert unsafe.violated_constraints == ["invalid_fixture_parameters"]
+        assert cyclic.is_allowed is False
+        assert cyclic.violated_constraints == ["invalid_fixture_parameters"]
+
     def test_empty_or_non_finite_action_is_blocked(self):
         gate = FirewallGate(robot_id="ur5e", world_id="empty")
         try:
             empty = gate.check({"type": "joint_position", "values": []})
-            non_finite = gate.check(
-                {"type": "joint_position", "values": [float("nan")] * 6}
-            )
+            non_finite = gate.check({"type": "joint_position", "values": [float("nan")] * 6})
         finally:
             gate.close()
 

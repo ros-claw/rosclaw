@@ -96,16 +96,19 @@ class MujocoCpuBackend:
             supported_tasks=("sandbox.follow_trajectory",),
         )
 
-    def _environment(self) -> tuple[Any, Any, str, str, str]:
+    def _environment(
+        self, *, require_supported_layout: bool = True
+    ) -> tuple[Any, Any, str, str, str]:
         if not self._sandbox.has_physics:
             raise RuntimeError(self._sandbox.load_error or "PHYSICS_UNAVAILABLE")
         model = self._sandbox.physics_model
         data = self._sandbox.physics_data
         if model is None or data is None:
             raise RuntimeError("PHYSICS_MODEL_DATA_UNAVAILABLE")
-        layout_error = _model_layout_error(model)
-        if layout_error is not None:
-            raise RuntimeError(layout_error)
+        if require_supported_layout:
+            layout_error = _model_layout_error(model)
+            if layout_error is not None:
+                raise RuntimeError(layout_error)
         model_hash = file_hash(self._sandbox.model_path)
         world_asset_hash = canonical_hash(self._sandbox.world_metadata)
         fingerprint = mujoco_fingerprint(model, model_hash, world_asset_hash)
@@ -128,7 +131,9 @@ class MujocoCpuBackend:
     def rollout(self, request: RolloutRequest) -> TrajectorySimulationReceipt:
         import mujoco
 
-        model, data, model_hash, world_asset_hash, fingerprint = self._environment()
+        model, data, model_hash, world_asset_hash, fingerprint = self._environment(
+            require_supported_layout=False
+        )
         scenario_payload = asdict(request.scenario)
         request_payload = {
             "scenario": scenario_payload,
@@ -150,6 +155,8 @@ class MujocoCpuBackend:
         }
 
         static_error = self._validate_request(request, model)
+        if static_error is None:
+            static_error = _model_layout_error(model)
         if static_error is not None:
             try:
                 scenario_hash = canonical_hash(scenario_payload)

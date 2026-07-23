@@ -288,6 +288,42 @@ def test_backend_rejects_free_joint_actuator_layout():
         sandbox.close()
 
 
+def test_backend_prioritizes_request_shape_before_unsupported_layout(tmp_path):
+    sandbox = Sandbox.create("unitree_g1", "empty", "mujoco")
+    try:
+        assert sandbox.has_physics, sandbox.load_error
+        backend = MujocoCpuBackend(sandbox)
+        scenario = ScenarioSpec(
+            scenario_id="unsupported-g1-rollout",
+            robot_id="unitree_g1",
+            world_id="empty",
+            body_snapshot_hash="sha256:test-body",
+            model_hash=file_hash(sandbox.model_path),
+        )
+
+        malformed = backend.rollout(
+            RolloutRequest(
+                scenario=scenario,
+                trajectory=[[0.0, 0.0, 0.0]],
+                artifact_dir=tmp_path / "malformed",
+            )
+        )
+        unsupported = backend.rollout(
+            RolloutRequest(
+                scenario=scenario,
+                trajectory=[[0.0] * int(sandbox.physics_model.nu)],
+                artifact_dir=tmp_path / "unsupported",
+            )
+        )
+    finally:
+        sandbox.close()
+
+    assert malformed.reason == "ACTION_DIMENSION_MISMATCH"
+    assert malformed.physics_executed is False
+    assert unsupported.reason == "UNSUPPORTED_ACTUATOR_LAYOUT"
+    assert unsupported.physics_executed is False
+
+
 def test_robot_identifier_cannot_escape_model_zoo():
     sandbox = Sandbox.create("../ur5e", "empty", "mujoco")
     try:

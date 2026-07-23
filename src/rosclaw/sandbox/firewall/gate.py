@@ -6,6 +6,7 @@ validation lives in :mod:`rosclaw.sandbox.backends.mujoco_cpu`.
 
 from __future__ import annotations
 
+import json
 import math
 import uuid
 from dataclasses import dataclass, field
@@ -35,6 +36,7 @@ class StaticActionGate:
     MAX_JOINT_VELOCITY = 3.15
     MAX_TCP_FORCE = 150.0
     MAX_TCP_TORQUE = 8.0
+    MAX_FIXTURE_PARAMETERS_BYTES = 64 * 1024
 
     def __init__(
         self,
@@ -51,7 +53,7 @@ class StaticActionGate:
 
     def _load_joint_limits(self) -> list[tuple[float, float]]:
         """Resolve limits from the effective simulation model, never constants."""
-        if self.engine.lower() != "mujoco":
+        if self.engine.lower() != "mujoco" or self.world_id.lower() == "mock":
             return []
         from rosclaw.sandbox.sandbox_api import Sandbox
 
@@ -74,8 +76,11 @@ class StaticActionGate:
         return f"sandbox://replay/{uuid.uuid4().hex[:12]}"
 
     def check(self, action: dict[str, Any]) -> Decision:
-        values = action.get("values", [])
         replay_id = self._generate_replay_id()
+        if self.world_id.lower() == "mock" and "values" not in action:
+            return self._check_fixture_action(action, replay_id)
+
+        values = action.get("values", [])
         if (
             not isinstance(values, (list, tuple))
             or not values
@@ -227,6 +232,41 @@ class StaticActionGate:
             is_allowed=True,
             risk_score=0.0,
             reason="Within limits",
+            replay_id=replay_id,
+        )
+
+    def _check_fixture_action(self, action: dict[str, Any], replay_id: str) -> Decision:
+        """Structurally validate a non-actuating legacy fixture action."""
+
+        action_type = action.get("type")
+        parameters = action.get("parameters")
+        valid = isinstance(action_type, str) and bool(action_type) and len(action_type) <= 128
+        valid = valid and isinstance(parameters, dict)
+        if valid:
+            try:
+                encoded = json.dumps(
+                    parameters,
+                    allow_nan=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+                valid = len(encoded) <= self.MAX_FIXTURE_PARAMETERS_BYTES
+            except (OverflowError, RecursionError, TypeError, ValueError):
+                valid = False
+        if not valid:
+            return Decision(
+                action="BLOCK",
+                is_allowed=False,
+                risk_score=1.0,
+                reason="Static gate blocked: fixture parameters are invalid",
+                violated_constraints=["invalid_fixture_parameters"],
+                replay_id=replay_id,
+            )
+        return Decision(
+            action="ALLOW",
+            is_allowed=True,
+            risk_score=0.0,
+            reason="Legacy fixture action passed structural validation",
             replay_id=replay_id,
         )
 
