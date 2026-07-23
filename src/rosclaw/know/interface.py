@@ -561,6 +561,46 @@ class KnowledgeInterface(LifecycleMixin):
         """
         if self.memory_interface is None:
             return None
+        # PR-MEM-5: canonical ACTIVE index via the shared facade
+        # (purpose=KNOW_REASONING — cross-body forbidden by default).
+        facade = getattr(self.memory_interface, "retrieval_facade", None)
+        if facade is not None:
+            try:
+                from rosclaw.memory.v2.retrieval import MemoryQuery
+                from rosclaw.memory.v2.runtime_retrieval import RetrievalPurpose
+
+                response = facade.retrieve(
+                    MemoryQuery(
+                        text=error_signature,
+                        robot_id=self.robot_id,
+                        outcome="failure",
+                        limit=3,
+                    ),
+                    purpose=RetrievalPurpose.KNOW_REASONING,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("facade symptom match failed for %r: %s", error_signature, exc)
+                response = None
+            if response is not None:
+                for candidate in response.candidates:
+                    item = candidate.item
+                    if item is None:
+                        continue
+                    fix = item.metadata.get("recovery_hint", "")
+                    return {
+                        "pattern_id": f"active_{candidate.memory_id}",
+                        "symptom": item.title or item.document,
+                        "domain": item.metadata.get("domain", ""),
+                        "fix": fix,
+                        "anti_pattern": item.metadata.get("anti_pattern", ""),
+                        "similarity": None,
+                        "score_semantics": candidate.score_semantics,
+                        "physical_collection": candidate.physical_collection,
+                        "retrieval_mode": response.retrieval_mode,
+                        "source": "memory_v2_active",
+                        "memory_id": candidate.memory_id,
+                        "tags": list(item.tags),
+                    }
         try:
             results = self.memory_interface.find_similar_experiences(
                 error_signature,

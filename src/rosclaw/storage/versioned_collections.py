@@ -97,11 +97,25 @@ def _exact_row_multiplier(row: dict[str, Any], exact: dict[str, list[str]]) -> f
 
 class VersionedCollectionManager:
     """Builds and switches versioned multilingual collections on a
-    SeekDBNativeStore (embedded or server)."""
+    SeekDBNativeStore (embedded or server).
 
-    def __init__(self, store: Any, provider: EmbeddingProvider) -> None:
+    ``provider`` is optional: registry-only operations (``active``,
+    ``registry``, ``describe``) never touch it, so read paths such as
+    :class:`rosclaw.memory.v2.runtime_retrieval.ActiveCollectionResolver`
+    can inspect the canonical pointer without loading a model.  Build /
+    verify / shadow_query / activate / rollback require a provider.
+    """
+
+    def __init__(self, store: Any, provider: EmbeddingProvider | None = None) -> None:
         self._store = store
         self._provider = provider
+
+    def _require_provider(self) -> EmbeddingProvider:
+        if self._provider is None:
+            raise RuntimeError(
+                "this VersionedCollectionManager operation requires an embedding provider"
+            )
+        return self._provider
 
     # ------------------------------------------------------------------
     # Registry rows
@@ -194,7 +208,7 @@ class VersionedCollectionManager:
         analyzer: str,
         allowed_statuses: set[str],
     ) -> dict[str, Any] | None:
-        profile_id = self._provider.profile.profile_id
+        profile_id = self._require_provider().profile.profile_id
         rows = [
             row
             for row in self.registry(logical_name)
@@ -244,7 +258,7 @@ class VersionedCollectionManager:
         embeddings.  Records need ``id`` plus text fields (title/document)."""
         if not records:
             raise ValueError("refusing to build an empty versioned collection")
-        profile = self._provider.profile
+        profile = self._require_provider().profile
         build_id = uuid.uuid4().hex[:10]
         name = physical_name(logical_name, profile, analyzer, build_id)
         client = self._store._client
@@ -344,7 +358,7 @@ class VersionedCollectionManager:
         *,
         require_provider_match: bool = True,
     ) -> dict[str, Any]:
-        profile = self._provider.profile
+        profile = self._require_provider().profile
         name = str(row["physical_collection"])
         client = self._store._client
         if client is None:
@@ -408,7 +422,7 @@ class VersionedCollectionManager:
         if build is None:
             raise RuntimeError(
                 f"no READY/ACTIVE/OLD build for {logical_name!r}, "
-                f"profile={self._provider.profile.profile_id!r}, analyzer={analyzer!r}"
+                f"profile={self._require_provider().profile.profile_id!r}, analyzer={analyzer!r}"
             )
         name = str(build["physical_collection"])
         client = self._store._client
@@ -486,7 +500,8 @@ class VersionedCollectionManager:
             current = self.active(logical_name)
             if (
                 current is not None
-                and current.get("embedding_profile_id") == self._provider.profile.profile_id
+                and current.get("embedding_profile_id")
+                == self._require_provider().profile.profile_id
                 and current.get("analyzer") == analyzer
             ):
                 target = current
@@ -498,7 +513,7 @@ class VersionedCollectionManager:
             )
         if target is None:
             raise RuntimeError(
-                f"no READY/OLD build for profile={self._provider.profile.profile_id}, "
+                f"no READY/OLD build for profile={self._require_provider().profile.profile_id}, "
                 f"analyzer={analyzer} to activate (run build+verify first)"
             )
         if target.get("status") == ACTIVE:
@@ -574,7 +589,7 @@ class VersionedCollectionManager:
         backend, collection, model, revision, dimension, analyzer,
         vector source, score semantics, reranker, fallback state."""
         active = self.active(logical_name)
-        profile = self._provider.profile
+        profile = self._require_provider().profile
         active_profile_id = (active or {}).get("embedding_profile_id")
         provider_matches_active = active is None or active_profile_id == profile.profile_id
 
@@ -602,7 +617,9 @@ class VersionedCollectionManager:
             },
             "requested_provider_profile_id": profile.profile_id,
             "provider_matches_active": provider_matches_active,
-            "runtime_query_integration": "shadow_only_not_general_memory_query",
+            "runtime_query_integration": (
+                "active_index_serves_runtime_queries_via_memory_retrieval_facade"
+            ),
             "analyzer": (active or {}).get("analyzer"),
             "vector_source": "manual_query_embedding" if active else None,
             "score_semantics": (
