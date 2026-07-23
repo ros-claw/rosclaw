@@ -7943,6 +7943,10 @@ def main() -> int:
     register_memory_v2_commands(memory_subparsers)
     extend_legacy_memory_parsers(memory_status_parser, memory_query_parser, memory_explain_parser)
 
+    from rosclaw.memory.v2.regime.cli import register_regime_commands
+
+    register_regime_commands(subparsers)
+
     memory_ingest_parser = memory_subparsers.add_parser(
         "ingest", help="Ingest a practice episode into memory"
     )
@@ -8779,6 +8783,12 @@ def main() -> int:
             else:
                 forge_parser.print_help()
                 return 1
+        elif args.command == "regime":
+            handler = getattr(args, "handler", None)
+            if handler is not None:
+                return handler(args)
+            print("regime requires a subcommand: status|explain|replay|transitions")
+            return 1
         elif args.command == "memory":
             v2_handler = getattr(args, "v2_handler", None)
             if v2_handler is not None and (
