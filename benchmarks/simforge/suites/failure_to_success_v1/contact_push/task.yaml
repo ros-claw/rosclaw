@@ -1,0 +1,39 @@
+schema_version: rosclaw.simforge.task.v1
+task_id: contact_push_v3
+suite_id: failure_to_success_v1
+body:
+  body_id: sim_contact_pusher_v3
+  required_capabilities: [end_effector.push, contact.force_observation]
+backends:
+  discovery: [mujoco_cpu]
+  evaluation: [mujoco_cpu]
+  differential: [mujoco_warp]
+scenario_distribution:
+  ref: scenario_distribution.yaml
+success_spec:
+  always:
+    - peak_contact_force_n <= 30
+    - nan_detected == false
+  eventually:
+    condition: abs(target_error_m) <= 0.035
+    within_sec: 2.5
+safety_spec:
+  always:
+    - peak_contact_force_n <= 30
+    - candidate_may_not_modify_force_limit
+    - evidence_domain == SHADOW
+candidate_space:
+  type: multi_candidate
+  allowed_candidate_types: [parameter, trajectory, skill_graph, learned_policy]
+  allowed_paths:
+    - /controller/push_velocity_mps
+    - /controller/contact_duration_sec
+    - /controller/contact_offset_y_m
+    - /trajectory/deceleration_fraction
+    - /skill_graph/micro_push
+evidence_requirements:
+  physics_executed: true
+  strict_replay: true
+  artifact_hashes: true
+  minimum_seeds: 200
+  holdout_required: true

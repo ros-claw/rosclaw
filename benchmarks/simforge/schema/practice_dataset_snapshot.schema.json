@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rosclaw.io/schema/simforge/practice_dataset_snapshot.v1.json",
+  "title": "ROSClaw PracticeDatasetSnapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "dataset_id", "task_id", "created_from", "source_domain", "body_hashes", "label_provenance", "partitions", "quality", "snapshot_hash"],
+  "properties": {
+    "schema_version": {"const": "rosclaw.practice_dataset_snapshot.v1"},
+    "dataset_id": {"type": "string", "pattern": "^dataset_"},
+    "task_id": {"type": "string", "minLength": 1},
+    "created_from": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["practice_ids"],
+      "properties": {"practice_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}}
+    },
+    "source_domain": {"const": "SIMULATION"},
+    "body_hashes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/hash"}},
+    "label_provenance": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string", "minLength": 1}},
+    "partitions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["development", "validation", "holdout"],
+      "properties": {
+        "development": {"$ref": "#/$defs/publicPartition"},
+        "validation": {"$ref": "#/$defs/publicPartition"},
+        "holdout": {"$ref": "#/$defs/privatePartition"}
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["complete_episode_rate", "artifact_hash_pass_rate", "independent_verification_rate", "strict_replay_rate", "split_leakage", "passes"],
+      "properties": {
+        "complete_episode_rate": {"const": 1.0},
+        "artifact_hash_pass_rate": {"const": 1.0},
+        "independent_verification_rate": {"const": 1.0},
+        "strict_replay_rate": {"const": 1.0},
+        "split_leakage": {"const": false},
+        "passes": {"const": true}
+      }
+    },
+    "snapshot_hash": {"$ref": "#/$defs/hash"}
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "basePartition": {
+      "type": "object",
+      "required": ["partition", "count", "hash", "scenario_set_commitment"],
+      "properties": {
+        "partition": {"enum": ["development", "validation", "holdout"]},
+        "count": {"type": "integer", "minimum": 1},
+        "hash": {"$ref": "#/$defs/hash"},
+        "scenario_set_commitment": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "publicPartition": {
+      "allOf": [
+        {"$ref": "#/$defs/basePartition"},
+        {"type": "object", "required": ["file_ref"], "properties": {"file_ref": {"type": "string", "minLength": 1}}}
+      ]
+    },
+    "privatePartition": {
+      "allOf": [
+        {"$ref": "#/$defs/basePartition"},
+        {"type": "object", "not": {"required": ["file_ref"]}}
+      ]
+    }
+  }
+}

@@ -5,15 +5,21 @@ body:
   body_id: sim_ros2_graph
   required_capabilities: [mobile_base.guarded_move]
 backends:
-  discovery: [ros2_fault_harness]
-  evaluation: [evidence_classifier]
-  differential: []
+  discovery: [launch_testing_process_faults]
+  evaluation: [gazebo_fortress_rosbridge, evidence_classifier]
+  differential: [deadman_wall_clock]
 scenario_distribution:
   ref: scenario_distribution.yaml
 success_spec:
   eventually: {condition: evidence_not_inflated == true, within_sec: 10.0}
 safety_spec:
-  always: [missing_observation_never_task_verified == true]
+  always:
+    - missing_observation_never_task_verified == true
+    - client_loss_bounded_stop_sec <= 1.25
+    - restart_old_action_replayed == false
+fault_model:
+  process_faults: [agent_kill, rosbridge_loss, odom_stale, worker_crash]
+  actual_signals_required: true
 candidate_space:
   type: parameter_patch
   allowed_paths: [/runtime/observation_timeout_ms, /runtime/retry_budget]

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rosclaw.io/schema/simforge/champion_receipts.v1.json",
+  "title": "ROSClaw Simulation Champion Receipts",
+  "oneOf": [
+    {"$ref": "#/$defs/activation"},
+    {"$ref": "#/$defs/canary"},
+    {"$ref": "#/$defs/rollback"},
+    {"$ref": "#/$defs/ordinary"}
+  ],
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "activation": {
+      "type": "object",
+      "required": ["schema_version", "skill_id", "new_candidate_hash", "body_snapshot_hash", "evaluation_hash", "dataset_snapshot_hash", "runtime_generation", "scope", "receipt_hash"],
+      "properties": {
+        "schema_version": {"const": "rosclaw.champion_activation_receipt.v1"},
+        "skill_id": {"type": "string"},
+        "new_candidate_hash": {"$ref": "#/$defs/hash"},
+        "body_snapshot_hash": {"$ref": "#/$defs/hash"},
+        "evaluation_hash": {"$ref": "#/$defs/hash"},
+        "dataset_snapshot_hash": {"$ref": "#/$defs/hash"},
+        "runtime_generation": {"type": "integer", "minimum": 1},
+        "scope": {"const": "simulation"},
+        "receipt_hash": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "canary": {
+      "type": "object",
+      "required": ["schema_version", "candidate_hash", "evaluated_episodes", "success_rate", "critical_regressions", "passed", "frozen", "evidence_refs", "receipt_hash"],
+      "properties": {
+        "schema_version": {"const": "rosclaw.champion_canary_receipt.v1"},
+        "candidate_hash": {"$ref": "#/$defs/hash"},
+        "evaluated_episodes": {"type": "integer", "minimum": 1},
+        "success_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "critical_regressions": {"type": "integer", "minimum": 0},
+        "passed": {"type": "boolean"},
+        "frozen": {"type": "boolean"},
+        "evidence_refs": {"type": "array", "minItems": 1},
+        "receipt_hash": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "required": ["schema_version", "from_candidate_hash", "to_candidate_hash", "reason", "runtime_generation", "receipt_hash"],
+      "properties": {
+        "schema_version": {"const": "rosclaw.champion_rollback_receipt.v1"},
+        "from_candidate_hash": {"$ref": "#/$defs/hash"},
+        "to_candidate_hash": {"$ref": "#/$defs/hash"},
+        "reason": {"type": "string", "minLength": 1},
+        "runtime_generation": {"type": "integer", "minimum": 1},
+        "receipt_hash": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "ordinary": {
+      "type": "object",
+      "required": ["schema_version", "candidate_hash", "scenario_commitment", "policy_hash", "status", "success", "physics_executed", "strict_replay", "receipt_hash"],
+      "properties": {
+        "schema_version": {"const": "rosclaw.active_champion_episode_receipt.v1"},
+        "candidate_hash": {"$ref": "#/$defs/hash"},
+        "scenario_commitment": {"$ref": "#/$defs/hash"},
+        "policy_hash": {"$ref": "#/$defs/hash"},
+        "status": {"type": "string"},
+        "success": {"type": "boolean"},
+        "physics_executed": {"const": true},
+        "strict_replay": {"const": true},
+        "receipt_hash": {"$ref": "#/$defs/hash"}
+      }
+    }
+  }
+}

@@ -335,29 +335,45 @@ golden_paths:
 
   turtlesim_guarded_motion:
     display:
-      en: ROS 2 Turtlesim guarded motion
-      zh: ROS 2 Turtlesim 受控运动
-    robot: turtlesim
-    capability: base.move
-    claim: not_verified
-    support_tier: H1_CONTRACT_VERIFIED
-    candidate_tier: H2_SIMULATION_VERIFIED
+      en: ROS 2 guarded motion (Turtlesim + Gazebo)
+      zh: ROS 2 受控运动（Turtlesim + Gazebo）
+    robot: sim_ros2_mobile_base
+    capability: mobile_base.guarded_move
+    claim: simulation_verified
+    support_tier: H2_SIMULATION_VERIFIED
+    candidate_tier: H5_AGENT_BLACKBOX_VERIFIED
     modes:
       fixture: fixture_available
-      simulation: not_run
-      shadow: not_applicable
+      simulation: verified
+      shadow: verified
       real: not_applicable
     dimensions:
-      simulation: not_run
+      simulation: verified
       hardware_read: not_applicable
       hardware_actuation: not_applicable
-      agent_blackbox: not_run
+      agent_blackbox: developer_observed
       physical_estop: not_applicable
     agent_ready: false
-    evidence: []
+    evidence:
+      - id: ros2-turtlesim-canonical-20260723
+        kind: automated_live_ros2_system_test
+        path: tests/simforge/test_guarded_base_ros_integration.py
+        verified_at: "2026-07-23"
+        observation_scope: live_ros2_simulation
+        fixture: false
+        independent: true
+        receipt_schema: rosclaw.receipt.v1
+      - id: gazebo-guarded-base-process-chaos-20260723
+        kind: automated_physics_process_fault_test
+        path: tests/simforge/launch/test_gazebo_guarded_base_launch.py
+        verified_at: "2026-07-23"
+        observation_scope: physics_simulation
+        fixture: false
+        independent: true
+        receipt_schema: rosclaw.receipt.v1
     evidence_summary:
-      en: Connector contracts exist, but the ROS 2 golden path has not been run in the current validation environment.
-      zh: Connector 契约已存在，但当前验证环境尚未运行 ROS 2 黄金路径。
+      en: Live rosbridge runs exercised the canonical MCP-to-rosclawd command path. Gazebo Fortress verified a differential-drive body, odometry, laser data, bounded deadman stops, real process kills, rosbridge reconnect with fresh handles, and no replay of an old Action ID. This remains simulation-only; Nav2, independent external-Agent acceptance, and real hardware are not claimed.
+      zh: 实时 rosbridge 运行已验证 MCP 到 rosclawd 的规范命令路径；Gazebo Fortress 已验证差速底盘、里程计、激光数据、有界 Deadman 停车、真实进程终止、使用新句柄重连 rosbridge，以及旧 Action ID 不重放。当前结论仅限仿真；不声明已验证 Nav2、独立外部 Agent 验收或真机。
 
   mobile_base_deadman:
     display:

@@ -58,7 +58,7 @@ roadmap disguised as completed work.
 | RealSense perception-only path | **Experimental** | A signed, commit-locked RealSense Robot Integration covers install/configure/verify/status, Body binding, daemon-side RGB-D execution, artifact hashing, and bounded MCP subprocess faults; this repository still has no independently verified hardware capture run. |
 | RH56 LeRobot single-step loop | **Developer-observed; revalidation pending** | Real SerialModbusTransport, shadow reads, graded REAL actions, and fault injection were developer-observed; a developer Agent black-box (discovery / SHADOW / unauthorized REAL / dataset workflow) passed 2026-07-22 with zero forbidden actions. Loopback fault tests now prove that target-near readback is DELIVERY_INFERRED rather than a protocol ACK. On 2026-07-23 the full v1.0.1 chain was revalidated on the physical RIGHT hand rh56_right_01 — 6/6 register widths declared, measured-envelope calibration, shadow S2 1000 steps, graded REAL noop/micro/motion/gesture/OK all passing (OK 10/10), fault injection 8/8, and an authorized developer agent blackbox executing exactly one permitted noop single step (hardware_actions_executed == 1, PHYSICALLY_OBSERVED). Independent v1 hardware revalidation and independent Agent black-box testing remain open. |
 | ROS connectors, LeRobot, hardware MCP, real Providers | **Experimental** | Contract and component coverage varies; registration or import does not imply execution readiness. |
-| ROS 2 Turtlesim guarded motion | **Not verified** | Connector contracts exist, but the ROS 2 golden path has not been run in the current validation environment. |
+| ROS 2 guarded motion (Turtlesim + Gazebo) | **Simulation verified** | Live rosbridge runs exercised the canonical MCP-to-rosclawd command path. Gazebo Fortress verified a differential-drive body, odometry, laser data, bounded deadman stops, real process kills, rosbridge reconnect with fresh handles, and no replay of an old Action ID. This remains simulation-only; Nav2, independent external-Agent acceptance, and real hardware are not claimed. |
 | Mobile base continuous-lease deadman | **Simulation verified** | A MuJoCo mobile base reaches a bounded velocity, loses a 60 ms controller lease, trips its deadman, and reaches below 0.01 m/s with bounded post-loss travel. No physical mobile-base claim is made. |
 | Repository-wide real robot execution | **Revalidation pending** | RH56 has developer-run physical evidence, but independent hardware and Agent black-box acceptance are still pending; no repository-wide real-ready claim is made. |
 <!-- product-status:end -->
@@ -470,10 +470,10 @@ Read [docs/SAFETY.md](docs/SAFETY.md) for the full safety model.
 
 | Phase | Focus |
 |---|---|
-| **Current / Alpha** | rosclawd process boundary and durable local control ledger, truthful action/receipt contracts, fail-closed fixtures/providers/drivers, MuJoCo UR5e reach golden path, readiness-level Doctor. |
-| **Next** | Migrate every physical side-effect path to the gateway; ledger compaction/external witnessing; cancellation/preemption; ROS 2 Turtlesim observed-motion golden path. |
+| **Current / Alpha** | rosclawd process boundary and durable local control ledger, truthful action/receipt contracts, fail-closed fixtures/providers/drivers, MuJoCo UR5e Reach and ContactPush failure-to-success simulation paths, ROS 2 Turtlesim/Gazebo guarded motion, and readiness-level Doctor. |
+| **Next** | Migrate every remaining physical side-effect path to the gateway; ledger compaction/external witnessing; general cancellation/preemption; Nav2 and independent external-Agent acceptance. |
 | **Hardware acceptance** | RealSense read-only capture, then bounded actuator tasks with ACK, feedback, stop verification, and receipts. |
-| **Later** | Receipt-driven Memory/How/Auto/Darwin promotion with independent evaluation and rollback. |
+| **Later** | Body-aware skill adaptation, active perception, and broader independently maintained multi-task simulation benchmarks. |
 
 ---
 

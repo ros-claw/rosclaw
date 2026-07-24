@@ -2,5 +2,8 @@ schema_version: rosclaw.simforge.scenario_distribution.v1
 variables:
   linear_x_mps: {distribution: uniform, min: -0.5, max: 0.5}
   duration_sec: {distribution: uniform, min: 0.1, max: 3.0}
-  lease_ttl_ms: {distribution: choice, values: [60, 100, 250]}
+  lease_ttl_ms: {distribution: choice, values: [300, 500, 1000]}
+  fault:
+    distribution: choice
+    values: [agent_kill, rosbridge_loss, odom_stale, worker_crash]
 constraints: [finite_values]

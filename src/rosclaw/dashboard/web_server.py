@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -520,6 +521,38 @@ class DashboardWebServer:
         @self.app.get("/snapshot")
         async def snapshot() -> dict[str, Any]:
             return self.server.get_snapshot()
+
+        @self.app.get("/evolution-arena")
+        async def evolution_arena_page() -> Any:
+            from rosclaw.simforge.evolution_arena import (
+                render_evolution_arena_html,
+            )
+
+            page = render_evolution_arena_html().replace(
+                'src="split-screen.mp4"',
+                'src="/api/evolution-arena/video/split-screen.mp4"',
+            )
+            return HTMLResponse(page)
+
+        @self.app.get("/api/evolution-arena")
+        async def api_evolution_arena() -> dict[str, Any]:
+            from rosclaw.simforge.evolution_arena import (
+                load_dashboard_report_from_environment,
+            )
+
+            return load_dashboard_report_from_environment()
+
+        @self.app.get("/api/evolution-arena/video/{name}")
+        async def api_evolution_arena_video(name: str) -> Any:
+            if name not in {"before.mp4", "after.mp4", "split-screen.mp4"}:
+                raise HTTPException(status_code=404, detail="Unknown Arena video")
+            report = os.environ.get("ROSCLAW_EVOLUTION_ARENA_REPORT")
+            if not report:
+                raise HTTPException(status_code=404, detail="Arena report is not configured")
+            video = Path(report).expanduser().resolve().parent / "showcase" / name
+            if not video.is_file():
+                raise HTTPException(status_code=404, detail="Arena video is not exported")
+            return FileResponse(video, media_type="video/mp4")
 
         @self.app.get("/api/body")
         async def api_body() -> dict[str, Any]:

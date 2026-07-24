@@ -22,34 +22,28 @@ docker build --network "$build_network" --pull=false "${proxy_args[@]}" \
   -t rosclaw/ros2-humble-gazebo:latest \
   -f docker/ros2-humble-gazebo.Dockerfile .
 
-timeout 120 docker run --rm rosclaw/ros2-humble-gazebo:latest bash -lc '
-source /opt/ros/humble/setup.bash
-set -eo pipefail
-ign gazebo -r -s /usr/share/ignition/ignition-gazebo6/worlds/grid.sdf >/tmp/gazebo.log 2>&1 &
-gazebo_pid=$!
-bridge_pid=
+evidence_dir="$(mktemp -d)"
 cleanup() {
-  if [[ -n "$bridge_pid" ]]; then
-    kill "$bridge_pid" 2>/dev/null || true
-    wait "$bridge_pid" 2>/dev/null || true
-  fi
-  kill "$gazebo_pid" 2>/dev/null || true
-  wait "$gazebo_pid" 2>/dev/null || true
+  rm -rf "$evidence_dir"
 }
 trap cleanup EXIT
-for attempt in {1..30}; do
-  if ign topic -l | grep -qx /clock; then break; fi
-  sleep 1
-done
-ign topic -l | grep -qx /clock
-ros2 run ros_gz_bridge parameter_bridge "/clock@rosgraph_msgs/msg/Clock[ignition.msgs.Clock" >/tmp/bridge.log 2>&1 &
-bridge_pid=$!
-for attempt in {1..30}; do
-  if ros2 topic list | grep -qx /clock; then break; fi
-  sleep 1
-done
-ros2 topic list | grep -qx /clock
-timeout 20 ros2 topic echo /clock --once
+
+timeout 120 docker run --rm --network host --ipc host \
+  -e ROS_DOMAIN_ID=187 \
+  -e ROS_LOCALHOST_ONLY=1 \
+  -e ROSCLAW_REPO_ROOT=/workspace \
+  -e ROSCLAW_GAZEBO_EVIDENCE_DIR=/evidence \
+  -e LIBGL_ALWAYS_SOFTWARE=1 \
+  -v "$repo_root:/workspace:ro" \
+  -v "$evidence_dir:/evidence:rw" \
+  rosclaw/ros2-humble-gazebo:latest bash -lc '
+source /opt/ros/humble/setup.bash
+set -eo pipefail
+ign sdf -k /workspace/benchmarks/simforge/suites/core_v1/guarded_base/gazebo_guarded_base.sdf
+launch_test --junit-xml=/evidence/launch-testing-junit.xml \
+  /workspace/tests/simforge/launch/test_gazebo_guarded_base_launch.py
 '
 
-echo "ROSCLAW_GAZEBO_VERIFY_OK simulator=fortress bridge=/clock"
+test -s "$evidence_dir/launch-testing-result.json"
+grep -q '"passed": true' "$evidence_dir/launch-testing-result.json"
+echo "ROSCLAW_GAZEBO_VERIFY_OK simulator=fortress model=diff_drive odom=true laser=true launch_testing=true deadman=true"

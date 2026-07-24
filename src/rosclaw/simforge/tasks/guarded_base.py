@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import math
+import threading
 import time
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from rosclaw.connectors.ros.transport import RosbridgeTransport
 from rosclaw.kernel import (
@@ -109,6 +110,9 @@ class RosbridgeMobileBaseSink:
         self._observation_timeout_sec = observation_timeout_sec
         self._start_x_m: float | None = None
         self._motion_deadline: float | None = None
+        self._heartbeat_stop: threading.Event | None = None
+        self._heartbeat_thread: threading.Thread | None = None
+        self._motion_lock = threading.RLock()
 
     @property
     def daemon_owner_id(self) -> str:
@@ -144,8 +148,27 @@ class RosbridgeMobileBaseSink:
         )
         if not result.ok:
             return False
-        self._start_x_m = start[0]
-        self._motion_deadline = time.monotonic() + duration_sec
+        with self._motion_lock:
+            previous_stop = self._heartbeat_stop
+            if previous_stop is not None:
+                previous_stop.set()
+            heartbeat_stop = threading.Event()
+            self._heartbeat_stop = heartbeat_stop
+            self._start_x_m = start[0]
+            self._motion_deadline = time.monotonic() + duration_sec
+            thread = threading.Thread(
+                target=self._refresh_velocity,
+                args=(
+                    heartbeat_stop,
+                    linear_x_mps,
+                    angular_z_radps,
+                    self._motion_deadline,
+                ),
+                name=f"{self._daemon_owner_id}-guarded-base-heartbeat",
+                daemon=True,
+            )
+            self._heartbeat_thread = thread
+            thread.start()
         return True
 
     def observe_effect(self, timeout_sec: float) -> MobileBaseObservation | None:
@@ -165,7 +188,7 @@ class RosbridgeMobileBaseSink:
             time.sleep(remaining)
         if not self.stop():
             return None
-        final = self._read_pose(min(timeout_sec, self._observation_timeout_sec))
+        final = self._read_until_stopped(min(timeout_sec, self._observation_timeout_sec))
         if final is None:
             return None
         return MobileBaseObservation(
@@ -176,31 +199,171 @@ class RosbridgeMobileBaseSink:
         )
 
     def stop(self) -> bool:
+        with self._motion_lock:
+            heartbeat_stop = self._heartbeat_stop
+            if heartbeat_stop is not None:
+                heartbeat_stop.set()
         result = self._transport.publish(self._command_topic, _twist_message(0.0, 0.0))
         return result.ok
 
+    def _refresh_velocity(
+        self,
+        stop_event: threading.Event,
+        linear_x_mps: float,
+        angular_z_radps: float,
+        deadline: float,
+    ) -> None:
+        while not stop_event.wait(0.1) and time.monotonic() < deadline:
+            result = self._transport.publish(
+                self._command_topic,
+                _twist_message(linear_x_mps, angular_z_radps),
+            )
+            if not result.ok:
+                stop_event.set()
+                return
+
     def _read_pose(self, timeout_sec: float) -> tuple[float, float] | None:
-        result = self._transport.subscribe_once(
-            self._pose_topic,
-            msg_type=self._pose_message_type,
+        return read_mobile_base_pose(
+            self._transport,
+            topic=self._pose_topic,
+            message_type=self._pose_message_type,
             timeout_sec=timeout_sec,
         )
-        if not result.ok or not isinstance(result.data, dict):
-            return None
-        message = result.data.get("msg", result.data)
-        if not isinstance(message, dict):
-            return None
-        x = message.get("x")
-        velocity = message.get("linear_velocity")
-        if isinstance(x, bool) or not isinstance(x, (int, float)):
-            return None
-        if isinstance(velocity, bool) or not isinstance(velocity, (int, float)):
-            return None
-        x_value = float(x)
-        velocity_value = float(velocity)
-        if not (math.isfinite(x_value) and math.isfinite(velocity_value)):
-            return None
-        return x_value, velocity_value
+
+    def _read_until_stopped(self, timeout_sec: float) -> tuple[float, float] | None:
+        deadline = time.monotonic() + timeout_sec
+        latest: tuple[float, float] | None = None
+        while time.monotonic() < deadline:
+            latest = self._read_pose(max(0.05, deadline - time.monotonic()))
+            if latest is None:
+                return None
+            if abs(latest[1]) <= 0.02:
+                return latest
+        return latest
+
+
+class RosbridgeMobileBaseStopDriver:
+    """Runtime E-Stop target that verifies a Gazebo / turtlesim base stopped.
+
+    The driver deliberately exposes only ``emergency_stop``.  Registering it
+    with :class:`Runtime` lets rosclawd's Session / Action-Lease watchdog reach
+    the same constrained zero-Twist path even after the requesting client has
+    disappeared.
+    """
+
+    def __init__(
+        self,
+        transport: RosbridgeTransport,
+        *,
+        command_topic: str,
+        pose_topic: str,
+        pose_message_type: str,
+        observation_timeout_sec: float = 1.0,
+        motion_sink: RosbridgeMobileBaseSink | None = None,
+    ) -> None:
+        if not command_topic or not pose_topic or not pose_message_type:
+            raise ValueError("ROS command, pose, and message type names are required")
+        if not math.isfinite(observation_timeout_sec) or observation_timeout_sec <= 0:
+            raise ValueError("observation timeout must be finite and positive")
+        self._transport = transport
+        self._command_topic = command_topic
+        self._pose_topic = pose_topic
+        self._pose_message_type = pose_message_type
+        self._observation_timeout_sec = observation_timeout_sec
+        self._motion_sink = motion_sink
+
+    def emergency_stop(self) -> dict[str, object]:
+        requested_at = time.monotonic()
+        sink_stopped = self._motion_sink.stop() if self._motion_sink is not None else True
+        result = self._transport.publish(
+            self._command_topic,
+            _twist_message(0.0, 0.0),
+        )
+        deadline = requested_at + self._observation_timeout_sec
+        observed_velocity: float | None = None
+        stopped_at: float | None = None
+        while result.ok and time.monotonic() < deadline:
+            observation = read_mobile_base_pose(
+                self._transport,
+                topic=self._pose_topic,
+                message_type=self._pose_message_type,
+                timeout_sec=max(0.05, deadline - time.monotonic()),
+            )
+            if observation is None:
+                break
+            observed_velocity = observation[1]
+            if abs(observed_velocity) <= 0.02:
+                stopped_at = time.monotonic()
+                break
+        physical_stop = stopped_at is not None
+        return {
+            "acknowledged": bool(result.ok and sink_stopped),
+            "physical_stop_observed": physical_stop,
+            "observed_velocity": observed_velocity,
+            "verification_source": self._pose_topic,
+            "execution_mode": ExecutionMode.SHADOW.value,
+            "bounded_stop_sec": (stopped_at - requested_at if stopped_at is not None else None),
+            "transport_error": result.error,
+        }
+
+
+def read_mobile_base_pose(
+    transport: RosbridgeTransport,
+    *,
+    topic: str,
+    message_type: str,
+    timeout_sec: float,
+) -> tuple[float, float] | None:
+    """Read ``x`` and forward speed from turtlesim Pose or ROS Odometry."""
+
+    result = transport.subscribe_once(
+        topic,
+        msg_type=message_type,
+        timeout_sec=timeout_sec,
+    )
+    if not result.ok or not isinstance(result.data, dict):
+        return None
+    message = result.data.get("msg", result.data)
+    if not isinstance(message, dict):
+        return None
+    extracted = _extract_mobile_base_pose(message)
+    if extracted is None:
+        return None
+    x_value, velocity_value = extracted
+    if not (math.isfinite(x_value) and math.isfinite(velocity_value)):
+        return None
+    return x_value, velocity_value
+
+
+def _extract_mobile_base_pose(message: dict[str, Any]) -> tuple[float, float] | None:
+    """Normalize turtlesim ``Pose`` and ``nav_msgs/Odometry`` payloads."""
+
+    x = message.get("x")
+    velocity = message.get("linear_velocity")
+    if _is_number(x) and _is_number(velocity):
+        return float(x), float(velocity)
+
+    pose = message.get("pose")
+    twist = message.get("twist")
+    if not isinstance(pose, dict) or not isinstance(twist, dict):
+        return None
+    nested_pose = pose.get("pose", pose)
+    nested_twist = twist.get("twist", twist)
+    if not isinstance(nested_pose, dict) or not isinstance(nested_twist, dict):
+        return None
+    position = nested_pose.get("position")
+    linear = nested_twist.get("linear")
+    if not isinstance(position, dict) or not isinstance(linear, dict):
+        return None
+    x = position.get("x")
+    velocity = linear.get("x")
+    if not (_is_number(x) and _is_number(velocity)):
+        return None
+    return float(x), float(velocity)
+
+
+def _is_number(value: object) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float))
 
 
 class GenericMobileBaseSimulationExecutor:
@@ -450,4 +613,6 @@ __all__ = [
     "GenericMobileBaseSimulationExecutor",
     "MobileBaseObservation",
     "RosbridgeMobileBaseSink",
+    "RosbridgeMobileBaseStopDriver",
+    "read_mobile_base_pose",
 ]
