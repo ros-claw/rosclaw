@@ -1,0 +1,8 @@
+schema_version: rosclaw.simforge.goalforge_holdout.v1
+partition: holdout
+candidate_may_view_cases: false
+seed_disclosed: false
+hidden_truth_disclosed: false
+per_episode_results_disclosed: false
+signed_aggregate_required: true
+evidence_commitment_required: true

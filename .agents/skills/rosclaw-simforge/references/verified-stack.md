@@ -68,3 +68,22 @@ Use `scripts/verify_gazebo.sh` for the bounded process test and
 - Gazebo / ROS installation: https://gazebosim.org/docs/fortress/ros_installation/
 - Isaac Lab installation: https://isaac-sim.github.io/IsaacLab/develop/source/setup/installation/index.html
 - Isaac Sim containers: https://docs.isaacsim.omniverse.nvidia.com/6.0.0/installation/install_container.html
+
+## Phase 4 G1 GoalForge source qualifications
+
+These are upstream inputs, not ROSClaw-owned assets. Keep their repositories
+and large policies outside the ROSClaw checkout; record their exact commits in
+the doctor report.
+
+- Unitree RL MJLab: https://github.com/unitreerobotics/unitree_rl_mjlab
+- Unitree MuJoCo: https://github.com/unitreerobotics/unitree_mujoco
+- Unitree Isaac Lab simulation: https://github.com/unitreerobotics/unitree_sim_isaaclab
+- RoboNaldo project: https://opendrivelab.com/RoboNaldo/
+- RoboNaldo code: https://github.com/OpenDriveLab/RoboNaldo
+- RoboNaldo paper: https://arxiv.org/abs/2606.11092
+
+GoalForge qualification requires the official Unitree 29-DoF `hg` DDS joint
+order and the RoboNaldo deployment model, motion, scene, and ONNX policy. A
+four-GPU result remains `CUDA_SCREENING` until a disjoint CPU MuJoCo comparison
+meets the configured key-label agreement gate. Simulation evidence remains
+SHADOW/SIM evidence and never authorizes a real robot.

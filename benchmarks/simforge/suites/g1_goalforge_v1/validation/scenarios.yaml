@@ -1,0 +1,10 @@
+schema_version: rosclaw.simforge.goalforge_partition.v1
+partition: validation
+candidate_may_view_cases: false
+evaluator_discloses:
+  - signed_aggregate
+  - scenario_set_commitment
+  - evidence_commitment
+requirements:
+  same_body_hash: true
+  strict_mujoco_receipts: true
