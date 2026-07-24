@@ -98,25 +98,36 @@ class ChoreographyValidator:
             ):
                 violations.append(f"{V_NOT_PATCHABLE_PHASE}:{name}")
 
-        # 2) Stacking: a non-stackable parameter conflicts when the current
-        #    model already carries a different value for another
-        #    non-stackable parameter (run1 stacked speed+delay changes).
+        # 2) Stacking (run1 stacked speed+delay changes): at most ONE
+        #    non-stackable parameter may be active after the patch — count
+        #    the parameters the patch touches AND the ones already active
+        #    in the current model.
         non_stackable_respected = True
-        touched = [name for name in patch if name in contract.non_stackable_parameters]
+        non_stackable = set(contract.non_stackable_parameters)
+        touched = [name for name in patch if name in non_stackable and patch[name]]
         if len(touched) > 1:
             non_stackable_respected = False
             violations.append(f"{V_NON_STACKABLE}:{'+'.join(touched)}")
-        if touched:
-            current = model.parameters.get("inter_round_cooldown_sec")
-            if (
-                "inter_round_cooldown_sec" not in touched
-                and current
-                and contract.non_stackable_parameters
-            ):
-                non_stackable_respected = False
-                violations.append(f"{V_NON_STACKABLE}:cooldown_already_active")
+        active_after = set(touched)
+        for name in non_stackable:
+            if name not in patch and model.parameters.get(name):
+                active_after.add(name)
+        if len(active_after) > 1:
+            non_stackable_respected = False
+            violations.append(f"{V_NON_STACKABLE}:{'+'.join(sorted(active_after))}_would_be_active")
 
-        patched = apply_patch(model, patch, contract)
+        # A patch with parameter-space violations (forbidden/unknown/out of
+        # range) is never applied to the model — the patched timeline is
+        # simply unprovable, so report the original durations.
+        parameter_violations = [
+            v
+            for v in violations
+            if v.startswith((V_FORBIDDEN_PARAMETER, V_UNKNOWN_PARAMETER, V_OUT_OF_RANGE))
+        ]
+        if parameter_violations:
+            patched = model
+        else:
+            patched = apply_patch(model, patch, contract)
 
         # 3) Reveal window: the patched reveal offset must stay inside the
         #    contract window (between-round patches never move it; any

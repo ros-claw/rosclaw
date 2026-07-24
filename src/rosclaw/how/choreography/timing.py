@@ -107,19 +107,41 @@ def apply_patch(
     timing-neutral.  Unknown parameters raise — the validator rejects
     unknown/forbidden keys BEFORE this function is called.
     """
+    known_between_round = {
+        "inter_round_cooldown_sec",
+        "cooldown_every_n_rounds",
+        "rehome_between_blocks",
+        "neutral_pose_between_blocks",
+        "telemetry_hz",
+    }
+    unknown = sorted(set(patch) - known_between_round)
+    if unknown:
+        # Defense in depth (the validator rejects these first): the model
+        # refuses to guess the timing effect of an unknown parameter.
+        raise ValueError(f"unknown timing effect for parameters: {unknown}")
+
     new_phases = dict(model.phase_durations_ms)
     parameters = dict(model.parameters)
     parameters.update(patch)
 
+    # Current effective cooldown: the larger of the observed interval and
+    # the explicitly parameterized one — re-patching while a cooldown is
+    # already active must not under-count the round total.
+    param_cooldown_ms = float(model.parameters.get("inter_round_cooldown_sec") or 0.0) * 1000.0
+    current_effective_ms = max(model.cooldown_ms, param_cooldown_ms)
+
     extra_cooldown_ms = 0.0
     if "inter_round_cooldown_sec" in patch:
-        extra_cooldown_ms = float(patch["inter_round_cooldown_sec"]) * 1000.0
+        # The patch SETS the cooldown parameter (not adds to it).
+        extra_cooldown_ms = max(
+            0.0, float(patch["inter_round_cooldown_sec"]) * 1000.0 - param_cooldown_ms
+        )
     if patch.get("rehome_between_blocks") or patch.get("neutral_pose_between_blocks"):
         # A between-block recovery action occupies cooldown time but must
         # fit inside it; modeled as +800 ms of cooldown occupancy.
         extra_cooldown_ms = max(extra_cooldown_ms, 800.0)
 
-    new_phases["cooldown"] = max(0.0, model.cooldown_ms + extra_cooldown_ms)
+    new_phases["cooldown"] = max(0.0, current_effective_ms + extra_cooldown_ms)
     return TimingModel(
         phase_durations_ms=new_phases,
         round_interval_ms=model.round_interval_ms + extra_cooldown_ms,
