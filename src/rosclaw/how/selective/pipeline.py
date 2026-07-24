@@ -39,7 +39,6 @@ from rosclaw.memory.v2.regime import (
 from rosclaw.memory.v2.regime.models import OperatingRegime
 from rosclaw.memory.v2.retrieval import MemoryQuery
 from rosclaw.memory.v2.runtime_retrieval import (
-    MODE_ACTIVE_BM25,
     MemoryRetrievalFacade,
     RetrievalPurpose,
 )
@@ -79,12 +78,14 @@ class SelectiveInterventionPipeline:
         matcher: RegimeMatcher | None = None,
         engine: Any | None = None,
         choreography_validator: Any | None = None,
+        timing_model: Any | None = None,
     ) -> None:
         self._facade = facade
         self._envelopes = applicability_store
         self._matcher = matcher or RegimeMatcher()
         self._engine = engine
         self._choreography = choreography_validator
+        self._timing_model = timing_model
 
     def decide(
         self,
@@ -189,16 +190,11 @@ class SelectiveInterventionPipeline:
                     explanation=f"query names joint {joint}; no {joint} memory on {body}",
                 )
 
-        # 4) Degraded provider on the high-risk path → ABSTAIN (v4 §7.3).
-        if response.retrieval_mode == MODE_ACTIVE_BM25:
-            return _verdict(
-                InterventionAction.ABSTAIN,
-                [REASON_PROVIDER_DEGRADED_HIGH_RISK],
-                explanation=(
-                    "embedding provider unavailable (BM25-only); the high-risk "
-                    "intervention path requires the pinned embedding path"
-                ),
-            )
+        # 4) Degraded retrieval (BM25-on-ACTIVE / sqlite lexical / abstain
+        #    chain) — tracked and enforced at the APPLY rung below (v4 §7.3:
+        #    the pinned embedding path is required to AUTO-APPLY; degraded
+        #    evidence may still SUGGEST with disclosure).
+        degraded_reason = response.fallback_reason if response.fallback else None
 
         # 5) Applicability per candidate.  The failure's joint IS the
         # current joint context for matching (the regime may not carry one).
@@ -279,13 +275,35 @@ class SelectiveInterventionPipeline:
         # 8) Decision ladder.
         score = top_match.score
         validated = top_match.envelope_type == EnvelopeType.VALIDATED.value
-        success_evidence = any(e.success_count > 0 for e in top_envelopes)
+        matched_envelope = next(
+            (e for e in top_envelopes if e.envelope_id == top_match.matched_envelope_id),
+            None,
+        )
+        success_evidence = bool(matched_envelope and matched_envelope.success_count > 0)
         evidence_confidence = max((e.confidence for e in top_envelopes), default=0.0)
         benefit = round(score * max(evidence_confidence, 0.0), 4)
         harm = self._harm(top_envelopes)
 
         if score >= self._matcher.config.suggest_below:
             if validated and success_evidence:
+                if degraded_reason is not None:
+                    return _verdict(
+                        InterventionAction.SUGGEST,
+                        [REASON_PROVIDER_DEGRADED_HIGH_RISK],
+                        memory_id=top_candidate.memory_id,
+                        rule_id=rule,
+                        score=score,
+                        envelope_id=top_match.matched_envelope_id,
+                        patch=patch,
+                        benefit=benefit,
+                        harm=harm,
+                        evidence_confidence=evidence_confidence,
+                        explanation=(
+                            f"validated + applicable, but retrieval is degraded "
+                            f"({response.retrieval_mode}) — auto-apply requires the "
+                            f"pinned embedding path; operator gate instead"
+                        ),
+                    )
                 if self._choreography is None:
                     # v4 §7.3: APPLY without a choreography gate is forbidden.
                     return _verdict(
@@ -377,10 +395,17 @@ class SelectiveInterventionPipeline:
         parameters = patch.get("parameters") or {}
         if not parameters:
             return None
-        from rosclaw.how.choreography.timing import build_timing_model
+        if self._timing_model is None:
+            # Never validate against a synthetic empty model: it fakes a
+            # zero current cooldown and skips the stacking check (review
+            # finding).  No real timing model → the budget is unprovable.
+            from rosclaw.how.choreography.validator import ChoreographyValidation
 
-        model = build_timing_model(validator.contract, [], current_parameters={})
-        return validator.validate(parameters, model)
+            return ChoreographyValidation(
+                allowed=False,
+                violations=["choreography_unavailable:no_timing_model"],
+            )
+        return validator.validate(parameters, self._timing_model)
 
     def _retrieval_confidence(self, response: Any) -> float:
         if not response.candidates:

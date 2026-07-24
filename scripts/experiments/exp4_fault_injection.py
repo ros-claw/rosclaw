@@ -491,14 +491,20 @@ def s6_status_protection(h: FaultHarness) -> dict[str, Any]:
     }
 
 
-def s7_ctrl_c() -> dict[str, Any]:
-    """SIGINT during a level: emergency stop, no further dispatch."""
+def s7_ctrl_c(exp3_args: list[str] | None = None) -> dict[str, Any]:
+    """SIGINT during a level: emergency stop, no further dispatch.
+
+    ``exp3_args`` forwards the harness body binding (profile/calibration/
+    body-id/hand) so the interrupted subprocess runs against the SAME body
+    under acceptance — the v1.0.0 default silently targeted the left hand.
+    """
     proc = subprocess.Popen(
         [
             sys.executable,
             "scripts/experiments/exp3_graded_execution.py",
             "--levels",
             "noop",
+            *(exp3_args or []),
         ],
         cwd=str(REPO_ROOT),
         stdout=subprocess.PIPE,
@@ -515,7 +521,7 @@ def s7_ctrl_c() -> dict[str, Any]:
     interrupted = '"interrupted": true' in out
     estop = "emergency stop" in out or "Ctrl+C" in out
     passed = proc.returncode is not None and interrupted and estop
-    return {
+    result = {
         "scenario": "S7 ctrl_c",
         "expected": "estop + interrupted summary + process exits (DISARMED)",
         "returncode": proc.returncode,
@@ -523,6 +529,9 @@ def s7_ctrl_c() -> dict[str, Any]:
         "estop_seen": estop,
         "passed": passed,
     }
+    if not passed:
+        result["output_tail"] = out.splitlines()[-8:]
+    return result
 
 
 def _sudo_n(*cmd: str) -> tuple[bool, str]:
@@ -734,6 +743,36 @@ def main() -> int:
         print(f"EXP4 S8 {'PASSED' if passed else 'FAILED'}")
         return 0 if passed else 1
 
+    if args.only == "s7":
+        results.append(
+            s7_ctrl_c(
+                [
+                    "--transport-profile",
+                    args.transport_profile,
+                    "--calibration",
+                    args.calibration,
+                    "--body-id",
+                    args.body_id,
+                    "--hand",
+                    "right" if "right" in args.body_id else "left",
+                ]
+            )
+        )
+        passed = all(r.get("passed") for r in results)
+        report = {
+            "experiment": "exp4_fault_injection",
+            "only": "s7",
+            "passed": passed,
+            "scenarios": results,
+        }
+        Path("/tmp/exp4_fault_injection_s7.json").write_text(
+            json.dumps(report, indent=2, default=str)
+        )
+        for r in results:
+            print(f"[{'PASS' if r.get('passed') else 'FAIL'}] {r['scenario']}")
+        print(f"EXP4 S7 {'PASSED' if passed else 'FAILED'}")
+        return 0 if passed else 1
+
     h = FaultHarness(args.transport_profile, args.calibration, **harness_kwargs)
     try:
         results.append(s1_stale_observation(h))
@@ -777,7 +816,20 @@ def main() -> int:
     finally:
         h.close()
 
-    results.append(s7_ctrl_c())
+    results.append(
+        s7_ctrl_c(
+            [
+                "--transport-profile",
+                args.transport_profile,
+                "--calibration",
+                args.calibration,
+                "--body-id",
+                args.body_id,
+                "--hand",
+                "right" if "right" in args.body_id else "left",
+            ]
+        )
+    )
 
     if not args.skip_usb:
         h = FaultHarness(args.transport_profile, args.calibration, **harness_kwargs)

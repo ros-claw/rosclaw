@@ -263,3 +263,87 @@ def test_envelope_record_json_roundtrip() -> None:
     assert loaded.regime_labels == envelope.regime_labels
     assert loaded.required_features == envelope.required_features
     assert loaded.temperature_max == envelope.temperature_max
+
+
+# ---------------------------------------------------------------------------
+# Review fixes (PR-MEM-6 follow-up): identity semantics
+# ---------------------------------------------------------------------------
+
+
+def test_unverified_identity_not_explicit_mismatch_but_disclosed() -> None:
+    """Regime with NO calibration context + calibration-constrained envelope:
+    not a hard rejection (no explicit mismatch), but unverified_identity
+    must name the dimension so the APPLY rung can refuse it downstream."""
+    matcher = RegimeMatcher()
+    envelope = _thermal_envelope(calibration_hashes=["cal_old"])
+    regime = _regime(calibration_hash=None)
+    result = matcher.match("mem_slow_down", [envelope], regime)
+    assert "calibration_profile_mismatch" not in result.hard_rejections
+    assert "calibration_hash" in result.unverified_identity
+    assert result.explanation.get("unverified_identity") is None  # field, not dict
+    assert result.to_dict()["unverified_identity"] == ["calibration_hash"]
+
+
+def test_wrong_calibration_still_hard_rejects() -> None:
+    matcher = RegimeMatcher()
+    result = matcher.match(
+        "mem_slow_down",
+        [_thermal_envelope(calibration_hashes=["cal_old"])],
+        _regime(calibration_hash="cal_NEW"),
+    )
+    assert "calibration_profile_mismatch" in result.hard_rejections
+    assert result.applicable is False
+
+
+def test_required_features_work_for_string_identities() -> None:
+    """required_features must handle string identity fields (feature_value
+    is float-only; the escape hatch previously could never pass)."""
+    matcher = RegimeMatcher()
+    envelope = _thermal_envelope(required_features=["calibration_hash"])
+    ok = matcher.match("mem_slow_down", [envelope], _regime(calibration_hash="cal_abc"))
+    assert "missing_required_features" not in ok.hard_rejections
+    missing = matcher.match("mem_slow_down", [envelope], _regime(calibration_hash=None))
+    assert "missing_required_features" in missing.hard_rejections
+    assert "calibration_hash" in missing.missing_required_features
+
+
+def test_contraindicated_veto_scoped_to_envelope_ranges() -> None:
+    """A hot-zone contraindication vetoes at 57 °C but NOT at 45 °C."""
+    contra = ApplicabilityEnvelope(
+        memory_id="mem_slow_down",
+        body_ids=["rh56_right_01"],
+        task_ids=["rh56_rps"],
+        temperature_min=56.0,
+        temperature_max=60.0,
+        envelope_type=EnvelopeType.CONTRAINDICATED.value,
+        reason="breaks_reveal_timing",
+    )
+    matcher = RegimeMatcher()
+    hot = matcher.match("mem_slow_down", [_thermal_envelope(), contra], _regime())
+    assert "contraindicated_envelope_hit" in hot.hard_rejections
+    cold = matcher.match(
+        "mem_slow_down",
+        [_thermal_envelope(), contra],
+        _regime(temperature_c=45.0, regime_label=RegimeLabel.COLD_HEALTHY.value),
+    )
+    assert "contraindicated_envelope_hit" not in cold.hard_rejections
+    # ...but the cold regime is also outside the VALIDATED envelope, so the
+    # memory is merely not-applicable (score-based), not vetoed.
+    assert cold.applicable is False
+
+
+def test_contraindicated_veto_with_unset_ranges_applies_globally() -> None:
+    """A range-free contraindication (identity-scoped only) vetoes anywhere —
+    that IS its documented meaning."""
+    contra = ApplicabilityEnvelope(
+        memory_id="mem_slow_down",
+        body_ids=["rh56_right_01"],
+        envelope_type=EnvelopeType.CONTRAINDICATED.value,
+        reason="globally_unsafe_on_this_body",
+    )
+    result = RegimeMatcher().match(
+        "mem_slow_down",
+        [_thermal_envelope(), contra],
+        _regime(temperature_c=45.0),
+    )
+    assert "contraindicated_envelope_hit" in result.hard_rejections

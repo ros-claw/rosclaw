@@ -31,6 +31,23 @@ from .metrics import SelectiveRiskLedger
 from .pipeline import SelectiveInterventionPipeline
 
 _DEFAULT_REGIME_CONFIG = "configs/regimes/rh56_rps_v1.yaml"
+_DEFAULT_CONTRACT = "configs/choreography/rh56_rps_v1.yaml"
+
+
+def _timing_model_for(args: argparse.Namespace, contract: Any) -> Any | None:
+    """Timing model from the latest session's rounds (real observed timing)."""
+    from rosclaw.how.choreography.cli import _rounds_from_session
+    from rosclaw.how.choreography.timing import build_timing_model
+
+    data_root = getattr(args, "data_root", None) or _DEFAULT_DATA_ROOT
+    try:
+        session_dir = latest_session_dir(data_root)
+        rounds = _rounds_from_session(session_dir)
+    except (FileNotFoundError, ValueError):
+        return None
+    if not rounds:
+        return None
+    return build_timing_model(contract, rounds, current_parameters={})
 
 
 def _emit(payload: Any) -> None:
@@ -102,10 +119,24 @@ def cmd_how_decide(args: argparse.Namespace) -> int:
                 matcher_config = MatcherConfig.from_dict(
                     (yaml.safe_load(handle) or {}).get("regime_matcher", {})
                 )
+        # Choreography gate: the APPLY rung needs the validator AND the
+        # task's real timing model (from the same session evidence that
+        # builds the regime) — never a synthetic empty model.
+        choreography = None
+        timing_model = None
+        contract_path = getattr(args, "choreography_contract", None) or _DEFAULT_CONTRACT
+        if Path(contract_path).is_file():
+            from rosclaw.how.choreography import ChoreographyValidator, load_contract
+
+            contract = load_contract(contract_path)
+            choreography = ChoreographyValidator(contract)
+            timing_model = _timing_model_for(args, contract)
         pipeline = SelectiveInterventionPipeline(
             facade,
             ApplicabilityStore(client),
             matcher=RegimeMatcher(matcher_config),
+            choreography_validator=choreography,
+            timing_model=timing_model,
         )
         regime = _regime_for(args)
         decision = pipeline.decide(
@@ -168,6 +199,11 @@ def register_selective_commands(how_subparsers: Any) -> None:
     p.add_argument("--limit", type=int, default=5)
     p.add_argument("--data-root", default=None, help="practice runs root for regime building")
     p.add_argument("--config", default=None, help="regime thresholds YAML")
+    p.add_argument(
+        "--choreography-contract",
+        default=None,
+        help="choreography contract YAML (enables the APPLY rung)",
+    )
     p.add_argument("--v2-path", default=None, help="SQLite knowledge store path")
     p.add_argument(
         "--backend",

@@ -22,6 +22,20 @@ CONFIGS = Path(__file__).resolve().parents[4] / "configs"
 PROFILE_PATH = CONFIGS / "rh56_right_rs485_v1.yaml"
 CALIBRATION_PATH = CONFIGS / "rh56_right_01_calibration.yaml"
 
+
+def _fixture_calibration():
+    """Kernel-test calibration: placeholder tolerances, not production values.
+
+    The production right-hand file carries physically measured tolerances
+    (13/9/10/10/11/28) that are intentionally tighter than the synthetic
+    20/25-raw steps these kernel mechanics tests command.
+    """
+    calibration = load_rh56_calibration(CALIBRATION_PATH)
+    for spec in calibration.actuators.values():
+        spec.position_tolerance_raw = 25
+    return calibration
+
+
 HASHES = {
     "policy_contract_hash": "sha256:policy",
     "body_hash": "sha256:body",
@@ -40,7 +54,7 @@ def _stack(
     execution_mode: ExecutionMode = ExecutionMode.FIXTURE,
 ):
     profile = load_transport_profile(PROFILE_PATH)
-    calibration = load_rh56_calibration(CALIBRATION_PATH)
+    calibration = _fixture_calibration()
     transport = MockModbusTransport(profile)
     transport.connect()
     pm = PermitManager()
