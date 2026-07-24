@@ -80,6 +80,11 @@ class ApplicabilityResult:
     evidence_count: int = 0
     confidence: float = 0.0
 
+    # Identity dimensions the envelope constrains but the regime has NO
+    # context for (v4 §6.1: not an explicit mismatch — and never eligible
+    # for the APPLY rung, only SUGGEST with disclosure).
+    unverified_identity: list[str] = field(default_factory=list)
+
     explanation: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -94,6 +99,7 @@ class ApplicabilityResult:
             "feature_scores": {k: round(v, 4) for k, v in self.feature_scores.items()},
             "evidence_count": self.evidence_count,
             "confidence": self.confidence,
+            "unverified_identity": self.unverified_identity,
             "explanation": self.explanation,
         }
 
@@ -155,20 +161,21 @@ class RegimeMatcher:
         memory_id: str,
         envelopes: list[ApplicabilityEnvelope],
         regime: OperatingRegime,
-        *,
-        robot_id: str | None = None,
     ) -> ApplicabilityResult:
         """Evaluate one memory's envelopes against the current regime.
 
-        CONTRAINDICATED envelopes veto first; VALIDATED beats OBSERVED when
-        both match; a memory with no envelopes at all is NOT applicable to
-        the intervention path (no evidence it ever worked anywhere).
+        CONTRAINDICATED envelopes veto first — but only when the current
+        regime is actually INSIDE the contraindicated envelope (identity +
+        labels + continuous ranges all match).  A hot-zone contraindication
+        must not veto a cold regime, and vice versa.  VALIDATED beats
+        OBSERVED when both match; a memory with no envelopes at all is NOT
+        applicable to the intervention path.
         """
         # 0) Contraindicated veto (v4 §6.1: hitting one is a hard reject).
         for envelope in envelopes:
             if envelope.envelope_type != EnvelopeType.CONTRAINDICATED.value:
                 continue
-            if self._envelope_matches(envelope, regime, robot_id=robot_id)[0]:
+            if self._contraindicated_applies(envelope, regime):
                 return ApplicabilityResult(
                     memory_id=memory_id,
                     applicable=False,
@@ -200,7 +207,7 @@ class RegimeMatcher:
             key=lambda e: 0 if e.envelope_type == EnvelopeType.VALIDATED.value else 1,
         )
         for envelope in ordered:
-            result = self._evaluate(memory_id, envelope, regime, robot_id=robot_id)
+            result = self._evaluate(memory_id, envelope, regime)
             if result.applicable:
                 return result
             if best is None or result.score > best.score:
@@ -215,10 +222,8 @@ class RegimeMatcher:
         memory_id: str,
         envelope: ApplicabilityEnvelope,
         regime: OperatingRegime,
-        *,
-        robot_id: str | None,
     ) -> ApplicabilityResult:
-        matched, rejections, missing = self._envelope_matches(envelope, regime, robot_id=robot_id)
+        matched, rejections, missing, unverified = self._envelope_matches(envelope, regime)
         if not matched:
             # Even a hard-rejected candidate reports its continuous feature
             # distances — the explanation must show WHY, not just THAT.
@@ -238,6 +243,7 @@ class RegimeMatcher:
                 feature_scores=distances,
                 evidence_count=envelope.evidence_count,
                 confidence=envelope.confidence,
+                unverified_identity=unverified,
                 explanation={"regime_label": regime.regime_label},
             )
 
@@ -273,6 +279,7 @@ class RegimeMatcher:
             feature_scores={k: v for k, v in feature_scores.items() if v is not None},
             evidence_count=envelope.evidence_count,
             confidence=envelope.confidence,
+            unverified_identity=unverified,
             explanation={
                 "regime_similarity": round(similarity, 4),
                 "evidence_factor": round(evidence_factor, 4),
@@ -281,21 +288,56 @@ class RegimeMatcher:
             },
         )
 
+    def _contraindicated_applies(
+        self, envelope: ApplicabilityEnvelope, regime: OperatingRegime
+    ) -> bool:
+        """Is the current regime actually INSIDE a contraindicated envelope?
+
+        Identity + label hard constraints (same as any envelope) AND every
+        continuous range the envelope sets must contain the regime's value.
+        An unknown regime value (None) never counts as "inside" — absence
+        of evidence is not evidence of being in the danger zone.
+        """
+        matched, _, _, _ = self._envelope_matches(envelope, regime)
+        if not matched:
+            return False
+        for feature, min_field, max_field in _RANGE_CHECKS:
+            low = getattr(envelope, min_field)
+            high = getattr(envelope, max_field)
+            if low is None and high is None:
+                continue
+            value = regime.feature_value(feature)
+            if value is None:
+                return False
+            if low is not None and value < low:
+                return False
+            if high is not None and value > high:
+                return False
+        return True
+
     def _envelope_matches(
         self,
         envelope: ApplicabilityEnvelope,
         regime: OperatingRegime,
-        *,
-        robot_id: str | None,
-    ) -> tuple[bool, list[str], list[str]]:
-        """Hard-constraint evaluation (v4 §6.1)."""
+    ) -> tuple[bool, list[str], list[str], list[str]]:
+        """Hard-constraint evaluation (v4 §6.1).
+
+        Returns (matched, rejections, missing_required, unverified_identity).
+        A regime with NO context on a constrained identity dimension is not
+        an explicit mismatch — it is recorded as unverified (the APPLY rung
+        refuses those; SUGGEST stays possible with disclosure).
+        """
         rejections: list[str] = []
+        unverified: list[str] = []
         for envelope_field, regime_field, code in _IDENTITY_CHECKS:
             allowed = getattr(envelope, envelope_field)
             if not allowed:
                 continue  # unconstrained on this dimension
             current = getattr(regime, regime_field, None)
-            if current is None or current not in allowed:
+            if current is None:
+                unverified.append(regime_field)
+                continue
+            if current not in allowed:
                 rejections.append(code)
 
         if envelope.regime_labels and regime.regime_label not in envelope.regime_labels:
@@ -303,12 +345,14 @@ class RegimeMatcher:
 
         missing: list[str] = []
         for feature in envelope.required_features:
-            if regime.feature_value(feature) is None:
+            # getattr works for string identities too (feature_value is
+            # float-only); a missing feature can never count as matching.
+            if getattr(regime, feature, None) is None:
                 missing.append(feature)
         if missing:
             rejections.append("missing_required_features")
 
-        return (not rejections, rejections, missing)
+        return (not rejections, rejections, missing, unverified)
 
     def _feature_distances(
         self, envelope: ApplicabilityEnvelope, regime: OperatingRegime
