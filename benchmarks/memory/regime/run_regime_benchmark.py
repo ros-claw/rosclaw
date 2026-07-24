@@ -29,11 +29,11 @@ from pathlib import Path
 from typing import Any
 
 import evaluate_regime as ev
+from fake_native_stack import BenchNativeStore, bench_provider_resolver
 from fixture_corpus import REGIME_CONTEXTS, TEST_SESSIONS, corpus, queries
 
 from rosclaw.how.selective import SelectiveInterventionPipeline
 from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
-from rosclaw.memory.v2.models import MemoryItem
 from rosclaw.memory.v2.regime import (
     ApplicabilityEnvelope,
     ApplicabilityStore,
@@ -58,43 +58,51 @@ def _regime_for(context: dict[str, Any], *, body_id: str | None, joint: str | No
     return regime
 
 
-def build_stack() -> tuple[Any, ApplicabilityStore, list[dict[str, Any]]]:
-    """In-memory fixture store with corpus memories + envelopes.
+def _rows_for_native(memories: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Corpus memories as ACTIVE physical-collection rows (flat metadata)."""
+    stamp = 1_784_000_000.0
+    rows = []
+    for record in memories:
+        rows.append(
+            {
+                "id": record["memory_id"],
+                "memory_type": record["memory_type"],
+                "robot_id": record["robot_id"],
+                "session_id": record["session_id"],
+                "body_id": record["body_id"],
+                "joint_name": record["joint_name"],
+                "failure_type": record["failure_type"],
+                "gesture_name": None,
+                "title": record["title"],
+                "document": record["document"],
+                "status": "active",
+                "outcome": record["outcome"],
+                "event_time": stamp,
+                "updated_at": stamp,
+                "evidence_refs": record["evidence_refs"],
+                "tags": [],
+                "metadata": record["metadata"],
+            }
+        )
+    return rows
 
-    Timestamps are FIXED (session-anchored) so ranking is deterministic —
-    recency jitter between runs must never flip a benchmark result.
+
+def build_stack() -> tuple[Any, ApplicabilityStore, list[dict[str, Any]]]:
+    """Benchmark-native pinned-path stack (disclosed fake, deterministic).
+
+    An ACTIVE physical collection on a deterministic native-store double +
+    a pinned fake embedding provider — the benchmark measures the FULL
+    production path (hybrid retrieval → regime gate → choreography), not
+    the degraded lexical fallback (which honestly disables APPLY).
     """
     client = InMemoryKnowledgeStore()
     client.connect()
     memories, envelopes = corpus()
-    # One shared timestamp for every item: recency then contributes the
-    # SAME score to all candidates and can never flip an order between
-    # runs (the retriever's clock is wall time).  The benchmark measures
-    # lexical/metadata/fusion + gates, not recency.
-    stamp = 1_784_000_000.0
-    for index, record in enumerate(memories):
-        item = MemoryItem(
-            memory_id=record["memory_id"],
-            memory_type=record["memory_type"],
-            robot_id=record["robot_id"],
-            session_id=record["session_id"],
-            body_id=record["body_id"],
-            joint_name=record["joint_name"],
-            failure_type=record["failure_type"],
-            title=record["title"],
-            document=record["document"],
-            outcome=record["outcome"],
-            evidence_refs=record["evidence_refs"],
-            metadata=record["metadata"],
-            event_time=stamp,
-            created_at=stamp,
-            updated_at=stamp,
-        )
-        client.insert("memory_items", item.to_record())
     store = ApplicabilityStore(client)
     for raw in envelopes:
         store.upsert(ApplicabilityEnvelope.from_record(raw))
-    return client, store, memories
+    native = BenchNativeStore(_rows_for_native(memories))
+    return native, store, memories
 
 
 def run_queries(
@@ -102,8 +110,10 @@ def run_queries(
     *,
     k: int = 5,
 ) -> list[dict[str, Any]]:
-    client, applicability_store, _ = build_stack()
-    facade = build_retrieval_facade(sqlite_store=client)
+    native, applicability_store, _ = build_stack()
+    facade = build_retrieval_facade(
+        native_store=native, provider_resolver=bench_provider_resolver()
+    )
     matcher = RegimeMatcher()
     choreography = None
     contract_path = REPO_ROOT / "configs" / "choreography" / "rh56_rps_v1.yaml"
