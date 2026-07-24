@@ -6971,6 +6971,10 @@ def main() -> int:
 
     register_selective_commands(how_subparsers)
 
+    from rosclaw.how.choreography.cli import register_replay_patch_command
+
+    register_replay_patch_command(how_subparsers)
+
     # provider subcommand
     provider_parser = subparsers.add_parser("provider", help="Provider commands")
     provider_subparsers = provider_parser.add_subparsers(dest="provider_command")

@@ -84,7 +84,14 @@ class RecoveryRule:
 
 @dataclass
 class PatchProof:
-    """§11.2 evidence that a suggested patch was actually executed."""
+    """§11.2 evidence that a suggested patch was actually executed.
+
+    v4 §9 fields record the full decision context: the regime the patch
+    fired in, the applicability envelope and score that admitted it, the
+    choreography validation, the retrieval provenance, and whether
+    abstention was on the table — so a later audit can replay WHY the
+    patch was allowed, not just WHAT ran.
+    """
 
     suggested_patch: dict[str, Any]
     actual_patch: dict[str, Any] | None = None
@@ -94,6 +101,16 @@ class PatchProof:
     after_metrics: dict[str, Any] = field(default_factory=dict)
     critic_decision: str | None = None
     retried_at: float = field(default_factory=time.time)
+
+    # v4 §9 — regime / applicability / choreography / retrieval provenance.
+    current_regime_id: str | None = None
+    matched_envelope_id: str | None = None
+    applicability_score: float | None = None
+    choreography_contract_id: str | None = None
+    choreography_validation: dict[str, Any] | None = None
+    retrieval_physical_collection: str | None = None
+    embedding_profile_id: str | None = None
+    abstention_considered: bool = True
 
     def complete(
         self, actual_patch: dict[str, Any], after_metrics: dict[str, Any], critic_decision: str
@@ -115,6 +132,14 @@ class PatchProof:
             "after_metrics": self.after_metrics,
             "critic_decision": self.critic_decision,
             "retried_at": self.retried_at,
+            "current_regime_id": self.current_regime_id,
+            "matched_envelope_id": self.matched_envelope_id,
+            "applicability_score": self.applicability_score,
+            "choreography_contract_id": self.choreography_contract_id,
+            "choreography_validation": self.choreography_validation,
+            "retrieval_physical_collection": self.retrieval_physical_collection,
+            "embedding_profile_id": self.embedding_profile_id,
+            "abstention_considered": self.abstention_considered,
         }
 
 
@@ -220,8 +245,7 @@ def record_outcome_atomic(
             row = rows[0]
             updates = {
                 column: int(row.get(column) or 0) + 1,
-                "evidence_count": int(row.get("evidence_count") or 0)
-                + (1 if evidence_ref else 0),
+                "evidence_count": int(row.get("evidence_count") or 0) + (1 if evidence_ref else 0),
                 "last_validated_at": now,
             }
             return bool(client.update(table, rule_id, updates))

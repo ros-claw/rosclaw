@@ -300,6 +300,21 @@ class SelectiveInterventionPipeline:
                         evidence_confidence=evidence_confidence,
                         explanation="APPLY requires the choreography validator (v4 §7.3)",
                     )
+                choreography = self._validate_choreography(patch)
+                if choreography is not None and not choreography.allowed:
+                    return _verdict(
+                        InterventionAction.ABSTAIN,
+                        [f"choreography_violation:{v}" for v in choreography.violations],
+                        memory_id=top_candidate.memory_id,
+                        rule_id=rule,
+                        score=score,
+                        envelope_id=top_match.matched_envelope_id,
+                        patch=patch,
+                        benefit=benefit,
+                        harm=1.0,
+                        evidence_confidence=evidence_confidence,
+                        explanation="choreography validator blocked the patch",
+                    )
                 return _verdict(
                     InterventionAction.APPLY,
                     [REASON_VALIDATED_MATCH],
@@ -348,6 +363,24 @@ class SelectiveInterventionPipeline:
         )
 
     # ------------------------------------------------------------------
+
+    def _validate_choreography(self, patch: dict[str, Any] | None) -> Any | None:
+        """Run the choreography validator when the patch carries parameters.
+
+        A parameterless patch is timing-vacuous: allowed by construction but
+        recorded as such.  A patch with parameters must pass the contract
+        (v4 §8.4) — violations are returned to the caller for ABSTAIN.
+        """
+        validator = self._choreography
+        if validator is None or patch is None:
+            return None
+        parameters = patch.get("parameters") or {}
+        if not parameters:
+            return None
+        from rosclaw.how.choreography.timing import build_timing_model
+
+        model = build_timing_model(validator.contract, [], current_parameters={})
+        return validator.validate(parameters, model)
 
     def _retrieval_confidence(self, response: Any) -> float:
         if not response.candidates:

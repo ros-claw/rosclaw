@@ -1,0 +1,101 @@
+# RH56 RPS 控制编舞合约（数据库优化v4 §8.2/§8.3）
+#
+# run1 教训：减速 + 延时破坏了 reveal 时序，invalid rate 由 ~4% 升至
+# 21–52%。  动作 Patch 不能只检查单参数范围，必须检查整个任务时序。
+#
+# 自动路径在新证据出现前只允许 between-round 恢复参数；任何修改
+# reveal/phase 时序、舵机速度、手势轨迹的 Patch 都必须 BLOCK
+# （除非通过专门的 Timing Validation 与真机晋升）。
+
+contract:
+  contract_id: rh56_rps_v1
+  task_id: rh56_rps
+  skill_id: null
+  version: "1.0"
+
+  # 一个回合的控制相位（毫秒，自回合 start 起）
+  phases:
+    - name: countdown
+      start_event: round_started
+      end_event: countdown_completed
+      minimum_duration_ms: 2800
+      maximum_duration_ms: 3200
+      interruptible: false
+    - name: reveal
+      start_event: countdown_completed
+      end_event: gesture_presented
+      minimum_duration_ms: 200
+      maximum_duration_ms: 600
+      interruptible: false
+    - name: result
+      start_event: gesture_presented
+      end_event: result_recorded
+      minimum_duration_ms: 500
+      maximum_duration_ms: 1500
+      interruptible: false
+    - name: cooldown
+      start_event: result_recorded
+      end_event: next_round_started
+      minimum_duration_ms: 0
+      maximum_duration_ms: 30000
+      interruptible: true
+
+  # reveal 窗口（自回合 start 的绝对区间）：手势必须在此窗口内呈现，
+  # 否则相机感知与裁判对时失效 —— run1 死亡螺旋的根因。
+  reveal_window_start_ms: 3000
+  reveal_window_end_ms: 3600
+
+  # 单回合总预算（start → next start 的上限）
+  maximum_round_duration_ms: 20000
+
+  # 自动路径允许的参数及其取值范围
+  patchable_parameters:
+    inter_round_cooldown_sec:
+      type: number
+      min: 0
+      max: 30
+      unit: sec
+    cooldown_every_n_rounds:
+      type: integer
+      min: 0
+      max: 50
+    rehome_between_blocks:
+      type: boolean
+    neutral_pose_between_blocks:
+      type: boolean
+    telemetry_hz:
+      type: number
+      min: 0.2
+      max: 30
+      unit: hz
+
+  # 自动路径永远禁止的参数（需要 Timing Validation + 真机晋升）
+  forbidden_parameters:
+    - gesture_motion_duration_ms
+    - reveal_delay_ms
+    - result_display_delay_ms
+    - per_phase_delay_ms
+    - servo_speed_scale
+    - gesture_trajectory
+
+  # 不可叠加参数：一次只能一个生效
+  non_stackable_parameters:
+    - inter_round_cooldown_sec
+    - cooldown_every_n_rounds
+
+  # 只允许在回合之间应用的参数（全部当前可 patch 参数都是）
+  between_round_only:
+    - inter_round_cooldown_sec
+    - cooldown_every_n_rounds
+    - rehome_between_blocks
+    - neutral_pose_between_blocks
+    - telemetry_hz
+
+  # 只允许在会话开始前应用的参数
+  before_session_only: []
+
+  # 必须保持的不变量
+  required_invariants:
+    - reveal_window_preserved
+    - round_budget_preserved
+    - non_stackable_respected
