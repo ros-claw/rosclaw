@@ -1,0 +1,59 @@
+# RH56 RPS 工况阈值（数据库优化v4 §4.3）
+#
+# Deterministic regime labeling thresholds for the rh56_rps task on the
+# Inspire RH56 hands.  Values are anchored to real-machine evidence:
+#   - 48–52 °C: healthy short-session operating band (PR #98 run2 no-memory
+#     arm: 4.0% invalid rate)
+#   - 56–58 °C + rising slope: two-hour thermal-degradation regime in which
+#     the "slow_down_and_delay" intervention memory was produced (run1)
+# Every label decision must cite these configured values — code never
+# hardcodes its own.
+
+regime_thresholds:
+  # Temperature bands (°C)
+  temperature_warm_c: 52.0
+  temperature_hot_c: 56.0
+  # Thermal drift: sustained slope over a minimum window
+  temperature_slope_drift_c_per_min: 0.15
+  temperature_slope_min_window_sec: 300.0
+  # Tracking quality (raw units / ms — RH56 raw position counts)
+  position_error_p95_warn: 15.0
+  time_to_reach_p95_warn_ms: 900.0
+  # Recent outcome rates (rolling window)
+  invalid_rate_warn: 0.06
+  invalid_rate_high: 0.15
+  failure_rate_warn: 0.10
+  consecutive_failures_warn: 3
+  # Control timing stability (gesture interval coefficient of variation)
+  gesture_interval_cv_warn: 0.25
+  # Communication health (Modbus error fraction)
+  communication_error_rate_warn: 0.02
+  # Windows (rounds)
+  short_window_rounds: 10
+  medium_window_rounds: 30
+  # Confidence
+  min_feature_coverage: 0.5
+
+# RegimeMatcher feature weights for the continuous regime distance
+# (v4 §6.2): regime_similarity = exp(-Σ weight_i × distance_i).
+regime_matcher:
+  feature_weights:
+    temperature_c: 1.0
+    temperature_slope_c_per_min: 0.8
+    session_elapsed_sec: 0.3
+    cumulative_action_count: 0.2
+    position_error_p95: 0.6
+    recent_failure_rate: 0.8
+  # Normalization scales: the distance of a value outside an envelope
+  # interval is divided by this scale before weighting.
+  feature_scales:
+    temperature_c: 5.0
+    temperature_slope_c_per_min: 0.2
+    session_elapsed_sec: 1800.0
+    cumulative_action_count: 500.0
+    position_error_p95: 10.0
+    recent_failure_rate: 0.2
+  # Initial decision thresholds (v4 §6.4 — to be recalibrated by
+  # selective risk calibration, not tuned by hand per-incident).
+  abstain_below: 0.70
+  suggest_below: 0.85
