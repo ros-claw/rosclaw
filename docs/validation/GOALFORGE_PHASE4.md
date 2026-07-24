@@ -30,7 +30,9 @@ The flagship loop performs:
 5. at most two audited Sandbox candidate attempts and a same-seed physical
    retry;
 6. a first-shot evaluation at a new ball/target location;
-7. independent trajectory verification and strict replay receipts.
+7. a 32-candidate, simulation-only bounded search for a difficult edge-angle
+   shot without increasing the live retry budget;
+8. independent trajectory verification and strict replay receipts.
 
 Practice records store control-frequency joint, torque, IMU/pelvis, COM, foot
 contact, ground reaction, slip, ball, contact-point, impulse, and action arrays
@@ -69,6 +71,11 @@ export ROSCLAW_SIMFORGE_REFERENCE_ROOT=/path/to/phase4_references
 .venv/bin/python -m rosclaw.entrypoint simforge validate g1-goalforge \
   --pairs 100 \
   --output /tmp/goalforge-recovery-100.json
+
+.venv/bin/python -m rosclaw.entrypoint simforge validate g1-goalforge \
+  --profile nominal-success \
+  --workers 4 \
+  --output /tmp/goalforge-nominal-success-30.json
 
 .venv/bin/python -m rosclaw.entrypoint demo run g1-goalforge \
   --target-zone random \
@@ -158,7 +165,7 @@ Champion and the independently replayed ProofBundle. G15 requires all twelve
 GoalForge modules at E5.
 
 The showcase export contains both the evidence manifest and a dependency-free
-`index.html`. Its left panel draws the three recorded MuJoCo ball trajectories,
+`index.html`. Its left panel draws the recorded MuJoCo ball trajectories,
 the center panel shows the causal module chain, and the right panel shows
 Verifier/Receipt metrics.
 
@@ -167,3 +174,22 @@ the qualified MuJoCo scene. It emits H.264 MP4 with a contact slow-motion
 window, target marker, ball trail, verifier-derived shot labels, and a
 hash-bound JSON manifest. Both exports are downstream visualizations of
 recorded evidence and never produce task labels or Promotion evidence.
+
+## Nominal success profile
+
+The `nominal-success` profile is a balanced 30-case CPU MuJoCo grid over three
+static ball offsets, five goal columns, and two reachable target heights. For
+each case it evaluates at most 32 deduplicated, bounded candidates. The bank
+couples stance offset, pelvis yaw, and foot yaw, while retaining all original
+joint, torque, COM, fall, support-slip, and replay gates.
+
+The pass gate requires at least 95% optimized success, at least a 30 percentage
+point gain over the fixed prior, lower mean target error, and 100% safe
+selection, independent verification, and strict replay. This is an offline
+simulation search and does not increase the two-attempt runtime recovery
+budget.
+
+This profile is deliberately scoped to a static ball, nominal mass/friction,
+zero latency/noise/disturbance, target lateral position in `[-0.75, 0.75] m`,
+and target height in `{0.20, 0.55} m`. The `0.90 m` target and broad randomized
+physics disturbances remain outside the demonstrated high-success envelope.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import asdict, dataclass, replace
 from typing import Protocol
@@ -84,7 +85,7 @@ class ParameterSearchOutcome:
 class GoalForgeParameterSearch:
     """Generate from public context; execute against private physics boundary."""
 
-    def __init__(self, *, max_candidates: int = 12) -> None:
+    def __init__(self, *, max_candidates: int = 32) -> None:
         if not 1 <= max_candidates <= 32:
             raise ValueError("GoalForge search budget must be in [1, 32]")
         self.max_candidates = max_candidates
@@ -105,7 +106,7 @@ class GoalForgeParameterSearch:
             **twin.public_context(),
             "memory_query_hash": memory.query_hash if memory is not None else "none",
         }
-        candidates = _candidate_set(
+        candidates = build_parameter_candidates(
             base=base,
             public_context=scenario.observed_context(),
             twin=twin,
@@ -158,7 +159,7 @@ class GoalForgeParameterSearch:
         )
 
 
-def _candidate_set(
+def build_parameter_candidates(
     *,
     base: ShotParameters,
     public_context: dict[str, float],
@@ -219,6 +220,47 @@ def _candidate_set(
                 "bounded_yaw_sweep",
             )
         )
+    direction = -1.0 if target_y - ball_y < 0.0 else 1.0
+    for pelvis_yaw in (0.0, 0.06, 0.12, 0.18, 0.20):
+        for foot_yaw in (0.04, 0.08, 0.12):
+            values.append(
+                (
+                    replace(
+                        base,
+                        stance_offset_y=stance,
+                        pelvis_yaw_offset=direction * pelvis_yaw,
+                        foot_yaw_offset=direction * foot_yaw,
+                        policy_type="parameter",
+                    ),
+                    "coupled_lateral_sweep",
+                )
+            )
+    for stance_delta in (-0.06, -0.03, 0.03, 0.06):
+        values.append(
+            (
+                replace(
+                    base,
+                    stance_offset_y=max(-0.12, min(0.12, stance + stance_delta)),
+                    pelvis_yaw_offset=max(-0.20, min(0.20, 0.28 * (target_y - ball_y))),
+                    foot_yaw_offset=max(-0.12, min(0.12, 0.08 * (target_y - ball_y))),
+                    policy_type="parameter",
+                ),
+                "stance_lateral_sweep",
+            )
+        )
+    if abs(ball_y) >= 0.08:
+        values.append(
+            (
+                replace(
+                    base,
+                    stance_offset_y=math.copysign(0.12, ball_y),
+                    pelvis_yaw_offset=max(-0.20, min(0.20, 0.28 * (target_y - ball_y))),
+                    foot_yaw_offset=max(-0.12, min(0.12, 0.07 * (target_y - ball_y))),
+                    policy_type="parameter",
+                ),
+                "edge_stance_lateral_sweep",
+            )
+        )
     for phase in (-0.06, -0.03, 0.03):
         values.append(
             (
@@ -250,6 +292,7 @@ def _safe(result: GoalForgeResult) -> bool:
 
 
 __all__ = [
+    "build_parameter_candidates",
     "GoalForgeParameterSearch",
     "GoalForgeRunner",
     "ParameterCandidateEvaluation",

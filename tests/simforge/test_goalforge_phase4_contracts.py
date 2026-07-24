@@ -9,6 +9,7 @@ import pytest
 from rosclaw.auto.g1_kick.continual_runner import (
     run_goalforge_continual_screening,
 )
+from rosclaw.auto.g1_kick.parameter_search import build_parameter_candidates
 from rosclaw.auto.g1_kick.shot_adapter_train import (
     G1ShotAdapter,
     ShotAdapterRegistry,
@@ -96,6 +97,36 @@ def test_goalforge_video_timeline_slows_contact_window_deterministically() -> No
     assert len(timeline) > 11 * 30
     slow_motion_frames = sum(4.3 <= value <= 6.4 for value in source_times)
     assert slow_motion_frames >= 150
+
+
+def test_goalforge_search_covers_coupled_edge_stance_without_expanding_budget() -> None:
+    candidates = build_parameter_candidates(
+        base=ShotParameters(),
+        public_context={
+            "ball_x": 1.0,
+            "ball_y": 0.10,
+            "ball_vx": 0.0,
+            "ball_vy": 0.0,
+            "target_y": -0.75,
+            "target_z": 0.20,
+            "support_friction_belief": 0.85,
+            "ball_mass_belief": 0.42,
+            "control_latency_belief_ms": 20.0,
+            "body_calibration_state": 0.0,
+        },
+        twin=KickTwinBelief.initial(),
+        memory=None,
+        intervention=None,
+    )
+    assert len(candidates) <= 32
+    sources = {source for _, source in candidates}
+    assert {"coupled_lateral_sweep", "stance_lateral_sweep"} <= sources
+    edge = next(
+        parameters for parameters, source in candidates if source == "edge_stance_lateral_sweep"
+    )
+    assert edge.stance_offset_y == 0.12
+    assert edge.pelvis_yaw_offset == -0.20
+    assert edge.foot_yaw_offset == pytest.approx(-0.0595)
 
 
 def test_holdout_scenario_hides_physical_truth() -> None:

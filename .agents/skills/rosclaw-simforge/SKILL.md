@@ -96,6 +96,9 @@ Run the product surface from the checkout:
   --output /evidence/doctor/goalforge-doctor.json
 .venv/bin/python -m rosclaw.entrypoint simforge validate g1-goalforge \
   --pairs 100 --output /an/external/recovery-100.json
+.venv/bin/python -m rosclaw.entrypoint simforge validate g1-goalforge \
+  --profile nominal-success --workers 4 \
+  --output /an/external/nominal-success-30.json
 .venv/bin/python -m rosclaw.entrypoint demo run g1-goalforge \
   --target-zone random --failure-to-success --live-dashboard \
   --output-dir /an/external/new/evidence/directory
@@ -159,6 +162,15 @@ Unitree DDS tests must use loopback, a non-default isolated domain, canonical
 GoalForge video export must consume strict-replay trajectory artifacts outside
 the checkout and write the MP4 and manifest outside the checkout. It is
 visualization-only: never use rendered pixels or subtitles as Promotion truth.
+
+For success-rate optimization, use `--profile nominal-success` as the CPU
+MuJoCo acceptance surface. Require all 30 balanced nominal cases, at least 95%
+success, a gain of at least 30 percentage points over the fixed prior, 100%
+safe selection, 100% independent verification, and 100% strict replay. Keep
+the two-attempt runtime recovery budget separate from the at-most-32-candidate
+offline simulation search. Do not generalize that result to moving balls,
+randomized mass/friction/latency/noise/disturbance, or the 0.90 m target unless
+those cases pass a separately declared validation profile.
 
 ### 6. Validate MCP
 

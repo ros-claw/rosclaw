@@ -275,7 +275,7 @@ class G1MuJoCoBackend:
             replay = self.run(scenario, parameters)
             replay_ok = (
                 replay.result.summary_dict() == episode.result.summary_dict()
-                and _trajectory_digest(replay.trajectory) == _trajectory_digest(episode.trajectory)
+                and trajectory_digest(replay.trajectory) == trajectory_digest(episode.trajectory)
             )
         receipt = SimulationReceiptV4(
             episode_id=episode_id,
@@ -391,6 +391,7 @@ class G1MuJoCoBackend:
             "ball_angular_velocity": [],
             "foot_ball_contact_point": [],
             "contact_impulse": [],
+            "goal_crossing": [],
         }
         kick_support_anchor: np.ndarray | None = None
         peak_support_slip = 0.0
@@ -581,6 +582,7 @@ class G1MuJoCoBackend:
                     support_slip=support_slip,
                     ball_contact_point=ball_contact_point,
                     contact_impulse=contact_impulse,
+                    goal_crossed=goal_crossed,
                 )
             if not finite:
                 break
@@ -604,6 +606,7 @@ class G1MuJoCoBackend:
                 support_slip=support_slip,
                 ball_contact_point=ball_contact_point,
                 contact_impulse=contact_impulse,
+                goal_crossed=goal_crossed,
             )
         target_error = (
             math.hypot(crossing_y - scenario.target_y_m, crossing_z - scenario.target_z_m)
@@ -927,6 +930,7 @@ def _append_trace(
     support_slip: float,
     ball_contact_point: np.ndarray,
     contact_impulse: float,
+    goal_crossed: bool,
 ) -> None:
     trace["time"].append(time_sec)
     trace["joint_position"].append(data.qpos[7:36].copy())
@@ -945,6 +949,7 @@ def _append_trace(
     trace["ball_angular_velocity"].append(data.qvel[ids.ball_qvel + 3 : ids.ball_qvel + 6].copy())
     trace["foot_ball_contact_point"].append(ball_contact_point.copy())
     trace["contact_impulse"].append(contact_impulse)
+    trace["goal_crossing"].append(goal_crossed)
 
 
 def _classify(
@@ -1083,7 +1088,7 @@ def _bounded_hash(path: Path) -> str:
     return hash_bytes(path.read_bytes())
 
 
-def _trajectory_digest(trajectory: dict[str, np.ndarray]) -> str:
+def trajectory_digest(trajectory: dict[str, np.ndarray]) -> str:
     digest = hashlib.sha256()
     for name in sorted(trajectory):
         value = np.ascontiguousarray(trajectory[name])
@@ -1113,6 +1118,7 @@ def _independent_trace_check(
         "ball_pose",
         "ball_velocity",
         "ball_angular_velocity",
+        "goal_crossing",
     }
     if required - set(trajectory):
         return False
@@ -1140,4 +1146,5 @@ __all__ = [
     "G1MuJoCoBackend",
     "GoalForgeEpisode",
     "qualify_g1_assets",
+    "trajectory_digest",
 ]

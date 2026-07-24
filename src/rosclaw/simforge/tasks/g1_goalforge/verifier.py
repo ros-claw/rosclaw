@@ -102,7 +102,11 @@ def _result_consistent(episode: GoalForgeEpisode) -> bool:
         float(pelvis[-1, 2]),
         abs_tol=0.03,
     )
-    crossing_observed = bool(np.any(ball[:, 0] >= 5.0))
+    crossing_observed = (
+        bool(np.any(np.asarray(trace["goal_crossing"], dtype=bool)))
+        if "goal_crossing" in trace
+        else bool(np.any(ball[:, 0] >= 5.0))
+    )
     crossing_consistent = not episode.result.goal_crossed or crossing_observed
     contact_consistent = (
         not episode.result.kick_foot_contacted or episode.result.ball_contact_time_sec is not None

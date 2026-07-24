@@ -23,6 +23,9 @@ from rosclaw.simforge.g1_proofs import build_goalforge_e5_proof_bundle
 from rosclaw.simforge.g1_recovery_validation import (
     run_physical_recovery_validation,
 )
+from rosclaw.simforge.g1_success_validation import (
+    run_nominal_success_validation,
+)
 from rosclaw.simforge.g1_video import render_goalforge_video
 from rosclaw.simforge.phase4_run import (
     run_goalforge_demo,
@@ -89,11 +92,26 @@ def _recovery_validation(argv: list[str]) -> int:
     parser.add_argument("simforge")
     parser.add_argument("validate")
     parser.add_argument("name")
+    parser.add_argument(
+        "--profile",
+        choices=("recovery", "nominal-success"),
+        default="recovery",
+    )
     parser.add_argument("--pairs", type=int, default=100)
     parser.add_argument("--max-attempts", type=int, default=400)
+    parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--asset-root", type=Path, default=_default_robonaldo())
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.profile == "nominal-success":
+        result = run_nominal_success_validation(
+            asset_root=args.asset_root,
+            output_path=args.output,
+            source_checkout=_source_checkout(),
+            workers=args.workers,
+        )
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        return 0 if result.passed else 2
     result = run_physical_recovery_validation(
         asset_root=args.asset_root,
         output_path=args.output,

@@ -18,6 +18,7 @@ physics:
 adapter:
   policy: fixed_whole_body_prior_plus_bounded_shot_adapter
   maximum_retries: 2
+  maximum_offline_candidates: 32
   learned_model: small_mlp
   dataset_snapshot_required: true
   output_projection_required: true
@@ -37,6 +38,9 @@ dds:
 
 promotion:
   gate: v4
+  nominal_validation_cases: 30
+  nominal_success_rate_min: 0.95
+  nominal_fixed_prior_delta_min: 0.30
   fall_rate_max: 0.0
   torque_violation_rate_max: 0.0
   unsafe_allow_rate_max: 0.0

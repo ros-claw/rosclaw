@@ -346,11 +346,14 @@ def _e5(
 
 
 def _verify_demo(value: dict[str, Any]) -> None:
-    receipts = (
+    receipts = [
         value["baseline"]["receipt"],
         value["same_seed_retry"]["receipt"],
         value["new_location_first_shot"]["receipt"],
-    )
+    ]
+    edge_angle = value.get("optimized_edge_angle")
+    if isinstance(edge_angle, dict):
+        receipts.append(edge_angle["receipt"])
     if not all(
         receipt["strict_replay"] and receipt["independently_verified"] for receipt in receipts
     ):

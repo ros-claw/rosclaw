@@ -257,15 +257,71 @@ Video hash:
 Both exports are recorded-evidence visualizations and cannot produce task
 labels or Promotion evidence.
 
+## Phase 4.1 nominal-success optimization
+
+On 2026-07-24, the bounded Shot Adapter search was extended with coupled
+stance/pelvis/foot lateral candidates while retaining the same immutable
+whole-body prior and safety limits. The new balanced CPU MuJoCo validation
+contains 30 static-ball cases: three ball offsets, five goal columns, and two
+reachable heights.
+
+| 30-case CPU MuJoCo metric | Fixed | Context-only | Optimized |
+| --- | ---: | ---: | ---: |
+| Success rate | 53.33% | 60.00% | 100.00% |
+| Mean target error | 0.5025 m | — | 0.2441 m |
+
+All 30 selected candidates were safe, independently trajectory-verified, and
+bit-for-bit strict replayable. Mean target error decreased by 51.4%. The
+validator report passed its 95% success, +30 percentage-point improvement,
+zero-unsafe-selection, independent-verification, and replay gates.
+
+```text
+/tmp/rosclaw-goalforge-success-v2-final.vsiSi5/nominal-success-30.json
+```
+
+File SHA-256:
+`e4c0061ab19177dc624476243616f1200a52636eab5bfd7c56a961997e229d6d`.
+
+A fresh four-A6000 screening run also passed with four distinct GPU UUIDs,
+1,000 scenario commitments, and complete G0-G10 coverage. Its disjoint CPU
+check executed 24 physics cases and retained the observed 79.17% success-label
+and 87.50% safety-label agreement (83.33% mean); this conservative broad
+screen is not used as CPU task truth. Memory ON/OFF ablation again reduced
+mean attempts from 5.03 to 1.00 (80.12%) without wrong-memory harm.
+
+```text
+/tmp/rosclaw-goalforge-4gpu-v2.J6tHBa/run
+```
+
+The high-success claim is intentionally limited to the nominal grid: static
+ball, nominal mass/friction, zero latency/noise/disturbance, lateral targets
+within ±0.75 m, and target heights of 0.20 m or 0.55 m. Exploratory broad
+randomized disturbances and the 0.90 m target are retained as open failure
+modes rather than included in the 100% figure.
+
+The refreshed four-shot H.264 replay adds the difficult edge-angle success
+after the original miss/retry/new-location sequence. It is 1280x720 at 30 fps,
+48.27 seconds, and 1,448 frames. The optimized shot reached the opposite goal
+edge with 0.337 m target error, 0.0021 m support slip, no fall, and no torque
+violation.
+
+```text
+/tmp/rosclaw-goalforge-video-v2-final-20260724/g1-goalforge-optimized.mp4
+/tmp/rosclaw-goalforge-video-v2-final-20260724/g1-goalforge-optimized.json
+```
+
+Video SHA-256:
+`f7a3b7d34b60f561a3b02cbd4ed2519c0d71cbba1b2e05db1953845baea7593e`.
+
 ## Verification
 
 Final repository verification:
 
-- Phase 4 contract tests: 15 passed;
+- Phase 4 contract tests: 16 passed;
 - real GoalForge MuJoCo/video + Unitree DDS integration tests: 2 passed in
-  25.52 s;
+  86.94 s;
 - full repository suite with the verified LeRobot 0.6.1 interpreter:
-  5,011 passed, 59 skipped, 27 deselected, 0 failed in 995.13 s;
+  5,012 passed, 59 skipped, 27 deselected, 0 failed in 984.19 s;
 - Ruff over 52 Phase 4 Python files: passed;
 - Ruff format over the same 52 files: passed;
 - mypy over 49 Phase 4 source files: no issues;
@@ -305,6 +361,9 @@ scoped Phase 4 checks are clean; these unrelated files were not modified.
 | Promotion report | `774013bfe3f709eb6c4e00bbb264ae6fe824aa5bb747ce9472399622d81619d7` |
 | Showcase HTML | `92961ecbbeaef8f19e59b1f544ff61f867af8d8854574231a9d291d1ee2b4074` |
 | GoalForge H.264 video | `68dc4e7775437a7b3fbd695f54994f5304166fb23d7c62861cb0c83b68f563a3` |
+| Nominal-success 30 | `e4c0061ab19177dc624476243616f1200a52636eab5bfd7c56a961997e229d6d` |
+| Fresh four-GPU summary | `c2d90ba55faa2f711edb3a53a8a49968d6a40721ae510ee2efa90259c338bb3e` |
+| Refreshed four-shot video | `f7a3b7d34b60f561a3b02cbd4ed2519c0d71cbba1b2e05db1953845baea7593e` |
 
 ## Evidence ceiling
 

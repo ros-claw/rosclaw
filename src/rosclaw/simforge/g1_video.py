@@ -20,13 +20,20 @@ import numpy as np
 from rosclaw.simforge.tasks.g1_goalforge.concepts import hash_bytes
 
 _SCENE_REL = Path("g1_description/scene_with_ball.xml")
-_VIDEO_KEYS = ("baseline", "same_seed_retry", "new_location_first_shot")
-_VIDEO_TITLES = (
-    "SHOT 1  FIXED PRIOR  TARGET MISS",
-    "SHOT 2  SAME SEED RETRY  SUCCESS",
-    "SHOT 3  NEW LOCATION  FIRST SHOT SUCCESS",
+_BASE_VIDEO_SPECS = (
+    ("baseline", "SHOT 1  FIXED PRIOR  TARGET MISS", "0xF87171"),
+    ("same_seed_retry", "SHOT 2  SAME SEED RETRY  SUCCESS", "0x4ADE80"),
+    (
+        "new_location_first_shot",
+        "SHOT 3  NEW LOCATION  FIRST SHOT SUCCESS",
+        "0x60A5FA",
+    ),
 )
-_VIDEO_COLORS = ("0xF87171", "0x4ADE80", "0x60A5FA")
+_EDGE_VIDEO_SPEC = (
+    "optimized_edge_angle",
+    "SHOT 4  OPTIMIZED EDGE ANGLE  SUCCESS",
+    "0xFBBF24",
+)
 _RENDER_WIDTH = 640
 _RENDER_HEIGHT = 360
 
@@ -153,7 +160,7 @@ def render_goalforge_video(
     width: int = 1280,
     height: int = 720,
 ) -> GoalForgeVideoResult:
-    """Render a recorded three-shot GoalForge demo to H.264 MP4."""
+    """Render a recorded GoalForge demo to H.264 MP4."""
 
     checkout = source_checkout.expanduser().resolve()
     demo_file = demo_path.expanduser().resolve()
@@ -312,12 +319,10 @@ def _load_clips(
     expected_kick_prior_hash: str,
 ) -> tuple[_ClipSource, ...]:
     clips = []
-    for key, title, color in zip(
-        _VIDEO_KEYS,
-        _VIDEO_TITLES,
-        _VIDEO_COLORS,
-        strict=True,
-    ):
+    specs = list(_BASE_VIDEO_SPECS)
+    if isinstance(demo.get(_EDGE_VIDEO_SPEC[0]), dict):
+        specs.append(_EDGE_VIDEO_SPEC)
+    for key, title, color in specs:
         value = demo.get(key)
         if not isinstance(value, dict):
             raise ValueError(f"GoalForge demo is missing {key}")

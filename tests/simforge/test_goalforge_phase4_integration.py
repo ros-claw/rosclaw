@@ -35,6 +35,9 @@ def test_real_g1_goalforge_failure_to_success(tmp_path: Path) -> None:
     assert video.frame_count > 0
     assert video.video_hash.startswith("sha256:")
     assert video.manifest_path.is_file()
+    assert len(video.clips) == 4
+    assert video.clips[-1].name == "optimized_edge_angle"
+    assert video.clips[-1].status == "SUCCESS"
 
 
 def test_official_unitree_dds_loopback(tmp_path: Path) -> None:

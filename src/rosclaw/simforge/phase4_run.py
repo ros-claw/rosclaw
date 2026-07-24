@@ -80,6 +80,8 @@ class GoalForgeDemoResult:
     search: ParameterSearchOutcome
     retry: GoalForgeEpisode
     new_location: GoalForgeEpisode
+    edge_angle_search: ParameterSearchOutcome
+    edge_angle: GoalForgeEpisode
     same_seed_pair: SameSeedKickPair
     skill_graph_hash: str
     wrong_candidate_rejected: bool
@@ -94,6 +96,8 @@ class GoalForgeDemoResult:
             and self.retry.result.success
             and self.same_seed_pair.causal_passed
             and self.new_location.result.success
+            and self.edge_angle_search.winner is not None
+            and self.edge_angle.result.success
             and self.wrong_candidate_rejected
             and self.baseline.receipt is not None
             and self.baseline.receipt.strict_replay
@@ -101,11 +105,14 @@ class GoalForgeDemoResult:
             and self.retry.receipt.strict_replay
             and self.new_location.receipt is not None
             and self.new_location.receipt.strict_replay
+            and self.edge_angle.receipt is not None
+            and self.edge_angle.receipt.independently_verified
+            and self.edge_angle.receipt.strict_replay
         )
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "rosclaw.g1_goalforge.demo_result.v1",
+            "schema_version": "rosclaw.g1_goalforge.demo_result.v2",
             "passed": self.passed,
             "baseline": _episode_summary(self.baseline),
             "failure": self.failure.to_dict(),
@@ -129,6 +136,19 @@ class GoalForgeDemoResult:
             },
             "same_seed_retry": _episode_summary(self.retry),
             "new_location_first_shot": _episode_summary(self.new_location),
+            "edge_angle_search": {
+                "search_hash": self.edge_angle_search.search_hash,
+                "attempts": self.edge_angle_search.attempts,
+                "winner_hash": (
+                    self.edge_angle_search.winner.policy_hash
+                    if self.edge_angle_search.winner
+                    else None
+                ),
+                "hidden_truth_accessed_by_generator": (
+                    self.edge_angle_search.hidden_truth_accessed_by_generator
+                ),
+            },
+            "optimized_edge_angle": _episode_summary(self.edge_angle),
             "causal_pair": {
                 "same_seed": self.same_seed_pair.same_seed,
                 "same_scenario": self.same_seed_pair.same_scenario,
@@ -336,6 +356,34 @@ def run_goalforge_demo(
         source_checkout=source_checkout,
         practice_id="practice-goalforge-demo",
     )
+    edge_scenario = _scenario(
+        scenario_id="goalforge-demo-optimized-edge-angle",
+        seed=2026072403,
+        partition=Partition.VALIDATION,
+        generation=4,
+        ball_y=0.10,
+        target_y=-0.75,
+        target_z=0.20,
+    )
+    edge_search = GoalForgeParameterSearch(max_candidates=32).run(
+        runner=backend,
+        scenario=edge_scenario,
+        base=baseline_parameters,
+        twin=twin_after,
+        knowledge=knowledge,
+    )
+    if edge_search.winner is None:
+        raise RuntimeError("GoalForge edge-angle search produced no safe candidate")
+    edge_angle = backend.run_and_record(
+        scenario=edge_scenario,
+        parameters=edge_search.winner,
+        output_root=root / "episodes",
+        source_checkout=source_checkout,
+        practice_id="practice-goalforge-demo",
+    )
+    edge_verification = GoalForgeVerifier().verify(edge_angle)
+    if not edge_verification.valid or not edge_angle.result.success:
+        raise RuntimeError("GoalForge optimized edge-angle shot did not verify as success")
     wrong_candidate_rejected = not knowledge.validate_candidate(
         candidate=replace(
             baseline_parameters,
@@ -356,6 +404,8 @@ def run_goalforge_demo(
         search=search,
         retry=retry,
         new_location=new_location,
+        edge_angle_search=edge_search,
+        edge_angle=edge_angle,
         same_seed_pair=pair,
         skill_graph_hash=graph.graph_hash,
         wrong_candidate_rejected=wrong_candidate_rejected,
@@ -369,6 +419,14 @@ def run_goalforge_demo(
             "color": "blue",
             "result": new_location.result.summary_dict(),
             "trajectory": trajectory_overlay(new_location.trajectory),
+        }
+    )
+    showcase["shots"].append(
+        {
+            "label": "optimized-edge-angle",
+            "color": "gold",
+            "result": edge_angle.result.summary_dict(),
+            "trajectory": trajectory_overlay(edge_angle.trajectory),
         }
     )
     showcase["module_chain"] = [
