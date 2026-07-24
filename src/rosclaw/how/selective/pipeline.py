@@ -190,19 +190,11 @@ class SelectiveInterventionPipeline:
                     explanation=f"query names joint {joint}; no {joint} memory on {body}",
                 )
 
-        # 4) Degraded retrieval on the high-risk path → ABSTAIN (v4 §7.3).
-        #    BM25-on-ACTIVE, sqlite lexical fallback, and full abstain are
-        #    all degraded: none of them is the pinned embedding path.
-        if response.fallback:
-            return _verdict(
-                InterventionAction.ABSTAIN,
-                [REASON_PROVIDER_DEGRADED_HIGH_RISK],
-                explanation=(
-                    f"retrieval degraded ({response.retrieval_mode}: "
-                    f"{response.fallback_reason}); the high-risk intervention "
-                    "path requires the pinned embedding path"
-                ),
-            )
+        # 4) Degraded retrieval (BM25-on-ACTIVE / sqlite lexical / abstain
+        #    chain) — tracked and enforced at the APPLY rung below (v4 §7.3:
+        #    the pinned embedding path is required to AUTO-APPLY; degraded
+        #    evidence may still SUGGEST with disclosure).
+        degraded_reason = response.fallback_reason if response.fallback else None
 
         # 5) Applicability per candidate.  The failure's joint IS the
         # current joint context for matching (the regime may not carry one).
@@ -294,6 +286,24 @@ class SelectiveInterventionPipeline:
 
         if score >= self._matcher.config.suggest_below:
             if validated and success_evidence:
+                if degraded_reason is not None:
+                    return _verdict(
+                        InterventionAction.SUGGEST,
+                        [REASON_PROVIDER_DEGRADED_HIGH_RISK],
+                        memory_id=top_candidate.memory_id,
+                        rule_id=rule,
+                        score=score,
+                        envelope_id=top_match.matched_envelope_id,
+                        patch=patch,
+                        benefit=benefit,
+                        harm=harm,
+                        evidence_confidence=evidence_confidence,
+                        explanation=(
+                            f"validated + applicable, but retrieval is degraded "
+                            f"({response.retrieval_mode}) — auto-apply requires the "
+                            f"pinned embedding path; operator gate instead"
+                        ),
+                    )
                 if self._choreography is None:
                     # v4 §7.3: APPLY without a choreography gate is forbidden.
                     return _verdict(

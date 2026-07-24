@@ -699,10 +699,14 @@ class InMemoryKnowledgeStore(SeekDBClient):
                         remaining_filters[k] = v
 
             if candidate_ids is not None:
+                # Iterate the table (insertion-ordered), not the set — set
+                # iteration order depends on hash randomization, which made
+                # query result order differ between processes and flipped
+                # near-tied benchmark rankings between runs.
                 records = [
-                    dict(self._tables[table][rid])
-                    for rid in candidate_ids
-                    if rid in self._tables[table]
+                    dict(record)
+                    for rid, record in self._tables[table].items()
+                    if rid in candidate_ids
                 ]
             else:
                 records = [dict(r) for r in self._tables[table].values()]

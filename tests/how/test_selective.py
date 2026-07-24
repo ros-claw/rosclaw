@@ -289,14 +289,17 @@ def test_abstain_on_contraindicated_hit() -> None:
     assert decision.estimated_harm == 1.0
 
 
-def test_abstain_when_provider_degraded() -> None:
-    """v4 §7.3: BM25-only degradation on the high-risk path → ABSTAIN."""
+def test_apply_disabled_when_provider_degraded() -> None:
+    """v4 §7.3: degraded retrieval disables the APPLY rung — validated and
+    applicable still SUGGESTs with disclosure, never auto-applies."""
     pipeline, _ = _pipeline(
         _response([_candidate("mem_slow")], mode=MODE_ACTIVE_BM25),
         [_validated_envelope("mem_slow")],
+        choreography=object(),
     )
     decision = pipeline.decide("middle joint_not_reached", _regime())
-    assert decision.action is InterventionAction.ABSTAIN
+    assert decision.action is InterventionAction.SUGGEST
+    assert decision.action is not InterventionAction.APPLY
     assert REASON_PROVIDER_DEGRADED_HIGH_RISK in decision.reason_codes
 
 
@@ -389,17 +392,18 @@ def test_selective_risk_metrics_and_gate() -> None:
     assert gate["metrics"]["helpful_apply_precision"] == 1.0
 
 
-def test_abstain_when_sqlite_lexical_fallback_serves() -> None:
+def test_apply_disabled_when_sqlite_lexical_fallback_serves() -> None:
     """Review finding: the lexical fallback path previously reached APPLY
-    with zero vector retrieval — any degraded mode must abstain on the
-    high-risk path."""
+    with zero vector retrieval — degraded modes disable APPLY (downgrade
+    to SUGGEST), they do not silently abstain either."""
     pipeline, _ = _pipeline(
         _response([_candidate("mem_slow")], mode="sqlite_memory_v2_lexical"),
         [_validated_envelope("mem_slow")],
         choreography=object(),
     )
     decision = pipeline.decide("middle joint_not_reached", _regime())
-    assert decision.action is InterventionAction.ABSTAIN
+    assert decision.action is InterventionAction.SUGGEST
+    assert decision.action is not InterventionAction.APPLY
     assert REASON_PROVIDER_DEGRADED_HIGH_RISK in decision.reason_codes
 
 
