@@ -236,9 +236,26 @@ class MemoryRetrievalFacade:
         repo = MemoryRepository(self._sqlite_store)
         retriever = MemoryRetriever(repo)  # lexical + metadata only, no vector
         results = retriever.retrieve(query)
+        # Exact-entity disclosure computed from the query, not assumed:
+        # the lexical path validates entities the same way the native one
+        # does (unknown stays unknown).
+        from rosclaw.memory.v2.document import extract_exact_terms
+
+        exact = extract_exact_terms(query.text or "")
         candidates: list[RetrievalCandidate] = []
         for result in results:
             item = result.memory
+            body_match = joint_match = failure_match = None
+            exact_entity = False
+            if exact:
+                record = item.to_record()
+                from rosclaw.memory.v2.runtime_retrieval.native_retriever import _entity_matches
+
+                matches = _entity_matches(record, exact)
+                body_match = matches["body_match"]
+                joint_match = matches["joint_match"]
+                failure_match = matches["failure_type_match"]
+                exact_entity = bool(matches["exact_entity_match"])
             candidates.append(
                 RetrievalCandidate(
                     memory_id=item.memory_id,
@@ -247,10 +264,10 @@ class MemoryRetrievalFacade:
                     bm25_rank=None,
                     fusion_rank=result.rank,
                     rerank_score=None,
-                    exact_entity_match=True,
-                    body_match=None,
-                    joint_match=None,
-                    failure_type_match=None,
+                    exact_entity_match=exact_entity,
+                    body_match=body_match,
+                    joint_match=joint_match,
+                    failure_type_match=failure_match,
                     physical_collection=None,
                     embedding_profile_id=None,
                     score_semantics=(

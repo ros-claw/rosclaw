@@ -218,7 +218,9 @@ class RegimeMatcher:
         *,
         robot_id: str | None,
     ) -> ApplicabilityResult:
-        matched, rejections, missing = self._envelope_matches(envelope, regime, robot_id=robot_id)
+        matched, rejections, missing, unverified = self._envelope_matches(
+            envelope, regime, robot_id=robot_id
+        )
         if not matched:
             # Even a hard-rejected candidate reports its continuous feature
             # distances — the explanation must show WHY, not just THAT.
@@ -238,7 +240,10 @@ class RegimeMatcher:
                 feature_scores=distances,
                 evidence_count=envelope.evidence_count,
                 confidence=envelope.confidence,
-                explanation={"regime_label": regime.regime_label},
+                explanation={
+                    "regime_label": regime.regime_label,
+                    "unverified_identity": unverified,
+                },
             )
 
         feature_scores = self._feature_distances(envelope, regime)
@@ -280,6 +285,7 @@ class RegimeMatcher:
                 "evidence_factor": round(evidence_factor, 4),
                 "envelope_type_factor": type_factor,
                 "regime_label": regime.regime_label,
+                "unverified_identity": unverified,
             },
         )
 
@@ -289,8 +295,10 @@ class RegimeMatcher:
         regime: OperatingRegime,
         *,
         robot_id: str | None,
-    ) -> tuple[bool, list[str], list[str]]:
-        """Hard-constraint evaluation (v4 §6.1)."""
+    ) -> tuple[bool, list[str], list[str], list[str]]:
+        """Hard-constraint evaluation (v4 §6.1).
+
+        Returns (matched, rejections, missing_required, unverified_identity)."""
         rejections: list[str] = []
         unverified: list[str] = []
         for envelope_field, regime_field, code in _IDENTITY_CHECKS:
@@ -318,8 +326,7 @@ class RegimeMatcher:
         if missing:
             rejections.append("missing_required_features")
 
-        self._last_unverified = unverified
-        return (not rejections, rejections, missing)
+        return (not rejections, rejections, missing, unverified)
 
     def _feature_distances(
         self, envelope: ApplicabilityEnvelope, regime: OperatingRegime
