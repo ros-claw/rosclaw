@@ -6967,6 +6967,10 @@ def main() -> int:
     _add_practice_data_root_argument(how_advise_parser)
     how_advise_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
+    from rosclaw.how.selective.cli import register_selective_commands
+
+    register_selective_commands(how_subparsers)
+
     # provider subcommand
     provider_parser = subparsers.add_parser("provider", help="Provider commands")
     provider_subparsers = provider_parser.add_subparsers(dest="provider_command")
@@ -8724,6 +8728,9 @@ def main() -> int:
                 skill_parser.print_help()
                 return 1
         elif args.command == "how":
+            how_handler = getattr(args, "how_handler", None)
+            if how_handler is not None:
+                return how_handler(args)
             if args.how_command == "explain":
                 return cmd_how_explain(args)
             elif args.how_command == "recover":
