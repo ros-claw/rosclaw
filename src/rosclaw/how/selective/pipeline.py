@@ -79,12 +79,14 @@ class SelectiveInterventionPipeline:
         matcher: RegimeMatcher | None = None,
         engine: Any | None = None,
         choreography_validator: Any | None = None,
+        timing_model: Any | None = None,
     ) -> None:
         self._facade = facade
         self._envelopes = applicability_store
         self._matcher = matcher or RegimeMatcher()
         self._engine = engine
         self._choreography = choreography_validator
+        self._timing_model = timing_model
 
     def decide(
         self,
@@ -377,10 +379,17 @@ class SelectiveInterventionPipeline:
         parameters = patch.get("parameters") or {}
         if not parameters:
             return None
-        from rosclaw.how.choreography.timing import build_timing_model
+        if self._timing_model is None:
+            # Never validate against a synthetic empty model: it fakes a
+            # zero current cooldown and skips the stacking check (review
+            # finding).  No real timing model → the budget is unprovable.
+            from rosclaw.how.choreography.validator import ChoreographyValidation
 
-        model = build_timing_model(validator.contract, [], current_parameters={})
-        return validator.validate(parameters, model)
+            return ChoreographyValidation(
+                allowed=False,
+                violations=["choreography_unavailable:no_timing_model"],
+            )
+        return validator.validate(parameters, self._timing_model)
 
     def _retrieval_confidence(self, response: Any) -> float:
         if not response.candidates:

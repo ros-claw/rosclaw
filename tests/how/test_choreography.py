@@ -29,6 +29,11 @@ def _model(parameters=None):
     return build_timing_model(contract, rounds, current_parameters=parameters or {})
 
 
+def _timing_model():
+    """A REAL timing model for pipeline tests (empty models are refused)."""
+    return _model()
+
+
 # ---------------------------------------------------------------------------
 # run1 death-spiral patches: 100% blocked (v4 §11.4/§13)
 # ---------------------------------------------------------------------------
@@ -186,12 +191,37 @@ def test_pipeline_abstains_on_choreography_violation() -> None:
         [_validated_envelope("mem_speed")],
         choreography=validator,
     )
+    pipeline._timing_model = _timing_model()
     decision = pipeline.decide("middle joint_not_reached", _regime())
     assert decision.action is InterventionAction.ABSTAIN
     assert any(
         reason.startswith("choreography_violation:forbidden_parameter")
         for reason in decision.reason_codes
     )
+
+
+def test_pipeline_abstains_when_no_timing_model() -> None:
+    """Review finding: a patch with parameters and NO real timing model must
+    not APPLY (budget unprovable — never validated against an empty model)."""
+    from rosclaw.how.selective import InterventionAction
+    from tests.how.test_selective import (
+        _candidate,
+        _pipeline,
+        _regime,
+        _response,
+        _validated_envelope,
+    )
+
+    candidate = _candidate("mem_cool", hint="增加回合间冷却")
+    candidate.item.metadata["patch_parameters"] = {"inter_round_cooldown_sec": 5}
+    pipeline, _ = _pipeline(
+        _response([candidate]),
+        [_validated_envelope("mem_cool")],
+        choreography=_validator(),
+    )
+    decision = pipeline.decide("middle joint_not_reached", _regime())
+    assert decision.action is InterventionAction.ABSTAIN
+    assert any("no_timing_model" in reason for reason in decision.reason_codes)
 
 
 def test_pipeline_apply_with_safe_cooldown_patch() -> None:
@@ -211,6 +241,42 @@ def test_pipeline_apply_with_safe_cooldown_patch() -> None:
         [_validated_envelope("mem_cool")],
         choreography=_validator(),
     )
+    pipeline._timing_model = _timing_model()
     decision = pipeline.decide("middle joint_not_reached", _regime())
     assert decision.action is InterventionAction.APPLY
     assert decision.suggested_patch["parameters"] == {"inter_round_cooldown_sec": 5}
+
+
+def test_stacking_generalized_over_all_non_stackable_params() -> None:
+    """Review finding: patching cooldown_sec while cooldown_every_n_rounds
+    is already active must also conflict (was hardcoded to one param)."""
+    validator = _validator()
+    validation = validator.validate(
+        {"inter_round_cooldown_sec": 5},
+        _model(parameters={"cooldown_every_n_rounds": 10}),
+    )
+    assert validation.allowed is False
+    assert any("non_stackable" in v for v in validation.violations)
+
+
+def test_budget_uses_effective_current_cooldown() -> None:
+    """Review finding: re-patching while a cooldown is already active must
+    not under-count the round total (10s patch + live 8s cooldown > 20s)."""
+    validator = _validator()
+    model = _model(parameters={"inter_round_cooldown_sec": 8})
+    # 18s replaces the active 8s → effective 18s cooldown + 4.4s phases > 20s.
+    validation = validator.validate({"inter_round_cooldown_sec": 18}, model)
+    assert validation.allowed is False
+    assert any("round_budget" in v for v in validation.violations)
+    # A naive model that ignored the active 8s would have allowed this.
+
+
+def test_apply_patch_refuses_unknown_timing_params() -> None:
+    """Defense in depth: the model never guesses an unknown parameter's
+    timing effect (the validator rejects these first anyway)."""
+    import pytest as _pytest
+
+    from rosclaw.how.choreography.timing import apply_patch
+
+    with _pytest.raises(ValueError, match="unknown timing effect"):
+        apply_patch(_model(), {"some_future_param": 1}, load_contract(CONTRACT_PATH))
