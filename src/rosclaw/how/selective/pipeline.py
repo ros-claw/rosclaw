@@ -39,7 +39,6 @@ from rosclaw.memory.v2.regime import (
 from rosclaw.memory.v2.regime.models import OperatingRegime
 from rosclaw.memory.v2.retrieval import MemoryQuery
 from rosclaw.memory.v2.runtime_retrieval import (
-    MODE_ACTIVE_BM25,
     MemoryRetrievalFacade,
     RetrievalPurpose,
 )
@@ -79,12 +78,14 @@ class SelectiveInterventionPipeline:
         matcher: RegimeMatcher | None = None,
         engine: Any | None = None,
         choreography_validator: Any | None = None,
+        timing_model: Any | None = None,
     ) -> None:
         self._facade = facade
         self._envelopes = applicability_store
         self._matcher = matcher or RegimeMatcher()
         self._engine = engine
         self._choreography = choreography_validator
+        self._timing_model = timing_model
 
     def decide(
         self,
@@ -189,14 +190,17 @@ class SelectiveInterventionPipeline:
                     explanation=f"query names joint {joint}; no {joint} memory on {body}",
                 )
 
-        # 4) Degraded provider on the high-risk path → ABSTAIN (v4 §7.3).
-        if response.retrieval_mode == MODE_ACTIVE_BM25:
+        # 4) Degraded retrieval on the high-risk path → ABSTAIN (v4 §7.3).
+        #    BM25-on-ACTIVE, sqlite lexical fallback, and full abstain are
+        #    all degraded: none of them is the pinned embedding path.
+        if response.fallback:
             return _verdict(
                 InterventionAction.ABSTAIN,
                 [REASON_PROVIDER_DEGRADED_HIGH_RISK],
                 explanation=(
-                    "embedding provider unavailable (BM25-only); the high-risk "
-                    "intervention path requires the pinned embedding path"
+                    f"retrieval degraded ({response.retrieval_mode}: "
+                    f"{response.fallback_reason}); the high-risk intervention "
+                    "path requires the pinned embedding path"
                 ),
             )
 
@@ -279,7 +283,11 @@ class SelectiveInterventionPipeline:
         # 8) Decision ladder.
         score = top_match.score
         validated = top_match.envelope_type == EnvelopeType.VALIDATED.value
-        success_evidence = any(e.success_count > 0 for e in top_envelopes)
+        matched_envelope = next(
+            (e for e in top_envelopes if e.envelope_id == top_match.matched_envelope_id),
+            None,
+        )
+        success_evidence = bool(matched_envelope and matched_envelope.success_count > 0)
         evidence_confidence = max((e.confidence for e in top_envelopes), default=0.0)
         benefit = round(score * max(evidence_confidence, 0.0), 4)
         harm = self._harm(top_envelopes)

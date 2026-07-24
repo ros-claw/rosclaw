@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from .features import Cusum, Ewma
+from .features import Ewma
 from .models import OperatingRegime, RegimeThresholds
 
 
@@ -85,12 +85,15 @@ class BocdShadow:
 
 
 class RegimeChangeDetector:
-    """Confirms label transitions with EWMA+CUSUM persistence (v4 §4.5).
+    """Confirms label transitions with EWMA + persistence (v4 §4.5).
 
     A label flip becomes a :class:`RegimeTransition` only after
-    ``persistence`` consecutive regimes carry the new label AND the tracked
-    continuous features moved in the direction of the change (CUSUM), so a
-    single noisy round cannot rewrite the robot's working-condition story.
+    ``persistence`` consecutive regimes carry the new label, and
+    ``changed_features`` reports how the tracked continuous features moved
+    against the OLD regime's baseline (EWMA snapshot taken BEFORE the
+    first flipped sample is absorbed).  A single noisy round cannot
+    rewrite the robot's working-condition story.  (v1 is persistence-only
+    by design; the BOCD shadow annotates but never gates.)
     """
 
     def __init__(
@@ -104,7 +107,6 @@ class RegimeChangeDetector:
         self._t = thresholds or RegimeThresholds()
         self._persistence = max(1, persistence)
         self._ewma = {name: Ewma(alpha=ewma_alpha) for name in _TRACKED_FEATURES}
-        self._cusum = Cusum(drift=0.0, threshold=2.0)
         self._bocd = BocdShadow(enabled=enable_bocd_shadow)
         self._last_label: str | None = None
         self._pending_label: str | None = None
@@ -116,13 +118,23 @@ class RegimeChangeDetector:
         self._pending_baseline: dict[str, float | None] = {}
 
     def observe(self, regime: OperatingRegime) -> RegimeTransition | None:
+        label = regime.regime_label
+        new_pending = (
+            self._last_label is not None
+            and label != self._last_label
+            and label != self._pending_label
+        )
+        if new_pending:
+            # Baseline = the OLD regime's EWMA, BEFORE this flipped sample
+            # is absorbed — otherwise changed_features understates the move.
+            self._pending_baseline = {name: ewma.mean for name, ewma in self._ewma.items()}
+
         for name in _TRACKED_FEATURES:
             value = regime.feature_value(name)
             if value is not None:
                 self._ewma[name].update(value)
         bocd_note = self._bocd.observe(regime.feature_value("temperature_c"))
 
-        label = regime.regime_label
         if self._last_label is None:
             self._last_label = label
             return None
@@ -139,7 +151,6 @@ class RegimeChangeDetector:
             self._pending_label = label
             self._pending_count = 1
             self._pending_regimes = [regime]
-            self._pending_baseline = {name: ewma.mean for name, ewma in self._ewma.items()}
 
         if self._pending_count < self._persistence:
             return None
