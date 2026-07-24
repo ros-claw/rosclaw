@@ -124,10 +124,7 @@ class ChoreographyValidator:
             for v in violations
             if v.startswith((V_FORBIDDEN_PARAMETER, V_UNKNOWN_PARAMETER, V_OUT_OF_RANGE))
         ]
-        if parameter_violations:
-            patched = model
-        else:
-            patched = apply_patch(model, patch, contract)
+        patched = model if parameter_violations else apply_patch(model, patch, contract)
 
         # 3) Reveal window: the patched reveal offset must stay inside the
         #    contract window (between-round patches never move it; any
