@@ -235,15 +235,11 @@ class Runtime(LifecycleMixin):
         if Path(self.config.seekdb_path).expanduser().resolve() == (
             default_home / "data" / "memory" / "knowledge.sqlite"
         ):
-            self.config.seekdb_path = str(
-                workspace_home / "data" / "memory" / "knowledge.sqlite"
-            )
+            self.config.seekdb_path = str(workspace_home / "data" / "memory" / "knowledge.sqlite")
         if Path(self.config.seekdb_fallback_dir).expanduser().resolve() == (
             default_home / "data" / "practice" / "fallback"
         ):
-            self.config.seekdb_fallback_dir = str(
-                workspace_home / "data" / "practice" / "fallback"
-            )
+            self.config.seekdb_fallback_dir = str(workspace_home / "data" / "practice" / "fallback")
         timeline_output_dir = (
             workspace_home / "data" / "practice"
             if self.config.timeline_output_dir == "./practice_data"
@@ -373,11 +369,31 @@ class Runtime(LifecycleMixin):
                 from rosclaw.memory.interface import MemoryInterface
 
                 seekdb = self._create_seekdb_client()
+                retrieval_facade = None
+                try:
+                    # PR-MEM-5: unified retrieval facade — the canonical
+                    # ACTIVE index serves Memory/KNOW/HOW queries when the
+                    # knowledge backend is native SeekDB; the SQLite store
+                    # is the declared lexical fallback.  Construction never
+                    # loads model weights and never fails memory init.
+                    from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
+                    from rosclaw.memory.v2.runtime_retrieval import build_retrieval_facade
+                    from rosclaw.storage.seekdb_native import SeekDBNativeStore
+
+                    native = seekdb if isinstance(seekdb, SeekDBNativeStore) else None
+                    sqlite = seekdb if isinstance(seekdb, SQLiteKnowledgeStore) else None
+                    if native is not None or sqlite is not None:
+                        retrieval_facade = build_retrieval_facade(
+                            native_store=native, sqlite_store=sqlite
+                        )
+                except Exception as facade_exc:  # noqa: BLE001
+                    logger.info("Retrieval facade not available: %s", facade_exc)
                 self._memory = MemoryInterface(
                     robot_id=self.config.robot_id,
                     event_bus=self.event_bus,
                     seekdb_client=seekdb,
                     embodied_memory=self.config.embodied_memory,
+                    retrieval_facade=retrieval_facade,
                 )
                 self._modules.append(self._memory)
                 if self._sense is not None:

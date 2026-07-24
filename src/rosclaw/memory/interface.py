@@ -113,12 +113,17 @@ class MemoryInterface(LifecycleMixin):
         event_bus: EventBus | None = None,
         seekdb_client: SeekDBClient | None = None,
         embodied_memory: Any | None = None,
+        retrieval_facade: Any | None = None,
     ):
         super().__init__()
         self._robot_id = robot_id
         self.event_bus = event_bus
         self._client = seekdb_client or InMemoryKnowledgeStore()
         self._embodied = embodied_memory
+        # PR-MEM-5: when the unified retrieval facade is wired, memory
+        # queries are served by the canonical ACTIVE index (with declared
+        # fallback); legacy experience_graph search remains the compat path.
+        self._retrieval_facade = retrieval_facade
         self._sense_runtime: Any | None = None
         self._memory_writer_adapter: Any | None = None
         # Semantic-search cache: invalidated on any experience mutation
@@ -131,6 +136,69 @@ class MemoryInterface(LifecycleMixin):
         # Query-result cache: same query within 5s returns cached results
         self._query_result_cache: dict[str, tuple[list[dict], float]] = {}
         self._query_cache_ttl_sec = 5.0
+
+    @property
+    def retrieval_facade(self) -> Any | None:
+        """The unified Memory 2.0 retrieval facade, when wired (PR-MEM-5)."""
+        return self._retrieval_facade
+
+    @staticmethod
+    def _facade_purpose(name: str) -> Any:
+        from rosclaw.memory.v2.runtime_retrieval import RetrievalPurpose
+
+        return RetrievalPurpose(name)
+
+    def _facade_query(
+        self,
+        text: str,
+        *,
+        purpose: Any,
+        outcome: str | None,
+        limit: int,
+    ) -> Any | None:
+        """Query the facade; ``None`` means the legacy path should serve."""
+        facade = self._retrieval_facade
+        if facade is None:
+            return None
+        try:
+            from rosclaw.memory.v2.retrieval import MemoryQuery
+
+            return facade.retrieve(
+                MemoryQuery(
+                    text=text,
+                    robot_id=self._robot_id,
+                    outcome=outcome,
+                    limit=limit,
+                ),
+                purpose=purpose,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("retrieval facade failed; legacy path serves: %s", exc)
+            return None
+
+    @staticmethod
+    def _candidate_to_experience(candidate: Any, response: Any) -> dict[str, Any]:
+        """Shape a v2 RetrievalCandidate as a legacy experience dict.
+
+        ``vector_score`` is deliberately None: the ACTIVE path's fused rank
+        is not a similarity, and callers must not treat it as one.
+        """
+        item = candidate.item
+        return {
+            "id": candidate.memory_id,
+            "instruction": item.title if item else "",
+            "error_details": item.document if item else "",
+            "outcome": item.outcome if item else None,
+            "tags": list(item.tags) if item else [],
+            "metadata": dict(item.metadata) if item else {},
+            "timestamp": item.event_time if item else None,
+            "vector_score": None,
+            "fusion_rank": candidate.fusion_rank,
+            "score_semantics": candidate.score_semantics,
+            "physical_collection": candidate.physical_collection,
+            "retrieval_mode": response.retrieval_mode,
+            "source": "memory_v2_active",
+        }
 
     def _preload_worker(self) -> None:
         """Daemon thread that rebuilds the semantic index when stale."""
@@ -621,6 +689,24 @@ class MemoryInterface(LifecycleMixin):
         if not query_tokens:
             return []
 
+        # PR-MEM-5: canonical ACTIVE index first (purpose=MEMORY_CONTEXT);
+        # a response with candidates serves, anything else falls through to
+        # the legacy experience_graph path below (declared in the response's
+        # fallback chain).
+        response = self._facade_query(
+            instruction,
+            purpose=self._facade_purpose("memory_context"),
+            outcome=outcome_filter,
+            limit=limit,
+        )
+        if response is not None and response.candidates:
+            results = [
+                self._candidate_to_experience(candidate, response)
+                for candidate in response.candidates
+            ]
+            self._query_result_cache[cache_key] = (results, now)
+            return results
+
         # 2) Tiered retrieval: fast path 200, expand to 600 only if needed
         # If the backend supports vector/hybrid search, prefer it.
         vector_results: list[dict[str, Any]] = []
@@ -802,6 +888,33 @@ class MemoryInterface(LifecycleMixin):
             {"id": str, "action_suggestion": str, "similarity_score": float}
             or None if no similar failure found.
         """
+        # PR-MEM-5: canonical ACTIVE index first (purpose=HOW_INTERVENTION —
+        # cross-body retry is forbidden on this path).  Only a candidate
+        # carrying a recovery hint can serve; anything else falls through to
+        # the legacy experience_graph path.
+        response = self._facade_query(
+            error_log,
+            purpose=self._facade_purpose("how_intervention"),
+            outcome="failure",
+            limit=max(limit, 3),
+        )
+        if response is not None:
+            for candidate in response.candidates:
+                item = candidate.item
+                raw_hint = item.metadata.get("recovery_hint", "") if item is not None else ""
+                hint = _recovery_hint_text(raw_hint)
+                if hint:
+                    return {
+                        "id": candidate.memory_id,
+                        "action_suggestion": hint,
+                        "similarity_score": None,
+                        "score_semantics": candidate.score_semantics,
+                        "physical_collection": candidate.physical_collection,
+                        "retrieval_mode": response.retrieval_mode,
+                        "source_experience": candidate.memory_id,
+                        "source": "memory_v2_active",
+                    }
+
         filters = {"robot_id": self._robot_id, "outcome": "failure"}
 
         all_failures = self._client.query(

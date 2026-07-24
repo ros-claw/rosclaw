@@ -8784,7 +8784,7 @@ def main() -> int:
             if v2_handler is not None and (
                 getattr(args, "v2", False)
                 or args.memory_command
-                in {"verify", "consolidate", "forget", "distill", "index", "benchmark"}
+                in {"active", "verify", "consolidate", "forget", "distill", "index", "benchmark"}
             ):
                 return v2_handler(args)
             if args.memory_command == "status":

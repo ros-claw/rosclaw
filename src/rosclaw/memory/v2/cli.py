@@ -29,6 +29,12 @@ from rosclaw.memory.v2.index import (
 )
 from rosclaw.memory.v2.repository import MemoryRepository
 from rosclaw.memory.v2.retrieval import MemoryQuery, MemoryRetriever, SafetyRetrievalPolicy
+from rosclaw.memory.v2.runtime_retrieval import (
+    MemoryRetrievalFacade,
+    RetrievalHealthProbe,
+    RetrievalPurpose,
+    build_retrieval_facade,
+)
 from rosclaw.storage.factory import StorageFactory
 from rosclaw.storage.seekdb_native import SeekDBNativeStore
 from rosclaw.storage.vector import SQLiteVectorStore, TfidfEmbedder
@@ -102,6 +108,13 @@ def _open_stack(args: argparse.Namespace, *, with_vector: bool = False):
     )
     client.connect()
     repo = MemoryRepository(client)
+    if isinstance(client, SeekDBNativeStore):
+        # PR-MEM-5 (v4 §3.8): every write through this repository is also
+        # projected into the ACTIVE versioned collection (best-effort,
+        # watermarked) so runtime queries never serve a stale generation.
+        from rosclaw.storage.versioned_projection import ActiveProjection
+
+        repo = MemoryRepository(client, projection=ActiveProjection(client))
 
     meta: dict[str, Any] = {
         "backend": type(client).__name__,
@@ -138,6 +151,60 @@ def _open_stack(args: argparse.Namespace, *, with_vector: bool = False):
 def _close(client: Any) -> None:
     with contextlib.suppress(Exception):
         client.disconnect()
+
+
+def _build_facade(
+    args: argparse.Namespace,
+    client: Any,
+    *,
+    with_reranker: bool = False,
+) -> tuple[MemoryRetrievalFacade | None, Any]:
+    """Build the runtime retrieval facade for the opened store (v4 §3.6).
+
+    On a native SeekDB backend the facade serves from the canonical ACTIVE
+    physical collection; the local SQLite store (when it exists on disk) is
+    attached as the declared lexical fallback.  On a SQLite backend the
+    facade serves the lexical mode directly.  Returns ``(facade, cleanup)``
+    where facade is ``None`` for backends with no facade path (mysql/memory)
+    — the legacy retriever keeps its previous behavior there — and cleanup
+    closes any additionally opened fallback store.
+    """
+    native = client if isinstance(client, SeekDBNativeStore) else None
+    sqlite = client if isinstance(client, SQLiteKnowledgeStore) else None
+    opened: list[Any] = []
+    if native is not None and sqlite is None:
+        sqlite_path = Path(_resolve_store_path(args)).expanduser()
+        if sqlite_path.is_file():
+            with contextlib.suppress(Exception):
+                fallback_sqlite = SQLiteKnowledgeStore(str(sqlite_path))
+                fallback_sqlite.connect()
+                sqlite = fallback_sqlite
+                opened.append(fallback_sqlite)
+    if native is None and sqlite is None:
+        return None, lambda: None
+    reranker = None
+    if with_reranker:
+        from rosclaw.embedding.reranker import Qwen3RerankerProvider
+
+        reranker = Qwen3RerankerProvider()
+
+    def _cleanup() -> None:
+        for extra in opened:
+            _close(extra)
+
+    return (
+        build_retrieval_facade(
+            native_store=native,
+            sqlite_store=sqlite,
+            reranker=reranker,
+        ),
+        _cleanup,
+    )
+
+
+def _facade_purpose(args: argparse.Namespace) -> RetrievalPurpose:
+    raw = getattr(args, "purpose", None) or RetrievalPurpose.HUMAN_SEARCH.value
+    return RetrievalPurpose(raw)
 
 
 def _emit(payload: Any, **json_kwargs: Any) -> None:
@@ -186,12 +253,10 @@ def cmd_memory_v2_status(args: argparse.Namespace) -> int:
 
 def cmd_memory_v2_query(args: argparse.Namespace) -> int:
     client, repo, vector, embedder, meta = _open_stack(args, with_vector=not args.no_vector)
+    facade, facade_cleanup = _build_facade(
+        args, client, with_reranker=getattr(args, "reranker", False)
+    )
     try:
-        if vector is not None and not isinstance(client, SeekDBNativeStore):
-            manager = EmbeddingIndexManager(client, vector)
-            if manager.active_index() is not None:
-                manager.check_query_embedder(embedder)
-        retriever = MemoryRetriever(repo, vector_store=vector, embedder=embedder)
         query = MemoryQuery(
             text=args.query,
             memory_types=getattr(args, "type", None) or [],
@@ -203,17 +268,44 @@ def cmd_memory_v2_query(args: argparse.Namespace) -> int:
             task_id=getattr(args, "task_id", None),
             limit=args.limit,
         )
-        results = retriever.retrieve(query)
-        if getattr(args, "safety_filter", False):
-            results = SafetyRetrievalPolicy().filter(results, query)
-        output = {
-            "retrieval": meta,
-            "results": [r.to_dict() for r in results],
-        }
+        if facade is not None:
+            # PR-MEM-5 (v4 §3.6): the canonical query path — ACTIVE physical
+            # collection with the pinned provider, declared fallback chain.
+            response = facade.retrieve(query, purpose=_facade_purpose(args))
+            output = response.to_dict()
+            output["retrieval"] = {
+                "backend": meta["backend"],
+                "store": meta["store"],
+                "retrieval_mode": response.retrieval_mode,
+                "physical_collection": response.physical_collection,
+                "embedding_profile_id": response.embedding_profile_id,
+                "fallback": response.fallback,
+                "fallback_reason": response.fallback_reason,
+                "score_semantics": response.score_semantics,
+            }
+            if getattr(args, "safety_filter", False):
+                output["safety_filter"] = (
+                    "applied upstream: purpose policy + exact-entity validation "
+                    "in the retrieval facade"
+                )
+        else:
+            if vector is not None and not isinstance(client, SeekDBNativeStore):
+                manager = EmbeddingIndexManager(client, vector)
+                if manager.active_index() is not None:
+                    manager.check_query_embedder(embedder)
+            retriever = MemoryRetriever(repo, vector_store=vector, embedder=embedder)
+            results = retriever.retrieve(query)
+            if getattr(args, "safety_filter", False):
+                results = SafetyRetrievalPolicy().filter(results, query)
+            output = {
+                "retrieval": meta,
+                "results": [r.to_dict() for r in results],
+            }
     except IndexModelMismatchError as exc:
         print(str(exc), file=sys.stderr)
         return 2
     finally:
+        facade_cleanup()
         _close(client)
     _emit(output, indent=2, ensure_ascii=False)
     return 0
@@ -224,12 +316,10 @@ def cmd_memory_v2_explain(args: argparse.Namespace) -> int:
         print("memory explain --v2 requires --memory-id", file=sys.stderr)
         return 2
     client, repo, vector, embedder, meta = _open_stack(args, with_vector=not args.no_vector)
+    facade, facade_cleanup = _build_facade(
+        args, client, with_reranker=getattr(args, "reranker", False)
+    )
     try:
-        if vector is not None and not isinstance(client, SeekDBNativeStore):
-            manager = EmbeddingIndexManager(client, vector)
-            if manager.active_index() is not None:
-                manager.check_query_embedder(embedder)
-        retriever = MemoryRetriever(repo, vector_store=vector, embedder=embedder)
         query = MemoryQuery(
             text=getattr(args, "text", "") or "",
             tenant_id=getattr(args, "tenant_id", None),
@@ -237,18 +327,78 @@ def cmd_memory_v2_explain(args: argparse.Namespace) -> int:
             site_id=getattr(args, "site_id", None),
             robot_id=getattr(args, "robot_id", None),
         )
-        output = retriever.explain(args.memory_id, query)
-        output["trace"] = repo.trace(args.memory_id)
-        # Retrieval-backend disclosure (P0): backend + score semantics so a
-        # TF-IDF cosine is never mistaken for a native SeekDB vector score.
-        output["retrieval"] = meta
+        if facade is not None:
+            # PR-MEM-5 (v4 §3.6): explain reports the ACTIVE truth — which
+            # physical collection and provider served (or would serve) the
+            # query, and where the memory ranks inside that path.
+            response = facade.retrieve(
+                MemoryQuery(**{**vars(query), "limit": 500}),
+                purpose=_facade_purpose(args),
+            )
+            output = next(
+                (c.to_dict() for c in response.candidates if c.memory_id == args.memory_id),
+                {"memory_id": args.memory_id, "found": False, "reason": "not in result set"},
+            )
+            output["trace"] = repo.trace(args.memory_id)
+            output["retrieval"] = {
+                "backend": meta["backend"],
+                "store": meta["store"],
+                "retrieval_mode": response.retrieval_mode,
+                "physical_collection": response.physical_collection,
+                "embedding_profile_id": response.embedding_profile_id,
+                "fallback": response.fallback,
+                "fallback_reason": response.fallback_reason,
+                "score_semantics": response.score_semantics,
+            }
+        else:
+            if vector is not None and not isinstance(client, SeekDBNativeStore):
+                manager = EmbeddingIndexManager(client, vector)
+                if manager.active_index() is not None:
+                    manager.check_query_embedder(embedder)
+            retriever = MemoryRetriever(repo, vector_store=vector, embedder=embedder)
+            output = retriever.explain(args.memory_id, query)
+            output["trace"] = repo.trace(args.memory_id)
+            # Retrieval-backend disclosure (P0): backend + score semantics so a
+            # TF-IDF cosine is never mistaken for a native SeekDB vector score.
+            output["retrieval"] = meta
     except IndexModelMismatchError as exc:
         print(str(exc), file=sys.stderr)
         return 2
     finally:
+        facade_cleanup()
         _close(client)
     _emit(output, indent=2, ensure_ascii=False)
     return 0 if output.get("found", True) else 1
+
+
+def cmd_memory_v2_active(args: argparse.Namespace) -> int:
+    """Report the canonical ACTIVE index and the serving path (v4 §15).
+
+    Truthful by construction: the probe reads the registry pointer and the
+    engine catalog, never assumes.  Exit 2 when no ACTIVE index can serve
+    (the printed fallback chain states what queries would do instead).
+    """
+    client, _, _, _, _meta = _open_stack(args)
+    facade, facade_cleanup = _build_facade(args, client)
+    exit_code = 0
+    try:
+        native = client if isinstance(client, SeekDBNativeStore) else None
+        sqlite = client if isinstance(client, SQLiteKnowledgeStore) else None
+        probe = RetrievalHealthProbe(
+            native_store=native,
+            sqlite_store=sqlite,
+            provider_resolver=getattr(facade, "_provider_resolver", None) if facade else None,
+            logical_name=getattr(args, "logical", "memory_items"),
+        )
+        output = probe.probe(probe_provider=getattr(args, "probe_provider", False))
+        active = output.get("active") or {}
+        if not active.get("ok"):
+            exit_code = 2
+    finally:
+        facade_cleanup()
+        _close(client)
+    _emit(output, indent=2, ensure_ascii=False, default=str)
+    return exit_code
 
 
 def cmd_memory_v2_verify(args: argparse.Namespace) -> int:
@@ -294,6 +444,9 @@ def cmd_memory_v2_forget(args: argparse.Namespace) -> int:
         if isinstance(client, SeekDBNativeStore):
             # The server-side embedder re-indexes on delete; nudge visibility.
             client.refresh_index("memory_items")
+            from rosclaw.storage.versioned_projection import ActiveProjection
+
+            ActiveProjection(client).project_delete(args.memory_id)
             index_deleted = True
         else:
             index_deleted = EmbeddingIndexManager(client, vector).on_memory_deleted(args.memory_id)
@@ -423,6 +576,109 @@ def cmd_memory_v2_benchmark(args: argparse.Namespace) -> int:
     return subprocess.call([sys.executable, str(script)])
 
 
+def cmd_memory_v2_index_sync(args: argparse.Namespace) -> int:
+    """Catch up the ACTIVE physical collection to the source of truth (v4 §3.8).
+
+    Repairs projection lag: memories written while no ACTIVE pointer existed,
+    or whose projection failed (provider unavailable), are embedded and
+    upserted; rows whose memory is no longer active are removed.
+    """
+    client, repo, _, _, _meta = _open_stack(args)
+    exit_code = 0
+    try:
+        if not isinstance(client, SeekDBNativeStore):
+            _emit(
+                {
+                    "ok": False,
+                    "error": "index sync requires a native SeekDB backend",
+                    "backend": type(client).__name__,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+            return 2
+        from rosclaw.embedding.registry import get_provider
+        from rosclaw.memory.v2.runtime_retrieval import (
+            ActiveCollectionResolver,
+            ActiveIndexUnavailableError,
+        )
+        from rosclaw.storage.versioned_projection import catch_up_collection
+
+        logical = getattr(args, "logical", "memory_items")
+        try:
+            descriptor = ActiveCollectionResolver(client).resolve(logical)
+        except ActiveIndexUnavailableError as exc:
+            _emit({"ok": False, "reason": exc.reason, "detail": exc.detail}, indent=2)
+            return 2
+        provider = get_provider(descriptor.embedding_profile_id)
+        report = catch_up_collection(
+            client,
+            repo,
+            logical,
+            descriptor.physical_collection,
+            provider,
+        )
+        output = {"ok": True, **report}
+    finally:
+        _close(client)
+    _emit(output, indent=2, ensure_ascii=False, default=str)
+    return exit_code
+
+
+def cmd_memory_v2_index_rollback(args: argparse.Namespace) -> int:
+    """Roll the ACTIVE pointer back to the previous generation (v4 §3.8).
+
+    The OLD collection is never assumed current: catch-up against the
+    source of truth runs first and the pointer switch aborts if the
+    catch-up cannot verify.
+    """
+    client, repo, _, _, _meta = _open_stack(args)
+    try:
+        if not isinstance(client, SeekDBNativeStore):
+            _emit(
+                {
+                    "ok": False,
+                    "error": "index rollback requires a native SeekDB backend",
+                    "backend": type(client).__name__,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+            return 2
+        from rosclaw.embedding.registry import get_provider
+        from rosclaw.storage.versioned_collections import VersionedCollectionManager
+        from rosclaw.storage.versioned_projection import (
+            catch_up_collection,
+            descriptor_for_row,
+        )
+
+        logical = getattr(args, "logical", "memory_items")
+
+        def _catch_up(target_row: dict) -> None:
+            descriptor = descriptor_for_row(target_row, logical)
+            provider = get_provider(descriptor.embedding_profile_id)
+            catch_up_collection(client, repo, logical, descriptor.physical_collection, provider)
+
+        # Provider for the post-switch verify: resolved after the pointer
+        # flip is known; the manager verifies with require_provider_match=False.
+        mgr = VersionedCollectionManager(client, None)
+        restored = mgr.rollback(logical, catch_up=_catch_up)
+        output = {
+            "ok": True,
+            "active_collection": restored.get("physical_collection"),
+            "embedding_profile_id": restored.get("embedding_profile_id"),
+            "activated_at": restored.get("activated_at"),
+            "catch_up": "completed",
+        }
+        _emit(output, indent=2, ensure_ascii=False, default=str)
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        _emit({"ok": False, "error": str(exc)}, indent=2, ensure_ascii=False)
+        return 2
+    finally:
+        _close(client)
+
+
 def _add_backend_arguments(p: Any) -> None:
     """Add StorageFactory backend selection args to a v2 parser."""
     p.add_argument(
@@ -440,6 +696,19 @@ def _add_backend_arguments(p: Any) -> None:
 
 def register_memory_v2_commands(memory_subparsers: Any) -> None:
     """Register Memory 2.0 subcommands into the existing memory group."""
+    p = memory_subparsers.add_parser(
+        "active", help="Show the canonical ACTIVE index + serving path (v2, PR-MEM-5)"
+    )
+    p.add_argument("--logical", default="memory_items")
+    p.add_argument(
+        "--probe-provider",
+        action="store_true",
+        help="also resolve the pinned provider and include its health probe",
+    )
+    p.add_argument("--v2-path", default=None)
+    _add_backend_arguments(p)
+    p.set_defaults(v2_handler=cmd_memory_v2_active)
+
     p = memory_subparsers.add_parser("verify", help="Verify all memories are traceable (v2)")
     p.add_argument("--v2-path", default=None, help="SQLite knowledge store path")
     _add_backend_arguments(p)
@@ -487,6 +756,21 @@ def register_memory_v2_commands(memory_subparsers: Any) -> None:
     )
     _add_backend_arguments(pi)
     pi.set_defaults(v2_handler=cmd_memory_v2_index_describe)
+    pi = index_sub.add_parser(
+        "sync", help="Catch up the ACTIVE physical collection to the source of truth (PR-MEM-5)"
+    )
+    pi.add_argument("--v2-path", default=None)
+    pi.add_argument("--logical", default="memory_items")
+    _add_backend_arguments(pi)
+    pi.set_defaults(v2_handler=cmd_memory_v2_index_sync)
+    pi = index_sub.add_parser(
+        "rollback",
+        help="Roll ACTIVE back to the previous generation (catch-up enforced, PR-MEM-5)",
+    )
+    pi.add_argument("--v2-path", default=None)
+    pi.add_argument("--logical", default="memory_items")
+    _add_backend_arguments(pi)
+    pi.set_defaults(v2_handler=cmd_memory_v2_index_rollback)
 
     p = memory_subparsers.add_parser("benchmark", help="Run the retrieval benchmark (v2)")
     p.set_defaults(v2_handler=cmd_memory_v2_benchmark)
@@ -512,6 +796,17 @@ def extend_legacy_memory_parsers(
     query_parser.add_argument("--task-id", default=None)
     query_parser.add_argument("--no-vector", action="store_true")
     query_parser.add_argument("--safety-filter", action="store_true")
+    query_parser.add_argument(
+        "--purpose",
+        choices=[p.value for p in RetrievalPurpose],
+        default=RetrievalPurpose.HUMAN_SEARCH.value,
+        help="retrieval purpose (v4 §3.2): selects cross-body and reranker policy",
+    )
+    query_parser.add_argument(
+        "--reranker",
+        action="store_true",
+        help="apply the pinned Qwen3 reranker post-fusion (loads the local model)",
+    )
     _add_backend_arguments(query_parser)
     query_parser.set_defaults(v2_handler=cmd_memory_v2_query)
 
@@ -524,5 +819,16 @@ def extend_legacy_memory_parsers(
     explain_parser.add_argument("--site-id", default=None)
     explain_parser.add_argument("--robot-id", default=None)
     explain_parser.add_argument("--no-vector", action="store_true")
+    explain_parser.add_argument(
+        "--purpose",
+        choices=[p.value for p in RetrievalPurpose],
+        default=RetrievalPurpose.HUMAN_SEARCH.value,
+        help="retrieval purpose (v4 §3.2)",
+    )
+    explain_parser.add_argument(
+        "--reranker",
+        action="store_true",
+        help="apply the pinned Qwen3 reranker post-fusion (loads the local model)",
+    )
     _add_backend_arguments(explain_parser)
     explain_parser.set_defaults(v2_handler=cmd_memory_v2_explain)
