@@ -292,12 +292,20 @@ class RegimeMatcher:
     ) -> tuple[bool, list[str], list[str]]:
         """Hard-constraint evaluation (v4 §6.1)."""
         rejections: list[str] = []
+        unverified: list[str] = []
         for envelope_field, regime_field, code in _IDENTITY_CHECKS:
             allowed = getattr(envelope, envelope_field)
             if not allowed:
                 continue  # unconstrained on this dimension
             current = getattr(regime, regime_field, None)
-            if current is None or current not in allowed:
+            if current is None:
+                # The regime carries no context on this dimension — NOT an
+                # explicit mismatch (v4 §6.1 rejects only 明确 mismatch).
+                # Recorded as unverified; require it via required_features
+                # when it must be proven.
+                unverified.append(regime_field)
+                continue
+            if current not in allowed:
                 rejections.append(code)
 
         if envelope.regime_labels and regime.regime_label not in envelope.regime_labels:
@@ -310,6 +318,7 @@ class RegimeMatcher:
         if missing:
             rejections.append("missing_required_features")
 
+        self._last_unverified = unverified
         return (not rejections, rejections, missing)
 
     def _feature_distances(
