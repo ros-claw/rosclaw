@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import threading
 import time
 from typing import Any
 
@@ -48,6 +49,21 @@ logger = logging.getLogger("rosclaw.storage.versioned_projection")
 WATERMARK_KIND = "projection_watermark"
 ACTIVE_PROJECTION_TARGET = "active_projection"
 _REGISTRY_TABLE = "projection_registry"
+
+# One process-level resolver for all default projections: without it every
+# memory write rebuilt the provider (full model load per write — verified
+# by review).  Construction is lock-guarded against concurrent first-use.
+_SHARED_RESOLVER: EmbeddingProviderResolver | None = None
+_SHARED_RESOLVER_LOCK = threading.Lock()
+
+
+def shared_projection_resolver() -> EmbeddingProviderResolver:
+    global _SHARED_RESOLVER
+    if _SHARED_RESOLVER is None:
+        with _SHARED_RESOLVER_LOCK:
+            if _SHARED_RESOLVER is None:
+                _SHARED_RESOLVER = EmbeddingProviderResolver()
+    return _SHARED_RESOLVER
 
 
 def _watermark_id(logical_name: str) -> str:
@@ -109,7 +125,7 @@ class ActiveProjectionCommitter:
         logical_name: str = "memory_items",
     ) -> None:
         self._store = store
-        self._resolver = provider_resolver or EmbeddingProviderResolver()
+        self._resolver = provider_resolver or shared_projection_resolver()
         self._logical_name = logical_name
 
     def save_to_seekdb(self, payload: dict[str, Any]) -> None:
@@ -143,11 +159,15 @@ class ActiveProjectionCommitter:
         except ProviderUnavailableError as exc:
             provider_note = f"provider_unavailable:{exc.reason}"
 
+        # In-order last-writer-wins: a supersede/delete erases any earlier
+        # PENDING upsert of the same id in this batch and removes it from
+        # ACTIVE — the earlier inline-delete-then-re-upsert order resurrected
+        # superseded memories (review finding, empirically verified).
         projected = 0
         failed = 0
         last_id: str | None = None
         last_time: float | None = None
-        upserts: list[dict[str, Any]] = []
+        pending: dict[str, dict[str, Any]] = {}
         for payload in payloads:
             record = dict(payload)
             record.pop("idempotency_key", None)
@@ -161,16 +181,21 @@ class ActiveProjectionCommitter:
                 last_time = max(last_time or 0.0, float(event_time))
             if str(record.get("status") or "active") != "active":
                 # Supersede / expire / quarantine / delete sync (v4 §3.8).
+                pending.pop(memory_id, None)
                 collection.delete(ids=[memory_id])
                 projected += 1
                 continue
             if provider is None:
                 failed += 1
                 continue
-            upserts.append(record)
+            pending[memory_id] = record
 
-        if upserts:
-            documents = [str(r.get("document") or r.get("title") or r["id"]) for r in upserts]
+        if pending:
+            upserts = list(pending.values())
+            documents = [
+                str(r.get("document") or r.get("title") or r.get("id") or r.get("memory_id"))
+                for r in upserts
+            ]
             embeddings = provider.encode_documents(documents)
             collection.upsert(
                 ids=[str(r.get("id") or r.get("memory_id")) for r in upserts],
@@ -220,10 +245,14 @@ class ActiveProjection:
             logger.warning("active projection skipped: record without id")
             return
         if self._outbox is not None:
+            # The marker distinguishes mutations of the SAME memory: an
+            # outbox dedup must only collapse redeliveries of one mutation,
+            # never drop a later supersede (review finding).
+            marker = item_record.get("updated_at") or item_record.get("event_time") or time.time()
             self._outbox.enqueue(
                 ACTIVE_PROJECTION_TARGET,
                 item_record,
-                idempotency_key=f"memory:{memory_id}:active_projection",
+                idempotency_key=f"memory:{memory_id}:active_projection:{marker}",
                 entity_type="memory",
                 entity_id=str(memory_id),
             )
@@ -235,10 +264,11 @@ class ActiveProjection:
     def project_delete(self, memory_id: str) -> None:
         """Remove a memory from the ACTIVE collection (delete sync)."""
         if self._outbox is not None:
+            marker = time.time()
             self._outbox.enqueue(
                 ACTIVE_PROJECTION_TARGET,
-                {"id": memory_id, "status": "deleted"},
-                idempotency_key=f"memory:{memory_id}:active_projection_delete",
+                {"id": memory_id, "status": "deleted", "updated_at": marker},
+                idempotency_key=f"memory:{memory_id}:active_projection:{marker}",
                 entity_type="memory",
                 entity_id=str(memory_id),
             )

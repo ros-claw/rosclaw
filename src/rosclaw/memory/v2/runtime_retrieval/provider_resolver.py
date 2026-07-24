@@ -60,6 +60,9 @@ class EmbeddingProviderResolver:
         # uses the pinned built-ins).
         self._profiles: dict[str, Any] = profiles if profiles is not None else PROFILES
         self._providers: dict[str, EmbeddingProvider] = {}
+        import threading
+
+        self._lock = threading.Lock()
 
     def resolve(self, descriptor: ActiveIndexDescriptor) -> EmbeddingProvider:
         profile_id = descriptor.embedding_profile_id
@@ -83,16 +86,18 @@ class EmbeddingProviderResolver:
                 + "; ".join(mismatches),
             )
         if profile_id not in self._providers:
-            kwargs: dict[str, Any] = {}
-            if self._cache_path is not None:
-                kwargs["cache_path"] = self._cache_path
-            if self._device is not None:
-                kwargs["device"] = self._device
-            try:
-                self._providers[profile_id] = self._factory(profile_id, **kwargs)
-            except Exception as exc:  # noqa: BLE001
-                raise ProviderUnavailableError(
-                    PROVIDER_CONSTRUCTION_FAILED,
-                    f"could not construct provider for {profile_id!r}: {exc}",
-                ) from exc
+            with self._lock:
+                if profile_id not in self._providers:
+                    kwargs: dict[str, Any] = {}
+                    if self._cache_path is not None:
+                        kwargs["cache_path"] = self._cache_path
+                    if self._device is not None:
+                        kwargs["device"] = self._device
+                    try:
+                        self._providers[profile_id] = self._factory(profile_id, **kwargs)
+                    except Exception as exc:  # noqa: BLE001
+                        raise ProviderUnavailableError(
+                            PROVIDER_CONSTRUCTION_FAILED,
+                            f"could not construct provider for {profile_id!r}: {exc}",
+                        ) from exc
         return self._providers[profile_id]

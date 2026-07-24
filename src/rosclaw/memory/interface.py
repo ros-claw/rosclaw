@@ -898,7 +898,10 @@ class MemoryInterface(LifecycleMixin):
             outcome="failure",
             limit=max(limit, 3),
         )
-        if response is not None:
+        # The HOW analogy path is high-risk: a degraded retrieval (BM25 /
+        # sqlite lexical / abstain) must not serve it — fall through to the
+        # legacy keyword path instead of acting on weakened evidence.
+        if response is not None and not response.fallback:
             for candidate in response.candidates:
                 item = candidate.item
                 raw_hint = item.metadata.get("recovery_hint", "") if item is not None else ""
