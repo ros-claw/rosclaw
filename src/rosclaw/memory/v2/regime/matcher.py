@@ -253,7 +253,9 @@ class RegimeMatcher:
         evidence_factor = (
             min(1.0, envelope.evidence_count / 3.0) if envelope.evidence_count else 0.0
         )
-        type_factor = 1.0 if envelope.envelope_type == EnvelopeType.VALIDATED.value else 0.7
+        # VALIDATED carries full weight; OBSERVED can reach the SUGGEST band
+        # but never the APPLY band on its own (that requires validation).
+        type_factor = 1.0 if envelope.envelope_type == EnvelopeType.VALIDATED.value else 0.8
         score = (
             similarity
             * (0.5 + 0.5 * max(envelope.confidence, 0.0))
