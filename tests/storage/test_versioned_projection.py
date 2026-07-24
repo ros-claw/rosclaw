@@ -142,9 +142,15 @@ def test_projection_outbox_enqueue_path(store) -> None:
     assert len(outbox.calls) == 2
     target, payload, key, entity_type, entity_id = outbox.calls[0]
     assert target == ACTIVE_PROJECTION_TARGET
-    assert key == "memory:mem_q:active_projection"
+    # The key carries the mutation marker so a later supersede is never
+    # deduped away while the original projection is still pending.
+    assert key.startswith("memory:mem_q:active_projection:")
     assert entity_type == "memory" and entity_id == "mem_q"
     assert outbox.calls[1][1]["status"] == "deleted"
+    # Two different mutations of the same memory get distinct keys.
+    projection.project(_record("mem_q", "queued v2"))
+    keys = [call[2] for call in outbox.calls]
+    assert len(set(keys)) == len(keys)
 
 
 def test_catch_up_repairs_projection_lag(store) -> None:
@@ -219,3 +225,33 @@ def test_rollback_aborts_when_catch_up_fails(store) -> None:
     active = mgr.active("memory_items")
     assert active["physical_collection"] == gen2
     assert gen1 != gen2
+
+
+def test_in_batch_supersede_never_resurrects(store) -> None:
+    """Review finding: a batch [upsert(m1), supersede(m1)] must end with m1
+    ABSENT from ACTIVE (the old inline-delete-then-re-upsert order
+    resurrected superseded memories)."""
+    physical = _build_and_activate(store, [_record("mem_a", "alpha")])
+    committer = ActiveProjectionCommitter(store, _resolver())
+    committer.save_to_seekdb_batch(
+        [
+            _record("mem_m1", "first version"),
+            {**_record("mem_m1", "first version"), "status": "superseded"},
+        ]
+    )
+    ids = {row["id"] for row in store.query(physical, limit=10)}
+    assert "mem_m1" not in ids
+    assert store.count(physical) == 1
+
+
+def test_shared_resolver_reused_across_projections(store) -> None:
+    """Review finding: default projections must not rebuild the provider
+    per write — one process-level resolver is shared."""
+    from rosclaw.storage.versioned_projection import shared_projection_resolver
+
+    first = shared_projection_resolver()
+    second = shared_projection_resolver()
+    assert first is second
+    committer_a = ActiveProjectionCommitter(store)
+    committer_b = ActiveProjectionCommitter(store)
+    assert committer_a._resolver is committer_b._resolver
