@@ -387,3 +387,44 @@ def test_selective_risk_metrics_and_gate() -> None:
     assert gate["passed"] is True
     assert gate["metrics"]["selective_harm_risk"] == 0.0
     assert gate["metrics"]["helpful_apply_precision"] == 1.0
+
+
+def test_abstain_when_sqlite_lexical_fallback_serves() -> None:
+    """Review finding: the lexical fallback path previously reached APPLY
+    with zero vector retrieval — any degraded mode must abstain on the
+    high-risk path."""
+    pipeline, _ = _pipeline(
+        _response([_candidate("mem_slow")], mode="sqlite_memory_v2_lexical"),
+        [_validated_envelope("mem_slow")],
+        choreography=object(),
+    )
+    decision = pipeline.decide("middle joint_not_reached", _regime())
+    assert decision.action is InterventionAction.ABSTAIN
+    assert REASON_PROVIDER_DEGRADED_HIGH_RISK in decision.reason_codes
+
+
+def test_success_evidence_only_from_matched_envelope() -> None:
+    """Review finding: patch-proof evidence was accepted from ANY envelope;
+    it must come from the matched VALIDATED envelope itself."""
+    weak_validated = _validated_envelope(
+        "mem_slow",
+        envelope_type=EnvelopeType.VALIDATED.value,
+        success_count=0,
+        confidence=0.95,
+        evidence_count=5,
+    )
+    unrelated_observed = _validated_envelope(
+        "mem_slow",
+        envelope_id="env_other",
+        envelope_type=EnvelopeType.OBSERVED.value,
+        success_count=9,
+        confidence=0.6,
+    )
+    pipeline, _ = _pipeline(
+        _response([_candidate("mem_slow")]),
+        [weak_validated, unrelated_observed],
+        choreography=object(),
+    )
+    decision = pipeline.decide("middle joint_not_reached", _regime())
+    assert decision.action is InterventionAction.SUGGEST
+    assert REASON_NO_PATCHPROOF in decision.reason_codes
