@@ -129,3 +129,25 @@ def select_canary_candidate(
         if pose:
             return pose[0], f"regime {baseline_regime} → pose-recovery candidate"
     return candidates[0], "first validated candidate (no regime-specific rule matched)"
+
+
+def select_explicit_candidate(
+    validated: list[dict[str, Any]],
+    candidate_id: str,
+) -> tuple[dict[str, Any] | None, str]:
+    """Operator-directed selection, bypassing the untried ladder.
+
+    Used for statistical-power top-ups: a candidate that already has
+    canary evidence but too few arm-C sessions for the promotion gate's
+    min_sessions floor can be re-canaried explicitly.  The reason string
+    discloses the operator direction — every canary must record WHY this
+    candidate ran (an operator-chosen candidate is not the ladder's
+    recommendation).
+    """
+    for row in validated:
+        if str(row.get("candidate_id")) == candidate_id:
+            return row, f"operator-directed top-up: {candidate_id}"
+    return None, (
+        f"candidate {candidate_id} is not VALIDATED "
+        "(unknown id, rolled back, or already promoted/decided)"
+    )

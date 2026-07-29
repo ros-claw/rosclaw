@@ -71,6 +71,7 @@ def cmd_acceptance_evo_rps_canary(args: argparse.Namespace) -> int:
         result = orchestrator.canary(
             blocks=int(getattr(args, "blocks", 3)),
             rounds=int(getattr(args, "rounds", 40)),
+            candidate_id=getattr(args, "candidate_id", None) or None,
         )
     except OrchestratorError as exc:
         return _emit({"ok": False, "blocked": str(exc)})

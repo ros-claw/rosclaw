@@ -8064,6 +8064,12 @@ def main() -> int:
     canary_phase.add_argument("--config", default=None)
     canary_phase.add_argument("--blocks", type=int, default=3)
     canary_phase.add_argument("--rounds", type=int, default=40)
+    canary_phase.add_argument(
+        "--candidate-id",
+        default=None,
+        help="Operator-directed candidate (bypasses the untried ladder for "
+        "statistical-power top-ups; disclosed in the evidence manifest)",
+    )
     canary_phase.set_defaults(func=cmd_acceptance_evo_rps_canary)
     _evo_rps_phase(
         "promote", cmd_acceptance_evo_rps_promote, "Evaluate the promotion gate (Phase 7)"

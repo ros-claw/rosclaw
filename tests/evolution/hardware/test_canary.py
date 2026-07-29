@@ -6,6 +6,7 @@ from rosclaw.evolution.hardware.canary import (
     ARMS,
     build_canary_schedule,
     select_canary_candidate,
+    select_explicit_candidate,
 )
 
 
@@ -25,9 +26,7 @@ def test_schedule_is_seeded_interleaved_and_balanced() -> None:
     assert len(set(block_seeds)) == 3
     # Deterministic for the same seed.
     again = build_canary_schedule(blocks=3, seed=42, base_seed=1000)
-    assert [(s.block, s.arm, s.seed) for s in schedule] == [
-        (s.block, s.arm, s.seed) for s in again
-    ]
+    assert [(s.block, s.arm, s.seed) for s in schedule] == [(s.block, s.arm, s.seed) for s in again]
 
 
 def test_selection_prefers_conservative_cooldown_in_degradation() -> None:
@@ -89,3 +88,23 @@ def test_selection_excludes_already_tried_candidates() -> None:
     )
     assert pick2 is None
     assert "untried" in reason2
+
+
+def test_explicit_candidate_selection_discloses_operator_direction() -> None:
+    """Operator-directed top-up: bypasses the ladder for a VALIDATED
+    candidate and says so in the reason (evidence honesty)."""
+    validated = [
+        {"candidate_id": "c_cool2", "changes": {"inter_round_cooldown_sec": 2.0}},
+        {"candidate_id": "c_every5", "changes": {"cooldown_every_n_rounds": 5}},
+    ]
+    pick, reason = select_explicit_candidate(validated, "c_every5")
+    assert pick is not None
+    assert pick["candidate_id"] == "c_every5"
+    assert "operator-directed" in reason
+
+
+def test_explicit_candidate_rejects_non_validated() -> None:
+    validated = [{"candidate_id": "c_cool2", "changes": {"inter_round_cooldown_sec": 2.0}}]
+    pick, reason = select_explicit_candidate(validated, "c_unknown")
+    assert pick is None
+    assert "not VALIDATED" in reason

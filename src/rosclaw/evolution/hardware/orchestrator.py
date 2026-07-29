@@ -459,12 +459,23 @@ class EvoRpsOrchestrator:
     # PR-EVO-HW-4: canary / promote
     # ------------------------------------------------------------------
 
-    def canary(self, *, blocks: int = 3, rounds: int = 40) -> dict[str, Any]:
+    def canary(
+        self, *, blocks: int = 3, rounds: int = 40, candidate_id: str | None = None
+    ) -> dict[str, Any]:
         """A/B/C real-machine canary with a seeded interleaved arm order
         (§Phase 6).  Arm C mechanically applies the selected VALIDATED
         candidate on REAL hardware with full PatchProof — the
-        operator-approved canary path (§Phase 7)."""
-        from .canary import ARM_C, build_canary_schedule, select_canary_candidate
+        operator-approved canary path (§Phase 7).
+
+        ``candidate_id`` (operator-directed) bypasses the untried ladder
+        for statistical-power top-ups; the selection reason discloses the
+        operator direction in the evidence manifest."""
+        from .canary import (
+            ARM_C,
+            build_canary_schedule,
+            select_canary_candidate,
+            select_explicit_candidate,
+        )
         from .promotion import CandidateRegistry, CandidateState
 
         manifest = self._open_manifest()
@@ -483,17 +494,22 @@ class EvoRpsOrchestrator:
         baseline_regime = (
             self._session_regime_label(baseline[-1]) if baseline else "UNKNOWN"
         )
-        # The ladder walks forward: candidates that already have canary
-        # evidence (their promotion was evaluated) are excluded — the next
-        # untried candidate gets its turn.
-        tried = {
-            str(s["candidate_id"])
-            for s in manifest.by_kind("canary_session")
-            if s.get("candidate_id")
-        }
-        candidate_row, selection_reason = select_canary_candidate(
-            validated, baseline_regime=baseline_regime, exclude_ids=tried
-        )
+        if candidate_id is not None:
+            candidate_row, selection_reason = select_explicit_candidate(
+                validated, candidate_id
+            )
+        else:
+            # The ladder walks forward: candidates that already have canary
+            # evidence (their promotion was evaluated) are excluded — the next
+            # untried candidate gets its turn.
+            tried = {
+                str(s["candidate_id"])
+                for s in manifest.by_kind("canary_session")
+                if s.get("candidate_id")
+            }
+            candidate_row, selection_reason = select_canary_candidate(
+                validated, baseline_regime=baseline_regime, exclude_ids=tried
+            )
         if candidate_row is None:
             manifest.record("canary_blocked", reason=selection_reason)
             raise OrchestratorError(f"no canary candidate: {selection_reason}")
