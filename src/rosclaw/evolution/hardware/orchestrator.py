@@ -44,6 +44,26 @@ class OrchestratorError(RuntimeError):
     pass
 
 
+def generation_arm_aborts(
+    aborted: list[dict[str, Any]], generation_start: float, arm: str
+) -> list[dict[str, Any]]:
+    """Aborts in one arm within the CURRENT canary generation only.
+
+    The promotion gate's zero-tolerance protection check must see the
+    candidate's own arm AND only the current generation — an abort from
+    a previous candidate's generation is not this candidate's protection
+    event (found 2026-07-29: cand_004's abort inflated cand_005's
+    protection_event to 2; sessions were generation-scoped but the abort
+    list was not).
+    """
+    return [
+        entry
+        for entry in aborted
+        if entry.get("arm") == arm
+        and float(entry.get("recorded_at") or 0.0) >= generation_start
+    ]
+
+
 class EvoRpsOrchestrator:
     def __init__(self, config: EvoRpsConfig) -> None:
         self.config = config
@@ -732,13 +752,20 @@ class EvoRpsOrchestrator:
             "memory_hurt": 0.0,
         }
         aborted = manifest.by_kind("canary_aborted")
-        # Attribution matters: only an abort in the CANDIDATE's OWN arm is a
-        # candidate protection event.  An abort in arm A/B is an experiment-
-        # condition signal (the hardware is heat-soaked), never evidence
-        # against the candidate — rolling back C for B's overheat would be a
-        # false verdict (found + fixed 2026-07-26).
-        candidate_aborts = [a for a in aborted if a.get("arm") == ARM_C]
-        other_aborts = [a for a in aborted if a.get("arm") != ARM_C]
+        # Attribution matters, on TWO axes: only an abort in the
+        # CANDIDATE's OWN arm AND only in the CURRENT generation is a
+        # candidate protection event.  An abort in arm A/B is an
+        # experiment-condition signal (the hardware is heat-soaked),
+        # never evidence against the candidate (fixed 2026-07-26); an
+        # abort from a PREVIOUS candidate's generation is not this
+        # candidate's event either (fixed 2026-07-29).
+        candidate_aborts = generation_arm_aborts(aborted, generation_start, ARM_C)
+        other_aborts = [
+            a
+            for a in aborted
+            if a.get("arm") != ARM_C
+            and float(a.get("recorded_at") or 0.0) >= generation_start
+        ]
         if candidate_aborts:
             safety["protection_event"] = len(candidate_aborts)
 

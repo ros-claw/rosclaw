@@ -185,3 +185,24 @@ def test_repropose_preserves_lifecycle_states() -> None:
     fetched = registry.get("cand_x")
     assert fetched["state"] == "VALIDATED"
     assert fetched["gate_verdicts"] == [{"gate": "schema", "passed": True}]
+
+
+def test_generation_arm_aborts_scopes_arm_and_generation() -> None:
+    """Real-campaign regression (2026-07-29): cand_004's C-arm abort from
+    the PREVIOUS generation inflated cand_005's protection_event to 2.
+    Sessions were generation-scoped; the abort list was not."""
+    from rosclaw.evolution.hardware.orchestrator import generation_arm_aborts
+
+    aborted = [
+        {"arm": "C_candidate_canary", "recorded_at": 100.0},  # previous generation
+        {"arm": "C_candidate_canary", "recorded_at": 200.0},  # current generation
+        {"arm": "A_no_memory", "recorded_at": 210.0},  # current generation, wrong arm
+    ]
+    current = generation_arm_aborts(aborted, 150.0, "C_candidate_canary")
+    assert len(current) == 1
+    assert current[0]["recorded_at"] == 200.0
+    # No generation start → everything in the arm matches.
+    assert len(generation_arm_aborts(aborted, 0.0, "C_candidate_canary")) == 2
+    # Missing recorded_at never silently counts as current.
+    legacy = [{"arm": "C_candidate_canary"}]
+    assert generation_arm_aborts(legacy, 150.0, "C_candidate_canary") == []
