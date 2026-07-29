@@ -140,6 +140,35 @@ def cmd_regime_transitions(args: argparse.Namespace) -> int:
     return cmd_regime_replay(args)
 
 
+def cmd_regime_build_envelopes(args: argparse.Namespace) -> int:
+    """Backfill OBSERVED applicability envelopes for the memories
+    distilled from one practice session (v4 §5 — closes the
+    distill → matcher link on real corpora)."""
+    from rosclaw.storage.factory import StorageFactory
+
+    from .session_envelopes import build_session_envelopes
+
+    backend = getattr(args, "backend", None) or None
+    url = getattr(args, "seekdb_url", None) or None
+    store = StorageFactory.create_knowledge_store(
+        backend=backend or ("seekdb_server" if url else "sqlite"),
+        url=url,
+        path=getattr(args, "v2_path", None),
+    )
+    try:
+        result = build_session_envelopes(
+            args.session_dir,
+            store,
+            hand=getattr(args, "hand", "right"),
+        )
+    finally:
+        close = getattr(store, "close", None)
+        if callable(close):
+            close()
+    _emit(result)
+    return 0 if result.get("ok") else 1
+
+
 def register_regime_commands(subparsers: Any) -> None:
     """Register the ``rosclaw regime`` command group."""
     parser = subparsers.add_parser("regime", help="Operating regime inspection (v4, PR-MEM-6)")
@@ -170,3 +199,14 @@ def register_regime_commands(subparsers: Any) -> None:
     _common(p)
     p.add_argument("--practice-id", default=None)
     p.set_defaults(handler=cmd_regime_transitions)
+
+    p = regime_sub.add_parser(
+        "build-envelopes",
+        help="Backfill OBSERVED applicability envelopes from one session's telemetry",
+    )
+    p.add_argument("session_dir", help="Practice session directory (contains raw/events.jsonl)")
+    p.add_argument("--hand", choices=["left", "right"], default="right")
+    p.add_argument("--backend", default=None, help="Knowledge-store backend (default: sqlite)")
+    p.add_argument("--seekdb-url", default=None, help="SeekDB server DSN (implies seekdb_server)")
+    p.add_argument("--v2-path", default=None, help="SQLite knowledge store path")
+    p.set_defaults(handler=cmd_regime_build_envelopes)

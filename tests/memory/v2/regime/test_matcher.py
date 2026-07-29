@@ -69,9 +69,38 @@ def _thermal_envelope(**overrides) -> ApplicabilityEnvelope:
 def test_interval_distance_semantics() -> None:
     assert interval_distance(None, 1.0, 2.0, scale=1.0) is None  # unknown ≠ match
     assert interval_distance(5.0, None, None, scale=1.0) == 0.0  # unbounded
+    assert interval_distance(None, None, None, scale=1.0) == 0.0  # unbounded unknown is neutral
     assert interval_distance(1.5, 1.0, 2.0, scale=1.0) == 0.0  # inside
     assert interval_distance(0.5, 1.0, 2.0, scale=0.5) == 1.0  # below
     assert interval_distance(3.0, 1.0, 2.0, scale=2.0) == 0.5  # above
+
+
+def test_unconstrained_missing_feature_never_blocks_applicability() -> None:
+    """Real-corpus regression (RH56 evo-rps campaign, 2026-07-29): RH56
+    telemetry never reports position_error_p95, and envelopes built from
+    it leave that feature unbounded.  With the buggy check order
+    (unknown-before-unbounded), EVERY match on the real corpus was
+    blocked as 'missing position_error_p95' — applicability was dead on
+    hardware that doesn't report every feature."""
+    matcher = RegimeMatcher()
+    envelope = ApplicabilityEnvelope(
+        memory_id="mem_real",
+        body_ids=["rh56_right_01"],
+        temperature_min=38.0,
+        temperature_max=52.0,
+        evidence_count=5,
+        confidence=0.8,
+        required_features=["temperature_c"],
+        # position_error_p95 deliberately unbounded + not required
+    )
+    regime = _regime(position_error_p95=None)
+    regime.regime_label = None
+    regime.calibration_hash = None
+    regime.control_profile_hash = None
+    regime.joint_name = None
+    result = matcher.match("mem_real", [envelope], regime)
+    assert "position_error_p95" not in result.missing_required_features
+    assert result.score > 0.0
 
 
 # ---------------------------------------------------------------------------

@@ -8912,7 +8912,7 @@ def main() -> int:
             handler = getattr(args, "handler", None)
             if handler is not None:
                 return handler(args)
-            print("regime requires a subcommand: status|explain|replay|transitions")
+            print("regime requires a subcommand: status|explain|replay|transitions|build-envelopes")
             return 1
         elif args.command == "memory":
             v2_handler = getattr(args, "v2_handler", None)

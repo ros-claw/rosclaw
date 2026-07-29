@@ -131,14 +131,17 @@ def interval_distance(
 ) -> float | None:
     """Normalized distance to an interval (v4 §6.2).
 
-    ``None`` value → ``None`` (unknown is not a match, never a zero).
-    Unbounded interval → 0.  Inside → 0.  Outside → distance to the
-    nearest boundary, normalized by ``scale``.
+    Unbounded interval → 0 (no constraint — neutral even when the regime
+    value is unknown; an unconstrained feature must never block
+    applicability on bodies whose telemetry never reports it, e.g. RH56
+    has no position_error_p95).  Bounded with unknown value → ``None``
+    (unknown is not a match, never a zero).  Inside → 0.  Outside →
+    distance to the nearest boundary, normalized by ``scale``.
     """
-    if value is None:
-        return None
     if low is None and high is None:
         return 0.0
+    if value is None:
+        return None
     if low is not None and value < low:
         return (low - value) / scale
     if high is not None and value > high:
