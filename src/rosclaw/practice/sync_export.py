@@ -57,8 +57,14 @@ def write_bundles_jsonl(sync: SyncResult, out_path: str | Path) -> dict[str, Any
 
 
 def export_bundles_parquet(sync: SyncResult, out_path: str | Path) -> dict[str, Any]:
-    import pyarrow as pa
-    import pyarrow.parquet as pq
+    try:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "pyarrow is required for Parquet export — install the "
+            "'practice-export' extra (pip install rosclaw[practice-export])"
+        ) from exc
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

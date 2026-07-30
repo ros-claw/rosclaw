@@ -155,12 +155,21 @@ def test_bundles_jsonl_and_replay_integrity(tmp_path: Path) -> None:
     assert replay_observation(out, "obs_does_not_exist") is None
 
 
-def test_parquet_lerobot_mcap_exports(tmp_path: Path) -> None:
+def test_parquet_export_optional_dependency(tmp_path: Path) -> None:
+    # pyarrow is the practice-export extra (optional — CI core env does
+    # not install it; same importorskip pattern as test_export_parquet).
+    import pytest
+
+    pytest.importorskip("pyarrow")
     session = _write_session(tmp_path)
     sync = build_bundles(session, camera_id="d435i_test")
-
     parquet = export_bundles_parquet(sync, tmp_path / "out" / "bundles.parquet")
     assert parquet["rows"] == 30
+
+
+def test_lerobot_mcap_exports(tmp_path: Path) -> None:
+    session = _write_session(tmp_path)
+    sync = build_bundles(session, camera_id="d435i_test")
 
     lerobot = export_bundles_lerobot(sync, tmp_path / "out" / "lerobot")
     assert lerobot["frames"] == 30
