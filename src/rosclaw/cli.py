@@ -3171,6 +3171,29 @@ def cmd_practice_verify(args: argparse.Namespace) -> int:
     return 0 if report.passed else 1
 
 
+def cmd_practice_verify_data(args: argparse.Namespace) -> int:
+    """Data Quality Gate over a session dir or a whole sessions root (v3 §6.3, READ-ONLY)."""
+    import json as _json
+
+    if getattr(args, "root", None):
+        from rosclaw.practice.evidence_links import assess_legacy_sessions
+
+        output = assess_legacy_sessions(args.root, limit=getattr(args, "limit", None))
+    else:
+        from rosclaw.practice.data_quality import run_data_quality_gate
+        from rosclaw.practice.evidence_links import validate_session_links
+
+        quality = run_data_quality_gate(args.session)
+        links = validate_session_links(args.session)
+        output = quality.to_dict()
+        output["links"] = links.to_dict()
+    print(_json.dumps(output, indent=2, ensure_ascii=False, default=str))
+    if getattr(args, "root", None):
+        totals = output.get("totals") or {}
+        return 0 if output.get("ok") and totals.get("sessions", 0) > 0 else 1
+    return 0 if output.get("data_quality", {}).get("passed") else 1
+
+
 def cmd_practice_distill(args: argparse.Namespace) -> int:
     """Distill raw practice events into knowledge artifacts."""
     from rosclaw.practice.distiller import PracticeDistiller
@@ -8222,6 +8245,14 @@ def main() -> int:
         "--json", action="store_true", help="Output distillation result as JSON"
     )
 
+    practice_verify_data_parser = practice_subparsers.add_parser(
+        "verify-data",
+        help="Data Quality Gate over a session dir or sessions root (v3 §6.3, READ-ONLY)",
+    )
+    practice_verify_data_parser.add_argument("--session", default=None, help="Session directory")
+    practice_verify_data_parser.add_argument("--root", default=None, help="Sessions root (batch)")
+    practice_verify_data_parser.add_argument("--limit", type=int, default=None)
+
     def add_practice_seekdb_backend_args(command_parser: argparse.ArgumentParser) -> None:
         backend_group = command_parser.add_mutually_exclusive_group()
         backend_group.add_argument(
@@ -8992,6 +9023,8 @@ def main() -> int:
                 return cmd_practice_verify(args)
             elif args.practice_command == "distill":
                 return cmd_practice_distill(args)
+            elif args.practice_command == "verify-data":
+                return cmd_practice_verify_data(args)
             elif args.practice_command == "ingest-seekdb":
                 return cmd_practice_ingest_seekdb(args)
             elif args.practice_command == "query":
