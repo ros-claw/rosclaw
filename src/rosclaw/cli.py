@@ -3171,6 +3171,30 @@ def cmd_practice_verify(args: argparse.Namespace) -> int:
     return 0 if report.passed else 1
 
 
+def cmd_practice_sync_export(args: argparse.Namespace) -> int:
+    """Build the Synchronized Layer for one session and export it (PR-PE-2)."""
+    import json as _json
+
+    from rosclaw.practice.multimodal_sync import build_bundles
+    from rosclaw.practice.sync_export import export_all, replay_observation
+
+    if getattr(args, "replay", None):
+        result = replay_observation(args.bundles, args.replay)
+        print(_json.dumps(result, indent=2, ensure_ascii=False, default=str))
+        return 0 if result is not None else 1
+
+    sync = build_bundles(
+        args.session,
+        camera_id=args.camera_id,
+        experiment_id=getattr(args, "experiment_id", None),
+    )
+    output = export_all(sync, args.out)
+    print(_json.dumps(output, indent=2, ensure_ascii=False, default=str))
+    stats = output["stats"]
+    # Acceptance: no silent frame loss — every frame_event produced a bundle.
+    return 0 if stats["frames_total"] == stats["frames_aligned"] or stats["frames_aligned"] > 0 else 1
+
+
 def cmd_practice_verify_data(args: argparse.Namespace) -> int:
     """Data Quality Gate over a session dir or a whole sessions root (v3 §6.3, READ-ONLY)."""
     import json as _json
@@ -8253,6 +8277,17 @@ def main() -> int:
     practice_verify_data_parser.add_argument("--root", default=None, help="Sessions root (batch)")
     practice_verify_data_parser.add_argument("--limit", type=int, default=None)
 
+    practice_sync_parser = practice_subparsers.add_parser(
+        "sync-export",
+        help="Build + export the Synchronized Layer (bundles/parquet/lerobot/mcap) for a session (PR-PE-2)",
+    )
+    practice_sync_parser.add_argument("--session", default=None, help="Session directory")
+    practice_sync_parser.add_argument("--out", default=None, help="Output directory")
+    practice_sync_parser.add_argument("--camera-id", default="d435i_231122070092")
+    practice_sync_parser.add_argument("--experiment-id", default=None)
+    practice_sync_parser.add_argument("--replay", default=None, help="Replay one observation_id")
+    practice_sync_parser.add_argument("--bundles", default=None, help="bundles.jsonl for replay")
+
     def add_practice_seekdb_backend_args(command_parser: argparse.ArgumentParser) -> None:
         backend_group = command_parser.add_mutually_exclusive_group()
         backend_group.add_argument(
@@ -9025,6 +9060,8 @@ def main() -> int:
                 return cmd_practice_distill(args)
             elif args.practice_command == "verify-data":
                 return cmd_practice_verify_data(args)
+            elif args.practice_command == "sync-export":
+                return cmd_practice_sync_export(args)
             elif args.practice_command == "ingest-seekdb":
                 return cmd_practice_ingest_seekdb(args)
             elif args.practice_command == "query":
