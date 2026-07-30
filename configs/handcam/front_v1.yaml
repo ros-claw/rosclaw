@@ -1,0 +1,27 @@
+# HandCam camera pose contracts — Physical Evolution Lab front_v1
+# Measured 2026-07-30 on the dual-RH56 rig (D435i 231122070092, fw 5.17.0.10).
+# Intrinsics are read from the DEVICE at capture time (never hand-edited here);
+# the values below are the measured reference for verification.
+camera_pose_id: front_v1
+camera_id: d435i_231122070092
+intrinsics:
+  width: 640
+  height: 480
+  fx: 384.893
+  fy: 384.893
+  ppx: 324.663
+  ppy: 244.437
+  distortion_model: brown_conrady
+  coeffs: [0.0, 0.0, 0.0, 0.0, 0.0]
+extrinsic:
+  status: unmeasured
+mount:
+  status: unmeasured
+lighting_profile_id: ceiling_fluorescent_v1
+rois:
+  left_hand: {x0: 0, y0: 80, x1: 230, y1: 480}
+  right_hand: {x0: 410, y0: 120, x1: 640, y1: 480}
+notes: >
+  双手在支架上指向镜头（仰视角），指尖距镜头 ~20cm；左右 ROI 依据
+  2026-07-30 实拍画面标定。移动相机必须重测 ROI 并重新生成
+  camera_pose_hash（v3 §4.2）。
