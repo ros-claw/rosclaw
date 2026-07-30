@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from rosclaw.mcp.onboarding.installed import InstalledRegistry
-from rosclaw.mcp.onboarding.source_installer import install_from_git
+from rosclaw.mcp.onboarding.source_installer import (
+    install_from_git,
+    install_from_local_path,
+)
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -130,3 +135,51 @@ def test_failed_registry_update_rolls_back_source_and_metadata(
     assert installed.runtime_config_path.read_bytes() == runtime_config
     assert registry_path.read_bytes() == registry
     assert not list(installed.local_path.parent.glob(".source-*"))
+
+
+def test_simple_manifest_console_entrypoint_runs_from_selected_python_bin(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "manifest.json").write_text(
+        json.dumps(
+            {
+                "name": "limo-ros-mcp",
+                "version": "0.5.2",
+                "transport": "stdio",
+                "entrypoint": "limo-ros-mcp",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    selected_bin = tmp_path / "selected-python" / "bin"
+    selected_bin.mkdir(parents=True)
+    selected_python = selected_bin / "python"
+    selected_python.symlink_to(sys.executable)
+    console_script = selected_bin / "limo-ros-mcp"
+    console_script.write_text(
+        f"#!{sys.executable}\nimport sys\nprint('console:' + ','.join(sys.argv[1:]))\n",
+        encoding="utf-8",
+    )
+    console_script.chmod(0o755)
+    home = tmp_path / "home"
+    result = install_from_local_path(
+        source,
+        server_name="limo-ros-mcp",
+        home=home,
+        python=str(selected_python),
+        no_install_deps=True,
+    )
+    assert result.success
+    wrapper = home / "mcp" / "installed" / "limo-ros-mcp" / "run_server.py"
+
+    completed = subprocess.run(
+        [sys.executable, str(wrapper), "probe"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.stdout.strip() == "console:probe"
