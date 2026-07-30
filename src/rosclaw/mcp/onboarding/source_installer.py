@@ -178,8 +178,16 @@ def _normalize_simple_manifest(data: dict[str, Any], source_dir: Path) -> dict[s
     hardware = data.get("hardware", {})
     files = data.get("files", [])
 
-    entrypoint = args[0] if args else "mcp_server.py"
-    if not (source_dir / entrypoint).exists() and files:
+    declared_entrypoint = data.get("entrypoint")
+    has_declared_entrypoint = isinstance(declared_entrypoint, str) and bool(
+        declared_entrypoint.strip()
+    )
+    entrypoint = (
+        declared_entrypoint.strip()
+        if has_declared_entrypoint
+        else (args[0] if args else "mcp_server.py")
+    )
+    if not (source_dir / entrypoint).exists() and files and not has_declared_entrypoint:
         for f in files:
             if "server" in f and (source_dir / f).exists():
                 entrypoint = f
@@ -272,12 +280,19 @@ import sys
 
 SOURCE_DIR = {str(source_dir)!r}
 PYTHON = {python!r}
-ENTRYPOINT = os.path.join(SOURCE_DIR, {entrypoint!r})
+ENTRYPOINT = {entrypoint!r}
 
 env = os.environ.copy()
 env["PYTHONPATH"] = SOURCE_DIR + os.pathsep + env.get("PYTHONPATH", "")
 os.chdir(SOURCE_DIR)
-sys.exit(subprocess.call([PYTHON, ENTRYPOINT] + sys.argv[1:], env=env))
+source_entrypoint = os.path.join(SOURCE_DIR, ENTRYPOINT)
+if os.path.isfile(source_entrypoint):
+    command = [PYTHON, source_entrypoint]
+elif os.path.isabs(ENTRYPOINT):
+    command = [ENTRYPOINT]
+else:
+    command = [os.path.join(os.path.dirname(PYTHON), ENTRYPOINT)]
+sys.exit(subprocess.call(command + sys.argv[1:], env=env))
 """
     wrapper.write_text(script, encoding="utf-8")
     wrapper.chmod(0o755)
@@ -502,7 +517,7 @@ def install_from_git(
             rollback_source()
             return failed_result(commit)
 
-        py = str(Path(python or sys.executable).expanduser().resolve())
+        py = str(Path(python or sys.executable).expanduser().absolute())
         entrypoint = (
             manifest.artifact.entrypoint
             if (manifest.artifact and manifest.artifact.entrypoint)
@@ -614,7 +629,7 @@ def install_from_local_path(
 
     _install_dependencies(source_dir, python, no_install_deps, errors)
 
-    py = str(Path(python or sys.executable).expanduser().resolve())
+    py = str(Path(python or sys.executable).expanduser().absolute())
     entrypoint = (
         manifest.artifact.entrypoint
         if (manifest.artifact and manifest.artifact.entrypoint)
