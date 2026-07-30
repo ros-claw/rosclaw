@@ -108,3 +108,18 @@ def test_explicit_candidate_rejects_non_validated() -> None:
     pick, reason = select_explicit_candidate(validated, "c_unknown")
     assert pick is None
     assert "not VALIDATED" in reason
+
+
+def test_explicit_candidate_parses_string_changes() -> None:
+    """Real-hardware regression (2026-07-30): the registry stores changes
+    as JSON text on SQL backends; the explicit path returned the raw row,
+    so json.dumps(string) double-encoded and the workspace runner crashed
+    ('str' object has no attribute 'get'). The ladder's selector parses —
+    the explicit selector must too."""
+    validated = [
+        {"candidate_id": "c_every5", "changes": '{"cooldown_every_n_rounds": 5}'},
+    ]
+    pick, _ = select_explicit_candidate(validated, "c_every5")
+    assert pick is not None
+    assert pick["changes"] == {"cooldown_every_n_rounds": 5}
+    assert isinstance(pick["changes"], dict)

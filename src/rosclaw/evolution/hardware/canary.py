@@ -146,7 +146,16 @@ def select_explicit_candidate(
     """
     for row in validated:
         if str(row.get("candidate_id")) == candidate_id:
-            return row, f"operator-directed top-up: {candidate_id}"
+            # The registry stores changes as JSON text on SQL backends;
+            # the runner must receive a dict (select_canary_candidate
+            # parses too — an unparsed str double-encodes downstream and
+            # crashes the workspace runner, found 2026-07-30).
+            import json as _json
+
+            changes = row.get("changes") or {}
+            if isinstance(changes, str):
+                changes = _json.loads(changes)
+            return {**row, "changes": changes}, f"operator-directed top-up: {candidate_id}"
     return None, (
         f"candidate {candidate_id} is not VALIDATED "
         "(unknown id, rolled back, or already promoted/decided)"
