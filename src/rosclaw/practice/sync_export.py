@@ -196,13 +196,21 @@ def write_bundles_mcap(sync: SyncResult, out_path: str | Path) -> dict[str, Any]
 
 
 def export_all(sync: SyncResult, out_dir: str | Path) -> dict[str, Any]:
-    """Run every exporter into one synchronized-layer directory."""
+    """Run every exporter into one synchronized-layer directory.
+
+    Optional-dependency exporters (pyarrow → Parquet) that are missing
+    degrade to a DISCLOSED skip record — the other formats still land;
+    a silently missing format would be worse than no export."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        parquet = export_bundles_parquet(sync, out_dir / "bundles.parquet")
+    except ModuleNotFoundError as exc:
+        parquet = {"skipped": str(exc)}
     return {
         "practice_id": sync.practice_id,
         "jsonl": write_bundles_jsonl(sync, out_dir / "bundles.jsonl"),
-        "parquet": export_bundles_parquet(sync, out_dir / "bundles.parquet"),
+        "parquet": parquet,
         "lerobot": export_bundles_lerobot(sync, out_dir / "lerobot"),
         "mcap": write_bundles_mcap(sync, out_dir / "bundles.mcap"),
         "stats": sync.stats.to_dict(),
