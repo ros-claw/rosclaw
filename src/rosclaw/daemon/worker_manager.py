@@ -373,9 +373,14 @@ class WorkerManager:
             else:
                 return_code = process.poll()
                 heartbeat_age = time.monotonic() - (worker.last_heartbeat_monotonic or 0.0)
+                heartbeat_limit = (
+                    worker.spec.startup_timeout_sec
+                    if worker.state is WorkerState.STARTING
+                    else worker.spec.heartbeat_timeout_sec
+                )
                 if return_code is not None:
                     reason = f"worker exited with status {return_code}"
-                elif heartbeat_age > worker.spec.heartbeat_timeout_sec:
+                elif heartbeat_age > heartbeat_limit:
                     reason = f"worker heartbeat timed out after {heartbeat_age:.3f}s"
                 else:
                     return

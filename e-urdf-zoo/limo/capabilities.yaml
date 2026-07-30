@@ -1,0 +1,133 @@
+capability_version: "2.0"
+robot_id: limo
+capabilities:
+  - id: limo_observe_status
+    name: observe_status
+    category: state
+    description: Read vehicle state, control mode, battery voltage, error code, and motion mode.
+    skill_type: observation
+    outputs:
+      - {name: status, type: limo_base/LimoStatus}
+    constraints: {read_only: true, max_age_sec: 1.0}
+
+  - id: limo_observe_odometry
+    name: observe_odometry
+    category: state
+    description: Read ROS odometry feedback from /odom.
+    skill_type: observation
+    outputs:
+      - {name: odometry, type: nav_msgs/Odometry}
+    constraints: {read_only: true, max_age_sec: 1.0}
+
+  - id: limo_observe_imu
+    name: observe_imu
+    category: state
+    description: Read inertial feedback from /imu.
+    skill_type: observation
+    outputs:
+      - {name: imu, type: sensor_msgs/Imu}
+    constraints: {read_only: true, max_age_sec: 1.0}
+
+  - id: limo_observe_scan
+    name: observe_scan
+    category: perception
+    description: Read optional lidar feedback from /scan.
+    skill_type: observation
+    outputs:
+      - {name: laser_scan, type: sensor_msgs/LaserScan}
+    constraints: {read_only: true, optional: true, max_age_sec: 1.0}
+
+  - id: limo_navigate_to_pose
+    name: navigate_to_pose
+    category: navigation
+    description: Submit an obstacle-aware move_base goal through rosclawd.
+    skill_type: guarded
+    inputs:
+      - {name: frame_id, type: str, enum: [map]}
+      - {name: x, type: float, unit: m}
+      - {name: y, type: float, unit: m}
+      - {name: yaw, type: float, unit: rad}
+      - {name: readiness_snapshot_hash, type: str}
+      - {name: body_snapshot_hash, type: str}
+      - {name: route_policy_id, type: str}
+    preconditions:
+      - same_process_readiness_snapshot_ready
+      - readiness_snapshot_unexpired
+      - body_snapshot_hash_matches_readiness
+      - operator_route_policy_matches
+      - map_artifact_hashes_match
+      - goal_inside_geofence
+      - goal_clear_in_occupancy_grid
+      - daemon_owned_preflight_for_real
+    constraints: {direct_cmd_vel: false, receipt_required: true}
+
+  - id: limo_set_initial_pose
+    name: set_initial_pose
+    category: localization
+    description: Initialize AMCL through the permit-gated rosclawd LIMO worker.
+    skill_type: guarded
+    inputs:
+      - {name: frame_id, type: str, enum: [map]}
+      - {name: x, type: float, unit: m}
+      - {name: y, type: float, unit: m}
+      - {name: yaw, type: float, unit: rad}
+      - {name: body_snapshot_hash, type: str}
+    preconditions:
+      - operator_route_policy_matches
+      - map_artifact_hashes_match
+      - pose_inside_geofence
+      - daemon_exact_action_permit
+    constraints: {direct_ros_publish: false, receipt_required: true}
+
+  - id: limo_inspect_ros_graph
+    name: inspect_ros_graph
+    category: diagnostics
+    description: Discover named LIMO topics and inspect their types, publishers, and subscribers.
+    skill_type: observation
+    constraints: {read_only: true, arbitrary_topic_access: false}
+
+  - id: limo_sample_ros_messages
+    name: sample_ros_messages
+    category: diagnostics
+    description: Sample up to ten messages from a named contract topic and estimate its rate.
+    skill_type: observation
+    constraints: {read_only: true, max_samples: 10, large_payloads_summarized: true}
+
+  - id: limo_observe_localization
+    name: observe_localization
+    category: localization
+    description: Read AMCL and fused pose with covariance summaries.
+    skill_type: observation
+    constraints: {read_only: true}
+
+  - id: limo_observe_navigation
+    name: observe_navigation
+    category: navigation
+    description: Read move_base state, current goal, and compact global/local paths.
+    skill_type: observation
+    constraints: {read_only: true}
+
+  - id: limo_observe_map
+    name: observe_map
+    category: mapping
+    description: Read map metadata and compact occupancy summaries.
+    skill_type: observation
+    constraints: {read_only: true, large_payloads_summarized: true}
+
+  - id: limo_observe_diagnostics
+    name: observe_diagnostics
+    category: diagnostics
+    description: Read diagnostic severity counts, component messages, TF edges, and ROS logs.
+    skill_type: observation
+    constraints: {read_only: true}
+
+  - id: limo_patrol_readiness
+    name: patrol_readiness
+    category: inspection
+    description: Aggregate base, lidar, localization, navigation, map, and diagnostics evidence.
+    skill_type: validation
+    constraints: {read_only: true, dispatches_motion: false}
+
+forbidden_capabilities:
+  - id: limo_direct_cmd_vel
+    reason: Direct Agent publishing to /cmd_vel bypasses rosclawd and the navigation safety stack.

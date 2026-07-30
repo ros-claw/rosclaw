@@ -116,6 +116,23 @@ async def test_request_action_builds_unapproved_envelope_for_daemon(
     assert action.authorization.approval_id == "permit-1"
 
 
+async def test_request_action_preserves_operator_proposal_deadline(
+    client: tuple[RuntimeClient, _FakeDaemonClient],
+) -> None:
+    runtime_client, daemon = client
+
+    await runtime_client.request_action(
+        capability_id="limo.set_initial_pose",
+        arguments={"schema_version": "limo.initial-pose.v1"},
+        execution_mode="REAL",
+        body_snapshot_hash="sha256:body",
+        deadline_at="2030-01-02T03:04:05Z",
+        wait_timeout_sec=0.0,
+    )
+
+    assert daemon.actions[0].to_dict()["deadline_at"] == "2030-01-02T03:04:05Z"
+
+
 async def test_runtime_status_and_cancel_are_daemon_calls(
     client: tuple[RuntimeClient, _FakeDaemonClient],
 ) -> None:

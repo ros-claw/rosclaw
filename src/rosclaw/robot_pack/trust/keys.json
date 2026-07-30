@@ -9,6 +9,33 @@
         "ros-claw/realsense-d400@1.0.0"
       ],
       "created_at": "2026-07-21T00:00:00Z"
+    },
+    "rosclaw-limo-pack-v1": {
+      "algorithm": "ed25519",
+      "public_key_base64": "M4dVegNL+msTkg53N3QiBtKGbihmWQzFAoePp4ud0rI=",
+      "status": "trusted",
+      "scopes": [
+        "ros-claw/limo-ros1@0.1.0"
+      ],
+      "created_at": "2026-07-30T00:00:00Z"
+    },
+    "rosclaw-limo-pack-v2": {
+      "algorithm": "ed25519",
+      "public_key_base64": "H+FnYbrVgj7WZTJZJFNgbYNnus8kl4WzUfqAB6gXMwc=",
+      "status": "trusted",
+      "scopes": [
+        "ros-claw/limo-ros1@0.1.1"
+      ],
+      "created_at": "2026-07-30T00:00:00Z"
+    },
+    "rosclaw-limo-pack-v3": {
+      "algorithm": "ed25519",
+      "public_key_base64": "Y6Yb5HSXPAoTgVUhq8bIh+S2ANjCi/cB4Dnwi0RVYfs=",
+      "status": "trusted",
+      "scopes": [
+        "ros-claw/limo-ros1@0.1.2"
+      ],
+      "created_at": "2026-07-30T00:00:00Z"
     }
   }
 }

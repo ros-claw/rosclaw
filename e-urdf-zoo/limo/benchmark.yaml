@@ -1,0 +1,26 @@
+benchmark_version: "1.0"
+robot_id: limo
+
+contract_benchmarks:
+  - name: patrol_preflight_topics_present
+    target: 8
+    unit: topics
+  - name: named_observation_contracts
+    target: 23
+    unit: observations
+  - name: inspection_mcp_tools
+    target: 22
+    unit: tools
+  - name: ros_message_summary_types
+    target: 10
+    unit: message_families
+  - name: direct_cmd_vel_tools_exposed
+    target: 0
+    unit: tools
+  - name: navigation_preconditions_enforced
+    target: 6
+    unit: preconditions
+
+hardware_benchmarks:
+  status: not_run
+  note: Real-robot results require canonical rosclawd ExecutionReceipts.

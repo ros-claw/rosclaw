@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import math
+import os
+import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -17,6 +21,7 @@ from rosclaw.kernel import (
     EvidenceLevel,
     ExecutionMode,
 )
+from rosclaw.mcp.onboarding.installed import InstalledRegistry
 from rosclaw.robot_pack.instance import RobotInstanceConfig, resolve_adapter_binding
 from rosclaw.robot_pack.schema import RobotPackManifest
 from rosclaw.robot_pack.store import RobotPackStore
@@ -234,6 +239,295 @@ class RealSenseCaptureExecutor:
         return candidate
 
 
+class LimoInitialPoseExecutor:
+    """Daemon-owned adapter for one bounded ROS 1 AMCL initialization operation."""
+
+    _CAPABILITY = "limo.set_initial_pose"
+    _SCHEMA = "limo.initial-pose.v1"
+    _PROTOCOL = "rosclaw.limo.worker.v1"
+    _COVARIANCE = [0.25, 0.25, 0.0, 0.0, 0.0, 0.0685]
+    _ARGUMENT_KEYS = {
+        "schema_version",
+        "target_pose",
+        "route_policy_id",
+        "route_policy_hash",
+        "map_id",
+        "map_image_hash",
+        "covariance_diagonal",
+        "expected_effect",
+    }
+
+    def __init__(
+        self,
+        instance: RobotInstanceConfig,
+        *,
+        adapter_source: Path,
+        python_executable: str = "/usr/bin/python2",
+    ) -> None:
+        self.instance = instance
+        self.adapter_source = adapter_source.resolve()
+        self.python_executable = python_executable
+        self.worker_path = self.adapter_source / "worker" / "limo_initial_pose_worker.py"
+
+    def __call__(self, action: ActionEnvelope) -> ActionExecutionResult:
+        contract_error = self._validate_action(action, require_authorization=True)
+        if contract_error is not None:
+            return _failed_result(contract_error[0], contract_error[1])
+        if not self._trusted_worker_path():
+            return _failed_result(
+                "LIMO_WORKER_INTEGRITY_ERROR",
+                "Revision-locked LIMO initial-pose worker is missing or unsafe",
+            )
+
+        request = {
+            "protocol": self._PROTOCOL,
+            "operation": "SET_INITIAL_POSE",
+            "schema_version": self._SCHEMA,
+            "action_id": action.action_id,
+            "body_id": action.body_id,
+            "body_snapshot_hash": action.body_snapshot_hash,
+            "target_pose": action.arguments["target_pose"],
+            "covariance_diagonal": self._COVARIANCE,
+            "subscriber_timeout_sec": 3.0,
+            "verification_timeout_sec": min(12.0, action.verification_policy.timeout_sec),
+        }
+        try:
+            completed = subprocess.run(
+                [self.python_executable, str(self.worker_path)],
+                input=json.dumps(request, separators=(",", ":")),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=min(20.0, action.verification_policy.timeout_sec + 5.0),
+                env=self._worker_environment(),
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return _failed_result("LIMO_WORKER_LAUNCH_FAILED", str(exc))
+        if len(completed.stdout.encode("utf-8")) > 262_144:
+            return _failed_result("LIMO_WORKER_PROTOCOL_ERROR", "Worker output exceeded byte limit")
+        try:
+            result = json.loads(completed.stdout)
+        except (json.JSONDecodeError, TypeError) as exc:
+            return _failed_result("LIMO_WORKER_PROTOCOL_ERROR", f"Invalid worker JSON: {exc}")
+        if (
+            completed.returncode != 0
+            or not isinstance(result, dict)
+            or result.get("ok") is not True
+        ):
+            message = result.get("error") if isinstance(result, dict) else completed.stderr
+            return _failed_result("LIMO_INITIAL_POSE_FAILED", str(message or "ROS 1 worker failed"))
+        verification_error = self._validate_result(action, result)
+        if verification_error is not None:
+            return _failed_result("LIMO_INITIAL_POSE_VERIFICATION_FAILED", verification_error)
+
+        target = action.arguments["target_pose"]
+        observed = result["observed_amcl_pose"]
+        return ActionExecutionResult(
+            final_state=ActionState.COMPLETED,
+            evidence_level=EvidenceLevel.TASK_VERIFIED,
+            policy_decision={
+                "allowed": True,
+                "policy": "robot-pack/limo-initial-pose-v1",
+                "reason": "map-frame pose and fixed covariance contract passed",
+            },
+            authorization_decision={
+                "authorized": action.authorization.approved,
+                "approval_id": action.authorization.approval_id,
+            },
+            dispatch_result={
+                "accepted": True,
+                "adapter": self.instance.adapter.component_id,
+                "operation": "SET_INITIAL_POSE",
+                "topic": "/initialpose",
+            },
+            driver_ack={
+                "acknowledged": True,
+                "subscriber_count": result["subscriber_count"],
+                "dispatched_wall_time": result["dispatched_wall_time"],
+            },
+            observations=[
+                {
+                    "kind": "amcl_localization_initialized",
+                    "target_pose": target,
+                    "observed_amcl_pose": observed,
+                    "map_to_odom": result["map_to_odom"],
+                    "completed_wall_time": result["completed_wall_time"],
+                }
+            ],
+            verification_result={
+                "success": True,
+                "predicate": "post-dispatch AMCL pose and map-to-odom transform observed",
+                "position_error_m": math.hypot(
+                    float(observed["x"]) - float(target["x"]),
+                    float(observed["y"]) - float(target["y"]),
+                ),
+                "yaw_error_rad": abs(
+                    math.atan2(
+                        math.sin(float(observed["yaw"]) - float(target["yaw"])),
+                        math.cos(float(observed["yaw"]) - float(target["yaw"])),
+                    )
+                ),
+            },
+        )
+
+    def _validate_action(
+        self, action: ActionEnvelope, *, require_authorization: bool
+    ) -> tuple[str, str] | None:
+        if action.body_id != self.instance.instance_id:
+            return "ROBOT_PACK_BODY_MISMATCH", "Action Body does not match LIMO instance"
+        if action.body_snapshot_hash != self.instance.body_snapshot_hash:
+            return "ROBOT_PACK_BODY_SNAPSHOT_MISMATCH", "Action Body snapshot is stale"
+        if action.capability_id != self._CAPABILITY:
+            return "ROBOT_PACK_CAPABILITY_MISMATCH", "Unsupported LIMO capability"
+        if require_authorization and (
+            not action.authorization.approved
+            or not action.authorization.approval_id
+            or self._CAPABILITY not in action.authorization.scopes
+        ):
+            return (
+                "ROBOT_PACK_AUTHORIZATION_REQUIRED",
+                "LIMO REAL execution requires daemon-authored exact authorization",
+            )
+        arguments = action.arguments
+        if set(arguments) != self._ARGUMENT_KEYS or arguments.get("schema_version") != self._SCHEMA:
+            return "LIMO_INITIAL_POSE_CONTRACT_INVALID", "Initial-pose action fields are not exact"
+        pose = arguments.get("target_pose")
+        if not isinstance(pose, dict) or set(pose) != {"frame_id", "x", "y", "yaw"}:
+            return "LIMO_INITIAL_POSE_CONTRACT_INVALID", "target_pose fields are not exact"
+        if pose.get("frame_id") != "map":
+            return "LIMO_INITIAL_POSE_CONTRACT_INVALID", "Only map-frame poses are accepted"
+        values = (pose.get("x"), pose.get("y"), pose.get("yaw"))
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in values):
+            return "LIMO_INITIAL_POSE_CONTRACT_INVALID", "Pose values must be numbers"
+        x = float(pose["x"])
+        y = float(pose["y"])
+        yaw = float(pose["yaw"])
+        if not all(math.isfinite(value) for value in (x, y, yaw)):
+            return "LIMO_INITIAL_POSE_CONTRACT_INVALID", "Pose values must be finite"
+        if not (-50.0 <= x <= 50.0 and -50.0 <= y <= 50.0 and -math.pi <= yaw <= math.pi):
+            return "LIMO_INITIAL_POSE_CONTRACT_INVALID", "Pose exceeds bounded map contract"
+        if arguments.get("covariance_diagonal") != self._COVARIANCE:
+            return "LIMO_INITIAL_POSE_CONTRACT_INVALID", "Covariance must match operator policy"
+        expected = arguments.get("expected_effect")
+        if expected != {
+            "kind": "localization_initialized",
+            "final_frame": "map",
+            "map_to_odom_required": True,
+        }:
+            return "LIMO_INITIAL_POSE_CONTRACT_INVALID", "Expected effect is not exact"
+        for name in ("route_policy_id", "route_policy_hash", "map_id", "map_image_hash"):
+            if not isinstance(arguments.get(name), str) or not arguments[name].strip():
+                return "LIMO_INITIAL_POSE_CONTRACT_INVALID", f"{name} is required"
+        return None
+
+    def _trusted_worker_path(self) -> bool:
+        if self.adapter_source.is_symlink() or self.worker_path.is_symlink():
+            return False
+        try:
+            self.worker_path.resolve().relative_to(self.adapter_source)
+        except ValueError:
+            return False
+        return self.worker_path.is_file() and os.access(self.worker_path, os.R_OK)
+
+    @staticmethod
+    def _worker_environment() -> dict[str, str]:
+        allowed = {
+            "PATH",
+            "PYTHONPATH",
+            "ROS_MASTER_URI",
+            "ROS_HOSTNAME",
+            "ROS_IP",
+            "ROS_PACKAGE_PATH",
+            "ROS_DISTRO",
+        }
+        return {key: value for key, value in os.environ.items() if key in allowed}
+
+    def _validate_result(self, action: ActionEnvelope, result: dict[str, Any]) -> str | None:
+        if (
+            result.get("protocol") != self._PROTOCOL
+            or result.get("action_id") != action.action_id
+            or result.get("operation") != "SET_INITIAL_POSE"
+            or result.get("topic") != "/initialpose"
+            or result.get("accepted") is not True
+        ):
+            return "Worker acknowledgement did not match the action"
+        if not isinstance(result.get("subscriber_count"), int) or result["subscriber_count"] < 1:
+            return "AMCL subscriber acknowledgement is missing"
+        observed = result.get("observed_amcl_pose")
+        if not isinstance(observed, dict) or observed.get("frame_id") != "map":
+            return "Post-dispatch AMCL pose is missing"
+        try:
+            observed_values = [float(observed[name]) for name in ("x", "y", "yaw")]
+        except (KeyError, TypeError, ValueError):
+            return "Post-dispatch AMCL pose is malformed"
+        if not all(math.isfinite(value) for value in observed_values):
+            return "Post-dispatch AMCL pose is non-finite"
+        transform = result.get("map_to_odom")
+        if not isinstance(transform, dict):
+            return "map-to-odom transform is missing"
+        if not (
+            isinstance(transform.get("translation"), list)
+            and len(transform["translation"]) == 3
+            and isinstance(transform.get("rotation"), list)
+            and len(transform["rotation"]) == 4
+        ):
+            return "map-to-odom transform is malformed"
+        target = action.arguments["target_pose"]
+        position_error = math.hypot(
+            observed_values[0] - float(target["x"]), observed_values[1] - float(target["y"])
+        )
+        yaw_error = abs(
+            math.atan2(
+                math.sin(observed_values[2] - float(target["yaw"])),
+                math.cos(observed_values[2] - float(target["yaw"])),
+            )
+        )
+        if position_error > 1.0 or yaw_error > 1.0:
+            return "AMCL observation did not converge near the requested estimate"
+        return None
+
+
+class LimoInitialPoseShadowExecutor:
+    """Daemon-owned contract preview that performs no ROS or hardware operation."""
+
+    def __init__(self, instance: RobotInstanceConfig, *, adapter_source: Path) -> None:
+        self.instance = instance
+        self.validator = LimoInitialPoseExecutor(instance, adapter_source=adapter_source)
+
+    def __call__(self, action: ActionEnvelope) -> ActionExecutionResult:
+        contract_error = self.validator._validate_action(action, require_authorization=False)
+        if contract_error is not None:
+            return _failed_result(contract_error[0], contract_error[1])
+        return ActionExecutionResult(
+            final_state=ActionState.COMPLETED,
+            evidence_level=EvidenceLevel.TASK_VERIFIED,
+            policy_decision={
+                "allowed": True,
+                "policy": "robot-pack/limo-initial-pose-v1",
+                "reason": "bounded initial-pose contract is valid for SHADOW preview",
+            },
+            authorization_decision={"authorized": False, "required": False},
+            dispatch_result={
+                "accepted": True,
+                "shadow": True,
+                "operation": "VALIDATE_INITIAL_POSE",
+                "hardware_dispatched": False,
+            },
+            driver_ack={"acknowledged": True, "shadow": True},
+            observations=[
+                {
+                    "kind": "initial_pose_contract_preview",
+                    "target_pose": action.arguments["target_pose"],
+                    "hardware_observed": False,
+                }
+            ],
+            verification_result={
+                "success": True,
+                "predicate": "exact initial-pose action contract validated without ROS dispatch",
+            },
+        )
+
+
 def load_daemon_robot_pack(
     runtime: Any,
     *,
@@ -308,16 +602,39 @@ def load_daemon_robot_pack(
 
     registered: list[str] = []
     for capability in manifest.capabilities:
-        if capability.id != "camera.capture_rgbd" or capability.safety_class != "read_only":
+        if capability.id == "camera.capture_rgbd" and capability.safety_class == "read_only":
+            if "REAL" not in capability.execution_modes:
+                raise RobotPackRuntimeError("RealSense capture capability must declare REAL mode")
+            executor: Any = RealSenseCaptureExecutor(instance, home=resolved_home)
+        elif capability.id == "limo.set_initial_pose" and capability.safety_class == "actuation":
+            if not {"SHADOW", "REAL"}.issubset(capability.execution_modes):
+                raise RobotPackRuntimeError(
+                    "LIMO initial-pose capability must declare SHADOW and REAL modes"
+                )
+            record_entry = InstalledRegistry(home=resolved_home).get(current_adapter.server_name)
+            if record_entry is None:
+                raise RobotPackRuntimeError("LIMO adapter installation record is missing")
+            executor = LimoInitialPoseExecutor(
+                instance,
+                adapter_source=Path(record_entry.server_dir),
+            )
+            runtime.action_gateway.register_executor(
+                capability.id,
+                ExecutionMode.SHADOW,
+                LimoInitialPoseShadowExecutor(
+                    instance,
+                    adapter_source=Path(record_entry.server_dir),
+                ),
+            )
+            registered.append(f"{capability.id}:SHADOW")
+        else:
             raise RobotPackRuntimeError(
                 f"No daemon-side executor is implemented for Pack capability {capability.id!r}"
             )
-        if "REAL" not in capability.execution_modes:
-            raise RobotPackRuntimeError("RealSense capture capability must declare REAL mode")
         runtime.action_gateway.register_executor(
             capability.id,
             ExecutionMode.REAL,
-            RealSenseCaptureExecutor(instance, home=resolved_home),
+            executor,
         )
         registered.append(f"{capability.id}:REAL")
 
@@ -408,14 +725,26 @@ def _validate_instance_contract(
     )
     model = instance.device.model.casefold()
     parsed_uri = urlparse(instance.device.stable_uri)
+    if manifest.discovery.backend == "realsense":
+        stable_identity_ok = bool(
+            parsed_uri.scheme == "realsense" and parsed_uri.netloc == instance.device.serial
+        )
+    elif manifest.discovery.backend == "manual":
+        stable_identity_ok = bool(
+            instance.device.offline_configured
+            and instance.device.discovery_backend == "offline_operator_input"
+            and parsed_uri.scheme == "ros1"
+            and parsed_uri.netloc
+        )
+    else:
+        stable_identity_ok = False
     device_ok = bool(
         instance.device.type == manifest.device.type
         and instance.device.vendor_id in manifest.device.vendor_ids
         and variant is not None
         and any(pattern.casefold() in model for pattern in variant.model_patterns)
         and variant.body_profile == instance.body_profile
-        and parsed_uri.scheme == "realsense"
-        and parsed_uri.netloc == instance.device.serial
+        and stable_identity_ok
     )
     if not device_ok:
         raise RobotPackRuntimeError(
@@ -461,6 +790,8 @@ def _failed_result(
 
 
 __all__ = [
+    "LimoInitialPoseExecutor",
+    "LimoInitialPoseShadowExecutor",
     "RealSenseCaptureExecutor",
     "RobotPackRuntimeError",
     "load_daemon_robot_pack",

@@ -1,0 +1,20 @@
+schema_version: rosclaw.robot_policy.v1
+id: limo-initial-pose
+applies_to: [limo.set_initial_pose]
+allow: [map_validated_initial_pose]
+deny:
+  - arbitrary_ros_publish
+  - cmd_vel
+  - serial_or_can_access
+  - caller_selected_covariance
+real_execution:
+  gateway: rosclawd
+  human_authorization_required: true
+  body_snapshot_required: true
+  exact_action_intent_required: true
+  covariance_diagonal: [0.25, 0.25, 0.0, 0.0, 0.0, 0.0685]
+failure:
+  default: fail_closed
+  missing_amcl_subscriber: block
+  missing_map_to_odom: fail
+  stale_body_snapshot: block

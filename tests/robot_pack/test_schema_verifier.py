@@ -6,8 +6,19 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
+from rosclaw.robot_pack.catalog import RobotPackCatalog
 from rosclaw.robot_pack.schema import RobotPackManifest
 from rosclaw.robot_pack.verifier import default_trust_store_path, verify_robot_pack
+
+
+def test_builtin_limo_pack_has_trusted_complete_integrity() -> None:
+    entry = RobotPackCatalog().resolve("limo")
+    result = verify_robot_pack(entry.root)
+
+    assert result.ok is True, result.errors
+    assert result.trusted is True
+    assert result.signature_status == "valid"
+    assert entry.manifest.canonical_ref == "rosclaw://robot_pack/ros-claw/limo-ros1@0.1.2"
 
 
 def test_builtin_realsense_pack_has_trusted_complete_integrity(builtin_pack_root: Path) -> None:
@@ -55,9 +66,7 @@ def test_trusted_key_scope_must_include_exact_pack_version(
     tmp_path: Path,
 ) -> None:
     trust = json.loads(default_trust_store_path().read_text(encoding="utf-8"))
-    trust["keys"]["rosclaw-realsense-pack-v1"]["scopes"] = [
-        "ros-claw/realsense-d400@2.*"
-    ]
+    trust["keys"]["rosclaw-realsense-pack-v1"]["scopes"] = ["ros-claw/realsense-d400@2.*"]
     trust_path = tmp_path / "keys.json"
     trust_path.write_text(json.dumps(trust), encoding="utf-8")
 

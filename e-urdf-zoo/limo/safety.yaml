@@ -1,0 +1,43 @@
+safety_level: HIGH
+collision_detection:
+  method: navigation_costmap_and_lidar
+  threshold_distance: 0.3
+  reaction_time_ms: 200.0
+  reaction_strategy: emergency_stop
+emergency_stop:
+  category: 1
+  stop_time_ms: 500.0
+  stop_distance_m: 0.2
+  dual_channel: false
+workspace_boundaries:
+  type: operator_map
+  require_configured_map: true
+interaction:
+  speed_slider_max: 0.2
+  protective_stop_on_contact: true
+environment:
+  ambient_temp_min: -10.0
+  ambient_temp_max: 40.0
+  humidity_max: 80.0
+  ip_rating: UNKNOWN
+safety_limits:
+  velocity_limits:
+    linear_x: 0.2
+    linear_y_mecanum_only: 0.1
+    angular_z: 0.5
+  motion:
+    max_low_level_duration_sec: 1.0
+    direct_cmd_vel_exposed: false
+    obstacle_check_required: true
+    stop_guard_required: true
+  battery:
+    nominal_voltage: 11.1
+    charge_cutoff_voltage: 12.6
+    discharge_cutoff_voltage: 8.25
+    require_error_code_zero: true
+  power_limits: {max_current_total: 10.0}
+real_execution:
+  status: guarded_initial_pose_executor_available
+  require_body_snapshot: true
+  require_daemon_permit: true
+  require_execution_receipt: true

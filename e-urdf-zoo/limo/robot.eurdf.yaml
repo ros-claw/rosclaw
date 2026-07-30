@@ -1,0 +1,76 @@
+robot_id: limo
+name: AgileX LIMO
+vendor: AgileX Robotics
+version: "1.0"
+description: >
+  Compact ROS 1 mobile base supporting four-wheel differential, Ackermann,
+  and mecanum motion modes. This profile describes the upstream limo_ros
+  contract; it does not claim a verified REAL executor.
+
+dof: 4
+links:
+  - {name: base_link, type: base, mass: 2.1557}
+  - {name: front_left_wheel_link, type: wheel, mass: 0.5}
+  - {name: front_right_wheel_link, type: wheel, mass: 0.5}
+  - {name: rear_left_wheel_link, type: wheel, mass: 0.5}
+  - {name: rear_right_wheel_link, type: wheel, mass: 0.5}
+
+joints:
+  - name: front_left_wheel
+    type: continuous
+    parent: base_link
+    child: front_left_wheel_link
+    axis: [0, 1, 0]
+  - name: front_right_wheel
+    type: continuous
+    parent: base_link
+    child: front_right_wheel_link
+    axis: [0, 1, 0]
+  - name: rear_left_wheel
+    type: continuous
+    parent: base_link
+    child: rear_left_wheel_link
+    axis: [0, 1, 0]
+  - name: rear_right_wheel
+    type: continuous
+    parent: base_link
+    child: rear_right_wheel_link
+    axis: [0, 1, 0]
+
+sensors:
+  - name: odometry
+    type: encoder
+    parent_link: base_link
+    parameters: {ros_topic: /odom, wheel_radius: 0.045, wheelbase: 0.2, track: 0.172}
+  - name: imu
+    type: imu
+    parent_link: base_link
+    parameters: {ros_topic: /imu}
+  - name: chassis_status
+    type: state
+    parent_link: base_link
+    parameters: {ros_topic: /limo_status, ros_type: limo_base/LimoStatus}
+  - name: lidar
+    type: lidar
+    parent_link: base_link
+    parameters: {ros_topic: /scan, optional: true}
+  - name: depth_camera
+    type: depth_camera
+    parent_link: base_link
+    parameters: {optional: true}
+
+actuators:
+  - name: mobile_base
+    type: electric_motor_group
+    joints: [front_left_wheel, front_right_wheel, rear_left_wheel, rear_right_wheel]
+    control_mode: [velocity]
+    command_interface: /cmd_vel
+    execution_boundary: rosclawd
+
+capabilities:
+  - limo.observe.status
+  - limo.observe.odom
+  - limo.observe.imu
+  - limo.observe.scan
+  - limo.navigate_to_pose
+  - limo.set_initial_pose

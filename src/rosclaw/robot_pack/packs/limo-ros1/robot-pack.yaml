@@ -1,0 +1,134 @@
+schema_version: rosclaw.robot_pack.v1
+
+pack:
+  namespace: ros-claw
+  name: limo-ros1
+  version: 0.1.2
+  title: AgileX LIMO ROS 1 Guarded Localization Pack
+  summary: Permit-gated AMCL localization initialization for AgileX LIMO on ROS Melodic.
+  vendor: AgileX Robotics
+  kind: mobile_base
+  aliases: [limo, agilex-limo]
+
+compatibility:
+  os: [linux]
+  arch: [x86_64, aarch64]
+  python: ">=3.11,<3.14"
+  ros_distributions: [melodic]
+
+components:
+  - kind: body
+    id: limo-body
+    ref: builtin://eurdf/limo
+    version: 1.0.0
+  - kind: hardware_adapter
+    id: limo-ros-mcp
+    ref: https://github.com/ros-claw/limo-ros-mcp
+    version: ff78d0706ca28eba7e8f75c543244c996fcbb253
+    required: true
+  - kind: capability
+    id: limo-set-initial-pose
+    ref: rosclaw://capability/limo.set_initial_pose@1
+    version: "1"
+    path: capabilities/limo.set_initial_pose.yaml
+    digest: sha256:e6bfbd5f938da43b4d91f5ec0cfb58bfdc91f209db0ad1882107df9582477e68
+  - kind: policy
+    id: limo-initial-pose-policy
+    ref: rosclaw://policy/limo-initial-pose@1
+    version: "1"
+    path: policies/initial-pose.yaml
+    digest: sha256:ba4834ead5c1287a5394cb658ef9eac2b59755144c1635fa2a223cb8be224595
+  - kind: calibration
+    id: limo-operator-calibration
+    ref: device://agilex/limo/operator-calibration
+    required: true
+  - kind: verification
+    id: limo-initial-pose-verification
+    ref: rosclaw://verification/limo-initial-pose@1
+    version: "1"
+    path: verification/actuation.yaml
+    digest: sha256:5de34b4c04c0f8a4aab183e0ae90165658293367fd22728a3258a316e774222a
+  - kind: example_app
+    id: limo-initial-pose-request
+    ref: rosclaw://example/limo-initial-pose-request@1
+    version: "1"
+    path: examples/initial-pose-action.json
+    digest: sha256:028208f7a39fc964f77ace39eaf6f4cafbbd2dff74368ac77138e829527f20c7
+  - kind: documentation
+    id: limo-pack-docs
+    ref: docs://robot-pack/limo-ros1
+    path: docs/README.md
+    digest: sha256:3fcc483278a0f0f6bc8f11e403af94676a12d5b0698fbc388d9d8115e24e0f0e
+
+device:
+  type: mobile_base
+  vendor_ids: ["1a86"]
+  variants:
+    - model: LIMO
+      model_patterns: ["AgileX LIMO", "LIMO"]
+      product_ids: ["7523"]
+      body_profile: limo
+
+discovery:
+  backend: manual
+  fallback_backends: [manual]
+  required_identity_fields: [model, serial, stable_uri, backend]
+
+adapter:
+  component_id: limo-ros-mcp
+  transport: mcp_stdio
+  server_name_patterns: [limo-ros-mcp]
+  tools:
+    - id: initial-pose
+      any_of: [limo_request_initial_pose]
+  direct_driver_access: forbidden
+
+capabilities:
+  - id: limo.set_initial_pose
+    title: Initialize AMCL pose estimate
+    safety_class: actuation
+    adapter_component_id: limo-ros-mcp
+    adapter_tools_any_of: [limo_request_initial_pose]
+    execution_modes: [SHADOW, REAL]
+    required_evidence: TASK_VERIFIED
+
+safety:
+  perception_only: false
+  actuation: guarded
+  direct_driver_access: forbidden
+  agent_southbound_access: daemon_only
+
+verification:
+  - id: contract
+    target_tier: H1_CONTRACT_VERIFIED
+    checks:
+      - signed-pack-integrity
+      - platform-compatibility
+      - body-profile-availability
+      - daemon-loader-contract
+      - revision-locked-worker
+    requires_hardware: false
+  - id: actuation
+    target_tier: H4_HARDWARE_ACTUATION_VERIFIED
+    checks:
+      - exact-action-permit
+      - initialpose-subscriber-ack
+      - post-dispatch-amcl-pose
+      - map-to-odom-transform
+      - canonical-execution-receipt
+    requires_hardware: true
+    requires_independent_observer: true
+
+support:
+  baseline_tier: H1_CONTRACT_VERIFIED
+  candidate_tier: H4_HARDWARE_ACTUATION_VERIFIED
+  evidence_ids: [limo-ros1-robot-pack-contract-tests]
+
+integrity:
+  checksums_file: checksums.txt
+  signature:
+    required: true
+    scheme: ed25519
+    key_id: rosclaw-limo-pack-v3
+    file: signatures/manifest.ed25519
+    payload: manifest-and-checksums-v1

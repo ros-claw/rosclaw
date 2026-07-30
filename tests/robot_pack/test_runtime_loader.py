@@ -15,6 +15,7 @@ from rosclaw.daemon.protocol import PeerCredentials
 from rosclaw.daemon.service import DaemonControlPlane
 from rosclaw.kernel import (
     ActionEnvelope,
+    ActionState,
     AuthorizationContext,
     EvidenceLevel,
     ExecutionMode,
@@ -23,10 +24,13 @@ from rosclaw.kernel import (
 from rosclaw.mcp.onboarding.installed import InstalledRecord, InstalledRegistry
 from rosclaw.robot_pack.instance import configure_robot_instance
 from rosclaw.robot_pack.runtime_loader import (
+    LimoInitialPoseExecutor,
+    LimoInitialPoseShadowExecutor,
     RealSenseCaptureExecutor,
     RobotPackRuntimeError,
     load_daemon_robot_pack,
 )
+from rosclaw.robot_pack.store import RobotPackStore
 from rosclaw.robot_pack.verification import _validate_receipt
 
 
@@ -89,6 +93,169 @@ def _action(
             scopes=["camera.capture_rgbd"],
         ),
     )
+
+
+def _limo_instance(tmp_path: Path):
+    source = tmp_path / "adapter"
+    worker = source / "worker" / "limo_initial_pose_worker.py"
+    worker.parent.mkdir(parents=True)
+    worker.write_text("# fixed worker fixture\n", encoding="utf-8")
+    instance = SimpleNamespace(
+        instance_id="limo",
+        body_snapshot_hash="a" * 64,
+        adapter=SimpleNamespace(component_id="limo-ros-mcp"),
+    )
+    return instance, source
+
+
+def _limo_action(instance, **argument_overrides) -> ActionEnvelope:
+    arguments = {
+        "schema_version": "limo.initial-pose.v1",
+        "target_pose": {"frame_id": "map", "x": 0.75, "y": -1.25, "yaw": 0.35},
+        "route_policy_id": "lab-default",
+        "route_policy_hash": "sha256:route",
+        "map_id": "lab-map",
+        "map_image_hash": "sha256:map",
+        "covariance_diagonal": [0.25, 0.25, 0.0, 0.0, 0.0, 0.0685],
+        "expected_effect": {
+            "kind": "localization_initialized",
+            "final_frame": "map",
+            "map_to_odom_required": True,
+        },
+        **argument_overrides,
+    }
+    return ActionEnvelope(
+        action_id="action-limo-initial-pose",
+        actor_id="test-agent",
+        agent_framework="pytest",
+        session_id="session-limo",
+        body_id=instance.instance_id,
+        body_snapshot_hash=instance.body_snapshot_hash,
+        capability_id="limo.set_initial_pose",
+        arguments=arguments,
+        execution_mode=ExecutionMode.REAL,
+        authorization=AuthorizationContext(
+            principal_id="operator",
+            approved=True,
+            approval_id="permit-limo",
+            scopes=["limo.set_initial_pose"],
+        ),
+        verification_policy=VerificationPolicy(
+            required_evidence=EvidenceLevel.TASK_VERIFIED,
+            timeout_sec=15.0,
+        ),
+    )
+
+
+def test_limo_executor_returns_task_verified_receipt(tmp_path, monkeypatch) -> None:
+    instance, source = _limo_instance(tmp_path)
+    action = _limo_action(instance)
+    result_payload = {
+        "protocol": "rosclaw.limo.worker.v1",
+        "ok": True,
+        "accepted": True,
+        "action_id": action.action_id,
+        "operation": "SET_INITIAL_POSE",
+        "topic": "/initialpose",
+        "subscriber_count": 1,
+        "dispatched_wall_time": 10.0,
+        "completed_wall_time": 11.0,
+        "observed_amcl_pose": {"frame_id": "map", "x": 0.8, "y": -1.2, "yaw": 0.4},
+        "map_to_odom": {
+            "translation": [0.8, -1.2, 0.0],
+            "rotation": [0.0, 0.0, 0.2, 0.98],
+        },
+    }
+
+    def fake_run(command, **kwargs):
+        assert command[0] == "/usr/bin/python2"
+        request = __import__("json").loads(kwargs["input"])
+        assert request["operation"] == "SET_INITIAL_POSE"
+        return SimpleNamespace(
+            returncode=0, stdout=__import__("json").dumps(result_payload), stderr=""
+        )
+
+    monkeypatch.setattr("rosclaw.robot_pack.runtime_loader.subprocess.run", fake_run)
+    result = LimoInitialPoseExecutor(instance, adapter_source=source)(action)
+
+    assert result.final_state is ActionState.COMPLETED
+    assert result.evidence_level is EvidenceLevel.TASK_VERIFIED
+    assert result.dispatch_result["topic"] == "/initialpose"
+    assert result.verification_result["success"] is True
+
+
+def test_limo_executor_rejects_contract_drift_before_worker(tmp_path, monkeypatch) -> None:
+    instance, source = _limo_instance(tmp_path)
+    called = False
+
+    def fake_run(*_args, **_kwargs):
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr("rosclaw.robot_pack.runtime_loader.subprocess.run", fake_run)
+    result = LimoInitialPoseExecutor(instance, adapter_source=source)(
+        _limo_action(instance, covariance_diagonal=[1.0] * 6)
+    )
+
+    assert result.final_state is ActionState.FAILED
+    assert result.errors[0]["code"] == "LIMO_INITIAL_POSE_CONTRACT_INVALID"
+    assert called is False
+
+
+def test_limo_shadow_executor_validates_without_worker_dispatch(tmp_path, monkeypatch) -> None:
+    instance, source = _limo_instance(tmp_path)
+    action = _limo_action(instance)
+    action.execution_mode = ExecutionMode.SHADOW
+    action.authorization = AuthorizationContext()
+
+    def forbidden_run(*_args, **_kwargs):
+        pytest.fail("SHADOW executor must not launch the ROS worker")
+
+    monkeypatch.setattr("rosclaw.robot_pack.runtime_loader.subprocess.run", forbidden_run)
+    result = LimoInitialPoseShadowExecutor(instance, adapter_source=source)(action)
+
+    assert result.final_state is ActionState.COMPLETED
+    assert result.dispatch_result["hardware_dispatched"] is False
+    assert result.verification_result["success"] is True
+
+
+def test_daemon_loader_registers_limo_initial_pose_executor(tmp_path) -> None:
+    home = tmp_path / "limo-home"
+    RobotPackStore(home).install("limo")
+    InstalledRegistry(home=home).add(
+        InstalledRecord(
+            server_name="limo-ros-mcp",
+            manifest_id="limo-ros-mcp",
+            name="limo-ros-mcp",
+            version="0.5.2",
+            installed_at="2026-07-30T00:00:00Z",
+            artifact_type="test",
+            server_dir=str(home / "mcp"),
+            extra={"repo_commit": "ff78d0706ca28eba7e8f75c543244c996fcbb253"},
+        )
+    )
+    configure_robot_instance(
+        "limo",
+        home=home,
+        instance_id="limo",
+        serial="LIMO-LAB-01",
+        model="LIMO",
+        stable_uri="ros1://localhost/limo",
+        allow_offline=True,
+        switch_active=True,
+    )
+    runtime = SimpleNamespace(action_gateway=_Gateway())
+
+    status = load_daemon_robot_pack(runtime, robot_id="limo", home=home)
+
+    assert status is not None
+    assert status["pack_ref"].endswith("limo-ros1@0.1.2")
+    assert status["registered_executors"] == [
+        "limo.set_initial_pose:SHADOW",
+        "limo.set_initial_pose:REAL",
+    ]
+    assert isinstance(runtime.action_gateway.registrations[0][2], LimoInitialPoseShadowExecutor)
+    assert isinstance(runtime.action_gateway.registrations[1][2], LimoInitialPoseExecutor)
 
 
 def test_daemon_loader_registers_only_real_read_only_executor(installed_pack) -> None:

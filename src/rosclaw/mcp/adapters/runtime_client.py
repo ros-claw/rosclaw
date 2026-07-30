@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -594,6 +595,7 @@ class RuntimeClient:
         approval_id: str | None = None,
         body_id: str | None = None,
         action_id: str | None = None,
+        deadline_at: str | datetime | None = None,
         required_evidence: str = "TASK_VERIFIED",
         timeout_sec: float = 30.0,
         wait_timeout_sec: float = 2.0,
@@ -657,6 +659,30 @@ class RuntimeClient:
                 fail_closed=True,
             ),
         }
+        if deadline_at is not None:
+            if isinstance(deadline_at, datetime):
+                parsed_deadline = deadline_at
+            elif isinstance(deadline_at, str):
+                try:
+                    parsed_deadline = datetime.fromisoformat(
+                        deadline_at.strip().replace("Z", "+00:00")
+                    )
+                except ValueError as exc:
+                    raise MCPError(
+                        "INVALID_DEADLINE",
+                        "deadline_at must be an ISO 8601 timestamp.",
+                    ) from exc
+            else:
+                raise MCPError(
+                    "INVALID_DEADLINE",
+                    "deadline_at must be an ISO 8601 timestamp.",
+                )
+            if parsed_deadline.tzinfo is None:
+                raise MCPError(
+                    "INVALID_DEADLINE",
+                    "deadline_at must include a timezone offset.",
+                )
+            action_kwargs["deadline_at"] = parsed_deadline
         if action_id:
             action_kwargs["action_id"] = action_id
         try:

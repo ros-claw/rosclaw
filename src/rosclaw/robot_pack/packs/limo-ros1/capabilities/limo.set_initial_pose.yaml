@@ -1,0 +1,30 @@
+schema_version: rosclaw.capability.v1
+id: limo.set_initial_pose
+title: Initialize AMCL pose estimate
+input:
+  type: object
+  additionalProperties: false
+  properties:
+    target_pose:
+      type: object
+      required: [frame_id, x, y, yaw]
+    body_snapshot_hash:
+      type: string
+  required: [target_pose, body_snapshot_hash]
+output:
+  required: [observed_amcl_pose, map_to_odom, receipt]
+safety:
+  class: actuation
+  actuation: guarded
+  direct_driver_access: forbidden
+  gateway: rosclawd
+execution:
+  modes: [SHADOW, REAL]
+  adapter: limo-ros-mcp
+  worker: worker/limo_initial_pose_worker.py
+  operation: SET_INITIAL_POSE
+evidence:
+  minimum: TASK_VERIFIED
+  predicates:
+    - post-dispatch-amcl-pose
+    - map-to-odom-transform

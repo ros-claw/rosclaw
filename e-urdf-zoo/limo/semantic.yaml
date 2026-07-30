@@ -1,0 +1,19 @@
+semantic_version: "1.0"
+functional_regions:
+  - name: chassis
+    link: base_link
+    tags: [body, mobile_base, inspection]
+    description: Main LIMO chassis and onboard compute platform.
+    affordances: [navigate, patrol, carry_sensors]
+  - name: drivetrain
+    links:
+      - front_left_wheel_link
+      - front_right_wheel_link
+      - rear_left_wheel_link
+      - rear_right_wheel_link
+    tags: [drive, differential, ackermann, mecanum]
+    description: Reconfigurable four-wheel drivetrain; the physical mode must match status feedback.
+    affordances: [move_forward, turn, lateral_move_in_mecanum_mode]
+grasp_points: []
+semantic_tags: [mobile, ros1, inspection, lidar, depth_camera, multi_mode]
+

@@ -1,0 +1,22 @@
+schema_version: rosclaw.robot_pack.verification.v1
+id: limo-initial-pose-actuation
+pack: rosclaw://robot_pack/ros-claw/limo-ros1@0.1.2
+stage: actuation
+requires:
+  hardware: true
+  independent_observer_for_tier: true
+checks:
+  - id: exact-action-permit
+    pass: daemon authorization is bound to the exact action intent and Body snapshot
+  - id: initialpose-subscriber-ack
+    pass: AMCL subscribes before the worker publishes
+  - id: post-dispatch-amcl-pose
+    pass: a finite map-frame AMCL pose converges near the requested estimate within the bounded timeout
+  - id: map-to-odom-transform
+    pass: the ROS TF graph contains map to odom after initialization
+  - id: canonical-execution-receipt
+    pass: rosclawd persists a TASK_VERIFIED terminal receipt
+promotion:
+  candidate_tier: H4_HARDWARE_ACTUATION_VERIFIED
+  automatic: false
+  reason: independent physical observation evidence must be reviewed
