@@ -9,12 +9,14 @@ import pytest
 
 from rosclaw.kernel import ActionEnvelope
 from rosclaw.mcp.adapters.runtime_client import RuntimeClient
+from rosclaw.mcp.schemas.common import MCPError
 
 
 class _FakeDaemonClient:
     def __init__(self) -> None:
         self.actions: list[ActionEnvelope] = []
         self.stop_requests: list[tuple[str, str]] = []
+        self.sessions: list[dict[str, Any]] = []
 
     def get_runtime_status(self) -> dict[str, Any]:
         return {
@@ -25,8 +27,32 @@ class _FakeDaemonClient:
         }
 
     def request_action(self, action: ActionEnvelope) -> dict[str, Any]:
+        if isinstance(action, dict):
+            action = ActionEnvelope.from_dict(action)
         self.actions.append(action)
         return {"action_id": action.action_id, "state": "QUEUED"}
+
+    def issue_execution_permit(
+        self,
+        action: ActionEnvelope,
+        *,
+        principal_id: str,
+        target_peer_uid: int,
+        expires_in_sec: float,
+        reason: str,
+    ) -> dict[str, Any]:
+        payload = action.to_dict()
+        payload["authorization"] = {
+            "principal_id": principal_id,
+            "approved": True,
+            "approval_id": "permit-secret",
+            "scopes": [action.capability_id],
+        }
+        return {"authorized_action": payload, "permit": {"permit_id": "permit-secret"}}
+
+    def create_session(self, **kwargs: Any) -> dict[str, Any]:
+        self.sessions.append(kwargs)
+        return {"session_id": kwargs["session_id"], "state": "ACTIVE"}
 
     def wait_for_action(self, action_id: str, *, timeout_sec: float) -> dict[str, Any]:
         return {
@@ -131,6 +157,59 @@ async def test_request_action_preserves_operator_proposal_deadline(
     )
 
     assert daemon.actions[0].to_dict()["deadline_at"] == "2030-01-02T03:04:05Z"
+
+
+async def test_interactive_confirmation_injects_permit_without_exposing_it(
+    client: tuple[RuntimeClient, _FakeDaemonClient],
+) -> None:
+    runtime_client, daemon = client
+    prepared = runtime_client.prepare_operator_action(
+        capability_id="limo.set_initial_pose",
+        arguments={"target_pose": {"frame_id": "map", "x": 0.75, "y": -1.25}},
+        body_snapshot_hash="sha256:body",
+        action_id="action-interactive",
+        deadline_at="2030-01-02T03:04:05Z",
+        display={"summary": "Set LIMO initial pose"},
+    )
+
+    result = await runtime_client.confirm_operator_action(
+        prepared,
+        principal_id="operator-1",
+        confirmation={
+            "accepted": True,
+            "action_intent_hash": prepared.approval_request["action_intent_hash"],
+        },
+        wait_timeout_sec=0.0,
+    )
+
+    assert result["operator_confirmation"]["permit_injected"] is True
+    assert result["operator_confirmation"]["permit_exposed"] is False
+    assert "permit" not in result
+    assert "permit-secret" not in str(result)
+    assert daemon.actions[-1].authorization.approved is True
+    assert daemon.sessions[-1]["session_id"] == "action-interactive"
+
+
+async def test_interactive_confirmation_rejects_mismatched_intent(
+    client: tuple[RuntimeClient, _FakeDaemonClient],
+) -> None:
+    runtime_client, daemon = client
+    prepared = runtime_client.prepare_operator_action(
+        capability_id="limo.set_initial_pose",
+        arguments={"target_pose": {"frame_id": "map", "x": 0.75, "y": -1.25}},
+        body_snapshot_hash="sha256:body",
+        action_id="action-interactive-mismatch",
+        deadline_at="2030-01-02T03:04:05Z",
+    )
+
+    with pytest.raises(MCPError, match="did not match the exact action"):
+        await runtime_client.confirm_operator_action(
+            prepared,
+            principal_id="operator-1",
+            confirmation={"accepted": True, "action_intent_hash": "sha256:wrong"},
+        )
+
+    assert daemon.actions == []
 
 
 async def test_runtime_status_and_cancel_are_daemon_calls(

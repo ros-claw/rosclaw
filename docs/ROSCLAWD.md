@@ -145,6 +145,25 @@ Do not paste Permit IDs into prompts, manifests, source control, or chat logs.
 The Agent submits `authorized_action` with `request-action` or the guarded MCP
 tool and cannot issue or widen its own Permit.
 
+### Interactive host confirmation
+
+`RuntimeClient.prepare_operator_action()` builds an exact REAL proposal and a
+non-secret `rosclaw.operator_confirmation.v1` card containing its intent hash.
+A trusted MCP host may render that card to the operator. After an explicit
+accept response, `confirm_operator_action()` asks rosclawd to issue the exact
+one-shot permit, injects the returned `authorized_action`, and submits it. Its
+public result contains only `permit_injected=true` and
+`permit_exposed=false`; the permit identifier and authorized envelope are not
+returned to the Agent.
+
+The confirmation must carry the same action-intent hash. Decline, cancellation,
+missing elicitation support, hash mismatch, missing operator principal, or any
+daemon precondition fails before submission. This convenience path does not
+weaken the deployment boundary: in production, the MCP/operator host must run
+as the daemon service UID or use an equivalent authenticated operator broker,
+while the Agent remains a different UID. Same-UID development validates only
+the protocol and audit flow.
+
 ## Adapter Worker Isolation
 
 Registered Adapter workers use newline-delimited JSON over private pipes. The

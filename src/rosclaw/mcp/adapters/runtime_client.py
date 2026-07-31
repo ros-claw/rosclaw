@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, NoReturn
@@ -20,6 +21,14 @@ from rosclaw.mcp.adapters.skill_registry_client import SkillRegistryClient
 from rosclaw.mcp.schemas.common import MCPError
 
 logger = logging.getLogger("rosclaw.mcp.adapters.runtime_client")
+
+
+@dataclass(frozen=True)
+class PreparedOperatorAction:
+    """Exact REAL action plus the non-secret confirmation card shown by the host."""
+
+    action: Any
+    approval_request: dict[str, Any]
 
 
 class RuntimeClient:
@@ -602,6 +611,172 @@ class RuntimeClient:
     ) -> dict[str, Any]:
         """Submit a structured action request; only rosclawd can authorize REAL."""
 
+        action, mode = self._build_action(
+            capability_id=capability_id,
+            arguments=arguments,
+            execution_mode=execution_mode,
+            body_snapshot_hash=body_snapshot_hash,
+            principal_id=principal_id,
+            approval_id=approval_id,
+            body_id=body_id,
+            action_id=action_id,
+            deadline_at=deadline_at,
+            required_evidence=required_evidence,
+            timeout_sec=timeout_sec,
+        )
+        try:
+            ticket = await asyncio.to_thread(self._daemon_client.request_action, action)
+            result = ticket
+            if wait_timeout_sec > 0:
+                result = await asyncio.to_thread(
+                    self._daemon_client.wait_for_action,
+                    action.action_id,
+                    timeout_sec=wait_timeout_sec,
+                )
+        except MCPError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            self._raise_daemon_error("request_action", exc)
+        return self._action_result_metadata(result, mode.value)
+
+    def prepare_operator_action(
+        self,
+        *,
+        capability_id: str,
+        arguments: dict[str, Any],
+        body_snapshot_hash: str,
+        body_id: str | None = None,
+        action_id: str | None = None,
+        deadline_at: str | datetime | None = None,
+        required_evidence: str = "TASK_VERIFIED",
+        timeout_sec: float = 30.0,
+        display: dict[str, Any] | None = None,
+    ) -> PreparedOperatorAction:
+        """Prepare one exact REAL proposal without issuing a permit or dispatching it."""
+
+        from rosclaw.daemon.permits import action_intent_hash
+
+        action, _mode = self._build_action(
+            capability_id=capability_id,
+            arguments=arguments,
+            execution_mode="REAL",
+            body_snapshot_hash=body_snapshot_hash,
+            body_id=body_id,
+            action_id=action_id,
+            session_id=action_id,
+            deadline_at=deadline_at,
+            required_evidence=required_evidence,
+            timeout_sec=timeout_sec,
+        )
+        approval_request = {
+            "schema_version": "rosclaw.operator_confirmation.v1",
+            "action_id": action.action_id,
+            "action_intent_hash": action_intent_hash(action),
+            "body_id": action.body_id,
+            "capability_id": action.capability_id,
+            "execution_mode": "REAL",
+            "risk_class": action.risk_class,
+            "deadline_at": action.to_dict()["deadline_at"],
+            "single_use": True,
+            "display": dict(display or {}),
+            "interaction": {
+                "kind": "mcp_elicitation",
+                "approve_label": "Confirm",
+                "decline_label": "Cancel",
+            },
+        }
+        return PreparedOperatorAction(action=action, approval_request=approval_request)
+
+    async def confirm_operator_action(
+        self,
+        prepared: PreparedOperatorAction,
+        *,
+        principal_id: str,
+        confirmation: dict[str, Any],
+        wait_timeout_sec: float = 2.0,
+        permit_ttl_sec: float = 60.0,
+    ) -> dict[str, Any]:
+        """Exchange a host-confirmed proposal for an opaque permit and submit it once."""
+
+        action = prepared.action
+        expected_hash = prepared.approval_request.get("action_intent_hash")
+        supplied_hash = confirmation.get("action_intent_hash")
+        if confirmation.get("accepted") is not True or supplied_hash != expected_hash:
+            raise MCPError(
+                "OPERATOR_CONFIRMATION_INVALID",
+                "The operator confirmation was not accepted or did not match the exact action.",
+            )
+        if not principal_id.strip():
+            raise MCPError(
+                "OPERATOR_PRINCIPAL_REQUIRED",
+                "A trusted operator principal is required for REAL confirmation.",
+            )
+        reason = str(confirmation.get("reason") or "Accepted through MCP elicitation")
+        try:
+            await asyncio.to_thread(
+                self._daemon_client.create_session,
+                session_id=action.session_id,
+                actor_id=action.actor_id,
+                agent_framework=action.agent_framework,
+                body_scope=[action.body_id],
+                capability_scope=[action.capability_id],
+                ttl_ms=60_000,
+            )
+            issued = await asyncio.to_thread(
+                self._daemon_client.issue_execution_permit,
+                action,
+                principal_id=principal_id,
+                target_peer_uid=os.geteuid(),
+                expires_in_sec=permit_ttl_sec,
+                reason=reason,
+            )
+            authorized_action = issued.get("authorized_action")
+            if not isinstance(authorized_action, dict):
+                raise RuntimeError("rosclawd returned no authorized action")
+            ticket = await asyncio.to_thread(
+                self._daemon_client.request_action,
+                authorized_action,
+            )
+            result = ticket
+            if wait_timeout_sec > 0:
+                result = await asyncio.to_thread(
+                    self._daemon_client.wait_for_action,
+                    action.action_id,
+                    timeout_sec=wait_timeout_sec,
+                )
+        except MCPError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            self._raise_daemon_error("confirm_operator_action", exc)
+        return {
+            **self._action_result_metadata(result, "REAL"),
+            "operator_confirmation": {
+                "schema_version": "rosclaw.operator_confirmation_result.v1",
+                "accepted": True,
+                "action_intent_hash": expected_hash,
+                "permit_injected": True,
+                "permit_exposed": False,
+            },
+        }
+
+    def _build_action(
+        self,
+        *,
+        capability_id: str,
+        arguments: dict[str, Any],
+        execution_mode: str,
+        body_snapshot_hash: str,
+        principal_id: str = "",
+        approval_id: str | None = None,
+        body_id: str | None = None,
+        action_id: str | None = None,
+        session_id: str | None = None,
+        deadline_at: str | datetime | None = None,
+        required_evidence: str = "TASK_VERIFIED",
+        timeout_sec: float = 30.0,
+    ) -> tuple[Any, Any]:
+        """Build the immutable action shared by normal and interactive submission paths."""
+
         from rosclaw.kernel import (
             ActionEnvelope,
             AuthorizationContext,
@@ -641,7 +816,7 @@ class RuntimeClient:
         action_kwargs: dict[str, Any] = {
             "actor_id": os.environ.get("ROSCLAW_AGENT_ACTOR", "rosclaw-mcp"),
             "agent_framework": os.environ.get("ROSCLAW_AGENT_CLIENT", "mcp"),
-            "session_id": os.environ.get("ROSCLAW_AGENT_SESSION", "mcp-session"),
+            "session_id": session_id or os.environ.get("ROSCLAW_AGENT_SESSION", "mcp-session"),
             "body_id": body_id or self.robot_id,
             "body_snapshot_hash": body_snapshot_hash,
             "capability_id": capability_id,
@@ -685,21 +860,7 @@ class RuntimeClient:
             action_kwargs["deadline_at"] = parsed_deadline
         if action_id:
             action_kwargs["action_id"] = action_id
-        try:
-            action = ActionEnvelope(**action_kwargs)
-            ticket = await asyncio.to_thread(self._daemon_client.request_action, action)
-            result = ticket
-            if wait_timeout_sec > 0:
-                result = await asyncio.to_thread(
-                    self._daemon_client.wait_for_action,
-                    action.action_id,
-                    timeout_sec=wait_timeout_sec,
-                )
-        except MCPError:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            self._raise_daemon_error("request_action", exc)
-        return self._action_result_metadata(result, mode.value)
+        return ActionEnvelope(**action_kwargs), mode
 
     async def get_action_status(self, action_id: str) -> dict[str, Any]:
         """Read daemon queue state and any terminal ExecutionReceipt."""

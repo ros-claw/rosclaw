@@ -36,6 +36,24 @@
         "ros-claw/limo-ros1@0.1.2"
       ],
       "created_at": "2026-07-30T00:00:00Z"
+    },
+    "rosclaw-limo-pack-v4": {
+      "algorithm": "ed25519",
+      "public_key_base64": "3bxeGi2Rq+HeqHD+OOD8rITnq3I31SmxYs/xWra4qDY=",
+      "status": "trusted",
+      "scopes": [
+        "ros-claw/limo-ros1@0.1.3"
+      ],
+      "created_at": "2026-07-31T00:00:00Z"
+    },
+    "rosclaw-limo-pack-v5": {
+      "algorithm": "ed25519",
+      "public_key_base64": "tCx5v83Ds0njHQ564/y7fzS5Z0je3qchYOJLb3Fubqs=",
+      "status": "trusted",
+      "scopes": [
+        "ros-claw/limo-ros1@0.1.4"
+      ],
+      "created_at": "2026-07-31T00:00:00Z"
     }
   }
 }

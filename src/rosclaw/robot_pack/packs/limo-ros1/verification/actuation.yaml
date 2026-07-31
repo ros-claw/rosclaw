@@ -1,6 +1,6 @@
 schema_version: rosclaw.robot_pack.verification.v1
 id: limo-initial-pose-actuation
-pack: rosclaw://robot_pack/ros-claw/limo-ros1@0.1.2
+pack: rosclaw://robot_pack/ros-claw/limo-ros1@0.1.4
 stage: actuation
 requires:
   hardware: true
