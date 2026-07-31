@@ -115,6 +115,7 @@ def _recovery_validation(argv: list[str]) -> int:
             "feedback-evolution",
             "continual-four-gpu-smoke",
             "continual-physical-foundation",
+            "neural-torque-pilot",
         ),
         default="recovery",
     )
@@ -127,7 +128,25 @@ def _recovery_validation(argv: list[str]) -> int:
     parser.add_argument("--ilc-evidence", type=Path)
     parser.add_argument("--chaos-evidence", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--gpu-epochs", type=int, default=12)
+    parser.add_argument("--dagger-generations", type=int, default=3)
+    parser.add_argument("--online-updates", type=int, default=8)
     args = parser.parse_args(argv)
+    if args.profile == "neural-torque-pilot":
+        from rosclaw.simforge.g1_neural_torque_validation import (
+            run_g1_neural_torque_pilot,
+        )
+
+        result = run_g1_neural_torque_pilot(
+            asset_root=args.asset_root,
+            output_dir=args.output,
+            source_checkout=_source_checkout(),
+            gpu_epochs=args.gpu_epochs,
+            dagger_generations=args.dagger_generations,
+            online_updates=args.online_updates,
+        )
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        return 0 if result.pipeline_passed else 2
     if args.profile == "continual-physical-foundation":
         result = run_g1_continual_physical_foundation(
             asset_root=args.asset_root,
