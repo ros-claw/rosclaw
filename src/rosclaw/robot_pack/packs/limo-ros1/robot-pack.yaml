@@ -3,7 +3,7 @@ schema_version: rosclaw.robot_pack.v1
 pack:
   namespace: ros-claw
   name: limo-ros1
-  version: 0.1.7
+  version: 0.1.8
   title: AgileX LIMO ROS 1 Guarded Patrol Pack
   summary: Permit-gated localization, navigation, and speaker signaling for AgileX LIMO on ROS Melodic.
   vendor: AgileX Robotics
@@ -24,7 +24,7 @@ components:
   - kind: hardware_adapter
     id: limo-ros-mcp
     ref: https://github.com/ros-claw/limo-ros-mcp
-    version: 79069f7870ddf972f32bfd438752860fed3dd97d
+    version: fb9f74012d83d1c25f22737a06472865dbfcbdbb
     required: true
   - kind: capability
     id: limo-set-initial-pose
@@ -65,7 +65,7 @@ components:
     ref: rosclaw://verification/limo-patrol@1
     version: "1"
     path: verification/actuation.yaml
-    digest: sha256:1ece2e9db9c82888cfd72115fec206e4adfa52e986c4908dd1c64fe466608940
+    digest: sha256:9a2d46537301c577a070302cbb9b9d7855992fa4cf984ecd5f79a65eec6afbc4
   - kind: example_app
     id: limo-initial-pose-request
     ref: rosclaw://example/limo-initial-pose-request@1
@@ -88,7 +88,7 @@ components:
     id: limo-pack-docs
     ref: docs://robot-pack/limo-ros1
     path: docs/README.md
-    digest: sha256:950114aeedb531a9abaa9622595b0be81914bf2b7dab5743cef4170c46ba9902
+    digest: sha256:822ee923d380c0d7406616bc511a9394b6ebcc04975196e7dbabf5f526a2e425
 
 device:
   type: mobile_base
@@ -180,6 +180,6 @@ integrity:
   signature:
     required: true
     scheme: ed25519
-    key_id: rosclaw-limo-pack-v8
+    key_id: rosclaw-limo-pack-v9
     file: signatures/manifest.ed25519
     payload: manifest-and-checksums-v1

@@ -2,7 +2,7 @@
 
 This Pack binds the `limo` e-URDF Body to the independently versioned
 `ros-claw/limo-ros-mcp` adapter at commit
-`79069f7870ddf972f32bfd438752860fed3dd97d` (MCP 0.8.5).
+`fb9f74012d83d1c25f22737a06472865dbfcbdbb` (MCP 0.8.6).
 
 The first REAL capability is `limo.set_initial_pose`. The Agent submits a
 validated map-frame estimate to `rosclawd`; the daemon validates an exact
@@ -24,9 +24,17 @@ allowlisted USB PulseAudio sink when PulseAudio owns the sound card, falls back
 to direct ALSA otherwise, restores the previous mixer state, and reports only
 `DRIVER_CONFIRMED` evidence unless a human separately confirms hearing it.
 
+Revision 0.1.8 fixes completion evidence for the live event-driven AMCL node.
+Navigation still prefers a post-dispatch `/amcl_pose`, but when AMCL emits no
+new event after `move_base` succeeds it verifies the final map-frame pose from
+the live `map -> base_link` TF instead. The same goal tolerances and stopped
+odometry checks remain mandatory, and the receipt records which evidence source
+was used.
+
 H1 means only that the signed contract and executor tests pass. H4 requires a
-real LIMO, an AMCL subscriber, post-dispatch `/amcl_pose`, a `map -> odom`
-transform, a canonical TASK_VERIFIED receipt, and independent review.
+real LIMO, an AMCL subscriber, a post-navigation map-frame pose from AMCL or the
+live TF chain, a `map -> odom` transform, a canonical TASK_VERIFIED receipt,
+and independent review.
 
 Revision 0.1.2 waits for a converged AMCL sample within the bounded
 verification window, so an immediate transient `/amcl_pose` sample does not
