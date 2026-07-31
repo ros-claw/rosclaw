@@ -813,20 +813,64 @@ class LimoNavigationExecutor(_LimoFixedWorkerExecutor):
             or preflight.get("chassis_error_code") != 0
             or not isinstance(preflight.get("map_to_odom"), dict)
             or not isinstance(preflight.get("map_to_base"), dict)
+            or not isinstance(preflight.get("initial_goal_error"), dict)
+            or not isinstance(preflight.get("active_goal_tolerance"), dict)
+            or not isinstance(preflight.get("goal_already_satisfied"), bool)
         ):
             return "Daemon-owned navigation preflight evidence is incomplete"
+        motion = result.get("motion_evidence")
+        if not isinstance(motion, dict):
+            return "Navigation motion evidence is missing"
+        movement_expected = motion.get("movement_expected")
+        motion_observed = motion.get("motion_observed")
+        if not isinstance(movement_expected, bool) or not isinstance(motion_observed, bool):
+            return "Navigation motion classification is malformed"
+        if preflight["goal_already_satisfied"] is movement_expected:
+            return "Navigation goal and movement classifications are inconsistent"
+        try:
+            motion_metrics = [
+                float(motion[name])
+                for name in (
+                    "odom_translation_m",
+                    "odom_rotation_rad",
+                    "map_translation_m",
+                    "map_rotation_rad",
+                    "translation_threshold_m",
+                    "rotation_threshold_rad",
+                )
+            ]
+        except (KeyError, TypeError, ValueError):
+            return "Navigation displacement metrics are malformed"
+        if not all(math.isfinite(value) and value >= 0.0 for value in motion_metrics):
+            return "Navigation displacement metrics are invalid"
+        if movement_expected and not motion_observed:
+            return "Expected base movement was not observed in odometry"
+        if motion.get("physical_motion_independently_observed") is not False:
+            return "Worker cannot claim independent physical motion observation"
         return None
 
     def _success_result(
         self, action: ActionEnvelope, result: dict[str, Any]
     ) -> ActionExecutionResult:
+        motion = result["motion_evidence"]
+        movement_expected = motion["movement_expected"]
+        motion_observed = motion["motion_observed"]
+        observation_kind = (
+            "navigation_motion_observed"
+            if movement_expected
+            else "navigation_goal_already_satisfied"
+        )
         return ActionExecutionResult(
             final_state=ActionState.COMPLETED,
             evidence_level=EvidenceLevel.TASK_VERIFIED,
             policy_decision={
                 "allowed": True,
                 "policy": self.policy_name,
-                "reason": "fresh ROS preflight and bounded map-frame goal contract passed",
+                "reason": (
+                    "fresh ROS preflight, bounded goal, and odometry motion checks passed"
+                    if movement_expected
+                    else "goal was already inside the active planner tolerance before dispatch"
+                ),
             },
             authorization_decision={
                 "authorized": action.authorization.approved,
@@ -839,6 +883,8 @@ class LimoNavigationExecutor(_LimoFixedWorkerExecutor):
                 "action_server": "/move_base",
                 "terminal_state": result["terminal_state"],
                 "terminal_text": result["terminal_text"],
+                "movement_expected": movement_expected,
+                "motion_observed": motion_observed,
             },
             driver_ack={
                 "acknowledged": True,
@@ -846,20 +892,32 @@ class LimoNavigationExecutor(_LimoFixedWorkerExecutor):
             },
             observations=[
                 {
-                    "kind": "navigation_goal_reached",
+                    "kind": observation_kind,
                     "target_pose": action.arguments["target_pose"],
                     "observed_final_pose": result["observed_final_pose"],
                     "preflight": result["preflight"],
                     "stopped_odometry": result["stopped_odometry"],
                     "map_to_base_after": result["map_to_base_after"],
+                    "motion_evidence": motion,
                     "completed_wall_time": result["completed_wall_time"],
                 }
             ],
             verification_result={
                 "success": True,
-                "predicate": "move_base SUCCEEDED, AMCL reached tolerance, and odometry stopped",
+                "predicate": (
+                    "move_base SUCCEEDED, final pose reached tolerance, odometry movement was "
+                    "observed, and the base stopped"
+                    if movement_expected
+                    else "goal was already inside active tolerance, move_base SUCCEEDED without "
+                    "required motion, and the base remained stopped"
+                ),
                 "position_error_m": result["position_error_m"],
                 "yaw_error_rad": result["yaw_error_rad"],
+                "movement_expected": movement_expected,
+                "motion_observed": motion_observed,
+                "physical_motion_independently_observed": False,
+                "odom_translation_m": motion["odom_translation_m"],
+                "odom_rotation_rad": motion["odom_rotation_rad"],
             },
         )
 
@@ -945,6 +1003,18 @@ class LimoToneExecutor(_LimoFixedWorkerExecutor):
             return "Audio playback backend acknowledgement is missing or invalid"
         if not isinstance(result.get("frame_count"), int) or result["frame_count"] < 1:
             return "ALSA playback frame acknowledgement is missing"
+        expected_peak = 0.9 * action.arguments["volume_percent"] / 100.0
+        try:
+            digital_peak = float(result["digital_peak_scale"])
+        except (KeyError, TypeError, ValueError):
+            return "Tone PCM peak acknowledgement is malformed"
+        if (
+            result.get("volume_mapping") != "pcm_linear_percent"
+            or result.get("reference_output_gain_percent") != 100
+            or not math.isclose(digital_peak, expected_peak, rel_tol=1e-9, abs_tol=1e-9)
+            or not isinstance(result.get("original_output_state"), dict)
+        ):
+            return "Tone output-gain acknowledgement is missing or invalid"
         return None
 
     def _success_result(
@@ -974,6 +1044,9 @@ class LimoToneExecutor(_LimoFixedWorkerExecutor):
                 "frame_count": result["frame_count"],
                 "sample_rate_hz": result["sample_rate_hz"],
                 "mixer_restored": True,
+                "volume_mapping": result["volume_mapping"],
+                "digital_peak_scale": result["digital_peak_scale"],
+                "reference_output_gain_percent": result["reference_output_gain_percent"],
             },
             observations=[
                 {
@@ -981,6 +1054,9 @@ class LimoToneExecutor(_LimoFixedWorkerExecutor):
                     "frequency_hz": result["frequency_hz"],
                     "duration_sec": result["duration_sec"],
                     "volume_percent": result["volume_percent"],
+                    "volume_mapping": result["volume_mapping"],
+                    "digital_peak_scale": result["digital_peak_scale"],
+                    "reference_output_gain_percent": result["reference_output_gain_percent"],
                     "started_wall_time": result["started_wall_time"],
                     "completed_wall_time": result["completed_wall_time"],
                     "human_hearing_confirmed": False,
@@ -988,7 +1064,10 @@ class LimoToneExecutor(_LimoFixedWorkerExecutor):
             ],
             verification_result={
                 "success": True,
-                "predicate": "ALSA accepted all synthesized frames and prior mixer state was restored",
+                "predicate": (
+                    "the fixed backend accepted single-stage PCM volume playback and the prior "
+                    "output state was restored"
+                ),
                 "acoustic_output_independently_observed": False,
             },
         )

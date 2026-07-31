@@ -20,7 +20,7 @@ input:
       type: string
   required: [frequency_hz, duration_sec, volume_percent, body_snapshot_hash]
 output:
-  required: [device, frame_count, mixer_restored, receipt]
+  required: [device, frame_count, volume_mapping, digital_peak_scale, mixer_restored, receipt]
 safety:
   class: actuation
   actuation: guarded
@@ -35,6 +35,7 @@ evidence:
   minimum: DRIVER_CONFIRMED
   predicates:
     - alsa-frames-accepted
-    - mixer-state-restored
+    - single-stage-pcm-volume
+    - output-state-restored
   limitations:
     - acoustic-output-not-independently-observed

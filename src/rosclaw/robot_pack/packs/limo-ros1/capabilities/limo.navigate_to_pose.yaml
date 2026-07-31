@@ -17,7 +17,7 @@ input:
       required: [xy_m, yaw_rad]
   required: [target_pose, readiness_snapshot_hash, body_snapshot_hash, goal_tolerance]
 output:
-  required: [observed_final_pose, stopped_odometry, receipt]
+  required: [observed_final_pose, stopped_odometry, motion_evidence, receipt]
 safety:
   class: actuation
   actuation: guarded
@@ -35,3 +35,7 @@ evidence:
     - move-base-succeeded
     - final-amcl-within-tolerance
     - stopped-odometry
+    - active-planner-tolerance-recorded
+    - odometry-displacement-classified
+  limitations:
+    - physical-motion-not-independently-observed

@@ -3,7 +3,7 @@ schema_version: rosclaw.robot_pack.v1
 pack:
   namespace: ros-claw
   name: limo-ros1
-  version: 0.1.8
+  version: 0.1.9
   title: AgileX LIMO ROS 1 Guarded Patrol Pack
   summary: Permit-gated localization, navigation, and speaker signaling for AgileX LIMO on ROS Melodic.
   vendor: AgileX Robotics
@@ -24,7 +24,7 @@ components:
   - kind: hardware_adapter
     id: limo-ros-mcp
     ref: https://github.com/ros-claw/limo-ros-mcp
-    version: fb9f74012d83d1c25f22737a06472865dbfcbdbb
+    version: 781b0d873bbb2bfe36eb91b907ea15d4808cde3f
     required: true
   - kind: capability
     id: limo-set-initial-pose
@@ -34,16 +34,16 @@ components:
     digest: sha256:e6bfbd5f938da43b4d91f5ec0cfb58bfdc91f209db0ad1882107df9582477e68
   - kind: capability
     id: limo-navigate-to-pose
-    ref: rosclaw://capability/limo.navigate_to_pose@2
-    version: "2"
+    ref: rosclaw://capability/limo.navigate_to_pose@3
+    version: "3"
     path: capabilities/limo.navigate_to_pose.yaml
-    digest: sha256:b7cb28271e5e98e5474720c76ca45c3fdfb669042aecd062551bd49865adb1c0
+    digest: sha256:fed3ac1f0f6395e25b1399104b149e1f90255f0cf6f97f1d14a0b5f9a20ed8f7
   - kind: capability
     id: limo-play-tone
-    ref: rosclaw://capability/limo.play_tone@1
-    version: "1"
+    ref: rosclaw://capability/limo.play_tone@2
+    version: "2"
     path: capabilities/limo.play_tone.yaml
-    digest: sha256:2f4a9034b27f89f22de0d33eef3b617a108b300e2dd633ed307355b3c6ec7b39
+    digest: sha256:9a056cc945d8b16b465010c20e011e98128cb9bf5d940a377bde0ee4e8a3c3c5
   - kind: policy
     id: limo-initial-pose-policy
     ref: rosclaw://policy/limo-initial-pose@1
@@ -65,7 +65,7 @@ components:
     ref: rosclaw://verification/limo-patrol@1
     version: "1"
     path: verification/actuation.yaml
-    digest: sha256:9a2d46537301c577a070302cbb9b9d7855992fa4cf984ecd5f79a65eec6afbc4
+    digest: sha256:27322ed1d97afa70926ba0e6a4f4388b7664de847903399334584c41ca517f9c
   - kind: example_app
     id: limo-initial-pose-request
     ref: rosclaw://example/limo-initial-pose-request@1
@@ -88,7 +88,7 @@ components:
     id: limo-pack-docs
     ref: docs://robot-pack/limo-ros1
     path: docs/README.md
-    digest: sha256:822ee923d380c0d7406616bc511a9394b6ebcc04975196e7dbabf5f526a2e425
+    digest: sha256:5506c4ce2fc25bbe652bef74b97d40dc447616618166723b4a86c31686649b0e
 
 device:
   type: mobile_base

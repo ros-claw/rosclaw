@@ -87,7 +87,8 @@
       "public_key_base64": "cB2QQMA8AxKbrbWuewoWV5q9UWlwINIo+WUTVhhOEIw=",
       "status": "trusted",
       "scopes": [
-        "ros-claw/limo-ros1@0.1.8"
+        "ros-claw/limo-ros1@0.1.8",
+        "ros-claw/limo-ros1@0.1.9"
       ],
       "created_at": "2026-07-31T00:00:00Z"
     }

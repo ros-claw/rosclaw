@@ -1,6 +1,6 @@
 schema_version: rosclaw.robot_pack.verification.v1
 id: limo-patrol-actuation
-pack: rosclaw://robot_pack/ros-claw/limo-ros1@0.1.8
+pack: rosclaw://robot_pack/ros-claw/limo-ros1@0.1.9
 stage: actuation
 requires:
   hardware: true
@@ -19,9 +19,9 @@ checks:
   - id: navigation-daemon-preflight
     pass: the fixed worker validates lidar, odometry, chassis status, live map-to-base TF, and move_base before dispatch and subscribes to AMCL for preferred post-dispatch verification
   - id: navigation-goal-and-stop
-    pass: move_base reaches SUCCEEDED, the final AMCL or live map-to-base TF pose is within tolerance, and odometry reports stopped
+    pass: move_base reaches SUCCEEDED, the final AMCL or live map-to-base TF pose is within tolerance, odometry motion is observed whenever the goal was outside active planner tolerance, and odometry reports stopped
   - id: tone-driver-ack
-    pass: the fixed PulseAudio or ALSA backend accepts every bounded synthesized frame and the previous Speaker mixer state is restored
+    pass: the fixed PulseAudio or ALSA backend accepts every bounded synthesized frame with single-stage PCM volume and the previous output state is restored
 promotion:
   candidate_tier: H4_HARDWARE_ACTUATION_VERIFIED
   automatic: false
