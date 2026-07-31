@@ -337,7 +337,7 @@ def run_data_quality_gate(
     actionable = [
         e
         for e in events
-        if (e.get("event_type") or "").startswith(("rps.gesture", "rps.stress.round"))
+        if (e.get("event_type") or "").startswith(("rps.gesture", "rps.stress.round", "t1.pose"))
     ]
     if actionable:
         linked = sum(1 for e in actionable if e.get("action_id"))
