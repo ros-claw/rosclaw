@@ -52,11 +52,15 @@ OUT_ROOT = Path("/home/nvidia/.rosclaw/acceptance/handcam/t1")
 
 JOINTS = ("little", "ring", "middle", "index", "thumb", "thumb_rot")
 
-# The LEFT hand serves grouped registers slowly (its protocol variant
-# returns all-None when hammered at camera rate — measured 2026-07-31:
-# every 30 Hz read returned None; the RPS runner reads it fine at ~2 Hz).
-# Throttle telemetry reads per hand and carry the last good reading.
-TELEMETRY_MIN_INTERVAL_S = {"left": 0.45, "right": 0.0}
+# Device identity is PROBED, never assumed (v3 §4.4): this rig's left
+# hand answers slave id 1, the right answers slave id 2 (measured
+# 2026-07-31 — the controller's port scan guessed 2 for both, so early
+# T1 runs issued left commands to a silent id; a static hand is
+# trivially "settled" and those runs' left sections are no-motion).
+SLAVE_CANDIDATES = (1, 2)
+
+# Modest throttle for slow grouped-register reads (left hand).
+TELEMETRY_MIN_INTERVAL_S = {"left": 0.2, "right": 0.0}
 
 # Standard lattice (declared, not tuned): open / rock / scissors / point / ok-ish.
 POSES = {
@@ -120,9 +124,9 @@ class EventWriter:
         self._handle.close()
 
 
-def _telemetry_payload(telemetry, practice_id: str, ts: float, hand_label: str) -> dict:
-    side = {
-        "timestamp": ts,
+def _side_payload(telemetry, read_ts: float) -> dict:
+    return {
+        "timestamp": read_ts,
         "angle_actual": telemetry.angle_actual,
         "angle_set": getattr(telemetry, "angle_set", None),
         "force_act": getattr(telemetry, "force_act", None),
@@ -130,25 +134,71 @@ def _telemetry_payload(telemetry, practice_id: str, ts: float, hand_label: str) 
         "temperature_c": telemetry.temperature_c,
         "status": telemetry.status,
     }
-    empty: dict = {}
-    if hand_label == "left":
-        return {"timestamp": ts, "practice_id": practice_id, "right": empty, "left": side}
-    return {"timestamp": ts, "practice_id": practice_id, "right": side, "left": empty}
+
+
+def _telemetry_payload(readings: dict, practice_id: str, ts: float) -> dict:
+    """Both hands in every event (dual-hand platform shape, like the RPS
+    corpus); each side carries the timestamp its reading was ACTUALLY
+    taken (a carried passive reading never wears the frame's time)."""
+    payload = {"timestamp": ts, "practice_id": practice_id, "right": {}, "left": {}}
+    for side, entry in readings.items():
+        if entry is not None:
+            telemetry, read_ts = entry
+            payload[side] = _side_payload(telemetry, read_ts)
+    return payload
+
+
+def open_probed_controller(port: str, label: str):
+    """Open a hand controller and probe its slave id by response (v3 §4.4:
+    identity by response, never by port-name guessing).
+
+    The transport's advisory file lock is per lock_path, not per port —
+    the default is one GLOBAL path, so a process holding two controllers
+    deadlocks itself.  Per-hand lock paths guard each port independently
+    (this is also how a dual-hand process must own its devices)."""
+    from rosclaw_rh56.transport.base import TransportConfig
+    from rosclaw_rh56.transport.serial_rs485 import SerialRS485Transport
+
+    transport = SerialRS485Transport(
+        TransportConfig(
+            kind="serial_rs485",
+            port=port,
+            baudrate=115200,
+            timeout_s=1.0,
+            lock_path=f"/tmp/rosclaw_rh56_serial_{label}.lock",
+        )
+    )
+    ctl = RH56Controller(port=port, transport=transport)
+    ctl.connect()
+    proto = ctl._proto
+    transport = ctl._transport
+    for candidate in SLAVE_CANDIDATES:
+        for _attempt in range(3):
+            proto.device_id = candidate
+            transport.flush_input()
+            transport.write(proto.read_angle_actual())
+            time.sleep(0.5)
+            if transport.read(64, timeout_s=1.0):
+                return ctl, candidate
+            time.sleep(0.2)
+    ctl.close()
+    raise RuntimeError(f"{label} hand: no modbus response at any candidate slave id")
 
 
 def run_hand(
     hand_label: str,
-    port: str,
+    ctl,
+    slave_id: int,
     roi: dict,
     contract_intr,
     prior: RH56ForwardPrior,
     writer: EventWriter,
     cap: D435iCapture,
     practice_id: str,
+    passive_reader=None,
 ) -> dict:
     results: dict = {"hand": hand_label, "poses": [], "residual_rmse": {}}
-    ctl = RH56Controller(port=port)
-    ctl.connect()
+    results["slave_id"] = slave_id
     contract = CameraPoseContract(
         camera_pose_id=f"front_v1_{hand_label}",
         camera_id="d435i",
@@ -168,6 +218,7 @@ def run_hand(
                 prev_tel = None
                 last_tel = None
                 last_tel_ts = 0.0
+                passive_reading = None
                 for index in range(SETTLE_FRAMES):
                     frame = cap.read()
                     ts = time.time()
@@ -180,6 +231,8 @@ def run_hand(
                         last_tel_ts = ts
                     else:
                         tel = last_tel
+                    if passive_reader is not None and index == 0:
+                        passive_reading = passive_reader()
                     writer.frame_no += 1
                     writer.emit(
                         "frame_event",
@@ -194,9 +247,12 @@ def run_hand(
                             "repeat": repeat,
                         },
                     )
+                    readings = {hand_label: (tel, ts) if tel is not None else None}
+                    other = "left" if hand_label == "right" else "right"
+                    readings[other] = passive_reading
                     writer.emit(
                         "rps.telemetry",
-                        _telemetry_payload(tel, practice_id, ts, hand_label),
+                        _telemetry_payload(readings, practice_id, ts),
                     )
                     if prev_tel is not None:
                         dt = ts - prev_tel[0]
@@ -279,15 +335,44 @@ def main() -> int:
     prior = RH56ForwardPrior(adapter.body_id(), adapter.body_hash())
 
     outcomes: dict = {"practice_id": practice_id, "session_dir": str(session_dir), "hands": []}
+    controllers: dict = {}
     try:
-        for hand_label, port, roi in (
-            ("right", RIGHT_PORT, RIGHT_ROI),
-            ("left", LEFT_PORT, LEFT_ROI),
+        for label, port in (("right", RIGHT_PORT), ("left", LEFT_PORT)):
+            controllers[label], slave = open_probed_controller(port, label)
+            outcomes.setdefault("slave_ids", {})[label] = slave
+        for hand_label, roi in (
+            ("right", RIGHT_ROI),
+            ("left", LEFT_ROI),
         ):
+            other = "left" if hand_label == "right" else "right"
+            passive_ctl = controllers[other]
+
+            def passive_reader(ctl=passive_ctl):
+                try:
+                    return (ctl.read_telemetry(), time.time())
+                except Exception:  # noqa: BLE001
+                    return None
+
             outcomes["hands"].append(
-                run_hand(hand_label, port, roi, intr, prior, writer, cap, practice_id)
+                run_hand(
+                    hand_label,
+                    controllers[hand_label],
+                    outcomes["slave_ids"][hand_label],
+                    roi,
+                    intr,
+                    prior,
+                    writer,
+                    cap,
+                    practice_id,
+                    passive_reader=passive_reader,
+                )
             )
     finally:
+        for ctl in controllers.values():
+            try:
+                ctl.close()
+            except Exception:  # noqa: BLE001
+                pass
         cap.stop()
         writer.emit(
             "health_check",
