@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 
 REPO_SRC = "/home/nvidia/workspace/rosclaw/rosclaw_test/rosclaw/src"
 sys.path.insert(0, REPO_SRC)
@@ -81,14 +82,40 @@ def run_block(
     if block_index % 2 == 1:
         arms.reverse()
     sessions: list[dict] = []
-    start_temp_a = _temps()
-    for arm_name, group, params in arms:
+    first_arm_start: float | None = None
+    for arm_index, (arm_name, group, params) in enumerate(arms):
         start_temp = _temps()
+        # Inter-arm thermal pacing (physics: one session heats ~4-7 °C, so
+        # the second arm ALWAYS starts hotter without pacing): wait —
+        # recorded — until the second arm starts within the protocol's
+        # arm-delta of the FIRST arm's start.  Unreachable within the
+        # budget → the block is honestly incomplete (never silently
+        # mismatched).
+        if arm_index > 0 and first_arm_start is not None:
+            waited = 0.0
+            deadline = time.time() + 900.0
+            while (
+                start_temp > first_arm_start + MAX_ARM_TEMP_DELTA_C and time.time() < deadline
+            ):
+                time.sleep(20.0)
+                waited += 20.0
+                start_temp = _temps()
+            if start_temp > first_arm_start + MAX_ARM_TEMP_DELTA_C:
+                sessions.append(
+                    {
+                        "arm": arm_name,
+                        "blocked": f"arm pacing unreachable after {waited:.0f}s "
+                        f"(start {start_temp}°C > first {first_arm_start}°C + {MAX_ARM_TEMP_DELTA_C})",
+                    }
+                )
+                continue
         if start_temp > ABSOLUTE_MAX_START_C:
             sessions.append(
                 {"arm": arm_name, "blocked": f"start {start_temp}°C > {ABSOLUTE_MAX_START_C}°C"}
             )
             continue
+        if first_arm_start is None:
+            first_arm_start = start_temp
         out_dir = (
             namespace.evidence_root / "confirmation" / f"{window_id}_b{block_index}_{arm_name}"
         )
@@ -115,12 +142,18 @@ def run_block(
             }
         )
     done = [s for s in sessions if "invalid_rate" in s and s["invalid_rate"] is not None]
-    start_temp_b = sessions[-1].get("start_temperature", float("nan"))
     if len(done) == 2:
         a = next(s for s in done if s["arm"] == "A_no_memory")
         c = next(s for s in done if s["arm"] == "C_candidate")
         delta = abs((a.get("start_temperature") or 0) - (c.get("start_temperature") or 0))
-        bin_name = _regime_bin(min(start_temp_a, start_temp_b))
+        # Regime bin from the arms' OWN start temperatures, NaN-safe
+        # (a failed probe read never fabricates out_of_bins).
+        starts = [
+            s["start_temperature"]
+            for s in done
+            if isinstance(s.get("start_temperature"), (int, float))
+        ]
+        bin_name = _regime_bin(min(starts)) if starts else None
         environmentally_invalid = bin_name is None or delta > MAX_ARM_TEMP_DELTA_C
         return {
             "complete": True,
@@ -133,6 +166,7 @@ def run_block(
             )
             if environmentally_invalid
             else None,
+            "starts": starts,
             "a_invalid": a["invalid_rate"],
             "c_invalid": c["invalid_rate"],
             "sessions": sessions,
