@@ -9,7 +9,7 @@ import os
 import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 
 from rosclaw.body.resolver import BodyResolver
@@ -30,6 +30,39 @@ from rosclaw.robot_pack.verifier import verify_robot_pack
 
 class RobotPackRuntimeError(RuntimeError):
     """Raised when daemon startup encounters a configured but unsafe Pack."""
+
+
+_DAEMON_EXECUTOR_CONTRACTS: dict[str, tuple[str, frozenset[str]]] = {
+    "camera.capture_rgbd": ("read_only", frozenset({"REAL"})),
+    "limo.navigate_to_pose": ("actuation", frozenset({"SHADOW", "REAL"})),
+    "limo.play_tone": ("actuation", frozenset({"SHADOW", "REAL"})),
+    "limo.set_initial_pose": ("actuation", frozenset({"SHADOW", "REAL"})),
+}
+
+
+def validate_daemon_loader_contract(
+    manifest: RobotPackManifest,
+) -> tuple[bool, tuple[str, ...]]:
+    """Validate that every declared capability has a matching daemon executor contract."""
+
+    errors: list[str] = []
+    for capability in manifest.capabilities:
+        expected = _DAEMON_EXECUTOR_CONTRACTS.get(capability.id)
+        if expected is None:
+            errors.append(f"no daemon executor is implemented for {capability.id}")
+            continue
+        expected_safety_class, required_modes = expected
+        if capability.safety_class != expected_safety_class:
+            errors.append(
+                f"{capability.id} requires safety_class {expected_safety_class}, "
+                f"got {capability.safety_class}"
+            )
+        missing_modes = required_modes.difference(capability.execution_modes)
+        if missing_modes:
+            errors.append(
+                f"{capability.id} is missing execution modes: {', '.join(sorted(missing_modes))}"
+            )
+    return not errors, tuple(errors)
 
 
 class _ArtifactDirectoryError(RuntimeError):
@@ -528,6 +561,489 @@ class LimoInitialPoseShadowExecutor:
         )
 
 
+class _LimoFixedWorkerExecutor:
+    """Shared fail-closed launcher for revision-locked LIMO workers."""
+
+    capability_id = ""
+    schema = ""
+    operation = ""
+    worker_name = ""
+    policy_name = ""
+    evidence_level = EvidenceLevel.TASK_VERIFIED
+    argument_keys: frozenset[str] = frozenset()
+
+    def __init__(
+        self,
+        instance: RobotInstanceConfig,
+        *,
+        adapter_source: Path,
+        python_executable: str = "/usr/bin/python2",
+    ) -> None:
+        self.instance = instance
+        self.adapter_source = adapter_source.resolve()
+        self.python_executable = python_executable
+        self.worker_path = self.adapter_source / "worker" / self.worker_name
+
+    def __call__(self, action: ActionEnvelope) -> ActionExecutionResult:
+        contract_error = self._validate_action(action, require_authorization=True)
+        if contract_error is not None:
+            return _failed_result(contract_error[0], contract_error[1])
+        if not self._trusted_worker_path():
+            return _failed_result(
+                "LIMO_WORKER_INTEGRITY_ERROR",
+                f"Revision-locked LIMO {self.operation} worker is missing or unsafe",
+            )
+        request = self._worker_request(action)
+        try:
+            completed = subprocess.run(
+                [self.python_executable, str(self.worker_path)],
+                input=json.dumps(request, separators=(",", ":")),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=min(130.0, action.verification_policy.timeout_sec + 8.0),
+                env=LimoInitialPoseExecutor._worker_environment(),
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return _failed_result("LIMO_WORKER_LAUNCH_FAILED", str(exc))
+        if len(completed.stdout.encode("utf-8")) > 262_144:
+            return _failed_result("LIMO_WORKER_PROTOCOL_ERROR", "Worker output exceeded byte limit")
+        try:
+            result = json.loads(completed.stdout)
+        except (json.JSONDecodeError, TypeError) as exc:
+            return _failed_result("LIMO_WORKER_PROTOCOL_ERROR", f"Invalid worker JSON: {exc}")
+        if (
+            completed.returncode != 0
+            or not isinstance(result, dict)
+            or result.get("ok") is not True
+        ):
+            message = result.get("error") if isinstance(result, dict) else completed.stderr
+            return _failed_result(
+                f"LIMO_{self.operation}_FAILED",
+                str(message or "fixed-operation worker failed"),
+            )
+        verification_error = self._validate_result(action, result)
+        if verification_error is not None:
+            return _failed_result(
+                f"LIMO_{self.operation}_VERIFICATION_FAILED",
+                verification_error,
+            )
+        return self._success_result(action, result)
+
+    def _validate_action(
+        self, action: ActionEnvelope, *, require_authorization: bool
+    ) -> tuple[str, str] | None:
+        if action.body_id != self.instance.instance_id:
+            return "ROBOT_PACK_BODY_MISMATCH", "Action Body does not match LIMO instance"
+        if action.body_snapshot_hash != self.instance.body_snapshot_hash:
+            return "ROBOT_PACK_BODY_SNAPSHOT_MISMATCH", "Action Body snapshot is stale"
+        if action.capability_id != self.capability_id:
+            return "ROBOT_PACK_CAPABILITY_MISMATCH", "Unsupported LIMO capability"
+        if require_authorization and (
+            not action.authorization.approved
+            or not action.authorization.approval_id
+            or self.capability_id not in action.authorization.scopes
+        ):
+            return (
+                "ROBOT_PACK_AUTHORIZATION_REQUIRED",
+                "LIMO REAL execution requires daemon-authored exact authorization",
+            )
+        if (
+            set(action.arguments) != self.argument_keys
+            or action.arguments.get("schema_version") != self.schema
+        ):
+            return (
+                f"LIMO_{self.operation}_CONTRACT_INVALID",
+                f"{self.operation} action fields are not exact",
+            )
+        return self._validate_arguments(action.arguments)
+
+    def _trusted_worker_path(self) -> bool:
+        if self.adapter_source.is_symlink() or self.worker_path.is_symlink():
+            return False
+        try:
+            self.worker_path.resolve().relative_to(self.adapter_source)
+        except ValueError:
+            return False
+        return self.worker_path.is_file() and os.access(self.worker_path, os.R_OK)
+
+    def _validate_arguments(self, arguments: dict[str, Any]) -> tuple[str, str] | None:
+        raise NotImplementedError
+
+    def _worker_request(self, action: ActionEnvelope) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def _validate_result(self, action: ActionEnvelope, result: dict[str, Any]) -> str | None:
+        raise NotImplementedError
+
+    def _success_result(
+        self, action: ActionEnvelope, result: dict[str, Any]
+    ) -> ActionExecutionResult:
+        raise NotImplementedError
+
+
+class LimoNavigationExecutor(_LimoFixedWorkerExecutor):
+    """Daemon-owned move_base executor with fresh ROS preflight and stop verification."""
+
+    capability_id = "limo.navigate_to_pose"
+    schema = "limo.navigation.v2"
+    operation = "NAVIGATION"
+    worker_name = "limo_navigation_worker.py"
+    policy_name = "robot-pack/limo-navigation-v2"
+    evidence_level = EvidenceLevel.TASK_VERIFIED
+    argument_keys = frozenset(
+        {
+            "schema_version",
+            "target_pose",
+            "readiness_snapshot_hash",
+            "route_policy_id",
+            "route_policy_hash",
+            "map_id",
+            "map_image_hash",
+            "goal_tolerance",
+            "expected_effect",
+        }
+    )
+
+    def _validate_arguments(self, arguments: dict[str, Any]) -> tuple[str, str] | None:
+        code = "LIMO_NAVIGATION_CONTRACT_INVALID"
+        pose = arguments.get("target_pose")
+        if not isinstance(pose, dict) or set(pose) != {"frame_id", "x", "y", "yaw"}:
+            return code, "target_pose fields are not exact"
+        if pose.get("frame_id") != "map":
+            return code, "Only map-frame navigation goals are accepted"
+        values = (pose.get("x"), pose.get("y"), pose.get("yaw"))
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in values):
+            return code, "Navigation pose values must be numbers"
+        x, y, yaw = (float(cast(int | float, value)) for value in values)
+        if not all(math.isfinite(value) for value in (x, y, yaw)):
+            return code, "Navigation pose values must be finite"
+        if not (-50.0 <= x <= 50.0 and -50.0 <= y <= 50.0 and -math.pi <= yaw <= math.pi):
+            return code, "Navigation pose exceeds bounded map contract"
+        tolerance = arguments.get("goal_tolerance")
+        if not isinstance(tolerance, dict) or set(tolerance) != {"xy_m", "yaw_rad"}:
+            return code, "goal_tolerance fields are not exact"
+        xy_m = tolerance.get("xy_m")
+        yaw_rad = tolerance.get("yaw_rad")
+        if any(
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            for value in (xy_m, yaw_rad)
+        ):
+            return code, "Goal tolerances must be numbers"
+        if (
+            not 0.05 <= float(cast(int | float, xy_m)) <= 0.5
+            or not 0.05 <= float(cast(int | float, yaw_rad)) <= 0.8
+        ):
+            return code, "Goal tolerances exceed daemon bounds"
+        expected = arguments.get("expected_effect")
+        if expected != {
+            "kind": "navigate_to_pose",
+            "final_frame": "map",
+            "stop_required": True,
+        }:
+            return code, "Expected navigation effect is not exact"
+        for name in (
+            "readiness_snapshot_hash",
+            "route_policy_id",
+            "route_policy_hash",
+            "map_id",
+            "map_image_hash",
+        ):
+            if not isinstance(arguments.get(name), str) or not arguments[name].strip():
+                return code, f"{name} is required"
+        return None
+
+    def _worker_request(self, action: ActionEnvelope) -> dict[str, Any]:
+        return {
+            "protocol": "rosclaw.limo.worker.v1",
+            "operation": "NAVIGATE_TO_POSE",
+            "schema_version": self.schema,
+            "action_id": action.action_id,
+            "body_id": action.body_id,
+            "body_snapshot_hash": action.body_snapshot_hash,
+            "target_pose": action.arguments["target_pose"],
+            "goal_tolerance": action.arguments["goal_tolerance"],
+            "server_timeout_sec": 3.0,
+            "navigation_timeout_sec": min(
+                100.0, max(5.0, action.verification_policy.timeout_sec - 10.0)
+            ),
+            "verification_timeout_sec": 5.0,
+        }
+
+    def _validate_result(self, action: ActionEnvelope, result: dict[str, Any]) -> str | None:
+        if (
+            result.get("protocol") != "rosclaw.limo.worker.v1"
+            or result.get("action_id") != action.action_id
+            or result.get("operation") != "NAVIGATE_TO_POSE"
+            or result.get("action_server") != "/move_base"
+            or result.get("accepted") is not True
+            or result.get("terminal_state") != 3
+        ):
+            return "Worker acknowledgement did not match the navigation action"
+        observed = result.get("observed_final_pose")
+        if not isinstance(observed, dict) or set(observed) != {"frame_id", "x", "y", "yaw"}:
+            return "Final AMCL pose is missing or malformed"
+        if observed.get("frame_id") != "map":
+            return "Final AMCL pose is not map-frame"
+        tolerance = action.arguments["goal_tolerance"]
+        try:
+            position_error = float(result["position_error_m"])
+            yaw_error = float(result["yaw_error_rad"])
+        except (KeyError, TypeError, ValueError):
+            return "Navigation error metrics are malformed"
+        if (
+            not all(math.isfinite(value) for value in (position_error, yaw_error))
+            or position_error > float(tolerance["xy_m"])
+            or yaw_error > float(tolerance["yaw_rad"])
+        ):
+            return "Final AMCL pose is outside requested tolerance"
+        stopped = result.get("stopped_odometry")
+        if not isinstance(stopped, dict):
+            return "Stopped odometry verification is missing"
+        try:
+            linear = float(stopped["linear_speed_mps"])
+            angular = float(stopped["angular_speed_radps"])
+        except (KeyError, TypeError, ValueError):
+            return "Stopped odometry verification is malformed"
+        if linear > 0.03 or angular > 0.08:
+            return "Base did not verify stopped after navigation"
+        preflight = result.get("preflight")
+        if (
+            not isinstance(preflight, dict)
+            or preflight.get("chassis_error_code") != 0
+            or not isinstance(preflight.get("map_to_odom"), dict)
+            or not isinstance(preflight.get("map_to_base"), dict)
+        ):
+            return "Daemon-owned navigation preflight evidence is incomplete"
+        return None
+
+    def _success_result(
+        self, action: ActionEnvelope, result: dict[str, Any]
+    ) -> ActionExecutionResult:
+        return ActionExecutionResult(
+            final_state=ActionState.COMPLETED,
+            evidence_level=EvidenceLevel.TASK_VERIFIED,
+            policy_decision={
+                "allowed": True,
+                "policy": self.policy_name,
+                "reason": "fresh ROS preflight and bounded map-frame goal contract passed",
+            },
+            authorization_decision={
+                "authorized": action.authorization.approved,
+                "approval_id": action.authorization.approval_id,
+            },
+            dispatch_result={
+                "accepted": True,
+                "adapter": self.instance.adapter.component_id,
+                "operation": "NAVIGATE_TO_POSE",
+                "action_server": "/move_base",
+                "terminal_state": result["terminal_state"],
+                "terminal_text": result["terminal_text"],
+            },
+            driver_ack={
+                "acknowledged": True,
+                "dispatched_wall_time": result["dispatched_wall_time"],
+            },
+            observations=[
+                {
+                    "kind": "navigation_goal_reached",
+                    "target_pose": action.arguments["target_pose"],
+                    "observed_final_pose": result["observed_final_pose"],
+                    "preflight": result["preflight"],
+                    "stopped_odometry": result["stopped_odometry"],
+                    "map_to_base_after": result["map_to_base_after"],
+                    "completed_wall_time": result["completed_wall_time"],
+                }
+            ],
+            verification_result={
+                "success": True,
+                "predicate": "move_base SUCCEEDED, AMCL reached tolerance, and odometry stopped",
+                "position_error_m": result["position_error_m"],
+                "yaw_error_rad": result["yaw_error_rad"],
+            },
+        )
+
+
+class LimoToneExecutor(_LimoFixedWorkerExecutor):
+    """Daemon-owned bounded ALSA tone executor."""
+
+    capability_id = "limo.play_tone"
+    schema = "limo.tone.v1"
+    operation = "TONE"
+    worker_name = "limo_tone_worker.py"
+    policy_name = "robot-pack/limo-tone-v1"
+    evidence_level = EvidenceLevel.DRIVER_CONFIRMED
+    argument_keys = frozenset(
+        {
+            "schema_version",
+            "frequency_hz",
+            "duration_sec",
+            "volume_percent",
+            "expected_effect",
+        }
+    )
+
+    def _validate_arguments(self, arguments: dict[str, Any]) -> tuple[str, str] | None:
+        code = "LIMO_TONE_CONTRACT_INVALID"
+        frequency = arguments.get("frequency_hz")
+        duration = arguments.get("duration_sec")
+        volume = arguments.get("volume_percent")
+        if isinstance(frequency, bool) or frequency not in {440, 660, 880}:
+            return code, "frequency_hz must be one of 440, 660, or 880"
+        if (
+            isinstance(duration, bool)
+            or not isinstance(duration, (int, float))
+            or not 0.2 <= float(duration) <= 1.0
+        ):
+            return code, "duration_sec must be within [0.2, 1.0]"
+        if isinstance(volume, bool) or not isinstance(volume, int) or not 5 <= volume <= 25:
+            return code, "volume_percent must be an integer within [5, 25]"
+        if arguments.get("expected_effect") != {
+            "kind": "speaker_tone",
+            "playback_required": True,
+            "mixer_restore_required": True,
+        }:
+            return code, "Expected tone effect is not exact"
+        return None
+
+    def _worker_request(self, action: ActionEnvelope) -> dict[str, Any]:
+        return {
+            "protocol": "rosclaw.limo.worker.v1",
+            "operation": "PLAY_TONE",
+            "schema_version": self.schema,
+            "action_id": action.action_id,
+            "body_id": action.body_id,
+            "body_snapshot_hash": action.body_snapshot_hash,
+            "frequency_hz": action.arguments["frequency_hz"],
+            "duration_sec": action.arguments["duration_sec"],
+            "volume_percent": action.arguments["volume_percent"],
+        }
+
+    def _validate_result(self, action: ActionEnvelope, result: dict[str, Any]) -> str | None:
+        if (
+            result.get("protocol") != "rosclaw.limo.worker.v1"
+            or result.get("action_id") != action.action_id
+            or result.get("operation") != "PLAY_TONE"
+            or result.get("accepted") is not True
+            or result.get("mixer_restored") is not True
+        ):
+            return "Worker acknowledgement did not match the tone action"
+        if (
+            result.get("frequency_hz") != action.arguments["frequency_hz"]
+            or result.get("duration_sec") != action.arguments["duration_sec"]
+            or result.get("volume_percent") != action.arguments["volume_percent"]
+        ):
+            return "Tone playback acknowledgement parameters do not match"
+        backend = result.get("playback_backend")
+        device = result.get("device")
+        if (
+            backend not in {"alsa", "pulseaudio"}
+            or not isinstance(device, str)
+            or (backend == "alsa" and not device.startswith("plughw:"))
+            or (backend == "pulseaudio" and not device.startswith("pulse:alsa_output.usb-"))
+        ):
+            return "Audio playback backend acknowledgement is missing or invalid"
+        if not isinstance(result.get("frame_count"), int) or result["frame_count"] < 1:
+            return "ALSA playback frame acknowledgement is missing"
+        return None
+
+    def _success_result(
+        self, action: ActionEnvelope, result: dict[str, Any]
+    ) -> ActionExecutionResult:
+        return ActionExecutionResult(
+            final_state=ActionState.COMPLETED,
+            evidence_level=EvidenceLevel.DRIVER_CONFIRMED,
+            policy_decision={
+                "allowed": True,
+                "policy": self.policy_name,
+                "reason": "bounded synthesized tone and mixer-restore contract passed",
+            },
+            authorization_decision={
+                "authorized": action.authorization.approved,
+                "approval_id": action.authorization.approval_id,
+            },
+            dispatch_result={
+                "accepted": True,
+                "adapter": self.instance.adapter.component_id,
+                "operation": "PLAY_TONE",
+                "device": result["device"],
+            },
+            driver_ack={
+                "acknowledged": True,
+                "playback_backend": result["playback_backend"],
+                "frame_count": result["frame_count"],
+                "sample_rate_hz": result["sample_rate_hz"],
+                "mixer_restored": True,
+            },
+            observations=[
+                {
+                    "kind": "speaker_tone_driver_ack",
+                    "frequency_hz": result["frequency_hz"],
+                    "duration_sec": result["duration_sec"],
+                    "volume_percent": result["volume_percent"],
+                    "started_wall_time": result["started_wall_time"],
+                    "completed_wall_time": result["completed_wall_time"],
+                    "human_hearing_confirmed": False,
+                }
+            ],
+            verification_result={
+                "success": True,
+                "predicate": "ALSA accepted all synthesized frames and prior mixer state was restored",
+                "acoustic_output_independently_observed": False,
+            },
+        )
+
+
+class _LimoFixedWorkerShadowExecutor:
+    """Contract-only SHADOW preview for a fixed LIMO worker."""
+
+    def __init__(self, validator: _LimoFixedWorkerExecutor) -> None:
+        self.validator = validator
+
+    def __call__(self, action: ActionEnvelope) -> ActionExecutionResult:
+        contract_error = self.validator._validate_action(action, require_authorization=False)
+        if contract_error is not None:
+            return _failed_result(contract_error[0], contract_error[1])
+        return ActionExecutionResult(
+            final_state=ActionState.COMPLETED,
+            evidence_level=self.validator.evidence_level,
+            policy_decision={
+                "allowed": True,
+                "policy": self.validator.policy_name,
+                "reason": "fixed-operation contract is valid for SHADOW preview",
+            },
+            authorization_decision={"authorized": False, "required": False},
+            dispatch_result={
+                "accepted": True,
+                "shadow": True,
+                "operation": f"VALIDATE_{self.validator.operation}",
+                "hardware_dispatched": False,
+            },
+            driver_ack={"acknowledged": True, "shadow": True},
+            observations=[
+                {
+                    "kind": f"{self.validator.operation.lower()}_contract_preview",
+                    "arguments": action.arguments,
+                    "hardware_observed": False,
+                }
+            ],
+            verification_result={
+                "success": True,
+                "predicate": "exact fixed-operation contract validated without worker dispatch",
+            },
+        )
+
+
+class LimoNavigationShadowExecutor(_LimoFixedWorkerShadowExecutor):
+    def __init__(self, instance: RobotInstanceConfig, *, adapter_source: Path) -> None:
+        super().__init__(LimoNavigationExecutor(instance, adapter_source=adapter_source))
+
+
+class LimoToneShadowExecutor(_LimoFixedWorkerShadowExecutor):
+    def __init__(self, instance: RobotInstanceConfig, *, adapter_source: Path) -> None:
+        super().__init__(LimoToneExecutor(instance, adapter_source=adapter_source))
+
+
 def load_daemon_robot_pack(
     runtime: Any,
     *,
@@ -600,31 +1116,51 @@ def load_daemon_robot_pack(
             "Configured Robot Pack adapter binding is missing or no longer matches its locked revision"
         )
 
+    loader_contract_ok, loader_contract_errors = validate_daemon_loader_contract(manifest)
+    if not loader_contract_ok:
+        raise RobotPackRuntimeError("; ".join(loader_contract_errors))
+
     registered: list[str] = []
+    limo_adapter_source: Path | None = None
+    if any(capability.id.startswith("limo.") for capability in manifest.capabilities):
+        record_entry = InstalledRegistry(home=resolved_home).get(current_adapter.server_name)
+        if record_entry is None:
+            raise RobotPackRuntimeError("LIMO adapter installation record is missing")
+        limo_adapter_source = Path(record_entry.server_dir)
     for capability in manifest.capabilities:
         if capability.id == "camera.capture_rgbd" and capability.safety_class == "read_only":
-            if "REAL" not in capability.execution_modes:
-                raise RobotPackRuntimeError("RealSense capture capability must declare REAL mode")
             executor: Any = RealSenseCaptureExecutor(instance, home=resolved_home)
         elif capability.id == "limo.set_initial_pose" and capability.safety_class == "actuation":
-            if not {"SHADOW", "REAL"}.issubset(capability.execution_modes):
-                raise RobotPackRuntimeError(
-                    "LIMO initial-pose capability must declare SHADOW and REAL modes"
-                )
-            record_entry = InstalledRegistry(home=resolved_home).get(current_adapter.server_name)
-            if record_entry is None:
-                raise RobotPackRuntimeError("LIMO adapter installation record is missing")
+            assert limo_adapter_source is not None
             executor = LimoInitialPoseExecutor(
                 instance,
-                adapter_source=Path(record_entry.server_dir),
+                adapter_source=limo_adapter_source,
             )
             runtime.action_gateway.register_executor(
                 capability.id,
                 ExecutionMode.SHADOW,
                 LimoInitialPoseShadowExecutor(
                     instance,
-                    adapter_source=Path(record_entry.server_dir),
+                    adapter_source=limo_adapter_source,
                 ),
+            )
+            registered.append(f"{capability.id}:SHADOW")
+        elif capability.id == "limo.navigate_to_pose" and capability.safety_class == "actuation":
+            assert limo_adapter_source is not None
+            executor = LimoNavigationExecutor(instance, adapter_source=limo_adapter_source)
+            runtime.action_gateway.register_executor(
+                capability.id,
+                ExecutionMode.SHADOW,
+                LimoNavigationShadowExecutor(instance, adapter_source=limo_adapter_source),
+            )
+            registered.append(f"{capability.id}:SHADOW")
+        elif capability.id == "limo.play_tone" and capability.safety_class == "actuation":
+            assert limo_adapter_source is not None
+            executor = LimoToneExecutor(instance, adapter_source=limo_adapter_source)
+            runtime.action_gateway.register_executor(
+                capability.id,
+                ExecutionMode.SHADOW,
+                LimoToneShadowExecutor(instance, adapter_source=limo_adapter_source),
             )
             registered.append(f"{capability.id}:SHADOW")
         else:

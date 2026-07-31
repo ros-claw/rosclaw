@@ -1,0 +1,37 @@
+schema_version: rosclaw.capability.v1
+id: limo.navigate_to_pose
+title: Navigate to a map-frame patrol waypoint
+input:
+  type: object
+  additionalProperties: false
+  properties:
+    target_pose:
+      type: object
+      required: [frame_id, x, y, yaw]
+    readiness_snapshot_hash:
+      type: string
+    body_snapshot_hash:
+      type: string
+    goal_tolerance:
+      type: object
+      required: [xy_m, yaw_rad]
+  required: [target_pose, readiness_snapshot_hash, body_snapshot_hash, goal_tolerance]
+output:
+  required: [observed_final_pose, stopped_odometry, receipt]
+safety:
+  class: actuation
+  actuation: guarded
+  direct_driver_access: forbidden
+  gateway: rosclawd
+execution:
+  modes: [SHADOW, REAL]
+  adapter: limo-ros-mcp
+  worker: worker/limo_navigation_worker.py
+  operation: NAVIGATE_TO_POSE
+evidence:
+  minimum: TASK_VERIFIED
+  predicates:
+    - daemon-owned-ros-preflight
+    - move-base-succeeded
+    - final-amcl-within-tolerance
+    - stopped-odometry

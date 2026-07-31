@@ -12,6 +12,7 @@ from rosclaw.robot_pack.discovery import (
     StreamProfile,
 )
 from rosclaw.robot_pack.instance import configure_robot_instance
+from rosclaw.robot_pack.store import RobotPackStore
 from rosclaw.robot_pack.verification import verify_installed_robot_pack
 
 
@@ -151,6 +152,28 @@ def test_contract_verification_persists_h1_evidence(installed_pack) -> None:
     assert report.observed_candidate_tier is None
     assert report.report_path is not None and Path(report.report_path).is_file()
     assert store.list_installed()[0].latest_verification_id == report.evidence_id
+
+
+def test_limo_guarded_contract_verification_is_not_treated_as_perception_only(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "limo-home"
+    store = RobotPackStore(home)
+    store.install("limo")
+
+    report = verify_installed_robot_pack("limo", home=home)
+
+    assert report.passed
+    assert report.support_tier == "H1_CONTRACT_VERIFIED"
+    safety_check = next(
+        check for check in report.checks if check.id == "contract.guarded-actuation-policy"
+    )
+    assert safety_check.status == "pass"
+    loader_check = next(
+        check for check in report.checks if check.id == "contract.daemon-loader-contract"
+    )
+    assert loader_check.status == "pass"
+    assert "all declared Pack capabilities" in loader_check.message
 
 
 def test_full_local_read_only_run_is_candidate_not_canonical_h3(installed_pack) -> None:

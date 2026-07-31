@@ -3,9 +3,9 @@ schema_version: rosclaw.robot_pack.v1
 pack:
   namespace: ros-claw
   name: limo-ros1
-  version: 0.1.4
-  title: AgileX LIMO ROS 1 Guarded Localization Pack
-  summary: Permit-gated AMCL localization initialization for AgileX LIMO on ROS Melodic.
+  version: 0.1.7
+  title: AgileX LIMO ROS 1 Guarded Patrol Pack
+  summary: Permit-gated localization, navigation, and speaker signaling for AgileX LIMO on ROS Melodic.
   vendor: AgileX Robotics
   kind: mobile_base
   aliases: [limo, agilex-limo]
@@ -24,7 +24,7 @@ components:
   - kind: hardware_adapter
     id: limo-ros-mcp
     ref: https://github.com/ros-claw/limo-ros-mcp
-    version: fd9275c9de22f6158a38edc4b299e6657bce38bb
+    version: 79069f7870ddf972f32bfd438752860fed3dd97d
     required: true
   - kind: capability
     id: limo-set-initial-pose
@@ -32,33 +32,63 @@ components:
     version: "1"
     path: capabilities/limo.set_initial_pose.yaml
     digest: sha256:e6bfbd5f938da43b4d91f5ec0cfb58bfdc91f209db0ad1882107df9582477e68
+  - kind: capability
+    id: limo-navigate-to-pose
+    ref: rosclaw://capability/limo.navigate_to_pose@2
+    version: "2"
+    path: capabilities/limo.navigate_to_pose.yaml
+    digest: sha256:b7cb28271e5e98e5474720c76ca45c3fdfb669042aecd062551bd49865adb1c0
+  - kind: capability
+    id: limo-play-tone
+    ref: rosclaw://capability/limo.play_tone@1
+    version: "1"
+    path: capabilities/limo.play_tone.yaml
+    digest: sha256:2f4a9034b27f89f22de0d33eef3b617a108b300e2dd633ed307355b3c6ec7b39
   - kind: policy
     id: limo-initial-pose-policy
     ref: rosclaw://policy/limo-initial-pose@1
     version: "1"
     path: policies/initial-pose.yaml
     digest: sha256:ba4834ead5c1287a5394cb658ef9eac2b59755144c1635fa2a223cb8be224595
+  - kind: policy
+    id: limo-patrol-actions-policy
+    ref: rosclaw://policy/limo-patrol-actions@1
+    version: "1"
+    path: policies/patrol-actions.yaml
+    digest: sha256:8f8e93cf39928259762c1a8adc6c08b355402ad5518cedac5be1b56ef0d3a584
   - kind: calibration
     id: limo-operator-calibration
     ref: device://agilex/limo/operator-calibration
     required: true
   - kind: verification
-    id: limo-initial-pose-verification
-    ref: rosclaw://verification/limo-initial-pose@1
+    id: limo-patrol-verification
+    ref: rosclaw://verification/limo-patrol@1
     version: "1"
     path: verification/actuation.yaml
-    digest: sha256:5ce5042da0ae97e3ad8b493ea1e06957f9cb8d15ab039a1c7f0128d35215b8d7
+    digest: sha256:1ece2e9db9c82888cfd72115fec206e4adfa52e986c4908dd1c64fe466608940
   - kind: example_app
     id: limo-initial-pose-request
     ref: rosclaw://example/limo-initial-pose-request@1
     version: "1"
     path: examples/initial-pose-action.json
     digest: sha256:028208f7a39fc964f77ace39eaf6f4cafbbd2dff74368ac77138e829527f20c7
+  - kind: example_app
+    id: limo-navigation-request
+    ref: rosclaw://example/limo-navigation-request@2
+    version: "2"
+    path: examples/navigation-action.json
+    digest: sha256:023426f19431ef692f4afaa5b86cb8f59ba4e2f2603e9fac05243c3451f1aca9
+  - kind: example_app
+    id: limo-tone-request
+    ref: rosclaw://example/limo-tone-request@1
+    version: "1"
+    path: examples/tone-action.json
+    digest: sha256:a382a424d5a2b8bb266db764890497504f88c81584f969a900972c462e915b31
   - kind: documentation
     id: limo-pack-docs
     ref: docs://robot-pack/limo-ros1
     path: docs/README.md
-    digest: sha256:41585d0490fe8aec36d6e00fbf85d3af455f087df0f7d5747134398f43c9288a
+    digest: sha256:950114aeedb531a9abaa9622595b0be81914bf2b7dab5743cef4170c46ba9902
 
 device:
   type: mobile_base
@@ -81,6 +111,10 @@ adapter:
   tools:
     - id: initial-pose
       any_of: [limo_request_initial_pose]
+    - id: navigation
+      any_of: [limo_request_navigation]
+    - id: speaker-tone
+      any_of: [limo_request_tone]
   direct_driver_access: forbidden
 
 capabilities:
@@ -91,6 +125,20 @@ capabilities:
     adapter_tools_any_of: [limo_request_initial_pose]
     execution_modes: [SHADOW, REAL]
     required_evidence: TASK_VERIFIED
+  - id: limo.navigate_to_pose
+    title: Navigate to a patrol waypoint
+    safety_class: actuation
+    adapter_component_id: limo-ros-mcp
+    adapter_tools_any_of: [limo_request_navigation]
+    execution_modes: [SHADOW, REAL]
+    required_evidence: TASK_VERIFIED
+  - id: limo.play_tone
+    title: Play a bounded synthesized speaker tone
+    safety_class: actuation
+    adapter_component_id: limo-ros-mcp
+    adapter_tools_any_of: [limo_request_tone]
+    execution_modes: [SHADOW, REAL]
+    required_evidence: DRIVER_CONFIRMED
 
 safety:
   perception_only: false
@@ -115,6 +163,9 @@ verification:
       - initialpose-subscriber-ack
       - post-dispatch-amcl-pose
       - map-to-odom-transform
+      - navigation-daemon-preflight
+      - navigation-goal-and-stop
+      - tone-driver-ack
       - canonical-execution-receipt
     requires_hardware: true
     requires_independent_observer: true
@@ -129,6 +180,6 @@ integrity:
   signature:
     required: true
     scheme: ed25519
-    key_id: rosclaw-limo-pack-v5
+    key_id: rosclaw-limo-pack-v8
     file: signatures/manifest.ed25519
     payload: manifest-and-checksums-v1

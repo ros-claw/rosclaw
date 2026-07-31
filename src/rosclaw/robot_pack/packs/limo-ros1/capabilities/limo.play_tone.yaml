@@ -1,0 +1,40 @@
+schema_version: rosclaw.capability.v1
+id: limo.play_tone
+title: Play one bounded synthesized speaker tone
+input:
+  type: object
+  additionalProperties: false
+  properties:
+    frequency_hz:
+      type: integer
+      enum: [440, 660, 880]
+    duration_sec:
+      type: number
+      minimum: 0.2
+      maximum: 1.0
+    volume_percent:
+      type: integer
+      minimum: 5
+      maximum: 25
+    body_snapshot_hash:
+      type: string
+  required: [frequency_hz, duration_sec, volume_percent, body_snapshot_hash]
+output:
+  required: [device, frame_count, mixer_restored, receipt]
+safety:
+  class: actuation
+  actuation: guarded
+  direct_driver_access: forbidden
+  gateway: rosclawd
+execution:
+  modes: [SHADOW, REAL]
+  adapter: limo-ros-mcp
+  worker: worker/limo_tone_worker.py
+  operation: PLAY_TONE
+evidence:
+  minimum: DRIVER_CONFIRMED
+  predicates:
+    - alsa-frames-accepted
+    - mixer-state-restored
+  limitations:
+    - acoustic-output-not-independently-observed

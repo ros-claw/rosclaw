@@ -267,37 +267,56 @@ def _contract_checks(
         )
     )
     policy_safe = (
-        manifest.safety.perception_only
-        and manifest.safety.actuation == "forbidden"
-        and manifest.safety.direct_driver_access == "forbidden"
+        manifest.safety.direct_driver_access == "forbidden"
         and manifest.safety.agent_southbound_access == "daemon_only"
-        and all(capability.safety_class == "read_only" for capability in manifest.capabilities)
+        and manifest.adapter.direct_driver_access == "forbidden"
+        and (
+            not manifest.safety.perception_only
+            or (
+                manifest.safety.actuation == "forbidden"
+                and all(
+                    capability.safety_class == "read_only" for capability in manifest.capabilities
+                )
+            )
+        )
     )
+    if manifest.safety.perception_only:
+        policy_check_id = "contract.perception-only-policy"
+        policy_pass_message = (
+            "Pack is perception-only, forbids actuation/direct driver access, and requires rosclawd"
+        )
+    else:
+        policy_check_id = f"contract.{manifest.safety.actuation}-actuation-policy"
+        policy_pass_message = (
+            f"Pack declares {manifest.safety.actuation} actuation, forbids direct driver access, "
+            "and requires rosclawd"
+        )
     checks.append(
         VerificationCheckResult(
-            id="contract.perception-only-policy",
+            id=policy_check_id,
             status="pass" if policy_safe else "fail",
             message=(
-                "Pack is perception-only, forbids actuation/direct driver access, and requires rosclawd"
+                policy_pass_message
                 if policy_safe
-                else "Pack safety declarations do not preserve the read-only boundary"
+                else "Pack safety declarations do not preserve the declared daemon boundary"
             ),
         )
     )
     try:
-        from rosclaw.robot_pack.runtime_loader import RealSenseCaptureExecutor
+        from rosclaw.robot_pack.runtime_loader import validate_daemon_loader_contract
 
-        loader_available = callable(RealSenseCaptureExecutor)
-    except Exception:
+        loader_available, loader_errors = validate_daemon_loader_contract(manifest)
+    except Exception as exc:
         loader_available = False
+        loader_errors = (str(exc),)
     checks.append(
         VerificationCheckResult(
             id="contract.daemon-loader-contract",
             status="pass" if loader_available else "fail",
             message=(
-                "daemon-side camera.capture_rgbd executor is available"
+                "daemon-side executors cover all declared Pack capabilities"
                 if loader_available
-                else "daemon-side Pack executor is unavailable"
+                else "; ".join(loader_errors) or "daemon-side Pack executor is unavailable"
             ),
         )
     )

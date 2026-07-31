@@ -159,6 +159,26 @@ async def test_request_action_preserves_operator_proposal_deadline(
     assert daemon.actions[0].to_dict()["deadline_at"] == "2030-01-02T03:04:05Z"
 
 
+async def test_default_shadow_sessions_are_scoped_per_capability(
+    client: tuple[RuntimeClient, _FakeDaemonClient],
+) -> None:
+    runtime_client, daemon = client
+
+    for capability_id in ("limo.play_tone", "limo.set_initial_pose"):
+        await runtime_client.request_action(
+            capability_id=capability_id,
+            arguments={"schema_version": "test.v1"},
+            execution_mode="SHADOW",
+            body_snapshot_hash="sha256:body",
+            wait_timeout_sec=0.0,
+        )
+
+    assert [action.session_id for action in daemon.actions] == [
+        "mcp-session:limo.play_tone",
+        "mcp-session:limo.set_initial_pose",
+    ]
+
+
 async def test_interactive_confirmation_injects_permit_without_exposing_it(
     client: tuple[RuntimeClient, _FakeDaemonClient],
 ) -> None:

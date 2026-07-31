@@ -1,0 +1,35 @@
+schema_version: rosclaw.robot_policy.v1
+id: limo-patrol-actions
+applies_to: [limo.navigate_to_pose, limo.play_tone]
+allow:
+  - map_validated_navigation_goal
+  - fixed_synthesized_tone
+deny:
+  - arbitrary_ros_action
+  - arbitrary_ros_publish
+  - cmd_vel
+  - serial_or_can_access
+  - caller_selected_alsa_device
+  - caller_selected_mixer
+  - caller_selected_audio_file
+real_execution:
+  gateway: rosclawd
+  human_authorization_required: true
+  body_snapshot_required: true
+  exact_action_intent_required: true
+  navigation:
+    daemon_preflight_required: true
+    move_base_terminal_state: SUCCEEDED
+    stopped_linear_mps_max: 0.03
+    stopped_angular_radps_max: 0.08
+  tone:
+    frequencies_hz: [440, 660, 880]
+    duration_sec: [0.2, 1.0]
+    volume_percent: [5, 25]
+    mixer_restore_required: true
+failure:
+  default: fail_closed
+  missing_ros_preflight: block
+  navigation_timeout: cancel_and_fail
+  nonzero_chassis_error: block
+  mixer_restore_failure: fail

@@ -813,10 +813,12 @@ class RuntimeClient:
                 f"Unsupported evidence level {required_evidence!r}.",
             ) from exc
 
+        default_session_id = f"mcp-session:{capability_id}"
         action_kwargs: dict[str, Any] = {
             "actor_id": os.environ.get("ROSCLAW_AGENT_ACTOR", "rosclaw-mcp"),
             "agent_framework": os.environ.get("ROSCLAW_AGENT_CLIENT", "mcp"),
-            "session_id": session_id or os.environ.get("ROSCLAW_AGENT_SESSION", "mcp-session"),
+            "session_id": session_id
+            or os.environ.get("ROSCLAW_AGENT_SESSION", default_session_id),
             "body_id": body_id or self.robot_id,
             "body_snapshot_hash": body_snapshot_hash,
             "capability_id": capability_id,

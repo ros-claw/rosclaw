@@ -2,12 +2,27 @@
 
 This Pack binds the `limo` e-URDF Body to the independently versioned
 `ros-claw/limo-ros-mcp` adapter at commit
-`fd9275c9de22f6158a38edc4b299e6657bce38bb` (MCP 0.6.5).
+`79069f7870ddf972f32bfd438752860fed3dd97d` (MCP 0.8.5).
 
 The first REAL capability is `limo.set_initial_pose`. The Agent submits a
 validated map-frame estimate to `rosclawd`; the daemon validates an exact
 operator permit and starts a fixed-operation ROS Melodic worker. The Agent and
 MCP server do not import rospy or publish `/initialpose`.
+
+Revision 0.1.6 adds `limo.navigate_to_pose` and `limo.play_tone`. Both use
+in-context confirmation with opaque, exact-action permits. The daemon launches
+fixed Python 2 workers from the locked MCP revision.
+
+Revision 0.1.7 adapts those workers to the live LIMO host. Navigation treats
+stationary, event-driven AMCL message age as a warning while retaining blocking
+covariance and live `map -> odom -> base_link` TF checks. It subscribes to AMCL
+before dispatch and requires a post-dispatch pose, move_base `SUCCEEDED`, final
+AMCL tolerance, and stopped odometry. A warning-only DEGRADED snapshot remains
+usable, but any BLOCK check still prevents dispatch. Tone playback accepts only
+440/660/880 Hz, 0.2–1.0 seconds, and 5–25% volume. It uses the uniquely
+allowlisted USB PulseAudio sink when PulseAudio owns the sound card, falls back
+to direct ALSA otherwise, restores the previous mixer state, and reports only
+`DRIVER_CONFIRMED` evidence unless a human separately confirms hearing it.
 
 H1 means only that the signed contract and executor tests pass. H4 requires a
 real LIMO, an AMCL subscriber, post-dispatch `/amcl_pose`, a `map -> odom`
@@ -29,3 +44,13 @@ Revision 0.1.4 matches the Dabai U3 streams launched by
 metadata summaries and never exposes the raw image or point-cloud arrays.
 ROS CLI array placeholders are decoded into their true bounded byte and field
 counts, rather than reporting the placeholder string length.
+
+Revision 0.1.5 locks the adapter revision that expands read-only inspection to
+29 MCP tools and 27 ROS observations. It adds bounded Dabai device and
+color/depth/IR camera-state summaries, host audio playback/capture inventory,
+in-memory microphone level measurement, display/touch inventory, USB peripheral
+inventory, and platform health. Microphone samples are discarded immediately:
+no recording or raw audio content is retained or returned. IR endpoints may be
+present but are reported inactive when the driver publishes no frames. Front
+OLED and chassis RGB lights remain declared but unbound until a stable host or
+ROS interface is available.
