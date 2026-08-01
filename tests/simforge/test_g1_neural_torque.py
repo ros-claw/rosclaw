@@ -6,6 +6,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from rosclaw.simforge.g1_hierarchical_torque_policy import (
+    G1HierarchicalTorqueGateConfig,
+    G1HierarchicalTorquePolicy,
+)
 from rosclaw.simforge.g1_neural_torque import (
     G1_NEURAL_TORQUE_OBSERVATIONS,
     G1NeuralTorquePolicy,
@@ -359,6 +363,90 @@ def test_stability_plasticity_gate_activates_only_after_safe_recovery_context(
     assert receipt.contact_rejection_count == 1
     assert receipt.activation_ceiling == "SIM_ONLY"
     assert policy.plastic_activation_mask().tolist() == [False, False, True, True, False]
+
+
+def test_hierarchical_policy_routes_disjoint_balance_and_recovery_heads(
+    tmp_path: Path,
+) -> None:
+    paths = [tmp_path / name for name in ("stable.bin", "balance.bin", "recovery.bin")]
+    for path, bias in zip(paths, (0.01, 0.02, 0.03), strict=True):
+        path.write_bytes(_artifact_bytes(output_bias=bias))
+
+    def actor(path: Path) -> G1NeuralTorquePolicy:
+        return G1NeuralTorquePolicy(
+            load_g1_neural_torque_artifact(path),
+            expected_body_hash=_digest("body"),
+            expected_parent_policy_hash=_digest("parent"),
+        )
+
+    policy = G1HierarchicalTorquePolicy(
+        actor(paths[0]),
+        actor(paths[1]),
+        actor(paths[2]),
+        config=G1HierarchicalTorqueGateConfig(
+            balance_start_phase=0.02,
+            balance_end_phase=0.42,
+            recovery_start_phase=0.45,
+            balance_warmup_steps=2,
+            recovery_warmup_steps=2,
+        ),
+    )
+    parent = np.zeros(29)
+    frames = (
+        _frame(policy_phase=0.01),
+        _frame(policy_phase=0.03),
+        _frame(policy_phase=0.03),
+        _frame(policy_phase=0.43),
+        _frame(policy_phase=0.46),
+        _frame(policy_phase=0.46),
+        _frame(policy_phase=0.47, left_contact=False, right_contact=False),
+    )
+    commands = []
+    for frame in frames:
+        command = policy.command(frame, parent)
+        policy.note_applied(command)
+        commands.append(command)
+    receipt = policy.build_receipt()
+
+    assert commands[2][0] > commands[0][0]
+    assert commands[5][0] > commands[2][0]
+    assert commands[1] == pytest.approx(commands[0])
+    assert commands[3] == pytest.approx(commands[0])
+    assert commands[4] == pytest.approx(commands[0])
+    assert commands[6] == pytest.approx(commands[0])
+    assert policy.balance_activation_mask().tolist() == [
+        False,
+        False,
+        True,
+        False,
+        False,
+        False,
+        False,
+    ]
+    assert policy.recovery_activation_mask().tolist() == [
+        False,
+        False,
+        False,
+        False,
+        False,
+        True,
+        False,
+    ]
+    assert receipt.balance_activation_count == 1
+    assert receipt.recovery_activation_count == 1
+    assert receipt.contact_rejection_count == 1
+    assert receipt.activation_ceiling == "SIM_ONLY"
+    assert not receipt.hardware_authorized
+
+
+def test_hierarchical_policy_contract_rejects_overlap_and_hardware() -> None:
+    with pytest.raises(ValueError, match="phase windows"):
+        G1HierarchicalTorqueGateConfig(
+            balance_end_phase=0.5,
+            recovery_start_phase=0.4,
+        )
+    with pytest.raises(ValueError, match="SIM_ONLY"):
+        G1HierarchicalTorqueGateConfig(activation_ceiling="REAL")
 
 
 def test_neural_torque_reset_clears_episode_receipt_state(tmp_path: Path) -> None:

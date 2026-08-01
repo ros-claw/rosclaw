@@ -23,6 +23,7 @@ from rosclaw.simforge.g1_neural_torque_learning import (
     G1NeuralTorqueLearnerConfig,
     G1NeuralTorqueReplay,
     _quantized_export,
+    balance_online_replay,
     online_replay,
     recovery_online_replay,
     stale_neural_torque_replay,
@@ -128,6 +129,23 @@ def test_behavior_cloning_learns_nonzero_direct_torque_and_exports_safe_actor(
     assert np.all(np.abs(action) <= np.asarray(artifact.action_limits) + 1e-6)
     assert artifact.update_index == 0
     assert artifact.safety.activation_ceiling == "SIM_ONLY"
+
+    early = _learner(seed=8)
+    early_metrics = early.pretrain_behavior(
+        training,
+        validation=validation,
+        epochs=1,
+        stride=2,
+        maximum_end_fraction=0.20,
+    )
+    assert early_metrics[-1].finite
+    with pytest.raises(ValueError, match="maximum end fraction"):
+        early.pretrain_behavior(
+            training,
+            epochs=1,
+            minimum_end_fraction=0.3,
+            maximum_end_fraction=0.2,
+        )
 
 
 def test_motion_prior_initializes_only_matching_sim_proprioceptive_gru() -> None:
@@ -272,6 +290,73 @@ def test_recovery_replay_aligns_500hz_policy_with_dense_50hz_physics() -> None:
         )
 
 
+def test_balance_replay_uses_disjoint_phase_mask_and_future_risk() -> None:
+    episode = _episode(41, count=100)
+    phase = np.linspace(0.01, 0.50, 10)
+    pelvis_pose = np.zeros((10, 7), dtype=np.float64)
+    pelvis_pose[:, 2] = 0.80
+    pelvis_pose[:, 3] = 1.0
+    trajectory = {
+        "policy_phase": phase,
+        "support_foot_slip": np.zeros(10),
+        "com_y_relative": np.zeros(10),
+        "left_foot_contact": np.ones(10),
+        "right_foot_contact": np.zeros(10),
+        "pelvis_pose": pelvis_pose,
+    }
+    eligible = np.ones(100, dtype=np.bool_)
+    eligible[17] = False
+    replay = balance_online_replay(
+        episode,
+        trajectory=trajectory,
+        sequence_length=8,
+        balance_score=2.0,
+        fell=False,
+        critical_failure=False,
+        projection_fallback_rate=0.0,
+        actor_eligible_mask=eligible,
+        stride=10,
+    )
+
+    assert replay.count == 3
+    assert replay.partitions.tolist() == [2, 0, 0]
+    assert replay.terminals[-1, 0] == 1.0
+    assert replay.rewards[-1, 0] > replay.rewards[-2, 0]
+
+    risky_observations = episode.observations.copy()
+    risky_observations[45:65, 58] = 0.55
+    risky_observations[45:65, 60] = 0.0
+    risky = balance_online_replay(
+        G1TeacherTorqueEpisode(
+            risky_observations,
+            episode.actions,
+            episode.parent_actions,
+        ),
+        trajectory=trajectory,
+        sequence_length=8,
+        balance_score=-5.0,
+        fell=True,
+        critical_failure=True,
+        projection_fallback_rate=0.0,
+        actor_eligible_mask=np.ones(100, dtype=np.bool_),
+        stride=10,
+    )
+    assert np.count_nonzero(risky.partitions == 2) > 0
+    assert np.max(risky.fall_costs) == 1.0
+    assert np.max(risky.constraint_costs) == 1.0
+    with pytest.raises(ValueError, match="pelvis trajectory"):
+        balance_online_replay(
+            episode,
+            trajectory={**trajectory, "pelvis_pose": pelvis_pose[:-1]},
+            sequence_length=8,
+            balance_score=0.0,
+            fell=False,
+            critical_failure=False,
+            projection_fallback_rate=0.0,
+            actor_eligible_mask=np.ones(100, dtype=np.bool_),
+        )
+
+
 def test_actor_export_is_canonical_and_trust_region_is_bounded(tmp_path: Path) -> None:
     learner = _learner(seed=13)
     training = (_episode(1), _episode(2))
@@ -304,6 +389,16 @@ def test_actor_export_is_canonical_and_trust_region_is_bounded(tmp_path: Path) -
         expected_body_hash=_digest("body"),
         expected_parent_policy_hash=_digest("parent"),
     )
+    installed = learner.actor_snapshot()
+    consolidation = learner.consolidate_installed_actor(
+        training,
+        maximum_end_fraction=0.20,
+    )
+    assert all(
+        np.array_equal(installed[name], learner.actor_snapshot()[name])
+        for name in installed
+    )
+    assert all(np.isfinite(consolidation))
     assert (
         learner.artifact_bytes(
             body_hash=_digest("body"),
@@ -327,6 +422,36 @@ def test_actor_export_is_canonical_and_trust_region_is_bounded(tmp_path: Path) -
             replace(artifact, tensors=invalid_tensors),
             expected_body_hash=_digest("body"),
             expected_parent_policy_hash=_digest("parent"),
+        )
+
+
+def test_actor_trust_region_can_limit_updates_to_anatomical_readout() -> None:
+    learner = _learner(seed=14)
+    parent = learner.actor_snapshot()
+    proposal = {
+        name: value + np.asarray(1e-3, dtype=value.dtype)
+        for name, value in parent.items()
+    }
+
+    learner.install_interpolated_actor(
+        parent,
+        proposal,
+        fraction=1.0,
+        action_indices=(0, 13),
+    )
+    installed = learner.actor_snapshot()
+
+    assert np.array_equal(installed["gru.weight_ih_l0"], parent["gru.weight_ih_l0"])
+    assert np.array_equal(installed["head.weight"][1], parent["head.weight"][1])
+    assert np.array_equal(installed["head.weight"][29:], parent["head.weight"][29:])
+    assert not np.array_equal(installed["head.weight"][0], parent["head.weight"][0])
+    assert not np.array_equal(installed["head.bias"][13], parent["head.bias"][13])
+    with pytest.raises(ValueError, match="action subspace"):
+        learner.install_interpolated_actor(
+            parent,
+            proposal,
+            fraction=1.0,
+            action_indices=(29,),
         )
 
 
@@ -387,6 +512,22 @@ def test_continual_actor_critic_uses_stale_and_boundary_only_for_critics() -> No
     with pytest.raises(ValueError, match="fresh online transitions"):
         learner.update(stale_only)
     assert learner.update(stale_only, update_actor=False).finite
+
+    early_anchor = teacher_replay(
+        anchors,
+        sequence_length=8,
+        stride=4,
+        maximum_end_fraction=0.20,
+    )
+    assert early_anchor.count < anchor_replay.count
+    assert np.all(early_anchor.partitions == 1)
+    with pytest.raises(ValueError, match="end-fraction window"):
+        teacher_replay(
+            anchors,
+            sequence_length=8,
+            minimum_end_fraction=0.4,
+            maximum_end_fraction=0.2,
+        )
 
 
 def test_online_update_requires_fresh_plasticity_and_historical_stability() -> None:

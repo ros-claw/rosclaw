@@ -915,7 +915,12 @@ def _aggregate(values: tuple[G1NeuralTorqueRolloutEvidence, ...]) -> dict[str, f
             "critical_failure_rate": 0.0,
             "mean_score": 0.0,
             "mean_ball_speed_mps": 0.0,
+            "mean_support_slip_m": 0.0,
+            "mean_com_margin_min_m": 0.0,
+            "mean_torso_roll_peak_rad": 0.0,
+            "mean_torso_pitch_peak_rad": 0.0,
             "learned_output_fraction": 0.0,
+            "fallback_fraction": 0.0,
         }
     return {
         "count": float(len(values)),
@@ -928,7 +933,10 @@ def _aggregate(values: tuple[G1NeuralTorqueRolloutEvidence, ...]) -> dict[str, f
         "mean_score": sum(item.score for item in values) / len(values),
         "mean_ball_speed_mps": sum(item.ball_speed_mps for item in values) / len(values),
         "mean_support_slip_m": sum(item.support_slip_m for item in values) / len(values),
+        "mean_com_margin_min_m": sum(item.com_margin_min_m for item in values) / len(values),
         "mean_torso_roll_peak_rad": sum(item.torso_roll_peak_rad for item in values) / len(values),
+        "mean_torso_pitch_peak_rad": sum(item.torso_pitch_peak_rad for item in values)
+        / len(values),
         "learned_output_fraction": sum(item.learned_output_fraction for item in values)
         / len(values),
         "fallback_fraction": sum(item.fallback_fraction for item in values) / len(values),
