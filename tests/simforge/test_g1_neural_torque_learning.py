@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -24,6 +25,7 @@ from rosclaw.simforge.g1_neural_torque_learning import (
     _quantized_export,
     online_replay,
     recovery_online_replay,
+    stale_neural_torque_replay,
     teacher_dataset_hash,
     teacher_replay,
 )
@@ -41,6 +43,7 @@ def _episode(seed: int, *, count: int = 96) -> G1TeacherTorqueEpisode:
     observations = rng.normal(0.0, 0.05, (count, observation_dim)).astype(np.float32)
     observations[:, 0] = np.sin(time)
     observations[:, 29] = np.cos(time)
+    observations[:, 60] = -1.0
     limits = np.asarray(G1_HARD_TORQUE_LIMITS, dtype=np.float32)
     actions = np.zeros((count, 29), dtype=np.float32)
     actions[:, 0] = 0.08 * limits[0] * np.sin(time)
@@ -180,11 +183,73 @@ def test_recovery_replay_aligns_500hz_policy_with_dense_50hz_physics() -> None:
     )
 
     assert replay.count == 10
-    assert replay.partitions.tolist() == [0] * 10
+    assert replay.partitions.tolist() == [0] * 8 + [2, 2]
     assert replay.rewards[-1, 0] > replay.rewards[-2, 0]
     assert replay.constraint_costs[-1, 0] == 1.0
     assert replay.fall_costs[-1, 0] == 0.0
     assert replay.terminals[-1, 0] == 1.0
+    eligibility = np.ones(100, dtype=np.bool_)
+    eligibility[7] = False
+    masked = recovery_online_replay(
+        episode,
+        trajectory=trajectory,
+        sequence_length=8,
+        recovery_score=2.0,
+        fell=False,
+        critical_failure=False,
+        projection_fallback_rate=0.0,
+        actor_eligible_mask=eligibility,
+        stride=10,
+    )
+    assert masked.partitions.tolist() == [2, *([0] * 7), 2, 2]
+
+    critical_but_upright = recovery_online_replay(
+        episode,
+        trajectory={
+            **trajectory,
+            "support_foot_slip": np.zeros(10),
+            "com_y_relative": np.zeros(10),
+        },
+        sequence_length=8,
+        recovery_score=-2.0,
+        fell=False,
+        critical_failure=True,
+        projection_fallback_rate=0.0,
+        actor_eligible_mask=np.ones(100, dtype=np.bool_),
+        stride=10,
+    )
+    assert np.all(critical_but_upright.partitions == 0)
+    assert critical_but_upright.constraint_costs[-1, 0] == 1.0
+
+    fallen = recovery_online_replay(
+        episode,
+        trajectory={
+            **trajectory,
+            "support_foot_slip": np.zeros(10),
+            "com_y_relative": np.zeros(10),
+        },
+        sequence_length=8,
+        recovery_score=-10.0,
+        fell=True,
+        critical_failure=True,
+        projection_fallback_rate=0.0,
+        actor_eligible_mask=np.ones(100, dtype=np.bool_),
+        fall_quarantine_sec=0.10,
+        stride=10,
+    )
+    assert np.count_nonzero(fallen.partitions == 2) == 5
+    assert fallen.fall_costs[-1, 0] == 1.0
+    with pytest.raises(ValueError, match="eligibility mask"):
+        recovery_online_replay(
+            episode,
+            trajectory=trajectory,
+            sequence_length=8,
+            recovery_score=0.0,
+            fell=False,
+            critical_failure=False,
+            projection_fallback_rate=0.0,
+            actor_eligible_mask=np.ones(99, dtype=np.bool_),
+        )
     with pytest.raises(ValueError, match="misaligned"):
         recovery_online_replay(
             episode,
@@ -207,7 +272,7 @@ def test_recovery_replay_aligns_500hz_policy_with_dense_50hz_physics() -> None:
         )
 
 
-def test_actor_export_is_canonical_and_trust_region_is_bounded() -> None:
+def test_actor_export_is_canonical_and_trust_region_is_bounded(tmp_path: Path) -> None:
     learner = _learner(seed=13)
     training = (_episode(1), _episode(2))
     learner.pretrain_behavior(training, epochs=2, stride=2)
@@ -225,6 +290,44 @@ def test_actor_export_is_canonical_and_trust_region_is_bounded() -> None:
     assert all(np.array_equal(restored[name], parent[name]) for name in parent)
     with pytest.raises(ValueError, match="fraction"):
         learner.install_interpolated_actor(parent, proposal, fraction=1.01)
+    payload = learner.artifact_bytes(
+        body_hash=_digest("body"),
+        parent_policy_hash=_digest("parent"),
+        dataset_hash=_digest("dataset"),
+    )
+    path = tmp_path / "quantized.bin"
+    path.write_bytes(payload)
+    artifact = load_g1_neural_torque_artifact(path)
+    learner.install_interpolated_actor(parent, proposal, fraction=1.0)
+    learner.install_actor_artifact(
+        artifact,
+        expected_body_hash=_digest("body"),
+        expected_parent_policy_hash=_digest("parent"),
+    )
+    assert (
+        learner.artifact_bytes(
+            body_hash=_digest("body"),
+            parent_policy_hash=_digest("parent"),
+            dataset_hash=_digest("dataset"),
+        )
+        == payload
+    )
+    with pytest.raises(ValueError, match="observation contract"):
+        learner.install_actor_artifact(
+            replace(artifact, observation_names=artifact.observation_names[:-1]),
+            expected_body_hash=_digest("body"),
+            expected_parent_policy_hash=_digest("parent"),
+        )
+    invalid_tensors = dict(artifact.tensors)
+    invalid_tensors["observation_std"] = np.zeros_like(
+        invalid_tensors["observation_std"]
+    )
+    with pytest.raises(ValueError, match="normalization"):
+        learner.install_actor_artifact(
+            replace(artifact, tensors=invalid_tensors),
+            expected_body_hash=_digest("body"),
+            expected_parent_policy_hash=_digest("parent"),
+        )
 
 
 def test_continual_actor_critic_uses_stale_and_boundary_only_for_critics() -> None:
@@ -276,6 +379,14 @@ def test_continual_actor_critic_uses_stale_and_boundary_only_for_critics() -> No
     assert update.critic_transition_count == replay.count
     assert update.anchor_loss >= 0.0
     assert update.ewc_loss >= 0.0
+
+    aged = stale_neural_torque_replay(fresh_replay)
+    assert np.all(aged.policy_lags == 2)
+    assert np.all(fresh_replay.policy_lags == 0)
+    stale_only = G1NeuralTorqueReplay.combine(anchor_replay, aged)
+    with pytest.raises(ValueError, match="fresh online transitions"):
+        learner.update(stale_only)
+    assert learner.update(stale_only, update_actor=False).finite
 
 
 def test_online_update_requires_fresh_plasticity_and_historical_stability() -> None:

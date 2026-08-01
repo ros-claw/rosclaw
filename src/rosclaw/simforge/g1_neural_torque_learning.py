@@ -28,7 +28,9 @@ from torch import nn  # type: ignore[import-not-found]
 
 from rosclaw.feedback.contracts import canonical_hash
 from rosclaw.simforge.g1_neural_torque import (
+    G1_NEURAL_TORQUE_ACTIONS,
     G1_NEURAL_TORQUE_OBSERVATIONS,
+    G1NeuralTorqueArtifact,
     G1TeacherTorqueEpisode,
     G1TorqueSafetyConfig,
     serialize_g1_neural_torque_artifact,
@@ -763,6 +765,86 @@ class G1ContinualTorqueActorCritic:
         self.actor.load_state_dict(state)
         self.actor.gru.flatten_parameters()
 
+    def install_actor_artifact(
+        self,
+        artifact: G1NeuralTorqueArtifact,
+        *,
+        expected_body_hash: str,
+        expected_parent_policy_hash: str,
+    ) -> None:
+        """Install the exact quantized actor that generated fresh simulator data."""
+
+        if artifact.body_hash != expected_body_hash:
+            raise ValueError("neural torque actor artifact body hash mismatch")
+        if artifact.parent_policy_hash != expected_parent_policy_hash:
+            raise ValueError("neural torque actor artifact parent-policy hash mismatch")
+        if artifact.hidden_dim != self.config.hidden_dim:
+            raise ValueError("neural torque actor artifact hidden dimension mismatch")
+        if artifact.update_index != self.update_index:
+            raise ValueError("neural torque actor artifact update index mismatch")
+        if artifact.observation_names != G1_NEURAL_TORQUE_OBSERVATIONS:
+            raise ValueError("neural torque actor artifact observation contract mismatch")
+        if artifact.action_names != G1_NEURAL_TORQUE_ACTIONS:
+            raise ValueError("neural torque actor artifact action contract mismatch")
+        if artifact.observation_clip != self.config.observation_clip:
+            raise ValueError("neural torque actor artifact observation clip mismatch")
+        if asdict(artifact.safety) != asdict(self.safety):
+            raise ValueError("neural torque actor artifact safety envelope mismatch")
+        if not np.array_equal(
+            np.asarray(artifact.action_limits, dtype=np.float32),
+            self.action_limits,
+        ):
+            raise ValueError("neural torque actor artifact action limits mismatch")
+        mapping = {
+            "gru.weight_ih_l0": "actor.gru.weight_ih_l0",
+            "gru.weight_hh_l0": "actor.gru.weight_hh_l0",
+            "gru.bias_ih_l0": "actor.gru.bias_ih_l0",
+            "gru.bias_hh_l0": "actor.gru.bias_hh_l0",
+            "head.weight": "actor.head.weight",
+            "head.bias": "actor.head.bias",
+        }
+        required_tensors = {
+            *mapping.values(),
+            "action_limits",
+            "observation_mean",
+            "observation_std",
+        }
+        if set(artifact.tensors) != required_tensors:
+            raise ValueError("neural torque actor artifact tensor set mismatch")
+        expected = self.actor.state_dict()
+        state: dict[str, torch.Tensor] = {}
+        for target_name, artifact_name in mapping.items():
+            value = np.asarray(
+                artifact.tensors[artifact_name], dtype=np.float32
+            ).copy()
+            if value.shape != tuple(expected[target_name].shape) or not np.all(
+                np.isfinite(value)
+            ):
+                raise ValueError(
+                    f"neural torque actor artifact tensor mismatch: {artifact_name}"
+                )
+            state[target_name] = torch.as_tensor(value, device=self.device)
+        observation_shape = (len(G1_NEURAL_TORQUE_OBSERVATIONS),)
+        observation_mean = np.asarray(
+            artifact.tensors["observation_mean"], dtype=np.float32
+        ).copy()
+        observation_std = np.asarray(
+            artifact.tensors["observation_std"], dtype=np.float32
+        ).copy()
+        if (
+            observation_mean.shape != observation_shape
+            or observation_std.shape != observation_shape
+            or not np.all(np.isfinite(observation_mean))
+            or not np.all(np.isfinite(observation_std))
+            or np.any(observation_std <= 1e-6)
+        ):
+            raise ValueError("neural torque actor artifact normalization mismatch")
+        state["action_limits"] = expected["action_limits"]
+        self.actor.load_state_dict(state)
+        self.observation_mean = observation_mean
+        self.observation_std = observation_std
+        self.actor.gru.flatten_parameters()
+
     def checkpoint_bytes(self) -> bytes:
         payload = {
             "schema_version": "rosclaw.simforge.g1_neural_torque_checkpoint.v1",
@@ -1086,6 +1168,32 @@ def neural_torque_replay_hash(replay: G1NeuralTorqueReplay) -> str:
     return "sha256:" + digest.hexdigest()
 
 
+def stale_neural_torque_replay(
+    replay: G1NeuralTorqueReplay,
+    *,
+    minimum_policy_lag: int = 2,
+) -> G1NeuralTorqueReplay:
+    """Retain prior-generation data for critics while excluding it from actor updates."""
+
+    if not 2 <= minimum_policy_lag <= 1_000_000:
+        raise ValueError("stale neural torque replay lag must be in [2, 1000000]")
+    policy_lags = replay.policy_lags.copy()
+    online = replay.partitions != _ANCHOR
+    policy_lags[online] = np.maximum(policy_lags[online], minimum_policy_lag)
+    return G1NeuralTorqueReplay(
+        observations=replay.observations.copy(),
+        actions=replay.actions.copy(),
+        next_observations=replay.next_observations.copy(),
+        rewards=replay.rewards.copy(),
+        fall_costs=replay.fall_costs.copy(),
+        constraint_costs=replay.constraint_costs.copy(),
+        terminals=replay.terminals.copy(),
+        parent_actions=replay.parent_actions.copy(),
+        partitions=replay.partitions.copy(),
+        policy_lags=policy_lags,
+    )
+
+
 def teacher_replay(
     episodes: tuple[G1TeacherTorqueEpisode, ...],
     *,
@@ -1179,17 +1287,31 @@ def recovery_online_replay(
     critical_failure: bool,
     projection_fallback_rate: float,
     recovery_start_phase: float = 0.55,
+    actor_eligible_mask: np.ndarray | None = None,
+    fall_quarantine_sec: float = 0.50,
     policy_lag: int = 0,
     stride: int = 10,
 ) -> G1NeuralTorqueReplay:
-    """Build dense, time-aligned post-kick replay from T1 MuJoCo evidence."""
+    """Build dense, time-aligned post-kick replay from T1 MuJoCo evidence.
+
+    Episode-level joint-limit outcomes may originate in the fixed kick prior,
+    before the recovery actor is eligible.  Treating every later recovery row
+    as critic-only therefore starves the actor of the difficult-but-still-safe
+    states it needs to learn.  Actor eligibility is instead decided at the
+    transition: the plastic actor must actually have been active, local state
+    costs must remain below their safety boundary, and the pre-fall quarantine
+    window is always critic-only.  All rows, including unsafe and quarantined
+    rows, remain available to the reward and safety critics.
+    """
 
     if not -20.0 <= recovery_score <= 20.0 or not math.isfinite(recovery_score):
         raise ValueError("recovery score must be finite and bounded")
     if not 0.0 <= projection_fallback_rate <= 1.0:
         raise ValueError("recovery projection fallback rate must be in [0, 1]")
-    if not 0.4 <= recovery_start_phase <= 0.95:
-        raise ValueError("recovery start phase must be in [0.4, 0.95]")
+    if not 0.02 <= recovery_start_phase <= 0.95:
+        raise ValueError("recovery start phase must be in [0.02, 0.95]")
+    if not math.isfinite(fall_quarantine_sec) or not 0.10 <= fall_quarantine_sec <= 2.0:
+        raise ValueError("recovery fall quarantine must be in [0.10, 2.0] sec")
     if stride <= 0:
         raise ValueError("recovery replay stride must be positive")
     required = (
@@ -1211,6 +1333,17 @@ def recovery_online_replay(
         raise ValueError("recovery replay requires exact 500 Hz to 50 Hz alignment")
     if any(not np.all(np.isfinite(value)) for value in values.values()):
         raise ValueError("recovery trajectory contains non-finite values")
+    if actor_eligible_mask is None:
+        eligible_mask = np.ones(len(episode.observations), dtype=np.bool_)
+    else:
+        eligible_mask = np.asarray(actor_eligible_mask)
+        if eligible_mask.shape != (len(episode.observations),):
+            raise ValueError("recovery actor-eligibility mask is misaligned")
+        if eligible_mask.dtype.kind not in {"b", "i", "u"}:
+            raise ValueError("recovery actor-eligibility mask must be boolean")
+        if not np.all((eligible_mask == 0) | (eligible_mask == 1)):
+            raise ValueError("recovery actor-eligibility mask must be binary")
+        eligible_mask = eligible_mask.astype(np.bool_)
 
     observations: list[np.ndarray] = []
     actions: list[np.ndarray] = []
@@ -1219,8 +1352,16 @@ def recovery_online_replay(
     rewards: list[list[float]] = []
     fall_costs: list[list[float]] = []
     constraint_costs: list[list[float]] = []
+    partitions: list[int] = []
     limits = np.asarray(G1_HARD_TORQUE_LIMITS, dtype=np.float32) * 0.85
     final_end = len(episode.observations) - 2
+    unsafe = np.flatnonzero(episode.observations[:, 60] > -0.75)
+    failure_onset = int(unsafe[0]) if fell and len(unsafe) else final_end + 1
+    quarantine_start = (
+        max(0, failure_onset - int(round(500.0 * fall_quarantine_sec)))
+        if fell
+        else final_end + 1
+    )
     for end in range(sequence_length - 1, final_end + 1, stride):
         trace_index = min(end // 10, trace_count - 1)
         if float(values["policy_phase"][trace_index]) < recovery_start_phase:
@@ -1231,7 +1372,15 @@ def recovery_online_replay(
         parent = episode.parent_actions[end]
         gravity = observation[-1, 58:61]
         tilt_cost = float(np.dot(gravity[:2], gravity[:2]))
-        velocity_cost = float(np.mean(np.square(observation[-1, 29:58] / 10.0)))
+        joint_velocity_cost = float(
+            np.mean(np.square(observation[-1, 29:58] / 10.0))
+        )
+        base_linear_velocity_cost = float(
+            np.mean(np.square(observation[-1, 61:64] / 3.0))
+        )
+        base_angular_velocity_cost = float(
+            np.mean(np.square(observation[-1, 64:67] / 5.0))
+        )
         action_ratio = np.clip(action, -limits, limits) / limits
         parent_ratio = np.clip(parent, -limits, limits) / limits
         imitation_cost = float(np.mean(np.square(action_ratio - parent_ratio)))
@@ -1244,24 +1393,49 @@ def recovery_online_replay(
         reward = (
             0.02 * double_support
             - 0.50 * tilt_cost
-            - 0.05 * velocity_cost
+            - 0.04 * joint_velocity_cost
+            - 0.20 * base_linear_velocity_cost
+            - 0.25 * base_angular_velocity_cost
             - 1.50 * min(slip, 0.20)
             - 0.50 * min(com_offset, 0.30)
             - 0.05 * imitation_cost
         )
-        constraint = max(
-            projection_fallback_rate,
-            float(slip > 0.04),
-            float(tilt_cost > 0.20),
-            float(com_offset > 0.12),
+        fall_risk = float(
+            np.clip(
+                max(
+                    (tilt_cost - 0.04) / 0.16,
+                    (base_linear_velocity_cost - 0.25) / 0.75,
+                    (base_angular_velocity_cost - 0.16) / 0.84,
+                ),
+                0.0,
+                1.0,
+            )
+        )
+        constraint = float(
+            np.clip(
+                max(
+                    projection_fallback_rate,
+                    slip / 0.04,
+                    tilt_cost / 0.20,
+                    com_offset / 0.12,
+                ),
+                0.0,
+                1.0,
+            )
         )
         observations.append(observation)
         next_observations.append(episode.observations[start + 1 : end + 2])
         actions.append(action)
         parent_actions.append(parent)
         rewards.append([float(np.clip(reward, -2.0, 0.1))])
-        fall_costs.append([0.0])
+        fall_costs.append([fall_risk])
         constraint_costs.append([constraint])
+        locally_safe = constraint < 1.0 and fall_risk < 1.0
+        partitions.append(
+            _RECENT
+            if bool(eligible_mask[end]) and locally_safe and end < quarantine_start
+            else _BOUNDARY
+        )
     if not observations:
         raise ValueError("recovery trajectory contains no eligible transitions")
     rewards[-1][0] += 0.25 * recovery_score
@@ -1280,7 +1454,7 @@ def recovery_online_replay(
         constraint_costs=np.asarray(constraint_costs, dtype=np.float32),
         terminals=terminals,
         parent_actions=np.asarray(parent_actions, dtype=np.float32),
-        partitions=np.full(count, _BOUNDARY if critical_failure else _RECENT, dtype=np.int8),
+        partitions=np.asarray(partitions, dtype=np.int8),
         policy_lags=np.full(count, policy_lag, dtype=np.int64),
     )
 
@@ -1372,6 +1546,8 @@ __all__ = [
     "G1NeuralTorqueUpdate",
     "online_replay",
     "neural_torque_replay_hash",
+    "recovery_online_replay",
+    "stale_neural_torque_replay",
     "teacher_dataset_hash",
     "teacher_replay",
 ]

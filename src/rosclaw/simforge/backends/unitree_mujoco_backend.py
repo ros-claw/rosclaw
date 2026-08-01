@@ -858,6 +858,12 @@ class G1MuJoCoBackend:
                                 data.xquat[ids.torso], dtype=np.float64
                             ),
                             pelvis_position=np.asarray(data.qpos[:3], dtype=np.float64),
+                            base_linear_velocity=np.asarray(
+                                data.qvel[:3], dtype=np.float64
+                            ),
+                            base_angular_velocity=np.asarray(
+                                data.qvel[3:6], dtype=np.float64
+                            ),
                             ball_position=np.asarray(
                                 data.qpos[ids.ball_qpos : ids.ball_qpos + 3],
                                 dtype=np.float64,

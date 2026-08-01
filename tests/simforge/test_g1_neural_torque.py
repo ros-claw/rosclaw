@@ -11,6 +11,8 @@ from rosclaw.simforge.g1_neural_torque import (
     G1NeuralTorquePolicy,
     G1TeacherTorqueCollector,
     G1TorqueControlFrame,
+    G1TorqueExplorationConfig,
+    G1TorquePolicyReceipt,
     G1TorqueSafetyConfig,
     G1TorqueSafetyProjector,
     build_g1_neural_torque_observation,
@@ -39,6 +41,8 @@ def _frame(**changes: object) -> G1TorqueControlFrame:
         "joint_upper_limits": np.full(29, 2.0),
         "torso_quaternion_wxyz": np.asarray((1.0, 0.0, 0.0, 0.0)),
         "pelvis_position": np.asarray((0.0, 0.0, 0.8)),
+        "base_linear_velocity": np.zeros(3),
+        "base_angular_velocity": np.zeros(3),
         "ball_position": np.asarray((1.0, 0.1, 0.115)),
         "ball_velocity": np.asarray((-0.2, 0.05, 0.0)),
         "target_y_m": 0.75,
@@ -98,8 +102,9 @@ def test_observation_contract_contains_raw_body_ball_phase_and_previous_torque()
     observation = build_g1_neural_torque_observation(_frame(), previous)
 
     assert observation.shape == (len(G1_NEURAL_TORQUE_OBSERVATIONS),)
-    assert len(observation) == 102
+    assert len(observation) == 108
     assert observation[58:61] == pytest.approx((0.0, 0.0, -1.0))
+    assert observation[61:67] == pytest.approx(np.zeros(6))
     assert observation[-29:] == pytest.approx(np.full(29, 0.1))
 
 
@@ -205,6 +210,72 @@ def test_artifact_roundtrip_and_numpy_actor_emit_direct_bounded_torque(tmp_path:
     assert artifact.tensors["actor.head.bias"].flags.writeable is False
 
 
+def test_sim_exploration_is_seeded_context_gated_and_projected(tmp_path: Path) -> None:
+    path = tmp_path / "exploration.bin"
+    path.write_bytes(_artifact_bytes(output_bias=0.01))
+    artifact = load_g1_neural_torque_artifact(path)
+    exploration = G1TorqueExplorationConfig(
+        noise_std_ratio=0.004,
+        noise_clip_ratio=0.012,
+        temporal_correlation=0.99,
+        minimum_recovery_phase=0.5,
+        seed=91,
+    )
+
+    def rollout(*, allow: bool) -> tuple[np.ndarray, G1TorquePolicyReceipt]:
+        policy = G1NeuralTorquePolicy(
+            artifact,
+            expected_body_hash=_digest("body"),
+            expected_parent_policy_hash=_digest("parent"),
+            exploration=exploration,
+        )
+        commands = []
+        for _ in range(20):
+            command = policy.command(
+                _frame(policy_phase=0.8),
+                np.zeros(29),
+                allow_exploration=allow,
+            )
+            policy.note_applied(command)
+            commands.append(command)
+        return np.asarray(commands), policy.build_receipt()
+
+    first, first_receipt = rollout(allow=True)
+    replay, replay_receipt = rollout(allow=True)
+    control, control_receipt = rollout(allow=False)
+
+    np.testing.assert_array_equal(first, replay)
+    assert not np.array_equal(first, control)
+    assert first_receipt.to_dict() == replay_receipt.to_dict()
+    assert first_receipt.exploration_attempt_count == 20
+    assert first_receipt.exploration_applied_count > 0
+    assert first_receipt.exploration_rejection_count == 0
+    assert 0.0 < first_receipt.exploration_noise_peak_ratio <= 0.012
+    assert control_receipt.exploration_attempt_count == 0
+
+
+def test_exploration_fails_closed_outside_sim_and_safe_context(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="SIM_ONLY"):
+        G1TorqueExplorationConfig(activation_ceiling="REAL")
+    path = tmp_path / "context.bin"
+    path.write_bytes(_artifact_bytes(output_bias=0.01))
+    policy = G1NeuralTorquePolicy(
+        load_g1_neural_torque_artifact(path),
+        expected_body_hash=_digest("body"),
+        expected_parent_policy_hash=_digest("parent"),
+        exploration=G1TorqueExplorationConfig(seed=4),
+    )
+    for frame in (
+        _frame(policy_phase=0.4),
+        _frame(policy_phase=0.9, left_contact=False, right_contact=False),
+        _frame(policy_phase=0.9, pelvis_position=np.asarray((0.0, 0.0, 0.6))),
+    ):
+        command = policy.command(frame, np.zeros(29))
+        policy.note_applied(command)
+
+    assert policy.build_receipt().exploration_attempt_count == 0
+
+
 def test_artifact_loader_rejects_tampering_and_non_sim_safety(tmp_path: Path) -> None:
     payload = _artifact_bytes()
     path = tmp_path / "candidate.bin"
@@ -229,7 +300,7 @@ def test_teacher_collector_is_exact_pass_through_at_physics_rate() -> None:
     episode = collector.episode()
 
     assert command == pytest.approx(parent)
-    assert episode.observations.shape == (1, 102)
+    assert episode.observations.shape == (1, 108)
     assert episode.actions[0] == pytest.approx(parent)
     assert episode.parent_actions[0] == pytest.approx(parent)
 
@@ -256,15 +327,19 @@ def test_stability_plasticity_gate_activates_only_after_safe_recovery_context(
         plastic,
         config=G1StabilityPlasticityGateConfig(
             minimum_recovery_phase=0.8,
+            minimum_anticipatory_phase=0.5,
+            anticipatory_blend_fraction=0.25,
             eligibility_warmup_steps=2,
         ),
     )
     parent = np.zeros(29)
     policy.reset()
-    before = policy.command(_frame(policy_phase=0.5), parent)
+    before = policy.command(_frame(policy_phase=0.4), parent)
     policy.note_applied(before)
     warmup = policy.command(_frame(policy_phase=0.9), parent)
     policy.note_applied(warmup)
+    blended = policy.command(_frame(policy_phase=0.6), parent)
+    policy.note_applied(blended)
     active = policy.command(_frame(policy_phase=0.9), parent)
     policy.note_applied(active)
     unstable = policy.command(
@@ -274,13 +349,16 @@ def test_stability_plasticity_gate_activates_only_after_safe_recovery_context(
     receipt = policy.build_receipt()
 
     assert active[0] > before[0]
+    assert before[0] < blended[0] < active[0]
     assert warmup == pytest.approx(before)
     assert unstable == pytest.approx(before)
-    assert receipt.plastic_activation_count == 1
-    assert receipt.plastic_activation_fraction == pytest.approx(0.25)
+    assert receipt.plastic_activation_count == 2
+    assert receipt.plastic_activation_fraction == pytest.approx(0.4)
+    assert receipt.anticipatory_blend_count == 1
     assert receipt.phase_rejection_count == 1
     assert receipt.contact_rejection_count == 1
     assert receipt.activation_ceiling == "SIM_ONLY"
+    assert policy.plastic_activation_mask().tolist() == [False, False, True, True, False]
 
 
 def test_neural_torque_reset_clears_episode_receipt_state(tmp_path: Path) -> None:
