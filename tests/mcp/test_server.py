@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import stat
 from pathlib import Path
@@ -9,13 +10,26 @@ from pathlib import Path
 import pytest
 
 from rosclaw.agent.tool_catalog import P0_AGENT_MCP_TOOLS
-from rosclaw.mcp.tools import P0_TOOLS, _audit, _redact_for_audit
+from rosclaw.mcp.server import _tool_hints
+from rosclaw.mcp.tools import P0_TOOLS, _audit, _redact_for_audit, request_action
 
 
 async def test_p0_tools_contains_expected_set() -> None:
     """P0_TOOLS contains core, body-context, and product workflow tools."""
     names = tuple(tool.__name__ for tool in P0_TOOLS)
     assert names == P0_AGENT_MCP_TOOLS
+
+
+async def test_guarded_tool_catalog_hides_credentials_and_has_physical_hints() -> None:
+    parameters = inspect.signature(request_action).parameters
+    assert "principal_id" not in parameters
+    assert "approval_id" not in parameters
+    guarded, meta = _tool_hints("request_guarded_action")
+    observation, observation_meta = _tool_hints("get_robot_state")
+    assert guarded.destructiveHint is True
+    assert meta["physicalExecution"] is True
+    assert observation.readOnlyHint is True
+    assert observation_meta["physicalExecution"] is False
 
 
 async def test_redact_for_audit_masks_secrets() -> None:

@@ -13,8 +13,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from mcp.server.fastmcp import Context
+
 from rosclaw.agent.tool_catalog import MCP_TOOL_SAFETY_LEVELS
 from rosclaw.firstboot.workspace import get_rosclaw_home
+from rosclaw.interaction import ActionDisplay, InteractionClient, InteractionCoordinator
 from rosclaw.mcp.adapters.runtime_client import RuntimeClient
 from rosclaw.mcp.schemas.common import MCPError, make_error, make_response
 
@@ -256,26 +259,84 @@ async def _request_action(
     arguments: dict[str, Any],
     execution_mode: str = "SHADOW",
     body_snapshot_hash: str = "",
-    principal_id: str = "",
-    approval_id: str | None = None,
     body_id: str | None = None,
     action_id: str | None = None,
     required_evidence: str = "TASK_VERIFIED",
     timeout_sec: float = 30.0,
     wait_timeout_sec: float = 2.0,
 ) -> dict[str, Any]:
-    """Submit one structured action; rosclawd independently verifies authorization."""
+    """Submit SHADOW work; use request_guarded_action for REAL execution."""
+    if str(execution_mode).upper() == "REAL":
+        raise MCPError(
+            "INTERACTION_REQUIRED",
+            "REAL execution moved to request_guarded_action so approval stays in context.",
+            details={
+                "replacement_tool": "request_guarded_action",
+                "execution_mode": "REAL",
+                "trust_level": "UNAVAILABLE",
+                "usable_for_real_execution": False,
+            },
+        )
     return await _client().request_action(
         capability_id=capability_id,
         arguments=arguments,
         execution_mode=execution_mode,
         body_snapshot_hash=body_snapshot_hash,
-        principal_id=principal_id,
-        approval_id=approval_id,
         body_id=body_id,
         action_id=action_id,
         required_evidence=required_evidence,
         timeout_sec=timeout_sec,
+        wait_timeout_sec=wait_timeout_sec,
+    )
+
+
+async def _request_guarded_action(
+    ctx: Context[Any, Any, Any],
+    capability_id: str,
+    arguments: dict[str, Any],
+    body_snapshot_hash: str,
+    title: str,
+    summary: str,
+    physical_effects: list[str],
+    body_id: str | None = None,
+    action_id: str | None = None,
+    deadline_at: str | None = None,
+    required_evidence: str = "TASK_VERIFIED",
+    timeout_sec: float = 30.0,
+    wait_timeout_sec: float = 2.0,
+    constraints: list[str] | None = None,
+    verification: list[str] | None = None,
+    abort: list[str] | None = None,
+    risk_tier: str = "HIGH",
+) -> dict[str, Any]:
+    """Confirm and submit one exact REAL action without exposing permits or sessions."""
+
+    display = ActionDisplay(
+        title=title,
+        summary=summary,
+        body={"body_id": body_id or _client().robot_id, "capability_id": capability_id},
+        risk_tier=str(risk_tier).upper(),  # type: ignore[arg-type]
+        physical_effects=physical_effects,
+        constraints=constraints or [],
+        verification=verification or [],
+        abort=abort or [],
+    )
+    prepared = _client().prepare_operator_action(
+        capability_id=capability_id,
+        arguments=arguments,
+        body_snapshot_hash=body_snapshot_hash,
+        body_id=body_id,
+        action_id=action_id,
+        deadline_at=deadline_at,
+        required_evidence=required_evidence,
+        timeout_sec=timeout_sec,
+        display=display.model_dump(mode="json"),
+    )
+    coordinator = InteractionCoordinator(InteractionClient(_client()))
+    return await coordinator.complete_prepared(
+        ctx,
+        prepared_action=prepared,
+        approval_request=prepared.approval_request,
         wait_timeout_sec=wait_timeout_sec,
     )
 
@@ -488,6 +549,7 @@ practice_query = _tool_wrapper("practice_query", _practice_query)
 emergency_stop = _tool_wrapper("emergency_stop", _emergency_stop)
 get_runtime_status = _tool_wrapper("get_runtime_status", _get_runtime_status)
 request_action = _tool_wrapper("request_action", _request_action)
+request_guarded_action = _tool_wrapper("request_guarded_action", _request_guarded_action)
 get_action_status = _tool_wrapper("get_action_status", _get_action_status)
 cancel_action = _tool_wrapper("cancel_action", _cancel_action)
 get_body_profile = _tool_wrapper("get_body_profile", _get_body_profile)
@@ -524,6 +586,7 @@ P0_TOOLS: list[ToolFunc] = [
     get_calibration_status,
     get_runtime_status,
     request_action,
+    request_guarded_action,
     get_action_status,
     cancel_action,
     get_product_status,
@@ -558,6 +621,7 @@ __all__ = [
     "emergency_stop",
     "get_runtime_status",
     "request_action",
+    "request_guarded_action",
     "get_action_status",
     "cancel_action",
     "get_body_profile",

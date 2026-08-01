@@ -20,8 +20,10 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 
 from rosclaw.agent.detectors import build_project_profile
+from rosclaw.agent.tool_catalog import MCP_TOOL_SAFETY_LEVELS
 from rosclaw.mcp.adapters.runtime_client import RuntimeClient
 from rosclaw.mcp.tools import P0_TOOLS, set_client, set_context
 
@@ -41,6 +43,24 @@ def _profile_name(profile: Any) -> str:
     if profile.profile_path is not None:
         return profile.profile_path.stem
     return "default"
+
+
+def _tool_hints(tool_name: str) -> tuple[ToolAnnotations, dict[str, Any]]:
+    level = MCP_TOOL_SAFETY_LEVELS.get(tool_name, "UNKNOWN")
+    read_only = level.startswith("S0_")
+    physical_execution = tool_name in {"request_guarded_action", "emergency_stop"}
+    return (
+        ToolAnnotations(
+            readOnlyHint=read_only,
+            destructiveHint=physical_execution,
+            idempotentHint=read_only or tool_name == "emergency_stop",
+            openWorldHint=False,
+        ),
+        {
+            "physicalExecution": physical_execution,
+            "operatorConfirmation": "internal" if tool_name == "request_guarded_action" else None,
+        },
+    )
 
 
 def serve(
@@ -76,8 +96,8 @@ def serve(
     instructions = (
         "ROSClaw physical-AI control plane. Discover canonical status, run official "
         "simulation demos, inspect receipts, and use bounded rosclawd action tools. "
-        "REAL requests require daemon-issued permits; no raw ROS, serial, or vendor "
-        "operation is exposed."
+        "REAL requests use in-context operator confirmation; permits, sessions, and "
+        "daemon arming remain internal. No raw ROS, serial, or vendor operation is exposed."
     )
 
     mcp = FastMCP(
@@ -89,7 +109,8 @@ def serve(
     )
 
     for tool_func in P0_TOOLS:
-        mcp.add_tool(tool_func)
+        annotations, meta = _tool_hints(tool_func.__name__)
+        mcp.add_tool(tool_func, annotations=annotations, meta=meta)
 
     logger.info("Starting ROSClaw P0 MCP server (%s:%s via %s)", host, port, transport)
     # FastMCP.run accepts "stdio", "sse", or "streamable-http"; map the CLI

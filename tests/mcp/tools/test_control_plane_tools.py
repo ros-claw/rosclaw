@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 from typing import Any
@@ -89,24 +90,25 @@ async def test_runtime_status_is_reported_by_daemon() -> None:
     assert data["trust_level"] == "DAEMON_REPORTED"
 
 
-async def test_real_action_is_sent_unapproved_and_returns_block_receipt(
+async def test_real_action_requires_contextual_guarded_tool(
     _daemon_client: _FakeDaemon,
 ) -> None:
-    data = _payload(
+    schema = inspect.signature(request_action)
+    assert "principal_id" not in schema.parameters
+    assert "approval_id" not in schema.parameters
+
+    payload = json.loads(
         await request_action(
             capability_id="rh56.finger.move",
             arguments={"finger": "index", "delta_raw": 20},
             execution_mode="REAL",
             body_snapshot_hash="sha256:body",
-            principal_id="operator-1",
-            approval_id="permit-untrusted",
             action_id="action-tool-test",
         )
     )
-
-    assert data["receipt"]["final_state"] == "BLOCKED"
-    assert _daemon_client.action is not None
-    assert _daemon_client.action.authorization.approved is False
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "INTERACTION_REQUIRED"
+    assert _daemon_client.action is None
 
 
 async def test_action_defaults_to_shadow_when_mode_is_omitted(

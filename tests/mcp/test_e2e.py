@@ -183,8 +183,6 @@ async def _exercise_p0_tools(session: ClientSession) -> None:
             "arguments": {"joint_positions": [0.0] * 6},
             "execution_mode": "REAL",
             "body_snapshot_hash": "sha256:e2e-body",
-            "principal_id": "forged-operator",
-            "approval_id": "forged-permit",
             "body_id": "sim_ur5e",
             "action_id": "action-mcp-e2e-forged",
             "required_evidence": "DRIVER_CONFIRMED",
@@ -194,11 +192,53 @@ async def _exercise_p0_tools(session: ClientSession) -> None:
     action_payload = _envelope(
         action_result.content[0].text,
         tool_name="request_action",
+        expected_ok=False,
+    )
+    assert action_payload["error"]["code"] == "INTERACTION_REQUIRED"
+
+    guarded_result = await session.call_tool(
+        "request_guarded_action",
+        arguments={
+            "capability_id": "robot.move_joints",
+            "arguments": {"joint_positions": [0.0] * 6},
+            "body_snapshot_hash": "sha256:e2e-body",
+            "body_id": "sim_ur5e",
+            "action_id": "action-mcp-e2e-guarded",
+            "title": "Move simulated robot",
+            "summary": "Request one exact joint target.",
+            "physical_effects": ["The configured body may move."],
+            "wait_timeout_sec": 0.0,
+        },
+    )
+    guarded_payload = _envelope(
+        guarded_result.content[0].text,
+        tool_name="request_guarded_action",
         expected_ok=True,
     )
-    action_data = action_payload["data"]
-    assert action_data["receipt"]["final_state"] == "BLOCKED"
-    assert action_data["receipt"]["errors"][0]["code"] == "AUTHORIZATION_REQUIRED"
+    assert guarded_payload["data"]["decision"] == "APPROVAL_CHANNEL_UNAVAILABLE"
+    assert "permit" not in str(guarded_payload).lower()
+    called.add("request_guarded_action")
+
+    shadow_result = await session.call_tool(
+        "request_action",
+        arguments={
+            "capability_id": "robot.move_joints",
+            "arguments": {"joint_positions": [0.0] * 6},
+            "execution_mode": "SHADOW",
+            "body_snapshot_hash": "sha256:e2e-body",
+            "body_id": "sim_ur5e",
+            "action_id": "action-mcp-e2e-shadow",
+            "required_evidence": "DRIVER_CONFIRMED",
+            "wait_timeout_sec": 5.0,
+        },
+    )
+    shadow_payload = _envelope(
+        shadow_result.content[0].text,
+        tool_name="request_action",
+        expected_ok=True,
+    )
+    action_data = shadow_payload["data"]
+    assert action_data["receipt"]["execution_mode"] == "SHADOW"
     action_id = action_data["action_id"]
     called.add("request_action")
 
