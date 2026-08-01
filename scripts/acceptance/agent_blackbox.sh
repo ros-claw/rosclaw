@@ -46,6 +46,8 @@ import json
 import sys
 from pathlib import Path
 
+from rosclaw.agent.tool_catalog import P0_AGENT_MCP_TOOLS
+
 workspace = Path(sys.argv[1])
 project = Path(sys.argv[2])
 home = workspace / "home"
@@ -63,7 +65,7 @@ for relative in (
 
 probe = (workspace / "probe.txt").read_text(encoding="utf-8")
 assert "MCP stdio probe: OK" in probe
-assert "MCP tools discovered: 22" in probe
+assert f"MCP tools discovered: {len(P0_AGENT_MCP_TOOLS)}" in probe
 assert "MCP verified simulation run:" in probe
 assert "Codex project trust: yes" in probe
 
