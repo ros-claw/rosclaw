@@ -32,8 +32,7 @@ def _public_result(value: Any) -> Any:
         return {
             key: _public_result(item)
             for key, item in value.items()
-            if str(key).lower() not in _PRIVATE_RESULT_KEYS
-            and "permit" not in str(key).lower()
+            if str(key).lower() not in _PRIVATE_RESULT_KEYS and "permit" not in str(key).lower()
         }
     if isinstance(value, list):
         return [_public_result(item) for item in value]

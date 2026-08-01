@@ -36,7 +36,8 @@ class ActionDisplay(BaseModel):
             body = {
                 key: data.pop(key)
                 for key in tuple(data)
-                if key not in {"title", "summary", "risk_tier", "constraints", "verification", "abort"}
+                if key
+                not in {"title", "summary", "risk_tier", "constraints", "verification", "abort"}
             }
         normalized_risk = str(data.pop("risk_tier", risk_tier)).upper()
         if normalized_risk not in {"LOW", "MEDIUM", "HIGH", "CRITICAL"}:
