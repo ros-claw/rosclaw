@@ -713,6 +713,9 @@ class RuntimeClient:
             )
         reason = str(confirmation.get("reason") or "Accepted through MCP elicitation")
         armed_by_confirmation = False
+        session_created = False
+        session_closed = False
+        session_cleanup_error: str | None = None
         try:
             runtime_status = await asyncio.to_thread(self._daemon_client.get_runtime_status)
             await asyncio.to_thread(
@@ -724,6 +727,7 @@ class RuntimeClient:
                 capability_scope=[action.capability_id],
                 ttl_ms=60_000,
             )
+            session_created = True
             if str(runtime_status.get("supervision_state")) != "ARMED":
                 await asyncio.to_thread(
                     self._daemon_client.arm_runtime,
@@ -764,6 +768,22 @@ class RuntimeClient:
             if isinstance(exc, MCPError):
                 raise
             self._raise_daemon_error("confirm_operator_action", exc)
+
+        if session_created and result.get("state") in {"FINISHED", "CANCELLED"}:
+            try:
+                await asyncio.to_thread(
+                    self._daemon_client.close_session,
+                    action.session_id,
+                    reason="confirmed_action_finished",
+                )
+                session_closed = True
+            except Exception as exc:  # noqa: BLE001
+                session_cleanup_error = str(exc)
+                logger.warning(
+                    "Could not close terminal operator-action session %s: %s",
+                    action.session_id,
+                    exc,
+                )
         return {
             **self._action_result_metadata(result, "REAL"),
             "operator_confirmation": {
@@ -774,6 +794,8 @@ class RuntimeClient:
                 "separate_arm_required": False,
                 "permit_injected": True,
                 "permit_exposed": False,
+                "session_closed": session_closed,
+                "session_cleanup_error": session_cleanup_error,
             },
         }
 

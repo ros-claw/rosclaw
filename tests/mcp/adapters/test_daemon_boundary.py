@@ -17,6 +17,7 @@ class _FakeDaemonClient:
         self.actions: list[ActionEnvelope] = []
         self.stop_requests: list[tuple[str, str]] = []
         self.sessions: list[dict[str, Any]] = []
+        self.closed_sessions: list[tuple[str, str]] = []
         self.supervision_state = "DISARMED"
         self.arm_reasons: list[str] = []
         self.disarm_reasons: list[str] = []
@@ -70,6 +71,10 @@ class _FakeDaemonClient:
     def create_session(self, **kwargs: Any) -> dict[str, Any]:
         self.sessions.append(kwargs)
         return {"session_id": kwargs["session_id"], "state": "ACTIVE"}
+
+    def close_session(self, session_id: str, *, reason: str) -> dict[str, Any]:
+        self.closed_sessions.append((session_id, reason))
+        return {"session_id": session_id, "state": "CLOSED"}
 
     def wait_for_action(self, action_id: str, *, timeout_sec: float) -> dict[str, Any]:
         return {
@@ -223,6 +228,7 @@ async def test_interactive_confirmation_injects_permit_without_exposing_it(
     assert result["operator_confirmation"]["permit_exposed"] is False
     assert result["operator_confirmation"]["supervision_armed"] is True
     assert result["operator_confirmation"]["separate_arm_required"] is False
+    assert result["operator_confirmation"]["session_closed"] is False
     assert "permit" not in result
     assert "permit-secret" not in str(result)
     assert daemon.actions[-1].authorization.approved is True
@@ -230,6 +236,35 @@ async def test_interactive_confirmation_injects_permit_without_exposing_it(
     assert daemon.arm_reasons == [
         "Operator confirmed exact REAL action action-interactive through MCP elicitation"
     ]
+    assert daemon.closed_sessions == []
+
+
+async def test_interactive_confirmation_closes_terminal_action_session(
+    client: tuple[RuntimeClient, _FakeDaemonClient],
+) -> None:
+    runtime_client, daemon = client
+    prepared = runtime_client.prepare_operator_action(
+        capability_id="limo.play_tone",
+        arguments={"frequency_hz": 660, "duration_sec": 0.8},
+        body_snapshot_hash="sha256:body",
+        action_id="action-terminal",
+        deadline_at="2030-01-02T03:04:05Z",
+    )
+
+    result = await runtime_client.confirm_operator_action(
+        prepared,
+        principal_id="operator-1",
+        confirmation={
+            "accepted": True,
+            "action_intent_hash": prepared.approval_request["action_intent_hash"],
+        },
+        wait_timeout_sec=2.0,
+    )
+
+    assert result["state"] == "FINISHED"
+    assert result["operator_confirmation"]["session_closed"] is True
+    assert result["operator_confirmation"]["session_cleanup_error"] is None
+    assert daemon.closed_sessions == [("action-terminal", "confirmed_action_finished")]
 
 
 async def test_interactive_confirmation_does_not_rearm_armed_generation(
