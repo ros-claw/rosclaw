@@ -5,13 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import NoReturn
 
-from rosclaw.collective.sources.motiondecode.audit import run_motiondecode_pilot
-from rosclaw.collective.sources.motiondecode.manifest import inspect_motiondecode_source
-from rosclaw.collective.sources.motiondecode.motion_prior import (
-    build_motion_prior_pack,
-    run_four_gpu_motion_prior,
-)
 from rosclaw.collective.sources.motiondecode.taxonomy import MotionDecodeStratum
 
 
@@ -105,6 +100,10 @@ def _source_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def _inspect(args: argparse.Namespace) -> int:
+    from rosclaw.collective.sources.motiondecode.manifest import (
+        inspect_motiondecode_source,
+    )
+
     manifest, _ = inspect_motiondecode_source(
         args.dataset_root,
         revision=args.revision,
@@ -116,6 +115,8 @@ def _inspect(args: argparse.Namespace) -> int:
 
 
 def _ingest(args: argparse.Namespace) -> int:
+    from rosclaw.collective.sources.motiondecode.audit import run_motiondecode_pilot
+
     report = run_motiondecode_pilot(
         dataset_root=args.dataset_root,
         revision=args.revision,
@@ -144,6 +145,13 @@ def _ingest(args: argparse.Namespace) -> int:
 
 
 def _build_prior(args: argparse.Namespace) -> int:
+    try:
+        from rosclaw.collective.sources.motiondecode.motion_prior import (
+            build_motion_prior_pack,
+        )
+    except ModuleNotFoundError as exc:
+        _raise_missing_rl_extra(exc)
+
     metadata = build_motion_prior_pack(
         pilot_report_path=args.pilot_report,
         dataset_root=args.dataset_root,
@@ -171,6 +179,13 @@ def _build_prior(args: argparse.Namespace) -> int:
 
 
 def _train_prior(args: argparse.Namespace) -> int:
+    try:
+        from rosclaw.collective.sources.motiondecode.motion_prior import (
+            run_four_gpu_motion_prior,
+        )
+    except ModuleNotFoundError as exc:
+        _raise_missing_rl_extra(exc)
+
     report = run_four_gpu_motion_prior(
         pack_path=args.pack,
         output_dir=args.output_dir,
@@ -191,6 +206,15 @@ def _train_prior(args: argparse.Namespace) -> int:
     }
     print(json.dumps(value, indent=2 if args.json else None, sort_keys=True))
     return 0 if report["decision"] == "REPRESENTATION_CANDIDATE" else 2
+
+
+def _raise_missing_rl_extra(exc: ModuleNotFoundError) -> NoReturn:
+    if exc.name == "torch":
+        raise RuntimeError(
+            "Motion-prior build/train requires the optional RL dependencies; "
+            "install 'rosclaw[rl]'"
+        ) from exc
+    raise exc
 
 
 __all__ = ["dispatch_collective_argv"]
