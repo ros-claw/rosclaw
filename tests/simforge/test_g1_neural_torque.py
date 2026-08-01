@@ -17,6 +17,10 @@ from rosclaw.simforge.g1_neural_torque import (
     load_g1_neural_torque_artifact,
     serialize_g1_neural_torque_artifact,
 )
+from rosclaw.simforge.g1_stability_plasticity_policy import (
+    G1StabilityPlasticityGateConfig,
+    G1StabilityPlasticityTorquePolicy,
+)
 from rosclaw.simforge.tasks.g1_goalforge.concepts import (
     G1_DDS_JOINT_NAMES,
     G1_HARD_TORQUE_LIMITS,
@@ -228,3 +232,71 @@ def test_teacher_collector_is_exact_pass_through_at_physics_rate() -> None:
     assert episode.observations.shape == (1, 102)
     assert episode.actions[0] == pytest.approx(parent)
     assert episode.parent_actions[0] == pytest.approx(parent)
+
+
+def test_stability_plasticity_gate_activates_only_after_safe_recovery_context(
+    tmp_path: Path,
+) -> None:
+    stable_path = tmp_path / "stable.bin"
+    plastic_path = tmp_path / "plastic.bin"
+    stable_path.write_bytes(_artifact_bytes(output_bias=0.01))
+    plastic_path.write_bytes(_artifact_bytes(output_bias=0.02))
+    stable = G1NeuralTorquePolicy(
+        load_g1_neural_torque_artifact(stable_path),
+        expected_body_hash=_digest("body"),
+        expected_parent_policy_hash=_digest("parent"),
+    )
+    plastic = G1NeuralTorquePolicy(
+        load_g1_neural_torque_artifact(plastic_path),
+        expected_body_hash=_digest("body"),
+        expected_parent_policy_hash=_digest("parent"),
+    )
+    policy = G1StabilityPlasticityTorquePolicy(
+        stable,
+        plastic,
+        config=G1StabilityPlasticityGateConfig(
+            minimum_recovery_phase=0.8,
+            eligibility_warmup_steps=2,
+        ),
+    )
+    parent = np.zeros(29)
+    policy.reset()
+    before = policy.command(_frame(policy_phase=0.5), parent)
+    policy.note_applied(before)
+    warmup = policy.command(_frame(policy_phase=0.9), parent)
+    policy.note_applied(warmup)
+    active = policy.command(_frame(policy_phase=0.9), parent)
+    policy.note_applied(active)
+    unstable = policy.command(
+        _frame(policy_phase=0.9, left_contact=False, right_contact=False), parent
+    )
+    policy.note_applied(unstable)
+    receipt = policy.build_receipt()
+
+    assert active[0] > before[0]
+    assert warmup == pytest.approx(before)
+    assert unstable == pytest.approx(before)
+    assert receipt.plastic_activation_count == 1
+    assert receipt.plastic_activation_fraction == pytest.approx(0.25)
+    assert receipt.phase_rejection_count == 1
+    assert receipt.contact_rejection_count == 1
+    assert receipt.activation_ceiling == "SIM_ONLY"
+
+
+def test_neural_torque_reset_clears_episode_receipt_state(tmp_path: Path) -> None:
+    artifact_path = tmp_path / "actor.bin"
+    artifact_path.write_bytes(_artifact_bytes(output_bias=0.01))
+    policy = G1NeuralTorquePolicy(
+        load_g1_neural_torque_artifact(artifact_path),
+        expected_body_hash=_digest("body"),
+        expected_parent_policy_hash=_digest("parent"),
+    )
+    parent = np.zeros(29)
+    command = policy.command(_frame(), parent)
+    policy.note_applied(command)
+    assert policy.build_receipt().inference_count == 1
+
+    policy.reset()
+
+    with pytest.raises(ValueError, match="incomplete neural torque receipt"):
+        policy.build_receipt()

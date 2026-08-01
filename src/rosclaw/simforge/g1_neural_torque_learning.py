@@ -18,8 +18,9 @@ import copy
 import hashlib
 import io
 import math
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch  # type: ignore[import-not-found]
@@ -34,9 +35,13 @@ from rosclaw.simforge.g1_neural_torque import (
 )
 from rosclaw.simforge.tasks.g1_goalforge.concepts import G1_HARD_TORQUE_LIMITS
 
+if TYPE_CHECKING:
+    from rosclaw.collective.sources.motiondecode.motion_prior import G1MotionPriorArtifact
+
 _RECENT = 0
 _ANCHOR = 1
 _BOUNDARY = 2
+_G1_MOTION_PRIOR_FEATURE_COUNT = 61
 
 
 @dataclass(frozen=True)
@@ -358,6 +363,49 @@ class G1ContinualTorqueActorCritic:
         )
         self._anchor_parameters: dict[str, torch.Tensor] = {}
         self._fisher: dict[str, torch.Tensor] = {}
+        self._pending_motion_prior: G1MotionPriorArtifact | None = None
+        self._pending_motion_prior_fraction: float = 0.0
+        self.motion_prior_artifact_hash: str | None = None
+        self.motion_prior_transfer_fraction: float = 0.0
+        # ``deepcopy`` does not preserve cuDNN's packed recurrent-weight
+        # layout. Pack every actor/critic once up front so the first online
+        # update does not silently take the slow fallback path.
+        self._flatten_recurrent_parameters()
+
+    def install_motion_prior(
+        self,
+        artifact: G1MotionPriorArtifact,
+        *,
+        expected_body_hash: str,
+        fraction: float = 1.0,
+    ) -> None:
+        """Stage an audited kinematic representation for the next BC pass.
+
+        The prior contributes GRU representation weights only.  Its prediction
+        head cannot become a torque head, and the torque actor still requires
+        teacher BC plus sealed physics validation.
+        """
+
+        if self.update_index or self._anchor_parameters:
+            raise ValueError("motion prior must be installed before torque consolidation")
+        if artifact.body_hash != expected_body_hash:
+            raise ValueError("motion-prior body hash does not match the torque learner")
+        if artifact.hidden_dim != self.config.hidden_dim:
+            raise ValueError("motion-prior hidden dimension does not match the torque learner")
+        feature_count = len(artifact.feature_names)
+        if (
+            feature_count != _G1_MOTION_PRIOR_FEATURE_COUNT
+            or artifact.feature_names != G1_NEURAL_TORQUE_OBSERVATIONS[:feature_count]
+        ):
+            raise ValueError("motion-prior feature order does not match torque proprioception")
+        if artifact.source_truth_level != "T4" or artifact.action_semantics != "ABSENT":
+            raise ValueError("motion-prior source semantics are not eligible")
+        if artifact.activation_ceiling != "SIM_ONLY_REPRESENTATION_INITIALIZATION":
+            raise ValueError("motion-prior activation ceiling is not SIM_ONLY")
+        if not math.isfinite(fraction) or not 0.0 < fraction <= 1.0:
+            raise ValueError("motion-prior transfer fraction must be in (0, 1]")
+        self._pending_motion_prior = artifact
+        self._pending_motion_prior_fraction = fraction
 
     def pretrain_behavior(
         self,
@@ -366,22 +414,37 @@ class G1ContinualTorqueActorCritic:
         validation: tuple[G1TeacherTorqueEpisode, ...] = (),
         epochs: int = 10,
         stride: int = 4,
+        minimum_end_fraction: float = 0.0,
     ) -> tuple[G1NeuralTorqueBCMetrics, ...]:
         if not training or epochs <= 0 or stride <= 0:
             raise ValueError("neural torque BC requires data, positive epochs, and stride")
+        if not 0.0 <= minimum_end_fraction <= 0.9:
+            raise ValueError("neural torque BC end fraction must be in [0, 0.9]")
+        self.actor.gru.flatten_parameters()
         all_observations = np.concatenate([item.observations for item in training], axis=0)
         self.observation_mean = all_observations.mean(axis=0).astype(np.float32)
         self.observation_std = np.maximum(all_observations.std(axis=0), 1e-3).astype(np.float32)
+        if self._pending_motion_prior is not None:
+            self._apply_motion_prior(
+                self._pending_motion_prior,
+                fraction=self._pending_motion_prior_fraction,
+            )
+            self.motion_prior_artifact_hash = self._pending_motion_prior.artifact_hash
+            self.motion_prior_transfer_fraction = self._pending_motion_prior_fraction
+            self._pending_motion_prior = None
+            self._pending_motion_prior_fraction = 0.0
         train_sequences, train_actions = _teacher_sequences(
             training,
             sequence_length=self.config.sequence_length,
             stride=stride,
+            minimum_end_fraction=minimum_end_fraction,
         )
         if validation:
             validation_sequences, validation_actions = _teacher_sequences(
                 validation,
                 sequence_length=self.config.sequence_length,
                 stride=stride,
+                minimum_end_fraction=minimum_end_fraction,
             )
         else:
             validation_sequences, validation_actions = train_sequences, train_actions
@@ -724,6 +787,8 @@ class G1ContinualTorqueActorCritic:
             "observation_std": torch.from_numpy(self.observation_std),
             "anchor_parameters": self._anchor_parameters,
             "fisher": self._fisher,
+            "motion_prior_artifact_hash": self.motion_prior_artifact_hash,
+            "motion_prior_transfer_fraction": self.motion_prior_transfer_fraction,
             "torch_rng_state": torch.get_rng_state(),
             "cuda_rng_state": (
                 torch.cuda.get_rng_state_all() if self.device.type == "cuda" else None
@@ -797,6 +862,11 @@ class G1ContinualTorqueActorCritic:
         self._fisher = {
             str(name): value.to(self.device) for name, value in payload["fisher"].items()
         }
+        prior_hash = payload.get("motion_prior_artifact_hash")
+        self.motion_prior_artifact_hash = str(prior_hash) if prior_hash is not None else None
+        self.motion_prior_transfer_fraction = float(
+            payload.get("motion_prior_transfer_fraction", 0.0)
+        )
         torch.set_rng_state(payload["torch_rng_state"].cpu())
         if self.device.type == "cuda":
             states = payload.get("cuda_rng_state")
@@ -838,6 +908,72 @@ class G1ContinualTorqueActorCritic:
                 )
                 total += prediction.numel()
         return float(sum(losses) / len(sequences)), saturated / max(1, total)
+
+    def _apply_motion_prior(
+        self,
+        artifact: G1MotionPriorArtifact,
+        *,
+        fraction: float,
+    ) -> None:
+        feature_count = len(artifact.feature_names)
+        prior_mean = np.asarray(artifact.observation_mean, dtype=np.float32)
+        prior_std = np.asarray(artifact.observation_std, dtype=np.float32)
+        actor_mean = self.observation_mean[:feature_count]
+        actor_std = self.observation_std[:feature_count]
+        required_tensors = {
+            "gru.weight_ih_l0",
+            "gru.weight_hh_l0",
+            "gru.bias_ih_l0",
+            "gru.bias_hh_l0",
+        }
+        if not required_tensors.issubset(artifact.tensors):
+            raise ValueError("motion-prior GRU tensor set is incomplete")
+        if (
+            prior_mean.shape != (feature_count,)
+            or prior_std.shape != (feature_count,)
+            or not np.all(np.isfinite(prior_mean))
+            or not np.all(np.isfinite(prior_std))
+            or np.any(prior_std <= 1e-6)
+        ):
+            raise ValueError("motion-prior normalization contract is invalid")
+        scale = actor_std / prior_std
+        offset = (actor_mean - prior_mean) / prior_std
+        weight_ih = np.asarray(artifact.tensors["gru.weight_ih_l0"], dtype=np.float32)
+        weight_hh = np.asarray(artifact.tensors["gru.weight_hh_l0"], dtype=np.float32)
+        bias_ih = np.asarray(artifact.tensors["gru.bias_ih_l0"], dtype=np.float32)
+        bias_hh = np.asarray(artifact.tensors["gru.bias_hh_l0"], dtype=np.float32)
+        expected = (3 * self.config.hidden_dim, feature_count)
+        if (
+            weight_ih.shape != expected
+            or weight_hh.shape
+            != (3 * self.config.hidden_dim, self.config.hidden_dim)
+            or bias_ih.shape != (3 * self.config.hidden_dim,)
+            or bias_hh.shape != (3 * self.config.hidden_dim,)
+        ):
+            raise ValueError("motion-prior GRU tensor shape is invalid")
+        if any(
+            not np.all(np.isfinite(value))
+            for value in (scale, offset, weight_ih, weight_hh, bias_ih, bias_hh)
+        ):
+            raise ValueError("motion-prior transfer contains non-finite values")
+        transformed_weight = weight_ih * scale[None, :]
+        transformed_bias = bias_ih + weight_ih @ offset
+        with torch.no_grad():
+            actor_weight = self.actor.gru.weight_ih_l0
+            transfers = (
+                (actor_weight[:, :feature_count], transformed_weight),
+                (self.actor.gru.weight_hh_l0, weight_hh),
+                (self.actor.gru.bias_ih_l0, transformed_bias),
+                (self.actor.gru.bias_hh_l0, bias_hh),
+            )
+            for target, source in transfers:
+                prior_value = torch.as_tensor(
+                    source,
+                    dtype=actor_weight.dtype,
+                    device=self.device,
+                )
+                target.copy_(target * (1.0 - fraction) + prior_value * fraction)
+        self.actor.gru.flatten_parameters()
 
     def _consolidate_parent(self, sequences: np.ndarray, actions: np.ndarray) -> None:
         self.parent_actor.load_state_dict(copy.deepcopy(self.actor.state_dict()))
@@ -1033,18 +1169,139 @@ def online_replay(
     )
 
 
+def recovery_online_replay(
+    episode: G1TeacherTorqueEpisode,
+    *,
+    trajectory: Mapping[str, np.ndarray],
+    sequence_length: int,
+    recovery_score: float,
+    fell: bool,
+    critical_failure: bool,
+    projection_fallback_rate: float,
+    recovery_start_phase: float = 0.55,
+    policy_lag: int = 0,
+    stride: int = 10,
+) -> G1NeuralTorqueReplay:
+    """Build dense, time-aligned post-kick replay from T1 MuJoCo evidence."""
+
+    if not -20.0 <= recovery_score <= 20.0 or not math.isfinite(recovery_score):
+        raise ValueError("recovery score must be finite and bounded")
+    if not 0.0 <= projection_fallback_rate <= 1.0:
+        raise ValueError("recovery projection fallback rate must be in [0, 1]")
+    if not 0.4 <= recovery_start_phase <= 0.95:
+        raise ValueError("recovery start phase must be in [0.4, 0.95]")
+    if stride <= 0:
+        raise ValueError("recovery replay stride must be positive")
+    required = (
+        "policy_phase",
+        "support_foot_slip",
+        "com_y_relative",
+        "left_foot_contact",
+        "right_foot_contact",
+    )
+    try:
+        values = {name: np.asarray(trajectory[name], dtype=np.float64) for name in required}
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("recovery trajectory signals are missing or non-numeric") from exc
+    trace_lengths = {len(value) for value in values.values() if value.ndim >= 1}
+    if any(value.ndim != 1 for value in values.values()) or len(trace_lengths) != 1:
+        raise ValueError("recovery trajectory signals are missing or misaligned")
+    trace_count = trace_lengths.pop()
+    if trace_count <= 0 or len(episode.observations) != trace_count * 10:
+        raise ValueError("recovery replay requires exact 500 Hz to 50 Hz alignment")
+    if any(not np.all(np.isfinite(value)) for value in values.values()):
+        raise ValueError("recovery trajectory contains non-finite values")
+
+    observations: list[np.ndarray] = []
+    actions: list[np.ndarray] = []
+    next_observations: list[np.ndarray] = []
+    parent_actions: list[np.ndarray] = []
+    rewards: list[list[float]] = []
+    fall_costs: list[list[float]] = []
+    constraint_costs: list[list[float]] = []
+    limits = np.asarray(G1_HARD_TORQUE_LIMITS, dtype=np.float32) * 0.85
+    final_end = len(episode.observations) - 2
+    for end in range(sequence_length - 1, final_end + 1, stride):
+        trace_index = min(end // 10, trace_count - 1)
+        if float(values["policy_phase"][trace_index]) < recovery_start_phase:
+            continue
+        start = end - sequence_length + 1
+        observation = episode.observations[start : end + 1]
+        action = episode.actions[end]
+        parent = episode.parent_actions[end]
+        gravity = observation[-1, 58:61]
+        tilt_cost = float(np.dot(gravity[:2], gravity[:2]))
+        velocity_cost = float(np.mean(np.square(observation[-1, 29:58] / 10.0)))
+        action_ratio = np.clip(action, -limits, limits) / limits
+        parent_ratio = np.clip(parent, -limits, limits) / limits
+        imitation_cost = float(np.mean(np.square(action_ratio - parent_ratio)))
+        slip = abs(float(values["support_foot_slip"][trace_index]))
+        com_offset = abs(float(values["com_y_relative"][trace_index]))
+        double_support = float(
+            bool(values["left_foot_contact"][trace_index])
+            and bool(values["right_foot_contact"][trace_index])
+        )
+        reward = (
+            0.02 * double_support
+            - 0.50 * tilt_cost
+            - 0.05 * velocity_cost
+            - 1.50 * min(slip, 0.20)
+            - 0.50 * min(com_offset, 0.30)
+            - 0.05 * imitation_cost
+        )
+        constraint = max(
+            projection_fallback_rate,
+            float(slip > 0.04),
+            float(tilt_cost > 0.20),
+            float(com_offset > 0.12),
+        )
+        observations.append(observation)
+        next_observations.append(episode.observations[start + 1 : end + 2])
+        actions.append(action)
+        parent_actions.append(parent)
+        rewards.append([float(np.clip(reward, -2.0, 0.1))])
+        fall_costs.append([0.0])
+        constraint_costs.append([constraint])
+    if not observations:
+        raise ValueError("recovery trajectory contains no eligible transitions")
+    rewards[-1][0] += 0.25 * recovery_score
+    fall_costs[-1][0] = float(fell)
+    if critical_failure:
+        constraint_costs[-1][0] = 1.0
+    count = len(observations)
+    terminals = np.zeros((count, 1), dtype=np.float32)
+    terminals[-1, 0] = 1.0
+    return G1NeuralTorqueReplay(
+        observations=np.asarray(observations, dtype=np.float32),
+        actions=np.asarray(actions, dtype=np.float32),
+        next_observations=np.asarray(next_observations, dtype=np.float32),
+        rewards=np.asarray(rewards, dtype=np.float32),
+        fall_costs=np.asarray(fall_costs, dtype=np.float32),
+        constraint_costs=np.asarray(constraint_costs, dtype=np.float32),
+        terminals=terminals,
+        parent_actions=np.asarray(parent_actions, dtype=np.float32),
+        partitions=np.full(count, _BOUNDARY if critical_failure else _RECENT, dtype=np.int8),
+        policy_lags=np.full(count, policy_lag, dtype=np.int64),
+    )
+
+
 def _teacher_sequences(
     episodes: tuple[G1TeacherTorqueEpisode, ...],
     *,
     sequence_length: int,
     stride: int,
+    minimum_end_fraction: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     sequence_rows: list[np.ndarray] = []
     actions: list[np.ndarray] = []
     for episode in episodes:
         if len(episode.observations) <= sequence_length:
             continue
-        for end in range(sequence_length - 1, len(episode.observations), stride):
+        first_end = max(
+            sequence_length - 1,
+            int(math.ceil((len(episode.observations) - 1) * minimum_end_fraction)),
+        )
+        for end in range(first_end, len(episode.observations), stride):
             start = end - sequence_length + 1
             sequence_rows.append(episode.observations[start : end + 1])
             actions.append(episode.actions[end])

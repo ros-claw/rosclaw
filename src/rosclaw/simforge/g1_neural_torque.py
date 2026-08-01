@@ -430,6 +430,14 @@ class G1NeuralTorquePolicy:
         self._peak_power = 0.0
         self._recovery_cooldown = 0
 
+    @property
+    def pending_projection(self) -> G1TorqueProjection:
+        """Expose the current guarded proposal to trusted policy composers."""
+
+        if self._pending is None:
+            raise RuntimeError("neural torque policy has no pending projection")
+        return self._pending
+
     def command(
         self,
         frame: G1TorqueControlFrame,

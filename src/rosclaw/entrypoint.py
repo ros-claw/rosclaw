@@ -32,6 +32,12 @@ def main() -> int:
     if result is not None:
         return result
 
+    from rosclaw.collective.cli import dispatch_collective_argv
+
+    result = dispatch_collective_argv(sys.argv[1:])
+    if result is not None:
+        return result
+
     from rosclaw.simforge.g1_hat_trick_cli import dispatch_hat_trick_argv
 
     result = dispatch_hat_trick_argv(sys.argv[1:])

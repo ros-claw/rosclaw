@@ -33,7 +33,6 @@ from rosclaw.simforge.g1_cerebellar_recovery import (
     evaluate_g1_cerebellar_recovery_regime,
 )
 from rosclaw.simforge.g1_neural_torque import (
-    G1NeuralTorquePolicy,
     G1TorqueControlFrame,
     G1TorquePolicy,
     G1TorquePolicyReceipt,
@@ -969,11 +968,12 @@ class G1MuJoCoBackend:
             if recovery_controller is not None
             else None
         )
-        torque_policy_receipt = (
-            torque_policy.build_receipt()
-            if isinstance(torque_policy, G1NeuralTorquePolicy)
-            else None
-        )
+        receipt_builder = getattr(torque_policy, "build_receipt", None)
+        torque_policy_receipt = receipt_builder() if callable(receipt_builder) else None
+        if torque_policy_receipt is not None and not isinstance(
+            torque_policy_receipt, G1TorquePolicyReceipt
+        ):
+            raise ValueError("direct torque policy returned an invalid receipt")
         return GoalForgeEpisode(
             scenario=scenario,
             parameters=parameters,

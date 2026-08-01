@@ -6710,6 +6710,14 @@ def cmd_restart(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "collective":
+        from rosclaw.collective.cli import dispatch_collective_argv
+
+        result = dispatch_collective_argv(sys.argv[1:])
+        if result is None:
+            raise RuntimeError("collective command was not dispatched")
+        return result
+
     if len(sys.argv) > 1 and sys.argv[1] == "simforge":
         from rosclaw.simforge.cli import dispatch_simforge_argv
 
@@ -6731,6 +6739,7 @@ def main() -> int:
 
     # The full SimForge parser is loaded lazily by the early dispatch above.
     subparsers.add_parser("simforge", help="Run simulation qualification and evolution")
+    subparsers.add_parser("collective", help="Inspect and ingest collective experience")
 
     # init
     init_parser = subparsers.add_parser("init", help="Initialize a ROSClaw workspace")
