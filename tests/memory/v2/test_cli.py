@@ -269,3 +269,31 @@ def test_explain_native_includes_retrieval_block(shared_embedded_seekdb_target, 
     assert output["retrieval"]["retrieval_mode"] == "active_bm25_metadata"
     assert "score_semantics" in output["retrieval"]
     assert output["memory_id"] == "mem_explain_1"
+
+
+def test_open_stack_honors_yaml_seekdb_backend(
+    shared_embedded_seekdb_target, monkeypatch, tmp_path
+) -> None:
+    """Without --backend, the v2 stack must read runtime.seekdb_backend from
+    rosclaw.yaml — switching the workspace to seekdb_embedded must not break
+    the v2 CLI with a sqlite open on the embedded directory."""
+    home = tmp_path / "home"
+    (home / "config").mkdir(parents=True)
+    (home / "config" / "rosclaw.yaml").write_text(
+        "runtime:\n"
+        "  robot_id: test\n"
+        "  seekdb_backend: seekdb_embedded\n"
+        f"  seekdb_path: {shared_embedded_seekdb_target['path']}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ROSCLAW_HOME", str(home))
+    args = argparse.Namespace(v2_path=None, backend=None, seekdb_url=None, no_vector=False)
+    client, _, vector, embedder, meta = _open_stack(args, with_vector=True)
+    try:
+        from rosclaw.storage.seekdb_native import SeekDBNativeStore
+
+        assert isinstance(client, SeekDBNativeStore)
+        assert meta["vector_source"] == "seekdb_native"
+        assert not isinstance(vector, SQLiteVectorStore)
+    finally:
+        _close(client)

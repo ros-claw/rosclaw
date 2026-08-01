@@ -91,16 +91,26 @@ def _open_stack(args: argparse.Namespace, *, with_vector: bool = False):
     retrieval stack on top.
 
     Backend resolution order: ``--backend`` → ``--seekdb-url`` /
-    ``ROSCLAW_SEEKDB_URL`` → legacy SQLite path (``--v2-path`` /
-    rosclaw.yaml / default).  Returns ``(client, repo, vector, embedder,
-    meta)`` where ``meta`` discloses the actual backend and score semantics so
-    callers never present TF-IDF scores as native SeekDB vector scores.
+    ``ROSCLAW_SEEKDB_URL`` → ``runtime.seekdb_backend`` from rosclaw.yaml →
+    legacy SQLite path (``--v2-path`` / rosclaw.yaml / default).  Returns
+    ``(client, repo, vector, embedder, meta)`` where ``meta`` discloses the
+    actual backend and score semantics so callers never present TF-IDF
+    scores as native SeekDB vector scores.
     """
     import os
 
     backend = getattr(args, "backend", None)
     url = getattr(args, "seekdb_url", None) or os.environ.get("ROSCLAW_SEEKDB_URL")
     path = _resolve_store_path(args)
+    if backend is None and not url and getattr(args, "v2_path", None) is None:
+        # Honor the workspace's configured backend (seekdb_embedded /
+        # seekdb_server / mysql) instead of always forcing the legacy
+        # sqlite path — otherwise switching the workspace to a native
+        # SeekDB backend silently breaks the v2 stack.  An explicit
+        # ``--v2-path`` keeps its legacy sqlite meaning and wins.
+        home = resolve_home()
+        cfg = load_rosclaw_yaml(home) or {}
+        backend = (cfg.get("runtime", {}) or {}).get("seekdb_backend") or None
     client = StorageFactory.create_knowledge_store(
         backend=backend or ("sqlite" if not url else None),
         url=url,

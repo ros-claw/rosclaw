@@ -28,7 +28,7 @@ import urllib.request
 from collections import Counter
 
 EMBED_ENDPOINT = os.environ.get("TY1200_EMBEDDING_ENDPOINT", "http://127.0.0.1:8000/v1")
-EMBED_MODEL = "/models/Qwen/Qwen3-Embedding-0.6B"
+EMBED_MODEL = "qwen3-embedding-0.6b"
 DEEPSEEK_ENDPOINT = os.environ.get("TY1200_DEEPSEEK_ENDPOINT", "")
 DEEPSEEK_MODEL = "deepseekv4"
 
@@ -143,7 +143,9 @@ def answer_with_deepseek(question: str, chunks: list[dict], timeout: float = 120
 
 
 def check_citations(answer: str, retrieved: list[dict]) -> dict:
-    cited = set(re.findall(r"\[([^\[\]]+::\d+:\d+)\]", answer))
+    raw = re.findall(r"\[([^\[\]]+::\d+:\d+)\]", answer)
+    # 容忍 "chunk_id: x" / "chunk:x" 前缀变体, 剥掉前缀后校验真实 chunk id
+    cited = {re.sub(r"^chunk(_id)?\s*[:：]\s*", "", r).strip() for r in raw}
     valid = {c["chunk_id"] for c in retrieved}
     invalid = cited - valid
     return {

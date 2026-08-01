@@ -25,7 +25,7 @@ cosmos_health() {
 embedding_infer() {
   curl -s --max-time 10 http://127.0.0.1:8000/v1/embeddings \
     -H 'Content-Type: application/json' \
-    -d '{"model":"/models/Qwen/Qwen3-Embedding-0.6B","input":"probe"}' 2>/dev/null | head -c 60
+    -d '{"model":"qwen3-embedding-0.6b","input":"probe"}' 2>/dev/null | head -c 60
 }
 
 log "=== fault window start ==="

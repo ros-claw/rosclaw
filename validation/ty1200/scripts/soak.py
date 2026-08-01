@@ -129,7 +129,7 @@ def main() -> int:
         if now - last["embed"] >= intervals["embed"]:
             ok, lat, err = http_post(
                 f"{args.embedding_endpoint}/embeddings",
-                {"model": "/models/Qwen/Qwen3-Embedding-0.6B", "input": "soak probe"}, 30)
+                {"model": "qwen3-embedding-0.6b", "input": "soak probe"}, 30)
             record("embedding", ok, lat, {"error": err} if err else None)
             last["embed"] = now
 
