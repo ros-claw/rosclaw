@@ -461,8 +461,13 @@ class AgentService:
         goal_text: str,
         *,
         mode: str | None = None,
-        owner_principal: str = "user:local:1000",
+        owner_principal: str | None = None,
     ) -> MissionSessionV1:
+        if owner_principal is None:
+            # 默认主体来自真实本地 uid——与 operator.sock 的 SO_PEERCRED
+            # 身份一致（CI 等非 1000 uid 环境下 EXACT_ACTION verify 才能
+            # 通过 principal 校验）。
+            owner_principal = f"user:local:{os.getuid()}"
         requested_mode = ExecutionMode(mode or self._config.default_mode)
         body = self._body_source.get_body(self._body_id)
         if body is None:
