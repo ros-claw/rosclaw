@@ -12,6 +12,7 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 
+from fastapi import Request as _Request
 from pydantic import BaseModel as _BaseModel
 
 from rosclaw.agentd.config import AgentConfig
@@ -192,6 +193,12 @@ class AgentService:
             if s.get("name") and s.get("command")
         ]
         self._mcp_discovered = False
+        # 批次 B：命令注册表（命令永不进入模型上下文）。
+        from rosclaw.agentd.ui.command_service import CommandService
+        from rosclaw.agentd.ui.interaction_service import InteractionService
+
+        self._commands = CommandService(self)
+        self._interactions = InteractionService()
         consent_source = ConfigConsentSource()
         from rosclaw.operator import OperatorBroker
 
@@ -262,6 +269,7 @@ class AgentService:
                 "external_cli": external_adapter,
             },
             actor_id=self.actor_id,
+            event_recorder=self._record_worker_event,
         )
         self._handlers = ServiceIntentHandlers(
             registry=self._registry,
@@ -473,6 +481,10 @@ class AgentService:
         mission = self._store.get_mission(mission_id)
         if mission is None:
             raise ValidationError(f"unknown mission {mission_id!r}")
+        if self.mission_archived(mission_id):
+            raise ValidationError(
+                f"mission {mission_id!r} is archived (read-only); create a new mission"
+            )
         await self._ensure_mcp_discovered()
         async with self._runner.lock_for(mission_id):
             if self._handlers is not None:
@@ -505,6 +517,37 @@ class AgentService:
     @property
     def tool_resolver(self):
         return self._tool_resolver
+
+    def _record_worker_event(self, mission_id: str, to_status: str, payload: dict) -> None:
+        """Sync bridge: WorkerManager transitions → AgentEventV2 (批次 B)."""
+        import asyncio as _asyncio
+
+        from rosclaw.contracts.agent.agent_event import AgentEventType
+
+        event_type = {
+            "CLAIMED": AgentEventType.WORKER_CLAIMED,
+            "RUNNING": AgentEventType.WORKER_STARTED,
+            "SUBMITTED": AgentEventType.WORKER_SUBMITTED,
+            "VERIFYING": AgentEventType.WORKER_VERIFYING,
+            "ACCEPTED": AgentEventType.WORKER_ACCEPTED,
+            "FAILED": AgentEventType.WORKER_FAILED,
+            "EXPIRED": AgentEventType.WORKER_EXPIRED,
+        }.get(to_status)
+        if event_type is None:
+            return
+        try:
+            loop = _asyncio.get_running_loop()
+        except RuntimeError:
+            return  # no loop (e.g. sync CLI path) — worker_events table is the record
+        loop.create_task(self._events.append(mission_id, event_type, payload))
+
+    @property
+    def commands(self):
+        return self._commands
+
+    @property
+    def interactions(self):
+        return self._interactions
 
     def conversation(self, mission_id: str) -> list[dict]:
         return self._store.conversation(mission_id)
@@ -543,9 +586,138 @@ class AgentService:
         }
 
     async def cancel(self, mission_id: str) -> None:
+        from rosclaw.contracts.agent.agent_event import AgentEventType
+
+        await self._events.append(mission_id, AgentEventType.TURN_CANCEL_REQUESTED, {})
         loop = self._loops.get(mission_id)
         if loop is not None:
             loop.request_cancel()
+
+    # ------------------------------------------------------------------
+    # 批次 B：UI 控制面（命令/快照/归档/重命名）
+    # ------------------------------------------------------------------
+    def turn_in_flight(self, mission_id: str) -> bool:
+        task = self._turn_tasks.get(mission_id)
+        return task is not None and not task.done()
+
+    def rename_mission(self, mission_id: str, name: str) -> None:
+        if self._store.get_mission(mission_id) is None:
+            raise ValidationError(f"unknown mission {mission_id!r}")
+        self._store.set_mission_meta(mission_id, display_name=name)
+        import asyncio
+
+        from rosclaw.contracts.agent.agent_event import AgentEventType
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(
+                self._events.append(
+                    mission_id, AgentEventType.MISSION_RENAMED, {"name": name[:120]}
+                )
+            )
+        except RuntimeError:
+            pass
+
+    def archive_mission(self, mission_id: str) -> None:
+        if self._store.get_mission(mission_id) is None:
+            raise ValidationError(f"unknown mission {mission_id!r}")
+        self._store.set_mission_meta(mission_id, archived=True)
+        import asyncio
+
+        from rosclaw.contracts.agent.agent_event import AgentEventType
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(
+                self._events.append(mission_id, AgentEventType.MISSION_ARCHIVED, {})
+            )
+        except RuntimeError:
+            pass
+
+    def mission_archived(self, mission_id: str) -> bool:
+        return bool(self._store.mission_meta(mission_id)["archived"])
+
+    def status_snapshot(self, mission_id: str | None = None) -> dict:
+        data: dict = {
+            "agent": "rosclaw-agentd",
+            "body_id": self._body_id,
+            "daemon_connected": self._daemon_client is not None,
+            "mcp_servers": [a.source for a in self._mcp_adapters],
+            "model_profile": self._gateway.profile.name,
+            "model": self._gateway.profile.model,
+            "tools_registered": len(self._tool_catalog.list()),
+        }
+        if mission_id:
+            mission = self._store.get_mission(mission_id)
+            if mission is not None:
+                data["mission"] = {
+                    "state": mission.state.value,
+                    "mode": mission.mode.value,
+                    "pending_approvals": len(self.pending_approvals(mission_id)),
+                    "turn_in_flight": self.turn_in_flight(mission_id),
+                    "archived": self.mission_archived(mission_id),
+                }
+        return data
+
+    def snapshot(self, mission_id: str):
+        """MissionSnapshotV1 — 重连校准用权威快照（批次 B §5.3）。"""
+        from rosclaw.contracts.ui.snapshots import MissionSnapshotV1
+
+        mission = self._store.get_mission(mission_id)
+        if mission is None:
+            raise ValidationError(f"unknown mission {mission_id!r}")
+        from rosclaw.agentd.context.compaction import CompactionStore
+        from rosclaw.agentd.mission.store import _utcnow
+
+        meta = self._store.mission_meta(mission_id)
+        grants = [
+            {
+                "grant_id": g.get("grant_id"),
+                "tier": g.get("tier"),
+                "risk_ceiling": g.get("risk_ceiling"),
+                "expires_at": g.get("expires_at"),
+            }
+            for g in self.list_grants()
+            if not g.get("revoked") and not g.get("consumed")
+        ]
+        orders = [
+            {
+                "work_order_id": o.work_order_id,
+                "status": o.status,
+                "assigned_to": o.assigned_to,
+            }
+            for o in self._worker_manager.orders_for_mission(mission_id)
+            if o.status not in ("ACCEPTED", "REJECTED", "EXPIRED", "CANCELLED")
+        ]
+        return MissionSnapshotV1(
+            mission_id=mission_id,
+            name=meta["display_name"] or mission.goal.text[:60],
+            goal_text=mission.goal.text,
+            state=mission.state.value,
+            mode=mission.mode.value,
+            body_id=mission.body_binding.body_id,
+            context_id=f"ctx_{mission_id}",
+            context_revision=mission.context_revision,
+            task_graph_revision=mission.task_graph_revision,
+            last_event_sequence=self._events.latest_sequence(mission_id),
+            turn_in_flight=self.turn_in_flight(mission_id),
+            pending_approvals=[
+                {
+                    "request_id": r.request_id,
+                    "title": r.action_display.title,
+                    "risk_tier": r.action_display.risk_tier,
+                    "expires_at": r.expires_at,
+                }
+                for r in self.pending_approvals(mission_id)
+            ],
+            active_grants=grants,
+            open_work_orders=orders,
+            usage=self._usage.mission_totals(mission_id),
+            budgets=mission.budgets.model_dump(mode="json"),
+            compaction_count=CompactionStore(self._store.connection).count(mission_id),
+            tool_count=len(self._tool_catalog.list()),
+            captured_at=_utcnow(),
+        )
 
     # ------------------------------------------------------------------
     # approvals (Operator Broker surface for CLI/console)
@@ -562,6 +734,17 @@ class AgentService:
         grant = self._broker.decide(request_id, principal=principal, approve=approve)
         approval_req = self._broker.get_request(request_id)
         if approval_req is not None:
+            from rosclaw.contracts.agent.agent_event import AgentEventType
+
+            await self._events.append(
+                approval_req.mission_id,
+                AgentEventType.APPROVAL_DECIDED,
+                {
+                    "request_id": request_id,
+                    "approved": approve,
+                    "grant_id": grant.grant_id if grant else None,
+                },
+            )
             self._runner.notify_approval_decided(
                 approval_req.mission_id,
                 request_id,
@@ -620,6 +803,30 @@ class AgentService:
 
     def revoke_grant(self, grant_id: str, *, principal: str) -> None:
         self._broker.revoke(grant_id, principal=principal)
+        import asyncio as _asyncio
+
+        from rosclaw.contracts.agent.agent_event import AgentEventType
+
+        try:
+            loop = _asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(
+            self._append_global_event(AgentEventType.GRANT_REVOKED, {"grant_id": grant_id})
+        )
+
+    async def _append_global_event(self, event_type, payload: dict) -> None:
+        """Grant events span missions; journal against the owning mission when
+        resolvable, otherwise against the first mission that referenced it."""
+        row = self._store.connection.execute(
+            "SELECT r.mission_id FROM mission_grants g "
+            "JOIN operator_requests r ON r.request_id = g.request_id "
+            "WHERE g.grant_id = ?",
+            (payload.get("grant_id"),),
+        ).fetchone()
+        mission_id = row["mission_id"] if row else ""
+        if mission_id:
+            await self._events.append(mission_id, event_type, payload)
 
     # ------------------------------------------------------------------
     async def probe(self) -> ModelProbeResult:
@@ -665,6 +872,18 @@ class TurnCreate(_BaseModel):
 class DecisionCreate(_BaseModel):
     approve: bool
     principal: str = "user:local:1000"
+
+
+class CommandRequestCreate(_BaseModel):
+    request_id: str
+    idempotency_key: str
+    command_name: str
+    arguments: dict = {}
+
+
+class InteractionRespond(_BaseModel):
+    value: object = None
+    idempotency_key: str = ""
 
 
 def _turn_payload(result) -> dict:
@@ -747,18 +966,24 @@ def create_app(service: AgentService):
     @app.get("/v2/missions/{mission_id}/events")
     async def v2_events(
         mission_id: str,
+        request: _Request,
         after_sequence: int = 0,
         visibility: str | None = None,
         follow: bool = True,
     ):
         """Long-lived SSE: replay journal from after_sequence, then live.
-        ``follow=false`` returns after replay (bounded read)."""
+        ``follow=false`` returns after replay (bounded read).
+        批次 B：支持标准 Last-Event-ID 头（断线恢复优先于 query 参数）。"""
         import json as _json
 
         from fastapi.responses import StreamingResponse
 
         if service.get_mission(mission_id) is None:
             raise HTTPException(status_code=404, detail="mission not found")
+
+        last_event_id = request.headers.get("last-event-id")
+        if last_event_id and last_event_id.isdigit():
+            after_sequence = max(after_sequence, int(last_event_id))
 
         def frame(event) -> str:
             return f"id: {event.sequence}\ndata: {_json.dumps(event.model_dump(mode='json'), ensure_ascii=False)}\n\n"
@@ -790,6 +1015,61 @@ def create_app(service: AgentService):
     async def v2_cancel(mission_id: str) -> dict:
         await service.cancel_turn_v2(mission_id)
         return {"cancelled": True}
+
+    # ------------------------------------------------------------------
+    # 批次 B：capabilities / commands / snapshot / interactions
+    # ------------------------------------------------------------------
+    @app.get("/v1/capabilities")
+    async def v1_capabilities(mission_id: str | None = None) -> dict:
+        """服务端命令注册表（含 disabled_reason）。"""
+        state = None
+        in_flight = False
+        if mission_id:
+            mission = service.get_mission(mission_id)
+            if mission is None:
+                raise HTTPException(status_code=404, detail="mission not found")
+            state = mission.state.value
+            in_flight = service.turn_in_flight(mission_id)
+        specs = service.commands.specs(mission_state=state, turn_in_flight=in_flight)
+        return {
+            "commands": [s.model_dump(mode="json") for s in specs],
+            "event_stream": {"url": "/v2/missions/{mission_id}/events", "resume": "Last-Event-ID"},
+            "snapshot_url": "/v1/missions/{mission_id}/snapshot",
+        }
+
+    @app.post("/v1/missions/{mission_id}/commands")
+    async def v1_command(mission_id: str, payload: CommandRequestCreate) -> dict:
+        from rosclaw.contracts.ui.commands import CommandRequestV1
+
+        if service.get_mission(mission_id) is None:
+            raise HTTPException(status_code=404, detail="mission not found")
+        request = CommandRequestV1(
+            request_id=payload.request_id,
+            idempotency_key=payload.idempotency_key,
+            command_name=payload.command_name.lstrip("/"),
+            arguments=payload.arguments,
+            mission_id=mission_id,
+        )
+        result = await service.commands.execute(request)
+        return result.model_dump(mode="json")
+
+    @app.get("/v1/missions/{mission_id}/snapshot")
+    async def v1_snapshot(mission_id: str) -> dict:
+        try:
+            return service.snapshot(mission_id).model_dump(mode="json")
+        except ValidationError:
+            raise HTTPException(status_code=404, detail="mission not found") from None
+
+    @app.post("/v1/interactions/{interaction_id}/respond")
+    async def v1_interaction_respond(interaction_id: str, payload: InteractionRespond) -> dict:
+        """通用 select/confirm/input/editor 响应。物理/授权决定永远走
+        /approvals/{request_id}/decide——本端点绝不能改变授权状态。"""
+        try:
+            return service.interactions.respond(
+                interaction_id, value=payload.value, idempotency_key=payload.idempotency_key
+            )
+        except ValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
 
     @app.post("/missions/{mission_id}/turns/stream")
     async def send_turn_stream(mission_id: str, payload: TurnCreate):

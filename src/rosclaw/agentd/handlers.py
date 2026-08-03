@@ -296,6 +296,12 @@ class ServiceIntentHandlers:
             )
         except GrantDeniedError as exc:
             return HandlerOutcome(text=f"授权校验失败（{exc.reason_code}）：{exc}。动作未提交。")
+        # EXACT_ACTION 单次性：verify 成功即消费（批次 B 事件）。
+        await self._emit(
+            "grant.consumed",
+            decision.mission_id,
+            {"grant_id": str(grant_id), "public_hash": grant.public_hash},
+        )
         consent = getattr(self, "_consent_channel", None)
         # ADR-0007 完整路径只在"该授权确实关联了 daemon proposal"时生效
         # （REAL 模式）；否则回落到 SIM action_channel 或诚实无通道。

@@ -198,6 +198,28 @@ live 模型协调。3v3 联赛基准（T-SIM-2/3）属 PR-TF-075 后续范围。
   unverified/inferred 显式拒绝并记录；Darwin 晋升门 = 评测引用 + 人类
   principal，任何代码路径不能自动晋升。
 
+## UI 控制面（批次 B：命令/事件/快照/交互）
+
+- **命令是控制协议，不是聊天文本**：`/compact /cancel /rename /archive
+  /status /tools` 经 CommandService 注册表路由到控制 API，永不进入模型
+  上下文；`/approve /estop` 属 SAFETY_CONTROL，走专用端点，不在通用
+  注册表。`GET /v1/capabilities` 返回含 disabled_reason 的命令表；
+  `POST /v1/missions/{id}/commands` 幂等执行（idempotency_key）。
+- **事件全集（AgentEventV2）**：agent.started/settled/failed（settled
+  是 TUI 停 spinner 的唯一可靠信号，失败路径也保证发出）、turn.*、
+  message.*、model.selected/request.ended、context.usage、tool.*、
+  worker 全生命周期（claimed→started→submitted→verifying→accepted/
+  failed/expired）、approval.requested/decided、grant.revoked/consumed、
+  mission.renamed/archived。per-mission sequence 单调无缺口。
+- **断线恢复**：SSE 支持标准 `Last-Event-ID` 头；sequence 出现缺口时
+  客户端拉 `GET /v1/missions/{id}/snapshot`（MissionSnapshotV1）重新
+  对齐——快照只含可公开状态（grant 仅 public 字段，无 secret/Permit）。
+- **通用交互**：InteractionRequestV1（select/confirm/input/editor）经
+  `POST /v1/interactions/{id}/respond` 响应；masked 值不落 journal；
+  generic confirm 永远不能伪造 approval。
+- Mission 展示名/归档存 `mission_meta`（migration 011），不改
+  MissionSessionV1 契约与状态机；归档 mission 拒绝新 turn。
+
 ## Tool/Capability Catalog（PR-05）
 
 - **ToolDescriptorV2**（`rosclaw.tool_descriptor.v2`）在契约层强制：

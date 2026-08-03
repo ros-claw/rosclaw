@@ -22,6 +22,9 @@ from rosclaw.contracts.operator.grant import MissionGrantV1
 from rosclaw.contracts.team.member import TeamMemberCardV1
 from rosclaw.contracts.team.role import RoleLeaseV1
 from rosclaw.contracts.team.world import SharedWorldDeltaV1, SharedWorldSnapshotV1
+from rosclaw.contracts.ui.commands import CommandRequestV1, CommandResultV1, CommandSpecV1
+from rosclaw.contracts.ui.interactions import InteractionRequestV1
+from rosclaw.contracts.ui.snapshots import MissionSnapshotV1
 from rosclaw.contracts.worker.card import WorkerCardV1
 from rosclaw.contracts.worker.order import WorkOrderV1, WorkResultV1
 
@@ -46,6 +49,11 @@ ALL_CONTRACTS: dict[str, type[ContractModel]] = {
         MissionGrantV1,
         ApprovalRequestV2,
         ToolDescriptorV2,
+        CommandSpecV1,
+        CommandRequestV1,
+        CommandResultV1,
+        MissionSnapshotV1,
+        InteractionRequestV1,
     )
 }
 

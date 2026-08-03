@@ -144,6 +144,36 @@ class MissionStore:
                 total += len(payload.get("messages") or [])
         return total
 
+    # ------------------------------------------------------------------
+    # mission meta (批次 B: display name / archive; 不改 Mission 契约)
+    # ------------------------------------------------------------------
+    def set_mission_meta(
+        self, mission_id: str, *, display_name: str | None = None, archived: bool | None = None
+    ) -> None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT display_name, archived FROM mission_meta WHERE mission_id = ?",
+                (mission_id,),
+            ).fetchone()
+            name = display_name if display_name is not None else (row["display_name"] if row else "")
+            arch = archived if archived is not None else (bool(row["archived"]) if row else False)
+            self._conn.execute(
+                "INSERT INTO mission_meta (mission_id, display_name, archived, updated_at) "
+                "VALUES (?, ?, ?, ?) ON CONFLICT(mission_id) DO UPDATE SET "
+                "display_name = excluded.display_name, archived = excluded.archived, "
+                "updated_at = excluded.updated_at",
+                (mission_id, name, 1 if arch else 0, _utcnow()),
+            )
+
+    def mission_meta(self, mission_id: str) -> dict:
+        row = self._conn.execute(
+            "SELECT display_name, archived FROM mission_meta WHERE mission_id = ?",
+            (mission_id,),
+        ).fetchone()
+        if row is None:
+            return {"display_name": "", "archived": False}
+        return {"display_name": row["display_name"], "archived": bool(row["archived"])}
+
     def conversation(self, mission_id: str) -> list[dict]:
         messages: list[dict] = []
         for event in self.events(mission_id):

@@ -238,6 +238,28 @@ class AgentLoop:
         # persisted before any model call.
         self._store.record_context_manifest(bundle, prompt_hash=self._prompt.content_hash)
         self._current_bundle = bundle
+        from rosclaw.contracts.agent.agent_event import AgentEventType, Visibility
+
+        await self._emit(
+            AgentEventType.CONTEXT_USAGE,
+            {
+                "context_id": bundle.context_id,
+                "context_revision": bundle.context_revision,
+                "layer_tokens": {
+                    "constitution": bundle.layers.constitution.token_estimate,
+                    "embodiment": bundle.layers.embodiment.token_estimate,
+                    "capabilities": bundle.layers.capabilities.token_estimate,
+                    "mission": bundle.layers.mission.token_estimate,
+                    "safety": bundle.layers.safety.token_estimate,
+                },
+            },
+            visibility=Visibility.DEBUG,
+        )
+        await self._emit(
+            AgentEventType.MODEL_SELECTED,
+            {"profile": self._gateway.profile.name, "model": self._gateway.profile.model},
+            visibility=Visibility.DEBUG,
+        )
 
         if mission.state is MissionState.UNDERSTAND:
             mission = self._store.transition(
@@ -306,6 +328,8 @@ class AgentLoop:
                 context_revision=bundle.context_revision,
             )
             try:
+                if on_text_delta is not None:
+                    await self._emit(AgentEventType.MESSAGE_STARTED, {}, visibility=Visibility.DEBUG)
                 turn = await self._gateway.complete_stream(request, on_text_delta=on_text_delta)
             except ModelGatewayError as exc:
                 from rosclaw.agentd.context.compact import is_context_overflow
@@ -335,6 +359,17 @@ class AgentLoop:
                     result.state = self._current_state(mission.mission_id)
                     return result
             result.model_turns += 1
+            await self._emit(
+                AgentEventType.MODEL_REQUEST_ENDED,
+                {
+                    "prompt_tokens": turn.usage.prompt_tokens,
+                    "completion_tokens": turn.usage.completion_tokens,
+                    "finish_reason": turn.finish_reason,
+                },
+                visibility=Visibility.DEBUG,
+            )
+            if on_text_delta is not None:
+                await self._emit(AgentEventType.MESSAGE_ENDED, {}, visibility=Visibility.DEBUG)
             if not self._record_usage(mission.mission_id, turn, result):
                 # 预算超限（§4.2）：必须进入 WAIT_INPUT/SUSPENDED，不得继续
                 # 执行本轮决策。

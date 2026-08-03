@@ -75,14 +75,36 @@ class MissionRunner:
         async def run() -> None:
             # send_turn 持有每 Mission 锁（不重入）；这里不再加锁。
             state_before = service.store.get_mission(mission_id).state
+            await service._events.append(
+                mission_id, AgentEventType.AGENT_STARTED, {}, turn_id=turn_id
+            )
             try:
                 result = await service.send_turn(mission_id, text, on_delta)
             except Exception as exc:  # noqa: BLE001 - errors become events
                 await service._events.append(
+                    mission_id, AgentEventType.AGENT_FAILED, {"error": str(exc)}, turn_id=turn_id
+                )
+                await service._events.append(
                     mission_id, AgentEventType.ERROR, {"error": str(exc)}, turn_id=turn_id
                 )
+                # settled 总能发出（TUI 停 spinner 的唯一可靠信号）。
+                await service._events.append(
+                    mission_id, AgentEventType.AGENT_SETTLED, {"outcome": "failed"}, turn_id=turn_id
+                )
                 return
+            await service._events.append(
+                mission_id,
+                AgentEventType.TURN_ENDED,
+                {"state": result.state.value},
+                turn_id=turn_id,
+            )
             await self._after_turn(mission_id, state_before, result, turn_id, chain=0)
+            await service._events.append(
+                mission_id,
+                AgentEventType.AGENT_SETTLED,
+                {"outcome": result.state.value},
+                turn_id=turn_id,
+            )
 
         service._turn_tasks[mission_id] = asyncio.create_task(run())
         return turn_id
@@ -146,11 +168,27 @@ class MissionRunner:
         if mission is None or mission.state.value in ("IDLE", "FAILED"):
             return
         state_before = mission.state
+        await service._events.append(
+            mission_id, AgentEventType.AGENT_STARTED, {"wake": True}, turn_id=turn_id
+        )
         try:
             result = await service.send_turn(mission_id, notice)
         except Exception:  # noqa: BLE001
+            await service._events.append(
+                mission_id, AgentEventType.AGENT_FAILED, {"error": "wake resume failed"},
+                turn_id=turn_id,
+            )
+            await service._events.append(
+                mission_id, AgentEventType.AGENT_SETTLED, {"outcome": "failed"}, turn_id=turn_id
+            )
             return
         await self._after_turn(mission_id, state_before, result, turn_id, chain=chain + 1)
+        await service._events.append(
+            mission_id,
+            AgentEventType.AGENT_SETTLED,
+            {"outcome": result.state.value},
+            turn_id=turn_id,
+        )
 
     # ------------------------------------------------------------------
     # wake notifications (called by service/handlers on external events)

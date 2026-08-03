@@ -64,11 +64,13 @@ class WorkerManager:
         adapters: dict[str, WorkerAdapter],
         actor_id: str,
         poll_interval_sec: float = 0.05,
+        event_recorder=None,
     ) -> None:
         self._conn = conn
         self._adapters = adapters
         self._actor_id = actor_id
         self._poll_interval = poll_interval_sec
+        self._event_recorder = event_recorder
         self._scheduler = Scheduler()
 
     # ------------------------------------------------------------------
@@ -322,6 +324,7 @@ class WorkerManager:
             "CLAIMED": "claimed",
             "RUNNING": "started",
             "SUBMITTED": "submitted",
+            "VERIFYING": "verifying",
             "ACCEPTED": "accepted",
             "FAILED": "failed",
             "EXPIRED": "expired",
@@ -339,6 +342,14 @@ class WorkerManager:
             },
             f"{work_order_id}:{to_status}",
         )
+        # 批次 B：同步桥到 AgentEventV2（service 提供的 recorder 负责调度到
+        # 事件循环；manager 本身保持同步）。
+        if self._event_recorder is not None:
+            self._event_recorder(
+                order.mission_id,
+                to_status,
+                {"work_order_id": work_order_id, "worker_id": order.assigned_to or ""},
+            )
 
     def _heartbeat(self, work_order_id: str, progress_seq: int) -> None:
         self._conn.execute(
