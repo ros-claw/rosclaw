@@ -260,7 +260,17 @@ class AgentLoop:
         candidate_tools = bundle.layers.capabilities.candidate_tools or []
         tools: list[StrictTool] = []
         if self._tools is not None and candidate_tools:
-            tools = self._tools.strict_tools(candidate_tools)
+            # PR-05: when the registry is catalog-backed, injection goes
+            # through resolver hard filters + relevance ranking (≤12).
+            resolve = getattr(self._tools, "resolve_tools", None)
+            if resolve is not None:
+                tools = resolve(
+                    candidate_tools,
+                    mode=mission.mode.value,
+                    task_hint=mission.goal.text if mission.goal else "",
+                )
+            else:
+                tools = self._tools.strict_tools(candidate_tools)
         if self._decision_protocol == "tool_call":
             from rosclaw.agentd.decisions.submit_tool import submit_decision_tool
 
@@ -552,28 +562,40 @@ class AgentLoop:
             )
             return True
         arguments = payload.get("arguments") or {}
+        error: str | None = None
         try:
             output = await self._tools.execute(tool_name, arguments)
             ok = True
         except Exception as exc:  # noqa: BLE001 - surfaced as data
             output = json.dumps({"error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False)
+            error = f"{type(exc).__name__}: {exc}"
             ok = False
-        # 证据封装：时间戳/body/来源/证据类/freshness/artifact ref。
+        # PR-05 证据封装：EvidenceEnvelope（时间戳/body/来源/证据类/freshness/
+        # artifact ref/UNTRUSTED 包裹）；legacy registry 回退到旧格式。
         import hashlib
-        from datetime import UTC, datetime
 
         digest = hashlib.sha256(output.encode()).hexdigest()[:24]
         artifact_ref = f"artifact://observation/sha256:{digest}"
-        evidence_note = (
-            f"[observation — evidence]\n"
-            f"tool: {tool_name}\n"
-            f"timestamp: {datetime.now(UTC).isoformat()}\n"
-            f"body_id: {bundle.body_binding.body_id}\n"
-            f"source: native_tool\n"
-            f"evidence_class: measured\n"
-            f"artifact_ref: {artifact_ref}\n"
-            f"result: {output[:2000]}"
-        )
+        make_envelope = getattr(self._tools, "evidence_envelope", None)
+        if make_envelope is not None:
+            envelope = make_envelope(
+                tool_name, output, body_id=bundle.body_binding.body_id, error=error
+            )
+            evidence_note = envelope.render_for_model()
+            artifact_ref = envelope.artifact_ref or artifact_ref
+        else:
+            from datetime import UTC, datetime
+
+            evidence_note = (
+                f"[observation — evidence]\n"
+                f"tool: {tool_name}\n"
+                f"timestamp: {datetime.now(UTC).isoformat()}\n"
+                f"body_id: {bundle.body_binding.body_id}\n"
+                f"source: native_tool\n"
+                f"evidence_class: measured\n"
+                f"artifact_ref: {artifact_ref}\n"
+                f"result: {output[:2000]}"
+            )
         self._conversation.append(
             {"role": "tool", "tool_call_id": f"obs_{digest}", "content": evidence_note}
         )

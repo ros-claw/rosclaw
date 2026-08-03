@@ -1,0 +1,578 @@
+"""PR-05 Tool/Capability Catalog tests (大纲 §7 + 补充文档 §10).
+
+- ToolDescriptorV2 contract invariants (fail closed)
+- Catalog guards: PHYSICAL_ACTION never executable, quarantine, timeout
+- ToolResolver hard filters (each reason) + explainability + ranking cap
+- Safety never enters model-facing scoring
+- MCP adapter: real stdio discovery against a LIMO-like fixture server,
+  fail-closed classification, fault-injection quarantine
+- Evidence wrapper: untrusted marking, artifact spill, honest errors
+- Exit condition: LIMO MCP observation usable, action not directly executable
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pytest
+
+from rosclaw.agentd.tooling.artifact_result import ArtifactResultStore
+from rosclaw.agentd.tooling.catalog import (
+    ToolCatalog,
+    ToolNotCallableError,
+    ToolQuarantinedError,
+)
+from rosclaw.agentd.tooling.catalog_registry import CatalogToolRegistry
+from rosclaw.agentd.tooling.descriptor import physical_action_descriptor
+from rosclaw.agentd.tooling.evidence import ARTIFACT_SPILL_BYTES, wrap_observation
+from rosclaw.agentd.tooling.mcp_adapter import McpCapabilityAdapter, McpServerConfig
+from rosclaw.agentd.tooling.resolver import FilterContext, ToolResolver
+from rosclaw.agentd.tooling.strict_schema import to_strict_tool
+from rosclaw.contracts.agent.tool import (
+    ExecutionClass,
+    ToolDescriptorV2,
+    ToolSideEffectClass,
+)
+from rosclaw.contracts.common import ValidationError
+
+FIXTURE_SERVER = Path(__file__).parent / "fixtures" / "limo_mcp_server.py"
+
+
+def _obs(tool_id: str = "test.observe", **overrides) -> ToolDescriptorV2:
+    payload = {
+        "tool_id": tool_id,
+        "source": "test",
+        "execution_class": ExecutionClass.OBSERVE,
+        "verifier": "schema+timestamp",
+    }
+    payload.update(overrides)
+    return ToolDescriptorV2(**payload)
+
+
+class TestDescriptorInvariants:
+    def test_physical_action_never_model_callable(self) -> None:
+        with pytest.raises(ValidationError, match="never model_callable"):
+            ToolDescriptorV2(
+                tool_id="bad",
+                source="test",
+                execution_class=ExecutionClass.PHYSICAL_ACTION,
+                requires_exact_action_grant=True,
+                model_callable=True,
+            )
+
+    def test_grant_requirement_implies_not_callable(self) -> None:
+        with pytest.raises(ValidationError, match="model_callable=False"):
+            ToolDescriptorV2(
+                tool_id="bad",
+                source="test",
+                execution_class=ExecutionClass.OBSERVE,
+                requires_exact_action_grant=True,
+            )
+
+    def test_physical_action_must_require_grant(self) -> None:
+        with pytest.raises(ValidationError, match="requires_exact_action_grant"):
+            ToolDescriptorV2(
+                tool_id="bad",
+                source="test",
+                execution_class=ExecutionClass.PHYSICAL_ACTION,
+                model_callable=False,
+                side_effect_class=ToolSideEffectClass.REVERSIBLE,
+            )
+
+    def test_observe_cannot_have_side_effects(self) -> None:
+        with pytest.raises(ValidationError, match="side_effect_class=NONE"):
+            ToolDescriptorV2(
+                tool_id="bad",
+                source="test",
+                execution_class=ExecutionClass.OBSERVE,
+                side_effect_class=ToolSideEffectClass.REVERSIBLE,
+            )
+
+    def test_helper_constructs_valid_physical_action(self) -> None:
+        d = physical_action_descriptor("limo.speaker.play_tone", source="mcp:limo")
+        assert d.execution_class is ExecutionClass.PHYSICAL_ACTION
+        assert not d.model_callable and d.requires_exact_action_grant
+
+
+class TestCatalogGuards:
+    async def test_physical_action_not_executable(self) -> None:
+        catalog = ToolCatalog()
+        catalog.register(physical_action_descriptor("limo.speaker.play_tone", source="mcp:x"))
+        with pytest.raises(ToolNotCallableError, match="PHYSICAL_ACTION"):
+            await catalog.execute("limo.speaker.play_tone", {})
+
+    async def test_quarantined_tool_fails_honestly(self) -> None:
+        catalog = ToolCatalog()
+        catalog.register(_obs(), lambda args: _never_called(args))
+        catalog.quarantine_tool("test.observe", "health check failed")
+        with pytest.raises(ToolQuarantinedError, match="health check failed"):
+            await catalog.execute("test.observe", {})
+
+    async def test_unknown_tool_rejected(self) -> None:
+        catalog = ToolCatalog()
+        with pytest.raises(ValidationError, match="not in catalog"):
+            await catalog.execute("ghost", {})
+
+    async def test_duplicate_register_rejected_replace_ok(self) -> None:
+        catalog = ToolCatalog()
+        catalog.register(_obs())
+        with pytest.raises(ValidationError, match="already registered"):
+            catalog.register(_obs())
+        catalog.replace(_obs(description="v2"))
+        assert catalog.get("test.observe").description == "v2"
+
+    async def test_timeout_enforced(self) -> None:
+        import asyncio
+
+        async def slow(args):
+            await asyncio.sleep(5)
+            return "{}"
+
+        catalog = ToolCatalog()
+        catalog.register(_obs(timeout_ms=50), slow)
+        with pytest.raises(asyncio.TimeoutError):
+            await catalog.execute("test.observe", {})
+
+
+async def _never_called(args):  # pragma: no cover - guard
+    raise AssertionError("must not execute")
+
+
+class TestResolverHardFilters:
+    def _resolver_with(self, *descriptors: ToolDescriptorV2):
+        catalog = ToolCatalog()
+        for d in descriptors:
+            catalog.register(d, lambda args: _never_called(args))
+        return ToolResolver(catalog), catalog
+
+    def test_each_hard_filter_reason(self) -> None:
+        resolver, catalog = self._resolver_with(
+            _obs("t.body", required_body_types=["agilex-limo"]),
+            _obs("t.mode", supported_modes=["REAL"]),
+            _obs("t.caps", required_capabilities=["lidar.online"]),
+            _obs("t.fresh", freshness_ms=500),
+            _obs("t.policy"),
+            _obs("t.budget", cost_hint=1.0),
+            _obs("t.noverifier", verifier=""),
+            _obs("t.quar"),
+            _obs("t.ok"),
+        )
+        catalog.quarantine_tool("t.quar", "dead")
+        ctx = FilterContext(
+            body_type="other-robot",
+            mode="SIMULATION",
+            online_capabilities=frozenset(),
+            self_snapshot_fresh=False,
+            policy_denied_tools=frozenset({"t.policy"}),
+            budget_exceeded=True,
+        )
+        result = resolver.resolve(ctx)
+        assert [d.tool_id for d in result.injected] == ["t.ok"]
+        reasons = {d.tool_id: d.reasons for d in result.excluded}
+        assert "body_incompatible" in reasons["t.body"][0]
+        assert "mode_not_allowed" in reasons["t.mode"][0]
+        assert "capability_offline" in reasons["t.caps"][0]
+        assert "self_snapshot_stale" in reasons["t.fresh"][0]
+        assert "policy_denied" in reasons["t.policy"][0]
+        assert "budget_exceeded" in reasons["t.budget"][0]
+        assert "no_verifier" in reasons["t.noverifier"][0]
+        assert reasons["t.quar"][0].startswith("quarantined")
+
+    def test_permission_filter_binds_only_when_configured(self) -> None:
+        resolver, _ = self._resolver_with(_obs("t.perm", required_capabilities=["cam"]))
+        open_ctx = FilterContext(online_capabilities=frozenset({"cam"}))  # no permission set configured → not binding
+        assert resolver.resolve(open_ctx).injected[0].tool_id == "t.perm"
+        strict_ctx = FilterContext(
+            online_capabilities=frozenset({"cam"}),
+            granted_permissions=frozenset({"lidar"}),
+        )
+        result = resolver.resolve(strict_ctx)
+        assert not result.injected
+        assert "permission_not_granted" in result.excluded[0].reasons[0]
+
+    def test_physical_action_filtered_as_not_model_callable(self) -> None:
+        resolver, _ = self._resolver_with(
+            physical_action_descriptor("limo.speaker.play_tone", source="mcp:x")
+        )
+        result = resolver.resolve(FilterContext())
+        assert not result.injected
+        assert "not_model_callable" in result.excluded[0].reasons
+
+    def test_safety_never_in_score(self) -> None:
+        """A maximally-relevant, high-reliability tool still loses to filters."""
+        resolver, catalog = self._resolver_with(
+            _obs(
+                "pick red cube",
+                description="pick red cube grasp",
+                reliability=1.0,
+                typical_latency_ms=0,
+            )
+        )
+        catalog.quarantine_tool("pick red cube", "unsafe source")
+        ctx = FilterContext(task_hint="pick red cube")
+        result = resolver.resolve(ctx)
+        assert not result.injected, "score must never override quarantine"
+
+    def test_injection_cap_and_ranking(self) -> None:
+        descriptors = [
+            _obs(f"t.{i}", reliability=i / 20.0, typical_latency_ms=100 + i)
+            for i in range(20)
+        ]
+        resolver, _ = self._resolver_with(*descriptors)
+        result = resolver.resolve(FilterContext())
+        assert len(result.injected) == 12
+        scores = [d.reliability for d in result.injected]
+        assert scores == sorted(scores, reverse=True)
+        # overflow explained, not silently dropped
+        overflow = [d for d in result.excluded if d.reasons[0].startswith("injection_cap")]
+        assert len(overflow) == 8
+
+    def test_semantic_ranking_prefers_task_match(self) -> None:
+        resolver, _ = self._resolver_with(
+            _obs("limo.localization.get_pose", description="robot pose localization"),
+            _obs("camera.list", description="list cameras"),
+        )
+        ctx = FilterContext(task_hint="定位 pose 在哪里")
+        result = resolver.resolve(ctx)
+        assert result.injected[0].tool_id == "limo.localization.get_pose"
+
+
+class TestStrictSchema:
+    def test_observe_converts(self) -> None:
+        tool = to_strict_tool(
+            _obs(input_schema={"type": "object", "properties": {"f": {"type": "string"}}})
+        )
+        assert tool.parameters["additionalProperties"] is False
+        assert tool.parameters["required"] == ["f"]
+        assert "evidence_class" in tool.description
+
+    def test_physical_action_never_converts(self) -> None:
+        with pytest.raises(ValidationError, match="never become a model tool"):
+            to_strict_tool(physical_action_descriptor("x.act", source="mcp:x"))
+
+
+class TestMcpClassification:
+    def _adapter(self, **cfg) -> McpCapabilityAdapter:
+        return McpCapabilityAdapter(
+            McpServerConfig(name="limo", command="true", **cfg), ToolCatalog()
+        )
+
+    def test_action_verb_is_physical(self) -> None:
+        adapter = self._adapter()
+        assert adapter.classify("limo.speaker.play_tone", None) is ExecutionClass.PHYSICAL_ACTION
+        assert adapter.classify("limo.base.move_to", None) is ExecutionClass.PHYSICAL_ACTION
+
+    def test_readonly_annotation_is_observe(self) -> None:
+        from mcp.types import ToolAnnotations
+
+        adapter = self._adapter()
+        ann = ToolAnnotations(readOnlyHint=True)
+        assert adapter.classify("limo.localization.get_pose", ann) is ExecutionClass.OBSERVE
+        # action verb wins over readOnlyHint (suspicious combo → fail closed)
+        assert adapter.classify("limo.arm.set_pose", ann) is ExecutionClass.PHYSICAL_ACTION
+
+    def test_ambiguous_fails_closed(self) -> None:
+        adapter = self._adapter()
+        assert adapter.classify("limo.misc.unknown", None) is ExecutionClass.PHYSICAL_ACTION
+
+    def test_config_overrides(self) -> None:
+        adapter = self._adapter(
+            observation_tools=("custom.status",), action_tools=("custom.reset",)
+        )
+        assert adapter.classify("custom.status", None) is ExecutionClass.OBSERVE
+        assert adapter.classify("custom.reset", None) is ExecutionClass.PHYSICAL_ACTION
+
+    def test_destructive_annotation_is_physical(self) -> None:
+        from mcp.types import ToolAnnotations
+
+        adapter = self._adapter()
+        ann = ToolAnnotations(readOnlyHint=True, destructiveHint=True)
+        assert adapter.classify("x.y", ann) is ExecutionClass.PHYSICAL_ACTION
+
+
+class TestMcpDiscovery:
+    async def test_discover_limo_fixture(self, tmp_path: Path) -> None:
+        catalog = ToolCatalog()
+        adapter = McpCapabilityAdapter(
+            McpServerConfig(
+                name="limo-ros-mcp",
+                command=sys.executable,
+                args=(str(FIXTURE_SERVER),),
+                supported_modes=("SIMULATION", "SHADOW"),
+                required_body_types=("agilex-limo",),
+            ),
+            catalog,
+        )
+        report = await adapter.discover()
+        assert report.ok, report.error
+        by_id = {d.tool_id: d for d in report.tools}
+        pose = by_id["limo.localization.get_pose"]
+        tone = by_id["limo.speaker.play_tone"]
+        ambiguous = by_id["limo.misc.ambiguous"]
+        # 退出条件 1：observation 可用（model-callable OBSERVE）。
+        assert pose.execution_class is ExecutionClass.OBSERVE
+        assert pose.model_callable and not pose.requires_exact_action_grant
+        # 退出条件 2：action 不可被模型直接执行。
+        assert tone.execution_class is ExecutionClass.PHYSICAL_ACTION
+        assert not tone.model_callable and tone.requires_exact_action_grant
+        # 无注解工具 fail closed。
+        assert ambiguous.execution_class is ExecutionClass.PHYSICAL_ACTION
+
+        # observation 通过 catalog 真正执行（真实 MCP stdio 调用）。
+        output = await catalog.execute("limo.localization.get_pose", {"frame": "map"})
+        assert "1.25" in output and "map" in output
+        # action 即使显式执行也被 catalog 拒绝。
+        with pytest.raises(ToolNotCallableError):
+            await catalog.execute("limo.speaker.play_tone", {"frequency_hz": 440})
+
+        # resolver 只注入 observation。
+        resolver = ToolResolver(catalog)
+        result = resolver.resolve(
+            FilterContext(body_type="agilex-limo", mode="SIMULATION", task_hint="pose")
+        )
+        injected = {d.tool_id for d in result.injected}
+        assert "limo.localization.get_pose" in injected
+        assert "limo.speaker.play_tone" not in injected
+
+    async def test_dead_server_quarantines_source(self) -> None:
+        catalog = ToolCatalog()
+        adapter = McpCapabilityAdapter(
+            McpServerConfig(name="dead", command="/nonexistent/binary-xyz"),
+            catalog,
+        )
+        report = await adapter.discover()
+        assert not report.ok and report.error
+        # pre-registered tools from an earlier session get quarantined too
+        catalog.register(_obs("limo.old", source="mcp:dead"))
+        catalog.quarantine_source("mcp:dead", f"discovery_failed: {report.error}")
+        resolver = ToolResolver(catalog)
+        result = resolver.resolve(FilterContext())
+        assert not result.injected
+        assert result.excluded[0].reasons[0].startswith("quarantined")
+
+
+class TestEvidenceWrapper:
+    def test_ok_envelope_marks_untrusted(self, tmp_path: Path) -> None:
+        d = _obs("limo.localization.get_pose", source="mcp:limo")
+        env = wrap_observation(d, '{"x": 1.0}', body_id="limo/01")
+        text = env.render_for_model()
+        assert "<untrusted_input" in text and "</untrusted_input>" in text
+        assert "evidence_class: MEASURED" in text
+        assert env.artifact_ref and env.artifact_ref.startswith("artifact://observation/")
+
+    def test_large_output_spills_to_artifact_store(self, tmp_path: Path) -> None:
+        store = ArtifactResultStore(tmp_path)
+        d = _obs()
+        big = "X" * (ARTIFACT_SPILL_BYTES + 100)
+        env = wrap_observation(d, big, body_id="b", artifact_store=store)
+        assert len(env.content) < len(big)
+        assert env.artifact_ref is not None
+        assert store.resolve(env.artifact_ref) == big
+        assert store.resolve("artifact://observation/sha256:nonexistent") is None
+
+    def test_error_envelope_is_honest(self) -> None:
+        d = _obs()
+        env = wrap_observation(d, '{"error": "boom"}', body_id="b", error="TimeoutError: boom")
+        text = env.render_for_model()
+        assert not env.ok
+        assert "error: TimeoutError: boom" in text
+        assert "do not fabricate" in text
+        assert "<untrusted_input" not in text  # nothing trustworthy to wrap
+
+
+class TestCatalogRegistry:
+    async def test_registry_guards_and_envelope(self, tmp_path: Path) -> None:
+        catalog = ToolCatalog()
+        catalog.register(_obs("t.obs"), lambda args: _echo(args))
+        catalog.register(physical_action_descriptor("t.act", source="mcp:x"))
+        registry = CatalogToolRegistry(
+            catalog, ToolResolver(catalog), artifact_store=ArtifactResultStore(tmp_path)
+        )
+        # strict_tools never surfaces the physical action
+        names = [t.name for t in registry.strict_tools(["t.obs", "t.act"])]
+        assert names == ["t.obs"]
+        with pytest.raises(ToolNotCallableError):
+            await registry.execute("t.act", {})
+        env = registry.evidence_envelope("t.obs", "data", body_id="b")
+        assert env.ok and env.content == "data"
+
+    def test_resolve_tools_applies_filters(self, tmp_path: Path) -> None:
+        catalog = ToolCatalog()
+        catalog.register(_obs("t.sim", supported_modes=["SIMULATION"]))
+        catalog.register(_obs("t.real", supported_modes=["REAL"]))
+        registry = CatalogToolRegistry(catalog, ToolResolver(catalog))
+        sim_names = {t.name for t in registry.resolve_tools(["t.sim", "t.real"], mode="SIMULATION")}
+        assert sim_names == {"t.sim"}
+        excluded = registry.excluded_reasons(["t.sim", "t.real"], mode="SIMULATION")
+        assert "mode_not_allowed" in excluded["t.real"][0]
+
+
+async def _echo(args):
+    import json
+
+    return json.dumps(args)
+
+
+class TestServiceIntegration:
+    """退出条件：LIMO MCP observation 可用，action 不可被模型直接执行 ——
+    走 AgentService 全链路（真实 MCP stdio server + 真实 AgentLoop）。"""
+
+    def _service(self, tmp_path: Path, script):
+        import yaml as _yaml
+
+        from rosclaw.agentd.config import load_agent_config
+        from rosclaw.agentd.models.gateway import MockModelGateway
+        from rosclaw.agentd.models.profiles import mock_profile
+        from rosclaw.agentd.service import AgentService
+
+        (tmp_path / "config.yaml").write_text(
+            _yaml.safe_dump(
+                {
+                    "agent": {"enabled": True},
+                    "mcp_servers": [
+                        {
+                            "name": "limo-ros-mcp",
+                            "command": sys.executable,
+                            "args": [str(FIXTURE_SERVER)],
+                            "supported_modes": ["SIMULATION", "SHADOW"],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        config = load_agent_config(tmp_path / "config.yaml")
+        return AgentService(config, tmp_path, gateway=MockModelGateway(mock_profile(), script))
+
+    @staticmethod
+    def _script(req):
+        import json as _json
+
+        from rosclaw.contracts.agent.model_turn import ModelTurnResultV1
+
+        if not hasattr(TestServiceIntegration._script, "n"):
+            TestServiceIntegration._script.n = 0
+        TestServiceIntegration._script.n += 1
+        if TestServiceIntegration._script.n == 1:
+            decision = {
+                "next_intent": "OBSERVE",
+                "summary": "读取 LIMO 位姿",
+                "evidence_refs": [],
+                "proposed_operation": {
+                    "type": "observe",
+                    "payload": {
+                        "tool": "limo.localization.get_pose",
+                        "arguments": {"frame": "map"},
+                    },
+                },
+            }
+        else:
+            decision = {
+                "next_intent": "ANSWER",
+                "summary": "位姿 x=1.25（MEASURED 观测证据）",
+                "evidence_refs": ["artifact://observation/x"],
+            }
+        decision.update(
+            {
+                "schema_version": "rosclaw.decision.v1",
+                "decision_id": f"dec_{TestServiceIntegration._script.n}",
+                "mission_id": req.mission_id,
+                "context_id": req.context_id,
+                "context_revision": req.context_revision,
+            }
+        )
+        return ModelTurnResultV1(
+            turn_id="t",
+            provider="mock",
+            model="m",
+            content=f"```json\n{_json.dumps(decision)}\n```",
+            assistant_message={"role": "assistant", "content": "x"},
+            usage={"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10},  # type: ignore[arg-type]
+        )
+
+    async def test_limo_observe_end_to_end(self, tmp_path: Path) -> None:
+        TestServiceIntegration._script.n = 0
+        service = self._service(tmp_path, [self._script] * 4)
+        try:
+            mission = service.create_mission("LIMO 观测闭环")
+            result = await service.send_turn(mission.mission_id, "看一下当前位姿")
+            # MCP 发现完成：descriptor 分类正确。
+            pose = service.tool_catalog.get("limo.localization.get_pose")
+            tone = service.tool_catalog.get("limo.speaker.play_tone")
+            assert pose is not None and pose.model_callable
+            assert tone is not None and not tone.model_callable
+            assert tone.requires_exact_action_grant
+            # OBSERVE 真正执行并进入证据封装。
+            assert result.tool_rounds >= 1
+            history = service.conversation(mission.mission_id)
+            obs = [m for m in history if "observation — evidence" in str(m.get("content"))]
+            assert obs, history
+            content = obs[0]["content"]
+            assert "limo.localization.get_pose" in content
+            assert "source: mcp:limo-ros-mcp" in content
+            assert "evidence_class: MEASURED" in content
+            assert "<untrusted_input" in content
+            assert "1.25" in content
+            # action tool 永不进入模型工具面。
+            from rosclaw.agentd.tooling.resolver import FilterContext
+
+            resolved = service.tool_resolver.resolve(FilterContext(mode="SIMULATION"))
+            injected = {d.tool_id for d in resolved.injected}
+            assert "limo.localization.get_pose" in injected
+            assert "limo.speaker.play_tone" not in injected
+        finally:
+            await service.close()
+
+    async def test_dead_mcp_server_degrades_honestly(self, tmp_path: Path) -> None:
+        import yaml as _yaml
+
+        from rosclaw.agentd.config import load_agent_config
+        from rosclaw.agentd.models.gateway import MockModelGateway
+        from rosclaw.agentd.models.profiles import mock_profile
+        from rosclaw.agentd.service import AgentService
+
+        (tmp_path / "config.yaml").write_text(
+            _yaml.safe_dump(
+                {
+                    "agent": {"enabled": True},
+                    "mcp_servers": [{"name": "dead", "command": "/nonexistent/bin-xyz"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        config = load_agent_config(tmp_path / "config.yaml")
+
+        def answer(req):
+            import json as _json
+
+            from rosclaw.contracts.agent.model_turn import ModelTurnResultV1
+
+            decision = {
+                "schema_version": "rosclaw.decision.v1",
+                "decision_id": "d1",
+                "mission_id": req.mission_id,
+                "context_id": req.context_id,
+                "context_revision": req.context_revision,
+                "next_intent": "ANSWER",
+                "summary": "ok",
+                "evidence_refs": [],
+            }
+            return ModelTurnResultV1(
+                turn_id="t",
+                provider="mock",
+                model="m",
+                content=f"```json\n{_json.dumps(decision)}\n```",
+                assistant_message={"role": "assistant", "content": "x"},
+                usage={"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10},  # type: ignore[arg-type]
+            )
+
+        service = AgentService(config, tmp_path, gateway=MockModelGateway(mock_profile(), [answer]))
+        try:
+            mission = service.create_mission("降级测试")
+            # 死亡的 MCP server 不得让聊天崩溃；native tools 仍可用。
+            result = await service.send_turn(mission.mission_id, "你好")
+            assert result.reply
+            assert service.tool_catalog.get("sim_get_state") is not None
+        finally:
+            await service.close()

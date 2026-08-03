@@ -64,6 +64,7 @@ Pack/执行器缺失时均停止推进。REAL Mission 还要求显式的
 | `rosclaw.agentd.models` | ModelPolicy/Gateway：Kimi K3 等 OpenAI 兼容端点，严格工具 schema，流式聚合 |
 | `rosclaw.agentd.decisions` | DecisionValidator：DecisionV1 绑定当前 context revision |
 | `rosclaw.agentd.loop` | AgentLoop：显式状态机、工具循环、预算、崩溃恢复、决策块流式过滤 |
+| `rosclaw.agentd.tooling` | Tool/Capability Catalog（PR-05）：ToolDescriptorV2、ToolResolver 硬过滤+排序、MCP adapter、证据封装 |
 | `rosclaw.agentd.service` | AgentService + FastAPI 本地 API（含 SSE 流式 turn）+ 最小 Console |
 | `rosclaw.agentd.usage` | model_usage 持久化计量（每轮一行，聚合由查询计算） |
 
@@ -182,6 +183,35 @@ live 模型协调。3v3 联赛基准（T-SIM-2/3）属 PR-TF-075 后续范围。
   measured/verified_receipt/curated 事实形成 Memory/Know/How/Auto 候选，
   unverified/inferred 显式拒绝并记录；Darwin 晋升门 = 评测引用 + 人类
   principal，任何代码路径不能自动晋升。
+
+## Tool/Capability Catalog（PR-05）
+
+- **ToolDescriptorV2**（`rosclaw.tool_descriptor.v2`）在契约层强制：
+  `PHYSICAL_ACTION` 永远 `model_callable=false` 且必须声明
+  `requires_exact_action_grant=true`；OBSERVE 不得有副作用。违规构造直接
+  ValidationError（fail closed）。
+- **ToolResolver**：先确定性硬过滤（body 兼容 / mode / capability 在线 /
+  SelfSnapshot 新鲜 / permission / policy / 预算 / verifier / quarantine /
+  model_callable，全部可解释），再做相关性排序（语义、延迟、可靠性、
+  成本、新鲜度、证据等级）。安全条件永不进入模型评分；每轮注入 ≤12 个工具。
+- **MCP adapter**：`mcp_servers:` 配置的外部 MCP server（如 limo-ros-mcp）
+  经 stdio 发现工具；分类 fail-closed——`readOnlyHint` 且无动作动词 →
+  OBSERVE；动作动词 / destructive / 无注解歧义 → PHYSICAL_ACTION。
+  发现失败 → 整个 source 隔离（quarantine），聊天不中断、观测不伪造。
+- **证据封装**：每次观测产出 EvidenceEnvelope（timestamp/body/source/
+  evidence_class/freshness/artifact_ref），内容以 `<untrusted_input>` 包裹；
+  大输出落盘 artifact store（content-addressed），模型只见 ref+摘要。
+- 配置示例：
+
+```yaml
+mcp_servers:
+  - name: limo-ros-mcp
+    command: /usr/local/bin/limo-ros-mcp
+    args: ["--profile", "sim"]
+    env_refs: ["LIMO_MCP_TOKEN"]   # 只引用环境变量名，值不入文件
+    supported_modes: ["SIMULATION", "SHADOW"]
+    required_body_types: ["agilex-limo"]
+```
 
 ## 审计修复记录（对照总纲逐项审计后）
 

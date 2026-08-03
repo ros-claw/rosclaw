@@ -157,6 +157,47 @@ class StaticCapabilitySource:
         ]
 
 
+class CatalogCapabilitySource:
+    """Capability layer backed by the PR-05 ToolCatalog (dynamic, honest).
+
+    PHYSICAL_ACTION tools appear with permission="operator_only" so the model
+    knows the capability exists but can never call it directly — it must go
+    through REQUEST_APPROVAL → Operator grant → REQUEST_ACTION.
+    """
+
+    def __init__(self, catalog) -> None:  # ToolCatalog (avoid import cycle)
+        self._catalog = catalog
+
+    def list_capabilities(self, query: str, limit: int) -> list[CapabilityInfo]:
+        from rosclaw.contracts.agent.tool import ExecutionClass
+
+        infos: list[CapabilityInfo] = []
+        for d in self._catalog.list()[: limit * 2]:
+            if d.execution_class is ExecutionClass.PHYSICAL_ACTION:
+                infos.append(
+                    CapabilityInfo(
+                        name=d.tool_id,
+                        kind="physical_action",
+                        summary=(
+                            f"{d.description or d.tool_id} [PHYSICAL ACTION — never "
+                            "directly callable; requires Operator exact-action grant]"
+                        ),
+                        permission="operator_only",
+                    )
+                )
+            else:
+                quarantined = self._catalog.quarantine_reason(d.tool_id) is not None
+                infos.append(
+                    CapabilityInfo(
+                        name=d.tool_id,
+                        kind="tool",
+                        summary=d.description or f"tool {d.tool_id}",
+                        permission="denied" if quarantined else "granted",
+                    )
+                )
+        return infos
+
+
 class EmptyMemorySource:
     def retrieve(self, query: str, limit: int) -> list[MemoryItem]:
         return []

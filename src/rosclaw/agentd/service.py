@@ -27,15 +27,15 @@ from rosclaw.agentd.models.gateway import (
     OpenAICompatGateway,
 )
 from rosclaw.agentd.runtime_sources import (
+    CatalogCapabilitySource,
     ConfigConsentSource,
     DaemonSelfSource,
     EmptyMemorySource,
     ResolverBodySource,
     SimBodySource,
     SimSelfSource,
-    StaticCapabilitySource,
 )
-from rosclaw.agentd.tools import SIM_BODY_TOOL, SIM_STATE_TOOL, BuiltinToolRegistry
+from rosclaw.agentd.tools import BuiltinToolRegistry
 from rosclaw.agentd.usage import UsageRecorder
 from rosclaw.contracts.agent.mission import (
     BodyBinding,
@@ -155,9 +155,43 @@ class AgentService:
             body_id=self._body_id,
             body_summary=body.summary if body else "configured body is unavailable",
         )
-        tool_names = [SIM_BODY_TOOL]
-        if self._simulation_body:
-            tool_names.insert(0, SIM_STATE_TOOL)
+        # PR-05: Tool/Capability Catalog — descriptors, resolver, evidence.
+        from rosclaw.agentd.tooling.artifact_result import ArtifactResultStore
+        from rosclaw.agentd.tooling.catalog import ToolCatalog
+        from rosclaw.agentd.tooling.catalog_registry import CatalogToolRegistry
+        from rosclaw.agentd.tooling.mcp_adapter import McpCapabilityAdapter, McpServerConfig
+        from rosclaw.agentd.tooling.native_tools import register_native_tools
+        from rosclaw.agentd.tooling.resolver import ToolResolver
+
+        self._tool_catalog = ToolCatalog()
+        register_native_tools(self._tool_catalog, self._tools, simulation=self._simulation_body)
+        self._artifact_store = ArtifactResultStore(db_dir)
+        self._tool_resolver = ToolResolver(self._tool_catalog)
+        self._tool_registry = CatalogToolRegistry(
+            self._tool_catalog,
+            self._tool_resolver,
+            artifact_store=self._artifact_store,
+            body_type=self._body_id,
+        )
+        self._mcp_adapters = [
+            McpCapabilityAdapter(
+                McpServerConfig(
+                    name=str(s.get("name", "")),
+                    command=str(s.get("command", "")),
+                    args=tuple(str(a) for a in s.get("args", []) or []),
+                    env_refs=tuple(str(r) for r in s.get("env_refs", []) or []),
+                    observation_tools=tuple(s.get("observation_tools", []) or ()),
+                    action_tools=tuple(s.get("action_tools", []) or ()),
+                    supported_modes=tuple(s.get("supported_modes", ("SIMULATION",)) or ()),
+                    required_body_types=tuple(s.get("required_body_types", []) or ()),
+                    timeout_ms=int(s.get("timeout_ms", 5000)),
+                ),
+                self._tool_catalog,
+            )
+            for s in self._config.mcp_servers
+            if s.get("name") and s.get("command")
+        ]
+        self._mcp_discovered = False
         consent_source = ConfigConsentSource()
         from rosclaw.operator import OperatorBroker
 
@@ -169,7 +203,7 @@ class AgentService:
                 constitution_text=load_prompt("native_agent_v1.md").text,
                 body=self._body_source,
                 self_source=self_source,
-                capabilities=StaticCapabilitySource(tool_names),
+                capabilities=CatalogCapabilitySource(self._tool_catalog),
                 memory=EmptyMemorySource(),
                 organization=RegistryOrgSource(self._registry),
                 consent=BrokerConsentSource(consent_source, self._store.connection),
@@ -321,7 +355,7 @@ class AgentService:
                 compiler=self._compiler,
                 gateway=self._gateway,
                 prompt=self._prompt,
-                tools=self._tools,
+                tools=self._tool_registry,
                 handlers=self._handlers,
                 actor_id=self.actor_id,
                 max_tool_rounds=self._config.max_tool_rounds,
@@ -439,6 +473,7 @@ class AgentService:
         mission = self._store.get_mission(mission_id)
         if mission is None:
             raise ValidationError(f"unknown mission {mission_id!r}")
+        await self._ensure_mcp_discovered()
         async with self._runner.lock_for(mission_id):
             if self._handlers is not None:
                 self._handlers._mode = mission.mode.value
@@ -450,6 +485,26 @@ class AgentService:
 
     def mission_usage(self, mission_id: str) -> dict:
         return self._usage.mission_totals(mission_id)
+
+    async def _ensure_mcp_discovered(self) -> None:
+        """Discover configured MCP servers once (PR-05); failures quarantine
+        the source honestly and never block the turn."""
+        if self._mcp_discovered:
+            return
+        self._mcp_discovered = True
+        for adapter in self._mcp_adapters:
+            try:
+                await adapter.discover()
+            except Exception:  # noqa: BLE001 - discovery must never break chat
+                self._tool_catalog.quarantine_source(adapter.source, "discovery_crashed")
+
+    @property
+    def tool_catalog(self):
+        return self._tool_catalog
+
+    @property
+    def tool_resolver(self):
+        return self._tool_resolver
 
     def conversation(self, mission_id: str) -> list[dict]:
         return self._store.conversation(mission_id)
