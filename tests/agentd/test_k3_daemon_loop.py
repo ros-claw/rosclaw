@@ -30,7 +30,6 @@ from rosclaw.kernel.contracts import (
     EvidenceLevel,
     ExecutionMode,
 )
-
 from tests.agentd.conftest import LOCAL_PRINCIPAL
 
 SIM_CAPABILITY = "sim.hold_position"
