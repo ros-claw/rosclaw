@@ -230,7 +230,13 @@ class AgentService:
 
             policy = config.to_policy()
             chain = policy.fallback_chain()
-            candidates = [(p, OpenAICompatGateway(p)) for p in chain]
+            if config.model_backend == "modeld":
+                # 批次 D：AgentLoop 不再直接接触 OpenAI-compatible 协议细节。
+                from rosclaw.agentd.models.modeld_gateway import ModeldGateway
+
+                candidates = [(p, ModeldGateway(p, home=self._home)) for p in chain]
+            else:
+                candidates = [(p, OpenAICompatGateway(p)) for p in chain]
             # 单 profile 也走 FailoverGateway：统一的 cooldown/RPM 语义。
             self._gateway = FailoverGateway(candidates)
         self._prompt = load_prompt("native_agent_v1.md")
@@ -517,6 +523,96 @@ class AgentService:
     @property
     def tool_resolver(self):
         return self._tool_resolver
+
+    # -- modeld 管理面（批次 D：/providers /model /login /logout） ---------------
+    def _modeld_mgmt(self):
+        """共享的 modeld 管理通道（懒启动；runtime 缺失 → None）。"""
+        if getattr(self, "_modeld_mgmt_instance", None) is not None:
+            return self._modeld_mgmt_instance
+        from rosclaw.agentd.models.modeld_gateway import ModeldGateway, _find_modeld_runtime
+
+        if _find_modeld_runtime() is None:
+            return None
+        profile = (
+            self._config.to_policy().default
+            if self._config.profiles
+            else getattr(self._gateway, "profile", None)
+        )
+        if profile is None:
+            return None
+        self._modeld_mgmt_instance = ModeldGateway(profile, home=self._home)
+        return self._modeld_mgmt_instance
+
+    async def modeld_providers(self) -> dict:
+        mgmt = self._modeld_mgmt()
+        if mgmt is None:
+            return {"available": False, "providers": [], "error": "modeld runtime unavailable"}
+        try:
+            data = await mgmt.manage("GET", "/v1/providers")
+            data["available"] = True
+            return data
+        except Exception as exc:  # noqa: BLE001
+            return {"available": False, "providers": [], "error": str(exc)}
+
+    async def modeld_models(self, provider: str) -> dict:
+        mgmt = self._modeld_mgmt()
+        if mgmt is None:
+            return {"models": [], "error": "modeld runtime unavailable"}
+        return await mgmt.manage("GET", f"/v1/models?provider={provider}")
+
+    async def modeld_login(self, provider: str, api_key: str) -> dict:
+        """API key 登录：secret 只经内存进 modeld，不落 mission journal。"""
+        mgmt = self._modeld_mgmt()
+        if mgmt is None:
+            return {"ok": False, "error": "modeld runtime unavailable"}
+        return await mgmt.manage(
+            "POST", f"/v1/auth/{provider}/login", {"mode": "api_key", "api_key": api_key}
+        )
+
+    async def modeld_logout(self, provider: str) -> dict:
+        mgmt = self._modeld_mgmt()
+        if mgmt is None:
+            return {"ok": False, "error": "modeld runtime unavailable"}
+        return await mgmt.manage("POST", f"/v1/auth/{provider}/logout", {})
+
+    def current_model_label(self) -> str:
+        profile = self._gateway.profile
+        return f"{profile.provider}/{profile.model}（profile: {profile.name}）"
+
+    def switch_model(self, provider: str, model: str) -> dict:
+        """切换默认 profile 的 provider/model（内存态；持久化走 /settings）。
+
+        切换永不改变工具权限、Mission mode 或 grant（§8.5）。
+        """
+        if not self._config.profiles:
+            return {"ok": False, "error_code": "no_profiles", "message": "未配置模型"}
+        profile = self._config.to_policy().default
+        old = f"{profile.provider}/{profile.model}"
+        if self._config.model_backend != "modeld":
+            return {
+                "ok": False,
+                "error_code": "legacy_backend",
+                "message": (
+                    "legacy backend 的运行时在启动时绑定 endpoint，/model 暂不支持热切换；"
+                    "请设置 models.backend: modeld 后重试（Kimi 现有配置无需改动）"
+                ),
+            }
+        # modeld provider 名映射与 ModeldGateway 一致。
+        from rosclaw.agentd.models.modeld_gateway import _PROVIDER_MAP
+
+        mapped = _PROVIDER_MAP.get(provider, provider)
+        # profile 对象被 config / FailoverGateway candidates / 既有 AgentLoop
+        # 共享；frozen dataclass 的就地字段替换让"下一 turn 生效"在所有
+        # 引用点同时成立（当前 turn 不中断）。
+        object.__setattr__(profile, "provider", mapped)
+        object.__setattr__(profile, "model", model)
+        return {
+            "ok": True,
+            "message": (
+                f"模型已从 {old} 切换为 {mapped}/{model}（下一 turn 生效；"
+                "当前 turn 不中断；持久化配置修改将在 /settings 提供）"
+            ),
+        }
 
     def _record_worker_event(self, mission_id: str, to_status: str, payload: dict) -> None:
         """Sync bridge: WorkerManager transitions → AgentEventV2 (批次 B)."""

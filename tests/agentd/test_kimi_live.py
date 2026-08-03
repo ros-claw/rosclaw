@@ -23,6 +23,8 @@ from pathlib import Path
 
 import pytest
 
+from rosclaw.agentd.models.modeld_gateway import _find_modeld_runtime as _find_runtime
+
 KEY = os.environ.get("ROSCLAW_KIMI_API_KEY", "")
 BASE_URL = os.environ.get("ROSCLAW_KIMI_BASE_URL", "https://api.kimi.com/coding/v1")
 
@@ -393,5 +395,93 @@ async def test_k6_team_coordination(tmp_path: Path) -> None:
         coord.member_lost(rows[0]["awardee"])
         after = service.store.connection.execute("SELECT status FROM team_tasks").fetchall()
         assert after[0]["status"] == "ANNOUNCED"
+    finally:
+        await service.close()
+
+
+
+@pytest.mark.skipif(_find_runtime() is None, reason="rosclaw-modeld runtime unavailable")
+async def test_k7_modeld_backend_live(tmp_path: Path) -> None:
+    """K7 (批次 D 验收)：真实 Kimi K3 经 rosclaw-modeld + pi-ai 全链路。
+
+    AgentLoop → ModeldGateway → modeld(UDS) → pi-ai → api.kimi.com。
+    无 mock：modeld 进程、UDS、provider 调用全部为真实路径。
+    """
+    from rosclaw.agentd.models.gateway import ModelTurnRequest, StrictTool
+    from rosclaw.agentd.models.modeld_gateway import ModeldGateway
+    from rosclaw.agentd.models.profiles import kimi_code_k3_profile
+
+    gateway = ModeldGateway(kimi_code_k3_profile(base_url=BASE_URL), home=tmp_path)
+    try:
+        probe = await gateway.probe()
+        assert probe.reachable and not probe.error, f"modeld probe failed: {probe.error}"
+        turn = await gateway.complete(
+            ModelTurnRequest(
+                system_prompt="Reply with exactly one word: ok",
+                messages=[{"role": "user", "content": "ping"}],
+                tools=[],
+                max_output_tokens=64,
+                mission_id="mis_k7",
+                context_id="ctx",
+                context_revision=1,
+            )
+        )
+        assert turn.content.strip(), "empty content from live model via modeld"
+        assert turn.usage.total_tokens > 0, "usage must be metered through modeld"
+        tool = StrictTool(
+            name="ping",
+            description="ping",
+            parameters={
+                "type": "object",
+                "properties": {"echo": {"type": "boolean"}},
+                "required": ["echo"],
+                "additionalProperties": False,
+            },
+        )
+        turn2 = await gateway.complete(
+            ModelTurnRequest(
+                system_prompt="Call the ping tool. No text answer.",
+                messages=[{"role": "user", "content": "ping"}],
+                tools=[tool],
+                tool_choice="required",
+                max_output_tokens=256,
+                mission_id="mis_k7",
+                context_id="ctx",
+                context_revision=1,
+            )
+        )
+        assert turn2.tool_calls, f"no tool calls via modeld: {turn2.content[:200]}"
+        assert turn2.tool_calls[0].name == "ping"
+    finally:
+        await gateway.close()
+
+
+@pytest.mark.skipif(_find_runtime() is None, reason="rosclaw-modeld runtime unavailable")
+async def test_k8_modeld_service_loop_live(tmp_path: Path) -> None:
+    """K8：backend=modeld 的 AgentService 完整 turn（决策协议经 modeld 链路）。"""
+    from rosclaw.agentd.config import load_agent_config
+    from rosclaw.agentd.service import AgentService
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "agent:\n  enabled: true\n  default_profile: embodied_default\n"
+        "models:\n  backend: modeld\n  profiles:\n    embodied_default:\n"
+        "      provider: kimi_code\n      model: k3\n"
+        f"      base_url: {BASE_URL}\n"
+        "      api_key_ref: env:ROSCLAW_KIMI_API_KEY\n"
+        "      capabilities: [llm.chat, llm.structured_decision, llm.tool_use]\n",
+        encoding="utf-8",
+    )
+    config = load_agent_config(config_path)
+    assert config.model_backend == "modeld"
+    service = AgentService(config, tmp_path)
+    try:
+        mission = service.create_mission("K8 modeld 全链路")
+        result = await service.send_turn(
+            mission.mission_id, "用一句话说明你现在处于什么模式（SIMULATION 还是 REAL）。"
+        )
+        assert result.reply.strip(), "empty reply through modeld backend"
+        usage = service.mission_usage(mission.mission_id)
+        assert usage.get("total_tokens", 0) > 0, "usage not metered"
     finally:
         await service.close()

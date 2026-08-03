@@ -107,6 +107,20 @@ class TestRoleBoundaryStatements:
             text = path.read_text(encoding="utf-8")
             assert not banned.search(text), f"{path} references hardware paths"
 
+    def test_pi_ai_providers_all_never_imported(self) -> None:
+        """§14.13：pi-ai 必须按 provider 子路径懒加载，providers/all 会
+        eager-load 所有 SDK。"""
+        for package in NODE_ROOT.glob("rosclaw-*"):
+            for path in package.rglob("*.ts"):
+                if "node_modules" in path.parts or "dist" in path.parts:
+                    continue
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    stripped = line.strip()
+                    if stripped.startswith(("import ", "export ")) or "import(" in stripped:
+                        assert "providers/all" not in stripped, (
+                            f"{path} imports providers/all: {stripped}"
+                        )
+
     def test_tui_has_no_model_client(self) -> None:
         tui = NODE_ROOT / "rosclaw-tui"
         if not tui.exists():

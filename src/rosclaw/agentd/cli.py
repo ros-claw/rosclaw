@@ -508,6 +508,42 @@ def cmd_credential(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backend(args: argparse.Namespace) -> int:
+    """查看/切换模型 backend（批次 D：Kimi 现有配置无需改动即可迁移）。"""
+    import yaml
+
+    home = _home(args)
+    config_path = home / "config.yaml"
+    data = {}
+    if config_path.exists():
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    models = data.setdefault("models", {})
+    current = models.get("backend", "legacy")
+    if not args.set:
+        print(json.dumps({"backend": current}, ensure_ascii=False))
+        return 0
+    if args.set == current:
+        print(f"backend 已是 {current}")
+        return 0
+    if args.set == "modeld":
+        from rosclaw.agentd.models.modeld_gateway import _find_modeld_runtime
+
+        if _find_modeld_runtime() is None:
+            print(
+                "rosclaw-modeld 不可用（需要 Node >= 22.19 与已构建的 "
+                "packages/rosclaw-modeld）。修复后再切换。",
+                file=sys.stderr,
+            )
+            return 2
+    models["backend"] = args.set
+    config_path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    print(
+        f"backend: {current} → {args.set}。"
+        "现有 profile 与 env 凭据引用保持不变；下一 turn 生效。"
+    )
+    return 0
+
+
 async def _chat_repl(service: AgentService, args: argparse.Namespace) -> int:
     mission = None
     if args.mission:
@@ -650,6 +686,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.set_defaults(func=cmd_init)
 
     add_credential_subcommands(sub)
+
+    p_backend = sub.add_parser("backend", help="model backend: legacy | modeld")
+    p_backend.add_argument("--set", choices=["legacy", "modeld"], default=None)
+    p_backend.set_defaults(func=cmd_backend)
 
     p_chat = sub.add_parser("chat", help="interactive chat (in-process)")
     p_chat.add_argument("--mission", default=None)

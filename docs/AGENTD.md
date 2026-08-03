@@ -198,6 +198,28 @@ live 模型协调。3v3 联赛基准（T-SIM-2/3）属 PR-TF-075 后续范围。
   unverified/inferred 显式拒绝并记录；Darwin 晋升门 = 评测引用 + 人类
   principal，任何代码路径不能自动晋升。
 
+## rosclaw-modeld（批次 D）
+
+- `packages/rosclaw-modeld`：精确锁定 `@earendil-works/pi-ai@0.83.0`，
+  Unix socket（目录 0700、socket 0600）+ 启动时随机 bearer token（只经
+  子进程环境传递）。modeld 不是 Agent：不碰 MissionStore/DecisionV1/
+  工具/rosclawd（架构测试锁定，providers/all 禁止）。
+- API：`GET /v1/providers /v1/models /v1/auth`，
+  `POST /v1/auth/{provider}/login|logout`（OAuth 诚实 501，本批未做），
+  `POST /v1/probe /v1/stream`（SSE: text.delta/tool_call/usage/done/error）。
+- `ModeldGateway`（Python ModelGateway 协议）：AgentLoop 不再直接接触
+  OpenAI-compatible 协议细节；崩溃/不可达诚实报错（modeld_crashed），
+  绝不伪造成功。`models.backend: modeld` 切换；legacy backend 保留。
+- Provider：moonshot（kimi-k3）、kimi-code（k3/k3-256k，OpenAI 兼容面）、
+  ollama（本地）；凭据 env 引用或 modeld credential store（0600、
+  sha256 指纹展示，secret 不出 API 响应）。
+- 命令：`/providers /model /login /logout`（MODEL_CONTROL，经控制 API，
+  不发给模型）；`rosclaw agent backend --set modeld` 迁移现有 Kimi
+  配置（profile 与 env 凭据引用不变）。
+- 验收：K7（真实 Kimi K3 经 modeld 链路 probe/chat/usage/strict tool
+  call）、K8（backend=modeld 的 AgentService 完整 turn，usage 计量）——
+  全部为真实路径，无 mock。
+
 ## rosclaw-tui（批次 C）
 
 - `packages/rosclaw-tui`：精确锁定 `@earendil-works/pi-tui@0.83.0`
