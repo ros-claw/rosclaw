@@ -252,6 +252,8 @@ class AgentLoop:
                     "cancelled_by_user",
                 )
                 return result
+            # 主动 microcompact：估算超阈值先折叠旧 tool result / 中段历史。
+            self._maybe_microcompact(result)
             request = ModelTurnRequest(
                 system_prompt=system_prompt,
                 messages=list(self._conversation),
@@ -264,10 +266,27 @@ class AgentLoop:
             try:
                 turn = await self._gateway.complete_stream(request, on_text_delta=on_text_delta)
             except ModelGatewayError as exc:
-                result.degraded = f"model_error: {exc.kind}"
-                result.reply = f"模型调用失败（{exc.kind}）：{exc}"
-                result.state = self._current_state(mission.mission_id)
-                return result
+                from rosclaw.agentd.context.compact import is_context_overflow, microcompact
+
+                if is_context_overflow(exc.kind, str(exc)):
+                    # Reactive compact（openharness 模式）：压缩后重试一次。
+                    self._conversation, _ = microcompact(self._conversation, keep_recent=4)
+                    request.messages = list(self._conversation)
+                    try:
+                        turn = await self._gateway.complete_stream(
+                            request, on_text_delta=on_text_delta
+                        )
+                        result.degraded = "reactive_compacted"
+                    except ModelGatewayError as exc2:
+                        result.degraded = f"model_error: {exc2.kind}"
+                        result.reply = f"模型调用失败（{exc2.kind}）：{exc2}"
+                        result.state = self._current_state(mission.mission_id)
+                        return result
+                else:
+                    result.degraded = f"model_error: {exc.kind}"
+                    result.reply = f"模型调用失败（{exc.kind}）：{exc}"
+                    result.state = self._current_state(mission.mission_id)
+                    return result
             result.model_turns += 1
             if not self._record_usage(mission.mission_id, turn, result):
                 # 预算超限（§4.2）：必须进入 WAIT_INPUT/SUSPENDED，不得继续
@@ -646,6 +665,20 @@ class AgentLoop:
         if mission is None:
             return MissionState.FAILED
         return mission.state
+
+    def _maybe_microcompact(self, result: LoopTurnResult) -> None:
+        """Proactive compaction when the conversation estimate exceeds 80%
+        of the configured input budget."""
+        from rosclaw.agentd.context.compact import (
+            estimate_messages_tokens,
+            microcompact,
+        )
+
+        budget = getattr(self._compiler, "_max_input_tokens", 120_000)
+        if estimate_messages_tokens(self._conversation) <= budget * 0.8:
+            return
+        self._conversation, folded = microcompact(self._conversation)
+        result.degraded = f"microcompacted:{folded}"
 
     def _safe_transition(
         self,

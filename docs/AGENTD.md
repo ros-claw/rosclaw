@@ -99,7 +99,11 @@ Pack/执行器缺失时均停止推进。REAL Mission 还要求显式的
   用量合理性、伪造成功（COMPLETED 无工件）——任一不过则 FAILED。
 - **native-basic（T3）**：同模型隔离子任务（独立 conversation、预算
   envelope、P0 禁止再委派）；worker 输出永远是 proposal。
-- **CLI**：`rosclaw worker list|catalog|inspect|enable|disable`。
+- **CLI**：`rosclaw worker list|catalog|inspect|enable|disable|probe`。
+- **外部 WorkerPack（PR-WF-054）**：claude-code（T1，repo/test/docs 分析，
+  `--disallowedTools *` 零工具）与 codex-cli（T0 缺二进制时给安装指导）；
+  Official WorkerPack 模式——不 vendoring、版本锁、env 白名单透传
+  （API key 只从宿主环境走，不进 WorkOrder）。
 
 K4 验收（live）：委派闭环 ACCEPTED 且全归因（offered→claimed→started→
 submitted→accepted）；密钥注入拒绝；work order 中 0 secret。

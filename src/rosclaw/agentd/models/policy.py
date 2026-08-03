@@ -48,6 +48,16 @@ class ModelPolicy:
     def default(self) -> ModelProfile:
         return self._profiles[self._default]
 
+    def fallback_chain(
+        self, *, required: tuple[str, ...] = (CAP_STRUCTURED,)
+    ) -> list[ModelProfile]:
+        """Ordered failover candidates: default first, then other capable
+        profiles (stable name order). Cooldown/RPM gating happens in
+        FailoverGateway; this is just the static order."""
+        capable = [p for p in self._profiles.values() if set(required) <= set(p.capabilities)]
+        capable.sort(key=lambda p: (p.name != self._default, p.name))
+        return capable
+
     def select(
         self,
         *,

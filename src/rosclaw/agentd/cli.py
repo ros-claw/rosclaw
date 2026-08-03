@@ -102,6 +102,10 @@ def _worker_registry(home: Path):
     # Idempotent: ensures built-in WorkerPacks are visible even before the
     # first agentd service run on this home.
     registry.register_builtins(actor_id="user:local:cli")
+    from rosclaw.agentd.workers.packs import ALL_PACKS, card_for_pack
+
+    for pack in ALL_PACKS:
+        registry.register(card_for_pack(pack), actor_id="user:local:cli")
     return store, registry
 
 
@@ -167,6 +171,44 @@ def cmd_worker_set_status(args: argparse.Namespace) -> int:
         store.close()
         return 1
     print(f"{args.worker_id} -> {target}")
+    store.close()
+    return 0
+
+
+def cmd_worker_probe(args: argparse.Namespace) -> int:
+    """探活一个外部 pack（二进制存在性 + 最小版本）。"""
+    from rosclaw.agentd.service import AgentService
+    from rosclaw.agentd.workers.packs import ALL_PACKS
+
+    pack = next((p for p in ALL_PACKS if p.worker_id == args.worker_id), None)
+    if pack is None:
+        card = None
+        store, registry = _worker_registry(_home(args))
+        card = registry.get(args.worker_id)
+        store.close()
+        if card is None:
+            print(f"未知 worker {args.worker_id}（不在 packs 也不在 registry）", file=sys.stderr)
+            return 1
+        print("内置 worker，无需外部二进制探活。")
+        return 0
+    ready, detail = AgentService._probe_pack_sync(
+        pack.executable, pack.min_version, pack.install_hint
+    )
+    print(
+        json.dumps(
+            {"worker_id": pack.worker_id, "ready": ready, "detail": detail},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    if not ready:
+        store, registry = _worker_registry(_home(args))
+        registry.set_status(pack.worker_id, "DISABLED", actor_id="user:local:cli", reason=detail)
+        store.close()
+        return 1
+    store, registry = _worker_registry(_home(args))
+    if registry.status_of(pack.worker_id) == "DISABLED":
+        registry.set_status(pack.worker_id, "ENABLED", actor_id="user:local:cli", reason="probe ok")
     store.close()
     return 0
 
@@ -443,6 +485,9 @@ def add_worker_subcommands(sub) -> None:
     p_wi = sub.add_parser("inspect", help="show a worker card")
     p_wi.add_argument("worker_id")
     p_wi.set_defaults(func=cmd_worker_inspect)
+    p_wp = sub.add_parser("probe", help="probe an external pack binary/version")
+    p_wp.add_argument("worker_id")
+    p_wp.set_defaults(func=cmd_worker_probe)
     for name in ("enable", "disable"):
         p_ws = sub.add_parser(name, help=f"{name} a worker")
         p_ws.add_argument("worker_id")
