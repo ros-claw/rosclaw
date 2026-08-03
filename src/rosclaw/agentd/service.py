@@ -1020,7 +1020,37 @@ class AgentService:
             "maturity": "experimental",
         }
 
+    async def estop(self, reason: str, *, principal: str) -> dict:
+        """PR-11：直达 rosclawd 的急停路径，绕过模型。
+
+        无 daemon 时诚实报不可用——绝不假装已停（§12.5/§14.2）。
+        """
+        if self._daemon_client is None:
+            raise ValidationError(
+                "estop unavailable: rosclawd not connected; nothing was stopped (honest)"
+            )
+        return await asyncio.to_thread(
+            self._daemon_client.emergency_stop,
+            reason,
+            source=f"operator:{principal}",
+        )
+
+    async def start_operator_socket(self, socket_path: Path | None = None) -> Path:
+        """PR-11：operator.sock（peer identity + display hash + estop）。幂等。"""
+        from rosclaw.agentd.operator_socket import OperatorSocketServer
+
+        existing = getattr(self, "_operator_socket", None)
+        if existing is not None:
+            return existing._path
+        path = socket_path or (self._home / "run" / "operator.sock")
+        self._operator_socket = OperatorSocketServer(self, path)
+        await self._operator_socket.start()
+        return path
+
     async def close(self) -> None:
+        if getattr(self, "_operator_socket", None) is not None:
+            await self._operator_socket.stop()
+            self._operator_socket = None
         await self._gateway.close()
         self._store.close()
 
@@ -1068,10 +1098,45 @@ def _turn_payload(result) -> dict:
 
 
 def create_app(service: AgentService):
-    from fastapi import FastAPI, HTTPException
-    from fastapi.responses import HTMLResponse
+    from contextlib import asynccontextmanager
 
-    app = FastAPI(title="rosclaw-agentd", version="0.1.0")
+    from fastapi import FastAPI, HTTPException
+    from fastapi.responses import HTMLResponse, JSONResponse
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        # PR-11：operator.sock 随 HTTP 服务启动（同一事件循环）。
+        await service.start_operator_socket()
+        yield
+
+    app = FastAPI(title="rosclaw-agentd", version="0.1.0", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def csrf_origin_guard(request: _Request, call_next):
+        """PR-11 §14.1：浏览器 Console 的 CSRF/Origin 防线。
+
+        - 携带 Origin 的变更请求只允许本机来源（localhost/127.0.0.1/
+          [::1]）——任意网页不得向 localhost approval API 发请求（§19.6）。
+        - 设置 ROSCLAW_CONSOLE_TOKEN 时，变更请求必须带 X-Rosclaw-Token
+          （一次性 pairing token 语义）。
+        """
+        if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+            origin = request.headers.get("origin")
+            if origin:
+                from urllib.parse import urlparse
+
+                host = urlparse(origin).hostname or ""
+                if host not in ("localhost", "127.0.0.1", "::1"):
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": f"origin {host!r} rejected (CSRF guard)"},
+                    )
+            pairing = os.environ.get("ROSCLAW_CONSOLE_TOKEN")
+            if pairing and request.headers.get("x-rosclaw-token") != pairing:
+                return JSONResponse(
+                    status_code=403, content={"detail": "pairing token required"}
+                )
+        return await call_next(request)
 
     @app.get("/health")
     async def health() -> dict:

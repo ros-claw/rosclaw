@@ -41,8 +41,14 @@ test("remote commands route to control api", () => {
 
 test("unknown command is never sent to the model", () => {
 	const registry = new CommandRegistry();
-	const route = registry.parse("/estop");
+	const route = registry.parse("/nosuchcommand");
 	assert.equal(route.kind, "unknown");
+});
+
+test("estop routes locally to the operator channel, never the model", () => {
+	const registry = new CommandRegistry();
+	const route = registry.parse("/estop");
+	assert.equal(route.kind, "local");
 });
 
 test("plain text is not a command", () => {

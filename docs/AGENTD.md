@@ -216,7 +216,23 @@ live 模型协调。3v3 联赛基准（T-SIM-2/3）属 PR-TF-075 后续范围。
   审计事件；安全域键永远拒绝）、`/reload`（prompts/workers/models 可
   reload；policy/robot_pack/body/permits 等安全域永远拒绝）。
 - deferred：`/fork /clone /tree`（批次 F 双时间线）、`/copy`（TUI 本地
-  clipboard）、`/estop`（PR-11 专用通道）——不伪造存在。
+  clipboard）——不伪造存在。
+
+## Operator 安全通道（PR-11）
+
+- `operator.sock`（0600，JSONL）：与模型可见的 Agent API 物理分面——
+  `approvals.list / approvals.decide / grants.revoke / estop`。
+- **peer identity**：principal 只从 SO_PEERCRED UID 派生
+  （`user:local:<uid>`）；请求体里的 principal 字段永远被忽略（伪造
+  root 的攻击回归测试锁定）。
+- **display hash**：approve/deny 必须携带卡片 display_hash（title/
+  summary/risk/parameters/body_hash/request_id 的 sha256 指纹），
+  不匹配即拒（TOCTOU 换卡防护）；EXACT_ACTION 单次性由 Broker 保证。
+- **CSRF/Origin**：HTTP 变更请求携带外部 Origin → 403；
+  `ROSCLAW_CONSOLE_TOKEN` 设置时强制 X-Rosclaw-Token pairing。
+- **/estop**：TUI 本地命令经 operator.sock 直达 rosclawd（不经过模型）；
+  无 daemon 时诚实报不可用，绝不假装已停。
+- operator 方法永不出现在模型工具目录（架构级断言）。
 
 ## rosclaw-modeld（批次 D）
 

@@ -14,6 +14,7 @@ import {
 	matchesKey,
 } from "@earendil-works/pi-tui";
 import { AgentClient, idempotencyKey } from "./client/http.js";
+import { defaultOperatorSocket, operatorCall } from "./client/operator.js";
 import { streamEvents } from "./client/sse.js";
 import { CommandRegistry } from "./commands/registry.js";
 import { HOTKEYS_TEXT, renderCard, statusLine } from "./components/render.js";
@@ -315,6 +316,29 @@ export class RosclawTuiApp {
 					return;
 				}
 				await this.client.decideApproval(item.requestId, name === "approve");
+				return;
+			}
+			case "estop": {
+				try {
+					const result = await operatorCall(defaultOperatorSocket(), "estop", {
+						reason: "operator /estop from rosclaw-tui",
+					});
+					this.print(
+						new Text(
+							result.ok
+								? chalk.red.bold("E-STOP 已请求 rosclawd 执行。")
+								: chalk.yellow(`E-STOP 未执行：${String(result.error ?? "unknown")}`),
+						),
+					);
+				} catch (err) {
+					this.print(
+						new Text(
+							chalk.yellow(
+								`E-STOP 通道不可用：${(err as Error).message}（未假装已停止）`,
+							),
+						),
+					);
+				}
 				return;
 			}
 			case "missions": {
