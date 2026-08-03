@@ -10,6 +10,7 @@ import json
 import sys
 from pathlib import Path
 
+from rosclaw.contracts.agent.branch import ReasoningBranchV1
 from rosclaw.contracts.agent.context import EmbodiedContextBundleV1
 from rosclaw.contracts.agent.decision import DecisionV1
 from rosclaw.contracts.agent.mission import MissionSessionV1
@@ -54,6 +55,7 @@ ALL_CONTRACTS: dict[str, type[ContractModel]] = {
         CommandResultV1,
         MissionSnapshotV1,
         InteractionRequestV1,
+        ReasoningBranchV1,
     )
 }
 

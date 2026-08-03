@@ -209,6 +209,9 @@ class AgentService:
         self._exporter = ExportService(self)
         self._importer = ImportService(self)
         self._settings = SettingsService(self._home / "config.yaml")
+        from rosclaw.agentd.ui.branch_service import BranchService
+
+        self._branches = BranchService(self)
         consent_source = ConfigConsentSource()
         from rosclaw.operator import OperatorBroker
 
@@ -702,6 +705,10 @@ class AgentService:
     @property
     def settings(self):
         return self._settings
+
+    @property
+    def branches(self):
+        return self._branches
 
     def reload_domains(self, domains: list[str]) -> dict:
         """/reload（§8.15）：分域原子重载；安全域永远拒绝。

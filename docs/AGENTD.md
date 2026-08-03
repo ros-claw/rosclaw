@@ -215,8 +215,19 @@ live 模型协调。3v3 联赛基准（T-SIM-2/3）属 PR-TF-075 后续范围。
 - 配置：`/settings`（白名单非安全键、tmp+fsync+rename 原子写、文件锁、
   审计事件；安全域键永远拒绝）、`/reload`（prompts/workers/models 可
   reload；policy/robot_pack/body/permits 等安全域永远拒绝）。
-- deferred：`/fork /clone /tree`（批次 F 双时间线）、`/copy`（TUI 本地
-  clipboard）——不伪造存在。
+- `/tree /fork` 已可用（批次 F 第一阶段）；`/clone`（第二阶段）与
+  `/copy`（TUI 本地 clipboard）deferred——不伪造存在。
+
+## ReasoningBranch（批次 F 第一阶段）
+
+- 双时间线：推理分支树可 fork；物理事实线只追加、永不回滚、不被旧
+  分支遮蔽（/tree 同时显示两条线）。
+- /fork 永远创建新 SIMULATION mission：不复制 grant/approval/Permit/
+  worker lease；旧 DecisionV1 对新 mission 无效（新 context，revision
+  从 0 开始）；首轮编译从权威存储注入最新 Body/Self；fork 点之前的
+  推理历史以 untrusted（source=fork:…）形态带入。
+- 物理动作进行中（未终态 WorkOrder）fork 被拒（fail closed）。
+- 同 Mission 分支切换与 /clone 属第二阶段，待不变量测试扩展后开放。
 
 ## LIMO 完整闭环与发布打包（PR-12）
 

@@ -37,6 +37,7 @@ class CommandService:
         self._register_builtins()
         _register_batch_e(service, self._register)
         _register_batch_e2(service, self._register)
+        _register_batch_f(service, self._register)
 
     # -- registry ----------------------------------------------------------------
 
@@ -414,6 +415,102 @@ class CommandService:
 # 批次 E：执行与安全可见性命令（workers/grants/body/doctor/mode/context/
 # session/new/retry/failover/thinking/scoped-models）
 # ---------------------------------------------------------------------------
+def _register_batch_f(service, register) -> None:
+    """批次 F 第一阶段：/tree 只读、/fork 开新 SIMULATION mission。"""
+
+    async def _tree(req: CommandRequestV1) -> CommandResultV1:
+        try:
+            tree = service.branches.tree(req.mission_id or "")
+        except Exception as exc:  # noqa: BLE001
+            return CommandResultV1(
+                request_id=req.request_id,
+                command_name=req.command_name,
+                ok=False,
+                error_code="unknown_mission",
+                message=str(exc),
+            )
+        return CommandResultV1(
+            request_id=req.request_id,
+            command_name=req.command_name,
+            ok=True,
+            message=(
+                f"推理分支 {len(tree['reasoning_branches'])} 条；"
+                f"物理事实线 {len(tree['physical_lane'])} 个事件（不可回滚）"
+            ),
+            data=tree,
+        )
+
+    async def _fork(req: CommandRequestV1) -> CommandResultV1:
+        try:
+            branch = service.branches.fork(
+                req.mission_id or "",
+                from_entry_id=req.arguments.get("from_entry_id") or None,
+                label=str(req.arguments.get("label", "")),
+            )
+        except Exception as exc:  # noqa: BLE001
+            return CommandResultV1(
+                request_id=req.request_id,
+                command_name=req.command_name,
+                ok=False,
+                error_code="fork_refused",
+                message=str(exc),
+            )
+        return CommandResultV1(
+            request_id=req.request_id,
+            command_name=req.command_name,
+            ok=True,
+            message=(
+                f"已 fork 为新 SIMULATION mission {branch.forked_mission_id}；"
+                "authority 未复制（无 grant/approval/Permit/lease），"
+                "首轮编译注入最新 Body/Self。"
+            ),
+            data=branch.model_dump(mode="json"),
+        )
+
+    async def _clone(req: CommandRequestV1) -> CommandResultV1:
+        return CommandResultV1(
+            request_id=req.request_id,
+            command_name=req.command_name,
+            ok=False,
+            error_code="not_implemented",
+            message="/clone 在批次 F 第二阶段提供；/fork 已可创建推理分支（不复制 authority）。",
+        )
+
+    register(
+        CommandSpecV1(
+            name="tree",
+            description="推理分支树 + 不可变物理事实线（只读）",
+            category=CommandCategory.MISSION,
+            owner=CommandOwner.MISSION_CONTROL,
+            during_turn=True,
+            handler="branch.tree",
+        ),
+        _tree,
+    )
+    register(
+        CommandSpecV1(
+            name="fork",
+            description="从当前/指定 entry 分叉为新 SIMULATION mission（不复制 authority）",
+            argument_hint="[from_entry_id] [label]",
+            category=CommandCategory.MISSION,
+            owner=CommandOwner.MISSION_CONTROL,
+            mutability="PERSISTED",
+            handler="branch.fork",
+        ),
+        _fork,
+    )
+    register(
+        CommandSpecV1(
+            name="clone",
+            description="克隆 Mission（第二阶段）",
+            category=CommandCategory.MISSION,
+            owner=CommandOwner.MISSION_CONTROL,
+            handler="branch.clone",
+        ),
+        _clone,
+    )
+
+
 def _register_batch_e(service, register) -> None:  # noqa: C901 - 命令集合体
     """注册批次 E 命令。register(spec, handler) 与 CommandService._register 同签名。"""
 
