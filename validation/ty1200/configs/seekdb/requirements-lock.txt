@@ -7,6 +7,8 @@
 #       本文件锁定完整引擎组合 (SDK + 引擎绑定 + 推理依赖)。
 
 pyseekdb==1.3.0          # SDK client (pyproject seekdb extra pin)
+# 备选: pyseekdb==1.4.0.post1（#251 修复版，2026-08-03 全组合验收通过；
+#       1.4.0（无 post1）为 known-incompatible，禁止使用）
 pylibseekdb==1.3.0.post3 # 引擎原生绑定
 seekdb==0.0.1.dev5       # 嵌入式引擎包 (PyPI 当前唯一发布形态)
 seekdb-lib==0.0.1.dev5   # 引擎原生库

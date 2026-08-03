@@ -80,21 +80,34 @@ class BrokerConsentSource:
 
     def get_consent(self, mission_id: str):
         import json as _json
+        from datetime import UTC, datetime
 
         from rosclaw.agentd.context.sources import ConsentFacts
 
         facts = self._base.get_consent(mission_id)
         row = self._conn.execute(
-            "SELECT public_json FROM mission_grants WHERE revoked = 0 "
-            "ORDER BY created_at DESC LIMIT 1"
+            "SELECT g.public_json FROM mission_grants AS g "
+            "JOIN operator_requests AS r ON r.request_id = g.request_id "
+            "WHERE g.revoked = 0 AND g.consumed = 0 AND g.expires_at > ? "
+            "AND r.mission_id = ? ORDER BY g.created_at DESC LIMIT 1",
+            (datetime.now(UTC).isoformat(), mission_id),
         ).fetchone()
         grant_hash = None
+        scope_summary = facts.public_scope_summary
         if row is not None:
-            grant_hash = _json.loads(row["public_json"]).get("public_hash")
+            public = _json.loads(row["public_json"])
+            grant_hash = public.get("public_hash")
+            scope = public.get("scope") if isinstance(public.get("scope"), dict) else {}
+            scope_summary = (
+                f"{scope_summary}\nActive mission grant: grant_id={public.get('grant_id')}; "
+                f"tier={scope.get('tier')}; risk_ceiling={public.get('risk_ceiling')}; "
+                f"public_hash={grant_hash}. Reference this exact public grant_id in "
+                "REQUEST_ACTION. No private signature or permit is exposed."
+            ).strip()
         return ConsentFacts(
             policy_hash=facts.policy_hash,
             mission_grant_public_hash=grant_hash,
-            public_scope_summary=facts.public_scope_summary,
+            public_scope_summary=scope_summary,
             allowed_risk_tiers=facts.allowed_risk_tiers,
         )
 

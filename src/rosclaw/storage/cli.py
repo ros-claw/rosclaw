@@ -411,12 +411,13 @@ def _pyseekdb_compat_checks(
     """
     # (status, note) per SDK version range; keep in sync with pyproject pin.
     matrix = {
-        "validated": ["1.3.0"],
+        "validated": ["1.3.0", "1.4.0.post1"],
         "known_incompatible": {
             "1.4.0": "metadata-filtered search legs broken on embedded engine "
             "(code=1064 __pk_increment, malformed FULL JOIN, code=1059 "
             "identifier-too-long; unfiltered calls unaffected); "
-            "upstream: oceanbase/pyseekdb#251; use pyseekdb==1.3.0",
+            "upstream: oceanbase/pyseekdb#251; "
+            "fixed in 1.4.0.post1 — upgrade or use pyseekdb==1.3.0",
         },
     }
     try:

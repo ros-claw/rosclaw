@@ -25,6 +25,17 @@ from rosclaw.mcp.tools import (
 class _FakeDaemon:
     def __init__(self) -> None:
         self.action: ActionEnvelope | None = None
+        self.created_sessions: list[str] = []
+        self.closed_sessions: list[tuple[str, str]] = []
+
+    def create_session(self, **kwargs: Any) -> dict[str, Any]:
+        session_id = str(kwargs["session_id"])
+        self.created_sessions.append(session_id)
+        return {"session_id": session_id, "state": "ACTIVE"}
+
+    def close_session(self, session_id: str, *, reason: str) -> dict[str, Any]:
+        self.closed_sessions.append((session_id, reason))
+        return {"session_id": session_id, "state": "CLOSED"}
 
     def get_runtime_status(self) -> dict[str, Any]:
         return {
@@ -140,6 +151,10 @@ async def test_action_defaults_to_shadow_when_mode_is_omitted(
 
     assert _daemon_client.action is not None
     assert _daemon_client.action.execution_mode is ExecutionMode.SHADOW
+    assert _daemon_client.created_sessions == ["action-tool-default-mode"]
+    assert _daemon_client.closed_sessions == [
+        ("action-tool-default-mode", "action_finished")
+    ]
 
 
 async def test_action_status_and_cancel_are_bounded_daemon_calls() -> None:

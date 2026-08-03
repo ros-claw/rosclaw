@@ -104,13 +104,14 @@ def _warn_on_unvalidated_pyseekdb(pyseekdb: Any) -> None:
             return
     except Exception:  # noqa: BLE001
         return
-    validated = {"1.3.0"}
+    validated = {"1.3.0", "1.4.0.post1"}
     known_incompatible = {"1.4.0"}
     if installed in known_incompatible:
         logger.error(
             "pyseekdb %s is KNOWN-INCOMPATIBLE with the embedded SeekDB engine "
-            "(broken SQL generation: __pk_increment syntax errors, empty "
-            "hybrid results). Downgrade: pip install pyseekdb==1.3.0",
+            "(broken SQL generation on metadata-filtered search legs; "
+            "oceanbase/pyseekdb#251). Upgrade to 1.4.0.post1 or pin 1.3.0: "
+            "pip install 'pyseekdb==1.4.0.post1'",
             installed,
         )
     elif installed not in validated:

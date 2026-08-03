@@ -7,19 +7,24 @@
 ## 快速开始
 
 ```bash
-# 1. 配置模型（只写 api_key_ref，不写真实密钥）
+# 1. 持久保存凭据（交互式隐藏输入；目录 0700、文件 0600）
+rosclaw agentd credential set --provider kimi-code
+# 或 rosclaw agentd credential set --provider kimi-api
+
+# 也可以不持久保存，只给当前进程环境提供凭据
 export ROSCLAW_KIMI_API_KEY=sk-kimi-...        # Kimi Coding Plan
-# 或 export MOONSHOT_API_KEY=sk-...            # Moonshot 开放平台
+
+# 2. 配置模型（config.yaml 只写 api_key_ref，不写真实密钥）
 rosclaw agentd init --provider kimi-code       # 或 kimi-api / openai-compat / local
 
-# 2. 就绪检查（connectivity / models / chat / strict tool call 四项 probe）
+# 3. 就绪检查（自动加载已保存凭据；四项 probe）
 rosclaw agentd doctor                          # READY 或诚实的 MODEL_NOT_READY
 
-# 3. 对话（默认 SIMULATION）
+# 4. 对话（默认 SIMULATION）
 rosclaw chat
 rosclaw chat --goal "检查仿真身体状态"
 
-# 4. 本地 HTTP 服务 + Console
+# 5. 本地 HTTP 服务 + Console
 rosclaw agentd start --port 8765
 #   http://127.0.0.1:8765/console   最小聊天 Console
 #   /health /status /probe /missions /missions/{id}/turns
