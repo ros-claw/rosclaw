@@ -199,6 +199,16 @@ class AgentService:
 
         self._commands = CommandService(self)
         self._interactions = InteractionService()
+        #: /scoped-models 快捷切换集合（内存态）。
+        self._scoped_models: set[str] = set()
+        # 批次 E：导出/导入/设置。
+        from rosclaw.agentd.ui.export_service import ExportService
+        from rosclaw.agentd.ui.import_service import ImportService
+        from rosclaw.agentd.ui.settings_service import SettingsService
+
+        self._exporter = ExportService(self)
+        self._importer = ImportService(self)
+        self._settings = SettingsService(self._home / "config.yaml")
         consent_source = ConfigConsentSource()
         from rosclaw.operator import OperatorBroker
 
@@ -644,6 +654,69 @@ class AgentService:
     @property
     def interactions(self):
         return self._interactions
+
+    @property
+    def scoped_models(self) -> set[str]:
+        return self._scoped_models
+
+    @property
+    def exporter(self):
+        return self._exporter
+
+    @property
+    def importer(self):
+        return self._importer
+
+    @property
+    def settings(self):
+        return self._settings
+
+    def reload_domains(self, domains: list[str]) -> dict:
+        """/reload（§8.15）：分域原子重载；安全域永远拒绝。
+
+        可 reload：prompts（prompt registry）、workers（pack 重新探活注册）、
+        models（modeld provider catalog refresh 提示）。
+        不可 reload：rosclawd Policy、Robot Pack 签名、Body 安全边界、
+        Permit、设备权限、REAL 风险上限。
+        """
+        results: dict[str, dict] = {}
+        for domain in domains:
+            if domain == "prompts":
+                from rosclaw.agentd.context.prompt_registry import load_prompt
+
+                try:
+                    self._prompt = load_prompt("native_agent_v1.md")
+                    results[domain] = {
+                        "ok": True,
+                        "detail": f"prompt v{self._prompt.version} hash={self._prompt.content_hash[:16]}（活跃 turn 不换 prompt，下一 turn 生效）",
+                    }
+                except Exception as exc:  # noqa: BLE001
+                    results[domain] = {"ok": False, "detail": f"{exc}（保持旧配置）"}
+            elif domain == "workers":
+                from rosclaw.agentd.workers.packs import ALL_PACKS, card_for_pack
+
+                refreshed = []
+                for pack in ALL_PACKS:
+                    try:
+                        self._registry.register(card_for_pack(pack), actor_id=self.actor_id)
+                        refreshed.append(pack.worker_id)
+                    except Exception as exc:  # noqa: BLE001
+                        results.setdefault(domain, {"ok": False, "detail": str(exc)})
+                else:
+                    results[domain] = {"ok": True, "detail": f"re-registered {len(refreshed)} packs"}
+            elif domain == "models":
+                results[domain] = {
+                    "ok": True,
+                    "detail": "modeld provider catalog 为启动时构建；/model 可切换，重启后重建。",
+                }
+            elif domain in ("policy", "robot_pack", "body", "permits", "permissions", "safety"):
+                results[domain] = {
+                    "ok": False,
+                    "detail": f"{domain} 属安全域，/reload 永不修改（走专用管理面）",
+                }
+            else:
+                results[domain] = {"ok": False, "detail": f"未知 reload 域 {domain!r}"}
+        return results
 
     def conversation(self, mission_id: str) -> list[dict]:
         return self._store.conversation(mission_id)

@@ -69,6 +69,20 @@ class CooldownTracker:
     def record_success(self, key: str) -> None:
         self._states.pop(key, None)
 
+    def status(self) -> dict[str, dict]:
+        """可展示的冷却状态（/failover 命令）：剩余秒数与失败计数。"""
+        now = self._now()
+        out: dict[str, dict] = {}
+        for key, state in self._states.items():
+            remaining = max(0.0, state.cooldown_until - now)
+            out[key] = {
+                "in_cooldown": remaining > 0,
+                "remaining_sec": int(remaining),
+                "failures": state.failures,
+                "billing_failures": state.billing_failures,
+            }
+        return out
+
 
 @dataclass
 class TokenBucket:
@@ -113,6 +127,14 @@ class FailoverGateway:
             p.name: TokenBucket((rpm_limits or {}).get(p.name, 60)) for p, _ in candidates
         }
         self.profile = candidates[0][0]
+
+    def failover_status(self) -> dict:
+        """/failover 命令的展示数据：候选、冷却、RPM 桶余量。"""
+        return {
+            "active": f"{self.profile.provider}/{self.profile.model}",
+            "candidates": [f"{p.provider}/{p.model}" for p, _ in self._candidates],
+            "cooldowns": self._cooldown.status(),
+        }
 
     def _key(self, profile: ModelProfile) -> str:
         return f"{profile.provider}/{profile.model}/{profile.base_url}"

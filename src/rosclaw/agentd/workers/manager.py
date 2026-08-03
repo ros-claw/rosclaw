@@ -255,6 +255,15 @@ class WorkerManager:
         ).fetchone()
         return WorkOrderV1(**json.loads(row["order_json"])) if row else None
 
+    def active_orders_for_worker(self, worker_id: str) -> list[WorkOrderV1]:
+        """该 worker 名下未终态的 WorkOrder（/worker disable 的 drain 护栏）。"""
+        rows = self._conn.execute(
+            "SELECT order_json FROM work_orders WHERE worker_id = ? "
+            "AND status NOT IN ('ACCEPTED', 'REJECTED', 'EXPIRED', 'CANCELLED', 'FAILED')",
+            (worker_id,),
+        ).fetchall()
+        return [WorkOrderV1(**json.loads(r["order_json"])) for r in rows]
+
     def orders_for_mission(self, mission_id: str) -> list[WorkOrderV1]:
         rows = self._conn.execute(
             "SELECT order_json FROM work_orders WHERE mission_id = ? ORDER BY created_at",

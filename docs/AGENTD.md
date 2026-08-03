@@ -198,6 +198,26 @@ live 模型协调。3v3 联赛基准（T-SIM-2/3）属 PR-TF-075 后续范围。
   unverified/inferred 显式拒绝并记录；Darwin 晋升门 = 评测引用 + 人类
   principal，任何代码路径不能自动晋升。
 
+## 命令面（批次 E）
+
+- 全部命令经 CommandService 注册表（spec + availability + disabled_reason
+  + 幂等）；未知命令不发给模型。
+- 执行/安全可见性：`/workers /worker inspect|enable|disable|probe`
+  （disable 有未终态订单时拒绝并提示 drain，写审计）、`/grants`（仅
+  public scope）、`/revoke`、`/body`、`/doctor`、`/mode`（禁止原地升级）、
+  `/context layers|compactions|refresh`、`/session`、`/new`、
+  `/retry`（无副作用才可重放）、`/failover`、`/thinking`、
+  `/scoped-models`。
+- Mission 资产：`/export`（.rcmission zip：manifest/conversation/events/
+  compactions/public-receipts/checksums，构造性脱敏）、`/import`
+  （magic/checksum/路径穿越/zip bomb/secret scan 全校验；只读归档导入，
+  不恢复任何授权效力）、`/share`（诚实指向 /export，不默认上传）。
+- 配置：`/settings`（白名单非安全键、tmp+fsync+rename 原子写、文件锁、
+  审计事件；安全域键永远拒绝）、`/reload`（prompts/workers/models 可
+  reload；policy/robot_pack/body/permits 等安全域永远拒绝）。
+- deferred：`/fork /clone /tree`（批次 F 双时间线）、`/copy`（TUI 本地
+  clipboard）、`/estop`（PR-11 专用通道）——不伪造存在。
+
 ## rosclaw-modeld（批次 D）
 
 - `packages/rosclaw-modeld`：精确锁定 `@earendil-works/pi-ai@0.83.0`，
