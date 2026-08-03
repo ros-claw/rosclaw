@@ -19,6 +19,7 @@ from rosclaw.agentd.models.gateway import MockModelGateway
 from rosclaw.agentd.models.profiles import mock_profile
 from rosclaw.agentd.service import AgentService
 from rosclaw.contracts.agent.model_turn import ModelTurnResultV1
+from tests.agentd.conftest import LOCAL_PRINCIPAL
 
 
 def _approval_then_action(request) -> ModelTurnResultV1:
@@ -108,7 +109,7 @@ class TestApprovalAutoWake:
             assert state == "WAIT_APPROVAL"
             pending = service.pending_approvals(mission.mission_id)
             grant = await service.decide_approval(
-                pending[0].request_id, principal="user:local:1000", approve=True
+                pending[0].request_id, principal=LOCAL_PRINCIPAL, approve=True
             )
             _approval_then_action.grant_id = grant.grant_id
             # 唤醒任务自己运行：无需用户再发消息。
@@ -137,7 +138,7 @@ class TestApprovalAutoWake:
             await service._turn_tasks[mission.mission_id]
             pending = service.pending_approvals(mission.mission_id)
             result = await service.decide_approval(
-                pending[0].request_id, principal="user:local:1000", approve=False
+                pending[0].request_id, principal=LOCAL_PRINCIPAL, approve=False
             )
             assert result is None
             wake_task = service._runner._wake_tasks.get(mission.mission_id)

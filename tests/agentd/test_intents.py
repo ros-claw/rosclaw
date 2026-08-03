@@ -22,6 +22,7 @@ from rosclaw.agentd.verifiers import VerifierRegistry
 from rosclaw.contracts.agent.agent_event import AgentEventType
 from rosclaw.contracts.agent.mission import MissionState
 from rosclaw.contracts.agent.model_turn import ModelTurnResultV1
+from tests.agentd.conftest import LOCAL_PRINCIPAL
 
 
 def _decision_turn(request, decision: dict) -> ModelTurnResultV1:
@@ -312,7 +313,7 @@ class TestRequestActionMonitor:
             assert r1.state is MissionState.WAIT_APPROVAL
             pending = service.pending_approvals(mission.mission_id)
             grant = await service.decide_approval(
-                pending[0].request_id, principal="user:local:1000", approve=True
+                pending[0].request_id, principal=LOCAL_PRINCIPAL, approve=True
             )
             script.grant_id = grant.grant_id
             r2 = await service.send_turn(mission.mission_id, "执行")

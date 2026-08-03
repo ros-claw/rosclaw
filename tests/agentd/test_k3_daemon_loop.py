@@ -31,6 +31,8 @@ from rosclaw.kernel.contracts import (
     ExecutionMode,
 )
 
+from tests.agentd.conftest import LOCAL_PRINCIPAL
+
 SIM_CAPABILITY = "sim.hold_position"
 
 
@@ -180,7 +182,7 @@ class TestK3SimActionLoop:
             assert r1.state.value == "WAIT_APPROVAL"
             pending = service.pending_approvals(mission.mission_id)
             grant = await service.decide_approval(
-                pending[0].request_id, principal="user:local:1000", approve=True
+                pending[0].request_id, principal=LOCAL_PRINCIPAL, approve=True
             )
             _action_decision.grant_id = grant.grant_id
             r2 = await service.send_turn(mission.mission_id, "已批准，执行")
@@ -201,7 +203,7 @@ class TestK3SimActionLoop:
             await service.send_turn(mission.mission_id, "请求授权")
             pending = service.pending_approvals(mission.mission_id)
             grant = await service.decide_approval(
-                pending[0].request_id, principal="user:local:1000", approve=True
+                pending[0].request_id, principal=LOCAL_PRINCIPAL, approve=True
             )
             _action_decision.grant_id = grant.grant_id
             # Point the channel at a nonexistent daemon.
@@ -254,7 +256,7 @@ class TestRealProposalChannel:
             arguments={"frequency_hz": 660, "duration_sec": 0.6},
             grant_id="grant_public_only",
             grant_public_hash="grantpub_hash",
-            principal_id="user:local:1000",
+            principal_id=LOCAL_PRINCIPAL,
             risk_tier="MEDIUM",
             display={"title": "Play bounded tone", "risk_tier": "MEDIUM"},
         )

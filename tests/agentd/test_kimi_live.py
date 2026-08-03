@@ -25,6 +25,7 @@ from pathlib import Path
 import pytest
 
 from rosclaw.agentd.models.modeld_gateway import _find_modeld_runtime as _find_runtime
+from tests.agentd.conftest import LOCAL_PRINCIPAL
 
 KEY = os.environ.get("ROSCLAW_KIMI_API_KEY", "")
 BASE_URL = os.environ.get("ROSCLAW_KIMI_BASE_URL", "https://api.kimi.com/coding/v1")
@@ -304,7 +305,7 @@ async def test_k5_operator_consent_loop(tmp_path: Path) -> None:
         assert card.title and card.risk_tier in ("LOW", "MEDIUM", "HIGH", "CRITICAL")
 
         grant = await service.decide_approval(
-            pending[0].request_id, principal="user:local:1000", approve=True
+            pending[0].request_id, principal=LOCAL_PRINCIPAL, approve=True
         )
         assert grant is not None
 
@@ -326,7 +327,7 @@ async def test_k5_operator_consent_loop(tmp_path: Path) -> None:
         try:
             service._broker.verify(
                 grant.grant_id,
-                principal="user:local:1000",
+                principal=LOCAL_PRINCIPAL,
                 body_hash=grant.effective_body_hash,
                 mode="SIMULATION",
                 risk_tier="LOW",

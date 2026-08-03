@@ -21,6 +21,7 @@ from rosclaw.agentd.learning.pipeline import (
     PromotionGateError,
 )
 from rosclaw.agentd.mission import MissionStore
+from tests.agentd.conftest import LOCAL_PRINCIPAL
 
 
 def _home_factory(base: Path):
@@ -103,12 +104,12 @@ class TestLearningPipeline:
             pipe.promote(cid, principal="agent:rosclaw-native:b1", evaluation_ref="eval://1")
         # No evaluation reference rejected.
         with pytest.raises(PromotionGateError, match="evaluation reference"):
-            pipe.promote(cid, principal="user:local:1000", evaluation_ref="")
+            pipe.promote(cid, principal=LOCAL_PRINCIPAL, evaluation_ref="")
         # Human + evaluation → promoted.
-        pipe.promote(cid, principal="user:local:1000", evaluation_ref="eval://darwin/1")
+        pipe.promote(cid, principal=LOCAL_PRINCIPAL, evaluation_ref="eval://darwin/1")
         rows = pipe.list(status="PROMOTED")
         assert len(rows) == 1
-        assert rows[0]["promoted_by"] == "user:local:1000"
+        assert rows[0]["promoted_by"] == LOCAL_PRINCIPAL
 
     def test_extract_from_accepted_work(self, tmp_path: Path) -> None:
         from rosclaw.agentd.config import load_agent_config

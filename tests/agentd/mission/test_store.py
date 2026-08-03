@@ -34,6 +34,7 @@ from rosclaw.contracts.agent.task_graph import (
     TaskNodeV1,
 )
 from rosclaw.contracts.common import ValidationError, new_id
+from tests.agentd.conftest import LOCAL_PRINCIPAL
 
 ACTOR = "agent:rosclaw-native:sim_ur5e_01"
 
@@ -44,7 +45,7 @@ def _store(tmp_path: Path, name: str = "missions.db") -> MissionStore:
 
 def _mission(store: MissionStore, **kwargs):
     return store.create_mission(
-        owner_principal="user:local:1000",
+        owner_principal=LOCAL_PRINCIPAL,
         goal=Goal(text="测试任务"),
         body_binding=BodyBinding(body_id="sim_ur5e_01", effective_body_hash="body_abc"),
         actor_id=ACTOR,

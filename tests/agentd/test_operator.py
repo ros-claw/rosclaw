@@ -26,6 +26,7 @@ from rosclaw.contracts.agent.decision import DecisionV1
 from rosclaw.contracts.agent.model_turn import ModelTurnResultV1
 from rosclaw.contracts.operator.approval import ActionDisplayV1, ApprovalRequestV2
 from rosclaw.operator import GrantDeniedError, OperatorBroker
+from tests.agentd.conftest import LOCAL_PRINCIPAL
 
 NOW = datetime.now(UTC)
 
@@ -34,7 +35,7 @@ def _request(broker_body_hash: str = "body_abc", **overrides) -> ApprovalRequest
     payload = {
         "request_id": "appr_test1",
         "mission_id": "mis_x",
-        "principal": "user:local:1000",
+        "principal": LOCAL_PRINCIPAL,
         "body_id": "sim/ur5e",
         "effective_body_hash": broker_body_hash,
         "mode": "SIMULATION",
@@ -63,7 +64,7 @@ def broker(tmp_path: Path) -> OperatorBroker:
 class TestGrantLifecycle:
     def test_approve_mints_public_grant(self, broker: OperatorBroker) -> None:
         broker.create_request(_request())
-        grant = broker.decide("appr_test1", principal="user:local:1000", approve=True)
+        grant = broker.decide("appr_test1", principal=LOCAL_PRINCIPAL, approve=True)
         assert grant is not None
         dumped = json.dumps(grant.model_dump(mode="json"))
         assert "signature" not in dumped
@@ -78,17 +79,17 @@ class TestGrantLifecycle:
 
     def test_deny_is_terminal(self, broker: OperatorBroker) -> None:
         broker.create_request(_request())
-        assert broker.decide("appr_test1", principal="user:local:1000", approve=False) is None
+        assert broker.decide("appr_test1", principal=LOCAL_PRINCIPAL, approve=False) is None
         with pytest.raises(Exception, match="already"):
-            broker.decide("appr_test1", principal="user:local:1000", approve=True)
+            broker.decide("appr_test1", principal=LOCAL_PRINCIPAL, approve=True)
 
     def test_verify_happy_path_single_use(self, broker: OperatorBroker) -> None:
         broker.create_request(_request())
-        grant = broker.decide("appr_test1", principal="user:local:1000", approve=True)
+        grant = broker.decide("appr_test1", principal=LOCAL_PRINCIPAL, approve=True)
         intent = broker.action_intent_for_grant(grant.grant_id)
         verified = broker.verify(
             grant.grant_id,
-            principal="user:local:1000",
+            principal=LOCAL_PRINCIPAL,
             body_hash="body_abc",
             mode="SIMULATION",
             risk_tier="LOW",
@@ -99,7 +100,7 @@ class TestGrantLifecycle:
         with pytest.raises(GrantDeniedError, match="grant_consumed"):
             broker.verify(
                 grant.grant_id,
-                principal="user:local:1000",
+                principal=LOCAL_PRINCIPAL,
                 body_hash="body_abc",
                 mode="SIMULATION",
                 risk_tier="LOW",
@@ -110,7 +111,7 @@ class TestGrantLifecycle:
 class TestFailClosed:
     def _grant(self, broker: OperatorBroker) -> str:
         broker.create_request(_request())
-        grant = broker.decide("appr_test1", principal="user:local:1000", approve=True)
+        grant = broker.decide("appr_test1", principal=LOCAL_PRINCIPAL, approve=True)
         assert grant is not None
         return grant.grant_id
 
@@ -118,7 +119,7 @@ class TestFailClosed:
         with pytest.raises(GrantDeniedError, match="unknown_grant"):
             broker.verify(
                 "grant_ghost",
-                principal="user:local:1000",
+                principal=LOCAL_PRINCIPAL,
                 body_hash="body_abc",
                 mode="SIMULATION",
                 risk_tier="LOW",
@@ -126,11 +127,11 @@ class TestFailClosed:
 
     def test_revoked(self, broker: OperatorBroker) -> None:
         grant_id = self._grant(broker)
-        broker.revoke(grant_id, principal="user:local:1000")
+        broker.revoke(grant_id, principal=LOCAL_PRINCIPAL)
         with pytest.raises(GrantDeniedError, match="grant_revoked"):
             broker.verify(
                 grant_id,
-                principal="user:local:1000",
+                principal=LOCAL_PRINCIPAL,
                 body_hash="body_abc",
                 mode="SIMULATION",
                 risk_tier="LOW",
@@ -145,7 +146,7 @@ class TestFailClosed:
         with pytest.raises(GrantDeniedError, match="grant_expired"):
             broker.verify(
                 grant_id,
-                principal="user:local:1000",
+                principal=LOCAL_PRINCIPAL,
                 body_hash="body_abc",
                 mode="SIMULATION",
                 risk_tier="LOW",
@@ -167,7 +168,7 @@ class TestFailClosed:
         with pytest.raises(GrantDeniedError, match="body_hash_changed"):
             broker.verify(
                 grant_id,
-                principal="user:local:1000",
+                principal=LOCAL_PRINCIPAL,
                 body_hash="body_DIFFERENT",
                 mode="SIMULATION",
                 risk_tier="LOW",
@@ -178,7 +179,7 @@ class TestFailClosed:
         with pytest.raises(GrantDeniedError, match="mode_mismatch"):
             broker.verify(
                 grant_id,
-                principal="user:local:1000",
+                principal=LOCAL_PRINCIPAL,
                 body_hash="body_abc",
                 mode="REAL",
                 risk_tier="LOW",
@@ -189,7 +190,7 @@ class TestFailClosed:
         with pytest.raises(GrantDeniedError, match="risk_above_ceiling"):
             broker.verify(
                 grant_id,
-                principal="user:local:1000",
+                principal=LOCAL_PRINCIPAL,
                 body_hash="body_abc",
                 mode="SIMULATION",
                 risk_tier="HIGH",
@@ -204,7 +205,7 @@ class TestFailClosed:
         with pytest.raises(GrantDeniedError, match="forged_grant"):
             broker.verify(
                 grant_id,
-                principal="user:local:1000",
+                principal=LOCAL_PRINCIPAL,
                 body_hash="body_abc",
                 mode="SIMULATION",
                 risk_tier="LOW",
@@ -286,7 +287,7 @@ class TestApprovalLoop:
             pending = service.pending_approvals(mission.mission_id)
             assert len(pending) == 1
             grant = await service.decide_approval(
-                pending[0].request_id, principal="user:local:1000", approve=True
+                pending[0].request_id, principal=LOCAL_PRINCIPAL, approve=True
             )
             assert grant is not None
             consent = service._compiler._sources.consent.get_consent(mission.mission_id)
@@ -306,7 +307,7 @@ class TestApprovalLoop:
             with pytest.raises(GrantDeniedError, match="grant_consumed"):
                 service._broker.verify(
                     grant.grant_id,
-                    principal="user:local:1000",
+                    principal=LOCAL_PRINCIPAL,
                     body_hash=grant.effective_body_hash,
                     mode="SIMULATION",
                     risk_tier="LOW",
@@ -423,7 +424,7 @@ class TestApprovalLoop:
             with pytest.raises(GrantDeniedError, match="grant_revoked"):
                 service._broker.verify(
                     gid,
-                    principal="user:local:1000",
+                    principal=LOCAL_PRINCIPAL,
                     body_hash=grants[0].get("effective_body_hash", ""),
                     mode="SIMULATION",
                     risk_tier="LOW",

@@ -46,6 +46,7 @@ from rosclaw.contracts.agent.mission import (
 )
 from rosclaw.contracts.agent.task_graph import TaskGraphV1
 from rosclaw.contracts.common import new_id
+from tests.agentd.conftest import LOCAL_PRINCIPAL
 
 NOW = datetime(2026, 8, 1, 12, 0, 0, tzinfo=UTC)
 
@@ -147,7 +148,7 @@ def _sources(**overrides) -> SourceBundle:
 def _mission() -> MissionSessionV1:
     return MissionSessionV1(
         mission_id="mis_test",
-        owner_principal="user:local:1000",
+        owner_principal=LOCAL_PRINCIPAL,
         goal=Goal(text="移动红色方块"),
         body_binding=BodyBinding(body_id="sim_ur5e_01", effective_body_hash="body_abc"),
         created_at="2026-08-01T00:00:00Z",

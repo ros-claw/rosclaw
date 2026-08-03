@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from rosclaw.agentd.bench.limo_acceptance import run_acceptance
+from tests.agentd.conftest import LOCAL_PRINCIPAL
 
 
 async def test_limo_acceptance_simulation(tmp_path: Path) -> None:
@@ -60,6 +61,6 @@ async def test_shadow_real_gates_honest(tmp_path: Path) -> None:
         from rosclaw.contracts.common import ValidationError
 
         with pytest.raises(ValidationError, match="estop unavailable"):
-            await service.estop("test", principal="user:local:1000")
+            await service.estop("test", principal=LOCAL_PRINCIPAL)
     finally:
         await service.close()

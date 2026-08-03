@@ -31,6 +31,7 @@ from rosclaw.contracts.team.world import ObjectState, SharedWorldDeltaV1
 from rosclaw.operator import GrantDeniedError, OperatorBroker
 from rosclaw.team import TeamCoordinator
 from rosclaw.team.allocator import Bid, TaskAnnouncement
+from tests.agentd.conftest import LOCAL_PRINCIPAL
 
 NOW = datetime.now(UTC)
 
@@ -39,7 +40,7 @@ def _approval_request() -> ApprovalRequestV2:
     return ApprovalRequestV2(
         request_id="appr_audit",
         mission_id="mis_x",
-        principal="user:local:1000",
+        principal=LOCAL_PRINCIPAL,
         body_id="sim/ur5e",
         effective_body_hash="body_abc",
         mode="SIMULATION",
@@ -60,11 +61,11 @@ def broker(tmp_path: Path) -> OperatorBroker:
 class TestV1ExactActionBinding:
     def test_missing_action_intent_denied(self, broker: OperatorBroker) -> None:
         broker.create_request(_approval_request())
-        grant = broker.decide("appr_audit", principal="user:local:1000", approve=True)
+        grant = broker.decide("appr_audit", principal=LOCAL_PRINCIPAL, approve=True)
         with pytest.raises(GrantDeniedError, match="missing_action_intent"):
             broker.verify(
                 grant.grant_id,
-                principal="user:local:1000",
+                principal=LOCAL_PRINCIPAL,
                 body_hash="body_abc",
                 mode="SIMULATION",
                 risk_tier="LOW",
@@ -73,12 +74,12 @@ class TestV1ExactActionBinding:
 
     def test_broker_computed_intent_accepted_then_consumed(self, broker: OperatorBroker) -> None:
         broker.create_request(_approval_request())
-        grant = broker.decide("appr_audit", principal="user:local:1000", approve=True)
+        grant = broker.decide("appr_audit", principal=LOCAL_PRINCIPAL, approve=True)
         intent = broker.action_intent_for_grant(grant.grant_id)
         assert intent is not None
         broker.verify(
             grant.grant_id,
-            principal="user:local:1000",
+            principal=LOCAL_PRINCIPAL,
             body_hash="body_abc",
             mode="SIMULATION",
             risk_tier="LOW",
@@ -87,11 +88,11 @@ class TestV1ExactActionBinding:
 
     def test_wrong_intent_denied(self, broker: OperatorBroker) -> None:
         broker.create_request(_approval_request())
-        grant = broker.decide("appr_audit", principal="user:local:1000", approve=True)
+        grant = broker.decide("appr_audit", principal=LOCAL_PRINCIPAL, approve=True)
         with pytest.raises(GrantDeniedError, match="action_intent_mismatch"):
             broker.verify(
                 grant.grant_id,
-                principal="user:local:1000",
+                principal=LOCAL_PRINCIPAL,
                 body_hash="body_abc",
                 mode="SIMULATION",
                 risk_tier="LOW",
@@ -110,7 +111,7 @@ class TestV2BrokerKey:
 
     def test_signature_forgery_via_public_input_fails(self, broker: OperatorBroker) -> None:
         broker.create_request(_approval_request())
-        grant = broker.decide("appr_audit", principal="user:local:1000", approve=True)
+        grant = broker.decide("appr_audit", principal=LOCAL_PRINCIPAL, approve=True)
         # Attacker recomputes HMAC with the previously-derivable key.
         attacker_key = hashlib.sha256(b"operator:pol_audit").digest()
         forged = hmac.new(attacker_key, grant.public_hash.encode(), hashlib.sha256).hexdigest()
@@ -121,7 +122,7 @@ class TestV2BrokerKey:
         with pytest.raises(GrantDeniedError, match="forged_grant"):
             broker.verify(
                 grant.grant_id,
-                principal="user:local:1000",
+                principal=LOCAL_PRINCIPAL,
                 body_hash="body_abc",
                 mode="SIMULATION",
                 risk_tier="LOW",

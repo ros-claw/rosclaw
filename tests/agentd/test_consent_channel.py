@@ -27,6 +27,7 @@ from rosclaw.kernel.contracts import (
     EvidenceLevel,
     ExecutionMode,
 )
+from tests.agentd.conftest import LOCAL_PRINCIPAL
 
 REAL_CAPABILITY = "rh56.finger.move"
 
@@ -101,7 +102,7 @@ class TestRealConsentFlow:
         assert "permit" not in str(proposal).lower()
         decided = await channel.decide(
             proposal["request_id"],
-            principal_id="user:local:1000",
+            principal_id=LOCAL_PRINCIPAL,
             accept=True,
             supervise_timeout_sec=15.0,
         )
@@ -114,7 +115,7 @@ class TestRealConsentFlow:
         assert inner.get("final_state") == "COMPLETED"
         provenance = (inner.get("authorization_decision") or {}).get("provenance") or {}
         assert provenance.get("proposal_request_id") == proposal["request_id"]
-        assert provenance.get("operator_principal") == "user:local:1000"
+        assert provenance.get("operator_principal") == LOCAL_PRINCIPAL
 
     async def test_decline_dispatches_nothing(self, daemon) -> None:
         client, _ = daemon
@@ -127,7 +128,7 @@ class TestRealConsentFlow:
             risk_class="high",
             ttl_sec=60.0,
         )
-        await channel.decide(proposal["request_id"], principal_id="user:local:1000", accept=False)
+        await channel.decide(proposal["request_id"], principal_id=LOCAL_PRINCIPAL, accept=False)
         terminal = await channel.proposal(proposal["request_id"])
         assert terminal.get("state") == "DECLINED"
 
@@ -147,7 +148,7 @@ class TestRealConsentFlow:
             client.decide_operator_proposal(
                 proposal["request_id"],
                 decision="ACCEPT",
-                principal_id="user:local:1000",
+                principal_id=LOCAL_PRINCIPAL,
                 challenge_nonce="forged-nonce",
                 action_intent_hash=pending[0]["action_intent_hash"],
                 channel="test",
@@ -168,10 +169,10 @@ class TestRealConsentFlow:
             risk_class="high",
             ttl_sec=60.0,
         )
-        await channel.decide(proposal["request_id"], principal_id="user:local:1000", accept=True)
+        await channel.decide(proposal["request_id"], principal_id=LOCAL_PRINCIPAL, accept=True)
         with pytest.raises(ConsentChannelError, match="no pending proposal"):
             await channel.decide(
-                proposal["request_id"], principal_id="user:local:1000", accept=True
+                proposal["request_id"], principal_id=LOCAL_PRINCIPAL, accept=True
             )
 
 
@@ -197,7 +198,7 @@ class TestRestartInvalidation:
         channel2 = _channel(client2)
         with pytest.raises(ConsentChannelError, match="no pending proposal"):
             await channel2.decide(
-                proposal["request_id"], principal_id="user:local:1000", accept=True
+                proposal["request_id"], principal_id=LOCAL_PRINCIPAL, accept=True
             )
         # …并且账本里记录了 INVALIDATED 事件（可追溯）。
         from rosclaw.daemon.ledger import DaemonLedger

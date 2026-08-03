@@ -36,6 +36,7 @@ from rosclaw.contracts.agent.mission import (
     MissionState,
 )
 from rosclaw.contracts.agent.model_turn import ModelTurnResultV1, ToolCall
+from tests.agentd.conftest import LOCAL_PRINCIPAL
 
 NOW = datetime(2026, 8, 1, 12, 0, 0, tzinfo=UTC)
 ACTOR = "agent:rosclaw-native:sim_ur5e_01"
@@ -155,7 +156,7 @@ def store(tmp_path: Path) -> MissionStore:
 @pytest.fixture
 def mission(store: MissionStore) -> MissionSessionV1:
     return store.create_mission(
-        owner_principal="user:local:1000",
+        owner_principal=LOCAL_PRINCIPAL,
         goal=Goal(text="检查机器人状态"),
         body_binding=BodyBinding(body_id="sim_ur5e_01", effective_body_hash="body_abc"),
         actor_id=ACTOR,
