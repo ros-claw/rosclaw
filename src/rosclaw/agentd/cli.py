@@ -8,22 +8,37 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import getpass
 import json
 import os
 import sys
 from pathlib import Path
 
 from rosclaw.agentd.config import load_agent_config
+from rosclaw.agentd.credentials import AgentCredentialStore, CredentialStoreError
 from rosclaw.agentd.onboarding import PROVIDER_CHOICES, configure_model, doctor
 from rosclaw.agentd.service import AgentService, create_app
 
 LOCK_NAME = "agentd/agentd.lock"
+CREDENTIAL_ENV_BY_PROVIDER = {
+    "kimi-code": "ROSCLAW_KIMI_API_KEY",
+    "kimi-api": "MOONSHOT_API_KEY",
+}
 
 
 def _home(args: argparse.Namespace) -> Path:
     return Path(
         getattr(args, "home", None) or os.environ.get("ROSCLAW_HOME", Path.home() / ".rosclaw")
     )
+
+
+def _load_stored_credentials(home: Path) -> bool:
+    try:
+        AgentCredentialStore(home).inject()
+    except CredentialStoreError as exc:
+        print(str(exc), file=sys.stderr)
+        return False
+    return True
 
 
 def _acquire_lock(home: Path) -> Path:
@@ -55,6 +70,8 @@ def cmd_start(args: argparse.Namespace) -> int:
     import uvicorn
 
     home = _home(args)
+    if not _load_stored_credentials(home):
+        return 2
     config = load_agent_config(home / "config.yaml")
     if not config.profiles:
         print(
@@ -259,7 +276,10 @@ def cmd_learning_promote(args: argparse.Namespace) -> int:
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
-    report = doctor(_home(args))
+    home = _home(args)
+    if not _load_stored_credentials(home):
+        return 2
+    report = doctor(home)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report.get("status") == "READY" else 1
 
@@ -267,6 +287,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 def cmd_init(args: argparse.Namespace) -> int:
     home = _home(args)
     home.mkdir(parents=True, exist_ok=True)
+    if not _load_stored_credentials(home):
+        return 2
     choice = args.provider
     if choice is None:
         if not sys.stdin.isatty():
@@ -302,12 +324,43 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 def cmd_chat(args: argparse.Namespace) -> int:
     home = _home(args)
+    if not _load_stored_credentials(home):
+        return 2
     config = load_agent_config(home / "config.yaml")
     if not config.profiles:
         print("未配置模型。先运行 `rosclaw agent init`。", file=sys.stderr)
         return 2
     service = AgentService(config, home)
     return asyncio.run(_chat_repl(service, args))
+
+
+def cmd_credential(args: argparse.Namespace) -> int:
+    env_name = CREDENTIAL_ENV_BY_PROVIDER[args.provider]
+    try:
+        store = AgentCredentialStore(_home(args))
+        if args.credential_command == "set":
+            value = (
+                getpass.getpass(f"{env_name}: ").strip()
+                if sys.stdin.isatty()
+                else sys.stdin.read().strip()
+            )
+            store.set(env_name, value)
+            result = store.status(env_name)
+            result["provider"] = args.provider
+            result["updated"] = True
+        elif args.credential_command == "delete":
+            deleted = store.delete(env_name)
+            result = store.status(env_name)
+            result["provider"] = args.provider
+            result["deleted"] = deleted
+        else:
+            result = store.status(env_name)
+            result["provider"] = args.provider
+    except (CredentialStoreError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
 
 
 async def _chat_repl(service: AgentService, args: argparse.Namespace) -> int:
@@ -422,6 +475,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.add_argument("--api-key-ref", default=None)
     p_init.set_defaults(func=cmd_init)
 
+    add_credential_subcommands(sub)
+
     p_chat = sub.add_parser("chat", help="interactive chat (in-process)")
     p_chat.add_argument("--mission", default=None)
     p_chat.add_argument("--mode", default=None, choices=["SIMULATION", "SHADOW", "REAL"])
@@ -432,6 +487,15 @@ def build_parser() -> argparse.ArgumentParser:
     worker_sub = p_worker.add_subparsers(dest="worker_command", required=True)
     add_worker_subcommands(worker_sub)
     return parser
+
+
+def add_credential_subcommands(sub) -> None:
+    p_credential = sub.add_parser("credential", help="owner-only model credentials")
+    credential_sub = p_credential.add_subparsers(dest="credential_command", required=True)
+    for name in ("set", "status", "delete"):
+        parser = credential_sub.add_parser(name, help=f"{name} a persisted model credential")
+        parser.add_argument("--provider", choices=tuple(CREDENTIAL_ENV_BY_PROVIDER), required=True)
+        parser.set_defaults(func=cmd_credential)
 
 
 def add_worker_subcommands(sub) -> None:
@@ -480,6 +544,8 @@ def add_agent_subparsers(subparsers) -> None:
             p.add_argument("--model", default=None)
             p.add_argument("--api-key-ref", default=None)
         p.set_defaults(func=fn)
+
+    add_credential_subcommands(agent_sub)
 
     p_worker = subparsers.add_parser("worker", help="Worker Fabric management")
     worker_sub = p_worker.add_subparsers(dest="worker_command", required=True)
