@@ -410,6 +410,47 @@ def test_limo_navigation_executor_rejects_success_without_expected_motion(
     assert result.final_state is ActionState.FAILED
     assert result.errors[0]["code"] == "LIMO_NAVIGATION_VERIFICATION_FAILED"
     assert "movement was not observed" in result.errors[0]["message"]
+    assert result.evidence_level is EvidenceLevel.DRIVER_CONFIRMED
+    assert result.dispatch_result["accepted"] is True
+    assert result.driver_ack["acknowledged"] is True
+    assert result.verification_result["success"] is False
+    assert result.observations[0]["motion_evidence"]["movement_expected"] is True
+
+
+def test_limo_navigation_executor_preserves_dispatch_when_pose_misses_tolerance(
+    tmp_path, monkeypatch
+) -> None:
+    instance, source = _limo_instance(tmp_path)
+    action = _limo_navigation_action(instance)
+    payload = _limo_navigation_worker_payload(action)
+    payload["yaw_error_rad"] = 0.08
+    action.arguments["goal_tolerance"]["yaw_rad"] = 0.05
+    monkeypatch.setattr(
+        "rosclaw.robot_pack.runtime_loader.subprocess.run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0, stdout=__import__("json").dumps(payload), stderr=""
+        ),
+    )
+
+    result = LimoNavigationExecutor(instance, adapter_source=source)(action)
+
+    assert result.final_state is ActionState.FAILED
+    assert result.evidence_level is EvidenceLevel.DRIVER_CONFIRMED
+    assert result.dispatch_result == {
+        "accepted": True,
+        "adapter": instance.adapter.component_id,
+        "operation": "NAVIGATE_TO_POSE",
+        "action_server": "/move_base",
+        "terminal_state": 3,
+        "terminal_text": "Goal reached.",
+        "movement_expected": True,
+        "motion_observed": True,
+    }
+    assert result.driver_ack == {"acknowledged": True, "dispatched_wall_time": 10.0}
+    assert result.observations[0]["kind"] == "navigation_verification_failed"
+    assert result.verification_result["success"] is False
+    assert result.verification_result["yaw_error_rad"] == 0.08
+    assert result.errors[0]["code"] == "LIMO_NAVIGATION_VERIFICATION_FAILED"
 
 
 def test_limo_navigation_executor_reports_goal_already_satisfied(tmp_path, monkeypatch) -> None:

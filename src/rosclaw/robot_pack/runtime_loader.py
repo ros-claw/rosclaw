@@ -624,10 +624,7 @@ class _LimoFixedWorkerExecutor:
             )
         verification_error = self._validate_result(action, result)
         if verification_error is not None:
-            return _failed_result(
-                f"LIMO_{self.operation}_VERIFICATION_FAILED",
-                verification_error,
-            )
+            return self._verification_failure_result(action, result, verification_error)
         return self._success_result(action, result)
 
     def _validate_action(
@@ -680,6 +677,18 @@ class _LimoFixedWorkerExecutor:
         self, action: ActionEnvelope, result: dict[str, Any]
     ) -> ActionExecutionResult:
         raise NotImplementedError
+
+    def _verification_failure_result(
+        self,
+        action: ActionEnvelope,
+        result: dict[str, Any],
+        verification_error: str,
+    ) -> ActionExecutionResult:
+        del action, result
+        return _failed_result(
+            f"LIMO_{self.operation}_VERIFICATION_FAILED",
+            verification_error,
+        )
 
 
 class LimoNavigationExecutor(_LimoFixedWorkerExecutor):
@@ -919,6 +928,88 @@ class LimoNavigationExecutor(_LimoFixedWorkerExecutor):
                 "odom_translation_m": motion["odom_translation_m"],
                 "odom_rotation_rad": motion["odom_rotation_rad"],
             },
+        )
+
+    def _verification_failure_result(
+        self,
+        action: ActionEnvelope,
+        result: dict[str, Any],
+        verification_error: str,
+    ) -> ActionExecutionResult:
+        # A task-level verification failure does not erase a valid worker ACK.
+        # Preserve the fact that move_base accepted and completed the hardware
+        # dispatch, while still failing closed on the requested task predicate.
+        if (
+            result.get("protocol") != "rosclaw.limo.worker.v1"
+            or result.get("action_id") != action.action_id
+            or result.get("operation") != "NAVIGATE_TO_POSE"
+            or result.get("action_server") != "/move_base"
+            or result.get("accepted") is not True
+            or not isinstance(result.get("terminal_state"), int)
+            or isinstance(result.get("terminal_state"), bool)
+            or not isinstance(result.get("dispatched_wall_time"), (int, float))
+            or isinstance(result.get("dispatched_wall_time"), bool)
+        ):
+            return super()._verification_failure_result(action, result, verification_error)
+
+        motion = result.get("motion_evidence")
+        motion = motion if isinstance(motion, dict) else {}
+        observation = {
+            "kind": "navigation_verification_failed",
+            "target_pose": action.arguments["target_pose"],
+            "observed_final_pose": result.get("observed_final_pose"),
+            "preflight": result.get("preflight"),
+            "stopped_odometry": result.get("stopped_odometry"),
+            "map_to_base_after": result.get("map_to_base_after"),
+            "motion_evidence": motion,
+            "completed_wall_time": result.get("completed_wall_time"),
+        }
+        return ActionExecutionResult(
+            final_state=ActionState.FAILED,
+            evidence_level=EvidenceLevel.DRIVER_CONFIRMED,
+            policy_decision={
+                "allowed": True,
+                "policy": self.policy_name,
+                "reason": "bounded navigation dispatch was allowed; task verification failed",
+            },
+            authorization_decision={
+                "authorized": action.authorization.approved,
+                "approval_id": action.authorization.approval_id,
+            },
+            dispatch_result={
+                "accepted": True,
+                "adapter": self.instance.adapter.component_id,
+                "operation": "NAVIGATE_TO_POSE",
+                "action_server": "/move_base",
+                "terminal_state": result["terminal_state"],
+                "terminal_text": result.get("terminal_text"),
+                "movement_expected": motion.get("movement_expected"),
+                "motion_observed": motion.get("motion_observed"),
+            },
+            driver_ack={
+                "acknowledged": True,
+                "dispatched_wall_time": result["dispatched_wall_time"],
+            },
+            observations=[observation],
+            verification_result={
+                "success": False,
+                "predicate": verification_error,
+                "position_error_m": result.get("position_error_m"),
+                "yaw_error_rad": result.get("yaw_error_rad"),
+                "movement_expected": motion.get("movement_expected"),
+                "motion_observed": motion.get("motion_observed"),
+                "physical_motion_independently_observed": motion.get(
+                    "physical_motion_independently_observed"
+                ),
+                "odom_translation_m": motion.get("odom_translation_m"),
+                "odom_rotation_rad": motion.get("odom_rotation_rad"),
+            },
+            errors=[
+                {
+                    "code": "LIMO_NAVIGATION_VERIFICATION_FAILED",
+                    "message": verification_error,
+                }
+            ],
         )
 
 
