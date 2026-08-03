@@ -89,7 +89,7 @@ class ServiceIntentHandlers:
         ) or {}
         goal = str(payload.get("goal") or decision.summary or "子任务")
         capability = str(payload.get("capability") or "analysis.text")
-        instructions = str(payload.get("instructions") or "")
+        instructions = self._extract_instructions(payload)
         order = WorkOrderV1(
             work_order_id=new_id("wo"),
             mission_id=decision.mission_id,
@@ -157,6 +157,27 @@ class ServiceIntentHandlers:
             ),
             accepted=False,
         )
+
+    @staticmethod
+    def _extract_instructions(payload: dict) -> str:
+        """Worker 看不到主对话——instructions 必须自包含。模型可能把说明
+        嵌在不同层级；都找不到时以完整 payload 兜底（不丢上下文，让
+        worker 有据可依而不是空指令诚实失败）。"""
+        candidates = [
+            payload.get("instructions"),
+            (payload.get("work_order") or {}).get("instructions")
+            if isinstance(payload.get("work_order"), dict)
+            else None,
+            (payload.get("inputs") or {}).get("instructions")
+            if isinstance(payload.get("inputs"), dict)
+            else None,
+        ]
+        for candidate in candidates:
+            if candidate:
+                return str(candidate)
+        import json as _json
+
+        return _json.dumps(payload, ensure_ascii=False)
 
     # ------------------------------------------------------------------
     async def request_approval(self, decision: DecisionV1) -> HandlerOutcome:

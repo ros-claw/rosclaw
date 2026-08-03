@@ -294,8 +294,10 @@ async def test_k5_operator_consent_loop(tmp_path: Path) -> None:
         mission = service.create_mission("授权闭环 K5")
         r1 = await service.send_turn(
             mission.mission_id,
-            "我想让仿真机械臂回到初始位。按你的协议，这需要先请求人类授权："
-            "请用 REQUEST_APPROVAL 决策创建授权请求，不要直接声称已执行。",
+            "我想让仿真机械臂保持初始位。可信能力契约是 sim.hold_position"
+            "（仿真保持位姿，arguments 可为空 {}）。按你的协议，这需要先请求人类授权："
+            "请用 REQUEST_APPROVAL 决策创建授权请求（payload 带 capability_id "
+            "sim.hold_position 和 arguments {}），不要直接声称已执行。",
         )
         pending = service.pending_approvals(mission.mission_id)
         assert pending, f"no approval request created; reply: {r1.reply[:300]}"

@@ -100,7 +100,16 @@ def submit_decision_tool() -> StrictTool:
             "INTERNAL PROTOCOL — conclude this cognitive step by submitting a "
             "ROSClaw DecisionV1. This is not an action and executes nothing: "
             "the host validates the decision. Call this exactly once when you "
-            "have finished reasoning; do not call physical tools with it."
+            "have finished reasoning; do not call physical tools with it. "
+            "Field rules: for action intents (HIRE_WORKER, TEAM_COORDINATE, "
+            "REQUEST_APPROVAL, REQUEST_ACTION, PLAN_PATCH) proposed_operation "
+            "is REQUIRED and must NOT be null — set proposed_operation.type "
+            "to the operation name (e.g. 'hire_worker', 'approval_request', "
+            "'request_action', 'team_task_claim', 'task_graph_patch') and put "
+            "its arguments in proposed_operation.payload. For ANSWER, OBSERVE, "
+            "WAIT, PAUSE, FAIL_SAFE, VERIFY proposed_operation may be null. "
+            "verification.verifiers is required for REQUEST_APPROVAL and "
+            "REQUEST_ACTION (e.g. ['deterministic:bounds'])."
         ),
         parameters=DECISION_SUBMIT_SCHEMA,
     )
