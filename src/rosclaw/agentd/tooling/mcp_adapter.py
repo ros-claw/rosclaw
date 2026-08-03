@@ -81,9 +81,16 @@ class DiscoveryReport:
 class McpCapabilityAdapter:
     """One adapter per external MCP server."""
 
-    def __init__(self, config: McpServerConfig, catalog: ToolCatalog) -> None:
+    def __init__(
+        self,
+        config: McpServerConfig,
+        catalog: ToolCatalog,
+        client=None,
+    ) -> None:
         self._config = config
         self._catalog = catalog
+        #: 可选共享持久会话（有状态 SIM 身体必须观测/执行同进程）。
+        self._client = client
         self.source = f"mcp:{config.name}"
 
     # -- classification ---------------------------------------------------------
@@ -118,17 +125,26 @@ class McpCapabilityAdapter:
             raise ValidationError(f"mcp package unavailable: {exc}") from exc
 
         cfg = self._config
-        params = StdioServerParameters(
-            command=cfg.command, args=list(cfg.args), env=cfg.spawn_env() or None
-        )
         report = DiscoveryReport(server=self.source, ok=False)
         try:
-            async with (
-                stdio_client(params) as (read, write),
-                ClientSession(read, write) as session,
-            ):
-                await session.initialize()
-                listed = await session.list_tools()
+            if self._client is not None:
+                tools = await self._client.list_tools()
+
+                class _Listed:
+                    pass
+
+                listed = _Listed()
+                listed.tools = tools
+            else:
+                params = StdioServerParameters(
+                    command=cfg.command, args=list(cfg.args), env=cfg.spawn_env() or None
+                )
+                async with (
+                    stdio_client(params) as (read, write),
+                    ClientSession(read, write) as session,
+                ):
+                    await session.initialize()
+                    listed = await session.list_tools()
         except Exception as exc:  # noqa: BLE001 - surfaced as honest degradation
             report.error = f"{type(exc).__name__}: {exc}"
             self._catalog.quarantine_source(self.source, f"discovery_failed: {report.error}")
@@ -173,6 +189,12 @@ class McpCapabilityAdapter:
         async def _exec(arguments: dict[str, Any]) -> str:
             import json as _json
 
+            if self._client is not None:
+                raw = await self._client.call_tool(tool_name, arguments)
+                return _json.dumps(
+                    {"tool": tool_name, "source": self.source, "content": [raw]},
+                    ensure_ascii=False,
+                )
             from mcp import ClientSession, StdioServerParameters
             from mcp.client.stdio import stdio_client
 

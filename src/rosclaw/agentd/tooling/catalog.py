@@ -33,6 +33,10 @@ class ToolCatalog:
         self._quarantine: dict[str, str] = {}  # tool_id -> reason
 
     def register(self, descriptor: ToolDescriptorV2, executor: ToolExecutor | None = None) -> None:
+        if "__" in descriptor.tool_id:
+            raise ValidationError(
+                f"tool {descriptor.tool_id!r}: '__' is reserved for the wire-name mapping"
+            )
         if descriptor.tool_id in self._descriptors:
             raise ValidationError(f"tool {descriptor.tool_id!r} already registered")
         self._descriptors[descriptor.tool_id] = descriptor
@@ -84,10 +88,21 @@ class ToolCatalog:
 
     # -- execution --------------------------------------------------------------
 
+    def _canonical(self, tool_id: str) -> str:
+        if tool_id in self._descriptors:
+            return tool_id
+        from rosclaw.agentd.tooling.strict_schema import canonical_name
+
+        candidate = canonical_name(tool_id)
+        if candidate in self._descriptors:
+            return candidate
+        return tool_id
+
     async def execute(self, tool_id: str, arguments: dict[str, Any]) -> str:
-        descriptor = self._descriptors.get(tool_id)
+        descriptor = self._descriptors.get(self._canonical(tool_id))
         if descriptor is None:
             raise ValidationError(f"tool {tool_id!r} not in catalog")
+        tool_id = descriptor.tool_id
         if descriptor.execution_class is ExecutionClass.PHYSICAL_ACTION:
             raise ToolNotCallableError(
                 f"tool {tool_id!r} is PHYSICAL_ACTION — never directly executable; "

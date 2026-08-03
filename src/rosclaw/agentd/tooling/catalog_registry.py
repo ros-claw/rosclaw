@@ -50,7 +50,7 @@ class CatalogToolRegistry:
         """Legacy path: allowlist intersection only (no ranking)."""
         tools: list[StrictTool] = []
         for name in names:
-            descriptor = self._catalog.get(name)
+            descriptor = self._catalog.get(self._catalog._canonical(name))
             if descriptor is None or not descriptor.model_callable:
                 continue
             if self._catalog.quarantine_reason(name) is not None:

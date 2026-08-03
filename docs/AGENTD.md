@@ -218,6 +218,30 @@ live 模型协调。3v3 联赛基准（T-SIM-2/3）属 PR-TF-075 后续范围。
 - deferred：`/fork /clone /tree`（批次 F 双时间线）、`/copy`（TUI 本地
   clipboard）——不伪造存在。
 
+## LIMO 完整闭环与发布打包（PR-12）
+
+- `rosclaw.limo.sim_mcp`：LIMO 仿真 MCP（观测 get_pose/health 为
+  readOnlyHint → OBSERVE；play_tone/set_initial_pose 为 PHYSICAL_ACTION）。
+- `SimActionChannel`（SIM 物理权威）：只在 EXACT_ACTION grant 验证消费
+  后执行；产出 SIMULATED receipt（evidence_domain=simulation、
+  usable_for_real_execution=false；无声学观测时诚实声明只证明驱动
+  执行）。观测与执行共享 `PersistentMcpClient` 持久会话（有状态身体
+  必须同进程）。
+- 验收（§18 C1–C10）：`bench/limo_acceptance.run_acceptance` ——
+  观测 → 授权卡 → operator.sock 批准（peer identity + display hash）→
+  SIM 执行 → receipt → 位姿验证 → practice candidate；SHADOW/REAL 无
+  daemon/硬件时诚实拒绝，绝不用 SIM 证据冒充。
+- K9 live：真实 Kimi K3 自行决策完成同一闭环（grant.consumed、
+  receipt.received、单次消费全部验证）。
+- 打包：`scripts/build_release.sh` → `dist/rosclaw-<ver>-linux-arm64.
+  tar.gz`（src + 已构建 packages + lockfiles + third_party 声明 +
+  manifest hash）；`scripts/release/install_release.sh`（venv + npm ci
+  重建 + 原子切换 current/previous，Node 缺失诚实降级）；
+  `rollback.sh`（manifest 校验后回切，失败版本保留排查）。
+- wire 约束：OpenAI 函数名不允许点号——工具 id 在 wire 上映射为
+  `__`（catalog 注册拒绝含 `__` 的原生 id 保证单射）；内部协议工具的
+  成功提交也必须回执 tool result（Kimi 拒绝悬空 tool_call）。
+
 ## Operator 安全通道（PR-11）
 
 - `operator.sock`（0600，JSONL）：与模型可见的 Agent API 物理分面——

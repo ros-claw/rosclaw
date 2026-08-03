@@ -394,7 +394,51 @@ class ServiceIntentHandlers:
                 evidence_ref=f"receipt://{action_id}",
             )
         channel = getattr(self, "_action_channel", None)
+        capability = str(payload.get("capability_id", "sim.hold_position"))
+        arguments = payload.get("arguments") or {}
         if channel is None:
+            # PR-12：无 daemon 时，SIMULATION 可经 SimActionChannel 在 SIM
+            # 身体上执行（SIMULATED receipt，永不证明 REAL）。
+            sim_channel = getattr(self, "_sim_channel", None)
+            if sim_channel is not None and self._mode == "SIMULATION":
+                from rosclaw.agentd.sim_executor import SimActionError
+
+                try:
+                    outcome = await sim_channel.execute(
+                        capability_id=capability,
+                        arguments=arguments,
+                        grant_id=grant.grant_id,
+                        mode=self._mode,
+                    )
+                except SimActionError as exc:
+                    return HandlerOutcome(text=f"SIM 执行失败（fail closed）：{exc}")
+                receipt = outcome.receipt
+                await self._emit(
+                    "receipt.received",
+                    decision.mission_id,
+                    {
+                        "action_id": outcome.action_id,
+                        "final_state": outcome.final_state,
+                        "trust_level": "SIMULATED",
+                        "verified": True,
+                        "evidence_domain": "simulation",
+                    },
+                )
+                effect_note = (
+                    "物理效果已由独立观测证明。"
+                    if receipt.get("physical_effect_proven")
+                    else "没有声学/物理观测——只能确认驱动执行，不能独立证明物理效果（§18.4）。"
+                )
+                return HandlerOutcome(
+                    text=(
+                        f"动作已由 SIM 执行器完成（{receipt['executor']}）："
+                        f"capability={capability}, final_state=COMPLETED, "
+                        "evidence_domain=simulation, usable_for_real_execution=false。"
+                        f"{effect_note}grant 已消费。"
+                    ),
+                    terminal_receipt=True,
+                    evidence_ref=f"receipt://{outcome.action_id}",
+                )
             return HandlerOutcome(
                 text=(
                     f"授权已验证（grant {grant.grant_id[:20]}…，EXACT_ACTION 已消费）。"
@@ -402,8 +446,6 @@ class ServiceIntentHandlers:
                     "这不是执行回执。"
                 )
             )
-        capability = str(payload.get("capability_id", "sim.hold_position"))
-        arguments = payload.get("arguments") or {}
         from rosclaw.agentd.action_channel import ActionChannelError
 
         try:

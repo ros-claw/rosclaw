@@ -243,6 +243,7 @@ class TestStrictSchema:
         tool = to_strict_tool(
             _obs(input_schema={"type": "object", "properties": {"f": {"type": "string"}}})
         )
+        assert tool.name == "test__observe"  # wire 名（点号 → __）
         assert tool.parameters["additionalProperties"] is False
         assert tool.parameters["required"] == ["f"]
         assert "evidence_class" in tool.description
@@ -391,7 +392,7 @@ class TestCatalogRegistry:
         )
         # strict_tools never surfaces the physical action
         names = [t.name for t in registry.strict_tools(["t.obs", "t.act"])]
-        assert names == ["t.obs"]
+        assert names == ["t__obs"]
         with pytest.raises(ToolNotCallableError):
             await registry.execute("t.act", {})
         env = registry.evidence_envelope("t.obs", "data", body_id="b")
@@ -403,7 +404,7 @@ class TestCatalogRegistry:
         catalog.register(_obs("t.real", supported_modes=["REAL"]))
         registry = CatalogToolRegistry(catalog, ToolResolver(catalog))
         sim_names = {t.name for t in registry.resolve_tools(["t.sim", "t.real"], mode="SIMULATION")}
-        assert sim_names == {"t.sim"}
+        assert sim_names == {"t__sim"}
         excluded = registry.excluded_reasons(["t.sim", "t.real"], mode="SIMULATION")
         assert "mode_not_allowed" in excluded["t.real"][0]
 

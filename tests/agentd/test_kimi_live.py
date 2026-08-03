@@ -18,6 +18,7 @@ API is unreachable the tests fail, they never fabricate success.
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -483,5 +484,94 @@ async def test_k8_modeld_service_loop_live(tmp_path: Path) -> None:
         assert result.reply.strip(), "empty reply through modeld backend"
         usage = service.mission_usage(mission.mission_id)
         assert usage.get("total_tokens", 0) > 0, "usage not metered"
+    finally:
+        await service.close()
+
+
+
+async def test_k9_limo_acceptance_live(tmp_path: Path) -> None:
+    """K9 (PR-12 验收)：真实 Kimi K3 驱动 LIMO 完整闭环（SIMULATION 证据域）。"""
+    import yaml
+
+    from rosclaw.agentd.bench.limo_acceptance import limo_sim_mcp_server_config
+    from rosclaw.agentd.config import load_agent_config
+    from rosclaw.agentd.models.gateway import OpenAICompatGateway
+    from rosclaw.agentd.models.profiles import kimi_code_k3_profile
+    from rosclaw.agentd.operator_socket import operator_call
+    from rosclaw.agentd.service import AgentService
+
+    (tmp_path / "config.yaml").write_text(
+        yaml.safe_dump(
+            {"agent": {"enabled": True}, "mcp_servers": [limo_sim_mcp_server_config()]}
+        ),
+        encoding="utf-8",
+    )
+    config = load_agent_config(tmp_path / "config.yaml")
+    service = AgentService(
+        config, tmp_path, gateway=OpenAICompatGateway(kimi_code_k3_profile(base_url=BASE_URL))
+    )
+    sock = await service.start_operator_socket()
+    try:
+        mission = service.create_mission("LIMO 验收：扬声器与定位")
+        guidance = (
+            "按你的协议完成验收流程（工具名一律逐字使用工具目录里列出的名字，"
+            "不要自己改写或拼写）：1) 用 OBSERVE 调用位姿工具和健康工具读取状态；"
+            "2) 用 REQUEST_APPROVAL 请求播放提示音授权（capability_id "
+            "limo.speaker.play_tone，arguments 含 frequency_hz=660, duration_sec=0.6, "
+            "volume_percent=18，payload 顶层带 capability_id 和 arguments）；"
+            "3) 我批准后用 REQUEST_ACTION 执行（payload 带 grant_id——逐字复制系统提示 "
+            "TRUSTED CONTEXT 里的 Active mission grant 行）、capability_id、arguments；"
+            "4) 同样流程请求并执行 limo.localization.set_initial_pose (x=0,y=0,yaw=0)；"
+            "5) 再用 OBSERVE 调用位姿工具验证新位姿；6) 报告结果。"
+            "REQUEST_APPROVAL 和 REQUEST_ACTION 的 decision 都要带 verification.verifiers。"
+        )
+        last_reply = ""
+        for _step in range(16):
+            result = await service.send_turn(
+                mission.mission_id, guidance if _step == 0 else "继续按协议执行下一步。"
+            )
+            last_reply = result.reply
+            if service.pending_approvals(mission.mission_id):
+                listed = await operator_call(sock, "approvals.list")
+                entry = listed["approvals"][0]
+                decided = await operator_call(
+                    sock,
+                    "approvals.decide",
+                    {
+                        "request_id": entry["request_id"],
+                        "display_hash": entry["display_hash"],
+                        "approve": True,
+                    },
+                )
+                assert decided["ok"], decided
+                continue
+            if result.state.value == "FAILED":
+                break
+        history = json.dumps(service.conversation(mission.mission_id), ensure_ascii=False)
+        assert "limo.speaker.play_tone" in history, last_reply[:300]
+        assert "COMPLETED" in history, last_reply[:300]
+        events = service.events_replay(mission.mission_id)
+        types = [e.type.value for e in events]
+        assert "grant.consumed" in types, types
+        assert "receipt.received" in types, types
+        from rosclaw.operator import GrantDeniedError
+
+        grants = service.list_grants()
+        assert grants, "no grants were minted"
+        for grant in grants:
+            if not grant.get("consumed"):
+                continue
+            try:
+                service._broker.verify(
+                    grant["grant_id"],
+                    principal=grant["principal"],
+                    body_hash=mission.body_binding.effective_body_hash,
+                    mode="SIMULATION",
+                    risk_tier="LOW",
+                    action_intent=service._broker.action_intent_for_grant(grant["grant_id"]),
+                )
+                raise AssertionError("consumed grant accepted again")
+            except GrantDeniedError as exc:
+                assert exc.reason_code == "grant_consumed"
     finally:
         await service.close()

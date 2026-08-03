@@ -89,7 +89,15 @@ MISSION_TRANSITIONS: dict[MissionState, frozenset[MissionState]] = {
             MissionState.FAILED,
         }
     ),
-    MissionState.VERIFY: frozenset({MissionState.LEARN, MissionState.FAILED, MissionState.PLAN}),
+    MissionState.VERIFY: frozenset(
+        {
+            MissionState.LEARN,
+            MissionState.FAILED,
+            MissionState.PLAN,
+            # 验证阶段可能需要新的授权动作（如 LIMO 验收的第二个动作卡）。
+            MissionState.WAIT_APPROVAL,
+        }
+    ),
     MissionState.LEARN: frozenset({MissionState.IDLE}),
     MissionState.SUSPENDED: frozenset({MissionState.PLAN, MissionState.FAILED}),
     MissionState.FAILED: frozenset({MissionState.IDLE}),

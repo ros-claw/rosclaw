@@ -414,6 +414,22 @@ class AgentLoop:
                                 context_revision=bundle.context_revision,
                             )
                             decision = DecisionV1.model_validate_contract(submitted)
+                            # Kimi/OpenAI 要求每个 tool_call_id 都有响应消息：
+                            # 内部协议工具也必须回执（标记为协议确认，不执行）。
+                            self._conversation.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": call.call_id,
+                                    "content": json.dumps(
+                                        {
+                                            "accepted": True,
+                                            "decision_id": decision.decision_id,
+                                            "note": "protocol tool: decision registered, not executed",
+                                        },
+                                        ensure_ascii=False,
+                                    ),
+                                }
+                            )
                         except Exception as exc:  # noqa: BLE001 - 回执错误继续修复
                             self._conversation.append(
                                 {
@@ -587,8 +603,10 @@ class AgentLoop:
                 }
             )
             return True
-        allowed = {t.name for t in self._tools.strict_tools([tool_name])}
-        if tool_name not in allowed:
+        from rosclaw.agentd.tooling.strict_schema import canonical_name
+
+        allowed = {canonical_name(t.name) for t in self._tools.strict_tools([tool_name])}
+        if canonical_name(tool_name) not in allowed:
             self._conversation.append(
                 {
                     "role": "user",

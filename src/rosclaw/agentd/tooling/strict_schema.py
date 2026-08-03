@@ -12,6 +12,17 @@ from rosclaw.contracts.agent.tool import ExecutionClass, ToolDescriptorV2
 from rosclaw.contracts.common import ValidationError
 
 
+#: OpenAI function-name 约束（^[a-zA-Z][a-zA-Z0-9_-]*$）不允许点号——
+#: wire 上把 MCP 工具 id 的 "." 映射为 "__"（catalog 注册时拒绝含 "__" 的
+#: 原生 id，保证映射单射）。模型只见 sanitized 名；执行时反解回 canonical。
+def wire_name(tool_id: str) -> str:
+    return tool_id.replace(".", "__")
+
+
+def canonical_name(wire: str) -> str:
+    return wire.replace("__", ".")
+
+
 def to_strict_tool(descriptor: ToolDescriptorV2) -> StrictTool:
     if descriptor.execution_class is ExecutionClass.PHYSICAL_ACTION:
         raise ValidationError(
@@ -28,7 +39,7 @@ def to_strict_tool(descriptor: ToolDescriptorV2) -> StrictTool:
     schema["required"] = list(props.keys())
     description = descriptor.description or descriptor.tool_id
     description += (
-        f" [evidence_class: {descriptor.evidence_class.value}; "
+        f" [id: {descriptor.tool_id}; evidence_class: {descriptor.evidence_class.value}; "
         f"modes: {','.join(descriptor.supported_modes)}]"
     )
-    return StrictTool(name=descriptor.tool_id, description=description, parameters=schema)
+    return StrictTool(name=wire_name(descriptor.tool_id), description=description, parameters=schema)

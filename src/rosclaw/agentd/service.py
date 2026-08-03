@@ -296,6 +296,9 @@ class AgentService:
             body_hash=body.effective_body_hash if body else "",
             mode=config.default_mode,
         )
+        # 批次 B/PR-12：handlers 的事件（grant.consumed、receipt.received 等）
+        # 接入 AgentEventV2 journal。
+        self._handlers.set_event_sink(self._event_sink_for)
         # Daemon action channel (K3) + consent channel (ADR-0007): only when
         # a rosclawd client is actually available — otherwise both degrade
         # honestly.
@@ -318,6 +321,30 @@ class AgentService:
                 body_id=self._body_id,
                 body_hash=body.effective_body_hash if body else "",
             )
+        # PR-12：SIM 物理权威（无 daemon 时）。mcp_servers[] 带
+        # sim_executor: true 的 server 同时提供 SIM actuation。
+        sim_server = next(
+            (s for s in self._config.mcp_servers if s.get("sim_executor")), None
+        )
+        if sim_server is not None and self._daemon_client is None:
+            from rosclaw.agentd.sim_executor import SimActionChannel
+            from rosclaw.agentd.tooling.persistent_client import PersistentMcpClient
+
+            # 观测与 SIM 执行共享同一 server 进程（有状态身体）。
+            shared_client = PersistentMcpClient(
+                command=str(sim_server.get("command", "")),
+                args=tuple(str(a) for a in sim_server.get("args", []) or []),
+            )
+            self._shared_mcp_client = shared_client
+            self._handlers._sim_channel = SimActionChannel(
+                command=str(sim_server.get("command", "")),
+                args=tuple(str(a) for a in sim_server.get("args", []) or []),
+                name=str(sim_server.get("name", "sim")),
+                client=shared_client,
+            )
+            for adapter in self._mcp_adapters:
+                if adapter.source == f"mcp:{sim_server.get('name')}":
+                    adapter._client = shared_client
             self._handlers._consent_channel = self._consent_channel
         # Team Fabric: enabled via config `team.enabled`. Local coordinator
         # in P0 (local_sim); ROS 2/Zenoh transports are later PRs.
@@ -1048,6 +1075,9 @@ class AgentService:
         return path
 
     async def close(self) -> None:
+        if getattr(self, "_shared_mcp_client", None) is not None:
+            await self._shared_mcp_client.close()
+            self._shared_mcp_client = None
         if getattr(self, "_operator_socket", None) is not None:
             await self._operator_socket.stop()
             self._operator_socket = None

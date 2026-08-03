@@ -109,14 +109,43 @@ async def probe_home(home: Path) -> ModelProbeResult:
         await gateway.close()
 
 
+def _component_report() -> dict:
+    """批次 D/E 与 PR-11 组件检查：Node、modeld、TUI 资产。"""
+    import shutil
+    import subprocess
+
+    node_version = None
+    node_ok = False
+    for candidate in filter(None, [shutil.which("node"), "/usr/bin/node", "/usr/local/bin/node"]):
+        try:
+            out = subprocess.check_output([candidate, "--version"], text=True, timeout=10).strip()
+            parts = [int(p) for p in out.lstrip("v").split(".")]
+            if parts >= [22, 19, 0]:
+                node_version, node_ok = out, True
+                break
+            node_version = node_version or out
+        except Exception:  # noqa: BLE001
+            continue
+    from rosclaw.agentd.cli import _find_tui_runtime
+    from rosclaw.agentd.models.modeld_gateway import _find_modeld_runtime
+
+    return {
+        "node": {"version": node_version, "ok": node_ok, "required": ">=22.19.0"},
+        "modeld": {"available": _find_modeld_runtime() is not None},
+        "tui": {"available": _find_tui_runtime() is not None},
+    }
+
+
 def doctor(home: Path) -> dict:
     """Honest agent readiness report. Never prints raw credentials."""
     config = load_agent_config(home / "config.yaml")
     report: dict = {
         "agent_enabled": config.enabled,
+        "model_backend": config.model_backend,
         "profiles": [p.name for p in config.profiles],
         "default_profile": config.default_profile if config.profiles else None,
     }
+    report["components"] = _component_report()
     if not config.profiles:
         report["status"] = "MODEL_NOT_READY"
         report["reason"] = "no model profile configured — run `rosclaw agent init`"
