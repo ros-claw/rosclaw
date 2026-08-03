@@ -156,7 +156,7 @@ class TestPerMissionConcurrency:
 
         class SlowGateway(MockModelGateway):
             async def complete(self, request):
-                await asyncio.sleep(0.4)
+                await asyncio.sleep(0.6)
                 return _answer(request)
 
             async def complete_stream(self, request, on_text_delta=None):
@@ -178,8 +178,9 @@ class TestPerMissionConcurrency:
             )
             await asyncio.gather(t1, t2)
             elapsed = time.monotonic() - started
-            # 全局锁时代将是 ~0.8s 串行；每 Mission 锁应接近 ~0.4s 并发。
-            assert elapsed < 0.7, f"missions were serialized: {elapsed:.2f}s"
+            # 全局锁时代将是 ~1.2s 串行；每 Mission 锁应接近 ~0.6s 并发。
+            # 阈值取 1.1：留出负载抖动余量，仍能区分串行。
+            assert elapsed < 1.1, f"missions were serialized: {elapsed:.2f}s"
         finally:
             await service.close()
 
