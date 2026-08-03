@@ -20,6 +20,12 @@ def main() -> int:
     if result is not None:
         return result
 
+    from rosclaw.adapters.acp.cli import dispatch_acp_argv
+
+    result = dispatch_acp_argv(sys.argv[1:])
+    if result is not None:
+        return result
+
     from rosclaw.robot_pack.cli import dispatch_robot_pack_argv
 
     result = dispatch_robot_pack_argv(sys.argv[1:])

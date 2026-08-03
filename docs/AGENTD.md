@@ -218,6 +218,16 @@ live 模型协调。3v3 联赛基准（T-SIM-2/3）属 PR-TF-075 后续范围。
 - `/tree /fork` 已可用（批次 F 第一阶段）；`/clone`（第二阶段）与
   `/copy`（TUI 本地 clipboard）deferred——不伪造存在。
 
+## ACP adapter（批次 G）
+
+- `rosclaw acp serve`：官方 `agent-client-protocol` SDK（>=0.12.0）的
+  stdio JSON-RPC server——Zed 等 ACP 客户端接入同一个 Native Agent。
+- 映射：session → Mission；prompt → turn；AgentEventV2 → session
+  update（text delta / tool / worker / approval 卡片 / receipt / usage）。
+- 边界：ACP client 是 UI client——AgentLoop 仍在 agentd 运行；ACP
+  generic permission 不等于 rosclawd Permit；approval 只呈现卡片与 id，
+  客户端决定不构成物理授权（不自动批准、不退化为聊天口令）。
+
 ## ReasoningBranch（批次 F 第一阶段）
 
 - 双时间线：推理分支树可 fork；物理事实线只追加、永不回滚、不被旧
