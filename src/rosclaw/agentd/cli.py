@@ -369,7 +369,8 @@ async def _chat_repl(service: AgentService, args: argparse.Namespace) -> int:
     print(f"ROSClaw chat — mission {mission.mission_id} [{mission.mode.value}]")
     print(
         "输入消息开始对话；/state 查看状态；/approvals 待授权；"
-        "/approve|/deny <id> 决定授权；/cancel 取消当前回合；/quit 退出。"
+        "/approve|/deny <id> 决定授权；/compact [focus|--dry-run|--status]；"
+        "/cancel 取消当前回合；/quit 退出。"
     )
     try:
         while True:
@@ -389,6 +390,29 @@ async def _chat_repl(service: AgentService, args: argparse.Namespace) -> int:
             if text == "/cancel":
                 await service.cancel(mission.mission_id)
                 print("已请求取消当前回合。")
+                continue
+            if text.startswith("/compact"):
+                arg = text[len("/compact") :].strip()
+                if arg == "--status":
+                    status = service.compaction_status(mission.mission_id)
+                    print(
+                        f"压缩次数={status['compactions']} view_tokens="
+                        f"{status['current_view_tokens']} journal_events={status['journal_events']}"
+                    )
+                    continue
+                dry = arg == "--dry-run"
+                focus = None if arg in ("", "--dry-run") else arg
+                report = await service.compact(mission.mission_id, instructions=focus, dry_run=dry)
+                if dry:
+                    print(
+                        f"[dry-run] tokens={report['tokens_before']} 切点={report['cut_index']}"
+                        f"/{report['messages_total']}，预计保留至 tokens≈{report['tokens_after']}"
+                    )
+                else:
+                    print(
+                        f"已压缩：{report['tokens_before']}→{report['tokens_after']} tokens，"
+                        f"保留 {report.get('kept_messages', '?')} 条（id={report.get('compaction_id', '—')}）"
+                    )
                 continue
             if text == "/approvals":
                 pending = service.pending_approvals(mission.mission_id)

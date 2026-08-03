@@ -34,6 +34,10 @@ from rosclaw.agentd.context.compiler import (
 )
 from rosclaw.agentd.context.prompt_registry import PromptInfo
 from rosclaw.agentd.context.sources import ConversationMessage
+from rosclaw.agentd.decisions.submit_tool import (
+    SUBMIT_DECISION_TOOL,
+    build_decision_payload,
+)
 from rosclaw.agentd.decisions.validator import DecisionRejectedError, DecisionValidator
 from rosclaw.agentd.mission import BudgetExceededError, MissionStore
 from rosclaw.agentd.models.gateway import (
@@ -96,6 +100,9 @@ class AgentLoop:
         max_tool_rounds: int = 12,
         max_decision_repairs: int = 2,
         usage_recorder=None,
+        event_sink=None,
+        decision_protocol: str = "tool_call",
+        legacy_fenced_json_fallback: bool = True,
     ) -> None:
         self._store = store
         self._compiler = compiler
@@ -111,6 +118,19 @@ class AgentLoop:
         self._conversation_loaded_for: str | None = None
         self._persisted_count = 0
         self._usage_recorder = usage_recorder
+        self._event_sink = event_sink
+        self._decision_protocol = decision_protocol
+        self._legacy_fenced_json_fallback = legacy_fenced_json_fallback
+
+    # ------------------------------------------------------------------
+    async def _emit(self, type, payload: dict, *, visibility=None, task_id=None) -> None:
+        """Journaled UI event (PR-02). Never blocks the domain operation."""
+        if self._event_sink is None:
+            return
+        import contextlib
+
+        with contextlib.suppress(Exception):  # event fan-out must not break the loop
+            await self._event_sink(type, payload, visibility=visibility, task_id=task_id)
 
     # ------------------------------------------------------------------
     def request_cancel(self) -> None:
@@ -217,6 +237,7 @@ class AgentLoop:
         # Attribution: the compile manifest (with prompt hash, §6.3) is
         # persisted before any model call.
         self._store.record_context_manifest(bundle, prompt_hash=self._prompt.content_hash)
+        self._current_bundle = bundle
 
         if mission.state is MissionState.UNDERSTAND:
             mission = self._store.transition(
@@ -240,6 +261,10 @@ class AgentLoop:
         tools: list[StrictTool] = []
         if self._tools is not None and candidate_tools:
             tools = self._tools.strict_tools(candidate_tools)
+        if self._decision_protocol == "tool_call":
+            from rosclaw.agentd.decisions.submit_tool import submit_decision_tool
+
+            tools.append(submit_decision_tool())
 
         repairs_left = self._max_decision_repairs
         for _round in range(self._max_tool_rounds + 1):
@@ -252,8 +277,15 @@ class AgentLoop:
                     "cancelled_by_user",
                 )
                 return result
-            # 主动 microcompact：估算超阈值先折叠旧 tool result / 中段历史。
-            self._maybe_microcompact(result)
+            # 主动压缩：按 history_budget 持久化 compact（PR-07）。
+            await self._maybe_compact(mission, result)
+            from rosclaw.contracts.agent.agent_event import AgentEventType, Visibility
+
+            await self._emit(
+                AgentEventType.MODEL_REQUEST_STARTED,
+                {"profile": self._gateway.profile.name, "model": self._gateway.profile.model},
+                visibility=Visibility.DEBUG,
+            )
             request = ModelTurnRequest(
                 system_prompt=system_prompt,
                 messages=list(self._conversation),
@@ -270,7 +302,9 @@ class AgentLoop:
 
                 if is_context_overflow(exc.kind, str(exc)):
                     # Reactive compact（openharness 模式）：压缩后重试一次。
+                    await self._emit(AgentEventType.COMPACTION_STARTED, {"reason": "overflow"})
                     self._conversation, _ = microcompact(self._conversation, keep_recent=4)
+                    await self._emit(AgentEventType.COMPACTION_COMPLETED, {"reason": "overflow"})
                     request.messages = list(self._conversation)
                     try:
                         turn = await self._gateway.complete_stream(
@@ -306,33 +340,75 @@ class AgentLoop:
                     )
                 return result
 
+            # PR-06：先处理内部协议工具提交；其余 tool_calls 正常执行。
+            decision: DecisionV1 | None = None
+            saw_malformed = False
             if turn.tool_calls:
-                if self._tools is None:
-                    result.reply = "模型请求了工具，但当前没有可用工具执行器。"
-                    result.degraded = "tools_unavailable"
-                    result.state = self._current_state(mission.mission_id)
-                    return result
                 # K3 continuity: append the *complete* assistant message.
                 self._conversation.append(dict(turn.assistant_message))
                 for call in turn.tool_calls:
+                    await self._emit(
+                        AgentEventType.MODEL_TOOL_CALL_PROPOSED,
+                        {"name": call.name, "call_id": call.call_id},
+                        visibility=Visibility.DEBUG,
+                    )
                     try:
                         arguments = json.loads(call.arguments_json)
                     except json.JSONDecodeError:
                         arguments = {}
+                    if call.name == SUBMIT_DECISION_TOOL:
+                        # 内部协议工具：不执行，只提交 DecisionV1（服务端补齐绑定）。
+                        try:
+                            submitted = build_decision_payload(
+                                arguments,
+                                mission_id=mission.mission_id,
+                                context_id=bundle.context_id,
+                                context_revision=bundle.context_revision,
+                            )
+                            decision = DecisionV1.model_validate_contract(submitted)
+                        except Exception as exc:  # noqa: BLE001 - 回执错误继续修复
+                            self._conversation.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": call.call_id,
+                                    "content": json.dumps(
+                                        {"error": f"invalid DecisionV1: {exc}"},
+                                        ensure_ascii=False,
+                                    ),
+                                }
+                            )
+                        break
+                    if self._tools is None:
+                        result.reply = "模型请求了工具，但当前没有可用工具执行器。"
+                        result.degraded = "tools_unavailable"
+                        result.state = self._current_state(mission.mission_id)
+                        return result
+                    await self._emit(
+                        AgentEventType.TOOL_STARTED,
+                        {"name": call.name, "arguments": arguments},
+                    )
+                    tool_ok = True
                     try:
                         output = await self._tools.execute(call.name, arguments)
                     except Exception as exc:  # noqa: BLE001 - surfaced as data
+                        tool_ok = False
                         output = json.dumps(
                             {"error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False
                         )
+                    await self._emit(
+                        AgentEventType.TOOL_COMPLETED,
+                        {"name": call.name, "ok": tool_ok},
+                    )
                     self._conversation.append(
                         {"role": "tool", "tool_call_id": call.call_id, "content": output}
                     )
                     result.tool_rounds += 1
-                continue
+                if decision is None:
+                    continue
 
-            # Final answer turn: extract and validate a decision if present.
-            decision, saw_malformed = self._extract_decision(turn)
+            # Final answer turn: 决策来自协议工具或（legacy fallback）fenced JSON。
+            if decision is None:
+                decision, saw_malformed = self._extract_decision(turn)
             if decision is None and saw_malformed:
                 # A mangled/truncated protocol block must not pass as prose.
                 if repairs_left > 0:
@@ -374,6 +450,14 @@ class AgentLoop:
                         reason_code=exc.reason_code,
                         actor_id=self._actor_id,
                     )
+                    await self._emit(
+                        AgentEventType.VERIFICATION_COMPLETED,
+                        {
+                            "decision_id": decision.decision_id,
+                            "validated": False,
+                            "reason_code": exc.reason_code,
+                        },
+                    )
                     if repairs_left > 0:
                         repairs_left -= 1
                         self._conversation.append(dict(turn.assistant_message))
@@ -403,7 +487,22 @@ class AgentLoop:
                 self._store.record_decision(
                     decision, validated=True, reason_code=None, actor_id=self._actor_id
                 )
+                await self._emit(
+                    AgentEventType.VERIFICATION_COMPLETED,
+                    {
+                        "decision_id": decision.decision_id,
+                        "validated": True,
+                        "intent": decision.next_intent.value,
+                    },
+                )
                 result.decisions.append(decision)
+
+            # §5.2 OBSERVE：执行只读观测、记录证据、context_revision+1，
+            # 然后让模型带着新证据继续推理（不结束回合）。
+            if decision is not None and decision.next_intent is NextIntent.OBSERVE:
+                handled = await self._handle_observe(mission, decision, bundle, result)
+                if handled:
+                    continue
 
             reply, new_state = await self._apply_decision(mission, decision, turn)
             result.reply = reply
@@ -417,6 +516,88 @@ class AgentLoop:
         return result
 
     # ------------------------------------------------------------------
+    async def _handle_observe(
+        self,
+        mission: MissionSessionV1,
+        decision: DecisionV1,
+        bundle,
+        result: LoopTurnResult,
+    ) -> bool:
+        """§5.2 ObserveIntentHandler. True = evidence appended, keep reasoning."""
+        payload = (decision.proposed_operation.payload if decision.proposed_operation else {}) or {}
+        tool_name = payload.get("tool") or payload.get("capability")
+        # 只允许显式只读/观测类工具；MCP action tool 永远不走这条路。
+        if not tool_name or self._tools is None:
+            self._conversation.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "[observation] OBSERVE requested but no read-only tool was "
+                        "named/available. Re-decide: name a specific read-only tool "
+                        "from the capabilities layer, or choose another intent."
+                    ),
+                }
+            )
+            return True
+        allowed = {t.name for t in self._tools.strict_tools([tool_name])}
+        if tool_name not in allowed:
+            self._conversation.append(
+                {
+                    "role": "user",
+                    "content": (
+                        f"[observation] tool {tool_name!r} is not an available read-only "
+                        "capability here. Choose an available one or another intent."
+                    ),
+                }
+            )
+            return True
+        arguments = payload.get("arguments") or {}
+        try:
+            output = await self._tools.execute(tool_name, arguments)
+            ok = True
+        except Exception as exc:  # noqa: BLE001 - surfaced as data
+            output = json.dumps({"error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False)
+            ok = False
+        # 证据封装：时间戳/body/来源/证据类/freshness/artifact ref。
+        import hashlib
+        from datetime import UTC, datetime
+
+        digest = hashlib.sha256(output.encode()).hexdigest()[:24]
+        artifact_ref = f"artifact://observation/sha256:{digest}"
+        evidence_note = (
+            f"[observation — evidence]\n"
+            f"tool: {tool_name}\n"
+            f"timestamp: {datetime.now(UTC).isoformat()}\n"
+            f"body_id: {bundle.body_binding.body_id}\n"
+            f"source: native_tool\n"
+            f"evidence_class: measured\n"
+            f"artifact_ref: {artifact_ref}\n"
+            f"result: {output[:2000]}"
+        )
+        self._conversation.append(
+            {"role": "tool", "tool_call_id": f"obs_{digest}", "content": evidence_note}
+        )
+        # context_revision += 1（权威存储，非内存计数）。
+        self._store.bump_context_revision(mission.mission_id)
+        from rosclaw.contracts.agent.agent_event import AgentEventType
+
+        await self._emit(
+            AgentEventType.TOOL_COMPLETED,
+            {"name": tool_name, "ok": ok, "observation": True, "artifact_ref": artifact_ref},
+        )
+        # 告诉模型观测已到达，继续推理。
+        self._conversation.append(
+            {
+                "role": "user",
+                "content": (
+                    "[observation] Fresh evidence attached above. Continue reasoning "
+                    "with it and emit your next DecisionV1 when ready."
+                ),
+            }
+        )
+        result.tool_rounds += 1
+        return True
+
     def _render_system_prompt(self, bundle) -> str:
         parts = [self._prompt.text]
         layers = bundle.layers
@@ -464,6 +645,11 @@ class AgentLoop:
 
     def _extract_decision(self, turn: ModelTurnResultV1) -> tuple[DecisionV1 | None, bool]:
         """Return (decision, saw_malformed_attempt)."""
+        if not self._legacy_fenced_json_fallback:
+            # PR-06：禁用 fenced JSON 时，块标记算"模型走了旧协议"的修复信号。
+            content = turn.content or ""
+            attempt = "rosclaw.decision.v1" in content
+            return None, attempt
         content = turn.content or ""
         for match in _DECISION_BLOCK_RE.finditer(content):
             try:
@@ -482,6 +668,38 @@ class AgentLoop:
         )
         return None, saw_attempt
 
+    def _completion_clear(self, mission_id: str) -> bool:
+        """ANSWER/委派后才能 LEARN 的硬条件（大纲 §5.1）。"""
+        from rosclaw.contracts.agent.task_graph import TaskStatus
+
+        graph = self._store.get_task_graph(mission_id)
+        open_nodes = [
+            n
+            for n in graph.nodes
+            if n.status not in (TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELLED)
+        ]
+        if open_nodes:
+            return False
+        running = self._store.connection.execute(
+            "SELECT COUNT(*) AS n FROM work_orders WHERE mission_id = ? AND status IN "
+            "('DRAFT','OFFERED','CLAIMED','RUNNING','SUBMITTED','VERIFYING')",
+            (mission_id,),
+        ).fetchone()
+        if running["n"]:
+            return False
+        return not (self._handlers is not None and self._handlers.has_pending_approval(mission_id))
+
+    def _maybe_learn(self, mission_id: str, from_state: MissionState, reason: str) -> MissionState:
+        """LEARN→IDLE only when completion is genuinely clear (§5.1)."""
+        if from_state is MissionState.VALIDATE and self._completion_clear(mission_id):
+            learned = self._safe_transition(mission_id, from_state, MissionState.LEARN, reason)
+            if learned is MissionState.LEARN:
+                return self._safe_transition(
+                    mission_id, learned, MissionState.IDLE, "mission_complete"
+                )
+            return learned
+        return from_state
+
     async def _apply_decision(
         self,
         mission: MissionSessionV1,
@@ -491,14 +709,52 @@ class AgentLoop:
         current = self._current_state(mission.mission_id)
         intent = decision.next_intent if decision else NextIntent.ANSWER
 
-        if intent in (NextIntent.PAUSE, NextIntent.FAIL_SAFE):
+        if intent is NextIntent.PAUSE:
             note = decision.summary if decision else ""
+            # §5.9：PAUSE 是主动暂停（SUSPENDED 优先；MONITOR/WAIT 外不可达时
+            # 退到 WAIT_INPUT 等待用户），不是失败。
+            paused = self._safe_transition(
+                mission.mission_id, current, MissionState.SUSPENDED, "pause"
+            )
+            if paused is current:
+                paused = self._safe_transition(
+                    mission.mission_id, current, MissionState.WAIT_INPUT, "pause"
+                )
+            return (f"已暂停。{note}", paused)
+
+        if intent is NextIntent.FAIL_SAFE:
+            note = decision.summary if decision else ""
+            from rosclaw.contracts.agent.agent_event import AgentEventType
+
+            await self._emit(
+                AgentEventType.ERROR,
+                {"safety": "FAIL_SAFE", "note": note, "incident": True},
+            )
             return (
-                f"已暂停。{note}",
+                f"已执行 FAIL_SAFE：停止规划，取消未派发任务并请求安全停止。{note}",
                 self._safe_transition(
-                    mission.mission_id, current, MissionState.FAILED, intent.value.lower()
+                    mission.mission_id, current, MissionState.FAILED, "fail_safe"
                 ),
             )
+
+        if intent is NextIntent.WAIT:
+            # §5.8：建立 WakeCondition（runner 在事件/截止时间自动唤醒）。
+            payload = (
+                decision.proposed_operation.payload
+                if decision and decision.proposed_operation
+                else {}
+            ) or {}
+            runner = getattr(self, "_wake_registrar", None)
+            if runner is not None:
+                runner(
+                    mission.mission_id,
+                    reference_id=payload.get("reference_id"),
+                    notice=decision.summary if decision else "wait condition",
+                )
+            reply = _DECISION_BLOCK_RE.sub("", turn.content or "").strip() or (
+                decision.summary if decision else "进入等待。"
+            )
+            return reply, current
 
         if intent is NextIntent.HIRE_WORKER:
             if self._handlers is None:
@@ -510,22 +766,14 @@ class AgentLoop:
             staffed = self._safe_transition(
                 mission.mission_id, current, MissionState.STAFF, "hire_worker"
             )
-            text = await self._handlers.hire_worker(decision)  # type: ignore[arg-type]
+            outcome = await self._handlers.hire_worker(decision)  # type: ignore[arg-type]
             next_state = self._safe_transition(
                 mission.mission_id, staffed, MissionState.VALIDATE, "work_result_verified"
             )
-            if next_state is MissionState.VALIDATE:
-                next_state = self._safe_transition(
-                    mission.mission_id,
-                    next_state,
-                    MissionState.LEARN,
-                    "delegation_complete",
-                )
-                if next_state is MissionState.LEARN:
-                    next_state = self._safe_transition(
-                        mission.mission_id, next_state, MissionState.IDLE, "mission_complete"
-                    )
-            return text, next_state
+            # §5.4：artifact 绑到 TaskNode 后回 PLAN 或 VALIDATE；
+            # 只有完成条件全清才 LEARN→IDLE。
+            next_state = self._maybe_learn(mission.mission_id, next_state, "delegation_verified")
+            return outcome.text, next_state
 
         if intent is NextIntent.REQUEST_APPROVAL:
             if self._handlers is None:
@@ -533,7 +781,7 @@ class AgentLoop:
                     "该步骤需要人类授权，但授权通道不可用；已停止继续推进（fail closed）。",
                     current,
                 )
-            text = await self._handlers.request_approval(decision)  # type: ignore[arg-type]
+            outcome = await self._handlers.request_approval(decision)  # type: ignore[arg-type]
             next_state = current
             if current is MissionState.PLAN:
                 next_state = self._safe_transition(
@@ -546,7 +794,7 @@ class AgentLoop:
                     MissionState.WAIT_APPROVAL,
                     "approval_requested",
                 )
-            return text, next_state
+            return outcome.text, next_state
 
         if intent is NextIntent.REQUEST_ACTION:
             if self._handlers is None:
@@ -554,9 +802,15 @@ class AgentLoop:
                     "需要物理动作，但当前没有动作通道；未提交任何动作请求（fail closed）。",
                     current,
                 )
-            text = await self._handlers.request_action(decision)  # type: ignore[arg-type]
-            # Verified grant in SIMULATION: no physical dispatch exists yet;
-            # complete honestly rather than pretending a receipt.
+            from rosclaw.contracts.agent.agent_event import AgentEventType
+
+            await self._emit(
+                AgentEventType.ACTION_PROPOSED,
+                {
+                    "decision_id": decision.decision_id if decision else None,
+                },
+            )
+            outcome = await self._handlers.request_action(decision)  # type: ignore[arg-type]
             next_state = current
             if current is MissionState.WAIT_APPROVAL:
                 next_state = self._safe_transition(
@@ -568,21 +822,21 @@ class AgentLoop:
                 )
             if next_state is MissionState.DISPATCH:
                 next_state = self._safe_transition(
-                    mission.mission_id, next_state, MissionState.MONITOR, "sim_no_dispatch"
+                    mission.mission_id, next_state, MissionState.MONITOR, "awaiting_terminal"
                 )
-            if next_state is MissionState.MONITOR:
+            # §5.6：只有 verified terminal receipt 才能 MONITOR→VERIFY→LEARN；
+            # 否则停留 MONITOR/DISPATCH（提交≠完成）。
+            if next_state is MissionState.MONITOR and outcome.terminal_receipt:
                 next_state = self._safe_transition(
-                    mission.mission_id, next_state, MissionState.VERIFY, "sim_verified_grant"
+                    mission.mission_id, next_state, MissionState.VERIFY, "receipt_terminal"
                 )
-            if next_state in (MissionState.VERIFY, MissionState.VALIDATE):
-                next_state = self._safe_transition(
-                    mission.mission_id, next_state, MissionState.LEARN, "action_path_complete"
+            if next_state is MissionState.VERIFY:
+                next_state = self._maybe_learn(mission.mission_id, next_state, "action_verified")
+            elif next_state is MissionState.VALIDATE:
+                next_state = self._maybe_learn(
+                    mission.mission_id, next_state, "action_path_complete"
                 )
-            if next_state is MissionState.LEARN:
-                next_state = self._safe_transition(
-                    mission.mission_id, next_state, MissionState.IDLE, "mission_complete"
-                )
-            return text, next_state
+            return outcome.text, next_state
 
         if intent is NextIntent.TEAM_COORDINATE:
             if self._handlers is None:
@@ -590,29 +844,99 @@ class AgentLoop:
                     "Team Fabric 尚未启用；未进行团队协调（fail closed）。",
                     current,
                 )
-            text = await self._handlers.team_coordinate(decision)  # type: ignore[arg-type]
+            outcome = await self._handlers.team_coordinate(decision)  # type: ignore[arg-type]
             next_state = current
             if current is MissionState.PLAN:
                 next_state = self._safe_transition(
                     mission.mission_id, current, MissionState.VALIDATE, "plan_ready"
                 )
-                if next_state is MissionState.VALIDATE:
-                    next_state = self._safe_transition(
-                        mission.mission_id,
-                        next_state,
-                        MissionState.LEARN,
-                        "team_coordination_complete",
-                    )
-                    if next_state is MissionState.LEARN:
-                        next_state = self._safe_transition(
-                            mission.mission_id,
-                            next_state,
-                            MissionState.IDLE,
-                            "mission_complete",
-                        )
-            return text, next_state
+                next_state = self._maybe_learn(
+                    mission.mission_id, next_state, "team_coordination_complete"
+                )
+            return outcome.text, next_state
 
-        # ANSWER / OBSERVE / VERIFY / WAIT / PLAN_PATCH(无处理器时按文本回复)
+        if intent is NextIntent.VERIFY:
+            # §5.7：VerifierRegistry 确定性验证；失败回 PLAN（可恢复）或 FAILED。
+            if decision is None or decision.verification is None:
+                return "VERIFY 缺少 verification 载荷，无法验证（fail closed）。", current
+            payload = (
+                decision.proposed_operation.payload if decision.proposed_operation else {}
+            ) or {}
+            from rosclaw.agentd.verifiers import VerifierRegistry
+
+            registry = getattr(self, "_verifier_registry", None) or VerifierRegistry()
+            context = dict(payload.get("context") or {})
+            context.setdefault("evidence_refs", list(decision.evidence_refs))
+            try:
+                verdict = registry.run_many(list(decision.verification.verifiers), context)
+            except Exception as exc:  # noqa: BLE001 - unknown verifier is fail-closed
+                return f"验证器不可用（{exc}），不报告为成功。", current
+            from rosclaw.contracts.agent.agent_event import AgentEventType
+
+            await self._emit(
+                AgentEventType.VERIFICATION_COMPLETED,
+                {
+                    "verifier_id": verdict.verifier_id,
+                    "success": verdict.success,
+                    "failure_reason": verdict.failure_reason,
+                    "human_attested": verdict.human_attested,
+                },
+            )
+            if verdict.success:
+                # 合法路径：MONITOR→VERIFY 或直接 VALIDATE→LEARN；PLAN 先过 VALIDATE。
+                next_state = current
+                if current is MissionState.PLAN:
+                    next_state = self._safe_transition(
+                        mission.mission_id, current, MissionState.VALIDATE, "plan_ready"
+                    )
+                elif current is MissionState.MONITOR:
+                    next_state = self._safe_transition(
+                        mission.mission_id, current, MissionState.VERIFY, "verification_passed"
+                    )
+                next_state = self._maybe_learn(
+                    mission.mission_id, next_state, "verification_passed"
+                )
+                reply = _DECISION_BLOCK_RE.sub("", turn.content or "").strip() or (
+                    f"验证通过（{verdict.verifier_id}）。"
+                )
+                return reply, next_state
+            # 失败：可恢复回 PLAN 重新规划。
+            reply = (
+                f"验证未通过（{verdict.verifier_id}: {verdict.failure_reason}）。"
+                "回到规划阶段重新评估。"
+            )
+            return reply, self._safe_transition(
+                mission.mission_id, current, MissionState.PLAN, "verification_failed_replan"
+            )
+
+        if intent is NextIntent.PLAN_PATCH:
+            # §5.3：校验并真正提交 TaskGraphPatchV1（CAS + DAG + 事件）。
+            if decision is None or decision.proposed_operation is None:
+                return "PLAN_PATCH 缺少 proposed_operation（fail closed）。", current
+            payload = decision.proposed_operation.payload
+            if not payload:
+                return "PLAN_PATCH payload 为空（fail closed）。", current
+            from rosclaw.agentd.mission import RevisionConflictError
+            from rosclaw.contracts.agent.task_graph import TaskGraphPatchV1
+            from rosclaw.contracts.common import ValidationError
+
+            try:
+                patch = TaskGraphPatchV1.model_validate_contract(payload)
+                new_revision = self._store.apply_patch(patch, actor_id=self._actor_id)
+            except (ValidationError, RevisionConflictError) as exc:
+                return f"TaskGraphPatch 被拒绝（{exc}），图未变更。", current
+            from rosclaw.contracts.agent.agent_event import AgentEventType
+
+            await self._emit(
+                AgentEventType.TASK_GRAPH_COMMITTED,
+                {"patch_id": patch.patch_id, "new_revision": new_revision},
+            )
+            reply = _DECISION_BLOCK_RE.sub("", turn.content or "").strip() or (
+                f"任务图已提交（revision {new_revision}）。"
+            )
+            return reply, current
+
+        # ANSWER（§5.1）：完成条件全清才 LEARN；否则只是解释，Mission 保持。
         raw_reply = turn.content.strip() if turn.content else ""
         if decision is not None:
             # The DecisionV1 block is machine output, not user-facing prose.
@@ -622,17 +946,9 @@ class AgentLoop:
             next_state = self._safe_transition(
                 mission.mission_id, current, MissionState.VALIDATE, "plan_ready"
             )
-            if next_state is MissionState.VALIDATE:
-                next_state = self._safe_transition(
-                    mission.mission_id,
-                    next_state,
-                    MissionState.LEARN,
-                    "answer_requires_no_dispatch",
-                )
-                if next_state is MissionState.LEARN:
-                    next_state = self._safe_transition(
-                        mission.mission_id, next_state, MissionState.IDLE, "mission_complete"
-                    )
+            next_state = self._maybe_learn(
+                mission.mission_id, next_state, "answer_requires_no_dispatch"
+            )
             return reply, next_state
         return reply, current
 
@@ -666,19 +982,127 @@ class AgentLoop:
             return MissionState.FAILED
         return mission.state
 
-    def _maybe_microcompact(self, result: LoopTurnResult) -> None:
-        """Proactive compaction when the conversation estimate exceeds 80%
-        of the configured input budget."""
-        from rosclaw.agentd.context.compact import (
+    async def compact_conversation(
+        self,
+        mission: MissionSessionV1,
+        *,
+        reason: str,
+        focus: str | None = None,
+        dry_run: bool = False,
+        keep_recent_tokens: int = 20_000,
+    ) -> dict:
+        """PR-07：持久化压缩（Pi 算法 + canonical journal 保留）。
+
+        返回报告（dry_run 不写入）。物理事实永远不进 summary——
+        下次编译仍从权威存储重建。
+        """
+        from rosclaw.agentd.context.compaction import (
+            CompactionStore,
+            build_compaction_view,
+            deterministic_summary,
             estimate_messages_tokens,
-            microcompact,
+            find_cut_point,
+        )
+        from rosclaw.agentd.mission.store import _utcnow
+        from rosclaw.contracts.agent.agent_event import AgentEventType
+        from rosclaw.contracts.agent.compaction import CompactionEntryV1
+
+        self._restore_conversation(mission.mission_id)
+        tokens_before = estimate_messages_tokens(self._conversation)
+        cut = find_cut_point(self._conversation, keep_recent_tokens=keep_recent_tokens)
+        if cut == 0 and reason == "manual" and len(self._conversation) > 4:
+            # 手动 /compact 即使低于阈值也压缩（保留最近完整回合）。
+            cut = max(1, len(self._conversation) - 2)
+            while cut > 1 and self._conversation[cut].get("role") == "tool":
+                cut -= 1
+        report: dict = {
+            "tokens_before": tokens_before,
+            "cut_index": cut,
+            "messages_total": len(self._conversation),
+            "dry_run": dry_run,
+        }
+        if dry_run or cut <= 0:
+            report["tokens_after"] = estimate_messages_tokens(self._conversation[cut:])
+            return report
+
+        span = self._conversation[:cut]
+        kept = self._conversation[cut:]
+        summary = deterministic_summary(span, goal=mission.goal.text, focus=focus)
+        entry = CompactionEntryV1(
+            compaction_id=new_id("cmp"),
+            mission_id=mission.mission_id,
+            created_at=_utcnow(),
+            reason=reason,  # type: ignore[arg-type]
+            summary=summary,
+            first_kept_event_id=f"msg_{cut}",
+            tokens_before=tokens_before,
+            tokens_after=estimate_messages_tokens(kept),
+            evidence_refs=[],
+            task_graph_revision=mission.task_graph_revision,
+            context_revision=mission.context_revision,
+            summary_model="deterministic-fallback",
+            usage={},
+        )
+        store = CompactionStore(self._store.connection)
+        store.save(entry)
+        # view = summary（untrusted）+ kept；canonical journal 追加 summary 消息。
+        view = build_compaction_view(entry, kept)
+        self._store.append_conversation(mission.mission_id, [view[0]], actor_id=self._actor_id)
+        # §8 风险点：view 缩短后 persisted 计数必须对齐新 view。
+        self._conversation = view
+        self._persisted_count = len(view)
+        await self._emit(
+            AgentEventType.COMPACTION_COMPLETED,
+            {
+                "compaction_id": entry.compaction_id,
+                "reason": reason,
+                "tokens_before": tokens_before,
+                "tokens_after": entry.tokens_after,
+            },
+        )
+        report.update(
+            {
+                "compaction_id": entry.compaction_id,
+                "tokens_after": entry.tokens_after,
+                "kept_messages": len(kept),
+            }
+        )
+        return report
+
+    async def _maybe_compact(self, mission: MissionSessionV1, result: LoopTurnResult) -> None:
+        """§8.5：按 history_budget 主动持久化压缩。"""
+        from rosclaw.agentd.context.compaction import (
+            compute_history_budget,
+            estimate_messages_tokens,
         )
 
-        budget = getattr(self._compiler, "_max_input_tokens", 120_000)
-        if estimate_messages_tokens(self._conversation) <= budget * 0.8:
+        bundle = getattr(self, "_current_bundle", None)
+        protected = 0
+        if bundle is not None:
+            protected = sum(
+                layer.token_estimate
+                for layer in (
+                    bundle.layers.constitution,
+                    bundle.layers.embodiment,
+                    bundle.layers.dynamic_self,
+                    bundle.layers.safety,
+                )
+            )
+        window = getattr(self._compiler, "_max_input_tokens", 120_000)
+        budget = compute_history_budget(
+            context_window=window,
+            protected_tokens=protected,
+            tool_schema_tokens=2_000,
+            max_output_tokens=16_384,
+            safety_margin=4_096,
+        )
+        if estimate_messages_tokens(self._conversation) <= budget:
             return
-        self._conversation, folded = microcompact(self._conversation)
-        result.degraded = f"microcompacted:{folded}"
+        from rosclaw.contracts.agent.agent_event import AgentEventType
+
+        await self._emit(AgentEventType.COMPACTION_STARTED, {"reason": "threshold"})
+        await self.compact_conversation(mission, reason="threshold")
+        result.degraded = "auto_compacted"
 
     def _safe_transition(
         self,

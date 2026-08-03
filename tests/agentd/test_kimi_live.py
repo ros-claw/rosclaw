@@ -171,7 +171,9 @@ async def test_k4_worker_delegation(tmp_path: Path) -> None:
         result = await service.send_turn(
             mission.mission_id,
             "请把下面这段失败日志的分析任务**委派给一个 worker** 完成（用 HIRE_WORKER "
-            "决策），不要自己直接分析。收到 worker 结果后告诉我根因：\n" + log_excerpt,
+            "决策），不要自己直接分析。**把日志原文完整放进 WorkOrder 的 "
+            "inputs.instructions 里**（worker 看不到我们的对话）。"
+            "收到 worker 结果后告诉我根因：\n" + log_excerpt,
         )
         orders = service._worker_manager.orders_for_mission(mission.mission_id)
         assert orders, f"no work order created; reply was: {result.reply[:400]}"

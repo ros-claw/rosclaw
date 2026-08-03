@@ -1,5 +1,10 @@
 """Agent-domain contracts: mission, task graph, context bundle, decision."""
 
+from rosclaw.contracts.agent.agent_event import (
+    AgentEventType,
+    AgentEventV2,
+    Visibility,
+)
 from rosclaw.contracts.agent.context import (
     ContextBudget,
     EmbodiedContextBundleV1,
@@ -39,6 +44,8 @@ from rosclaw.contracts.agent.task_graph import (
 )
 
 __all__ = [
+    "AgentEventType",
+    "AgentEventV2",
     "Assignee",
     "AuthorizationBinding",
     "BodyBinding",
@@ -66,4 +73,5 @@ __all__ = [
     "ToolCall",
     "Uncertainty",
     "Verification",
+    "Visibility",
 ]

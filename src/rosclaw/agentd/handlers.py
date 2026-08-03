@@ -13,6 +13,7 @@ approval requests. Authorization semantics (ADR-0006):
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from rosclaw.agentd.workers import WorkerManager, WorkerRegistry
@@ -28,6 +29,16 @@ from rosclaw.contracts.worker.order import (
 )
 from rosclaw.operator import GrantDeniedError, OperatorBroker
 from rosclaw.team.membership import MemberState
+
+
+@dataclass
+class HandlerOutcome:
+    """Structured result of an intent handler (PR-04)."""
+
+    text: str
+    accepted: bool | None = None  # worker verification verdict
+    terminal_receipt: bool = False  # verified terminal receipt exists
+    evidence_ref: str | None = None
 
 
 class ServiceIntentHandlers:
@@ -52,8 +63,27 @@ class ServiceIntentHandlers:
         self._principal = principal
         self._mode = mode
 
+    def set_event_sink(self, sink_factory) -> None:
+        self._event_sink_factory = sink_factory
+
+    async def _emit(self, type_str: str, mission_id: str, payload: dict) -> None:
+        factory = getattr(self, "_event_sink_factory", None)
+        if factory is None:
+            return
+        import contextlib
+
+        from rosclaw.contracts.agent.agent_event import AgentEventType
+
+        with contextlib.suppress(Exception):  # events must not break handlers
+            await factory(mission_id)(AgentEventType(type_str), payload)
+
+    def has_pending_approval(self, mission_id: str) -> bool:
+        if self._broker is None:
+            return False
+        return bool(self._broker.pending_requests(mission_id))
+
     # ------------------------------------------------------------------
-    async def hire_worker(self, decision: DecisionV1) -> str:
+    async def hire_worker(self, decision: DecisionV1) -> HandlerOutcome:
         payload = (
             decision.proposed_operation.payload if decision.proposed_operation else None
         ) or {}
@@ -90,23 +120,50 @@ class ServiceIntentHandlers:
         try:
             scheduled = self._manager.hire(order, candidates)
         except Exception as exc:  # noqa: BLE001 - honest scheduling failure
-            return f"无法招聘 Worker（{exc}）。没有伪造委派，任务保持未委派状态。"
+            return HandlerOutcome(
+                text=f"无法招聘 Worker（{exc}）。没有伪造委派，任务保持未委派状态。",
+                accepted=False,
+            )
+        await self._emit(
+            "worker.offered",
+            decision.mission_id,
+            {"work_order_id": scheduled.work_order_id, "worker_id": scheduled.assigned_to},
+        )
         result, report = await self._manager.run_to_completion(scheduled)
+        await self._emit(
+            "worker.completed",
+            decision.mission_id,
+            {
+                "work_order_id": scheduled.work_order_id,
+                "accepted": report.accepted,
+                "status": result.status,
+            },
+        )
+        evidence_ref = result.artifacts[0].ref if result.artifacts else None
         if report.accepted:
-            return (
-                f"Worker {scheduled.assigned_to} 已完成并通过验证（lease 校验、"
-                f"secret 扫描、证据绑定）。结果：\n{result.summary}"
+            return HandlerOutcome(
+                text=(
+                    f"Worker {scheduled.assigned_to} 已完成并通过验证（lease 校验、"
+                    f"secret 扫描、证据绑定）。结果：\n{result.summary}"
+                ),
+                accepted=True,
+                evidence_ref=evidence_ref,
             )
         reasons = "；".join(report.reasons) or "未知原因"
-        return (
-            f"Worker 提交了结果但未通过 ROSClaw 验证，未采纳（{reasons}）。"
-            "我不会把未验证的 Worker 输出当作事实。"
+        return HandlerOutcome(
+            text=(
+                f"Worker 提交了结果但未通过 ROSClaw 验证，未采纳（{reasons}）。"
+                "我不会把未验证的 Worker 输出当作事实。"
+            ),
+            accepted=False,
         )
 
     # ------------------------------------------------------------------
-    async def request_approval(self, decision: DecisionV1) -> str:
+    async def request_approval(self, decision: DecisionV1) -> HandlerOutcome:
         if self._broker is None:
-            return "授权通道（Operator Broker）尚未启用；已停止推进（fail closed）。"
+            return HandlerOutcome(
+                text="授权通道（Operator Broker）尚未启用；已停止推进（fail closed）。"
+            )
         payload = (
             decision.proposed_operation.payload if decision.proposed_operation else None
         ) or {}
@@ -134,6 +191,16 @@ class ServiceIntentHandlers:
             expires_at=(datetime.now(UTC) + timedelta(minutes=10)).isoformat(),
         )
         self._broker.create_request(request)
+        await self._emit(
+            "approval.requested",
+            decision.mission_id,
+            {
+                "request_id": request.request_id,
+                "risk_tier": display.risk_tier,
+                "title": display.title,
+                "summary": display.summary,
+            },
+        )
         # ADR-0007：daemon consent plane 只接受显式 REAL 动作的 proposal
         # （PROPOSAL_REAL_ACTION_REQUIRED）。SIMULATION 走认知层 grant +
         # action_channel；REAL 才需要 daemon proposal/permit。
@@ -174,28 +241,32 @@ class ServiceIntentHandlers:
                     f"\n注意：daemon consent plane 不可用（{exc}），"
                     "物理层未创建 proposal；动作将不会被派发。"
                 )
-        return (
-            f"已创建授权请求 {request.request_id}（EXACT_ACTION，10 分钟有效）：\n"
-            f"【{display.title}】{display.summary}\n"
-            f"风险等级 {display.risk_tier}；预期效果：{display.expected_effect or '—'}；"
-            f"失败处理：{display.failure_handling or '—'}\n"
-            f"请确认：chat 中输入 /approve {request.request_id} 或 /deny {request.request_id}，"
-            "或在 Console 的 Approvals 页操作。在你确认前我不会推进该动作。"
-            f"{proposal_note}"
+        return HandlerOutcome(
+            text=(
+                f"已创建授权请求 {request.request_id}（EXACT_ACTION，10 分钟有效）：\n"
+                f"【{display.title}】{display.summary}\n"
+                f"风险等级 {display.risk_tier}；预期效果：{display.expected_effect or '—'}；"
+                f"失败处理：{display.failure_handling or '—'}\n"
+                f"请确认：chat 中输入 /approve {request.request_id} 或 /deny {request.request_id}，"
+                "或在 Console 的 Approvals 页操作。在你确认前我不会推进该动作。"
+                f"{proposal_note}"
+            )
         )
 
     # ------------------------------------------------------------------
-    async def request_action(self, decision: DecisionV1) -> str:
+    async def request_action(self, decision: DecisionV1) -> HandlerOutcome:
         if self._broker is None:
-            return "物理动作通道未接入；未提交任何动作请求（fail closed）。"
+            return HandlerOutcome(text="物理动作通道未接入；未提交任何动作请求（fail closed）。")
         payload = (
             decision.proposed_operation.payload if decision.proposed_operation else None
         ) or {}
         grant_id = payload.get("grant_id")
         if not grant_id:
-            return (
-                "请求动作缺少 grant_id。EXACT_ACTION 流程：先 REQUEST_APPROVAL 获得授权，"
-                "再在动作请求中引用 grant_id。已拒绝（fail closed）。"
+            return HandlerOutcome(
+                text=(
+                    "请求动作缺少 grant_id。EXACT_ACTION 流程：先 REQUEST_APPROVAL 获得授权，"
+                    "再在动作请求中引用 grant_id。已拒绝（fail closed）。"
+                )
             )
         try:
             # 动作意图由 broker 从已批准的卡片重算，不采信模型自报
@@ -210,7 +281,7 @@ class ServiceIntentHandlers:
                 action_intent=intent,
             )
         except GrantDeniedError as exc:
-            return f"授权校验失败（{exc.reason_code}）：{exc}。动作未提交。"
+            return HandlerOutcome(text=f"授权校验失败（{exc.reason_code}）：{exc}。动作未提交。")
         consent = getattr(self, "_consent_channel", None)
         # ADR-0007 完整路径只在"该授权确实关联了 daemon proposal"时生效
         # （REAL 模式）；否则回落到 SIM action_channel 或诚实无通道。
@@ -236,41 +307,66 @@ class ServiceIntentHandlers:
             try:
                 proposal = await consent.proposal(proposal_id)
             except ConsentChannelError as exc:
-                return f"读取 daemon proposal 失败（fail closed）：{exc}"
+                return HandlerOutcome(text=f"读取 daemon proposal 失败（fail closed）：{exc}")
             state = proposal.get("state")
             if state != "TERMINAL":
-                return (
-                    f"daemon proposal 尚未到终态（state={state}）。"
-                    "若批准时 operator 已裁决，receipt 应在数秒内可用；否则该 proposal "
-                    "可能已过期/失效。不报告为完成。"
+                return HandlerOutcome(
+                    text=(
+                        f"daemon proposal 尚未到终态（state={state}）。"
+                        "若批准时 operator 已裁决，receipt 应在数秒内可用；否则该 proposal "
+                        "可能已过期/失效。不报告为完成。"
+                    )
                 )
             if not action_id:
-                return "proposal 已终态但无 action_id，无法回读 receipt（fail closed）。"
+                return HandlerOutcome(
+                    text="proposal 已终态但无 action_id，无法回读 receipt（fail closed）。"
+                )
             try:
                 receipt = await consent.action_receipt(action_id)
             except ConsentChannelError as exc:
-                return f"回执读取失败（fail closed）：{exc}"
+                return HandlerOutcome(text=f"回执读取失败（fail closed）：{exc}")
             inner = receipt.get("receipt") if isinstance(receipt.get("receipt"), dict) else receipt
             trust = inner.get("trust_level", "UNKNOWN")
             final_state = inner.get("final_state", "UNKNOWN")
             provenance = (inner.get("authorization_decision") or {}).get("provenance") or {}
             if trust == "SYNTHETIC":
-                return "回执为 FIXTURE/SYNTHETIC 证据——拒绝当作完成（fail closed）。"
+                return HandlerOutcome(
+                    text="回执为 FIXTURE/SYNTHETIC 证据——拒绝当作完成（fail closed）。"
+                )
             if inner.get("action_id") not in (None, action_id):
-                return "回执 action 与请求不匹配——不报告为我们的动作（fail closed）。"
-            return (
-                f"动作已由 rosclawd consent plane 完成：state={final_state}, "
-                f"trust_level={trust}（SIMULATED 证据，不可用于 REAL）。"
-                f"授权来源：proposal {proposal_id[:20]}…, "
-                f"operator={provenance.get('operator_principal')}, "
-                f"channel={provenance.get('decision_channel')}。grant 已消费。"
+                return HandlerOutcome(
+                    text="回执 action 与请求不匹配——不报告为我们的动作（fail closed）。"
+                )
+            verified = final_state == "COMPLETED" and trust not in ("UNKNOWN", "")
+            await self._emit(
+                "receipt.received",
+                decision.mission_id,
+                {
+                    "action_id": action_id,
+                    "final_state": final_state,
+                    "trust_level": trust,
+                    "verified": verified,
+                },
+            )
+            return HandlerOutcome(
+                text=(
+                    f"动作已由 rosclawd consent plane 完成：state={final_state}, "
+                    f"trust_level={trust}（SIMULATED 证据，不可用于 REAL）。"
+                    f"授权来源：proposal {proposal_id[:20]}…, "
+                    f"operator={provenance.get('operator_principal')}, "
+                    f"channel={provenance.get('decision_channel')}。grant 已消费。"
+                ),
+                terminal_receipt=verified,
+                evidence_ref=f"receipt://{action_id}",
             )
         channel = getattr(self, "_action_channel", None)
         if channel is None:
-            return (
-                f"授权已验证（grant {grant.grant_id[:20]}…，EXACT_ACTION 已消费）。"
-                "注意：当前 agentd 未连接 rosclawd 执行通道，SIMULATION 下没有物理动作被派发；"
-                "这不是执行回执。"
+            return HandlerOutcome(
+                text=(
+                    f"授权已验证（grant {grant.grant_id[:20]}…，EXACT_ACTION 已消费）。"
+                    "注意：当前 agentd 未连接 rosclawd 执行通道，SIMULATION 下没有物理动作被派发；"
+                    "这不是执行回执。"
+                )
             )
         capability = str(payload.get("capability_id", "sim.hold_position"))
         arguments = payload.get("arguments") or {}
@@ -296,12 +392,14 @@ class ServiceIntentHandlers:
                         "mission_grant_public_hash": grant.public_hash,
                     },
                 )
-                return (
-                    "REAL 动作已提交到 rosclawd Operator Broker，尚未执行："
-                    f"request_id={proposal.request_id[:24]}…, "
-                    f"action_id={proposal.action_id[:24]}…, state={proposal.state}。"
-                    "需要由受信 Operator 进程独立审阅并确认；Agent 未获得 permit，"
-                    "也没有自行授权。"
+                return HandlerOutcome(
+                    text=(
+                        "REAL 动作已提交到 rosclawd Operator Broker，尚未执行："
+                        f"request_id={proposal.request_id[:24]}…, "
+                        f"action_id={proposal.action_id[:24]}…, state={proposal.state}。"
+                        "需要由受信 Operator 进程独立审阅并确认；Agent 未获得 permit，"
+                        "也没有自行授权。"
+                    )
                 )
             outcome = await channel.request_nonreal_action(
                 capability_id=capability,
@@ -310,28 +408,44 @@ class ServiceIntentHandlers:
                 execution_mode=self._mode,
             )
         except ActionChannelError as exc:
-            return f"动作派发/回执校验失败（fail closed）：{exc}"
+            return HandlerOutcome(text=f"动作派发/回执校验失败（fail closed）：{exc}")
+        await self._emit(
+            "receipt.received",
+            decision.mission_id,
+            {
+                "action_id": outcome.action_id,
+                "final_state": outcome.state,
+                "trust_level": outcome.trust_level,
+                "verified": outcome.verified,
+            },
+        )
         if not outcome.verified:
-            return (
-                f"动作已提交但未达验证标准（state={outcome.state}, "
-                f"trust={outcome.trust_level}）。提交不等于完成——不报告为成功。"
+            return HandlerOutcome(
+                text=(
+                    f"动作已提交但未达验证标准（state={outcome.state}, "
+                    f"trust={outcome.trust_level}）。提交不等于完成——不报告为成功。"
+                )
             )
-        return (
-            f"动作已在 {self._mode} 完成并经回执验证："
-            f"action_id={outcome.action_id[:20]}…, trust_level={outcome.trust_level}。"
-            "非 REAL 证据不可用于证明真实物理执行；grant 已消费。"
+        return HandlerOutcome(
+            text=(
+                f"动作已在 {self._mode} 完成并经回执验证："
+                f"action_id={outcome.action_id[:20]}…, trust_level={outcome.trust_level}。"
+                "非 REAL 证据不可用于证明真实物理执行；grant 已消费。"
+            ),
+            terminal_receipt=True,
+            evidence_ref=f"receipt://{outcome.action_id}",
         )
 
-    async def team_coordinate(self, decision: DecisionV1) -> str:
+    async def team_coordinate(self, decision: DecisionV1) -> HandlerOutcome:
         coordinator = getattr(self, "_team_coordinator", None)
         if coordinator is None:
-            return "Team Fabric 尚未启用；未进行团队协调（fail closed）。"
+            return HandlerOutcome(text="Team Fabric 尚未启用；未进行团队协调（fail closed）。")
         payload = (
             decision.proposed_operation.payload if decision.proposed_operation else None
         ) or {}
         op = decision.proposed_operation.type if decision.proposed_operation else ""
         if op != "team_task_claim":
-            return f"团队操作 {op!r} 暂未实现；未执行（fail closed）。"
+            return HandlerOutcome(text=f"团队操作 {op!r} 暂未实现；未执行（fail closed）。")
         from rosclaw.team.allocator import Bid, TaskAnnouncement
 
         required = tuple(payload.get("required_capabilities") or ("navigation.local",))
@@ -364,10 +478,13 @@ class ServiceIntentHandlers:
         try:
             task_id, winner = coordinator.announce_and_award(announcement, bids)
         except Exception as exc:  # noqa: BLE001 - honest allocation failure
-            return f"团队任务分配失败（{exc}）。未创建任务（fail closed）。"
-        return (
-            f"团队任务 {task_id} 已按 contract_net.v1 分配给 {winner}"
-            f"（epoch {coordinator.epoch()}，bids 特征向量已入 journal）。"
-            "注意：分配是契约建议，执行仍由各机器人本地 Native Agent 与 "
-            "rosclawd 独立裁决。"
+            return HandlerOutcome(text=f"团队任务分配失败（{exc}）。未创建任务（fail closed）。")
+        return HandlerOutcome(
+            text=(
+                f"团队任务 {task_id} 已按 contract_net.v1 分配给 {winner}"
+                f"（epoch {coordinator.epoch()}，bids 特征向量已入 journal）。"
+                "注意：分配是契约建议，执行仍由各机器人本地 Native Agent 与 "
+                "rosclawd 独立裁决。"
+            ),
+            evidence_ref=f"teamtask://{task_id}",
         )

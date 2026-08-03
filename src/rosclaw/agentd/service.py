@@ -183,6 +183,14 @@ class AgentService:
         self._loops: dict[str, AgentLoop] = {}
         self._lock = asyncio.Lock()
         self._usage = UsageRecorder(self._store.connection)
+        # AgentEventV2 journal + live bus (PR-02).
+        from rosclaw.agentd.events import AgentEventStore
+
+        self._events = AgentEventStore(self._store.connection)
+        self._turn_tasks: dict[str, asyncio.Task] = {}
+        from rosclaw.agentd.runner import MissionRunner
+
+        self._runner = MissionRunner(self)
         # External harness packs (PR-WF-054): register cards by probe result
         # (missing binary → DISABLED with T0 note, never fake readiness).
         # 同步探活（init 可能在 async 上下文中被构造，不能 run_until_complete）。
@@ -305,9 +313,49 @@ class AgentService:
                 actor_id=self.actor_id,
                 max_tool_rounds=self._config.max_tool_rounds,
                 usage_recorder=self._usage,
+                event_sink=self._event_sink_for(mission_id),
+                decision_protocol=self._config.decision_protocol,
+                legacy_fenced_json_fallback=self._config.legacy_fenced_json_fallback,
             )
             self._loops[mission_id] = loop
         return loop
+
+    def _event_sink_for(self, mission_id: str):
+        """Per-mission event sink closure (PR-02)."""
+        from rosclaw.contracts.agent.agent_event import Visibility
+
+        async def sink(type, payload, *, visibility=None, task_id=None) -> None:
+            await self._events.append(
+                mission_id,
+                type,
+                payload,
+                visibility=visibility or Visibility.USER,
+                task_id=task_id,
+            )
+
+        return sink
+
+    # ------------------------------------------------------------------
+    # /v2 event-streaming surface (PR-02): turn submit decoupled from SSE.
+    # ------------------------------------------------------------------
+    async def submit_turn_v2(self, mission_id: str, text: str) -> str:
+        """202-style submit via MissionRunner (wake-tracked, PR-03)."""
+        return await self._runner.submit_turn(mission_id, text)
+
+    def events_replay(self, mission_id: str, *, after_sequence: int = 0, limit: int = 1000):
+        return self._events.replay(mission_id, after_sequence=after_sequence, limit=limit)
+
+    def events_subscribe(self, mission_id: str) -> asyncio.Queue:
+        return self._events.bus.subscribe(mission_id)
+
+    def events_unsubscribe(self, mission_id: str, queue: asyncio.Queue) -> None:
+        self._events.bus.unsubscribe(mission_id, queue)
+
+    async def cancel_turn_v2(self, mission_id: str) -> None:
+        await self.cancel(mission_id)
+        task = self._turn_tasks.get(mission_id)
+        if task is not None and not task.done():
+            task.cancel()
 
     # ------------------------------------------------------------------
     def create_mission(
@@ -378,7 +426,7 @@ class AgentService:
         mission = self._store.get_mission(mission_id)
         if mission is None:
             raise ValidationError(f"unknown mission {mission_id!r}")
-        async with self._lock:
+        async with self._runner.lock_for(mission_id):
             if self._handlers is not None:
                 self._handlers._mode = mission.mode.value
                 self._handlers._principal = mission.owner_principal
@@ -392,6 +440,39 @@ class AgentService:
 
     def conversation(self, mission_id: str) -> list[dict]:
         return self._store.conversation(mission_id)
+
+    # ------------------------------------------------------------------
+    async def compact(
+        self,
+        mission_id: str,
+        *,
+        instructions: str | None = None,
+        dry_run: bool = False,
+    ) -> dict:
+        """`/compact` 的服务端实现（PR-07）。"""
+        mission = self._store.get_mission(mission_id)
+        if mission is None:
+            raise ValidationError(f"unknown mission {mission_id!r}")
+        async with self._runner.lock_for(mission_id):
+            loop = self._loop_for(mission_id)
+            return await loop.compact_conversation(
+                mission, reason="manual", focus=instructions, dry_run=dry_run
+            )
+
+    def compaction_status(self, mission_id: str) -> dict:
+        from rosclaw.agentd.context.compaction import (
+            CompactionStore,
+            estimate_messages_tokens,
+        )
+
+        store = CompactionStore(self._store.connection)
+        entries = store.list(mission_id)
+        return {
+            "compactions": len(entries),
+            "last": entries[-1].model_dump(mode="json") if entries else None,
+            "current_view_tokens": estimate_messages_tokens(self._store.conversation(mission_id)),
+            "journal_events": len(self._store.events(mission_id)),
+        }
 
     async def cancel(self, mission_id: str) -> None:
         loop = self._loops.get(mission_id)
@@ -411,6 +492,14 @@ class AgentService:
         agentd 只是发起方与见证方，不持有 permit。
         """
         grant = self._broker.decide(request_id, principal=principal, approve=approve)
+        approval_req = self._broker.get_request(request_id)
+        if approval_req is not None:
+            self._runner.notify_approval_decided(
+                approval_req.mission_id,
+                request_id,
+                approved=approve,
+                grant_id=grant.grant_id if grant else None,
+            )
         if self._consent_channel is not None:
             request = self._broker.get_request(request_id)
             proposal_id = getattr(request, "daemon_proposal_id", None) or (
@@ -574,6 +663,65 @@ def create_app(service: AgentService):
         except ValidationError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return _turn_payload(result)
+
+    # ------------------------------------------------------------------
+    # /v2 (PR-02): submit decoupled from event stream; TUI may disconnect
+    # freely — the mission keeps running server-side.
+    # ------------------------------------------------------------------
+    @app.post("/v2/missions/{mission_id}/turns", status_code=202)
+    async def v2_submit_turn(mission_id: str, payload: TurnCreate) -> dict:
+        try:
+            turn_id = await service.submit_turn_v2(mission_id, payload.text)
+        except ValidationError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"turn_id": turn_id, "mission_id": mission_id, "accepted": True}
+
+    @app.get("/v2/missions/{mission_id}/events")
+    async def v2_events(
+        mission_id: str,
+        after_sequence: int = 0,
+        visibility: str | None = None,
+        follow: bool = True,
+    ):
+        """Long-lived SSE: replay journal from after_sequence, then live.
+        ``follow=false`` returns after replay (bounded read)."""
+        import json as _json
+
+        from fastapi.responses import StreamingResponse
+
+        if service.get_mission(mission_id) is None:
+            raise HTTPException(status_code=404, detail="mission not found")
+
+        def frame(event) -> str:
+            return f"id: {event.sequence}\ndata: {_json.dumps(event.model_dump(mode='json'), ensure_ascii=False)}\n\n"
+
+        async def stream():
+            for event in service.events_replay(mission_id, after_sequence=after_sequence):
+                if visibility and event.visibility.value != visibility:
+                    continue
+                yield frame(event)
+            if not follow:
+                return
+            queue = service.events_subscribe(mission_id)
+            try:
+                while True:
+                    event = await queue.get()
+                    if visibility and event.visibility.value != visibility:
+                        continue
+                    yield frame(event)
+            finally:
+                service.events_unsubscribe(mission_id, queue)
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.post("/v2/missions/{mission_id}/cancel")
+    async def v2_cancel(mission_id: str) -> dict:
+        await service.cancel_turn_v2(mission_id)
+        return {"cancelled": True}
 
     @app.post("/missions/{mission_id}/turns/stream")
     async def send_turn_stream(mission_id: str, payload: TurnCreate):

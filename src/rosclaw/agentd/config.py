@@ -23,6 +23,8 @@ class AgentConfig:
     default_profile: str = "embodied_default"
     default_mode: str = "SIMULATION"
     max_tool_rounds: int = 12
+    decision_protocol: str = "tool_call"  # tool_call | fenced_json
+    legacy_fenced_json_fallback: bool = True
     max_input_tokens: int = 120_000
     dynamic_tool_limit: int = 12
     physical_action_count: int = 0
@@ -82,6 +84,8 @@ def load_agent_config(path: Path | None = None) -> AgentConfig:
         default_profile=str(agent.get("default_profile", "embodied_default")),
         default_mode=str(agent.get("default_mode", "SIMULATION")),
         max_tool_rounds=int(agent.get("max_tool_rounds", 12)),
+        decision_protocol=str(agent.get("decision_protocol", "tool_call")),
+        legacy_fenced_json_fallback=bool(agent.get("legacy_fenced_json_fallback", True)),
         max_input_tokens=int(context.get("max_input_tokens", 120_000)),
         dynamic_tool_limit=int(context.get("dynamic_tool_limit", 12)),
         physical_action_count=int(budgets.get("physical_action_count", 0)),

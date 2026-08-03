@@ -292,7 +292,9 @@ class TestApprovalLoop:
             r2 = await service.send_turn(mission.mission_id, "我已批准，继续执行")
             assert "授权已验证" in r2.reply
             assert "已消费" in r2.reply
-            assert r2.state.value == "IDLE"
+            # §5.6 新语义：本服务没有 daemon consent/action channel，
+            # 无 verified terminal receipt → 诚实停留 MONITOR（提交≠完成）。
+            assert r2.state.value == "MONITOR"
             # EXACT_ACTION consumed: a third attempt must fail closed.
             from rosclaw.operator import GrantDeniedError
 

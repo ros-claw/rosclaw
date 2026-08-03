@@ -129,7 +129,10 @@ class MissionStore:
             if event["event_type"] == "rosclaw.agent.conversation.appended.v1":
                 payload = json.loads(event["payload_json"])
                 messages.extend(payload.get("messages") or [])
-        return messages
+        # PR-07：从最新 compaction 标记恢复 view；canonical journal 本身不动。
+        from rosclaw.agentd.context.compaction import restore_view_from_journal
+
+        return restore_view_from_journal(messages)
 
     # ------------------------------------------------------------------
     # missions
