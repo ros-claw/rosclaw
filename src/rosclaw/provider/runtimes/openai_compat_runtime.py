@@ -28,7 +28,10 @@ parsing message strings.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
+from contextlib import suppress
 from typing import Any
+from urllib.parse import urlparse
 
 from rosclaw.provider.core.errors import RuntimeAdapterError
 from rosclaw.provider.runtimes.base import RuntimeAdapter
@@ -77,7 +80,15 @@ class OpenAICompatRuntime(RuntimeAdapter):
             raise RuntimeError(
                 "aiohttp is required for OpenAICompatRuntime. pip install aiohttp"
             ) from err
-        self._session = aiohttp.ClientSession(headers=self.headers)
+        # Respect the operator's standard HTTP(S)_PROXY / NO_PROXY settings for
+        # cloud providers. Always keep loopback runtimes local, even when a host
+        # forgot to include localhost in NO_PROXY.
+        host = urlparse(self.endpoint).hostname or ""
+        loopback = host.lower() == "localhost"
+        if host:
+            with suppress(ValueError):
+                loopback = loopback or ipaddress.ip_address(host).is_loopback
+        self._session = aiohttp.ClientSession(headers=self.headers, trust_env=not loopback)
         self._started = True
 
     async def stop(self) -> None:
@@ -130,11 +141,16 @@ class OpenAICompatRuntime(RuntimeAdapter):
     async def _post_stream(self, path: str, body: dict[str, Any]):
         import aiohttp
 
+        client_error = getattr(aiohttp, "ClientError", OSError)
+        if not isinstance(client_error, type) or not issubclass(client_error, BaseException):
+            client_error = OSError
+
         if self._session is None:
             raise RuntimeAdapterError("Session not initialized", provider=self.name)
         url = f"{self.endpoint}{path}"
         last_error: RuntimeAdapterError | None = None
         for attempt in range(self.retries + 1):
+            emitted = False
             try:
                 async with self._session.post(
                     url,
@@ -144,11 +160,12 @@ class OpenAICompatRuntime(RuntimeAdapter):
                     if resp.status >= 400:
                         raise await self._http_error(resp, url)
                     async for chunk in self._iter_sse(resp):
+                        emitted = True
                         yield chunk
                     return
             except RuntimeAdapterError as e:
                 last_error = e
-                if not self._is_retryable(e) or attempt >= self.retries:
+                if emitted or not self._is_retryable(e) or attempt >= self.retries:
                     raise
             except TimeoutError:
                 last_error = RuntimeAdapterError(
@@ -158,13 +175,13 @@ class OpenAICompatRuntime(RuntimeAdapter):
                 )
                 if attempt >= self.retries:
                     raise last_error from None
-            except OSError as e:
+            except (client_error, OSError) as e:
                 last_error = RuntimeAdapterError(
                     f"Cannot reach {url}: {e}",
                     provider=self.name,
                     kind=RuntimeAdapterError.KIND_UNAVAILABLE,
                 )
-                if attempt >= self.retries:
+                if emitted or attempt >= self.retries:
                     raise last_error from None
             await self._sleep_before_retry(attempt, last_error)
         raise last_error or RuntimeAdapterError(
@@ -421,6 +438,10 @@ class OpenAICompatRuntime(RuntimeAdapter):
     async def _post_with_retries(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         import aiohttp
 
+        client_error = getattr(aiohttp, "ClientError", OSError)
+        if not isinstance(client_error, type) or not issubclass(client_error, BaseException):
+            client_error = OSError
+
         url = f"{self.endpoint}{path}"
         last_error: RuntimeAdapterError | None = None
         for attempt in range(self.retries + 1):
@@ -456,9 +477,9 @@ class OpenAICompatRuntime(RuntimeAdapter):
                 )
                 if attempt >= self.retries:
                     raise last_error from None
-            except OSError as e:
-                # aiohttp.ClientConnectorError derives from OSError
-                # (via ClientOSError), as does builtin ConnectionError.
+            except (client_error, OSError) as e:
+                # Connector failures usually derive from OSError, while
+                # disconnects and malformed HTTP responses are ClientError.
                 last_error = RuntimeAdapterError(
                     f"Cannot reach {url}: {e}",
                     provider=self.name,
