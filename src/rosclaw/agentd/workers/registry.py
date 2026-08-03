@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from rosclaw.contracts.common import ValidationError, new_id
 from rosclaw.contracts.worker.card import WorkerCardV1
 
-SUPPORTED_ADAPTER_TYPES = frozenset({"native_inproc", "process_stdio"})
+SUPPORTED_ADAPTER_TYPES = frozenset({"native_inproc", "process_stdio", "external_cli"})
 SUPPORTED_ADAPTER_VERSIONS = frozenset({"1.0.0"})
 
 #: Scopes a cognitive worker may never request (ADR-0003).

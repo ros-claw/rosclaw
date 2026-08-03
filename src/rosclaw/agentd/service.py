@@ -185,15 +185,40 @@ class AgentService:
         if gateway is not None:
             self._gateway: ModelGateway = gateway
         else:
+            from rosclaw.agentd.models.failover import FailoverGateway
+
             policy = config.to_policy()
-            self._gateway = OpenAICompatGateway(policy.default)
+            chain = policy.fallback_chain()
+            candidates = [(p, OpenAICompatGateway(p)) for p in chain]
+            # 单 profile 也走 FailoverGateway：统一的 cooldown/RPM 语义。
+            self._gateway = FailoverGateway(candidates)
         self._prompt = load_prompt("native_agent_v1.md")
         self._loops: dict[str, AgentLoop] = {}
         self._lock = asyncio.Lock()
         self._usage = UsageRecorder(self._store.connection)
+        # External harness packs (PR-WF-054): register cards by probe result
+        # (missing binary → DISABLED with T0 note, never fake readiness).
+        # 同步探活（init 可能在 async 上下文中被构造，不能 run_until_complete）。
+        from rosclaw.agentd.workers.external import ExternalHarnessAdapter
+        from rosclaw.agentd.workers.packs import ALL_PACKS, card_for_pack
+
+        external_adapter = ExternalHarnessAdapter(cwd=rosclaw_home)
+        for pack in ALL_PACKS:
+            card = card_for_pack(pack)
+            self._registry.register(card, actor_id=self.actor_id)
+            ready, detail = self._probe_pack_sync(
+                pack.executable, pack.min_version, pack.install_hint
+            )
+            if not ready:
+                self._registry.set_status(
+                    pack.worker_id, "DISABLED", actor_id=self.actor_id, reason=detail
+                )
         self._worker_manager = WorkerManager(
             self._store.connection,
-            adapters={"native_inproc": NativeWorkerAdapter(self._gateway)},
+            adapters={
+                "native_inproc": NativeWorkerAdapter(self._gateway),
+                "external_cli": external_adapter,
+            },
             actor_id=self.actor_id,
         )
         self._handlers = ServiceIntentHandlers(
@@ -243,6 +268,32 @@ class AgentService:
             self._handlers._team_coordinator = self._team_coordinator
         else:
             self._team_coordinator = None
+
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _probe_pack_sync(executable: str, min_version: str, install_hint: str) -> tuple[bool, str]:
+        """Synchronous pack probe (used at init; adapter.probe is the async path)."""
+        import shutil
+        import subprocess
+
+        from rosclaw.agentd.workers.packs import version_ok
+
+        exe = shutil.which(executable)
+        if exe is None:
+            return False, f"二进制 {executable!r} 未找到（T0 Discovered）。{install_hint}"
+        try:
+            out = subprocess.run(
+                [executable, "--version"],
+                capture_output=True,
+                timeout=15,
+                text=True,
+            )
+            version_text = (out.stdout or out.stderr).strip().split()[0]
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return False, f"version probe failed: {exc}"
+        if not version_ok(version_text, min_version):
+            return False, f"{version_text} < 最小兼容版本 {min_version}，请升级。"
+        return True, version_text
 
     # ------------------------------------------------------------------
     @property

@@ -203,8 +203,13 @@ class DaemonActionChannel:
                 f"daemon rejected operator proposal: {exc.code}: {exc}"
             ) from exc
         proposal = created.get("proposal") or {}
-        if created.get("command_dispatched") is not False or created.get("permit_exposed") is not False:
-            raise ActionChannelError("daemon proposal response violated pending/no-permit invariant")
+        if (
+            created.get("command_dispatched") is not False
+            or created.get("permit_exposed") is not False
+        ):
+            raise ActionChannelError(
+                "daemon proposal response violated pending/no-permit invariant"
+            )
         if not proposal.get("request_id") or not proposal.get("action_id"):
             raise ActionChannelError("daemon proposal response omitted public identifiers")
         return ActionProposalOutcome(
@@ -233,7 +238,9 @@ class DaemonActionChannel:
         trust = str(inner.get("trust_level", "UNKNOWN"))
         if trust == "SYNTHETIC":
             raise ActionChannelError("receipt is FIXTURE/SYNTHETIC — never usable as real evidence")
-        expected_trust = "SIMULATED" if envelope.execution_mode is ExecutionMode.SIMULATION else "VERIFIED"
+        expected_trust = (
+            "SIMULATED" if envelope.execution_mode is ExecutionMode.SIMULATION else "VERIFIED"
+        )
         verified = state in ("FINISHED",) and trust == expected_trust
         return ActionOutcome(
             action_id=action_id,
