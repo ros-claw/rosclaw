@@ -83,9 +83,23 @@ Pack/执行器缺失时均停止推进。REAL Mission 还要求显式的
   在流中被 `DecisionBlockFilter` 过滤，不打扰用户。
 - **会话连续性**：对话追加进 mission journal，重启后 `--mission` 恢复完整历史。
 
-已知未做（诚实清单）：跨 provider cooldown/failover 链、多 key 轮换、
-上下文 compaction（microcompact + LLM 摘要）——机制已在调研报告中选型
-（picoclaw cooldown、openharness 两级压缩），待后续阶段引入。
+已知未做（诚实清单）：多 key 轮换。
+
+## 持久化 Compaction（PR-07 + 批次 A）
+
+- **append-only journal**：canonical 对话事件永不删除；每条消息在
+  `append_conversation` 时获得稳定 `entry_id` + 单调 `seq`；
+  内部 journal 键（entry_id/seq/atomic_group）经 gateway sanitizer 净化，
+  永不越过 provider wire。
+- **持久化压缩**：Pi 算法切点（keepRecentTokens 倒序 + 边界对齐，不拆
+  tool_call/tool_result 对、不拆 `atomic_group` 物理原子组）；
+  `CompactionEntryV1` 记录 covered_entry_ids、covered_span_hash、
+  supersedes、prompt_version、provider/model、protected_groups；
+  手动 `/compact`、阈值自动压缩、overflow reactive 压缩全部走同一
+  持久化引擎（不原地改写内存列表，`_persisted_count` 始终对齐）。
+- **视图投影**：模型看到的是 journal 投影（summary marker + kept），
+  重启后从 journal + 最新 compaction 恢复相同 view；物理事实不依赖
+  摘要——每轮从权威存储重新编译。
 
 ## Worker Fabric（PR-WF-050/051/053，experimental）
 

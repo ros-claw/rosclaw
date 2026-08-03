@@ -104,7 +104,20 @@ class MissionStore:
     # missions/task_nodes — chat text is never the source of truth)
     # ------------------------------------------------------------------
     def append_conversation(self, mission_id: str, messages: list[dict], *, actor_id: str) -> None:
+        """Append messages to the canonical journal.
+
+        Each message is stamped in place with a stable ``entry_id`` and
+        monotonic per-mission ``seq`` (补充实施文档 §3.3), so the caller's
+        in-memory view and the journal share message identity.
+        """
         with self._lock:
+            seq = self._conversation_length(mission_id)
+            stamped: list[dict] = []
+            for message in messages:
+                message.setdefault("entry_id", f"conv_{mission_id}_{seq}")
+                message.setdefault("seq", seq)
+                seq += 1
+                stamped.append(message)
             self._conn.execute("BEGIN IMMEDIATE")
             try:
                 self._append_event(
@@ -115,13 +128,21 @@ class MissionStore:
                     reason_code="conversation_turn",
                     actor_id=actor_id,
                     trace_id=None,
-                    payload={"messages": messages},
+                    payload={"messages": stamped},
                     idempotency_key=None,
                 )
                 self._conn.execute("COMMIT")
             except Exception:
                 self._conn.execute("ROLLBACK")
                 raise
+
+    def _conversation_length(self, mission_id: str) -> int:
+        total = 0
+        for event in self.events(mission_id):
+            if event["event_type"] == "rosclaw.agent.conversation.appended.v1":
+                payload = json.loads(event["payload_json"])
+                total += len(payload.get("messages") or [])
+        return total
 
     def conversation(self, mission_id: str) -> list[dict]:
         messages: list[dict] = []

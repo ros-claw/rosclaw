@@ -54,15 +54,22 @@ def estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:
 
 
 def _turn_boundary_ok(messages: list[dict[str, Any]], cut: int) -> bool:
-    """切点不得切开 tool_call/tool_result 配对（§8.4）。"""
+    """切点不得切开 tool_call/tool_result 配对（§8.4），也不得切开
+    ``atomic_group`` 相同的物理原子组（批次 A：观测证据/授权卡/回执等
+    相关消息必须同侧）。"""
     if cut <= 0 or cut >= len(messages):
         return True
     left = messages[cut - 1]
+    right = messages[cut]
+    # 原子组：同组消息不得被切点分开。
+    left_group = left.get("atomic_group")
+    if left_group is not None and left_group == right.get("atomic_group"):
+        return False
     # 左侧是带 tool_calls 的 assistant，而右侧还有它的 tool result → 切断。
     if left.get("tool_calls"):
         return False
     # 右侧是 tool result，而其 assistant 在左侧 → 切断。
-    return messages[cut].get("role") not in _PAIR_ROLES
+    return right.get("role") not in _PAIR_ROLES
 
 
 def find_cut_point(messages: list[dict[str, Any]], *, keep_recent_tokens: int = 20_000) -> int:

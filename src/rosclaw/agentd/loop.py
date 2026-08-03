@@ -308,13 +308,16 @@ class AgentLoop:
             try:
                 turn = await self._gateway.complete_stream(request, on_text_delta=on_text_delta)
             except ModelGatewayError as exc:
-                from rosclaw.agentd.context.compact import is_context_overflow, microcompact
+                from rosclaw.agentd.context.compact import is_context_overflow
 
                 if is_context_overflow(exc.kind, str(exc)):
-                    # Reactive compact（openharness 模式）：压缩后重试一次。
+                    # Reactive compact：走持久化压缩（PR-07 引擎），绝不原地
+                    # 改写 self._conversation —— 那会让 _persisted_count 指向
+                    # 错误边界、新消息落不了盘（补充实施文档 §3.3）。
                     await self._emit(AgentEventType.COMPACTION_STARTED, {"reason": "overflow"})
-                    self._conversation, _ = microcompact(self._conversation, keep_recent=4)
-                    await self._emit(AgentEventType.COMPACTION_COMPLETED, {"reason": "overflow"})
+                    await self.compact_conversation(
+                        mission, reason="overflow", keep_recent_tokens=8_000
+                    )
                     request.messages = list(self._conversation)
                     try:
                         turn = await self._gateway.complete_stream(
@@ -597,7 +600,12 @@ class AgentLoop:
                 f"result: {output[:2000]}"
             )
         self._conversation.append(
-            {"role": "tool", "tool_call_id": f"obs_{digest}", "content": evidence_note}
+            {
+                "role": "tool",
+                "tool_call_id": f"obs_{digest}",
+                "content": evidence_note,
+                "atomic_group": f"obs_{digest}",
+            }
         )
         # context_revision += 1（权威存储，非内存计数）。
         self._store.bump_context_revision(mission.mission_id)
@@ -615,6 +623,7 @@ class AgentLoop:
                     "[observation] Fresh evidence attached above. Continue reasoning "
                     "with it and emit your next DecisionV1 when ready."
                 ),
+                "atomic_group": f"obs_{digest}",
             }
         )
         result.tool_rounds += 1
@@ -1056,6 +1065,13 @@ class AgentLoop:
         span = self._conversation[:cut]
         kept = self._conversation[cut:]
         summary = deterministic_summary(span, goal=mission.goal.text, focus=focus)
+        store = CompactionStore(self._store.connection)
+        previous = store.latest(mission.mission_id)
+        from rosclaw.contracts.common import content_hash
+
+        span_hash = content_hash("cmp_span", span)
+        covered_ids = [m["entry_id"] for m in span if m.get("entry_id")]
+        protected = sorted({m["atomic_group"] for m in span if m.get("atomic_group")})
         entry = CompactionEntryV1(
             compaction_id=new_id("cmp"),
             mission_id=mission.mission_id,
@@ -1070,8 +1086,14 @@ class AgentLoop:
             context_revision=mission.context_revision,
             summary_model="deterministic-fallback",
             usage={},
+            covered_entry_ids=covered_ids,
+            covered_span_hash=span_hash,
+            supersedes=previous.compaction_id if previous else None,
+            prompt_version=getattr(self._prompt, "version", "") or "",
+            provider=self._gateway.profile.provider,
+            model=self._gateway.profile.model,
+            protected_groups=protected,
         )
-        store = CompactionStore(self._store.connection)
         store.save(entry)
         # view = summary（untrusted）+ kept；canonical journal 追加 summary 消息。
         view = build_compaction_view(entry, kept)

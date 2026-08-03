@@ -48,3 +48,16 @@ class CompactionEntryV1(ContractModel):
     context_revision: int = 0
     summary_model: str = "deterministic-fallback"
     usage: dict[str, Any] = Field(default_factory=dict)
+    # 批次 A（补充实施文档 §3.3/§8.10）：可审计的覆盖范围与来源。
+    #: 被压缩区间的 entry_id 列表（journal append 时稳定赋号）。
+    covered_entry_ids: list[str] = Field(default_factory=list)
+    #: 被压缩区间 canonical JSON 的内容 hash（审计对账用）。
+    covered_span_hash: str = ""
+    #: 被本条取代的上一条 compaction id。
+    supersedes: str | None = None
+    #: 生成摘要时的 prompt/provider/model（deterministic fallback 留空）。
+    prompt_version: str = ""
+    provider: str = ""
+    model: str = ""
+    #: 被压缩区间内受保护、不可拆的原子组标识（观测/授权/回执对等）。
+    protected_groups: list[str] = Field(default_factory=list)

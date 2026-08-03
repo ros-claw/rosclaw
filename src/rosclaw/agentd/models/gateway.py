@@ -28,6 +28,16 @@ from rosclaw.contracts.common import ValidationError, new_id
 from rosclaw.provider.core.errors import RuntimeAdapterError
 from rosclaw.provider.runtimes.openai_compat_runtime import OpenAICompatRuntime
 
+#: Standard OpenAI chat message fields; anything else is internal bookkeeping.
+_WIRE_MESSAGE_KEYS = frozenset({"role", "content", "tool_calls", "tool_call_id", "name"})
+
+
+def _sanitize_message(message: dict[str, Any]) -> dict[str, Any]:
+    """Strip internal journal keys before a message crosses the provider wire."""
+    if set(message) <= _WIRE_MESSAGE_KEYS:
+        return message
+    return {k: v for k, v in message.items() if k in _WIRE_MESSAGE_KEYS}
+
 
 class ModelGatewayError(Exception):
     """Model invocation failed in a classified, diagnosable way."""
@@ -162,7 +172,9 @@ class OpenAICompatGateway:
         for tool in request.tools:
             tool.validate()
         messages = [{"role": "system", "content": request.system_prompt}]
-        messages.extend(request.messages)
+        # Internal journal keys (entry_id/seq/atomic_group/source/ref …) are
+        # local bookkeeping; providers only accept standard message fields.
+        messages.extend(_sanitize_message(m) for m in request.messages)
         inputs: dict[str, Any] = {
             "messages": messages,
             "max_tokens": request.max_output_tokens,
