@@ -162,6 +162,9 @@ async def test_request_action_builds_unapproved_envelope_for_daemon(
     assert action.body_id == "rh56-test"
     assert action.authorization.approved is False
     assert action.authorization.approval_id == "permit-1"
+    assert daemon.sessions[-1]["session_id"] == action.session_id
+    assert action.session_id == action.action_id
+    assert daemon.closed_sessions == [(action.session_id, "action_finished")]
 
 
 async def test_request_action_preserves_operator_proposal_deadline(
@@ -181,7 +184,7 @@ async def test_request_action_preserves_operator_proposal_deadline(
     assert daemon.actions[0].to_dict()["deadline_at"] == "2030-01-02T03:04:05Z"
 
 
-async def test_default_shadow_sessions_are_scoped_per_capability(
+async def test_default_shadow_sessions_are_unique_and_scoped_per_action(
     client: tuple[RuntimeClient, _FakeDaemonClient],
 ) -> None:
     runtime_client, daemon = client
@@ -195,9 +198,11 @@ async def test_default_shadow_sessions_are_scoped_per_capability(
             wait_timeout_sec=0.0,
         )
 
-    assert [action.session_id for action in daemon.actions] == [
-        "mcp-session:limo.play_tone",
-        "mcp-session:limo.set_initial_pose",
+    assert len({action.session_id for action in daemon.actions}) == 2
+    assert all(action.session_id == action.action_id for action in daemon.actions)
+    assert [session["capability_scope"] for session in daemon.sessions] == [
+        ["limo.play_tone"],
+        ["limo.set_initial_pose"],
     ]
 
 
