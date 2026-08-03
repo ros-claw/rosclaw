@@ -22,6 +22,7 @@ from rosclaw.agentd.mission import MissionStore
 from rosclaw.agentd.models.gateway import MockModelGateway
 from rosclaw.agentd.models.profiles import mock_profile
 from rosclaw.agentd.service import AgentService, create_app
+from rosclaw.contracts.agent.decision import DecisionV1
 from rosclaw.contracts.agent.model_turn import ModelTurnResultV1
 from rosclaw.contracts.operator.approval import ActionDisplayV1, ApprovalRequestV2
 from rosclaw.operator import GrantDeniedError, OperatorBroker
@@ -288,6 +289,10 @@ class TestApprovalLoop:
                 pending[0].request_id, principal="user:local:1000", approve=True
             )
             assert grant is not None
+            consent = service._compiler._sources.consent.get_consent(mission.mission_id)
+            assert consent is not None
+            assert grant.grant_id in consent.public_scope_summary
+            assert grant.public_hash in consent.public_scope_summary
             _approval_then_action.grant_id = grant.grant_id
             r2 = await service.send_turn(mission.mission_id, "我已批准，继续执行")
             assert "授权已验证" in r2.reply
@@ -304,6 +309,87 @@ class TestApprovalLoop:
                     mode="SIMULATION",
                     risk_tier="LOW",
                 )
+        finally:
+            await service.close()
+
+    async def test_real_approval_uses_daemon_ttl_and_exact_action_payload(
+        self, tmp_path: Path
+    ) -> None:
+        config = load_agent_config(tmp_path / "config.yaml")
+        service = AgentService(config, tmp_path, gateway=MockModelGateway(mock_profile(), []))
+
+        class FakeConsent:
+            called: dict = {}
+
+            async def create_proposal(self, **kwargs):
+                self.called = kwargs
+                return {"request_id": "proposal_real", "action_id": "action_real"}
+
+        fake = FakeConsent()
+        service._handlers._mode = "REAL"
+        service._handlers._consent_channel = fake
+        decision = DecisionV1.model_validate_contract(
+            {
+                "schema_version": "rosclaw.decision.v1",
+                "decision_id": "dec_real_tone",
+                "mission_id": "mis_real",
+                "context_id": "ctx_real",
+                "context_revision": 1,
+                "next_intent": "REQUEST_APPROVAL",
+                "summary": "play exact tone",
+                "proposed_operation": {
+                    "type": "approval_request",
+                    "payload": {
+                        "capability_id": "limo.play_tone",
+                        "arguments": {
+                            "schema_version": "limo.tone.v1",
+                            "frequency_hz": 660,
+                            "duration_sec": 0.25,
+                            "volume_percent": 18,
+                        },
+                        "risk_tier": "LOW",
+                    },
+                },
+            }
+        )
+
+        try:
+            reply = await service._handlers.request_approval(decision)
+            assert "5 分钟有效" in reply
+            assert fake.called["ttl_sec"] == 300.0
+            assert fake.called["capability_id"] == "limo.play_tone"
+            assert fake.called["arguments"]["frequency_hz"] == 660
+            pending = service.pending_approvals("mis_real")
+            assert pending[0].action_display.parameters["duration_sec"] == 0.25
+        finally:
+            await service.close()
+
+    async def test_real_approval_rejects_missing_daemon_action_payload(
+        self, tmp_path: Path
+    ) -> None:
+        config = load_agent_config(tmp_path / "config.yaml")
+        service = AgentService(config, tmp_path, gateway=MockModelGateway(mock_profile(), []))
+        service._handlers._mode = "REAL"
+        decision = DecisionV1.model_validate_contract(
+            {
+                "schema_version": "rosclaw.decision.v1",
+                "decision_id": "dec_empty_real",
+                "mission_id": "mis_real",
+                "context_id": "ctx_real",
+                "context_revision": 1,
+                "next_intent": "REQUEST_APPROVAL",
+                "summary": "incomplete action",
+                "proposed_operation": {
+                    "type": "approval_request",
+                    "payload": {"risk_tier": "LOW"},
+                },
+            }
+        )
+
+        try:
+            reply = await service._handlers.request_approval(decision)
+            assert "缺少 capability_id 或 arguments" in reply
+            assert service.pending_approvals("mis_real") == []
         finally:
             await service.close()
 

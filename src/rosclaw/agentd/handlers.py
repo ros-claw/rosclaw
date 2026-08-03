@@ -110,13 +110,25 @@ class ServiceIntentHandlers:
         payload = (
             decision.proposed_operation.payload if decision.proposed_operation else None
         ) or {}
+        capability_id = payload.get("capability_id")
+        arguments = payload.get("arguments")
+        if self._mode == "REAL" and (
+            not isinstance(capability_id, str)
+            or not capability_id.strip()
+            or not isinstance(arguments, dict)
+        ):
+            return (
+                "REAL 精确动作授权缺少 capability_id 或 arguments；未创建空授权卡。"
+                "请从可信能力合约取得完整动作标识与参数后重新请求（fail closed）。"
+            )
+        approval_ttl_sec = 300.0 if self._mode == "REAL" else 600.0
         display = ActionDisplayV1(
             title=str(payload.get("title") or decision.summary or "动作请求"),
             summary=str(payload.get("summary") or decision.summary or ""),
             risk_tier=payload.get("risk_tier", "LOW"),
             expected_effect=str(payload.get("expected_effect") or ""),
             failure_handling=str(payload.get("failure_handling") or ""),
-            parameters=payload.get("parameters") or {},
+            parameters=payload.get("parameters") or arguments or {},
         )
         request = ApprovalRequestV2(
             request_id=new_id("appr"),
@@ -131,7 +143,7 @@ class ServiceIntentHandlers:
             context_revision=decision.context_revision,
             requested_tier=payload.get("tier", "EXACT_ACTION"),
             created_at=datetime.now(UTC).isoformat(),
-            expires_at=(datetime.now(UTC) + timedelta(minutes=10)).isoformat(),
+            expires_at=(datetime.now(UTC) + timedelta(seconds=approval_ttl_sec)).isoformat(),
         )
         self._broker.create_request(request)
         # ADR-0007：daemon consent plane 只接受显式 REAL 动作的 proposal
@@ -144,11 +156,11 @@ class ServiceIntentHandlers:
 
             try:
                 proposal = await consent.create_proposal(
-                    capability_id=str(payload.get("capability_id", "sim.hold_position")),
-                    arguments=payload.get("arguments") or {},
+                    capability_id=str(capability_id),
+                    arguments=arguments,
                     display=display.model_dump(mode="json"),
                     execution_mode=self._mode,
-                    ttl_sec=600.0,
+                    ttl_sec=approval_ttl_sec,
                 )
                 proposal_id = proposal.get("request_id")
                 action_id = proposal.get("action_id")
@@ -175,7 +187,8 @@ class ServiceIntentHandlers:
                     "物理层未创建 proposal；动作将不会被派发。"
                 )
         return (
-            f"已创建授权请求 {request.request_id}（EXACT_ACTION，10 分钟有效）：\n"
+            f"已创建授权请求 {request.request_id}（EXACT_ACTION，"
+            f"{int(approval_ttl_sec // 60)} 分钟有效）：\n"
             f"【{display.title}】{display.summary}\n"
             f"风险等级 {display.risk_tier}；预期效果：{display.expected_effect or '—'}；"
             f"失败处理：{display.failure_handling or '—'}\n"
@@ -253,6 +266,14 @@ class ServiceIntentHandlers:
             inner = receipt.get("receipt") if isinstance(receipt.get("receipt"), dict) else receipt
             trust = inner.get("trust_level", "UNKNOWN")
             final_state = inner.get("final_state", "UNKNOWN")
+            evidence_domain = inner.get("evidence_domain", "UNKNOWN")
+            evidence_level = inner.get("evidence_level", "UNKNOWN")
+            usable_for_real = inner.get("usable_for_real_execution") is True
+            verification = (
+                inner.get("verification_result")
+                if isinstance(inner.get("verification_result"), dict)
+                else {}
+            )
             provenance = (inner.get("authorization_decision") or {}).get("provenance") or {}
             if trust == "SYNTHETIC":
                 return "回执为 FIXTURE/SYNTHETIC 证据——拒绝当作完成（fail closed）。"
@@ -260,7 +281,13 @@ class ServiceIntentHandlers:
                 return "回执 action 与请求不匹配——不报告为我们的动作（fail closed）。"
             return (
                 f"动作已由 rosclawd consent plane 完成：state={final_state}, "
-                f"trust_level={trust}（SIMULATED 证据，不可用于 REAL）。"
+                f"trust_level={trust}, evidence_domain={evidence_domain}, "
+                f"evidence_level={evidence_level}, "
+                f"usable_for_real_execution={str(usable_for_real).lower()}。"
+                f"验证：success={verification.get('success')}, "
+                f"observer={verification.get('observer')}, "
+                f"target_gain_db={verification.get('target_gain_db')}, "
+                f"target_prominence_db={verification.get('target_prominence_db')}。"
                 f"授权来源：proposal {proposal_id[:20]}…, "
                 f"operator={provenance.get('operator_principal')}, "
                 f"channel={provenance.get('decision_channel')}。grant 已消费。"

@@ -440,6 +440,12 @@ class AgentLoop:
             "team_task_claim; REQUEST_APPROVAL→approval_request; "
             "REQUEST_ACTION→request_action; VERIFY→verify_receipt|verify_observation; "
             "FAIL_SAFE→estop_request; ANSWER/WAIT/PAUSE→no operation."
+            " For REAL REQUEST_APPROVAL, proposed_operation.payload MUST include a non-empty "
+            "capability_id and an arguments object copied exactly from a trusted capability "
+            "contract, in addition to the human-readable title/summary/risk fields. Never "
+            "request approval for guessed or incomplete action arguments. After approval, read "
+            "the Active mission grant in SAFETY & CONSENT and reference its exact public grant_id "
+            "in REQUEST_ACTION."
         )
         return "\n".join(parts)
 

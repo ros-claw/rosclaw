@@ -441,6 +441,11 @@ async def _chat_repl(service: AgentService, args: argparse.Namespace) -> int:
             result = await service.send_turn(mission.mission_id, text, on_delta)
             if not streamed:
                 print(result.reply, end="")
+            elif result.decisions and result.decisions[-1].next_intent.value != "ANSWER":
+                # Streamed prose is the model's proposal/explanation. The
+                # handler reply is the trusted system outcome (approval id,
+                # dispatch status, or receipt) and must not be hidden.
+                print(f"\nROSClaw system> {result.reply}", end="")
             usage = service.mission_usage(mission.mission_id)
             degraded = f"  [degraded: {result.degraded}]" if result.degraded else ""
             print(
