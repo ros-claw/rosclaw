@@ -373,7 +373,110 @@ def cmd_chat(args: argparse.Namespace) -> int:
         print("未配置模型。先运行 `rosclaw agent init`。", file=sys.stderr)
         return 2
     service = AgentService(config, home)
-    return asyncio.run(_chat_repl(service, args))
+    if getattr(args, "basic", False):
+        return asyncio.run(_chat_repl(service, args))
+    return _chat_tui(service, args)
+
+
+def _find_tui_runtime() -> tuple[str, str] | None:
+    """Locate (node ≥22.19, rosclaw-tui dist entry). None = unavailable."""
+    import shutil
+    import subprocess as _sp
+
+    candidates = [shutil.which("node"), "/usr/bin/node", "/usr/local/bin/node"]
+    node = None
+    for candidate in filter(None, candidates):
+        try:
+            out = _sp.check_output([candidate, "--version"], text=True, timeout=10).strip()
+            parts = [int(p) for p in out.lstrip("v").split(".")]
+            if parts >= [22, 19, 0]:
+                node = candidate
+                break
+        except Exception:  # noqa: BLE001 - probe next candidate
+            continue
+    if node is None:
+        return None
+    entry_env = os.environ.get("ROSCLAW_TUI_ENTRY")
+    repo_entry = (
+        Path(__file__).resolve().parents[3] / "packages" / "rosclaw-tui" / "dist" / "main.js"
+    )
+    entry = entry_env or (str(repo_entry) if repo_entry.exists() else None)
+    if not entry or not Path(entry).exists():
+        return None
+    return node, entry
+
+
+def _chat_tui(service: AgentService, args: argparse.Namespace) -> int:
+    """默认 chat：启动本地 AgentService HTTP + exec rosclaw-tui（批次 C）。
+
+    TUI 不可用（Node/资源缺失）时诚实降级到 --basic 并说明原因。
+    """
+    import subprocess as _sp
+    import threading
+
+    runtime = _find_tui_runtime()
+    if runtime is None:
+        print(
+            "rosclaw-tui 不可用（需要 Node >= 22.19 与已构建的 packages/rosclaw-tui；"
+            "见 rosclaw doctor）。回退到兼容模式 --basic。",
+            file=sys.stderr,
+        )
+        return asyncio.run(_chat_repl(service, args))
+    node, entry = runtime
+
+    mission = None
+    if args.mission:
+        mission = service.get_mission(args.mission)
+        if mission is None:
+            print(f"mission {args.mission} 不存在", file=sys.stderr)
+            return 2
+    else:
+        goal = args.goal or "ROSClaw chat session"
+        try:
+            mission = service.create_mission(goal, mode=args.mode)
+        except Exception as exc:  # noqa: BLE001
+            print(f"无法创建 mission：{exc}", file=sys.stderr)
+            return 2
+
+    import uvicorn
+
+    app = create_app(service)
+    config = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="error")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    # 等待 socket 就绪（最多 5s），拿不到端口就诚实降级。
+    import time
+
+    deadline = time.time() + 5.0
+    port = None
+    while time.time() < deadline:
+        if server.started and server.servers:
+            for srv in server.servers:
+                for sock in srv.sockets:
+                    port = sock.getsockname()[1]
+                    break
+        if port:
+            break
+        time.sleep(0.05)
+    if port is None:
+        print("AgentService HTTP 启动失败，回退到 --basic。", file=sys.stderr)
+        server.should_exit = True
+        return asyncio.run(_chat_repl(service, args))
+    try:
+        return _sp.call(
+            [
+                node,
+                entry,
+                "--url",
+                f"http://127.0.0.1:{port}",
+                "--mission",
+                mission.mission_id,
+            ]
+        )
+    finally:
+        server.should_exit = True
+        thread.join(timeout=3.0)
 
 
 def cmd_credential(args: argparse.Namespace) -> int:
@@ -651,6 +754,11 @@ def add_agent_subparsers(subparsers) -> None:
     p_chat.add_argument("--mission", default=None)
     p_chat.add_argument("--mode", default=None, choices=["SIMULATION", "SHADOW", "REAL"])
     p_chat.add_argument("--goal", default=None)
+    p_chat.add_argument(
+        "--basic",
+        action="store_true",
+        help="兼容/诊断模式：Python input() 行式 REPL（无 TUI）",
+    )
     p_chat.set_defaults(func=cmd_chat)
 
 

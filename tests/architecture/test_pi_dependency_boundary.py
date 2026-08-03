@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
-NODE_ROOT = REPO / "node"
+NODE_ROOT = REPO / "packages"
 
 BANNED_NPM_PACKAGES = (
     "@earendil-works/pi-agent-core",
@@ -69,7 +69,7 @@ class TestNpmBoundary:
                         assert not version.startswith(("^", "~"))
 
     def test_lockfile_no_banned_packages(self) -> None:
-        lock = NODE_ROOT / "package-lock.json"
+        lock = REPO / "packages" / "rosclaw-tui" / "package-lock.json"
         if not lock.exists():
             pytest.skip("lockfile not created yet")
         data = json.loads(lock.read_text(encoding="utf-8"))
@@ -97,7 +97,7 @@ class TestRoleBoundaryStatements:
     """The TUI/modeld code (when it exists) must not cross its lane."""
 
     def test_modeld_never_touches_hardware_paths(self) -> None:
-        modeld = NODE_ROOT / "services" / "rosclaw-modeld"
+        modeld = NODE_ROOT / "rosclaw-modeld"
         if not modeld.exists():
             pytest.skip("modeld not created yet")
         banned = re.compile(r"rosclawd|/dev/tty|serialport|can-utils|gpio|robot-sdk", re.IGNORECASE)
@@ -108,7 +108,7 @@ class TestRoleBoundaryStatements:
             assert not banned.search(text), f"{path} references hardware paths"
 
     def test_tui_has_no_model_client(self) -> None:
-        tui = NODE_ROOT / "apps" / "rosclaw-tui"
+        tui = NODE_ROOT / "rosclaw-tui"
         if not tui.exists():
             pytest.skip("tui not created yet")
         banned = re.compile(r"openai|anthropic|/v1/chat/completions|pi-ai", re.IGNORECASE)

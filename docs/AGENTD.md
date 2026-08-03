@@ -198,6 +198,25 @@ live 模型协调。3v3 联赛基准（T-SIM-2/3）属 PR-TF-075 后续范围。
   unverified/inferred 显式拒绝并记录；Darwin 晋升门 = 评测引用 + 人类
   principal，任何代码路径不能自动晋升。
 
+## rosclaw-tui（批次 C）
+
+- `packages/rosclaw-tui`：精确锁定 `@earendil-works/pi-tui@0.83.0`
+  （MIT，third_party/pi 有 NOTICE/LICENSE；lockfile 已提交），
+  Node >= 22.19。薄 Presenter + 纯函数 reducer + 命令路由——不复制
+  Pi interactive-mode.ts。
+- 数据流：`GET snapshot`（权威对齐）→ SSE `Last-Event-ID` 增量 →
+  reducer → 渲染效果；sequence 缺口自动重拉快照；event_id 去重；
+  agent.settled 停止 spinner。
+- 命令：`/help /hotkeys /quit /clear-screen /approve /deny /missions`
+  本地处理；`/compact /cancel /rename /archive /status /tools` 经
+  Batch B 控制 API；未知命令提示而不是发给模型。
+- 卡片：tool / worker / approval / receipt 结构化渲染；状态行常显
+  mode（REAL 红底）/body/mission/state/待批准数/阶段。
+- `rosclaw chat` 默认启动 TUI（进程内 uvicorn + exec node）；
+  Node/资源缺失时诚实回退 `rosclaw chat --basic`（input() 诊断模式）。
+- 边界由架构测试锁定：TUI 不得含模型客户端，pi 包必须精确锁定
+  （tests/architecture/test_pi_dependency_boundary.py）。
+
 ## UI 控制面（批次 B：命令/事件/快照/交互）
 
 - **命令是控制协议，不是聊天文本**：`/compact /cancel /rename /archive
