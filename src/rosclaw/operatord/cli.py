@@ -70,25 +70,28 @@ def dispatch_operatord_argv(argv: list[str]) -> int | None:
         return 0
 
     if command == "start":
+        import contextlib
+
         from rosclaw.operatord.enrollment import EnrollmentError
         from rosclaw.operatord.server import default_operatord_socket, run_operatord
 
-        try:
-            daemon = asyncio.run(
-                run_operatord(
-                    home=home,
-                    daemon_socket=home / "run" / "rosclawd.sock",
-                    require_human_presence="--no-human-presence-check" not in argv,
-                )
+        async def _serve() -> None:
+            daemon = await run_operatord(
+                home=home,
+                daemon_socket=home / "run" / "rosclawd.sock",
+                require_human_presence="--no-human-presence-check" not in argv,
             )
+            print(f"rosclaw-operatord listening on {daemon._path}")
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.Event().wait()
+
+        try:
+            asyncio.run(_serve())
         except EnrollmentError as exc:
             print(str(exc), file=sys.stderr)
             return 2
-        print(f"rosclaw-operatord listening on {default_operatord_socket(home)}")
-        try:
-            asyncio.get_event_loop().run_forever()
         except KeyboardInterrupt:
-            pass
+            return 0
         return 0
 
     if command == "status":
