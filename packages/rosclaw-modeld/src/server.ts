@@ -28,6 +28,9 @@ export interface ModeldOptions {
 }
 
 export function startModeld(options: ModeldOptions): Promise<Server> {
+	// P1-5：bind + chmod + 凭据存储初始化完成前 /v1/health/ready 一律 503；
+	// gateway 必须轮询真实就绪，不再只看 socket 文件出现。
+	let ready = false;
 	const store = new UnifiedCredentialStore(options.homeDir, {
 		allowFileCredentials: options.allowFileCredentials,
 	});
@@ -84,6 +87,15 @@ export function startModeld(options: ModeldOptions): Promise<Server> {
 			}
 			const url = new URL(req.url ?? "/", "http://localhost");
 			const path = url.pathname;
+
+			if (req.method === "GET" && path === "/v1/health/ready") {
+				if (ready) {
+					json(res, 200, { ready: true, policy: store.policy });
+				} else {
+					json(res, 503, { ready: false });
+				}
+				return;
+			}
 
 			if (req.method === "GET" && path === "/v1/providers") {
 				const stored = new Set(store.list().map((c) => c.provider));
@@ -258,6 +270,7 @@ export function startModeld(options: ModeldOptions): Promise<Server> {
 		server.listen(options.socketPath, () => {
 			process.umask(previousUmask);
 			chmodSync(options.socketPath, 0o600);
+			ready = true;
 			resolve(server);
 		});
 	});

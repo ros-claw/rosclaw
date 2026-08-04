@@ -76,6 +76,7 @@ class ModeldGateway:
         self._token = secrets.token_urlsafe(32)
         self._proc: subprocess.Popen | None = None
         self._socket_path = ""
+        self._stderr_log = None
         self._session = None
         self._last_error: str | None = None
         self._start_lock = asyncio.Lock()
@@ -112,11 +113,14 @@ class ModeldGateway:
         env["ROSCLAW_MODELD_TOKEN"] = self._token
         # profile 引用的 env key 若存在则随子进程环境传递（值不进命令行/文件）；
         # 缺失时不拦——由 modeld 诚实报告 no_credential。
+        # P1-5：stderr 进文件（启动失败时保留脱敏尾部，不再丢 /dev/null）。
+        stderr_path = home / f"modeld-{os.getpid()}-{id(self) % 0xFFFF:x}.stderr.log"
+        self._stderr_log = open(stderr_path, "wb")  # noqa: SIM115 - 随进程生命周期
         self._proc = subprocess.Popen(  # noqa: S603 - fixed entry, no shell
             [node, entry, "--socket", self._socket_path, "--home", str(home)],
             env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=self._stderr_log,
+            stderr=self._stderr_log,
         )
         import aiohttp
 
@@ -124,17 +128,68 @@ class ModeldGateway:
         while time.monotonic() < deadline:
             if self._proc.poll() is not None:
                 raise ModelGatewayError(
-                    "modeld_crashed", f"modeld exited during startup (code {self._proc.returncode})"
+                    "modeld_crashed",
+                    f"modeld exited during startup (code {self._proc.returncode}); "
+                    f"stderr tail: {self._stderr_tail()}",
                 )
             if Path(self._socket_path).exists():
                 break
             await asyncio.sleep(0.05)
         else:
-            raise ModelGatewayError("modeld_timeout", "modeld did not create its socket in 10s")
+            raise ModelGatewayError(
+                "modeld_timeout",
+                f"modeld did not create its socket in 10s; stderr tail: {self._stderr_tail()}",
+            )
+        # P1-5：socket 出现 ≠ 就绪——轮询真实 /v1/health/ready（鉴权），
+        # 并验证 socket 权限 0600 后才宣告启动完成。
         connector = aiohttp.UnixConnector(path=self._socket_path)
         self._session = aiohttp.ClientSession(
             connector=connector, headers={"authorization": f"Bearer {self._token}"}
         )
+        ready_deadline = time.monotonic() + 10.0
+        while time.monotonic() < ready_deadline:
+            if self._proc.poll() is not None:
+                raise ModelGatewayError(
+                    "modeld_crashed",
+                    f"modeld exited before readiness (code {self._proc.returncode}); "
+                    f"stderr tail: {self._stderr_tail()}",
+                )
+            try:
+                async with self._session.get("http://localhost/v1/health/ready") as response:
+                    if response.status == 200:
+                        break
+            except (TimeoutError, aiohttp.ClientError, OSError):
+                pass
+            await asyncio.sleep(0.1)
+        else:
+            raise ModelGatewayError(
+                "modeld_not_ready",
+                f"modeld did not report readiness in 10s; stderr tail: {self._stderr_tail()}",
+            )
+        sock_mode = Path(self._socket_path).stat().st_mode & 0o777
+        if sock_mode != 0o600:
+            raise ModelGatewayError(
+                "modeld_socket_permissions",
+                f"modeld socket must be 0600 (found {sock_mode:o})",
+            )
+
+    def _stderr_tail(self, max_bytes: int = 2048) -> str:
+        """启动失败诊断：脱敏的最后 N 字节 stderr（P1-5）。"""
+        try:
+            if self._stderr_log is None:
+                return ""
+            self._stderr_log.flush()
+            with open(self._stderr_log.name, "rb") as handle:
+                handle.seek(0, 2)
+                size = handle.tell()
+                handle.seek(max(0, size - max_bytes))
+                tail = handle.read().decode(errors="replace")
+        except OSError:
+            return ""
+        import re
+
+        # 脱敏：bearer/api key 形状一律掩码。
+        return re.sub(r"(?i)(bearer|api[_-]?key|token)[=: ]+\S+", r"\1=***", tail).strip()[-500:]
 
     async def close(self) -> None:
         if self._session is not None:

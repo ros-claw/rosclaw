@@ -127,15 +127,19 @@ class AgentEventStore:
         mission_id: str,
         *,
         after_sequence: int = 0,
+        before_sequence: int | None = None,
         visibility: Visibility | None = None,
         limit: int = 1000,
     ) -> list[AgentEventV2]:
         query = (
             "SELECT * FROM agent_events WHERE mission_id = ? AND sequence > ?"
+            + (" AND sequence < ?" if before_sequence is not None else "")
             + (" AND visibility = ?" if visibility else "")
             + " ORDER BY sequence LIMIT ?"
         )
         params: list = [mission_id, after_sequence]
+        if before_sequence is not None:
+            params.append(before_sequence)
         if visibility:
             params.append(visibility.value)
         params.append(limit)

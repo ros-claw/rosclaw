@@ -119,7 +119,7 @@ class TestStreamingUx:
         from fastapi.testclient import TestClient
 
         service = _service(tmp_path)
-        client = TestClient(create_app(service))
+        client = TestClient(create_app(service), headers={'x-rosclaw-token': service.control_token})
         mission = service.create_mission("SSE 测试")
         events: list[dict] = []
         with client.stream(

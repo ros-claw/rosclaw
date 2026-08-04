@@ -32,6 +32,18 @@ def main() -> int:
     if result is not None:
         return result
 
+    from rosclaw.release_verify import dispatch_release_argv
+
+    result = dispatch_release_argv(sys.argv[1:])
+    if result is not None:
+        return result
+
+    from rosclaw.evidence_verify import dispatch_evidence_argv
+
+    result = dispatch_evidence_argv(sys.argv[1:])
+    if result is not None:
+        return result
+
     from rosclaw.robot_pack.cli import dispatch_robot_pack_argv
 
     result = dispatch_robot_pack_argv(sys.argv[1:])

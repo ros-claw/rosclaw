@@ -247,7 +247,7 @@ class TestHttpBypassClosed:
         from fastapi.testclient import TestClient
 
         service, card = await _service_with_pending(tmp_path)
-        client = TestClient(create_app(service))
+        client = TestClient(create_app(service), headers={'x-rosclaw-token': service.control_token})
         try:
             assert client.get("/approvals/pending").status_code == 400
             r = client.post(f"/approvals/{card.request_id}/decide", json={"approve": True})

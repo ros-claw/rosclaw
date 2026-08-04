@@ -59,13 +59,44 @@ export interface MissionInfo {
 	[key: string]: unknown;
 }
 
+export interface TranscriptBlock {
+	block_id: string;
+	kind: "user" | "assistant" | "tool_call" | "tool_result" | "card" | "decision" | "receipt" | "error";
+	sequence: number;
+	text?: string;
+	card?: Record<string, unknown>;
+	decision?: Record<string, unknown>;
+	receipt?: Record<string, unknown>;
+	error?: string;
+}
+
+export interface TranscriptPage {
+	mission_id: string;
+	blocks: TranscriptBlock[];
+	latest_sequence: number;
+	oldest_sequence: number;
+	has_more: boolean;
+}
+
 export class AgentClient {
-	constructor(private readonly baseUrl: string) {}
+	constructor(
+		private readonly baseUrl: string,
+		private readonly controlToken = "",
+	) {}
+
+	private authHeaders(extra?: Record<string, string>): Record<string, string> | undefined {
+		const headers: Record<string, string> = { ...(extra ?? {}) };
+		// P1-4：ephemeral control token（0600 文件/env 获取，永不打印）。
+		if (this.controlToken) headers["x-rosclaw-token"] = this.controlToken;
+		return Object.keys(headers).length > 0 ? headers : undefined;
+	}
 
 	private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
 		const res = await fetch(`${this.baseUrl}${path}`, {
 			method,
-			headers: body !== undefined ? { "content-type": "application/json" } : undefined,
+			headers: this.authHeaders(
+				body !== undefined ? { "content-type": "application/json" } : undefined,
+			),
 			body: body !== undefined ? JSON.stringify(body) : undefined,
 		});
 		if (!res.ok) {
@@ -121,6 +152,24 @@ export class AgentClient {
 		return this.request("GET", `/approvals/pending?mission_id=${missionId}`);
 	}
 
+	/** R4/P1-1：transcript projection（服务端权威投影 + 分页）。 */
+	async transcript(
+		missionId: string,
+		beforeSeq?: number,
+		limit = 500,
+	): Promise<TranscriptPage> {
+		const params = new URLSearchParams({ limit: String(limit) });
+		if (beforeSeq !== undefined && beforeSeq > 0) params.set("before_seq", String(beforeSeq));
+		const res = await fetch(
+			`${this.baseUrl}/v2/missions/${missionId}/transcript?${params}`,
+			{ headers: this.authHeaders() },
+		);
+		if (!res.ok) {
+			throw new Error(`HTTP ${res.status} transcript: ${(await res.text()).slice(0, 200)}`);
+		}
+		return (await res.json()) as TranscriptPage;
+	}
+
 	/** 有界事件重放（resume 恢复 transcript 用；不走 SSE 长连接）。 */
 	async replayEvents(
 		missionId: string,
@@ -128,7 +177,7 @@ export class AgentClient {
 	): Promise<Array<Record<string, unknown>>> {
 		const res = await fetch(
 			`${this.baseUrl}/v2/missions/${missionId}/events?follow=false&after_sequence=${afterSequence}`,
-			{ headers: { accept: "text/event-stream" } },
+			{ headers: this.authHeaders({ accept: "text/event-stream" }) },
 		);
 		if (!res.ok || !res.body) return [];
 		const text = await res.text();

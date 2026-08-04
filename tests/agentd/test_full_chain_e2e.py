@@ -331,7 +331,7 @@ class TestFullChainE2E:
         # 先在测试自己的 loop 完成 MCP 发现（持久会话归属单一 loop）；
         # TestClient portal 的 server loop 直接复用，不跨 loop 起进程。
         await service._ensure_mcp_discovered()
-        client = TestClient(create_app(service))
+        client = TestClient(create_app(service), headers={'x-rosclaw-token': service.control_token})
         try:
             mission = service.create_mission("HTTP 一致性")
             r = client.post(f"/v2/missions/{mission.mission_id}/turns", json={"text": "开始"})

@@ -22,6 +22,32 @@ export interface SseOptions {
 	onGap?: (expected: number, got: number) => void;
 	onReconnect?: (attempt: number) => void;
 	maxAttempts?: number;
+	/** R4/P1-1：resume 后从 transcript 的 latest_sequence 续接（exactly-once）。 */
+	afterSequence?: number;
+	/** P1-4：ephemeral control token。 */
+	controlToken?: string;
+}
+
+/** 有界去重窗（P1-1：长会话不允许无界 seen Set）。 */
+class BoundedDedup {
+	private readonly queue: string[] = [];
+	private readonly set = new Set<string>();
+
+	constructor(private readonly capacity = 2048) {}
+
+	has(id: string): boolean {
+		return this.set.has(id);
+	}
+
+	add(id: string): void {
+		if (this.set.has(id)) return;
+		this.set.add(id);
+		this.queue.push(id);
+		if (this.queue.length > this.capacity) {
+			const evicted = this.queue.shift();
+			if (evicted !== undefined) this.set.delete(evicted);
+		}
+	}
 }
 
 export async function* streamEvents(
@@ -29,8 +55,8 @@ export async function* streamEvents(
 	missionId: string,
 	options: SseOptions = {},
 ): AsyncGenerator<AgentEvent> {
-	const seen = new Set<string>();
-	let lastSeq = 0;
+	const seen = new BoundedDedup();
+	let lastSeq = Math.max(0, options.afterSequence ?? 0);
 	let attempt = 0;
 	let emptyStreak = 0;
 	const maxAttempts = options.maxAttempts ?? 100;
@@ -38,6 +64,7 @@ export async function* streamEvents(
 	while (attempt < maxAttempts && emptyStreak < 3) {
 		if (options.signal?.aborted) return;
 		const headers: Record<string, string> = { accept: "text/event-stream" };
+		if (options.controlToken) headers["x-rosclaw-token"] = options.controlToken;
 		if (lastSeq > 0) headers["last-event-id"] = String(lastSeq);
 		let res: Response;
 		try {

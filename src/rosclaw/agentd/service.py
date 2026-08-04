@@ -552,9 +552,23 @@ class AgentService:
                 self._handlers._mode = mission.mode.value
                 self._handlers._principal = mission.owner_principal
             loop = self._loop_for(mission_id)
-            return await loop.run_user_turn(
+            # R4：同步路径也写用户可见事件——transcript projection 才能
+            # 覆盖用户消息与助手回复（与 v2 runner 同一事件词汇）。
+            from rosclaw.contracts.agent.agent_event import AgentEventType
+
+            await self._events.append(
+                mission_id, AgentEventType.TURN_ACCEPTED, {"text": text[:500]}
+            )
+            result = await loop.run_user_turn(
                 mission, text, now=datetime.now(UTC), on_text_delta=on_text_delta
             )
+            reply = getattr(result, "reply", "") or ""
+            if reply:
+                await self._events.append(
+                    mission_id, AgentEventType.MODEL_TEXT_DELTA, {"text": reply}
+                )
+                await self._events.append(mission_id, AgentEventType.MESSAGE_ENDED, {})
+            return result
 
     def mission_usage(self, mission_id: str) -> dict:
         return self._usage.mission_totals(mission_id)
@@ -1276,6 +1290,90 @@ class AgentService:
             self._operator_socket = None
         await self._gateway.close()
         self._store.close()
+        # P1-4：control token 文件随服务关闭删除（不残留可重用的令牌）。
+        token_path = self._home / "run" / "agentd-control.token"
+        import contextlib as _contextlib
+
+        with _contextlib.suppress(OSError):
+            token_path.unlink(missing_ok=True)
+
+    # -- 生命周期与控制台鉴权（二次复核 P1-3/P1-4） -----------------------------
+
+    @classmethod
+    def open(cls, config: AgentConfig, rosclaw_home: Path, **kwargs):
+        """统一生命周期（P1-3）：``async with AgentService.open(...) as svc``
+        ——正常退出、异常、Ctrl-C 都保证 close（子进程/socket/句柄不残留）。"""
+        import contextlib as _contextlib
+
+        @_contextlib.asynccontextmanager
+        async def _ctx():
+            service = cls(config, rosclaw_home, **kwargs)
+            try:
+                yield service
+            finally:
+                await service.close()
+
+        return _ctx()
+
+    @property
+    def control_token(self) -> str:
+        """每次启动生成的高熵 ephemeral 控制 token（P1-4）。"""
+        token = getattr(self, "_control_token", None)
+        if token is None:
+            import secrets as _secrets
+
+            token = _secrets.token_urlsafe(32)
+            self._control_token = token
+        return token
+
+    def write_control_token_file(self) -> Path:
+        """把 control token 写入 0600 临时文件（TUI/CLI 同 UID 读取；
+        不写 journal、不进命令行参数）。"""
+        run_dir = self._home / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(run_dir, 0o700)
+        path = run_dir / "agentd-control.token"
+        tmp = run_dir / ".agentd-control.token.tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+            os.write(fd, self.control_token.encode())
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.rename(tmp, path)
+        return path
+
+    # -- transcript projection（二次复核 R4/P1-1） -------------------------------
+
+    def transcript(
+        self,
+        mission_id: str,
+        *,
+        before_seq: int | None = None,
+        limit: int = 500,
+    ) -> dict:
+        """journal → transcript 块（稳定 ID + before_seq 分页）。
+
+        TUI 不再从底层事件猜聊天记录；journal 仍是唯一权威。
+        """
+        from rosclaw.agentd.transcript import project_transcript
+
+        limit = max(1, min(int(limit), 2000))
+        events = self._events.replay(
+            mission_id,
+            before_sequence=before_seq,
+            limit=limit + 1,
+        )
+        has_more = len(events) > limit
+        events = events[:limit]
+        return {
+            "mission_id": mission_id,
+            "blocks": project_transcript(events),
+            "latest_sequence": self._events.latest_sequence(mission_id),
+            "oldest_sequence": events[0].sequence if events else 0,
+            "has_more": has_more,
+        }
 
 
 # ----------------------------------------------------------------------
@@ -1329,8 +1427,14 @@ def create_app(service: AgentService):
     @asynccontextmanager
     async def lifespan(_app):
         # PR-11：operator.sock 随 HTTP 服务启动（同一事件循环）。
+        # P1-3：HTTP 服务停止时必须关闭 service（子进程/socket/句柄）。
+        # P1-4：ephemeral control token 落 0600 文件供同机 TUI/CLI。
         await service.start_operator_socket()
-        yield
+        service.write_control_token_file()
+        try:
+            yield
+        finally:
+            await service.close()
 
     app = FastAPI(title="rosclaw-agentd", version="0.1.0", lifespan=lifespan)
 
@@ -1359,6 +1463,24 @@ def create_app(service: AgentService):
                 return JSONResponse(
                     status_code=403, content={"detail": "pairing token required"}
                 )
+        # P1-4：ephemeral control token——除 /health 与 /console（HTML
+        # 壳）外全部端点（含敏感 GET）都必须携带。token 经 0600 文件
+        # 交给同机 TUI/CLI，不写 journal、不进 ps。
+        public_paths = ("/health", "/console")
+        if (
+            request.url.path not in public_paths
+            and not request.url.path.startswith("/static/")
+            and request.headers.get("x-rosclaw-token") != service.control_token
+        ):
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "detail": (
+                        "control token required (P1-4): read "
+                        "run/agentd-control.token (0600) on this host"
+                    )
+                },
+            )
         return await call_next(request)
 
     @app.get("/health")
@@ -1419,6 +1541,19 @@ def create_app(service: AgentService):
         except ValidationError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"turn_id": turn_id, "mission_id": mission_id, "accepted": True}
+
+    @app.get("/v2/missions/{mission_id}/transcript")
+    async def v2_transcript(
+        mission_id: str,
+        before_seq: int | None = None,
+        limit: int = 500,
+    ) -> dict:
+        """R4/P1-1：transcript projection（稳定块 ID + before_seq 分页）。
+        响应含 latest_sequence——SSE 应从其续接（after_sequence），
+        恢复 exactly-once。"""
+        if service.get_mission(mission_id) is None:
+            raise HTTPException(status_code=404, detail="mission not found")
+        return service.transcript(mission_id, before_seq=before_seq, limit=limit)
 
     @app.get("/v2/missions/{mission_id}/events")
     async def v2_events(
@@ -1669,12 +1804,14 @@ function add(cls, who, text){ const d=document.createElement('div');
   d.className='turn'; d.innerHTML=`<span class="who ${cls}">${who}</span> `;
   const s=document.createElement('span'); s.textContent=text; d.appendChild(s);
   logEl().appendChild(d); logEl().scrollTop=logEl().scrollHeight; return s; }
-async function status(){ const r = await fetch('/status'); const s = await r.json();
+const TOKEN = new URLSearchParams(location.search).get('token') || '';
+const AUTH = TOKEN ? {'x-rosclaw-token': TOKEN} : {};
+async function status(){ const r = await fetch('/status',{headers:AUTH}); const s = await r.json();
   document.getElementById('status').textContent =
     `profile=${s.profile} model=${s.model} mode=${s.default_mode}`; }
 async function createMission(){
   const goal = document.getElementById('goal').value; if(!goal) return;
-  const r = await fetch('/missions',{method:'POST',headers:{'Content-Type':'application/json'},
+  const r = await fetch('/missions',{method:'POST',headers:{'Content-Type':'application/json',...AUTH},
     body:JSON.stringify({goal})});
   const m = await r.json();
   if(r.status!==201){ add('meta','系统','创建失败: '+(m.detail||'')); return; }
@@ -1685,7 +1822,7 @@ async function send(){
   t.value=''; add('','你',text);
   const span = add('','ROSClaw','');
   const r = await fetch(`/missions/${missionId}/turns/stream`,{method:'POST',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
+    headers:{'Content-Type':'application/json',...AUTH},body:JSON.stringify({text})});
   const reader = r.body.getReader(); const dec = new TextDecoder(); let buf='';
   while(true){ const {done, value} = await reader.read(); if(done) break;
     buf += dec.decode(value, {stream:true});
@@ -1698,7 +1835,7 @@ async function send(){
         if(!span.textContent && ev.reply) span.textContent = ev.reply;
         add('meta','状态',`state=${ev.state} 工具轮次=${ev.tool_rounds} tokens=${ev.tokens_used}`
           +(ev.degraded?` degraded=${ev.degraded}`:''));
-        const u = await (await fetch(`/missions/${missionId}/usage`)).json();
+        const u = await (await fetch(`/missions/${missionId}/usage`,{headers:AUTH})).json();
         add('meta','用量',`累计 tokens=${u.total_tokens} 轮次=${u.model_turns} 成本(微单位)=${u.cost_microunits}`);}
       else if(ev.type==='error'){ span.textContent = '错误: '+ev.detail; } } } }
 status();

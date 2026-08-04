@@ -29,6 +29,77 @@ jobs:
       - name: Run ruff check
         run: ruff check src tests
 
+  node-tui-unit:
+    name: Node TUI Unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+          cache: 'npm'
+          cache-dependency-path: packages/rosclaw-tui/package-lock.json
+      - run: npm ci
+        working-directory: packages/rosclaw-tui
+      - run: npm test
+        working-directory: packages/rosclaw-tui
+
+  node-modeld-unit:
+    name: Node modeld Unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+          cache: 'npm'
+          cache-dependency-path: packages/rosclaw-modeld/package-lock.json
+      - run: npm ci
+        working-directory: packages/rosclaw-modeld
+      - run: npm test
+        working-directory: packages/rosclaw-modeld
+
+  evidence-pack-verify:
+    name: Evidence Pack Verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Python
+        uses: actions/setup-python@v6.3.0
+        with:
+          python-version: '3.11'
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          version: 'latest'
+      - name: Install dependencies
+        run: uv pip install -e ".[dev]" --system
+      - name: Run acceptance + evidence pack tests
+        run: python -m pytest tests/agentd/test_limo_acceptance.py tests/agentd/test_evidence_pack.py -q
+      - name: Produce acceptance evidence pack
+        run: |
+          python - <<'PY'
+          import asyncio, tempfile
+          from pathlib import Path
+          from rosclaw.agentd.bench.limo_acceptance import run_acceptance
+          async def main():
+              with tempfile.TemporaryDirectory() as d:
+                  report = await run_acceptance(Path(d), evidence_root=Path("/tmp/evidence-ci"))
+                  assert all(report.checks.values()), report.checks
+                  print("evidence pack at /tmp/evidence-ci/acceptance")
+          asyncio.run(main())
+          PY
+      - name: Verify pack offline
+        run: python -m rosclaw.entrypoint evidence verify /tmp/evidence-ci/acceptance/*/
+      - name: Upload evidence pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-evidence-pack
+          path: /tmp/evidence-ci/acceptance/
+          retention-days: 30
+
   cross-uid-operator-e2e:
     name: Cross-UID Operator E2E
     runs-on: ubuntu-latest

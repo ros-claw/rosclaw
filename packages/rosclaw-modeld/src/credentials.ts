@@ -10,7 +10,19 @@
  */
 
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	closeSync,
+	constants,
+	existsSync,
+	mkdirSync,
+	openSync,
+	fsyncSync,
+	readFileSync,
+	renameSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname } from "node:path";
 
 interface StoredCredential {
@@ -51,23 +63,53 @@ export class UnifiedCredentialStore {
 
 	private readFile(): Record<string, StoredCredential> {
 		if (!this.fileEnabled || !existsSync(this.path)) return {};
+		// P1-6：校验 owner/mode/link count——凭据文件不得是链接或多链接。
+		const st = statSync(this.path);
+		if (!st.isFile() || st.nlink !== 1) {
+			throw new CredentialStoreError(`credential file must be a regular single-link file: ${this.path}`);
+		}
+		if (st.mode & 0o077) {
+			throw new CredentialStoreError(`credential file must be 0600: ${this.path}`);
+		}
 		try {
 			return JSON.parse(readFileSync(this.path, "utf8")) as Record<string, StoredCredential>;
 		} catch (err) {
-			// 损坏文件报错隔离，不静默当作空凭据（审计 P0-04.3）。
+			// P1-6：损坏文件真实隔离到带时间戳的 quarantine（仍 0600），
+			// 不静默当作空凭据（审计 P0-04.3）。
+			const quarantined = `${this.path}.corrupt-${new Date().toISOString().replace(/[:.]/g, "")}`;
+			try {
+				renameSync(this.path, quarantined);
+				chmodSync(quarantined, 0o600);
+			} catch {
+				// quarantine 失败不掩盖原始损坏事实
+			}
 			throw new CredentialStoreError(
-				`credential file corrupt: ${this.path} — ${(err as Error).message}. quarantined; fix or delete it.`,
+				`credential file corrupt: ${this.path} — ${(err as Error).message}. quarantined to ${quarantined}; fix or delete it.`,
 			);
 		}
 	}
 
 	private writeFile(data: Record<string, StoredCredential>): void {
+		// P1-6：O_NOFOLLOW + 原子替换 + 文件/目录双 fsync（崩溃一致性）。
 		mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
 		const tmp = `${this.path}.tmp`;
-		writeFileSync(tmp, JSON.stringify(data), { mode: 0o600 });
+		const nofollow = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
+		const fd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | nofollow, 0o600);
+		try {
+			writeFileSync(fd, JSON.stringify(data));
+			fsyncSync(fd);
+		} finally {
+			closeSync(fd);
+		}
 		chmodSync(tmp, 0o600);
 		renameSync(tmp, this.path);
 		chmodSync(this.path, 0o600);
+		const dirFd = openSync(dirname(this.path), constants.O_RDONLY);
+		try {
+			fsyncSync(dirFd);
+		} finally {
+			closeSync(dirFd);
+		}
 	}
 
 	set(provider: string, key: string): { scope: "session" | "file" } {

@@ -403,7 +403,7 @@ class TestApprovalLoop:
         _approval_then_action.calls = 0
         gateway = MockModelGateway(mock_profile(), [_approval_then_action] * 4)
         service = AgentService(config, tmp_path, gateway=gateway)
-        client = TestClient(create_app(service))
+        client = TestClient(create_app(service), headers={'x-rosclaw-token': service.control_token})
         try:
             mission = service.create_mission("HTTP 授权")
             await service.send_turn(mission.mission_id, "请求授权")

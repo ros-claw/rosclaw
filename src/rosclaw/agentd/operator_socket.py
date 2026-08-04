@@ -122,7 +122,17 @@ class OperatorSocketServer:
         params = request.get("params") or {}
         service = self._service
         if method == "approvals.list":
-            pending = service.pending_approvals(params.get("mission_id"))
+            mission_id = params.get("mission_id")
+            pending = service.pending_approvals(mission_id)
+            if not mission_id:
+                # P1-8：省略 mission_id 不得扩大范围——只投影 peer 自己
+                # 拥有的 mission 的卡片（socket 周界是同组 operator/agent，
+                # 跨 UID operator 必须显式给 mission_id）。
+                pending = [
+                    r
+                    for r in pending
+                    if service.principal_for_request(r.request_id) == principal
+                ]
             return {
                 "ok": True,
                 "principal": principal,
