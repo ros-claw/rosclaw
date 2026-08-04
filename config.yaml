@@ -1,0 +1,47 @@
+agent:
+  enabled: true
+  default_profile: embodied_default
+  max_tool_rounds: 12
+  default_mode: SIMULATION
+  language: zh-CN
+  context:
+    max_input_tokens: 120000
+    dynamic_tool_limit: 12
+  status: CONFIGURED
+  budgets:
+    physical_action_count: 0
+team:
+  enabled: false
+  transport: local_sim
+  degraded_policy: stop_team_actions_keep_local_safety
+models:
+  providers:
+    kimi_code:
+      runtime: openai_compat
+      base_url: https://api.kimi.com/coding/v1
+      api_key_ref: env:ROSCLAW_KIMI_API_KEY
+      timeout_sec: 180
+      retry:
+        max_attempts: 3
+        retry_on:
+        - 408
+        - 429
+        - 500
+        - 502
+        - 503
+        - 504
+  profiles:
+    embodied_default:
+      provider: kimi_code
+      model: k3
+      base_url: https://api.kimi.com/coding/v1
+      api_key_ref: env:ROSCLAW_KIMI_API_KEY
+      capabilities:
+      - llm.chat
+      - llm.tool_use
+      - llm.structured_decision
+      - llm.long_context
+      parameters:
+        reasoning_effort: high
+      budgets:
+        max_output_tokens: 16000

@@ -12,12 +12,22 @@ from rosclaw.agentd.mission.store import _utcnow
 from rosclaw.contracts.common import ValidationError, new_id
 from rosclaw.contracts.ui.interactions import InteractionRequestV1
 
+MAX_TRACKED = 1000
+
 
 class InteractionService:
     def __init__(self) -> None:
         self._pending: dict[str, InteractionRequestV1] = {}
         self._responses: dict[str, dict] = {}
         self._idempotency: dict[str, dict] = {}
+
+    def _evict_if_needed(self) -> None:
+        if len(self._responses) > MAX_TRACKED:
+            for key in list(self._responses)[: len(self._responses) - MAX_TRACKED]:
+                self._responses.pop(key, None)
+        if len(self._idempotency) > MAX_TRACKED:
+            for key in list(self._idempotency)[: len(self._idempotency) - MAX_TRACKED]:
+                self._idempotency.pop(key, None)
 
     def create(
         self,
@@ -79,4 +89,5 @@ class InteractionService:
         self._responses[interaction_id] = record
         if idempotency_key:
             self._idempotency[idempotency_key] = record
+        self._evict_if_needed()
         return record

@@ -174,6 +174,12 @@ class AgentService:
             artifact_store=self._artifact_store,
             body_type=self._body_id,
         )
+        for _srv in self._config.mcp_servers:
+            if "env" in _srv or "api_key" in _srv or "token" in _srv:
+                raise ValidationError(
+                    "mcp_servers 不允许内联 env/api_key/token 值——"
+                    "凭据只用 env_refs（环境变量名引用）（与 config.yaml 禁令一致）"
+                )
         self._mcp_adapters = [
             McpCapabilityAdapter(
                 McpServerConfig(

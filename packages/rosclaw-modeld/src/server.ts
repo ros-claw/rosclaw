@@ -8,6 +8,7 @@
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { chmodSync, mkdirSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import { FileCredentialStore } from "./credentials.js";
@@ -52,7 +53,9 @@ export function startModeld(options: ModeldOptions): Promise<Server> {
 	const server = createServer(async (req, res) => {
 		try {
 			const auth = req.headers.authorization ?? "";
-			if (auth !== `Bearer ${options.token}`) {
+			const expected = Buffer.from(`Bearer ${options.token}`);
+			const provided = Buffer.from(auth);
+			if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
 				json(res, 401, { error: "unauthorized" });
 				return;
 			}

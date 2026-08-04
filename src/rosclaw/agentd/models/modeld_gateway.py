@@ -78,6 +78,7 @@ class ModeldGateway:
         self._socket_path = ""
         self._session = None
         self._last_error: str | None = None
+        self._start_lock = asyncio.Lock()
 
     # -- lifecycle ------------------------------------------------------------
 
@@ -88,6 +89,12 @@ class ModeldGateway:
                 self._last_error = f"modeld exited with code {self._proc.returncode}"
                 raise ModelGatewayError("modeld_crashed", self._last_error)
             return
+        async with self._start_lock:
+            if self._session is not None:
+                return
+            await self._start_locked()
+
+    async def _start_locked(self) -> None:
         runtime = _find_modeld_runtime()
         if runtime is None:
             raise ModelGatewayError(
@@ -98,7 +105,9 @@ class ModeldGateway:
         node, entry = runtime
         home = self._home / "agentd" / "modeld"
         home.mkdir(parents=True, exist_ok=True)
-        self._socket_path = str(home / "modeld.sock")
+        # 每实例唯一 socket：多个 gateway（failover 候选、mgmt 通道、并发
+        # mission）共存时，后启动的 modeld 不得 unlink 别人的 socket。
+        self._socket_path = str(home / f"modeld-{os.getpid()}-{id(self) % 0xFFFF:x}.sock")
         env = dict(os.environ)
         env["ROSCLAW_MODELD_TOKEN"] = self._token
         # profile 引用的 env key 若存在则随子进程环境传递（值不进命令行/文件）；

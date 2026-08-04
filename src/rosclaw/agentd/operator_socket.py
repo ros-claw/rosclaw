@@ -60,6 +60,10 @@ def _peer_principal(conn: asyncio.StreamWriter) -> str:
         raise ValidationError(f"peer identity unavailable: {exc}") from exc
 
 
+#: 单请求上限（防御性：无界 readline 是内存 DoS 面）。
+MAX_REQUEST_BYTES = 256 * 1024
+
+
 class OperatorSocketServer:
     """每连接 JSONL：{"method": ..., "params": {...}} → {"ok": bool, ...}"""
 
@@ -96,6 +100,10 @@ class OperatorSocketServer:
             while not reader.at_eof():
                 line = await reader.readline()
                 if not line:
+                    break
+                if len(line) > MAX_REQUEST_BYTES:
+                    writer.write(b'{"ok": false, "error": "request too large"}\n')
+                    await writer.drain()
                     break
                 try:
                     response = await self._dispatch(principal, json.loads(line))

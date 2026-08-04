@@ -73,7 +73,8 @@ class BranchService:
             raise ValidationError(
                 f"{len(open_orders)} 个 WorkOrder 未终态——fork 被拒绝（fail closed）"
             )
-        conversation = service.store.conversation(mission_id)
+        # fork 基于 canonical journal（compaction 前的历史也不丢）。
+        conversation = service.store.conversation_canonical(mission_id)
         entry = None
         if from_entry_id is not None:
             entry = next(

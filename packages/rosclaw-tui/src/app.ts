@@ -100,18 +100,24 @@ export class RosclawTuiApp {
 				if (this.state.turnInFlight) {
 					void this.client.cancelTurn(this.options.missionId);
 					this.print(new Text(chalk.dim("已请求取消当前 turn（已派发动作不受影响）")));
+				} else if (this.lastCtrlC) {
+					// 双击 Ctrl+C 退出（turn 空闲时）。
+					this.stop();
 				} else {
 					this.print(new Text(chalk.dim("再按一次 Ctrl+C 退出；输入为空时 Ctrl+D 也可退出")));
-					this.confirmExit = true;
-					setTimeout(() => (this.confirmExit = false), 2000);
-					if (this.confirmExit && this.lastCtrlC) this.stop();
 					this.lastCtrlC = true;
-					setTimeout(() => (this.lastCtrlC = false), 2000);
+					const timer = setTimeout(() => (this.lastCtrlC = false), 2000);
+					timer.unref?.();
 				}
 				return { consume: true };
 			}
 			if (matchesKey(data, "ctrl+d")) {
-				this.stop();
+				// §6.2：仅输入为空时 Ctrl+D 退出（防误触）。
+				if (this.editor.getText().trim() === "") {
+					this.stop();
+				} else {
+					this.print(new Text(chalk.dim("Ctrl+D 仅在输入为空时退出（请先清空输入）")));
+				}
 				return { consume: true };
 			}
 			return undefined;
@@ -122,7 +128,6 @@ export class RosclawTuiApp {
 		void this.consumeEvents();
 	}
 
-	private confirmExit = false;
 	private lastCtrlC = false;
 
 	stop(): void {
@@ -308,14 +313,28 @@ export class RosclawTuiApp {
 			}
 			case "approve":
 			case "deny": {
-				const item = this.state.pendingApprovals.find(
-					(a) => a.requestId === args || a.requestId.startsWith(args),
+				// 经 operator.sock：peer identity（SO_PEERCRED）+ display hash——
+				// 不走 HTTP principal 字段（那可以被伪造/与环境 uid 不符）。
+				const listed = (await operatorCall(defaultOperatorSocket(), "approvals.list")) as {
+					ok: boolean;
+					approvals?: Array<{ request_id: string; display_hash: string }>;
+					error?: string;
+				};
+				const entry = (listed.approvals ?? []).find(
+					(a) => a.request_id === args || a.request_id.startsWith(args),
 				);
-				if (!item) {
+				if (!entry) {
 					this.print(new Text(chalk.yellow(`没有匹配的待批准请求：${args || "(空)"}`)));
 					return;
 				}
-				await this.client.decideApproval(item.requestId, name === "approve");
+				const decided = (await operatorCall(defaultOperatorSocket(), "approvals.decide", {
+					request_id: entry.request_id,
+					display_hash: entry.display_hash,
+					approve: name === "approve",
+				})) as { ok: boolean; error?: string };
+				if (!decided.ok) {
+					this.print(new Text(chalk.red(`决定被拒：${decided.error ?? "unknown"}`)));
+				}
 				return;
 			}
 			case "estop": {

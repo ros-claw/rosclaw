@@ -398,7 +398,7 @@ def _find_tui_runtime() -> tuple[str, str] | None:
         return None
     entry_env = os.environ.get("ROSCLAW_TUI_ENTRY")
     repo_entry = (
-        Path(__file__).resolve().parents[3] / "packages" / "rosclaw-tui" / "dist" / "main.js"
+        Path(__file__).resolve().parents[3] / "packages" / "rosclaw-tui" / "dist" / "src" / "main.js"
     )
     entry = entry_env or (str(repo_entry) if repo_entry.exists() else None)
     if not entry or not Path(entry).exists():

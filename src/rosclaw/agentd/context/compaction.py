@@ -156,14 +156,14 @@ class CompactionStore:
     def latest(self, mission_id: str) -> CompactionEntryV1 | None:
         row = self._conn.execute(
             "SELECT entry_json FROM compaction_entries WHERE mission_id = ? "
-            "ORDER BY created_at DESC LIMIT 1",
+            "ORDER BY rowid DESC LIMIT 1",
             (mission_id,),
         ).fetchone()
         return CompactionEntryV1(**json.loads(row["entry_json"])) if row else None
 
     def list(self, mission_id: str) -> list[CompactionEntryV1]:
         rows = self._conn.execute(
-            "SELECT entry_json FROM compaction_entries WHERE mission_id = ? ORDER BY created_at",
+            "SELECT entry_json FROM compaction_entries WHERE mission_id = ? ORDER BY rowid",
             (mission_id,),
         ).fetchall()
         return [CompactionEntryV1(**json.loads(r["entry_json"])) for r in rows]

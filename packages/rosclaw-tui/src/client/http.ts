@@ -116,13 +116,6 @@ export class AgentClient {
 		return this.request("GET", `/v1/missions/${missionId}/snapshot`);
 	}
 
-	decideApproval(requestId: string, approve: boolean): Promise<Record<string, unknown>> {
-		return this.request("POST", `/approvals/${requestId}/decide`, {
-			approve,
-			principal: "user:local:1000",
-		});
-	}
-
 	pendingApprovals(missionId: string): Promise<Array<Record<string, unknown>>> {
 		return this.request("GET", `/approvals/pending?mission_id=${missionId}`);
 	}

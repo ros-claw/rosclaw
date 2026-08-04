@@ -103,6 +103,9 @@ class RosclawAcpAgent:
         try:
             result = await self._service.send_turn(mission_id, text)
         finally:
+            # turn 结束后的 settled/ended 尾巴事件先推送一轮再停（否则会丢）。
+            await asyncio.sleep(0.3)
+            await self._flush_once(mission_id)
             stream_task.cancel()
         stop = "end_turn"
         if result.state.value == "FAILED":
@@ -115,11 +118,27 @@ class RosclawAcpAgent:
         mission_id = self._sessions.get(session_id, session_id)
         await self._service.cancel(mission_id)
 
+    async def _flush_once(self, mission_id: str) -> None:
+        """turn 结束后把剩余未推送事件补推一次。"""
+        if self._client is None:
+            return
+        sent = getattr(self, "_last_sent_seq", 0)
+        for event in self._service.events_replay(mission_id, after_sequence=sent):
+            update = event_to_session_update(event)
+            self._last_sent_seq = event.sequence
+            if update is None:
+                continue
+            try:
+                await self._client.session_update(mission_id, update)
+            except Exception:  # noqa: BLE001
+                return
+
     # -- 事件流 → session updates ------------------------------------------------
 
     async def _stream_updates(self, mission_id: str, after_seq: int) -> None:
         """turn 期间把新事件映射为 ACP session update（best effort）。"""
         sent = after_seq
+        self._last_sent_seq = after_seq
         for _ in range(1200):  # 最长 ~10 分钟
             await asyncio.sleep(0.25)
             events = [
@@ -133,6 +152,7 @@ class RosclawAcpAgent:
                 continue
             for event in events:
                 sent = max(sent, event.sequence)
+                self._last_sent_seq = sent
                 update = event_to_session_update(event)
                 if update is None or self._client is None:
                     continue

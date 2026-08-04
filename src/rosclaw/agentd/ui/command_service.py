@@ -103,6 +103,10 @@ class CommandService:
         result = await handler(request)
         if result.ok:
             self._idempotency[request.idempotency_key] = result
+            # 有界缓存（防长期运行膨胀；淘汰最老一半）。
+            if len(self._idempotency) > 2000:
+                for key in list(self._idempotency)[:1000]:
+                    self._idempotency.pop(key, None)
         return result
 
     # -- builtin commands -----------------------------------------------------------

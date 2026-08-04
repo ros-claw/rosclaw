@@ -137,6 +137,19 @@ class MissionStore:
                 raise
 
     def _conversation_length(self, mission_id: str) -> int:
+        # 快路径：最后一批消息的最后一条已带 seq → 总数 = seq + 批内序号。
+        # 只有历史遗留（未赋 seq 的旧消息）才全量扫描。
+        row = self._conn.execute(
+            "SELECT payload_json FROM mission_events WHERE mission_id = ? "
+            "AND event_type = 'rosclaw.agent.conversation.appended.v1' "
+            "ORDER BY seq DESC LIMIT 1",
+            (mission_id,),
+        ).fetchone()
+        if row is not None:
+            payload = json.loads(row["payload_json"])
+            messages = payload.get("messages") or []
+            if messages and "seq" in messages[-1]:
+                return int(messages[-1]["seq"]) + 1
         total = 0
         for event in self.events(mission_id):
             if event["event_type"] == "rosclaw.agent.conversation.appended.v1":
@@ -173,6 +186,19 @@ class MissionStore:
         if row is None:
             return {"display_name": "", "archived": False}
         return {"display_name": row["display_name"], "archived": bool(row["archived"])}
+
+    def conversation_canonical(self, mission_id: str) -> list[dict]:
+        """完整 canonical journal（含 compaction 前的原始消息与 marker）。
+
+        fork/import/tree 永远基于 canonical journal，不基于压缩后的临时
+        view（补充实施文档 §3.3 第 8 条）。
+        """
+        messages: list[dict] = []
+        for event in self.events(mission_id):
+            if event["event_type"] == "rosclaw.agent.conversation.appended.v1":
+                payload = json.loads(event["payload_json"])
+                messages.extend(payload.get("messages") or [])
+        return messages
 
     def conversation(self, mission_id: str) -> list[dict]:
         messages: list[dict] = []
