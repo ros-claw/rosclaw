@@ -182,10 +182,10 @@ class TestFullChainE2E:
         from rosclaw.operatord.enrollment import enroll
         from rosclaw.operatord.server import OperatorDaemon
 
-        enrollment = enroll(home / "operatord")
+        identity = enroll(home / "operatord")
         sock = home / "run" / "operatord.sock"
         operatord = OperatorDaemon(
-            enrollment=enrollment,
+            identity=identity,
             socket_path=sock,
             agent_socket=agent_sock,
             daemon_client=None,

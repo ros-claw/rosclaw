@@ -17,6 +17,7 @@ rosclaw-operatord：
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -31,12 +32,7 @@ from rosclaw.agentd.operator_socket import (
 )
 from rosclaw.agentd.service import AgentService, create_app
 from rosclaw.contracts.agent.model_turn import ModelTurnResultV1
-from rosclaw.operatord.enrollment import (
-    enroll,
-    load_enrollment,
-    sign_decision_proof,
-    verify_decision_proof,
-)
+from rosclaw.operatord.enrollment import EnrollmentError, enroll, load_identity
 from rosclaw.operatord.server import OperatorDaemon
 
 
@@ -112,22 +108,30 @@ class TestAgentProjectionSocket:
         server = OperatorSocketServer(service, sock_path)
         await server.start()
         try:
-            # 无 proof → 拒。
+            # 无签名 → 拒（R3：SIM 卡也要 Ed25519 签名，非空字符串不算数）。
             r1 = await operator_call(
                 sock_path,
                 "approvals.apply_decision",
                 {"request_id": card.request_id, "display_hash": display_hash_for(card),
                  "approve": True},
             )
-            assert not r1["ok"] and "operator_proof" in r1["error"]
+            assert not r1["ok"] and "signature check failed" in r1["error"]
             # hash 不匹配 → 拒。
             r2 = await operator_call(
                 sock_path,
                 "approvals.apply_decision",
                 {"request_id": card.request_id, "display_hash": "0" * 16, "approve": True,
-                 "operator_proof": "x", "enrollment_id": "e", "nonce": "n"},
+                 "operator_signature": "x", "enrollment_id": "e", "nonce": "n"},
             )
             assert not r2["ok"] and r2["error"] == "display_hash_mismatch"
+            # daemon 卡缺 receipt → 拒（R3/P0-6）。
+            r3 = await operator_call(
+                sock_path,
+                "approvals.apply_decision",
+                {"request_id": card.request_id, "display_hash": display_hash_for(card),
+                 "approve": True, "decision_receipt": None},
+            )
+            assert not r3["ok"]
             assert service.list_grants() == []
         finally:
             await server.stop()
@@ -135,58 +139,34 @@ class TestAgentProjectionSocket:
 
 
 class TestEnrollment:
-    def test_enroll_load_verify_roundtrip(self, tmp_path: Path) -> None:
-        from datetime import UTC, datetime
-
+    def test_enroll_load_sign_roundtrip(self, tmp_path: Path) -> None:
         home = tmp_path / "operatord"
-        enrollment = enroll(home)
-        assert (home / "operator-enrollment.json").stat().st_mode & 0o777 == 0o600
-        loaded = load_enrollment(home)
-        assert loaded.enrollment_id == enrollment.enrollment_id
-        assert loaded.key == enrollment.key
-        decided_at = datetime.now(UTC).isoformat()
-        proof = sign_decision_proof(
-            loaded,
-            request_id="r1",
-            approve=True,
-            nonce="n1",
-            decided_at=decided_at,
-            display_hash="h",
-        )
-        assert verify_decision_proof(
-            loaded.key,
-            request_id="r1",
-            approve=True,
-            nonce="n1",
-            decided_at=decided_at,
-            enrollment_id=loaded.enrollment_id,
-            display_hash="h",
-            proof=proof,
-        )
-        assert not verify_decision_proof(
-            loaded.key,
-            request_id="r1",
-            approve=True,
-            nonce="n1",
-            decided_at="1970-01-01T00:00:00Z",  # 篡改任一字段必失败
-            enrollment_id=loaded.enrollment_id,
-            display_hash="h",
-            proof=proof,
-        )
-        # 拒绝二次 enroll（不覆盖既有 key）。
-        from rosclaw.operatord.enrollment import EnrollmentError
+        identity = enroll(home)
+        assert (home / "operator-identity.json").stat().st_mode & 0o777 == 0o600
+        assert (home / "operator-pubkey.pem").exists()
+        loaded = load_identity(home)
+        assert loaded.enrollment_id == identity.enrollment_id
+        assert loaded.public_key_pem == identity.public_key_pem
+        # Ed25519 签名往返 + 篡改必败。
+        from rosclaw.contracts.operator.decision import verify_b64
 
+        sig = loaded.sign(b"payload")
+        assert verify_b64(loaded.public_key_pem, b"payload", sig)
+        assert not verify_b64(loaded.public_key_pem, b"tampered", sig)
+        # 拒绝二次 enroll（不覆盖既有 key）。
         with pytest.raises(EnrollmentError, match="already exists"):
             enroll(home)
 
     def test_corrupt_enrollment_quarantined(self, tmp_path: Path) -> None:
-        from rosclaw.operatord.enrollment import EnrollmentError
-
         home = tmp_path / "operatord"
         home.mkdir()
-        (home / "operator-enrollment.json").write_text("not json")
+        (home / "operator-identity.json").write_text("not json")
+        os.chmod(home / "operator-identity.json", 0o600)
         with pytest.raises(EnrollmentError, match="corrupt"):
-            load_enrollment(home)
+            load_identity(home)
+        quarantined = list(home.glob("operator-identity.json.corrupt-*"))
+        assert quarantined, "损坏文件必须被 quarantine"
+        assert quarantined[0].stat().st_mode & 0o777 == 0o600
 
 
 class TestOperatordFlow:
@@ -195,9 +175,9 @@ class TestOperatordFlow:
         agent_sock = tmp_path / "run" / "operator.sock"
         agent_server = OperatorSocketServer(service, agent_sock)
         await agent_server.start()
-        enrollment = enroll(tmp_path / "operatord")
+        identity = enroll(tmp_path / "operatord")
         daemon = OperatorDaemon(
-            enrollment=enrollment,
+            identity=identity,
             socket_path=tmp_path / "run" / "operatord.sock",
             agent_socket=agent_sock,
             daemon_client=None,
@@ -245,9 +225,9 @@ class TestOperatordFlow:
             await service.close()
 
     async def test_estop_honest_without_daemon(self, tmp_path: Path) -> None:
-        enrollment = enroll(tmp_path / "operatord")
+        identity = enroll(tmp_path / "operatord")
         daemon = OperatorDaemon(
-            enrollment=enrollment,
+            identity=identity,
             socket_path=tmp_path / "op.sock",
             agent_socket=None,
             daemon_client=None,

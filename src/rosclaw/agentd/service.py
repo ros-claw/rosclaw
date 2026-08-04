@@ -1014,6 +1014,146 @@ class AgentService:
             return False
         return proposal.get("state") in ("SUBMITTED", "TERMINAL", "DECLINED")
 
+    async def daemon_identity(self) -> dict | None:
+        """daemon 签名公钥（验证 DecisionReceiptV1）；进程内缓存。
+
+        信任锚：daemon socket 的本机 UID/组隔离；公钥本身无需保密。
+        """
+        if self._daemon_client is None:
+            return None
+        cached = getattr(self, "_daemon_identity_cache", None)
+        if cached is not None:
+            return cached
+        try:
+            identity = await asyncio.to_thread(self._daemon_client.daemon_identity)
+        except Exception:  # noqa: BLE001 - 取不到即无法验证（fail closed）
+            return None
+        self._daemon_identity_cache = identity
+        return identity
+
+    async def verify_decision_receipt(self, receipt_data: dict, card) -> tuple[bool, str]:
+        """R3/P0-6：只接受 daemon 签名有效、decision=ACCEPT、所有字段与
+        本地卡片精确相等、未过期、未重放的 DecisionReceiptV1。
+
+        返回 (ok, error)；ok=False 时 error 为人类可读原因。
+        DECLINE receipt 用 ``verify_decline_receipt``（同样验证签名与
+        字段，但只用于关闭请求，绝不生成 grant）。
+        """
+        from rosclaw.agentd.operator_socket import display_hash_for
+        from rosclaw.contracts.operator.decision import DecisionReceiptV1
+
+        try:
+            receipt = DecisionReceiptV1.from_dict(receipt_data)
+        except (ValueError, KeyError, TypeError) as exc:
+            return False, f"invalid receipt: {exc}"
+        identity = await self.daemon_identity()
+        if identity is None:
+            return False, "daemon identity unavailable — cannot verify receipt"
+        if receipt.daemon_key_id != str(identity.get("daemon_key_id", "")):
+            return False, "receipt signed by an unknown daemon key"
+        if receipt.daemon_instance_id != str(identity.get("daemon_instance_id", "")):
+            return False, "receipt belongs to a different daemon generation"
+        if not receipt.verify_signature(str(identity.get("public_key_pem", ""))):
+            return False, "receipt signature invalid"
+        mismatches: list[str] = []
+        if receipt.proposal_id != (card.daemon_proposal_id or ""):
+            mismatches.append("proposal_id")
+        if receipt.agent_request_id != card.request_id:
+            mismatches.append("agent_request_id")
+        if receipt.mission_id != card.mission_id:
+            mismatches.append("mission_id")
+        if receipt.execution_mode != card.mode:
+            mismatches.append("execution_mode")
+        if receipt.capability_id != (card.daemon_capability_id or ""):
+            mismatches.append("capability_id")
+        if receipt.canonical_args_hash != (card.daemon_action_intent_hash or ""):
+            mismatches.append("canonical_args_hash")
+        if receipt.display_hash != display_hash_for(card):
+            mismatches.append("display_hash")
+        if mismatches:
+            return False, "receipt fields do not match the local card: " + ", ".join(mismatches)
+        try:
+            expires = datetime.fromisoformat(receipt.expires_at.replace("Z", "+00:00"))
+        except ValueError:
+            return False, "receipt expires_at is not ISO-8601"
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=UTC)
+        from rosclaw.kernel.contracts import utc_now as _utc_now
+
+        if _utc_now() >= expires:
+            return False, "receipt expired"
+        if not self._record_decision_receipt(receipt):
+            return False, "receipt replay — this challenge nonce was already applied"
+        return True, ""
+
+    def _record_decision_receipt(self, receipt) -> bool:
+        """持久化 receipt（challenge_nonce UNIQUE = 跨重启重放防线）。"""
+        import json as _json
+        import sqlite3 as _sqlite3
+        from datetime import UTC as _UTC
+        from datetime import datetime as _datetime
+
+        try:
+            self._store.connection.execute(
+                "INSERT INTO decision_receipts "
+                "(receipt_id, proposal_id, challenge_nonce, decision, payload_json, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    receipt.receipt_id,
+                    receipt.proposal_id,
+                    receipt.challenge_nonce,
+                    receipt.decision,
+                    _json.dumps(receipt.to_dict(), ensure_ascii=False),
+                    _datetime.now(_UTC).isoformat(),
+                ),
+            )
+            self._store.connection.commit()
+        except _sqlite3.IntegrityError:
+            return False
+        return True
+
+    def verify_operatord_signature(
+        self,
+        *,
+        enrollment_id: str,
+        public_key_pem: str,
+        payload: bytes,
+        signature_b64: str,
+    ) -> tuple[bool, str]:
+        """SIM（DEV_SIM_ONLY）剖面：TOFU 钉住 operatord 公钥并验签。
+
+        首次见到 enrollment_id 时钉住公钥；此后公钥变化即拒绝
+        （可能的冒充/重装）。信任边界如实标注：同机同 UID 场景这只是
+        完整性检查，不是独立身份（DEV_SIM_ONLY）。
+        """
+        from datetime import UTC as _UTC
+        from datetime import datetime as _datetime
+
+        from rosclaw.contracts.operator.decision import verify_b64
+
+        row = self._store.connection.execute(
+            "SELECT public_key_pem FROM operatord_keys WHERE enrollment_id = ?",
+            (enrollment_id,),
+        ).fetchone()
+        if row is None:
+            self._store.connection.execute(
+                "INSERT INTO operatord_keys (enrollment_id, public_key_pem, first_seen_at) "
+                "VALUES (?, ?, ?)",
+                (enrollment_id, public_key_pem, _datetime.now(_UTC).isoformat()),
+            )
+            self._store.connection.commit()
+            pinned = public_key_pem
+        else:
+            pinned = str(row["public_key_pem"])
+            if pinned != public_key_pem:
+                return False, (
+                    "operatord public key changed for this enrollment — "
+                    "possible impersonation or reinstall; refusing"
+                )
+        if not verify_b64(pinned, payload, signature_b64):
+            return False, "operatord signature invalid"
+        return True, ""
+
     def list_grants(self):
         rows = self._store.connection.execute(
             "SELECT public_json, revoked, consumed, expires_at FROM mission_grants "

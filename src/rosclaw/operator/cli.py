@@ -91,37 +91,19 @@ def _cmd_status(args: argparse.Namespace) -> int:
 
 
 def _cmd_decide(args: argparse.Namespace) -> int:
-    client = _client(args)
-    pending = client.list_pending_operator_proposals().get("proposals")
-    proposals = pending if isinstance(pending, list) else []
-    proposal = next(
-        (
-            item
-            for item in proposals
-            if isinstance(item, dict) and item.get("request_id") == args.request_id
-        ),
-        None,
+    """已移除（二次复核 R1）：决定只属于 rosclaw-operatord。
+
+    旧行为（daemon 管理终端直决）正是二次复核要消除的旁路——唯一
+    合法凭证是 operatord 用 Ed25519 私钥签的 OperatorDecisionProofV1
+    （内含真实前台 Y/N 与 daemon 一次性 challenge）。
+    """
+    raise DaemonClientError(
+        "DECISION_CHANNEL_MOVED",
+        "proposal decisions belong to rosclaw-operatord (R1): "
+        "`rosclaw operatord enroll && rosclaw operatord register-daemon && "
+        "rosclaw operatord start`, then decide from the TUI/operatord channel. "
+        "This admin CLI is read-only (pending/status).",
     )
-    if proposal is None:
-        raise DaemonClientError(
-            "PROPOSAL_NOT_PENDING",
-            f"No pending proposal {args.request_id!r} is available for decision",
-        )
-    payload = client.decide_operator_proposal(
-        args.request_id,
-        decision="ACCEPT" if args.accept else "DECLINE",
-        principal_id=args.principal_id,
-        challenge_nonce=str(proposal["challenge_nonce"]),
-        action_intent_hash=str(proposal["action_intent_hash"]),
-        channel=args.channel,
-        reason=args.reason,
-    )
-    action = payload.get("action")
-    if args.accept and args.wait > 0 and isinstance(action, dict):
-        action_id = action.get("action_id")
-        if isinstance(action_id, str) and action.get("state") not in {"FINISHED", "CANCELLED"}:
-            payload["action"] = client.wait_for_action(action_id, timeout_sec=args.wait)
-    return _print(args, _redact_challenges(payload))
 
 
 def _redact_challenges(value: Any) -> Any:

@@ -49,3 +49,9 @@ class ApprovalRequestV2(ContractModel):
     created_at: str
     expires_at: str
     status: ApprovalStatus = ApprovalStatus.PENDING
+    # 二次复核 R1：daemon-backed 卡片的显式链接（创建 daemon proposal
+    # 后回填；SIM 卡为空）。P0-6 receipt 精确比对依赖这些字段。
+    daemon_proposal_id: str = ""
+    daemon_action_id: str = ""
+    daemon_capability_id: str = ""
+    daemon_action_intent_hash: str = ""

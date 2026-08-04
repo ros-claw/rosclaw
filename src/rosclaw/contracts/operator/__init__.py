@@ -5,6 +5,15 @@ from rosclaw.contracts.operator.approval import (
     ApprovalRequestV2,
     ApprovalStatus,
 )
+from rosclaw.contracts.operator.decision import (
+    ACCEPT,
+    DECLINE,
+    DecisionChallengeV1,
+    DecisionReceiptV1,
+    HumanConfirmationV1,
+    OperatorDecisionProofV1,
+    compute_display_hash,
+)
 from rosclaw.contracts.operator.grant import (
     GrantBudgets,
     GrantScope,
@@ -12,6 +21,13 @@ from rosclaw.contracts.operator.grant import (
 )
 
 __all__ = [
+    "ACCEPT",
+    "DECLINE",
+    "DecisionChallengeV1",
+    "DecisionReceiptV1",
+    "HumanConfirmationV1",
+    "OperatorDecisionProofV1",
+    "compute_display_hash",
     "ActionDisplayV1",
     "ApprovalRequestV2",
     "ApprovalStatus",
