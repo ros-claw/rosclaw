@@ -156,6 +156,10 @@ class OpenAICompatGateway:
             timeout_sec=profile.timeout_sec,
             retries=profile.retry_attempts,
             headers=headers,
+            # A profile declared local must not leak its traffic into a
+            # process-wide cloud HTTP proxy. This also makes RFC1918 vLLM
+            # endpoints deterministic without mutating global NO_PROXY.
+            trust_env=not profile.local,
         )
         self._started = False
 
@@ -354,7 +358,14 @@ class OpenAICompatGateway:
         try:
             turn = await self.complete(
                 ModelTurnRequest(
-                    system_prompt="Reply with exactly: ok", messages=[], max_output_tokens=8
+                    system_prompt="Reply with exactly: ok",
+                    # Some OpenAI-compatible serving stacks (including vLLM)
+                    # reject a chat request that contains only a system
+                    # message.  Keep the probe provider-neutral by supplying a
+                    # real user turn instead of relying on vendor-specific
+                    # system-only behaviour.
+                    messages=[{"role": "user", "content": "ok"}],
+                    max_output_tokens=8,
                 )
             )
             probe = ModelProbeResult(
