@@ -190,11 +190,11 @@ class TestLimoShadowChain:
         client, tmp = shadow_daemon
         enrollment = enroll(tmp / "operatord")
         client.register_operator_enrollment(enrollment.enrollment_id, enrollment.key.hex())
-        # fabricate a non-daemon peer（uid+1 != euid）。
-        foreign = PeerCredentials(pid=99999, uid=os.geteuid() + 1, gid=0)
-        daemon_service = None
         # fixture 的 daemon service 无法直接拿到——通过 ACL 语义另行构造：
         from rosclaw.daemon.service import DaemonControlPlane
+
+        # fabricate a non-daemon peer（uid+1 != euid）。
+        foreign = PeerCredentials(pid=99999, uid=os.geteuid() + 1, gid=0)
 
         plane = DaemonControlPlane(runtime=None)
         plane.register_operator_enrollment(
