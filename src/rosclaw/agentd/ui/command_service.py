@@ -782,8 +782,25 @@ def _register_batch_e(service, register) -> None:  # noqa: C901 - 命令集合�
                 error_code="invalid_arguments",
                 message="/revoke 需要 grant_id（需要 Operator 身份）",
             )
+        # 审计 P0-01：撤销与决定同属 operatord——agentd 不直接撤 grant，
+        # 经 operatord.sock（enrollment proof）转发，与 HTTP 403 口径一致。
+        from rosclaw.agentd.operator_socket import operator_call
+        from rosclaw.operatord.server import default_operatord_socket
+
+        sock = default_operatord_socket(service._home)
+        if not sock.exists():
+            return CommandResultV1(
+                request_id=req.request_id,
+                command_name=req.command_name,
+                ok=False,
+                error_code="operatord_unavailable",
+                message=(
+                    "撤销已迁至独立 rosclaw-operatord（P0-01），本进程无权撤销。"
+                    "请先运行：rosclaw operatord enroll && rosclaw operatord start"
+                ),
+            )
         try:
-            service.revoke_grant(grant_id, principal=req.arguments.get("principal", "user:local:1000"))
+            reply = await operator_call(sock, "grants.revoke", {"grant_id": grant_id})
         except Exception as exc:  # noqa: BLE001
             return CommandResultV1(
                 request_id=req.request_id,
@@ -792,11 +809,19 @@ def _register_batch_e(service, register) -> None:  # noqa: C901 - 命令集合�
                 error_code="revoke_failed",
                 message=str(exc),
             )
+        if not reply.get("ok"):
+            return CommandResultV1(
+                request_id=req.request_id,
+                command_name=req.command_name,
+                ok=False,
+                error_code="revoke_failed",
+                message=str(reply.get("error", reply)),
+            )
         return CommandResultV1(
             request_id=req.request_id,
             command_name=req.command_name,
             ok=True,
-            message=f"grant {grant_id} 已撤销",
+            message=f"grant {grant_id} 已撤销（经 operatord）",
         )
 
     async def _body(req: CommandRequestV1) -> CommandResultV1:

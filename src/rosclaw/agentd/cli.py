@@ -569,7 +569,7 @@ async def _chat_repl(service: AgentService, args: argparse.Namespace) -> int:
     print(f"ROSClaw chat — mission {mission.mission_id} [{mission.mode.value}]")
     print(
         "输入消息开始对话；/state 查看状态；/approvals 待授权；"
-        "/approve|/deny <id> 决定授权；/compact [focus|--dry-run|--status]；"
+        "/approve|/deny <id> 经 operatord 决定授权；/compact [focus|--dry-run|--status]；"
         "/cancel 取消当前回合；/quit 退出。"
     )
     try:
@@ -615,6 +615,8 @@ async def _chat_repl(service: AgentService, args: argparse.Namespace) -> int:
                     )
                 continue
             if text == "/approvals":
+                from rosclaw.agentd.operator_socket import display_hash_for
+
                 pending = service.pending_approvals(mission.mission_id)
                 if not pending:
                     print("没有待处理的授权请求。")
@@ -622,23 +624,50 @@ async def _chat_repl(service: AgentService, args: argparse.Namespace) -> int:
                     d = req.action_display
                     print(
                         f"  {req.request_id} [{d.risk_tier}] {d.title}: {d.summary} "
-                        f"(expires {req.expires_at})"
+                        f"(expires {req.expires_at}) hash={display_hash_for(req)}"
                     )
                 continue
             if text.startswith("/approve ") or text.startswith("/deny "):
                 approve = text.startswith("/approve ")
                 request_id = text.split(maxsplit=1)[1].strip()
-                try:
-                    grant = await service.decide_approval(
-                        request_id, principal="user:local:1000", approve=approve
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    print(f"授权操作失败：{exc}")
+                # 审计 P0-01：REPL 不直接决定——决定经独立 rosclaw-operatord
+                # （enrollment proof + display hash 绑定），与 TUI 同一通道。
+                from rosclaw.agentd.operator_socket import display_hash_for, operator_call
+                from rosclaw.operatord.server import default_operatord_socket
+
+                target = next(
+                    (
+                        r
+                        for r in service.pending_approvals(mission.mission_id)
+                        if r.request_id == request_id
+                    ),
+                    None,
+                )
+                if target is None:
+                    print("没有找到该待批卡片（可能已过期或已被决定）。")
                     continue
-                if grant is not None:
+                sock = default_operatord_socket(_home(args))
+                if not sock.exists():
                     print(
-                        f"已批准并签发 grant {grant.grant_id}（public_hash "
-                        f"{grant.public_hash[:24]}…，EXACT_ACTION 单次有效）。"
+                        "授权决定已迁至独立 rosclaw-operatord（P0-01），本进程无权决定。\n"
+                        "请先运行：rosclaw operatord enroll && rosclaw operatord start"
+                    )
+                    continue
+                reply = await operator_call(
+                    sock,
+                    "approvals.decide",
+                    {
+                        "request_id": request_id,
+                        "display_hash": display_hash_for(target),
+                        "approve": approve,
+                    },
+                )
+                if not reply.get("ok"):
+                    print(f"授权操作失败：{reply.get('error', reply)}")
+                elif approve:
+                    print(
+                        f"已批准并签发 grant {reply.get('grant_id', '—')}"
+                        "（EXACT_ACTION 单次有效）。"
                     )
                 else:
                     print("已拒绝该授权请求。")
