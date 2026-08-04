@@ -51,6 +51,67 @@ def _ensure_git_config(workdir: Path) -> None:
             _run(["git", "config", "--global", key, value], cwd=workdir)
 
 
+def _viewer_login() -> str:
+    """The gh-authenticated user's login."""
+    try:
+        return _run(["gh", "api", "user", "-q", ".login"]).stdout.strip()
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"Failed to get GitHub user login: {exc.stderr}") from exc
+
+
+def _viewer_can_push(repo: str) -> bool:
+    """True when the gh-authenticated user has push access to ``repo``.
+
+    Org members with write access should branch directly on the catalog
+    repo — the fork detour is for external contributors only.
+    """
+    try:
+        return (
+            _run(["gh", "api", f"repos/{repo}", "-q", ".permissions.push"]).stdout.strip() == "true"
+        )
+    except subprocess.CalledProcessError:
+        return False
+
+
+def _parent_full_name(repo: str) -> str | None:
+    try:
+        parent = _run(["gh", "api", f"repos/{repo}", "-q", ".parent.full_name"]).stdout.strip()
+        return parent or None
+    except subprocess.CalledProcessError:
+        return None
+
+
+def _fork_repo_for(catalog_repo: str, owner: str) -> str:
+    """The owner's fork of catalog_repo, forking only when none exists.
+
+    ``gh repo fork`` is NOT a reliable no-op across gh versions when the
+    fork already exists, and a fork's name is not guaranteed to equal the
+    upstream repo name (renamed forks) — look the fork up first, fork only
+    when absent, and never assume the name.
+    """
+    fork_name = catalog_repo.split("/")[-1]
+    candidate = f"{owner}/{fork_name}"
+    if _parent_full_name(candidate) == catalog_repo:
+        return candidate
+    try:
+        res = _run(["gh", "api", f"users/{owner}/repos?per_page=100", "-q", ".[].full_name"])
+        for full in res.stdout.splitlines():
+            if full != candidate and _parent_full_name(full) == catalog_repo:
+                return full
+    except subprocess.CalledProcessError:
+        pass
+    try:
+        _run(["gh", "repo", "fork", catalog_repo, "--clone=false", "--default-branch-only"])
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"Failed to fork {catalog_repo}: {exc.stderr}") from exc
+    if _parent_full_name(candidate) == catalog_repo:
+        return candidate
+    raise RuntimeError(
+        f"Fork of {catalog_repo} not found for {owner} after forking — "
+        "check the fork's name and pass it explicitly."
+    )
+
+
 def submit_to_catalog(
     pkg: SkillPackage,
     *,
@@ -62,8 +123,10 @@ def submit_to_catalog(
     """Submit a local skill to the official catalog by opening a GitHub PR.
 
     This does **not** require ``ROSCLAW_ADMIN_API_KEY``. It requires only a
-    working ``gh`` CLI login (``gh auth login``) with permission to fork
-    ``ros-claw/skills``.
+    working ``gh`` CLI login (``gh auth login``).  When the authenticated
+    user has push access to the catalog repo (org members), the branch is
+    pushed directly to the catalog and the PR is same-repo; external
+    contributors go through their fork (created only when missing).
     """
     if pkg.skill is None:
         raise RuntimeError("skill.yaml not loaded")
@@ -102,29 +165,25 @@ def submit_to_catalog(
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp) / "skills"
 
-        # Fork the catalog repo (no-op if already forked).
+        # Org members with push access branch directly on the catalog;
+        # external contributors go through their fork.
+        direct = _viewer_can_push(catalog_repo)
+        if direct:
+            clone_repo = catalog_repo
+            pr_head = branch_name
+        else:
+            fork_owner = _viewer_login()
+            if not fork_owner:
+                raise RuntimeError("Could not determine GitHub login from `gh api user`.")
+            fork_repo = _fork_repo_for(catalog_repo, fork_owner)
+            clone_repo = fork_repo
+            pr_head = f"{fork_owner}:{branch_name}"
+
+        # Clone the working repo.
         try:
-            _run(["gh", "repo", "fork", catalog_repo, "--clone=false", "--default-branch-only"])
+            _run(["gh", "repo", "clone", clone_repo, str(workdir), "--", "--depth=1"])
         except subprocess.CalledProcessError as exc:
-            raise RuntimeError(f"Failed to fork {catalog_repo}: {exc.stderr}") from exc
-
-        # Determine the user's fork owner.
-        try:
-            viewer_res = _run(["gh", "api", "user", "-q", ".login"])
-            fork_owner = viewer_res.stdout.strip()
-        except subprocess.CalledProcessError as exc:
-            raise RuntimeError(f"Failed to get GitHub user login: {exc.stderr}") from exc
-
-        if not fork_owner:
-            raise RuntimeError("Could not determine GitHub login from `gh api user`.")
-
-        fork_repo = f"{fork_owner}/skills"
-
-        # Clone the fork.
-        try:
-            _run(["gh", "repo", "clone", fork_repo, str(workdir), "--", "--depth=1"])
-        except subprocess.CalledProcessError as exc:
-            raise RuntimeError(f"Failed to clone {fork_repo}: {exc.stderr}") from exc
+            raise RuntimeError(f"Failed to clone {clone_repo}: {exc.stderr}") from exc
 
         _ensure_git_config(workdir)
 
@@ -169,7 +228,8 @@ def submit_to_catalog(
         except subprocess.CalledProcessError as exc:
             raise RuntimeError(f"Failed to commit changes: {exc.stderr}") from exc
 
-        # Push the branch to the fork.
+        # Push the branch (origin = the catalog itself for org members,
+        # the fork for external contributors).
         env = os.environ.copy()
         env["GIT_ASKPASS"] = "echo"
         try:
@@ -189,7 +249,7 @@ def submit_to_catalog(
                     "--base",
                     base_branch,
                     "--head",
-                    f"{fork_owner}:{branch_name}",
+                    pr_head,
                     "--title",
                     f"Add {display_name} skill v{version}",
                     "--body",
@@ -206,7 +266,8 @@ def submit_to_catalog(
             "ok": True,
             "dry_run": False,
             "catalog_repo": catalog_repo,
-            "fork_repo": fork_repo,
+            "flow": "direct" if direct else "fork",
+            "fork_repo": None if direct else fork_repo,
             "branch": branch_name,
             "skill_name": f"{namespace}/{name}",
             "version": version,
