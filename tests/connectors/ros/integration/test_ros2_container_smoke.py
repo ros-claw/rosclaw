@@ -126,7 +126,8 @@ def deployed_ros_stack():
             **kwargs,
         )
 
-    up = _run(["up", "--build", "-d", "--wait"], timeout=300.0)
+    # 冷缓存构建 ROS 2 Humble 镜像可能远超 300s（CI 抖动，与代码无关）。
+    up = _run(["up", "--build", "-d", "--wait"], timeout=1200.0)
     if up.returncode != 0:
         pytest.fail(f"docker compose up failed:\n{up.stdout}\n{up.stderr}")
 
