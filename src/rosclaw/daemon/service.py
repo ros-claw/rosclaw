@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import hmac
 import logging
 import os
@@ -138,6 +139,9 @@ class DaemonControlPlane:
         self.sessions = sessions or SessionManager()
         self.operator_proposals = operator_proposals or OperatorProposalStore()
         self._operator_decision_lock = threading.RLock()
+        # 审计 P0-01：operator enrollment（enrollment_id -> key bytes）。
+        # daemon 是 ACL 验证侧之一；agentd 永不读取本表。
+        self._operator_enrollments: dict[str, bytes] = {}
         queue_capacity = max(1, max_queued_actions)
         self._executor = ThreadPoolExecutor(
             max_workers=max(1, max_workers),
@@ -401,6 +405,65 @@ class DaemonControlPlane:
             "count": len(proposals),
         }
 
+    def register_operator_enrollment(
+        self,
+        enrollment_id: str,
+        *,
+        key_hex: str,
+        peer: PeerCredentials,
+    ) -> dict[str, Any]:
+        """登记 operator enrollment key（审计 P0-01）。
+
+        Bootstrap 规则：仅当 (a) 调用方是 daemon 服务 UID，或 (b) 当前
+        尚无任何 enrollment（安装期首次登记）时允许；此后登记必须经
+        daemon UID（防同机进程自我注册）。
+        """
+        if peer.uid != os.geteuid() and self._operator_enrollments:
+            raise ControlPlaneError(
+                "PERMISSION_DENIED",
+                "operator enrollment registration requires the daemon service UID "
+                "after bootstrap",
+            )
+        normalized_id = self._identifier(enrollment_id, "enrollment_id")
+        try:
+            key = bytes.fromhex(key_hex)
+        except ValueError as exc:
+            raise ControlPlaneError("INVALID_ARGUMENT", "key_hex must be hex") from exc
+        if len(key) != 32:
+            raise ControlPlaneError("INVALID_ARGUMENT", "enrollment key must be 32 bytes")
+        self._operator_enrollments[normalized_id] = key
+        return {
+            "schema_version": "rosclaw.operator.enrollment.v1",
+            "enrollment_id": normalized_id,
+            "fingerprint": hashlib.sha256(key).hexdigest()[:16],
+            "registered": True,
+        }
+
+    def _decide_acl_allows(self, peer: PeerCredentials, proof: str, *,
+                           request_id: str, approve: bool, nonce: str,
+                           decided_at: str, enrollment_id: str,
+                           display_hash: str) -> bool:
+        """审计 P0-01：daemon 服务 UID 或有效 enrollment proof。"""
+        if peer.uid == os.geteuid():
+            return True
+        if not proof or not enrollment_id:
+            return False
+        key = self._operator_enrollments.get(enrollment_id)
+        if key is None:
+            return False
+        from rosclaw.operatord.enrollment import verify_decision_proof
+
+        return verify_decision_proof(
+            key,
+            request_id=request_id,
+            approve=approve,
+            nonce=nonce,
+            decided_at=decided_at,
+            enrollment_id=enrollment_id,
+            display_hash=display_hash,
+            proof=proof,
+        )
+
     def decide_operator_proposal(
         self,
         request_id: str,
@@ -412,10 +475,32 @@ class DaemonControlPlane:
         channel: str,
         reason: str,
         peer: PeerCredentials,
+        operator_proof: str = "",
+        enrollment_id: str = "",
+        display_hash: str = "",
+        decided_at: str = "",
     ) -> dict[str, Any]:
-        """Apply a trusted exact decision and submit an accepted proposal atomically."""
+        """Apply a trusted exact decision and submit an accepted proposal atomically.
 
-        self._require_daemon_uid(peer, "decide operator proposals")
+        审计 P0-01 ACL：daemon 服务 UID，或持有效 enrollment proof 的
+        调用方（agentd/Worker/普通 curl 没有 key，必然被拒）。
+        """
+        approve = str(decision).upper() == "ACCEPT"
+        if not self._decide_acl_allows(
+            peer,
+            operator_proof,
+            request_id=request_id,
+            approve=approve,
+            nonce=challenge_nonce,
+            decided_at=decided_at or utc_now().isoformat(),
+            enrollment_id=enrollment_id,
+            display_hash=display_hash,
+        ):
+            raise ControlPlaneError(
+                "PERMISSION_DENIED",
+                "Only the rosclawd service UID or an enrolled operator may "
+                "decide operator proposals",
+            )
         normalized_principal = self._identifier(principal_id, "principal_id")
         normalized_channel = self._identifier(channel, "channel")
         normalized_reason = self._reason(reason, "decision reason")

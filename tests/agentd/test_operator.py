@@ -288,7 +288,7 @@ class TestApprovalLoop:
             assert len(pending) == 1
             grant = await service.decide_approval(
                 pending[0].request_id, principal=LOCAL_PRINCIPAL, approve=True
-            )
+            , _from_operatord=True)
             assert grant is not None
             consent = service._compiler._sources.consent.get_consent(mission.mission_id)
             assert consent is not None
@@ -407,18 +407,30 @@ class TestApprovalLoop:
         try:
             mission = service.create_mission("HTTP 授权")
             await service.send_turn(mission.mission_id, "请求授权")
-            pending = client.get("/approvals/pending").json()
+            # 审计 P0-01/B3：全局 pending 枚举不再提供；必须指定 mission_id。
+            assert client.get("/approvals/pending").status_code == 400
+            pending = client.get(f"/approvals/pending?mission_id={mission.mission_id}").json()
             assert len(pending) == 1
             rid = pending[0]["request_id"]
-            r = client.post(f"/approvals/{rid}/decide", json={"approve": True})
+            # HTTP 决定旁路默认关闭（403）；DEV_SIM_ONLY 显式打开才可用。
+            assert client.post(f"/approvals/{rid}/decide", json={"approve": True}).status_code == 403
+            import os
+
+            os.environ["ROSCLAW_DEV_HTTP_DECIDE"] = "1"
+            try:
+                r = client.post(f"/approvals/{rid}/decide", json={"approve": True})
+            finally:
+                os.environ.pop("ROSCLAW_DEV_HTTP_DECIDE", None)
             assert r.status_code == 200
             assert r.json()["grant_id"]
+            assert r.json()["profile"] == "DEV_SIM_ONLY"
             grants = client.get("/grants").json()
             assert len(grants) == 1
             assert grants[0]["tier"] == "EXACT_ACTION"
-            # revoke → verify denied
+            # revoke → HTTP 旁路 403；经 broker 直撤（测试即 operator）。
             gid = grants[0]["grant_id"]
-            assert client.post(f"/grants/{gid}/revoke").json()["revoked"]
+            assert client.post(f"/grants/{gid}/revoke").status_code == 403
+            service.revoke_grant(gid, principal=LOCAL_PRINCIPAL)
             from rosclaw.operator import GrantDeniedError
 
             with pytest.raises(GrantDeniedError, match="grant_revoked"):

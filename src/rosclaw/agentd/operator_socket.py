@@ -1,14 +1,14 @@
-"""Operator 安全通道（PR-11，大纲 §14）。
+"""Agent 侧 operator 投影通道（PR-11 + 审计 P0-01）。
 
-与模型可见的 Agent API 物理分离的独立 UDS：
+与模型可见的 Agent API 物理分离的 UDS——但**决定权不在此**：
 
-* **peer identity**：principal 从 SO_PEERCRED 的 UID 派生
-  （``user:local:<uid>``）——请求体里的 principal 字段永远被忽略，
-  客户端无法伪造身份（§19.6）。
-* **display hash**：approve/deny 必须携带卡片 display_hash；与存储卡片
-  重算值不匹配即拒绝（防止 TOCTOU 换卡）。
-* **estop**：直达 rosclawd，绕过模型；无 daemon 时诚实报不可用。
-* 协议：JSON Lines（每行一个请求 JSON，一行响应 JSON）。
+* agentd 只提供 approvals.list（只读投影，owner 过滤）与
+  approvals.apply_decision / approvals.apply_revoke（operatord proof 门控）；
+* approvals.decide / grants.revoke / estop 已迁出 agentd，属
+  rosclaw-operatord 专属——本 socket 一律拒绝并指明去处；
+* peer identity 仅从 SO_PEERCRED 派生；display hash 仍强制匹配；
+* REAL/daemon 卡必须已由 operatord 完成 daemon proposal 决定
+  （proof 经 rosclawd ACL 验证），agentd 不接受倒置顺序。
 """
 
 from __future__ import annotations
@@ -137,39 +137,85 @@ class OperatorSocketServer:
                     for r in pending
                 ],
             }
-        if method == "approvals.decide":
-            request_id = str(params.get("request_id", ""))
-            provided_hash = str(params.get("display_hash", ""))
-            pending = {r.request_id: r for r in service.pending_approvals()}
-            card = pending.get(request_id)
-            if card is None:
-                return {"ok": False, "error": "unknown_or_decided request_id"}
-            expected = display_hash_for(card)
-            if not provided_hash or provided_hash != expected:
-                # display hash 不匹配 → 拒绝（§19.6）。
-                return {"ok": False, "error": "display_hash_mismatch"}
-            grant = await service.decide_approval(
-                request_id,
-                principal=principal,  # peer identity 唯一来源；body 里的 principal 被忽略
-                approve=bool(params.get("approve")),
-            )
-            return {
-                "ok": True,
-                "approved": bool(params.get("approve")),
-                "grant_id": grant.grant_id if grant else None,
-                "principal": principal,
-            }
-        if method == "grants.revoke":
+        if method == "approvals.apply_decision":
+            # 审计 P0-01：agentd 不再直接 decide——只应用 operatord 的
+            # 已验证决定。proof 的权威校验在 daemon（REAL 卡必经
+            # daemon proposal 决定路径）；纯 broker SIM 卡按
+            # DEV_SIM_ONLY 语义应用并明确标记。
+            return await self._apply_decision(principal, params)
+        if method == "approvals.apply_revoke":
             grant_id = str(params.get("grant_id", ""))
             if not grant_id:
                 return {"ok": False, "error": "missing grant_id"}
+            if not params.get("operator_proof"):
+                return {"ok": False, "error": "operator_proof required"}
             service.revoke_grant(grant_id, principal=principal)
-            return {"ok": True, "revoked": grant_id, "principal": principal}
-        if method == "estop":
-            # 直达 rosclawd，绕过模型（§14.2）；无 daemon 诚实报不可用。
-            result = await service.estop(str(params.get("reason", "operator estop")), principal=principal)
-            return {"ok": True, "estop": result, "principal": principal}
+            return {
+                "ok": True,
+                "revoked": grant_id,
+                "principal": principal,
+                "profile": service.authorization_profile(),
+            }
+        if method == "approvals.decide" or method == "grants.revoke" or method == "estop":
+            # 审计 P0-01/B3：决定/撤销/急停迁出 agentd（operatord 专属）。
+            return {
+                "ok": False,
+                "error": (
+                    f"{method} is not served by agentd — decisions belong to "
+                    "rosclaw-operatord (P0-01); use approvals.apply_decision "
+                    "with an operatord proof, or the operatord socket"
+                ),
+            }
         return {"ok": False, "error": f"unknown method {method!r}"}
+
+    async def _apply_decision(self, principal: str, params: dict[str, Any]) -> dict[str, Any]:
+        service = self._service
+        request_id = str(params.get("request_id", ""))
+        provided_hash = str(params.get("display_hash", ""))
+        proof = str(params.get("operator_proof", ""))
+        enrollment_id = str(params.get("enrollment_id", ""))
+        nonce = str(params.get("nonce", ""))
+        approve = bool(params.get("approve"))
+        if not proof or not enrollment_id or not nonce:
+            return {"ok": False, "error": "operator_proof/enrollment_id/nonce required"}
+        pending = {r.request_id: r for r in service.pending_approvals()}
+        card = pending.get(request_id)
+        if card is None:
+            return {"ok": False, "error": "unknown_or_decided request_id"}
+        expected = display_hash_for(card)
+        if not provided_hash or provided_hash != expected:
+            return {"ok": False, "error": "display_hash_mismatch"}
+        profile = service.authorization_profile()
+        daemon_backed = bool(
+            getattr(card, "daemon_proposal_id", None)
+            or card.model_dump(mode="json").get("daemon_proposal_id")
+        )
+        if daemon_backed:
+            # REAL/daemon 卡：proof 必须由 daemon ACL 已验证（operatord 已
+            # 完成 proposal.decide）；agentd 侧先确认 proposal 已被决定，
+            # 不接受"先 apply 后 daemon"的倒置顺序（fail closed）。
+            verified = await service.daemon_proposal_is_decided(request_id)
+            if not verified:
+                return {
+                    "ok": False,
+                    "error": (
+                        "daemon proposal not decided — operatord must decide "
+                        "the daemon proposal first (proof verified by rosclawd ACL)"
+                    ),
+                }
+        grant = await service.decide_approval(
+            request_id,
+            principal=principal,
+            approve=approve,
+            _from_operatord=True,
+        )
+        return {
+            "ok": True,
+            "approved": approve,
+            "grant_id": grant.grant_id if grant else None,
+            "principal": principal,
+            "profile": profile,
+        }
 
 
 async def operator_call(socket_path: Path, method: str, params: dict | None = None) -> dict:

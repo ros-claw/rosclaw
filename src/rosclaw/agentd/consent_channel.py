@@ -94,69 +94,16 @@ class DaemonConsentChannel:
             )
         return proposal
 
-    async def decide(
-        self,
-        request_id: str,
-        *,
-        principal_id: str,
-        accept: bool,
-        channel: str = "rosclaw_console",
-        reason: str = "",
-        supervise_timeout_sec: float = 60.0,
-    ) -> dict[str, Any]:
-        """Operator-side decision. On ACCEPT the daemon issues the permit
-        internally, submits as the originating UID and supervises to a
-        terminal receipt."""
-        try:
-            pending = await asyncio.to_thread(self._client.list_pending_operator_proposals)
-        except DaemonClientError as exc:
-            raise ConsentChannelError(
-                f"operator pending list failed (operator UID required): {exc.code}: {exc}"
-            ) from exc
-        trusted = next(
-            (p for p in pending.get("proposals", []) if p.get("request_id") == request_id),
-            None,
+    async def decide(self, *args, **kwargs):
+        """已移除（审计 P0-01）：agentd 不裁决 daemon proposal。
+
+        决定路径在 rosclaw-operatord（enrollment proof + rosclawd ACL）。
+        """
+        raise ConsentChannelError(
+            "agentd no longer decides daemon proposals (P0-01) — "
+            "decisions belong to rosclaw-operatord"
         )
-        if trusted is None:
-            raise ConsentChannelError(
-                f"no pending proposal {request_id!r} (decided, expired, or "
-                "invalidated by daemon restart)"
-            )
-        try:
-            decided = await asyncio.to_thread(
-                self._client.decide_operator_proposal,
-                request_id,
-                decision="ACCEPT" if accept else "DECLINE",
-                principal_id=principal_id,
-                challenge_nonce=trusted["challenge_nonce"],
-                action_intent_hash=trusted["action_intent_hash"],
-                channel=channel,
-                reason=reason or ("reviewed bounded action" if accept else "declined by operator"),
-            )
-        except DaemonClientError as exc:
-            raise ConsentChannelError(
-                f"operator.proposal.decide failed: {exc.code}: {exc}"
-            ) from exc
-        if not accept:
-            return decided
-        if decided.get("permit_exposed"):
-            raise ConsentChannelError(
-                "daemon exposed permit material in the decision result — refusing"
-            )
-        # Supervise to terminal (the daemon renews the lease; SIM finishes fast).
-        action_id = trusted.get("action_id")
-        if action_id:
-            try:
-                await asyncio.to_thread(
-                    self._client.wait_for_action,
-                    action_id,
-                    timeout_sec=supervise_timeout_sec,
-                )
-            except DaemonClientError as exc:
-                raise ConsentChannelError(
-                    f"accepted action did not terminate: {exc.code}: {exc}"
-                ) from exc
-        return decided
+
 
     async def proposal(self, request_id: str) -> dict[str, Any]:
         try:

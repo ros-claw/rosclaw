@@ -182,7 +182,7 @@ class TestK3SimActionLoop:
             pending = service.pending_approvals(mission.mission_id)
             grant = await service.decide_approval(
                 pending[0].request_id, principal=LOCAL_PRINCIPAL, approve=True
-            )
+            , _from_operatord=True)
             _action_decision.grant_id = grant.grant_id
             r2 = await service.send_turn(mission.mission_id, "已批准，执行")
             assert "SIMULATION 完成并经回执验证" in r2.reply
@@ -203,7 +203,7 @@ class TestK3SimActionLoop:
             pending = service.pending_approvals(mission.mission_id)
             grant = await service.decide_approval(
                 pending[0].request_id, principal=LOCAL_PRINCIPAL, approve=True
-            )
+            , _from_operatord=True)
             _action_decision.grant_id = grant.grant_id
             # Point the channel at a nonexistent daemon.
             from rosclaw.agentd.action_channel import DaemonActionChannel

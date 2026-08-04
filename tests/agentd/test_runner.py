@@ -110,7 +110,7 @@ class TestApprovalAutoWake:
             pending = service.pending_approvals(mission.mission_id)
             grant = await service.decide_approval(
                 pending[0].request_id, principal=LOCAL_PRINCIPAL, approve=True
-            )
+            , _from_operatord=True)
             _approval_then_action.grant_id = grant.grant_id
             # 唤醒任务自己运行：无需用户再发消息。
             wake_task = service._runner._wake_tasks.get(mission.mission_id)
@@ -139,7 +139,7 @@ class TestApprovalAutoWake:
             pending = service.pending_approvals(mission.mission_id)
             result = await service.decide_approval(
                 pending[0].request_id, principal=LOCAL_PRINCIPAL, approve=False
-            )
+            , _from_operatord=True)
             assert result is None
             wake_task = service._runner._wake_tasks.get(mission.mission_id)
             await asyncio.wait_for(wake_task, timeout=15)

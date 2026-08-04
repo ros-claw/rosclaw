@@ -26,6 +26,12 @@ def main() -> int:
     if result is not None:
         return result
 
+    from rosclaw.operatord.cli import dispatch_operatord_argv
+
+    result = dispatch_operatord_argv(sys.argv[1:])
+    if result is not None:
+        return result
+
     from rosclaw.robot_pack.cli import dispatch_robot_pack_argv
 
     result = dispatch_robot_pack_argv(sys.argv[1:])

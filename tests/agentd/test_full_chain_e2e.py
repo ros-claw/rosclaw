@@ -172,7 +172,20 @@ class TestFullChainE2E:
         )
         from rosclaw.agentd.operator_socket import operator_call
 
-        sock = await service.start_operator_socket()
+        agent_sock = await service.start_operator_socket()
+        from rosclaw.operatord.enrollment import enroll
+        from rosclaw.operatord.server import OperatorDaemon
+
+        enrollment = enroll(home / "operatord")
+        sock = home / "run" / "operatord.sock"
+        operatord = OperatorDaemon(
+            enrollment=enrollment,
+            socket_path=sock,
+            agent_socket=agent_sock,
+            daemon_client=None,
+            require_human_presence=False,
+        )
+        await operatord.start()
         service2 = None
         try:
             # 3. mission 创建（principal 与 uid 一致）。
@@ -291,6 +304,7 @@ class TestFullChainE2E:
 
             await service2.close()
         finally:
+            await operatord.stop()
             if service2 is not None:
                 from contextlib import suppress
 

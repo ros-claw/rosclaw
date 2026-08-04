@@ -4,6 +4,7 @@
  * 此客户端不携带任何 principal。
  */
 
+import { accessSync } from "node:fs";
 import { connect } from "node:net";
 
 export function operatorCall(
@@ -42,7 +43,15 @@ export function operatorCall(
 	});
 }
 
+/** 审计 P0-01：决定/急停走 operatord；只读列表仍可用 agentd 投影 socket。 */
 export function defaultOperatorSocket(): string {
 	const home = process.env.ROSCLAW_HOME ?? `${process.env.HOME}/.rosclaw`;
-	return `${home}/run/operator.sock`;
+	const operatord = `${home}/run/operatord.sock`;
+	try {
+		accessSync(operatord);
+		return operatord;
+	} catch {
+		// operatord 未运行（DEV_SIM_ONLY 开发剖面）→ agentd 投影 socket。
+		return `${home}/run/operator.sock`;
+	}
 }

@@ -308,7 +308,7 @@ async def test_k5_operator_consent_loop(tmp_path: Path) -> None:
 
         grant = await service.decide_approval(
             pending[0].request_id, principal=LOCAL_PRINCIPAL, approve=True
-        )
+        , _from_operatord=True)
         assert grant is not None
 
         r2 = await service.send_turn(
@@ -513,7 +513,20 @@ async def test_k9_limo_acceptance_live(tmp_path: Path) -> None:
     service = AgentService(
         config, tmp_path, gateway=OpenAICompatGateway(kimi_code_k3_profile(base_url=BASE_URL))
     )
-    sock = await service.start_operator_socket()
+    agent_sock = await service.start_operator_socket()
+    from rosclaw.operatord.enrollment import enroll
+    from rosclaw.operatord.server import OperatorDaemon
+
+    enrollment = enroll(tmp_path / "operatord")
+    sock = tmp_path / "run" / "operatord.sock"
+    operatord = OperatorDaemon(
+        enrollment=enrollment,
+        socket_path=sock,
+        agent_socket=agent_sock,
+        daemon_client=None,
+        require_human_presence=False,
+    )
+    await operatord.start()
     try:
         mission = service.create_mission("LIMO 验收：扬声器与定位")
         guidance = (

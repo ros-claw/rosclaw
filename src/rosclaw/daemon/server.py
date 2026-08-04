@@ -38,6 +38,7 @@ _ALLOWED_METHODS = frozenset(
         "operator.proposal.cancel",
         "operator.proposal.pending",
         "operator.proposal.decide",
+        "operator.enrollment.register",
         "action.request",
         "action.status",
         "action.receipt",
@@ -403,6 +404,19 @@ class RosclawDaemon:
                     ),
                     channel=_required_id(params, "channel", max_length=128),
                     reason=_required_id(params, "reason", max_length=1024),
+                    peer=peer,
+                    operator_proof=str(params.get("operator_proof", "")),
+                    enrollment_id=str(params.get("enrollment_id", "")),
+                    display_hash=str(params.get("display_hash", "")),
+                    decided_at=str(params.get("decided_at", "")),
+                ),
+                False,
+            )
+        if method == "operator.enrollment.register":
+            return (
+                self.service.register_operator_enrollment(
+                    _required_id(params, "enrollment_id"),
+                    key_hex=_required_id(params, "key_hex", max_length=128),
                     peer=peer,
                 ),
                 False,

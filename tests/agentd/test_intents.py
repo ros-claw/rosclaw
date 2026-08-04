@@ -339,7 +339,7 @@ class TestRequestActionMonitor:
             pending = service.pending_approvals(mission.mission_id)
             grant = await service.decide_approval(
                 pending[0].request_id, principal=LOCAL_PRINCIPAL, approve=True
-            )
+            , _from_operatord=True)
             script.grant_id = grant.grant_id
             r2 = await service.send_turn(mission.mission_id, "执行")
             # 无 daemon → 无 verified terminal receipt → 诚实停留 MONITOR。

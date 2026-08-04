@@ -230,7 +230,21 @@ async def run_acceptance(home: Path, *, gateway=None) -> AcceptanceReport:
         config, home, gateway=gateway or MockModelGateway(mock_profile(), [script] * 40)
     )
     report = AcceptanceReport()
-    sock_path = await service.start_operator_socket()
+    agent_sock = await service.start_operator_socket()
+    # 审计 P0-01：决定经独立 rosclaw-operatord（enrollment + proof）。
+    from rosclaw.operatord.enrollment import enroll
+    from rosclaw.operatord.server import OperatorDaemon
+
+    enrollment = enroll(home / "operatord")
+    sock_path = home / "run" / "operatord.sock"
+    operatord = OperatorDaemon(
+        enrollment=enrollment,
+        socket_path=sock_path,
+        agent_socket=agent_sock,
+        daemon_client=None,
+        require_human_presence=False,
+    )
+    await operatord.start()
     try:
         mission = service.create_mission("LIMO 验收：扬声器与定位")
         report.checks["C1_body_bound"] = True
@@ -345,4 +359,5 @@ async def run_acceptance(home: Path, *, gateway=None) -> AcceptanceReport:
         report.checks["T6_report"] = "验收完成" in last_reply
         return report
     finally:
+        await operatord.stop()
         await service.close()

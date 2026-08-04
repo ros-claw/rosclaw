@@ -943,12 +943,27 @@ class AgentService:
     def pending_approvals(self, mission_id: str | None = None):
         return self._broker.pending_requests(mission_id)
 
-    async def decide_approval(self, request_id: str, *, principal: str, approve: bool):
-        """认知层裁决 +（有 consent channel 时）daemon proposal 物理层裁决。
+    async def decide_approval(
+        self,
+        request_id: str,
+        *,
+        principal: str,
+        approve: bool,
+        _from_operatord: bool = False,
+    ):
+        """认知层裁决（审计 P0-01：仅 operatord 路径可调用）。
 
-        ACCEPT 时 daemon 独立签发 permit、提交动作并监督到终态 receipt——
-        agentd 只是发起方与见证方，不持有 permit。
+        - agentd 只创建 proposal、读取公开结果——daemon proposal 的
+          decision 属 rosclaw-operatord + rosclawd ACL，agentd 代码里
+          没有任何 proposal.decide 路径；
+        - REAL/daemon 卡必须已由 operatord 完成 daemon 侧决定
+          （apply_decision 已先行校验）。
         """
+        if not _from_operatord:
+            raise ValidationError(
+                "approvals are decided by rosclaw-operatord only (P0-01); "
+                "agentd does not serve a decision path"
+            )
         grant = self._broker.decide(request_id, principal=principal, approve=approve)
         approval_req = self._broker.get_request(request_id)
         if approval_req is not None:
@@ -969,28 +984,35 @@ class AgentService:
                 approved=approve,
                 grant_id=grant.grant_id if grant else None,
             )
-        if self._consent_channel is not None:
-            request = self._broker.get_request(request_id)
-            proposal_id = getattr(request, "daemon_proposal_id", None) or (
-                request.model_dump(mode="json").get("daemon_proposal_id") if request else None
-            )
-            if proposal_id:
-                from rosclaw.agentd.consent_channel import ConsentChannelError
-
-                try:
-                    await self._consent_channel.decide(
-                        proposal_id,
-                        principal_id=principal,
-                        accept=approve,
-                        channel="rosclaw_console",
-                        reason="operator approved via rosclaw console",
-                    )
-                except ConsentChannelError as exc:
-                    # 认知层已裁决但物理层失败：如实报告，不伪造派发。
-                    raise ValidationError(
-                        f"agentd 授权已记录，但 daemon proposal 裁决失败（未派发）：{exc}"
-                    ) from exc
+        # 审计 P0-01：agentd 不再裁决 daemon proposal（该路径已迁往
+        # rosclaw-operatord）；daemon 卡的物理决定由 operatord 直接经
+        # rosclawd ACL 完成。
         return grant
+
+    def authorization_profile(self) -> str:
+        """当前授权剖面（审计 P0-01.6）：同 UID 一体运行只能 DEV_SIM_ONLY。"""
+        if self._daemon_client is not None:
+            return "OPERATORD_BACKED"
+        from rosclaw.operatord import DEV_SIM_ONLY_LABEL
+
+        return DEV_SIM_ONLY_LABEL
+
+    async def daemon_proposal_is_decided(self, request_id: str) -> bool:
+        """REAL 卡确认：该 broker 请求关联的 daemon proposal 已被决定
+        （由 operatord 经 rosclawd ACL 完成）。无 daemon/无关联 → False。"""
+        if self._consent_channel is None:
+            return False
+        request = self._broker.get_request(request_id)
+        proposal_id = getattr(request, "daemon_proposal_id", None) or (
+            request.model_dump(mode="json").get("daemon_proposal_id") if request else None
+        )
+        if not proposal_id:
+            return False
+        try:
+            proposal = await self._consent_channel.proposal(proposal_id)
+        except Exception:  # noqa: BLE001 - 读不到即未决定（fail closed）
+            return False
+        return proposal.get("state") in ("SUBMITTED", "TERMINAL", "DECLINED")
 
     def list_grants(self):
         rows = self._store.connection.execute(
@@ -1420,16 +1442,34 @@ def create_app(service: AgentService):
 
     @app.get("/approvals/pending")
     async def approvals_pending(mission_id: str | None = None) -> list[dict]:
+        # 审计 P0-01：list 也要按 owner 过滤——必须给出 mission_id，
+        # 不做全局枚举（防低权限本地进程收集操作计划）。
+        if not mission_id:
+            raise HTTPException(
+                status_code=400,
+                detail="mission_id required (global pending enumeration is not served)",
+            )
         return [r.model_dump(mode="json") for r in service.pending_approvals(mission_id)]
 
     @app.post("/approvals/{request_id}/decide")
     async def approvals_decide(request_id: str, payload: DecisionCreate) -> dict:
-        # principal 缺省按该请求的 mission owner 解析（loopback console；
-        # 强身份仍走 operator.sock 的 SO_PEERCRED）。
-        principal = payload.principal or service.principal_for_request(request_id)
+        # 审计 P0-01/B3：HTTP 决定旁路默认关闭——决定只在
+        # rosclaw-operatord（enrollment proof + human presence + daemon ACL）。
+        # 仅开发剖面（DEV_SIM_ONLY）可显式打开。
+        if os.environ.get("ROSCLAW_DEV_HTTP_DECIDE") != "1":
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "HTTP approval decisions are disabled (P0-01): decisions "
+                    "belong to rosclaw-operatord. Set ROSCLAW_DEV_HTTP_DECIDE=1 "
+                    "only in a DEV_SIM_ONLY dev profile."
+                ),
+            )
+        principal = service.principal_for_request(request_id)
         try:
             grant = await service.decide_approval(
-                request_id, principal=principal, approve=payload.approve
+                request_id, principal=principal, approve=payload.approve,
+                _from_operatord=True,
             )
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -1437,6 +1477,7 @@ def create_app(service: AgentService):
             "approved": payload.approve,
             "grant_id": grant.grant_id if grant else None,
             "public_hash": grant.public_hash if grant else None,
+            "profile": "DEV_SIM_ONLY",
         }
 
     @app.get("/grants")
@@ -1445,11 +1486,17 @@ def create_app(service: AgentService):
 
     @app.post("/grants/{grant_id}/revoke")
     async def grants_revoke(grant_id: str) -> dict:
+        # 审计 P0-01/B3：HTTP 撤销旁路默认关闭（operatord 专属）。
+        if os.environ.get("ROSCLAW_DEV_HTTP_DECIDE") != "1":
+            raise HTTPException(
+                status_code=403,
+                detail="HTTP grant revocation is disabled (P0-01): use rosclaw-operatord",
+            )
         try:
-            service.revoke_grant(grant_id, principal="user:local:1000")
+            service.revoke_grant(grant_id, principal=f"user:local:{os.getuid()}")
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        return {"revoked": True}
+        return {"revoked": True, "profile": "DEV_SIM_ONLY"}
 
     @app.get("/console", response_class=HTMLResponse)
     async def console() -> str:

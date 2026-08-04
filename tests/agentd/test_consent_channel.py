@@ -81,6 +81,37 @@ def daemon(tmp_path: Path):
         ledger_ctx.__exit__(None, None, None)
 
 
+
+async def _daemon_decide(client, request_id: str, *, principal_id: str, accept: bool, supervise_timeout_sec: float = 60.0) -> dict:
+    """operatord 语义：经 rosclawd ACL 决定 proposal（P0-01 后 agentd 无此路径）。"""
+    pending = client.list_pending_operator_proposals()
+    trusted = next(
+        (p for p in pending.get("proposals", []) if p.get("request_id") == request_id),
+        None,
+    )
+    if trusted is None:
+        from rosclaw.agentd.consent_channel import ConsentChannelError
+
+        raise ConsentChannelError(f"no pending proposal {request_id!r}")
+    decided = client.decide_operator_proposal(
+        request_id,
+        decision="ACCEPT" if accept else "DECLINE",
+        principal_id=principal_id,
+        challenge_nonce=trusted["challenge_nonce"],
+        action_intent_hash=trusted["action_intent_hash"],
+        channel="rosclaw_operatord",
+        reason="reviewed bounded action" if accept else "declined by operator",
+    )
+    if accept:
+        action_id = trusted.get("action_id")
+        if action_id:
+            try:
+                client.wait_for_action(action_id, timeout_sec=supervise_timeout_sec)
+            except Exception:
+                pass
+    return decided
+
+
 def _channel(client: DaemonClient) -> DaemonConsentChannel:
     return DaemonConsentChannel(client, actor_id="agent:test", body_id="rh56-test", body_hash="h")
 
@@ -100,7 +131,8 @@ class TestRealConsentFlow:
         # Agent 视角：无 challenge、无 permit（K5 核心安全语义）。
         assert "challenge_nonce" not in proposal
         assert "permit" not in str(proposal).lower()
-        decided = await channel.decide(
+        decided = await _daemon_decide(
+            client,
             proposal["request_id"],
             principal_id=LOCAL_PRINCIPAL,
             accept=True,
@@ -128,7 +160,7 @@ class TestRealConsentFlow:
             risk_class="high",
             ttl_sec=60.0,
         )
-        await channel.decide(proposal["request_id"], principal_id=LOCAL_PRINCIPAL, accept=False)
+        await _daemon_decide(client, proposal["request_id"], principal_id=LOCAL_PRINCIPAL, accept=False)
         terminal = await channel.proposal(proposal["request_id"])
         assert terminal.get("state") == "DECLINED"
 
@@ -169,10 +201,10 @@ class TestRealConsentFlow:
             risk_class="high",
             ttl_sec=60.0,
         )
-        await channel.decide(proposal["request_id"], principal_id=LOCAL_PRINCIPAL, accept=True)
+        await _daemon_decide(client, proposal["request_id"], principal_id=LOCAL_PRINCIPAL, accept=True)
         with pytest.raises(ConsentChannelError, match="no pending proposal"):
-            await channel.decide(
-                proposal["request_id"], principal_id=LOCAL_PRINCIPAL, accept=True
+            await _daemon_decide(
+                client, proposal["request_id"], principal_id=LOCAL_PRINCIPAL, accept=True
             )
 
 
@@ -197,8 +229,8 @@ class TestRestartInvalidation:
         client2 = DaemonClient(socket_path=socket_path2, timeout_sec=5.0)
         channel2 = _channel(client2)
         with pytest.raises(ConsentChannelError, match="no pending proposal"):
-            await channel2.decide(
-                proposal["request_id"], principal_id=LOCAL_PRINCIPAL, accept=True
+            await _daemon_decide(
+                client2, proposal["request_id"], principal_id=LOCAL_PRINCIPAL, accept=True
             )
         # …并且账本里记录了 INVALIDATED 事件（可追溯）。
         from rosclaw.daemon.ledger import DaemonLedger

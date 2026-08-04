@@ -273,8 +273,13 @@ class DaemonClient:
         action_intent_hash: str,
         channel: str,
         reason: str,
+        operator_proof: str = "",
+        enrollment_id: str = "",
+        display_hash: str = "",
+        decided_at: str = "",
     ) -> dict[str, Any]:
-        """Apply a decision; rosclawd permits this only to its service/operator UID."""
+        """Apply a decision; rosclawd permits this only to its service/operator UID
+        or a caller bearing a valid operator enrollment proof."""
 
         result = self.call(
             "operator.proposal.decide",
@@ -286,6 +291,10 @@ class DaemonClient:
                 "action_intent_hash": action_intent_hash,
                 "channel": channel,
                 "reason": reason,
+                "operator_proof": operator_proof,
+                "enrollment_id": enrollment_id,
+                "display_hash": display_hash,
+                "decided_at": decided_at,
             },
         )
         action = result.get("action")
@@ -334,6 +343,12 @@ class DaemonClient:
                     f"Timed out waiting for action {action_id!r}.",
                 )
             time.sleep(max(0.001, poll_interval_sec))
+
+    def register_operator_enrollment(self, enrollment_id: str, key_hex: str) -> dict[str, Any]:
+        return self.call(
+            "operator.enrollment.register",
+            {"enrollment_id": enrollment_id, "key_hex": key_hex},
+        )
 
     def emergency_stop(
         self,

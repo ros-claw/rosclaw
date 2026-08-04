@@ -136,6 +136,42 @@ def _component_report() -> dict:
     }
 
 
+def _authorization_report(home: Path) -> dict:
+    """审计 P0-01：授权剖面——同 UID 一体运行明确 DEV_SIM_ONLY；
+    operatord 缺失时 REAL 硬拒绝（doctor 必须说明）。"""
+    from rosclaw.operatord import DEV_SIM_ONLY_LABEL
+    from rosclaw.operatord.enrollment import EnrollmentError, load_enrollment
+
+    enrolled = False
+    fingerprint = None
+    try:
+        enrollment = load_enrollment(home / "operatord")
+        enrolled = True
+        fingerprint = enrollment.fingerprint
+    except EnrollmentError:
+        pass
+    operatord_sock = home / "run" / "operatord.sock"
+    running = operatord_sock.exists()
+    if running:
+        profile = "OPERATORD_SPLIT"
+    else:
+        profile = DEV_SIM_ONLY_LABEL
+    return {
+        "profile": profile,
+        "enrolled": enrolled,
+        "fingerprint": fingerprint,
+        "operatord_socket": str(operatord_sock),
+        "operatord_running": running,
+        "real_ready": running and enrolled,
+        "note": (
+            "同 UID 一体运行仅 DEV_SIM_ONLY——REAL 必须 rosclaw-operatord "
+            "独立进程 + enrollment + rosclawd ACL"
+            if not running
+            else "operatord 拆分剖面激活"
+        ),
+    }
+
+
 def doctor(home: Path) -> dict:
     """Honest agent readiness report. Never prints raw credentials."""
     config = load_agent_config(home / "config.yaml")
@@ -146,6 +182,7 @@ def doctor(home: Path) -> dict:
         "default_profile": config.default_profile if config.profiles else None,
     }
     report["components"] = _component_report()
+    report["authorization"] = _authorization_report(home)
     if not config.profiles:
         report["status"] = "MODEL_NOT_READY"
         report["reason"] = "no model profile configured — run `rosclaw agent init`"
