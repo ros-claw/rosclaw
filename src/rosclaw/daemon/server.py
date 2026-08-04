@@ -410,11 +410,7 @@ class RosclawDaemon:
                     channel=_required_id(params, "channel", max_length=128),
                     reason=_required_id(params, "reason", max_length=1024),
                     peer=peer,
-                    proof=(
-                        params.get("proof")
-                        if isinstance(params.get("proof"), dict)
-                        else {}
-                    ),
+                    proof=dict(params["proof"]) if isinstance(params.get("proof"), dict) else {},
                 ),
                 False,
             )

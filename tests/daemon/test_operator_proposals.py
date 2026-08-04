@@ -12,12 +12,6 @@ import pytest
 
 from rosclaw.core.runtime import Runtime, RuntimeConfig
 from rosclaw.daemon.client import DaemonClient, DaemonRequestError
-from tests.operator_proof import (
-    build_proof,
-    decide_via_proof,
-    make_identity,
-    register_identity,
-)
 from rosclaw.daemon.ledger import DaemonLedger, LedgerError
 from rosclaw.daemon.protocol import PeerCredentials
 from rosclaw.daemon.server import RosclawDaemon
@@ -30,6 +24,12 @@ from rosclaw.kernel import (
     EvidenceLevel,
     ExecutionMode,
     VerificationPolicy,
+)
+from tests.operator_proof import (
+    build_proof,
+    decide_via_proof,
+    make_identity,
+    register_identity,
 )
 
 
