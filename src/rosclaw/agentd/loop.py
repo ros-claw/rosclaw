@@ -406,6 +406,24 @@ class AgentLoop:
                         arguments = {}
                     if call.name == SUBMIT_DECISION_TOOL:
                         # 内部协议工具：不执行，只提交 DecisionV1（服务端补齐绑定）。
+                        # 并行调用时后续工具也必须得到回执（Kimi 拒绝悬空
+                        # tool_call_id），因此 respond-and-continue，不 break。
+                        if decision is not None:
+                            # 一轮多份提交：只取第一份有效决策，其余标记。
+                            self._conversation.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": call.call_id,
+                                    "content": json.dumps(
+                                        {
+                                            "error": "duplicate submit_decision in one round "
+                                            "(first decision stands)"
+                                        },
+                                        ensure_ascii=False,
+                                    ),
+                                }
+                            )
+                            continue
                         try:
                             submitted = build_decision_payload(
                                 arguments,
@@ -441,7 +459,7 @@ class AgentLoop:
                                     ),
                                 }
                             )
-                        break
+                        continue
                     if self._tools is None:
                         result.reply = "模型请求了工具，但当前没有可用工具执行器。"
                         result.degraded = "tools_unavailable"

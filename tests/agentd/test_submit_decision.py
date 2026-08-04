@@ -197,3 +197,97 @@ class TestProtocolRoundTrip:
             assert result.state.value == "IDLE"
         finally:
             await service.close()
+
+
+class TestParallelToolCalls:
+    async def test_submit_mid_parallel_calls_all_get_responses(self, tmp_path: Path) -> None:
+        """并行工具调用（Kimi 实测触发）：submit_decision 在调用列表中间时，
+        其后的工具也必须执行并回执——不得留下悬空 tool_call_id。"""
+        from rosclaw.agentd.config import load_agent_config
+        from rosclaw.agentd.models.gateway import MockModelGateway
+        from rosclaw.agentd.models.profiles import mock_profile
+        from rosclaw.agentd.service import AgentService
+        from rosclaw.contracts.agent.model_turn import ToolCall
+
+        def parallel_turn(request) -> ModelTurnResultV1:
+            submit_args = json.dumps(
+                {
+                    "next_intent": "ANSWER",
+                    "summary": "并行后回答",
+                    "evidence_refs": [],
+                }
+            )
+            return ModelTurnResultV1(
+                turn_id="t",
+                provider="mock",
+                model="m",
+                content="",
+                assistant_message={
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "c1",
+                            "type": "function",
+                            "function": {
+                                "name": "sim_get_state",
+                                "arguments": '{"verbose": true}',
+                            },
+                        },
+                        {
+                            "id": "c2",
+                            "type": "function",
+                            "function": {
+                                "name": "rosclaw_submit_decision",
+                                "arguments": submit_args,
+                            },
+                        },
+                        {
+                            "id": "c3",
+                            "type": "function",
+                            "function": {
+                                "name": "sim_body_profile",
+                                "arguments": '{"detail": true}',
+                            },
+                        },
+                    ],
+                },
+                tool_calls=[
+                    ToolCall(
+                        call_id="c1",
+                        name="sim_get_state",
+                        arguments_json='{"verbose": true}',
+                    ),
+                    ToolCall(
+                        call_id="c2",
+                        name="rosclaw_submit_decision",
+                        arguments_json=submit_args,
+                    ),
+                    ToolCall(
+                        call_id="c3",
+                        name="sim_body_profile",
+                        arguments_json='{"detail": true}',
+                    ),
+                ],
+                usage={"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10},  # type: ignore[arg-type]
+            )
+
+        config = load_agent_config(tmp_path / "config.yaml")
+        service = AgentService(
+            config, tmp_path, gateway=MockModelGateway(mock_profile(), [parallel_turn])
+        )
+        try:
+            mission = service.create_mission("并行调用")
+            result = await service.send_turn(mission.mission_id, "并行测试")
+            assert result.state.value == "IDLE"
+            history = service.conversation(mission.mission_id)
+            responses = {
+                m.get("tool_call_id") for m in history if m.get("role") == "tool"
+            }
+            assert responses >= {"c1", "c2", "c3"}, (
+                f"every parallel tool_call_id must get a response, got {responses}"
+            )
+            # submit 回执为协议确认，且两份真实工具结果存在。
+            assert result.tool_rounds == 2
+        finally:
+            await service.close()
