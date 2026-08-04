@@ -109,7 +109,8 @@ class TestInstallRollbackSemantics:
 @pytest.mark.slow
 class TestSignedBundle:
     def test_build_produces_signed_manifest_and_offline_assets(self, tmp_path: Path) -> None:
-        import subprocess, tarfile, json as _json
+        import subprocess
+        import tarfile
 
         env = dict(os.environ, ROSCLAW_SIGNING_HOME=str(tmp_path / "signing"))
         result = subprocess.run(

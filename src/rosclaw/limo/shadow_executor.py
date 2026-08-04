@@ -19,6 +19,7 @@ from rosclaw.kernel.contracts import (
     EvidenceLevel,
 )
 
+
 #: SHADOW 支持的能力与其参数校验器。
 def _validate_tone(arguments: dict[str, Any]) -> list[str]:
     errors: list[str] = []

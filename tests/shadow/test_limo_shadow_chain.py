@@ -26,13 +26,13 @@ from rosclaw.daemon.service import DaemonControlPlane
 from rosclaw.kernel.contracts import (
     ActionEnvelope,
     AuthorizationContext,
+    EvidenceLevel,
     ExecutionMode,
     VerificationPolicy,
-    EvidenceLevel,
 )
 from rosclaw.operatord.enrollment import enroll
-from tests.daemon.test_operator_proposals import _runtime
 from tests.agentd.conftest import LOCAL_PRINCIPAL
+from tests.daemon.test_operator_proposals import _runtime
 
 
 def _action(action_id: str, capability: str, arguments: dict, mode: ExecutionMode) -> ActionEnvelope:
@@ -58,14 +58,15 @@ def _action(action_id: str, capability: str, arguments: dict, mode: ExecutionMod
 
 @pytest.fixture
 def shadow_daemon():
-    from rosclaw.kernel.contracts import ExecutionMode as EM
     from rosclaw.limo.shadow_executor import limo_shadow_executor
 
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         runtime = _runtime()
         for capability in ("limo.speaker.play_tone", "limo.localization.set_initial_pose"):
-            runtime.action_gateway.register_executor(capability, EM.SHADOW, limo_shadow_executor)
+            runtime.action_gateway.register_executor(
+                capability, ExecutionMode.SHADOW, limo_shadow_executor
+            )
         with DaemonLedger(
             tmp / "state" / "ledger.sqlite3", key_path=tmp / "state" / "ledger.key"
         ) as ledger:
@@ -161,7 +162,7 @@ class TestLimoShadowChain:
             "proposal"
         ]
         trusted = client.list_pending_operator_proposals()["proposals"][0]
-        decided = client.decide_operator_proposal(
+        client.decide_operator_proposal(
             public["request_id"],
             decision="ACCEPT",
             principal_id=LOCAL_PRINCIPAL,
