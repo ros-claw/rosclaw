@@ -105,10 +105,10 @@ async def _daemon_decide(client, request_id: str, *, principal_id: str, accept: 
     if accept:
         action_id = trusted.get("action_id")
         if action_id:
-            try:
+            import contextlib
+
+            with contextlib.suppress(Exception):
                 client.wait_for_action(action_id, timeout_sec=supervise_timeout_sec)
-            except Exception:
-                pass
     return decided
 
 
