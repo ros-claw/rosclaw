@@ -90,9 +90,6 @@ class OperatorDaemon:
         if not request_id or not display_hash:
             return {"ok": False, "error": "request_id and display_hash required"}
         daemon_proposal_id = str(params.get("daemon_proposal_id", ""))
-        daemon_backed = bool(daemon_proposal_id) or self._daemon is not None and bool(
-            params.get("daemon_backed")
-        )
         decided_daemon = False
         if daemon_proposal_id and self._daemon is not None:
             # REAL/daemon 卡：先 human presence，再经 rosclawd ACL 决定。
