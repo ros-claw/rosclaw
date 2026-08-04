@@ -36,6 +36,7 @@ const PHASE_BY_EVENT: Record<string, string> = {
 	"action.dispatched": "正在执行/验证",
 	"verification.started": "正在执行/验证",
 	"compaction.started": "正在压缩上下文",
+	"turn.cancel.requested": "正在取消",
 };
 
 export function reduce(state: UiState, event: AgentEvent): Effect[] {

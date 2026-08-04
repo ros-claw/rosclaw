@@ -27,6 +27,125 @@ if TYPE_CHECKING:
 
 HandlerFn = Callable[[CommandRequestV1], Awaitable[CommandResultV1]]
 
+#: 全部内建命令的机器可读参数 schema（审计 P0-03）。type: string|enum|rest
+#: （rest 吃掉剩余全部文本）；interaction 指示 TUI 需要的交互形态。
+_ARGS_SCHEMAS: dict[str, dict] = {
+    "compact": {
+        "positional": [{"name": "focus", "type": "rest", "required": False}],
+        "flags": {"dry-run": {"type": "boolean"}},
+        "interaction": "none",
+    },
+    "cancel": {"interaction": "none"},
+    "rename": {
+        "positional": [{"name": "name", "type": "rest", "required": True}],
+        "interaction": "none",
+    },
+    "archive": {"interaction": "confirm"},
+    "status": {"interaction": "none"},
+    "tools": {"interaction": "none"},
+    "providers": {"interaction": "none"},
+    "model": {
+        "positional": [{"name": "target", "type": "string", "required": False}],
+        "interaction": "select",
+        "interaction_source": "models",
+    },
+    "login": {
+        "positional": [{"name": "provider", "type": "string", "required": True}],
+        "interaction": "secret",
+    },
+    "logout": {
+        "positional": [{"name": "provider", "type": "string", "required": True}],
+        "interaction": "confirm",
+    },
+    "workers": {"interaction": "none"},
+    "worker": {
+        "positional": [
+            {
+                "name": "subcommand",
+                "type": "enum",
+                "enum": ["inspect", "enable", "disable", "probe"],
+                "required": True,
+            },
+            {"name": "worker_id", "type": "string", "required": True},
+        ],
+        "interaction": "select",
+        "interaction_source": "workers",
+    },
+    "grants": {"interaction": "none"},
+    "revoke": {
+        "positional": [{"name": "grant_id", "type": "string", "required": True}],
+        "interaction": "confirm",
+    },
+    "body": {"interaction": "none"},
+    "doctor": {"interaction": "none"},
+    "mode": {
+        "positional": [
+            {"name": "mode", "type": "enum", "enum": ["SIMULATION", "SHADOW", "REAL"], "required": False}
+        ],
+        "interaction": "none",
+    },
+    "context": {
+        "positional": [
+            {
+                "name": "subcommand",
+                "type": "enum",
+                "enum": ["layers", "usage", "compactions", "refresh"],
+                "required": False,
+            }
+        ],
+        "interaction": "none",
+    },
+    "session": {"interaction": "none"},
+    "new": {
+        "positional": [{"name": "goal", "type": "rest", "required": True}],
+        "interaction": "none",
+    },
+    "retry": {"interaction": "none"},
+    "failover": {"interaction": "none"},
+    "thinking": {
+        "positional": [
+            {"name": "effort", "type": "enum", "enum": ["low", "high", "max"], "required": False}
+        ],
+        "interaction": "none",
+    },
+    "scoped-models": {
+        "positional": [
+            {"name": "subcommand", "type": "enum", "enum": ["add", "remove", "list"], "required": False},
+            {"name": "target", "type": "string", "required": False},
+        ],
+        "interaction": "none",
+    },
+    "export": {
+        "positional": [{"name": "path", "type": "string", "required": False}],
+        "interaction": "path",
+    },
+    "import": {
+        "positional": [{"name": "path", "type": "string", "required": True}],
+        "interaction": "path",
+    },
+    "share": {"interaction": "none"},
+    "reload": {
+        "positional": [{"name": "domains", "type": "rest", "required": False}],
+        "interaction": "none",
+    },
+    "settings": {
+        "positional": [
+            {"name": "key", "type": "string", "required": False},
+            {"name": "value", "type": "rest", "required": False},
+        ],
+        "interaction": "none",
+    },
+    "tree": {"interaction": "none"},
+    "fork": {
+        "positional": [
+            {"name": "from_entry_id", "type": "string", "required": False},
+            {"name": "label", "type": "rest", "required": False},
+        ],
+        "interaction": "none",
+    },
+    "clone": {"interaction": "none"},
+}
+
 
 class CommandService:
     def __init__(self, service: AgentService) -> None:
@@ -42,6 +161,10 @@ class CommandService:
     # -- registry ----------------------------------------------------------------
 
     def _register(self, spec: CommandSpecV1, handler: HandlerFn) -> None:
+        if not spec.args_schema:
+            spec = spec.model_copy(
+                update={"args_schema": _ARGS_SCHEMAS.get(spec.name, {"interaction": "none"})}
+            )
         self._specs[spec.name] = spec
         self._handlers[spec.handler] = handler
 

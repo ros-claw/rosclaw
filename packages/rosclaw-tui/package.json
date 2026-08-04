@@ -5,7 +5,7 @@
 	"description": "ROSClaw Native Agent terminal UI — pi-tui components + ROSClaw command routing + state reducer. Never executes tools, workers, or hardware.",
 	"type": "module",
 	"bin": {
-		"rosclaw-tui": "dist/main.js"
+		"rosclaw-tui": "dist/src/main.js"
 	},
 	"engines": {
 		"node": ">=22.19.0"
@@ -13,7 +13,7 @@
 	"scripts": {
 		"build": "tsc -p tsconfig.json",
 		"test": "npm run build && node --test dist/test/*.test.js",
-		"start": "node dist/main.js"
+		"start": "node dist/src/main.js"
 	},
 	"dependencies": {
 		"@earendil-works/pi-tui": "0.83.0",

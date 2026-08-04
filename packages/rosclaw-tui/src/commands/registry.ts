@@ -24,6 +24,7 @@ export const LOCAL_COMMANDS: LocalCommand[] = [
 	{ name: "approve", aliases: [], description: "批准授权请求", argumentHint: "<request_id>" },
 	{ name: "deny", aliases: [], description: "拒绝授权请求", argumentHint: "<request_id>" },
 	{ name: "missions", aliases: [], description: "列出 Mission", argumentHint: "" },
+	{ name: "resume", aliases: [], description: "切换到其他 Mission（选择器）", argumentHint: "[mission_id]" },
 	{ name: "estop", aliases: [], description: "紧急停止（直达 rosclawd，不经过模型）", argumentHint: "" },
 ];
 

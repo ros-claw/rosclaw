@@ -109,6 +109,11 @@
       "default": "",
       "title": "Disabled Reason",
       "type": "string"
+    },
+    "args_schema": {
+      "additionalProperties": true,
+      "title": "Args Schema",
+      "type": "object"
     }
   },
   "required": [
