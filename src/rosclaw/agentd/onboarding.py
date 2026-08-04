@@ -152,10 +152,7 @@ def _authorization_report(home: Path) -> dict:
         pass
     operatord_sock = home / "run" / "operatord.sock"
     running = operatord_sock.exists()
-    if running:
-        profile = "OPERATORD_SPLIT"
-    else:
-        profile = DEV_SIM_ONLY_LABEL
+    profile = "OPERATORD_SPLIT" if running else DEV_SIM_ONLY_LABEL
     return {
         "profile": profile,
         "enrolled": enrolled,
