@@ -190,7 +190,6 @@ class TestLimoShadowChain:
         client, tmp = shadow_daemon
         enrollment = enroll(tmp / "operatord")
         client.register_operator_enrollment(enrollment.enrollment_id, enrollment.key.hex())
-        service = client  # keep name; the service lives inside the fixture daemon
         # fabricate a non-daemon peer（uid+1 != euid）。
         foreign = PeerCredentials(pid=99999, uid=os.geteuid() + 1, gid=0)
         daemon_service = None
