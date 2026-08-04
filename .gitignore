@@ -100,3 +100,5 @@ generated/
 .backups/
 .agents/skills/rosclaw/.backups/
 node_modules/
+agentd/
+config.yaml
