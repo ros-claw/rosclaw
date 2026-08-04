@@ -39,6 +39,10 @@ _ALLOWED_METHODS = frozenset(
         "operator.proposal.pending",
         "operator.proposal.decide",
         "operator.enrollment.register",
+        "operator.enrollment.revoke",
+        "operator.enrollment.list",
+        "operator.challenge.get",
+        "daemon.identity",
         "action.request",
         "action.status",
         "action.receipt",
@@ -371,6 +375,11 @@ class RosclawDaemon:
                     display=display,
                     ttl_sec=_required_number(params, "ttl_sec"),
                     peer=peer,
+                    client_reference=(
+                        params.get("client_reference")
+                        if isinstance(params.get("client_reference"), dict)
+                        else None
+                    ),
                 ),
                 False,
             )
@@ -398,17 +407,10 @@ class RosclawDaemon:
                     _required_id(params, "request_id"),
                     decision=_required_id(params, "decision", max_length=16),
                     principal_id=_required_id(params, "principal_id"),
-                    challenge_nonce=_required_id(params, "challenge_nonce", max_length=256),
-                    action_intent_hash_value=_required_id(
-                        params, "action_intent_hash", max_length=80
-                    ),
                     channel=_required_id(params, "channel", max_length=128),
                     reason=_required_id(params, "reason", max_length=1024),
                     peer=peer,
-                    operator_proof=str(params.get("operator_proof", "")),
-                    enrollment_id=str(params.get("enrollment_id", "")),
-                    display_hash=str(params.get("display_hash", "")),
-                    decided_at=str(params.get("decided_at", "")),
+                    proof=dict(params["proof"]) if isinstance(params.get("proof"), dict) else {},
                 ),
                 False,
             )
@@ -416,11 +418,33 @@ class RosclawDaemon:
             return (
                 self.service.register_operator_enrollment(
                     _required_id(params, "enrollment_id"),
-                    key_hex=_required_id(params, "key_hex", max_length=128),
+                    public_key_pem=str(params.get("public_key_pem", "")),
+                    operator_uid=_required_int(params, "operator_uid"),
+                    purpose=str(params.get("purpose", "operator-decision")),
                     peer=peer,
                 ),
                 False,
             )
+        if method == "operator.enrollment.revoke":
+            return (
+                self.service.revoke_operator_enrollment(
+                    _required_id(params, "enrollment_id"),
+                    peer=peer,
+                ),
+                False,
+            )
+        if method == "operator.enrollment.list":
+            return self.service.list_operator_enrollments(peer=peer), False
+        if method == "operator.challenge.get":
+            return (
+                self.service.get_operator_challenge(
+                    _required_id(params, "request_id"),
+                    peer,
+                ),
+                False,
+            )
+        if method == "daemon.identity":
+            return self.service.daemon_identity_dict(), False
         if method == "action.request":
             return self.service.request_action(_required_action(params), peer), False
         if method == "action.status":

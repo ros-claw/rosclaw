@@ -54,8 +54,13 @@ class DaemonConsentChannel:
         execution_mode: str = "SIMULATION",
         risk_class: str = "low",
         ttl_sec: float = 60.0,
+        client_reference: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Agent-side proposal. Returns the public view (no nonce, no permit)."""
+        """Agent-side proposal. Returns the public view (no nonce, no permit).
+
+        client_reference（R1/P0-6）：{agent_request_id, mission_id} 绑定，
+        daemon 原样带入 challenge/receipt，agentd 精确比对。
+        """
         envelope = ActionEnvelope(
             action_id=new_id("act"),
             actor_id=self._actor_id,
@@ -82,6 +87,7 @@ class DaemonConsentChannel:
                 envelope,
                 display=display,
                 ttl_sec=ttl_sec,
+                client_reference=client_reference,
             )
         except DaemonClientError as exc:
             raise ConsentChannelError(

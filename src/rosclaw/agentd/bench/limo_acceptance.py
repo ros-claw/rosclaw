@@ -238,10 +238,10 @@ async def run_acceptance(
     from rosclaw.operatord.enrollment import enroll
     from rosclaw.operatord.server import OperatorDaemon
 
-    enrollment = enroll(home / "operatord")
+    identity = enroll(home / "operatord")
     sock_path = home / "run" / "operatord.sock"
     operatord = OperatorDaemon(
-        enrollment=enrollment,
+        identity=identity,
         socket_path=sock_path,
         agent_socket=agent_sock,
         daemon_client=None,
@@ -376,9 +376,15 @@ async def run_acceptance(
             events = service.events_replay(mission.mission_id, limit=100_000)
             pack.write_events([e.model_dump(mode="json") for e in events])
             pack.write_mission_snapshot(service.snapshot(mission.mission_id).model_dump(mode="json"))
+            # R7：完整 approval → decision → grant → permit → receipt 链
+            # （全部公开视图；secret 扫描兜底）。
             pack.write_public_records(
-                approvals=[],
-                permits=[],
+                approvals=[
+                    e.payload
+                    for e in events
+                    if e.type.value in ("approval.requested", "approval.decided")
+                ],
+                permits=list(service.list_grants()),
                 receipts=[
                     e.payload for e in events if e.type.value == "receipt.received"
                 ],

@@ -25,6 +25,12 @@ from rosclaw.kernel import (
     ExecutionMode,
     VerificationPolicy,
 )
+from tests.operator_proof import (
+    build_proof,
+    decide_via_proof,
+    make_identity,
+    register_identity,
+)
 
 
 def _runtime() -> Runtime:
@@ -114,13 +120,15 @@ def test_broker_accepts_exact_proposal_without_exposing_challenge_or_permit(
             assert "permit_id" not in str(created).lower()
             assert "authorized_action" not in created
             pending = client.list_pending_operator_proposals()["proposals"]
-            trusted = pending[0]
-            decided = client.decide_operator_proposal(
+            assert pending[0]["challenge_nonce"]
+            identity = make_identity(tmp_path / "operatord")
+            register_identity(client, identity)
+            decided = decide_via_proof(
+                client,
                 public["request_id"],
-                decision="ACCEPT",
+                identity,
+                "ACCEPT",
                 principal_id="operator-shift-a",
-                challenge_nonce=trusted["challenge_nonce"],
-                action_intent_hash=trusted["action_intent_hash"],
                 channel="operator_cli",
                 reason="Reviewed exact bounded action",
             )
@@ -151,8 +159,13 @@ def test_broker_accepts_exact_proposal_without_exposing_challenge_or_permit(
         "OPERATOR_PROPOSAL_ACCEPTED",
         "OPERATOR_PROPOSAL_PERMIT_ISSUED",
         "OPERATOR_PROPOSAL_SUBMITTED",
+        "OPERATOR_DECISION_RECEIPT_ISSUED",
         "OPERATOR_PROPOSAL_TERMINAL",
     ]
+    receipt = decided["decision_receipt"]
+    assert receipt["decision"] == "ACCEPT"
+    assert receipt["proposal_id"] == public["request_id"]
+    assert receipt["signature_b64"]
 
 
 def test_decline_and_wrong_challenge_never_issue_permit_or_dispatch(tmp_path: Path) -> None:
@@ -174,23 +187,25 @@ def test_decline_and_wrong_challenge_never_issue_permit_or_dispatch(tmp_path: Pa
                 display={"title": "Move one finger"},
                 ttl_sec=60.0,
             )["proposal"]
-            trusted = client.list_pending_operator_proposals()["proposals"][0]
+            identity = make_identity(tmp_path / "operatord")
+            register_identity(client, identity)
+            challenge = client.get_operator_challenge(created["request_id"])["challenge"]
+            tampered = dict(challenge, challenge_nonce="wrong-challenge")
             with pytest.raises(DaemonRequestError) as wrong:
                 client.decide_operator_proposal(
                     created["request_id"],
                     decision="ACCEPT",
                     principal_id="operator-shift-a",
-                    challenge_nonce="wrong-challenge",
-                    action_intent_hash=trusted["action_intent_hash"],
                     channel="operator_cli",
                     reason="Injected decision",
+                    proof=build_proof(identity, tampered, "ACCEPT"),
                 )
-            declined = client.decide_operator_proposal(
+            declined = decide_via_proof(
+                client,
                 created["request_id"],
-                decision="DECLINE",
+                identity,
+                "DECLINE",
                 principal_id="operator-shift-a",
-                challenge_nonce=trusted["challenge_nonce"],
-                action_intent_hash=trusted["action_intent_hash"],
                 channel="operator_cli",
                 reason="Workspace is not clear",
             )
@@ -198,8 +213,9 @@ def test_decline_and_wrong_challenge_never_issue_permit_or_dispatch(tmp_path: Pa
         finally:
             daemon.stop()
 
-    assert wrong.value.code == "PROPOSAL_CHALLENGE_MISMATCH"
+    assert wrong.value.code == "OPERATOR_PROOF_CHALLENGE_MISMATCH"
     assert declined["proposal"]["state"] == "DECLINED"
+    assert declined["decision_receipt"]["decision"] == "DECLINE"
     assert declined["command_dispatched"] is False
     assert status["permits"]["registered"] == 0
     assert status["queue"]["FINISHED"] == 0
@@ -222,21 +238,38 @@ def test_agent_uid_cannot_list_or_decide_operator_proposals(tmp_path: Path) -> N
         )["proposal"]
         with pytest.raises(ControlPlaneError) as denied_list:
             service.list_pending_operator_proposals(agent)
+        # agent 自签 proof（未登记的 identity）——PERMISSION_DENIED；
+        # 顺带覆盖"空 proof"与"无 enrollment 抢注不可能"。
+        intruder = make_identity(tmp_path / "intruder")
+        daemon_peer = PeerCredentials(pid=100, uid=os.geteuid(), gid=os.getegid())
+        challenge = service.get_operator_challenge(proposal["request_id"], daemon_peer)[
+            "challenge"
+        ]
         with pytest.raises(ControlPlaneError) as denied_decision:
             service.decide_operator_proposal(
                 proposal["request_id"],
                 decision="ACCEPT",
                 principal_id="agent-self",
-                challenge_nonce="unknown-to-agent",
-                action_intent_hash_value=proposal["action_intent_hash"],
                 channel="agent",
                 reason="Agent attempted self-approval",
                 peer=agent,
+                proof=build_proof(intruder, challenge, "ACCEPT"),
+            )
+        with pytest.raises(ControlPlaneError) as empty_proof:
+            service.decide_operator_proposal(
+                proposal["request_id"],
+                decision="ACCEPT",
+                principal_id="agent-self",
+                channel="agent",
+                reason="Agent attempted self-approval",
+                peer=agent,
+                proof={},
             )
         service.close()
 
     assert denied_list.value.code == "PERMISSION_DENIED"
     assert denied_decision.value.code == "PERMISSION_DENIED"
+    assert empty_proof.value.code == "INVALID_OPERATOR_PROOF"
 
 
 def test_agent_can_cancel_only_its_own_pending_proposal(tmp_path: Path) -> None:
@@ -323,13 +356,14 @@ def test_operator_broker_supervises_origin_owned_action_lease(tmp_path: Path) ->
                 display={"title": "Slow bounded action"},
                 ttl_sec=60.0,
             )["proposal"]
-            trusted = client.list_pending_operator_proposals()["proposals"][0]
-            client.decide_operator_proposal(
+            identity = make_identity(tmp_path / "operatord")
+            register_identity(client, identity)
+            decide_via_proof(
+                client,
                 public["request_id"],
-                decision="ACCEPT",
+                identity,
+                "ACCEPT",
                 principal_id="operator-shift-a",
-                challenge_nonce=trusted["challenge_nonce"],
-                action_intent_hash=trusted["action_intent_hash"],
                 channel="operator_cli",
                 reason="Supervise until terminal receipt",
             )
@@ -360,7 +394,16 @@ def test_proposal_audit_failure_revokes_permit_and_prevents_dispatch(
             ttl_sec=60.0,
             peer=daemon_peer,
         )["proposal"]
-        trusted = service.list_pending_operator_proposals(daemon_peer)["proposals"][0]
+        identity = make_identity(tmp_path / "operatord")
+        service.register_operator_enrollment(
+            identity.enrollment_id,
+            public_key_pem=identity.public_key_pem,
+            operator_uid=identity.uid,
+            peer=daemon_peer,
+        )
+        challenge = service.get_operator_challenge(created["request_id"], daemon_peer)[
+            "challenge"
+        ]
         original_append = ledger.append
 
         def fail_permit_transition(event_type: str, **kwargs: Any):
@@ -374,11 +417,10 @@ def test_proposal_audit_failure_revokes_permit_and_prevents_dispatch(
                 created["request_id"],
                 decision="ACCEPT",
                 principal_id="operator-shift-a",
-                challenge_nonce=trusted["challenge_nonce"],
-                action_intent_hash_value=trusted["action_intent_hash"],
                 channel="operator_cli",
                 reason="Reviewed exact action",
                 peer=daemon_peer,
+                proof=build_proof(identity, challenge, "ACCEPT"),
             )
         status = service.get_runtime_status(daemon_peer)
         service.close()

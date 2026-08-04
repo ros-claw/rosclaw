@@ -51,6 +51,7 @@ class OperatorProposalStore:
         daemon_instance_id: str,
         ttl_sec: float,
         now: datetime | None = None,
+        client_reference: dict[str, str] | None = None,
     ) -> OperatorProposal:
         """Create one immutable proposal and strip all caller approval claims."""
 
@@ -106,6 +107,7 @@ class OperatorProposalStore:
                 challenge_nonce=secrets.token_urlsafe(32),
                 daemon_instance_id=daemon_instance_id,
                 transitions=[{"state": ProposalState.CREATED.value, "at": _iso(current)}],
+                client_reference=self._client_reference(client_reference),
             )
             self._proposals[request_id] = proposal
             self._action_requests[normalized_action.action_id] = request_id
@@ -225,6 +227,30 @@ class OperatorProposalStore:
                 f"display exceeds {MAX_DISPLAY_BYTES} bytes",
             )
         return copy.deepcopy(value)
+
+    @staticmethod
+    def _client_reference(value: dict[str, str] | None) -> dict[str, str]:
+        """agentd 绑定引用：不透明字符串对，白名单键 + 长度上限。"""
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise OperatorProposalError(
+                "INVALID_CLIENT_REFERENCE", "client_reference must be an object"
+            )
+        allowed = {"agent_request_id", "mission_id"}
+        result: dict[str, str] = {}
+        for key, item in value.items():
+            if key not in allowed:
+                raise OperatorProposalError(
+                    "INVALID_CLIENT_REFERENCE", f"unsupported client_reference key {key!r}"
+                )
+            text = str(item)
+            if not text or len(text) > 128:
+                raise OperatorProposalError(
+                    "INVALID_CLIENT_REFERENCE", f"client_reference.{key} must be 1..128 chars"
+                )
+            result[key] = text
+        return result
 
     def _expire_locked(self, proposal: OperatorProposal, now: datetime) -> None:
         current = now.astimezone(UTC)

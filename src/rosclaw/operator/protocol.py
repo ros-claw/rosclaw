@@ -68,6 +68,12 @@ class OperatorProposal:
     failure_message: str | None = None
     transitions: list[dict[str, Any]] = field(default_factory=list)
     audited_transition_count: int = 0
+    # 二次复核 R1/P0-6：创建方（agentd）携带的不透明绑定引用
+    # {agent_request_id, mission_id}——daemon 不解释，原样进入
+    # challenge/receipt，agentd 侧精确比对。
+    client_reference: dict[str, str] = field(default_factory=dict)
+    # daemon 签名的 DecisionReceiptV1（决定后填充，公开可读）。
+    decision_receipt: dict[str, Any] | None = None
 
     @property
     def terminal(self) -> bool:
@@ -114,6 +120,10 @@ class OperatorProposal:
                 else None
             ),
             "transitions": [dict(item) for item in self.transitions],
+            "client_reference": dict(self.client_reference),
+            "decision_receipt": (
+                dict(self.decision_receipt) if self.decision_receipt else None
+            ),
         }
         if include_operator_challenge:
             result["challenge_nonce"] = self.challenge_nonce

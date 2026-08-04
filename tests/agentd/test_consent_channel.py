@@ -74,6 +74,12 @@ def _start_daemon(tmp_path: Path):
 def daemon(tmp_path: Path):
     daemon, socket_path, ledger_ctx = _start_daemon(tmp_path)
     client = DaemonClient(socket_path=socket_path, timeout_sec=5.0)
+    # R1：每个 daemon 实例配一个真实 Ed25519 operator identity 并登记。
+    from tests.operator_proof import make_identity, register_identity
+
+    identity = make_identity(tmp_path / "operatord")
+    register_identity(client, identity)
+    client._test_identity = identity  # type: ignore[attr-defined]
     try:
         yield client, socket_path
     finally:
@@ -83,27 +89,39 @@ def daemon(tmp_path: Path):
 
 
 async def _daemon_decide(client, request_id: str, *, principal_id: str, accept: bool, supervise_timeout_sec: float = 60.0) -> dict:
-    """operatord 语义：经 rosclawd ACL 决定 proposal（P0-01 后 agentd 无此路径）。"""
-    pending = client.list_pending_operator_proposals()
-    trusted = next(
-        (p for p in pending.get("proposals", []) if p.get("request_id") == request_id),
-        None,
+    """operatord 语义：challenge.get → Ed25519 sign → decide（R1 协议路径）。"""
+    from rosclaw.agentd.consent_channel import ConsentChannelError
+    from rosclaw.daemon.client import DaemonRequestError as _DaemonRequestError
+    from tests.operator_proof import (
+        decide_via_proof,
+        make_identity,
+        register_identity,
     )
-    if trusted is None:
-        from rosclaw.agentd.consent_channel import ConsentChannelError
 
-        raise ConsentChannelError(f"no pending proposal {request_id!r}")
-    decided = client.decide_operator_proposal(
-        request_id,
-        decision="ACCEPT" if accept else "DECLINE",
-        principal_id=principal_id,
-        challenge_nonce=trusted["challenge_nonce"],
-        action_intent_hash=trusted["action_intent_hash"],
-        channel="rosclaw_operatord",
-        reason="reviewed bounded action" if accept else "declined by operator",
-    )
+    identity = getattr(client, "_test_identity", None)
+    if identity is None:
+        # 非 fixture 路径（如 restart 测试）：现建现登记。
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+
+        identity = make_identity(_Path(_tempfile.mkdtemp()) / "operatord")
+        register_identity(client, identity)
+        client._test_identity = identity  # type: ignore[attr-defined]
+    try:
+        decided = decide_via_proof(
+            client,
+            request_id,
+            identity,
+            "ACCEPT" if accept else "DECLINE",
+            principal_id=principal_id,
+            reason="reviewed bounded action" if accept else "declined by operator",
+        )
+    except _DaemonRequestError as exc:
+        if exc.code in {"PROPOSAL_NOT_PENDING", "PROPOSAL_NOT_FOUND", "OPERATOR_PROPOSAL_NOT_FOUND"}:
+            raise ConsentChannelError(f"no pending proposal {request_id!r}") from exc
+        raise
     if accept:
-        action_id = trusted.get("action_id")
+        action_id = (decided.get("proposal") or {}).get("action_id")
         if action_id:
             import contextlib
 
@@ -175,16 +193,18 @@ class TestRealConsentFlow:
             risk_class="high",
             ttl_sec=60.0,
         )
-        pending = client.list_pending_operator_proposals()["proposals"]
+        from tests.operator_proof import build_proof
+
+        challenge = client.get_operator_challenge(proposal["request_id"])["challenge"]
+        forged = dict(challenge, challenge_nonce="forged-nonce")
         with pytest.raises(DaemonRequestError):
             client.decide_operator_proposal(
                 proposal["request_id"],
                 decision="ACCEPT",
                 principal_id=LOCAL_PRINCIPAL,
-                challenge_nonce="forged-nonce",
-                action_intent_hash=pending[0]["action_intent_hash"],
                 channel="test",
                 reason="forgery attempt",
+                proof=build_proof(client._test_identity, forged, "ACCEPT"),  # type: ignore[attr-defined]
             )
         # 未被裁决，仍是 pending（被拒绝不会改变状态）。
         still = await channel.proposal(proposal["request_id"])

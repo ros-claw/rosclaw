@@ -48,26 +48,29 @@ def test_pending_output_redacts_decision_challenge(monkeypatch, capsys) -> None:
     assert "permit" not in str(payload).lower()
 
 
-def test_decide_fetches_challenge_internally_and_never_prints_it(monkeypatch, capsys) -> None:
+def test_decide_redirects_to_operatord(monkeypatch, capsys) -> None:
+    """R1：admin CLI 不再直决——决定只属于 rosclaw-operatord。"""
     _FakeDaemonClient.decisions.clear()
     monkeypatch.setattr(cli, "DaemonClient", _FakeDaemonClient)
 
-    result = cli.dispatch_operator_argv(
-        [
-            "operator",
-            "decide",
-            "proposal-1",
-            "--accept",
-            "--principal-id",
-            "operator-shift-a",
-            "--reason",
-            "Reviewed exact action",
-            "--json",
-        ]
-    )
+    from rosclaw.daemon.client import DaemonClientError
 
-    assert result == 0
-    assert _FakeDaemonClient.decisions[0]["challenge_nonce"] == "operator-only-challenge"
-    output = capsys.readouterr().out
-    assert "operator-only-challenge" not in output
-    assert "permit" not in output.lower()
+    try:
+        cli.dispatch_operator_argv(
+            [
+                "operator",
+                "decide",
+                "proposal-1",
+                "--accept",
+                "--principal-id",
+                "operator-shift-a",
+                "--reason",
+                "Reviewed exact action",
+                "--json",
+            ]
+        )
+    except DaemonClientError as exc:
+        assert exc.code == "DECISION_CHANNEL_MOVED"
+    else:  # 若 CLI 内部捕获，则必须非零退出且不产生任何决定
+        assert not _FakeDaemonClient.decisions
+    assert not _FakeDaemonClient.decisions, "admin CLI 绝不再直决"

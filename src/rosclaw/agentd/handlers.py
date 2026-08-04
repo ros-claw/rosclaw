@@ -268,10 +268,16 @@ class ServiceIntentHandlers:
                     display=display.model_dump(mode="json"),
                     execution_mode=self._mode,
                     ttl_sec=approval_ttl_sec,
+                    client_reference={
+                        "agent_request_id": request.request_id,
+                        "mission_id": request.mission_id,
+                    },
                 )
                 proposal_id = proposal.get("request_id")
                 action_id = proposal.get("action_id")
                 # Persist the linkage on the stored approval request.
+                # expires_at 与 daemon proposal 对齐（R1：display_hash 的
+                # expires_at 输入两侧必须逐字节一致）。
                 self._broker._conn.execute(
                     "UPDATE operator_requests SET request_json = ? WHERE request_id = ?",
                     (
@@ -279,6 +285,11 @@ class ServiceIntentHandlers:
                             update={
                                 "daemon_proposal_id": proposal_id,
                                 "daemon_action_id": action_id,
+                                "daemon_capability_id": str(proposal.get("capability_id") or ""),
+                                "daemon_action_intent_hash": str(
+                                    proposal.get("action_intent_hash") or ""
+                                ),
+                                "expires_at": str(proposal.get("expires_at") or request.expires_at),
                             }
                         ).model_dump_json(),
                         request.request_id,

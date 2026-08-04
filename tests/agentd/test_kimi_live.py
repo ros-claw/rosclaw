@@ -517,10 +517,10 @@ async def test_k9_limo_acceptance_live(tmp_path: Path) -> None:
     from rosclaw.operatord.enrollment import enroll
     from rosclaw.operatord.server import OperatorDaemon
 
-    enrollment = enroll(tmp_path / "operatord")
+    identity = enroll(tmp_path / "operatord")
     sock = tmp_path / "run" / "operatord.sock"
     operatord = OperatorDaemon(
-        enrollment=enrollment,
+        identity=identity,
         socket_path=sock,
         agent_socket=agent_sock,
         daemon_client=None,

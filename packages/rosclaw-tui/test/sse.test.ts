@@ -104,3 +104,57 @@ test("sequence gap triggers onGap", async () => {
 		},
 	);
 });
+
+test("afterSequence seeds last-event-id on the first connect (R4 exactly-once)", async () => {
+	await withServer(
+		(req, res) => {
+			const lastEventId = String(req.headers["last-event-id"] ?? "");
+			res.writeHead(200, { "content-type": "text/event-stream" });
+			if (lastEventId !== "42") {
+				res.write(sseFrame(1, "evt_wrong", "agent.started"));
+				res.end();
+				return;
+			}
+			res.write(sseFrame(43, "evt_after", "agent.settled"));
+			res.end();
+		},
+		async (baseUrl) => {
+			const events: AgentEvent[] = [];
+			for await (const e of streamEvents(baseUrl, "mis_x", {
+				maxAttempts: 1,
+				afterSequence: 42,
+			})) {
+				events.push(e);
+			}
+			assert.equal(events.length, 1);
+			assert.equal(events[0].event_id, "evt_after");
+		},
+	);
+});
+
+test("control token header is sent when provided (P1-4)", async () => {
+	await withServer(
+		(req, res) => {
+			const token = String(req.headers["x-rosclaw-token"] ?? "");
+			res.writeHead(200, { "content-type": "text/event-stream" });
+			if (token !== "tok_secret") {
+				res.write(sseFrame(1, "evt_noauth", "agent.started"));
+				res.end();
+				return;
+			}
+			res.write(sseFrame(1, "evt_auth", "agent.settled"));
+			res.end();
+		},
+		async (baseUrl) => {
+			const events: AgentEvent[] = [];
+			for await (const e of streamEvents(baseUrl, "mis_x", {
+				maxAttempts: 1,
+				controlToken: "tok_secret",
+			})) {
+				events.push(e);
+			}
+			assert.equal(events.length, 1);
+			assert.equal(events[0].event_id, "evt_auth");
+		},
+	);
+});

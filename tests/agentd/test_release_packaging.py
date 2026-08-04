@@ -94,10 +94,11 @@ class TestInstallRollbackSemantics:
         prefix = tmp_path / "prefix"
         (prefix / "current").mkdir(parents=True)
         (prefix / "current" / "marker_new").write_text("new")
-        (prefix / "previous").mkdir()
-        (prefix / "previous" / "manifest.json").write_text("{}")
+        # R6：rollback 现在重验签名+hash——previous 必须是合法签名包。
+        _make_mini_bundle(prefix / "previous", tmp_path / "signing")
         (prefix / "previous" / "marker_old").write_text("old")
-        env = dict(os.environ, ROSCLAW_PREFIX=str(prefix))
+        env = dict(os.environ, ROSCLAW_PREFIX=str(prefix),
+                   ROSCLAW_RELEASE_KEY=str(tmp_path / "signing" / "pub.pem"))
         result = subprocess.run(
             ["bash", str(ROLLBACK)], capture_output=True, text=True, env=env
         )
@@ -125,10 +126,13 @@ class TestSignedBundle:
         with tarfile.open(bundle) as tf:
             tf.extractall(stage)
         root = next(stage.iterdir())
-        # 签名与公钥存在，SBOM 与离线资产存在。
+        # 签名与公钥存在，SBOM（CycloneDX + 快照）与离线资产存在。
         for name in ("manifest.json", "manifest.sig", "bundle-signing-public.pem",
-                     "sbom-python.txt", "sbom-rosclaw-tui.txt", "sbom-rosclaw-modeld.txt"):
+                     "sbom-python.txt", "sbom-rosclaw-tui.txt", "sbom-rosclaw-modeld.txt",
+                     "sbom-cyclonedx.json"):
             assert (root / name).exists(), name
+        sbom = json.loads((root / "sbom-cyclonedx.json").read_text())
+        assert sbom["bomFormat"] == "CycloneDX" and sbom["components"]
         assert (root / "vendor" / "node_modules_pack" / "rosclaw-tui.tar.gz").exists()
         assert (root / "vendor" / "node_modules_pack" / "rosclaw-modeld.tar.gz").exists()
         # 签名有效。
@@ -158,9 +162,19 @@ class TestSignedBundle:
         )
         assert check.returncode == 2
         assert "tampered" in check.stderr
-        # 安装器在篡改下直接拒绝（verify-before-execute）。
-        install = subprocess.run(
+        # R6：无包外信任锚 → 安装器直接拒绝（包内公钥不能自证）。
+        no_anchor = subprocess.run(
             ["bash", str(root / "install.sh"), "--offline"],
+            capture_output=True, text=True, timeout=120,
+            env=dict(os.environ, ROSCLAW_PREFIX=str(tmp_path / "prefix0"),
+                     ROSCLAW_RELEASE_KEY=str(tmp_path / "nonexistent.pem")),
+        )
+        assert no_anchor.returncode == 2
+        assert "信任锚" in no_anchor.stderr
+        # 安装器在篡改下直接拒绝（verify-before-execute；锚来自包外）。
+        install = subprocess.run(
+            ["bash", str(root / "install.sh"), "--offline",
+             "--trusted-key", str(tmp_path / "signing" / "dev-signing-public.pem")],
             capture_output=True, text=True, timeout=120,
             env=dict(os.environ, ROSCLAW_PREFIX=str(tmp_path / "prefix")),
         )
@@ -186,3 +200,150 @@ _HASH_CHECK_SNIPPET = (
     "    print('\\n'.join(bad), file=sys.stderr)\n"
     "    sys.exit(2)\n"
 )
+
+
+# ----------------------------------------------------------------------
+# T5（二次复核 R6）：发布供应链攻击矩阵。
+# ----------------------------------------------------------------------
+
+
+def _make_mini_bundle(root: Path, signing: Path) -> None:
+    """构造最小签名 bundle（真实 openssl ECDSA）。"""
+    import hashlib
+
+    signing.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["openssl", "ecparam", "-name", "prime256v1", "-genkey", "-noout",
+         "-out", str(signing / "priv.pem")],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["openssl", "ec", "-in", str(signing / "priv.pem"), "-pubout",
+         "-out", str(signing / "pub.pem")],
+        check=True, capture_output=True,
+    )
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "a.txt").write_text("payload-a")
+    (root / "src").mkdir()
+    (root / "src" / "x.py").write_text("print('x')\n")
+    files = {}
+    for path in sorted(root.rglob("*")):
+        if path.is_file():
+            files[str(path.relative_to(root))] = hashlib.sha256(path.read_bytes()).hexdigest()
+    (root / "manifest.json").write_text(json.dumps({"product": "t", "version": "0", "files": files}))
+    (root / "bundle-signing-public.pem").write_bytes((signing / "pub.pem").read_bytes())
+    subprocess.run(
+        ["openssl", "dgst", "-sha256", "-sign", str(signing / "priv.pem"),
+         "-out", str(root / "manifest.sig"), str(root / "manifest.json")],
+        check=True, capture_output=True,
+    )
+
+
+class TestReleaseTrustAnchor:
+    """T5：信任锚在包外；篡改/替换/夹带全部拒绝。"""
+
+    def test_valid_bundle_verifies_with_anchor(self, tmp_path: Path) -> None:
+        from rosclaw.release_verify import verify_bundle
+
+        root, signing = tmp_path / "bundle", tmp_path / "signing"
+        _make_mini_bundle(root, signing)
+        report = verify_bundle(root, trusted_key=signing / "pub.pem")
+        assert report["verified"] and report["files"] == 2
+
+    def test_no_anchor_refuses(self, tmp_path: Path, monkeypatch) -> None:
+        from rosclaw.release_verify import verify_bundle
+
+        root, signing = tmp_path / "bundle", tmp_path / "signing"
+        _make_mini_bundle(root, signing)
+        monkeypatch.setenv("ROSCLAW_RELEASE_KEY", str(tmp_path / "nonexistent"))
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "nohome")
+        with pytest.raises(SystemExit) as exit_info:
+            verify_bundle(root)
+        assert exit_info.value.code == 2
+
+    def test_payload_tamper_refused(self, tmp_path: Path) -> None:
+        from rosclaw.release_verify import verify_bundle
+
+        root, signing = tmp_path / "bundle", tmp_path / "signing"
+        _make_mini_bundle(root, signing)
+        (root / "a.txt").write_text("tampered-one-byte")
+        with pytest.raises(SystemExit) as exit_info:
+            verify_bundle(root, trusted_key=signing / "pub.pem")
+        assert exit_info.value.code == 2
+
+    def test_manifest_and_key_replacement_refused(self, tmp_path: Path) -> None:
+        """攻击者同时替换 manifest、签名与包内公钥——包外锚仍拒绝。"""
+        from rosclaw.release_verify import verify_bundle
+
+        root, signing = tmp_path / "bundle", tmp_path / "signing"
+        _make_mini_bundle(root, signing)
+        attacker = tmp_path / "attacker"
+        _make_mini_bundle(attacker, tmp_path / "attacker-signing")
+        # 攻击者重打包：换成自己的 manifest+签名+公钥。
+        (root / "manifest.json").write_bytes((attacker / "manifest.json").read_bytes())
+        (root / "manifest.sig").write_bytes((attacker / "manifest.sig").read_bytes())
+        (root / "bundle-signing-public.pem").write_bytes(
+            (attacker / "bundle-signing-public.pem").read_bytes()
+        )
+        with pytest.raises(SystemExit) as exit_info:
+            verify_bundle(root, trusted_key=signing / "pub.pem")
+        assert exit_info.value.code == 2
+
+    def test_extra_unlisted_file_refused(self, tmp_path: Path) -> None:
+        from rosclaw.release_verify import verify_bundle
+
+        root, signing = tmp_path / "bundle", tmp_path / "signing"
+        _make_mini_bundle(root, signing)
+        (root / "evil.sh").write_text("#!/bin/sh\nid\n")
+        with pytest.raises(SystemExit) as exit_info:
+            verify_bundle(root, trusted_key=signing / "pub.pem")
+        assert exit_info.value.code == 2
+
+    def test_symlink_refused(self, tmp_path: Path) -> None:
+        from rosclaw.release_verify import verify_bundle
+
+        root, signing = tmp_path / "bundle", tmp_path / "signing"
+        _make_mini_bundle(root, signing)
+        (root / "link").symlink_to("/etc/passwd")
+        with pytest.raises(SystemExit) as exit_info:
+            verify_bundle(root, trusted_key=signing / "pub.pem")
+        assert exit_info.value.code == 2
+
+    def test_fingerprint_pinning(self, tmp_path: Path) -> None:
+        import hashlib
+
+        from rosclaw.release_verify import verify_bundle
+
+        root, signing = tmp_path / "bundle", tmp_path / "signing"
+        _make_mini_bundle(root, signing)
+        proc = subprocess.run(
+            ["openssl", "pkey", "-pubin", "-in", str(signing / "pub.pem"), "-outform", "DER"],
+            capture_output=True, check=True,
+        )
+        good_fp = hashlib.sha256(proc.stdout).hexdigest()
+        report = verify_bundle(
+            root, trusted_key=signing / "pub.pem", trusted_fingerprint=good_fp
+        )
+        assert report["verified"]
+        with pytest.raises(SystemExit) as exit_info:
+            verify_bundle(root, trusted_key=signing / "pub.pem", trusted_fingerprint="0" * 64)
+        assert exit_info.value.code == 2
+
+    def test_rollback_refuses_tampered_previous(self, tmp_path: Path) -> None:
+        """R6：被篡改的 previous 不得成为回滚目标。"""
+        prefix = tmp_path / "prefix"
+        previous = prefix / "previous"
+        _make_mini_bundle(previous, tmp_path / "signing")
+        current = prefix / "current"
+        current.mkdir(parents=True)
+        # 篡改 previous 的一个 payload 文件。
+        (previous / "a.txt").write_text("tampered")
+        result = subprocess.run(
+            ["bash", str(ROLLBACK)],
+            capture_output=True, text=True,
+            env=dict(os.environ, ROSCLAW_PREFIX=str(prefix),
+                     ROSCLAW_RELEASE_KEY=str(tmp_path / "signing" / "pub.pem")),
+        )
+        assert result.returncode == 2
+        assert "篡改" in result.stderr or "tampered" in result.stderr
+        assert current.exists(), "拒绝回滚不得改变 current"

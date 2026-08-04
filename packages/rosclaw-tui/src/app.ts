@@ -16,9 +16,21 @@ import {
 } from "@earendil-works/pi-tui";
 import { parseArgs as parseSchemaArgs } from "./commands/args-parser.js";
 import { MaskedInput } from "./components/masked-input.js";
-import { AgentClient, idempotencyKey } from "./client/http.js";
+import { AgentClient, idempotencyKey, type TranscriptBlock } from "./client/http.js";
 import { defaultOperatorSocket, operatorCall } from "./client/operator.js";
+import { readFileSync } from "node:fs";
 import { streamEvents } from "./client/sse.js";
+
+/** P1-4：从 env 或 0600 文件读 ephemeral control token（不打印、不进日志）。 */
+function loadControlToken(): string {
+	if (process.env.ROSCLAW_CONTROL_TOKEN) return process.env.ROSCLAW_CONTROL_TOKEN;
+	const home = process.env.ROSCLAW_HOME ?? `${process.env.HOME}/.rosclaw`;
+	try {
+		return readFileSync(`${home}/run/agentd-control.token`, "utf-8").trim();
+	} catch {
+		return "";
+	}
+}
 import { CommandRegistry } from "./commands/registry.js";
 import { LiveAssistantMessage } from "./components/live-message.js";
 import { HOTKEYS_TEXT, renderCard, statusLine } from "./components/render.js";
@@ -36,6 +48,7 @@ export class RosclawTuiApp {
 	private editor!: Editor;
 	private statusText!: Text;
 	private state: UiState;
+	private readonly clientToken: string;
 	private client: AgentClient;
 	private registry = new CommandRegistry();
 	private live: LiveAssistantMessage | null = null;
@@ -45,7 +58,8 @@ export class RosclawTuiApp {
 	private phaseTicker: ReturnType<typeof setInterval> | null = null;
 
 	constructor(private readonly options: AppOptions) {
-		this.client = new AgentClient(options.baseUrl);
+		this.clientToken = loadControlToken();
+		this.client = new AgentClient(options.baseUrl, this.clientToken);
 		this.state = initialState(options.missionId);
 	}
 
@@ -228,50 +242,89 @@ export class RosclawTuiApp {
 		}
 	}
 
-	/** resume 时把历史事件重放为 transcript（delta 按 turn 聚合，卡片直出）。 */
+	/** R4/P1-1：resume 用服务端 transcript projection（不再从底层事件
+	 * 猜聊天记录）；记录 latest_sequence 供 SSE exactly-once 续接。 */
 	private async replayTranscript(): Promise<void> {
-		const events = await this.client.replayEvents(this.options.missionId);
-		let live: LiveAssistantMessage | null = null;
-		const flushLive = () => {
-			if (live !== null) {
-				live.flush(true);
-				live = null;
-			}
-		};
-		for (const raw of events) {
-			const event = raw as { type?: string; visibility?: string; payload?: Record<string, unknown>; sequence?: number };
-			if (event.visibility === "DEBUG") continue;
-			const type = String(event.type ?? "");
-			const payload = event.payload ?? {};
-			if (type === "model.text.delta") {
-				if (live === null) {
-					live = new LiveAssistantMessage(markdownTheme, () => undefined);
-					this.print(live.component);
-				}
-				live.append(String(payload.text ?? ""));
-				continue;
-			}
-			flushLive();
-			const effects = reduce(this.state, {
-				event_id: `replay_${String(event.sequence ?? "")}`,
-				sequence: Number(event.sequence ?? 0),
-				mission_id: this.options.missionId,
-				type,
-				visibility: String(event.visibility ?? "USER"),
-				payload,
-				timestamp: "",
-			});
-			for (const effect of effects) {
-				if (effect.kind === "append_card") this.print(new Text(renderCard(effect.card)));
-			}
+		const page = await this.client.transcript(this.options.missionId);
+		for (const block of page.blocks) {
+			this.renderTranscriptBlock(block);
 		}
-		flushLive();
+		if (page.has_more) {
+			this.print(
+				new Text(
+					chalk.dim(
+						`—— 更早的 ${Math.max(0, page.oldest_sequence - 1)} 个事件已折叠（journal 权威，/resume 分页可查）——`,
+					),
+				),
+			);
+		}
+		// SSE 从这里续接：重放块与实时流不重复（exactly-once）。
+		this.state.lastSeq = Math.max(this.state.lastSeq, page.latest_sequence);
+	}
+
+	private renderTranscriptBlock(block: TranscriptBlock): void {
+		switch (block.kind) {
+			case "user":
+				this.print(new Text(`${chalk.bold.cyan("你")} ${block.text ?? ""}`));
+				break;
+			case "assistant":
+				this.print(new Markdown(block.text ?? "", 0, 0, markdownTheme));
+				break;
+			case "card":
+				this.print(
+					new Text(
+						renderCard({
+							cardType: "approval",
+							title: String(block.card?.title ?? "授权请求"),
+							lines: [
+								String(block.card?.summary ?? ""),
+								...(block.card?.request_id ? [`id: ${String(block.card.request_id)}`] : []),
+							],
+							tone: "warn",
+						}),
+					),
+				);
+				break;
+			case "decision":
+				this.print(
+					new Text(
+						chalk.yellow(
+							`授权决定：${String(block.decision?.decision ?? block.decision?.status ?? "")}`,
+						),
+					),
+				);
+				break;
+			case "tool_call":
+				this.print(
+					new Text(
+						chalk.dim(`▸ 工具调用 ${String(block.card?.tool_id ?? block.card?.name ?? "")}`),
+					),
+				);
+				break;
+			case "tool_result":
+				this.print(new Text(chalk.dim(`▸ 工具完成`)));
+				break;
+			case "receipt":
+				this.print(
+					new Text(
+						chalk.green(
+							`回执：${String(block.receipt?.final_state ?? block.receipt?.state ?? "已收到")}`,
+						),
+					),
+				);
+				break;
+			case "error":
+				this.print(new Text(chalk.red(`错误：${block.error ?? ""}`)));
+				break;
+		}
 	}
 
 	private async consumeEvents(): Promise<void> {
 		const { baseUrl, missionId } = this.options;
 		const generator = streamEvents(baseUrl, missionId, {
 			signal: this.abort.signal,
+			afterSequence: this.state.lastSeq,
+			controlToken: this.clientToken,
 			onGap: () => {
 				// sequence 缺口：停止乐观渲染，拉权威快照对齐（§5.4）。
 				void this.resync();
@@ -327,9 +380,46 @@ export class RosclawTuiApp {
 		void this.consumeEvents();
 	}
 
+	/** P1-2：卡片到达后的快捷 Y/N（行级；不抢正在输入的长文本）。 */
+	private async quickDecide(approve: boolean): Promise<void> {
+		const pending = this.state.pendingApprovals;
+		if (pending.length === 0) {
+			this.print(new Text(chalk.dim("没有待批准的请求。")));
+			return;
+		}
+		const latest = pending[pending.length - 1];
+		const { operatorCall, defaultOperatorSocket } = await import("./client/operator.js");
+		const listed = (await operatorCall(defaultOperatorSocket(), "approvals.list", {
+			mission_id: this.options.missionId,
+		})) as { ok: boolean; approvals?: Array<{ request_id: string; display_hash: string }>; error?: string };
+		const entry = (listed.approvals ?? []).find((a) => a.request_id === latest.requestId);
+		if (!entry) {
+			this.print(new Text(chalk.yellow(`卡片 ${latest.requestId} 已不在待定队列。`)));
+			return;
+		}
+		const decided = (await operatorCall(defaultOperatorSocket(), "approvals.decide", {
+			request_id: entry.request_id,
+			display_hash: entry.display_hash,
+			approve,
+		})) as { ok: boolean; error?: string };
+		this.print(
+			new Text(
+				decided.ok
+					? chalk.green(approve ? `已批准 ${entry.request_id}` : `已拒绝 ${entry.request_id}`)
+					: chalk.red(`决定被拒：${decided.error ?? "unknown"}`),
+			),
+		);
+	}
+
 	private async handleInput(raw: string): Promise<void> {
 		const text = raw.trim();
 		if (!text) return;
+		// P1-2：有待批准卡片时，裸 y/n 行 = 对最新卡片快捷决定
+		// （Y/N 语义，默认 N；正在输入其他文本不受影响）。
+		if ((text === "y" || text === "Y" || text === "n" || text === "N") && this.state.pendingApprovals.length > 0) {
+			await this.quickDecide(text.toLowerCase() === "y");
+			return;
+		}
 		// //text 转义：以 / 开头的普通文本显式发送（审计 P0-03.6）。
 		if (text.startsWith("//")) {
 			const literal = text.slice(1);

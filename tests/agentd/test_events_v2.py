@@ -156,7 +156,7 @@ class TestV2Api:
     async def test_http_v2_endpoints(self, service: AgentService) -> None:
         from fastapi.testclient import TestClient
 
-        client = TestClient(create_app(service))
+        client = TestClient(create_app(service), headers={'x-rosclaw-token': service.control_token})
         mission = service.create_mission("HTTP 测试")
         r = client.post(f"/v2/missions/{mission.mission_id}/turns", json={"text": "你好"})
         assert r.status_code == 202

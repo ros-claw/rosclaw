@@ -128,7 +128,7 @@ class TestCommandRegistry:
 
         service = _service(tmp_path, [_answer] * 5)
         try:
-            client = TestClient(create_app(service))
+            client = TestClient(create_app(service), headers={'x-rosclaw-token': service.control_token})
             mission = service.create_mission("命令测试")
             caps = client.get(f"/v1/capabilities?mission_id={mission.mission_id}").json()
             names = {c["name"] for c in caps["commands"]}
@@ -154,7 +154,7 @@ class TestCommandRegistry:
 
         service = _service(tmp_path, [_answer] * 5)
         try:
-            client = TestClient(create_app(service))
+            client = TestClient(create_app(service), headers={'x-rosclaw-token': service.control_token})
             mission = service.create_mission("重命名")
             r1 = client.post(
                 f"/v1/missions/{mission.mission_id}/commands",
@@ -204,7 +204,7 @@ class TestCommandRegistry:
 
         service = _service(tmp_path, [_answer] * 5)
         try:
-            client = TestClient(create_app(service))
+            client = TestClient(create_app(service), headers={'x-rosclaw-token': service.control_token})
             mission = service.create_mission("工具列表")
             r = client.post(
                 f"/v1/missions/{mission.mission_id}/commands",
@@ -228,7 +228,7 @@ class TestSnapshot:
 
         service = _service(tmp_path, [_answer] * 5)
         try:
-            client = TestClient(create_app(service))
+            client = TestClient(create_app(service), headers={'x-rosclaw-token': service.control_token})
             mission = service.create_mission("快照测试")
             await service.send_turn(mission.mission_id, "hi")
             snap = client.get(f"/v1/missions/{mission.mission_id}/snapshot").json()
@@ -250,7 +250,7 @@ class TestSnapshot:
 
         service = _service(tmp_path, [_answer] * 5)
         try:
-            client = TestClient(create_app(service))
+            client = TestClient(create_app(service), headers={'x-rosclaw-token': service.control_token})
             assert client.get("/v1/missions/mis_ghost/snapshot").status_code == 404
         finally:
             await service.close()
@@ -262,7 +262,7 @@ class TestSseResume:
 
         service = _service(tmp_path, [_answer] * 5)
         try:
-            client = TestClient(create_app(service))
+            client = TestClient(create_app(service), headers={'x-rosclaw-token': service.control_token})
             mission = service.create_mission("断线恢复")
             await service.send_turn(mission.mission_id, "hi")
             events = _events(service, mission.mission_id)

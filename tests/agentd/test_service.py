@@ -158,7 +158,7 @@ class TestHttpApi:
     def client(self, service: AgentService):
         from fastapi.testclient import TestClient
 
-        return TestClient(create_app(service))
+        return TestClient(create_app(service), headers={'x-rosclaw-token': service.control_token})
 
     def test_health_and_status(self, client) -> None:
         assert client.get("/health").json()["status"] == "ok"

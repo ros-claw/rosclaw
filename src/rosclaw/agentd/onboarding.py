@@ -140,14 +140,16 @@ def _authorization_report(home: Path) -> dict:
     """审计 P0-01：授权剖面——同 UID 一体运行明确 DEV_SIM_ONLY；
     operatord 缺失时 REAL 硬拒绝（doctor 必须说明）。"""
     from rosclaw.operatord import DEV_SIM_ONLY_LABEL
-    from rosclaw.operatord.enrollment import EnrollmentError, load_enrollment
+    from rosclaw.operatord.enrollment import EnrollmentError, read_public_key_pem
 
     enrolled = False
     fingerprint = None
     try:
-        enrollment = load_enrollment(home / "operatord")
+        # T0：agentd 只读 0644 公钥——绝不把 operator 私钥加载进本进程。
+        from rosclaw.contracts.operator.decision import key_fingerprint
+
+        fingerprint = key_fingerprint(read_public_key_pem(home / "operatord"))
         enrolled = True
-        fingerprint = enrollment.fingerprint
     except EnrollmentError:
         pass
     operatord_sock = home / "run" / "operatord.sock"

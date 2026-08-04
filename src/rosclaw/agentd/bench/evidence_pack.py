@@ -17,7 +17,29 @@ from pathlib import Path
 from rosclaw.agentd.bench.evidence_levels import EvidenceLevel
 from rosclaw.contracts.common import new_id
 
-SECRET_PATTERNS = ("sk-", "Bearer ", "api_key\":", "private_key", "permit_secret")
+# R7/T6：secret corpus——命中即 fail（不是 warning）。
+SECRET_PATTERNS = (
+    "sk-",
+    "sk-ant-",
+    "sk-kimi-",
+    "ghp_",
+    "gho_",
+    "github_pat_",
+    "Bearer ",
+    "eyJ",  # JWT header 前缀
+    "BEGIN OPENSSH PRIVATE KEY",
+    "BEGIN RSA PRIVATE KEY",
+    "BEGIN EC PRIVATE KEY",
+    "BEGIN PRIVATE KEY",
+    "api_key\":",
+    "private_key\":",
+    "permit_secret",
+    "refresh_token",
+)
+
+
+class EvidencePackError(RuntimeError):
+    pass
 
 
 class EvidencePackWriter:
@@ -75,7 +97,11 @@ class EvidencePackWriter:
         self._record("metrics.json", json.dumps(metrics, indent=2, ensure_ascii=False, default=str))
 
     def write_observer(self, note: str) -> None:
-        self._record("operator_observer.md", note)
+        # R7：自动生成的观察记录必须明确标注——不是独立人类观察者签字。
+        self._record(
+            "automated_observation.md",
+            "> **automated_observation**（自动生成，非独立观察者签字）\n\n" + note,
+        )
 
     def finalize(
         self,
@@ -89,7 +115,11 @@ class EvidencePackWriter:
         """secret 扫描 + artifact hashes + run_manifest（签名输入）。"""
         findings: list[dict] = []
         for path in self.dir.rglob("*"):
-            if not path.is_file() or path.name in {"secret_scan.json", "run_manifest.json"}:
+            if not path.is_file() or path.name in {
+                "secret_scan.json",
+                "run_manifest.json",
+                "run_manifest.sig",
+            }:
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
             for pattern in SECRET_PATTERNS:
@@ -99,6 +129,24 @@ class EvidencePackWriter:
             "secret_scan.json",
             json.dumps({"clean": not findings, "findings": findings}, indent=2),
         )
+        if findings:
+            # R7/T6：发现 secret 即 fail——证据包标记 INVALID 并拒绝 finalize。
+            self._record(
+                "run_manifest.json",
+                json.dumps(
+                    {
+                        "run_id": self.run_id,
+                        "invalid": True,
+                        "reason": "secret_scan_findings",
+                        "findings": findings,
+                    },
+                    indent=2,
+                ),
+            )
+            raise EvidencePackError(
+                f"evidence pack contains secret-like material: {findings} — "
+                "pack marked INVALID; redact sources and re-run"
+            )
         self._record(
             "artifact_hashes.json",
             json.dumps(self._hashes, indent=2, sort_keys=True),
@@ -112,10 +160,50 @@ class EvidencePackWriter:
             "operator": operator,
             "started_artifacts": len(self._hashes),
             "secret_scan_clean": not findings,
+            "process": {"uid": os.geteuid(), "pid": os.getpid()},
             "created_at": datetime.now(UTC).isoformat(),
         }
         self._record("run_manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False))
+        # R7：pack 签名（构建机 dev release key；无 key 时如实标 unsigned）。
+        signed = self._try_sign_manifest()
+        manifest["signed"] = signed
+        self._hashes["run_manifest.json"] = hashlib.sha256(
+            (self.dir / "run_manifest.json").read_bytes()
+        ).hexdigest()
+        # artifact_hashes.json 不包含自己的条目（否则自引用永真失配）。
+        final_hashes = {k: v for k, v in self._hashes.items() if k != "artifact_hashes.json"}
+        self._record(
+            "artifact_hashes.json",
+            json.dumps(final_hashes, indent=2, sort_keys=True),
+        )
         return manifest
+
+    def _try_sign_manifest(self) -> bool:
+        """用本机 release 签名 key 签 run_manifest.json（openssl ECDSA）。
+
+        无签名 key 时返回 False（pack 仍可用于开发调试，但不能作为
+        可审计发布证据——verifier 会要求签名）。
+        """
+        import shutil
+        import subprocess
+
+        key = Path.home() / ".rosclaw" / "signing" / "dev-signing-private.pem"
+        if not key.exists() or shutil.which("openssl") is None:
+            return False
+        result = subprocess.run(
+            [
+                "openssl",
+                "dgst",
+                "-sha256",
+                "-sign",
+                str(key),
+                "-out",
+                str(self.dir / "run_manifest.sig"),
+                str(self.dir / "run_manifest.json"),
+            ],
+            capture_output=True,
+        )
+        return result.returncode == 0
 
 
 def _probe(cmd: list[str]) -> str:

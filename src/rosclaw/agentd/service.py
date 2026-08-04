@@ -552,9 +552,23 @@ class AgentService:
                 self._handlers._mode = mission.mode.value
                 self._handlers._principal = mission.owner_principal
             loop = self._loop_for(mission_id)
-            return await loop.run_user_turn(
+            # R4：同步路径也写用户可见事件——transcript projection 才能
+            # 覆盖用户消息与助手回复（与 v2 runner 同一事件词汇）。
+            from rosclaw.contracts.agent.agent_event import AgentEventType
+
+            await self._events.append(
+                mission_id, AgentEventType.TURN_ACCEPTED, {"text": text[:500]}
+            )
+            result = await loop.run_user_turn(
                 mission, text, now=datetime.now(UTC), on_text_delta=on_text_delta
             )
+            reply = getattr(result, "reply", "") or ""
+            if reply:
+                await self._events.append(
+                    mission_id, AgentEventType.MODEL_TEXT_DELTA, {"text": reply}
+                )
+                await self._events.append(mission_id, AgentEventType.MESSAGE_ENDED, {})
+            return result
 
     def mission_usage(self, mission_id: str) -> dict:
         return self._usage.mission_totals(mission_id)
@@ -1014,6 +1028,146 @@ class AgentService:
             return False
         return proposal.get("state") in ("SUBMITTED", "TERMINAL", "DECLINED")
 
+    async def daemon_identity(self) -> dict | None:
+        """daemon 签名公钥（验证 DecisionReceiptV1）；进程内缓存。
+
+        信任锚：daemon socket 的本机 UID/组隔离；公钥本身无需保密。
+        """
+        if self._daemon_client is None:
+            return None
+        cached = getattr(self, "_daemon_identity_cache", None)
+        if cached is not None:
+            return cached
+        try:
+            identity = await asyncio.to_thread(self._daemon_client.daemon_identity)
+        except Exception:  # noqa: BLE001 - 取不到即无法验证（fail closed）
+            return None
+        self._daemon_identity_cache = identity
+        return identity
+
+    async def verify_decision_receipt(self, receipt_data: dict, card) -> tuple[bool, str]:
+        """R3/P0-6：只接受 daemon 签名有效、decision=ACCEPT、所有字段与
+        本地卡片精确相等、未过期、未重放的 DecisionReceiptV1。
+
+        返回 (ok, error)；ok=False 时 error 为人类可读原因。
+        DECLINE receipt 用 ``verify_decline_receipt``（同样验证签名与
+        字段，但只用于关闭请求，绝不生成 grant）。
+        """
+        from rosclaw.agentd.operator_socket import display_hash_for
+        from rosclaw.contracts.operator.decision import DecisionReceiptV1
+
+        try:
+            receipt = DecisionReceiptV1.from_dict(receipt_data)
+        except (ValueError, KeyError, TypeError) as exc:
+            return False, f"invalid receipt: {exc}"
+        identity = await self.daemon_identity()
+        if identity is None:
+            return False, "daemon identity unavailable — cannot verify receipt"
+        if receipt.daemon_key_id != str(identity.get("daemon_key_id", "")):
+            return False, "receipt signed by an unknown daemon key"
+        if receipt.daemon_instance_id != str(identity.get("daemon_instance_id", "")):
+            return False, "receipt belongs to a different daemon generation"
+        if not receipt.verify_signature(str(identity.get("public_key_pem", ""))):
+            return False, "receipt signature invalid"
+        mismatches: list[str] = []
+        if receipt.proposal_id != (card.daemon_proposal_id or ""):
+            mismatches.append("proposal_id")
+        if receipt.agent_request_id != card.request_id:
+            mismatches.append("agent_request_id")
+        if receipt.mission_id != card.mission_id:
+            mismatches.append("mission_id")
+        if receipt.execution_mode != card.mode:
+            mismatches.append("execution_mode")
+        if receipt.capability_id != (card.daemon_capability_id or ""):
+            mismatches.append("capability_id")
+        if receipt.canonical_args_hash != (card.daemon_action_intent_hash or ""):
+            mismatches.append("canonical_args_hash")
+        if receipt.display_hash != display_hash_for(card):
+            mismatches.append("display_hash")
+        if mismatches:
+            return False, "receipt fields do not match the local card: " + ", ".join(mismatches)
+        try:
+            expires = datetime.fromisoformat(receipt.expires_at.replace("Z", "+00:00"))
+        except ValueError:
+            return False, "receipt expires_at is not ISO-8601"
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=UTC)
+        from rosclaw.kernel.contracts import utc_now as _utc_now
+
+        if _utc_now() >= expires:
+            return False, "receipt expired"
+        if not self._record_decision_receipt(receipt):
+            return False, "receipt replay — this challenge nonce was already applied"
+        return True, ""
+
+    def _record_decision_receipt(self, receipt) -> bool:
+        """持久化 receipt（challenge_nonce UNIQUE = 跨重启重放防线）。"""
+        import json as _json
+        import sqlite3 as _sqlite3
+        from datetime import UTC as _UTC
+        from datetime import datetime as _datetime
+
+        try:
+            self._store.connection.execute(
+                "INSERT INTO decision_receipts "
+                "(receipt_id, proposal_id, challenge_nonce, decision, payload_json, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    receipt.receipt_id,
+                    receipt.proposal_id,
+                    receipt.challenge_nonce,
+                    receipt.decision,
+                    _json.dumps(receipt.to_dict(), ensure_ascii=False),
+                    _datetime.now(_UTC).isoformat(),
+                ),
+            )
+            self._store.connection.commit()
+        except _sqlite3.IntegrityError:
+            return False
+        return True
+
+    def verify_operatord_signature(
+        self,
+        *,
+        enrollment_id: str,
+        public_key_pem: str,
+        payload: bytes,
+        signature_b64: str,
+    ) -> tuple[bool, str]:
+        """SIM（DEV_SIM_ONLY）剖面：TOFU 钉住 operatord 公钥并验签。
+
+        首次见到 enrollment_id 时钉住公钥；此后公钥变化即拒绝
+        （可能的冒充/重装）。信任边界如实标注：同机同 UID 场景这只是
+        完整性检查，不是独立身份（DEV_SIM_ONLY）。
+        """
+        from datetime import UTC as _UTC
+        from datetime import datetime as _datetime
+
+        from rosclaw.contracts.operator.decision import verify_b64
+
+        row = self._store.connection.execute(
+            "SELECT public_key_pem FROM operatord_keys WHERE enrollment_id = ?",
+            (enrollment_id,),
+        ).fetchone()
+        if row is None:
+            self._store.connection.execute(
+                "INSERT INTO operatord_keys (enrollment_id, public_key_pem, first_seen_at) "
+                "VALUES (?, ?, ?)",
+                (enrollment_id, public_key_pem, _datetime.now(_UTC).isoformat()),
+            )
+            self._store.connection.commit()
+            pinned = public_key_pem
+        else:
+            pinned = str(row["public_key_pem"])
+            if pinned != public_key_pem:
+                return False, (
+                    "operatord public key changed for this enrollment — "
+                    "possible impersonation or reinstall; refusing"
+                )
+        if not verify_b64(pinned, payload, signature_b64):
+            return False, "operatord signature invalid"
+        return True, ""
+
     def list_grants(self):
         rows = self._store.connection.execute(
             "SELECT public_json, revoked, consumed, expires_at FROM mission_grants "
@@ -1136,6 +1290,90 @@ class AgentService:
             self._operator_socket = None
         await self._gateway.close()
         self._store.close()
+        # P1-4：control token 文件随服务关闭删除（不残留可重用的令牌）。
+        token_path = self._home / "run" / "agentd-control.token"
+        import contextlib as _contextlib
+
+        with _contextlib.suppress(OSError):
+            token_path.unlink(missing_ok=True)
+
+    # -- 生命周期与控制台鉴权（二次复核 P1-3/P1-4） -----------------------------
+
+    @classmethod
+    def open(cls, config: AgentConfig, rosclaw_home: Path, **kwargs):
+        """统一生命周期（P1-3）：``async with AgentService.open(...) as svc``
+        ——正常退出、异常、Ctrl-C 都保证 close（子进程/socket/句柄不残留）。"""
+        import contextlib as _contextlib
+
+        @_contextlib.asynccontextmanager
+        async def _ctx():
+            service = cls(config, rosclaw_home, **kwargs)
+            try:
+                yield service
+            finally:
+                await service.close()
+
+        return _ctx()
+
+    @property
+    def control_token(self) -> str:
+        """每次启动生成的高熵 ephemeral 控制 token（P1-4）。"""
+        token = getattr(self, "_control_token", None)
+        if token is None:
+            import secrets as _secrets
+
+            token = _secrets.token_urlsafe(32)
+            self._control_token = token
+        return token
+
+    def write_control_token_file(self) -> Path:
+        """把 control token 写入 0600 临时文件（TUI/CLI 同 UID 读取；
+        不写 journal、不进命令行参数）。"""
+        run_dir = self._home / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(run_dir, 0o700)
+        path = run_dir / "agentd-control.token"
+        tmp = run_dir / ".agentd-control.token.tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+            os.write(fd, self.control_token.encode())
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.rename(tmp, path)
+        return path
+
+    # -- transcript projection（二次复核 R4/P1-1） -------------------------------
+
+    def transcript(
+        self,
+        mission_id: str,
+        *,
+        before_seq: int | None = None,
+        limit: int = 500,
+    ) -> dict:
+        """journal → transcript 块（稳定 ID + before_seq 分页）。
+
+        TUI 不再从底层事件猜聊天记录；journal 仍是唯一权威。
+        """
+        from rosclaw.agentd.transcript import project_transcript
+
+        limit = max(1, min(int(limit), 2000))
+        events = self._events.replay(
+            mission_id,
+            before_sequence=before_seq,
+            limit=limit + 1,
+        )
+        has_more = len(events) > limit
+        events = events[:limit]
+        return {
+            "mission_id": mission_id,
+            "blocks": project_transcript(events),
+            "latest_sequence": self._events.latest_sequence(mission_id),
+            "oldest_sequence": events[0].sequence if events else 0,
+            "has_more": has_more,
+        }
 
 
 # ----------------------------------------------------------------------
@@ -1189,8 +1427,14 @@ def create_app(service: AgentService):
     @asynccontextmanager
     async def lifespan(_app):
         # PR-11：operator.sock 随 HTTP 服务启动（同一事件循环）。
+        # P1-3：HTTP 服务停止时必须关闭 service（子进程/socket/句柄）。
+        # P1-4：ephemeral control token 落 0600 文件供同机 TUI/CLI。
         await service.start_operator_socket()
-        yield
+        service.write_control_token_file()
+        try:
+            yield
+        finally:
+            await service.close()
 
     app = FastAPI(title="rosclaw-agentd", version="0.1.0", lifespan=lifespan)
 
@@ -1219,6 +1463,24 @@ def create_app(service: AgentService):
                 return JSONResponse(
                     status_code=403, content={"detail": "pairing token required"}
                 )
+        # P1-4：ephemeral control token——除 /health 与 /console（HTML
+        # 壳）外全部端点（含敏感 GET）都必须携带。token 经 0600 文件
+        # 交给同机 TUI/CLI，不写 journal、不进 ps。
+        public_paths = ("/health", "/console")
+        if (
+            request.url.path not in public_paths
+            and not request.url.path.startswith("/static/")
+            and request.headers.get("x-rosclaw-token") != service.control_token
+        ):
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "detail": (
+                        "control token required (P1-4): read "
+                        "run/agentd-control.token (0600) on this host"
+                    )
+                },
+            )
         return await call_next(request)
 
     @app.get("/health")
@@ -1279,6 +1541,19 @@ def create_app(service: AgentService):
         except ValidationError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"turn_id": turn_id, "mission_id": mission_id, "accepted": True}
+
+    @app.get("/v2/missions/{mission_id}/transcript")
+    async def v2_transcript(
+        mission_id: str,
+        before_seq: int | None = None,
+        limit: int = 500,
+    ) -> dict:
+        """R4/P1-1：transcript projection（稳定块 ID + before_seq 分页）。
+        响应含 latest_sequence——SSE 应从其续接（after_sequence），
+        恢复 exactly-once。"""
+        if service.get_mission(mission_id) is None:
+            raise HTTPException(status_code=404, detail="mission not found")
+        return service.transcript(mission_id, before_seq=before_seq, limit=limit)
 
     @app.get("/v2/missions/{mission_id}/events")
     async def v2_events(
@@ -1529,12 +1804,14 @@ function add(cls, who, text){ const d=document.createElement('div');
   d.className='turn'; d.innerHTML=`<span class="who ${cls}">${who}</span> `;
   const s=document.createElement('span'); s.textContent=text; d.appendChild(s);
   logEl().appendChild(d); logEl().scrollTop=logEl().scrollHeight; return s; }
-async function status(){ const r = await fetch('/status'); const s = await r.json();
+const TOKEN = new URLSearchParams(location.search).get('token') || '';
+const AUTH = TOKEN ? {'x-rosclaw-token': TOKEN} : {};
+async function status(){ const r = await fetch('/status',{headers:AUTH}); const s = await r.json();
   document.getElementById('status').textContent =
     `profile=${s.profile} model=${s.model} mode=${s.default_mode}`; }
 async function createMission(){
   const goal = document.getElementById('goal').value; if(!goal) return;
-  const r = await fetch('/missions',{method:'POST',headers:{'Content-Type':'application/json'},
+  const r = await fetch('/missions',{method:'POST',headers:{'Content-Type':'application/json',...AUTH},
     body:JSON.stringify({goal})});
   const m = await r.json();
   if(r.status!==201){ add('meta','系统','创建失败: '+(m.detail||'')); return; }
@@ -1545,7 +1822,7 @@ async function send(){
   t.value=''; add('','你',text);
   const span = add('','ROSClaw','');
   const r = await fetch(`/missions/${missionId}/turns/stream`,{method:'POST',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
+    headers:{'Content-Type':'application/json',...AUTH},body:JSON.stringify({text})});
   const reader = r.body.getReader(); const dec = new TextDecoder(); let buf='';
   while(true){ const {done, value} = await reader.read(); if(done) break;
     buf += dec.decode(value, {stream:true});
@@ -1558,7 +1835,7 @@ async function send(){
         if(!span.textContent && ev.reply) span.textContent = ev.reply;
         add('meta','状态',`state=${ev.state} 工具轮次=${ev.tool_rounds} tokens=${ev.tokens_used}`
           +(ev.degraded?` degraded=${ev.degraded}`:''));
-        const u = await (await fetch(`/missions/${missionId}/usage`)).json();
+        const u = await (await fetch(`/missions/${missionId}/usage`,{headers:AUTH})).json();
         add('meta','用量',`累计 tokens=${u.total_tokens} 轮次=${u.model_turns} 成本(微单位)=${u.cost_microunits}`);}
       else if(ev.type==='error'){ span.textContent = '错误: '+ev.detail; } } } }
 status();

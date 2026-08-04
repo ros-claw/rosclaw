@@ -263,27 +263,40 @@ live 模型协调。3v3 联赛基准（T-SIM-2/3）属 PR-TF-075 后续范围。
   `__`（catalog 注册拒绝含 `__` 的原生 id 保证单射）；内部协议工具的
   成功提交也必须回执 tool result（Kimi 拒绝悬空 tool_call）。
 
-## 授权剖面（审计 P0-01，2026-08-04）
+## 授权剖面（Operator Decision Protocol v1，二次复核 R1/R2/R3，2026-08-04）
 
-- **rosclaw-operatord**：独立进程，唯一人类授权决定点。enrollment key
-  （0600，损坏隔离，拒绝覆盖）+ HMAC DecisionProof（绑定 request/
-  approve/nonce/decided_at/enrollment/display_hash，nonce 一次性）。
-  `rosclaw operatord enroll|register-daemon|start|status`。
-- **rosclawd ACL**：`operator.enrollment.register`（bootstrap 门控）；
-  `proposal.decide` 只允许 daemon 服务 UID 或有效 proof——agentd/
-  Worker/普通 curl 无 key 必拒。REAL/SHADOW proposal 与 permit 均已
-  开放（FTC-100 SHADOW 走完整许可链，actuation 硬阻断）。
-- **agentd**：只创建 proposal、读公开结果——`consent_channel.decide`
-  已移除；`decide_approval` 仅 operatord 路径（`_from_operatord`）；
-  operator.sock 只剩只读 list + proof 门控 apply_decision；HTTP
-  decide/revoke 默认 403（`ROSCLAW_DEV_HTTP_DECIDE=1` 仅限
-  DEV_SIM_ONLY）；pending 必须指定 mission_id。同 UID 一体运行一律
-  标记 `DEV_SIM_ONLY`（doctor.authorization 可见）。
+- **协议对象**（contracts/operator/decision.py）：`DecisionChallengeV1`
+  （daemon 签发的一次性挑战，challenge_nonce 与 proposal 同源）→
+  `OperatorDecisionProofV1`（operatord Ed25519 签名，覆盖 challenge
+  全字段 + decision + decided_at + human_confirmation_method）→
+  `DecisionReceiptV1`（daemon 自己的 Ed25519 身份签名，绑定
+  proposal/agent_request/mission/mode/capability/args/display_hash/
+  decision/expires/daemon_key_id）。
+- **rosclaw-operatord**：唯一持有 operator Ed25519 私钥的进程
+  （0600、O_NOFOLLOW/O_EXCL、双 fsync、损坏按时间戳 quarantine）。
+  REAL/SHADOW 决定：取 daemon challenge（nonce 同源）→ 校验请求方
+  前台进程组（/proc tpgid）→ /dev/tty 显示不可变卡片读取显式 Y/N
+  （默认/超时/EOF 一律 deny）→ 签 proof。
+  `rosclaw operatord enroll|register-daemon|list-daemon|revoke-daemon|start|status`。
+- **rosclawd**：持久化 enrollment registry（0600、原子写、fsync；
+  空表全拒、无首调抢注窗口；register/revoke/list 仅 daemon 管理员；
+  已焚毁 nonce 持久化防跨重启重放）。`proposal.decide` **没有
+  daemon-UID 直通**——唯一凭证是有效 proof 且调用方 UID ==
+  enrollment 登记的 operator UID；验证成功后经不暴露 socket 的
+  内部 `_arm_after_operator_decision`/`_issue_permit_after_operator_decision`
+  完成 arm/permit（P0-4）。`daemon.identity` 公开签名公钥。
+- **agentd**（R3/P0-6）：daemon 卡只接受 daemon 签名、`decision=ACCEPT`
+  且所有字段与本地卡片精确相等、未过期、未重放（sqlite UNIQUE）的
+  DecisionReceiptV1；DECLINE 只关闭请求绝不铸 grant。SIM 卡为
+  operatord Ed25519 签名 + TOFU 钉住公钥（明确 DEV_SIM_ONLY）。
+  HTTP decide/revoke 默认 403；同 UID 一体运行标记 `DEV_SIM_ONLY`。
 - **SHADOW 全链路**（tests/shadow/test_limo_shadow_chain.py）：
-  proposal → operatord human decision（proof 经 ACL）→ Permit/Lease →
-  LIMO SHADOW executor → SHADOW receipt（evidence_domain=SHADOW、
-  actuated=false、usable_for_real_execution=false、拟执行 ROS 命令
-  可审计）。
+  enroll → register → proposal → challenge.get → sign → decide →
+  daemon receipt（公钥可验）→ Permit/Lease → LIMO SHADOW executor →
+  SHADOW receipt（actuated=false、拟执行 ROS 命令可审计）。
+- **human presence**（tests/operatord/test_human_presence.py，T2）：
+  真实 PTY 驱动——显式 Y 才批准，N/乱输入/EOF/超时/无 tty 全 deny；
+  非前台进程组请求直接拒绝。
 
 ## 证据等级与证据包（审计 §1.2/§8）
 

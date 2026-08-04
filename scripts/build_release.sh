@@ -44,16 +44,69 @@ cp "$REPO_ROOT/scripts/release/install_release.sh" "$STAGE/install.sh"
 cp "$REPO_ROOT/scripts/release/rollback.sh" "$STAGE/"
 chmod +x "$STAGE/install.sh" "$STAGE/rollback.sh"
 
-# 4. SBOM（pip + npm 依赖快照，审计 P0-05.2）
+# 4. SBOM（审计 P0-05.2 + R6）：CycloneDX 1.5 JSON（pip freeze/npm ls
+# 只是依赖快照，不是 SBOM——保留快照作调试参考，正式 SBOM 用 CycloneDX）。
 "$REPO_ROOT/.venv/bin/python" -m pip freeze --disable-pip-version-check 2>/dev/null   > "$STAGE/sbom-python.txt" || true
 for pkg in rosclaw-tui rosclaw-modeld; do
   (cd "$REPO_ROOT/packages/$pkg" && npm ls --omit=dev --depth=2 2>/dev/null)     > "$STAGE/sbom-$pkg.txt" || true
 done
+python3 - "$STAGE" "$VERSION" <<'PY'
+import json, re, sys
+from pathlib import Path
+
+stage, version = Path(sys.argv[1]), sys.argv[2]
+components = []
+for line in (stage / "sbom-python.txt").read_text().splitlines():
+    match = re.match(r"^([A-Za-z0-9_.-]+)==([A-Za-z0-9_.+-]+)$", line.strip())
+    if match:
+        name, ver = match.groups()
+        components.append({
+            "type": "library", "name": name, "version": ver,
+            "purl": f"pkg:pypi/{name.lower()}@{ver}",
+        })
+for pkg_file in stage.glob("sbom-rosclaw-*.txt"):
+    for line in pkg_file.read_text().splitlines():
+        match = re.search(r"([@a-z0-9_/.-]+)@([0-9][A-Za-z0-9_.+-]*)$", line.strip().lstrip("├─└│ "))
+        if match:
+            name, ver = match.groups()
+            components.append({
+                "type": "library", "name": name, "version": ver,
+                "purl": f"pkg:npm/{name}@{ver}",
+            })
+seen = set()
+unique = []
+for component in components:
+    if component["purl"] not in seen:
+        seen.add(component["purl"])
+        unique.append(component)
+sbom = {
+    "bomFormat": "CycloneDX",
+    "specVersion": "1.5",
+    "version": 1,
+    "metadata": {
+        "component": {
+            "type": "application", "name": "rosclaw", "version": version,
+            "purl": f"pkg:generic/rosclaw@{version}",
+        }
+    },
+    "components": sorted(unique, key=lambda c: c["purl"]),
+}
+(stage / "sbom-cyclonedx.json").write_text(json.dumps(sbom, indent=1, ensure_ascii=False))
+print(f"cyclonedx components: {len(unique)}")
+PY
 
 # 5. 离线资产（审计 P0-05.4）：目标机不再现场 TypeScript build、
 # 不访问 PyPI/npm。
 mkdir -p "$STAGE/vendor/wheels" "$STAGE/vendor/node_modules_pack"
-"$REPO_ROOT/.venv/bin/python" -m pip download   --disable-pip-version-check --quiet --dest "$STAGE/vendor/wheels"   "$REPO_ROOT" 2>/dev/null ||   echo "WARN: pip download 不完整（online build 继续；offline 包将缺 wheels）" >&2
+# R6：离线包缺 wheel 是硬失败（不再 warning 后继续）。
+"$REPO_ROOT/.venv/bin/python" -m pip download   --disable-pip-version-check --quiet --dest "$STAGE/vendor/wheels"   "$REPO_ROOT" || {
+    echo "FAIL: pip download 不完整——离线包将缺 wheels，拒绝产出。" >&2
+    exit 1
+  }
+[ -n "$(ls -A "$STAGE/vendor/wheels" 2>/dev/null)" ] || {
+  echo "FAIL: vendor/wheels 为空——拒绝产出离线包。" >&2
+  exit 1
+}
 for pkg in rosclaw-tui rosclaw-modeld; do
   (cd "$REPO_ROOT/packages/$pkg" && npm ci --omit=dev --silent)
   tar -C "$REPO_ROOT/packages/$pkg" -czf "$STAGE/vendor/node_modules_pack/$pkg.tar.gz" node_modules
