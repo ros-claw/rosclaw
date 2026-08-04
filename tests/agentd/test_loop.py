@@ -68,7 +68,11 @@ class FakeSelf:
 
 
 class FakeCaps:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
     def list_capabilities(self, query: str, limit: int):
+        self.queries.append(query)
         return [CapabilityInfo(name="get_robot_state")]
 
 
@@ -181,12 +185,21 @@ def mission(store: MissionStore) -> MissionSessionV1:
 
 
 def _loop(store: MissionStore, gateway: MockModelGateway, tools=None) -> AgentLoop:
+    return _loop_with_caps(store, gateway, FakeCaps(), tools)
+
+
+def _loop_with_caps(
+    store: MissionStore,
+    gateway: MockModelGateway,
+    caps: FakeCaps,
+    tools=None,
+) -> AgentLoop:
     compiler = ContextCompiler(
         SourceBundle(
             constitution_text="CONST",
             body=FakeBody(),
             self_source=FakeSelf(),
-            capabilities=FakeCaps(),
+            capabilities=caps,
             memory=FakeMemory(),
             organization=FakeOrg(),
             consent=FakeConsent(),
@@ -204,6 +217,29 @@ def _loop(store: MissionStore, gateway: MockModelGateway, tools=None) -> AgentLo
 
 
 class TestClosedLoop:
+    async def test_current_turn_drives_capability_and_tool_ranking(self, store, mission) -> None:
+        class ResolvingTools(MockTools):
+            def __init__(self) -> None:
+                super().__init__()
+                self.task_hints: list[str] = []
+
+            def resolve_tools(self, names, *, mode, task_hint):
+                self.task_hints.append(task_hint)
+                return self.strict_tools(names)
+
+        caps = FakeCaps()
+        tools = ResolvingTools()
+        gateway = MockModelGateway(
+            mock_profile(),
+            [lambda req: _turn(content=_decision_block(req))],
+        )
+        loop = _loop_with_caps(store, gateway, caps, tools)
+
+        await loop.run_user_turn(mission, "测量车载麦克风电平", now=NOW)
+
+        assert caps.queries == ["测量车载麦克风电平"]
+        assert tools.task_hints == ["测量车载麦克风电平"]
+
     async def test_text_tool_verify_reply(self, store, mission) -> None:
         tools = MockTools()
         gateway = MockModelGateway(

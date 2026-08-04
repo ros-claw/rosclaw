@@ -474,6 +474,9 @@ class LimoInitialPoseExecutor:
             "ROS_IP",
             "ROS_PACKAGE_PATH",
             "ROS_DISTRO",
+            # Fixed allowlisted PulseAudio bridge used by the isolated LIMO
+            # audio worker.  The worker independently rejects any other path.
+            "ROSCLAW_LIMO_PULSE_SERVER",
         }
         return {key: value for key, value in os.environ.items() if key in allowed}
 
@@ -1350,7 +1353,9 @@ class LimoSpeechExecutor(_LimoFixedWorkerExecutor):
             minimum_gain = float(loopback["thresholds"]["minimum_gain_db"])
         except (KeyError, TypeError, ValueError):
             return "Speech microphone metrics are malformed"
-        if not all(math.isfinite(value) for value in (rms_gain, observed_rms, minimum_rms, minimum_gain)):
+        if not all(
+            math.isfinite(value) for value in (rms_gain, observed_rms, minimum_rms, minimum_gain)
+        ):
             return "Speech microphone metrics are not finite"
         if (
             minimum_rms != -45.0
