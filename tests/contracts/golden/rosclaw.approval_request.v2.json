@@ -145,6 +145,26 @@
     "status": {
       "$ref": "#/$defs/ApprovalStatus",
       "default": "PENDING"
+    },
+    "daemon_proposal_id": {
+      "default": "",
+      "title": "Daemon Proposal Id",
+      "type": "string"
+    },
+    "daemon_action_id": {
+      "default": "",
+      "title": "Daemon Action Id",
+      "type": "string"
+    },
+    "daemon_capability_id": {
+      "default": "",
+      "title": "Daemon Capability Id",
+      "type": "string"
+    },
+    "daemon_action_intent_hash": {
+      "default": "",
+      "title": "Daemon Action Intent Hash",
+      "type": "string"
     }
   },
   "required": [
