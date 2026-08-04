@@ -227,7 +227,6 @@ class TestRestartInvalidation:
         # invalidated — it cannot be decided anymore (fail closed).
         daemon2, socket_path2, ledger_ctx2 = _start_daemon(tmp_path)
         client2 = DaemonClient(socket_path=socket_path2, timeout_sec=5.0)
-        channel2 = _channel(client2)
         with pytest.raises(ConsentChannelError, match="no pending proposal"):
             await _daemon_decide(
                 client2, proposal["request_id"], principal_id=LOCAL_PRINCIPAL, accept=True
