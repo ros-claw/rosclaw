@@ -73,7 +73,7 @@ def dispatch_operatord_argv(argv: list[str]) -> int | None:
         import contextlib
 
         from rosclaw.operatord.enrollment import EnrollmentError
-        from rosclaw.operatord.server import default_operatord_socket, run_operatord
+        from rosclaw.operatord.server import run_operatord
 
         async def _serve() -> None:
             daemon = await run_operatord(
