@@ -18,6 +18,7 @@ export interface CommandSpec {
 	required_capabilities: string[];
 	handler: string;
 	disabled_reason: string;
+	args_schema?: import("../commands/args-parser.js").ArgsSchema;
 }
 
 export interface CommandResult {
@@ -118,6 +119,30 @@ export class AgentClient {
 
 	pendingApprovals(missionId: string): Promise<Array<Record<string, unknown>>> {
 		return this.request("GET", `/approvals/pending?mission_id=${missionId}`);
+	}
+
+	/** 有界事件重放（resume 恢复 transcript 用；不走 SSE 长连接）。 */
+	async replayEvents(
+		missionId: string,
+		afterSequence = 0,
+	): Promise<Array<Record<string, unknown>>> {
+		const res = await fetch(
+			`${this.baseUrl}/v2/missions/${missionId}/events?follow=false&after_sequence=${afterSequence}`,
+			{ headers: { accept: "text/event-stream" } },
+		);
+		if (!res.ok || !res.body) return [];
+		const text = await res.text();
+		const events: Array<Record<string, unknown>> = [];
+		for (const line of text.split("\n")) {
+			if (line.startsWith("data: ")) {
+				try {
+					events.push(JSON.parse(line.slice(6)) as Record<string, unknown>);
+				} catch {
+					/* skip malformed frame */
+				}
+			}
+		}
+		return events;
 	}
 }
 

@@ -52,6 +52,13 @@ class CommandSpecV1(ContractModel):
     handler: str = ""
     #: set when unavailable: human-readable reason shown disabled in UI
     disabled_reason: str = ""
+    #: 机器可读参数 schema（审计 P0-03）：TUI/ACP/Web 共享解析，
+    #: 不再各自维护 switch 表。
+    #: {"positional": [{"name","type","required","enum"?,"rest"?}],
+    #:  "flags": {"name": {"type":"boolean"}},
+    #:  "interaction": "none|select|secret|path|confirm",
+    #:  "interaction_source": "models|missions|workers|providers|branches|none"}
+    args_schema: dict = Field(default_factory=dict)
 
 
 class CommandRequestV1(ContractModel):

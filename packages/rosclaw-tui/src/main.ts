@@ -44,18 +44,26 @@ async function main(): Promise<void> {
 	const client = new AgentClient(baseUrl);
 
 	let missionId = args.mission;
-	if (!missionId && args.goal) {
-		const created = await client.createMission(args.goal, args.mode);
-		missionId = created.mission_id;
-	}
-	if (!missionId) {
-		const missions = await client.listMissions();
-		const active = missions.filter((m) => m.state !== "FAILED");
-		if (active.length === 0) {
-			console.error("没有可用 Mission。用 --goal \"任务目标\" 创建，或 rosclaw chat 引导创建。");
-			process.exit(2);
+	try {
+		if (!missionId && args.goal) {
+			const created = await client.createMission(args.goal, args.mode);
+			missionId = created.mission_id;
 		}
-		missionId = active[active.length - 1].mission_id;
+		if (!missionId) {
+			const missions = await client.listMissions();
+			const active = missions.filter((m) => m.state !== "FAILED");
+			if (active.length === 0) {
+				console.error("没有可用 Mission。用 --goal \"任务目标\" 创建，或 rosclaw chat 引导创建。");
+				process.exit(2);
+			}
+			missionId = active[active.length - 1].mission_id;
+		}
+	} catch (err) {
+		console.error(
+			`无法连接 AgentService（${baseUrl}）：${(err as Error).message}\n` +
+				"请先启动 rosclaw-agentd（rosclaw chat 会自动启动），或用 --url 指定地址。",
+		);
+		process.exit(1);
 	}
 
 	const app = new RosclawTuiApp({ baseUrl, missionId });
