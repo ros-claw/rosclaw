@@ -11,8 +11,12 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { timingSafeEqual } from "node:crypto";
 import { chmodSync, mkdirSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
-import { FileCredentialStore } from "./credentials.js";
+import { UnifiedCredentialStore } from "./credentials.js";
 import { getProvider, providerIds, providerSpec } from "./providers.js";
+
+/** 请求体上限（审计 P0-04.5）。 */
+const MAX_BODY_BYTES = 256 * 1024;
+const BODY_READ_TIMEOUT_MS = 10_000;
 import { redact } from "./redact.js";
 import { streamTurn, type ModeldTurnRequest } from "./stream.js";
 
@@ -20,10 +24,13 @@ export interface ModeldOptions {
 	socketPath: string;
 	token: string;
 	homeDir: string;
+	allowFileCredentials?: boolean;
 }
 
 export function startModeld(options: ModeldOptions): Promise<Server> {
-	const store = new FileCredentialStore(options.homeDir);
+	const store = new UnifiedCredentialStore(options.homeDir, {
+		allowFileCredentials: options.allowFileCredentials,
+	});
 	mkdirSync(dirname(options.socketPath), { recursive: true, mode: 0o700 });
 	chmodSync(dirname(options.socketPath), 0o700);
 	rmSync(options.socketPath, { force: true });
@@ -34,8 +41,24 @@ export function startModeld(options: ModeldOptions): Promise<Server> {
 	}
 
 	async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+		const contentType = String(req.headers["content-type"] ?? "");
+		if (contentType && !contentType.startsWith("application/json")) {
+			throw new Error("content-type must be application/json");
+		}
 		const chunks: Buffer[] = [];
-		for await (const chunk of req) chunks.push(chunk as Buffer);
+		let total = 0;
+		const timer = setTimeout(() => req.destroy(new Error("body read timeout")), BODY_READ_TIMEOUT_MS);
+		try {
+			for await (const chunk of req) {
+				total += (chunk as Buffer).length;
+				if (total > MAX_BODY_BYTES) {
+					throw new Error(`body too large (> ${MAX_BODY_BYTES} bytes)`);
+				}
+				chunks.push(chunk as Buffer);
+			}
+		} finally {
+			clearTimeout(timer);
+		}
 		if (chunks.length === 0) return {};
 		return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
 	}
@@ -70,7 +93,6 @@ export function startModeld(options: ModeldOptions): Promise<Server> {
 						return {
 							id,
 							name: spec?.name ?? id,
-							base_url: spec?.baseUrl,
 							env_keys: spec?.envKeys ?? [],
 							auth: stored.has(id)
 								? "stored"
@@ -87,7 +109,7 @@ export function startModeld(options: ModeldOptions): Promise<Server> {
 
 			if (req.method === "GET" && path === "/v1/models") {
 				const providerId = url.searchParams.get("provider") ?? "";
-				const provider = getProvider(providerId);
+				const provider = await getProvider(providerId);
 				json(res, 200, {
 					models: provider.getModels().map((m) => ({
 						id: m.id,
@@ -101,7 +123,7 @@ export function startModeld(options: ModeldOptions): Promise<Server> {
 			}
 
 			if (req.method === "GET" && path === "/v1/auth") {
-				json(res, 200, { credentials: store.list() });
+				json(res, 200, { credentials: store.list(), policy: store.policy });
 				return;
 			}
 
@@ -125,8 +147,15 @@ export function startModeld(options: ModeldOptions): Promise<Server> {
 					json(res, 400, { error: "missing api_key" });
 					return;
 				}
-				store.set(providerId, key);
-				json(res, 200, { ok: true, provider: providerId });
+				const { scope } = store.set(providerId, key);
+				json(res, 200, {
+					ok: true,
+					provider: providerId,
+					scope,
+					note: scope === "session"
+						? "凭据仅在 modeld 进程存活期内有效（env:VAR/systemd 为推荐持久方式）"
+						: "凭据已写入 0600 文件（opt-in 明文存储）",
+				});
 				return;
 			}
 
@@ -145,7 +174,7 @@ export function startModeld(options: ModeldOptions): Promise<Server> {
 					json(res, 200, { ok: false, error: "no_credential", message: "未配置凭据" });
 					return;
 				}
-				const provider = getProvider(providerId);
+				const provider = await getProvider(providerId);
 				const model = provider.getModels().find((m) => m.id === modelId);
 				if (!model) {
 					json(res, 200, { ok: false, error: "unknown_model", message: modelId });
@@ -183,29 +212,32 @@ export function startModeld(options: ModeldOptions): Promise<Server> {
 					"content-type": "text/event-stream",
 					"cache-control": "no-cache",
 				});
-				const send = (event: unknown) => {
-					res.write(`data: ${JSON.stringify(event)}\n\n`);
+				const send = async (event: unknown) => {
+					// SSE 背压：write 返回 false 时等 drain，不无限缓冲（审计 P0-04.5）。
+					if (!res.write(`data: ${JSON.stringify(event)}\n\n`)) {
+						await new Promise<void>((resolve) => res.once("drain", resolve));
+					}
 				};
 				if (!apiKey && (providerSpec(providerId)?.envKeys.length ?? 0) > 0) {
-					send({ type: "error", kind: "no_credential", message: "未配置凭据" });
+					await send({ type: "error", kind: "no_credential", message: "未配置凭据" });
 					res.end();
 					return;
 				}
 				let provider;
 				let model;
 				try {
-					provider = getProvider(providerId);
+					provider = await getProvider(providerId);
 					model = provider.getModels().find((m) => m.id === String(body.model));
 					if (!model) throw new Error(`unknown model ${String(body.model)}`);
 				} catch (err) {
-					send({ type: "error", kind: "unknown_model", message: redact((err as Error).message) });
+					await send({ type: "error", kind: "unknown_model", message: redact((err as Error).message) });
 					res.end();
 					return;
 				}
 				const abort = new AbortController();
 				req.on("close", () => abort.abort());
 				for await (const event of streamTurn(provider, model, body, apiKey, abort.signal)) {
-					send(event);
+					await send(event);
 				}
 				res.end();
 				return;
