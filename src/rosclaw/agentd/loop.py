@@ -670,10 +670,12 @@ class AgentLoop:
                 f"artifact_ref: {artifact_ref}\n"
                 f"result: {output[:2000]}"
             )
+        # OBSERVE 意图的证据不是模型发起的 tool_call——严格 provider
+        # （Kimi）会拒绝 tool_call_id 对不上的 role=tool 消息。证据以
+        # user 消息携带（untrusted 包裹语义不变），原子组保持。
         self._conversation.append(
             {
-                "role": "tool",
-                "tool_call_id": f"obs_{digest}",
+                "role": "user",
                 "content": evidence_note,
                 "atomic_group": f"obs_{digest}",
             }
