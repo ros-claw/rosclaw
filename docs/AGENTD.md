@@ -263,6 +263,40 @@ live 模型协调。3v3 联赛基准（T-SIM-2/3）属 PR-TF-075 后续范围。
   `__`（catalog 注册拒绝含 `__` 的原生 id 保证单射）；内部协议工具的
   成功提交也必须回执 tool result（Kimi 拒绝悬空 tool_call）。
 
+## 授权剖面（审计 P0-01，2026-08-04）
+
+- **rosclaw-operatord**：独立进程，唯一人类授权决定点。enrollment key
+  （0600，损坏隔离，拒绝覆盖）+ HMAC DecisionProof（绑定 request/
+  approve/nonce/decided_at/enrollment/display_hash，nonce 一次性）。
+  `rosclaw operatord enroll|register-daemon|start|status`。
+- **rosclawd ACL**：`operator.enrollment.register`（bootstrap 门控）；
+  `proposal.decide` 只允许 daemon 服务 UID 或有效 proof——agentd/
+  Worker/普通 curl 无 key 必拒。REAL/SHADOW proposal 与 permit 均已
+  开放（FTC-100 SHADOW 走完整许可链，actuation 硬阻断）。
+- **agentd**：只创建 proposal、读公开结果——`consent_channel.decide`
+  已移除；`decide_approval` 仅 operatord 路径（`_from_operatord`）；
+  operator.sock 只剩只读 list + proof 门控 apply_decision；HTTP
+  decide/revoke 默认 403（`ROSCLAW_DEV_HTTP_DECIDE=1` 仅限
+  DEV_SIM_ONLY）；pending 必须指定 mission_id。同 UID 一体运行一律
+  标记 `DEV_SIM_ONLY`（doctor.authorization 可见）。
+- **SHADOW 全链路**（tests/shadow/test_limo_shadow_chain.py）：
+  proposal → operatord human decision（proof 经 ACL）→ Permit/Lease →
+  LIMO SHADOW executor → SHADOW receipt（evidence_domain=SHADOW、
+  actuated=false、usable_for_real_execution=false、拟执行 ROS 命令
+  可审计）。
+
+## 证据等级与证据包（审计 §1.2/§8）
+
+- 等级命名（`bench/evidence_levels.py`）：E0 SPECIFIED …
+  E7 OPERATIONALLY_QUALIFIED；任何"全链路通过"必须标注最高等级。
+  当前：组件 E1/E2，SIM 主路径 E3，SHADOW 许可链 E4（部分）。
+- 证据包（`bench/evidence_pack.py`）：`acceptance/<run_id>/` 含
+  run_manifest（commit/dirty/level/test_ids/operator/secret_scan_clean）、
+  environment、commands、events、mission_snapshot、approvals/permits/
+  receipts(public)、metrics、secret_scan、artifact_hashes、
+  operator_observer——**没有证据包就没有通过**。
+  `run_acceptance(evidence_root=...)` 直接产出。
+
 ## Operator 安全通道（PR-11）
 
 - `operator.sock`（0600，JSONL）：与模型可见的 Agent API 物理分面——

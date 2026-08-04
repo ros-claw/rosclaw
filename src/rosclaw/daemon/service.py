@@ -797,10 +797,11 @@ class DaemonControlPlane:
                     f"{MAX_OPERATOR_PERMIT_TTL_SEC:g} seconds"
                 ),
             )
-        if action.execution_mode is not ExecutionMode.REAL:
+        if action.execution_mode not in {ExecutionMode.REAL, ExecutionMode.SHADOW}:
             raise ControlPlaneError(
                 "PERMIT_REAL_ACTION_REQUIRED",
-                "Operator permits may be issued only for explicit REAL actions",
+                "Operator permits may be issued only for explicit REAL or SHADOW actions "
+                "(FTC-100: SHADOW exercises the permission chain with actuation blocked)",
             )
         if not action.body_snapshot_hash.strip():
             raise ControlPlaneError(
@@ -856,11 +857,20 @@ class DaemonControlPlane:
                     "EMERGENCY_STOP_LATCHED",
                     "Restart rosclawd and complete preflight before permit issuance",
                 )
+            expected_shadow_executor = f"{action.capability_id}:{ExecutionMode.SHADOW.value}"
             registered = set(getattr(self.runtime.action_gateway, "registered_executors", ()))
-            if expected_executor not in registered:
+            required_executor = (
+                expected_executor
+                if action.execution_mode is ExecutionMode.REAL
+                else expected_shadow_executor
+            )
+            if required_executor not in registered:
                 raise ControlPlaneError(
                     "REAL_EXECUTOR_UNAVAILABLE",
-                    (f"No daemon-side REAL executor is registered for {action.capability_id!r}"),
+                    (
+                        f"No daemon-side {action.execution_mode.value} executor is registered "
+                        f"for {action.capability_id!r}"
+                    ),
                 )
             issued_at = _iso(now)
             permit = ExecutionPermit(

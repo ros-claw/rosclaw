@@ -1,5 +1,11 @@
 """全链路闭环深度测试（2026-08-04 复盘专项）。
 
+**证据等级标注（审计 §7.1/§1.2）：本文件 = L1（进程集成）+ 部分 L2
+（Mock Model + LIMO SIM executor）。** 它证明进程/协议/授权/SIM 执行
+闭环，**不证明**真实 Provider（由 test_kimi_live 的 K 系列覆盖）、
+真实 rosclawd 许可链（由 tests/shadow 的 FTC-100 覆盖）或实体 LIMO
+REAL（待 FTC-110）。
+
 一次运行覆盖 Native Agent 全链路：
 init → doctor → service(+operator.sock+HTTP) → mission → LIMO 观测 →
 授权(operator.sock peer identity) → SIM 执行 → receipt → 验证 →

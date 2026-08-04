@@ -250,7 +250,13 @@ export function startModeld(options: ModeldOptions): Promise<Server> {
 	});
 
 	return new Promise((resolve) => {
+		// umask 先行：socket 文件在 bind 时即 0600——listen 回调里的 chmod
+		// 晚于文件出现，等待方（Python gateway 轮询 exists）会在两者之间
+		// stat 到默认权限（负载相关的测试抖动 + 一个极小的时间窗）。
+		const previousUmask = process.umask(0o077);
+		server.once("error", () => process.umask(previousUmask));
 		server.listen(options.socketPath, () => {
+			process.umask(previousUmask);
 			chmodSync(options.socketPath, 0o600);
 			resolve(server);
 		});

@@ -55,15 +55,17 @@ class OperatorProposalStore:
         """Create one immutable proposal and strip all caller approval claims."""
 
         ttl = self._ttl(ttl_sec)
-        if action.execution_mode is not ExecutionMode.REAL:
+        if action.execution_mode not in {ExecutionMode.REAL, ExecutionMode.SHADOW}:
             raise OperatorProposalError(
                 "PROPOSAL_REAL_ACTION_REQUIRED",
-                "Operator proposals may contain only explicit REAL actions",
+                "Operator proposals may contain only explicit REAL or SHADOW actions "
+                "(FTC-100: SHADOW proposals exercise the full permission chain "
+                "with actuation hard-blocked)",
             )
         if not action.body_snapshot_hash.strip():
             raise OperatorProposalError(
                 "PROPOSAL_BODY_SNAPSHOT_REQUIRED",
-                "REAL operator proposals require a body snapshot hash",
+                "REAL/SHADOW operator proposals require a body snapshot hash",
             )
         normalized_display = self._display(display)
         current = (now or datetime.now(UTC)).astimezone(UTC)

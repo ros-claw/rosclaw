@@ -104,3 +104,85 @@ class TestInstallRollbackSemantics:
         assert result.returncode == 0, result.stderr
         assert (prefix / "current" / "marker_old").exists()
         assert list(prefix.glob("failed-*")), "failed version must be preserved"
+
+
+@pytest.mark.slow
+class TestSignedBundle:
+    def test_build_produces_signed_manifest_and_offline_assets(self, tmp_path: Path) -> None:
+        import subprocess
+        import tarfile
+
+        env = dict(os.environ, ROSCLAW_SIGNING_HOME=str(tmp_path / "signing"))
+        result = subprocess.run(
+            ["bash", str(REPO / "scripts" / "build_release.sh")],
+            cwd=REPO, capture_output=True, text=True, timeout=900, env=env,
+        )
+        assert result.returncode == 0, result.stderr[-1500:]
+        bundles = sorted((REPO / "dist").glob("rosclaw-*-linux-*.tar.gz"))
+        bundle = bundles[-1]
+        stage = tmp_path / "stage"
+        stage.mkdir()
+        with tarfile.open(bundle) as tf:
+            tf.extractall(stage)
+        root = next(stage.iterdir())
+        # 签名与公钥存在，SBOM 与离线资产存在。
+        for name in ("manifest.json", "manifest.sig", "bundle-signing-public.pem",
+                     "sbom-python.txt", "sbom-rosclaw-tui.txt", "sbom-rosclaw-modeld.txt"):
+            assert (root / name).exists(), name
+        assert (root / "vendor" / "node_modules_pack" / "rosclaw-tui.tar.gz").exists()
+        assert (root / "vendor" / "node_modules_pack" / "rosclaw-modeld.tar.gz").exists()
+        # 签名有效。
+        verify = subprocess.run(
+            ["openssl", "dgst", "-sha256", "-verify",
+             str(root / "bundle-signing-public.pem"),
+             "-signature", str(root / "manifest.sig"),
+             str(root / "manifest.json")],
+            capture_output=True, text=True,
+        )
+        assert verify.returncode == 0, verify.stderr
+        # 篡改 manifest 中任一文件 → 验签/has 必拒（这里改一个源码文件）。
+        target = next((root / "src" / "rosclaw").rglob("*.py"))
+        target.write_text("tampered")
+        verify2 = subprocess.run(
+            ["openssl", "dgst", "-sha256", "-verify",
+             str(root / "bundle-signing-public.pem"),
+             "-signature", str(root / "manifest.sig"),
+             str(root / "manifest.json")],
+            capture_output=True, text=True,
+        )
+        # manifest.json 本身未变 → 签名仍有效，但文件 hash 校验必败。
+        assert verify2.returncode == 0
+        check = subprocess.run(
+            ["python3", "-c", _HASH_CHECK_SNIPPET, str(root)],
+            capture_output=True, text=True,
+        )
+        assert check.returncode == 2
+        assert "tampered" in check.stderr
+        # 安装器在篡改下直接拒绝（verify-before-execute）。
+        install = subprocess.run(
+            ["bash", str(root / "install.sh"), "--offline"],
+            capture_output=True, text=True, timeout=120,
+            env=dict(os.environ, ROSCLAW_PREFIX=str(tmp_path / "prefix")),
+        )
+        assert install.returncode == 2
+        assert "篡改" in install.stderr or "tampered" in install.stderr
+
+
+_HASH_CHECK_SNIPPET = (
+    "import hashlib, json, sys\n"
+    "from pathlib import Path\n"
+    "root = Path(sys.argv[1])\n"
+    "manifest = json.loads((root / 'manifest.json').read_text())\n"
+    "bad = []\n"
+    "for rel, expected in manifest['files'].items():\n"
+    "    path = root / rel\n"
+    "    if not path.exists():\n"
+    "        bad.append(f'missing: {rel}')\n"
+    "        continue\n"
+    "    actual = hashlib.sha256(path.read_bytes()).hexdigest()\n"
+    "    if actual != expected:\n"
+    "        bad.append(f'tampered: {rel}')\n"
+    "if bad:\n"
+    "    print('\\n'.join(bad), file=sys.stderr)\n"
+    "    sys.exit(2)\n"
+)
