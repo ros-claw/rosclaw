@@ -16,7 +16,7 @@ ROOT = Path("/tmp/e2e")
 
 
 def _daemon_socket() -> Path:
-    return ROOT / "rcd" / "run" / "rosclawd.sock"
+    return ROOT / "runtime" / "rosclawd" / "rosclawd.sock"
 
 
 def cmd_daemon() -> int:
@@ -63,7 +63,7 @@ def cmd_daemon() -> int:
     ledger = DaemonLedger(home / "state" / "ledger.sqlite3", key_path=home / "state" / "ledger.key")
     daemon = RosclawDaemon(
         service=DaemonControlPlane(runtime=runtime, ledger=ledger),
-        socket_path=home / "run" / "rosclawd.sock",
+        socket_path=ROOT / "runtime" / "rosclawd" / "rosclawd.sock",
         socket_mode=0o660,
         socket_group="rccontrol",
     )

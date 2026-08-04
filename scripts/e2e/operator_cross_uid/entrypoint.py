@@ -81,14 +81,17 @@ def setup_users() -> None:
         home.mkdir(parents=True)
         shutil.chown(home, user=name, group=name)
         os.chmod(home, 0o700)
-    # daemon run 目录：rcd:rccontrol 0750（组可 traversable，P0-2 布局）。
-    run_dir = ROOT / "rcd" / "run"
-    run_dir.mkdir()
+    # daemon runtime 目录在 0700 home 之外：rcd:rccontrol 0750
+    # （P0-2 布局——跨 UID 可达，worker 不可达）。
+    run_dir = ROOT / "runtime" / "rosclawd"
+    run_dir.mkdir(parents=True)
     shutil.chown(run_dir, user="rcd", group=CONTROL_GROUP)
     os.chmod(run_dir, 0o750)
+    # shared：operator 导出公钥给管理员（组可写）。
     shared = ROOT / "shared"
     shared.mkdir()
-    os.chmod(shared, 0o755)
+    shutil.chown(shared, user="root", group=CONTROL_GROUP)
+    os.chmod(shared, 0o775)
 
 
 def main() -> int:
@@ -99,7 +102,7 @@ def main() -> int:
         "rcd", "daemon", extra_groups=[CONTROL_GROUP], env=env, background=True
     )
     try:
-        sock = ROOT / "rcd" / "run" / "rosclawd.sock"
+        sock = ROOT / "runtime" / "rosclawd" / "rosclawd.sock"
         for _ in range(100):
             if sock.exists():
                 break
@@ -121,7 +124,7 @@ def main() -> int:
         record("worker_daemon_socket_eacces", "EACCES" in r.stdout, r.stdout.strip()[-80:])
 
         # 3. operatord 侧 enroll（uid rco，私钥 0600 于 rco 私有 home）。
-        r = as_user("rco", "enroll", env=env)
+        r = as_user("rco", "enroll", extra_groups=[CONTROL_GROUP], env=env)
         record("operator_enroll", r.returncode == 0 and "enrollment_id" in r.stdout,
                r.stderr.strip()[-120:])
         # worker 读 operator 私钥 → EACCES（0700 私有 home）。
