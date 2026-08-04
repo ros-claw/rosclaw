@@ -2,11 +2,15 @@
 FROM python:3.12-slim
 
 WORKDIR /repo
-# hatch 的 forced-include 引用 worker_plugins 等路径——必须全量拷贝。
+# hatch force-include 引用 e-urdf-zoo/configs/worker_plugins/benchmarks 等
+# 多个路径——按 pyproject 全量拷贝（.dockerignore 排除重型产物）。
 COPY pyproject.toml README.md ./
 COPY src ./src
-COPY worker_plugins ./worker_plugins
 COPY scripts ./scripts
+COPY e-urdf-zoo ./e-urdf-zoo
+COPY configs ./configs
+COPY worker_plugins ./worker_plugins
+COPY benchmarks ./benchmarks
 RUN pip install --no-cache-dir -e . && \
     rm -rf /root/.cache
 
