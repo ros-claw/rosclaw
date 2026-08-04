@@ -32,6 +32,7 @@ class AcceptanceReport:
     receipts: list[str] = field(default_factory=list)
     grants: list[str] = field(default_factory=list)
     practice_candidate: str | None = None
+    evidence_manifest: dict = field(default_factory=dict)
 
     @property
     def passed(self) -> bool:
@@ -205,7 +206,9 @@ def acceptance_script(tone_args: dict | None = None, pose_args: dict | None = No
     return script
 
 
-async def run_acceptance(home: Path, *, gateway=None) -> AcceptanceReport:
+async def run_acceptance(
+    home: Path, *, gateway=None, evidence_root: Path | None = None
+) -> AcceptanceReport:
     """SIMULATION 全链路验收（真实 MCP/审批/执行/receipt 路径）。"""
     import yaml
 
@@ -357,6 +360,44 @@ async def run_acceptance(home: Path, *, gateway=None) -> AcceptanceReport:
         # T6 报告（用户可见诚实声明）。
         report.notes.append(last_reply[:200])
         report.checks["T6_report"] = "验收完成" in last_reply
+        # 证据包（审计 §8）：E3_SIM_VERIFIED —— Mock 模型时严格标 L1+L2。
+        if evidence_root is not None:
+            from rosclaw.agentd.bench.evidence_levels import EvidenceLevel
+            from rosclaw.agentd.bench.evidence_pack import EvidencePackWriter, current_commit
+
+            pack = EvidencePackWriter(evidence_root)
+            pack.write_environment(provider="mock" if gateway is None else "kimi-code")
+            pack.write_commands(
+                [
+                    "run_acceptance(home, gateway=..., evidence_root=...)",
+                    "mcp_servers: limo-sim (SIM executor)",
+                ]
+            )
+            events = service.events_replay(mission.mission_id, limit=100_000)
+            pack.write_events([e.model_dump(mode="json") for e in events])
+            pack.write_mission_snapshot(service.snapshot(mission.mission_id).model_dump(mode="json"))
+            pack.write_public_records(
+                approvals=[],
+                permits=[],
+                receipts=[
+                    e.payload for e in events if e.type.value == "receipt.received"
+                ],
+            )
+            pack.write_metrics(
+                {"checks": report.checks, "passed": report.passed}
+            )
+            pack.write_observer(
+                "# operator observer\n\nSIMULATION 证据域验收；无声学传感器，"
+                "扬声器只证明驱动执行（§18.4）。\n"
+            )
+            commit, dirty = current_commit()
+            report.evidence_manifest = pack.finalize(
+                level=EvidenceLevel.E3_SIM_VERIFIED,
+                git_commit=commit,
+                dirty=dirty,
+                test_ids=["FTC-040", "C1-C10"],
+                operator="rosclaw-ci",
+            )
         return report
     finally:
         await operatord.stop()

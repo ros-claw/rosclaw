@@ -416,9 +416,17 @@ def _chat_tui(service: AgentService, args: argparse.Namespace) -> int:
 
     runtime = _find_tui_runtime()
     if runtime is None:
+        if os.environ.get("ROSCLAW_REQUIRE_TUI") == "1":
+            # 审计 P0-05.6：验收环境不允许静默回退。
+            print(
+                "FAIL: rosclaw-tui 不可用且 ROSCLAW_REQUIRE_TUI=1——"
+                "完整验收失败（不允许静默回退 --basic）。",
+                file=sys.stderr,
+            )
+            return 2
         print(
             "rosclaw-tui 不可用（需要 Node >= 22.19 与已构建的 packages/rosclaw-tui；"
-            "见 rosclaw doctor）。回退到兼容模式 --basic。",
+            "见 rosclaw doctor）。回退到兼容模式 --basic（显式救援模式）。",
             file=sys.stderr,
         )
         return asyncio.run(_chat_repl(service, args))

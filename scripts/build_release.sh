@@ -44,7 +44,22 @@ cp "$REPO_ROOT/scripts/release/install_release.sh" "$STAGE/install.sh"
 cp "$REPO_ROOT/scripts/release/rollback.sh" "$STAGE/"
 chmod +x "$STAGE/install.sh" "$STAGE/rollback.sh"
 
-# 4. manifest（含各组件 hash 供回滚校验）
+# 4. SBOM（pip + npm 依赖快照，审计 P0-05.2）
+"$REPO_ROOT/.venv/bin/python" -m pip freeze --disable-pip-version-check 2>/dev/null   > "$STAGE/sbom-python.txt" || true
+for pkg in rosclaw-tui rosclaw-modeld; do
+  (cd "$REPO_ROOT/packages/$pkg" && npm ls --omit=dev --depth=2 2>/dev/null)     > "$STAGE/sbom-$pkg.txt" || true
+done
+
+# 5. 离线资产（审计 P0-05.4）：目标机不再现场 TypeScript build、
+# 不访问 PyPI/npm。
+mkdir -p "$STAGE/vendor/wheels" "$STAGE/vendor/node_modules_pack"
+"$REPO_ROOT/.venv/bin/python" -m pip download   --disable-pip-version-check --quiet --dest "$STAGE/vendor/wheels"   "$REPO_ROOT" 2>/dev/null ||   echo "WARN: pip download 不完整（online build 继续；offline 包将缺 wheels）" >&2
+for pkg in rosclaw-tui rosclaw-modeld; do
+  (cd "$REPO_ROOT/packages/$pkg" && npm ci --omit=dev --silent)
+  tar -C "$REPO_ROOT/packages/$pkg" -czf "$STAGE/vendor/node_modules_pack/$pkg.tar.gz" node_modules
+done
+
+# 6. manifest（含各组件 hash 供回滚校验 + 签名输入）
 python3 - "$STAGE" "$VERSION" "$ARCH_NAME" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
@@ -61,6 +76,18 @@ manifest = {
 }
 (stage / "manifest.json").write_text(json.dumps(manifest, indent=1))
 PY
+
+# 7. 分离签名（审计 P0-05.3）：dev 签名密钥在本机（不入库），
+# 公钥随包发布；安装器先验签再执行任何脚本。
+SIGN_DIR="${ROSCLAW_SIGNING_HOME:-$HOME/.rosclaw/signing}"
+if [ ! -f "$SIGN_DIR/dev-signing-private.pem" ]; then
+  mkdir -p "$SIGN_DIR" && chmod 700 "$SIGN_DIR"
+  openssl ecparam -name prime256v1 -genkey -noout -out "$SIGN_DIR/dev-signing-private.pem"
+  chmod 600 "$SIGN_DIR/dev-signing-private.pem"
+  openssl ec -in "$SIGN_DIR/dev-signing-private.pem" -pubout -out "$SIGN_DIR/dev-signing-public.pem"
+fi
+cp "$SIGN_DIR/dev-signing-public.pem" "$STAGE/bundle-signing-public.pem"
+openssl dgst -sha256 -sign "$SIGN_DIR/dev-signing-private.pem"   -out "$STAGE/manifest.sig" "$STAGE/manifest.json"
 
 mkdir -p "$DIST_DIR"
 tar -C "$DIST_DIR" -czf "${DIST_DIR}/${BUNDLE}.tar.gz" "$BUNDLE"
