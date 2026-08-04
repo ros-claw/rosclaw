@@ -156,8 +156,11 @@ def main() -> int:
         if proposal_id:
             r = as_user("rca", "agent_self_decide", proposal_id,
                         extra_groups=[CONTROL_GROUP], env=env)
-            record("agent_cannot_decide", "PERMISSION_DENIED" in r.stdout,
-                   r.stdout.strip()[-120:])
+            record(
+                "agent_cannot_decide",
+                "PERMISSION_DENIED" in r.stdout or "DENIED_AT_CHALLENGE" in r.stdout,
+                r.stdout.strip()[-120:],
+            )
 
         # 8. operator 走完整协议：challenge → sign → decide → receipt 验证。
         if proposal_id:

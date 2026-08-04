@@ -196,7 +196,12 @@ def cmd_agent_self_decide(proposal_id: str) -> int:
 
     client = DaemonClient(socket_path=_daemon_socket())
     private, _pem = generate_ed25519_keypair()
-    challenge = DecisionChallengeV1.from_dict(client.get_operator_challenge(proposal_id)["challenge"])
+    try:
+        challenge = DecisionChallengeV1.from_dict(client.get_operator_challenge(proposal_id)["challenge"])
+    except DaemonClientError as exc:
+        # agent 连 challenge 都拿不到（更强拒绝）——同样算 fail closed。
+        print(f"DENIED_AT_CHALLENGE {exc.code}")
+        return 0
     proof = OperatorDecisionProofV1(
         enrollment_id="oen_agent_forged",
         challenge=challenge,
