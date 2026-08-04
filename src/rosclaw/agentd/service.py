@@ -1015,6 +1015,15 @@ class AgentService:
             )
         return grants
 
+    def principal_for_request(self, request_id: str) -> str:
+        """approval request 所属 mission 的 owner principal。"""
+        req = self._broker.get_request(request_id)
+        if req is not None:
+            mission = self._store.get_mission(req.mission_id)
+            if mission is not None:
+                return mission.owner_principal
+        return f"user:local:{os.getuid()}"
+
     def revoke_grant(self, grant_id: str, *, principal: str) -> None:
         self._broker.revoke(grant_id, principal=principal)
         import asyncio as _asyncio
@@ -1118,7 +1127,7 @@ class TurnCreate(_BaseModel):
 
 class DecisionCreate(_BaseModel):
     approve: bool
-    principal: str = "user:local:1000"
+    principal: str | None = None  # 缺省按 mission owner 解析（不再硬编码 uid）
 
 
 class CommandRequestCreate(_BaseModel):
@@ -1411,9 +1420,12 @@ def create_app(service: AgentService):
 
     @app.post("/approvals/{request_id}/decide")
     async def approvals_decide(request_id: str, payload: DecisionCreate) -> dict:
+        # principal 缺省按该请求的 mission owner 解析（loopback console；
+        # 强身份仍走 operator.sock 的 SO_PEERCRED）。
+        principal = payload.principal or service.principal_for_request(request_id)
         try:
             grant = await service.decide_approval(
-                request_id, principal=payload.principal, approve=payload.approve
+                request_id, principal=principal, approve=payload.approve
             )
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=422, detail=str(exc)) from exc

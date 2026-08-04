@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from collections.abc import Callable
@@ -285,7 +286,11 @@ class OpenAICompatGateway:
                     if piece:
                         content_parts.append(piece)
                         if on_text_delta is not None:
-                            on_text_delta(piece)
+                            # 回调可能是 async（runner 的事件总线）：不 await
+                            # 就会静默丢 delta 并留下 never-awaited 警告。
+                            maybe = on_text_delta(piece)
+                            if asyncio.iscoroutine(maybe):
+                                await maybe
                     reasoning_piece = delta.get("reasoning_content")
                     if reasoning_piece:
                         reasoning_parts.append(reasoning_piece)
