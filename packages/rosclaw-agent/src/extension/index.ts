@@ -18,6 +18,7 @@ import {
 import { defaultOperatorSocket, operatorCall } from "../bridge/operatord-client.js";
 import { ApprovalCardComponent } from "../ui/approval-card.js";
 import { EventMirror } from "./event-mirror.js";
+import { guardInput } from "./input-guard.js";
 import { fetchEmbodiedContext, renderTrustedContext } from "./context-injection.js";
 
 export interface RosclawExtensionOptions {
@@ -220,6 +221,20 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			} catch (err) {
 				ctx.ui.notify(`授权卡交互失败：${(err as Error).message}`, "error");
 			}
+		});
+
+		// -- 输入防护（PNA-9，规格 §11）：未知命令不发模型；ROBOT 拦 trust/share --
+		pi.on("input", async (event, ctx) => {
+			if (event.source !== "interactive") return undefined;
+			const verdict = guardInput(event.text, options.profile);
+			if (verdict.action === "handled") {
+				ctx.ui.notify(verdict.notice ?? "blocked", "warning");
+				return { action: "handled" };
+			}
+			if (verdict.action === "transform") {
+				return { action: "transform", text: verdict.text ?? event.text };
+			}
+			return { action: "continue" };
 		});
 
 		// -- 认知事件镜像（PNA-8，规格 §24.2）：hash-only，不双写全文 ----------

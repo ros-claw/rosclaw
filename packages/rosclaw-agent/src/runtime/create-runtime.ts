@@ -16,6 +16,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { migrateProviders } from "../credentials/migration.js";
 import { credentialStoreFor } from "../credentials/store.js";
+import { resourcePolicy } from "../extension/resource-policy.js";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -75,12 +76,18 @@ export async function createRosclawRuntime(
 				settingsManager,
 				modelRuntime,
 				resourceLoaderOptions: {
-					// 项目资源全关（审计 §5）；ROSClaw 扩展走内联工厂。
-					noExtensions: true,
-					noSkills: true,
-					noPromptTemplates: true,
-					noThemes: true,
-					noContextFiles: true,
+					// PNA-9：profile 化资源策略（robot 全禁；developer 仅用户
+					// 主题；项目 .pi/AGENTS.md/skills 一律不加载）。
+					...(function () {
+						const policy = resourcePolicy(options.profile);
+						return {
+							noExtensions: policy.noExtensions,
+							noSkills: policy.noSkills,
+							noPromptTemplates: policy.noPromptTemplates,
+							noThemes: policy.noThemes,
+							noContextFiles: policy.noContextFiles,
+						};
+					})(),
 					extensionFactories: [
 						{
 							name: "rosclaw",
