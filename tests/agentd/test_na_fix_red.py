@@ -25,6 +25,24 @@ REPO = Path(__file__).resolve().parents[2]
 AGENT_PKG = REPO / "packages" / "rosclaw-agent"
 
 
+def _node_bin() -> str | None:
+    """node >= 22.19（CI 的 Python-only job 没有 node——跨语言测试诚实 skip）。"""
+    import shutil
+
+    for candidate in filter(None, [shutil.which("node"), "/usr/bin/node", "/usr/local/bin/node"]):
+        try:
+            out = subprocess.check_output([candidate, "--version"], text=True, timeout=10).strip()
+            if [int(p) for p in out.lstrip("v").split(".")] >= [22, 19, 0]:
+                return candidate
+        except Exception:  # noqa: BLE001
+            continue
+    return None
+
+
+NODE = _node_bin()
+requires_node = pytest.mark.skipif(NODE is None, reason="node >= 22.19 unavailable")
+
+
 def _turn() -> ModelTurnResultV1:
     return ModelTurnResultV1(
         turn_id="t", provider="mock", model="m", content="ok",
@@ -33,6 +51,7 @@ def _turn() -> ModelTurnResultV1:
     )
 
 
+@requires_node
 class TestCrossLanguageHash:
     """P0-1：完整真实 envelope 的跨语言字节级一致。"""
 
@@ -51,9 +70,8 @@ class TestCrossLanguageHash:
             f"const env = JSON.parse({json.dumps(envelope_json)});"
             "console.log(envelopeHash(env));"
         )
-        node_bin = "/usr/bin/node"
         result = subprocess.run(
-            [node_bin, "--input-type=module", "-e", script],
+            [NODE, "--input-type=module", "-e", script],
             cwd=AGENT_PKG, capture_output=True, text=True, timeout=60,
         )
         assert result.returncode == 0, result.stderr
