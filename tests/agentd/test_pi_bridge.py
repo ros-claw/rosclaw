@@ -69,6 +69,15 @@ class TestBindingStore:
                 body_id="b", execution_mode="SIMULATION", created_by="user:local:1000",
             )
         assert conflict.value.code == "SESSION_ALREADY_BOUND"
+        # 新 session 绑定同一 mission：旧 ACTIVE binding 降为 DETACHED
+        # （规格 §12：一个 mission 同时只有一个主认知 writer）。
+        bindings.bind(
+            pi_session_id="pi_2", pi_session_path="", mission_id="mis_1",
+            body_id="b", execution_mode="SIMULATION", created_by="user:local:1000",
+        )
+        old = bindings.binding_for_session("pi_1")
+        assert old is None or old.status != "ACTIVE"
+        assert bindings.binding_for_session("pi_2").status == "ACTIVE"
         store.close()
 
     def test_writer_lease_single_writer_and_expiry(self, tmp_path: Path) -> None:

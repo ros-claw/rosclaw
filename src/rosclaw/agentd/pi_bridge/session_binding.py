@@ -76,6 +76,15 @@ class SessionBindingStore:
             parent_binding_id=parent_binding_id,
             source_mission_id=source_mission_id,
         )
+        # 规格 §12：一个 Mission 同时只有一个主认知 writer——新 session
+        # 绑定同一 mission 时，旧 session 的 ACTIVE binding 降为 DETACHED
+        # （历史可溯，不双写）。
+        self._conn.execute(
+            "UPDATE pi_session_bindings SET status = 'DETACHED', "
+            "binding_revision = binding_revision + 1 "
+            "WHERE mission_id = ? AND pi_session_id != ? AND status = 'ACTIVE'",
+            (mission_id, pi_session_id),
+        )
         try:
             self._conn.execute(
                 "INSERT INTO pi_session_bindings (binding_id, pi_session_id, pi_session_path, "

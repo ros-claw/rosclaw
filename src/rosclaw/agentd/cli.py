@@ -411,11 +411,14 @@ def _find_pi_agent_entry() -> tuple[str, str] | None:
 
 
 def _chat_pi(home: Path, args: argparse.Namespace) -> int:
-    """engine=pi：exec rosclaw-agent（Pi InteractiveMode + ROSClaw 扩展）。
+    """engine=pi：agentd 内核（sockets/token）+ exec rosclaw-agent。
 
-    规格 §2.1：Pi 是唯一主认知循环——本进程不启动 Python AgentLoop。
+    规格 §2.1：Pi 是唯一主认知循环——Python AgentLoop 不接收用户 turn；
+    agentd 只提供 pi-bridge/operator socket 与控制 token（具身内核服务）。
     """
     import subprocess as _sp
+    import threading
+    import time
 
     runtime = _find_pi_agent_entry()
     if runtime is None:
@@ -427,11 +430,45 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
         )
         return 2
     node, entry = runtime
+    config = load_agent_config(home / "config.yaml")
+    service = AgentService(config, home)
+    # Mission：--mission 复用或新建（SIMULATION 默认，规格 §13.1）。
+    if args.mission:
+        mission = service.get_mission(args.mission)
+        if mission is None:
+            print(f"mission {args.mission} 不存在", file=sys.stderr)
+            return 2
+    else:
+        try:
+            mission = service.create_mission(args.goal or "ROSClaw chat session", mode=args.mode)
+        except Exception as exc:  # noqa: BLE001
+            print(f"无法创建 mission：{exc}", file=sys.stderr)
+            return 2
+    # 起 HTTP app 仅为驱动 lifespan（operator sock + pi bridge + token 文件）。
+    import uvicorn
+
+    app = create_app(service)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="error"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.time() + 5.0
+    while time.time() < deadline and not (home / "run" / "pi-bridge.sock").exists():
+        time.sleep(0.05)
+    if not (home / "run" / "pi-bridge.sock").exists():
+        print("pi-bridge 未能启动——engine=pi 不可用（agentd 内核未就绪）。", file=sys.stderr)
+        server.should_exit = True
+        asyncio.run(service.close())
+        return 2
     env = dict(os.environ, ROSCLAW_HOME=str(home))
     try:
-        return _sp.call([node, entry], env=env)  # noqa: S603 - fixed entry
+        return _sp.call(  # noqa: S603 - fixed entry
+            [node, entry, "--mission", mission.mission_id], env=env
+        )
     except KeyboardInterrupt:
         return 0
+    finally:
+        server.should_exit = True
+        asyncio.run(service.close())
 
 
 def _find_tui_runtime() -> tuple[str, str] | None:
