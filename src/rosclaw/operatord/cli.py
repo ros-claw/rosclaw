@@ -13,7 +13,10 @@ def dispatch_operatord_argv(argv: list[str]) -> int | None:
     if argv[:1] != ["operatord"]:
         return None
     if len(argv) < 2:
-        print("用法: rosclaw operatord <enroll|register-daemon|list-daemon|revoke-daemon|start|status> [--home DIR]", file=sys.stderr)
+        print(
+            "用法: rosclaw operatord <enroll|register-daemon|list-daemon|revoke-daemon|start|status> [--home DIR]",
+            file=sys.stderr,
+        )
         return 2
     command = argv[1]
     home = Path(
@@ -47,14 +50,18 @@ def dispatch_operatord_argv(argv: list[str]) -> int | None:
         return 0
 
     if command == "register-daemon":
-        from rosclaw.daemon.client import DaemonClient, DaemonClientError
+        from rosclaw.daemon.client import (
+            DaemonClient,
+            DaemonClientError,
+            get_daemon_socket_path,
+        )
         from rosclaw.operatord.enrollment import (
             EnrollmentError,
             load_identity,
             read_public_key_pem,
         )
 
-        daemon_socket = home / "run" / "rosclawd.sock"
+        daemon_socket = get_daemon_socket_path()
         if not daemon_socket.exists():
             print(f"rosclawd socket 不存在：{daemon_socket}", file=sys.stderr)
             return 2
@@ -82,9 +89,13 @@ def dispatch_operatord_argv(argv: list[str]) -> int | None:
         return 0
 
     if command == "list-daemon":
-        from rosclaw.daemon.client import DaemonClient, DaemonClientError
+        from rosclaw.daemon.client import (
+            DaemonClient,
+            DaemonClientError,
+            get_daemon_socket_path,
+        )
 
-        daemon_socket = home / "run" / "rosclawd.sock"
+        daemon_socket = get_daemon_socket_path()
         if not daemon_socket.exists():
             print(f"rosclawd socket 不存在：{daemon_socket}", file=sys.stderr)
             return 2
@@ -100,9 +111,13 @@ def dispatch_operatord_argv(argv: list[str]) -> int | None:
         if len(argv) < 3:
             print("用法: rosclaw operatord revoke-daemon <enrollment_id>", file=sys.stderr)
             return 2
-        from rosclaw.daemon.client import DaemonClient, DaemonClientError
+        from rosclaw.daemon.client import (
+            DaemonClient,
+            DaemonClientError,
+            get_daemon_socket_path,
+        )
 
-        daemon_socket = home / "run" / "rosclawd.sock"
+        daemon_socket = get_daemon_socket_path()
         if not daemon_socket.exists():
             print(f"rosclawd socket 不存在：{daemon_socket}", file=sys.stderr)
             return 2
@@ -117,13 +132,14 @@ def dispatch_operatord_argv(argv: list[str]) -> int | None:
     if command == "start":
         import contextlib
 
+        from rosclaw.daemon.client import get_daemon_socket_path
         from rosclaw.operatord.enrollment import EnrollmentError
         from rosclaw.operatord.server import run_operatord
 
         async def _serve() -> None:
             daemon = await run_operatord(
                 home=home,
-                daemon_socket=home / "run" / "rosclawd.sock",
+                daemon_socket=get_daemon_socket_path(),
                 require_human_presence="--no-human-presence-check" not in argv,
             )
             print(f"rosclaw-operatord listening on {daemon._path}")

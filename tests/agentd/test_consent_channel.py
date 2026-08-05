@@ -87,8 +87,9 @@ def daemon(tmp_path: Path):
         ledger_ctx.__exit__(None, None, None)
 
 
-
-async def _daemon_decide(client, request_id: str, *, principal_id: str, accept: bool, supervise_timeout_sec: float = 60.0) -> dict:
+async def _daemon_decide(
+    client, request_id: str, *, principal_id: str, accept: bool, supervise_timeout_sec: float = 60.0
+) -> dict:
     """operatord 语义：challenge.get → Ed25519 sign → decide（R1 协议路径）。"""
     from rosclaw.agentd.consent_channel import ConsentChannelError
     from rosclaw.daemon.client import DaemonRequestError as _DaemonRequestError
@@ -117,7 +118,11 @@ async def _daemon_decide(client, request_id: str, *, principal_id: str, accept: 
             reason="reviewed bounded action" if accept else "declined by operator",
         )
     except _DaemonRequestError as exc:
-        if exc.code in {"PROPOSAL_NOT_PENDING", "PROPOSAL_NOT_FOUND", "OPERATOR_PROPOSAL_NOT_FOUND"}:
+        if exc.code in {
+            "PROPOSAL_NOT_PENDING",
+            "PROPOSAL_NOT_FOUND",
+            "OPERATOR_PROPOSAL_NOT_FOUND",
+        }:
             raise ConsentChannelError(f"no pending proposal {request_id!r}") from exc
         raise
     if accept:
@@ -132,6 +137,36 @@ async def _daemon_decide(client, request_id: str, *, principal_id: str, accept: 
 
 def _channel(client: DaemonClient) -> DaemonConsentChannel:
     return DaemonConsentChannel(client, actor_id="agent:test", body_id="rh56-test", body_hash="h")
+
+
+@pytest.mark.parametrize(
+    ("ttl_sec", "expected_lease_ms"),
+    [(5.0, 30_000), (300.0, 300_000), (3_600.0, 3_600_000)],
+)
+async def test_operator_proposal_lease_covers_bounded_execution_window(
+    ttl_sec: float, expected_lease_ms: int
+) -> None:
+    class CapturingClient:
+        def __init__(self) -> None:
+            self.action = None
+
+        def create_operator_proposal(self, action, **_kwargs):
+            self.action = action
+            return {"proposal": {"request_id": "proposal-test"}}
+
+    client = CapturingClient()
+    channel = _channel(client)  # type: ignore[arg-type]
+    await channel.create_proposal(
+        capability_id=REAL_CAPABILITY,
+        arguments={"finger": "index", "delta_raw": 20},
+        display={"title": "bounded action", "risk_tier": "LOW"},
+        execution_mode="REAL",
+        ttl_sec=ttl_sec,
+    )
+
+    assert client.action is not None
+    assert client.action.lease_ttl_ms == expected_lease_ms
+    assert client.action.renew_interval_ms < client.action.lease_ttl_ms
 
 
 class TestRealConsentFlow:
@@ -178,7 +213,9 @@ class TestRealConsentFlow:
             risk_class="high",
             ttl_sec=60.0,
         )
-        await _daemon_decide(client, proposal["request_id"], principal_id=LOCAL_PRINCIPAL, accept=False)
+        await _daemon_decide(
+            client, proposal["request_id"], principal_id=LOCAL_PRINCIPAL, accept=False
+        )
         terminal = await channel.proposal(proposal["request_id"])
         assert terminal.get("state") == "DECLINED"
 
@@ -221,7 +258,9 @@ class TestRealConsentFlow:
             risk_class="high",
             ttl_sec=60.0,
         )
-        await _daemon_decide(client, proposal["request_id"], principal_id=LOCAL_PRINCIPAL, accept=True)
+        await _daemon_decide(
+            client, proposal["request_id"], principal_id=LOCAL_PRINCIPAL, accept=True
+        )
         with pytest.raises(ConsentChannelError, match="no pending proposal"):
             await _daemon_decide(
                 client, proposal["request_id"], principal_id=LOCAL_PRINCIPAL, accept=True
