@@ -8,6 +8,13 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { bridgeCall } from "../bridge/bridge-client.js";
+import {
+	handleSessionStart,
+	sessionIdOf,
+	shouldCancelSwitch,
+	shouldCancelTree,
+	type LifecycleDeps,
+} from "../session/lifecycle.js";
 import { defaultOperatorSocket, operatorCall } from "../bridge/operatord-client.js";
 import { ApprovalCardComponent } from "../ui/approval-card.js";
 import { fetchEmbodiedContext, renderTrustedContext } from "./context-injection.js";
@@ -214,7 +221,39 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			}
 		});
 
-		// -- 生命周期观察（PNA-6 在此强制"新 SIM Mission + 不复制 authority"） -------
+		// -- Session 生命周期映射（PNA-6，规格 §13） ------------------------------
+		const lifecycle: LifecycleDeps = {
+			rosclawHome: options.rosclawHome,
+			getMissionId: () => options.missionId,
+			setMissionId: (missionId) => {
+				options.missionId = missionId;
+			},
+			notify: (message, type) => undefined,
+		};
+		pi.on("session_start", async (event, ctx) => {
+			lifecycle.notify = (message, type) => ctx.ui.notify(message, type);
+			try {
+				await handleSessionStart(lifecycle, event.reason, sessionIdOf(ctx));
+			} catch (err) {
+				ctx.ui.notify(`session 绑定异常：${(err as Error).message}`, "error");
+			}
+		});
+		pi.on("session_before_switch", async (event, ctx) => {
+			lifecycle.notify = (message, type) => ctx.ui.notify(message, type);
+			const veto = await shouldCancelSwitch(lifecycle, sessionIdOf(ctx));
+			return veto ? { cancel: true } : undefined;
+		});
+		pi.on("session_before_tree", async (_event, ctx) => {
+			lifecycle.notify = (message, type) => ctx.ui.notify(message, type);
+			const veto = await shouldCancelTree(lifecycle);
+			if (veto) {
+				ctx.ui.notify(veto, "warning");
+				return { cancel: true };
+			}
+			return undefined;
+		});
+		// fork：authority 结构性不复制（grant/permit 只在 agentd）；
+		// 新 mission 绑定在 session_start(reason=fork) 完成。
 		pi.on("session_before_fork", async () => {
 			return undefined;
 		});

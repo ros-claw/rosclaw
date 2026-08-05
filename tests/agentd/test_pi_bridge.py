@@ -175,3 +175,36 @@ class TestPiBridge:
         finally:
             await server.stop()
             await service.close()
+
+
+class TestLifecycleBridgeMethods:
+    async def test_mission_create_forces_sim_and_binding_get(self, tmp_path: Path) -> None:
+        service, server, sock = await _bridge(tmp_path)
+        try:
+            token = service.control_token
+            # fork/新建只允许 SIMULATION（规格 §13.2/§13.4）。
+            created = await operator_call(
+                sock, "pi.mission.create", {"token": token, "goal": "fork test", "mode": "REAL"}
+            )
+            assert not created["ok"] and created["code"] == "MODE_FORBIDDEN"
+            ok = await operator_call(
+                sock, "pi.mission.create", {"token": token, "goal": "fork test"}
+            )
+            assert ok["ok"] and ok["mode"] == "SIMULATION"
+            # binding.get：未绑定 → null；绑定后 → 返回绑定 + mission 状态。
+            missing = await operator_call(
+                sock, "pi.session.binding.get", {"token": token, "pi_session_id": "pi_x"}
+            )
+            assert missing["ok"] and missing["binding"] is None
+            await operator_call(
+                sock, "pi.session.bind",
+                {"token": token, "pi_session_id": "pi_x", "mission_id": ok["mission_id"]},
+            )
+            found = await operator_call(
+                sock, "pi.session.binding.get", {"token": token, "pi_session_id": "pi_x"}
+            )
+            assert found["binding"]["mission_id"] == ok["mission_id"]
+            assert found["mission_state"]
+        finally:
+            await server.stop()
+            await service.close()

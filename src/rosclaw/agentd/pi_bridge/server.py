@@ -167,6 +167,31 @@ class PiBridgeServer:
             except ValueError as exc:
                 return {"ok": False, "error": str(exc), "code": "CONTEXT_UNAVAILABLE"}
             return {"ok": True, "context": envelope.model_dump(mode="json")}
+        if method == "pi.mission.create":
+            # PNA-6（规格 §13）：/new /fork 的新 Mission——fork 强制
+            # SIMULATION，authority（grant/permit/approval）永不复制。
+            goal = str(params.get("goal", "")) or "ROSClaw pi session"
+            mode = str(params.get("mode", "SIMULATION")).upper()
+            if mode != "SIMULATION":
+                return {
+                    "ok": False,
+                    "error": "pi sessions may only create SIMULATION missions",
+                    "code": "MODE_FORBIDDEN",
+                }
+            mission = service.create_mission(goal, mode="SIMULATION")
+            return {"ok": True, "mission_id": mission.mission_id,
+                    "mode": mission.mode.value}
+        if method == "pi.session.binding.get":
+            binding = self._bindings.binding_for_session(str(params.get("pi_session_id", "")))
+            if binding is None:
+                return {"ok": True, "binding": None}
+            mission = service.get_mission(binding.mission_id)
+            return {
+                "ok": True,
+                "binding": binding.model_dump(mode="json"),
+                "mission_state": mission.state.value if mission else "MISSING",
+                "mission_archived": service.mission_archived(binding.mission_id),
+            }
         if method == "pi.worker.status":
             # PNA-4：Worker 状态投影（原位更新 UI 用；只读）。
             mission_id = str(params.get("mission_id", ""))
