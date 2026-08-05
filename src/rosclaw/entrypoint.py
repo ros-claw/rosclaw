@@ -8,6 +8,15 @@ import sys
 def main() -> int:
     """Dispatch product workflows without importing the full legacy CLI."""
 
+    # NA-FIX-8：root CLI 产品化——精简 help / commands --json / topic 指引
+    # （命中即返回；未命中走既有 dispatcher，行为不变）。
+    from rosclaw.root_cli import dispatch_root_cli
+
+    _help_all = sys.argv[1:] == ["help", "--all"]
+    root = dispatch_root_cli(sys.argv[1:] if not _help_all else ["commands", "--help-all"])
+    if root is not None:
+        return root
+
     from rosclaw.operator.cli import dispatch_operator_argv
 
     result = dispatch_operator_argv(sys.argv[1:])
@@ -110,6 +119,8 @@ def main() -> int:
     if result is not None:
         return result
 
+    if _help_all:
+        sys.argv = [sys.argv[0], "--help"]
     from rosclaw.cli import main as legacy_main
 
     return legacy_main()

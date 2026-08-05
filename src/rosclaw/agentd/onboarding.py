@@ -257,4 +257,11 @@ def doctor(home: Path) -> dict:
     elif probe.error:
         report["reason"] = probe.error
     report["pi_engine"] = _pi_engine_report(home)
+    # NA-FIX-7：凭据来源可见（无 secret 内容，仅来源与指纹）。
+    try:
+        from rosclaw.agentd.credentials import ModelCredentialBroker
+
+        report["credential_sources"] = ModelCredentialBroker(home).source_report()
+    except Exception as exc:  # noqa: BLE001
+        report["credential_sources"] = [{"error": str(exc)}]
     return report

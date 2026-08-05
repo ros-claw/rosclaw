@@ -171,3 +171,72 @@ class AgentCredentialStore:
             "fingerprint": hashlib.sha256(value.encode()).hexdigest()[:8] if value else None,
             "path": str(self.path),
         }
+
+
+#: 统一的模型凭据 broker（NA-FIX-7，规格 §22.4/P1-4）。
+#: provider → (Pi env key, legacy env key)
+BROKER_ENV_BY_PROVIDER = {
+    "kimi-code": ("KIMI_API_KEY", "ROSCLAW_KIMI_API_KEY"),
+    "kimi-api": ("MOONSHOT_API_KEY", "MOONSHOT_API_KEY"),
+    "openai": ("OPENAI_API_KEY", "OPENAI_API_KEY"),
+    "anthropic": ("ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"),
+    "openrouter": ("OPENROUTER_API_KEY", "OPENROUTER_API_KEY"),
+}
+
+
+class ModelCredentialBroker:
+    """统一模型凭据入口（NA-FIX-7）。
+
+    读取顺序：进程 env（Pi 键或 legacy 键）→ legacy AgentCredentialStore
+    **一次性** read-and-migrate（把值补进进程 env，不再二次写盘）。
+    doctor 用 ``source_report`` 展示每个 provider 的凭据来源——
+    永不打印 secret（只指纹前 8 位）。
+    """
+
+    def __init__(self, home: Path) -> None:
+        self._home = home
+        self._migrated: bool = False
+        self._migrated_from_legacy: list[str] = []
+
+    def migrate_legacy_once(self) -> tuple[str, ...]:
+        """legacy store → 进程 env（setdefault，绝不覆盖显式 env）。"""
+        if self._migrated:
+            return ()
+        store = AgentCredentialStore(self._home)
+        injected = store.inject()
+        self._migrated = True
+        self._migrated_from_legacy = list(injected)
+        # legacy env 键 → Pi env 键（进程内桥接，不落地）。
+        for pi_key, legacy_key in BROKER_ENV_BY_PROVIDER.values():
+            value = os.environ.get(legacy_key)
+            if value and pi_key != legacy_key and not os.environ.get(pi_key):
+                os.environ[pi_key] = value
+        return injected
+
+    def source_for(self, provider: str) -> dict[str, object]:
+        """凭据来源报告（无 secret 内容，只有来源与指纹）。"""
+        pi_key, legacy_key = BROKER_ENV_BY_PROVIDER.get(provider, ("", ""))
+        import hashlib as _hl
+
+        for key, source in ((pi_key, "env"), (legacy_key, "env-legacy")):
+            value = os.environ.get(key, "") if key else ""
+            if value:
+                return {
+                    "provider": provider,
+                    "source": source,
+                    "env_name": key,
+                    "fingerprint": _hl.sha256(value.encode()).hexdigest()[:8],
+                }
+        return {"provider": provider, "source": "none", "env_name": pi_key}
+
+    def source_report(self) -> list[dict[str, object]]:
+        report = [self.source_for(provider) for provider in BROKER_ENV_BY_PROVIDER]
+        if self._migrated_from_legacy:
+            report.append(
+                {
+                    "provider": "(legacy-migration)",
+                    "source": "agentd/credentials.json (read-once)",
+                    "env_names": self._migrated_from_legacy,
+                }
+            )
+        return report

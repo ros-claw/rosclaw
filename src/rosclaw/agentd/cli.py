@@ -15,7 +15,11 @@ import sys
 from pathlib import Path
 
 from rosclaw.agentd.config import load_agent_config
-from rosclaw.agentd.credentials import AgentCredentialStore, CredentialStoreError
+from rosclaw.agentd.credentials import (
+    AgentCredentialStore,
+    CredentialStoreError,
+    ModelCredentialBroker,
+)
 from rosclaw.agentd.onboarding import PROVIDER_CHOICES, configure_model, doctor
 from rosclaw.agentd.service import AgentService, create_app
 
@@ -33,8 +37,10 @@ def _home(args: argparse.Namespace) -> Path:
 
 
 def _load_stored_credentials(home: Path) -> bool:
+    """NA-FIX-7：统一经 ModelCredentialBroker——legacy 一次性 read-and-migrate，
+    不再双写。"""
     try:
-        AgentCredentialStore(home).inject()
+        ModelCredentialBroker(home).migrate_legacy_once()
     except CredentialStoreError as exc:
         print(str(exc), file=sys.stderr)
         return False

@@ -43,6 +43,7 @@ def _request() -> ModelTurnRequest:
 class TestModeldGateway:
     async def test_probe_without_credential_is_honest(self, tmp_path: Path) -> None:
         os.environ.pop("ROSCLAW_KIMI_API_KEY", None)
+        os.environ.pop("KIMI_API_KEY", None)  # NA-FIX-7 broker 桥接键
         gateway = ModeldGateway(kimi_code_k3_profile(), home=tmp_path)
         try:
             probe = await gateway.probe()
@@ -53,6 +54,7 @@ class TestModeldGateway:
 
     async def test_stream_without_credential_fails_closed(self, tmp_path: Path) -> None:
         os.environ.pop("ROSCLAW_KIMI_API_KEY", None)
+        os.environ.pop("KIMI_API_KEY", None)  # NA-FIX-7 broker 桥接键
         gateway = ModeldGateway(kimi_code_k3_profile(), home=tmp_path)
         try:
             with pytest.raises(ModelGatewayError, match="no_credential|missing"):
