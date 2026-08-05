@@ -49,3 +49,46 @@
 - 产品身份：退出 resume hint 已收口；header/命令已收口；`pi` 仅存在于 license/SBOM/build-info 允许域。
 - SIM 默认切换：**仍暂缓**（T-PRODUCT 全旅程 PTY、T-TUI IME 矩阵、T-SOAK、性能实测未做）。
 - SHADOW/REAL：继续关闭。
+
+
+---
+
+# 附录 A：NA-FIX-7/8 + NA-FIX-2 收尾（2026-08-05 追加，main=2bf9746）
+
+## NA-FIX-7（§22.4/P1-4 凭据收口）
+
+- **ModelCredentialBroker** 单一读取权威：legacy AgentCredentialStore 变
+  一次性 read-and-migrate（env setdefault、不重写、无双路径）；legacy env
+  键进程内桥接 Pi 键（值不落地、不进 journal）；doctor 按 provider 展示
+  凭据来源（只指纹）。
+- 测试：read-once、显式 env 优先、报告无 secret、无凭据=none（3/3）。
+
+## NA-FIX-8（§8 根 CLI 产品化）
+
+- 精简 root help（bare/-h/--help → Get started/Runtime/Domains）；
+  `help --all` 透传 legacy 全量清单；`commands --json`
+  （rosclaw.commands.v1 机器注册表）；topic 指引；**旧命令行为零变化**
+  （审计 §12 不做大规模搬家的原则）；旧 test_cli 帮助断言已按新 IA 更新。
+- 测试：help snapshot/--json schema/topic/兼容执行（5/5）。
+
+## NA-FIX-2 收尾验证
+
+- **100 次绑定/lease 切换 soak**：每一时刻单 writer、对手 WRITER_HELD、
+  释放可得、终态无 split-brain ACTIVE binding（1/1）。
+
+## 终验（main=2bf9746）
+
+- 全量回归 **6280 passed**（8 个环境基线失败，origin/main 相同）；
+- agentd 套件 430/430；node 32/32（rosclaw-agent）+ 27 + 18；
+- K0–K9 live 10/11（K6 团队协调套件内未收敛，单独 44s 通过——与
+  K1/K4/K7/K9 同类的模型行为非确定性，非代码回归）；
+- 验收 12/12 + 签名证据包 `rosclaw evidence verify` VERIFIED。
+
+## 当前状态（对照审计 §11 Gate）
+
+- Gate A 产品身份：✅（resume hint/header/命令收口；`/help` 为 ROSClaw）
+- Gate B Session 正确性：✅（100 次切换无 split-brain）
+- Gate C Embodied Context：✅（跨语言一致 + 完整投影 + revision 硬校验）
+- Gate D SIM Action：✅（真注册 + 两阶段 + 精确 receipt）
+- Gate E Interaction：❌（Product Journey PTY/IME/性能/soak 未做）
+- 默认切换：暂缓（Gate E）；REAL：关闭。
