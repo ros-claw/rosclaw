@@ -138,7 +138,7 @@ for candidate in node /usr/bin/node /usr/local/bin/node; do
   fi
 done
 if [ "$NODE_OK" = "1" ]; then
-  for pkg in rosclaw-tui rosclaw-modeld; do
+  for pkg in rosclaw-tui rosclaw-modeld rosclaw-agent; do
     if [ -f "$NEXT/vendor/node_modules_pack/$pkg.tar.gz" ]; then
       tar -C "$NEXT/packages/$pkg" -xzf "$NEXT/vendor/node_modules_pack/$pkg.tar.gz"
     else

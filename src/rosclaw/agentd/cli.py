@@ -368,6 +368,11 @@ def cmd_chat(args: argparse.Namespace) -> int:
     home = _home(args)
     if not _load_stored_credentials(home):
         return 2
+    # 重构路线（rosclaw_native_agent重构.md）：engine=pi 走 Pi-backed
+    # harness（packages/rosclaw-agent），legacy 保持默认直到 Product Gate 通过。
+    engine = "legacy" if getattr(args, "legacy", False) else (getattr(args, "engine", None) or "legacy")
+    if engine == "pi":
+        return _chat_pi(home, args)
     config = load_agent_config(home / "config.yaml")
     if not config.profiles:
         print("未配置模型。先运行 `rosclaw agent init`。", file=sys.stderr)
@@ -376,6 +381,57 @@ def cmd_chat(args: argparse.Namespace) -> int:
     if getattr(args, "basic", False):
         return asyncio.run(_chat_repl(service, args))
     return _chat_tui(service, args)
+
+
+def _find_pi_agent_entry() -> tuple[str, str] | None:
+    """Locate (node ≥22.19, rosclaw-agent dist entry)。None = 不可用。"""
+    import shutil
+    import subprocess as _sp
+
+    node = None
+    for candidate in filter(None, [shutil.which("node"), "/usr/bin/node", "/usr/local/bin/node"]):
+        try:
+            out = _sp.check_output([candidate, "--version"], text=True, timeout=10).strip()
+            if [int(p) for p in out.lstrip("v").split(".")] >= [22, 19, 0]:
+                node = candidate
+                break
+        except Exception:  # noqa: BLE001
+            continue
+    if node is None:
+        return None
+    entry_env = os.environ.get("ROSCLAW_AGENT_ENTRY")
+    repo_entry = (
+        Path(__file__).resolve().parents[3]
+        / "packages" / "rosclaw-agent" / "dist" / "src" / "main.js"
+    )
+    entry = entry_env or (str(repo_entry) if repo_entry.exists() else None)
+    if not entry or not Path(entry).exists():
+        return None
+    return node, entry
+
+
+def _chat_pi(home: Path, args: argparse.Namespace) -> int:
+    """engine=pi：exec rosclaw-agent（Pi InteractiveMode + ROSClaw 扩展）。
+
+    规格 §2.1：Pi 是唯一主认知循环——本进程不启动 Python AgentLoop。
+    """
+    import subprocess as _sp
+
+    runtime = _find_pi_agent_entry()
+    if runtime is None:
+        print(
+            "engine=pi 需要 Node ≥22.19 且已构建 packages/rosclaw-agent"
+            "（发布包自带；源码环境先 npm ci && npm run build）。"
+            "回退：rosclaw chat --legacy",
+            file=sys.stderr,
+        )
+        return 2
+    node, entry = runtime
+    env = dict(os.environ, ROSCLAW_HOME=str(home))
+    try:
+        return _sp.call([node, entry], env=env)  # noqa: S603 - fixed entry
+    except KeyboardInterrupt:
+        return 0
 
 
 def _find_tui_runtime() -> tuple[str, str] | None:
@@ -835,6 +891,18 @@ def add_agent_subparsers(subparsers) -> None:
         "--basic",
         action="store_true",
         help="兼容/诊断模式：Python input() 行式 REPL（无 TUI）",
+    )
+    p_chat.add_argument(
+        "--engine",
+        default=None,
+        choices=["pi", "legacy"],
+        help="Agent engine：pi（Pi-backed harness，重构路线）或 legacy"
+        "（当前 Python AgentLoop + rosclaw-tui）。默认 legacy（Product Gate 未过前）。",
+    )
+    p_chat.add_argument(
+        "--legacy",
+        action="store_true",
+        help="等价于 --engine legacy",
     )
     p_chat.set_defaults(func=cmd_chat)
 

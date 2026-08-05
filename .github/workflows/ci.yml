@@ -45,6 +45,22 @@ jobs:
       - run: npm test
         working-directory: packages/rosclaw-tui
 
+  node-agent-unit:
+    name: Node Agent Unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+          cache: 'npm'
+          cache-dependency-path: packages/rosclaw-agent/package-lock.json
+      - run: npm ci
+        working-directory: packages/rosclaw-agent
+      - run: npm test
+        working-directory: packages/rosclaw-agent
+
   node-modeld-unit:
     name: Node modeld Unit
     runs-on: ubuntu-latest
