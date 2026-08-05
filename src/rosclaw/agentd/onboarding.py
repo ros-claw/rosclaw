@@ -171,6 +171,51 @@ def _authorization_report(home: Path) -> dict:
     }
 
 
+def _pi_engine_report(home: Path) -> dict:
+    """重构规格 §27.5 子集：Pi engine 就绪检查（stale dist = FAIL 信号）。"""
+    import shutil
+    import subprocess as _sp
+
+    entry = (
+        Path(__file__).resolve().parents[3]
+        / "packages" / "rosclaw-agent" / "dist" / "src" / "main.js"
+    )
+    node_ok = False
+    for candidate in filter(None, [shutil.which("node"), "/usr/bin/node"]):
+        try:
+            out = _sp.check_output([candidate, "--version"], text=True, timeout=10).strip()
+            node_ok = [int(p) for p in out.lstrip("v").split(".")] >= [22, 19, 0]
+            if node_ok:
+                break
+        except Exception:  # noqa: BLE001
+            continue
+    dist_present = entry.exists()
+    # stale 检测：dist/main.js 早于任一 src/*.ts 即 stale。
+    stale = False
+    if dist_present:
+        src_dir = entry.parents[2] / "src"
+        dist_mtime = entry.stat().st_mtime
+        stale = any(
+            p.stat().st_mtime > dist_mtime for p in src_dir.rglob("*.ts")
+        )
+    settings = home / "agent" / "settings.json"
+    credential_file = home / "agent" / "auth.json"
+    return {
+        "engine_available": bool(node_ok and dist_present and not stale),
+        "node_ok": node_ok,
+        "dist_present": dist_present,
+        "dist_stale": stale,
+        "provider_migrated": settings.exists(),
+        "credential_file_present": credential_file.exists(),
+        "credential_policy": "developer-file-0600" if credential_file.exists() else "env-only",
+        "note": (
+            "FAIL: dist 过期（源码新于构建产物）——重新构建发布包，不要手工 npm build"
+            if stale
+            else "pi engine ready" if node_ok and dist_present else "pi engine unavailable"
+        ),
+    }
+
+
 def doctor(home: Path) -> dict:
     """Honest agent readiness report. Never prints raw credentials."""
     config = load_agent_config(home / "config.yaml")
@@ -211,4 +256,5 @@ def doctor(home: Path) -> dict:
         report["reason"] = "probe incomplete (see probe fields)"
     elif probe.error:
         report["reason"] = probe.error
+    report["pi_engine"] = _pi_engine_report(home)
     return report

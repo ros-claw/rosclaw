@@ -9,10 +9,13 @@ import {
 	createAgentSessionFromServices,
 	createAgentSessionRuntime,
 	createAgentSessionServices,
+	ModelRuntime,
 	SessionManager,
 	SettingsManager,
 	type AgentSessionRuntime,
 } from "@earendil-works/pi-coding-agent";
+import { migrateProviders } from "../credentials/migration.js";
+import { credentialStoreFor } from "../credentials/store.js";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,7 +54,17 @@ export async function createRosclawRuntime(
 	options: RosclawRuntimeOptions,
 ): Promise<AgentSessionRuntime> {
 	const agentDir = `${options.rosclawHome}/agent`;
+	// PNA-7（规格 §22.3）：legacy config.yaml → Pi settings 一次性迁移
+	// （已有 defaultProvider/defaultModel 则不触碰）。
+	migrateProviders(options.rosclawHome);
 	const settingsManager = SettingsManager.create(options.cwd, agentDir);
+	// 凭据后端按 profile：developer=加固文件（0600/原子写/fsync），
+	// robot=env-only（写即拒）。
+	const modelRuntime = await ModelRuntime.create({
+		credentials: credentialStoreFor(options.profile, agentDir) as never,
+		authPath: `${agentDir}/auth.json`,
+		modelsPath: null,
+	});
 	const systemPrompt = loadSystemPrompt();
 
 	const runtime = await createAgentSessionRuntime(
@@ -60,6 +73,7 @@ export async function createRosclawRuntime(
 				cwd,
 				agentDir,
 				settingsManager,
+				modelRuntime,
 				resourceLoaderOptions: {
 					// 项目资源全关（审计 §5）；ROSClaw 扩展走内联工厂。
 					noExtensions: true,
