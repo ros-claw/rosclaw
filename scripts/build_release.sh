@@ -28,10 +28,10 @@ rsync -a --exclude '__pycache__' --exclude '*.pyc' \
 for pkg in rosclaw-tui rosclaw-modeld rosclaw-agent; do
   src_dir="$REPO_ROOT/packages/$pkg"
   [ -d "$src_dir" ] || { echo "missing packages/$pkg" >&2; exit 1; }
-  if [ ! -d "$src_dir/dist/src" ]; then
-    echo "==> building packages/$pkg"
-    (cd "$src_dir" && npm ci --silent && npm run build --silent)
-  fi
+  # 规格 §27.1：clean build——绝不用"dist 存在即跳过"（stale dist 是
+  # 必须消除的事故源）。
+  echo "==> clean-building packages/$pkg"
+  (cd "$src_dir" && rm -rf dist && npm ci --silent && npm run build --silent)
   mkdir -p "$STAGE/packages/$pkg"
   cp -r "$src_dir/dist" "$src_dir/package.json" "$src_dir/package-lock.json" \
         "$src_dir/tsconfig.json" "$STAGE/packages/$pkg/"
@@ -99,7 +99,16 @@ PY
 # 不访问 PyPI/npm。
 mkdir -p "$STAGE/vendor/wheels" "$STAGE/vendor/node_modules_pack"
 # R6：离线包缺 wheel 是硬失败（不再 warning 后继续）。
-"$REPO_ROOT/.venv/bin/python" -m pip download   --disable-pip-version-check --quiet --dest "$STAGE/vendor/wheels"   "$REPO_ROOT" || {
+# 构建后端（hatchling）也必须进 wheels——PEP 517 离线构建 rosclaw 自身
+# 需要它（R6/PNA-10：缺 wheel 已在安装侧硬失败，这里补齐来源）。
+# rosclaw 自身打成 wheel 进 vendor（force-include 数据随 wheel 走；
+# 安装侧离线不再从源码目录跑 hatch 构建）。
+"$REPO_ROOT/.venv/bin/python" -m pip wheel --no-deps --quiet \
+  --wheel-dir "$STAGE/vendor/wheels" "$REPO_ROOT" || {
+    echo "FAIL: rosclaw wheel 构建失败，拒绝产出。" >&2
+    exit 1
+  }
+"$REPO_ROOT/.venv/bin/python" -m pip download   --disable-pip-version-check --quiet --dest "$STAGE/vendor/wheels"   "$REPO_ROOT" hatchling setuptools wheel || {
     echo "FAIL: pip download 不完整——离线包将缺 wheels，拒绝产出。" >&2
     exit 1
   }
@@ -112,7 +121,98 @@ for pkg in rosclaw-tui rosclaw-modeld rosclaw-agent; do
   tar -C "$REPO_ROOT/packages/$pkg" -czf "$STAGE/vendor/node_modules_pack/$pkg.tar.gz" node_modules
 done
 
-# 6. manifest（含各组件 hash 供回滚校验 + 签名输入）
+# 6. build-info.json（规格 §27.2）：commit/版本/hash/Node 版本可追溯。
+python3 - "$STAGE" "$VERSION" <<'PY'
+import hashlib, json, subprocess, sys
+from pathlib import Path
+
+stage, version = Path(sys.argv[1]), sys.argv[2]
+def _sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+def _tree_sha(root: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(root.rglob("*")):
+        if path.is_file():
+            digest.update(str(path.relative_to(root)).encode())
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
+try:
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+except Exception:
+    commit = ""
+node_version = subprocess.check_output(["node", "--version"], text=True).strip()     if subprocess.call(["bash", "-c", "command -v node >/dev/null"]) == 0 else ""
+info = {
+    "rosclaw_commit": commit,
+    "pi_version": "0.83.0",
+    "pi_commit": "588915ec71714688cee8b7153339e8bdebb3e82e",
+    "node_version": node_version,
+    "packages": {},
+}
+for pkg in ("rosclaw-tui", "rosclaw-modeld", "rosclaw-agent"):
+    pkg_dir = stage / "packages" / pkg
+    lock = pkg_dir / "package-lock.json"
+    dist = pkg_dir / "dist"
+    info["packages"][pkg] = {
+        "package_lock_sha256": _sha(lock) if lock.exists() else "",
+        "dist_sha256": _tree_sha(dist) if dist.exists() else "",
+    }
+(stage / "build-info.json").write_text(json.dumps(info, indent=1))
+print("build-info written")
+PY
+
+# 7. bundled Node runtime（规格 §27.4）：目标机无需预装 Node。
+# 构建机需网络下载一次；ROSCLAW_SKIP_NODE_BUNDLE=1 可跳过（降级为前置条件）。
+if [ "${ROSCLAW_SKIP_NODE_BUNDLE:-0}" != "1" ]; then
+  NODE_VER="22.19.0"
+  case "$ARCH_NAME" in
+    arm64) NODE_ARCH="arm64" ;;
+    x64)   NODE_ARCH="x64" ;;
+  esac
+  NODE_TARBALL="node-v${NODE_VER}-linux-${NODE_ARCH}.tar.xz"
+  if [ ! -f "$DIST_DIR/vendor-cache/$NODE_TARBALL" ]; then
+    mkdir -p "$DIST_DIR/vendor-cache"
+    for mirror in "https://registry.npmmirror.com/-/binary/node/v${NODE_VER}"                   "https://nodejs.org/dist/v${NODE_VER}"; do
+      curl -fsSL "$mirror/$NODE_TARBALL" -o "$DIST_DIR/vendor-cache/$NODE_TARBALL" && break || true
+    done
+  fi
+  if [ -s "$DIST_DIR/vendor-cache/$NODE_TARBALL" ]; then
+    mkdir -p "$STAGE/vendor/node-runtime"
+    tar -C "$STAGE/vendor/node-runtime" -xJf "$DIST_DIR/vendor-cache/$NODE_TARBALL" --strip-components=1
+    echo "==> bundled node v${NODE_VER} (${NODE_ARCH})"
+  else
+    echo "FAIL: 无法获得 Node runtime（离线构建请预置 $DIST_DIR/vendor-cache/$NODE_TARBALL）" >&2
+    exit 1
+  fi
+fi
+
+# 9.5 fd/ripgrep 二进制（Pi InteractiveMode 初始化必需；离线目标机不能
+# 现场下载）。经 ghfast 代理取 GitHub release 二进制。
+if [ "${ROSCLAW_SKIP_TOOL_BINS:-0}" != "1" ]; then
+  mkdir -p "$STAGE/vendor/tool-bins" "$DIST_DIR/vendor-cache"
+  case "$ARCH_NAME" in
+    arm64) FD_ARCH="aarch64-unknown-linux-gnu"; RG_ARCH="aarch64-unknown-linux-gnu" ;;
+    x64)   FD_ARCH="x86_64-unknown-linux-gnu";   RG_ARCH="x86_64-unknown-linux-gnu" ;;
+  esac
+  FD_TARBALL="fd-v10.2.0-${FD_ARCH}.tar.gz"
+  RG_TARBALL="ripgrep-14.1.1-${RG_ARCH}.tar.gz"
+  for pair in "sharkdp/fd:v10.2.0:$FD_TARBALL" "BurntSushi/ripgrep:14.1.1:$RG_TARBALL"; do
+    repo="${pair%%:*}"; rest="${pair#*:}"; tag="${rest%%:*}"; tarball="${rest#*:}"
+    cache="$DIST_DIR/vendor-cache/$tarball"
+    if [ ! -s "$cache" ]; then
+      curl -fsSL "https://ghfast.top/https://github.com/$repo/releases/download/$tag/$tarball" -o "$cache" || \
+        curl -fsSL "https://github.com/$repo/releases/download/$tag/$tarball" -o "$cache" || {
+          echo "FAIL: 无法获得 $tarball（离线构建请预置 $cache）" >&2; exit 1; }
+    fi
+  done
+  tar -C "$DIST_DIR/vendor-cache" -xzf "$DIST_DIR/vendor-cache/$FD_TARBALL" "fd-v10.2.0-${FD_ARCH}/fd"
+  cp "$DIST_DIR/vendor-cache/fd-v10.2.0-${FD_ARCH}/fd" "$STAGE/vendor/tool-bins/fd"
+  tar -C "$DIST_DIR/vendor-cache" -xzf "$DIST_DIR/vendor-cache/$RG_TARBALL" "ripgrep-14.1.1-${RG_ARCH}/rg"
+  cp "$DIST_DIR/vendor-cache/ripgrep-14.1.1-${RG_ARCH}/rg" "$STAGE/vendor/tool-bins/rg"
+  chmod +x "$STAGE/vendor/tool-bins/fd" "$STAGE/vendor/tool-bins/rg"
+  echo "==> vendored fd/rg binaries"
+fi
+
+# 8. manifest（含各组件 hash 供回滚校验 + 签名输入——必须最后于内容）
 python3 - "$STAGE" "$VERSION" "$ARCH_NAME" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
@@ -130,7 +230,7 @@ manifest = {
 (stage / "manifest.json").write_text(json.dumps(manifest, indent=1))
 PY
 
-# 7. 分离签名（审计 P0-05.3）：dev 签名密钥在本机（不入库），
+# 9. 分离签名（审计 P0-05.3）：dev 签名密钥在本机（不入库），
 # 公钥随包发布；安装器先验签再执行任何脚本。
 SIGN_DIR="${ROSCLAW_SIGNING_HOME:-$HOME/.rosclaw/signing}"
 if [ ! -f "$SIGN_DIR/dev-signing-private.pem" ]; then

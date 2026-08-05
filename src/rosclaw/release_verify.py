@@ -115,7 +115,10 @@ def verify_bundle(
                 errors.append(f"tampered: {rel}")
         for path in sorted(root.rglob("*")):
             if path.is_symlink():
-                errors.append(f"symlink not allowed: {path.relative_to(root)}")
+                # 包内相对 symlink（bundled node shims）允许；逃逸/悬空链接拒绝。
+                target = path.resolve()
+                if not str(target).startswith(str(root.resolve())) or not target.exists():
+                    errors.append(f"unsafe symlink: {path.relative_to(root)}")
             elif path.is_file():
                 rel = str(path.relative_to(root))
                 if rel not in manifest["files"] and rel not in ALLOWED_EXTRA:

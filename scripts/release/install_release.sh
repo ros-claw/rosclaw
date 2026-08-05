@@ -97,12 +97,17 @@ for rel, expected in manifest["files"].items():
     if actual != expected:
         bad.append(f"tampered: {rel}")
 for path in sorted(root.rglob("*")):
-    if path.is_file() or path.is_symlink():
+    if path.is_symlink():
+        # 只允许解析后仍在包内的相对 symlink（bundled node 的 bin  shim）；
+        # 绝对链接/逃逸链接一律拒（R6 的本意是防穿越与外泄）。
+        target = path.resolve()
+        if not str(target).startswith(str(root.resolve())) or not target.exists():
+            bad.append(f"unsafe symlink in bundle: {path.relative_to(root)}")
+        continue
+    if path.is_file():
         rel = str(path.relative_to(root))
         if rel not in manifest["files"] and rel not in allowed_extra:
             bad.append(f"unlisted file (extra-file rejection): {rel}")
-    if path.is_symlink():
-        bad.append(f"symlink not allowed in bundle: {path.relative_to(root)}")
 if bad:
     print("\n".join(bad), file=sys.stderr)
     sys.exit(2)
@@ -120,14 +125,25 @@ if [ "$OFFLINE" = "1" ]; then
   # R6：离线模式缺 wheel 是硬失败，不是 warning。
   [ -d "$NEXT/vendor/wheels" ] && [ -n "$(ls -A "$NEXT/vendor/wheels" 2>/dev/null)" ] || {
     echo "离线安装但 vendor/wheels 为空——构建期 pip download 不完整，拒绝继续。" >&2; exit 2; }
+  # PNA-10：离线只装 wheel（force-include 数据随 wheel；不从源码目录
+  # 重新跑 hatch 构建——stage 里没有那些数据目录）。
+  ls "$NEXT"/vendor/wheels/rosclaw-*.whl >/dev/null 2>&1 || {
+    echo "离线包缺 rosclaw 自身 wheel，拒绝继续。" >&2; exit 2; }
   "$NEXT/.venv/bin/pip" install --quiet --no-index \
-    --find-links "$NEXT/vendor/wheels" "$NEXT"
+    --find-links "$NEXT/vendor/wheels" rosclaw
 else
   "$NEXT/.venv/bin/pip" install --quiet "$NEXT"
 fi
 
-# Node 组件：用随包 node_modules（离线可用）；缺失时在线 npm ci。
+# Node 组件：优先随包 bundled runtime（规格 §27.4，目标机免装 Node）；
+# 其次系统 Node >= 22.19；用随包 node_modules（离线可用），不现场 npm。
 NODE_OK=0
+if [ -x "$NEXT/vendor/node-runtime/bin/node" ]; then
+  NODE_BIN="$NEXT/vendor/node-runtime/bin/node"
+  NODE_OK=1
+  echo "==> using bundled node $($NODE_BIN --version)"
+fi
+if [ "$NODE_OK" = "0" ]; then
 for candidate in node /usr/bin/node /usr/local/bin/node; do
   if command -v "$candidate" >/dev/null 2>&1; then
     ver="$($candidate --version | tr -d 'v')"
@@ -137,6 +153,7 @@ for candidate in node /usr/bin/node /usr/local/bin/node; do
     fi
   fi
 done
+fi
 if [ "$NODE_OK" = "1" ]; then
   for pkg in rosclaw-tui rosclaw-modeld rosclaw-agent; do
     if [ -f "$NEXT/vendor/node_modules_pack/$pkg.tar.gz" ]; then
@@ -160,8 +177,13 @@ fi
 
 echo "==> [3/5] CLI 入口"
 mkdir -p "$PREFIX/bin"
+if [ -d "$NEXT/vendor/tool-bins" ]; then
+  cp "$NEXT/vendor/tool-bins/"* "$PREFIX/bin/" 2>/dev/null || true
+  chmod +x "$PREFIX/bin/fd" "$PREFIX/bin/rg" 2>/dev/null || true
+fi
 cat > "$PREFIX/bin/rosclaw" <<EOF2
 #!/usr/bin/env bash
+export PATH="$PREFIX/bin:\$PATH"
 exec "$CURRENT/.venv/bin/python" -m rosclaw.entrypoint "\$@"
 EOF2
 chmod +x "$PREFIX/bin/rosclaw"
