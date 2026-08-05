@@ -40,7 +40,11 @@ def _node_bin() -> str | None:
 
 
 NODE = _node_bin()
-requires_node = pytest.mark.skipif(NODE is None, reason="node >= 22.19 unavailable")
+DIST_READY = (AGENT_PKG / "dist" / "src" / "extension" / "context-injection.js").exists()
+requires_node = pytest.mark.skipif(
+    NODE is None or not DIST_READY,
+    reason="node >= 22.19 or rosclaw-agent dist unavailable",
+)
 
 
 def _turn() -> ModelTurnResultV1:
@@ -105,7 +109,7 @@ class TestCrossLanguageHash:
             f"console.log(envelopeHash({json.dumps(value)}));"
         )
         result = subprocess.run(
-            ["/usr/bin/node", "--input-type=module", "-e", script],
+            [NODE, "--input-type=module", "-e", script],
             cwd=AGENT_PKG, capture_output=True, text=True, timeout=60,
         )
         node_hash = result.stdout.strip()
