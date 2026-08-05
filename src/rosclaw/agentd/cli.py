@@ -370,7 +370,17 @@ def cmd_chat(args: argparse.Namespace) -> int:
         return 2
     # 重构路线（rosclaw_native_agent重构.md）：engine=pi 走 Pi-backed
     # harness（packages/rosclaw-agent），legacy 保持默认直到 Product Gate 通过。
-    engine = "legacy" if getattr(args, "legacy", False) else (getattr(args, "engine", None) or "legacy")
+    # 优先级：--legacy > --engine > config.agent.engine > legacy（规格 §5/
+    # §31——Product Gate 未全过前默认必须保持 legacy）。
+    if getattr(args, "legacy", False):
+        engine = "legacy"
+    elif getattr(args, "engine", None):
+        engine = args.engine
+    else:
+        try:
+            engine = load_agent_config(home / "config.yaml").engine
+        except Exception:  # noqa: BLE001 - 配置问题由后续步骤诚实报出
+            engine = "legacy"
     if engine == "pi":
         return _chat_pi(home, args)
     config = load_agent_config(home / "config.yaml")
