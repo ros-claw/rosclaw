@@ -117,6 +117,10 @@ class WorkOrderV1(ContractModel):
     verification: WorkVerification = Field(default_factory=WorkVerification)
     side_effect_policy: SideEffectPolicy = Field(default_factory=SideEffectPolicy)
     delegation_depth: int = 0
+    # 规格 §19.5：防递归爆炸——默认只允许 primary→worker 一层。
+    max_delegation_depth: int = 1
+    parent_work_order_id: str | None = None
+    root_work_order_id: str | None = None
     status: str = "DRAFT"
 
     @model_validator(mode="after")

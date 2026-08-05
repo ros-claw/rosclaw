@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 
 import { createRosclawExtension } from "../extension/index.js";
 import { buildBridgeTools } from "../tools/bridge-tools.js";
+import { buildDelegateTool } from "../tools/delegate.js";
 import { buildStatusTool } from "../tools/status.js";
 
 export interface RosclawRuntimeOptions {
@@ -74,6 +75,7 @@ export async function createRosclawRuntime(
 								version: options.version,
 								systemPrompt,
 								missionId: options.missionId,
+								piSessionId: sessionManager.getSessionId(),
 								rosclawHome: options.rosclawHome,
 							}),
 						},
@@ -88,13 +90,20 @@ export async function createRosclawRuntime(
 				noTools: "all",
 				customTools: [
 					buildStatusTool(options.rosclawHome),
-					// PNA-3：bridge 工具需要绑定 session/mission 才有意义。
+					// PNA-3/PNA-4：bridge 工具需要绑定 session/mission 才有意义。
 					...(options.missionId
-						? buildBridgeTools({
-								rosclawHome: options.rosclawHome,
-								piSessionId: sessionManager.getSessionId?.() ?? "",
-								missionId: options.missionId,
-							})
+						? [
+								...buildBridgeTools({
+									rosclawHome: options.rosclawHome,
+									piSessionId: sessionManager.getSessionId(),
+									missionId: options.missionId,
+								}),
+								buildDelegateTool({
+									rosclawHome: options.rosclawHome,
+									piSessionId: sessionManager.getSessionId(),
+									missionId: options.missionId,
+								}),
+							]
 						: []),
 				],
 			});

@@ -23,18 +23,18 @@ from rosclaw.contracts.pi.tool_request import PiToolRequestV1, PiToolResultV1
 if TYPE_CHECKING:
     from rosclaw.agentd.service import AgentService
 
-#: PNA-3 开放工具及其 side-effect 语义。
+#: PNA-3/PNA-4 开放工具及其 side-effect 语义。
 _TOOL_TABLE: dict[str, str] = {
     "rosclaw_status": "read",
     "rosclaw_observe": "observe",
     "rosclaw_verify": "read",
     "rosclaw_memory_query": "read",
     "rosclaw_fail_safe": "control",
+    "rosclaw_delegate": "delegate",
 }
-#: PNA-4/PNA-5 才开放；现在调用必须得到诚实的"未开放"拒绝。
+#: 后续批次才开放；现在调用必须得到诚实的"未开放"拒绝。
 _DEFERRED_TOOLS = {
     "rosclaw_request_action": "PNA-5（approval 链）",
-    "rosclaw_delegate": "PNA-4（Worker 体验）",
     "rosclaw_plan_patch": "PNA-3 后续（TaskGraph patch）",
     "rosclaw_team_coordinate": "PNA-4 后续",
 }
@@ -190,6 +190,8 @@ class PiToolDispatcher:
                 summary="memory query is wired to the approved evidence pipeline; "
                 "no results in this SIM profile",
             )
+        if name == "rosclaw_delegate":
+            return await self._delegate(request)
         if name == "rosclaw_fail_safe":
             await service.cancel(request.mission_id)
             return PiToolResultV1(
@@ -199,6 +201,110 @@ class PiToolDispatcher:
                 summary="fail-safe: 当前回合已请求取消；E-Stop 请走独立 operator 路径",
             )
         raise ToolBridgeError("TOOL_UNKNOWN", f"unhandled tool {name!r}")
+
+    async def _delegate(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """PNA-4（规格 §19）：招聘 Worker——受限 WorkOrder + 递归上限 +
+        验证通过才进结果（未验证输出绝不进入主上下文）。"""
+        from rosclaw.agentd.workers.scheduler import CandidateView
+        from rosclaw.contracts.common import new_id
+        from rosclaw.contracts.worker.order import (
+            BudgetEnvelope,
+            ExpectedOutput,
+            SideEffectPolicy,
+            WorkOrderV1,
+        )
+
+        args = request.arguments
+        goal = str(args.get("goal", "")).strip()
+        if not goal:
+            raise ToolBridgeError("INVALID_ARGUMENTS", "goal required")
+        worker_hint = str(args.get("worker_id", "auto"))
+        parent_id = str(args.get("parent_work_order_id", "") or "") or None
+        # 递归上限（规格 §19.5）：直派 worker 单是叶子——沿用全系统约定
+        # delegation_depth=0 + max_children=0（depth>0 的单子必须自带
+        # children 预算，而 native worker 不接受子委派——两层共同保证
+        # worker 无法经此桥再委派）。带 parent_work_order_id 的请求在
+        # max_delegation_depth（默认 1）语义下一律是"再委派"，直接拒。
+        parent_depth = 0
+        if parent_id:
+            parent = self._service._worker_manager.order(parent_id)
+            parent_depth = parent.delegation_depth if parent else 0
+        max_depth = int(args.get("max_delegation_depth", 1))
+        if parent_id and parent_depth + 1 > max_depth - 1:
+            raise ToolBridgeError(
+                "DELEGATION_DEPTH_EXCEEDED",
+                "delegation beyond the direct worker layer is refused "
+                f"(max_delegation_depth={max_depth})",
+            )
+        order_depth = 0
+        capability = str(args.get("capability") or "analysis.text")
+        order = WorkOrderV1(
+            work_order_id=new_id("wo"),
+            mission_id=request.mission_id,
+            issued_by="rosclaw-agent:pi",
+            capability=capability,
+            goal=goal,
+            inputs={
+                "instructions": str(args.get("instructions", goal)),
+                "artifacts": args.get("artifact_refs") or [],
+            },
+            budgets=BudgetEnvelope(
+                wall_time_sec=int(args.get("budget", {}).get("wall_time_sec", 300))
+                if isinstance(args.get("budget"), dict)
+                else 300,
+                model_tokens=int(args.get("budget", {}).get("model_tokens", 50_000))
+                if isinstance(args.get("budget"), dict)
+                else 50_000,
+                # 叶子 worker 单：max_children=0（native adapter 不接受子委派）。
+            ),
+            expected_output=ExpectedOutput(artifacts=["text/plain"]),
+            side_effect_policy=SideEffectPolicy(**{"class": "none"}),
+            delegation_depth=order_depth,
+            max_delegation_depth=max_depth,
+            parent_work_order_id=parent_id,
+            root_work_order_id=str(args.get("root_work_order_id", "") or "") or parent_id,
+        )
+        service = self._service
+        candidates = [
+            CandidateView(
+                card=card,
+                registry_status=service._registry.status_of(card.worker_id) or "DISABLED",
+                running_orders=len(
+                    service._worker_manager.active_orders_for_worker(card.worker_id)
+                ),
+                circuit_open=service._worker_manager.circuit_open(card.worker_id, capability),
+            )
+            for card in service._registry.list()
+            if worker_hint in ("", "auto") or card.worker_id == worker_hint
+        ]
+        if not candidates:
+            raise ToolBridgeError(
+                "WORKER_UNAVAILABLE", f"no worker matches {worker_hint!r}", retryable=True
+            )
+        try:
+            scheduled = service._worker_manager.hire(order, candidates)
+        except Exception as exc:  # noqa: BLE001 - 诚实失败，不伪造委派
+            raise ToolBridgeError("SCHEDULING_FAILED", str(exc), retryable=True) from exc
+        result, report = await service._worker_manager.run_to_completion(scheduled)
+        if not report.accepted:
+            return PiToolResultV1(
+                request_id=request.request_id,
+                ok=False,
+                status="VERIFY_FAILED",
+                summary=(
+                    f"Worker {scheduled.assigned_to} 提交的结果未通过验证"
+                    f"（{'；'.join(report.reasons) or '未知'}）——未采纳进主上下文。"
+                ),
+                error_code="VERIFICATION_REJECTED",
+                retryable=True,
+            )
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status="COMPLETED",
+            summary=result.summary,
+            artifact_refs=[a.ref for a in result.artifacts],
+        )
 
     async def _mirror_decision(
         self, request: PiToolRequestV1, result: PiToolResultV1

@@ -167,6 +167,22 @@ class PiBridgeServer:
             except ValueError as exc:
                 return {"ok": False, "error": str(exc), "code": "CONTEXT_UNAVAILABLE"}
             return {"ok": True, "context": envelope.model_dump(mode="json")}
+        if method == "pi.worker.status":
+            # PNA-4：Worker 状态投影（原位更新 UI 用；只读）。
+            mission_id = str(params.get("mission_id", ""))
+            orders = service._worker_manager.orders_for_mission(mission_id)
+            return {
+                "ok": True,
+                "orders": [
+                    {
+                        "work_order_id": o.work_order_id,
+                        "assigned_to": o.assigned_to,
+                        "status": o.status,
+                        "goal": o.goal[:120],
+                    }
+                    for o in orders
+                ],
+            }
         if method == "pi.tools.execute":
             # PNA-3：完整验证链（binding/mission/lease/allowlist/idempotency）。
             from rosclaw.agentd.pi_bridge.tool_dispatch import (

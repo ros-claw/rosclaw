@@ -295,6 +295,35 @@
       "title": "Delegation Depth",
       "type": "integer"
     },
+    "max_delegation_depth": {
+      "default": 1,
+      "title": "Max Delegation Depth",
+      "type": "integer"
+    },
+    "parent_work_order_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Work Order Id"
+    },
+    "root_work_order_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Work Order Id"
+    },
     "status": {
       "default": "DRAFT",
       "title": "Status",

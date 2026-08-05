@@ -7,6 +7,7 @@
 
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { bridgeCall } from "../bridge/bridge-client.js";
 import { fetchEmbodiedContext, renderTrustedContext } from "./context-injection.js";
 
 export interface RosclawExtensionOptions {
@@ -16,6 +17,7 @@ export interface RosclawExtensionOptions {
 	systemPrompt: string;
 	/** 当前绑定的 Mission（PNA-1 SessionBinding 先行版本：启动时确定）。 */
 	missionId?: string;
+	piSessionId?: string;
 	rosclawHome: string;
 }
 
@@ -63,6 +65,81 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					details: { stale: fetched.stale, note: fetched.note },
 				},
 			};
+		});
+
+		// -- Worker 命令（PNA-4，规格 §19）：/workers /delegate ------------------
+		pi.registerCommand("workers", {
+			description: "列出 Worker 与当前 Mission 的 WorkOrder 状态",
+			handler: async (_args, ctx) => {
+				if (!options.missionId) {
+					ctx.ui.notify("未绑定 Mission——/workers 不可用", "warning");
+					return;
+				}
+				try {
+					const status = await bridgeCall(options.rosclawHome, "pi.worker.status", {
+						mission_id: options.missionId,
+					});
+					const orders = (status.orders ?? []) as Array<Record<string, unknown>>;
+					if (orders.length === 0) {
+						ctx.ui.notify("当前 Mission 没有 WorkOrder", "info");
+						return;
+					}
+					ctx.ui.notify(
+						orders
+							.map(
+								(o) =>
+									`${String(o.work_order_id)}  ${String(o.assigned_to ?? "?")}  ${String(o.status)}  ${String(o.goal ?? "")}`,
+							)
+							.join("\n"),
+						"info",
+					);
+				} catch (err) {
+					ctx.ui.notify(`查询失败：${(err as Error).message}`, "error");
+				}
+			},
+		});
+		pi.registerCommand("delegate", {
+			description: "显式委派：/delegate <worker|auto> <自包含目标>（不经模型）",
+			handler: async (args, ctx) => {
+				if (!options.missionId) {
+					ctx.ui.notify("未绑定 Mission——/delegate 不可用", "warning");
+					return;
+				}
+				const match = args.trim().match(/^(\S+)\s+([\s\S]+)$/);
+				if (!match) {
+					ctx.ui.notify("用法：/delegate <worker|auto> <goal>", "warning");
+					return;
+				}
+				const [, workerId, goal] = match;
+				ctx.ui.notify(`委派中（${workerId}）：${goal.slice(0, 60)}…`, "info");
+				try {
+					const response = await bridgeCall(options.rosclawHome, "pi.tools.execute", {
+						request: {
+							schema_version: "rosclaw.pi_tool_request.v1",
+							request_id: `ptr_cmd_${Date.now()}`,
+							pi_session_id: options.piSessionId ?? "",
+							mission_id: options.missionId,
+							context_revision: 0,
+							tool_name: "rosclaw_delegate",
+							arguments: { goal, worker_id: workerId },
+							requested_at: new Date().toISOString(),
+							idempotency_key: `idem_cmd_${Date.now()}`,
+							actor: { engine: "pi-command" },
+						},
+					});
+					const result = (response.result ?? {}) as { summary?: string; error_code?: string };
+					if (response.ok) {
+						ctx.ui.notify(`Worker 完成（已验证）：${(result.summary ?? "").slice(0, 200)}`, "info");
+					} else {
+						ctx.ui.notify(
+							`委派失败 [${result.error_code ?? response.code ?? "?"}]：${result.summary ?? response.error ?? ""}`,
+							"error",
+						);
+					}
+				} catch (err) {
+					ctx.ui.notify(`委派失败：${(err as Error).message}`, "error");
+				}
+			},
 		});
 
 		// -- 生命周期观察（PNA-6 在此强制"新 SIM Mission + 不复制 authority"） -------
