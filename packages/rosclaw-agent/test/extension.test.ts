@@ -5,7 +5,7 @@ import { createRosclawExtension } from "../src/extension/index.js";
 
 type Handler = (event: unknown, ctx: unknown) => Promise<unknown>;
 
-function collectHandlers() {
+async function collectHandlers() {
 	const handlers = new Map<string, Handler>();
 	const commands = new Map<string, { description?: string; handler: (args: string, ctx: unknown) => Promise<void> }>();
 	const pi = {
@@ -16,13 +16,22 @@ function collectHandlers() {
 			commands.set(name, options);
 		},
 	};
-	const factory = createRosclawExtension({ profile: "developer", version: "0.1.0", systemPrompt: "TEST PROMPT", rosclawHome: "/tmp/rh-test" });
+	const { ActiveSessionContext } = await import("../src/session/active-context.js");
+	
+	const active = new ActiveSessionContext({
+		sessionId: "pi_test",
+		missionId: undefined,
+		contextRevision: 0,
+		mode: "SIMULATION",
+		profile: "developer",
+	});
+	const factory = createRosclawExtension({ profile: "developer", version: "0.1.0", systemPrompt: "TEST PROMPT", active, rosclawHome: "/tmp/rh-test" });
 	factory(pi as never);
 	return { handlers, commands };
 }
 
 test("user_bash is fully replaced by a policy refusal (PNA-0 safety)", async () => {
-	const { handlers } = collectHandlers();
+	const { handlers } = await collectHandlers();
 	const handler = handlers.get("user_bash");
 	assert.ok(handler, "user_bash handler must be registered");
 	const result = (await handler({}, {})) as {
@@ -33,19 +42,19 @@ test("user_bash is fully replaced by a policy refusal (PNA-0 safety)", async () 
 });
 
 test("session lifecycle hooks registered (fork veto point)", async () => {
-	const { handlers } = collectHandlers();
+	const { handlers } = await collectHandlers();
 	assert.ok(handlers.get("session_start"), "session_start");
 	assert.ok(handlers.get("session_before_fork"), "session_before_fork");
 });
 
-test("worker commands registered (/workers /delegate)", () => {
-	const { commands } = collectHandlers();
+test("worker commands registered (/workers /delegate)", async () => {
+	const { commands } = await collectHandlers();
 	assert.ok(commands.get("workers"), "/workers");
 	assert.ok(commands.get("delegate"), "/delegate");
 });
 
 test("/delegate without mission binding refuses honestly", async () => {
-	const { commands } = collectHandlers();
+	const { commands } = await collectHandlers();
 	const notifications: Array<{ message: string; type?: string }> = [];
 	const ctx = { ui: { notify: (message: string, type?: string) => notifications.push({ message, type }) } };
 	await commands.get("delegate")!.handler("auto 做点事", ctx);

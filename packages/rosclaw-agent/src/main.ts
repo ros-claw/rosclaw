@@ -18,6 +18,8 @@ interface CliArgs {
 	initialMessage?: string;
 	print: boolean;
 	missionId?: string;
+	resumeSessionId?: string;
+	continueLast: boolean;
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -25,6 +27,8 @@ function parseArgs(argv: string[]): CliArgs {
 	let initialMessage: string | undefined;
 	let print = false;
 	let missionId: string | undefined;
+	let resumeSessionId: string | undefined;
+	let continueLast = false;
 	for (let i = 0; i < argv.length; i += 1) {
 		if (argv[i] === "--profile" && argv[i + 1]) {
 			profile = argv[i + 1] === "robot" ? "robot" : "developer";
@@ -37,34 +41,61 @@ function parseArgs(argv: string[]): CliArgs {
 		} else if (argv[i] === "--mission" && argv[i + 1]) {
 			missionId = argv[i + 1];
 			i += 1;
+		} else if (argv[i] === "--resume" && argv[i + 1]) {
+			resumeSessionId = argv[i + 1];
+			i += 1;
+		} else if (argv[i] === "--continue" || argv[i] === "-c") {
+			continueLast = true;
 		}
 	}
-	return { profile, initialMessage, print, missionId };
+	return { profile, initialMessage, print, missionId, resumeSessionId, continueLast };
 }
 
 async function main(): Promise<number> {
-	const { InteractiveMode, runPrintMode } = await import("@earendil-works/pi-coding-agent");
+	const { InteractiveMode, runPrintMode, SessionManager } = await import(
+		"@earendil-works/pi-coding-agent"
+	);
 	const { createRosclawRuntime } = await import("./runtime/create-runtime.js");
-	const { bindSession, releaseSession } = await import("./session/binding.js");
-	const { profile, initialMessage, print, missionId } = parseArgs(process.argv.slice(2));
+	const { SessionLeaseManager } = await import("./session/lease-manager.js");
+	const { profile, initialMessage, print, missionId, resumeSessionId, continueLast } = parseArgs(
+		process.argv.slice(2),
+	);
 	const rosclawHome = rosclawHomeEnv;
+	// NA-FIX-2：--resume/--continue 走 SessionManager.open（不新建 session
+	// 文件、不预建 Mission——由扩展的 switch 事务接管绑定）。
+	let initialSession: import("@earendil-works/pi-coding-agent").SessionManager | undefined;
+	if (resumeSessionId || continueLast) {
+		const sessionDir = `${rosclawHome}/agent/sessions`;
+		const { readdirSync } = await import("node:fs");
+		let sessionFile = "";
+		if (resumeSessionId) {
+			const { join } = await import("node:path");
+			sessionFile = join(sessionDir, `${resumeSessionId}.jsonl`);
+		} else {
+			// --continue：最近的 session 文件。
+			const files = readdirSync(sessionDir)
+				.filter((f) => f.endsWith(".jsonl"))
+				.sort()
+				.reverse();
+			sessionFile = files[0] ? `${sessionDir}/${files[0]}` : "";
+		}
+		if (sessionFile) {
+			initialSession = SessionManager.open(sessionFile, sessionDir);
+		}
+	}
 	const runtime = await createRosclawRuntime({
 		cwd: process.cwd(),
 		rosclawHome,
 		profile,
 		version: VERSION,
 		...(missionId ? { missionId } : {}),
+		...(initialSession ? { sessionManager: initialSession } : {}),
 	});
-	// PNA-1：启动即绑定 Mission + 获取 writer lease（失败即退出——
-	// 不猜绑定、不无 lease 运行，规格 §13.1/§12）。
-	type SessionBinding = Awaited<ReturnType<typeof bindSession>>;
-	let binding: SessionBinding | undefined;
+	// NA-FIX-2：bind/heartbeat 由 SessionLeaseManager 统一管理
+	// （切换事务复用同一管理点，lease_token 绝不丢弃）。
+	const leaseManager = new SessionLeaseManager(rosclawHome);
 	if (missionId) {
-		binding = await bindSession(
-			rosclawHome,
-			runtime.session.sessionManager.getSessionId(),
-			missionId,
-		);
+		await leaseManager.bind(runtime.session.sessionManager.getSessionId(), missionId);
 	}
 	try {
 		if (print) {
@@ -81,7 +112,7 @@ async function main(): Promise<number> {
 		await mode.run();
 		return 0;
 	} finally {
-		if (binding) await releaseSession(rosclawHome, binding);
+		await leaseManager.release();
 	}
 }
 

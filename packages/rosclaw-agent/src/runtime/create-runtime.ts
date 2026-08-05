@@ -17,6 +17,7 @@ import {
 import { migrateProviders } from "../credentials/migration.js";
 import { credentialStoreFor } from "../credentials/store.js";
 import { resourcePolicy } from "../extension/resource-policy.js";
+import { ActiveSessionContext } from "../session/active-context.js";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +25,7 @@ import { fileURLToPath } from "node:url";
 import { createRosclawExtension } from "../extension/index.js";
 import { buildBridgeTools } from "../tools/bridge-tools.js";
 import { buildDelegateTool } from "../tools/delegate.js";
+import { buildRequestActionTool } from "../tools/request-action.js";
 import { buildStatusTool } from "../tools/status.js";
 
 export interface RosclawRuntimeOptions {
@@ -32,6 +34,8 @@ export interface RosclawRuntimeOptions {
 	profile: "developer" | "robot";
 	version: string;
 	missionId?: string;
+	/** NA-FIX-2：--resume/--continue 打开的既有 session（否则新建）。 */
+	sessionManager?: import("@earendil-works/pi-coding-agent").SessionManager;
 }
 
 /** native_agent_v2.md：构建期从 Python 源树拷入 dist/prompts（单一事实源）。 */
@@ -54,11 +58,27 @@ export function loadSystemPrompt(): string {
 export async function createRosclawRuntime(
 	options: RosclawRuntimeOptions,
 ): Promise<AgentSessionRuntime> {
+	const active = new ActiveSessionContext({
+		sessionId: "",
+		missionId: options.missionId,
+		contextRevision: 0,
+		mode: "SIMULATION",
+		profile: options.profile,
+	});
 	const agentDir = `${options.rosclawHome}/agent`;
 	// PNA-7（规格 §22.3）：legacy config.yaml → Pi settings 一次性迁移
 	// （已有 defaultProvider/defaultModel 则不触碰）。
 	migrateProviders(options.rosclawHome);
 	const settingsManager = SettingsManager.create(options.cwd, agentDir);
+	// P1-1：raw reasoning 默认不显示（live + resumed history 同策；
+	// debug 可在 /settings 手动打开）。
+	settingsManager.setHideThinkingBlock(true);
+	// P0-8（patch-02）：ROBOT profile 的内建命令前置拦截策略。
+	if (options.profile === "robot") {
+		(globalThis as Record<string, unknown>).__rosclawBuiltinPolicy = {
+			disabled: new Set(["/trust", "/share", "/import", "/reload"]),
+		};
+	}
 	// 凭据后端按 profile：developer=加固文件（0600/原子写/fsync），
 	// robot=env-only（写即拒）。
 	const modelRuntime = await ModelRuntime.create({
@@ -95,14 +115,14 @@ export async function createRosclawRuntime(
 								profile: options.profile,
 								version: options.version,
 								systemPrompt,
-								missionId: options.missionId,
-								piSessionId: sessionManager.getSessionId(),
+								active,
 								rosclawHome: options.rosclawHome,
 							}),
 						},
 					],
 				},
 			});
+			active.patch({ sessionId: sessionManager.getSessionId() });
 			const result = await createAgentSessionFromServices({
 				services,
 				sessionManager,
@@ -111,21 +131,20 @@ export async function createRosclawRuntime(
 				noTools: "all",
 				customTools: [
 					buildStatusTool(options.rosclawHome),
-					// PNA-3/PNA-4：bridge 工具需要绑定 session/mission 才有意义。
-					...(options.missionId
-						? [
-								...buildBridgeTools({
-									rosclawHome: options.rosclawHome,
-									piSessionId: sessionManager.getSessionId(),
-									missionId: options.missionId,
-								}),
-								buildDelegateTool({
-									rosclawHome: options.rosclawHome,
-									piSessionId: sessionManager.getSessionId(),
-									missionId: options.missionId,
-								}),
-							]
-						: []),
+					// PNA-3/PNA-4/PNA-5：bridge 工具需要绑定 session/mission。
+					...buildBridgeTools({
+						rosclawHome: options.rosclawHome,
+						active,
+					}),
+					buildDelegateTool({
+						rosclawHome: options.rosclawHome,
+						active,
+					}),
+					// NA-FIX-4：request_action 必须真实注册（P0-4）。
+					buildRequestActionTool({
+						rosclawHome: options.rosclawHome,
+						active,
+					}),
 				],
 			});
 			return {
@@ -137,12 +156,11 @@ export async function createRosclawRuntime(
 		{
 			cwd: options.cwd,
 			agentDir,
-			// 初始 session：新建于默认 session 目录（~/.rosclaw/agent/sessions）；
-			// /new /resume /fork 由 InteractiveMode 经 runtime 切换。
-			sessionManager: SessionManager.create(
-				options.cwd,
-				`${agentDir}/sessions`,
-			),
+			// 初始 session：--resume/--continue 用打开的既有 session；
+			// 否则新建于默认 session 目录。
+			sessionManager:
+				options.sessionManager ??
+				SessionManager.create(options.cwd, `${agentDir}/sessions`),
 		},
 	);
 	return runtime;

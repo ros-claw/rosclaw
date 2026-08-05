@@ -80,6 +80,21 @@ class ServiceIntentHandlers:
         self._principal = principal
         self._mode = mode
 
+    import contextlib as _contextlib
+
+    @_contextlib.contextmanager
+    def request_context(self, *, mode: str, principal: str):
+        """请求级 mode/principal（P1-5）：进入时设置、退出时恢复——
+        并发请求互不污染共享 handler 实例。"""
+        previous = (self._mode, self._principal)
+        self._mode = mode
+        self._principal = principal
+        try:
+            yield self
+        finally:
+            self._mode, self._principal = previous
+
+
     def set_event_sink(self, sink_factory) -> None:
         self._event_sink_factory = sink_factory
 

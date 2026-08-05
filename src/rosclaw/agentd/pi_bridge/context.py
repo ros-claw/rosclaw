@@ -7,7 +7,6 @@ action/safety 每轮重新生成，附 TTL 与内容 hash。
 from __future__ import annotations
 
 import hashlib
-import json
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -44,7 +43,26 @@ def build_embodied_context(service: AgentService, mission_id: str) -> EmbodiedCo
             "authorization_profile": service.authorization_profile(),
             "turn_in_flight": snapshot.turn_in_flight,
         },
-        capabilities=[],
+        task_graph={
+            "goal": mission.goal.text if mission.goal else "",
+            "state": mission.state.value,
+        },
+        capabilities=sorted(
+            d.tool_id
+            for d in service._tool_catalog._descriptors.values()
+            if d.execution_class.value == "OBSERVE"
+            and service._tool_catalog.quarantine_reason(d.tool_id) is None
+        )[:50],
+        active_actions=[],
+        receipts=[
+            e.payload
+            for e in service.events_replay(mission_id, limit=50)
+            if e.type.value == "receipt.received"
+        ][-3:],
+        workers=[
+            {"work_order_id": o.work_order_id, "assigned_to": o.assigned_to, "status": o.status}
+            for o in service._worker_manager.orders_for_mission(mission_id)
+        ][:10],
         pending_approvals=[
             {
                 "request_id": r.request_id,
@@ -54,14 +72,22 @@ def build_embodied_context(service: AgentService, mission_id: str) -> EmbodiedCo
             }
             for r in pending
         ],
-        active_actions=[],
-        receipts=[],
-        workers=[],
+        memory_summary={"note": "approved evidence pipeline; empty in SIM profile"},
         safety={
             "mode": mission.mode.value,
             "estop_note": "E-Stop 是独立 operator 路径，不经过本 Agent",
         },
-        tool_policy={"allowed_tools": ["rosclaw_status"]},
+        tool_policy={
+            "allowed_tools": [
+                "rosclaw_status",
+                "rosclaw_observe",
+                "rosclaw_verify",
+                "rosclaw_memory_query",
+                "rosclaw_fail_safe",
+                "rosclaw_delegate",
+                "rosclaw_request_action",
+            ]
+        },
         freshness={"generated_at": now.isoformat(), "ttl_sec": ENVELOPE_TTL_SEC},
     )
     envelope.hash = envelope_hash(envelope)
@@ -69,7 +95,10 @@ def build_embodied_context(service: AgentService, mission_id: str) -> EmbodiedCo
 
 
 def envelope_hash(envelope: EmbodiedContextEnvelopeV1) -> str:
+    """NA-FIX-1：RFC 8785 canonical JSON——Python/TS 逐字节一致。"""
+    from rosclaw.contracts.pi.canonical import canonical_dumps
+
     payload = envelope.model_dump(mode="json")
     payload.pop("hash", None)
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    canonical = canonical_dumps(payload)
     return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()[:32]

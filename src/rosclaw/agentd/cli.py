@@ -442,13 +442,21 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     node, entry = runtime
     config = load_agent_config(home / "config.yaml")
     service = AgentService(config, home)
-    # Mission：--mission 复用或新建（SIMULATION 默认，规格 §13.1）。
+    # Mission：--mission 复用或新建（SIMULATION 默认）。
+    # --continue/--resume 不预建 Mission（P0-2：由 session 切换事务
+    # 在 Native Agent 侧恢复既有绑定）。
+    mission = None
+    resume_argv: list[str] = []
+    if getattr(args, "continue_last", False):
+        resume_argv = ["--continue"]
+    elif getattr(args, "resume", None):
+        resume_argv = ["--resume", args.resume]
     if args.mission:
         mission = service.get_mission(args.mission)
         if mission is None:
             print(f"mission {args.mission} 不存在", file=sys.stderr)
             return 2
-    else:
+    elif not resume_argv:
         try:
             mission = service.create_mission(args.goal or "ROSClaw chat session", mode=args.mode)
         except Exception as exc:  # noqa: BLE001
@@ -469,11 +477,17 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
         server.should_exit = True
         asyncio.run(service.close())
         return 2
+    # P0-9：SHADOW/REAL 强制 ROBOT profile——用户不能经 CLI 把
+    # REAL 降级为 developer（SIM 桌面用 developer）。
+    profile = (
+        "robot" if mission is not None and mission.mode.value != "SIMULATION" else "developer"
+    )
+    argv = [node, entry, "--profile", profile, *resume_argv]
+    if mission is not None:
+        argv += ["--mission", mission.mission_id]
     env = dict(os.environ, ROSCLAW_HOME=str(home))
     try:
-        return _sp.call(  # noqa: S603 - fixed entry
-            [node, entry, "--mission", mission.mission_id], env=env
-        )
+        return _sp.call(argv, env=env)  # noqa: S603 - fixed entry
     except KeyboardInterrupt:
         return 0
     finally:
@@ -950,6 +964,18 @@ def add_agent_subparsers(subparsers) -> None:
         "--legacy",
         action="store_true",
         help="等价于 --engine legacy",
+    )
+    p_chat.add_argument(
+        "--continue",
+        dest="continue_last",
+        action="store_true",
+        help="继续最近一次会话（Native Agent session + Mission 绑定）",
+    )
+    p_chat.add_argument(
+        "--resume",
+        default=None,
+        metavar="SESSION_ID",
+        help="恢复指定会话（Native Agent session + Mission 绑定）",
     )
     p_chat.set_defaults(func=cmd_chat)
 

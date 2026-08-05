@@ -109,6 +109,17 @@ class PiToolDispatcher:
             raise ToolBridgeError(
                 "WRITER_LEASE_REQUIRED", "this session does not hold the writer lease"
             )
+        # 3.5 context revision 硬校验（P0-7）：动作类必须 exact match；
+        # 观测类允许有限 stale（记录但放行）。
+        if _TOOL_TABLE.get(request.tool_name) == "physical_action":
+            snapshot = service.snapshot(request.mission_id)
+            if request.context_revision != snapshot.context_revision:
+                raise ToolBridgeError(
+                    "CONTEXT_REVISION_MISMATCH",
+                    f"request revision {request.context_revision} != current "
+                    f"{snapshot.context_revision} — refresh embodied context and "
+                    "re-propose (P0-7: actions require exact context)",
+                )
         # 4. allowlist。
         if request.tool_name in _DEFERRED_TOOLS:
             raise ToolBridgeError(
@@ -203,6 +214,167 @@ class PiToolDispatcher:
                 summary="fail-safe: 当前回合已请求取消；E-Stop 请走独立 operator 路径",
             )
         raise ToolBridgeError("TOOL_UNKNOWN", f"unhandled tool {name!r}")
+
+    async def _delegate(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """PNA-4（规格 §19）：招聘 Worker——受限 WorkOrder + 递归上限 +
+        验证通过才进结果（未验证输出绝不进入主上下文）。"""
+        from rosclaw.agentd.workers.scheduler import CandidateView
+        from rosclaw.contracts.common import new_id
+        from rosclaw.contracts.worker.order import (
+            BudgetEnvelope,
+            ExpectedOutput,
+            SideEffectPolicy,
+            WorkOrderV1,
+        )
+
+        args = request.arguments
+        goal = str(args.get("goal", "")).strip()
+        if not goal:
+            raise ToolBridgeError("INVALID_ARGUMENTS", "goal required")
+        worker_hint = str(args.get("worker_id", "auto"))
+        parent_id = str(args.get("parent_work_order_id", "") or "") or None
+        # 递归上限（规格 §19.5）：直派 worker 单是叶子——沿用全系统约定
+        # delegation_depth=0 + max_children=0（depth>0 的单子必须自带
+        # children 预算，而 native worker 不接受子委派——两层共同保证
+        # worker 无法经此桥再委派）。带 parent_work_order_id 的请求在
+        # max_delegation_depth（默认 1）语义下一律是"再委派"，直接拒。
+        parent_depth = 0
+        if parent_id:
+            parent = self._service._worker_manager.order(parent_id)
+            parent_depth = parent.delegation_depth if parent else 0
+        max_depth = int(args.get("max_delegation_depth", 1))
+        if parent_id and parent_depth + 1 > max_depth - 1:
+            raise ToolBridgeError(
+                "DELEGATION_DEPTH_EXCEEDED",
+                "delegation beyond the direct worker layer is refused "
+                f"(max_delegation_depth={max_depth})",
+            )
+        order_depth = 0
+        capability = str(args.get("capability") or "analysis.text")
+        order = WorkOrderV1(
+            work_order_id=new_id("wo"),
+            mission_id=request.mission_id,
+            issued_by="rosclaw-agent:pi",
+            capability=capability,
+            goal=goal,
+            inputs={
+                "instructions": str(args.get("instructions", goal)),
+                "artifacts": args.get("artifact_refs") or [],
+            },
+            budgets=BudgetEnvelope(
+                wall_time_sec=int(args.get("budget", {}).get("wall_time_sec", 300))
+                if isinstance(args.get("budget"), dict)
+                else 300,
+                model_tokens=int(args.get("budget", {}).get("model_tokens", 50_000))
+                if isinstance(args.get("budget"), dict)
+                else 50_000,
+                # 叶子 worker 单：max_children=0（native adapter 不接受子委派）。
+            ),
+            expected_output=ExpectedOutput(artifacts=["text/plain"]),
+            side_effect_policy=SideEffectPolicy(**{"class": "none"}),
+            delegation_depth=order_depth,
+            max_delegation_depth=max_depth,
+            parent_work_order_id=parent_id,
+            root_work_order_id=str(args.get("root_work_order_id", "") or "") or parent_id,
+        )
+        service = self._service
+        candidates = [
+            CandidateView(
+                card=card,
+                registry_status=service._registry.status_of(card.worker_id) or "DISABLED",
+                running_orders=len(
+                    service._worker_manager.active_orders_for_worker(card.worker_id)
+                ),
+                circuit_open=service._worker_manager.circuit_open(card.worker_id, capability),
+            )
+            for card in service._registry.list()
+            if worker_hint in ("", "auto") or card.worker_id == worker_hint
+        ]
+        if not candidates:
+            raise ToolBridgeError(
+                "WORKER_UNAVAILABLE", f"no worker matches {worker_hint!r}", retryable=True
+            )
+        try:
+            scheduled = service._worker_manager.hire(order, candidates)
+        except Exception as exc:  # noqa: BLE001 - 诚实失败，不伪造委派
+            raise ToolBridgeError("SCHEDULING_FAILED", str(exc), retryable=True) from exc
+        result, report = await service._worker_manager.run_to_completion(scheduled)
+        if not report.accepted:
+            return PiToolResultV1(
+                request_id=request.request_id,
+                ok=False,
+                status="VERIFY_FAILED",
+                summary=(
+                    f"Worker {scheduled.assigned_to} 提交的结果未通过验证"
+                    f"（{'；'.join(report.reasons) or '未知'}）——未采纳进主上下文。"
+                ),
+                error_code="VERIFICATION_REJECTED",
+                retryable=True,
+            )
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status="COMPLETED",
+            summary=result.summary,
+            artifact_refs=[a.ref for a in result.artifacts],
+        )
+
+    async def _request_action(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """PNA-5 + NA-FIX-5：propose → 等 operator → 精确 grant 执行 →
+        结构化回执（不再全局猜 grant、不再解析自然语言）。"""
+        import asyncio as _asyncio
+
+        from rosclaw.agentd.pi_bridge.action_coordinator import ActionCoordinator
+
+        args = request.arguments
+        capability_id = str(args.get("capability_id", "")).strip()
+        arguments = args.get("arguments")
+        if not capability_id or not isinstance(arguments, dict):
+            raise ToolBridgeError(
+                "INVALID_ARGUMENTS", "capability_id and arguments required (fail closed)"
+            )
+        coordinator = ActionCoordinator(self._service)
+        card = await coordinator.propose(
+            mission_id=request.mission_id,
+            capability_id=capability_id,
+            arguments=arguments,
+            expected_effect=str(args.get("expected_effect") or capability_id),
+            risk_tier=str(args.get("risk_tier", "LOW")),
+            title=str(args.get("title") or capability_id),
+        )
+        # 等 operator（决定只能经 operatord 到达）。
+        deadline_sec = 330.0
+        waited = 0.0
+        while waited < deadline_sec:
+            status = coordinator.decision_status(card["approval_id"])["status"]
+            if status != "PENDING":
+                break
+            await _asyncio.sleep(1.0)
+            waited += 1.0
+        status = coordinator.decision_status(card["approval_id"])["status"]
+        if status == "PENDING":
+            raise ToolBridgeError(
+                "APPROVAL_TIMEOUT",
+                "operator 未在期限内决定（默认拒绝语义）——动作未执行",
+            )
+        if status != "APPROVED":
+            return PiToolResultV1(
+                request_id=request.request_id,
+                ok=False,
+                status="DECLINED",
+                summary=f"operator 拒绝了 {capability_id}——动作未执行",
+                approval_id=card["approval_id"],
+                error_code="OPERATOR_DECLINED",
+            )
+        result = await coordinator.execute(card["approval_id"])
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=bool(result.get("executed")),
+            status=str(result.get("status", "FAILED")),
+            summary=str(result.get("summary", ""))[:8000],
+            approval_id=card["approval_id"],
+            error_code=result.get("error_code"),
+        )
 
     async def _delegate(self, request: PiToolRequestV1) -> PiToolResultV1:
         """PNA-4（规格 §19）：招聘 Worker——受限 WorkOrder + 递归上限 +

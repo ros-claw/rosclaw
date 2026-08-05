@@ -8,6 +8,7 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { bridgeCall } from "../bridge/bridge-client.js";
+import { ActiveSessionContext } from "../session/active-context.js";
 import {
 	handleSessionStart,
 	sessionIdOf,
@@ -18,6 +19,7 @@ import {
 import { defaultOperatorSocket, operatorCall } from "../bridge/operatord-client.js";
 import { ApprovalCardComponent } from "../ui/approval-card.js";
 import { EventMirror } from "./event-mirror.js";
+import { buildCommandHandlers } from "./commands.js";
 import { guardInput } from "./input-guard.js";
 import { fetchEmbodiedContext, renderTrustedContext } from "./context-injection.js";
 
@@ -26,9 +28,8 @@ export interface RosclawExtensionOptions {
 	version: string;
 	/** PNA-2：v2 系统提示词（native_agent_v2.md 内容，构建期打包）。 */
 	systemPrompt: string;
-	/** 当前绑定的 Mission（PNA-1 SessionBinding 先行版本：启动时确定）。 */
-	missionId?: string;
-	piSessionId?: string;
+	/** NA-FIX-2：动态 session 上下文（切换事务的唯一真实源）。 */
+	active: ActiveSessionContext;
 	rosclawHome: string;
 }
 
@@ -41,10 +42,13 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			if (!ctx.hasUI) return;
 			ctx.ui.setTitle(`ROSClaw Native Agent`);
 			ctx.ui.setHeader((_tui, _theme) => {
-				return new Text(
-					`ROSClaw Native Agent v${options.version} ` +
-						`[engine=pi profile=${options.profile}]  ·  /help 查看命令`,
-				);
+				const state = options.active.current;
+				const line1 = `ROSClaw Native Agent v${options.version} · ${state.mode} · ${options.profile}`;
+				const line2 = state.missionId
+					? `Mission ${state.missionId.slice(0, 24)} · Body ${state.bodyId ?? "—"} · rev ${state.contextRevision} · Operator ready`
+					: "未绑定 Mission · /help 查看命令";
+				return new Text(`${line1}
+${line2}`);
 			});
 			ctx.ui.setWorkingIndicator({ frames: WORKING_FRAMES, intervalMs: 80 });
 		});
@@ -63,10 +67,15 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 
 		// -- 每轮注入最新具身上下文（PNA-2，规格 §14.2） ---------------------------
 		pi.on("before_agent_start", async (_event, _ctx) => {
-			if (!options.missionId) {
+			const missionId = options.active.current.missionId;
+			if (!missionId) {
 				return { systemPrompt: options.systemPrompt };
 			}
-			const fetched = await fetchEmbodiedContext(options.rosclawHome, options.missionId);
+			const fetched = await fetchEmbodiedContext(options.rosclawHome, missionId);
+			if (!fetched.stale && fetched.envelope) {
+				// P0-7：验证通过后写入精确 revision/body/mode。
+				options.active.applyEnvelope(fetched.envelope);
+			}
 			return {
 				systemPrompt: options.systemPrompt,
 				message: {
@@ -78,17 +87,36 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			};
 		});
 
+		// -- 全量 ROSClaw 命令（NA-FIX-6，P0-8：InputGuard 允许的必须真实注册） --
+		for (const [name, spec] of Object.entries(
+			buildCommandHandlers({
+				rosclawHome: options.rosclawHome,
+				active: options.active,
+				registeredToolNames: () => [
+					"rosclaw_status",
+					"rosclaw_observe",
+					"rosclaw_verify",
+					"rosclaw_memory_query",
+					"rosclaw_fail_safe",
+					"rosclaw_delegate",
+					"rosclaw_request_action",
+				],
+			}),
+		)) {
+			pi.registerCommand(name, spec);
+		}
+
 		// -- Worker 命令（PNA-4，规格 §19）：/workers /delegate ------------------
 		pi.registerCommand("workers", {
 			description: "列出 Worker 与当前 Mission 的 WorkOrder 状态",
 			handler: async (_args, ctx) => {
-				if (!options.missionId) {
+				if (!options.active.current.missionId) {
 					ctx.ui.notify("未绑定 Mission——/workers 不可用", "warning");
 					return;
 				}
 				try {
 					const status = await bridgeCall(options.rosclawHome, "pi.worker.status", {
-						mission_id: options.missionId,
+						mission_id: options.active.current.missionId,
 					});
 					const orders = (status.orders ?? []) as Array<Record<string, unknown>>;
 					if (orders.length === 0) {
@@ -112,7 +140,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		pi.registerCommand("delegate", {
 			description: "显式委派：/delegate <worker|auto> <自包含目标>（不经模型）",
 			handler: async (args, ctx) => {
-				if (!options.missionId) {
+				if (!options.active.current.missionId) {
 					ctx.ui.notify("未绑定 Mission——/delegate 不可用", "warning");
 					return;
 				}
@@ -128,9 +156,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						request: {
 							schema_version: "rosclaw.pi_tool_request.v1",
 							request_id: `ptr_cmd_${Date.now()}`,
-							pi_session_id: options.piSessionId ?? "",
-							mission_id: options.missionId,
-							context_revision: 0,
+							pi_session_id: options.active.current.sessionId,
+							mission_id: options.active.current.missionId,
+							context_revision: options.active.current.contextRevision,
 							tool_name: "rosclaw_delegate",
 							arguments: { goal, worker_id: workerId },
 							requested_at: new Date().toISOString(),
@@ -153,49 +181,43 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			},
 		});
 
-		// -- Approval 卡片（PNA-5，规格 §20）：tool 触发 → 拉卡片 → 前台 Y/N →
-		//    operatord 签名链。模型文本永远到不了这里（只有真实按键）。
-		pi.on("tool_execution_start", async (event, ctx) => {
+		// -- Approval 卡片（NA-FIX-5，P0-5 修复）：tool 返回精确 approval_id
+		//    后才展卡——绝不取 pending 列表第一个。
+		pi.on("tool_execution_update", async (event, ctx) => {
 			if (event.toolName !== "rosclaw_request_action" || !ctx.hasUI) return;
-			if (!options.missionId) return;
-			const args = (event.args ?? {}) as Record<string, unknown>;
-			// 等 agentd 建卡（bridge tool 先创建授权卡再等待决定）。
-			let entry: { request_id: string; display_hash: string } | undefined;
-			for (let attempt = 0; attempt < 10; attempt += 1) {
-				await new Promise((resolve) => setTimeout(resolve, 500));
-				try {
-					const listed = (await operatorCall(
-						defaultOperatorSocket(options.rosclawHome),
-						"approvals.list",
-						{ mission_id: options.missionId },
-					)) as { ok: boolean; approvals?: Array<{ request_id: string; display_hash: string }> };
-					entry = (listed.approvals ?? [])[0];
-					if (entry) break;
-				} catch {
-					// operatord 未运行 → 下方诚实提示
-				}
+			const details = (event.partialResult?.details ?? {}) as {
+				phase?: string;
+				approval_id?: string;
+				display_hash?: string;
+			};
+			if (details.phase !== "AWAITING_OPERATOR" || !details.approval_id) return;
+			const approvalId = details.approval_id;
+			const displayHash = String(details.display_hash ?? "");
+			// 从 operatord 拉这张精确卡片的内容（不猜、不取第一个）。
+			let cardData: Record<string, unknown> | undefined;
+			try {
+				const listed = (await operatorCall(
+					defaultOperatorSocket(options.rosclawHome),
+					"approvals.list",
+					{ mission_id: options.active.current.missionId },
+				)) as { ok: boolean; approvals?: Array<Record<string, unknown>> };
+				cardData = (listed.approvals ?? []).find((a) => a.request_id === approvalId);
+			} catch {
+				cardData = undefined;
 			}
-			if (!entry) {
-				ctx.ui.notify(
-					"授权卡未出现（operatord 未运行？）——动作不会执行。启动：rosclaw operatord start",
-					"error",
-				);
-				return;
-			}
-			const cardEntry = entry;
 			try {
 				await ctx.ui.custom<boolean>((_tui, _theme, _kb, done) => {
 					return new ApprovalCardComponent(
 						{
-							requestId: cardEntry.request_id,
-							title: String(args.expected_effect ?? args.capability_id ?? ""),
-							summary: String(args.capability_id ?? ""),
-							riskTier: String(args.risk_tier ?? "LOW"),
-							mode: "ACTION",
-							capability: String(args.capability_id ?? ""),
-							parameters: (args.arguments ?? {}) as Record<string, unknown>,
-							expiresAt: "",
-							displayHash: cardEntry.display_hash,
+							requestId: approvalId,
+							title: String(cardData?.title ?? approvalId),
+							summary: String(cardData?.summary ?? ""),
+							riskTier: String(cardData?.risk_tier ?? ""),
+							mode: String(cardData?.mode ?? "ACTION"),
+							capability: String(cardData?.capability_id ?? ""),
+							parameters: (cardData?.parameters ?? {}) as Record<string, unknown>,
+							expiresAt: String(cardData?.expires_at ?? ""),
+							displayHash,
 						},
 						(approve) => done(approve),
 					);
@@ -204,8 +226,8 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						defaultOperatorSocket(options.rosclawHome),
 						"approvals.decide",
 						{
-							request_id: cardEntry.request_id,
-							display_hash: cardEntry.display_hash,
+							request_id: approvalId,
+							display_hash: displayHash,
 							approve,
 						},
 					)) as { ok: boolean; error?: string };
@@ -223,28 +245,14 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			}
 		});
 
-		// -- 输入防护（PNA-9，规格 §11）：未知命令不发模型；ROBOT 拦 trust/share --
-		pi.on("input", async (event, ctx) => {
-			if (event.source !== "interactive") return undefined;
-			const verdict = guardInput(event.text, options.profile);
-			if (verdict.action === "handled") {
-				ctx.ui.notify(verdict.notice ?? "blocked", "warning");
-				return { action: "handled" };
-			}
-			if (verdict.action === "transform") {
-				return { action: "transform", text: verdict.text ?? event.text };
-			}
-			return { action: "continue" };
-		});
-
 		// -- 认知事件镜像（PNA-8，规格 §24.2）：hash-only，不双写全文 ----------
-		const mirror = options.missionId
-			? new EventMirror(
-					options.rosclawHome,
-					options.piSessionId ?? "",
-					options.missionId,
-				)
-			: null;
+		// NA-FIX-2：mirror 动态读 active（切换后不再写旧 mission）。
+		const mirror = new EventMirror(
+			options.rosclawHome,
+			options.active.current.sessionId,
+			options.active.current.missionId ?? "",
+		);
+		const mirrorSession = options.active;
 		if (mirror) {
 			const activeMirror = mirror;
 			pi.on("message_end", async (event) => {
@@ -252,6 +260,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				if (message.role !== "assistant") return undefined;
 				// 只镜像 hash——全文权威在 Pi session。
 				const text = JSON.stringify(message.content ?? "");
+				activeMirror.retarget(mirrorSession.current.sessionId, mirrorSession.current.missionId ?? "");
 				activeMirror.push("message_end", {
 					text,
 					model: String((event.message as { model?: string }).model ?? ""),
@@ -261,6 +270,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				return undefined;
 			});
 			pi.on("turn_end", async (event) => {
+				activeMirror.retarget(mirrorSession.current.sessionId, mirrorSession.current.missionId ?? "");
 				activeMirror.push("turn_end", {
 					text: JSON.stringify((event.message as { content?: unknown }).content ?? ""),
 				});
@@ -276,9 +286,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		// -- Session 生命周期映射（PNA-6，规格 §13） ------------------------------
 		const lifecycle: LifecycleDeps = {
 			rosclawHome: options.rosclawHome,
-			getMissionId: () => options.missionId,
+			getMissionId: () => options.active.current.missionId,
 			setMissionId: (missionId) => {
-				options.missionId = missionId;
+				options.active.patch({ missionId });
 			},
 			notify: (message, type) => undefined,
 		};

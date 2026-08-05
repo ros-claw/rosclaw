@@ -192,6 +192,40 @@ class PiBridgeServer:
                 "mission_state": mission.state.value if mission else "MISSING",
                 "mission_archived": service.mission_archived(binding.mission_id),
             }
+        if method == "pi.action.propose":
+            from rosclaw.agentd.pi_bridge.action_coordinator import ActionCoordinator
+
+            coordinator = ActionCoordinator(service)
+            try:
+                card = await coordinator.propose(
+                    mission_id=str(params.get("mission_id", "")),
+                    capability_id=str(params.get("capability_id", "")),
+                    arguments=dict(params.get("arguments") or {}),
+                    expected_effect=str(params.get("expected_effect", "")),
+                    risk_tier=str(params.get("risk_tier", "LOW")),
+                    title=str(params.get("title", "")),
+                )
+            except Exception as exc:  # noqa: BLE001
+                return {"ok": False, "error": f"{type(exc).__name__}: {exc}",
+                        "code": getattr(exc, "code", "PROPOSE_FAILED")}
+            return {"ok": True, "card": card}
+        if method == "pi.action.status":
+            from rosclaw.agentd.pi_bridge.action_coordinator import ActionCoordinator
+
+            return {"ok": True, **ActionCoordinator(service).decision_status(
+                str(params.get("approval_id", ""))
+            )}
+        if method == "pi.action.execute":
+            from rosclaw.agentd.pi_bridge.action_coordinator import ActionCoordinator
+
+            coordinator = ActionCoordinator(service)
+            try:
+                result = await coordinator.execute(str(params.get("approval_id", "")))
+            except Exception as exc:  # noqa: BLE001
+                return {"ok": False, "error": f"{type(exc).__name__}: {exc}",
+                        "code": getattr(exc, "code", "EXECUTE_FAILED")}
+            return {"ok": result.get("executed") or result.get("status") == "DECLINED",
+                    "result": result}
         if method == "pi.events.batch":
             # PNA-8（规格 §24.2）：认知事件镜像——只存 hash/元数据，
             # 拒绝任何像全文的字段（不双写 transcript）。

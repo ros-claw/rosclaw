@@ -8,10 +8,12 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { bridgeCall } from "../bridge/bridge-client.js";
 
+import type { ActiveSessionContext } from "../session/active-context.js";
+
 export interface BridgeToolContext {
 	rosclawHome: string;
-	piSessionId: string;
-	missionId: string;
+	/** NA-FIX-1/2：动态 session 上下文（执行时读取，不捕获启动值）。 */
+	active: ActiveSessionContext;
 }
 
 let requestCounter = 0;
@@ -22,16 +24,27 @@ async function executeVia(
 	arguments_: Record<string, unknown>,
 ) {
 	requestCounter += 1;
+	const state = ctx.active.current;
+	if (!state.missionId) {
+		return {
+			content: [{ type: "text" as const, text: "REJECTED [NO_MISSION]: 未绑定 Mission" }],
+			details: { ok: false, error_code: "NO_MISSION" },
+			isError: true,
+		};
+	}
 	const request = {
 		schema_version: "rosclaw.pi_tool_request.v1",
 		request_id: `ptr_${Date.now()}_${requestCounter}`,
-		pi_session_id: ctx.piSessionId,
-		mission_id: ctx.missionId,
-		context_revision: 0,
+		pi_session_id: state.sessionId,
+		mission_id: state.missionId,
+		// P0-7：携带已验证 envelope 的精确 revision/body/mode。
+		context_revision: state.contextRevision,
+		body_hash: state.bodyHash ?? "",
+		mode: state.mode,
 		tool_name: toolName,
 		arguments: arguments_,
 		requested_at: new Date().toISOString(),
-		idempotency_key: `idem_${ctx.piSessionId}_${Date.now()}_${requestCounter}`,
+		idempotency_key: `idem_${state.sessionId}_${Date.now()}_${requestCounter}`,
 		actor: { engine: "pi", process_id: process.pid, uid: process.getuid?.() ?? 0 },
 	};
 	const response = await bridgeCall(ctx.rosclawHome, "pi.tools.execute", { request });

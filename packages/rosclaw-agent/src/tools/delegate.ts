@@ -32,12 +32,15 @@ export function buildDelegateTool(ctx: BridgeToolContext) {
 		async execute(_id, params, signal, onUpdate, _ctx) {
 			counter += 1;
 			const requestId = `ptr_delegate_${Date.now()}_${counter}`;
+			const state = ctx.active.current;
 			const request = {
 				schema_version: "rosclaw.pi_tool_request.v1",
 				request_id: requestId,
-				pi_session_id: ctx.piSessionId,
-				mission_id: ctx.missionId,
-				context_revision: 0,
+				pi_session_id: state.sessionId,
+				mission_id: state.missionId,
+				context_revision: state.contextRevision,
+				body_hash: state.bodyHash ?? "",
+				mode: state.mode,
 				tool_name: "rosclaw_delegate",
 				arguments: params,
 				requested_at: new Date().toISOString(),
@@ -52,7 +55,7 @@ export function buildDelegateTool(ctx: BridgeToolContext) {
 					if (signal?.aborted) return;
 					try {
 						const status = await bridgeCall(ctx.rosclawHome, "pi.worker.status", {
-							mission_id: ctx.missionId,
+							mission_id: state.missionId,
 						});
 						const orders = (status.orders ?? []) as Array<Record<string, unknown>>;
 						const latest = orders[orders.length - 1];

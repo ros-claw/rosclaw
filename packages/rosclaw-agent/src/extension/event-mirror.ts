@@ -28,10 +28,16 @@ export class EventMirror {
 
 	constructor(
 		private readonly rosclawHome: string,
-		private readonly piSessionId: string,
-		private readonly missionId: string,
+		private piSessionId: string,
+		private missionId: string,
 		private readonly call: typeof bridgeCall = bridgeCall,
 	) {}
+
+	/** NA-FIX-2：切换事务后重定向（不再写旧 session/mission）。 */
+	retarget(piSessionId: string, missionId: string): void {
+		this.piSessionId = piSessionId;
+		this.missionId = missionId;
+	}
 
 	push(eventType: string, options: { entryId?: string; text?: string; model?: string; usage?: Record<string, unknown> } = {}): void {
 		this.queue.push({
