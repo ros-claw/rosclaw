@@ -7,10 +7,16 @@
 
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { fetchEmbodiedContext, renderTrustedContext } from "./context-injection.js";
 
 export interface RosclawExtensionOptions {
 	profile: "developer" | "robot";
 	version: string;
+	/** PNA-2：v2 系统提示词（native_agent_v2.md 内容，构建期打包）。 */
+	systemPrompt: string;
+	/** 当前绑定的 Mission（PNA-1 SessionBinding 先行版本：启动时确定）。 */
+	missionId?: string;
+	rosclawHome: string;
 }
 
 const WORKING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -42,9 +48,25 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			};
 		});
 
-		// -- 生命周期观察（PNA-1 接 SessionBinding/lease） ---------------------------
+		// -- 每轮注入最新具身上下文（PNA-2，规格 §14.2） ---------------------------
+		pi.on("before_agent_start", async (_event, _ctx) => {
+			if (!options.missionId) {
+				return { systemPrompt: options.systemPrompt };
+			}
+			const fetched = await fetchEmbodiedContext(options.rosclawHome, options.missionId);
+			return {
+				systemPrompt: options.systemPrompt,
+				message: {
+					customType: "rosclaw.embodied_context",
+					content: renderTrustedContext(fetched),
+					display: false,
+					details: { stale: fetched.stale, note: fetched.note },
+				},
+			};
+		});
+
+		// -- 生命周期观察（PNA-6 在此强制"新 SIM Mission + 不复制 authority"） -------
 		pi.on("session_before_fork", async () => {
-			// PNA-6 在此强制"新 SIM Mission + 不复制 authority"；当前仅观察。
 			return undefined;
 		});
 	};

@@ -3,14 +3,15 @@
 	"version": "0.1.0",
 	"private": true,
 	"type": "module",
-	"description": "ROSClaw Native Agent — Pi-backed harness + ROSClaw embodied kernel",
+	"description": "ROSClaw Native Agent \u2014 Pi-backed harness + ROSClaw embodied kernel",
 	"bin": {
 		"rosclaw-agent": "dist/src/main.js"
 	},
 	"scripts": {
-		"build": "tsc -p tsconfig.json",
+		"build": "tsc -p tsconfig.json && npm run copy-assets",
 		"test": "npm run build && node --test dist/test/*.test.js",
-		"start": "node dist/src/main.js"
+		"start": "node dist/src/main.js",
+		"copy-assets": "node scripts/copy-assets.mjs"
 	},
 	"engines": {
 		"node": ">=22.19.0"

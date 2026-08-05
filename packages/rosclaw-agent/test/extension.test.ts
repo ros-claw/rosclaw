@@ -12,7 +12,7 @@ function collectHandlers() {
 			handlers.set(name, handler);
 		},
 	};
-	const factory = createRosclawExtension({ profile: "developer", version: "0.1.0" });
+	const factory = createRosclawExtension({ profile: "developer", version: "0.1.0", systemPrompt: "TEST PROMPT", rosclawHome: "/tmp/rh-test" });
 	factory(pi as never);
 	return handlers;
 }

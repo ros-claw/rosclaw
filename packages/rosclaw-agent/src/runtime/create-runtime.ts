@@ -13,7 +13,12 @@ import {
 	SettingsManager,
 	type AgentSessionRuntime,
 } from "@earendil-works/pi-coding-agent";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { createRosclawExtension } from "../extension/index.js";
+import { buildBridgeTools } from "../tools/bridge-tools.js";
 import { buildStatusTool } from "../tools/status.js";
 
 export interface RosclawRuntimeOptions {
@@ -21,6 +26,24 @@ export interface RosclawRuntimeOptions {
 	rosclawHome: string;
 	profile: "developer" | "robot";
 	version: string;
+	missionId?: string;
+}
+
+/** native_agent_v2.md：构建期从 Python 源树拷入 dist/prompts（单一事实源）。 */
+export function loadSystemPrompt(): string {
+	const here = dirname(fileURLToPath(import.meta.url));
+	const candidates = [
+		join(here, "..", "..", "prompts", "native_agent_v2.md"),
+		join(here, "..", "..", "..", "prompts", "native_agent_v2.md"),
+	];
+	for (const candidate of candidates) {
+		try {
+			return readFileSync(candidate, "utf-8");
+		} catch {
+			// next candidate
+		}
+	}
+	throw new Error("native_agent_v2.md not found in dist/prompts (stale/incomplete build?)");
 }
 
 export async function createRosclawRuntime(
@@ -28,6 +51,7 @@ export async function createRosclawRuntime(
 ): Promise<AgentSessionRuntime> {
 	const agentDir = `${options.rosclawHome}/agent`;
 	const settingsManager = SettingsManager.create(options.cwd, agentDir);
+	const systemPrompt = loadSystemPrompt();
 
 	const runtime = await createAgentSessionRuntime(
 		async ({ cwd, sessionManager, sessionStartEvent }) => {
@@ -48,6 +72,9 @@ export async function createRosclawRuntime(
 							factory: createRosclawExtension({
 								profile: options.profile,
 								version: options.version,
+								systemPrompt,
+								missionId: options.missionId,
+								rosclawHome: options.rosclawHome,
 							}),
 						},
 					],
@@ -59,7 +86,17 @@ export async function createRosclawRuntime(
 				sessionStartEvent,
 				// 具身主 Agent 不需要 coding 工具；ROSClaw 工具走 customTools。
 				noTools: "all",
-				customTools: [buildStatusTool(options.rosclawHome)],
+				customTools: [
+					buildStatusTool(options.rosclawHome),
+					// PNA-3：bridge 工具需要绑定 session/mission 才有意义。
+					...(options.missionId
+						? buildBridgeTools({
+								rosclawHome: options.rosclawHome,
+								piSessionId: sessionManager.getSessionId?.() ?? "",
+								missionId: options.missionId,
+							})
+						: []),
+				],
 			});
 			return {
 				...result,

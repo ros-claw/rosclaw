@@ -157,21 +157,34 @@ class PiBridgeServer:
             }
         if method == "pi.context":
             mission_id = str(params.get("mission_id", ""))
-            mission = service.get_mission(mission_id)
-            if mission is None:
+            if service.get_mission(mission_id) is None:
                 return {"ok": False, "error": "unknown mission", "code": "MISSION_NOT_FOUND"}
-            snapshot = service.snapshot(mission_id)
-            return {
-                "ok": True,
-                "context": {
-                    "schema_version": "rosclaw.embodied_context.v0",
-                    "mission_id": mission_id,
-                    "mode": mission.mode.value,
-                    "state": mission.state.value,
-                    "body_id": mission.body_binding.body_id,
-                    "body_hash": mission.body_binding.effective_body_hash,
-                    "last_event_sequence": snapshot.last_event_sequence,
-                    "pending_approvals": len(snapshot.pending_approvals),
-                },
-            }
+            # PNA-2：完整 EmbodiedContextEnvelopeV1（TTL + 内容 hash）。
+            from rosclaw.agentd.pi_bridge.context import build_embodied_context
+
+            try:
+                envelope = build_embodied_context(service, mission_id)
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc), "code": "CONTEXT_UNAVAILABLE"}
+            return {"ok": True, "context": envelope.model_dump(mode="json")}
+        if method == "pi.tools.execute":
+            # PNA-3：完整验证链（binding/mission/lease/allowlist/idempotency）。
+            from rosclaw.agentd.pi_bridge.tool_dispatch import (
+                PiToolDispatcher,
+                ToolBridgeError,
+            )
+            from rosclaw.contracts.pi.tool_request import PiToolRequestV1
+
+            try:
+                tool_request = PiToolRequestV1(**dict(params.get("request") or {}))
+            except Exception as exc:  # noqa: BLE001
+                return {"ok": False, "error": f"invalid tool request: {exc}",
+                        "code": "INVALID_REQUEST"}
+            dispatcher = PiToolDispatcher(service)
+            try:
+                result = await dispatcher.execute(tool_request)
+            except ToolBridgeError as exc:
+                return {"ok": False, "error": exc.message, "code": exc.code}
+            return {"ok": result.ok, "result": result.model_dump(mode="json"),
+                    "code": result.error_code}
         return {"ok": False, "error": f"unknown method {method!r}", "code": "METHOD_NOT_FOUND"}
