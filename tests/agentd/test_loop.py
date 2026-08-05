@@ -275,6 +275,35 @@ class TestClosedLoop:
         roles = [m["role"] for m in gateway.requests[-1].messages]
         assert "assistant" in roles and "tool" in roles
 
+    async def test_async_on_text_delta_is_awaited_in_order(self, store, mission) -> None:
+        """TUI path regression: MissionRunner passes an async on_delta; the
+        synchronous DecisionBlockFilter must drain it (ordered, awaited) or
+        every streamed delta is dropped with 'coroutine was never awaited'."""
+        import warnings
+
+        gateway = MockModelGateway(
+            mock_profile(),
+            [lambda req: _turn(content=_decision_block(req))],
+        )
+        loop = _loop(store, gateway)
+
+        pieces: list[str] = []
+
+        async def on_delta(piece: str) -> None:
+            pieces.append(piece)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            result = await loop.run_user_turn(
+                mission, "直接回答", now=NOW, on_text_delta=on_delta
+            )
+        streamed = "".join(pieces)
+        assert streamed
+        assert pieces == [p for p in pieces if p]  # order preserved, none lost
+        assert result.reply.startswith(streamed[:10]) or streamed.startswith(
+            result.reply[:10]
+        )
+
     async def test_answer_only_mission_completes(self, store, mission) -> None:
         gateway = MockModelGateway(
             mock_profile(), [lambda req: _turn(content=_decision_block(req))]

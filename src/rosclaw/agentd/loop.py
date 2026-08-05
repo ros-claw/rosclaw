@@ -20,6 +20,7 @@ calls inside it. Properties:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections.abc import Awaitable, Callable
@@ -165,10 +166,29 @@ class AgentLoop:
         self._restore_conversation(mission.mission_id)
         self._trace_id = new_id("tr")
         display_filter = None
+        forwarder = None
+        delta_queue = None
         if on_text_delta is not None:
             from rosclaw.agentd.stream_filter import DecisionBlockFilter
 
-            display_filter = DecisionBlockFilter(on_text_delta)
+            if asyncio.iscoroutinefunction(on_text_delta):
+                # DecisionBlockFilter sinks synchronously; an async callback
+                # (e.g. MissionRunner's event-appending on_delta) must be
+                # drained through an ordered queue or every delta is dropped
+                # with "coroutine was never awaited".
+                delta_queue = asyncio.Queue()
+
+                async def _forward_deltas() -> None:
+                    while True:
+                        piece = await delta_queue.get()
+                        if piece is None:
+                            return
+                        await on_text_delta(piece)
+
+                forwarder = asyncio.create_task(_forward_deltas())
+                display_filter = DecisionBlockFilter(delta_queue.put_nowait)
+            else:
+                display_filter = DecisionBlockFilter(on_text_delta)
         try:
             return await self._run_user_turn_inner(
                 mission,
@@ -179,6 +199,10 @@ class AgentLoop:
         finally:
             if display_filter is not None:
                 display_filter.flush()
+            if delta_queue is not None:
+                delta_queue.put_nowait(None)
+            if forwarder is not None:
+                await forwarder
             self._persist_conversation(mission.mission_id)
 
     async def _run_user_turn_inner(
