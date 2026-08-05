@@ -220,6 +220,12 @@ class AgentLoop:
                 # trusted header; freshness is carried by context_revision and
                 # bundle_hash, not by a rotating id.
                 context_id=f"ctx_{mission.mission_id}",
+                # Capability selection must follow the current operator turn,
+                # not the mission's original goal.  A long-lived embodied
+                # session commonly moves from localization to audio or camera
+                # inspection; ranking against the stale goal can otherwise
+                # hide the exact observation tool the operator just named.
+                memory_query=user_text,
             )
         except StaleSourceError as exc:
             result.degraded = f"stale_source: {exc}"
@@ -291,7 +297,7 @@ class AgentLoop:
                 tools = resolve(
                     candidate_tools,
                     mode=mission.mode.value,
-                    task_hint=mission.goal.text if mission.goal else "",
+                    task_hint=user_text,
                 )
             else:
                 tools = self._tools.strict_tools(candidate_tools)
@@ -334,7 +340,9 @@ class AgentLoop:
             )
             try:
                 if on_text_delta is not None:
-                    await self._emit(AgentEventType.MESSAGE_STARTED, {}, visibility=Visibility.DEBUG)
+                    await self._emit(
+                        AgentEventType.MESSAGE_STARTED, {}, visibility=Visibility.DEBUG
+                    )
                 turn = await self._gateway.complete_stream(request, on_text_delta=on_text_delta)
             except ModelGatewayError as exc:
                 from rosclaw.agentd.context.compact import is_context_overflow
