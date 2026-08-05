@@ -501,7 +501,12 @@ def _find_tui_runtime() -> tuple[str, str] | None:
         return None
     entry_env = os.environ.get("ROSCLAW_TUI_ENTRY")
     repo_entry = (
-        Path(__file__).resolve().parents[3] / "packages" / "rosclaw-tui" / "dist" / "src" / "main.js"
+        Path(__file__).resolve().parents[3]
+        / "packages"
+        / "rosclaw-tui"
+        / "dist"
+        / "src"
+        / "main.js"
     )
     entry = entry_env or (str(repo_entry) if repo_entry.exists() else None)
     if not entry or not Path(entry).exists():
@@ -649,8 +654,7 @@ def cmd_backend(args: argparse.Namespace) -> int:
     models["backend"] = args.set
     config_path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
     print(
-        f"backend: {current} → {args.set}。"
-        "现有 profile 与 env 凭据引用保持不变；下一 turn 生效。"
+        f"backend: {current} → {args.set}。现有 profile 与 env 凭据引用保持不变；下一 turn 生效。"
     )
     return 0
 
@@ -669,6 +673,10 @@ async def _chat_repl(service: AgentService, args: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001 - surface honest refusal
             print(f"无法创建 mission：{exc}", file=sys.stderr)
             return 2
+    # The basic REPL is an operator surface.  Expose its approval projection
+    # before accepting commands so the independently enrolled operatord can
+    # verify and decide the exact cards created by this service instance.
+    await service.start_operator_socket()
     print(f"ROSClaw chat — mission {mission.mission_id} [{mission.mode.value}]")
     print(
         "输入消息开始对话；/state 查看状态；/approvals 待授权；"

@@ -25,6 +25,9 @@ from rosclaw.kernel.contracts import (
     VerificationPolicy,
 )
 
+_MIN_OPERATOR_ACTION_LEASE_MS = 30_000
+_MAX_OPERATOR_ACTION_LEASE_MS = 3_600_000
+
 
 class ConsentChannelError(ValidationError):
     """Proposal creation/decision/receipt failed (fail closed)."""
@@ -61,6 +64,17 @@ class DaemonConsentChannel:
         client_reference（R1/P0-6）：{agent_request_id, mission_id} 绑定，
         daemon 原样带入 challenge/receipt，agentd 精确比对。
         """
+        # Operator proposals are submitted by rosclawd after the interactive
+        # caller has returned, so there is no client-side lease-renewal loop.
+        # Bind the action lease to the same bounded lifetime as the proposal.
+        # The default 10 s ActionEnvelope lease is shorter than several real
+        # LIMO workers (camera/audio/localization preflight included) and can
+        # otherwise let the watchdog rewrite a successfully verified receipt
+        # to TIMED_OUT milliseconds after completion.
+        lease_ttl_ms = min(
+            _MAX_OPERATOR_ACTION_LEASE_MS,
+            max(_MIN_OPERATOR_ACTION_LEASE_MS, int(float(ttl_sec) * 1000)),
+        )
         envelope = ActionEnvelope(
             action_id=new_id("act"),
             actor_id=self._actor_id,
@@ -76,6 +90,8 @@ class DaemonConsentChannel:
             execution_mode=ExecutionMode(execution_mode),
             risk_class=risk_class,
             deadline_at=datetime.now(UTC) + timedelta(seconds=ttl_sec),
+            lease_ttl_ms=lease_ttl_ms,
+            renew_interval_ms=min(3_000, max(1_000, lease_ttl_ms // 3)),
             verification_policy=VerificationPolicy(
                 required_evidence=EvidenceLevel.DRIVER_CONFIRMED,
                 timeout_sec=ttl_sec,
@@ -109,7 +125,6 @@ class DaemonConsentChannel:
             "agentd no longer decides daemon proposals (P0-01) — "
             "decisions belong to rosclaw-operatord"
         )
-
 
     async def proposal(self, request_id: str) -> dict[str, Any]:
         try:
