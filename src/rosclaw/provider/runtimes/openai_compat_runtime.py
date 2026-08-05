@@ -55,6 +55,7 @@ class OpenAICompatRuntime(RuntimeAdapter):
         retries: int = 1,
         headers: dict[str, str] | None = None,
         stream_idle_timeout_sec: float = 60.0,
+        trust_env: bool | None = None,
     ):
         super().__init__(name, config={"endpoint": endpoint, "timeout": timeout_sec})
         if api_kind not in (_API_CHAT, _API_EMBEDDINGS):
@@ -71,6 +72,7 @@ class OpenAICompatRuntime(RuntimeAdapter):
         self.retries = retries
         self.headers = headers or {}
         self.stream_idle_timeout_sec = stream_idle_timeout_sec
+        self.trust_env = trust_env
         self._session = None
 
     async def start(self) -> None:
@@ -88,7 +90,8 @@ class OpenAICompatRuntime(RuntimeAdapter):
         if host:
             with suppress(ValueError):
                 loopback = loopback or ipaddress.ip_address(host).is_loopback
-        self._session = aiohttp.ClientSession(headers=self.headers, trust_env=not loopback)
+        trust_env = not loopback if self.trust_env is None else self.trust_env
+        self._session = aiohttp.ClientSession(headers=self.headers, trust_env=trust_env)
         self._started = True
 
     async def stop(self) -> None:
