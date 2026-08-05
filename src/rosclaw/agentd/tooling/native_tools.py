@@ -9,7 +9,12 @@ from __future__ import annotations
 from typing import Any
 
 from rosclaw.agentd.tooling.catalog import ToolCatalog
-from rosclaw.agentd.tools import SIM_BODY_TOOL, SIM_STATE_TOOL, BuiltinToolRegistry
+from rosclaw.agentd.tools import (
+    SIM_BODY_TOOL,
+    SIM_REACH_TOOL,
+    SIM_STATE_TOOL,
+    BuiltinToolRegistry,
+)
 from rosclaw.contracts.agent.tool import (
     ExecutionClass,
     ToolDescriptorV2,
@@ -63,6 +68,36 @@ def register_native_tools(
                 verifier="schema+simulated-label",
                 reliability=1.0,
                 typical_latency_ms=1,
+            ),
+        )
+        # MuJoCo reach: real physics, no physical side effect -> COMPUTE;
+        # simulated bodies only, and only in SIMULATION mode.
+        descriptors.append(
+            ToolDescriptorV2(
+                tool_id=SIM_REACH_TOOL,
+                source=NATIVE_SOURCE,
+                execution_class=ExecutionClass.COMPUTE,
+                description=(
+                    "Execute one MuJoCo physics reach with the SIMULATED UR5e "
+                    "to a tabletop target (x/y/z meters) and return the verified "
+                    "receipt: policy check, physics steps, collision check and "
+                    "task success. Evidence class: simulated."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "x": {"type": "number"},
+                        "y": {"type": "number"},
+                        "z": {"type": "number"},
+                    },
+                    "required": ["x", "y", "z"],
+                    "additionalProperties": False,
+                },
+                supported_modes=["SIMULATION"],
+                evidence_class=ToolEvidenceClass.SIMULATED,
+                verifier="sandbox-receipt+task-predicate",
+                reliability=0.9,
+                typical_latency_ms=4000,
             ),
         )
     for descriptor in descriptors:
