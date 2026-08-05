@@ -1281,6 +1281,18 @@ class AgentService:
         await self._operator_socket.start()
         return path
 
+    async def start_pi_bridge(self, socket_path: Path | None = None) -> Path:
+        """PR-PNA-1：pi-bridge.sock（SessionBinding + writer lease + 状态投影）。"""
+        from rosclaw.agentd.pi_bridge.server import PiBridgeServer
+
+        existing = getattr(self, "_pi_bridge", None)
+        if existing is not None:
+            return existing._path
+        path = socket_path or (self._home / "run" / "pi-bridge.sock")
+        self._pi_bridge = PiBridgeServer(self, path)
+        await self._pi_bridge.start()
+        return path
+
     async def close(self) -> None:
         if getattr(self, "_shared_mcp_client", None) is not None:
             await self._shared_mcp_client.close()
@@ -1288,6 +1300,9 @@ class AgentService:
         if getattr(self, "_operator_socket", None) is not None:
             await self._operator_socket.stop()
             self._operator_socket = None
+        if getattr(self, "_pi_bridge", None) is not None:
+            await self._pi_bridge.stop()
+            self._pi_bridge = None
         await self._gateway.close()
         self._store.close()
         # P1-4：control token 文件随服务关闭删除（不残留可重用的令牌）。
@@ -1430,6 +1445,7 @@ def create_app(service: AgentService):
         # P1-3：HTTP 服务停止时必须关闭 service（子进程/socket/句柄）。
         # P1-4：ephemeral control token 落 0600 文件供同机 TUI/CLI。
         await service.start_operator_socket()
+        await service.start_pi_bridge()
         service.write_control_token_file()
         try:
             yield

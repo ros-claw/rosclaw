@@ -1,8 +1,14 @@
-"""Pi dependency boundary tests (ADR-0008, 大纲 §19.1).
+"""Pi dependency boundary tests (ADR-0008, 大纲 §19.1 — 2026-08-05 重构修订).
 
-Scans npm dependency trees (when node/ exists) and Python imports to
-enforce: only pi-tui/pi-ai may enter production, Pi/Codex/Hermes/OpenCode
-Agent runtimes are banned, and package versions are exactly pinned.
+重构规格（rosclaw_native_agent重构.md §1）正式废止"禁止引入
+pi-coding-agent"：Pi SDK 现在是 rosclaw-agent harness 的实现基础。
+新边界：
+
+- pi-coding-agent/pi-agent-core/pi-ai/pi-tui **只允许**出现在
+  packages/rosclaw-agent（harness 包），且必须精确锁 0.83.0；
+- 其他包（rosclaw-tui/rosclaw-modeld）仍只允许 pi-tui/pi-ai；
+- hermes-agent/opencode 仍然全禁；
+- Python 仍不得 import 任何外部 Agent 运行时。
 """
 
 from __future__ import annotations
@@ -17,15 +23,27 @@ REPO = Path(__file__).resolve().parents[2]
 NODE_ROOT = REPO / "packages"
 
 BANNED_NPM_PACKAGES = (
-    "@earendil-works/pi-agent-core",
-    "@earendil-works/pi-coding-agent",
     "hermes-agent",
     "opencode",
 )
 
+# 重构修订：harness SDK 只允许出现在 rosclaw-agent，且精确锁定。
+HARNESS_ONLY_PACKAGES = (
+    "@earendil-works/pi-coding-agent",
+    "@earendil-works/pi-agent-core",
+)
+HARNESS_PACKAGE_DIR = "rosclaw-agent"
+
 ALLOWED_PI_PACKAGES = {
     "@earendil-works/pi-tui": "0.83.0",
     "@earendil-works/pi-ai": "0.83.0",
+}
+
+ALLOWED_HARNESS_PACKAGES = {
+    "@earendil-works/pi-coding-agent": "0.83.0",
+    "@earendil-works/pi-agent-core": "0.83.0",
+    "@earendil-works/pi-ai": "0.83.0",
+    "@earendil-works/pi-tui": "0.83.0",
 }
 
 BANNED_PYTHON_IMPORTS = re.compile(r"pi_agent_core|pi_coding_agent|hermes_agent|opencode_agent")
@@ -35,7 +53,9 @@ def _package_jsons() -> list[Path]:
     if not NODE_ROOT.exists():
         return []
     return [
-        p for p in NODE_ROOT.rglob("package.json") if "node_modules" not in p.parts
+        p
+        for p in NODE_ROOT.rglob("package.json")
+        if "node_modules" not in p.parts and "dist" not in p.parts
     ]
 
 
@@ -45,10 +65,29 @@ class TestNpmBoundary:
             pytest.skip("node workspace not created yet")
         for path in _package_jsons():
             data = json.loads(path.read_text(encoding="utf-8"))
+            is_harness = path.parent.name == HARNESS_PACKAGE_DIR
             for section in ("dependencies", "devDependencies", "peerDependencies"):
                 for name in data.get(section, {}):
                     assert name not in BANNED_NPM_PACKAGES, (
                         f"{path}: banned package {name} in {section}"
+                    )
+                    if name in HARNESS_ONLY_PACKAGES:
+                        assert is_harness, (
+                            f"{path}: harness SDK {name} 只允许出现在 "
+                            f"{HARNESS_PACKAGE_DIR}（重构规格 §2.4/§7）"
+                        )
+
+    def test_harness_packages_exactly_pinned(self) -> None:
+        harness = NODE_ROOT / HARNESS_PACKAGE_DIR / "package.json"
+        if not harness.exists():
+            pytest.skip("rosclaw-agent not created yet")
+        data = json.loads(harness.read_text(encoding="utf-8"))
+        for section in ("dependencies",):
+            for name, version in (data.get(section) or {}).items():
+                if name in ALLOWED_HARNESS_PACKAGES:
+                    assert version == ALLOWED_HARNESS_PACKAGES[name], (
+                        f"{name} 必须精确锁 {ALLOWED_HARNESS_PACKAGES[name]}，"
+                        f"got {version!r}（禁止 ^/~ 范围，重构规格 §7）"
                     )
 
     def test_pi_versions_exactly_pinned(self) -> None:
@@ -69,13 +108,14 @@ class TestNpmBoundary:
                         assert not version.startswith(("^", "~"))
 
     def test_lockfile_no_banned_packages(self) -> None:
-        lock = REPO / "packages" / "rosclaw-tui" / "package-lock.json"
-        if not lock.exists():
-            pytest.skip("lockfile not created yet")
-        data = json.loads(lock.read_text(encoding="utf-8"))
-        packages = (data.get("packages") or {}).keys()
-        for name in BANNED_NPM_PACKAGES:
-            assert not any(name in p for p in packages), f"lockfile contains {name}"
+        for package in NODE_ROOT.glob("rosclaw-*"):
+            lock = package / "package-lock.json"
+            if not lock.exists():
+                continue
+            data = json.loads(lock.read_text(encoding="utf-8"))
+            packages = (data.get("packages") or {}).keys()
+            for name in BANNED_NPM_PACKAGES:
+                assert not any(name in p for p in packages), f"lockfile contains {name}"
 
 
 class TestPythonBoundary:
