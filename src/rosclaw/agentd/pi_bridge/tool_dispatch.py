@@ -31,10 +31,10 @@ _TOOL_TABLE: dict[str, str] = {
     "rosclaw_memory_query": "read",
     "rosclaw_fail_safe": "control",
     "rosclaw_delegate": "delegate",
+    "rosclaw_request_action": "physical_action",
 }
 #: 后续批次才开放；现在调用必须得到诚实的"未开放"拒绝。
 _DEFERRED_TOOLS = {
-    "rosclaw_request_action": "PNA-5（approval 链）",
     "rosclaw_plan_patch": "PNA-3 后续（TaskGraph patch）",
     "rosclaw_team_coordinate": "PNA-4 后续",
 }
@@ -190,6 +190,8 @@ class PiToolDispatcher:
                 summary="memory query is wired to the approved evidence pipeline; "
                 "no results in this SIM profile",
             )
+        if name == "rosclaw_request_action":
+            return await self._request_action(request)
         if name == "rosclaw_delegate":
             return await self._delegate(request)
         if name == "rosclaw_fail_safe":
@@ -304,6 +306,134 @@ class PiToolDispatcher:
             status="COMPLETED",
             summary=result.summary,
             artifact_refs=[a.ref for a in result.artifacts],
+        )
+
+    async def _request_action(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """PNA-5（规格 §20）：动作请求 → 授权卡 → 等 operator 决定 →
+        批准后执行 → receipt。模型不能自批（工具只创建卡片并等待；
+        决定只能来自 operatord 的签名 apply）。"""
+        import asyncio as _asyncio
+
+        from rosclaw.contracts.agent.decision import (
+            DecisionV1,
+            NextIntent,
+            ProposedOperation,
+        )
+        from rosclaw.contracts.common import new_id
+
+        args = request.arguments
+        capability_id = str(args.get("capability_id", "")).strip()
+        arguments = args.get("arguments")
+        if not capability_id or not isinstance(arguments, dict):
+            raise ToolBridgeError(
+                "INVALID_ARGUMENTS", "capability_id and arguments required (fail closed)"
+            )
+        service = self._service
+        mission = service.get_mission(request.mission_id)
+        if mission is None:
+            raise ToolBridgeError("MISSION_NOT_FOUND", "unknown mission")
+        handlers = service._handlers
+        if handlers is None:
+            raise ToolBridgeError("HANDLERS_UNAVAILABLE", "intent handlers not wired")
+        handlers._mode = mission.mode.value
+        handlers._principal = mission.owner_principal
+        # 1. 创建授权卡（REAL 卡同时创建 daemon proposal——handlers 内部处理）。
+        approval_decision = DecisionV1(
+            decision_id=new_id("dec"),
+            mission_id=request.mission_id,
+            context_id=f"ctx_{request.mission_id}",
+            context_revision=0,
+            next_intent=NextIntent.REQUEST_APPROVAL,
+            summary=str(args.get("expected_effect") or capability_id),
+            evidence_refs=[],
+            proposed_operation=ProposedOperation(
+                type="approval_request",
+                payload={
+                    "capability_id": capability_id,
+                    "arguments": arguments,
+                    "title": str(args.get("title") or capability_id),
+                    "summary": str(args.get("expected_effect") or capability_id),
+                    "risk_tier": str(args.get("risk_tier", "LOW")),
+                    "expected_effect": str(args.get("expected_effect") or ""),
+                    "failure_handling": str(args.get("failure_handling") or ""),
+                    "parameters": arguments,
+                },
+            ),
+        )
+        before = {r.request_id for r in service.pending_approvals(request.mission_id)}
+        await handlers.request_approval(approval_decision)
+        # 成功语义 = 新卡片落库（HandlerOutcome.accepted 是 worker 验证
+        # 专用字段，request_approval 不填——不能以它判成败）。
+        pending = service.pending_approvals(request.mission_id)
+        new_cards = [r for r in pending if r.request_id not in before]
+        if not new_cards:
+            raise ToolBridgeError(
+                "APPROVAL_CARD_MISSING", "approval card was not created (fail closed)"
+            )
+        card = new_cards[-1]
+        # 2. 等待 operator 决定（轮询 broker；决定只能经 operatord 到达）。
+        deadline_sec = 330.0
+        waited = 0.0
+        while waited < deadline_sec:
+            current = service._broker.get_request(card.request_id)
+            if current is not None and current.status.value != "PENDING":
+                break
+            await _asyncio.sleep(1.0)
+            waited += 1.0
+        current = service._broker.get_request(card.request_id)
+        if current is None or current.status.value == "PENDING":
+            raise ToolBridgeError(
+                "APPROVAL_TIMEOUT",
+                "operator 未在期限内决定（默认拒绝语义）——动作未执行",
+                retryable=False,
+            )
+        if current.status.value != "APPROVED":
+            return PiToolResultV1(
+                request_id=request.request_id,
+                ok=False,
+                status="DECLINED",
+                summary=f"operator 拒绝了 {capability_id}——动作未执行",
+                approval_id=card.request_id,
+                error_code="OPERATOR_DECLINED",
+            )
+        # 3. 批准后执行（grant 单次，EXACT_ACTION）。
+        grant_id = ""
+        for grant in service.list_grants():
+            if grant.get("revoked") or grant.get("consumed"):
+                continue
+            grant_id = str(grant.get("grant_id", ""))
+        if not grant_id:
+            raise ToolBridgeError(
+                "GRANT_MISSING", "approved but no active grant found (fail closed)"
+            )
+        action_decision = DecisionV1(
+            decision_id=new_id("dec"),
+            mission_id=request.mission_id,
+            context_id=f"ctx_{request.mission_id}",
+            context_revision=0,
+            next_intent=NextIntent.REQUEST_ACTION,
+            summary=f"execute {capability_id}",
+            evidence_refs=[],
+            proposed_operation=ProposedOperation(
+                type="action_request",
+                payload={
+                    "grant_id": grant_id,
+                    "capability_id": capability_id,
+                    "arguments": arguments,
+                },
+            ),
+        )
+        action_outcome = await handlers.request_action(action_decision)
+        # request_action 不用 accepted 字段——成功=文本无失败标记且有回执语义。
+        failed_markers = ("未提交", "失败", "尚未到终态", "不报告为完成", "拒绝")
+        action_ok = not any(m in action_outcome.text for m in failed_markers)
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=action_ok,
+            status="COMPLETED" if action_ok else "FAILED",
+            summary=action_outcome.text[:8000],
+            approval_id=card.request_id,
+            error_code=None if action_ok else "ACTION_FAILED",
         )
 
     async def _mirror_decision(

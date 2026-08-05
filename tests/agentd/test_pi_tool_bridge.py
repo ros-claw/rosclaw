@@ -101,11 +101,16 @@ class TestValidationChain:
             _request("rosclaw_hack", mission=mission.mission_id, idem="idem_unk")
         )
         assert not unknown.ok and unknown.error_code == "TOOL_UNKNOWN"
+        # PNA-5 后 request_action 已开放——空参数必须 fail closed。
         deferred = await dispatcher.execute(
             _request("rosclaw_request_action", mission=mission.mission_id, idem="idem_def")
         )
-        assert not deferred.ok and deferred.error_code == "TOOL_DEFERRED"
-        assert "PNA-5" in deferred.summary
+        assert not deferred.ok and deferred.error_code == "INVALID_ARGUMENTS"
+        # 仍未开放的工具保持诚实拒绝。
+        plan = await dispatcher.execute(
+            _request("rosclaw_plan_patch", mission=mission.mission_id, idem="idem_pp")
+        )
+        assert not plan.ok and plan.error_code == "TOOL_DEFERRED"
         await service.close()
 
     async def test_status_and_idempotency(self, tmp_path: Path) -> None:

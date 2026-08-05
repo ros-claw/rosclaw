@@ -8,6 +8,8 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { bridgeCall } from "../bridge/bridge-client.js";
+import { defaultOperatorSocket, operatorCall } from "../bridge/operatord-client.js";
+import { ApprovalCardComponent } from "../ui/approval-card.js";
 import { fetchEmbodiedContext, renderTrustedContext } from "./context-injection.js";
 
 export interface RosclawExtensionOptions {
@@ -140,6 +142,76 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					ctx.ui.notify(`委派失败：${(err as Error).message}`, "error");
 				}
 			},
+		});
+
+		// -- Approval 卡片（PNA-5，规格 §20）：tool 触发 → 拉卡片 → 前台 Y/N →
+		//    operatord 签名链。模型文本永远到不了这里（只有真实按键）。
+		pi.on("tool_execution_start", async (event, ctx) => {
+			if (event.toolName !== "rosclaw_request_action" || !ctx.hasUI) return;
+			if (!options.missionId) return;
+			const args = (event.args ?? {}) as Record<string, unknown>;
+			// 等 agentd 建卡（bridge tool 先创建授权卡再等待决定）。
+			let entry: { request_id: string; display_hash: string } | undefined;
+			for (let attempt = 0; attempt < 10; attempt += 1) {
+				await new Promise((resolve) => setTimeout(resolve, 500));
+				try {
+					const listed = (await operatorCall(
+						defaultOperatorSocket(options.rosclawHome),
+						"approvals.list",
+						{ mission_id: options.missionId },
+					)) as { ok: boolean; approvals?: Array<{ request_id: string; display_hash: string }> };
+					entry = (listed.approvals ?? [])[0];
+					if (entry) break;
+				} catch {
+					// operatord 未运行 → 下方诚实提示
+				}
+			}
+			if (!entry) {
+				ctx.ui.notify(
+					"授权卡未出现（operatord 未运行？）——动作不会执行。启动：rosclaw operatord start",
+					"error",
+				);
+				return;
+			}
+			const cardEntry = entry;
+			try {
+				await ctx.ui.custom<boolean>((_tui, _theme, _kb, done) => {
+					return new ApprovalCardComponent(
+						{
+							requestId: cardEntry.request_id,
+							title: String(args.expected_effect ?? args.capability_id ?? ""),
+							summary: String(args.capability_id ?? ""),
+							riskTier: String(args.risk_tier ?? "LOW"),
+							mode: "ACTION",
+							capability: String(args.capability_id ?? ""),
+							parameters: (args.arguments ?? {}) as Record<string, unknown>,
+							expiresAt: "",
+							displayHash: cardEntry.display_hash,
+						},
+						(approve) => done(approve),
+					);
+				}, { overlay: true }).then(async (approve) => {
+					const decided = (await operatorCall(
+						defaultOperatorSocket(options.rosclawHome),
+						"approvals.decide",
+						{
+							request_id: cardEntry.request_id,
+							display_hash: cardEntry.display_hash,
+							approve,
+						},
+					)) as { ok: boolean; error?: string };
+					ctx.ui.notify(
+						decided.ok
+							? approve
+								? "已批准（等待执行回执）"
+								: "已拒绝"
+							: `决定被拒：${decided.error ?? "unknown"}`,
+						decided.ok ? "info" : "error",
+					);
+				});
+			} catch (err) {
+				ctx.ui.notify(`授权卡交互失败：${(err as Error).message}`, "error");
+			}
 		});
 
 		// -- 生命周期观察（PNA-6 在此强制"新 SIM Mission + 不复制 authority"） -------
