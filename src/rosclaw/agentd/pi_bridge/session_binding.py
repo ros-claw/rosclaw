@@ -218,8 +218,9 @@ class SessionBindingStore:
             (_iso(now), expires, row["lease_id"]),
         )
         self._conn.commit()
+        row_keys = set(row.keys())
         return PiSessionLeaseV1(
-            **{k: row[k] for k in row.keys() if k not in ("heartbeat_at", "expires_at")},
+            **{k: row[k] for k in row_keys if k not in ("heartbeat_at", "expires_at")},
             heartbeat_at=_iso(now),
             expires_at=expires,
         )
@@ -242,4 +243,4 @@ class SessionBindingStore:
             return None
         if row["expires_at"] < _iso(_now()):
             return None
-        return PiSessionLeaseV1(**{k: row[k] for k in row.keys()})
+        return PiSessionLeaseV1(**{k: row[k] for k in set(row.keys())})
