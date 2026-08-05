@@ -192,6 +192,50 @@ class PiBridgeServer:
                 "mission_state": mission.state.value if mission else "MISSING",
                 "mission_archived": service.mission_archived(binding.mission_id),
             }
+        if method == "pi.events.batch":
+            # PNA-8（规格 §24.2）：认知事件镜像——只存 hash/元数据，
+            # 拒绝任何像全文的字段（不双写 transcript）。
+            events = params.get("events")
+            if not isinstance(events, list) or len(events) > 256:
+                return {"ok": False, "error": "events must be a list of at most 256",
+                        "code": "INVALID_ARGUMENT"}
+            stored = 0
+            for event in events:
+                if not isinstance(event, dict):
+                    continue
+                summary = str(event.get("summary", ""))
+                if len(summary) > 200:
+                    return {
+                        "ok": False,
+                        "error": "mirror summaries must be <= 200 chars (no full-text mirroring)",
+                        "code": "FULL_TEXT_FORBIDDEN",
+                    }
+                content = str(event.get("content", ""))
+                if content:
+                    return {
+                        "ok": False,
+                        "error": "mirror events must not carry content text (hash only)",
+                        "code": "FULL_TEXT_FORBIDDEN",
+                    }
+                service._store.connection.execute(
+                    "INSERT INTO pi_event_mirrors (mirror_id, pi_session_id, mission_id, "
+                    "event_type, pi_entry_id, content_hash, model, usage_json, occurred_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        str(event.get("mirror_id", "")) or f"mir_{stored}",
+                        str(event.get("pi_session_id", "")),
+                        str(event.get("mission_id", "")),
+                        str(event.get("event_type", "")),
+                        str(event.get("pi_entry_id", "")),
+                        str(event.get("content_hash", "")),
+                        str(event.get("model", "")),
+                        json.dumps(event.get("usage", {})),
+                        str(event.get("occurred_at", "")),
+                    ),
+                )
+                stored += 1
+            service._store.connection.commit()
+            return {"ok": True, "stored": stored}
         if method == "pi.worker.status":
             # PNA-4：Worker 状态投影（原位更新 UI 用；只读）。
             mission_id = str(params.get("mission_id", ""))

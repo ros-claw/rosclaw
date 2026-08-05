@@ -17,6 +17,7 @@ import {
 } from "../session/lifecycle.js";
 import { defaultOperatorSocket, operatorCall } from "../bridge/operatord-client.js";
 import { ApprovalCardComponent } from "../ui/approval-card.js";
+import { EventMirror } from "./event-mirror.js";
 import { fetchEmbodiedContext, renderTrustedContext } from "./context-injection.js";
 
 export interface RosclawExtensionOptions {
@@ -220,6 +221,42 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				ctx.ui.notify(`授权卡交互失败：${(err as Error).message}`, "error");
 			}
 		});
+
+		// -- 认知事件镜像（PNA-8，规格 §24.2）：hash-only，不双写全文 ----------
+		const mirror = options.missionId
+			? new EventMirror(
+					options.rosclawHome,
+					options.piSessionId ?? "",
+					options.missionId,
+				)
+			: null;
+		if (mirror) {
+			const activeMirror = mirror;
+			pi.on("message_end", async (event) => {
+				const message = event.message as { role?: string; content?: unknown };
+				if (message.role !== "assistant") return undefined;
+				// 只镜像 hash——全文权威在 Pi session。
+				const text = JSON.stringify(message.content ?? "");
+				activeMirror.push("message_end", {
+					text,
+					model: String((event.message as { model?: string }).model ?? ""),
+					usage: (event.message as { usage?: Record<string, unknown> }).usage,
+				});
+				await activeMirror.flush();
+				return undefined;
+			});
+			pi.on("turn_end", async (event) => {
+				activeMirror.push("turn_end", {
+					text: JSON.stringify((event.message as { content?: unknown }).content ?? ""),
+				});
+				await activeMirror.flush();
+				return undefined;
+			});
+			pi.on("session_shutdown", async () => {
+				await activeMirror.flush();
+				return undefined;
+			});
+		}
 
 		// -- Session 生命周期映射（PNA-6，规格 §13） ------------------------------
 		const lifecycle: LifecycleDeps = {

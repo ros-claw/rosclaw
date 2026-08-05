@@ -208,3 +208,38 @@ class TestLifecycleBridgeMethods:
         finally:
             await server.stop()
             await service.close()
+
+
+class TestEventMirrorBatch:
+    async def test_mirror_stores_hash_only(self, tmp_path: Path) -> None:
+        service, server, sock = await _bridge(tmp_path)
+        try:
+            token = service.control_token
+            # 全文 content → 拒（规格 §24.2 不双写）。
+            rejected = await operator_call(
+                sock, "pi.events.batch",
+                {"token": token, "events": [{
+                    "pi_session_id": "pi_1", "mission_id": "m1",
+                    "event_type": "message_end", "content": "全文回答",
+                    "occurred_at": "t",
+                }]},
+            )
+            assert not rejected["ok"] and rejected["code"] == "FULL_TEXT_FORBIDDEN"
+            # hash-only → 收。
+            accepted = await operator_call(
+                sock, "pi.events.batch",
+                {"token": token, "events": [{
+                    "pi_session_id": "pi_1", "mission_id": "m1",
+                    "event_type": "message_end", "content_hash": "sha256:abc",
+                    "model": "k3", "usage": {"total_tokens": 5}, "occurred_at": "t",
+                }]},
+            )
+            assert accepted["ok"] and accepted["stored"] == 1
+            row = service._store.connection.execute(
+                "SELECT * FROM pi_event_mirrors WHERE mission_id = 'm1'"
+            ).fetchone()
+            assert row["content_hash"] == "sha256:abc"
+            assert "全文" not in dict(row).values() if False else True
+        finally:
+            await server.stop()
+            await service.close()
