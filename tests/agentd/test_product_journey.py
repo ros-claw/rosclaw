@@ -14,11 +14,13 @@ clean install → rosclaw chat --engine pi → 品牌 header → 普通对话
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import socket
 import subprocess
 import tarfile
+import termios
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -299,8 +301,16 @@ class PtySession:
         import pty as _pty
 
         self.master, slave = _pty.openpty()
+
+        def _make_controlling_tty() -> None:
+            # 新 session + 控制终端——否则 TIOCSWINSZ 的 SIGWINCH 没有
+            # 前台进程组可投递，TUI 永远收不到 resize 事件。
+            os.setsid()
+            fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+
         self.proc = subprocess.Popen(
-            argv, stdin=slave, stdout=slave, stderr=slave, env=env, close_fds=True
+            argv, stdin=slave, stdout=slave, stderr=slave, env=env, close_fds=True,
+            preexec_fn=_make_controlling_tty,
         )
         os.close(slave)
         self.output = b""
