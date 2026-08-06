@@ -127,7 +127,7 @@ Homepage = "https://rosclaw.io"
 Repository = "https://github.com/ros-claw/rosclaw"
 Documentation = "https://docs.rosclaw.io"
 "Bug Tracker" = "https://github.com/ros-claw/rosclaw/issues"
-"Contact" = "mailto:ai@rosclaw.io"
+"Contact" = "https://github.com/ros-claw/rosclaw"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rosclaw"]
