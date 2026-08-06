@@ -11,7 +11,7 @@ import importlib
 from pkgutil import extend_path as _extend_path
 from typing import Any
 
-__version__ = "1.0.1"
+__version__ = "1.2.0"
 __author__ = "ROSClaw Team"
 
 # Allow sibling distributions such as rosclaw-sandbox to extend rosclaw.*.

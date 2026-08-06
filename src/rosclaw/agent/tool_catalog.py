@@ -77,6 +77,10 @@ MCP_TOOL_SAFETY_LEVELS: dict[str, str] = {
     "list_body_history": "S0_READ_ONLY",
     "check_skill_compatibility": "S0_READ_ONLY",
     "fleet_skill_compatibility": "S0_READ_ONLY",
+    "rosclaw_know_research": "S0_READ_ONLY",
+    "rosclaw_know_build_reference_pack": "S0_READ_ONLY",
+    "rosclaw_know_open_reference_pack": "S0_READ_ONLY",
+    "rosclaw_how_advice": "S0_ADVISORY",
 }
 
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rosclaw"
-version = "1.0.1"
+version = "1.2.0"
 description = "Trustworthy Physical Execution Runtime and Control Plane for Embodied Agents"
 readme = "README.md"
 license = {text = "MIT"}
@@ -54,14 +54,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ros2 = [
-    "rclpy>=3.0.0",
-    "geometry-msgs",
-    "sensor-msgs",
-    "std-msgs",
-    "trajectory-msgs",
-    "control-msgs",
-]
+# ROS 2 Python/message packages are supplied by the selected ROS distribution
+# (apt/rosdep), not PyPI. Keeping the marker extra allows install scripts to
+# express intent without making ``pip install rosclaw[all]`` unsatisfiable.
+ros2 = []
 practice = [
     "rosclaw-practice @ git+https://github.com/ros-claw/rosclaw-practice.git@bfb4ac7",
 ]
@@ -81,8 +77,8 @@ embedding = [
     "transformers>=4.51,<6",
 ]
 knowledge = [
-    "rosclaw-know>=1.0.2",
-    "rosclaw-how>=1.0.2",
+    "rosclaw-know>=1.2.0,<2",
+    "rosclaw-how>=1.2.0,<2",
 ]
 lerobot = [
     "lerobot>=0.6,<0.7",
