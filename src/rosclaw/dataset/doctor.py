@@ -8,6 +8,7 @@ import html
 import io
 import json
 import os
+import re
 import tempfile
 from collections import Counter, defaultdict
 from contextlib import suppress
@@ -31,7 +32,10 @@ _PARTIAL_MARKERS = (
     ".partial",
     ".tmp",
 )
-_FOOTBALL_TOKENS = ("football", "soccer", "kick", "dribble", "pass", "ball_game")
+_FOOTBALL_SPORT_TOKENS = frozenset(
+    {"football", "soccer", "futsal", "goalkeeper", "goalkeeping"}
+)
+_FOOTBALL_BALL_ACTIONS = frozenset({"kick", "kicking", "shoot", "shooting", "pass"})
 _LICENSE_NAMES = {
     "copying",
     "copying.md",
@@ -271,7 +275,21 @@ def _is_partial_name(name: str) -> bool:
 
 def _is_football_path(path: str) -> bool:
     lowered = path.lower()
-    return any(token in lowered for token in _FOOTBALL_TOKENS)
+    # Hugging Face download metadata mirrors the real path and must not count
+    # as a second training asset.  Generic words such as ``pass`` and
+    # ``dribble`` are not football evidence on their own: MotionDecode also
+    # contains object passing and basketball dribbling.
+    components = lowered.split("/")
+    if ".cache" in components or lowered.endswith(".metadata"):
+        return False
+    tokens = tuple(re.findall(r"[a-z0-9]+", lowered))
+    if _FOOTBALL_SPORT_TOKENS.intersection(tokens):
+        return True
+    return any(
+        first in _FOOTBALL_BALL_ACTIONS and second == "ball"
+        or first == "ball" and second in _FOOTBALL_BALL_ACTIONS
+        for first, second in zip(tokens, tokens[1:], strict=False)
+    )
 
 
 def _asset_matrix_csv(report: DatasetDoctorReport) -> str:

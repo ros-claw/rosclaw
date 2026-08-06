@@ -63,6 +63,31 @@ def test_lfs_pointer_is_fail_closed_partial_snapshot(tmp_path: Path) -> None:
     assert inventory.issue_counts == {"git_lfs_pointer": 1}
 
 
+def test_football_assets_require_sport_context_and_exclude_cache_mirrors(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "MotionDecode"
+    paths = (
+        "samples/Football/Short_Pass/clip.csv",
+        "samples/actions/kick_ball.csv",
+        "samples/Object_Passing/pass_item.csv",
+        "samples/Basketball/Dribbling/clip.csv",
+        "samples/dance/Front_Leg_Kick/clip.csv",
+        ".cache/huggingface/download/samples/Football/clip.csv.metadata",
+    )
+    for relative in paths:
+        path = dataset / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"sample")
+
+    inventory = inspect_dataset_root(tmp_path).inventories[0]
+
+    assert inventory.football_matches == (
+        "samples/Football/Short_Pass/clip.csv",
+        "samples/actions/kick_ball.csv",
+    )
+
+
 def test_writer_emits_inventory_quality_license_and_asset_matrix(tmp_path: Path) -> None:
     _fixture(tmp_path)
     report = inspect_dataset_root(tmp_path)

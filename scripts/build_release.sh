@@ -191,7 +191,9 @@ if [ "${ROSCLAW_SKIP_TOOL_BINS:-0}" != "1" ]; then
   mkdir -p "$STAGE/vendor/tool-bins" "$DIST_DIR/vendor-cache"
   case "$ARCH_NAME" in
     arm64) FD_ARCH="aarch64-unknown-linux-gnu"; RG_ARCH="aarch64-unknown-linux-gnu" ;;
-    x64)   FD_ARCH="x86_64-unknown-linux-gnu";   RG_ARCH="x86_64-unknown-linux-gnu" ;;
+    # ripgrep 14.1.1 publishes x86_64 Linux as musl (no gnu asset), while
+    # aarch64 is published as gnu. Keep fd and rg triples independent.
+    x64)   FD_ARCH="x86_64-unknown-linux-gnu";   RG_ARCH="x86_64-unknown-linux-musl" ;;
   esac
   FD_TARBALL="fd-v10.2.0-${FD_ARCH}.tar.gz"
   RG_TARBALL="ripgrep-14.1.1-${RG_ARCH}.tar.gz"

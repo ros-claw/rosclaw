@@ -116,6 +116,7 @@ def _recovery_validation(argv: list[str]) -> int:
             "continual-four-gpu-smoke",
             "continual-physical-foundation",
             "neural-torque-pilot",
+            "motion-prior-transfer",
             "recovery-awr-dream",
         ),
         default="recovery",
@@ -143,6 +144,23 @@ def _recovery_validation(argv: list[str]) -> int:
     parser.add_argument("--actor-updates", type=int, default=4)
     parser.add_argument("--validation-round", type=int, default=1)
     args = parser.parse_args(argv)
+    if args.profile == "motion-prior-transfer":
+        if args.motion_prior is None:
+            parser.error("motion-prior-transfer requires --motion-prior")
+        from rosclaw.simforge.g1_motion_prior_transfer_validation import (
+            run_g1_motion_prior_transfer_validation,
+        )
+
+        result = run_g1_motion_prior_transfer_validation(
+            asset_root=args.asset_root,
+            motion_prior_path=args.motion_prior,
+            output_dir=args.output,
+            source_checkout=_source_checkout(),
+            device=args.device,
+            epochs=args.gpu_epochs,
+        )
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        return 0 if result.decision == "TRANSFER_CANDIDATE" else 2
     if args.profile == "recovery-awr-dream":
         required = {
             "--motion-prior": args.motion_prior,

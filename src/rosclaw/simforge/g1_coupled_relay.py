@@ -22,6 +22,12 @@ from typing import Any
 
 import numpy as np
 
+from rosclaw.growth.learners import (
+    IQLResidualDecision,
+    IQLResidualGuardConfig,
+    NumpyIQLActor,
+    SupportBoundIQLResidualActor,
+)
 from rosclaw.simforge.backends.unitree_mujoco_backend import (
     G1MuJoCoBackend,
     _adapt_target,
@@ -122,9 +128,13 @@ class G1CoupledRelayResult:
     passer_post_kick_fall: bool = False
     shooter_post_kick_fall: bool = False
     shooter_learned_torque_fraction: float = 0.0
+    shooter_learned_torque_fallback_fraction: float = 0.0
+    shooter_learned_torque_mean_confidence: float = 0.0
+    shooter_learned_torque_peak_residual_nm: float = 0.0
+    shooter_learned_torque_support_rms_peak: float = 0.0
     shooter_joint_guard_fraction: float = 0.0
     shooter_joint_guard_route: str = "disabled"
-    schema_version: str = "rosclaw.g1_goalforge.coupled_relay_result.v1"
+    schema_version: str = "rosclaw.g1_goalforge.coupled_relay_result.v2"
 
     @property
     def passed(self) -> bool:
@@ -296,6 +306,10 @@ class _Robot:
     contact_impulse_ns: float = 0.0
     recovery_torque_actor: Any | None = None
     learned_torque_frame_count: int = 0
+    learned_torque_fallback_count: int = 0
+    learned_torque_confidence_sum: float = 0.0
+    learned_torque_peak_residual_nm: float = 0.0
+    learned_torque_support_rms_peak: float = 0.0
     joint_guard_enabled: bool = False
     joint_guard_frame_count: int = 0
     post_policy_neutral_velocity_enabled: bool = False
@@ -448,6 +462,7 @@ def _simulate(
     ball_ground_friction: float = 0.10,
     receiver_phase_sync_enabled: bool = True,
     shooter_recovery_candidate_path: Path | None = None,
+    shooter_recovery_residual_config: IQLResidualGuardConfig | None = None,
     shooter_recovery_config: Any | None = None,
     shooter_post_policy_frame: int | None = 430,
     shooter_post_policy_blend_frames: int = 0,
@@ -642,9 +657,14 @@ def _simulate(
     passer_recovery.reset()
     shooter_recovery.reset()
     if shooter_recovery_candidate_path is not None:
-        from rosclaw.growth.learners import NumpyIQLActor
-
-        shooter_recovery_actor = NumpyIQLActor.load(shooter_recovery_candidate_path)
+        shooter_recovery_actor: NumpyIQLActor | SupportBoundIQLResidualActor | None
+        if shooter_recovery_residual_config is None:
+            shooter_recovery_actor = NumpyIQLActor.load(shooter_recovery_candidate_path)
+        else:
+            shooter_recovery_actor = SupportBoundIQLResidualActor.load(
+                shooter_recovery_candidate_path,
+                shooter_recovery_residual_config,
+            )
     else:
         shooter_recovery_actor = None
     shooter = _make_robot(
@@ -799,19 +819,47 @@ def _simulate(
         for robot in robots:
             _fill_local_state(robot, data, ball_body, ball_qvel)
             policy_frames[robot.role] = _update_policy(robot, frame, timestamp_sec=float(data.time))
-        learned_torque: dict[str, np.ndarray | None] = {robot.role: None for robot in robots}
+        learned_torque: dict[str, np.ndarray | IQLResidualDecision | None] = {
+            robot.role: None for robot in robots
+        }
         joint_guard_active: dict[str, bool] = {robot.role: False for robot in robots}
         for robot in robots:
             if robot.recovery_torque_actor is not None and robot.contact_latched:
-                learned_torque[robot.role] = robot.recovery_torque_actor.action(
-                    _recovery_actor_state(
-                        robot,
-                        data,
-                        ball_body=ball_body,
-                        timestamp_sec=float(data.time),
-                    )
+                actor_state = _recovery_actor_state(
+                    robot,
+                    data,
+                    ball_body=ball_body,
+                    timestamp_sec=float(data.time),
                 )
-                robot.learned_torque_frame_count += 1
+                if isinstance(robot.recovery_torque_actor, SupportBoundIQLResidualActor):
+                    # A residual is meaningful only after the measured-contact
+                    # structured recovery controller has taken ownership.
+                    if not robot.post_policy_active:
+                        continue
+                    q = data.qpos[robot.joint_qpos]
+                    dq = data.qvel[robot.joint_qvel]
+                    baseline_torque = (robot.last_target - q) * robot.kp - dq * robot.kd
+                    decision = robot.recovery_torque_actor.action(
+                        actor_state,
+                        baseline_torque,
+                    )
+                    robot.learned_torque_support_rms_peak = max(
+                        robot.learned_torque_support_rms_peak,
+                        decision.standardized_rms,
+                    )
+                    if decision.accepted:
+                        learned_torque[robot.role] = decision
+                        robot.learned_torque_frame_count += 1
+                        robot.learned_torque_confidence_sum += decision.confidence
+                        robot.learned_torque_peak_residual_nm = max(
+                            robot.learned_torque_peak_residual_nm,
+                            decision.peak_residual_nm,
+                        )
+                    else:
+                        robot.learned_torque_fallback_count += 1
+                else:
+                    learned_torque[robot.role] = robot.recovery_torque_actor.action(actor_state)
+                    robot.learned_torque_frame_count += 1
 
         contact_role = 0
         frame_robot_contacts = 0
@@ -826,11 +874,13 @@ def _simulate(
                 q = data.qpos[robot.joint_qpos]
                 dq = data.qvel[robot.joint_qvel]
                 actor_torque = learned_torque[robot.role]
-                raw_torque = (
-                    actor_torque
-                    if actor_torque is not None
-                    else (robot.last_target - q) * robot.kp - dq * robot.kd
-                )
+                baseline_torque = (robot.last_target - q) * robot.kp - dq * robot.kd
+                if isinstance(actor_torque, IQLResidualDecision):
+                    raw_torque = baseline_torque + actor_torque.residual_torque
+                elif actor_torque is not None:
+                    raw_torque = actor_torque
+                else:
+                    raw_torque = baseline_torque
                 safety_projected = raw_torque
                 # The candidate is a post-impact recovery module.  Keeping the
                 # guard behind the measured contact latch preserves the frozen
@@ -1015,6 +1065,19 @@ def _simulate(
                 total_frames - int(round((shooter.contact_time or _TOTAL_TIME_SEC) / _CONTROL_DT)),
             )
         ),
+        shooter_learned_torque_fallback_fraction=(
+            shooter.learned_torque_fallback_count
+            / max(
+                1,
+                total_frames - int(round((shooter.contact_time or _TOTAL_TIME_SEC) / _CONTROL_DT)),
+            )
+        ),
+        shooter_learned_torque_mean_confidence=(
+            shooter.learned_torque_confidence_sum
+            / max(1, shooter.learned_torque_frame_count)
+        ),
+        shooter_learned_torque_peak_residual_nm=shooter.learned_torque_peak_residual_nm,
+        shooter_learned_torque_support_rms_peak=shooter.learned_torque_support_rms_peak,
         shooter_joint_guard_fraction=shooter.joint_guard_frame_count / max(1, total_frames),
         shooter_joint_guard_route=shooter.joint_guard_route,
     )
@@ -1559,7 +1622,7 @@ def _append_trace(
     projected_torque: dict[str, np.ndarray],
     executed_torque: dict[str, np.ndarray],
     contact_impulse: dict[str, float],
-    learned_torque: dict[str, np.ndarray | None],
+    learned_torque: dict[str, np.ndarray | IQLResidualDecision | None],
     joint_guard_active: dict[str, bool],
 ) -> None:
     trace["time"].append(float(data.time))

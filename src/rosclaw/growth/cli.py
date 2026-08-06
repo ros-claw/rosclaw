@@ -91,6 +91,24 @@ def _parser() -> argparse.ArgumentParser:
     evaluate_structured.add_argument("--output-dir", type=Path, required=True)
     evaluate_structured.add_argument("--source-checkout", type=Path, default=Path.cwd())
     evaluate_structured.set_defaults(handler=_evaluate_structured_recovery)
+    evaluate_residual = commands.add_parser(
+        "evaluate-residual-iql",
+        help="evaluate the frozen support-bound IQL recovery residual",
+    )
+    evaluate_residual.add_argument("--candidate", type=Path, required=True)
+    evaluate_residual.add_argument("--asset-root", type=Path, required=True)
+    evaluate_residual.add_argument("--output-dir", type=Path, required=True)
+    evaluate_residual.add_argument("--source-checkout", type=Path, default=Path.cwd())
+    evaluate_residual.set_defaults(handler=_evaluate_residual_iql)
+    agentd_bridge = commands.add_parser(
+        "stage-agentd-evaluation",
+        help="stage measured SIM evidence in agentd without promotion",
+    )
+    agentd_bridge.add_argument("--evaluation", type=Path, required=True)
+    agentd_bridge.add_argument("--agentd-db", type=Path, required=True)
+    agentd_bridge.add_argument("--receipt", type=Path, required=True)
+    agentd_bridge.add_argument("--source-checkout", type=Path, default=Path.cwd())
+    agentd_bridge.set_defaults(handler=_stage_agentd_evaluation)
     return parser
 
 
@@ -189,6 +207,52 @@ def _evaluate_structured_recovery(args: argparse.Namespace) -> int:
     )
     _print(result.to_dict())
     return 0 if result.passed else 3
+
+
+def _evaluate_residual_iql(args: argparse.Namespace) -> int:
+    from rosclaw.simforge.g1_recovery_residual_evaluation import (
+        run_g1_residual_recovery_evaluation,
+    )
+
+    result = run_g1_residual_recovery_evaluation(
+        actor_candidate_path=args.candidate,
+        asset_root=args.asset_root,
+        output_dir=args.output_dir,
+        source_checkout=args.source_checkout,
+    )
+    _print(result.to_dict())
+    return 0 if result.passed else 3
+
+
+def _stage_agentd_evaluation(args: argparse.Namespace) -> int:
+    from rosclaw.agentd.mission import MissionStore
+    from rosclaw.growth.agentd_bridge import stage_growth_evaluation_candidate
+
+    checkout = args.source_checkout.expanduser().resolve()
+    database = args.agentd_db.expanduser().resolve()
+    receipt_path = args.receipt.expanduser().resolve()
+    for path, label in ((database, "agentd database"), (receipt_path, "bridge receipt")):
+        if path == checkout or checkout in path.parents:
+            raise ValueError(f"{label} must be outside the source checkout")
+    if receipt_path.exists():
+        raise ValueError("Growth agentd bridge receipt already exists")
+    database.parent.mkdir(parents=True, exist_ok=True)
+    store = MissionStore(database)
+    try:
+        receipt = stage_growth_evaluation_candidate(
+            evaluation_path=args.evaluation,
+            connection=store.connection,
+            source_checkout=checkout,
+        )
+    finally:
+        store.close()
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.write_text(
+        json.dumps(receipt.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _print(receipt.to_dict())
+    return 0
 
 
 def _print(value: dict[str, Any], *, stream: TextIO | None = None) -> None:
