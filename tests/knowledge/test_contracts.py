@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from rosclaw_know.contracts import PUBLIC_CONTRACTS as KNOW_PUBLIC_CONTRACTS
 
 from rosclaw.knowledge.context_adapter import build_how_context
 from rosclaw.knowledge.contracts import (
@@ -58,9 +57,11 @@ def test_feedback_requires_aware_timestamp():
     assert feedback.schema_version == "rosclaw.knowledge_usage_feedback.v1"
 
 
-def test_core_wire_schema_matches_authoritative_know_checkout():
-    schema_path = Path(__file__).parents[3] / "rosclaw-know" / "schemas" / "know_how_v2.json"
-    authoritative = json.loads(schema_path.read_text())
+def test_core_wire_schema_matches_authoritative_know_package():
+    authoritative = {
+        contract.SCHEMA_VERSION: contract.model_json_schema(mode="serialization")
+        for contract in KNOW_PUBLIC_CONTRACTS
+    }
     for contract in PUBLIC_CONTRACTS:
         version = contract.SCHEMA_VERSION
         if version in authoritative:
