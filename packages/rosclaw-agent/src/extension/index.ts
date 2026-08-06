@@ -193,6 +193,10 @@ ${line2}`);
 			if (details.phase !== "AWAITING_OPERATOR" || !details.approval_id) return;
 			const approvalId = details.approval_id;
 			const displayHash = String(details.display_hash ?? "");
+			// 明确告知等待态——tool 的 onUpdate partial 文本会被 TUI spinner
+			// 覆盖；spinner 行持续重绘，是执行中唯一稳定可见的通道。
+			ctx.ui.setWorkingMessage(`等待 Operator 决定（approval ${approvalId}）…默认拒绝`);
+			ctx.ui.notify(`等待 Operator 决定（approval ${approvalId}）…默认拒绝`, "info");
 			// 从 operatord 拉这张精确卡片的内容（不猜、不取第一个）。
 			let cardData: Record<string, unknown> | undefined;
 			try {

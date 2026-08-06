@@ -84,7 +84,9 @@ export async function createRosclawRuntime(
 	const modelRuntime = await ModelRuntime.create({
 		credentials: credentialStoreFor(options.profile, agentDir) as never,
 		authPath: `${agentDir}/auth.json`,
-		modelsPath: null,
+		// robot=env-only 时禁 models.json；developer 允许用户自定义 provider
+		// （models.json 自定义 endpoint 是 developer 的合法能力）。
+		modelsPath: options.profile === "robot" ? null : `${agentDir}/models.json`,
 	});
 	const systemPrompt = loadSystemPrompt();
 
@@ -123,29 +125,32 @@ export async function createRosclawRuntime(
 				},
 			});
 			active.patch({ sessionId: sessionManager.getSessionId() });
+			// 具身主 Agent 不需要 coding 工具；ROSClaw 工具走 customTools。
+			// 注意：noTools:"all" 会把 allowedToolNames 置空、连 customTools 一起
+			// 过滤掉（模型将看不到任何工具）——必须用显式 allowlist。
+			const customTools = [
+				buildStatusTool(options.rosclawHome),
+				// PNA-3/PNA-4/PNA-5：bridge 工具需要绑定 session/mission。
+				...buildBridgeTools({
+					rosclawHome: options.rosclawHome,
+					active,
+				}),
+				buildDelegateTool({
+					rosclawHome: options.rosclawHome,
+					active,
+				}),
+				// NA-FIX-4：request_action 必须真实注册（P0-4）。
+				buildRequestActionTool({
+					rosclawHome: options.rosclawHome,
+					active,
+				}),
+			];
 			const result = await createAgentSessionFromServices({
 				services,
 				sessionManager,
 				sessionStartEvent,
-				// 具身主 Agent 不需要 coding 工具；ROSClaw 工具走 customTools。
-				noTools: "all",
-				customTools: [
-					buildStatusTool(options.rosclawHome),
-					// PNA-3/PNA-4/PNA-5：bridge 工具需要绑定 session/mission。
-					...buildBridgeTools({
-						rosclawHome: options.rosclawHome,
-						active,
-					}),
-					buildDelegateTool({
-						rosclawHome: options.rosclawHome,
-						active,
-					}),
-					// NA-FIX-4：request_action 必须真实注册（P0-4）。
-					buildRequestActionTool({
-						rosclawHome: options.rosclawHome,
-						active,
-					}),
-				],
+				tools: customTools.map((tool) => tool.name),
+				customTools,
 			});
 			return {
 				...result,
