@@ -32,6 +32,18 @@ def main() -> int:
     if result is not None:
         return result
 
+    from rosclaw.dataset.cli import dispatch_dataset_argv
+
+    result = dispatch_dataset_argv(sys.argv[1:])
+    if result is not None:
+        return result
+
+    from rosclaw.growth.cli import dispatch_growth_argv
+
+    result = dispatch_growth_argv(sys.argv[1:])
+    if result is not None:
+        return result
+
     from rosclaw.dream.cli import dispatch_dream_argv
 
     result = dispatch_dream_argv(sys.argv[1:])

@@ -116,6 +116,7 @@ def _recovery_validation(argv: list[str]) -> int:
             "continual-four-gpu-smoke",
             "continual-physical-foundation",
             "neural-torque-pilot",
+            "recovery-awr-dream",
         ),
         default="recovery",
     )
@@ -131,7 +132,46 @@ def _recovery_validation(argv: list[str]) -> int:
     parser.add_argument("--gpu-epochs", type=int, default=12)
     parser.add_argument("--dagger-generations", type=int, default=3)
     parser.add_argument("--online-updates", type=int, default=8)
+    parser.add_argument("--motion-prior", type=Path)
+    parser.add_argument("--motiondecode-pilot-report", type=Path)
+    parser.add_argument("--stable-artifact", type=Path)
+    parser.add_argument("--recovery-artifact", type=Path)
+    parser.add_argument("--prior-report", type=Path)
+    parser.add_argument("--device", default="cuda:1")
+    parser.add_argument("--exploration-replicates", type=int, default=6)
+    parser.add_argument("--value-updates", type=int, default=64)
+    parser.add_argument("--actor-updates", type=int, default=4)
+    parser.add_argument("--validation-round", type=int, default=1)
     args = parser.parse_args(argv)
+    if args.profile == "recovery-awr-dream":
+        required = {
+            "--motion-prior": args.motion_prior,
+            "--motiondecode-pilot-report": args.motiondecode_pilot_report,
+            "--stable-artifact": args.stable_artifact,
+            "--recovery-artifact": args.recovery_artifact,
+        }
+        missing = [name for name, value in required.items() if value is None]
+        if missing:
+            parser.error("recovery-awr-dream requires " + ", ".join(missing))
+        from rosclaw.simforge.g1_recovery_dream import run_g1_recovery_dream_cycle
+
+        result = run_g1_recovery_dream_cycle(
+            asset_root=args.asset_root,
+            motion_prior_path=args.motion_prior,
+            motiondecode_pilot_report_path=args.motiondecode_pilot_report,
+            stable_artifact_path=args.stable_artifact,
+            recovery_artifact_path=args.recovery_artifact,
+            output_dir=args.output,
+            source_checkout=_source_checkout(),
+            prior_report_path=args.prior_report,
+            device=args.device,
+            exploration_replicates=args.exploration_replicates,
+            value_updates=args.value_updates,
+            actor_updates=args.actor_updates,
+            validation_round=args.validation_round,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["decision"] == "consolidate_sim" else 2
     if args.profile == "neural-torque-pilot":
         from rosclaw.simforge.g1_neural_torque_validation import (
             run_g1_neural_torque_pilot,

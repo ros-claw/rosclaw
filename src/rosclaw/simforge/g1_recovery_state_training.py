@@ -61,6 +61,10 @@ _MAXIMUM_NEIGHBOR_DISTANCE = 0.25
 _MINIMUM_CONSENSUS = 1.0
 _ADVANTAGE_GATE = 0.02
 _COMPONENT_REGRESSION_LIMIT = 0.02
+_RESCUE_BACKWARD_LIMIT_M = 0.35
+_RESCUE_TAIL_WOBBLE_LIMIT = 0.50
+_RESCUE_LEG_JERK_LIMIT_RAD_S3 = 1_000.0
+_RESCUE_SETTLING_LIMIT_SEC = 6.0
 
 
 @dataclass(frozen=True)
@@ -366,6 +370,17 @@ class G1RecoveryStateTrainer:
                     candidate_quality=quality,
                 )
                 reductions = _moving_reductions(baseline_metrics[index], quality)
+                safety_rescue = bool(
+                    not _parent_valid(baselines[index], baseline_metrics[index])
+                    and safe
+                    and goal
+                )
+                if safety_rescue:
+                    # Relative reductions become misleading once the baseline
+                    # has fallen: a prone robot can appear to have zero
+                    # backstep.  Compare successful rescues to bounded absolute
+                    # recovery limits instead of rewarding the failed trace.
+                    reductions, natural = _absolute_recovery_margins(quality)
                 composite = _composite(reductions)
                 eligible = bool(
                     safe
@@ -395,6 +410,7 @@ class G1RecoveryStateTrainer:
                         "result": candidate.result.summary_dict(),
                         "score": score,
                         "reductions": list(reductions),
+                        "safety_rescue": safety_rescue,
                         "eligible": eligible,
                     }
                 )
@@ -823,6 +839,28 @@ def _recovery_state_route(episode: GoalForgeEpisode) -> int | None:
         return None
     value = receipt.recovery_state_receipt["selected_primitive_index"]
     return int(value) if value is not None else None
+
+
+def _absolute_recovery_margins(
+    quality: Any,
+) -> tuple[tuple[float, float, float], bool]:
+    """Score a standing rescue against physical limits, not a fallen parent."""
+
+    reductions = (
+        1.0 - quality.post_contact_backward_reversal_m / _RESCUE_BACKWARD_LIMIT_M,
+        1.0 - quality.tail_wobble_index / _RESCUE_TAIL_WOBBLE_LIMIT,
+        1.0
+        - quality.post_contact_leg_joint_jerk_rms_rad_s3
+        / _RESCUE_LEG_JERK_LIMIT_RAD_S3,
+    )
+    settling = quality.settling_time_sec
+    natural = bool(
+        quality.terminal_bilateral_support
+        and settling is not None
+        and settling <= _RESCUE_SETTLING_LIMIT_SEC
+        and min(reductions) >= 0.0
+    )
+    return reductions, natural
 
 
 def write_g1_recovery_state_report(

@@ -155,6 +155,7 @@ class G1TorqueControlFrame:
     policy_phase: float
     left_contact: bool
     right_contact: bool
+    ball_contact_observed: bool = False
 
 
 @dataclass(frozen=True)
@@ -211,6 +212,19 @@ class G1TorquePolicy(Protocol):
     ) -> np.ndarray: ...
 
     def note_applied(self, torque: np.ndarray) -> None: ...
+
+
+class G1TorqueObserver(Protocol):
+    """Read-only physics-rate observer for collecting torque demonstrations.
+
+    Unlike :class:`G1TorquePolicy`, this surface cannot return a command and
+    therefore cannot acquire control authority.  It exists so target-space
+    controllers can be distilled without composing two actuator writers.
+    """
+
+    def reset(self) -> None: ...
+
+    def observe(self, frame: G1TorqueControlFrame, applied_torque: np.ndarray) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -306,6 +320,35 @@ class G1TeacherTorqueCollector:
             observations=np.asarray(self._observations, dtype=np.float32),
             actions=np.asarray(self._actions, dtype=np.float32),
             parent_actions=np.asarray(self._parents, dtype=np.float32),
+        )
+
+
+class G1TeacherTorqueObserver:
+    """Observe final simulator torque without participating in control."""
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        self._observations: list[np.ndarray] = []
+        self._actions: list[np.ndarray] = []
+        self._previous: np.ndarray = np.zeros(len(G1_DDS_JOINT_NAMES), dtype=np.float64)
+
+    def observe(self, frame: G1TorqueControlFrame, applied_torque: np.ndarray) -> None:
+        action = _vector(applied_torque, label="observed teacher torque")
+        observation = build_g1_neural_torque_observation(frame, self._previous)
+        self._observations.append(observation)
+        self._actions.append(np.asarray(action, dtype=np.float32))
+        self._previous = action.copy()
+
+    def episode(self) -> G1TeacherTorqueEpisode:
+        if not self._observations:
+            raise ValueError("observed teacher torque episode is empty")
+        actions = np.asarray(self._actions, dtype=np.float32)
+        return G1TeacherTorqueEpisode(
+            observations=np.asarray(self._observations, dtype=np.float32),
+            actions=actions,
+            parent_actions=actions.copy(),
         )
 
 
@@ -469,7 +512,7 @@ class G1NeuralTorquePolicy:
         self._exploration_rng = np.random.default_rng(
             exploration.seed if exploration is not None else 0
         )
-        self._exploration_state = np.zeros(len(G1_DDS_JOINT_NAMES), dtype=np.float64)
+        self._exploration_state: np.ndarray = np.zeros(len(G1_DDS_JOINT_NAMES), dtype=np.float64)
         self._exploration_attempt_count = 0
         self._exploration_applied_count = 0
         self._exploration_rejection_count = 0
@@ -527,8 +570,7 @@ class G1NeuralTorquePolicy:
                 )
                 self._advance_hidden(normalized)
             elif (
-                float(frame.pelvis_position[2])
-                < self.artifact.safety.minimum_pelvis_height_m
+                float(frame.pelvis_position[2]) < self.artifact.safety.minimum_pelvis_height_m
                 or float(raw[60]) > self.artifact.safety.minimum_upright_gravity_z
             ):
                 self._recovery_cooldown = self.artifact.safety.recovery_cooldown_steps
@@ -645,9 +687,7 @@ class G1NeuralTorquePolicy:
             direct_torque_output=True,
             activation_ceiling=self.artifact.safety.activation_ceiling,
             exploration_config_hash=(
-                _exploration_config_hash(self.exploration)
-                if self.exploration is not None
-                else None
+                _exploration_config_hash(self.exploration) if self.exploration is not None else None
             ),
             exploration_attempt_count=self._exploration_attempt_count,
             exploration_applied_count=self._exploration_applied_count,
@@ -719,17 +759,13 @@ class G1NeuralTorquePolicy:
             or float(frame.policy_phase) < config.minimum_recovery_phase
             or float(frame.pelvis_position[2]) < config.minimum_pelvis_height_m
             or float(raw_observation[60]) > config.maximum_projected_gravity_z
-            or (
-                config.require_foot_contact
-                and not (frame.left_contact or frame.right_contact)
-            )
+            or (config.require_foot_contact and not (frame.left_contact or frame.right_contact))
         ):
             return baseline
         innovation_scale = math.sqrt(1.0 - config.temporal_correlation**2)
         innovation = self._exploration_rng.standard_normal(len(G1_DDS_JOINT_NAMES))
         self._exploration_state = (
-            config.temporal_correlation * self._exploration_state
-            + innovation_scale * innovation
+            config.temporal_correlation * self._exploration_state + innovation_scale * innovation
         )
         noise_ratio = np.clip(
             config.noise_std_ratio * self._exploration_state,
@@ -1131,8 +1167,10 @@ __all__ = [
     "G1NeuralTorquePolicy",
     "G1TeacherTorqueCollector",
     "G1TeacherTorqueEpisode",
+    "G1TeacherTorqueObserver",
     "G1TorqueControlFrame",
     "G1TorqueExplorationConfig",
+    "G1TorqueObserver",
     "G1TorquePolicy",
     "G1TorquePolicyReceipt",
     "G1TorqueProjection",

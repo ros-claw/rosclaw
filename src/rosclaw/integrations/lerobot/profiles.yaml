@@ -1,7 +1,7 @@
 core:
   requires_python: ">=3.12"
   pip:
-    - "lerobot>=0.6,<0.7"
+    - "lerobot[dataset]>=0.6,<0.7"
   checks:
     - "lerobot-info"
   enabled_capabilities:

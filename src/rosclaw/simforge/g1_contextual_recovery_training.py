@@ -871,10 +871,11 @@ def _contextual_route_prototype(
     rows = np.asarray(episode.trajectory["recovery_proprioception"], dtype=np.float64)
     active = np.asarray(episode.trajectory["recovery_active"], dtype=np.bool_)
     impulse_index = G1_MUSCLE_MEMORY_OBSERVATIONS.index("contact_impulse_ns")
-    right_support_index = G1_MUSCLE_MEMORY_OBSERVATIONS.index("right_support")
-    route_rows = np.flatnonzero(
-        active & (rows[:, impulse_index] > 0.0) & (rows[:, right_support_index] > 0.5)
-    )
+    # ``recovery_active`` already proves that the controller's contact and
+    # kick-foot-landing latches opened. Requiring the *current* right-support
+    # bit again can skip the exact frame selected online after the foot lifts,
+    # producing a training/deployment prototype mismatch.
+    route_rows = np.flatnonzero(active & (rows[:, impulse_index] > 0.0))
     if not len(route_rows):
         raise ValueError("development episode has no causal recovery route state")
     normalized = (

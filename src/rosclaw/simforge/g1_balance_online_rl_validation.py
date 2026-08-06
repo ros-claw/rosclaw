@@ -81,6 +81,10 @@ def run_g1_balance_online_rl_validation(
     generations: int = 3,
     critic_updates_per_generation: int = 24,
     validation_round: int = 2,
+    learning_mode: str = "sac",
+    exploration_replicates: int = 1,
+    elite_score_margin: float = 0.05,
+    actor_updates_per_generation: int = 1,
 ) -> dict[str, Any]:
     """Train and seal an independent pre-contact balance actor in MuJoCo."""
 
@@ -90,6 +94,14 @@ def run_g1_balance_online_rl_validation(
         raise ValueError("balance critic updates per generation must be in [8, 128]")
     if not 2 <= validation_round <= 99:
         raise ValueError("balance validation round must be in [2, 99]")
+    if learning_mode not in {"sac", "awr"}:
+        raise ValueError("balance learning mode must be 'sac' or 'awr'")
+    if not 1 <= exploration_replicates <= 16:
+        raise ValueError("balance exploration replicates must be in [1, 16]")
+    if not math.isfinite(elite_score_margin) or not 0.0 <= elite_score_margin <= 5.0:
+        raise ValueError("balance elite score margin must be in [0, 5]")
+    if not 1 <= actor_updates_per_generation <= 32:
+        raise ValueError("balance actor updates per generation must be in [1, 32]")
     root = _external_root(output_dir, source_checkout)
     root.mkdir(parents=True, exist_ok=False)
     backend = G1MuJoCoBackend(asset_root=asset_root, trace_stride=1)
@@ -123,14 +135,18 @@ def run_g1_balance_online_rl_validation(
     config = G1NeuralTorqueLearnerConfig(
         hidden_dim=96,
         sequence_length=32,
-        batch_size=128,
-        actor_lr=5e-5,
+        batch_size=64 if learning_mode == "awr" else 128,
+        actor_lr=2e-5 if learning_mode == "awr" else 5e-5,
         critic_lr=3e-4,
         behavior_cloning_weight=10.0,
-        online_behavior_weight=0.0,
+        online_behavior_weight=5.0 if learning_mode == "awr" else 0.0,
         parent_churn_weight=5.0,
         ewc_weight=50.0,
         initial_alpha=0.002,
+        awr_temperature=0.35,
+        awr_max_weight=20.0,
+        awr_fall_penalty=5.0,
+        awr_constraint_penalty=2.0,
         device=device,
         seed=seed,
     )
@@ -152,6 +168,9 @@ def run_g1_balance_online_rl_validation(
                 gate.balance_start_phase,
                 gate.balance_end_phase,
             ],
+            "learning_mode": learning_mode,
+            "exploration_replicates": exploration_replicates,
+            "elite_score_margin": elite_score_margin,
         }
     )
     balance_parent_path = root / "balance-parent.bin"
@@ -242,23 +261,31 @@ def run_g1_balance_online_rl_validation(
             config=config,
             seed=seed + generation * 10_000,
             generation=generation,
+            learning_mode=learning_mode,
+            exploration_replicates=exploration_replicates,
+            elite_score_margin=elite_score_margin,
         )
         stale = tuple(stale_neural_torque_replay(value) for value in historical)
         final_replay = G1NeuralTorqueReplay.combine(anchor, *stale, *fresh_replays)
         all_replays.extend(fresh_replays)
         collection.extend(fresh_collection)
         generation_critic_updates = [
-            learner.update(final_replay, update_actor=False)
+            (
+                learner.update_advantage_weighted(final_replay, update_actor=False)
+                if learning_mode == "awr"
+                else learner.update(final_replay, update_actor=False)
+            )
             for _ in range(critic_updates_per_generation)
         ]
         critic_updates.extend(item.to_dict() for item in generation_critic_updates)
-        critic_diagnostics = _critic_convergence(
-            tuple(item.to_dict() for item in generation_critic_updates)
+        update_dicts = tuple(item.to_dict() for item in generation_critic_updates)
+        critic_diagnostics = (
+            _value_convergence(update_dicts)
+            if learning_mode == "awr"
+            else _critic_convergence(update_dicts)
         )
         fresh_count = int(
-            np.count_nonzero(
-                (final_replay.partitions == 0) & (final_replay.policy_lags <= 1)
-            )
+            np.count_nonzero((final_replay.partitions == 0) & (final_replay.policy_lags <= 1))
         )
         replay_hash = neural_torque_replay_hash(final_replay)
         if not bool(critic_diagnostics["converged"]):
@@ -301,9 +328,17 @@ def run_g1_balance_online_rl_validation(
             for scenario in development_scenarios
         )
         parent_snapshot = learner.actor_snapshot()
-        actor_update = learner.update(final_replay, update_actor=True)
+        generation_actor_updates = [
+            (
+                learner.update_advantage_weighted(final_replay, update_actor=True)
+                if learning_mode == "awr"
+                else learner.update(final_replay, update_actor=True)
+            )
+            for _ in range(actor_updates_per_generation)
+        ]
+        actor_update = generation_actor_updates[-1]
         proposal_snapshot = learner.actor_snapshot()
-        actor_updates.append(actor_update.to_dict())
+        actor_updates.extend(item.to_dict() for item in generation_actor_updates)
         learner.install_interpolated_actor(
             parent_snapshot,
             proposal_snapshot,
@@ -335,8 +370,7 @@ def run_g1_balance_online_rl_validation(
                 action_indices=balance_action_indices,
             )
             path = root / (
-                f"balance-online-g{generation}-trust-"
-                f"{str(fraction).replace('.', 'p')}.bin"
+                f"balance-online-g{generation}-trust-{str(fraction).replace('.', 'p')}.bin"
             )
             _write_candidate(
                 path,
@@ -414,6 +448,7 @@ def run_g1_balance_online_rl_validation(
                 "fresh_actor_transition_count": fresh_count,
                 "replay_hash": replay_hash,
                 "actor_update": actor_update.to_dict(),
+                "actor_update_count": len(generation_actor_updates),
                 "actor_effect": actor_effect,
                 "critic_diagnostics": critic_diagnostics,
                 "parent_aggregate": _aggregate(generation_parent),
@@ -495,8 +530,7 @@ def run_g1_balance_online_rl_validation(
     candidate_cost = _stability_cost(candidate_aggregate)
     learned_gain = (structural_cost - candidate_cost) / max(structural_cost, 1e-6)
     checks = {
-        "independent_balance_head": current_artifact.artifact_hash
-        != stable_artifact.artifact_hash,
+        "independent_balance_head": current_artifact.artifact_hash != stable_artifact.artifact_hash,
         "phase_specific_anchor": anchor.count
         < teacher_replay(
             training,
@@ -515,7 +549,7 @@ def run_g1_balance_online_rl_validation(
         and bool(actor_updates)
         and all(bool(item["finite"]) for item in actor_updates),
         "fresh_resampling_per_actor_update": len(actor_updates)
-        == len(generation_records),
+        == sum(int(item.get("actor_update_count", 0)) for item in generation_records),
         "development_trust_region_found": accepted_generation_count > 0,
         "strict_validation_replay": all(
             item.strict_replay
@@ -536,7 +570,7 @@ def run_g1_balance_online_rl_validation(
     blockers.extend(validation_reasons)
     decision = "CANDIDATE" if not blockers else "REJECTED"
     report = {
-        "schema_version": "rosclaw.simforge.g1_balance_online_rl.v1",
+        "schema_version": "rosclaw.simforge.g1_balance_online_rl.v2",
         "body_hash": qualification.body_hash,
         "parent_policy_hash": qualification.kick_prior_hash,
         "stable_artifact_hash": stable_artifact.artifact_hash,
@@ -549,14 +583,20 @@ def run_g1_balance_online_rl_validation(
         "config": asdict(config),
         "safety": asdict(safety),
         "gate": asdict(gate),
-        "balance_action_subspace": [
-            G1_DDS_JOINT_NAMES[index] for index in balance_action_indices
-        ],
+        "balance_action_subspace": [G1_DDS_JOINT_NAMES[index] for index in balance_action_indices],
         "optimization_rationale": {
             "critic_pretraining_updates_per_generation": critic_updates_per_generation,
-            "exploration_action_imitation_disabled": True,
+            "learning_mode": learning_mode,
+            "exploration_replicates": exploration_replicates,
+            "elite_score_margin": elite_score_margin,
+            "actor_updates_per_generation": actor_updates_per_generation,
+            "exploration_action_imitation_disabled": learning_mode != "awr",
+            "out_of_distribution_actor_q_queries": learning_mode != "awr",
             "reason": (
-                "online behavior actions contain intentional exploration noise; "
+                "AWR fits observed returns and behavior-clones only actions from matched "
+                "globally improved MuJoCo rollouts"
+                if learning_mode == "awr"
+                else "online behavior actions contain intentional exploration noise; "
                 "the actor is retained by teacher anchors, parent distillation, and EWC"
             ),
         },
@@ -594,10 +634,10 @@ def run_g1_balance_online_rl_validation(
             "hierarchical_balance_recovery": True,
             "motiondecode_full_balance_transfer_promoted": False,
             "stable_actor_exact_weight_initialization": True,
-            "stable_actor_exact_behavior_preserved": checks[
-                "exact_parent_behavior_preserved"
-            ],
+            "stable_actor_exact_behavior_preserved": checks["exact_parent_behavior_preserved"],
             "online_actor_critic": True,
+            "in_sample_advantage_weighted_actor": learning_mode == "awr",
+            "elite_matched_rollout_filter": learning_mode == "awr",
             "future_risk_credit_assignment": True,
             "direct_joint_torque_actor": True,
             "anatomically_constrained_balance_readout": True,
@@ -658,6 +698,26 @@ def _critic_convergence(updates: tuple[dict[str, Any], ...]) -> dict[str, Any]:
     return values
 
 
+def _value_convergence(updates: tuple[dict[str, Any], ...]) -> dict[str, Any]:
+    """Require the in-sample value regression to improve before actor fitting."""
+
+    if len(updates) < 8:
+        return {"converged": False, "reason": "fewer_than_8_value_updates"}
+    window = max(4, min(12, len(updates) // 4))
+    first = float(np.mean([float(item["value_loss"]) for item in updates[:window]]))
+    last = float(np.mean([float(item["value_loss"]) for item in updates[-window:]]))
+    ratio = last / max(first, 1e-9)
+    return {
+        "window_size": window,
+        "value_loss": {
+            "first_window_mean": first,
+            "last_window_mean": last,
+            "last_to_first_ratio": ratio,
+        },
+        "converged": bool(math.isfinite(ratio) and ratio <= 0.70),
+    }
+
+
 def _fresh_balance_validation_scenarios(
     validation_round: int,
 ) -> tuple[GoalForgeScenario, ...]:
@@ -665,10 +725,7 @@ def _fresh_balance_validation_scenarios(
 
     ledger = SeedLedger(
         task_id=f"g1_foundation_balance_validation_v{validation_round}",
-        secret=(
-            f"rosclaw-phase8-foundation-balance-validation-v{validation_round}"
-        ).encode()
-        * 2,
+        secret=(f"rosclaw-phase8-foundation-balance-validation-v{validation_round}").encode() * 2,
     )
     values: list[GoalForgeScenario] = []
     for index, generation in enumerate((0, 2, 4, 7)):
@@ -681,9 +738,7 @@ def _fresh_balance_validation_scenarios(
         values.append(
             replace(
                 generated[index],
-                scenario_id=(
-                    f"balance-v{validation_round}-validation-{index:02d}-g{generation}"
-                ),
+                scenario_id=(f"balance-v{validation_round}-validation-{index:02d}-g{generation}"),
             )
         )
     ledger.assert_disjoint()
@@ -700,16 +755,8 @@ def _matched_evidence_equal(
         return False
     excluded = {"artifact_hash", "stage"}
     return all(
-        {
-            key: value
-            for key, value in before.to_dict().items()
-            if key not in excluded
-        }
-        == {
-            key: value
-            for key, value in after.to_dict().items()
-            if key not in excluded
-        }
+        {key: value for key, value in before.to_dict().items() if key not in excluded}
+        == {key: value for key, value in after.to_dict().items() if key not in excluded}
         for before, after in zip(left, right, strict=True)
     )
 
@@ -726,78 +773,122 @@ def _collect_balance_generation(
     config: G1NeuralTorqueLearnerConfig,
     seed: int,
     generation: int,
+    learning_mode: str = "sac",
+    exploration_replicates: int = 1,
+    elite_score_margin: float = 0.05,
 ) -> tuple[tuple[G1NeuralTorqueReplay, ...], tuple[dict[str, Any], ...]]:
     replays: list[G1NeuralTorqueReplay] = []
     collection: list[dict[str, Any]] = []
     for index, scenario in enumerate(scenarios):
-        exploration = G1TorqueExplorationConfig(
-            noise_std_ratio=0.003,
-            noise_clip_ratio=0.008,
-            temporal_correlation=0.995,
-            minimum_recovery_phase=gate.balance_start_phase,
-            minimum_pelvis_height_m=gate.balance_minimum_pelvis_height_m,
-            maximum_projected_gravity_z=(
-                gate.balance_maximum_projected_gravity_z
-            ),
-            seed=seed + 100 + index,
-        )
-        episode, policy = _run_hierarchy(
-            backend,
-            scenario,
-            parameters,
-            stable=stable,
-            balance=balance,
-            recovery=recovery,
-            gate=gate,
-            balance_exploration=exploration,
-        )
-        receipt = policy.build_receipt()
-        balance_receipt = policy.balance.build_receipt()
-        replay = balance_online_replay(
-            policy.balance.episode(),
-            trajectory=episode.trajectory,
-            sequence_length=config.sequence_length,
-            balance_score=_balance_score(episode.result),
-            fell=episode.result.post_kick_fall,
-            critical_failure=_critical(episode.result),
-            projection_fallback_rate=(
-                balance_receipt.projection_fallback_count
-                / max(1, balance_receipt.inference_count)
-            ),
-            actor_eligible_mask=policy.balance_activation_mask(),
-            balance_start_phase=gate.balance_start_phase,
-            balance_end_phase=gate.balance_end_phase,
-            stride=10,
-        )
-        replays.append(replay)
-        collection.append(
-            {
-                "generation": generation,
-                "scenario_id": scenario.scenario_id,
-                "source_artifact_hash": balance.artifact_hash,
-                "balance_score": _balance_score(episode.result),
-                "transition_count": replay.count,
-                "fresh_actor_transition_count": int(
-                    np.count_nonzero(replay.partitions == 0)
+        matched_parent_score: float | None = None
+        matched_parent_critical: bool | None = None
+        if learning_mode == "awr":
+            parent_episode, _ = _run_hierarchy(
+                backend,
+                scenario,
+                parameters,
+                stable=stable,
+                balance=balance,
+                recovery=recovery,
+                gate=gate,
+            )
+            matched_parent_score = _balance_score(parent_episode.result)
+            matched_parent_critical = _critical(parent_episode.result)
+        for replicate in range(exploration_replicates):
+            exploration = G1TorqueExplorationConfig(
+                noise_std_ratio=0.003,
+                noise_clip_ratio=0.008,
+                temporal_correlation=0.995,
+                minimum_recovery_phase=gate.balance_start_phase,
+                minimum_pelvis_height_m=gate.balance_minimum_pelvis_height_m,
+                maximum_projected_gravity_z=(gate.balance_maximum_projected_gravity_z),
+                seed=seed + 100 + index * exploration_replicates + replicate,
+            )
+            episode, policy = _run_hierarchy(
+                backend,
+                scenario,
+                parameters,
+                stable=stable,
+                balance=balance,
+                recovery=recovery,
+                gate=gate,
+                balance_exploration=exploration,
+            )
+            receipt = policy.build_receipt()
+            balance_receipt = policy.balance.build_receipt()
+            score = _balance_score(episode.result)
+            replay = balance_online_replay(
+                policy.balance.episode(),
+                trajectory=episode.trajectory,
+                sequence_length=config.sequence_length,
+                balance_score=score,
+                fell=episode.result.post_kick_fall,
+                critical_failure=_critical(episode.result),
+                projection_fallback_rate=(
+                    balance_receipt.projection_fallback_count
+                    / max(1, balance_receipt.inference_count)
                 ),
-                "critic_only_transition_count": int(
-                    np.count_nonzero(replay.partitions == 2)
-                ),
-                "balance_activation_fraction": receipt.balance_activation_fraction,
-                "recovery_activation_fraction": receipt.recovery_activation_fraction,
-                "exploration_applied_count": (
-                    balance_receipt.exploration_applied_count
-                ),
-                "exploration_noise_rms_ratio": (
-                    balance_receipt.exploration_noise_rms_ratio
-                ),
-                "exploration_noise_peak_ratio": (
-                    balance_receipt.exploration_noise_peak_ratio
-                ),
-                "result": episode.result.summary_dict(),
-            }
-        )
+                actor_eligible_mask=policy.balance_activation_mask(),
+                balance_start_phase=gate.balance_start_phase,
+                balance_end_phase=gate.balance_end_phase,
+                stride=10,
+            )
+            globally_eligible = True
+            if learning_mode == "awr":
+                assert matched_parent_score is not None
+                assert matched_parent_critical is not None
+                globally_eligible = bool(
+                    not _critical(episode.result)
+                    and (
+                        matched_parent_critical
+                        or score >= matched_parent_score + elite_score_margin
+                    )
+                )
+                if not globally_eligible:
+                    replay = _quarantine_actor_replay(replay)
+            replays.append(replay)
+            collection.append(
+                {
+                    "generation": generation,
+                    "scenario_id": scenario.scenario_id,
+                    "replicate": replicate,
+                    "source_artifact_hash": balance.artifact_hash,
+                    "learning_mode": learning_mode,
+                    "balance_score": score,
+                    "matched_parent_balance_score": matched_parent_score,
+                    "matched_parent_critical": matched_parent_critical,
+                    "global_improvement_eligible": globally_eligible,
+                    "transition_count": replay.count,
+                    "fresh_actor_transition_count": int(np.count_nonzero(replay.partitions == 0)),
+                    "critic_only_transition_count": int(np.count_nonzero(replay.partitions == 2)),
+                    "balance_activation_fraction": receipt.balance_activation_fraction,
+                    "recovery_activation_fraction": receipt.recovery_activation_fraction,
+                    "exploration_applied_count": (balance_receipt.exploration_applied_count),
+                    "exploration_noise_rms_ratio": (balance_receipt.exploration_noise_rms_ratio),
+                    "exploration_noise_peak_ratio": (balance_receipt.exploration_noise_peak_ratio),
+                    "result": episode.result.summary_dict(),
+                }
+            )
     return tuple(replays), tuple(collection)
+
+
+def _quarantine_actor_replay(replay: G1NeuralTorqueReplay) -> G1NeuralTorqueReplay:
+    """Keep a non-elite rollout for value learning but block actor imitation."""
+
+    partitions = replay.partitions.copy()
+    partitions[partitions == 0] = 2
+    return G1NeuralTorqueReplay(
+        observations=replay.observations.copy(),
+        actions=replay.actions.copy(),
+        next_observations=replay.next_observations.copy(),
+        rewards=replay.rewards.copy(),
+        fall_costs=replay.fall_costs.copy(),
+        constraint_costs=replay.constraint_costs.copy(),
+        terminals=replay.terminals.copy(),
+        parent_actions=replay.parent_actions.copy(),
+        partitions=partitions,
+        policy_lags=replay.policy_lags.copy(),
+    )
 
 
 def _run_hierarchy(

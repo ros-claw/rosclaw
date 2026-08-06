@@ -40,6 +40,7 @@ from rosclaw.simforge.g1_muscle_memory import (
 )
 from rosclaw.simforge.g1_neural_torque import (
     G1TorqueControlFrame,
+    G1TorqueObserver,
     G1TorquePolicy,
     G1TorquePolicyReceipt,
 )
@@ -275,13 +276,24 @@ class G1MuJoCoBackend:
         feedforward: ILCFeedforward | None = None,
         recovery_controller: G1CerebellarRecoveryController | None = None,
         torque_policy: G1TorquePolicy | None = None,
+        torque_overlay_policy: G1TorquePolicy | None = None,
+        torque_observer: G1TorqueObserver | None = None,
     ) -> GoalForgeEpisode:
+        if torque_policy is not None and torque_overlay_policy is not None:
+            raise ValueError("direct torque policy and target-space torque overlay are exclusive")
+        active_torque_policy = torque_overlay_policy or torque_policy
+        if active_torque_policy is not None and torque_observer is not None:
+            raise ValueError("direct torque policy and read-only torque observer are exclusive")
         if torque_policy is not None and any(
             value is not None for value in (feedback_runtime, feedforward, recovery_controller)
         ):
             raise ValueError(
                 "direct neural torque policy cannot be combined with target-space adapters"
             )
+        if torque_overlay_policy is not None and all(
+            value is None for value in (feedback_runtime, feedforward, recovery_controller)
+        ):
+            raise ValueError("target-space torque overlay requires a target-space adapter")
         if (
             feedback_runtime is not None
             and feedback_runtime.spec.body_hash != self.qualification.body_hash
@@ -323,7 +335,8 @@ class G1MuJoCoBackend:
             feedback_runtime=feedback_runtime,
             feedforward=feedforward,
             recovery_controller=recovery_controller,
-            torque_policy=torque_policy,
+            torque_policy=active_torque_policy,
+            torque_observer=torque_observer,
         )
 
     def run_and_record(
@@ -420,6 +433,7 @@ class G1MuJoCoBackend:
         feedforward: ILCFeedforward | None = None,
         recovery_controller: G1CerebellarRecoveryController | None = None,
         torque_policy: G1TorquePolicy | None = None,
+        torque_observer: G1TorqueObserver | None = None,
     ) -> GoalForgeEpisode:
         import mujoco
 
@@ -434,6 +448,8 @@ class G1MuJoCoBackend:
             recovery_controller.reset()
         if torque_policy is not None:
             torque_policy.reset()
+        if torque_observer is not None:
+            torque_observer.reset()
         _configure_scene(model, scenario)
         state = state_type(29)
         output = output_type(29)
@@ -845,44 +861,42 @@ class G1MuJoCoBackend:
                 raw_scale = float(np.max(np.abs(raw_torque) / hard_limits))
                 peak_torque_scale = max(peak_torque_scale, min(raw_scale, self.torque_guard_scale))
                 frame_torque = np.clip(raw_torque, -guarded_limits, guarded_limits)
+                control_frame = G1TorqueControlFrame(
+                    joint_position=np.asarray(data.qpos[7:36], dtype=np.float64),
+                    joint_velocity=np.asarray(data.qvel[6:35], dtype=np.float64),
+                    joint_lower_limits=joint_lower_limits,
+                    joint_upper_limits=joint_upper_limits,
+                    torso_quaternion_wxyz=np.asarray(data.xquat[ids.torso], dtype=np.float64),
+                    pelvis_position=np.asarray(data.qpos[:3], dtype=np.float64),
+                    base_linear_velocity=np.asarray(data.qvel[:3], dtype=np.float64),
+                    base_angular_velocity=np.asarray(data.qvel[3:6], dtype=np.float64),
+                    ball_position=np.asarray(
+                        data.qpos[ids.ball_qpos : ids.ball_qpos + 3],
+                        dtype=np.float64,
+                    ),
+                    ball_velocity=np.asarray(
+                        data.qvel[ids.ball_qvel : ids.ball_qvel + 3],
+                        dtype=np.float64,
+                    ),
+                    target_y_m=scenario.target_y_m,
+                    target_z_m=scenario.target_z_m,
+                    policy_phase=policy_phase,
+                    left_contact=latest_left_support,
+                    right_contact=latest_right_support,
+                    ball_contact_observed=contact_observed,
+                )
                 if torque_policy is not None:
                     parent_torque = frame_torque.copy()
                     frame_torque = _apply_direct_torque_policy(
                         policy=torque_policy,
-                        frame=G1TorqueControlFrame(
-                            joint_position=np.asarray(data.qpos[7:36], dtype=np.float64),
-                            joint_velocity=np.asarray(data.qvel[6:35], dtype=np.float64),
-                            joint_lower_limits=joint_lower_limits,
-                            joint_upper_limits=joint_upper_limits,
-                            torso_quaternion_wxyz=np.asarray(
-                                data.xquat[ids.torso], dtype=np.float64
-                            ),
-                            pelvis_position=np.asarray(data.qpos[:3], dtype=np.float64),
-                            base_linear_velocity=np.asarray(
-                                data.qvel[:3], dtype=np.float64
-                            ),
-                            base_angular_velocity=np.asarray(
-                                data.qvel[3:6], dtype=np.float64
-                            ),
-                            ball_position=np.asarray(
-                                data.qpos[ids.ball_qpos : ids.ball_qpos + 3],
-                                dtype=np.float64,
-                            ),
-                            ball_velocity=np.asarray(
-                                data.qvel[ids.ball_qvel : ids.ball_qvel + 3],
-                                dtype=np.float64,
-                            ),
-                            target_y_m=scenario.target_y_m,
-                            target_z_m=scenario.target_z_m,
-                            policy_phase=policy_phase,
-                            left_contact=latest_left_support,
-                            right_contact=latest_right_support,
-                        ),
+                        frame=control_frame,
                         parent_torque=parent_torque,
                         guarded_limits=guarded_limits,
                     )
                     raw_scale = float(np.max(np.abs(frame_torque) / hard_limits))
                     peak_torque_scale = max(peak_torque_scale, raw_scale)
+                if torque_observer is not None:
+                    torque_observer.observe(control_frame, frame_torque.copy())
                 torque_violation = torque_violation or bool(
                     np.any(np.abs(frame_torque) > hard_limits)
                 )

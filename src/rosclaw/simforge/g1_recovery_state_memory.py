@@ -84,6 +84,7 @@ class G1RecoveryStateArtifact:
     maximum_feature_z: float
     training_episode_count: int
     training_seed: int
+    negative_veto_distance_ratio: float | None = None
     activation_ceiling: str = "SIM_ONLY"
     schema_version: str = "rosclaw.g1_goalforge.recovery_state_artifact.v2"
 
@@ -97,8 +98,22 @@ class G1RecoveryStateArtifact:
         ):
             if not _SHA256.fullmatch(value):
                 raise ValueError(f"{label} must be a sha256 content hash")
-        if self.schema_version != "rosclaw.g1_goalforge.recovery_state_artifact.v2":
+        supported_schemas = {
+            "rosclaw.g1_goalforge.recovery_state_artifact.v2",
+            "rosclaw.g1_goalforge.recovery_state_artifact.v3",
+        }
+        if self.schema_version not in supported_schemas:
             raise ValueError("unsupported recovery-state artifact schema")
+        if self.schema_version.endswith(".v2"):
+            if self.negative_veto_distance_ratio is not None:
+                raise ValueError("v2 recovery-state artifacts cannot enable negative veto")
+        elif (
+            isinstance(self.negative_veto_distance_ratio, bool)
+            or not isinstance(self.negative_veto_distance_ratio, (int, float))
+            or not math.isfinite(self.negative_veto_distance_ratio)
+            or not 1.0 <= self.negative_veto_distance_ratio <= 4.0
+        ):
+            raise ValueError("v3 recovery-state negative veto ratio must be in [1, 4]")
         if self.descriptor_feature_names != G1_RECOVERY_STATE_FEATURES:
             raise ValueError("recovery-state descriptor feature contract mismatch")
         observation_count = len(G1_RECOVERY_STATE_OBSERVATIONS)
@@ -185,6 +200,9 @@ class G1RecoveryStateArtifact:
 
     def to_dict(self) -> dict[str, Any]:
         value = asdict(self)
+        if self.schema_version.endswith(".v2"):
+            # Preserve the byte-level v2 contract and its content hashes.
+            value.pop("negative_veto_distance_ratio")
         value["observation_names"] = list(G1_RECOVERY_STATE_OBSERVATIONS)
         value["observation_mean"] = list(self.observation_mean)
         value["observation_scale"] = list(self.observation_scale)
@@ -225,6 +243,9 @@ class G1RecoveryStateArtifact:
             "training_seed",
             "activation_ceiling",
         }
+        schema = value.get("schema_version")
+        if schema == "rosclaw.g1_goalforge.recovery_state_artifact.v3":
+            expected.add("negative_veto_distance_ratio")
         if set(value) != expected:
             raise ValueError("recovery-state artifact fields are invalid")
         if tuple(value["observation_names"]) != G1_RECOVERY_STATE_OBSERVATIONS:
@@ -264,6 +285,11 @@ class G1RecoveryStateArtifact:
             maximum_feature_z=_strict_float(value["maximum_feature_z"]),
             training_episode_count=_strict_int(value["training_episode_count"]),
             training_seed=_strict_int(value["training_seed"]),
+            negative_veto_distance_ratio=(
+                _strict_float(value["negative_veto_distance_ratio"])
+                if schema == "rosclaw.g1_goalforge.recovery_state_artifact.v3"
+                else None
+            ),
             activation_ceiling=str(value["activation_ceiling"]),
         )
 
@@ -279,6 +305,7 @@ class G1RecoveryStateSelection:
     component_lower_bound: float | None
     out_of_distribution: bool
     fallback_reason: str | None
+    nearest_negative_distance: float | None = None
 
 
 @dataclass(frozen=True)
@@ -295,6 +322,7 @@ class G1RecoveryStateReceipt:
     selection_count: int
     fallback_count: int
     descriptor_hash: str | None
+    nearest_negative_distance: float | None = None
     activation_ceiling: str = "SIM_ONLY"
     hardware_command_sent: bool = False
     schema_version: str = "rosclaw.g1_goalforge.recovery_state_receipt.v1"
@@ -396,6 +424,10 @@ class G1RecoveryStatePolicy:
         order = np.argsort(distances, kind="stable")
         neighbors = order[: self.artifact.neighbor_count]
         nearest = float(distances[neighbors[0]])
+        negative_distances = distances[self._prototype_routes < 0]
+        nearest_negative = (
+            float(np.min(negative_distances)) if len(negative_distances) else None
+        )
         covered = distances[neighbors] <= self.artifact.maximum_neighbor_distance
         if not bool(np.all(covered)):
             return self._fallback(
@@ -404,26 +436,42 @@ class G1RecoveryStatePolicy:
                 neighbor_count=int(np.count_nonzero(covered)),
             )
         routes = self._prototype_routes[neighbors]
-        positive = routes >= 0
-        consensus = float(np.count_nonzero(positive) / len(neighbors))
         if int(routes[0]) < 0:
             return self._fallback(
                 "nearest_exemplar_abstains",
                 nearest_distance=nearest,
                 neighbor_count=len(neighbors),
-                consensus=consensus,
+                consensus=float(np.count_nonzero(routes < 0) / len(neighbors)),
+                nearest_negative_distance=nearest_negative,
             )
+        route = int(routes[0])
+        agreeing = routes == route
+        consensus = float(np.count_nonzero(agreeing) / len(neighbors))
         if consensus + 1e-12 < self.artifact.minimum_primitive_consensus:
             return self._fallback(
                 "primitive_consensus_below_gate",
                 nearest_distance=nearest,
                 neighbor_count=len(neighbors),
                 consensus=consensus,
+                nearest_negative_distance=nearest_negative,
             )
-        route = int(routes[0])
-        positive_neighbors = neighbors[positive]
-        advantage_lower = float(np.min(self._advantages[positive_neighbors]))
-        component_lower = float(np.min(self._component_minimums[positive_neighbors]))
+        veto_ratio = self.artifact.negative_veto_distance_ratio
+        if (
+            veto_ratio is not None
+            and nearest_negative is not None
+            and nearest_negative <= self.artifact.maximum_neighbor_distance
+            and nearest_negative <= nearest * veto_ratio
+        ):
+            return self._fallback(
+                "negative_evidence_veto",
+                nearest_distance=nearest,
+                neighbor_count=len(neighbors),
+                consensus=consensus,
+                nearest_negative_distance=nearest_negative,
+            )
+        agreeing_neighbors = neighbors[agreeing]
+        advantage_lower = float(np.min(self._advantages[agreeing_neighbors]))
+        component_lower = float(np.min(self._component_minimums[agreeing_neighbors]))
         if advantage_lower + 1e-12 < self.artifact.minimum_advantage_lower_bound:
             return self._fallback(
                 "advantage_lower_bound_below_gate",
@@ -432,6 +480,7 @@ class G1RecoveryStatePolicy:
                 consensus=consensus,
                 advantage_lower=advantage_lower,
                 component_lower=component_lower,
+                nearest_negative_distance=nearest_negative,
             )
         if component_lower + 1e-12 < self.artifact.minimum_component_lower_bound:
             return self._fallback(
@@ -441,6 +490,7 @@ class G1RecoveryStatePolicy:
                 consensus=consensus,
                 advantage_lower=advantage_lower,
                 component_lower=component_lower,
+                nearest_negative_distance=nearest_negative,
             )
         self._selection = G1RecoveryStateSelection(
             ready=True,
@@ -452,6 +502,7 @@ class G1RecoveryStatePolicy:
             component_lower_bound=component_lower,
             out_of_distribution=False,
             fallback_reason=None,
+            nearest_negative_distance=nearest_negative,
         )
         self._selection_count += 1
         return self._selection
@@ -465,6 +516,7 @@ class G1RecoveryStatePolicy:
         consensus: float = 0.0,
         advantage_lower: float | None = None,
         component_lower: float | None = None,
+        nearest_negative_distance: float | None = None,
     ) -> G1RecoveryStateSelection:
         self._selection = G1RecoveryStateSelection(
             ready=True,
@@ -476,6 +528,7 @@ class G1RecoveryStatePolicy:
             component_lower_bound=component_lower,
             out_of_distribution=True,
             fallback_reason=reason,
+            nearest_negative_distance=nearest_negative_distance,
         )
         self._fallback_count += 1
         return self._selection
@@ -501,6 +554,9 @@ class G1RecoveryStatePolicy:
             selection_count=self._selection_count,
             fallback_count=self._fallback_count,
             descriptor_hash=descriptor_hash,
+            nearest_negative_distance=(
+                selection.nearest_negative_distance if selection else None
+            ),
         )
 
 

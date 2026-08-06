@@ -11,6 +11,7 @@ import pytest
 from rosclaw.integrations.lerobot.config import migrate_v0_config_to_v1
 from rosclaw.integrations.lerobot.env_manager import LeRobotEnvManager
 from rosclaw.integrations.lerobot.installer import LeRobotInstaller
+from rosclaw.integrations.lerobot.profiles import load_profile
 from rosclaw.integrations.lerobot.runtime import inspect_lerobot_runtime, resolve_lerobot_info
 from rosclaw.integrations.lerobot.subprocess_runner import CommandResult
 
@@ -122,6 +123,14 @@ def test_isolated_dry_run_outputs_expected_plan(tmp_path: Path):
     assert "pip install" in plan_text
     assert "lerobot-info" in plan_text
     assert "config" in plan_text.lower()
+
+
+def test_core_profile_installs_dataset_runtime_contract() -> None:
+    """Core advertises dataset export, so it must install LeRobot's dataset extra."""
+    profile = load_profile("core")
+
+    assert profile.capabilities["dataset_export_lerobot"] is True
+    assert profile.pip == ["lerobot[dataset]>=0.6,<0.7"]
 
 
 # ------------------------------------------------------------------
