@@ -5,6 +5,8 @@ input:
   type: object
   additionalProperties: false
   properties:
+    schema_version:
+      const: limo.tone.v1
     frequency_hz:
       type: integer
       enum: [440, 660, 880]
@@ -16,9 +18,13 @@ input:
       type: integer
       minimum: 5
       maximum: 25
-    body_snapshot_hash:
-      type: string
-  required: [frequency_hz, duration_sec, volume_percent, body_snapshot_hash]
+    expected_effect:
+      const:
+        kind: speaker_tone
+        playback_required: true
+        mixer_restore_required: true
+        microphone_loopback_required: true
+  required: [schema_version, frequency_hz, duration_sec, volume_percent, expected_effect]
 output:
   required: [device, frame_count, volume_mapping, digital_peak_scale, mixer_restored, acoustic_loopback, acoustic_loopback_detected, receipt]
 safety:

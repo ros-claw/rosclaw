@@ -1,16 +1,23 @@
-"""D435i capture with the field-proven wedge-safe lifecycle (PR-EVO-HW-2).
+"""D435i capture with the field-proven wedge-safe lifecycle (PR-EVO-HW-2,
+updated 2026-08-04 per the ros-claw/realsense_ops discipline).
 
 The D435i on this rig wedges when a pipeline starts on a device whose
 firmware state is stale (UVC GET_CUR -110 → USB disconnect, sometimes
-unrecoverable without a physical re-plug).  The proven-safe sequence is:
+unrecoverable without a physical re-plug).  The 2026-07 lesson was
+"hardware_reset FIRST, always"; the 2026-08 lesson is the other half of
+the story: each hardware_reset is a stress event, and ~20/day plus
+pipeline stop/start churn killed the xHCI host controller (NVDA8000:00,
+dmesg `Host halt failed, -110 → HC died`, 2026-08-03 — and AGAIN after a
+reboot on 2026-08-04).  The lifecycle is therefore the escalation ladder:
 
-    enumerate → hardware_reset FIRST → wait re-enumeration → ONE pipe.start
+    enumerate → plain pipe.start (no reset) → on failure ONLY:
+    ONE hardware_reset → wait re-enumeration → ONE retry
 
-and the forbidden moves are: plain pipe.start on a freshly-enumerated
-device, sysfs bus resets (kills the xHCI controller), and SIGTERM on a
-streaming pipeline.  ``D435iCapture`` implements exactly that lifecycle
-and nothing else.  pyrealsense2 is an optional dependency: its absence
-means "camera unavailable", never a mock.
+and the forbidden moves are: preventive hardware_reset, pipe.start retry
+loops on a wedged control channel, sysfs bus resets (kills the xHCI
+controller), and SIGTERM on a streaming pipeline.  ``D435iCapture``
+implements exactly that lifecycle and nothing else.  pyrealsense2 is an
+optional dependency: its absence means "camera unavailable", never a mock.
 """
 
 from __future__ import annotations
@@ -90,7 +97,14 @@ class D435iCapture:
         return devices
 
     def start(self, *, serial: str | None = None) -> dict[str, Any]:
-        """hardware_reset FIRST, wait re-enumeration, then ONE pipe.start."""
+        """Plain pipe.start FIRST; ONE hardware_reset only on actual failure.
+
+        hardware_reset is a full device re-enumeration — a stress event for
+        the host controller.  Reset churn (~20/day) plus pipeline stop/start
+        cycles killed xHCI host controllers twice on this rig (NVDA8000:00,
+        2026-08-03 and again 2026-08-04).  The escalation ladder: try the
+        plain start; only a real start failure earns the single reset.
+        """
         rs = self._rs()
         ctx = rs.context()
         devices = ctx.query_devices()
@@ -109,39 +123,48 @@ class D435iCapture:
             "firmware": target.get_info(rs.camera_info.firmware_version),
         }
 
-        # Field-proven wedge avoidance: reset FIRST, then one clean start.
-        target.hardware_reset()
-        deadline = time.monotonic() + REENUMERATE_TIMEOUT_S
-        reenumerated = None
-        while time.monotonic() < deadline:
-            time.sleep(1.0)
-            for dev in rs.context().query_devices():
-                if dev.get_info(rs.camera_info.serial_number) == identity["serial"]:
-                    reenumerated = dev
-                    break
-            if reenumerated is not None:
-                break
-        if reenumerated is None:
-            raise CameraUnavailableError(
-                "device did not re-enumerate after hardware_reset "
-                "(physical re-plug + 10s power drain required)"
-            )
-
-        config = rs.config()
-        config.enable_device(identity["serial"])
-        config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
-        config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
-        self._pipeline = rs.pipeline()
-        try:
+        def _start_once() -> None:
+            config = rs.config()
+            config.enable_device(identity["serial"])
+            config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
+            config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
+            self._pipeline = rs.pipeline()
             self._pipeline.start(config)
             # First frame must actually arrive — a timeout here is the
             # wedge signature; do NOT retry pipe.start (field notes).
             self._pipeline.wait_for_frames(FRAME_TIMEOUT_MS)
-        except Exception as exc:
+
+        try:
+            _start_once()
+        except Exception as first_exc:
             with suppress(Exception):
                 self._pipeline.stop()
             self._pipeline = None
-            raise CameraWedgeError(f"pipeline start wedged: {exc}") from exc
+            # Escalation rung 3: ONE hardware_reset after a real start
+            # failure, wait re-enumeration, ONE retry.  Never more.
+            target.hardware_reset()
+            deadline = time.monotonic() + REENUMERATE_TIMEOUT_S
+            reenumerated = None
+            while time.monotonic() < deadline:
+                time.sleep(1.0)
+                for dev in rs.context().query_devices():
+                    if dev.get_info(rs.camera_info.serial_number) == identity["serial"]:
+                        reenumerated = dev
+                        break
+                if reenumerated is not None:
+                    break
+            if reenumerated is None:
+                raise CameraUnavailableError(
+                    "device did not re-enumerate after hardware_reset "
+                    "(physical re-plug + 10s power drain required)"
+                ) from first_exc
+            try:
+                _start_once()
+            except Exception as exc:
+                with suppress(Exception):
+                    self._pipeline.stop()
+                self._pipeline = None
+                raise CameraWedgeError(f"pipeline start wedged: {exc}") from exc
         return {"session_id": self.session_id, **identity}
 
     # ------------------------------------------------------------------
@@ -189,7 +212,9 @@ def _as_array(frame: Any) -> Any:
         return None
 
 
-def write_artifacts(frame: CapturedFrame, directory: Path, *, prefix: str | None = None) -> dict[str, str]:
+def write_artifacts(
+    frame: CapturedFrame, directory: Path, *, prefix: str | None = None
+) -> dict[str, str]:
     """Persist color/depth artifacts; returns artifact:// refs.
 
     PNG via OpenCV when available, raw .npy otherwise — the artifact is

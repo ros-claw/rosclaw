@@ -1,6 +1,13 @@
 """
 ROSClaw LLM Provider Abstraction Layer
 
+.. deprecated:: experimental_legacy
+   Maturity: **experimental_legacy** (see docs/adr/0000). Parallel LLM client
+   stack that bypasses ``rosclaw.provider`` (no CapabilityRouter, no tracer,
+   no guard pipeline, markdown-JSON parsing). Frozen — do not add features.
+   Native Agent model access goes through the Provider layer
+   (``OpenAICompatRuntime`` + ModelPolicy) instead.
+
 Provides a unified interface for multiple LLM backends:
 - DeepSeek (deepseek-v4-pro, etc.)
 - OpenAI (GPT-4, GPT-4o, etc.)

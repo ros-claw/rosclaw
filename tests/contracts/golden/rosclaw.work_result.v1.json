@@ -1,0 +1,221 @@
+{
+  "$defs": {
+    "ResultArtifact": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.result_artifact.v1",
+          "default": "rosclaw.result_artifact.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "media_type": {
+          "default": "application/octet-stream",
+          "title": "Media Type",
+          "type": "string"
+        },
+        "digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Digest"
+        }
+      },
+      "required": [
+        "ref"
+      ],
+      "title": "ResultArtifact",
+      "type": "object"
+    },
+    "ResultClaim": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.result_claim.v1",
+          "default": "rosclaw.result_claim.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "claim": {
+          "title": "Claim",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "claim"
+      ],
+      "title": "ResultClaim",
+      "type": "object"
+    },
+    "WorkUsage": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.work_usage.v1",
+          "default": "rosclaw.work_usage.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "wall_time_ms": {
+          "default": 0,
+          "title": "Wall Time Ms",
+          "type": "integer"
+        },
+        "prompt_tokens": {
+          "default": 0,
+          "title": "Prompt Tokens",
+          "type": "integer"
+        },
+        "completion_tokens": {
+          "default": 0,
+          "title": "Completion Tokens",
+          "type": "integer"
+        },
+        "cost_microunits": {
+          "default": 0,
+          "title": "Cost Microunits",
+          "type": "integer"
+        }
+      },
+      "title": "WorkUsage",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "A submission from a worker. ``COMPLETED`` ≠ accepted by ROSClaw.",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.work_result.v1",
+      "default": "rosclaw.work_result.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "work_order_id": {
+      "title": "Work Order Id",
+      "type": "string"
+    },
+    "worker_id": {
+      "title": "Worker Id",
+      "type": "string"
+    },
+    "lease_id": {
+      "title": "Lease Id",
+      "type": "string"
+    },
+    "status": {
+      "default": "COMPLETED",
+      "enum": [
+        "COMPLETED",
+        "FAILED",
+        "BLOCKED"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "started_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Started At"
+    },
+    "finished_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Finished At"
+    },
+    "summary": {
+      "default": "",
+      "title": "Summary",
+      "type": "string"
+    },
+    "artifacts": {
+      "items": {
+        "$ref": "#/$defs/ResultArtifact"
+      },
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "evidence": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/ResultClaim"
+      },
+      "title": "Claims",
+      "type": "array"
+    },
+    "usage": {
+      "$ref": "#/$defs/WorkUsage"
+    },
+    "children": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Children",
+      "type": "array"
+    },
+    "worker_trace_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Worker Trace Ref"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "work_order_id",
+    "worker_id",
+    "lease_id"
+  ],
+  "title": "rosclaw.work_result.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.work_result.v1"
+}

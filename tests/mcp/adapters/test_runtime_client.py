@@ -189,3 +189,58 @@ async def test_live_mode_never_falls_back_to_fixture_on_runtime_failure() -> Non
 
     assert error.value.code == "RUNTIME_UNAVAILABLE"
     assert error.value.details["trust_level"] == "UNAVAILABLE"
+
+
+async def test_defer_operator_action_creates_pending_daemon_proposal(
+    client_with_runtime: RuntimeClient,
+) -> None:
+    daemon = client_with_runtime._daemon_client
+    daemon.create_operator_proposal.return_value = {
+        "proposal": {
+            "request_id": "proposal-1",
+            "action_id": "action-1",
+            "state": "CREATED",
+        },
+        "decision": "APPROVAL_PENDING",
+        "command_dispatched": False,
+        "permit_exposed": False,
+    }
+    prepared = client_with_runtime.prepare_operator_action(
+        capability_id="rh56.finger.move",
+        arguments={"finger": "index", "delta_raw": 20},
+        body_snapshot_hash="sha256:body",
+        action_id="action-1",
+        display={"title": "Move one finger"},
+    )
+
+    result = await client_with_runtime.defer_operator_action(prepared, ttl_sec=45.0)
+
+    assert result["proposal"]["request_id"] == "proposal-1"
+    assert result["permit_injected"] is False
+    daemon.create_operator_proposal.assert_called_once()
+    _action, kwargs = daemon.create_operator_proposal.call_args
+    assert kwargs["ttl_sec"] == 45.0
+    assert kwargs["display"]["title"] == "Move one finger"
+
+
+async def test_operator_proposal_status_and_cancel_use_public_daemon_calls(
+    client_with_runtime: RuntimeClient,
+) -> None:
+    daemon = client_with_runtime._daemon_client
+    daemon.get_operator_proposal.return_value = {
+        "proposal": {"request_id": "proposal-1", "state": "CREATED"},
+        "permit_exposed": False,
+    }
+    daemon.cancel_operator_proposal.return_value = {
+        "proposal": {"request_id": "proposal-1", "state": "CANCELLED"},
+        "command_dispatched": False,
+        "permit_exposed": False,
+    }
+
+    status = await client_with_runtime.get_approval_status("proposal-1")
+    cancelled = await client_with_runtime.cancel_approval("proposal-1")
+
+    assert status["proposal"]["state"] == "CREATED"
+    assert cancelled["proposal"]["state"] == "CANCELLED"
+    daemon.get_operator_proposal.assert_called_once_with("proposal-1")
+    daemon.cancel_operator_proposal.assert_called_once_with("proposal-1")

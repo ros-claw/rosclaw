@@ -1,0 +1,100 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.ui.interaction_request.v1",
+      "default": "rosclaw.ui.interaction_request.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "interaction_id": {
+      "minLength": 1,
+      "title": "Interaction Id",
+      "type": "string"
+    },
+    "mission_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mission Id"
+    },
+    "kind": {
+      "enum": [
+        "select",
+        "confirm",
+        "input",
+        "editor"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "title": {
+      "default": "",
+      "title": "Title",
+      "type": "string"
+    },
+    "prompt": {
+      "default": "",
+      "title": "Prompt",
+      "type": "string"
+    },
+    "options": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Options",
+      "type": "array"
+    },
+    "default": {
+      "default": null,
+      "title": "Default"
+    },
+    "masked": {
+      "default": false,
+      "title": "Masked",
+      "type": "boolean"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "expires_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expires At"
+    },
+    "status": {
+      "default": "pending",
+      "enum": [
+        "pending",
+        "responded",
+        "expired",
+        "cancelled"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "interaction_id",
+    "kind",
+    "created_at"
+  ],
+  "title": "rosclaw.ui.interaction_request.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.ui.interaction_request.v1"
+}

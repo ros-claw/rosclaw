@@ -5,12 +5,37 @@ input:
   type: object
   additionalProperties: false
   properties:
+    schema_version:
+      const: limo.initial-pose.v1
     target_pose:
       type: object
+      additionalProperties: false
+      properties:
+        frame_id: {const: map}
+        x: {type: number, minimum: -50.0, maximum: 50.0}
+        y: {type: number, minimum: -50.0, maximum: 50.0}
+        yaw: {type: number, minimum: -3.141592653589793, maximum: 3.141592653589793}
       required: [frame_id, x, y, yaw]
-    body_snapshot_hash:
+    route_policy_id:
       type: string
-  required: [target_pose, body_snapshot_hash]
+      minLength: 1
+    route_policy_hash:
+      type: string
+      minLength: 1
+    map_id:
+      type: string
+      minLength: 1
+    map_image_hash:
+      type: string
+      minLength: 1
+    covariance_diagonal:
+      const: [0.25, 0.25, 0.0, 0.0, 0.0, 0.0685]
+    expected_effect:
+      const:
+        kind: localization_initialized
+        final_frame: map
+        map_to_odom_required: true
+  required: [schema_version, target_pose, route_policy_id, route_policy_hash, map_id, map_image_hash, covariance_diagonal, expected_effect]
 output:
   required: [observed_amcl_pose, map_to_odom, receipt]
 safety:

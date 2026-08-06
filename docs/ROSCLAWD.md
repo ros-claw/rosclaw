@@ -171,6 +171,15 @@ as the daemon service UID or use an equivalent authenticated operator broker,
 while the Agent remains a different UID. Same-UID development validates only
 the protocol and audit flow.
 
+### Operator Broker pending confirmation
+
+For cross-UID deployments and MCP clients without a trusted form-elicitation host, use the
+daemon-owned Operator Broker proposal flow. The Agent may create and query its UID-bound proposal;
+only the daemon service UID can read decision challenges or decide it. Acceptance, Permit issuance,
+submission, terminal status, principal, channel, and exact action-intent hash share the durable
+Ledger chain. The Agent-side MCP exposes only public status polling and pre-decision withdrawal via
+`get_approval_status` and `cancel_approval`. See [OPERATOR_BROKER.md](OPERATOR_BROKER.md).
+
 ## Adapter Worker Isolation
 
 Registered Adapter workers use newline-delimited JSON over private pipes. The

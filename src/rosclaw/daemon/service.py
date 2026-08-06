@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import hmac
 import logging
 import os
 import threading
@@ -12,15 +13,24 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from math import isfinite
+from pathlib import Path
 from typing import Any
 
+from rosclaw.contracts.operator.decision import (
+    DecisionChallengeV1,
+    DecisionReceiptV1,
+    OperatorDecisionProofV1,
+    verify_b64,
+)
 from rosclaw.daemon.health import SupervisionState
+from rosclaw.daemon.identity import DaemonIdentity
 from rosclaw.daemon.ledger import (
     DaemonLedger,
     LedgerError,
     LedgerEvent,
     LedgerIntegrityError,
 )
+from rosclaw.daemon.operator_registry import OperatorRegistry, RegistryError
 from rosclaw.daemon.permits import ExecutionPermit, PermitAuthority, action_intent_hash
 from rosclaw.daemon.protocol import DAEMON_PROTOCOL_VERSION, PeerCredentials
 from rosclaw.daemon.session_manager import (
@@ -40,6 +50,13 @@ from rosclaw.kernel import (
     OrphanPolicy,
 )
 from rosclaw.kernel.contracts import utc_now
+from rosclaw.operator import (
+    OperatorDecision,
+    OperatorProposal,
+    OperatorProposalError,
+    OperatorProposalStore,
+    ProposalState,
+)
 
 logger = logging.getLogger("rosclaw.daemon.service")
 
@@ -115,9 +132,11 @@ class DaemonControlPlane:
         ledger: DaemonLedger | None = None,
         sessions: SessionManager | None = None,
         worker_manager: WorkerManager | None = None,
+        operator_proposals: OperatorProposalStore | None = None,
         max_workers: int = 4,
         max_queued_actions: int = 64,
         max_retained_actions: int = 1024,
+        state_dir: Path | None = None,
     ):
         self.runtime = runtime
         self.ledger = ledger
@@ -127,6 +146,19 @@ class DaemonControlPlane:
             raise ValueError("DaemonControlPlane permit authority must use the same ledger")
         self.permits = permits
         self.sessions = sessions or SessionManager()
+        self.operator_proposals = operator_proposals or OperatorProposalStore()
+        self._operator_decision_lock = threading.RLock()
+        # 二次复核 R2/P0-5：持久化 Ed25519 enrollment registry（空表=全拒，
+        # 无首调抢注窗口；重启不丢）。state_dir=None 时纯内存（仅测试）。
+        if state_dir is None and ledger is not None:
+            ledger_path = getattr(ledger, "path", None)
+            if ledger_path:
+                state_dir = Path(ledger_path).parent
+        self._operator_registry = OperatorRegistry(
+            (state_dir / "operator-enrollments.json") if state_dir else None
+        )
+        # 二次复核 R1：daemon 自己的签名身份（DecisionReceiptV1）。
+        self._daemon_identity = DaemonIdentity.load_or_create(state_dir)
         queue_capacity = max(1, max_queued_actions)
         self._executor = ThreadPoolExecutor(
             max_workers=max(1, max_workers),
@@ -159,6 +191,7 @@ class DaemonControlPlane:
         if self.ledger is not None:
             self._restore_jobs_from_ledger()
             self._restore_recovery_from_ledger()
+            self._invalidate_previous_generation_operator_proposals()
 
     def start(self) -> None:
         with self._lock:
@@ -208,6 +241,7 @@ class DaemonControlPlane:
                 },
                 "permits": self.permits.status(),
                 "sessions": self.sessions.status(),
+                "operator_proposals": self.operator_proposals.status(),
                 "watchdog": self._watchdog.status(),
                 "workers": self.workers.status(),
                 "ledger": self._ledger_status_locked(),
@@ -247,6 +281,585 @@ class DaemonControlPlane:
             raise ControlPlaneError(exc.code, exc.message) from exc
         self._append_session_event("SESSION_CREATED", session)
         return {"session": session.to_dict()}
+
+    def create_operator_proposal(
+        self,
+        action: ActionEnvelope,
+        *,
+        display: dict[str, Any],
+        ttl_sec: float,
+        peer: PeerCredentials,
+        client_reference: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Create a daemon-owned pending proposal without accepting caller approval claims."""
+
+        self._require_running()
+        if self.ledger is None:
+            raise ControlPlaneError(
+                "PROPOSAL_LEDGER_REQUIRED",
+                "Operator proposals require the durable daemon ledger",
+            )
+        try:
+            proposal = self.operator_proposals.create(
+                action,
+                display=display,
+                origin_peer=peer,
+                daemon_instance_id=self._instance_id,
+                ttl_sec=ttl_sec,
+                client_reference=client_reference,
+            )
+            new_proposal = proposal.audited_transition_count == 0
+            if not new_proposal:
+                return self._operator_submission_result(proposal)
+            session_ttl_ms = min(
+                3_600_000,
+                max(60_000, int(float(ttl_sec) * 1000) + 10_000, action.lease_ttl_ms),
+            )
+            session = self.sessions.create_session(
+                session_id=proposal.action.session_id,
+                actor_id=proposal.action.actor_id,
+                agent_framework=proposal.action.agent_framework,
+                body_scope=[proposal.action.body_id],
+                capability_scope=[proposal.action.capability_id],
+                ttl_ms=session_ttl_ms,
+                peer=peer,
+            )
+        except (OperatorProposalError, SessionError) as exc:
+            raise ControlPlaneError(exc.code, exc.message) from exc
+        self._append_session_event("SESSION_CREATED", session)
+        try:
+            self.ledger.append(
+                "OPERATOR_PROPOSAL_CREATED",
+                entity_kind="OPERATOR_PROPOSAL",
+                entity_id=proposal.request_id,
+                payload={
+                    "proposal": proposal.operator_dict(),
+                    "action": proposal.action.to_dict(),
+                },
+            )
+            proposal.audited_transition_count = len(proposal.transitions)
+        except Exception as exc:  # noqa: BLE001
+            with self._lock:
+                self._mark_ledger_failure_locked(exc)
+            self.operator_proposals.transition(
+                proposal,
+                ProposalState.INVALIDATED,
+                failure_code="LEDGER_UNAVAILABLE",
+                failure_message="Proposal creation could not be recorded durably",
+            )
+            raise ControlPlaneError(
+                "LEDGER_UNAVAILABLE",
+                "rosclawd could not durably record the operator proposal",
+            ) from exc
+        return {
+            "proposal": proposal.public_dict(),
+            "decision": "APPROVAL_PENDING",
+            "command_dispatched": False,
+            "permit_exposed": False,
+        }
+
+    def get_operator_proposal(
+        self,
+        request_id: str,
+        peer: PeerCredentials,
+    ) -> dict[str, Any]:
+        """Read a proposal as its Agent owner or as the daemon/operator UID."""
+
+        try:
+            proposal = self.operator_proposals.get(request_id)
+        except OperatorProposalError as exc:
+            raise ControlPlaneError(exc.code, exc.message) from exc
+        self._require_proposal_reader(proposal, peer)
+        self._audit_expired_operator_proposal(proposal)
+        self._synchronize_operator_proposal(proposal)
+        return {"proposal": proposal.public_dict(), "permit_exposed": False}
+
+    def cancel_operator_proposal(
+        self,
+        request_id: str,
+        peer: PeerCredentials,
+    ) -> dict[str, Any]:
+        """Cancel an owned pending proposal without granting decision authority."""
+
+        self._require_running()
+        with self._operator_decision_lock:
+            try:
+                proposal = self.operator_proposals.get(request_id)
+            except OperatorProposalError as exc:
+                raise ControlPlaneError(exc.code, exc.message) from exc
+            self._require_proposal_reader(proposal, peer)
+            self._audit_expired_operator_proposal(proposal)
+            if proposal.state is ProposalState.CANCELLED:
+                return self._operator_submission_result(proposal)
+            if proposal.state not in {ProposalState.CREATED, ProposalState.PRESENTED}:
+                raise ControlPlaneError(
+                    "PROPOSAL_NOT_PENDING",
+                    f"Proposal is no longer cancellable ({proposal.state.value})",
+                )
+            self.operator_proposals.transition(proposal, ProposalState.CANCELLED)
+            self._append_operator_event("OPERATOR_PROPOSAL_CANCELLED", proposal)
+            with contextlib.suppress(SessionError):
+                session = self.sessions.close_session(
+                    proposal.action.session_id,
+                    proposal.origin_peer,
+                    reason="operator_proposal_cancelled",
+                )
+                self._append_session_event("SESSION_CLOSED", session)
+            return self._operator_submission_result(proposal)
+
+    def list_pending_operator_proposals(self, peer: PeerCredentials) -> dict[str, Any]:
+        """Return trusted broker views（P0-4.1：管理员或已登记 operator UID）。"""
+
+        self._require_operator_reader(peer, "read pending operator proposals")
+        proposals = self.operator_proposals.pending()
+        for proposal in self.operator_proposals.all():
+            self._audit_expired_operator_proposal(proposal)
+        for proposal in proposals:
+            if proposal.state is ProposalState.CREATED:
+                self.operator_proposals.transition(proposal, ProposalState.PRESENTED)
+                self._append_operator_event("OPERATOR_PROPOSAL_PRESENTED", proposal)
+        return {
+            "schema_version": "rosclaw.operator.pending-list.v1",
+            "proposals": [proposal.operator_dict() for proposal in proposals],
+            "count": len(proposals),
+        }
+
+    def register_operator_enrollment(
+        self,
+        enrollment_id: str,
+        *,
+        public_key_pem: str,
+        operator_uid: int,
+        purpose: str = "operator-decision",
+        peer: PeerCredentials,
+    ) -> dict[str, Any]:
+        """登记 operator Ed25519 公钥（二次复核 R2/P0-5）。
+
+        仅 daemon 服务 UID（管理员，经 `rosclaw operatord register-daemon`）。
+        **没有 bootstrap 首调窗口**——空 registry 一样只认管理员。
+        registry 持久化：daemon 重启不丢、不重新开放抢注。
+        """
+        self._require_daemon_uid(peer, "register operator enrollments")
+        normalized_id = self._identifier(enrollment_id, "enrollment_id")
+        if isinstance(operator_uid, bool) or not isinstance(operator_uid, int) or operator_uid < 0:
+            raise ControlPlaneError(
+                "INVALID_ARGUMENT", "operator_uid must be a non-negative integer"
+            )
+        try:
+            record = self._operator_registry.register(
+                normalized_id,
+                public_key_pem=public_key_pem,
+                operator_uid=operator_uid,
+                purpose=purpose,
+            )
+        except RegistryError as exc:
+            raise ControlPlaneError(exc.code, exc.message) from exc
+        self._append_operator_enrollment_event("OPERATOR_ENROLLMENT_REGISTERED", record)
+        return {
+            "schema_version": "rosclaw.operator.enrollment.v2",
+            **record.public_dict(),
+            "registered": True,
+        }
+
+    def revoke_operator_enrollment(
+        self,
+        enrollment_id: str,
+        *,
+        peer: PeerCredentials,
+    ) -> dict[str, Any]:
+        """吊销 operator enrollment（管理员）——被吊销者立即失去决定权。"""
+        self._require_daemon_uid(peer, "revoke operator enrollments")
+        normalized_id = self._identifier(enrollment_id, "enrollment_id")
+        try:
+            record = self._operator_registry.revoke(normalized_id)
+        except RegistryError as exc:
+            raise ControlPlaneError(exc.code, exc.message) from exc
+        self._append_operator_enrollment_event("OPERATOR_ENROLLMENT_REVOKED", record)
+        return {"schema_version": "rosclaw.operator.enrollment.v2", **record.public_dict()}
+
+    def list_operator_enrollments(self, *, peer: PeerCredentials) -> dict[str, Any]:
+        """列出 enrollments 的公开元数据（管理员；公钥指纹不含私钥材料）。"""
+        self._require_daemon_uid(peer, "list operator enrollments")
+        return {
+            "schema_version": "rosclaw.operator.enrollment-list.v1",
+            "enrollments": [r.public_dict() for r in self._operator_registry.list()],
+        }
+
+    def _append_operator_enrollment_event(self, kind: str, record: Any) -> None:
+        if self.ledger is None:
+            return
+        try:
+            self.ledger.append(
+                kind,
+                entity_kind="OPERATOR_ENROLLMENT",
+                entity_id=record.enrollment_id,
+                payload={"enrollment": record.public_dict()},
+            )
+        except Exception as exc:  # noqa: BLE001
+            with self._lock:
+                self._mark_ledger_failure_locked(exc)
+            raise ControlPlaneError(
+                "LEDGER_UNAVAILABLE", "could not durably record enrollment change"
+            ) from exc
+
+    def daemon_identity_dict(self) -> dict[str, Any]:
+        """daemon 签名公钥（公开信息，任何 peer 可读；信任锚是 socket 隔离）。"""
+        return {
+            "schema_version": "rosclaw.daemon.identity.v1",
+            "daemon_instance_id": self._instance_id,
+            "daemon_key_id": self._daemon_identity.key_id,
+            "public_key_pem": self._daemon_identity.public_key_pem,
+        }
+
+    def _proposal_display_hash(self, proposal: OperatorProposal) -> str:
+        """与 agentd 共用同一公式的展示指纹（P0-6 字段绑定）。"""
+        from rosclaw.contracts.operator.decision import compute_display_hash
+
+        display = proposal.display
+        return compute_display_hash(
+            request_id=proposal.request_id,
+            title=str(display.get("title", "")),
+            summary=str(display.get("summary", "")),
+            risk_tier=str(display.get("risk_tier", "")),
+            parameters=dict(display.get("parameters", {})),
+            body_hash=proposal.action.body_snapshot_hash,
+            expires_at=_iso(proposal.expires_at) or "",
+        )
+
+    def _operator_challenge_for(self, proposal: OperatorProposal) -> DecisionChallengeV1:
+        return DecisionChallengeV1(
+            proposal_id=proposal.request_id,
+            challenge_nonce=proposal.challenge_nonce,
+            display_hash=self._proposal_display_hash(proposal),
+            execution_mode=proposal.action.execution_mode.value,
+            capability_id=proposal.action.capability_id,
+            canonical_args_hash=proposal.action_intent_hash,
+            issued_at=_iso(proposal.created_at) or "",
+            expires_at=_iso(proposal.expires_at) or "",
+            daemon_instance_id=self._instance_id,
+            agent_request_id=proposal.client_reference.get("agent_request_id", ""),
+            mission_id=proposal.client_reference.get("mission_id", ""),
+        )
+
+    def get_operator_challenge(
+        self,
+        request_id: str,
+        peer: PeerCredentials,
+    ) -> dict[str, Any]:
+        """operatord 取一次性挑战（P0-3：nonce 与 daemon 存储同源）。"""
+        self._require_operator_reader(peer, "read operator challenge")
+        try:
+            proposal = self.operator_proposals.get(request_id)
+        except OperatorProposalError as exc:
+            raise ControlPlaneError(exc.code, exc.message) from exc
+        self._audit_expired_operator_proposal(proposal)
+        if proposal.state not in {ProposalState.CREATED, ProposalState.PRESENTED}:
+            raise ControlPlaneError(
+                "PROPOSAL_NOT_PENDING",
+                f"Proposal is no longer pending ({proposal.state.value})",
+            )
+        return {"challenge": self._operator_challenge_for(proposal).payload()}
+
+    def _require_operator_reader(self, peer: PeerCredentials, operation: str) -> None:
+        """daemon 管理员或已登记且 active 的 operator UID（P0-4.1）。"""
+        if peer.uid == os.geteuid():
+            return
+        if peer.uid in self._operator_registry.active_operator_uids():
+            return
+        raise ControlPlaneError(
+            "PERMISSION_DENIED",
+            f"Only the rosclawd service UID or an enrolled operator may {operation}",
+        )
+
+    def decide_operator_proposal(
+        self,
+        request_id: str,
+        *,
+        decision: str,
+        principal_id: str,
+        channel: str,
+        reason: str,
+        peer: PeerCredentials,
+        proof: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Apply a trusted exact decision and submit an accepted proposal atomically.
+
+        二次复核 R1/P0-3/P0-4/P0-6：唯一决策凭证是 Ed25519 签名的
+        ``OperatorDecisionProofV1``——proof 内嵌 daemon 签发的同一个
+        challenge（nonce 同源）；**没有 daemon-UID 直通**（同 UID 一样
+        要 proof，消除同 UID 测试假阳性）；验证成功后的 arm/permit 走
+        不暴露 socket 的内部方法。
+        """
+        normalized_principal = self._identifier(principal_id, "principal_id")
+        normalized_channel = self._identifier(channel, "channel")
+        normalized_reason = self._reason(reason, "decision reason")
+        try:
+            normalized_decision = OperatorDecision(str(decision).upper())
+        except ValueError as exc:
+            raise ControlPlaneError(
+                "INVALID_OPERATOR_DECISION", "decision must be ACCEPT or DECLINE"
+            ) from exc
+        try:
+            parsed_proof = OperatorDecisionProofV1.from_dict(proof)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ControlPlaneError(
+                "INVALID_OPERATOR_PROOF", f"invalid operator proof: {exc}"
+            ) from exc
+        if parsed_proof.decision != normalized_decision.value:
+            raise ControlPlaneError(
+                "OPERATOR_PROOF_DECISION_MISMATCH",
+                "proof decision does not match the requested decision",
+            )
+        enrollment = self._operator_registry.active(parsed_proof.enrollment_id)
+        if enrollment is None:
+            raise ControlPlaneError(
+                "PERMISSION_DENIED",
+                "unknown or revoked operator enrollment — decisions require an "
+                "active enrollment registered by the daemon administrator",
+            )
+        # 纵深防御：proof 有效且调用方就是登记的 operator UID——其他 UID
+        # 即使拿到拷贝的公开元数据也无法决定（T1 负向）。
+        if peer.uid != enrollment.operator_uid:
+            raise ControlPlaneError(
+                "PERMISSION_DENIED",
+                "caller UID does not match the enrollment's operator UID",
+            )
+        if not verify_b64(
+            enrollment.public_key_pem,
+            parsed_proof.signing_payload(),
+            parsed_proof.signature_b64,
+        ):
+            raise ControlPlaneError(
+                "PERMISSION_DENIED", "operator proof signature verification failed"
+            )
+        with self._operator_decision_lock:
+            try:
+                proposal = self.operator_proposals.get(request_id)
+            except OperatorProposalError as exc:
+                raise ControlPlaneError(exc.code, exc.message) from exc
+            if proposal.daemon_instance_id != self._instance_id:
+                raise ControlPlaneError(
+                    "PROPOSAL_DAEMON_GENERATION_MISMATCH",
+                    "Proposal belongs to a previous daemon generation",
+                )
+            if proposal.state in {ProposalState.SUBMITTED, ProposalState.TERMINAL}:
+                if normalized_decision is not OperatorDecision.ACCEPT:
+                    raise ControlPlaneError(
+                        "PROPOSAL_ALREADY_DECIDED", "Accepted proposal cannot be declined"
+                    )
+                self._synchronize_operator_proposal(proposal)
+                return self._operator_submission_result(proposal)
+            if proposal.state is ProposalState.DECLINED:
+                if normalized_decision is OperatorDecision.DECLINE:
+                    return self._operator_submission_result(proposal)
+                raise ControlPlaneError(
+                    "PROPOSAL_ALREADY_DECIDED", "Declined proposal cannot be accepted"
+                )
+            if proposal.state not in {ProposalState.CREATED, ProposalState.PRESENTED}:
+                raise ControlPlaneError(
+                    "PROPOSAL_NOT_PENDING",
+                    f"Proposal is no longer pending ({proposal.state.value})",
+                )
+            # P0-3/P0-6：proof 的 challenge 必须与 daemon 持有的 proposal
+            # 逐字段一致（含同一个 challenge_nonce）。
+            expected = self._operator_challenge_for(proposal).payload()
+            got = parsed_proof.challenge.payload()
+            mismatched = sorted(
+                key
+                for key in expected
+                if key != "protocol_version" and str(got.get(key, "")) != str(expected[key])
+            )
+            if mismatched:
+                raise ControlPlaneError(
+                    "OPERATOR_PROOF_CHALLENGE_MISMATCH",
+                    "proof challenge fields do not match the live proposal: "
+                    + ", ".join(mismatched),
+                )
+            if not hmac.compare_digest(
+                parsed_proof.challenge.challenge_nonce, proposal.challenge_nonce
+            ):
+                raise ControlPlaneError(
+                    "PROPOSAL_CHALLENGE_MISMATCH",
+                    "Operator challenge does not match the live proposal",
+                )
+            self._require_decided_within_window(parsed_proof, proposal)
+            if action_intent_hash(proposal.action) != proposal.action_intent_hash:
+                self._invalidate_operator_proposal(
+                    proposal,
+                    code="PROPOSAL_MUTATED",
+                    message="Stored action changed after proposal creation",
+                )
+                raise ControlPlaneError("PROPOSAL_MUTATED", "Stored proposal action changed")
+
+            if normalized_decision is OperatorDecision.DECLINE:
+                self.operator_proposals.transition(
+                    proposal,
+                    ProposalState.DECLINED,
+                    operator_principal=normalized_principal,
+                    decision_channel=normalized_channel,
+                    decision_reason=normalized_reason,
+                )
+                self._append_operator_event("OPERATOR_PROPOSAL_DECLINED", proposal)
+                receipt = self._finalize_decision(proposal, parsed_proof, normalized_principal)
+                result = self._operator_submission_result(proposal)
+                result["decision_receipt"] = receipt.to_dict()
+                return result
+
+            try:
+                self.sessions.require_action(proposal.action, proposal.origin_peer)
+            except SessionError as exc:
+                self._invalidate_operator_proposal(
+                    proposal,
+                    code=exc.code,
+                    message=exc.message,
+                )
+                raise ControlPlaneError(exc.code, exc.message) from exc
+
+            armed_by_decision = False
+            try:
+                self.operator_proposals.transition(
+                    proposal,
+                    ProposalState.ACCEPTED,
+                    operator_principal=normalized_principal,
+                    decision_channel=normalized_channel,
+                    decision_reason=normalized_reason,
+                )
+                self._append_operator_event("OPERATOR_PROPOSAL_ACCEPTED", proposal)
+                with self._lock:
+                    armed = self._supervision_state is SupervisionState.ARMED
+                if not armed:
+                    # P0-4：内部 arm——外部 peer 不再冒充 daemon。
+                    self._arm_after_operator_decision(
+                        f"Operator accepted proposal {proposal.request_id}"
+                    )
+                    armed_by_decision = True
+                issued = self._issue_permit_after_operator_decision(
+                    proposal.action,
+                    principal_id=normalized_principal,
+                    target_peer_uid=proposal.origin_peer.uid,
+                    expires_in_sec=min(
+                        60.0,
+                        max(1.0, (proposal.expires_at - utc_now()).total_seconds()),
+                    ),
+                    reason=normalized_reason,
+                    approval_context={
+                        "proposal_request_id": proposal.request_id,
+                        "action_intent_hash": proposal.action_intent_hash,
+                        "decision_channel": normalized_channel,
+                        "operator_principal": normalized_principal,
+                        "operator_enrollment_id": parsed_proof.enrollment_id,
+                        "human_confirmation_method": parsed_proof.human_confirmation_method,
+                        "decided_at": proposal.public_dict()["decided_at"],
+                    },
+                )
+                self.operator_proposals.transition(proposal, ProposalState.PERMIT_ISSUED)
+                self._append_operator_event(
+                    "OPERATOR_PROPOSAL_PERMIT_ISSUED",
+                    proposal,
+                    extra={"permit_id": issued["permit"]["permit_id"]},
+                )
+                authorized = issued.get("authorized_action")
+                if not isinstance(authorized, dict):
+                    raise ControlPlaneError(
+                        "PERMIT_INJECTION_FAILED", "rosclawd produced no authorized action"
+                    )
+                ticket = self.request_action(
+                    ActionEnvelope.from_dict(authorized),
+                    proposal.origin_peer,
+                )
+                self.operator_proposals.transition(proposal, ProposalState.SUBMITTED)
+                self._append_operator_event(
+                    "OPERATOR_PROPOSAL_SUBMITTED",
+                    proposal,
+                    extra={"action_id": proposal.action.action_id},
+                )
+            except Exception as exc:
+                dispatch_may_have_started = proposal.state is ProposalState.SUBMITTED
+                with contextlib.suppress(Exception):
+                    self.permits.revoke_session(
+                        proposal.action.session_id,
+                        reason="operator_proposal_submission_failed",
+                    )
+                with contextlib.suppress(Exception):
+                    self._invalidate_operator_proposal(
+                        proposal,
+                        code=str(getattr(exc, "code", "PROPOSAL_SUBMISSION_FAILED")),
+                        message=str(getattr(exc, "message", exc)),
+                    )
+                if armed_by_decision or dispatch_may_have_started:
+                    with contextlib.suppress(Exception):
+                        self._disarm_after_operator_rollback(
+                            f"Rollback after proposal {proposal.request_id} failed"
+                        )
+                if isinstance(exc, ControlPlaneError):
+                    raise
+                raise ControlPlaneError(
+                    "PROPOSAL_SUBMISSION_FAILED",
+                    "Accepted proposal could not be submitted",
+                ) from exc
+            receipt = self._finalize_decision(proposal, parsed_proof, normalized_principal)
+            result = self._operator_submission_result(proposal)
+            result["action"] = ticket
+            result["decision_receipt"] = receipt.to_dict()
+            return result
+
+    def _require_decided_within_window(
+        self, proof: OperatorDecisionProofV1, proposal: OperatorProposal
+    ) -> None:
+        """decided_at 必须落在 [issued_at-60s, expires_at] 窗口内。"""
+        try:
+            decided = datetime.fromisoformat(proof.decided_at.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ControlPlaneError(
+                "INVALID_OPERATOR_PROOF", f"decided_at is not ISO-8601: {exc}"
+            ) from exc
+        if decided.tzinfo is None:
+            decided = decided.replace(tzinfo=UTC)
+        if decided < proposal.created_at - timedelta(seconds=60):
+            raise ControlPlaneError(
+                "INVALID_OPERATOR_PROOF", "decided_at predates the challenge (clock replay?)"
+            )
+        if decided > proposal.expires_at:
+            raise ControlPlaneError(
+                "PROPOSAL_EXPIRED", "decision was made after the proposal expired"
+            )
+
+    def _finalize_decision(
+        self,
+        proposal: OperatorProposal,
+        proof: OperatorDecisionProofV1,
+        principal: str,
+    ) -> DecisionReceiptV1:
+        """焚毁 nonce（持久化、跨重启防重放）并签发 DecisionReceiptV1。"""
+        try:
+            self._operator_registry.burn_nonce(proposal.challenge_nonce)
+        except RegistryError as exc:
+            raise ControlPlaneError(exc.code, exc.message) from exc
+        receipt = DecisionReceiptV1(
+            proposal_id=proposal.request_id,
+            decision=proof.decision,
+            operator_enrollment_id=proof.enrollment_id,
+            operator_principal=principal,
+            human_confirmation_method=proof.human_confirmation_method,
+            challenge_nonce=proposal.challenge_nonce,
+            decided_at=proof.decided_at,
+            expires_at=_iso(proposal.expires_at) or "",
+            daemon_instance_id=self._instance_id,
+            daemon_key_id=self._daemon_identity.key_id,
+            agent_request_id=proposal.client_reference.get("agent_request_id", ""),
+            mission_id=proposal.client_reference.get("mission_id", ""),
+            execution_mode=proposal.action.execution_mode.value,
+            capability_id=proposal.action.capability_id,
+            canonical_args_hash=proposal.action_intent_hash,
+            display_hash=self._proposal_display_hash(proposal),
+        ).sign(self._daemon_identity.private_key)
+        proposal.decision_receipt = receipt.to_dict()
+        self._append_operator_event(
+            "OPERATOR_DECISION_RECEIPT_ISSUED",
+            proposal,
+            extra={"receipt_id": receipt.receipt_id, "decision": proof.decision},
+        )
+        return receipt
 
     def heartbeat_session(self, session_id: str, peer: PeerCredentials) -> dict[str, Any]:
         self._require_running()
@@ -289,10 +902,6 @@ class DaemonControlPlane:
         peer: PeerCredentials,
     ) -> dict[str, Any]:
         self._require_running()
-        try:
-            self.sessions.heartbeat(session_id, peer)
-        except SessionError as exc:
-            raise ControlPlaneError(exc.code, exc.message) from exc
         with self._lock:
             job = self._jobs.get(action_id) or self._load_persisted_job(action_id)
             if job is None:
@@ -305,6 +914,11 @@ class DaemonControlPlane:
                 )
             if job.state not in {"QUEUED", "RUNNING"} or job.terminal_override is not None:
                 raise ControlPlaneError("ACTION_NOT_ACTIVE", "Action lease is no longer active")
+            session_peer = job.peer if peer.uid == os.geteuid() else peer
+            try:
+                self.sessions.heartbeat(session_id, session_peer)
+            except SessionError as exc:
+                raise ControlPlaneError(exc.code, exc.message) from exc
             now = utc_now()
             job.last_lease_renewed_at = now
             job.lease_expires_at = now + timedelta(milliseconds=job.action.lease_ttl_ms)
@@ -315,6 +929,15 @@ class DaemonControlPlane:
 
     def arm_runtime(self, reason: str, peer: PeerCredentials) -> dict[str, Any]:
         self._require_daemon_uid(peer, "arm rosclawd")
+        return self._arm_core(reason, peer)
+
+    def _arm_after_operator_decision(self, reason: str) -> dict[str, Any]:
+        """P0-4：operator 决定后的内部 arm——proof 已在 decide 路径验证；
+        本方法不注册到 socket dispatch，外部 peer 无法冒充 daemon 调用。"""
+        daemon_self = PeerCredentials(pid=os.getpid(), uid=os.geteuid(), gid=os.getegid())
+        return self._arm_core(reason, daemon_self)
+
+    def _arm_core(self, reason: str, peer: PeerCredentials) -> dict[str, Any]:
         normalized = self._reason(reason, "arm reason")
         with self._lock:
             if self._recovery_required:
@@ -346,10 +969,57 @@ class DaemonControlPlane:
         expires_in_sec: float,
         reason: str,
         peer: PeerCredentials,
+        approval_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Issue one audited, exact-action REAL permit as the daemon service UID."""
 
         self._require_daemon_uid(peer, "issue REAL execution permits")
+        return self._issue_permit_core(
+            action,
+            principal_id=principal_id,
+            target_peer_uid=target_peer_uid,
+            expires_in_sec=expires_in_sec,
+            reason=reason,
+            operator_peer=peer,
+            approval_context=approval_context,
+        )
+
+    def _issue_permit_after_operator_decision(
+        self,
+        action: ActionEnvelope,
+        *,
+        principal_id: str,
+        target_peer_uid: int,
+        expires_in_sec: float,
+        reason: str,
+        approval_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """P0-4：operator 决定后的内部 permit——proof 已在 decide 路径验证；
+        本方法不注册到 socket dispatch，外部 peer 无法冒充 daemon 调用。"""
+        daemon_self = PeerCredentials(pid=os.getpid(), uid=os.geteuid(), gid=os.getegid())
+        context = dict(approval_context or {})
+        context["via"] = "operator_decision"
+        return self._issue_permit_core(
+            action,
+            principal_id=principal_id,
+            target_peer_uid=target_peer_uid,
+            expires_in_sec=expires_in_sec,
+            reason=reason,
+            operator_peer=daemon_self,
+            approval_context=context,
+        )
+
+    def _issue_permit_core(
+        self,
+        action: ActionEnvelope,
+        *,
+        principal_id: str,
+        target_peer_uid: int,
+        expires_in_sec: float,
+        reason: str,
+        operator_peer: PeerCredentials,
+        approval_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         self._require_running()
         normalized_reason = self._reason(reason, "permit reason")
         normalized_principal = self._identifier(principal_id, "principal_id")
@@ -378,10 +1048,11 @@ class DaemonControlPlane:
                     f"{MAX_OPERATOR_PERMIT_TTL_SEC:g} seconds"
                 ),
             )
-        if action.execution_mode is not ExecutionMode.REAL:
+        if action.execution_mode not in {ExecutionMode.REAL, ExecutionMode.SHADOW}:
             raise ControlPlaneError(
                 "PERMIT_REAL_ACTION_REQUIRED",
-                "Operator permits may be issued only for explicit REAL actions",
+                "Operator permits may be issued only for explicit REAL or SHADOW actions "
+                "(FTC-100: SHADOW exercises the permission chain with actuation blocked)",
             )
         if not action.body_snapshot_hash.strip():
             raise ControlPlaneError(
@@ -437,11 +1108,20 @@ class DaemonControlPlane:
                     "EMERGENCY_STOP_LATCHED",
                     "Restart rosclawd and complete preflight before permit issuance",
                 )
+            expected_shadow_executor = f"{action.capability_id}:{ExecutionMode.SHADOW.value}"
             registered = set(getattr(self.runtime.action_gateway, "registered_executors", ()))
-            if expected_executor not in registered:
+            required_executor = (
+                expected_executor
+                if action.execution_mode is ExecutionMode.REAL
+                else expected_shadow_executor
+            )
+            if required_executor not in registered:
                 raise ControlPlaneError(
                     "REAL_EXECUTOR_UNAVAILABLE",
-                    (f"No daemon-side REAL executor is registered for {action.capability_id!r}"),
+                    (
+                        f"No daemon-side {action.execution_mode.value} executor is registered "
+                        f"for {action.capability_id!r}"
+                    ),
                 )
             issued_at = _iso(now)
             permit = ExecutionPermit(
@@ -455,15 +1135,18 @@ class DaemonControlPlane:
                 expires_at=expires_at,
                 max_uses=1,
                 session_id=action.session_id,
+                authorization_provenance=dict(approval_context or {}),
             )
             approval = {
                 "schema_version": "rosclaw.daemon.operator_approval.v1",
                 "reason": normalized_reason,
-                "operator_peer": peer.to_dict(),
+                "operator_peer": operator_peer.to_dict(),
                 "target_peer_uid": target_peer_uid,
                 "daemon_instance_id": self._instance_id,
                 "issued_at": issued_at,
             }
+            if approval_context:
+                approval["provenance"] = dict(approval_context)
             try:
                 self.permits.register(permit, audit_context=approval)
             except Exception as exc:  # noqa: BLE001
@@ -487,8 +1170,177 @@ class DaemonControlPlane:
             "session": session.to_dict(),
         }
 
+    def _synchronize_operator_proposal(self, proposal: OperatorProposal) -> None:
+        if proposal.state is not ProposalState.SUBMITTED:
+            return
+        try:
+            status = self.get_action_status(proposal.action.action_id, proposal.origin_peer)
+        except ControlPlaneError:
+            return
+        if status.get("state") not in {"FINISHED", "CANCELLED"}:
+            return
+        self.operator_proposals.transition(proposal, ProposalState.TERMINAL)
+        self._append_operator_event(
+            "OPERATOR_PROPOSAL_TERMINAL",
+            proposal,
+            extra={
+                "action_id": proposal.action.action_id,
+                "action_state": status.get("state"),
+                "final_state": status.get("final_state"),
+            },
+        )
+
+    def _operator_submission_result(self, proposal: OperatorProposal) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "proposal": proposal.public_dict(),
+            "decision": proposal.state.value,
+            "command_dispatched": proposal.state
+            in {
+                ProposalState.SUBMITTED,
+                ProposalState.TERMINAL,
+            },
+            "permit_injected": proposal.state
+            in {
+                ProposalState.PERMIT_ISSUED,
+                ProposalState.SUBMITTED,
+                ProposalState.TERMINAL,
+            },
+            "permit_exposed": False,
+        }
+        if proposal.state in {ProposalState.SUBMITTED, ProposalState.TERMINAL}:
+            with contextlib.suppress(ControlPlaneError):
+                result["action"] = self.get_action_status(
+                    proposal.action.action_id,
+                    proposal.origin_peer,
+                )
+        return result
+
+    def _invalidate_operator_proposal(
+        self,
+        proposal: OperatorProposal,
+        *,
+        code: str,
+        message: str,
+    ) -> None:
+        self.operator_proposals.transition(
+            proposal,
+            ProposalState.INVALIDATED,
+            failure_code=code,
+            failure_message=message[:1024],
+        )
+        self._append_operator_event("OPERATOR_PROPOSAL_INVALIDATED", proposal)
+
+    def _append_operator_event(
+        self,
+        event_type: str,
+        proposal: OperatorProposal,
+        *,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        if self.ledger is None:
+            raise ControlPlaneError(
+                "PROPOSAL_LEDGER_REQUIRED",
+                "Operator proposal transitions require the durable daemon ledger",
+            )
+        payload = {
+            "request_id": proposal.request_id,
+            "action_id": proposal.action.action_id,
+            "action_intent_hash": proposal.action_intent_hash,
+            "state": proposal.state.value,
+            "operator_principal": proposal.operator_principal,
+            "decision_channel": proposal.decision_channel,
+            "decision_reason": proposal.decision_reason,
+            "decided_at": proposal.public_dict()["decided_at"],
+            "daemon_instance_id": proposal.daemon_instance_id,
+        }
+        if extra:
+            payload.update(extra)
+        try:
+            self.ledger.append(
+                event_type,
+                entity_kind="OPERATOR_PROPOSAL",
+                entity_id=proposal.request_id,
+                payload=payload,
+            )
+            proposal.audited_transition_count = len(proposal.transitions)
+        except Exception as exc:  # noqa: BLE001
+            with self._lock:
+                self._mark_ledger_failure_locked(exc)
+            raise ControlPlaneError(
+                "LEDGER_UNAVAILABLE",
+                "rosclawd could not durably record the operator proposal transition",
+            ) from exc
+
+    def _audit_expired_operator_proposal(self, proposal: OperatorProposal) -> None:
+        if proposal.state is ProposalState.EXPIRED and proposal.audited_transition_count < len(
+            proposal.transitions
+        ):
+            self._append_operator_event("OPERATOR_PROPOSAL_EXPIRED", proposal)
+
+    def _invalidate_previous_generation_operator_proposals(self) -> None:
+        """Durably close pending consent from every earlier daemon generation."""
+
+        assert self.ledger is not None
+        latest: dict[str, tuple[str, dict[str, Any]]] = {}
+        for event in self.ledger.events(entity_kind="OPERATOR_PROPOSAL"):
+            state = event.payload.get("state")
+            if not isinstance(state, str):
+                raw_proposal = event.payload.get("proposal")
+                state = raw_proposal.get("state") if isinstance(raw_proposal, dict) else None
+            if isinstance(state, str):
+                latest[event.entity_id] = (state, event.payload)
+        invalidatable = {
+            ProposalState.CREATED.value,
+            ProposalState.PRESENTED.value,
+            ProposalState.ACCEPTED.value,
+            ProposalState.PERMIT_ISSUED.value,
+        }
+        for request_id, (state, payload) in latest.items():
+            if state not in invalidatable:
+                continue
+            self.ledger.append(
+                "OPERATOR_PROPOSAL_INVALIDATED",
+                entity_kind="OPERATOR_PROPOSAL",
+                entity_id=request_id,
+                payload={
+                    "request_id": request_id,
+                    "action_id": payload.get("action_id")
+                    or (
+                        payload.get("proposal", {}).get("action_id")
+                        if isinstance(payload.get("proposal"), dict)
+                        else None
+                    ),
+                    "state": ProposalState.INVALIDATED.value,
+                    "failure_code": "PROPOSAL_DAEMON_RESTARTED",
+                    "failure_message": (
+                        "Pending operator decision was invalidated by daemon generation change"
+                    ),
+                    "daemon_instance_id": self._instance_id,
+                },
+            )
+
+    @staticmethod
+    def _require_proposal_reader(
+        proposal: OperatorProposal,
+        peer: PeerCredentials,
+    ) -> None:
+        if peer.uid in {proposal.origin_peer.uid, os.geteuid()}:
+            return
+        raise ControlPlaneError(
+            "PROPOSAL_OWNERSHIP_MISMATCH",
+            "Authenticated Unix peer does not own this operator proposal",
+        )
+
     def disarm_runtime(self, reason: str, peer: PeerCredentials) -> dict[str, Any]:
         self._require_daemon_uid(peer, "disarm rosclawd")
+        return self._disarm_core(reason, peer)
+
+    def _disarm_after_operator_rollback(self, reason: str) -> dict[str, Any]:
+        """P0-4：proposal 提交失败回滚时的内部 disarm（不经 socket）。"""
+        daemon_self = PeerCredentials(pid=os.getpid(), uid=os.geteuid(), gid=os.getegid())
+        return self._disarm_core(reason, daemon_self)
+
+    def _disarm_core(self, reason: str, peer: PeerCredentials) -> dict[str, Any]:
         normalized = self._reason(reason, "disarm reason")
         stop_receipt = self._request_safety_stop(f"runtime disarmed: {normalized}")
         with self._lock:

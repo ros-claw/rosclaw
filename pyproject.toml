@@ -34,7 +34,12 @@ dependencies = [
     # make two strict-replay champion cases fall.  Keep the supported runtime
     # below that boundary until a dedicated cross-version requalification.
     "mujoco>=3.0.0,<3.11",
+    # OpenAI-compatible provider runtime + agentd model gateway use aiohttp
+    # for chat completions / SSE streaming (previously optional; required
+    # since the Native Agent model path became a first-class feature).
+    "aiohttp>=3.9.0",
     "mcp>=1.0.0,<2.0.0",
+    "agent-client-protocol>=0.12.0",
     "pyyaml>=6.0",
     "fastapi>=0.100.0",
     "uvicorn>=0.23.0",
@@ -122,6 +127,7 @@ rosclaw-ur5-mcp = "rosclaw.mcp.ur5_server:main"
 rosclaw-mcp = "rosclaw.mcp.minimal_server:main"
 rosclaw-mcp-serve = "rosclaw.mcp.server:main"
 rosclawd = "rosclaw.daemon.cli:main"
+rosclaw-agentd = "rosclaw.agentd.cli:main"
 
 [project.entry-points."rosclaw.runtime_handlers"]
 rosclaw_builtin = "rosclaw.runtime.handlers"

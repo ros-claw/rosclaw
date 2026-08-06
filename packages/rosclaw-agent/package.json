@@ -1,0 +1,36 @@
+{
+	"name": "rosclaw-agent",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "ROSClaw Native Agent \u2014 Pi-backed harness + ROSClaw embodied kernel",
+	"bin": {
+		"rosclaw-agent": "dist/src/main.js"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json && npm run copy-assets",
+		"test": "npm run build && node --test dist/test/*.test.js",
+		"start": "node dist/src/main.js",
+		"copy-assets": "node scripts/copy-assets.mjs",
+		"postinstall": "node patches/apply-upstream-patches.mjs"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"dependencies": {
+		"@earendil-works/pi-coding-agent": "0.83.0",
+		"@earendil-works/pi-agent-core": "0.83.0",
+		"@earendil-works/pi-ai": "0.83.0",
+		"@earendil-works/pi-tui": "0.83.0"
+	},
+	"overrides": {
+		"@earendil-works/pi-coding-agent": "0.83.0",
+		"@earendil-works/pi-agent-core": "0.83.0",
+		"@earendil-works/pi-ai": "0.83.0",
+		"@earendil-works/pi-tui": "0.83.0"
+	},
+	"devDependencies": {
+		"@types/node": "^22.10.0",
+		"typescript": "^5.7.0"
+	}
+}

@@ -1,6 +1,6 @@
 schema_version: rosclaw.robot_pack.verification.v1
 id: limo-patrol-actuation
-pack: rosclaw://robot_pack/ros-claw/limo-ros1@0.1.10
+pack: rosclaw://robot_pack/ros-claw/limo-ros1@0.1.25
 stage: actuation
 requires:
   hardware: true
@@ -22,6 +22,8 @@ checks:
     pass: move_base reaches SUCCEEDED, the final AMCL or live map-to-base TF pose is within tolerance, odometry motion is observed whenever the goal was outside active planner tolerance, and odometry reports stopped
   - id: tone-microphone-loopback
     pass: the fixed backend accepts every bounded synthesized frame, the onboard microphone observes the requested frequency above fixed level, baseline-gain, and prominence thresholds, and the previous output state is restored
+  - id: speech-microphone-loopback
+    pass: eSpeak-NG produces PCM for the approved text hash, the fixed USB backend completes playback, the onboard microphone observes RMS energy above fixed level and baseline-gain thresholds, and the previous output state is restored; linguistic content is not recognized
 promotion:
   candidate_tier: H4_HARDWARE_ACTUATION_VERIFIED
   automatic: false

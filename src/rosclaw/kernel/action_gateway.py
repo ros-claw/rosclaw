@@ -508,6 +508,9 @@ class ActionGateway:
                 transitions.extend(self._evidence_transitions(result, evidence))
                 transitions.append(StateTransition(final_state, reason="executor_completed"))
                 acknowledgement_stage = self._acknowledgement_stage(result, evidence)
+                authorization_decision = dict(result.authorization_decision)
+                if action.authorization.provenance:
+                    authorization_decision["provenance"] = dict(action.authorization.provenance)
                 receipt = ExecutionReceipt(
                     action_id=action.action_id,
                     trace_id=trace_id,
@@ -516,7 +519,7 @@ class ActionGateway:
                     body_snapshot_hash=action.body_snapshot_hash,
                     capability_id=action.capability_id,
                     policy_decision=result.policy_decision,
-                    authorization_decision=result.authorization_decision,
+                    authorization_decision=authorization_decision,
                     resource_lease=lease_handle.lease.to_dict(),
                     simulation_result=result.simulation_result,
                     dispatch_result=result.dispatch_result,

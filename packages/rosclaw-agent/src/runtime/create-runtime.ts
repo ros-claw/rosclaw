@@ -1,0 +1,167 @@
+/** Pi runtime 装配（PNA-0）：createAgentSessionRuntime + InteractiveMode。
+ *
+ * 安全基线（审计 §5）：noExtensions/noSkills/noPromptTemplates/noThemes/
+ * noContextFiles 全关——项目 .pi、AGENTS.md、~/.agents/skills 一律不加载；
+ * ROSClaw 内联扩展经 extensionFactories 注入（不受 noExtensions 影响）。
+ */
+
+import {
+	createAgentSessionFromServices,
+	createAgentSessionRuntime,
+	createAgentSessionServices,
+	ModelRuntime,
+	SessionManager,
+	SettingsManager,
+	type AgentSessionRuntime,
+} from "@earendil-works/pi-coding-agent";
+import { migrateProviders } from "../credentials/migration.js";
+import { credentialStoreFor } from "../credentials/store.js";
+import { resourcePolicy } from "../extension/resource-policy.js";
+import { ActiveSessionContext } from "../session/active-context.js";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { createRosclawExtension } from "../extension/index.js";
+import { buildBridgeTools } from "../tools/bridge-tools.js";
+import { buildDelegateTool } from "../tools/delegate.js";
+import { buildRequestActionTool } from "../tools/request-action.js";
+import { buildStatusTool } from "../tools/status.js";
+
+export interface RosclawRuntimeOptions {
+	cwd: string;
+	rosclawHome: string;
+	profile: "developer" | "robot";
+	version: string;
+	missionId?: string;
+	/** NA-FIX-2：--resume/--continue 打开的既有 session（否则新建）。 */
+	sessionManager?: import("@earendil-works/pi-coding-agent").SessionManager;
+}
+
+/** native_agent_v2.md：构建期从 Python 源树拷入 dist/prompts（单一事实源）。 */
+export function loadSystemPrompt(): string {
+	const here = dirname(fileURLToPath(import.meta.url));
+	const candidates = [
+		join(here, "..", "..", "prompts", "native_agent_v2.md"),
+		join(here, "..", "..", "..", "prompts", "native_agent_v2.md"),
+	];
+	for (const candidate of candidates) {
+		try {
+			return readFileSync(candidate, "utf-8");
+		} catch {
+			// next candidate
+		}
+	}
+	throw new Error("native_agent_v2.md not found in dist/prompts (stale/incomplete build?)");
+}
+
+export async function createRosclawRuntime(
+	options: RosclawRuntimeOptions,
+): Promise<AgentSessionRuntime> {
+	const active = new ActiveSessionContext({
+		sessionId: "",
+		missionId: options.missionId,
+		contextRevision: 0,
+		mode: "SIMULATION",
+		profile: options.profile,
+	});
+	const agentDir = `${options.rosclawHome}/agent`;
+	// PNA-7（规格 §22.3）：legacy config.yaml → Pi settings 一次性迁移
+	// （已有 defaultProvider/defaultModel 则不触碰）。
+	migrateProviders(options.rosclawHome);
+	const settingsManager = SettingsManager.create(options.cwd, agentDir);
+	// P1-1：raw reasoning 默认不显示（live + resumed history 同策；
+	// debug 可在 /settings 手动打开）。
+	settingsManager.setHideThinkingBlock(true);
+	// P0-8（patch-02）：ROBOT profile 的内建命令前置拦截策略。
+	if (options.profile === "robot") {
+		(globalThis as Record<string, unknown>).__rosclawBuiltinPolicy = {
+			disabled: new Set(["/trust", "/share", "/import", "/reload"]),
+		};
+	}
+	// 凭据后端按 profile：developer=加固文件（0600/原子写/fsync），
+	// robot=env-only（写即拒）。
+	const modelRuntime = await ModelRuntime.create({
+		credentials: credentialStoreFor(options.profile, agentDir) as never,
+		authPath: `${agentDir}/auth.json`,
+		modelsPath: null,
+	});
+	const systemPrompt = loadSystemPrompt();
+
+	const runtime = await createAgentSessionRuntime(
+		async ({ cwd, sessionManager, sessionStartEvent }) => {
+			const services = await createAgentSessionServices({
+				cwd,
+				agentDir,
+				settingsManager,
+				modelRuntime,
+				resourceLoaderOptions: {
+					// PNA-9：profile 化资源策略（robot 全禁；developer 仅用户
+					// 主题；项目 .pi/AGENTS.md/skills 一律不加载）。
+					...(function () {
+						const policy = resourcePolicy(options.profile);
+						return {
+							noExtensions: policy.noExtensions,
+							noSkills: policy.noSkills,
+							noPromptTemplates: policy.noPromptTemplates,
+							noThemes: policy.noThemes,
+							noContextFiles: policy.noContextFiles,
+						};
+					})(),
+					extensionFactories: [
+						{
+							name: "rosclaw",
+							factory: createRosclawExtension({
+								profile: options.profile,
+								version: options.version,
+								systemPrompt,
+								active,
+								rosclawHome: options.rosclawHome,
+							}),
+						},
+					],
+				},
+			});
+			active.patch({ sessionId: sessionManager.getSessionId() });
+			const result = await createAgentSessionFromServices({
+				services,
+				sessionManager,
+				sessionStartEvent,
+				// 具身主 Agent 不需要 coding 工具；ROSClaw 工具走 customTools。
+				noTools: "all",
+				customTools: [
+					buildStatusTool(options.rosclawHome),
+					// PNA-3/PNA-4/PNA-5：bridge 工具需要绑定 session/mission。
+					...buildBridgeTools({
+						rosclawHome: options.rosclawHome,
+						active,
+					}),
+					buildDelegateTool({
+						rosclawHome: options.rosclawHome,
+						active,
+					}),
+					// NA-FIX-4：request_action 必须真实注册（P0-4）。
+					buildRequestActionTool({
+						rosclawHome: options.rosclawHome,
+						active,
+					}),
+				],
+			});
+			return {
+				...result,
+				services,
+				diagnostics: services.diagnostics,
+			};
+		},
+		{
+			cwd: options.cwd,
+			agentDir,
+			// 初始 session：--resume/--continue 用打开的既有 session；
+			// 否则新建于默认 session 目录。
+			sessionManager:
+				options.sessionManager ??
+				SessionManager.create(options.cwd, `${agentDir}/sessions`),
+		},
+	);
+	return runtime;
+}

@@ -24,10 +24,18 @@ class TestVersion:
     def test_top_level_help_discovers_daemon_control_plane(self, capsys):
         from rosclaw.entrypoint import main
 
-        with pytest.raises(SystemExit) as exc:
-            sys.argv = ["rosclaw", "--help"]
+        # NA-FIX-8：--help 是产品级精简帮助（Get started/Domains，直接返回 0）。
+        sys.argv = ["rosclaw", "--help"]
+        assert main() == 0
+        captured = capsys.readouterr()
+        assert "Get started" in captured.out
+        assert "Native Agent" in captured.out
+
+        # 完整兼容清单在 help --all。
+        with pytest.raises(SystemExit) as exc_all:
+            sys.argv = ["rosclaw", "help", "--all"]
             main()
-        assert exc.value.code == 0
+        assert exc_all.value.code == 0
         captured = capsys.readouterr()
         assert "daemon" in captured.out
         assert "Inspect or call the local rosclawd control plane" in captured.out

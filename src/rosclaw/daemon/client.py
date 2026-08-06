@@ -146,6 +146,10 @@ class DaemonClient:
     def request_action(self, action: ActionEnvelope | dict[str, Any]) -> dict[str, Any]:
         payload = action.to_dict() if isinstance(action, ActionEnvelope) else action
         result = self.call("action.request", {"action": payload})
+        self._remember_action_lease(result)
+        return result
+
+    def _remember_action_lease(self, result: dict[str, Any]) -> None:
         action_id = result.get("action_id")
         session_id = result.get("session_id")
         lease = result.get("action_lease")
@@ -158,7 +162,6 @@ class DaemonClient:
                     time.monotonic() + interval_sec,
                     interval_sec,
                 )
-        return result
 
     def get_action_status(self, action_id: str) -> dict[str, Any]:
         return self.call("action.status", {"action_id": action_id})
@@ -232,6 +235,63 @@ class DaemonClient:
             },
         )
 
+    def create_operator_proposal(
+        self,
+        action: ActionEnvelope | dict[str, Any],
+        *,
+        display: dict[str, Any],
+        ttl_sec: float = 60.0,
+        client_reference: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Create an exact pending proposal; this never accepts or dispatches it."""
+
+        payload = action.to_dict() if isinstance(action, ActionEnvelope) else action
+        params: dict[str, Any] = {"action": payload, "display": display, "ttl_sec": ttl_sec}
+        if client_reference:
+            params["client_reference"] = dict(client_reference)
+        return self.call("operator.proposal.create", params)
+
+    def get_operator_proposal(self, request_id: str) -> dict[str, Any]:
+        return self.call("operator.proposal.status", {"request_id": request_id})
+
+    def cancel_operator_proposal(self, request_id: str) -> dict[str, Any]:
+        """Cancel this Unix peer's proposal before any trusted decision."""
+
+        return self.call("operator.proposal.cancel", {"request_id": request_id})
+
+    def list_pending_operator_proposals(self) -> dict[str, Any]:
+        """Read decision challenges as the rosclawd service/operator UID."""
+
+        return self.call("operator.proposal.pending")
+
+    def decide_operator_proposal(
+        self,
+        request_id: str,
+        *,
+        decision: str,
+        principal_id: str,
+        channel: str,
+        reason: str,
+        proof: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Apply a decision（R1：唯一凭证是 Ed25519 OperatorDecisionProofV1）。"""
+
+        result = self.call(
+            "operator.proposal.decide",
+            {
+                "request_id": request_id,
+                "decision": decision,
+                "principal_id": principal_id,
+                "channel": channel,
+                "reason": reason,
+                "proof": dict(proof),
+            },
+        )
+        action = result.get("action")
+        if isinstance(action, dict):
+            self._remember_action_lease(action)
+        return result
+
     def disarm_runtime(self, reason: str) -> dict[str, Any]:
         return self.call("runtime.disarm", {"reason": reason})
 
@@ -273,6 +333,40 @@ class DaemonClient:
                     f"Timed out waiting for action {action_id!r}.",
                 )
             time.sleep(max(0.001, poll_interval_sec))
+
+    def register_operator_enrollment(
+        self,
+        enrollment_id: str,
+        *,
+        public_key_pem: str,
+        operator_uid: int,
+        purpose: str = "operator-decision",
+    ) -> dict[str, Any]:
+        return self.call(
+            "operator.enrollment.register",
+            {
+                "enrollment_id": enrollment_id,
+                "public_key_pem": public_key_pem,
+                "operator_uid": operator_uid,
+                "purpose": purpose,
+            },
+        )
+
+    def revoke_operator_enrollment(self, enrollment_id: str) -> dict[str, Any]:
+        return self.call(
+            "operator.enrollment.revoke", {"enrollment_id": enrollment_id}
+        )
+
+    def list_operator_enrollments(self) -> dict[str, Any]:
+        return self.call("operator.enrollment.list")
+
+    def get_operator_challenge(self, request_id: str) -> dict[str, Any]:
+        """operatord 取一次性 DecisionChallengeV1（P0-3：nonce 同源）。"""
+        return self.call("operator.challenge.get", {"request_id": request_id})
+
+    def daemon_identity(self) -> dict[str, Any]:
+        """daemon 签名公钥（验证 DecisionReceiptV1 用）。"""
+        return self.call("daemon.identity")
 
     def emergency_stop(
         self,

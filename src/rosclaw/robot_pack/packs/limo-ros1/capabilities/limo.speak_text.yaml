@@ -1,0 +1,56 @@
+schema_version: rosclaw.capability.v1
+id: limo.speak_text
+title: Speak one bounded synthesized message
+input:
+  type: object
+  additionalProperties: false
+  properties:
+    schema_version:
+      const: limo.speech.v1
+    text:
+      type: string
+      minLength: 1
+      maxLength: 80
+    language:
+      type: string
+      enum: [cmn, en]
+    volume_percent:
+      type: integer
+      minimum: 10
+      maximum: 25
+    rate_wpm:
+      type: integer
+      minimum: 120
+      maximum: 200
+    expected_effect:
+      const:
+        kind: speaker_speech
+        playback_required: true
+        mixer_restore_required: true
+        microphone_loopback_required: true
+        content_recognition_required: false
+  required: [schema_version, text, language, volume_percent, rate_wpm, expected_effect]
+output:
+  required: [device, frame_count, text_sha256, mixer_restored, acoustic_loopback, acoustic_loopback_detected, receipt]
+safety:
+  class: actuation
+  actuation: guarded
+  direct_driver_access: forbidden
+  gateway: rosclawd
+execution:
+  modes: [SHADOW, REAL]
+  adapter: limo-ros-mcp
+  worker: worker/limo_speech_worker.py
+  operation: SPEAK_TEXT
+evidence:
+  minimum: TASK_VERIFIED
+  predicates:
+    - approved-text-hash-matches-synthesis
+    - espeak-ng-pcm-produced
+    - fixed-usb-speaker-playback-completed
+    - onboard-microphone-rms-above-baseline
+    - output-state-restored
+  limitations:
+    - linguistic-content-not-recognized
+    - human-hearing-not-confirmed
+    - onboard-microphone-cannot-exclude-electronic-crosstalk

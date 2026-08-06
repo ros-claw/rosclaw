@@ -6,11 +6,14 @@ the SDK detects negotiated MCP capabilities, presents native confirmation, deriv
 connection identity, and hands the accepted proposal to `rosclawd` without exposing permits,
 sessions, daemon arming, or action-intent hashes to the Agent.
 
-The first release supports native MCP form elicitation and reports structured
-`APPROVAL_PENDING` or `APPROVAL_CHANNEL_UNAVAILABLE` results for negotiated asynchronous/URL
-or absent channels. URL completion remains an adapter extension point until an operator-console
-callback is configured. Cancellation is propagated to the backend when a confirmed request is
-cancelled during submission; progress notifications are advisory.
+The SDK supports native MCP form elicitation and daemon-owned pending proposals. When form
+elicitation is unavailable, it creates an exact Operator Broker proposal and returns structured
+`APPROVAL_PENDING`; if the broker or its durable Ledger is unavailable it returns
+`APPROVAL_CHANNEL_UNAVAILABLE`. URL rendering remains an adapter extension point until the protected
+operator-console callback is configured. The Agent can query or withdraw a pending proposal through
+`get_approval_status` and `cancel_approval`; neither grants decision authority. Cancellation is
+also propagated to the backend when a confirmed request is cancelled during submission; progress
+notifications are advisory.
 
 `request_action` remains the SHADOW compatibility entry point. A REAL call returns
 `INTERACTION_REQUIRED` and identifies `request_guarded_action` as its replacement. The guarded
@@ -18,3 +21,6 @@ tool's public schema has no `principal_id`, `approval_id`, permit, session, or a
 
 The SDK does not weaken the daemon boundary. `rosclawd` still owns session creation, arming,
 permit issuance, action dispatch, verification, and the canonical receipt.
+
+See [OPERATOR_BROKER.md](OPERATOR_BROKER.md) for the cross-UID consent flow. Agent-facing results
+never contain the one-time decision challenge, authorized action, or Permit ID.

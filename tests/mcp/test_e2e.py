@@ -215,9 +215,37 @@ async def _exercise_p0_tools(session: ClientSession) -> None:
         tool_name="request_guarded_action",
         expected_ok=True,
     )
-    assert guarded_payload["data"]["decision"] == "APPROVAL_CHANNEL_UNAVAILABLE"
+    assert guarded_payload["data"]["decision"] == "APPROVAL_PENDING"
     assert "permit" not in str(guarded_payload).lower()
     called.add("request_guarded_action")
+
+    proposal = guarded_payload["data"]["proposal"]
+    request_id = proposal["request_id"]
+    status_result = await session.call_tool(
+        "get_approval_status",
+        arguments={"request_id": request_id},
+    )
+    status_payload = _envelope(
+        status_result.content[0].text,
+        tool_name="get_approval_status",
+        expected_ok=True,
+    )
+    assert status_payload["data"]["proposal"]["state"] == "CREATED"
+    assert "challenge_nonce" not in str(status_payload)
+    called.add("get_approval_status")
+
+    cancel_result = await session.call_tool(
+        "cancel_approval",
+        arguments={"request_id": request_id},
+    )
+    cancel_payload = _envelope(
+        cancel_result.content[0].text,
+        tool_name="cancel_approval",
+        expected_ok=True,
+    )
+    assert cancel_payload["data"]["proposal"]["state"] == "CANCELLED"
+    assert cancel_payload["data"]["command_dispatched"] is False
+    called.add("cancel_approval")
 
     shadow_result = await session.call_tool(
         "request_action",

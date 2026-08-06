@@ -1,0 +1,91 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.reasoning_branch.v1",
+      "default": "rosclaw.reasoning_branch.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "branch_id": {
+      "title": "Branch Id",
+      "type": "string"
+    },
+    "parent_branch_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Branch Id"
+    },
+    "fork_from_entry_id": {
+      "title": "Fork From Entry Id",
+      "type": "string"
+    },
+    "base_mission_event_seq": {
+      "default": 0,
+      "title": "Base Mission Event Seq",
+      "type": "integer"
+    },
+    "base_context_revision": {
+      "default": 0,
+      "title": "Base Context Revision",
+      "type": "integer"
+    },
+    "label": {
+      "default": "",
+      "title": "Label",
+      "type": "string"
+    },
+    "created_by": {
+      "title": "Created By",
+      "type": "string"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "status": {
+      "default": "active",
+      "enum": [
+        "active",
+        "archived"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "forked_mission_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Forked Mission Id"
+    },
+    "notes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Notes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "branch_id",
+    "fork_from_entry_id",
+    "created_by",
+    "created_at"
+  ],
+  "title": "rosclaw.reasoning_branch.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.reasoning_branch.v1"
+}

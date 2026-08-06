@@ -146,14 +146,18 @@ class AuthorizationContext:
     approved: bool = False
     approval_id: str | None = None
     scopes: list[str] = field(default_factory=list)
+    provenance: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "principal_id": self.principal_id,
             "approved": self.approved,
             "approval_id": self.approval_id,
             "scopes": list(self.scopes),
         }
+        if self.provenance:
+            result["provenance"] = dict(self.provenance)
+        return result
 
     @classmethod
     def from_dict(cls, value: dict[str, Any] | None) -> AuthorizationContext:
@@ -163,6 +167,11 @@ class AuthorizationContext:
             approved=bool(data.get("approved", False)),
             approval_id=data.get("approval_id"),
             scopes=[str(item) for item in data.get("scopes", [])],
+            provenance=(
+                dict(data.get("provenance", {}))
+                if isinstance(data.get("provenance", {}), dict)
+                else {}
+            ),
         )
 
 

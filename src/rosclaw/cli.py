@@ -3192,7 +3192,9 @@ def cmd_practice_sync_export(args: argparse.Namespace) -> int:
     print(_json.dumps(output, indent=2, ensure_ascii=False, default=str))
     stats = output["stats"]
     # Acceptance: no silent frame loss — every frame_event produced a bundle.
-    return 0 if stats["frames_total"] == stats["frames_aligned"] or stats["frames_aligned"] > 0 else 1
+    return (
+        0 if stats["frames_total"] == stats["frames_aligned"] or stats["frames_aligned"] > 0 else 1
+    )
 
 
 def cmd_practice_verify_data(args: argparse.Namespace) -> int:
@@ -4385,7 +4387,9 @@ def cmd_provider_route(args: argparse.Namespace) -> int:
         provider for provider in installed if capability in provider["capabilities"]
     ]
     builtin_candidates = [
-        provider for provider in _builtin_provider_contracts() if capability in provider["capabilities"]
+        provider
+        for provider in _builtin_provider_contracts()
+        if capability in provider["capabilities"]
     ]
     candidates = installed_candidates + builtin_candidates
 
@@ -4395,9 +4399,7 @@ def cmd_provider_route(args: argparse.Namespace) -> int:
             "capability": capability,
             "selected_provider": None,
             "fallbacks": [],
-            "reason": (
-                f"No installed or built-in provider declares capability '{capability}'"
-            ),
+            "reason": (f"No installed or built-in provider declares capability '{capability}'"),
         }
         if args.json:
             print(json.dumps(payload, indent=2, ensure_ascii=False))
@@ -4408,7 +4410,11 @@ def cmd_provider_route(args: argparse.Namespace) -> int:
     selected = candidates[0]
     fallbacks = [provider["name"] for provider in candidates[1:3]]
     selected_safety = selected.get("safety") or {}
-    origin = "installed provider manifest" if selected in installed_candidates else "built-in provider contract"
+    origin = (
+        "installed provider manifest"
+        if selected in installed_candidates
+        else "built-in provider contract"
+    )
     payload = {
         "ok": True,
         "capability": capability,
@@ -4574,9 +4580,7 @@ def cmd_provider_list(_args: argparse.Namespace) -> int:
             )
             print(f"{name:<20} {ptype:<15} {status:<10} {desc}")
         for p in installed:
-            print(
-                f"{p['name']:<20} {p['type']:<15} {'installed':<10} {p['description']}"
-            )
+            print(f"{p['name']:<20} {p['type']:<15} {'installed':<10} {p['description']}")
     else:
         print("No providers registered.")
         print("Builtin providers: llm, vlm, vla, vln, world, skill, critic, embedding")
@@ -6812,6 +6816,11 @@ def main() -> int:
     app_subparsers = app_parser.add_subparsers(dest="app_command")
     add_app_subparsers(app_subparsers)
 
+    # Native Agent (rosclaw-agentd) + chat
+    from rosclaw.agentd.cli import add_agent_subparsers, dispatch_agent_command
+
+    add_agent_subparsers(subparsers)
+
     # run / start
     for name in ("run", "start"):
         run_parser = subparsers.add_parser(name, help="Start ROSClaw runtime")
@@ -8849,6 +8858,8 @@ def main() -> int:
                 return dispatch_app_command(args)
             app_parser.print_help()
             return 1
+        elif args.command in ("agentd", "chat", "worker", "eval", "learning"):
+            return dispatch_agent_command(args)
         elif args.command == "provider":
             if args.provider_command == "list":
                 return cmd_provider_list(args)

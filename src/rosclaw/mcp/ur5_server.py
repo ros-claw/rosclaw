@@ -50,6 +50,7 @@ from mcp.types import (
     ImageContent,
     TextContent,
     Tool,
+    ToolAnnotations,
 )
 
 # ROSClaw imports
@@ -299,6 +300,7 @@ class UR5MCPServer:
             return [
                 Tool(
                     name="ur5_get_joint_states",
+                    annotations=ToolAnnotations(readOnlyHint=True),
                     description="Get current joint positions, velocities, and efforts",
                     inputSchema={"type": "object", "properties": {}},
                 ),
@@ -368,11 +370,13 @@ class UR5MCPServer:
                 ),
                 Tool(
                     name="ur5_get_limits",
+                    annotations=ToolAnnotations(readOnlyHint=True),
                     description="Get robot joint limits and safety parameters",
                     inputSchema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="ur5_validate_trajectory",
+                    annotations=ToolAnnotations(readOnlyHint=True),
                     description="Validate trajectory through Digital Twin without executing",
                     inputSchema={
                         "type": "object",
@@ -629,9 +633,10 @@ def main():
     )
     args = parser.parse_args()
 
-    print("[UR5MCP] Starting ROSClaw UR5 MCP Server")
-    print(f"[UR5MCP] Robot IP: {args.robot_ip}")
-    print(f"[UR5MCP] Firewall Model: {args.firewall_model}")
+    # banner 必须走 stderr——stdout 属于 JSON-RPC 通道。
+    print("[UR5MCP] Starting ROSClaw UR5 MCP Server", file=sys.stderr)
+    print(f"[UR5MCP] Robot IP: {args.robot_ip}", file=sys.stderr)
+    print(f"[UR5MCP] Firewall Model: {args.firewall_model}", file=sys.stderr)
 
     server = UR5MCPServer(
         robot_ip=args.robot_ip,

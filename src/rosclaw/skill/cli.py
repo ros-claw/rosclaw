@@ -418,6 +418,7 @@ def cmd_skill_submit_catalog(args: argparse.Namespace) -> int:
             print("[ROSClaw] Submit to catalog: PR created")
             print(f"  skill: {result['skill_name']}")
             print(f"  version: {result['version']}")
+            print(f"  flow: {result.get('flow', 'fork')}")
             print(f"  PR: {result.get('pr_url', 'unknown')}")
     return 0
 

@@ -314,7 +314,7 @@ def run_firstboot_interactive(args: argparse.Namespace) -> int:
         safety_path.write_text(SAFETY_NOTICE, encoding="utf-8")
         print(f"\n{safety_path} written.")
 
-    return _write_firstboot(
+    exit_code = _write_firstboot(
         home=home,
         profile=profile,
         robot=robot,
@@ -328,6 +328,25 @@ def run_firstboot_interactive(args: argparse.Namespace) -> int:
         json_output=args.json,
         dev=args.dev,
     )
+    if exit_code == 0 and ask_yes_no("Configure the Native Agent model now (rosclaw chat)", True):
+        _run_agent_onboarding(home)
+    return exit_code
+
+
+def _run_agent_onboarding(home: Path) -> None:
+    """Interactive model onboarding hook (PR-NA-041).
+
+    Failures are non-fatal to firstboot: the agent is honestly marked
+    MODEL_NOT_READY by `rosclaw agent doctor` instead of faking success.
+    """
+    try:
+        from rosclaw.agentd.cli import main as agentd_main
+
+        agentd_main(["--home", str(home), "init"])
+    except SystemExit:
+        pass
+    except Exception as exc:  # noqa: BLE001 - onboarding must not break firstboot
+        print(f"Agent onboarding skipped ({exc}). Run `rosclaw agent init` later.")
 
 
 # ------------------------------------------------------------------
@@ -503,7 +522,9 @@ def _print_success(home: Path, profile: str, status: str, checks: list[Any]) -> 
     print("     rosclaw status capabilities")
     print("\n  4. Connect an Agent")
     print("     rosclaw agent install --project-root . --skip-secrets")
-    print("\n  5. View the doctor report")
+    print("\n  5. Configure the Native Agent model and chat")
+    print("     rosclaw agent init && rosclaw chat")
+    print("\n  6. View the doctor report")
     print("     rosclaw doctor --full")
     print("=" * 62)
 

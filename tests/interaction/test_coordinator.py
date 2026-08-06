@@ -30,6 +30,20 @@ class FakeBackend:
         self.cancelled.append(action_id)
 
 
+class PendingBackend(FakeBackend):
+    async def defer_operator_action(self, prepared: Any, **kwargs: Any) -> dict[str, Any]:
+        assert prepared is not None
+        assert kwargs["ttl_sec"] == 60.0
+        return {
+            "proposal": {
+                "request_id": "proposal-1",
+                "state": "CREATED",
+                "action_intent_hash": "sha256:must-not-leak",
+            },
+            "permit_exposed": False,
+        }
+
+
 class FakeContext:
     request_id = "request-1"
 
@@ -115,7 +129,7 @@ async def test_decline_and_missing_channel_never_dispatch() -> None:
 
 @pytest.mark.asyncio
 async def test_url_capability_returns_pending_without_exposing_approval_request() -> None:
-    result = await InteractionCoordinator(InteractionClient(FakeBackend())).complete_prepared(
+    result = await InteractionCoordinator(InteractionClient(PendingBackend())).complete_prepared(
         FakeContext(form=False, url=True),
         prepared_action=object(),
         approval_request=_approval(),

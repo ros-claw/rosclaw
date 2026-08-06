@@ -1,6 +1,13 @@
 """
 ROSClaw AI Collaboration - DeepSeek Integration
 
+.. deprecated:: experimental_legacy
+   Maturity: **experimental_legacy** (see docs/adr/0000). Simple prompt + JSON
+   plan prototype, not wired into the Provider router/tracer/guard pipeline.
+   Frozen — do not add features. The Native Agent replaces this with
+   ``rosclaw.agentd`` ContextCompiler / ModelGateway / AgentLoop; a
+   compatibility facade may remain during migration.
+
 Provides integration with DeepSeek API for AI collaboration.
 This module enables:
 - LLM-based trajectory planning

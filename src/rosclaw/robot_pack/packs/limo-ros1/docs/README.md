@@ -2,7 +2,7 @@
 
 This Pack binds the `limo` e-URDF Body to the independently versioned
 `ros-claw/limo-ros-mcp` adapter at commit
-`c9b4a061e86d9ece34582733a7b1fbb9556ff69a` (MCP 0.8.8).
+`3e1068b244af636b247125eca32030d72e780477` (MCP 0.9.0).
 
 The first REAL capability is `limo.set_initial_pose`. The Agent submits a
 validated map-frame estimate to `rosclawd`; the daemon validates an exact
@@ -45,6 +45,85 @@ tone. The worker measures a pre-playback baseline, captures during playback,
 and verifies the requested frequency against fixed level, gain, and adjacent-band
 prominence thresholds. Raw PCM is discarded and a missing acoustic observation
 fails the canonical receipt instead of reporting driver-only success.
+
+Revision 0.1.11 locks the current MCP release after the interaction/runtime
+deployment, readiness, TF, and camera-summary fixes. The daemon now rejects a
+configured adapter whose recorded repository commit differs from this exact
+revision, preventing an older installed MCP snapshot from being mistaken for
+the signed executor source.
+
+Revision 0.1.12 makes each signed capability input describe the exact
+`ActionEnvelope.arguments` accepted by rosclawd. This lets the Native Agent
+copy the tone, navigation, and initial-pose contracts without guessing adapter
+field names or placing the body snapshot hash inside the arguments object.
+
+Revision 0.1.13 rejects a goal that is already inside move_base's active
+tolerance but outside the operator-approved verification tolerance. It also
+ignores late delivery of stale AMCL messages and falls back to the live
+`map -> base_link` transform for final-pose verification.
+
+Revision 0.1.14 adds `limo.speak_text`. The fixed Python 2 worker calls the
+locally installed eSpeak-NG library directly, synthesizes only the approved
+1–80 character Chinese or English message into memory, normalizes it to a
+bounded 10–25% PCM peak, and uses the allowlisted USB speaker path. The receipt
+binds the approved text SHA-256 to synthesis and requires microphone RMS energy
+above fixed level and baseline-gain thresholds plus mixer restoration. It does
+not claim that the microphone recognized the linguistic content.
+
+Revision 0.1.15 hardens live patrol readiness on the Jetson. LaserScan evidence
+is collected through the bounded local ROS CLI instead of competing with the
+parallel rosbridge snapshot, and the fixed `map -> base_link` TF probe gets a
+five-second listener-fill window. This removes transient false blockers while
+retaining the same scan freshness, valid-ratio, clearance, and TF predicates.
+
+Revision 0.1.16 seals the LaserScan observation after the bounded TF preflight,
+alongside the high-rate rosbridge observations. This keeps the scan inside its
+two-second freshness limit and the coherent snapshot window without weakening
+either readiness threshold.
+
+Revision 0.1.17 orders readiness collection by latency: fixed TF listener fill,
+then LaserScan, then the final costmap and high-rate rosbridge window. The
+snapshot therefore stays coherent even when starting a ROS CLI subscriber is
+slow on the Jetson.
+
+Revision 0.1.18 bounds the dynamic `/tf` topic summary to five messages. The
+separate fixed `tf_echo map base_link` probe remains the authoritative chain
+predicate, so the shorter topic sample removes a redundant five-second wait
+without reducing TF verification.
+
+Revision 0.1.19 sequences the remaining slow global-costmap and LaserScan CLI
+reads after TF preflight and before the final high-rate rosbridge window. This
+prevents slow metadata transport from aging otherwise live status and odometry
+at snapshot closure.
+
+Revision 0.1.20 replaces ROS CLI YAML serialization for the freshness-critical
+global costmap and LaserScan with a fixed-topic, read-only ROS Melodic worker.
+It returns only bounded metadata and scan ranges, preserving live header times
+without exposing a generic ROS command or publication surface.
+
+Revision 0.1.21 starts the two fixed ROS Melodic samplers concurrently after TF
+listener preflight. This removes serial ROS-node registration skew before the
+final high-rate rosbridge evidence window is sealed.
+
+Revision 0.1.22 schedules the tighter-budget LaserScan sampler alongside the
+final high-rate rosbridge reads, while the global costmap remains the bounded
+preflight sample. This seals the laser header near snapshot closure without
+changing the two-second freshness threshold.
+
+Revision 0.1.23 multiplexes all final high-rate observations over one bounded
+rosbridge websocket after the parallel fixed costmap and LaserScan workers.
+Per-topic receipt times are preserved while connection fanout no longer widens
+the evidence window on the Jetson.
+
+Revision 0.1.24 includes the bounded 450-sample LaserScan in the same final
+rosbridge batch. Only the multi-megabyte global costmap uses the compact ROS
+Melodic worker, eliminating the last process-startup delay from laser freshness.
+
+Revision 0.1.25 keeps LaserScan on the fixed ROS Melodic worker because its
+non-finite no-return values are not reliable through rosbridge JSON. The laser
+freshness budget is calibrated to 2.5 seconds from the documented 0.7-second
+driver stamp lag plus roughly 1.7 seconds of bounded Jetson collection time;
+the navigation executor still samples live clearance immediately before dispatch.
 
 H1 means only that the signed contract and executor tests pass. H4 requires a
 real LIMO, an AMCL subscriber, a post-navigation map-frame pose from AMCL or the

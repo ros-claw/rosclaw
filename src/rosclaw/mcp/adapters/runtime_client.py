@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -624,7 +625,23 @@ class RuntimeClient:
             required_evidence=required_evidence,
             timeout_sec=timeout_sec,
         )
+        managed_session = action.session_id == action.action_id
+        session_created = False
         try:
+            session_ttl_ms = min(
+                3_600_000,
+                max(60_000, int((float(timeout_sec) + 30.0) * 1000)),
+            )
+            await asyncio.to_thread(
+                self._daemon_client.create_session,
+                session_id=action.session_id,
+                actor_id=action.actor_id,
+                agent_framework=action.agent_framework,
+                body_scope=[action.body_id],
+                capability_scope=[action.capability_id],
+                ttl_ms=session_ttl_ms,
+            )
+            session_created = True
             ticket = await asyncio.to_thread(self._daemon_client.request_action, action)
             result = ticket
             if wait_timeout_sec > 0:
@@ -636,7 +653,33 @@ class RuntimeClient:
         except MCPError:
             raise
         except Exception as exc:  # noqa: BLE001
+            if session_created and managed_session:
+                try:
+                    await asyncio.to_thread(
+                        self._daemon_client.close_session,
+                        action.session_id,
+                        reason="request_action_failed",
+                    )
+                except Exception as cleanup_exc:  # noqa: BLE001
+                    logger.warning(
+                        "Could not close failed action session %s: %s",
+                        action.session_id,
+                        cleanup_exc,
+                    )
             self._raise_daemon_error("request_action", exc)
+        if managed_session and result.get("state") in {"FINISHED", "CANCELLED"}:
+            try:
+                await asyncio.to_thread(
+                    self._daemon_client.close_session,
+                    action.session_id,
+                    reason="action_finished",
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Could not close terminal action session %s: %s",
+                    action.session_id,
+                    exc,
+                )
         return self._action_result_metadata(result, mode.value)
 
     def prepare_operator_action(
@@ -799,6 +842,38 @@ class RuntimeClient:
             },
         }
 
+    async def defer_operator_action(
+        self,
+        prepared: PreparedOperatorAction,
+        *,
+        display: dict[str, Any] | None = None,
+        ttl_sec: float = 60.0,
+    ) -> dict[str, Any]:
+        """Create a pending exact action for a separate trusted Operator Broker."""
+
+        from rosclaw.daemon.permits import action_intent_hash
+
+        expected_hash = prepared.approval_request.get("action_intent_hash")
+        if action_intent_hash(prepared.action) != expected_hash:
+            raise MCPError(
+                "OPERATOR_PROPOSAL_INTENT_MISMATCH",
+                "Prepared action no longer matches its displayed operator proposal.",
+            )
+        try:
+            result = await asyncio.to_thread(
+                self._daemon_client.create_operator_proposal,
+                prepared.action,
+                display=dict(display or prepared.approval_request.get("display") or {}),
+                ttl_sec=ttl_sec,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._raise_daemon_error("defer_operator_action", exc)
+        return {
+            **self._action_result_metadata(result, "REAL"),
+            "permit_injected": False,
+            "permit_exposed": False,
+        }
+
     def _build_action(
         self,
         *,
@@ -853,11 +928,13 @@ class RuntimeClient:
                 f"Unsupported evidence level {required_evidence!r}.",
             ) from exc
 
-        default_session_id = f"mcp-session:{capability_id}"
+        resolved_action_id = action_id or f"action_{uuid.uuid4().hex}"
+        default_session_id = resolved_action_id
         action_kwargs: dict[str, Any] = {
             "actor_id": os.environ.get("ROSCLAW_AGENT_ACTOR", "rosclaw-mcp"),
             "agent_framework": os.environ.get("ROSCLAW_AGENT_CLIENT", "mcp"),
             "session_id": session_id or os.environ.get("ROSCLAW_AGENT_SESSION", default_session_id),
+            "action_id": resolved_action_id,
             "body_id": body_id or self.robot_id,
             "body_snapshot_hash": body_snapshot_hash,
             "capability_id": capability_id,
@@ -899,8 +976,6 @@ class RuntimeClient:
                     "deadline_at must include a timezone offset.",
                 )
             action_kwargs["deadline_at"] = parsed_deadline
-        if action_id:
-            action_kwargs["action_id"] = action_id
         return ActionEnvelope(**action_kwargs), mode
 
     async def get_action_status(self, action_id: str) -> dict[str, Any]:
@@ -914,6 +989,30 @@ class RuntimeClient:
         except Exception as exc:  # noqa: BLE001
             self._raise_daemon_error("get_action_status", exc)
         return self._action_result_metadata(result, "UNKNOWN")
+
+    async def get_approval_status(self, request_id: str) -> dict[str, Any]:
+        """Read one owned Operator Broker proposal without decision secrets."""
+
+        try:
+            result = await asyncio.to_thread(
+                self._daemon_client.get_operator_proposal,
+                request_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._raise_daemon_error("get_approval_status", exc)
+        return self._action_result_metadata(result, "REAL")
+
+    async def cancel_approval(self, request_id: str) -> dict[str, Any]:
+        """Cancel one owned pending proposal before an Operator decides it."""
+
+        try:
+            result = await asyncio.to_thread(
+                self._daemon_client.cancel_operator_proposal,
+                request_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._raise_daemon_error("cancel_approval", exc)
+        return self._action_result_metadata(result, "REAL")
 
     async def cancel_action(self, action_id: str) -> dict[str, Any]:
         """Cancel only before dispatch; active motion requires emergency_stop."""

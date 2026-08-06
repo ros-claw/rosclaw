@@ -10,7 +10,13 @@
     "schema_version": "limo.tone.v1",
     "frequency_hz": 660,
     "duration_sec": 0.6,
-    "volume_percent": 18
+    "volume_percent": 18,
+    "expected_effect": {
+      "kind": "speaker_tone",
+      "playback_required": true,
+      "mixer_restore_required": true,
+      "microphone_loopback_required": true
+    }
   },
   "execution_mode": "REAL",
   "risk_class": "high"

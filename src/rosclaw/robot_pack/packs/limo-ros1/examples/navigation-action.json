@@ -10,7 +10,16 @@
     "schema_version": "limo.navigation.v2",
     "target_pose": {"frame_id": "map", "x": 0.4, "y": 0.0, "yaw": 0.0},
     "readiness_snapshot_hash": "replace-with-fresh-readiness-hash",
-    "goal_tolerance": {"xy_m": 0.15, "yaw_rad": 0.2}
+    "route_policy_id": "lab-default",
+    "route_policy_hash": "replace-with-readiness-policy-hash",
+    "map_id": "replace-with-readiness-map-id",
+    "map_image_hash": "replace-with-readiness-map-image-hash",
+    "goal_tolerance": {"xy_m": 0.15, "yaw_rad": 0.2},
+    "expected_effect": {
+      "kind": "navigate_to_pose",
+      "final_frame": "map",
+      "stop_required": true
+    }
   },
   "execution_mode": "REAL",
   "risk_class": "high"

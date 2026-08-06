@@ -26,6 +26,8 @@ P0_CONTROL_PLANE_TOOLS: tuple[str, ...] = (
     "request_action",
     "request_guarded_action",
     "get_action_status",
+    "get_approval_status",
+    "cancel_approval",
     "cancel_action",
 )
 
@@ -59,6 +61,8 @@ MCP_TOOL_SAFETY_LEVELS: dict[str, str] = {
     "request_action": "S3_GUARDED_ACTION",
     "request_guarded_action": "S3_GUARDED_ACTION",
     "get_action_status": "S0_READ_ONLY",
+    "get_approval_status": "S0_READ_ONLY",
+    "cancel_approval": "S0_CONFIG",
     "cancel_action": "S3_GUARDED_ACTION",
     "get_product_status": "S0_READ_ONLY",
     "list_product_demos": "S0_READ_ONLY",

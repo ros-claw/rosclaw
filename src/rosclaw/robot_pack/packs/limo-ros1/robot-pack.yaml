@@ -3,9 +3,9 @@ schema_version: rosclaw.robot_pack.v1
 pack:
   namespace: ros-claw
   name: limo-ros1
-  version: 0.1.10
+  version: 0.1.27
   title: AgileX LIMO ROS 1 Guarded Patrol Pack
-  summary: Permit-gated localization, navigation, and speaker signaling for AgileX LIMO on ROS Melodic.
+  summary: Permit-gated localization, navigation, tones, and bounded speech for AgileX LIMO on ROS Melodic.
   vendor: AgileX Robotics
   kind: mobile_base
   aliases: [limo, agilex-limo]
@@ -24,26 +24,32 @@ components:
   - kind: hardware_adapter
     id: limo-ros-mcp
     ref: https://github.com/ros-claw/limo-ros-mcp
-    version: c9b4a061e86d9ece34582733a7b1fbb9556ff69a
+    version: 7b71f9611782317fc43c51a48af2aeae230c47b3
     required: true
   - kind: capability
     id: limo-set-initial-pose
     ref: rosclaw://capability/limo.set_initial_pose@1
     version: "1"
     path: capabilities/limo.set_initial_pose.yaml
-    digest: sha256:e6bfbd5f938da43b4d91f5ec0cfb58bfdc91f209db0ad1882107df9582477e68
+    digest: sha256:2ccfbd90e24a5987a9396e649f9208ad3466e6abf7911600bfa1440affda9c13
   - kind: capability
     id: limo-navigate-to-pose
     ref: rosclaw://capability/limo.navigate_to_pose@3
     version: "3"
     path: capabilities/limo.navigate_to_pose.yaml
-    digest: sha256:fed3ac1f0f6395e25b1399104b149e1f90255f0cf6f97f1d14a0b5f9a20ed8f7
+    digest: sha256:a06133a25b6b3a8491204a7da52a56c31c1d017b0ca7cfcfed81207a5a8d1d20
   - kind: capability
     id: limo-play-tone
     ref: rosclaw://capability/limo.play_tone@3
     version: "3"
     path: capabilities/limo.play_tone.yaml
-    digest: sha256:4cd39f0ca38a7c0df11e6f7d54b57c9e5d227b8a3e176d2399507b183cad0e6d
+    digest: sha256:f7c07dcb6a35215a07506fa054e7e534fba4b3f68417e4eca13600298daae52d
+  - kind: capability
+    id: limo-speak-text
+    ref: rosclaw://capability/limo.speak_text@1
+    version: "1"
+    path: capabilities/limo.speak_text.yaml
+    digest: sha256:d1aa520a64f00bfb27091b83fb29ce1b7d69e9ab2bf0d9bbd0b7f72359acd465
   - kind: policy
     id: limo-initial-pose-policy
     ref: rosclaw://policy/limo-initial-pose@1
@@ -55,7 +61,7 @@ components:
     ref: rosclaw://policy/limo-patrol-actions@1
     version: "1"
     path: policies/patrol-actions.yaml
-    digest: sha256:62fdc92451cdd8332ab963f0b1639b258d71d68e63a593f7a8478a612d9dbf55
+    digest: sha256:8bb699c6cfb667318f3b00d18b7f7d912c81fc53229dbc594d775a61ceaa1091
   - kind: calibration
     id: limo-operator-calibration
     ref: device://agilex/limo/operator-calibration
@@ -65,30 +71,36 @@ components:
     ref: rosclaw://verification/limo-patrol@1
     version: "1"
     path: verification/actuation.yaml
-    digest: sha256:976d38291c0d940bc67dfa7232569afe6cb5a951ee6010f910d2437b0c973ebc
+    digest: sha256:45c3fc95651648025e1cc54480603da433317df2126c9189b478ff11e701a4b4
   - kind: example_app
     id: limo-initial-pose-request
     ref: rosclaw://example/limo-initial-pose-request@1
     version: "1"
     path: examples/initial-pose-action.json
-    digest: sha256:028208f7a39fc964f77ace39eaf6f4cafbbd2dff74368ac77138e829527f20c7
+    digest: sha256:aae31b970aba21564799ad39853b57a64d427f9a4877ed18fe7ea0a81b856b44
   - kind: example_app
     id: limo-navigation-request
     ref: rosclaw://example/limo-navigation-request@2
     version: "2"
     path: examples/navigation-action.json
-    digest: sha256:023426f19431ef692f4afaa5b86cb8f59ba4e2f2603e9fac05243c3451f1aca9
+    digest: sha256:5a4e6dd769b9be6a8c6bdff9850ca95dceeeef6c3f14c3f05c22cbee03397e31
   - kind: example_app
     id: limo-tone-request
     ref: rosclaw://example/limo-tone-request@1
     version: "1"
     path: examples/tone-action.json
-    digest: sha256:a382a424d5a2b8bb266db764890497504f88c81584f969a900972c462e915b31
+    digest: sha256:b3eb037f404e00fb917c40ea2ba3603f84a95353ead5d32e916bf08ac7d65588
+  - kind: example_app
+    id: limo-speech-request
+    ref: rosclaw://example/limo-speech-request@1
+    version: "1"
+    path: examples/speech-action.json
+    digest: sha256:cc06f6386f6fafc286694522e880aba0a9c8afd570263be2fc6c9b22bdf8f04a
   - kind: documentation
     id: limo-pack-docs
     ref: docs://robot-pack/limo-ros1
     path: docs/README.md
-    digest: sha256:8416f195ac79f83c522441e743bd59736ae33a9ee4e1e3b6f750972bb311a1a1
+    digest: sha256:fef2c7f5b96a37f5cbfb2032f62f8c68f2709889cbd431188f4bdff8680ca8a5
 
 device:
   type: mobile_base
@@ -115,6 +127,8 @@ adapter:
       any_of: [limo_request_navigation]
     - id: speaker-tone
       any_of: [limo_request_tone]
+    - id: speaker-speech
+      any_of: [limo_request_speech]
   direct_driver_access: forbidden
 
 capabilities:
@@ -137,6 +151,13 @@ capabilities:
     safety_class: actuation
     adapter_component_id: limo-ros-mcp
     adapter_tools_any_of: [limo_request_tone]
+    execution_modes: [SHADOW, REAL]
+    required_evidence: TASK_VERIFIED
+  - id: limo.speak_text
+    title: Speak a bounded synthesized message
+    safety_class: actuation
+    adapter_component_id: limo-ros-mcp
+    adapter_tools_any_of: [limo_request_speech]
     execution_modes: [SHADOW, REAL]
     required_evidence: TASK_VERIFIED
 
@@ -166,6 +187,7 @@ verification:
       - navigation-daemon-preflight
       - navigation-goal-and-stop
       - tone-microphone-loopback
+      - speech-microphone-loopback
       - canonical-execution-receipt
     requires_hardware: true
     requires_independent_observer: true

@@ -1,0 +1,51 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.ui.command_request.v1",
+      "default": "rosclaw.ui.command_request.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "request_id": {
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "minLength": 1,
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "command_name": {
+      "minLength": 1,
+      "title": "Command Name",
+      "type": "string"
+    },
+    "arguments": {
+      "additionalProperties": true,
+      "title": "Arguments",
+      "type": "object"
+    },
+    "mission_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mission Id"
+    }
+  },
+  "required": [
+    "request_id",
+    "idempotency_key",
+    "command_name"
+  ],
+  "title": "rosclaw.ui.command_request.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.ui.command_request.v1"
+}

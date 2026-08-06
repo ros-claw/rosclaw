@@ -33,6 +33,7 @@ class ExecutionPermit:
     expires_at: datetime
     max_uses: int = 1
     session_id: str | None = None
+    authorization_provenance: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         required = {
@@ -72,9 +73,13 @@ class ExecutionPermit:
             raise ValueError("ExecutionPermit.expires_at must be timezone-aware")
         if self.session_id is not None and not self.session_id.strip():
             raise ValueError("ExecutionPermit.session_id must be non-empty when provided")
+        if self.authorization_provenance is not None and not isinstance(
+            self.authorization_provenance, dict
+        ):
+            raise ValueError("ExecutionPermit.authorization_provenance must be an object")
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "schema_version": PERMIT_SCHEMA_VERSION,
             "permit_id": self.permit_id,
             "principal_id": self.principal_id,
@@ -87,6 +92,9 @@ class ExecutionPermit:
             "max_uses": self.max_uses,
             "session_id": self.session_id,
         }
+        if self.authorization_provenance:
+            result["authorization_provenance"] = dict(self.authorization_provenance)
+        return result
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> ExecutionPermit:
@@ -123,6 +131,11 @@ class ExecutionPermit:
             session_id=(
                 _strict_string(value.get("session_id"), "session_id")
                 if value.get("session_id") is not None
+                else None
+            ),
+            authorization_provenance=(
+                dict(value["authorization_provenance"])
+                if isinstance(value.get("authorization_provenance"), dict)
                 else None
             ),
         )
@@ -378,6 +391,7 @@ class PermitAuthority:
                 approved=True,
                 approval_id=permit.permit_id,
                 scopes=list(permit.capabilities),
+                provenance=dict(permit.authorization_provenance or {}),
             ),
         )
 

@@ -346,6 +346,16 @@ async def _get_action_status(action_id: str) -> dict[str, Any]:
     return await _client().get_action_status(action_id)
 
 
+async def _get_approval_status(request_id: str) -> dict[str, Any]:
+    """Read an owned Operator Broker proposal without exposing decision secrets."""
+    return await _client().get_approval_status(request_id)
+
+
+async def _cancel_approval(request_id: str) -> dict[str, Any]:
+    """Cancel an owned pending proposal before an Operator decides it."""
+    return await _client().cancel_approval(request_id)
+
+
 async def _cancel_action(action_id: str) -> dict[str, Any]:
     """Cancel queued work without claiming that active hardware stopped."""
     return await _client().cancel_action(action_id)
@@ -551,6 +561,8 @@ get_runtime_status = _tool_wrapper("get_runtime_status", _get_runtime_status)
 request_action = _tool_wrapper("request_action", _request_action)
 request_guarded_action = _tool_wrapper("request_guarded_action", _request_guarded_action)
 get_action_status = _tool_wrapper("get_action_status", _get_action_status)
+get_approval_status = _tool_wrapper("get_approval_status", _get_approval_status)
+cancel_approval = _tool_wrapper("cancel_approval", _cancel_approval)
 cancel_action = _tool_wrapper("cancel_action", _cancel_action)
 get_body_profile = _tool_wrapper("get_body_profile", _get_body_profile)
 get_body_state = _tool_wrapper("get_body_state", _get_body_state)
@@ -588,6 +600,8 @@ P0_TOOLS: list[ToolFunc] = [
     request_action,
     request_guarded_action,
     get_action_status,
+    get_approval_status,
+    cancel_approval,
     cancel_action,
     get_product_status,
     list_product_demos,
@@ -623,6 +637,8 @@ __all__ = [
     "request_action",
     "request_guarded_action",
     "get_action_status",
+    "get_approval_status",
+    "cancel_approval",
     "cancel_action",
     "get_body_profile",
     "get_body_state",

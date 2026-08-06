@@ -33,6 +33,16 @@ _ALLOWED_METHODS = frozenset(
         "runtime.recovery.acknowledge",
         "runtime.shutdown",
         "permit.issue",
+        "operator.proposal.create",
+        "operator.proposal.status",
+        "operator.proposal.cancel",
+        "operator.proposal.pending",
+        "operator.proposal.decide",
+        "operator.enrollment.register",
+        "operator.enrollment.revoke",
+        "operator.enrollment.list",
+        "operator.challenge.get",
+        "daemon.identity",
         "action.request",
         "action.status",
         "action.receipt",
@@ -355,6 +365,86 @@ class RosclawDaemon:
                 ),
                 False,
             )
+        if method == "operator.proposal.create":
+            display = params.get("display")
+            if not isinstance(display, dict):
+                raise ControlPlaneError("INVALID_ARGUMENT", "display must be an object")
+            return (
+                self.service.create_operator_proposal(
+                    _required_action(params),
+                    display=display,
+                    ttl_sec=_required_number(params, "ttl_sec"),
+                    peer=peer,
+                    client_reference=(
+                        params.get("client_reference")
+                        if isinstance(params.get("client_reference"), dict)
+                        else None
+                    ),
+                ),
+                False,
+            )
+        if method == "operator.proposal.status":
+            return (
+                self.service.get_operator_proposal(
+                    _required_id(params, "request_id"),
+                    peer,
+                ),
+                False,
+            )
+        if method == "operator.proposal.cancel":
+            return (
+                self.service.cancel_operator_proposal(
+                    _required_id(params, "request_id"),
+                    peer,
+                ),
+                False,
+            )
+        if method == "operator.proposal.pending":
+            return self.service.list_pending_operator_proposals(peer), False
+        if method == "operator.proposal.decide":
+            return (
+                self.service.decide_operator_proposal(
+                    _required_id(params, "request_id"),
+                    decision=_required_id(params, "decision", max_length=16),
+                    principal_id=_required_id(params, "principal_id"),
+                    channel=_required_id(params, "channel", max_length=128),
+                    reason=_required_id(params, "reason", max_length=1024),
+                    peer=peer,
+                    proof=dict(params["proof"]) if isinstance(params.get("proof"), dict) else {},
+                ),
+                False,
+            )
+        if method == "operator.enrollment.register":
+            return (
+                self.service.register_operator_enrollment(
+                    _required_id(params, "enrollment_id"),
+                    public_key_pem=str(params.get("public_key_pem", "")),
+                    operator_uid=_required_int(params, "operator_uid"),
+                    purpose=str(params.get("purpose", "operator-decision")),
+                    peer=peer,
+                ),
+                False,
+            )
+        if method == "operator.enrollment.revoke":
+            return (
+                self.service.revoke_operator_enrollment(
+                    _required_id(params, "enrollment_id"),
+                    peer=peer,
+                ),
+                False,
+            )
+        if method == "operator.enrollment.list":
+            return self.service.list_operator_enrollments(peer=peer), False
+        if method == "operator.challenge.get":
+            return (
+                self.service.get_operator_challenge(
+                    _required_id(params, "request_id"),
+                    peer,
+                ),
+                False,
+            )
+        if method == "daemon.identity":
+            return self.service.daemon_identity_dict(), False
         if method == "action.request":
             return self.service.request_action(_required_action(params), peer), False
         if method == "action.status":

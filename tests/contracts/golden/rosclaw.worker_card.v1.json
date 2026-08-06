@@ -1,0 +1,346 @@
+{
+  "$defs": {
+    "CapabilityDecl": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.worker_capability.v1",
+          "default": "rosclaw.worker_capability.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "name": {
+          "description": "e.g. code.repository_edit",
+          "title": "Name",
+          "type": "string"
+        },
+        "input_schema": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Schema"
+        },
+        "output_schema": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Schema"
+        },
+        "side_effect_class": {
+          "default": "none",
+          "description": "none | sandbox_process | workspace_write | network_write | physical",
+          "title": "Side Effect Class",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "CapabilityDecl",
+      "type": "object"
+    },
+    "WorkerConstraints": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.worker_constraints.v1",
+          "default": "rosclaw.worker_constraints.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "supported_platforms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Platforms",
+          "type": "array"
+        },
+        "requires_network": {
+          "default": false,
+          "title": "Requires Network",
+          "type": "boolean"
+        },
+        "max_concurrency": {
+          "default": 1,
+          "title": "Max Concurrency",
+          "type": "integer"
+        },
+        "max_context_tokens": {
+          "default": 0,
+          "title": "Max Context Tokens",
+          "type": "integer"
+        }
+      },
+      "title": "WorkerConstraints",
+      "type": "object"
+    },
+    "WorkerHealth": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.worker_health.v1",
+          "default": "rosclaw.worker_health.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "probe": {
+          "default": "adapter:ping",
+          "title": "Probe",
+          "type": "string"
+        },
+        "heartbeat_interval_sec": {
+          "default": 15,
+          "title": "Heartbeat Interval Sec",
+          "type": "integer"
+        },
+        "lease_ttl_sec": {
+          "default": 45,
+          "title": "Lease Ttl Sec",
+          "type": "integer"
+        }
+      },
+      "title": "WorkerHealth",
+      "type": "object"
+    },
+    "WorkerImplementation": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.worker_implementation.v1",
+          "default": "rosclaw.worker_implementation.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "product": {
+          "title": "Product",
+          "type": "string"
+        },
+        "version": {
+          "default": "",
+          "title": "Version",
+          "type": "string"
+        },
+        "executable_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Executable Ref"
+        }
+      },
+      "required": [
+        "product"
+      ],
+      "title": "WorkerImplementation",
+      "type": "object"
+    },
+    "WorkerKind": {
+      "enum": [
+        "native",
+        "tool",
+        "harness",
+        "human",
+        "robot"
+      ],
+      "title": "WorkerKind",
+      "type": "string"
+    },
+    "WorkerProvenance": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.worker_provenance.v1",
+          "default": "rosclaw.worker_provenance.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source": {
+          "default": "unknown",
+          "title": "Source",
+          "type": "string"
+        },
+        "package_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Package Digest"
+        },
+        "license": {
+          "default": "UNVERIFIED",
+          "title": "License",
+          "type": "string"
+        }
+      },
+      "title": "WorkerProvenance",
+      "type": "object"
+    },
+    "WorkerSecurity": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.worker_security.v1",
+          "default": "rosclaw.worker_security.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "isolation": {
+          "default": "process",
+          "enum": [
+            "process",
+            "container",
+            "service",
+            "remote",
+            "human"
+          ],
+          "title": "Isolation",
+          "type": "string"
+        },
+        "credential_profile_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credential Profile Ref"
+        },
+        "default_data_scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Default Data Scopes",
+          "type": "array"
+        },
+        "forbidden_scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Forbidden Scopes",
+          "type": "array"
+        }
+      },
+      "title": "WorkerSecurity",
+      "type": "object"
+    },
+    "WorkerTrust": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.worker_trust.v1",
+          "default": "rosclaw.worker_trust.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "initial_level": {
+          "default": "UNVERIFIED",
+          "enum": [
+            "UNVERIFIED",
+            "T0",
+            "T1",
+            "T2",
+            "T3"
+          ],
+          "title": "Initial Level",
+          "type": "string"
+        },
+        "evidence_count": {
+          "default": 0,
+          "title": "Evidence Count",
+          "type": "integer"
+        }
+      },
+      "title": "WorkerTrust",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.worker_card.v1",
+      "default": "rosclaw.worker_card.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "worker_id": {
+      "title": "Worker Id",
+      "type": "string"
+    },
+    "display_name": {
+      "default": "",
+      "title": "Display Name",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/WorkerKind",
+      "default": "tool"
+    },
+    "adapter_type": {
+      "default": "process_stdio",
+      "title": "Adapter Type",
+      "type": "string"
+    },
+    "adapter_version": {
+      "default": "1.0.0",
+      "title": "Adapter Version",
+      "type": "string"
+    },
+    "implementation": {
+      "$ref": "#/$defs/WorkerImplementation"
+    },
+    "capabilities": {
+      "items": {
+        "$ref": "#/$defs/CapabilityDecl"
+      },
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "constraints": {
+      "$ref": "#/$defs/WorkerConstraints"
+    },
+    "security": {
+      "$ref": "#/$defs/WorkerSecurity"
+    },
+    "health": {
+      "$ref": "#/$defs/WorkerHealth"
+    },
+    "provenance": {
+      "$ref": "#/$defs/WorkerProvenance"
+    },
+    "trust": {
+      "$ref": "#/$defs/WorkerTrust"
+    }
+  },
+  "required": [
+    "worker_id",
+    "implementation"
+  ],
+  "title": "rosclaw.worker_card.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.worker_card.v1"
+}

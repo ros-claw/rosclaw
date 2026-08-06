@@ -42,6 +42,8 @@ def _tool_table(tool_names: tuple[str, ...]) -> str:
         "request_action": "Submit SHADOW work; REAL migrates to contextual confirmation",
         "request_guarded_action": "Confirm and submit one exact REAL action in context",
         "get_action_status": "Read daemon queue state and terminal receipt",
+        "get_approval_status": "Read an owned pending approval lifecycle",
+        "cancel_approval": "Withdraw an owned proposal before Operator decision",
         "cancel_action": "Cancel queued work; active motion requires E-Stop",
         "get_body_profile": "Static effective body profile",
         "get_body_state": "Body safety state and capability matrix",
@@ -384,13 +386,16 @@ earlier daemon generation.
    execution authorization. Submit SHADOW or REAL work only with
    `request_action`; `rosclawd` independently validates a peer-, body-,
    snapshot-, capability-, and action-intent-bound permit.
-5. Use `get_action_status` for the terminal `ExecutionReceipt`. `cancel_action`
+5. If an interactive REAL request returns `APPROVAL_PENDING`, use
+   `get_approval_status` to poll its public lifecycle or `cancel_approval` to
+   withdraw it before an Operator decides. These tools never approve work.
+6. Use `get_action_status` for the terminal `ExecutionReceipt`. `cancel_action`
    cancels only queued work; active motion requires `emergency_stop`.
-6. `sandbox_run` may be used to preview physics in MuJoCo; it never commands
+7. `sandbox_run` may be used to preview physics in MuJoCo; it never commands
    real hardware.
-7. On unexpected behavior, call `emergency_stop` and follow local E-stop
+8. On unexpected behavior, call `emergency_stop` and follow local E-stop
    procedures.
-8. Never instantiate `Runtime`, register a driver/executor, publish a command
+9. Never instantiate `Runtime`, register a driver/executor, publish a command
    topic, or open a device/SDK from the Agent process.
 
 ## Deny rules

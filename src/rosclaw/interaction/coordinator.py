@@ -60,23 +60,38 @@ class InteractionCoordinator:
         capabilities = detect_interaction_capabilities(ctx)
         public_card = display.model_dump(mode="json")
         if not capabilities.form_elicitation:
-            decision = (
-                "APPROVAL_PENDING"
-                if capabilities.url_elicitation or capabilities.asynchronous_elicitation
-                else "APPROVAL_CHANNEL_UNAVAILABLE"
-            )
+            await self._progress(ctx, 0.1, "Creating a pending operator proposal")
+            try:
+                pending = await self._client.defer_action(
+                    prepared_action,
+                    display=public_card,
+                    ttl_sec=60.0,
+                )
+            except Exception as exc:  # noqa: BLE001 - public interaction boundary
+                return {
+                    "ok": False,
+                    "decision": "APPROVAL_CHANNEL_UNAVAILABLE",
+                    "error_code": str(getattr(exc, "code", "APPROVAL_CHANNEL_UNAVAILABLE")),
+                    "message": str(exc),
+                    "action_display": public_card,
+                    "command_dispatched": False,
+                    "usable_for_real_execution": False,
+                }
+            channel = "mcp_url" if capabilities.url_elicitation else "async_pending"
             return {
+                **_public_result(pending),
                 "ok": False,
-                "decision": decision,
-                "error_code": decision,
-                "message": (
-                    "Operator approval is pending in a supported external channel."
-                    if decision == "APPROVAL_PENDING"
-                    else "This MCP client has no negotiated operator-confirmation channel."
-                ),
+                "decision": "APPROVAL_PENDING",
+                "error_code": "APPROVAL_PENDING",
+                "message": "The exact action is pending in the trusted Operator Broker.",
                 "action_display": public_card,
                 "command_dispatched": False,
                 "usable_for_real_execution": False,
+                "interaction": {
+                    "schema_version": "rosclaw.interaction-result.v1",
+                    "decision": "APPROVAL_PENDING",
+                    "channel": channel,
+                },
             }
 
         await self._progress(ctx, 0.1, "Waiting for operator confirmation")

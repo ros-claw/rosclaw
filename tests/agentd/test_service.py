@@ -1,0 +1,239 @@
+"""AgentService / CLI / onboarding tests (PR-NA-040/041/042 exits).
+
+- service starts with mock gateway, missions + turns over HTTP API
+- duplicate start lock; REAL mode honestly refused with gap list
+- onboarding writes api_key_ref only (never raw keys), MODEL_NOT_READY honesty
+- console page served
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+import yaml
+
+from rosclaw.agentd.cli import main as agentd_main
+from rosclaw.agentd.config import load_agent_config
+from rosclaw.agentd.context.sources import BodyFacts
+from rosclaw.agentd.models.gateway import MockModelGateway
+from rosclaw.agentd.models.profiles import mock_profile
+from rosclaw.agentd.onboarding import configure_model, doctor
+from rosclaw.agentd.service import AgentService, create_app
+from rosclaw.contracts.agent.model_turn import ModelTurnResultV1
+
+
+def _answer_turn(request) -> ModelTurnResultV1:
+    decision = {
+        "schema_version": "rosclaw.decision.v1",
+        "decision_id": "dec_1",
+        "mission_id": request.mission_id,
+        "context_id": request.context_id,
+        "context_revision": request.context_revision,
+        "next_intent": "ANSWER",
+        "summary": "ok",
+        "evidence_refs": [],
+    }
+    return ModelTurnResultV1(
+        turn_id="t1",
+        provider="mock",
+        model="mock-model",
+        content=f"你好，我是 ROSClaw。\n```json\n{json.dumps(decision)}\n```",
+        assistant_message={"role": "assistant", "content": "你好"},
+    )
+
+
+@pytest.fixture
+def service(tmp_path: Path) -> AgentService:
+    config = load_agent_config(tmp_path / "config.yaml")  # no config → defaults
+    config.sim_body_id = "sim/ur5e"
+    gateway = MockModelGateway(mock_profile(), [_answer_turn] * 50)
+    # Make the script effectively unbounded: callable re-queues nothing.
+    return AgentService(config, tmp_path, gateway=gateway)
+
+
+class TestService:
+    async def test_create_and_turn(self, service: AgentService) -> None:
+        mission = service.create_mission("检查状态")
+        assert mission.mode.value == "SIMULATION"
+        result = await service.send_turn(mission.mission_id, "你好")
+        assert "你好" in result.reply
+        assert result.state.value == "IDLE"
+
+    async def test_real_mode_refused_with_gaps(self, service: AgentService) -> None:
+        with pytest.raises(Exception, match="prerequisites"):
+            service.create_mission("搬箱子", mode="REAL")
+
+    async def test_unknown_mission_turn(self, service: AgentService) -> None:
+        with pytest.raises(Exception, match="unknown mission"):
+            await service.send_turn("mis_ghost", "hi")
+
+    async def test_status_and_probe(self, service: AgentService) -> None:
+        status = service.status()
+        assert status["profile"] == "mock_default"
+        probe = await service.probe()
+        assert probe.reachable and probe.tool_call_ok
+
+    async def test_real_mission_binds_verified_live_body_and_daemon(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class LiveBodySource:
+            def __init__(self, **_kwargs) -> None:
+                pass
+
+            def get_body(self, body_id: str) -> BodyFacts | None:
+                if body_id != "limo":
+                    return None
+                return BodyFacts(
+                    body_id="limo",
+                    effective_body_hash="body_live_hash",
+                    summary="verified live LIMO",
+                    calibrated=True,
+                )
+
+        class LiveDaemon:
+            def get_runtime_status(self) -> dict:
+                return {
+                    "running": True,
+                    "runtime_state": "RUNNING",
+                    "robot_id": "limo",
+                    "robot_pack": {"loaded": True, "signature_status": "valid"},
+                    "registered_executors": ["limo.play_tone:REAL"],
+                }
+
+        monkeypatch.setattr("rosclaw.agentd.service.ResolverBodySource", LiveBodySource)
+        config = load_agent_config(tmp_path / "missing.yaml")
+        config.body_id = "limo"
+        config.default_mode = "REAL"
+        config.physical_action_count = 3
+        gateway = MockModelGateway(mock_profile(), [_answer_turn])
+        live = AgentService(config, tmp_path, gateway=gateway)
+        live._daemon_client = LiveDaemon()
+
+        try:
+            mission = live.create_mission("播放巡检提示音", mode="REAL")
+
+            assert mission.body_binding.body_id == "limo"
+            assert mission.body_binding.effective_body_hash == "body_live_hash"
+            assert mission.mode.value == "REAL"
+        finally:
+            await live.close()
+
+    async def test_daemon_consent_channel_is_wired_into_intent_handlers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class LiveBodySource:
+            def __init__(self, **_kwargs) -> None:
+                pass
+
+            def get_body(self, body_id: str) -> BodyFacts | None:
+                return BodyFacts(
+                    body_id=body_id,
+                    effective_body_hash="body_live_hash",
+                    summary="verified live body",
+                    calibrated=True,
+                )
+
+        monkeypatch.setattr("rosclaw.agentd.service.ResolverBodySource", LiveBodySource)
+        socket_path = tmp_path / "run" / "rosclawd.sock"
+        socket_path.parent.mkdir(parents=True)
+        socket_path.touch()
+        config = load_agent_config(tmp_path / "missing.yaml")
+        config.body_id = "limo"
+        live = AgentService(
+            config,
+            tmp_path,
+            gateway=MockModelGateway(mock_profile(), [_answer_turn]),
+        )
+        try:
+            assert live._consent_channel is not None
+            assert live._handlers._consent_channel is live._consent_channel
+        finally:
+            await live.close()
+
+
+class TestHttpApi:
+    @pytest.fixture
+    def client(self, service: AgentService):
+        from fastapi.testclient import TestClient
+
+        return TestClient(create_app(service), headers={'x-rosclaw-token': service.control_token})
+
+    def test_health_and_status(self, client) -> None:
+        assert client.get("/health").json()["status"] == "ok"
+        assert client.get("/status").json()["maturity"] == "experimental"
+
+    def test_mission_turn_over_http(self, client) -> None:
+        r = client.post("/missions", json={"goal": "测试目标"})
+        assert r.status_code == 201
+        mission_id = r.json()["mission_id"]
+        r2 = client.post(f"/missions/{mission_id}/turns", json={"text": "你好"})
+        assert r2.status_code == 200
+        assert "你好" in r2.json()["reply"]
+
+    def test_real_mode_422_with_gaps(self, client) -> None:
+        r = client.post("/missions", json={"goal": "搬箱子", "mode": "REAL"})
+        assert r.status_code == 422
+        assert "configured body is simulated" in r.json()["detail"]
+
+    def test_console_served(self, client) -> None:
+        r = client.get("/console")
+        assert r.status_code == 200
+        assert "ROSClaw Console" in r.text
+
+
+class TestOnboarding:
+    def test_loads_real_body_id_without_overwriting_legacy_sim_default(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "config.yaml"
+        path.write_text(
+            "agent:\n  body_id: limo\n  default_mode: REAL\n"
+            "  budgets:\n    physical_action_count: 3\n",
+            encoding="utf-8",
+        )
+        config = load_agent_config(path)
+
+        assert config.active_body_id == "limo"
+        assert config.sim_body_id == "sim/ur5e"
+        assert config.physical_action_count == 3
+
+    def test_configure_writes_key_ref_only(self, tmp_path: Path) -> None:
+        summary = configure_model(tmp_path, "kimi-code")
+        assert summary["configured"]
+        data = yaml.safe_load((tmp_path / "config.yaml").read_text())
+        profile = data["models"]["profiles"]["embodied_default"]
+        assert profile["api_key_ref"] == "env:ROSCLAW_KIMI_API_KEY"
+        assert "api_key" not in profile
+        assert "sk-" not in (tmp_path / "config.yaml").read_text()
+
+    def test_doctor_not_ready_without_key(self, tmp_path: Path, monkeypatch) -> None:
+        configure_model(tmp_path, "kimi-code")
+        monkeypatch.delenv("ROSCLAW_KIMI_API_KEY", raising=False)
+        report = doctor(tmp_path)
+        assert report["status"] == "MODEL_NOT_READY"
+        assert report["api_key_present"] is False
+
+    def test_doctor_no_profiles(self, tmp_path: Path) -> None:
+        report = doctor(tmp_path)
+        assert report["status"] == "MODEL_NOT_READY"
+        assert "agent init" in report["reason"]
+
+
+class TestCli:
+    def test_chat_requires_config(self, tmp_path: Path, capsys) -> None:
+        rc = agentd_main(["--home", str(tmp_path), "chat"])
+        assert rc == 2
+        assert "agent init" in capsys.readouterr().err
+
+    def test_status_json(self, tmp_path: Path, capsys) -> None:
+        rc = agentd_main(["--home", str(tmp_path), "status"])
+        assert rc == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["running"] is False
+
+    def test_init_noninteractive_needs_provider(self, tmp_path: Path, capsys, monkeypatch) -> None:
+        monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+        rc = agentd_main(["--home", str(tmp_path), "init"])
+        assert rc == 2

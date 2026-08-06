@@ -7,6 +7,7 @@ import json
 import math
 import os
 import subprocess
+import unicodedata
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -36,6 +37,7 @@ _DAEMON_EXECUTOR_CONTRACTS: dict[str, tuple[str, frozenset[str]]] = {
     "camera.capture_rgbd": ("read_only", frozenset({"REAL"})),
     "limo.navigate_to_pose": ("actuation", frozenset({"SHADOW", "REAL"})),
     "limo.play_tone": ("actuation", frozenset({"SHADOW", "REAL"})),
+    "limo.speak_text": ("actuation", frozenset({"SHADOW", "REAL"})),
     "limo.set_initial_pose": ("actuation", frozenset({"SHADOW", "REAL"})),
 }
 
@@ -472,6 +474,9 @@ class LimoInitialPoseExecutor:
             "ROS_IP",
             "ROS_PACKAGE_PATH",
             "ROS_DISTRO",
+            # Fixed allowlisted PulseAudio bridge used by the isolated LIMO
+            # audio worker.  The worker independently rejects any other path.
+            "ROSCLAW_LIMO_PULSE_SERVER",
         }
         return {key: value for key, value in os.environ.items() if key in allowed}
 
@@ -624,10 +629,7 @@ class _LimoFixedWorkerExecutor:
             )
         verification_error = self._validate_result(action, result)
         if verification_error is not None:
-            return _failed_result(
-                f"LIMO_{self.operation}_VERIFICATION_FAILED",
-                verification_error,
-            )
+            return self._verification_failure_result(action, result, verification_error)
         return self._success_result(action, result)
 
     def _validate_action(
@@ -680,6 +682,18 @@ class _LimoFixedWorkerExecutor:
         self, action: ActionEnvelope, result: dict[str, Any]
     ) -> ActionExecutionResult:
         raise NotImplementedError
+
+    def _verification_failure_result(
+        self,
+        action: ActionEnvelope,
+        result: dict[str, Any],
+        verification_error: str,
+    ) -> ActionExecutionResult:
+        del action, result
+        return _failed_result(
+            f"LIMO_{self.operation}_VERIFICATION_FAILED",
+            verification_error,
+        )
 
 
 class LimoNavigationExecutor(_LimoFixedWorkerExecutor):
@@ -921,6 +935,88 @@ class LimoNavigationExecutor(_LimoFixedWorkerExecutor):
             },
         )
 
+    def _verification_failure_result(
+        self,
+        action: ActionEnvelope,
+        result: dict[str, Any],
+        verification_error: str,
+    ) -> ActionExecutionResult:
+        # A task-level verification failure does not erase a valid worker ACK.
+        # Preserve the fact that move_base accepted and completed the hardware
+        # dispatch, while still failing closed on the requested task predicate.
+        if (
+            result.get("protocol") != "rosclaw.limo.worker.v1"
+            or result.get("action_id") != action.action_id
+            or result.get("operation") != "NAVIGATE_TO_POSE"
+            or result.get("action_server") != "/move_base"
+            or result.get("accepted") is not True
+            or not isinstance(result.get("terminal_state"), int)
+            or isinstance(result.get("terminal_state"), bool)
+            or not isinstance(result.get("dispatched_wall_time"), (int, float))
+            or isinstance(result.get("dispatched_wall_time"), bool)
+        ):
+            return super()._verification_failure_result(action, result, verification_error)
+
+        motion = result.get("motion_evidence")
+        motion = motion if isinstance(motion, dict) else {}
+        observation = {
+            "kind": "navigation_verification_failed",
+            "target_pose": action.arguments["target_pose"],
+            "observed_final_pose": result.get("observed_final_pose"),
+            "preflight": result.get("preflight"),
+            "stopped_odometry": result.get("stopped_odometry"),
+            "map_to_base_after": result.get("map_to_base_after"),
+            "motion_evidence": motion,
+            "completed_wall_time": result.get("completed_wall_time"),
+        }
+        return ActionExecutionResult(
+            final_state=ActionState.FAILED,
+            evidence_level=EvidenceLevel.DRIVER_CONFIRMED,
+            policy_decision={
+                "allowed": True,
+                "policy": self.policy_name,
+                "reason": "bounded navigation dispatch was allowed; task verification failed",
+            },
+            authorization_decision={
+                "authorized": action.authorization.approved,
+                "approval_id": action.authorization.approval_id,
+            },
+            dispatch_result={
+                "accepted": True,
+                "adapter": self.instance.adapter.component_id,
+                "operation": "NAVIGATE_TO_POSE",
+                "action_server": "/move_base",
+                "terminal_state": result["terminal_state"],
+                "terminal_text": result.get("terminal_text"),
+                "movement_expected": motion.get("movement_expected"),
+                "motion_observed": motion.get("motion_observed"),
+            },
+            driver_ack={
+                "acknowledged": True,
+                "dispatched_wall_time": result["dispatched_wall_time"],
+            },
+            observations=[observation],
+            verification_result={
+                "success": False,
+                "predicate": verification_error,
+                "position_error_m": result.get("position_error_m"),
+                "yaw_error_rad": result.get("yaw_error_rad"),
+                "movement_expected": motion.get("movement_expected"),
+                "motion_observed": motion.get("motion_observed"),
+                "physical_motion_independently_observed": motion.get(
+                    "physical_motion_independently_observed"
+                ),
+                "odom_translation_m": motion.get("odom_translation_m"),
+                "odom_rotation_rad": motion.get("odom_rotation_rad"),
+            },
+            errors=[
+                {
+                    "code": "LIMO_NAVIGATION_VERIFICATION_FAILED",
+                    "message": verification_error,
+                }
+            ],
+        )
+
 
 class LimoToneExecutor(_LimoFixedWorkerExecutor):
     """Daemon-owned bounded tone executor with microphone loopback verification."""
@@ -1128,6 +1224,211 @@ class LimoToneExecutor(_LimoFixedWorkerExecutor):
         )
 
 
+class LimoSpeechExecutor(_LimoFixedWorkerExecutor):
+    """Daemon-owned bounded TTS executor with microphone energy verification."""
+
+    capability_id = "limo.speak_text"
+    schema = "limo.speech.v1"
+    operation = "SPEECH"
+    worker_name = "limo_speech_worker.py"
+    policy_name = "robot-pack/limo-speech-v1"
+    evidence_level = EvidenceLevel.TASK_VERIFIED
+    argument_keys = frozenset(
+        {
+            "schema_version",
+            "text",
+            "language",
+            "volume_percent",
+            "rate_wpm",
+            "expected_effect",
+        }
+    )
+
+    def _validate_arguments(self, arguments: dict[str, Any]) -> tuple[str, str] | None:
+        code = "LIMO_SPEECH_CONTRACT_INVALID"
+        text = arguments.get("text")
+        if (
+            not isinstance(text, str)
+            or not 1 <= len(text) <= 80
+            or text != text.strip()
+            or any(unicodedata.category(character).startswith("C") for character in text)
+        ):
+            return code, "Speech text must contain 1-80 bounded characters without controls"
+        if arguments.get("language") not in {"cmn", "en"}:
+            return code, "Speech language must be cmn or en"
+        volume = arguments.get("volume_percent")
+        rate = arguments.get("rate_wpm")
+        if isinstance(volume, bool) or not isinstance(volume, int) or not 10 <= volume <= 25:
+            return code, "volume_percent must be an integer within [10, 25]"
+        if isinstance(rate, bool) or not isinstance(rate, int) or not 120 <= rate <= 200:
+            return code, "rate_wpm must be an integer within [120, 200]"
+        if arguments.get("expected_effect") != {
+            "kind": "speaker_speech",
+            "playback_required": True,
+            "mixer_restore_required": True,
+            "microphone_loopback_required": True,
+            "content_recognition_required": False,
+        }:
+            return code, "Expected speech effect is not exact"
+        return None
+
+    def _worker_request(self, action: ActionEnvelope) -> dict[str, Any]:
+        return {
+            "protocol": "rosclaw.limo.worker.v1",
+            "operation": "SPEAK_TEXT",
+            "schema_version": self.schema,
+            "action_id": action.action_id,
+            "body_id": action.body_id,
+            "body_snapshot_hash": action.body_snapshot_hash,
+            "text": action.arguments["text"],
+            "language": action.arguments["language"],
+            "volume_percent": action.arguments["volume_percent"],
+            "rate_wpm": action.arguments["rate_wpm"],
+        }
+
+    def _validate_result(self, action: ActionEnvelope, result: dict[str, Any]) -> str | None:
+        if (
+            result.get("protocol") != "rosclaw.limo.worker.v1"
+            or result.get("action_id") != action.action_id
+            or result.get("operation") != "SPEAK_TEXT"
+            or result.get("accepted") is not True
+            or result.get("mixer_restored") is not True
+        ):
+            return "Worker acknowledgement did not match the speech action"
+        if (
+            result.get("language") != action.arguments["language"]
+            or result.get("volume_percent") != action.arguments["volume_percent"]
+            or result.get("rate_wpm") != action.arguments["rate_wpm"]
+            or result.get("text_character_count") != len(action.arguments["text"])
+            or result.get("text_sha256")
+            != "sha256:" + hashlib.sha256(action.arguments["text"].encode("utf-8")).hexdigest()
+        ):
+            return "Speech synthesis acknowledgement parameters do not match"
+        backend = result.get("playback_backend")
+        device = result.get("device")
+        if (
+            backend not in {"alsa", "pulseaudio"}
+            or not isinstance(device, str)
+            or (backend == "alsa" and not device.startswith("plughw:"))
+            or (backend == "pulseaudio" and not device.startswith("pulse:alsa_output.usb-"))
+        ):
+            return "Speech audio backend acknowledgement is missing or invalid"
+        if (
+            not isinstance(result.get("frame_count"), int)
+            or result["frame_count"] < 1
+            or not isinstance(result.get("sample_rate_hz"), int)
+            or result["sample_rate_hz"] < 8000
+        ):
+            return "Speech PCM acknowledgement is missing"
+        expected_peak = round(0.9 * action.arguments["volume_percent"] / 100.0, 4)
+        try:
+            digital_peak = float(result["digital_peak_scale"])
+        except (KeyError, TypeError, ValueError):
+            return "Speech PCM peak acknowledgement is malformed"
+        if (
+            result.get("volume_mapping") != "normalized_pcm_linear_percent"
+            or result.get("reference_output_gain_percent") != 100
+            or not math.isclose(digital_peak, expected_peak, rel_tol=1e-6, abs_tol=1e-6)
+            or not isinstance(result.get("original_output_state"), dict)
+        ):
+            return "Speech output-gain acknowledgement is missing or invalid"
+        loopback = result.get("acoustic_loopback")
+        if result.get("acoustic_loopback_detected") is not True or not isinstance(loopback, dict):
+            return "Onboard microphone did not observe synthesized speech"
+        if (
+            loopback.get("detected") is not True
+            or loopback.get("sensor") != "onboard_usb_microphone"
+            or loopback.get("content_recognition_performed") is not False
+            or loopback.get("audio_retained") is not False
+            or loopback.get("audio_content_returned") is not False
+            or not isinstance(loopback.get("baseline"), dict)
+            or not isinstance(loopback.get("during_playback"), dict)
+            or not isinstance(loopback.get("thresholds"), dict)
+        ):
+            return "Speech microphone loopback acknowledgement is missing or invalid"
+        try:
+            rms_gain = float(loopback["rms_gain_db"])
+            observed_rms = float(loopback["during_playback"]["rms_dbfs"])
+            minimum_rms = float(loopback["thresholds"]["minimum_rms_dbfs"])
+            minimum_gain = float(loopback["thresholds"]["minimum_gain_db"])
+        except (KeyError, TypeError, ValueError):
+            return "Speech microphone metrics are malformed"
+        if not all(
+            math.isfinite(value) for value in (rms_gain, observed_rms, minimum_rms, minimum_gain)
+        ):
+            return "Speech microphone metrics are not finite"
+        if (
+            minimum_rms != -45.0
+            or minimum_gain != 8.0
+            or observed_rms < minimum_rms
+            or rms_gain < minimum_gain
+        ):
+            return "Speech microphone evidence does not satisfy the fixed thresholds"
+        return None
+
+    def _success_result(
+        self, action: ActionEnvelope, result: dict[str, Any]
+    ) -> ActionExecutionResult:
+        return ActionExecutionResult(
+            final_state=ActionState.COMPLETED,
+            evidence_level=EvidenceLevel.TASK_VERIFIED,
+            policy_decision={
+                "allowed": True,
+                "policy": self.policy_name,
+                "reason": "bounded TTS, acoustic loopback, and mixer-restore contract passed",
+            },
+            authorization_decision={
+                "authorized": action.authorization.approved,
+                "approval_id": action.authorization.approval_id,
+            },
+            dispatch_result={
+                "accepted": True,
+                "adapter": self.instance.adapter.component_id,
+                "operation": "SPEAK_TEXT",
+                "device": result["device"],
+            },
+            driver_ack={
+                "acknowledged": True,
+                "playback_backend": result["playback_backend"],
+                "frame_count": result["frame_count"],
+                "sample_rate_hz": result["sample_rate_hz"],
+                "mixer_restored": True,
+                "text_sha256": result["text_sha256"],
+                "text_character_count": result["text_character_count"],
+                "acoustic_loopback_detected": True,
+            },
+            observations=[
+                {
+                    "kind": "speaker_speech_driver_ack",
+                    "language": result["language"],
+                    "rate_wpm": result["rate_wpm"],
+                    "volume_percent": result["volume_percent"],
+                    "text_sha256": result["text_sha256"],
+                    "text_character_count": result["text_character_count"],
+                    "started_wall_time": result["started_wall_time"],
+                    "completed_wall_time": result["completed_wall_time"],
+                    "human_hearing_confirmed": False,
+                    "content_recognition_performed": False,
+                    "acoustic_loopback": result["acoustic_loopback"],
+                }
+            ],
+            verification_result={
+                "success": True,
+                "predicate": (
+                    "eSpeak-NG synthesized the approved text, the fixed USB backend completed "
+                    "playback, the onboard microphone observed bounded acoustic energy, and "
+                    "the prior output state was restored; linguistic content was not recognized"
+                ),
+                "acoustic_output_independently_observed": True,
+                "content_recognition_performed": False,
+                "observer": "onboard_usb_microphone",
+                "rms_gain_db": result["acoustic_loopback"]["rms_gain_db"],
+                "observed_rms_dbfs": result["acoustic_loopback"]["during_playback"]["rms_dbfs"],
+                "human_hearing_confirmed": False,
+            },
+        )
+
+
 class _LimoFixedWorkerShadowExecutor:
     """Contract-only SHADOW preview for a fixed LIMO worker."""
 
@@ -1176,6 +1477,11 @@ class LimoNavigationShadowExecutor(_LimoFixedWorkerShadowExecutor):
 class LimoToneShadowExecutor(_LimoFixedWorkerShadowExecutor):
     def __init__(self, instance: RobotInstanceConfig, *, adapter_source: Path) -> None:
         super().__init__(LimoToneExecutor(instance, adapter_source=adapter_source))
+
+
+class LimoSpeechShadowExecutor(_LimoFixedWorkerShadowExecutor):
+    def __init__(self, instance: RobotInstanceConfig, *, adapter_source: Path) -> None:
+        super().__init__(LimoSpeechExecutor(instance, adapter_source=adapter_source))
 
 
 def load_daemon_robot_pack(
@@ -1295,6 +1601,15 @@ def load_daemon_robot_pack(
                 capability.id,
                 ExecutionMode.SHADOW,
                 LimoToneShadowExecutor(instance, adapter_source=limo_adapter_source),
+            )
+            registered.append(f"{capability.id}:SHADOW")
+        elif capability.id == "limo.speak_text" and capability.safety_class == "actuation":
+            assert limo_adapter_source is not None
+            executor = LimoSpeechExecutor(instance, adapter_source=limo_adapter_source)
+            runtime.action_gateway.register_executor(
+                capability.id,
+                ExecutionMode.SHADOW,
+                LimoSpeechShadowExecutor(instance, adapter_source=limo_adapter_source),
             )
             registered.append(f"{capability.id}:SHADOW")
         else:

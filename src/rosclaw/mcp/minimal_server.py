@@ -23,7 +23,7 @@ import sys
 from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
+from mcp.types import TextContent, Tool, ToolAnnotations
 
 from rosclaw.agent_runtime.mcp_hub import MCPHub
 from rosclaw.core.event_bus import EventBus
@@ -49,13 +49,19 @@ class ROSClawMinimalMCPServer:
     def _register_handlers(self) -> None:
         @self.server.list_tools()
         async def list_tools() -> list[Tool]:
+            from rosclaw.agent.tool_catalog import MCP_TOOL_SAFETY_LEVELS
+
             tools = []
             for _name, spec in self.hub._tools.items():
+                level = MCP_TOOL_SAFETY_LEVELS.get(spec["name"], "")
                 tools.append(
                     Tool(
                         name=spec["name"],
                         description=spec["description"],
                         inputSchema=spec["inputSchema"],
+                        annotations=ToolAnnotations(
+                            readOnlyHint=level.startswith(("S0", "S2"))
+                        ),
                     )
                 )
             # Add system-level tools
@@ -78,14 +84,17 @@ class ROSClawMinimalMCPServer:
                 ]
 
     def _system_tools(self) -> list[Tool]:
+        read_only = ToolAnnotations(readOnlyHint=True)
         return [
             Tool(
                 name="system.list_robots",
+                annotations=read_only,
                 description="List all available robots in the e-URDF-Zoo registry",
                 inputSchema={"type": "object", "properties": {}},
             ),
             Tool(
                 name="system.list_providers",
+                annotations=read_only,
                 description="List all registered capability providers (llm, vlm, skill, critic, etc.)",
                 inputSchema={"type": "object", "properties": {}},
             ),
@@ -126,6 +135,7 @@ class ROSClawMinimalMCPServer:
             ),
             Tool(
                 name="system.query_memory",
+                annotations=read_only,
                 description="Query ROSClaw Memory for past experiences, failures, or success patterns",
                 inputSchema={
                     "type": "object",
@@ -146,6 +156,7 @@ class ROSClawMinimalMCPServer:
             ),
             Tool(
                 name="system.explain_failure",
+                annotations=read_only,
                 description="Explain the most recent failure and get recovery suggestions from Memory/How",
                 inputSchema={
                     "type": "object",
@@ -177,6 +188,7 @@ class ROSClawMinimalMCPServer:
             ),
             Tool(
                 name="system.get_version",
+                annotations=read_only,
                 description="Get ROSClaw version and system status",
                 inputSchema={"type": "object", "properties": {}},
             ),

@@ -8,7 +8,17 @@
   "capability_id": "limo.set_initial_pose",
   "arguments": {
     "schema_version": "limo.initial-pose.v1",
-    "target_pose": {"frame_id": "map", "x": 0.0, "y": 0.0, "yaw": 0.0}
+    "target_pose": {"frame_id": "map", "x": 0.0, "y": 0.0, "yaw": 0.0},
+    "route_policy_id": "lab-default",
+    "route_policy_hash": "replace-with-readiness-policy-hash",
+    "map_id": "replace-with-readiness-map-id",
+    "map_image_hash": "replace-with-readiness-map-image-hash",
+    "covariance_diagonal": [0.25, 0.25, 0.0, 0.0, 0.0, 0.0685],
+    "expected_effect": {
+      "kind": "localization_initialized",
+      "final_frame": "map",
+      "map_to_odom_required": true
+    }
   },
   "execution_mode": "REAL",
   "risk_class": "high"

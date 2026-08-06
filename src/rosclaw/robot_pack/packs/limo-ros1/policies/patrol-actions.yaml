@@ -1,9 +1,10 @@
 schema_version: rosclaw.robot_policy.v1
 id: limo-patrol-actions
-applies_to: [limo.navigate_to_pose, limo.play_tone]
+applies_to: [limo.navigate_to_pose, limo.play_tone, limo.speak_text]
 allow:
   - map_validated_navigation_goal
   - fixed_synthesized_tone
+  - bounded_synthesized_speech
 deny:
   - arbitrary_ros_action
   - arbitrary_ros_publish
@@ -28,6 +29,14 @@ real_execution:
     volume_percent: [5, 25]
     mixer_restore_required: true
     microphone_loopback_required: true
+  speech:
+    languages: [cmn, en]
+    text_characters: [1, 80]
+    rate_wpm: [120, 200]
+    volume_percent: [10, 25]
+    mixer_restore_required: true
+    microphone_loopback_required: true
+    content_recognition_required: false
 failure:
   default: fail_closed
   missing_ros_preflight: block

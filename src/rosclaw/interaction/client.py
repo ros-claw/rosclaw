@@ -20,6 +20,17 @@ class InteractionClient:
             raise RuntimeError("ROSClaw returned a non-object interaction result")
         return result
 
+    async def defer_action(self, prepared: Any, **kwargs: Any) -> dict[str, Any]:
+        """Create a pending proposal without granting the Agent decision authority."""
+
+        defer = getattr(self._backend, "defer_operator_action", None)
+        if not callable(defer):
+            raise RuntimeError("ROSClaw backend has no Operator Broker proposal adapter")
+        result = await defer(prepared, **kwargs)
+        if not isinstance(result, dict):
+            raise RuntimeError("ROSClaw returned a non-object pending proposal result")
+        return result
+
     async def cancel_action(self, action_id: str) -> None:
         cancel = getattr(self._backend, "cancel_action", None)
         if callable(cancel):

@@ -7,6 +7,38 @@
 Ground Agent intent into a body, authorize and execute through a daemon-owned
 control plane, verify physical outcomes, and return auditable receipts.
 
+## Target Shape (Native Agent / Worker Fabric / Team Fabric)
+
+ROSClaw is evolving from a pure execution runtime into an **embodied Agent OS**
+(实施总纲 v1.0, 2026-08-01; decisions frozen in [docs/adr/](docs/adr/README.md)):
+
+- `rosclaw-agentd` — ROSClaw-owned Native Agent process: identity, mission
+  sessions, task graphs, embodied context, cognitive workers, team client.
+  Runs as an unprivileged user process; holds **no** hardware authority
+  (ADR-0001, ADR-0002).
+- `rosclawd` — remains the **only** physical execution and authorization
+  boundary. Every real action is independently verified by the daemon
+  (ADR-0006).
+- Worker Fabric — Codex, Claude Code, PicoClaw, ZeroClaw, native/tool/human
+  workers are managed, auditable, replaceable contractors (ADR-0003).
+- Team Fabric — multi-robot membership, epochs, role leases, shared world
+  state, and partition-degraded operation (ADR-0004).
+
+Non-goals for the first release: generic chat channels/plugin marketplaces,
+foundation models, SLAM/realtime controllers, LLM-in-the-servo-loop, and
+agent self-authorization.
+
+### Module maturity labels
+
+| Module | Maturity | Note |
+|---|---|---|
+| `rosclaw.swarm` | `experimental_legacy` | frozen; replaced by `rosclaw.team` (ADR-0004) |
+| `rosclaw.agent_runtime.ai_collaboration` / `llm_provider` | `experimental_legacy` | frozen; replaced by agentd ContextCompiler/ModelGateway (ADR-0005) |
+| `rosclaw.contracts.*` | `experimental` | versioned cross-process contracts (schema v1 freeze in PR-NA-010) |
+| `rosclaw.agentd.*` | `experimental` | Native Agent core |
+| `rosclaw.team.*` | `experimental` | Team Fabric control plane |
+| `rosclaw.operator.*` | `experimental` | Operator Broker / MissionGrant |
+
 ## Engineering Identity
 
 ```text

@@ -1,0 +1,46 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.ui.command_result.v1",
+      "default": "rosclaw.ui.command_result.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "request_id": {
+      "title": "Request Id",
+      "type": "string"
+    },
+    "command_name": {
+      "title": "Command Name",
+      "type": "string"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "message": {
+      "default": "",
+      "title": "Message",
+      "type": "string"
+    },
+    "data": {
+      "additionalProperties": true,
+      "title": "Data",
+      "type": "object"
+    },
+    "error_code": {
+      "default": "",
+      "title": "Error Code",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "command_name",
+    "ok"
+  ],
+  "title": "rosclaw.ui.command_result.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.ui.command_result.v1"
+}
