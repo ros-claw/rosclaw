@@ -26,6 +26,9 @@ async function collectHandlers() {
 		contextRevision: 0,
 		mode: "SIMULATION",
 		profile: "developer",
+		contextState: "LOADING",
+		leaseState: "NONE",
+		actionsAllowed: false,
 	});
 	const call = async () => ({ ok: false, error: "no bridge in test" });
 	const coordinator = new AgentSessionCoordinator({

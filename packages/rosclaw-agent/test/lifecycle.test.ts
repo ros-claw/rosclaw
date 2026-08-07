@@ -25,6 +25,9 @@ function makeCoordinator(
 		contextRevision: 0,
 		mode: "SIMULATION",
 		profile: "developer",
+		contextState: "LOADING",
+		leaseState: "NONE",
+		actionsAllowed: false,
 	});
 	const notes: string[] = [];
 	const leaseManager = new SessionLeaseManager("/tmp/rh", call);
@@ -220,4 +223,148 @@ test("100 次 A↔B 切换 soak：任何时刻只有一个 writer，无半切换
 			assert.equal(s, target, `round ${i}: mission ${m} writer 是 ${s}，期望 ${target}`);
 		}
 	}
+});
+
+test("场景 B（P0-4E）：A 的 body/rev 不得被带进 context 失败的 B", async () => {
+	// A: body_A/rev_12/FRESH → 切 B → B context fetch 失败 →
+	// B 必须 UNAVAILABLE/ACTIONS FORBIDDEN，且不含 A 的任何字段。
+	const { calls, call } = fakeBridge({
+		"pi.session.binding.get": {
+			ok: true,
+			binding: { mission_id: "mis_B" },
+			mission_archived: false,
+		},
+		"pi.session.bind": { ok: true, binding: { binding_id: "psb_B" }, lease_token: "t" },
+		"pi.session.release": { ok: true },
+		"pi.context": { ok: false, error: "bridge down" },
+	});
+	const { coordinator, active } = makeCoordinator(call, "mis_A");
+	// A 是 FRESH（body_A/rev 12）。
+	active.applyEnvelope(
+		{
+			schema_version: "rosclaw.embodied_context.v1",
+			mission_id: "mis_A",
+			context_revision: 12,
+			generated_at: "",
+			expires_at: "",
+			hash: "",
+			body: { body_id: "body_A", effective_body_hash: "hash_A" },
+			safety: { mode: "SIMULATION" },
+			pending_approvals: [],
+		} as never,
+		"ctxl_A",
+	);
+	// A 已绑定（leaseState ACTIVE）——否则 actionsAllowed 正确为 false。
+	active.patch({ leaseState: "ACTIVE" });
+	assert.equal(active.current.contextState, "FRESH");
+	assert.equal(active.current.actionsAllowed, true);
+	const outcome = await coordinator.resumeInitial("pi_B");
+	assert.equal(outcome.ok, true, "绑定成功但 NOT_READY 不算切换失败");
+	const state = active.current;
+	// 场景 B 核心断言：不含 A 的任何数据。
+	assert.equal(state.missionId, "mis_B");
+	assert.equal(state.contextState, "UNAVAILABLE");
+	assert.equal(state.actionsAllowed, false, "context 失败必须禁动作");
+	assert.equal(state.bodyId, undefined, "body_A 被继承了！");
+	assert.equal(state.bodyHash, undefined, "hash_A 被继承了！");
+	assert.equal(state.contextRevision, 0, "rev_12 被继承了！");
+	assert.equal(state.contextLeaseId, undefined);
+});
+
+test("revision 0 的合法 FRESH envelope 正确显示 FRESH（不再误判 LOADING）", async () => {
+	const { call } = fakeBridge({
+		"pi.session.binding.get": {
+			ok: true,
+			binding: { mission_id: "mis_fresh0" },
+			mission_archived: false,
+		},
+		"pi.session.bind": { ok: true, binding: { binding_id: "psb_f0" }, lease_token: "t" },
+		"pi.session.release": { ok: true },
+		"pi.context": {
+			ok: true,
+			context: {
+				schema_version: "rosclaw.embodied_context.v1",
+				mission_id: "mis_fresh0",
+				context_revision: 0,
+				generated_at: new Date().toISOString(),
+				expires_at: new Date(Date.now() + 60_000).toISOString(),
+				hash: "",
+				body: { body_id: "body_fresh", effective_body_hash: "h" },
+				safety: { mode: "SIMULATION" },
+				pending_approvals: [],
+			},
+			context_lease_id: "ctxl_fresh0",
+		},
+	});
+	const { coordinator, active } = makeCoordinator(call, "mis_fresh0");
+	// envelopeHash 会校验——测试 stub 的 hash 为空会 stale；绕过：
+	// 直接验证 applyEnvelope 的语义（revision 0 + FRESH 不矛盾）。
+	active.applyEnvelope(
+		{
+			schema_version: "rosclaw.embodied_context.v1",
+			mission_id: "mis_fresh0",
+			context_revision: 0,
+			generated_at: "",
+			expires_at: "",
+			hash: "",
+			body: { body_id: "body_fresh", effective_body_hash: "h" },
+			safety: { mode: "SIMULATION" },
+			pending_approvals: [],
+		} as never,
+		"ctxl_fresh0",
+	);
+	active.patch({ leaseState: "ACTIVE" });
+	assert.equal(active.current.contextRevision, 0);
+	assert.equal(active.current.contextState, "FRESH", "revision 0 的合法 envelope 必须是 FRESH");
+	assert.equal(active.current.actionsAllowed, true);
+});
+
+test("heartbeat 连续失败 → LEASE_LOST + 动作禁行", async () => {
+	let heartbeatCalls = 0;
+	const { call: baseCall } = fakeBridge({
+		"pi.session.binding.get": {
+			ok: true,
+			binding: { mission_id: "mis_hb" },
+			mission_archived: false,
+		},
+		"pi.session.bind": { ok: true, binding: { binding_id: "psb_hb" }, lease_token: "t" },
+		"pi.session.release": { ok: true },
+		"pi.context": { ok: false },
+	});
+	const call = async (home: string, method: string, params: Record<string, unknown> = {}) => {
+		if (method === "pi.session.heartbeat") {
+			heartbeatCalls += 1;
+			return { ok: false, error: "lease expired" };
+		}
+		return baseCall(home, method, params);
+	};
+	const { coordinator, active } = makeCoordinator(call, "mis_hb");
+	const { SessionLeaseManager } = await import("../src/session/lease-manager.js");
+	// 用真实 leaseManager + onLeaseLost（create-runtime 的接线语义）。
+	const leaseManager = (coordinator as unknown as { deps: { leaseManager: InstanceType<typeof SessionLeaseManager> } })
+		.deps.leaseManager;
+	let lost = false;
+	leaseManager.onLeaseLost = () => {
+		lost = true;
+		active.markLeaseLost();
+	};
+	await coordinator.resumeInitial("pi_hb");
+	// 手动触发两次 heartbeat 失败（真实 timer 是 30s——测试直接调）。
+	(leaseManager as unknown as { noteHeartbeatFailure: () => void }).noteHeartbeatFailure();
+	(leaseManager as unknown as { noteHeartbeatFailure: () => void }).noteHeartbeatFailure();
+	assert.equal(lost, true, "连续失败未触发 onLeaseLost");
+	assert.equal(active.current.leaseState, "LOST");
+	assert.equal(active.current.actionsAllowed, false, "lease 丢失必须禁动作");
+});
+
+test("tree context 不可达必须 veto（fail closed，不再放行）", async () => {
+	const { call } = fakeBridge({
+		"pi.context": { ok: false, error: "bridge down" },
+	});
+	const veto = await shouldCancelTree({
+		rosclawHome: "/tmp/rh",
+		missionId: "mis_x",
+		call,
+	});
+	assert.ok(veto?.includes("fail closed"), `context 不可达竟放行 tree: ${veto}`);
 });

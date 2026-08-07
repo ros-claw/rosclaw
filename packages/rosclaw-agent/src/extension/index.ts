@@ -51,18 +51,22 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			options.version,
 		);
 		let modelDisplay = "";
+		let refreshHeader: () => void = () => undefined;
+		let probeTimer: ReturnType<typeof setInterval> | null = null;
 		pi.on("session_start", async (_event, ctx) => {
 			if (!ctx.hasUI) return;
 			ctx.ui.setTitle(`ROSClaw Native Agent`);
-			const refreshHeader = () => {
+			refreshHeader = () => {
 				ctx.ui.setHeader((_tui, _theme) => new Text(renderHeader(uiState.snapshot(), modelDisplay)));
 			};
 			refreshHeader();
 			// 真实探测 operatord——结果回来后再刷一次（OFFLINE/READY/
 			// UNKNOWN 都是真实返回值，绝不硬编码 ready）。
 			void uiState.probeOperator().then(() => refreshHeader());
-			// 30s 周期复探——operatord 中途上线/掉线都要反映。
-			const probeTimer = setInterval(() => {
+			// 30s 周期复探（HOTFIX-3：timer 有明确生命周期——session
+			// shutdown 时清理，不积累）。
+			if (probeTimer !== null) clearInterval(probeTimer);
+			probeTimer = setInterval(() => {
 				void uiState.probeOperator().then(() => refreshHeader());
 			}, 30_000);
 			probeTimer.unref();
@@ -102,6 +106,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			if (display && display !== modelDisplay) {
 				modelDisplay = display;
 				uiState.noteContextChanged();
+				refreshHeader();
 			}
 			const missionId = options.active.current.missionId;
 			if (!missionId) {
@@ -117,6 +122,13 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				options.active.applyEnvelope(fetched.envelope, fetched.contextLeaseId);
 				// P0-NA-16：fresh envelope 到达 → header 从 LOADING 转 FRESH。
 				uiState.noteContextChanged();
+				refreshHeader();
+			} else {
+				// HOTFIX-3（P0-4E）：context 拉取失败/过期 → 立即标记
+				// STALE + 禁动作（不再有"revision 碰巧没变就能动作"）。
+				options.active.markContextStale(fetched.note);
+				uiState.noteContextChanged();
+				refreshHeader();
 			}
 			return {
 				systemPrompt: options.systemPrompt,
@@ -353,6 +365,12 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				return undefined;
 			});
 			pi.on("session_shutdown", async () => {
+				// HOTFIX-3：timer 生命周期——shutdown 清理 operator probe
+				// timer（不积累）+ mirror 落盘。
+				if (probeTimer !== null) {
+					clearInterval(probeTimer);
+					probeTimer = null;
+				}
 				await activeMirror.flush();
 				return undefined;
 			});
