@@ -114,3 +114,184 @@ class TestRequestActionChain:
         await operatord.stop()
         await agent_server.stop()
         await service.close()
+
+
+class TestAdmissionNegativeChain:
+    """三审 P0-NA-10/11/13 负向链：并发卡不串、revision/body/mode/lease
+    变化拒绝、无关 grant 不被消费。"""
+
+    async def _propose(self, service, mission, **overrides):
+        from rosclaw.agentd.pi_bridge.action_admission import (
+            ActionAdmissionService,
+            ActionRequestContext,
+        )
+
+        snapshot = service.snapshot(mission.mission_id)
+        ctx = ActionRequestContext(
+            pi_session_id=overrides.get("session", "pi_1"),
+            mission_id=mission.mission_id,
+            context_revision=overrides.get("revision", snapshot.context_revision),
+            body_hash=overrides.get(
+                "body_hash", mission.body_binding.effective_body_hash
+            ),
+            mode=overrides.get("mode", mission.mode.value),
+            idempotency_key=overrides.get("idem", "idem_neg"),
+        )
+        admission = ActionAdmissionService(service)
+        card = await admission.propose(
+            request=ctx,
+            capability_id="sim_ground_truth",
+            arguments={},
+            expected_effect="负向测试",
+            risk_tier="LOW",
+        )
+        return admission, ctx, card
+
+    async def test_two_concurrent_cards_exact_ids(self, tmp_path: Path) -> None:
+        """两张并发卡各有精确 ID——不取 pending 末尾、不串卡。"""
+        service, mission = await _setup(tmp_path)
+        _adm_a, _ctx_a, card_a = await self._propose(service, mission, idem="idem_a")
+        _adm_b, _ctx_b, card_b = await self._propose(service, mission, idem="idem_b")
+        assert card_a["approval_id"] != card_b["approval_id"]
+        pending = {r.request_id for r in service.pending_approvals(mission.mission_id)}
+        assert {card_a["approval_id"], card_b["approval_id"]} <= pending
+        # 每张卡的 display_hash 绑定各自内容。
+        assert card_a["display_hash"] != card_b["display_hash"]
+        await service.close()
+
+    async def test_stale_revision_execute_rejected_after_approve(
+        self, tmp_path: Path
+    ) -> None:
+        """approve 后 revision 变化（TOCTOU）——execute 必须拒绝。"""
+        import pytest
+
+        from rosclaw.agentd.pi_bridge.tool_dispatch import ToolBridgeError
+
+        service, mission, operatord, agent_server, sock = await _setup_with_operatord(
+            tmp_path
+        )
+        admission, ctx, card = await self._propose(service, mission, idem="idem_toctou")
+        # operator 批准这张卡。
+        listed = await operator_call(sock, "approvals.list", {"mission_id": mission.mission_id})
+        entry = next(a for a in listed["approvals"] if a["request_id"] == card["approval_id"])
+        decided = await operator_call(
+            sock,
+            "approvals.decide",
+            {"request_id": entry["request_id"],
+             "display_hash": entry["display_hash"], "approve": True},
+        )
+        assert decided.get("ok"), decided
+        # 批准后 revision 前进（模拟新观测/新 turn）。
+        service._store.bump_context_revision(mission.mission_id)
+        with pytest.raises(ToolBridgeError) as excinfo:
+            await admission.execute(card["approval_id"], request=ctx)
+        assert excinfo.value.code == "CONTEXT_REVISION_MISMATCH"
+        # grant 未被消费。
+        row = service._store.connection.execute(
+            "SELECT consumed FROM mission_grants WHERE request_id = ?",
+            (card["approval_id"],),
+        ).fetchone()
+        assert row is not None and row["consumed"] == 0
+        await operatord.stop()
+        await agent_server.stop()
+        await service.close()
+
+    async def test_unrelated_grant_never_consumed(self, tmp_path: Path) -> None:
+        """存在无关 grant 时，新 action 只消费本卡 grant。"""
+        service, mission, operatord, agent_server, sock = await _setup_with_operatord(
+            tmp_path
+        )
+        # 第一张卡：批准但故意不执行（留下未消费 grant A）。
+        admission, _ctx_a, card_a = await self._propose(service, mission, idem="idem_g1")
+        listed = await operator_call(sock, "approvals.list", {"mission_id": mission.mission_id})
+        entry_a = next(a for a in listed["approvals"] if a["request_id"] == card_a["approval_id"])
+        await operator_call(
+            sock, "approvals.decide",
+            {"request_id": entry_a["request_id"],
+             "display_hash": entry_a["display_hash"], "approve": True},
+        )
+        grant_a = service._store.connection.execute(
+            "SELECT grant_id FROM mission_grants WHERE request_id = ?",
+            (card_a["approval_id"],),
+        ).fetchone()["grant_id"]
+        # 第二张卡：批准并执行——只允许消费 grant B。
+        _adm2, ctx_b, card_b = await self._propose(service, mission, idem="idem_g2")
+        listed = await operator_call(sock, "approvals.list", {"mission_id": mission.mission_id})
+        entry_b = next(a for a in listed["approvals"] if a["request_id"] == card_b["approval_id"])
+        await operator_call(
+            sock, "approvals.decide",
+            {"request_id": entry_b["request_id"],
+             "display_hash": entry_b["display_hash"], "approve": True},
+        )
+        result = await admission.execute(card_b["approval_id"], request=ctx_b)
+        grant_b_row = service._store.connection.execute(
+            "SELECT grant_id, consumed FROM mission_grants WHERE request_id = ?",
+            (card_b["approval_id"],),
+        ).fetchone()
+        assert result["grant_id"] == grant_b_row["grant_id"]
+        assert result["grant_id"] != grant_a
+        # grant A 仍未被消费。
+        row_a = service._store.connection.execute(
+            "SELECT consumed FROM mission_grants WHERE grant_id = ?", (grant_a,)
+        ).fetchone()
+        assert row_a["consumed"] == 0
+        await operatord.stop()
+        await agent_server.stop()
+        await service.close()
+
+    async def test_body_hash_change_rejected(self, tmp_path: Path) -> None:
+        """body hash 变化 → propose 硬拒绝。"""
+        import pytest
+
+        from rosclaw.agentd.pi_bridge.tool_dispatch import ToolBridgeError
+
+        service, mission = await _setup(tmp_path)
+        with pytest.raises(ToolBridgeError) as excinfo:
+            await self._propose(service, mission, body_hash="body_tampered")
+        assert excinfo.value.code == "BODY_HASH_MISMATCH"
+        assert service.pending_approvals(mission.mission_id) == []
+        await service.close()
+
+    async def test_lease_lost_rejected(self, tmp_path: Path) -> None:
+        """writer lease 丢失 → propose 硬拒绝。"""
+        import pytest
+
+        from rosclaw.agentd.pi_bridge.tool_dispatch import ToolBridgeError
+
+        service, mission = await _setup(tmp_path)
+        # lease 过期（单 writer 语义下不能被抢——丢失只可能来自过期/崩溃）。
+        service._store.connection.execute(
+            "UPDATE pi_session_leases SET expires_at = ? WHERE mission_id = ?",
+            ("2000-01-01T00:00:00+00:00", mission.mission_id),
+        )
+        with pytest.raises(ToolBridgeError) as excinfo:
+            await self._propose(service, mission)
+        assert excinfo.value.code == "WRITER_LEASE_REQUIRED"
+        assert service.pending_approvals(mission.mission_id) == []
+        await service.close()
+
+    async def test_execute_replay_no_second_side_effect(self, tmp_path: Path) -> None:
+        """同一 approval 重放 execute——grant 已消费，拒绝第二次。"""
+        import pytest
+
+        from rosclaw.agentd.pi_bridge.tool_dispatch import ToolBridgeError
+
+        service, mission, operatord, agent_server, sock = await _setup_with_operatord(
+            tmp_path
+        )
+        admission, ctx, card = await self._propose(service, mission, idem="idem_replay")
+        listed = await operator_call(sock, "approvals.list", {"mission_id": mission.mission_id})
+        entry = next(a for a in listed["approvals"] if a["request_id"] == card["approval_id"])
+        await operator_call(
+            sock, "approvals.decide",
+            {"request_id": entry["request_id"],
+             "display_hash": entry["display_hash"], "approve": True},
+        )
+        first = await admission.execute(card["approval_id"], request=ctx)
+        assert first["grant_id"]
+        with pytest.raises(ToolBridgeError) as excinfo:
+            await admission.execute(card["approval_id"], request=ctx)
+        assert excinfo.value.code == "GRANT_CONSUMED"
+        await operatord.stop()
+        await agent_server.stop()
+        await service.close()

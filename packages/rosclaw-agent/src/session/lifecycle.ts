@@ -1,30 +1,25 @@
-/** Session 生命周期映射（PNA-6，规格 §13）。
+/** Session 生命周期映射（PNA-6 + 三审 P0-NA-12，规格 §13）。
  *
- * - session_start(reason=new|fork)：创建新 SIM Mission 并绑定（fork 记录
- *   来源 mission，authority 永不复制——authority 只存 agentd，Pi session
- *   里没有可复制的授权材料，结构性保证）；
- * - session_before_switch(resume)：目标 session 无绑定 → 自动新建
- *   SIM Mission 绑定（NEEDS_BINDING 的安全默认）；绑定 mission 已归档
- *   → 同样新建绑定；旧 binding 保持只读历史；
+ * 所有绑定变更都经 AgentSessionCoordinator 的单一事务：
+ * - session_start(reason=new|fork)：coordinator.beginNew（新 SIM
+ *   Mission + bind + heartbeat + fresh context + 原子状态替换）；
+ * - session_start(reason=resume)：coordinator.resumeInitial（既有绑定
+ *   重接；丢失/已归档 → 新建 SIM 绑定并明确告知）；
+ * - session_before_switch：只读预检（target 文件/头可读）——绑定动作
+ *   移到 session_start（此时 target 已是活动 session，id 无歧义；
+ *   此前在 before_switch 用当前 sessionId 查绑定是错的：event 里的
+ *   target 才是目标）；
  * - session_before_tree：有进行中动作/待决授权 → veto（fail closed，
  *   规格 §13.5：tree 不得回滚物理 lane）。
  */
 
-import { bridgeCall } from "../bridge/bridge-client.js";
-
-export type BridgeCallFn = (
-	home: string,
-	method: string,
-	params?: Record<string, unknown>,
-) => Promise<Record<string, unknown>>;
+import type { AgentSessionCoordinator } from "./coordinator.js";
 
 export interface LifecycleDeps {
-	rosclawHome: string;
-	/** 启动时绑定的 mission（--mission）；hook 内新绑定会更新它。 */
-	getMissionId: () => string | undefined;
-	setMissionId: (missionId: string) => void;
+	coordinator: AgentSessionCoordinator;
+	/** 切换前记录来源 mission（fork 只读历史用）。 */
+	coordinatorMissionId: () => string | undefined;
 	notify: (message: string, type?: "info" | "warning" | "error") => void;
-	call?: BridgeCallFn;
 }
 
 export function sessionIdOf(ctx: {
@@ -38,83 +33,58 @@ export async function handleSessionStart(
 	reason: string,
 	sessionId: string,
 ): Promise<void> {
-	const call = deps.call ?? bridgeCall;
-	if (reason !== "new" && reason !== "fork") return;
-	const sourceMissionId = deps.getMissionId();
-	const created = await call(deps.rosclawHome, "pi.mission.create", {
-		goal: reason === "fork" ? `fork of ${sourceMissionId ?? "session"}` : "pi session",
-		mode: "SIMULATION",
-	});
-	if (!created.ok) {
-		deps.notify(`新建 Mission 失败：${String(created.error ?? "")}`, "error");
-		return;
-	}
-	const missionId = String(created.mission_id);
-	const bound = await call(deps.rosclawHome, "pi.session.bind", {
-		pi_session_id: sessionId,
-		mission_id: missionId,
-	});
-	if (!bound.ok) {
-		deps.notify(
-			`绑定失败 [${String(bound.code ?? "")}]：${String(bound.error ?? "")}`,
-			"error",
+	if (reason === "new" || reason === "fork") {
+		const source = deps.coordinatorMissionId();
+		const outcome = await deps.coordinator.beginNew(
+			sessionId,
+			reason as "new" | "fork",
+			source,
 		);
+		if (!outcome.ok) {
+			deps.notify(outcome.reason, "error");
+		}
 		return;
 	}
-	deps.setMissionId(missionId);
-	deps.notify(
-		reason === "fork"
-			? `已 fork：新 SIM Mission ${missionId}（authority 不复制，来源 ${sourceMissionId ?? "—"} 仅作只读历史）`
-			: `新 Mission ${missionId}（SIMULATION）`,
-		"info",
-	);
+	if (reason === "resume") {
+		const outcome = await deps.coordinator.resumeInitial(sessionId);
+		if (!outcome.ok) {
+			deps.notify(outcome.reason, "error");
+		}
+		return;
+	}
+	// startup/reload：初始绑定由 main.ts 显式完成（--mission / --resume /
+	// --continue），此处不重复。
 }
 
 export async function shouldCancelSwitch(
-	deps: LifecycleDeps,
-	targetSessionId: string,
+	targetSessionFile: string | undefined,
+	readHeaderId: (file: string) => string | null,
 ): Promise<string | null> {
-	// resume/switch 前置检查。返回 veto 原因；null=放行（可能已完成新绑定）。
-	const call = deps.call ?? bridgeCall;
-	const looked = await call(deps.rosclawHome, "pi.session.binding.get", {
-		pi_session_id: targetSessionId,
-	});
-	if (!looked.ok) return `绑定查询失败：${String(looked.error ?? "")}`;
-	const binding = looked.binding as { mission_id?: string } | null;
-	if (binding && !looked.mission_archived) {
-		deps.setMissionId(String(binding.mission_id));
-		return null;
+	// 只读预检：target 必须存在且头可解析——绑定动作在 session_start。
+	if (!targetSessionFile) return null; // new：无 target 文件，放行
+	const headerId = readHeaderId(targetSessionFile);
+	if (headerId === null) {
+		return "目标 session 文件缺失或头损坏——拒绝切换（fail closed）";
 	}
-	// 绑定丢失或 mission 已归档：不猜——新建 SIM Mission 绑定（NEEDS_BINDING
-	// 的安全默认；规格 §13.3）。
-	const created = await call(deps.rosclawHome, "pi.mission.create", {
-		goal: `resume rebind (${targetSessionId.slice(0, 8)})`,
-		mode: "SIMULATION",
-	});
-	if (!created.ok) return `绑定丢失且新建 Mission 失败：${String(created.error ?? "")}`;
-	const bound = await call(deps.rosclawHome, "pi.session.bind", {
-		pi_session_id: targetSessionId,
-		mission_id: String(created.mission_id),
-	});
-	if (!bound.ok) return `rebind 失败：${String(bound.error ?? "")}`;
-	deps.setMissionId(String(created.mission_id));
-	deps.notify(
-		binding
-			? "原 Mission 已归档——已新建 SIM Mission 绑定（旧记录只读保留）"
-			: "该 session 无 Mission 绑定——已新建 SIM Mission 绑定",
-		"warning",
-	);
 	return null;
 }
 
-export async function shouldCancelTree(deps: LifecycleDeps): Promise<string | null> {
+export async function shouldCancelTree(deps: {
+	rosclawHome: string;
+	missionId?: string;
+	call?: (
+		home: string,
+		method: string,
+		params?: Record<string, unknown>,
+	) => Promise<Record<string, unknown>>;
+}): Promise<string | null> {
 	// tree navigation 前置：进行中动作/待决授权 → veto（§13.5 fail closed）。
-	const missionId = deps.getMissionId();
-	if (!missionId) return null;
+	if (!deps.missionId) return null;
+	const { bridgeCall } = await import("../bridge/bridge-client.js");
 	const call = deps.call ?? bridgeCall;
 	try {
 		const ctxResponse = await call(deps.rosclawHome, "pi.context", {
-			mission_id: missionId,
+			mission_id: deps.missionId,
 		});
 		if (!ctxResponse.ok) return null; // context 拉不到由注入层标 stale；tree 不背锅
 		const context = ctxResponse.context as {
