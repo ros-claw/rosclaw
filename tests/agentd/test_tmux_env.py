@@ -51,6 +51,9 @@ class TestTmuxEnvironment:
         )
         _tmux("kill-session", "-t", SESSION)
         try:
+            # CI 新版 tmux 会在 pane 里打印 extended-keys 警告遮挡 header——
+            # 显式打开（功能上我们也需要它：kitty 键盘协议）。
+            _tmux("set-option", "-g", "extended-keys", "on")
             # tmux server 有自己的环境——变量必须内联进 shell 命令。
             shell_cmd = (
                 f"ROSCLAW_HOME={home} TERM=screen-256color "
