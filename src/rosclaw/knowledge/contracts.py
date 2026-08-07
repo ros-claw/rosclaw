@@ -176,6 +176,35 @@ class AdviceRecommendationV2(StrictWireModel):
     safety_class: Literal["advisory"] = "advisory"
 
 
+class AdviceCandidateDecisionV1(StrictWireModel):
+    knowledge_unit_ids: list[str] = Field(min_length=1)
+    title: str = Field(min_length=1)
+    compatibility: Literal[
+        "compatible", "partially_compatible", "incompatible", "unknown"
+    ]
+    accepted: bool
+    reasons: list[str] = Field(min_length=1)
+    evidence_ids: list[str] = Field(min_length=1)
+
+
+class HowExplanationV1(StrictWireModel):
+    """Public decision evidence; deliberately excludes private reasoning."""
+
+    SCHEMA_VERSION: ClassVar[str] = "rosclaw.how.explanation.v1"
+
+    schema_version: Literal["rosclaw.how.explanation.v1"] = SCHEMA_VERSION
+    advice_id: str = Field(min_length=1)
+    mode: Literal["discover", "consult", "diagnose", "catalyze"]
+    reference_pack_id: str | None = None
+    knowledge_used: list[AdviceCandidateDecisionV1] = Field(default_factory=list)
+    knowledge_rejected: list[AdviceCandidateDecisionV1] = Field(default_factory=list)
+    compatibility_warnings: list[str] = Field(default_factory=list)
+    unknown_context: list[str] = Field(default_factory=list)
+    recommendation_basis: list[str] = Field(default_factory=list)
+    alternative_rejections: list[str] = Field(default_factory=list)
+    private_reasoning_disclosed: Literal[False] = False
+
+
 class HowAdviceBundleV2(StrictWireModel):
     SCHEMA_VERSION: ClassVar[str] = "rosclaw.how.advice.v2"
 
@@ -194,6 +223,7 @@ class HowAdviceBundleV2(StrictWireModel):
     unknowns: list[str] = Field(default_factory=list)
     abstained: bool = False
     abstention_reason: str | None = None
+    explanation: HowExplanationV1 | None = None
     created_at: datetime
 
     _created_aware = field_validator("created_at")(_aware)

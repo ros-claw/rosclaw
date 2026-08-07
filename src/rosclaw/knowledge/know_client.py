@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -50,6 +51,42 @@ class HttpKnowClient:
     def health(self) -> dict[str, Any]:
         payload = json.loads(self._request("GET", "/know/v2/health"))
         return {"transport": "service", **payload}
+
+    def doctor(self) -> dict[str, Any]:
+        return json.loads(self._request("GET", "/know/v2/doctor"))
+
+    def explain(
+        self, *, query: str, context: ReferenceContextV2, top_k: int = 10
+    ) -> dict[str, Any]:
+        return json.loads(
+            self._request(
+                "POST",
+                "/know/v2/explain",
+                {
+                    "query": query,
+                    "context": context.model_dump(mode="json", exclude_none=True),
+                    "top_k": top_k,
+                    "token_budget": 8_000,
+                },
+            )
+        )
+
+    def project_diff(
+        self, *, project_id: str, from_snapshot: str, to_snapshot: str
+    ) -> dict[str, Any]:
+        path = (
+            f"/know/v2/projects/{project_id}/diff?"
+            + urllib.parse.urlencode({"from": from_snapshot, "to": to_snapshot})
+        )
+        return json.loads(self._request("GET", path))
+
+    def refresh_source(self, *, source_id: str, apply: bool = False) -> dict[str, Any]:
+        return json.loads(
+            self._request("POST", f"/know/v2/sources/{source_id}/refresh", {"apply": apply})
+        )
+
+    def freeze(self, *, label: str) -> dict[str, Any]:
+        return json.loads(self._request("POST", "/know/v2/freeze", {"label": label}))
 
     def research(self, request: ResearchRequestV2) -> dict[str, Any]:
         return json.loads(
@@ -98,6 +135,43 @@ class InProcessKnowClient:
         capabilities = self.store.capabilities.model_dump(mode="json")
         return {"status": "ok", "transport": "inprocess", "store": capabilities}
 
+    def doctor(self) -> dict[str, Any]:
+        from rosclaw_know.operations import doctor
+
+        return doctor(self.store)
+
+    def explain(
+        self, *, query: str, context: ReferenceContextV2, top_k: int = 10
+    ) -> dict[str, Any]:
+        from rosclaw_know.contracts import ReferenceContextV2 as KnowReferenceContextV2
+
+        external = KnowReferenceContextV2.validate_wire_json(context.to_wire_json())
+        return self.builder.explain(query=query, context=external, top_k=top_k).model_dump(
+            mode="json"
+        )
+
+    def project_diff(
+        self, *, project_id: str, from_snapshot: str, to_snapshot: str
+    ) -> dict[str, Any]:
+        from rosclaw_know.operations import project_diff
+
+        return project_diff(
+            self.store,
+            project_id=project_id,
+            from_snapshot=from_snapshot,
+            to_snapshot=to_snapshot,
+        )
+
+    def refresh_source(self, *, source_id: str, apply: bool = False) -> dict[str, Any]:
+        from rosclaw_know.operations import refresh_source
+
+        return asyncio.run(refresh_source(self.store, source_id=source_id, apply=apply))
+
+    def freeze(self, *, label: str) -> dict[str, Any]:
+        from rosclaw_know.operations import freeze
+
+        return freeze(self.store, label=label).model_dump(mode="json")
+
     def research(self, request: ResearchRequestV2) -> dict[str, Any]:
         from rosclaw_know.contracts import ResearchRequestV2 as KnowResearchRequestV2
         from rosclaw_know.sources import (
@@ -138,6 +212,21 @@ class DisabledKnowClient:
         return {"status": "disabled", "transport": "disabled"}
 
     def research(self, request: ResearchRequestV2) -> dict[str, Any]:
+        raise KnowUnavailableError("Know is disabled")
+
+    def doctor(self) -> dict[str, Any]:
+        return {"status": "disabled", "transport": "disabled"}
+
+    def explain(self, **kwargs: Any) -> dict[str, Any]:
+        raise KnowUnavailableError("Know is disabled")
+
+    def project_diff(self, **kwargs: Any) -> dict[str, Any]:
+        raise KnowUnavailableError("Know is disabled")
+
+    def refresh_source(self, **kwargs: Any) -> dict[str, Any]:
+        raise KnowUnavailableError("Know is disabled")
+
+    def freeze(self, **kwargs: Any) -> dict[str, Any]:
         raise KnowUnavailableError("Know is disabled")
 
     def reference_pack(self, **kwargs: Any) -> ReferencePackV2:

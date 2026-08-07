@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .contracts import HowAdviceRequestV2, ReferenceContextV2, ResearchRequestV2
+from .policy import bounded_research_request
 
 TOOL_DEFINITIONS: tuple[dict[str, Any], ...] = (
     {
@@ -50,6 +51,25 @@ TOOL_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "read_only": True,
         "advisory": True,
     },
+    {
+        "name": "rosclaw_knowledge_route_intent",
+        "description": "Classify an intent by Body/Memory/Know/How/Skill/Action ownership.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"intent": {"type": "string", "minLength": 1}},
+            "required": ["intent"],
+            "additionalProperties": False,
+        },
+        "read_only": True,
+        "advisory": False,
+    },
+    {
+        "name": "rosclaw_knowledge_active_references",
+        "description": "Read bounded opaque IDs for active packs, projects, and evidence.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "read_only": True,
+        "advisory": False,
+    },
 )
 
 
@@ -62,7 +82,9 @@ class KnowledgeAgentTools:
 
     def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if name == "rosclaw_know_research":
-            return self.facade.research(arguments)
+            return self.facade.research(
+                bounded_research_request(arguments, agent_default=True)
+            )
         if name == "rosclaw_know_build_reference_pack":
             pack = self.facade.reference_pack(
                 query=arguments["query"],
@@ -80,4 +102,8 @@ class KnowledgeAgentTools:
             )
         if name == "rosclaw_how_advice":
             return self.facade.advise(arguments).model_dump(mode="json")
+        if name == "rosclaw_knowledge_route_intent":
+            return self.facade.route_intent(arguments["intent"]).model_dump(mode="json")
+        if name == "rosclaw_knowledge_active_references":
+            return self.facade.active_references()
         raise KeyError(f"unknown knowledge tool: {name}")

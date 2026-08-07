@@ -44,6 +44,12 @@ class HttpHowClient:
     def health(self) -> dict[str, Any]:
         return json.loads(self._request("GET", "/how/v2/health"))
 
+    def doctor(self) -> dict[str, Any]:
+        return json.loads(self._request("GET", "/how/v2/doctor"))
+
+    def explain(self, advice_id: str) -> dict[str, Any]:
+        return json.loads(self._request("GET", f"/how/v2/advice/{advice_id}/explain"))
+
     def advise(self, request: HowAdviceRequestV2) -> HowAdviceBundleV2:
         raw = self._request("POST", "/how/v2/advice", request.model_dump(mode="json"))
         return HowAdviceBundleV2.validate_wire_json(raw)
@@ -68,6 +74,7 @@ class InProcessHowClient:
             health_provider=know_client.health,
         )
         self.engine = AdviceEngine(external_know)
+        self._advice: dict[str, HowAdviceBundleV2] = {}
 
     def health(self) -> dict[str, Any]:
         return {
@@ -78,12 +85,36 @@ class InProcessHowClient:
             "know": self.engine.know_client.health(),
         }
 
+    def doctor(self) -> dict[str, Any]:
+        return {
+            "schema_version": "rosclaw.how.doctor.v1",
+            "status": "ok",
+            "know_reachable": True,
+            "reference_pack_protocol": "rosclaw.know.reference_pack.v2",
+            "advice_store": {"backend": "bounded_process_memory", "durable": False},
+            "pack_cache": {},
+            "stale_policy": {"stale": "requires_revalidation"},
+            "feedback_channel": "forwarded_to_know_governance",
+            "memory_separation": True,
+            "action_authority": False,
+        }
+
     def advise(self, request: HowAdviceRequestV2) -> HowAdviceBundleV2:
         from rosclaw_how.v2 import HowAdviceRequestV2 as ExternalAdviceRequestV2
 
         external = ExternalAdviceRequestV2.validate_wire_json(request.to_wire_json())
         advice = self.engine.advise(external)
-        return HowAdviceBundleV2.validate_wire_json(advice.model_dump_json())
+        validated = HowAdviceBundleV2.validate_wire_json(advice.model_dump_json())
+        self._advice[validated.advice_id] = validated
+        return validated
+
+    def explain(self, advice_id: str) -> dict[str, Any]:
+        advice = self._advice.get(advice_id)
+        if advice is None:
+            raise HowUnavailableError(f"advice not found: {advice_id}")
+        if advice.explanation is None:
+            raise HowUnavailableError(f"advice has no structured explanation: {advice_id}")
+        return advice.explanation.model_dump(mode="json")
 
     def submit_feedback(self, feedback: KnowledgeUsageFeedbackV1) -> bool:
         from rosclaw_how.v2 import KnowledgeUsageFeedbackV1 as ExternalFeedbackV1
@@ -116,6 +147,16 @@ def _external_reference_pack(know_client: Any, **kwargs: Any):
 class DisabledHowClient:
     def health(self) -> dict[str, Any]:
         return {"status": "disabled", "transport": "disabled", "advisory_only": True}
+
+    def doctor(self) -> dict[str, Any]:
+        return {
+            "status": "disabled",
+            "transport": "disabled",
+            "action_authority": False,
+        }
+
+    def explain(self, advice_id: str) -> dict[str, Any]:
+        raise HowUnavailableError("How is disabled")
 
     def advise(self, request: HowAdviceRequestV2) -> HowAdviceBundleV2:
         raise HowUnavailableError("How is disabled")
