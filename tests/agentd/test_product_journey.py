@@ -444,7 +444,7 @@ class TestProductJourney:
                 assert operatord.poll() is None, "operatord 启动失败"
                 time.sleep(0.2)
             assert (home / "run" / "operatord.sock").exists(), "operatord.sock 未出现"
-            self._run_journey(rosclaw, env, home)
+            self._run_journey(rosclaw, env, home, fake)
         finally:
             operatord.terminate()
             try:
@@ -452,6 +452,36 @@ class TestProductJourney:
             except subprocess.TimeoutExpired:
                 operatord.kill()
             fake.close()
+
+    def _assert_no_reasoning_replay(
+        self, fake: FakeModelServer, home: Path, *, from_index: int
+    ) -> None:
+        """P0-4G TranscriptPolicy 验收：SECRET_PROBE 回合后，任何 provider
+        请求（live replay）、session 持久化文件、后续 resume 回放都不得
+        再出现 raw reasoning marker。
+
+        from_index=2：req0=你好、req1=SECRET_PROBE 自身（marker 由 fake
+        注入在响应里，请求里没有）——从 req2 起的历史消息必须零命中。
+        """
+        # 1. live replay：req[from_index:] 的任何字段不得含 marker。
+        for i, body in enumerate(fake.fake.requests[from_index:], start=from_index):
+            blob = json.dumps(body, ensure_ascii=False)
+            assert REASONING_MARKER not in blob, (
+                f"req{i} 的 provider 请求仍携带 raw reasoning marker"
+            )
+        # 2. session 持久化：Pi session JSONL 不得含 marker。
+        sessions_dir = home / "agent" / "sessions"
+        assert sessions_dir.exists(), "session 目录不存在"
+        for session_file in sessions_dir.glob("*.jsonl"):
+            content = session_file.read_text(encoding="utf-8", errors="replace")
+            assert REASONING_MARKER not in content, (
+                f"session 文件 {session_file.name} 持久化了 raw reasoning"
+            )
+            # 结构性断言：不得有 thinking/reasoning 字段变体。
+            for forbidden in ("reasoning_content", "redacted_thinking"):
+                assert forbidden not in content, (
+                    f"session 文件 {session_file.name} 含 {forbidden} 字段"
+                )
 
     def _assert_grant_consumed(self, home: Path) -> None:
         """授权→执行闭环（P0-NA-13）：直接解析 DB/事件里的结构化证据，
@@ -504,7 +534,9 @@ class TestProductJourney:
         finally:
             db.close()
 
-    def _run_journey(self, rosclaw: Path, env: dict[str, str], home: Path) -> None:
+    def _run_journey(
+        self, rosclaw: Path, env: dict[str, str], home: Path, fake: FakeModelServer
+    ) -> None:
         # NA-FIX-9 后默认引擎即 Native Agent——旅程显式验证无 --engine 的默认路径。
         session = PtySession([str(rosclaw), "chat"], env)
         try:
@@ -517,9 +549,8 @@ class TestProductJourney:
             # P0-NA-16：产品版本（launcher 传入），不是内部 npm 子包版本。
             from rosclaw import __version__ as _product_version
 
-            assert f"ROSClaw {_product_version}".encode() in session.output, (
-                f"header 未显示产品版本 {_product_version}；尾部: {session.output[-300:]!r}"
-            )
+            # header 在 operator probe 后重绘——等版本出现（不是瞬时断言）。
+            session.expect(f"ROSClaw {_product_version}".encode(), timeout=60)
             assert b"v0.1.0" not in session.output, "内部子包版本冒充产品版本"
             # Operator 状态必须是真实探测值（READY/OFFLINE/UNKNOWN），
             # 不是硬编码字符串。
@@ -540,6 +571,10 @@ class TestProductJourney:
             # 5. delegate worker。
             session.send("请委派 worker 总结这段日志\r")
             session.expect("Worker 结果已收到并验证".encode(), timeout=180)
+            # P0-4G（TranscriptPolicy）：SECRET_PROBE 回合后，任何后续
+            # provider 请求都不得携带 raw reasoning marker——live replay、
+            # session 持久化、resume 回放全链路零命中（四审核心反证点）。
+            self._assert_no_reasoning_replay(fake, home, from_index=2)
             # 6. request SIM action → 卡片 → Y。
             session.send("请播放提示音\r")
             session.expect("等待 Operator 决定".encode(), timeout=120)

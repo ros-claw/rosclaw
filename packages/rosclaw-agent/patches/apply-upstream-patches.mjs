@@ -1,21 +1,19 @@
-/** 上游薄补丁应用器（NA-FIX-3）：patch-package 风格。
+/** 上游薄补丁应用器（NA-FIX-3 + HOTFIX-4）：patch-package 风格。
  *
  * 每个补丁：anchor（必须精确存在）→ replacement。锚点缺失即硬失败——
  * 静默不生效比构建失败更危险。
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const target = join(
-	here, "..", "node_modules", "@earendil-works", "pi-coding-agent",
-	"dist", "modes", "interactive", "interactive-mode.js",
-);
+const T = (...parts) => join(here, "..", "node_modules", ...parts);
 
 const PATCHES = [
 	{
+		target: T("@earendil-works", "pi-coding-agent", "dist", "modes", "interactive", "interactive-mode.js"),
 		name: "patch-01: rosclaw resume command formatter",
 		anchor:
 			"    const args = [APP_NAME];\n" +
@@ -34,6 +32,7 @@ const PATCHES = [
 			"    args.push(\"--session\", sessionManager.getSessionId());",
 	},
 	{
+		target: T("@earendil-works", "pi-coding-agent", "dist", "modes", "interactive", "interactive-mode.js"),
 		name: "patch-02: builtin command policy guard",
 		anchor:
 			"            text = text.trim();\n" +
@@ -54,21 +53,114 @@ const PATCHES = [
 			"              } }\n" +
 			"            // Handle commands",
 	},
+	// -- HOTFIX-4：TranscriptPolicy（P0-4G）-------------------------------------
+	// raw reasoning（thinking blocks / reasoning_content / redacted_thinking）
+	// 只作内存瞬态进度——写 session 前剥离；resume/replay/export 不再回放。
+	{
+		target: T("@earendil-works", "pi-coding-agent", "dist", "core", "session-manager.js"),
+		name: "patch-03: transcript policy — strip raw reasoning on write",
+		anchor:
+			"    appendMessage(message) {\n" +
+			"        const entry = {\n" +
+			"            type: \"message\",\n" +
+			"            id: generateId(this.byId),\n" +
+			"            parentId: this.leafId,\n" +
+			"            timestamp: new Date().toISOString(),\n" +
+			"            message,\n" +
+			"        };",
+		replacement:
+			"    appendMessage(message) {\n" +
+			"        // ROSCLAW-PATCH-03: TranscriptPolicy——raw reasoning 不持久化。\n" +
+			"        // thinking/reasoning 只用于内存瞬态进度；写 session 前剥离\n" +
+			"        // （thinking blocks + provider reasoning 字段变体）。\n" +
+			"        if (message && message.role === \"assistant\") {\n" +
+			"            const clone = { ...message };\n" +
+			"            delete clone.reasoning_content;\n" +
+			"            delete clone.reasoning;\n" +
+			"            delete clone.reasoning_text;\n" +
+			"            delete clone.redacted_thinking;\n" +
+			"            delete clone.thinking;\n" +
+			"            if (Array.isArray(clone.content)) {\n" +
+			"                clone.content = clone.content.filter((block) => {\n" +
+			"                    const t = block && block.type;\n" +
+			"                    return t !== \"thinking\" && t !== \"redacted_thinking\";\n" +
+			"                });\n" +
+			"            }\n" +
+			"            message = clone;\n" +
+			"        }\n" +
+			"        const entry = {\n" +
+			"            type: \"message\",\n" +
+			"            id: generateId(this.byId),\n" +
+			"            parentId: this.leafId,\n" +
+			"            timestamp: new Date().toISOString(),\n" +
+			"            message,\n" +
+			"        };",
+	},
+	{
+		// 注意：pi-ai 有顶层与嵌套（pi-coding-agent/node_modules）两份——
+		// 运行时实际加载嵌套副本，两份都必须打（见 patches/README.md）。
+		target: [
+			T("@earendil-works", "pi-ai", "dist", "api", "openai-completions.js"),
+			{ path: T("@earendil-works", "pi-coding-agent", "node_modules",
+				"@earendil-works", "pi-ai", "dist", "api", "openai-completions.js"),
+				optional: true },
+		],
+		name: "patch-04: transcript policy — never replay raw reasoning to provider",
+		anchor:
+			"                    // Use the signature from the first thinking block if available (for llama.cpp server + gpt-oss)\n" +
+			"                    let signature = nonEmptyThinkingBlocks[0].thinkingSignature;\n" +
+			"                    if (model.provider === \"opencode-go\" && signature === \"reasoning\") {\n" +
+			"                        signature = \"reasoning_content\";\n" +
+			"                    }\n" +
+			"                    if (signature && signature.length > 0) {\n" +
+			"                        assistantMsg[signature] = nonEmptyThinkingBlocks.map((block) => block.thinking).join(\"\\n\");\n" +
+			"                    }",
+		replacement:
+			"                    // ROSCLAW-PATCH-04: TranscriptPolicy——raw reasoning\n" +
+			"                    // 绝不回放进 provider 请求（resume/历史消息同策）。\n" +
+			"                    // thinking blocks 只作内存瞬态进度，不再外发。\n" +
+			"                    if (false) {\n" +
+			"                        let signature = nonEmptyThinkingBlocks[0].thinkingSignature;\n" +
+			"                        if (model.provider === \"opencode-go\" && signature === \"reasoning\") {\n" +
+			"                            signature = \"reasoning_content\";\n" +
+			"                        }\n" +
+			"                        if (signature && signature.length > 0) {\n" +
+			"                            assistantMsg[signature] = nonEmptyThinkingBlocks.map((block) => block.thinking).join(\"\\n\");\n" +
+			"                        }\n" +
+			"                    }",
+	},
 ];
 
-let source = readFileSync(target, "utf8");
+const grouped = new Map();
 for (const patch of PATCHES) {
-	if (source.includes(patch.replacement)) {
-		console.log(`[already applied] ${patch.name}`);
-		continue;
+	const targets = Array.isArray(patch.target) ? patch.target : [patch.target];
+	for (const raw of targets) {
+		const target = typeof raw === "string" ? raw : raw.path;
+		const optional = typeof raw === "string" ? false : Boolean(raw.optional);
+		if (optional && !existsSync(target)) {
+			console.log(`[skip optional] ${target}（npm dedupe 后不存在，正常）`);
+			continue;
+		}
+		if (!grouped.has(target)) grouped.set(target, []);
+		grouped.get(target).push(patch);
 	}
-	if (!source.includes(patch.anchor)) {
-		console.error(`PATCH ANCHOR MISSING: ${patch.name}`);
-		console.error("上游已漂移——升级 Pi 后必须人工复核补丁锚点（见 patches/README.md）。");
-		process.exit(1);
-	}
-	source = source.replace(patch.anchor, patch.replacement);
-	console.log(`[applied] ${patch.name}`);
 }
-writeFileSync(target, source);
+
+for (const [target, patches] of grouped) {
+	let source = readFileSync(target, "utf8");
+	for (const patch of patches) {
+		if (source.includes(patch.replacement)) {
+			console.log(`[already applied] ${patch.name}`);
+			continue;
+		}
+		if (!source.includes(patch.anchor)) {
+			console.error(`PATCH ANCHOR MISSING: ${patch.name}`);
+			console.error("上游已漂移——升级 Pi 后必须人工复核补丁锚点（见 patches/README.md）。");
+			process.exit(1);
+		}
+		source = source.replace(patch.anchor, patch.replacement);
+		console.log(`[applied] ${patch.name}`);
+	}
+	writeFileSync(target, source);
+}
 console.log("upstream patches applied");
