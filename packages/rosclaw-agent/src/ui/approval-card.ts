@@ -18,6 +18,10 @@ export interface ApprovalCardData {
 	parameters: Record<string, unknown>;
 	expiresAt: string;
 	displayHash: string;
+	/** P0-NA-14：完整知情确认——预期效果/失败处理/body 必须可见。 */
+	expectedEffect?: string;
+	failureHandling?: string;
+	bodyId?: string;
 }
 
 export class ApprovalCardComponent implements Component {
@@ -51,6 +55,15 @@ export class ApprovalCardComponent implements Component {
 		];
 		for (const [key, value] of Object.entries(this.card.parameters)) {
 			lines.push(`│   ${key} = ${JSON.stringify(value)}`);
+		}
+		if (this.card.expectedEffect) {
+			lines.push(`│ 预期效果: ${this.card.expectedEffect}`);
+		}
+		if (this.card.failureHandling) {
+			lines.push(`│ 失败处理: ${this.card.failureHandling}`);
+		}
+		if (this.card.bodyId) {
+			lines.push(`│ Body: ${this.card.bodyId}`);
 		}
 		lines.push(`│ display_hash: ${this.card.displayHash}`);
 		lines.push(`│ 过期: ${this.card.expiresAt}`);

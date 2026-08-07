@@ -159,6 +159,9 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 					approval_id: card.approval_id,
 					grant_id: result.grant_id ?? null,
 					terminal_receipt: result.terminal_receipt ?? false,
+					// P0-NA-13：结构化证据引用（receipt://action_id）随结果
+					// 返回——/evidence 按本回合 action 精确展示，不是摘要。
+					evidence_ref: result.evidence_ref ?? null,
 					error_code: result.error_code ?? null,
 				},
 				isError: result.executed !== true && result.status !== "DECLINED",
