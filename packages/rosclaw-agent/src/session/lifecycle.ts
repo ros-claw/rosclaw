@@ -86,7 +86,11 @@ export async function shouldCancelTree(deps: {
 		const ctxResponse = await call(deps.rosclawHome, "pi.context", {
 			mission_id: deps.missionId,
 		});
-		if (!ctxResponse.ok) return null; // context 拉不到由注入层标 stale；tree 不背锅
+		if (!ctxResponse.ok) {
+			// HOTFIX-3（P0-4E）：context 不可达时 tree 不得放行——
+			// 无法证明没有进行中动作，fail closed。
+			return "具身上下文不可达——无法验证 tree 安全性，已阻止（fail closed）";
+		}
 		const context = ctxResponse.context as {
 			pending_approvals?: unknown[];
 			active_actions?: unknown[];
@@ -98,7 +102,8 @@ export async function shouldCancelTree(deps: {
 			return "有进行中的真实动作——tree navigation fail closed（§13.5）";
 		}
 	} catch {
-		return null;
+		// 查询异常同样不能证明安全——fail closed。
+		return "具身上下文查询异常——无法验证 tree 安全性，已阻止（fail closed）";
 	}
 	return null;
 }
