@@ -491,7 +491,7 @@ class TestProductJourney:
             decided = [json.loads(p) for t, p in events if t == "approval.decided"]
             consumed_evs = [json.loads(p) for t, p in events if t == "grant.consumed"]
             assert requested and decided, f"事件链缺环: {[t for t, _ in events]}"
-            for req, dec in zip(requested, decided):
+            for req, dec in zip(requested, decided, strict=True):
                 assert req["request_id"] == dec["request_id"], (
                     f"requested/decided 不同卡: {req} vs {dec}"
                 )
