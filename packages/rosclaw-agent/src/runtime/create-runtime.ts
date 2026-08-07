@@ -18,6 +18,8 @@ import { migrateProviders } from "../credentials/migration.js";
 import { credentialStoreFor } from "../credentials/store.js";
 import { resourcePolicy } from "../extension/resource-policy.js";
 import { ActiveSessionContext } from "../session/active-context.js";
+import { AgentSessionCoordinator } from "../session/coordinator.js";
+import { SessionLeaseManager } from "../session/lease-manager.js";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -55,15 +57,33 @@ export function loadSystemPrompt(): string {
 	throw new Error("native_agent_v2.md not found in dist/prompts (stale/incomplete build?)");
 }
 
+export interface RosclawRuntime {
+	runtime: AgentSessionRuntime;
+	active: ActiveSessionContext;
+	/** P0-NA-12：唯一 session/mission/lease 事务协调器——main 的初始
+	 * 绑定（--mission/--resume/--continue）与扩展的生命周期 hook 共用。 */
+	coordinator: AgentSessionCoordinator;
+	leaseManager: SessionLeaseManager;
+}
+
 export async function createRosclawRuntime(
 	options: RosclawRuntimeOptions,
-): Promise<AgentSessionRuntime> {
+): Promise<RosclawRuntime> {
 	const active = new ActiveSessionContext({
 		sessionId: "",
 		missionId: options.missionId,
 		contextRevision: 0,
 		mode: "SIMULATION",
 		profile: options.profile,
+	});
+	// P0-NA-12：coordinator 拥有 leaseManager；扩展 hook 与 main 初始
+	// 绑定都经它，lease_token 绝不丢弃、heartbeat 唯一。
+	const leaseManager = new SessionLeaseManager(options.rosclawHome);
+	const coordinator = new AgentSessionCoordinator({
+		rosclawHome: options.rosclawHome,
+		active,
+		leaseManager,
+		notify: () => undefined, // UI notify 在 hook 触发时注入
 	});
 	const agentDir = `${options.rosclawHome}/agent`;
 	// PNA-7（规格 §22.3）：legacy config.yaml → Pi settings 一次性迁移
@@ -118,6 +138,7 @@ export async function createRosclawRuntime(
 								version: options.version,
 								systemPrompt,
 								active,
+								coordinator,
 								rosclawHome: options.rosclawHome,
 							}),
 						},
@@ -168,5 +189,5 @@ export async function createRosclawRuntime(
 				SessionManager.create(options.cwd, `${agentDir}/sessions`),
 		},
 	);
-	return runtime;
+	return { runtime, active, coordinator, leaseManager };
 }

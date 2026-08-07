@@ -17,7 +17,9 @@ async function collectHandlers() {
 		},
 	};
 	const { ActiveSessionContext } = await import("../src/session/active-context.js");
-	
+	const { AgentSessionCoordinator } = await import("../src/session/coordinator.js");
+	const { SessionLeaseManager } = await import("../src/session/lease-manager.js");
+
 	const active = new ActiveSessionContext({
 		sessionId: "pi_test",
 		missionId: undefined,
@@ -25,7 +27,15 @@ async function collectHandlers() {
 		mode: "SIMULATION",
 		profile: "developer",
 	});
-	const factory = createRosclawExtension({ profile: "developer", version: "0.1.0", systemPrompt: "TEST PROMPT", active, rosclawHome: "/tmp/rh-test" });
+	const call = async () => ({ ok: false, error: "no bridge in test" });
+	const coordinator = new AgentSessionCoordinator({
+		rosclawHome: "/tmp/rh-test",
+		active,
+		leaseManager: new SessionLeaseManager("/tmp/rh-test", call),
+		notify: () => undefined,
+		call,
+	});
+	const factory = createRosclawExtension({ profile: "developer", version: "0.1.0", systemPrompt: "TEST PROMPT", active, coordinator, rosclawHome: "/tmp/rh-test" });
 	factory(pi as never);
 	return { handlers, commands };
 }

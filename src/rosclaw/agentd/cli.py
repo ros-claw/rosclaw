@@ -474,9 +474,15 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
         return 2
     # P0-9：SHADOW/REAL 强制 ROBOT profile——用户不能经 CLI 把
     # REAL 降级为 developer（SIM 桌面用 developer）。
-    profile = (
-        "robot" if mission is not None and mission.mode.value != "SIMULATION" else "developer"
+    # P0-NA-12：--resume/--continue 也必须解析出目标 session 的 mission
+    # mode——恢复非 SIM Mission 时用 developer profile 是安全降级。
+    resume_mode = None
+    if resume_argv:
+        resume_mode = _resume_target_mode(home, args)
+    effective_mode = (
+        mission.mode.value if mission is not None else resume_mode
     )
+    profile = "robot" if effective_mode is not None and effective_mode != "SIMULATION" else "developer"
     argv = [node, entry, "--profile", profile, *resume_argv]
     if mission is not None:
         argv += ["--mission", mission.mission_id]
@@ -488,6 +494,65 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     finally:
         server.should_exit = True
         asyncio.run(service.close())
+
+
+def _resume_target_mode(home: Path, args: argparse.Namespace) -> str | None:
+    """--resume/--continue 目标 session 的 mission mode（P0-NA-12）。
+
+    session 文件头 id → pi_session_bindings → mission.mode。任一环节
+    缺失返回 None（按 SIM/developer 处理并如实记录——绑定恢复时
+    coordinator 会以权威 mission 为准再次校验）。
+    """
+    import json as _json
+
+    session_dir = home / "agent" / "sessions"
+    session_id = ""
+    if getattr(args, "resume", None):
+        candidate = str(args.resume)
+        # 与 Node 侧同一规则：纯标识符，拒绝路径穿越。
+        import re as _re
+
+        if not _re.fullmatch(r"[A-Za-z0-9_-]+", candidate):
+            return None
+        session_id = candidate
+    elif getattr(args, "continue_last", False):
+        try:
+            newest = max(
+                session_dir.glob("*.jsonl"),
+                key=lambda p: p.stat().st_mtime,
+                default=None,
+            )
+            if newest is None:
+                return None
+            header = _json.loads(newest.read_text(encoding="utf-8").split("\n", 1)[0])
+            session_id = str(header.get("id", ""))
+        except Exception:  # noqa: BLE001 - 恢复失败由 Node 侧诚实报出
+            return None
+    if not session_id:
+        return None
+    db_path = home / "agentd" / "missions.db"
+    if not db_path.exists():
+        return None
+    import sqlite3 as _sqlite3
+
+    try:
+        conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            row = conn.execute(
+                "SELECT mission_id FROM pi_session_bindings "
+                "WHERE pi_session_id = ? AND status = 'ACTIVE'",
+                (session_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            mission_row = conn.execute(
+                "SELECT mode FROM missions WHERE mission_id = ?", (row[0],)
+            ).fetchone()
+            return str(mission_row[0]) if mission_row else None
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _install_prefix_root() -> Path | None:
