@@ -93,10 +93,15 @@ export async function createRosclawRuntime(
 	// P1-1：raw reasoning 默认不显示（live + resumed history 同策；
 	// debug 可在 /settings 手动打开）。
 	settingsManager.setHideThinkingBlock(true);
-	// P0-8（patch-02）：ROBOT profile 的内建命令前置拦截策略。
-	if (options.profile === "robot") {
+	// P0-NA-15：quiet startup——正常启动不显示 [Extensions] inline:rosclaw、
+	// 上游 changelog/资源诊断（debug/doctor 另开）。
+	settingsManager.setQuietStartup(true);
+	// P0-8（patch-02）：内建命令前置拦截策略。ROBOT 全禁一批；
+	// 所有 profile 都禁上游自更新通道（P0-NA-15：版本所有权属于
+	// ROSClaw signed release，harness 不得自行更新）。
+	{
 		(globalThis as Record<string, unknown>).__rosclawBuiltinPolicy = {
-			disabled: new Set(["/trust", "/share", "/import", "/reload"]),
+			disabled: new Set(["/update", "/trust", "/share", "/import", "/reload"]),
 		};
 	}
 	// 凭据后端按 profile：developer=加固文件（0600/原子写/fsync），

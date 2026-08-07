@@ -229,7 +229,7 @@ def doctor(home: Path) -> dict:
     report["authorization"] = _authorization_report(home)
     if not config.profiles:
         report["status"] = "MODEL_NOT_READY"
-        report["reason"] = "no model profile configured — run `rosclaw agent init`"
+        report["reason"] = "no model profile configured — run `rosclaw setup model`"
         return report
     profile = config.to_policy().default
     import os

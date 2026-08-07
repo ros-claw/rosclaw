@@ -8,7 +8,12 @@
 // PI_CODING_AGENT_DIR 必须在任何 pi 模块加载前设定（config.js 在
 // import 期读取；ESM 静态 import 会被提升）——所有 pi 相关模块一律
 // 动态 import。
+// P0-NA-15：供应链边界——上游版本检查/自更新通道在 ROSClaw 产品里
+// 一律关闭（host_managed：只有 ROSClaw signed release 能升级本产物，
+// 内部 harness 不得自行更新）。同样必须在 pi 模块加载前设定。
 import { VERSION } from "./version.js";
+
+process.env.PI_SKIP_VERSION_CHECK = "1";
 
 const rosclawHomeEnv = process.env.ROSCLAW_HOME ?? `${process.env.HOME}/.rosclaw`;
 process.env.PI_CODING_AGENT_DIR ??= `${rosclawHomeEnv}/agent`;

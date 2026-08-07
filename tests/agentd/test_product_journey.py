@@ -508,9 +508,22 @@ class TestProductJourney:
         # NA-FIX-9 后默认引擎即 Native Agent——旅程显式验证无 --engine 的默认路径。
         session = PtySession([str(rosclaw), "chat"], env)
         try:
-            # 1. 品牌 header（T-IDENTITY：无 engine/pi 字样）。
+            # 1. 品牌 header（T-IDENTITY + P0-NA-15/16 产品面扫描）。
             session.expect(b"ROSClaw Native Agent", timeout=60)
             assert b"engine=pi" not in session.output
+            # P0-NA-15：供应链边界——启动面不得出现上游自更新通道。
+            for leaked in (b"pi update", b"pi.dev", b"Update Available", b"[Extensions]"):
+                assert leaked not in session.output, f"上游泄漏进启动面: {leaked}"
+            # P0-NA-16：产品版本（launcher 传入），不是内部 npm 子包版本。
+            from rosclaw import __version__ as _product_version
+
+            assert f"ROSClaw {_product_version}".encode() in session.output, (
+                f"header 未显示产品版本 {_product_version}；尾部: {session.output[-300:]!r}"
+            )
+            assert b"v0.1.0" not in session.output, "内部子包版本冒充产品版本"
+            # Operator 状态必须是真实探测值（READY/OFFLINE/UNKNOWN），
+            # 不是硬编码字符串。
+            assert b"Operator ready" not in session.output
             # 2. 普通对话。
             session.send("你好\r")
             session.expect("你好，我是 ROSClaw".encode(), timeout=90)

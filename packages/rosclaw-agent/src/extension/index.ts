@@ -20,6 +20,7 @@ import {
 } from "../session/lifecycle.js";
 import { defaultOperatorSocket, operatorCall } from "../bridge/operatord-client.js";
 import { ApprovalCardComponent } from "../ui/approval-card.js";
+import { ProductUiState, renderHeader } from "../ui/product-state.js";
 import { EventMirror } from "./event-mirror.js";
 import { buildCommandHandlers } from "./commands.js";
 import { guardInput } from "./input-guard.js";
@@ -41,27 +42,51 @@ const WORKING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", 
 
 export function createRosclawExtension(options: RosclawExtensionOptions): ExtensionFactory {
 	return (pi) => {
-		// -- 品牌 ----------------------------------------------------------------
+		// -- 品牌（P0-NA-16：header 只读权威快照——版本来自 launcher 传入的
+		//    产品版本；Operator 状态来自真实 socket 探测；body/context 来自
+		//    验证过的 envelope；bootstrap 未完成显示 LOADING，不乐观默认） --
+		const uiState = new ProductUiState(
+			options.active,
+			defaultOperatorSocket(options.rosclawHome),
+			options.version,
+		);
+		let modelDisplay = "";
 		pi.on("session_start", async (_event, ctx) => {
 			if (!ctx.hasUI) return;
 			ctx.ui.setTitle(`ROSClaw Native Agent`);
-			ctx.ui.setHeader((_tui, _theme) => {
-				const state = options.active.current;
-				const line1 = `ROSClaw Native Agent v${options.version} · ${state.mode} · ${options.profile}`;
-				const line2 = state.missionId
-					? `Mission ${state.missionId.slice(0, 24)} · Body ${state.bodyId ?? "—"} · rev ${state.contextRevision} · Operator ready`
-					: "未绑定 Mission · /help 查看命令";
-				return new Text(`${line1}
-${line2}`);
-			});
+			const refreshHeader = () => {
+				ctx.ui.setHeader((_tui, _theme) => new Text(renderHeader(uiState.snapshot(), modelDisplay)));
+			};
+			refreshHeader();
+			// 真实探测 operatord——结果回来后再刷一次（OFFLINE/READY/
+			// UNKNOWN 都是真实返回值，绝不硬编码 ready）。
+			void uiState.probeOperator().then(() => refreshHeader());
+			// 30s 周期复探——operatord 中途上线/掉线都要反映。
+			const probeTimer = setInterval(() => {
+				void uiState.probeOperator().then(() => refreshHeader());
+			}, 30_000);
+			probeTimer.unref();
 			ctx.ui.setWorkingIndicator({ frames: WORKING_FRAMES, intervalMs: 80 });
+			// P1-TUI-01：中性本地化状态词——不伪造思维过程（"Thinking..."
+			// 会让人以为在看模型推理；只有真实事件阶段才显示具体阶段）。
+			ctx.ui.setWorkingMessage("正在处理…");
+			ctx.ui.setHiddenThinkingLabel("正在处理…");
+			// ROSClaw footer：模型简称 + 上下文占用 + Operator 状态。
+			// 不显示上游费用缩写/scope 噪声（费用只在 provider 有可信
+			// 价格时才值得显示——当前不显示）。
+			ctx.ui.setFooter((_tui, theme, _footerData) => {
+				const snap = uiState.snapshot();
+				const model = modelDisplay || "未选模型";
+				const parts = [model, snap.mode, `Operator ${snap.operatorState}`];
+				return new Text(theme.fg("dim", parts.join(" · ")), 1, 0);
+			});
 		});
 
 		// -- `!` bash 功能级关闭（PNA-0 即生效；PNA-9 再做 profile 化 UI 拦截） -----
 		pi.on("user_bash", async () => {
 			return {
 				result: {
-					output: "bash execution is disabled by ROSClaw policy (engine=pi)",
+					output: "bash execution is disabled by ROSClaw policy",
 					exitCode: 1,
 					cancelled: false,
 					truncated: false,
@@ -70,7 +95,14 @@ ${line2}`);
 		});
 
 		// -- 每轮注入最新具身上下文（PNA-2，规格 §14.2） ---------------------------
-		pi.on("before_agent_start", async (_event, _ctx) => {
+		pi.on("before_agent_start", async (_event, ctx) => {
+			// header 模型名取真实当前 model（P0-NA-16：同一快照语义）。
+			const current = ctx.model as { name?: string; id?: string } | undefined;
+			const display = current ? String(current.name ?? current.id ?? "") : "";
+			if (display && display !== modelDisplay) {
+				modelDisplay = display;
+				uiState.noteContextChanged();
+			}
 			const missionId = options.active.current.missionId;
 			if (!missionId) {
 				return { systemPrompt: options.systemPrompt };
@@ -79,6 +111,8 @@ ${line2}`);
 			if (!fetched.stale && fetched.envelope) {
 				// P0-7：验证通过后写入精确 revision/body/mode。
 				options.active.applyEnvelope(fetched.envelope);
+				// P0-NA-16：fresh envelope 到达 → header 从 LOADING 转 FRESH。
+				uiState.noteContextChanged();
 			}
 			return {
 				systemPrompt: options.systemPrompt,

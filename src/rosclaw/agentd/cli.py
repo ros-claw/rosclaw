@@ -81,7 +81,7 @@ def cmd_start(args: argparse.Namespace) -> int:
     config = load_agent_config(home / "config.yaml")
     if not config.profiles:
         print(
-            "未配置模型。先运行 `rosclaw agent init`，或 `rosclaw agent doctor` 查看缺口。",
+            "未配置模型。先运行 `rosclaw setup model`，或 `rosclaw agent doctor` 查看缺口。",
             file=sys.stderr,
         )
         return 2
@@ -390,10 +390,10 @@ def cmd_chat(args: argparse.Namespace) -> int:
     # ModelRuntime/auth 接续处理具体 provider 细节）。
     try:
         if not load_agent_config(home / "config.yaml").profiles:
-            print("未配置模型。先运行 `rosclaw agent init`。", file=sys.stderr)
+            print("未配置模型。先运行 `rosclaw setup model`。", file=sys.stderr)
             return 2
     except ValueError:
-        print("未配置模型。先运行 `rosclaw agent init`。", file=sys.stderr)
+        print("未配置模型。先运行 `rosclaw setup model`。", file=sys.stderr)
         return 2
     if engine == "pi":
         return _chat_pi(home, args)
@@ -486,7 +486,15 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     argv = [node, entry, "--profile", profile, *resume_argv]
     if mission is not None:
         argv += ["--mission", mission.mission_id]
-    env = dict(os.environ, ROSCLAW_HOME=str(home))
+    # P0-NA-16：产品版本由 Python launcher 显式传给 Node——TS 侧不得
+    # 用内部 npm 子包版本冒充 ROSClaw 产品版本。
+    from rosclaw import __version__ as _product_version
+
+    env = dict(
+        os.environ,
+        ROSCLAW_HOME=str(home),
+        ROSCLAW_PRODUCT_VERSION=_product_version,
+    )
     try:
         return _sp.call(argv, env=env)  # noqa: S603 - fixed entry
     except KeyboardInterrupt:
