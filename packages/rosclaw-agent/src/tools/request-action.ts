@@ -39,8 +39,18 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 				};
 			}
 			// phase 1: propose（卡片存在后才通知 UI——P0-5 顺序修复）。
-			const proposed = await bridgeCall(ctx.rosclawHome, "pi.action.propose", {
+			// P0-NA-10：完整请求上下文——session/revision/body/mode/idempotency
+			// 一个都不能少（admission 硬校验，缺即拒）。
+			const requestContext = {
+				pi_session_id: state.sessionId,
 				mission_id: state.missionId,
+				context_revision: state.contextRevision,
+				body_hash: state.bodyHash ?? "",
+				mode: state.mode,
+				idempotency_key: `idem_reqact_${state.sessionId}_${Date.now()}`,
+			};
+			const proposed = await bridgeCall(ctx.rosclawHome, "pi.action.propose", {
+				...requestContext,
 				capability_id: String(params.capability_id),
 				arguments: params.arguments ?? {},
 				expected_effect: String(params.expected_effect ?? params.capability_id),
@@ -129,7 +139,10 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 				details: { phase: "EXECUTING", approval_id: card.approval_id },
 			});
 			// phase 2b: 精确 grant 执行 → 结构化回执。
+			// P0-NA-10：execute 带同一请求上下文做 TOCTOU 复验——批准后
+			// revision/body/lease 任一变化都必须拒绝。
 			const executed = await bridgeCall(ctx.rosclawHome, "pi.action.execute", {
+				...requestContext,
 				approval_id: card.approval_id,
 			});
 			const result = (executed.result ?? {}) as Record<string, unknown>;
