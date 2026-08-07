@@ -116,7 +116,8 @@
       "public_key_base64": "dSM/+QWWFHuO7I0fj/Ebuk0ZvQR9R0m11KzFk/aPpQM=",
       "status": "trusted",
       "scopes": [
-        "ros-claw/limo-ros1@0.1.29"
+        "ros-claw/limo-ros1@0.1.29",
+        "ros-claw/limo-ros1@0.1.30"
       ],
       "created_at": "2026-08-07T00:00:00Z"
     }

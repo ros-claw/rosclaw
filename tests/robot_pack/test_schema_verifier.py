@@ -18,7 +18,7 @@ def test_builtin_limo_pack_has_trusted_complete_integrity() -> None:
     assert result.ok is True, result.errors
     assert result.trusted is True
     assert result.signature_status == "valid"
-    assert entry.manifest.canonical_ref == "rosclaw://robot_pack/ros-claw/limo-ros1@0.1.29"
+    assert entry.manifest.canonical_ref == "rosclaw://robot_pack/ros-claw/limo-ros1@0.1.30"
 
 
 def test_builtin_realsense_pack_has_trusted_complete_integrity(builtin_pack_root: Path) -> None:
