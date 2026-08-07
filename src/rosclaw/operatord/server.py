@@ -90,6 +90,11 @@ class OperatorDaemon:
             if self._agent_socket is None or not self._agent_socket.exists():
                 return {"ok": False, "error": "agentd projection socket unavailable"}
             return await operator_call(self._agent_socket, "approvals.list", params)
+        if method == "approvals.get":
+            # P0-NA-14：精确单卡查询（不扫 list）。
+            if self._agent_socket is None or not self._agent_socket.exists():
+                return {"ok": False, "error": "agentd projection socket unavailable"}
+            return await operator_call(self._agent_socket, "approvals.get", params)
         if method == "approvals.decide":
             return await self._decide(principal, params, peer_pid=peer_pid)
         if method == "grants.revoke":

@@ -454,20 +454,55 @@ class TestProductJourney:
             fake.close()
 
     def _assert_grant_consumed(self, home: Path) -> None:
-        """授权→执行闭环：grant 必须被精确消费（单次），不许悬置。"""
+        """授权→执行闭环（P0-NA-13）：直接解析 DB/事件里的结构化证据，
+        断言 approval → grant → consume 的精确 ID 链——不是模型自述。"""
         import sqlite3
 
         db = sqlite3.connect(home / "agentd" / "missions.db")
         try:
-            rows = db.execute(
-                "SELECT grant_id, consumed, revoked FROM mission_grants"
+            # 1. approval 已批准且有精确 decided_by。
+            approvals = db.execute(
+                "SELECT request_id, status, decided_by FROM operator_requests"
             ).fetchall()
+            assert approvals, "应有 approval 记录"
+            for request_id, status, decided_by in approvals:
+                assert status == "APPROVED" and decided_by, (
+                    f"approval {request_id} 未正确落库: status={status}"
+                )
+            # 2. grant 与 approval 精确绑定且被消费（单次、未撤销）。
+            grants = db.execute(
+                "SELECT grant_id, request_id, consumed, revoked FROM mission_grants"
+            ).fetchall()
+            assert grants, "批准应产生 grant"
+            approval_ids = {a[0] for a in approvals}
+            for grant_id, request_id, consumed, revoked in grants:
+                assert request_id in approval_ids, (
+                    f"grant {grant_id} 绑定的 request_id {request_id} 不在 approval 链中"
+                )
+                assert consumed == 1 and revoked == 0, (
+                    f"grant {grant_id} 未被精确消费或被撤销"
+                )
+            # 3. 事件链：approval.requested → approval.decided → grant.consumed
+            #    的 ID 必须一致（结构化事件，不是文本）。
+            events = db.execute(
+                "SELECT type, payload_json FROM agent_events ORDER BY rowid"
+            ).fetchall()
+            requested = [json.loads(p) for t, p in events if t == "approval.requested"]
+            decided = [json.loads(p) for t, p in events if t == "approval.decided"]
+            consumed_evs = [json.loads(p) for t, p in events if t == "grant.consumed"]
+            assert requested and decided, f"事件链缺环: {[t for t, _ in events]}"
+            for req, dec in zip(requested, decided, strict=True):
+                assert req["request_id"] == dec["request_id"], (
+                    f"requested/decided 不同卡: {req} vs {dec}"
+                )
+            if consumed_evs:
+                grant_ids = {g[0] for g in grants}
+                for ev in consumed_evs:
+                    assert ev.get("grant_id") in grant_ids, (
+                        f"grant.consumed 事件的 grant_id 不在链中: {ev}"
+                    )
         finally:
             db.close()
-        assert rows, "批准应产生 grant"
-        assert all(consumed == 1 and revoked == 0 for _, consumed, revoked in rows), (
-            f"grant 未被消费或被撤销: {rows}"
-        )
 
     def _run_journey(self, rosclaw: Path, env: dict[str, str], home: Path) -> None:
         # NA-FIX-9 后默认引擎即 Native Agent——旅程显式验证无 --engine 的默认路径。

@@ -295,3 +295,47 @@ class TestAdmissionNegativeChain:
         await operatord.stop()
         await agent_server.stop()
         await service.close()
+
+
+class TestApprovalsGet:
+    """P0-NA-14：approvals.get 精确单卡查询 + fail-closed 语义。"""
+
+    async def test_get_exact_card(self, tmp_path: Path) -> None:
+        service, mission, operatord, agent_server, sock = await _setup_with_operatord(
+            tmp_path
+        )
+        from rosclaw.agentd.pi_bridge.action_admission import (
+            ActionAdmissionService,
+            ActionRequestContext,
+        )
+
+        snapshot = service.snapshot(mission.mission_id)
+        admission = ActionAdmissionService(service)
+        card = await admission.propose(
+            request=ActionRequestContext(
+                pi_session_id="pi_1",
+                mission_id=mission.mission_id,
+                context_revision=snapshot.context_revision,
+                body_hash=mission.body_binding.effective_body_hash,
+                mode=mission.mode.value,
+                idempotency_key="idem_get_1",
+            ),
+            capability_id="sim_ground_truth",
+            arguments={"beep": True},
+            expected_effect="蜂鸣",
+            risk_tier="LOW",
+        )
+        got = await operator_call(sock, "approvals.get", {"request_id": card["approval_id"]})
+        assert got.get("ok"), got
+        approval = got["approval"]
+        assert approval["request_id"] == card["approval_id"]
+        assert approval["parameters"] == {"beep": True}
+        assert approval["expected_effect"] == "蜂鸣"
+        assert approval["display_hash"] == card["display_hash"]
+        assert approval["mode"] == "SIMULATION"
+        # 不存在的卡 → CARD_NOT_FOUND（不是空卡）。
+        missing = await operator_call(sock, "approvals.get", {"request_id": "appr_nope"})
+        assert not missing.get("ok") and missing.get("code") == "CARD_NOT_FOUND"
+        await operatord.stop()
+        await agent_server.stop()
+        await service.close()
