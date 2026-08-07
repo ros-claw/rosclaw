@@ -174,12 +174,37 @@ class _FakeModel:
             # delegate 步骤的旧输出误匹配 action 步骤的等待。
             last_tool = messages[-1]
             tool_content = str(last_tool.get("content", ""))
-            if "receipt" in tool_content or "grant" in tool_content or "已批准" in tool_content:
+            tool_call_id = str(last_tool.get("tool_call_id", ""))
+            if tool_call_id == "call_action_lie":
+                # 对抗场景（P0-4F 场景 D）：admission 已拒绝该动作，但
+                # 模型仍声称完成——旅程必须证明系统状态不采信模型自述。
+                answer = "动作已执行，结构化回执已确认。"
+            elif "receipt" in tool_content or "grant" in tool_content or "已批准" in tool_content:
                 answer = "动作已执行，结构化回执已确认。"
             else:
                 answer = "Worker 结果已收到并验证。"
             frames.append(_sse(_chunk(answer)))
             frames.append(_sse(_chunk("", "stop")))
+        elif "执行一个假动作" in text:
+            # 对抗注入：模型被诱导调用一个不存在的 capability（admission
+            # 必须拒绝），随后它仍会谎称完成（见 call_action_lie 分支）。
+            frames.extend(
+                _tool_call_frames(
+                    "call_action_lie",
+                    "rosclaw_request_action",
+                    json.dumps(
+                        {
+                            # 空 capability_id——任何分支都被 admission 以
+                            # INVALID_ARGUMENTS 拒绝（不依赖 HOTFIX-2 的
+                            # catalog 检查，分支独立可复现）。
+                            "capability_id": "",
+                            "arguments": {},
+                            "expected_effect": "假动作",
+                            "risk_tier": "LOW",
+                        }
+                    ),
+                )
+            )
         elif "SECRET_PROBE" in text:
             # reasoning 标记注入（openai-compat reasoning_content 形状）。
             marker_frame = {
@@ -223,6 +248,11 @@ class _FakeModel:
                     ),
                 )
             )
+        elif "请详细展开" in text:
+            # 长回答——用于把 session 推过 compaction 阈值（keepRecentTokens
+            # 默认 20000 tokens；compact 要真发生必须先有可裁剪内容）。
+            frames.append(_sse(_chunk("详细展开：" + "具身系统知识段落。" * 4000)))
+            frames.append(_sse(_chunk("", "stop")))
         else:
             frames.append(_sse(_chunk("你好，我是 ROSClaw Native Agent。")))
             frames.append(_sse(_chunk("", "stop")))
@@ -482,6 +512,65 @@ class TestProductJourney:
                 assert forbidden not in content, (
                     f"session 文件 {session_file.name} 含 {forbidden} 字段"
                 )
+    def _expect_compaction_entry(self, home: Path, timeout: float = 60.0) -> None:
+        """等待 session JSONL 出现 compaction 条目（compact 真完成的
+        结构性证据——不是 UI 文本）。"""
+        deadline = time.monotonic() + timeout
+        sessions_dir = home / "agent" / "sessions"
+        while time.monotonic() < deadline:
+            for session_file in sessions_dir.glob("*.jsonl"):
+                for line in session_file.read_text(
+                    encoding="utf-8", errors="replace"
+                ).splitlines():
+                    if '"type": "compaction"' in line or '"type":"compaction"' in line:
+                        return
+            time.sleep(0.5)
+        raise AssertionError("/compact 后 session 无 compaction 条目——compact 未真完成")
+
+    def _assert_adversarial_model_ignored(
+        self, session: PtySession, home: Path
+    ) -> None:
+        """P0-4F 场景 D：fake model 被诱导调用不存在的 capability——
+        admission 拒绝（无卡无 grant 无 action），模型仍谎称"已执行"。
+        系统最终状态必须反映 FAILED/UNVERIFIED，不是模型自述。"""
+        import sqlite3
+
+        # 快照当前 DB 状态（合法动作已完成——对比基线）。
+        def _count(conn, table: str) -> int:
+            exists = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (table,),
+            ).fetchone()
+            return (
+                conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                if exists else -1
+            )
+
+        db = sqlite3.connect(home / "agentd" / "missions.db")
+        baseline_txns = _count(db, "action_txns")  # -1 = HOTFIX-2 迁移未到时兼容
+        baseline_grants = _count(db, "mission_grants")
+        baseline_approvals = _count(db, "operator_requests")
+        db.close()
+        session.send("执行一个假动作\r")
+        # 模型谎称完成（fake 的 call_action_lie 分支）。
+        session.expect("动作已执行，结构化回执已确认".encode(), timeout=120)
+        time.sleep(1.0)
+        # 系统真相：没有任何新 approval/grant/txn——模型的话不算数。
+        db = sqlite3.connect(home / "agentd" / "missions.db")
+        txns = _count(db, "action_txns")
+        grants = _count(db, "mission_grants")
+        approvals = _count(db, "operator_requests")
+        db.close()
+        if baseline_txns >= 0:
+            assert txns == baseline_txns, (
+                f"假动作竟产生 ActionTxn（{baseline_txns} → {txns}）——模型谎言被采信了"
+            )
+        assert grants == baseline_grants, (
+            f"假动作竟产生 grant（{baseline_grants} → {grants}）"
+        )
+        assert approvals == baseline_approvals, (
+            f"假动作竟产生 approval 卡（{baseline_approvals} → {approvals}）"
+        )
 
     def _assert_grant_consumed(self, home: Path) -> None:
         """授权→执行闭环（P0-NA-13）：直接解析 DB/事件里的结构化证据，
@@ -586,9 +675,28 @@ class TestProductJourney:
             # （grant 被消费），而不是只停在批准通知。
             session.expect("动作已执行，结构化回执已确认".encode(), timeout=120)
             self._assert_grant_consumed(home)
-            # 7. /compact。
+            # 6b. 对抗场景（P0-4F 场景 D）：模型谎称完成——系统必须
+            #    以结构化状态为准，不采信模型自述。
+            self._assert_adversarial_model_ignored(session, home)
+            # 7. /compact（HOTFIX-5：真断言——compact 完成、上下文与
+            #    receipt 保留、summary 可用——不是只发命令后 sleep）。
+            #    先把 session 推过 keepRecentTokens 阈值（~20K tokens），
+            #    否则 compact 诚实报 "session too small" 什么都不做。
+            for _ in range(3):
+                session.send("请详细展开具身系统知识\r")
+                session.expect("详细展开".encode(), timeout=90)
+                time.sleep(0.5)
             session.send("/compact\r")
-            time.sleep(2.0)
+            # compact 完成的结构性证据：session JSONL 出现 compaction 条目
+            # （live UI 显示的是模型摘要文本，不稳定——不用它断言）。
+            self._expect_compaction_entry(home, timeout=60)
+            # compact 后对话仍可用（context 保留 + model 可达）。
+            time.sleep(1.0)
+            session.send("你好\r")
+            session.expect("你好，我是 ROSClaw".encode(), timeout=90)
+            # receipt 链在 compact 后仍可核验（DB 是权威——compaction
+            # 是认知层摘要，不动授权/执行记录）。
+            self._assert_grant_consumed(home)
             # 8. /quit → resume 提示必须是 ROSClaw 命令（T-IDENTITY）。
             session.send("/quit\r")
             session.expect(b"rosclaw chat --resume", timeout=30)

@@ -59,7 +59,7 @@ jobs:
       - name: Install Node deps (rosclaw-agent)
         run: |
           cd packages/rosclaw-agent
-          npm ci || npm install
+          npm ci
       - name: Run product journey
         run: |
           .venv/bin/python -m pytest tests/agentd/test_product_journey.py -q --tb=short
@@ -70,8 +70,64 @@ jobs:
           name: journey-evidence-${{ github.sha }}
           path: |
             /tmp/pytest-of-*/pytest-*/test_full_journey_pty*/fake-requests.jsonl
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
+
+      - name: Write evidence manifest
+        if: always()
+        run: |
+          mkdir -p /tmp/evidence
+          cat > /tmp/evidence/evidence-manifest.json <<EOF
+          {
+            "schema_version": "rosclaw.gate_evidence.v1",
+            "job": "${{ github.job }}",
+            "head_sha": "${{ github.event.pull_request.head.sha || github.sha }}",
+            "merge_ref_sha": "${{ github.ref }}",
+            "run_id": "${{ github.run_id }}",
+            "run_attempt": "${{ github.run_attempt }}",
+            "runner_os": "${{ runner.os }}",
+            "runner_arch": "${{ runner.arch }}",
+            "node_version": "$(node --version)",
+            "python_version": "$(.venv/bin/python --version 2>/dev/null || python --version)",
+            "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+      - name: Upload evidence manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-manifest-${{ github.job }}-${{ github.sha }}
+          path: /tmp/evidence/evidence-manifest.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Write evidence manifest
+        if: always()
+        run: |
+          mkdir -p /tmp/evidence
+          cat > /tmp/evidence/evidence-manifest.json <<EOF
+          {
+            "schema_version": "rosclaw.gate_evidence.v1",
+            "job": "${{ github.job }}",
+            "head_sha": "${{ github.event.pull_request.head.sha || github.sha }}",
+            "merge_ref_sha": "${{ github.ref }}",
+            "run_id": "${{ github.run_id }}",
+            "run_attempt": "${{ github.run_attempt }}",
+            "runner_os": "${{ runner.os }}",
+            "runner_arch": "${{ runner.arch }}",
+            "node_version": "$(node --version)",
+            "python_version": "$(.venv/bin/python --version 2>/dev/null || python --version)",
+            "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+      - name: Upload evidence manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-manifest-${{ github.job }}-${{ github.sha }}
+          path: /tmp/evidence/evidence-manifest.json
+          if-no-files-found: error
+          retention-days: 90
 
   tui-pty:
     name: TUI PTY Matrix (IME/resize/tmux)
@@ -95,10 +151,48 @@ jobs:
       - name: Install Node deps (rosclaw-agent)
         run: |
           cd packages/rosclaw-agent
-          npm ci || npm install
+          npm ci
       - name: Run TUI PTY matrix
         run: |
           .venv/bin/python -m pytest tests/agentd/test_tui_ime.py tests/agentd/test_tmux_env.py -q --tb=short
+      - name: Upload TUI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tui-evidence-${{ github.sha }}
+          path: |
+            /tmp/pytest-of-*/pytest-*/test_cjk_paste_resize*/fake-requests.jsonl
+            /tmp/pytest-of-*/pytest-*/test_chat_inside_tmux*/fake-requests.jsonl
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Write evidence manifest
+        if: always()
+        run: |
+          mkdir -p /tmp/evidence
+          cat > /tmp/evidence/evidence-manifest.json <<EOF
+          {
+            "schema_version": "rosclaw.gate_evidence.v1",
+            "job": "${{ github.job }}",
+            "head_sha": "${{ github.event.pull_request.head.sha || github.sha }}",
+            "merge_ref_sha": "${{ github.ref }}",
+            "run_id": "${{ github.run_id }}",
+            "run_attempt": "${{ github.run_attempt }}",
+            "runner_os": "${{ runner.os }}",
+            "runner_arch": "${{ runner.arch }}",
+            "node_version": "$(node --version)",
+            "python_version": "$(.venv/bin/python --version 2>/dev/null || python --version)",
+            "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+      - name: Upload evidence manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-manifest-${{ github.job }}-${{ github.sha }}
+          path: /tmp/evidence/evidence-manifest.json
+          if-no-files-found: error
+          retention-days: 90
 
   perf-regression:
     name: Perf Regression Gate (shared runner, wide limits)
@@ -120,7 +214,7 @@ jobs:
       - name: Install Node deps (rosclaw-agent)
         run: |
           cd packages/rosclaw-agent
-          npm ci || npm install
+          npm ci
       - name: Run interaction perf
         run: |
           .venv/bin/python -m pytest tests/agentd/test_interaction_perf.py -q -s --tb=short
@@ -131,7 +225,35 @@ jobs:
           name: perf-report-${{ github.sha }}
           path: |
             /tmp/pytest-of-*/pytest-*/test_perf_thresholds*/perf-report.json
-          if-no-files-found: warn
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Write evidence manifest
+        if: always()
+        run: |
+          mkdir -p /tmp/evidence
+          cat > /tmp/evidence/evidence-manifest.json <<EOF
+          {
+            "schema_version": "rosclaw.gate_evidence.v1",
+            "job": "${{ github.job }}",
+            "head_sha": "${{ github.event.pull_request.head.sha || github.sha }}",
+            "merge_ref_sha": "${{ github.ref }}",
+            "run_id": "${{ github.run_id }}",
+            "run_attempt": "${{ github.run_attempt }}",
+            "runner_os": "${{ runner.os }}",
+            "runner_arch": "${{ runner.arch }}",
+            "node_version": "$(node --version)",
+            "python_version": "$(.venv/bin/python --version 2>/dev/null || python --version)",
+            "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+      - name: Upload evidence manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-manifest-${{ github.job }}-${{ github.sha }}
+          path: /tmp/evidence/evidence-manifest.json
+          if-no-files-found: error
           retention-days: 90
 
   soak:
@@ -154,7 +276,7 @@ jobs:
       - name: Install Node deps (rosclaw-agent)
         run: |
           cd packages/rosclaw-agent
-          npm ci || npm install
+          npm ci
       - name: Run 100x start/exit soak
         run: |
           .venv/bin/python -m pytest tests/agentd/test_start_exit_soak.py -q --tb=short
@@ -165,5 +287,5 @@ jobs:
           name: soak-trend-${{ github.sha }}
           path: |
             /tmp/pytest-of-*/pytest-*/test_hundred_start_exit_cycles*/soak-trend.txt
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 90
