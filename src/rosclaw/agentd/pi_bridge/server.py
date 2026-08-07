@@ -193,12 +193,23 @@ class PiBridgeServer:
                 "mission_archived": service.mission_archived(binding.mission_id),
             }
         if method == "pi.action.propose":
-            from rosclaw.agentd.pi_bridge.action_coordinator import ActionCoordinator
+            # P0-NA-10：唯一 admission path——完整请求上下文是建卡前提。
+            from rosclaw.agentd.pi_bridge.action_admission import (
+                ActionAdmissionService,
+                ActionRequestContext,
+            )
 
-            coordinator = ActionCoordinator(service)
+            admission = ActionAdmissionService(service)
             try:
-                card = await coordinator.propose(
-                    mission_id=str(params.get("mission_id", "")),
+                card = await admission.propose(
+                    request=ActionRequestContext(
+                        pi_session_id=str(params.get("pi_session_id", "")),
+                        mission_id=str(params.get("mission_id", "")),
+                        context_revision=int(params.get("context_revision", -1)),
+                        body_hash=str(params.get("body_hash", "")),
+                        mode=str(params.get("mode", "")),
+                        idempotency_key=str(params.get("idempotency_key", "")),
+                    ),
                     capability_id=str(params.get("capability_id", "")),
                     arguments=dict(params.get("arguments") or {}),
                     expected_effect=str(params.get("expected_effect", "")),
@@ -210,17 +221,35 @@ class PiBridgeServer:
                         "code": getattr(exc, "code", "PROPOSE_FAILED")}
             return {"ok": True, "card": card}
         if method == "pi.action.status":
-            from rosclaw.agentd.pi_bridge.action_coordinator import ActionCoordinator
+            from rosclaw.agentd.pi_bridge.action_admission import (
+                ActionAdmissionService,
+            )
 
-            return {"ok": True, **ActionCoordinator(service).decision_status(
+            return {"ok": True, **ActionAdmissionService(service).decision_status(
                 str(params.get("approval_id", ""))
             )}
         if method == "pi.action.execute":
-            from rosclaw.agentd.pi_bridge.action_coordinator import ActionCoordinator
+            # P0-NA-10：execute 也带请求上下文做 TOCTOU 复验。
+            from rosclaw.agentd.pi_bridge.action_admission import (
+                ActionAdmissionService,
+                ActionRequestContext,
+            )
 
-            coordinator = ActionCoordinator(service)
+            admission = ActionAdmissionService(service)
+            request_ctx = None
+            if params.get("pi_session_id"):
+                request_ctx = ActionRequestContext(
+                    pi_session_id=str(params.get("pi_session_id", "")),
+                    mission_id=str(params.get("mission_id", "")),
+                    context_revision=int(params.get("context_revision", -1)),
+                    body_hash=str(params.get("body_hash", "")),
+                    mode=str(params.get("mode", "")),
+                    idempotency_key=str(params.get("idempotency_key", "")),
+                )
             try:
-                result = await coordinator.execute(str(params.get("approval_id", "")))
+                result = await admission.execute(
+                    str(params.get("approval_id", "")), request=request_ctx
+                )
             except Exception as exc:  # noqa: BLE001
                 return {"ok": False, "error": f"{type(exc).__name__}: {exc}",
                         "code": getattr(exc, "code", "EXECUTE_FAILED")}

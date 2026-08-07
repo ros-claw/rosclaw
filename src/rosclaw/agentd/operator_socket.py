@@ -121,6 +121,37 @@ class OperatorSocketServer:
         method = request.get("method")
         params = request.get("params") or {}
         service = self._service
+        if method == "approvals.get":
+            # P0-NA-14：按精确 request_id 取单张卡——不扫 list（并发下
+            # list 的内容可能已变）。
+            request_id = str(params.get("request_id", ""))
+            if not request_id:
+                return {"ok": False, "error": "request_id required"}
+            pending = {r.request_id: r for r in service.pending_approvals(None)}
+            card = pending.get(request_id)
+            if card is None:
+                return {"ok": False, "error": "no pending approval card", "code": "CARD_NOT_FOUND"}
+            if service.principal_for_request(card.request_id) != principal:
+                return {"ok": False, "error": "not your card", "code": "FORBIDDEN"}
+            return {
+                "ok": True,
+                "approval": {
+                    "request_id": card.request_id,
+                    "mission_id": card.mission_id,
+                    "title": card.action_display.title,
+                    "summary": card.action_display.summary,
+                    "risk_tier": card.action_display.risk_tier,
+                    "parameters": card.action_display.parameters,
+                    "expected_effect": card.action_display.expected_effect,
+                    "failure_handling": card.action_display.failure_handling,
+                    "capability_id": getattr(card, "daemon_capability_id", "") or "",
+                    "body_id": card.body_id,
+                    "expires_at": card.expires_at,
+                    "display_hash": display_hash_for(card),
+                    "mode": card.mode,
+                    "daemon_proposal_id": getattr(card, "daemon_proposal_id", "") or "",
+                },
+            }
         if method == "approvals.list":
             mission_id = params.get("mission_id")
             pending = service.pending_approvals(mission_id)
@@ -144,6 +175,10 @@ class OperatorSocketServer:
                         "summary": r.action_display.summary,
                         "risk_tier": r.action_display.risk_tier,
                         "parameters": r.action_display.parameters,
+                        "expected_effect": r.action_display.expected_effect,
+                        "failure_handling": r.action_display.failure_handling,
+                        "capability_id": getattr(r, "daemon_capability_id", "") or "",
+                        "body_id": r.body_id,
                         "expires_at": r.expires_at,
                         "display_hash": display_hash_for(r),
                         "mode": r.mode,

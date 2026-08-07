@@ -16,15 +16,21 @@ export interface ActiveBinding {
 export class SessionLeaseManager {
 	private current: ActiveBinding | null = null;
 	private heartbeat: ReturnType<typeof setInterval> | null = null;
+	private readonly call: typeof bridgeCall;
 
-	constructor(private readonly rosclawHome: string) {}
+	constructor(
+		private readonly rosclawHome: string,
+		call?: typeof bridgeCall,
+	) {
+		this.call = call ?? bridgeCall;
+	}
 
 	get active(): ActiveBinding | null {
 		return this.current;
 	}
 
 	async bind(piSessionId: string, missionId: string): Promise<ActiveBinding> {
-		const response = await bridgeCall(this.rosclawHome, "pi.session.bind", {
+		const response = await this.call(this.rosclawHome, "pi.session.bind", {
 			pi_session_id: piSessionId,
 			mission_id: missionId,
 		});
@@ -50,7 +56,7 @@ export class SessionLeaseManager {
 	async release(): Promise<void> {
 		this.stopHeartbeat();
 		if (this.current) {
-			await bridgeCall(this.rosclawHome, "pi.session.release", {
+			await this.call(this.rosclawHome, "pi.session.release", {
 				mission_id: this.current.missionId,
 				pi_session_id: this.current.piSessionId,
 				lease_token: this.current.leaseToken,

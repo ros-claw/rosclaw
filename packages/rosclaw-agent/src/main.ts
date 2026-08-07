@@ -56,34 +56,46 @@ async function main(): Promise<number> {
 		"@earendil-works/pi-coding-agent"
 	);
 	const { createRosclawRuntime } = await import("./runtime/create-runtime.js");
-	const { SessionLeaseManager } = await import("./session/lease-manager.js");
 	const { profile, initialMessage, print, missionId, resumeSessionId, continueLast } = parseArgs(
 		process.argv.slice(2),
 	);
 	const rosclawHome = rosclawHomeEnv;
 	// NA-FIX-2：--resume/--continue 走 SessionManager.open（不新建 session
-	// 文件、不预建 Mission——由扩展的 switch 事务接管绑定）。
+	// 文件、不预建 Mission——由 coordinator 的 resumeInitial 事务接管绑定）。
+	// P0-NA-12：session id 必须是纯标识符（拒绝 ../ 路径穿越与任意 JSONL）；
+	// --continue 按文件 mtime 选最近 session，不按文件名排序。
 	let initialSession: import("@earendil-works/pi-coding-agent").SessionManager | undefined;
 	if (resumeSessionId || continueLast) {
 		const sessionDir = `${rosclawHome}/agent/sessions`;
-		const { readdirSync } = await import("node:fs");
+		const { readdirSync, statSync, existsSync } = await import("node:fs");
 		let sessionFile = "";
 		if (resumeSessionId) {
+			if (!/^[A-Za-z0-9_-]+$/.test(resumeSessionId)) {
+				console.error(`非法 session id：${resumeSessionId}（只允许字母数字-_）`);
+				return 2;
+			}
 			const { join } = await import("node:path");
 			sessionFile = join(sessionDir, `${resumeSessionId}.jsonl`);
+			if (!existsSync(sessionFile)) {
+				console.error(
+					`session ${resumeSessionId} 不存在（${sessionDir} 下无此记录）——` +
+					"未启动未绑定会话。用 `rosclaw chat` 开新会话或 `rosclaw chat --continue` 恢复最近会话。",
+				);
+				return 2;
+			}
 		} else {
-			// --continue：最近的 session 文件。
-			const files = readdirSync(sessionDir)
+			// --continue：mtime 最新且头可解析的 session 文件。
+			const candidates = readdirSync(sessionDir)
 				.filter((f) => f.endsWith(".jsonl"))
-				.sort()
-				.reverse();
-			sessionFile = files[0] ? `${sessionDir}/${files[0]}` : "";
+				.map((f) => ({ f, mtime: statSync(`${sessionDir}/${f}`).mtimeMs }))
+				.sort((a, b) => b.mtime - a.mtime);
+			sessionFile = candidates[0] ? `${sessionDir}/${candidates[0].f}` : "";
 		}
 		if (sessionFile) {
 			initialSession = SessionManager.open(sessionFile, sessionDir);
 		}
 	}
-	const runtime = await createRosclawRuntime({
+	const { runtime, coordinator, leaseManager } = await createRosclawRuntime({
 		cwd: process.cwd(),
 		rosclawHome,
 		profile,
@@ -91,11 +103,19 @@ async function main(): Promise<number> {
 		...(missionId ? { missionId } : {}),
 		...(initialSession ? { sessionManager: initialSession } : {}),
 	});
-	// NA-FIX-2：bind/heartbeat 由 SessionLeaseManager 统一管理
-	// （切换事务复用同一管理点，lease_token 绝不丢弃）。
-	const leaseManager = new SessionLeaseManager(rosclawHome);
+	// P0-NA-12：初始绑定统一经 coordinator——lease/heartbeat/fresh
+	// context/原子状态替换是一个事务，lease_token 绝不丢弃。
+	const sessionId = runtime.session.sessionManager.getSessionId();
 	if (missionId) {
-		await leaseManager.bind(runtime.session.sessionManager.getSessionId(), missionId);
+		await leaseManager.bind(sessionId, missionId);
+	} else if (resumeSessionId || continueLast) {
+		// 恢复路径：重接既有绑定（丢失/已归档 → coordinator 新建 SIM
+		// 绑定并明确告知）——不再"只看到 header 就算恢复"。
+		const outcome = await coordinator.resumeInitial(sessionId);
+		if (!outcome.ok) {
+			console.error(`恢复绑定失败：${outcome.reason}`);
+			return 2;
+		}
 	}
 	try {
 		if (print) {

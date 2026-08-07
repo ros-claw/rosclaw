@@ -454,20 +454,55 @@ class TestProductJourney:
             fake.close()
 
     def _assert_grant_consumed(self, home: Path) -> None:
-        """授权→执行闭环：grant 必须被精确消费（单次），不许悬置。"""
+        """授权→执行闭环（P0-NA-13）：直接解析 DB/事件里的结构化证据，
+        断言 approval → grant → consume 的精确 ID 链——不是模型自述。"""
         import sqlite3
 
         db = sqlite3.connect(home / "agentd" / "missions.db")
         try:
-            rows = db.execute(
-                "SELECT grant_id, consumed, revoked FROM mission_grants"
+            # 1. approval 已批准且有精确 decided_by。
+            approvals = db.execute(
+                "SELECT request_id, status, decided_by FROM operator_requests"
             ).fetchall()
+            assert approvals, "应有 approval 记录"
+            for request_id, status, decided_by in approvals:
+                assert status == "APPROVED" and decided_by, (
+                    f"approval {request_id} 未正确落库: status={status}"
+                )
+            # 2. grant 与 approval 精确绑定且被消费（单次、未撤销）。
+            grants = db.execute(
+                "SELECT grant_id, request_id, consumed, revoked FROM mission_grants"
+            ).fetchall()
+            assert grants, "批准应产生 grant"
+            approval_ids = {a[0] for a in approvals}
+            for grant_id, request_id, consumed, revoked in grants:
+                assert request_id in approval_ids, (
+                    f"grant {grant_id} 绑定的 request_id {request_id} 不在 approval 链中"
+                )
+                assert consumed == 1 and revoked == 0, (
+                    f"grant {grant_id} 未被精确消费或被撤销"
+                )
+            # 3. 事件链：approval.requested → approval.decided → grant.consumed
+            #    的 ID 必须一致（结构化事件，不是文本）。
+            events = db.execute(
+                "SELECT type, payload_json FROM agent_events ORDER BY rowid"
+            ).fetchall()
+            requested = [json.loads(p) for t, p in events if t == "approval.requested"]
+            decided = [json.loads(p) for t, p in events if t == "approval.decided"]
+            consumed_evs = [json.loads(p) for t, p in events if t == "grant.consumed"]
+            assert requested and decided, f"事件链缺环: {[t for t, _ in events]}"
+            for req, dec in zip(requested, decided, strict=True):
+                assert req["request_id"] == dec["request_id"], (
+                    f"requested/decided 不同卡: {req} vs {dec}"
+                )
+            if consumed_evs:
+                grant_ids = {g[0] for g in grants}
+                for ev in consumed_evs:
+                    assert ev.get("grant_id") in grant_ids, (
+                        f"grant.consumed 事件的 grant_id 不在链中: {ev}"
+                    )
         finally:
             db.close()
-        assert rows, "批准应产生 grant"
-        assert all(consumed == 1 and revoked == 0 for _, consumed, revoked in rows), (
-            f"grant 未被消费或被撤销: {rows}"
-        )
 
     def _run_journey(self, rosclaw: Path, env: dict[str, str], home: Path) -> None:
         # NA-FIX-9 后默认引擎即 Native Agent——旅程显式验证无 --engine 的默认路径。
@@ -515,10 +550,46 @@ class TestProductJourney:
             assert session.proc.returncode == 0, session.output[-400:]
         finally:
             session.stop()
-        # 9. --continue 恢复（同 session/binding）。
+        # 9. --continue 恢复（P0-NA-12：必须证明 binding/lease 恢复，
+        #    不是只看到 header——resume 后 /status 与对话都可用，且
+        #    mission 与第一段相同、lease 由本进程持有）。
+        import sqlite3 as _sqlite3
+
+        db = _sqlite3.connect(home / "agentd" / "missions.db")
+        before = db.execute(
+            "SELECT pi_session_id, mission_id FROM pi_session_bindings "
+            "WHERE status = 'ACTIVE'"
+        ).fetchall()
+        db.close()
+        assert before, "第一段会话应留下 ACTIVE binding"
+        first_session, first_mission = before[0]
         resumed = PtySession([str(rosclaw), "chat", "--continue"], env)
         try:
             resumed.expect(b"ROSClaw Native Agent", timeout=60)
+            # 恢复后工具链可用（/status 经 bridge 读取内核状态）。
+            resumed.send("/status\r")
+            resumed.expect(b"agentd=READY", timeout=30)
+            # 恢复后对话可用（fake 会答固定问候——证明 model 上下文在）。
+            resumed.send("你好\r")
+            resumed.expect("你好，我是 ROSClaw".encode(), timeout=90)
+            # binding 仍指向同一 session/mission，lease 已重新获取。
+            db = _sqlite3.connect(home / "agentd" / "missions.db")
+            bindings = db.execute(
+                "SELECT pi_session_id, mission_id FROM pi_session_bindings "
+                "WHERE status = 'ACTIVE'"
+            ).fetchall()
+            leases = db.execute(
+                "SELECT pi_session_id, mission_id FROM pi_session_leases "
+                "WHERE mission_id = ?",
+                (first_mission,),
+            ).fetchall()
+            db.close()
+            assert (first_session, first_mission) in bindings, (
+                f"resume 后 binding 丢失或漂移: {bindings}（期望含 {(first_session, first_mission)}）"
+            )
+            assert any(sess == first_session for sess, _m in leases), (
+                f"resume 后 lease 未恢复: {leases}"
+            )
             resumed.send("/quit\r")
             resumed.expect(b"rosclaw chat --resume", timeout=30)
             resumed.proc.wait(timeout=30)
