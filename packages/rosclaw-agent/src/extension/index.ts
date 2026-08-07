@@ -7,8 +7,10 @@
 
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { readFileSync } from "node:fs";
 import { bridgeCall } from "../bridge/bridge-client.js";
 import { ActiveSessionContext } from "../session/active-context.js";
+import type { AgentSessionCoordinator } from "../session/coordinator.js";
 import {
 	handleSessionStart,
 	sessionIdOf,
@@ -30,6 +32,8 @@ export interface RosclawExtensionOptions {
 	systemPrompt: string;
 	/** NA-FIX-2：动态 session 上下文（切换事务的唯一真实源）。 */
 	active: ActiveSessionContext;
+	/** P0-NA-12：唯一 session/mission/lease 事务协调器。 */
+	coordinator: AgentSessionCoordinator;
 	rosclawHome: string;
 }
 
@@ -287,16 +291,14 @@ ${line2}`);
 			});
 		}
 
-		// -- Session 生命周期映射（PNA-6，规格 §13） ------------------------------
+		// -- Session 生命周期（P0-NA-12：全部经唯一 coordinator 事务） --------
 		const lifecycle: LifecycleDeps = {
-			rosclawHome: options.rosclawHome,
-			getMissionId: () => options.active.current.missionId,
-			setMissionId: (missionId) => {
-				options.active.patch({ missionId });
-			},
+			coordinator: options.coordinator,
+			coordinatorMissionId: () => options.active.current.missionId,
 			notify: (message, type) => undefined,
 		};
 		pi.on("session_start", async (event, ctx) => {
+			options.coordinator.setNotify((message, type) => ctx.ui.notify(message, type));
 			lifecycle.notify = (message, type) => ctx.ui.notify(message, type);
 			try {
 				await handleSessionStart(lifecycle, event.reason, sessionIdOf(ctx));
@@ -306,12 +308,29 @@ ${line2}`);
 		});
 		pi.on("session_before_switch", async (event, ctx) => {
 			lifecycle.notify = (message, type) => ctx.ui.notify(message, type);
-			const veto = await shouldCancelSwitch(lifecycle, sessionIdOf(ctx));
-			return veto ? { cancel: true } : undefined;
+			// 只读预检：target 文件头可解析——绑定动作在 session_start
+			// （此时 target 已是活动 session，id 无歧义）。
+			const veto = await shouldCancelSwitch(event.targetSessionFile, (file) => {
+				try {
+					const firstLine = readFileSync(file, "utf-8").split("\n", 1)[0] ?? "";
+					const header = JSON.parse(firstLine) as { id?: string };
+					return typeof header.id === "string" ? header.id : null;
+				} catch {
+					return null;
+				}
+			});
+			if (veto) {
+				ctx.ui.notify(veto, "warning");
+				return { cancel: true };
+			}
+			return undefined;
 		});
 		pi.on("session_before_tree", async (_event, ctx) => {
 			lifecycle.notify = (message, type) => ctx.ui.notify(message, type);
-			const veto = await shouldCancelTree(lifecycle);
+			const veto = await shouldCancelTree({
+				rosclawHome: options.rosclawHome,
+				missionId: options.active.current.missionId,
+			});
 			if (veto) {
 				ctx.ui.notify(veto, "warning");
 				return { cancel: true };

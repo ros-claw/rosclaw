@@ -515,10 +515,46 @@ class TestProductJourney:
             assert session.proc.returncode == 0, session.output[-400:]
         finally:
             session.stop()
-        # 9. --continue 恢复（同 session/binding）。
+        # 9. --continue 恢复（P0-NA-12：必须证明 binding/lease 恢复，
+        #    不是只看到 header——resume 后 /status 与对话都可用，且
+        #    mission 与第一段相同、lease 由本进程持有）。
+        import sqlite3 as _sqlite3
+
+        db = _sqlite3.connect(home / "agentd" / "missions.db")
+        before = db.execute(
+            "SELECT pi_session_id, mission_id FROM pi_session_bindings "
+            "WHERE status = 'ACTIVE'"
+        ).fetchall()
+        db.close()
+        assert before, "第一段会话应留下 ACTIVE binding"
+        first_session, first_mission = before[0]
         resumed = PtySession([str(rosclaw), "chat", "--continue"], env)
         try:
             resumed.expect(b"ROSClaw Native Agent", timeout=60)
+            # 恢复后工具链可用（/status 经 bridge 读取内核状态）。
+            resumed.send("/status\r")
+            resumed.expect(b"agentd=READY", timeout=30)
+            # 恢复后对话可用（fake 会答固定问候——证明 model 上下文在）。
+            resumed.send("你好\r")
+            resumed.expect("你好，我是 ROSClaw".encode(), timeout=90)
+            # binding 仍指向同一 session/mission，lease 已重新获取。
+            db = _sqlite3.connect(home / "agentd" / "missions.db")
+            bindings = db.execute(
+                "SELECT pi_session_id, mission_id FROM pi_session_bindings "
+                "WHERE status = 'ACTIVE'"
+            ).fetchall()
+            leases = db.execute(
+                "SELECT pi_session_id, mission_id FROM pi_session_leases "
+                "WHERE mission_id = ?",
+                (first_mission,),
+            ).fetchall()
+            db.close()
+            assert (first_session, first_mission) in bindings, (
+                f"resume 后 binding 丢失或漂移: {bindings}（期望含 {(first_session, first_mission)}）"
+            )
+            assert any(sess == first_session for sess, _m in leases), (
+                f"resume 后 lease 未恢复: {leases}"
+            )
             resumed.send("/quit\r")
             resumed.expect(b"rosclaw chat --resume", timeout=30)
             resumed.proc.wait(timeout=30)
