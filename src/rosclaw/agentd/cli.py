@@ -374,10 +374,9 @@ def cmd_chat(args: argparse.Namespace) -> int:
     home = _home(args)
     if not _load_stored_credentials(home):
         return 2
-    # 重构路线（rosclaw_native_agent重构.md）：engine=pi 走 Pi-backed
-    # harness（packages/rosclaw-agent），legacy 保持默认直到 Product Gate 通过。
-    # 优先级：--legacy > --engine > config.agent.engine > legacy（规格 §5/
-    # §31——Product Gate 未全过前默认必须保持 legacy）。
+    # NA-FIX-9（规格 §5/§31，Gate A–E 已通过）：Native Agent（pi）是默认
+    # 引擎；legacy 仅作隐藏回退保留一个稳定版本。
+    # 优先级：--legacy > --engine > config.agent.engine > pi。
     if getattr(args, "legacy", False):
         engine = "legacy"
     elif getattr(args, "engine", None):
@@ -386,13 +385,19 @@ def cmd_chat(args: argparse.Namespace) -> int:
         try:
             engine = load_agent_config(home / "config.yaml").engine
         except Exception:  # noqa: BLE001 - 配置问题由后续步骤诚实报出
-            engine = "legacy"
+            engine = "pi"
+    # 两种引擎都需要模型配置——缺失时给出同一指引（pi 侧由
+    # ModelRuntime/auth 接续处理具体 provider 细节）。
+    try:
+        if not load_agent_config(home / "config.yaml").profiles:
+            print("未配置模型。先运行 `rosclaw agent init`。", file=sys.stderr)
+            return 2
+    except ValueError:
+        print("未配置模型。先运行 `rosclaw agent init`。", file=sys.stderr)
+        return 2
     if engine == "pi":
         return _chat_pi(home, args)
     config = load_agent_config(home / "config.yaml")
-    if not config.profiles:
-        print("未配置模型。先运行 `rosclaw agent init`。", file=sys.stderr)
-        return 2
     service = AgentService(config, home)
     if getattr(args, "basic", False):
         return asyncio.run(_chat_repl(service, args))
@@ -423,9 +428,9 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     runtime = _find_pi_agent_entry()
     if runtime is None:
         print(
-            "engine=pi 需要 Node ≥22.19 且已构建 packages/rosclaw-agent"
+            "Native Agent 需要 Node ≥22.19 且已构建 packages/rosclaw-agent"
             "（发布包自带；源码环境先 npm ci && npm run build）。"
-            "回退：rosclaw chat --legacy",
+            "临时回退：rosclaw chat --legacy",
             file=sys.stderr,
         )
         return 2
@@ -463,7 +468,7 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     while time.time() < deadline and not (home / "run" / "pi-bridge.sock").exists():
         time.sleep(0.05)
     if not (home / "run" / "pi-bridge.sock").exists():
-        print("pi-bridge 未能启动——engine=pi 不可用（agentd 内核未就绪）。", file=sys.stderr)
+        print("内核桥未能启动——Native Agent 不可用（agentd 内核未就绪）。", file=sys.stderr)
         server.should_exit = True
         asyncio.run(service.close())
         return 2
@@ -989,13 +994,14 @@ def add_agent_subparsers(subparsers) -> None:
         "--engine",
         default=None,
         choices=["pi", "legacy"],
-        help="Agent engine：pi（Pi-backed harness，重构路线）或 legacy"
-        "（当前 Python AgentLoop + rosclaw-tui）。默认 legacy（Product Gate 未过前）。",
+        # NA-FIX-9：公开面不再暴露引擎概念；仅兼容旧脚本/诊断。
+        help=argparse.SUPPRESS,
     )
     p_chat.add_argument(
         "--legacy",
         action="store_true",
-        help="等价于 --engine legacy",
+        # 隐藏回退（保留一个稳定版本后随 legacy 一起退役）。
+        help=argparse.SUPPRESS,
     )
     p_chat.add_argument(
         "--continue",

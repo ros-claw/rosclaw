@@ -20,9 +20,10 @@ DEFAULT_CONFIG_PATH = Path.home() / ".rosclaw" / "config.yaml"
 @dataclass
 class AgentConfig:
     enabled: bool = True
-    # 重构规格 §5：pi（Pi-backed harness）| legacy（Python AgentLoop +
-    # rosclaw-tui）。默认 legacy——Product Gate 未全过前不得切 pi。
-    engine: str = "legacy"
+    # 重构规格 §5/§31 + NA-FIX-9：pi（Pi-backed harness，Native Agent）
+    # 是默认；legacy（Python AgentLoop + rosclaw-tui）仅作隐藏回退保留
+    # 一个稳定版本（Gate A–E 已全部通过——见 docs 验证矩阵）。
+    engine: str = "pi"
     default_profile: str = "embodied_default"
     default_mode: str = "SIMULATION"
     max_tool_rounds: int = 12
@@ -84,7 +85,7 @@ def load_agent_config(path: Path | None = None) -> AgentConfig:
     ]
     context = agent.get("context", {}) or {}
     budgets = agent.get("budgets", {}) or {}
-    engine = str(agent.get("engine", "legacy")).lower()
+    engine = str(agent.get("engine", "pi")).lower()
     if engine not in ("pi", "legacy"):
         raise ValueError(f"agent.engine 只能是 pi|legacy（got {engine!r}）")
     return AgentConfig(

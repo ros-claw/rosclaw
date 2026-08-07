@@ -470,7 +470,8 @@ class TestProductJourney:
         )
 
     def _run_journey(self, rosclaw: Path, env: dict[str, str], home: Path) -> None:
-        session = PtySession([str(rosclaw), "chat", "--engine", "pi"], env)
+        # NA-FIX-9 后默认引擎即 Native Agent——旅程显式验证无 --engine 的默认路径。
+        session = PtySession([str(rosclaw), "chat"], env)
         try:
             # 1. 品牌 header（T-IDENTITY：无 engine/pi 字样）。
             session.expect(b"ROSClaw Native Agent", timeout=60)
@@ -515,7 +516,7 @@ class TestProductJourney:
         finally:
             session.stop()
         # 9. --continue 恢复（同 session/binding）。
-        resumed = PtySession([str(rosclaw), "chat", "--engine", "pi", "--continue"], env)
+        resumed = PtySession([str(rosclaw), "chat", "--continue"], env)
         try:
             resumed.expect(b"ROSClaw Native Agent", timeout=60)
             resumed.send("/quit\r")

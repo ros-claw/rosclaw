@@ -58,7 +58,7 @@ DOMAIN_GROUPS: dict[str, list[str]] = {
 
 #: 机器可读注册表（name → (group, summary)）。dispatch 实现见 entrypoint.py。
 COMMAND_REGISTRY: dict[str, tuple[str, str]] = {
-    "chat": ("core", "Start the Native Agent (Pi-backed harness or --legacy)"),
+    "chat": ("core", "Start the Native Agent"),
     "setup": ("setup", "Configure model, body and integrations"),
     "status": ("core", "Show runtime and embodiment status"),
     "doctor": ("core", "Diagnose installation and safety readiness"),
@@ -67,7 +67,6 @@ COMMAND_REGISTRY: dict[str, tuple[str, str]] = {
     "restart": ("runtime", "Restart services"),
     "dashboard": ("runtime", "Open the dashboard"),
     "agent": ("core", "Native Agent management (agentd)"),
-    "chat --engine": ("advanced", "Engine selection (developer preview; hidden later)"),
     "operatord": ("safety", "Independent operator authorization process"),
     "daemon": ("safety", "rosclawd control plane inspection"),
     "release verify": ("safety", "Verify a release bundle offline"),
