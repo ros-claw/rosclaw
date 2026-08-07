@@ -14,6 +14,7 @@ clean install → rosclaw chat --engine pi → 品牌 header → 普通对话
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import json
 import os
@@ -359,10 +360,8 @@ class PtySession:
 
     def stop(self) -> None:
         self._draining = False
-        try:
+        with contextlib.suppress(OSError):
             os.close(self.master)
-        except OSError:
-            pass
         if self.proc.poll() is None:
             self.proc.terminate()
             try:
@@ -376,7 +375,6 @@ class TestProductJourney:
     def test_full_journey_pty(self, tmp_path: Path) -> None:
         fake = FakeModelServer(log_path=tmp_path / "fake-requests.jsonl")
         prefix, _root = _build_and_install(tmp_path)
-        current = prefix / "current"
         home = tmp_path / "rh"
         # kernel（python agentd）配置：fake base_url；Pi 侧 models.json。
         (home / "run").mkdir(parents=True, exist_ok=True)
