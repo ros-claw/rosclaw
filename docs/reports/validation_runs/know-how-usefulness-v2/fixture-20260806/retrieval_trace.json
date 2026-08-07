@@ -1,0 +1,95 @@
+[
+  {
+    "scenario_id": "g1_football_fixture",
+    "expected_unit": "z-good-g1_football_fixture",
+    "baseline": {
+      "method": "keyword_only_no_context",
+      "ranked_unit_ids": [
+        "a-bad-g1_football_fixture",
+        "z-good-g1_football_fixture",
+        "a-bad-limo_ros1_fixture",
+        "a-bad-realsense_arm_fixture",
+        "z-good-limo_ros1_fixture",
+        "z-good-realsense_arm_fixture"
+      ],
+      "selected_unit_id": "a-bad-g1_football_fixture",
+      "references_to_first_compatible": 2,
+      "wrong_initial_route": true,
+      "compatibility_error": true,
+      "pinned_evidence_presented": false
+    },
+    "treatment": {
+      "method": "know_reference_pack_then_how_advice",
+      "ranked_unit_ids": [
+        "z-good-g1_football_fixture"
+      ],
+      "selected_unit_id": "z-good-g1_football_fixture",
+      "references_to_first_compatible": 1,
+      "wrong_initial_route": false,
+      "compatibility_error": false,
+      "pinned_evidence_presented": true
+    }
+  },
+  {
+    "scenario_id": "realsense_arm_fixture",
+    "expected_unit": "z-good-realsense_arm_fixture",
+    "baseline": {
+      "method": "keyword_only_no_context",
+      "ranked_unit_ids": [
+        "a-bad-realsense_arm_fixture",
+        "z-good-realsense_arm_fixture",
+        "a-bad-limo_ros1_fixture",
+        "z-good-limo_ros1_fixture",
+        "a-bad-g1_football_fixture",
+        "z-good-g1_football_fixture"
+      ],
+      "selected_unit_id": "a-bad-realsense_arm_fixture",
+      "references_to_first_compatible": 2,
+      "wrong_initial_route": true,
+      "compatibility_error": true,
+      "pinned_evidence_presented": false
+    },
+    "treatment": {
+      "method": "know_reference_pack_then_how_advice",
+      "ranked_unit_ids": [
+        "z-good-realsense_arm_fixture"
+      ],
+      "selected_unit_id": "z-good-realsense_arm_fixture",
+      "references_to_first_compatible": 1,
+      "wrong_initial_route": false,
+      "compatibility_error": false,
+      "pinned_evidence_presented": true
+    }
+  },
+  {
+    "scenario_id": "limo_ros1_fixture",
+    "expected_unit": "z-good-limo_ros1_fixture",
+    "baseline": {
+      "method": "keyword_only_no_context",
+      "ranked_unit_ids": [
+        "a-bad-limo_ros1_fixture",
+        "z-good-limo_ros1_fixture",
+        "a-bad-realsense_arm_fixture",
+        "z-good-realsense_arm_fixture",
+        "a-bad-g1_football_fixture",
+        "z-good-g1_football_fixture"
+      ],
+      "selected_unit_id": "a-bad-limo_ros1_fixture",
+      "references_to_first_compatible": 2,
+      "wrong_initial_route": true,
+      "compatibility_error": true,
+      "pinned_evidence_presented": false
+    },
+    "treatment": {
+      "method": "know_reference_pack_then_how_advice",
+      "ranked_unit_ids": [
+        "z-good-limo_ros1_fixture"
+      ],
+      "selected_unit_id": "z-good-limo_ros1_fixture",
+      "references_to_first_compatible": 1,
+      "wrong_initial_route": false,
+      "compatibility_error": false,
+      "pinned_evidence_presented": true
+    }
+  }
+]

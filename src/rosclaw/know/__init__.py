@@ -1,4 +1,7 @@
-"""ROSClaw Knowledge Module — query + batch sides.
+"""Compatibility facade for legacy ROSClaw Knowledge integrations.
+
+Authoritative v2 implementation lives in ``rosclaw-know``. This package is a
+rollback-compatible runtime adapter and must not grow new retrieval algorithms.
 
 Provides structured knowledge for Agent Runtime:
 - Robot capabilities from e-URDF semantic tags

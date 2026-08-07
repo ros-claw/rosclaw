@@ -1,0 +1,218 @@
+[
+  {
+    "schema_version": "rosclaw.how.advice.v2",
+    "advice_id": "advice_15ed0235777283aad48e030c",
+    "mode": "diagnose",
+    "context_hash": "ab2cec1f2cfc74a2c913f2fbdd38fb66ec1688f2f445d44d4b1fb4deb833d585",
+    "reference_pack_id": "reference_pack_f08b9b41f92d81642cfb2327",
+    "reference_pack_cached": false,
+    "reference_pack_stale": false,
+    "reference_pack_age_seconds": 0,
+    "summary": "DIAGNOSE advice grounded in 1 Know item(s); Reference Pack state=fresh; Memory evidence remains a separately labelled context input.",
+    "diagnosis": "[Know evidence] Matched by fulltext; confidence=0.95. [Memory evidence] 0 separate robot-experience record(s) supplied.",
+    "recommendations": [
+      {
+        "action_type": "inspect",
+        "description": "Inspect controllers/g1_soccer_balance.yaml at git_commit:c2022f9c907f.",
+        "rationale": "The cited mechanism is: Use route bounded_residual_balance only when robot, ROS and software constraints match.",
+        "knowledge_unit_ids": [
+          "z-good-g1_football_fixture"
+        ],
+        "evidence_refs": [
+          {
+            "schema_version": "rosclaw.know.evidence_ref.v2",
+            "evidence_id": "evidence-good-g1_football_fixture",
+            "source_id": "source-good-g1_football_fixture",
+            "snapshot_id": "snapshot-good-g1_football_fixture",
+            "document_id": "document-good-g1_football_fixture",
+            "path": "controllers/g1_soccer_balance.yaml",
+            "start_line": 1,
+            "end_line": 4,
+            "section": null,
+            "url": "https://example.invalid/g1_football_fixture/blob/c2022f9c907f/controllers/g1_soccer_balance.yaml",
+            "content_hash": "c2022f9c907f373c68a8a10b19b4dae312415afad750fc32dcfbb0859c76c586",
+            "excerpt": "fixture route=bounded_residual_balance\nfile=controllers/g1_soccer_balance.yaml\nrobot=unitree_g1\nros=humble\nquery=G1 football balance recovery controller"
+          }
+        ],
+        "safety_class": "advisory"
+      },
+      {
+        "action_type": "verify",
+        "description": "Verify the observed failure against the cited conditions before changing configuration.",
+        "rationale": "A lexical or mechanism match is evidence for investigation, not proof of root cause.",
+        "knowledge_unit_ids": [
+          "z-good-g1_football_fixture"
+        ],
+        "evidence_refs": [
+          {
+            "schema_version": "rosclaw.know.evidence_ref.v2",
+            "evidence_id": "evidence-good-g1_football_fixture",
+            "source_id": "source-good-g1_football_fixture",
+            "snapshot_id": "snapshot-good-g1_football_fixture",
+            "document_id": "document-good-g1_football_fixture",
+            "path": "controllers/g1_soccer_balance.yaml",
+            "start_line": 1,
+            "end_line": 4,
+            "section": null,
+            "url": "https://example.invalid/g1_football_fixture/blob/c2022f9c907f/controllers/g1_soccer_balance.yaml",
+            "content_hash": "c2022f9c907f373c68a8a10b19b4dae312415afad750fc32dcfbb0859c76c586",
+            "excerpt": "fixture route=bounded_residual_balance\nfile=controllers/g1_soccer_balance.yaml\nrobot=unitree_g1\nros=humble\nquery=G1 football balance recovery controller"
+          }
+        ],
+        "safety_class": "advisory"
+      }
+    ],
+    "compatibility_warnings": [],
+    "unknowns": [
+      "reranker_used=false; deterministic_fallback=rrf",
+      "AI_RERANK unavailable; deterministic RRF fallback used"
+    ],
+    "abstained": false,
+    "abstention_reason": null,
+    "created_at": "2026-08-06T16:48:23.617146Z"
+  },
+  {
+    "schema_version": "rosclaw.how.advice.v2",
+    "advice_id": "advice_63b1f882f4a0acef1eaff97a",
+    "mode": "diagnose",
+    "context_hash": "ba709859ee9f84f7369e6e965bc9a8a9dd96be330926ebbabe5b4168a0d6227e",
+    "reference_pack_id": "reference_pack_20b6eda33ec5ac23d0ee0e8e",
+    "reference_pack_cached": false,
+    "reference_pack_stale": false,
+    "reference_pack_age_seconds": 0,
+    "summary": "DIAGNOSE advice grounded in 1 Know item(s); Reference Pack state=fresh; Memory evidence remains a separately labelled context input.",
+    "diagnosis": "[Know evidence] Matched by fulltext; confidence=0.95. [Memory evidence] 0 separate robot-experience record(s) supplied.",
+    "recommendations": [
+      {
+        "action_type": "inspect",
+        "description": "Inspect deploy/realsense_aarch64.yaml at git_commit:0e42da15e8a6.",
+        "rationale": "The cited mechanism is: Use route aarch64_source_build only when robot, ROS and software constraints match.",
+        "knowledge_unit_ids": [
+          "z-good-realsense_arm_fixture"
+        ],
+        "evidence_refs": [
+          {
+            "schema_version": "rosclaw.know.evidence_ref.v2",
+            "evidence_id": "evidence-good-realsense_arm_fixture",
+            "source_id": "source-good-realsense_arm_fixture",
+            "snapshot_id": "snapshot-good-realsense_arm_fixture",
+            "document_id": "document-good-realsense_arm_fixture",
+            "path": "deploy/realsense_aarch64.yaml",
+            "start_line": 1,
+            "end_line": 4,
+            "section": null,
+            "url": "https://example.invalid/realsense_arm_fixture/blob/0e42da15e8a6/deploy/realsense_aarch64.yaml",
+            "content_hash": "0e42da15e8a6e1d0c373022ea69153f5ff00be3f5938b872e5953fe74e9c3809",
+            "excerpt": "fixture route=aarch64_source_build\nfile=deploy/realsense_aarch64.yaml\nrobot=custom_arm_robot\nros=humble\nquery=RealSense ARM robot camera integration"
+          }
+        ],
+        "safety_class": "advisory"
+      },
+      {
+        "action_type": "verify",
+        "description": "Verify the observed failure against the cited conditions before changing configuration.",
+        "rationale": "A lexical or mechanism match is evidence for investigation, not proof of root cause.",
+        "knowledge_unit_ids": [
+          "z-good-realsense_arm_fixture"
+        ],
+        "evidence_refs": [
+          {
+            "schema_version": "rosclaw.know.evidence_ref.v2",
+            "evidence_id": "evidence-good-realsense_arm_fixture",
+            "source_id": "source-good-realsense_arm_fixture",
+            "snapshot_id": "snapshot-good-realsense_arm_fixture",
+            "document_id": "document-good-realsense_arm_fixture",
+            "path": "deploy/realsense_aarch64.yaml",
+            "start_line": 1,
+            "end_line": 4,
+            "section": null,
+            "url": "https://example.invalid/realsense_arm_fixture/blob/0e42da15e8a6/deploy/realsense_aarch64.yaml",
+            "content_hash": "0e42da15e8a6e1d0c373022ea69153f5ff00be3f5938b872e5953fe74e9c3809",
+            "excerpt": "fixture route=aarch64_source_build\nfile=deploy/realsense_aarch64.yaml\nrobot=custom_arm_robot\nros=humble\nquery=RealSense ARM robot camera integration"
+          }
+        ],
+        "safety_class": "advisory"
+      }
+    ],
+    "compatibility_warnings": [],
+    "unknowns": [
+      "reranker_used=false; deterministic_fallback=rrf",
+      "AI_RERANK unavailable; deterministic RRF fallback used"
+    ],
+    "abstained": false,
+    "abstention_reason": null,
+    "created_at": "2026-08-06T16:48:37.036399Z"
+  },
+  {
+    "schema_version": "rosclaw.how.advice.v2",
+    "advice_id": "advice_1d29087d7488cd11fac547a9",
+    "mode": "diagnose",
+    "context_hash": "321ccfecd9ffa1e1762ebf809b4e614252db3cd6f87816efa59a37e6971108a1",
+    "reference_pack_id": "reference_pack_2d04c17f6d689a557b3ee197",
+    "reference_pack_cached": false,
+    "reference_pack_stale": false,
+    "reference_pack_age_seconds": 0,
+    "summary": "DIAGNOSE advice grounded in 1 Know item(s); Reference Pack state=fresh; Memory evidence remains a separately labelled context input.",
+    "diagnosis": "[Know evidence] Matched by fulltext; confidence=0.95. [Memory evidence] 0 separate robot-experience record(s) supplied.",
+    "recommendations": [
+      {
+        "action_type": "inspect",
+        "description": "Inspect navigation/limo_move_base.launch at git_commit:0a916f199934.",
+        "rationale": "The cited mechanism is: Use route limo_move_base only when robot, ROS and software constraints match.",
+        "knowledge_unit_ids": [
+          "z-good-limo_ros1_fixture"
+        ],
+        "evidence_refs": [
+          {
+            "schema_version": "rosclaw.know.evidence_ref.v2",
+            "evidence_id": "evidence-good-limo_ros1_fixture",
+            "source_id": "source-good-limo_ros1_fixture",
+            "snapshot_id": "snapshot-good-limo_ros1_fixture",
+            "document_id": "document-good-limo_ros1_fixture",
+            "path": "navigation/limo_move_base.launch",
+            "start_line": 1,
+            "end_line": 4,
+            "section": null,
+            "url": "https://example.invalid/limo_ros1_fixture/blob/0a916f199934/navigation/limo_move_base.launch",
+            "content_hash": "0a916f199934b92fec2c186faf01fddabb4f0d78c67df0fdb5511eb555b3f6a7",
+            "excerpt": "fixture route=limo_move_base\nfile=navigation/limo_move_base.launch\nrobot=agilex_limo\nros=noetic\nquery=LIMO ROS1 navigation integration"
+          }
+        ],
+        "safety_class": "advisory"
+      },
+      {
+        "action_type": "verify",
+        "description": "Verify the observed failure against the cited conditions before changing configuration.",
+        "rationale": "A lexical or mechanism match is evidence for investigation, not proof of root cause.",
+        "knowledge_unit_ids": [
+          "z-good-limo_ros1_fixture"
+        ],
+        "evidence_refs": [
+          {
+            "schema_version": "rosclaw.know.evidence_ref.v2",
+            "evidence_id": "evidence-good-limo_ros1_fixture",
+            "source_id": "source-good-limo_ros1_fixture",
+            "snapshot_id": "snapshot-good-limo_ros1_fixture",
+            "document_id": "document-good-limo_ros1_fixture",
+            "path": "navigation/limo_move_base.launch",
+            "start_line": 1,
+            "end_line": 4,
+            "section": null,
+            "url": "https://example.invalid/limo_ros1_fixture/blob/0a916f199934/navigation/limo_move_base.launch",
+            "content_hash": "0a916f199934b92fec2c186faf01fddabb4f0d78c67df0fdb5511eb555b3f6a7",
+            "excerpt": "fixture route=limo_move_base\nfile=navigation/limo_move_base.launch\nrobot=agilex_limo\nros=noetic\nquery=LIMO ROS1 navigation integration"
+          }
+        ],
+        "safety_class": "advisory"
+      }
+    ],
+    "compatibility_warnings": [],
+    "unknowns": [
+      "reranker_used=false; deterministic_fallback=rrf",
+      "AI_RERANK unavailable; deterministic RRF fallback used"
+    ],
+    "abstained": false,
+    "abstention_reason": null,
+    "created_at": "2026-08-06T16:48:51.368298Z"
+  }
+]

@@ -1,0 +1,104 @@
+[
+  {
+    "feedback": {
+      "schema_version": "rosclaw.knowledge_usage_feedback.v1",
+      "feedback_id": "campaign-useful-g1_football_fixture",
+      "reference_pack_id": "reference_pack_f08b9b41f92d81642cfb2327",
+      "advice_id": "advice_15ed0235777283aad48e030c",
+      "knowledge_unit_id": "z-good-g1_football_fixture",
+      "presented": true,
+      "opened": true,
+      "used_by_agent": true,
+      "verdict": "useful",
+      "reason": "Controlled oracle confirmed the context-compatible route.",
+      "context_hash": "ab2cec1f2cfc74a2c913f2fbdd38fb66ec1688f2f445d44d4b1fb4deb833d585",
+      "receipt_ref": null,
+      "practice_ref": null,
+      "origin": "verifier",
+      "created_at": "2026-08-06T16:48:23.615656Z"
+    },
+    "governance": {
+      "schema_version": "rosclaw.feedback_governance.v1",
+      "governance_id": "feedback_governance_5dc7b9e6e26f0ecd196e",
+      "feedback_id": "campaign-useful-g1_football_fixture",
+      "reference_pack_id": "reference_pack_f08b9b41f92d81642cfb2327",
+      "knowledge_unit_id": "z-good-g1_football_fixture",
+      "verdict": "useful",
+      "queue": "usage_signals",
+      "proposed_action": "record_usage_signal",
+      "status": "signal_recorded",
+      "requires_human_review": false,
+      "automatic_mutation_allowed": false,
+      "rationale": "Usage is recorded as a positive signal; it does not promote or rewrite knowledge.",
+      "created_at": "2026-08-06T16:48:23.615656Z"
+    }
+  },
+  {
+    "feedback": {
+      "schema_version": "rosclaw.knowledge_usage_feedback.v1",
+      "feedback_id": "campaign-useful-realsense_arm_fixture",
+      "reference_pack_id": "reference_pack_20b6eda33ec5ac23d0ee0e8e",
+      "advice_id": "advice_63b1f882f4a0acef1eaff97a",
+      "knowledge_unit_id": "z-good-realsense_arm_fixture",
+      "presented": true,
+      "opened": true,
+      "used_by_agent": true,
+      "verdict": "useful",
+      "reason": "Controlled oracle confirmed the context-compatible route.",
+      "context_hash": "ba709859ee9f84f7369e6e965bc9a8a9dd96be330926ebbabe5b4168a0d6227e",
+      "receipt_ref": null,
+      "practice_ref": null,
+      "origin": "verifier",
+      "created_at": "2026-08-06T16:48:23.615656Z"
+    },
+    "governance": {
+      "schema_version": "rosclaw.feedback_governance.v1",
+      "governance_id": "feedback_governance_a7b158b0d8c0a0ef3fc7",
+      "feedback_id": "campaign-useful-realsense_arm_fixture",
+      "reference_pack_id": "reference_pack_20b6eda33ec5ac23d0ee0e8e",
+      "knowledge_unit_id": "z-good-realsense_arm_fixture",
+      "verdict": "useful",
+      "queue": "usage_signals",
+      "proposed_action": "record_usage_signal",
+      "status": "signal_recorded",
+      "requires_human_review": false,
+      "automatic_mutation_allowed": false,
+      "rationale": "Usage is recorded as a positive signal; it does not promote or rewrite knowledge.",
+      "created_at": "2026-08-06T16:48:23.615656Z"
+    }
+  },
+  {
+    "feedback": {
+      "schema_version": "rosclaw.knowledge_usage_feedback.v1",
+      "feedback_id": "campaign-useful-limo_ros1_fixture",
+      "reference_pack_id": "reference_pack_2d04c17f6d689a557b3ee197",
+      "advice_id": "advice_1d29087d7488cd11fac547a9",
+      "knowledge_unit_id": "z-good-limo_ros1_fixture",
+      "presented": true,
+      "opened": true,
+      "used_by_agent": true,
+      "verdict": "useful",
+      "reason": "Controlled oracle confirmed the context-compatible route.",
+      "context_hash": "321ccfecd9ffa1e1762ebf809b4e614252db3cd6f87816efa59a37e6971108a1",
+      "receipt_ref": null,
+      "practice_ref": null,
+      "origin": "verifier",
+      "created_at": "2026-08-06T16:48:23.615656Z"
+    },
+    "governance": {
+      "schema_version": "rosclaw.feedback_governance.v1",
+      "governance_id": "feedback_governance_81359200686e649f2e10",
+      "feedback_id": "campaign-useful-limo_ros1_fixture",
+      "reference_pack_id": "reference_pack_2d04c17f6d689a557b3ee197",
+      "knowledge_unit_id": "z-good-limo_ros1_fixture",
+      "verdict": "useful",
+      "queue": "usage_signals",
+      "proposed_action": "record_usage_signal",
+      "status": "signal_recorded",
+      "requires_human_review": false,
+      "automatic_mutation_allowed": false,
+      "rationale": "Usage is recorded as a positive signal; it does not promote or rewrite knowledge.",
+      "created_at": "2026-08-06T16:48:23.615656Z"
+    }
+  }
+]

@@ -1,0 +1,46 @@
+{
+  "executed": true,
+  "rows": [
+    {
+      "scenario_id": "g1_football_fixture",
+      "model": "deepseekv4",
+      "temperature": 0.0,
+      "baseline": "**Implementation Route:**  \n**First file to inspect:** `isaac_lab/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/manager_hrl/locomotion/g1_football_balancing.py` (or the equivalent task configuration file for the G1 balancing task in your Isaac Lab workspace).  \n\n**Compatibility risk:**  \n- **Torch 2.7** is not yet a stable release (current stable is 2.x). Using a pre-release or mismatched PyTorch version may cause `torch.compile` or `torch.jit` failures with Isaac Lab’s RL modules.  \n- **ROS Humble** requires `rclpy` and `ros2` nodes to be launched in the same Python environment as Isaac Lab; potential ABI conflicts with `omni.isaalab`’s native extensions.  \n\n**First verification step:**  \nRun the task’s unit test (if available) or execute a dry-run of the environment creation:  \n```bash  \npython -m omni.isaac.lab_tasks.g1_football_balancing --test  \n```  \nIf no test is present, import the task in a Python shell and call `env = gym.make(\"G1FootballBalancing-v0\")` to confirm the environment initializes without segmentation faults or missing dependencies.",
+      "treatment": "**Implementation Route:** `bounded_residual_balance`  \n**First File to Inspect:** `controllers/g1_soccer_balance.yaml` (at `git_commit:c2022f9c907f`)  \n**Compatibility Risk:** Low — matches `unitree_g1`, `humble`, and `torch 2.7` per reference pack.  \n**First Verification Step:** Open the file and confirm the route field reads `bounded_residual_balance` before any configuration changes.",
+      "baseline_exact_file": false,
+      "treatment_exact_file": true,
+      "baseline_expected_route": false,
+      "treatment_expected_route": true
+    },
+    {
+      "scenario_id": "realsense_arm_fixture",
+      "model": "deepseekv4",
+      "temperature": 0.0,
+      "baseline": "**Implementation Route:**  \nUse the `realsense2_camera` ROS 2 node from Intel’s official `ros2_intel_realsense` repository, built from source for `aarch64`/`humble` with `librealsense` 2.56.\n\n**First File to Inspect:**  \n`/path/to/ros2_intel_realsense/realsense2_camera/launch/rs_launch.py`  \n(Verify it exists and contains `depth_module` and `rgb_camera` parameters.)\n\n**Compatibility Risk:**  \n`librealsense` 2.56 may not have full `aarch64` kernel patches for the specific RealSense model (e.g., D435i) on the custom ARM robot’s kernel. This can cause USB firmware handshaking failures or missing UVC metadata.\n\n**First Verification Step:**  \nRun `rs-depth-cpp` (from `librealsense` examples) on the ARM target without ROS. If it fails with `RS2_EXCEPTION_DEVICE_NOT_RESPONDING` or `UVC` errors, the kernel is incompatible.",
+      "treatment": "**Implementation Route:** `aarch64_source_build`\n\n**First File to Inspect:**\n`deploy/realsense_aarch64.yaml` (at git commit `0e42da15e8a6`)\n\n**Compatibility Risk:**\n- **Low** – The route is explicitly matched to your exact constraints: `arch=aarch64`, `ros=humble`, `librealsense=2.56`, `robot=custom_arm_robot`.\n- **Caveat:** This is fixture evidence only; physical behavior (e.g., USB bandwidth on ARM, sensor sync with arm joints) is unverified.\n\n**First Verification Step:**\nOpen the file at the pinned commit and confirm the route parameter is `aarch64_source_build`. Then, before any configuration change, verify the observed failure matches the conditions under which this route is intended to be used.",
+      "baseline_exact_file": false,
+      "treatment_exact_file": true,
+      "baseline_expected_route": false,
+      "treatment_expected_route": true
+    },
+    {
+      "scenario_id": "limo_ros1_fixture",
+      "model": "deepseekv4",
+      "temperature": 0.0,
+      "baseline": "**Implementation Route**\n\n1. **First file to inspect**  \n   `agilex_limo_ros/agilex_limo_navigation/launch/limo_navigation.launch`  \n   (or equivalent `*.launch` file in the `agilex_limo_navigation` package that invokes `move_base`).\n\n2. **Compatibility risk**  \n   The default `move_base` parameters in that launch file may reference a `kinematics.yaml` or `costmap_common_params.yaml` that assumes a different robot base (e.g., differential drive vs. Ackermann/4WD). If the LIMO is in 4WD mode, the `holonomic` flag and velocity limits may be mismatched, causing `move_base` to fail or produce erratic control.\n\n3. **First verification step**  \n   Run the launch file with `roslaunch` and immediately check the terminal output for `[ERROR]` or `[WARN]` messages from `move_base` about missing or misconfigured parameters (especially `holonomic`, `max_vel_x`, `min_vel_x`, and `wheel_separation`). If no errors appear, publish a simple `nav_msgs/Goal` to `/move_base/goal` and observe the response in `rostopic echo /move_base/result`.",
+      "treatment": "## Implementation Route\n\n**First file to inspect:**\n`navigation/limo_move_base.launch` (at git_commit:0a916f199934)\n\n**Compatibility risk:**\n- Fixture evidence only; physical behavior is unverified\n- No known incompatibilities documented, but no physical validation performed\n\n**First verification step:**\nOpen the file at the pinned source version and verify the route name matches `limo_move_base` before applying to Sandbox/Practice environment.",
+      "baseline_exact_file": false,
+      "treatment_exact_file": true,
+      "baseline_expected_route": false,
+      "treatment_expected_route": true
+    }
+  ],
+  "summary": {
+    "executed": true,
+    "pairs": 3,
+    "baseline_exact_file": 0,
+    "treatment_exact_file": 3,
+    "baseline_expected_route": 0,
+    "treatment_expected_route": 3
+  }
+}

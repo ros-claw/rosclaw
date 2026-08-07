@@ -25,8 +25,13 @@ from mcp.server.models import InitializationOptions
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool, ToolAnnotations
 
+from rosclaw import __version__
 from rosclaw.agent_runtime.mcp_hub import MCPHub
 from rosclaw.core.event_bus import EventBus
+from rosclaw.knowledge.agent_tools import KnowledgeAgentTools
+from rosclaw.knowledge.facade import KnowledgeFacade
+from rosclaw.knowledge.mcp_tools import KnowledgeMCPTools
+from rosclaw.knowledge.service_manager import KnowledgeServiceConfig, KnowledgeServiceManager
 
 
 class ROSClawMinimalMCPServer:
@@ -43,6 +48,13 @@ class ROSClawMinimalMCPServer:
             self.hub.initialize()
         finally:
             sys.stdout = old_stdout
+
+        # Construction is non-blocking: service reachability is checked only
+        # by an explicit status/tool call, never while starting the safety MCP.
+        self._knowledge_manager = KnowledgeServiceManager(KnowledgeServiceConfig.from_env())
+        self._knowledge_tools = KnowledgeMCPTools(
+            KnowledgeAgentTools(KnowledgeFacade(self._knowledge_manager, event_bus=self.event_bus))
+        )
 
         self._register_handlers()
 
@@ -66,6 +78,15 @@ class ROSClawMinimalMCPServer:
                 )
             # Add system-level tools
             tools.extend(self._system_tools())
+            for spec in self._knowledge_tools.specs():
+                tools.append(
+                    Tool(
+                        name=spec["name"],
+                        description=spec["description"],
+                        inputSchema=spec["inputSchema"],
+                        annotations=ToolAnnotations(readOnlyHint=True),
+                    )
+                )
             return tools
 
         @self.server.call_tool()
@@ -73,6 +94,8 @@ class ROSClawMinimalMCPServer:
             try:
                 if name.startswith("system."):
                     result = await self._handle_system_tool(name, arguments)
+                elif name.startswith(("rosclaw_know_", "rosclaw_how_")):
+                    result = await self._knowledge_tools.call(name, arguments)
                 else:
                     result = await self.hub.handle_tool_call(name, arguments)
                 return [
@@ -224,7 +247,7 @@ class ROSClawMinimalMCPServer:
         elif name == "system.get_version":
             return {
                 "name": "rosclaw",
-                "version": "1.0.0",
+                "version": __version__,
                 "status": "ready",
                 "modules": {
                     "mcp_hub": self.hub._server is not None,
@@ -462,7 +485,7 @@ class ROSClawMinimalMCPServer:
         async with stdio_server() as (read, write):
             init_options = InitializationOptions(
                 server_name="rosclaw-minimal",
-                server_version="1.0.0",
+                server_version=__version__,
                 capabilities=self.server.get_capabilities(
                     notification_options=NotificationOptions(),
                     experimental_capabilities={},
@@ -478,6 +501,7 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\n[ROSClaw MCP] Shutdown complete", file=sys.stderr)
     finally:
+        server._knowledge_manager.close()
         with contextlib.suppress(ValueError):
             server.hub.stop()
 

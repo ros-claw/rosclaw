@@ -1,0 +1,54 @@
+[
+  {
+    "scenario_id": "g1_football_fixture",
+    "task": "Choose the first implementation route for G1 football balance recovery.",
+    "query": "G1 football balance recovery controller",
+    "robot": "unitree_g1",
+    "simulator": "isaac_lab",
+    "ros_distro": "humble",
+    "versions": {
+      "torch": "2.7"
+    },
+    "expected_route": "bounded_residual_balance",
+    "expected_file": "controllers/g1_soccer_balance.yaml",
+    "incompatible_route": "ros1_velocity_replay",
+    "incompatible_file": "legacy/g1_ros1_replay.launch",
+    "incompatible_robot": "generic_humanoid",
+    "incompatible_ros": "noetic"
+  },
+  {
+    "scenario_id": "realsense_arm_fixture",
+    "task": "Choose the first integration route for a RealSense camera on an ARM robot.",
+    "query": "RealSense ARM robot camera integration",
+    "robot": "custom_arm_robot",
+    "simulator": "gazebo",
+    "ros_distro": "humble",
+    "versions": {
+      "arch": "aarch64",
+      "librealsense": "2.56"
+    },
+    "expected_route": "aarch64_source_build",
+    "expected_file": "deploy/realsense_aarch64.yaml",
+    "incompatible_route": "x86_binary_install",
+    "incompatible_file": "deploy/realsense_x86_64.yaml",
+    "incompatible_robot": "desktop_x86",
+    "incompatible_ros": "foxy"
+  },
+  {
+    "scenario_id": "limo_ros1_fixture",
+    "task": "Choose the first navigation route for an AgileX LIMO ROS1 stack.",
+    "query": "LIMO ROS1 navigation integration",
+    "robot": "agilex_limo",
+    "simulator": "gazebo_classic",
+    "ros_distro": "noetic",
+    "versions": {
+      "navigation": "move_base"
+    },
+    "expected_route": "limo_move_base",
+    "expected_file": "navigation/limo_move_base.launch",
+    "incompatible_route": "nav2_humble",
+    "incompatible_file": "navigation/limo_nav2.launch.py",
+    "incompatible_robot": "agilex_limo_ros2",
+    "incompatible_ros": "humble"
+  }
+]

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rosclaw"
-version = "1.0.1"
+version = "1.2.0"
 description = "Trustworthy Physical Execution Runtime and Control Plane for Embodied Agents"
 readme = "README.md"
 license = {text = "MIT"}
@@ -54,17 +54,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ros2 = [
-    "rclpy>=3.0.0",
-    "geometry-msgs",
-    "sensor-msgs",
-    "std-msgs",
-    "trajectory-msgs",
-    "control-msgs",
-]
-practice = [
-    "rosclaw-practice @ git+https://github.com/ros-claw/rosclaw-practice.git@bfb4ac7",
-]
+# ROS 2 Python/message packages are supplied by the selected ROS distribution
+# (apt/rosdep), not PyPI. Keeping the marker extra allows install scripts to
+# express intent without making ``pip install rosclaw[all]`` unsatisfiable.
+ros2 = []
+# PyPI rejects direct Git dependencies in published Core Metadata. Practice is
+# not published on PyPI yet, so keep this marker extra resolvable and install
+# the separately versioned rosclaw-practice checkout through deployment tooling.
+practice = []
 practice-export = [
     "pandas>=2.0.0",
     "pyarrow>=15.0.0",
@@ -81,8 +78,8 @@ embedding = [
     "transformers>=4.51,<6",
 ]
 knowledge = [
-    "rosclaw-know>=1.0.2",
-    "rosclaw-how>=1.0.2",
+    "rosclaw-know>=1.2.1,<2",
+    "rosclaw-how>=1.2.0,<2",
 ]
 lerobot = [
     "lerobot>=0.6,<0.7",
@@ -105,8 +102,8 @@ dev = [
     # rosclaw-how permits newer pyseekdb releases, but the native-memory
     # integration and Jetson validation currently target the 1.3 API.
     "pyseekdb==1.3.0",
-    "rosclaw-know>=1.0.2",
-    "rosclaw-how>=1.0.2",
+    "rosclaw-know>=1.2.0,<2",
+    "rosclaw-how>=1.2.0,<2",
 ]
 dashboard = [
     "rosclaw-dashboard>=1.0.0",
@@ -131,7 +128,7 @@ Homepage = "https://rosclaw.io"
 Repository = "https://github.com/ros-claw/rosclaw"
 Documentation = "https://docs.rosclaw.io"
 "Bug Tracker" = "https://github.com/ros-claw/rosclaw/issues"
-"Contact" = "mailto:ai@rosclaw.io"
+"Contact" = "https://github.com/ros-claw/rosclaw"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rosclaw"]

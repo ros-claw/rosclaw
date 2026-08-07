@@ -87,6 +87,22 @@ class RuntimeConfig:
     enable_skill_manager: bool = True
     enable_knowledge: bool = True  # KnowledgeInterface (KNOW module)
     enable_how: bool = True  # HeuristicEngine (HOW module)
+    # Versioned Know/How integration. ``disabled`` preserves the legacy
+    # adapters as a rollback path; v2 never receives Memory's store.
+    knowledge_v2_mode: str = field(
+        default_factory=lambda: os.environ.get("ROSCLAW_KNOWLEDGE_MODE", "disabled")
+    )
+    know_url: str | None = field(default_factory=lambda: os.environ.get("ROSCLAW_KNOW_URL"))
+    know_api_key: str | None = field(
+        default_factory=lambda: os.environ.get("ROSCLAW_KNOW_API_KEY")
+    )
+    knowledge_timeout: float = 15.0
+    know_store_mode: str = field(
+        default_factory=lambda: os.environ.get("ROSCLAW_KNOW_STORE_MODE", "embedded")
+    )
+    know_store_path: str | None = field(
+        default_factory=lambda: os.environ.get("ROSCLAW_KNOW_SEEKDB_PATH")
+    )
     enable_auto: bool = True  # Self-Evolution Control Plane (AUTO module)
     enable_provider: bool = True
     joint_dof: int = 6
@@ -193,6 +209,8 @@ class Runtime(LifecycleMixin):
         self._swarm: Any | None = None
         self._skill_manager: Any | None = None
         self._knowledge: Any | None = None
+        self._knowledge_v2: Any | None = None
+        self._knowledge_v2_manager: Any | None = None
         self._knowledge_batch: Any | None = None
         self._knowledge_assets: Any | None = None
         self._how: Any | None = None
@@ -246,7 +264,8 @@ class Runtime(LifecycleMixin):
             else Path(self.config.timeline_output_dir).expanduser().resolve()
         )
 
-        # Shared SeekDB client reused by Memory, Knowledge, HOW, Auto, and SkillManager.
+        # Legacy store shared by Memory, Auto, SkillManager, and rollback-only
+        # Know/How adapters. Know/How v2 never receives this object.
         seekdb: Any | None = None
 
         # Initialize EventBus subscriptions for internal coordination
@@ -535,8 +554,44 @@ class Runtime(LifecycleMixin):
             except ImportError as e:
                 logger.info(f"SkillManager module not available: {e}")
 
-        # Initialize Knowledge Grounding (KnowledgeInterface) - MUST come before HOW
-        if self.config.enable_knowledge:
+        v2_mode = self.config.knowledge_v2_mode.casefold().strip()
+        if v2_mode not in {"disabled", "service", "inprocess"}:
+            logger.warning("Invalid knowledge_v2_mode=%r; disabling v2", v2_mode)
+            v2_mode = "disabled"
+        if v2_mode != "disabled" and (self.config.enable_knowledge or self.config.enable_how):
+            try:
+                from rosclaw.knowledge import KnowledgeFacade
+                from rosclaw.knowledge.service_manager import (
+                    KnowledgeServiceConfig,
+                    KnowledgeServiceManager,
+                )
+
+                know_path = self.config.know_store_path or str(
+                    workspace_home / "data" / "know" / "seekdb"
+                )
+                service_config = KnowledgeServiceConfig(
+                    mode=v2_mode,
+                    know_url=self.config.know_url,
+                    how_url=self.config.how_url,
+                    know_api_key=self.config.know_api_key or "",
+                    how_api_key=self.config.how_api_key or "",
+                    timeout=self.config.knowledge_timeout,
+                    know_store_mode=self.config.know_store_mode,
+                    know_store_path=know_path,
+                )
+                self._knowledge_v2_manager = KnowledgeServiceManager(service_config)
+                self._knowledge_v2 = KnowledgeFacade(
+                    self._knowledge_v2_manager, event_bus=self.event_bus
+                )
+                logger.info(
+                    "Knowledge v2 orchestration initialized (mode=%s, memory_store_shared=false)",
+                    v2_mode,
+                )
+            except Exception as exc:  # noqa: BLE001 - optional integration
+                logger.warning("Knowledge v2 initialization degraded: %s", exc)
+
+        # Rollback-only local KnowledgeInterface. v2 never receives Memory's store.
+        if self.config.enable_knowledge and v2_mode == "disabled":
             try:
                 from rosclaw.know.interface import KnowledgeInterface
                 from rosclaw.know.storage import seed_knowledge_graph
@@ -590,8 +645,8 @@ class Runtime(LifecycleMixin):
             except ImportError as e:
                 logger.info(f"Knowledge module not available: {e}")
 
-        # Initialize Heuristic Grounding (HeuristicEngine / HowClient) - depends on KNOW
-        if self.config.enable_how:
+        # Rollback-only local How path. How v2 is advisory through KnowledgeFacade.
+        if self.config.enable_how and v2_mode == "disabled":
             try:
                 # Reuse Memory's SeekDB client if available
                 if self._memory is not None:
@@ -675,7 +730,7 @@ class Runtime(LifecycleMixin):
         logger.info("Initialization complete")
 
     def _create_seekdb_client(self) -> Any:
-        """Create and return the shared knowledge-store client for Memory/Knowledge/HOW/Auto.
+        """Create the legacy Memory/Auto/Skill store (not the Know v2 store).
 
         Delegates to :class:`rosclaw.storage.factory.StorageFactory` so backend
         selection, URL validation, and future pooling/vector extensions live in
@@ -769,6 +824,12 @@ class Runtime(LifecycleMixin):
             except Exception as exc:
                 logger.warning("SeekDBBridge close failed (non-fatal): %s", exc)
             self._seekdb_bridge = None
+        if self._knowledge_v2_manager is not None:
+            try:
+                self._knowledge_v2_manager.close()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Knowledge v2 close failed (non-fatal): %s", exc)
+            self._knowledge_v2_manager = None
         self.event_bus.publish(
             Event(
                 topic="runtime.status",
@@ -1351,7 +1412,13 @@ class Runtime(LifecycleMixin):
 
     @property
     def knowledge(self) -> Any | None:
-        return self._knowledge
+        return self._knowledge_v2 or self._knowledge
+
+    @property
+    def knowledge_v2(self) -> Any | None:
+        """Return the v2 orchestration facade, never a knowledge algorithm."""
+
+        return self._knowledge_v2
 
     @property
     def how(self) -> Any | None:
@@ -3296,7 +3363,19 @@ class Runtime(LifecycleMixin):
                 "provider_layer": self._provider_registry is not None,
                 "auto": self._auto is not None,
                 "sense": self._sense is not None,
+                "knowledge_v2": self._knowledge_v2 is not None,
             },
+            "knowledge": (
+                self._knowledge_v2.health()
+                if self._knowledge_v2 is not None
+                else {
+                    "status": "legacy" if self._knowledge is not None else "disabled",
+                    "mode": "legacy" if self._knowledge is not None else "disabled",
+                    "memory_boundary": (
+                        "legacy_shared_store" if self._knowledge is not None else "isolated"
+                    ),
+                }
+            ),
             "body_sense": sense_status,
             "embodied_memory": {
                 "attached": self.config.embodied_memory is not None,

@@ -1,0 +1,1497 @@
+### rosclaw
+diff --git a/docs/architecture/KNOW_HOW_V2_INTEGRATION.md b/docs/architecture/KNOW_HOW_V2_INTEGRATION.md
+index b19b5d61..25548418 100644
+--- a/docs/architecture/KNOW_HOW_V2_INTEGRATION.md
++++ b/docs/architecture/KNOW_HOW_V2_INTEGRATION.md
+@@ -1,6 +1,6 @@
+ # Know / How v2 core integration
+
+-Status: implemented in the 1.2.0 working tree.
++Status: baseline merged; 2026-08-06 usefulness hardening implemented.
+
+ ## Ownership boundary
+
+@@ -42,6 +42,10 @@ Environment controls:
+ - `ROSCLAW_KNOW_URL`, `ROSCLAW_HOW_V2_URL`, API-key variables and `ROSCLAW_KNOWLEDGE_TIMEOUT` for service mode.
+ - `ROSCLAW_KNOW_STORE_MODE` and `ROSCLAW_KNOW_SEEKDB_PATH` for in-process Know.
+
++How service advice/cache persistence additionally uses the
++ROSCLAW_HOW_ADVICE_* and ROSCLAW_HOW_REFERENCE_PACK_* controls documented by
++rosclaw-how.
++
+ ## Agent and MCP surface
+
+ The registered tools are intentionally small:
+@@ -58,3 +62,18 @@ Every tool is S0/read-only. `rosclaw_how_advice` is additionally marked advisory
+ Only allowlisted lifecycle events containing identifiers, counts, versions and statuses cross the EventBus adapter. Feedback records whether a unit was presented, opened or useful; a receipt or Practice reference is only a reference. Feedback cannot claim that a physical action succeeded and cannot carry raw Memory content.
+
+ Dashboard status includes v2 mode and component health. A How or Know failure therefore remains observable without changing estop, safety policy, daemon or driver behavior.
++
++Feedback verdicts now create explicit, non-mutating Know governance records:
++useful/irrelevant feedback records signals; stale feedback enters source
++refresh review; incompatible feedback enters compatibility review; misleading
++feedback enters ranking review. No verdict permits automatic deletion,
++rewriting, promotion or constraint override.
++
++How keeps advice in a durable bounded store and service-mode Reference Packs
++in a separate bounded cache. Fresh, cached and stale states are explicit
++contract fields. A missing or over-age cached pack causes abstention.
++
++The reproducible fixture campaign and raw paired-model output are under
++docs/reports/validation_runs/know-how-usefulness-v2/. It proves that the
++mechanism changes the next engineering action (value level 3); it does not
++claim real-hardware effectiveness.
+diff --git a/docs/reports/KNOW_HOW_V2_IMPLEMENTATION_REPORT.md b/docs/reports/KNOW_HOW_V2_IMPLEMENTATION_REPORT.md
+index 3e3a65cb..96abafb3 100644
+--- a/docs/reports/KNOW_HOW_V2_IMPLEMENTATION_REPORT.md
++++ b/docs/reports/KNOW_HOW_V2_IMPLEMENTATION_REPORT.md
+@@ -1,8 +1,9 @@
+ # Know / How v2 implementation report
+
+ Date: 2026-08-06
+-Target release: 1.2.0
+-Source plan: `know_how_优化v1.md`
++Baseline releases: rosclaw-know 1.2.1, rosclaw-how 1.2.0
++Candidate releases: rosclaw-know 1.2.2, rosclaw-how 1.2.1
++Source plan: `know_how_优化v2.md`
+
+ ## Result
+
+@@ -25,13 +26,17 @@ create an `ActionEnvelope` or bypass Core policy, safety, daemon or driver
+ boundaries. Memory remains a separately labelled robot-experience input and
+ is not used as Know's corpus or store.
+
+-The implementation is present as uncommitted working-tree changes based on:
++The v1 foundation was merged and released before this hardening pass:
+
+-| Repository | Base commit | Package version |
++| Repository | Merged baseline | Package version / state |
+ | --- | --- | --- |
+-| `rosclaw-know` | `55ce4981f46ca469ff1cc6ca9582f82d6e2d8c92` | 1.2.0 |
+-| `rosclaw-how` | `4639cd68bbe294ce61eb01d63c9a96999e3f969f` | 1.2.0 |
+-| `rosclaw` | `fbf9a692bbf759fdc8f8e304d205c3d592ca4dc9` | 1.2.0 |
++| `rosclaw-know` | `3e81b4c` | 1.2.1 published |
++| `rosclaw-how` | `d2dea03` | 1.2.0 published |
++| `rosclaw` | `44d83d1e` | merged; no Core PyPI release requested |
++
++The usefulness hardening in this report is on local branch
++`agent/know-how-usefulness-v2` in all three repositories. It is not described
++as released or deployed.
+
+ ## Architecture and contracts
+
+@@ -119,6 +124,17 @@ license fields and a signer Protocol. The included HMAC signer is for local
+ offline integrity; deployment can provide a stronger signer. Offline imports
+ remain explicitly marked as offline and freshness-limited.
+
++### Feedback governance hardening
++
++Every accepted `KnowledgeUsageFeedbackV1` now creates a durable,
++deterministic `FeedbackGovernanceRecordV1`. The mapping is conservative:
++useful and irrelevant verdicts record signals only; stale enters source-refresh
++review; incompatible enters compatibility review; misleading enters downweight
++review; unknown enters manual review. Every record fixes
++`automatic_mutation_allowed=false`. The API returns the governance result and
++exposes a bounded/filterable queue. Idempotent feedback IDs stay idempotent and
++conflicting reuse is rejected.
++
+ ## rosclaw-how
+
+ How accesses Know only through the versioned Reference Pack/feedback client;
+@@ -133,12 +149,18 @@ and unknown context are surfaced explicitly. Know evidence and Memory evidence
+ are separately labelled in diagnosis output.
+
+ The v2 API now includes the four explicit mode endpoints, generic advice,
+-bounded process-local advice lookup, feedback, health and capabilities.
++durable bounded advice lookup, feedback, health and capabilities.
+ Capabilities explicitly state that How owns neither a retrieval index nor
+ action authority. Advice and feedback endpoints enforce the existing optional
+ How API-key allowlist. The legacy `/wiki/v1` path can be rolled through the v2
+ engine behind a feature flag.
+
++Advice records live in a bounded SQLite store with creation/expiry and
++feedback status, so lookup survives process restart. Service-mode Reference
++Packs use a separate bounded SQLite cache. Fresh, cached and stale states are
++strict contract fields propagated into How advice. An upstream stale label is
++preserved; missing or over-age cache causes abstention.
++
+ ## Core rosclaw
+
+ Core contains contracts, Protocols and adapters only. It does not copy the
+@@ -181,36 +203,59 @@ Exact revisions and non-adoptions are recorded in
+ `KNOW_HOW_REFERENCE_STUDY.md`. The supplied RepoMaster repository URL was not
+ available and no substitute was silently selected.
+
++## Usefulness evidence
++
++The reproducible campaign under
++`docs/reports/validation_runs/know-how-usefulness-v2/fixture-20260806/`
++uses three controlled fixtures aligned with the requested G1 football,
++RealSense ARM and LIMO ROS1 lines. Each corpus contains an exact lexical match
++that is incompatible with the runtime and a pinned compatible route.
++
++| Metric (3 tasks) | keyword-only control | Know→Pack→How |
++| --- | ---: | ---: |
++| wrong initial routes | 3 | 0 |
++| compatibility errors | 3 | 0 |
++| references read before first compatible route | 6 | 3 |
++| pinned evidence presented | 0 | 3 |
++| oracle-compatible route passes | 0 | 3 |
++
++A paired vLLM run used `deepseekv4`, temperature 0.0 and the same three
++tasks/runtime contexts. The treatment changed only by adding the Reference
++Pack and How advice. The control found 0/3 exact fixture files and 0/3 expected
++routes; treatment found 3/3 and 3/3. Raw outputs are retained, including the
++control arm's guessed paths and unverified command suggestions. The prompt
++leakage found during the first audit was removed and that invalid artifact was
++discarded before the recorded run.
++
++This proves value level 3: cited/context-filtered knowledge changes the next
++engineering action and avoids a known incompatible route. It does not prove
++physical value level 4 or cross-task accumulated value level 5.
++
+ ## Verification performed
+
+-All tests used fixtures, mocks, temporary directories or embedded stores. No
+-real ROS graph, robot, actuator or hardware service was contacted.
++All tests used fixtures, mocks, temporary directories, SHADOW paths or
++embedded stores. No real ROS graph, robot, actuator or hardware service was
++contacted.
+
+ | Check | Result |
+ | --- | --- |
+-| `rosclaw-know` full pytest | 682 passed, 7 skipped |
+-| `rosclaw-how` full pytest | 357 passed |
+-| Core knowledge + E2E + MCP + CLI focused regression | 100 passed |
+-| Real installed-package in-process Know→Pack→How→feedback loop | passed |
+-| v2 Ruff scopes and all three `git diff --check` checks | passed |
+-| Three 1.2.0 wheel builds | passed |
+-| Wheel schema/migration/module inspection | passed |
+-| Python 3.13 clean full-dependency wheel install | passed |
+-| Clean uninstall and `--no-index --no-deps` local-wheel reinstall | passed |
+-| `rosclaw[knowledge]==1.2.0` dependency resolution | passed |
+-| `rosclaw[all]==1.2.0` dependency resolution | passed |
+-| Installed entrypoint disabled/degradation check | passed |
+-| Core full pytest | 6375 passed, 74 skipped, 39 deselected, 6 environment failures |
+-
+-The clean wheel environment reported all three installed versions as 1.2.0,
+-found the packaged JSON Schema, found all 12 migration files and opened an
+-isolated SeekDB embedded database.
+-
+-The six Core full-suite failures are outside the changed Know/How areas. Two
+-external-worker tests assume the `codex` binary is absent, while this host has
+-an incompatible/untrusted-directory Codex CLI. Four LeRobot integration tests
+-are selected by their availability probe but the configured worker interpreter
+-cannot import LeRobot. Focused reruns of all changed Core surfaces pass.
++| `rosclaw-know` full pytest | 689 passed, 7 skipped |
++| `rosclaw-how` full pytest | 361 passed |
++| Core `tests/knowledge` | 24 passed |
++| contract/schema/governance focused regression | 47 passed |
++| cache expiry, restart and upstream-stale boundary tests | passed |
++| deterministic three-task usefulness A/B assertions | passed |
++| paired vLLM A/B (six requests) | passed; exact file and route 0/3 → 3/3 |
++| 1.2.2 / 1.2.1 wheel builds and Twine metadata checks | passed |
++| clean Python 3.13 no-deps wheel install + v2 SQLite smoke | passed |
++| changed-scope Ruff and all three `git diff --check` checks | passed |
++| Core full pytest | 6371 passed, 74 skipped, 39 deselected, 11 environment failures |
++
++The 11 Core failures are outside the changed knowledge surfaces: one offline
++release installer lacks its cached `aiohttp` dependency; two tests assume
++the host `codex` binary is absent; four LeRobot tests select an interpreter
++that cannot import LeRobot; and four firstboot tests expect console scripts in
++PATH. The changed Core knowledge suite passes 24/24.
+
+ ## Known limits and release follow-ups
+
+@@ -222,15 +267,12 @@ cannot import LeRobot. Focused reruns of all changed Core surfaces pass.
+   were intentionally not run. Default CI remains deterministic and offline.
+ - Native multi-vector is not available in the probed collection API; the
+   implementation uses coordinated vector collections/fields and RRF.
+-- Advice lookup is a bounded process-local cache, not a durable How database.
+-  Reference Packs themselves remain durable in Know.
+-- The HTTP clients do not yet serve a previously cached Reference Pack after
+-  Know becomes unavailable; callers receive explicit degraded/unavailable
+-  state instead of a stale pseudo-fresh answer.
++- How persistence is local bounded SQLite. Multi-replica deployments must use
++  a shared/replicated store or accept per-replica advice/cache visibility.
+ - HMAC is the included local bundle signer. A managed deployment should inject
+   an asymmetric signer and key-management policy through `BundleSigner`.
+-- Knowledge feedback is stored and available to refresh/ranking governance,
+-  but automatic source refresh scheduling is not enabled by feedback alone.
++- Feedback creates refresh/review candidates but intentionally does not run a
++  refresh worker or mutate ranking/knowledge without a separate review action.
+ - The Know v2 API implements the operational closed loop, but the plan's
+   separate discover/ingest, project-compare and admin endpoints are not all
+   split into independent public routes yet.
+@@ -241,3 +283,38 @@ These limits should prevent declaring every checkbox in the source plan's
+ Definition of Done complete. The implemented default path and the tested
+ closed loop are usable; server/live-source and deployment-signing validation
+ remain release gates for environments that require them.
++
++## Validation intentionally left blank
++
++| Requested real-world check | Result |
++| --- | --- |
++| live SeekDB server, SQL rollback, AI_RERANK |  |
++| live GitHub/arXiv/official-doc sources |  |
++| ten real-project wiki audit |  |
++| real G1 football implementation |  |
++| real RealSense ARM integration |  |
++| real LIMO ROS1 integration |  |
++| physical before/after success metrics |  |
++
++These cells are blank rather than converted into fixture claims.
++
++## v2 review answers
++
++1. Key sources in the recorded campaign are pinned fixture snapshots listed in
++   `source_manifest.json`; no live source is claimed.
++2. The Reference Pack changed all three first routes from incompatible lexical
++   matches to context-compatible routes.
++3. Compatibility filtering avoided ROS1/ROS2, robot and architecture/version
++   mismatch candidates in the controlled corpus.
++4. Every treatment opened one exact file backed by an evidence ID, snapshot ID
++   and content hash.
++5. The code changes are durable AdviceStore, explicit cache degradation and
++   non-mutating feedback governance.
++6. Package, contract, API, failure-boundary and Core knowledge tests pass.
++7. Advice/cache reuse is proven across SQLite reopen; cross-task real-project
++   reuse is not claimed.
++8. Incremental source refresh was not run against a live repository.
++9. Feedback enters auditable signal/refresh/review queues and cannot
++   automatically mutate knowledge.
++10. In the controlled A/B, first-compatible reads fall 6→3 and wrong first
++    routes fall 3→0; no real elapsed-time or physical rework claim is made.
+diff --git a/src/rosclaw/knowledge/contracts.py b/src/rosclaw/knowledge/contracts.py
+index cf4c56c8..1e094906 100644
+--- a/src/rosclaw/knowledge/contracts.py
++++ b/src/rosclaw/knowledge/contracts.py
+@@ -150,6 +150,9 @@ class ReferencePackV2(StrictWireModel):
+     truncated: bool = False
+     continuation_cursor: str | None = None
+     warnings: list[str] = Field(default_factory=list)
++    cached: bool = False
++    stale: bool = False
++    cache_age_seconds: int = Field(default=0, ge=0)
+
+     _generated_aware = field_validator("generated_at")(_aware)
+
+@@ -157,6 +160,10 @@ class ReferencePackV2(StrictWireModel):
+     def _cursor_when_truncated(self):
+         if self.truncated and not self.continuation_cursor:
+             raise ValueError("truncated packs require a continuation_cursor")
++        if self.stale and not self.cached:
++            raise ValueError("stale Reference Packs must also be marked cached")
++        if (self.cached or self.stale) and not self.warnings:
++            raise ValueError("cached Reference Packs must explain degradation in warnings")
+         return self
+
+
+@@ -177,6 +184,9 @@ class HowAdviceBundleV2(StrictWireModel):
+     mode: Literal["discover", "consult", "diagnose", "catalyze"]
+     context_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+     reference_pack_id: str | None = None
++    reference_pack_cached: bool = False
++    reference_pack_stale: bool = False
++    reference_pack_age_seconds: int = Field(default=0, ge=0)
+     summary: str = Field(min_length=1)
+     diagnosis: str | None = None
+     recommendations: list[AdviceRecommendationV2] = Field(default_factory=list)
+@@ -192,6 +202,8 @@ class HowAdviceBundleV2(StrictWireModel):
+     def _abstention_explained(self):
+         if self.abstained and not self.abstention_reason:
+             raise ValueError("abstained advice requires abstention_reason")
++        if self.reference_pack_stale and not self.reference_pack_cached:
++            raise ValueError("stale advice must identify a cached Reference Pack")
+         return self
+
+### rosclaw-know
+diff --git a/docs/CHANGELOG.md b/docs/CHANGELOG.md
+index 37dbea7..0e532a5 100644
+--- a/docs/CHANGELOG.md
++++ b/docs/CHANGELOG.md
+@@ -3,6 +3,21 @@
+ All notable changes by phase. Most recent first. Format inspired by
+ [Keep a Changelog](https://keepachangelog.com/).
+
++## [1.2.2] — 2026-08-06 · conservative feedback governance
++
++### Added
++
++- Explicit cached/stale/cache-age fields for ReferencePackV2 and matching
++  cache provenance in HowAdviceBundleV2.
++- FeedbackGovernanceRecordV1 plus durable signal, refresh, compatibility,
++  ranking and manual-review queues.
++- Filterable governance API and deterministic non-mutating verdict routing.
++
++### Safety
++
++- Every feedback consequence fixes automatic_mutation_allowed=false; feedback
++  cannot delete, rewrite, promote or override official constraints.
++
+ ## [unreleased] — 2026-06-04 · multi-seed harness, snippet matrix, analogy QC, +43 clusters
+
+ ### Added (analogy QC + bridge coverage — second commit pair this day)
+diff --git a/pyproject.toml b/pyproject.toml
+index d46f5a5..afa01f5 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
+
+ [project]
+ name = "rosclaw-know"
+-version = "1.2.1"
++version = "1.2.2"
+ description = "Physical-AI knowledge compiler — turns multi-source corpus + execution feedback into procedural engineering experience for ROSClaw agents."
+ readme = "README.md"
+ license = {text = "MIT"}
+diff --git a/schemas/know_how_v2.json b/schemas/know_how_v2.json
+index 41669bd..0272cc4 100644
+--- a/schemas/know_how_v2.json
++++ b/schemas/know_how_v2.json
+@@ -1,4 +1,117 @@
+ {
++  "rosclaw.feedback_governance.v1": {
++    "additionalProperties": false,
++    "description": "Auditable, non-mutating consequence of one usage-feedback verdict.",
++    "properties": {
++      "automatic_mutation_allowed": {
++        "const": false,
++        "default": false,
++        "title": "Automatic Mutation Allowed",
++        "type": "boolean"
++      },
++      "created_at": {
++        "format": "date-time",
++        "title": "Created At",
++        "type": "string"
++      },
++      "feedback_id": {
++        "minLength": 1,
++        "title": "Feedback Id",
++        "type": "string"
++      },
++      "governance_id": {
++        "minLength": 1,
++        "title": "Governance Id",
++        "type": "string"
++      },
++      "knowledge_unit_id": {
++        "minLength": 1,
++        "title": "Knowledge Unit Id",
++        "type": "string"
++      },
++      "proposed_action": {
++        "enum": [
++          "record_usage_signal",
++          "record_query_family_signal",
++          "refresh_source_candidate",
++          "compatibility_review_candidate",
++          "downweight_review_candidate",
++          "manual_review_candidate"
++        ],
++        "title": "Proposed Action",
++        "type": "string"
++      },
++      "queue": {
++        "enum": [
++          "usage_signals",
++          "query_ranking_signals",
++          "source_refresh",
++          "compatibility_review",
++          "ranking_review",
++          "manual_review"
++        ],
++        "title": "Queue",
++        "type": "string"
++      },
++      "rationale": {
++        "minLength": 1,
++        "title": "Rationale",
++        "type": "string"
++      },
++      "reference_pack_id": {
++        "minLength": 1,
++        "title": "Reference Pack Id",
++        "type": "string"
++      },
++      "requires_human_review": {
++        "title": "Requires Human Review",
++        "type": "boolean"
++      },
++      "schema_version": {
++        "const": "rosclaw.feedback_governance.v1",
++        "default": "rosclaw.feedback_governance.v1",
++        "title": "Schema Version",
++        "type": "string"
++      },
++      "status": {
++        "enum": [
++          "signal_recorded",
++          "pending_review",
++          "reviewed",
++          "dismissed"
++        ],
++        "title": "Status",
++        "type": "string"
++      },
++      "verdict": {
++        "enum": [
++          "useful",
++          "irrelevant",
++          "stale",
++          "incompatible",
++          "misleading",
++          "unknown"
++        ],
++        "title": "Verdict",
++        "type": "string"
++      }
++    },
++    "required": [
++      "governance_id",
++      "feedback_id",
++      "reference_pack_id",
++      "knowledge_unit_id",
++      "verdict",
++      "queue",
++      "proposed_action",
++      "status",
++      "requires_human_review",
++      "rationale",
++      "created_at"
++    ],
++    "title": "FeedbackGovernanceRecordV1",
++    "type": "object"
++  },
+   "rosclaw.how.advice.v2": {
+     "$defs": {
+       "AdviceRecommendationV2": {
+@@ -234,6 +347,17 @@
+         "title": "Recommendations",
+         "type": "array"
+       },
++      "reference_pack_age_seconds": {
++        "default": 0,
++        "minimum": 0,
++        "title": "Reference Pack Age Seconds",
++        "type": "integer"
++      },
++      "reference_pack_cached": {
++        "default": false,
++        "title": "Reference Pack Cached",
++        "type": "boolean"
++      },
+       "reference_pack_id": {
+         "anyOf": [
+           {
+@@ -246,6 +370,11 @@
+         "default": null,
+         "title": "Reference Pack Id"
+       },
++      "reference_pack_stale": {
++        "default": false,
++        "title": "Reference Pack Stale",
++        "type": "boolean"
++      },
+       "schema_version": {
+         "const": "rosclaw.how.advice.v2",
+         "default": "rosclaw.how.advice.v2",
+@@ -1378,6 +1507,17 @@
+     },
+     "additionalProperties": false,
+     "properties": {
++      "cache_age_seconds": {
++        "default": 0,
++        "minimum": 0,
++        "title": "Cache Age Seconds",
++        "type": "integer"
++      },
++      "cached": {
++        "default": false,
++        "title": "Cached",
++        "type": "boolean"
++      },
+       "comparison": {
+         "$ref": "#/$defs/ReferenceComparisonV2"
+       },
+@@ -1443,6 +1583,11 @@
+         "title": "Schema Version",
+         "type": "string"
+       },
++      "stale": {
++        "default": false,
++        "title": "Stale",
++        "type": "boolean"
++      },
+       "suggested_next_checks": {
+         "items": {
+           "type": "string"
+diff --git a/src/rosclaw_know/__init__.py b/src/rosclaw_know/__init__.py
+index 9dbcba4..fd1fcdb 100644
+--- a/src/rosclaw_know/__init__.py
++++ b/src/rosclaw_know/__init__.py
+@@ -1,3 +1,3 @@
+ """ROSClaw-Know: offline knowledge refinery for procedural heuristics."""
+
+-__version__ = "1.2.1"
++__version__ = "1.2.2"
+diff --git a/src/rosclaw_know/api.py b/src/rosclaw_know/api.py
+index 8e2b512..4276ec9 100644
+--- a/src/rosclaw_know/api.py
++++ b/src/rosclaw_know/api.py
+@@ -23,7 +23,7 @@ import time
+ from contextlib import asynccontextmanager
+ from typing import Literal
+
+-from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
++from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
+ from fastapi.responses import JSONResponse
+ from pydantic import BaseModel, Field, ValidationError
+
+@@ -36,6 +36,7 @@ from .contracts import (
+     StrictContract,
+     export_contract_schemas,
+ )
++from .feedback_governance import governance_for_feedback
+ from .research_store import ResearchStore
+ from .research_worker import ResearchWorker
+ from .retrieval import ReferencePackBuilder
+@@ -409,12 +410,46 @@ async def v2_feedback(request: Request) -> JSONResponse:
+     except ValidationError as exc:
+         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+     created = _get_v2_store().put_feedback(feedback)
++    governance = governance_for_feedback(feedback)
+     return JSONResponse(
+-        {"feedback_id": feedback.feedback_id, "created": created},
++        {
++            "feedback_id": feedback.feedback_id,
++            "created": created,
++            "governance": governance.model_dump(mode="json"),
++        },
+         status_code=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+     )
+
+
++@app.get("/know/v2/feedback/governance", dependencies=[Depends(require_api_key)])
++async def v2_feedback_governance(
++    queue: Literal[
++        "usage_signals",
++        "query_ranking_signals",
++        "source_refresh",
++        "compatibility_review",
++        "ranking_review",
++        "manual_review",
++    ]
++    | None = None,
++    status_value: Literal["signal_recorded", "pending_review", "reviewed", "dismissed"]
++    | None = Query(default=None, alias="status"),
++    limit: int = 100,
++) -> JSONResponse:
++    if limit < 1 or limit > 1_000:
++        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "limit must be between 1 and 1000")
++    records = _get_v2_store().list_feedback_governance(
++        queue=queue, status=status_value, limit=limit
++    )
++    return JSONResponse(
++        {
++            "count": len(records),
++            "automatic_mutation_allowed": False,
++            "records": [record.model_dump(mode="json") for record in records],
++        }
++    )
++
++
+ @app.post("/know/v1/research", status_code=status.HTTP_202_ACCEPTED)
+ async def start_research(req: ResearchRequest) -> JSONResponse:
+     store = _get_store()
+diff --git a/src/rosclaw_know/contracts/__init__.py b/src/rosclaw_know/contracts/__init__.py
+index af97dc5..253e0bc 100644
+--- a/src/rosclaw_know/contracts/__init__.py
++++ b/src/rosclaw_know/contracts/__init__.py
+@@ -14,6 +14,7 @@ from .base import (
+ from .knowledge_v2 import KnowledgeUnitV2, KnowledgeVectorsV2, ProjectCardV2
+ from .reference_pack_v2 import (
+     AdviceRecommendationV2,
++    FeedbackGovernanceRecordV1,
+     HowAdviceBundleV2,
+     KnowledgeUsageFeedbackV1,
+     ReferenceComparisonV2,
+@@ -34,12 +35,14 @@ PUBLIC_CONTRACTS = (
+     ReferencePackV2,
+     HowAdviceBundleV2,
+     KnowledgeUsageFeedbackV1,
++    FeedbackGovernanceRecordV1,
+ )
+
+ __all__ = [
+     "AdviceRecommendationV2",
+     "ContractVersionError",
+     "EvidenceRefV2",
++    "FeedbackGovernanceRecordV1",
+     "HowAdviceBundleV2",
+     "IntegrityV2",
+     "KnowledgeUnitV2",
+diff --git a/src/rosclaw_know/contracts/reference_pack_v2.py b/src/rosclaw_know/contracts/reference_pack_v2.py
+index 6d61da7..a6da7e7 100644
+--- a/src/rosclaw_know/contracts/reference_pack_v2.py
++++ b/src/rosclaw_know/contracts/reference_pack_v2.py
+@@ -66,6 +66,9 @@ class ReferencePackV2(StrictContract):
+     truncated: bool = False
+     continuation_cursor: str | None = None
+     warnings: list[str] = Field(default_factory=list)
++    cached: bool = False
++    stale: bool = False
++    cache_age_seconds: int = Field(default=0, ge=0)
+
+     @field_validator("generated_at")
+     @classmethod
+@@ -79,6 +82,10 @@ class ReferencePackV2(StrictContract):
+             raise ValueError("item ranks must be unique")
+         if self.truncated and not self.continuation_cursor:
+             raise ValueError("truncated packs require a continuation_cursor")
++        if self.stale and not self.cached:
++            raise ValueError("stale Reference Packs must also be marked cached")
++        if (self.cached or self.stale) and not self.warnings:
++            raise ValueError("cached Reference Packs must explain degradation in warnings")
+         return self
+
+
+@@ -99,6 +106,9 @@ class HowAdviceBundleV2(StrictContract):
+     mode: Literal["discover", "consult", "diagnose", "catalyze"]
+     context_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+     reference_pack_id: str | None = None
++    reference_pack_cached: bool = False
++    reference_pack_stale: bool = False
++    reference_pack_age_seconds: int = Field(default=0, ge=0)
+     summary: str = Field(min_length=1)
+     diagnosis: str | None = None
+     recommendations: list[AdviceRecommendationV2] = Field(default_factory=list)
+@@ -117,6 +127,8 @@ class HowAdviceBundleV2(StrictContract):
+     def _abstention_is_explained(self) -> HowAdviceBundleV2:
+         if self.abstained and not self.abstention_reason:
+             raise ValueError("abstained advice requires abstention_reason")
++        if self.reference_pack_stale and not self.reference_pack_cached:
++            raise ValueError("stale advice must identify a cached Reference Pack")
+         return self
+
+
+@@ -143,3 +155,42 @@ class KnowledgeUsageFeedbackV1(StrictContract):
+     @classmethod
+     def _aware(cls, value: datetime) -> datetime:
+         return ensure_aware(value)  # type: ignore[return-value]
++
++
++class FeedbackGovernanceRecordV1(StrictContract):
++    """Auditable, non-mutating consequence of one usage-feedback verdict."""
++
++    SCHEMA_VERSION: ClassVar[str] = "rosclaw.feedback_governance.v1"
++
++    schema_version: Literal["rosclaw.feedback_governance.v1"] = SCHEMA_VERSION
++    governance_id: str = Field(min_length=1)
++    feedback_id: str = Field(min_length=1)
++    reference_pack_id: str = Field(min_length=1)
++    knowledge_unit_id: str = Field(min_length=1)
++    verdict: Literal["useful", "irrelevant", "stale", "incompatible", "misleading", "unknown"]
++    queue: Literal[
++        "usage_signals",
++        "query_ranking_signals",
++        "source_refresh",
++        "compatibility_review",
++        "ranking_review",
++        "manual_review",
++    ]
++    proposed_action: Literal[
++        "record_usage_signal",
++        "record_query_family_signal",
++        "refresh_source_candidate",
++        "compatibility_review_candidate",
++        "downweight_review_candidate",
++        "manual_review_candidate",
++    ]
++    status: Literal["signal_recorded", "pending_review", "reviewed", "dismissed"]
++    requires_human_review: bool
++    automatic_mutation_allowed: Literal[False] = False
++    rationale: str = Field(min_length=1)
++    created_at: datetime
++
++    @field_validator("created_at")
++    @classmethod
++    def _created_aware(cls, value: datetime) -> datetime:
++        return ensure_aware(value)  # type: ignore[return-value]
+diff --git a/src/rosclaw_know/store/base.py b/src/rosclaw_know/store/base.py
+index e834a36..46b190a 100644
+--- a/src/rosclaw_know/store/base.py
++++ b/src/rosclaw_know/store/base.py
+@@ -8,6 +8,7 @@ from typing import Any, Protocol
+
+ from rosclaw_know.contracts import (
+     EvidenceRefV2,
++    FeedbackGovernanceRecordV1,
+     KnowledgeUnitV2,
+     KnowledgeUsageFeedbackV1,
+     ProjectCardV2,
+@@ -95,6 +96,14 @@ class KnowStore(Protocol):
+
+     def put_feedback(self, feedback: KnowledgeUsageFeedbackV1) -> bool: ...
+
++    def get_feedback_governance(
++        self, governance_id: str
++    ) -> FeedbackGovernanceRecordV1 | None: ...
++
++    def list_feedback_governance(
++        self, *, queue: str | None = None, status: str | None = None, limit: int = 100
++    ) -> list[FeedbackGovernanceRecordV1]: ...
++
+     def put_index_version(self, version: IndexVersionRecord) -> bool: ...
+
+     def latest_index_version(self) -> IndexVersionRecord | None: ...
+diff --git a/src/rosclaw_know/store/memory.py b/src/rosclaw_know/store/memory.py
+index 2f68aa6..9ebb49e 100644
+--- a/src/rosclaw_know/store/memory.py
++++ b/src/rosclaw_know/store/memory.py
+@@ -14,6 +14,7 @@ from typing import Any
+
+ from rosclaw_know.contracts import (
+     EvidenceRefV2,
++    FeedbackGovernanceRecordV1,
+     KnowledgeUnitV2,
+     KnowledgeUsageFeedbackV1,
+     ProjectCardV2,
+@@ -21,6 +22,7 @@ from rosclaw_know.contracts import (
+     SourceRecordV2,
+     SourceSnapshotV2,
+ )
++from rosclaw_know.feedback_governance import governance_for_feedback
+
+ from .base import ImmutableSnapshotError
+ from .models import (
+@@ -69,6 +71,7 @@ class InMemoryKnowStore:
+         self.relations: dict[str, RelationRecord] = {}
+         self.reference_packs: dict[str, ReferencePackV2] = {}
+         self.feedback: dict[str, KnowledgeUsageFeedbackV1] = {}
++        self.feedback_governance: dict[str, FeedbackGovernanceRecordV1] = {}
+         self.index_versions: dict[str, IndexVersionRecord] = {}
+         self.embedding_hashes: dict[str, str] = {}
+         self.embedding_writes = 0
+@@ -331,7 +334,28 @@ class InMemoryKnowStore:
+         existing = self.feedback.get(feedback.feedback_id)
+         if existing is not None and existing != feedback:
+             raise ValueError(f"feedback ID conflict: {feedback.feedback_id}")
+-        return self._upsert(self.feedback, feedback.feedback_id, feedback)
++        created = self._upsert(self.feedback, feedback.feedback_id, feedback)
++        governance = governance_for_feedback(feedback)
++        self._upsert(self.feedback_governance, governance.governance_id, governance)
++        return created
++
++    def get_feedback_governance(
++        self, governance_id: str
++    ) -> FeedbackGovernanceRecordV1 | None:
++        return copy.deepcopy(self.feedback_governance.get(governance_id))
++
++    def list_feedback_governance(
++        self, *, queue: str | None = None, status: str | None = None, limit: int = 100
++    ) -> list[FeedbackGovernanceRecordV1]:
++        if limit <= 0:
++            return []
++        records = [
++            item
++            for item in self.feedback_governance.values()
++            if (queue is None or item.queue == queue) and (status is None or item.status == status)
++        ]
++        records.sort(key=lambda item: (item.created_at, item.governance_id), reverse=True)
++        return copy.deepcopy(records[:limit])
+
+     def put_index_version(self, version: IndexVersionRecord) -> bool:
+         existing = self.index_versions.get(version.index_version)
+@@ -353,6 +377,7 @@ class InMemoryKnowStore:
+             "knowledge_unit_count": len(self.units),
+             "reference_pack_count": len(self.reference_packs),
+             "feedback_count": len(self.feedback),
++            "feedback_governance_count": len(self.feedback_governance),
+         }
+
+     def close(self) -> None:
+diff --git a/src/rosclaw_know/store/seekdb.py b/src/rosclaw_know/store/seekdb.py
+index 93226e7..0adf709 100644
+--- a/src/rosclaw_know/store/seekdb.py
++++ b/src/rosclaw_know/store/seekdb.py
+@@ -16,6 +16,7 @@ from typing import Any
+
+ from rosclaw_know.contracts import (
+     EvidenceRefV2,
++    FeedbackGovernanceRecordV1,
+     KnowledgeUnitV2,
+     KnowledgeUsageFeedbackV1,
+     ProjectCardV2,
+@@ -23,6 +24,7 @@ from rosclaw_know.contracts import (
+     SourceRecordV2,
+     SourceSnapshotV2,
+ )
++from rosclaw_know.feedback_governance import governance_for_feedback
+
+ from .base import ImmutableSnapshotError, StoreConfigurationError
+ from .isolation import guard_store_isolation
+@@ -51,6 +53,7 @@ COLLECTIONS = {
+     "relation": "know_relation_v2",
+     "reference_pack": "know_reference_pack_v2",
+     "feedback": "know_usage_feedback_v1",
++    "feedback_governance": "know_feedback_governance_v1",
+     "index_version": "know_index_version_v2",
+ }
+ VECTOR_FIELDS = ("problem", "mechanism", "content", "code")
+@@ -567,7 +570,42 @@ class SeekDBKnowStore:
+         payload = feedback.model_dump(mode="json", exclude_none=False)
+         if existing is not None and existing != payload:
+             raise ValueError(f"feedback ID conflict: {feedback.feedback_id}")
+-        return self._put_payload("feedback", feedback.feedback_id, feedback)
++        created = self._put_payload("feedback", feedback.feedback_id, feedback)
++        governance = governance_for_feedback(feedback)
++        self._put_payload(
++            "feedback_governance",
++            governance.governance_id,
++            governance,
++            metadata={
++                "queue": governance.queue,
++                "status": governance.status,
++                "requires_human_review": governance.requires_human_review,
++            },
++        )
++        return created
++
++    def get_feedback_governance(
++        self, governance_id: str
++    ) -> FeedbackGovernanceRecordV1 | None:
++        payload = self._get_payload("feedback_governance", governance_id)
++        return _parse(FeedbackGovernanceRecordV1, payload) if payload else None
++
++    def list_feedback_governance(
++        self, *, queue: str | None = None, status: str | None = None, limit: int = 100
++    ) -> list[FeedbackGovernanceRecordV1]:
++        if limit <= 0:
++            return []
++        records = [
++            _parse(FeedbackGovernanceRecordV1, value)
++            for value in self._iter_payloads("feedback_governance")
++        ]
++        records = [
++            item
++            for item in records
++            if (queue is None or item.queue == queue) and (status is None or item.status == status)
++        ]
++        records.sort(key=lambda item: (item.created_at, item.governance_id), reverse=True)
++        return records[:limit]
+
+     def put_index_version(self, version: IndexVersionRecord) -> bool:
+         existing = self._get_payload("index_version", version.index_version)
+@@ -591,6 +629,7 @@ class SeekDBKnowStore:
+             "knowledge_unit_count": "unit",
+             "reference_pack_count": "reference_pack",
+             "feedback_count": "feedback",
++            "feedback_governance_count": "feedback_governance",
+         }
+         return {
+             label: sum(1 for _ in self._iter_payloads(logical))
+diff --git a/tests/test_api_v2.py b/tests/test_api_v2.py
+index 1e781f7..2229c9e 100644
+--- a/tests/test_api_v2.py
++++ b/tests/test_api_v2.py
+@@ -75,8 +75,16 @@ def test_v2_capabilities_plan_reference_pack_and_feedback_contracts():
+             first = client.post("/know/v2/feedback", json=feedback)
+             second = client.post("/know/v2/feedback", json=feedback)
+             assert first.status_code == 201, first.text
++            assert first.json()["governance"]["queue"] == "manual_review"
++            assert first.json()["governance"]["automatic_mutation_allowed"] is False
+             assert second.status_code == 200, second.text
+             assert second.json()["created"] is False
++            governance = client.get(
++                "/know/v2/feedback/governance", params={"status": "pending_review"}
++            )
++            assert governance.status_code == 200, governance.text
++            assert governance.json()["count"] == 1
++            assert governance.json()["automatic_mutation_allowed"] is False
+
+             assert client.get("/know/v2/sources/missing").status_code == 404
+             assert client.get("/know/v2/snapshots/missing").status_code == 404
+
+### rosclaw-how
+diff --git a/docs/CHANGELOG.md b/docs/CHANGELOG.md
+index 5a93254..6531067 100644
+--- a/docs/CHANGELOG.md
++++ b/docs/CHANGELOG.md
+@@ -9,6 +9,21 @@ The asset-producing sister project's history lives in
+
+ ---
+
++## [1.2.1] — 2026-08-06 · durable v2 advice and honest cache degradation
++
++### Added
++
++- Bounded SQLite AdviceStore with expiry, restart-safe lookup and feedback
++  status.
++- Bounded SQLite Reference Pack cache with explicit fresh/cached/stale/abstain
++  behavior and configurable TTLs.
++- Cache provenance fields propagated into HowAdviceBundleV2.
++
++### Safety
++
++- Missing or over-age cache fails closed.
++- Upstream cached/stale packs are never relabelled fresh.
++
+ ## [0.7.1] — 2026-05-19 · Docs final
+
+ ### Added
+diff --git a/docs/architecture/HOW_V2_BOUNDARIES.md b/docs/architecture/HOW_V2_BOUNDARIES.md
+index 4c05921..29ac713 100644
+--- a/docs/architecture/HOW_V2_BOUNDARIES.md
++++ b/docs/architecture/HOW_V2_BOUNDARIES.md
+@@ -11,6 +11,35 @@ world knowledge. A citation guard drops recommendations that name units or
+ evidence outside the returned Reference Pack. Empty, unavailable or invalid
+ Know responses cause an explicit abstention.
+
++## Durable advice and cache degradation
++
++HowAdviceBundleV2 records are persisted in a bounded SQLite AdviceStore.
++The store envelope retains advice_id, reference_pack_id, context_hash,
++mode, payload, creation/expiry timestamps and feedback_status. Advice lookup
++therefore survives a How process restart; expired advice returns 404.
++
++Service-mode Reference Packs use a separate bounded SQLite cache. Cache state
++is part of the strict wire contract and is never inferred from prose:
++
++| State | cached | stale | Behavior |
++| --- | ---: | ---: | --- |
++| Know response | false | false | normal cited advice |
++| Know unavailable, inside fresh TTL | true | false | advice continues with an explicit degradation warning |
++| Know unavailable, outside fresh TTL but inside stale TTL | true | true | advice warns that evidence must be reopened/refreshed |
++| no cache or beyond stale TTL | — | — | How abstains |
++
++An upstream pack already marked cached/stale is preserved as-is and is never
++reclassified as fresh.
++
++Deployment controls:
++
++- ROSCLAW_HOW_ADVICE_STORE_PATH, ROSCLAW_HOW_ADVICE_TTL_SECONDS,
++  ROSCLAW_HOW_ADVICE_MAX_ROWS;
++- ROSCLAW_HOW_REFERENCE_PACK_CACHE_PATH,
++  ROSCLAW_HOW_REFERENCE_PACK_FRESH_TTL_SECONDS,
++  ROSCLAW_HOW_REFERENCE_PACK_STALE_TTL_SECONDS,
++  ROSCLAW_HOW_REFERENCE_PACK_CACHE_MAX_ROWS.
++
+ The legacy router and its How-owned SeekDB collections remain quarantined for
+ rollback compatibility. With `ROSCLAW_HOW_LEGACY_USE_V2=1`, the CATALYST leg
+ of `/wiki/v1/prompt/build` is adapted through the same v2 AdviceEngine; safety
+diff --git a/pyproject.toml b/pyproject.toml
+index 9f51318..ce2c289 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
+
+ [project]
+ name = "rosclaw-how"
+-version = "1.2.0"
++version = "1.2.1"
+ description = "Online deadlock-breaker — injects targeted engineering heuristics from rosclaw-know assets into stalling agents."
+ readme = "README.md"
+ license = {text = "MIT"}
+diff --git a/src/rosclaw_how/__init__.py b/src/rosclaw_how/__init__.py
+index 745d457..d0b837a 100644
+--- a/src/rosclaw_how/__init__.py
++++ b/src/rosclaw_how/__init__.py
+@@ -22,6 +22,6 @@ ranking + snippet composition are pure rules + a single embedding call.
+ """
+ from __future__ import annotations
+
+-__version__ = "1.2.0"
++__version__ = "1.2.1"
+
+ __all__ = ["__version__"]
+diff --git a/src/rosclaw_how/api.py b/src/rosclaw_how/api.py
+index facb1ce..b30a1e2 100644
+--- a/src/rosclaw_how/api.py
++++ b/src/rosclaw_how/api.py
+@@ -33,7 +33,6 @@ import hashlib
+ import json
+ import logging
+ import time
+-from collections import OrderedDict
+ from contextlib import asynccontextmanager
+ from datetime import datetime, timezone
+ from typing import Any, Literal, Protocol, get_args
+@@ -49,6 +48,7 @@ from .config import get_settings
+ from .error_normalizer import normalize_error
+ from .inmemory_router import InMemoryRouter
+ from .intervention_policy import decide_strategy
++from .outcome_models import RoutingTrace, SourceTier
+ from .outcomes import (
+     aggregate_by_pattern,
+     iter_outcomes,
+@@ -57,7 +57,6 @@ from .outcomes import (
+     record_feedback,
+     record_pending_injection,
+ )
+-from .outcome_models import RoutingTrace, SourceTier
+ from .runtime_diagnoser import diagnose as diagnose_runtime
+ from .schemas import (
+     InterventionDecision,
+@@ -78,10 +77,14 @@ from .snippet_composer import compose as compose_snippet
+ from .state_router import adaptive_state_router
+ from .v2 import (
+     AdviceEngine,
++    AdviceStore,
++    CachedKnowClient,
+     DisabledKnowClient,
+     HowAdviceRequestV2,
+     HttpKnowClient,
+     KnowledgeUsageFeedbackV1,
++    SQLiteAdviceStore,
++    SQLiteReferencePackCache,
+ )
+ from .v2.legacy import advice_to_legacy_response, legacy_request_to_v2
+
+@@ -350,8 +353,7 @@ _last_reload_mtime: float | None = None
+ _last_reload_iso: str | None = None
+ _last_asset_load_stats: dict[str, int] = {}
+ _v2_engine: AdviceEngine | None = None
+-_V2_ADVICE_CACHE_LIMIT = 1_000
+-_v2_advice_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
++_v2_advice_store: AdviceStore | None = None
+
+
+ def configure_v2_engine(engine: AdviceEngine | None) -> None:
+@@ -359,7 +361,27 @@ def configure_v2_engine(engine: AdviceEngine | None) -> None:
+
+     global _v2_engine
+     _v2_engine = engine
+-    _v2_advice_cache.clear()
++
++
++def configure_v2_advice_store(store: AdviceStore | None) -> None:
++    """Inject/reset durable advice persistence for tests and embedding hosts."""
++
++    global _v2_advice_store
++    if _v2_advice_store is not None and _v2_advice_store is not store:
++        _v2_advice_store.close()
++    _v2_advice_store = store
++
++
++def _get_v2_advice_store() -> AdviceStore:
++    global _v2_advice_store
++    if _v2_advice_store is None:
++        cfg = get_settings()
++        _v2_advice_store = SQLiteAdviceStore(
++            cfg.advice_store_path,
++            ttl_seconds=cfg.advice_ttl_seconds,
++            max_rows=cfg.advice_max_rows,
++        )
++    return _v2_advice_store
+
+
+ def _get_v2_engine() -> AdviceEngine:
+@@ -367,7 +389,16 @@ def _get_v2_engine() -> AdviceEngine:
+     if _v2_engine is None:
+         cfg = get_settings()
+         if cfg.know_service_url:
+-            client = HttpKnowClient(cfg.know_service_url, api_key=cfg.know_api_key)
++            upstream = HttpKnowClient(cfg.know_service_url, api_key=cfg.know_api_key)
++            client = CachedKnowClient(
++                upstream,
++                SQLiteReferencePackCache(
++                    cfg.reference_pack_cache_path,
++                    max_rows=cfg.reference_pack_cache_max_rows,
++                ),
++                fresh_ttl_seconds=cfg.reference_pack_cache_fresh_ttl_seconds,
++                stale_ttl_seconds=cfg.reference_pack_cache_stale_ttl_seconds,
++            )
+         else:
+             client = DisabledKnowClient()
+         _v2_engine = AdviceEngine(client)
+@@ -850,6 +881,7 @@ async def how_v2_health() -> JSONResponse:
+             "advisory_only": True,
+             "modes": ["discover", "consult", "diagnose", "catalyze"],
+             "know": know,
++            "advice_store": _get_v2_advice_store().statistics(),
+         }
+     )
+
+@@ -868,17 +900,15 @@ async def how_v2_capabilities() -> JSONResponse:
+             "advice_output": "rosclaw.how.advice.v2",
+             "owns_retrieval_index": False,
+             "owns_action_authority": False,
++            "durable_advice_lookup": True,
++            "reference_pack_cache_degradation": ["fresh", "cached", "stale", "abstain"],
+         }
+     )
+
+
+ def _remember_v2_advice(advice: Any) -> dict[str, Any]:
+-    payload = advice.model_dump(mode="json")
+-    _v2_advice_cache[advice.advice_id] = payload
+-    _v2_advice_cache.move_to_end(advice.advice_id)
+-    while len(_v2_advice_cache) > _V2_ADVICE_CACHE_LIMIT:
+-        _v2_advice_cache.popitem(last=False)
+-    return payload
++    record = _get_v2_advice_store().put(advice)
++    return record.payload
+
+
+ async def _run_v2_advice(
+@@ -932,14 +962,13 @@ async def how_v2_catalyze(http_request: Request) -> JSONResponse:
+
+ @app.get("/how/v2/advice/{advice_id}", dependencies=[Depends(require_api_key)])
+ async def how_v2_get_advice(advice_id: str) -> JSONResponse:
+-    payload = _v2_advice_cache.get(advice_id)
+-    if payload is None:
++    record = await asyncio.to_thread(_get_v2_advice_store().get, advice_id)
++    if record is None:
+         return JSONResponse(
+-            {"detail": "advice not found in this service process", "advice_id": advice_id},
++            {"detail": "advice not found or expired", "advice_id": advice_id},
+             status_code=404,
+         )
+-    _v2_advice_cache.move_to_end(advice_id)
+-    return JSONResponse(payload)
++    return JSONResponse(record.payload)
+
+
+ @app.post("/how/v2/feedback", dependencies=[Depends(require_api_key)])
+@@ -954,8 +983,17 @@ async def how_v2_feedback(http_request: Request) -> JSONResponse:
+         return JSONResponse(
+             {"detail": f"Know feedback unavailable: {type(exc).__name__}"}, status_code=503
+         )
++    advice_feedback_updated = False
++    if feedback.advice_id:
++        advice_feedback_updated = await asyncio.to_thread(
++            _get_v2_advice_store().mark_feedback, feedback.advice_id, feedback.verdict
++        )
+     return JSONResponse(
+-        {"feedback_id": feedback.feedback_id, "created": created},
++        {
++            "feedback_id": feedback.feedback_id,
++            "created": created,
++            "advice_feedback_updated": advice_feedback_updated,
++        },
+         status_code=201 if created else 200,
+     )
+
+diff --git a/src/rosclaw_how/config.py b/src/rosclaw_how/config.py
+index 8c4ae4c..179acf3 100644
+--- a/src/rosclaw_how/config.py
++++ b/src/rosclaw_how/config.py
+@@ -155,6 +155,13 @@ class Settings:
+     know_api_key: str
+     how_v2_enabled: bool
+     legacy_use_v2: bool
++    advice_store_path: Path
++    advice_ttl_seconds: int
++    advice_max_rows: int
++    reference_pack_cache_path: Path
++    reference_pack_cache_fresh_ttl_seconds: int
++    reference_pack_cache_stale_ttl_seconds: int
++    reference_pack_cache_max_rows: int
+
+     project_root: Path
+
+@@ -235,6 +242,25 @@ def get_settings() -> Settings:
+         know_api_key=_env_str("ROSCLAW_KNOW_API_KEY", ""),
+         how_v2_enabled=_env_bool("ROSCLAW_HOW_V2_ENABLED", True),
+         legacy_use_v2=_env_bool("ROSCLAW_HOW_LEGACY_USE_V2", False),
++        advice_store_path=_resolve_path(
++            _env_str("ROSCLAW_HOW_ADVICE_STORE_PATH", "how_advice_v2.sqlite3"),
++            root=RUNTIME_DATA_DIR,
++        ),
++        advice_ttl_seconds=_env_int("ROSCLAW_HOW_ADVICE_TTL_SECONDS", 604_800),
++        advice_max_rows=_env_int("ROSCLAW_HOW_ADVICE_MAX_ROWS", 10_000),
++        reference_pack_cache_path=_resolve_path(
++            _env_str("ROSCLAW_HOW_REFERENCE_PACK_CACHE_PATH", "reference_pack_cache_v2.sqlite3"),
++            root=RUNTIME_DATA_DIR,
++        ),
++        reference_pack_cache_fresh_ttl_seconds=_env_int(
++            "ROSCLAW_HOW_REFERENCE_PACK_FRESH_TTL_SECONDS", 3_600
++        ),
++        reference_pack_cache_stale_ttl_seconds=_env_int(
++            "ROSCLAW_HOW_REFERENCE_PACK_STALE_TTL_SECONDS", 604_800
++        ),
++        reference_pack_cache_max_rows=_env_int(
++            "ROSCLAW_HOW_REFERENCE_PACK_CACHE_MAX_ROWS", 2_000
++        ),
+         project_root=RUNTIME_DATA_DIR,
+     )
+
+diff --git a/src/rosclaw_how/v2/__init__.py b/src/rosclaw_how/v2/__init__.py
+index 5e3e8ad..7d83950 100644
+--- a/src/rosclaw_how/v2/__init__.py
++++ b/src/rosclaw_how/v2/__init__.py
+@@ -1,6 +1,7 @@
+ """ROSClaw How v2 advisory surface."""
+
+ from .advice import AdviceEngine, enforce_citation_guard
++from .advice_store import AdviceRecord, AdviceStore, SQLiteAdviceStore
+ from .context import (
+     BodyContextV2,
+     HowAdviceRequestV2,
+@@ -19,17 +20,22 @@ from .contracts import (
+     ReferencePackV2,
+ )
+ from .know_client import (
++    CachedKnowClient,
+     DisabledKnowClient,
+     HttpKnowClient,
+     InProcessKnowClient,
+     KnowClient,
+     KnowUnavailableError,
+ )
++from .pack_cache import SQLiteReferencePackCache, reference_pack_cache_key
+
+ __all__ = [
+     "AdviceEngine",
++    "AdviceRecord",
+     "AdviceRecommendationV2",
++    "AdviceStore",
+     "BodyContextV2",
++    "CachedKnowClient",
+     "DisabledKnowClient",
+     "EvidenceRefV2",
+     "HowAdviceBundleV2",
+@@ -46,5 +52,8 @@ __all__ = [
+     "ReferencePackV2",
+     "RuntimeContextV2",
+     "SoftwareContextV2",
++    "SQLiteAdviceStore",
++    "SQLiteReferencePackCache",
+     "enforce_citation_guard",
++    "reference_pack_cache_key",
+ ]
+diff --git a/src/rosclaw_how/v2/advice.py b/src/rosclaw_how/v2/advice.py
+index 62f6492..526d77c 100644
+--- a/src/rosclaw_how/v2/advice.py
++++ b/src/rosclaw_how/v2/advice.py
+@@ -172,7 +172,15 @@ class AdviceEngine:
+         compatibility = list(
+             dict.fromkeys(warning for item in pack.items for warning in item.incompatibilities)
+         )
+-        unknowns = list(pack.open_questions)
++        if pack.stale:
++            compatibility.append(
++                "Reference Pack is stale; reopen pinned evidence and refresh the source before implementation."
++            )
++        elif pack.cached:
++            compatibility.append(
++                "Know is unavailable; this advice uses an unexpired cached Reference Pack."
++            )
++        unknowns = list(dict.fromkeys([*pack.open_questions, *pack.warnings]))
+         if not request.context.body.robot_model:
+             unknowns.append("Body robot_model was not provided")
+         if not request.context.software.ros_distro:
+@@ -183,8 +191,12 @@ class AdviceEngine:
+             mode=request.mode,
+             context_hash=context_hash,
+             reference_pack_id=pack.reference_pack_id,
++            reference_pack_cached=pack.cached,
++            reference_pack_stale=pack.stale,
++            reference_pack_age_seconds=pack.cache_age_seconds,
+             summary=(
+                 f"{request.mode.upper()} advice grounded in {len(pack.items)} Know item(s); "
++                f"Reference Pack state={'stale' if pack.stale else 'cached' if pack.cached else 'fresh'}; "
+                 f"Memory evidence remains a separately labelled context input."
+             ),
+             diagnosis=diagnosis,
+diff --git a/src/rosclaw_how/v2/contracts.py b/src/rosclaw_how/v2/contracts.py
+index 550d768..707f605 100644
+--- a/src/rosclaw_how/v2/contracts.py
++++ b/src/rosclaw_how/v2/contracts.py
+@@ -115,9 +115,20 @@ class ReferencePackV2(StrictWireModel):
+     truncated: bool = False
+     continuation_cursor: str | None = None
+     warnings: list[str] = Field(default_factory=list)
++    cached: bool = False
++    stale: bool = False
++    cache_age_seconds: int = Field(default=0, ge=0)
+
+     _generated_aware = field_validator("generated_at")(_aware)
+
++    @model_validator(mode="after")
++    def _cache_state_is_honest(self):
++        if self.stale and not self.cached:
++            raise ValueError("stale Reference Packs must also be marked cached")
++        if (self.cached or self.stale) and not self.warnings:
++            raise ValueError("cached Reference Packs must explain degradation in warnings")
++        return self
++
+
+ class AdviceRecommendationV2(StrictWireModel):
+     action_type: Literal["inspect", "compare", "configure", "implement", "verify", "abstain"]
+@@ -136,6 +147,9 @@ class HowAdviceBundleV2(StrictWireModel):
+     mode: Literal["discover", "consult", "diagnose", "catalyze"]
+     context_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+     reference_pack_id: str | None = None
++    reference_pack_cached: bool = False
++    reference_pack_stale: bool = False
++    reference_pack_age_seconds: int = Field(default=0, ge=0)
+     summary: str = Field(min_length=1)
+     diagnosis: str | None = None
+     recommendations: list[AdviceRecommendationV2] = Field(default_factory=list)
+@@ -151,6 +165,8 @@ class HowAdviceBundleV2(StrictWireModel):
+     def _abstention_explained(self):
+         if self.abstained and not self.abstention_reason:
+             raise ValueError("abstained advice requires abstention_reason")
++        if self.reference_pack_stale and not self.reference_pack_cached:
++            raise ValueError("stale advice must identify a cached Reference Pack")
+         return self
+
+
+diff --git a/src/rosclaw_how/v2/know_client.py b/src/rosclaw_how/v2/know_client.py
+index b3f2e95..e152def 100644
+--- a/src/rosclaw_how/v2/know_client.py
++++ b/src/rosclaw_how/v2/know_client.py
+@@ -6,9 +6,11 @@ import json
+ import urllib.error
+ import urllib.request
+ from collections.abc import Callable
++from datetime import UTC, datetime
+ from typing import Any, Protocol
+
+ from .contracts import KnowledgeUsageFeedbackV1, ReferenceContextV2, ReferencePackV2
++from .pack_cache import SQLiteReferencePackCache, reference_pack_cache_key
+
+
+ class KnowUnavailableError(RuntimeError):
+@@ -85,6 +87,102 @@ class HttpKnowClient:
+         return json.loads(self._request("GET", "/know/v2/capabilities"))
+
+
++class CachedKnowClient:
++    """Decorate a Know client with bounded, honest offline degradation.
++
++    A transport failure may reuse a cached pack.  Packs inside ``fresh_ttl``
++    are marked ``cached``; older packs inside ``stale_ttl`` are additionally
++    marked ``stale``.  Missing or too-old entries fail closed so How abstains.
++    Invalid upstream payloads are never hidden by the cache.
++    """
++
++    def __init__(
++        self,
++        upstream: KnowClient,
++        cache: SQLiteReferencePackCache,
++        *,
++        fresh_ttl_seconds: int = 3_600,
++        stale_ttl_seconds: int = 604_800,
++        clock: Callable[[], datetime] | None = None,
++    ) -> None:
++        if fresh_ttl_seconds <= 0:
++            raise ValueError("fresh_ttl_seconds must be positive")
++        if stale_ttl_seconds < fresh_ttl_seconds:
++            raise ValueError("stale_ttl_seconds must be >= fresh_ttl_seconds")
++        self.upstream = upstream
++        self.cache = cache
++        self.fresh_ttl_seconds = fresh_ttl_seconds
++        self.stale_ttl_seconds = stale_ttl_seconds
++        self._clock = clock or (lambda: datetime.now(UTC))
++
++    def reference_pack(
++        self,
++        *,
++        query: str,
++        context: ReferenceContextV2,
++        top_k: int,
++        token_budget: int,
++    ) -> ReferencePackV2:
++        key = reference_pack_cache_key(
++            query=query, context=context, top_k=top_k, token_budget=token_budget
++        )
++        try:
++            pack = self.upstream.reference_pack(
++                query=query, context=context, top_k=top_k, token_budget=token_budget
++            )
++        except KnowUnavailableError as exc:
++            cached = self.cache.get(key)
++            if cached is None:
++                raise KnowUnavailableError(f"{exc}; no cached Reference Pack") from exc
++            pack, stored_at = cached
++            age = max(0, int((self._clock() - stored_at).total_seconds()))
++            if age > self.stale_ttl_seconds:
++                raise KnowUnavailableError(
++                    f"{exc}; cached Reference Pack exceeds stale limit ({age}s)"
++                ) from exc
++            stale = age > self.fresh_ttl_seconds
++            warning = (
++                "cache:stale_reference_pack_requires_revalidation"
++                if stale
++                else "cache:know_unavailable_using_unexpired_reference_pack"
++            )
++            return ReferencePackV2.model_validate(
++                {
++                    **pack.model_dump(mode="python"),
++                    "cached": True,
++                    "stale": stale,
++                    "cache_age_seconds": age,
++                    "warnings": list(dict.fromkeys([*pack.warnings, warning])),
++                }
++            )
++        # Preserve an upstream service's explicit degradation label.  Caching
++        # it again as a local fresh value would turn stale knowledge into a
++        # pseudo-fresh response on the next outage.
++        if pack.cached:
++            return pack
++        self.cache.put(key, pack, stored_at=self._clock())
++        return pack
++
++    def submit_feedback(self, feedback: KnowledgeUsageFeedbackV1) -> bool:
++        return self.upstream.submit_feedback(feedback)
++
++    def health(self) -> dict[str, Any]:
++        try:
++            upstream = self.upstream.health()
++        except Exception as exc:  # noqa: BLE001 - health boundary
++            upstream = {"status": "unavailable", "error": type(exc).__name__}
++        status = upstream.get("status", "ok")
++        return {
++            "status": "degraded" if status in {"disabled", "unavailable"} else status,
++            "upstream": upstream,
++            "reference_pack_cache": {
++                **self.cache.statistics(),
++                "fresh_ttl_seconds": self.fresh_ttl_seconds,
++                "stale_ttl_seconds": self.stale_ttl_seconds,
++            },
++        }
++
++
+ class InProcessKnowClient:
+     """Adapter for an explicitly supplied in-process Know facade."""
+
+diff --git a/tests/v2/test_api_v2.py b/tests/v2/test_api_v2.py
+index 6760e1b..07aff66 100644
+--- a/tests/v2/test_api_v2.py
++++ b/tests/v2/test_api_v2.py
+@@ -2,9 +2,10 @@ from __future__ import annotations
+
+ from datetime import UTC, datetime
+
++import pytest
+ from fastapi.testclient import TestClient
+
+-from rosclaw_how.api import app, configure_v2_engine
++from rosclaw_how.api import app, configure_v2_advice_store, configure_v2_engine
+ from rosclaw_how.config import get_settings
+ from rosclaw_how.v2 import (
+     AdviceEngine,
+@@ -18,6 +19,19 @@ from rosclaw_how.v2 import (
+ NOW = datetime(2026, 6, 1, tzinfo=UTC)
+
+
++@pytest.fixture(autouse=True)
++def isolated_v2_persistence(monkeypatch, tmp_path):
++    monkeypatch.setenv("ROSCLAW_HOW_ADVICE_STORE_PATH", str(tmp_path / "advice.sqlite3"))
++    monkeypatch.setenv(
++        "ROSCLAW_HOW_REFERENCE_PACK_CACHE_PATH", str(tmp_path / "packs.sqlite3")
++    )
++    configure_v2_advice_store(None)
++    get_settings.cache_clear()
++    yield
++    configure_v2_advice_store(None)
++    get_settings.cache_clear()
++
++
+ def make_pack(**kwargs):
+     evidence = EvidenceRefV2(
+         evidence_id="ev-1",

@@ -1,0 +1,60 @@
+{
+  "fixture_only": true,
+  "live_sources_used": false,
+  "records": [
+    {
+      "arm": "incompatible",
+      "unit_id": "a-bad-g1_football_fixture",
+      "route": "ros1_velocity_replay",
+      "path": "legacy/g1_ros1_replay.launch",
+      "source_id": "source-incompatible-g1_football_fixture",
+      "snapshot_id": "snapshot-incompatible-g1_football_fixture",
+      "content_hash": "d274a174bd2f8ec9516024b97c7a9579501223d27f04b242719f89ed25686a62"
+    },
+    {
+      "arm": "good",
+      "unit_id": "z-good-g1_football_fixture",
+      "route": "bounded_residual_balance",
+      "path": "controllers/g1_soccer_balance.yaml",
+      "source_id": "source-good-g1_football_fixture",
+      "snapshot_id": "snapshot-good-g1_football_fixture",
+      "content_hash": "c2022f9c907f373c68a8a10b19b4dae312415afad750fc32dcfbb0859c76c586"
+    },
+    {
+      "arm": "incompatible",
+      "unit_id": "a-bad-realsense_arm_fixture",
+      "route": "x86_binary_install",
+      "path": "deploy/realsense_x86_64.yaml",
+      "source_id": "source-incompatible-realsense_arm_fixture",
+      "snapshot_id": "snapshot-incompatible-realsense_arm_fixture",
+      "content_hash": "370633c28cfc3e0b37c944d7dc44bf07ecb1b0f6c1392d94cb891ed78ab19bfd"
+    },
+    {
+      "arm": "good",
+      "unit_id": "z-good-realsense_arm_fixture",
+      "route": "aarch64_source_build",
+      "path": "deploy/realsense_aarch64.yaml",
+      "source_id": "source-good-realsense_arm_fixture",
+      "snapshot_id": "snapshot-good-realsense_arm_fixture",
+      "content_hash": "0e42da15e8a6e1d0c373022ea69153f5ff00be3f5938b872e5953fe74e9c3809"
+    },
+    {
+      "arm": "incompatible",
+      "unit_id": "a-bad-limo_ros1_fixture",
+      "route": "nav2_humble",
+      "path": "navigation/limo_nav2.launch.py",
+      "source_id": "source-incompatible-limo_ros1_fixture",
+      "snapshot_id": "snapshot-incompatible-limo_ros1_fixture",
+      "content_hash": "e91ba100abda549dd623ecff136e19d30d4db64cf759476ba200b96c1410d6a8"
+    },
+    {
+      "arm": "good",
+      "unit_id": "z-good-limo_ros1_fixture",
+      "route": "limo_move_base",
+      "path": "navigation/limo_move_base.launch",
+      "source_id": "source-good-limo_ros1_fixture",
+      "snapshot_id": "snapshot-good-limo_ros1_fixture",
+      "content_hash": "0a916f199934b92fec2c186faf01fddabb4f0d78c67df0fdb5511eb555b3f6a7"
+    }
+  ]
+}

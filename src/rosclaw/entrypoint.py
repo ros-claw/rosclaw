@@ -47,6 +47,12 @@ def main() -> int:
     if result is not None:
         return result
 
+    from rosclaw.knowledge.cli import dispatch_knowledge_argv
+
+    result = dispatch_knowledge_argv(sys.argv[1:])
+    if result is not None:
+        return result
+
     from rosclaw.evidence_verify import dispatch_evidence_argv
 
     result = dispatch_evidence_argv(sys.argv[1:])
