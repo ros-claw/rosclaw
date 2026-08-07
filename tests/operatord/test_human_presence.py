@@ -10,12 +10,14 @@ from __future__ import annotations
 import os
 import pty
 import select
+import threading
 import time
 
 import pytest
 
 from rosclaw.operatord.human import (
     HumanPromptResult,
+    confirm_on_requester_tty,
     confirm_on_tty,
     render_card,
     requester_is_foreground,
@@ -119,6 +121,26 @@ class TestConfirmOnTty:
         else:
             os.close(fd)
             pytest.skip("interactive session has a controlling tty")
+
+
+def test_background_operatord_can_confirm_on_foreground_requester_tty(monkeypatch) -> None:
+    master, slave = pty.openpty()
+    tty_path = os.ttyname(slave)
+    monkeypatch.setattr(os, "readlink", lambda _path: tty_path)
+    try:
+        def answer() -> None:
+            time.sleep(0.2)
+            os.write(master, b"Y\n")
+
+        writer = threading.Thread(target=answer)
+        writer.start()
+        result = confirm_on_requester_tty(12345, CARD, timeout_sec=2.0)
+        writer.join(timeout=2.0)
+        assert result.decision is True
+        assert result.method == "requester-tty-yn"
+    finally:
+        os.close(master)
+        os.close(slave)
 
 
 class TestForegroundCheck:

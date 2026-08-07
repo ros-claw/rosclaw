@@ -516,8 +516,16 @@ class DaemonControlPlane:
         from rosclaw.contracts.operator.decision import compute_display_hash
 
         display = proposal.display
+        # Daemon-backed approval cards have two identifiers: the daemon-owned
+        # proposal id and the agentd approval request id projected to the
+        # operator.  The human-visible card is hashed by agentd with the latter,
+        # so the challenge must use that same id or every legitimate REAL
+        # decision fails closed with a deterministic hash mismatch.
+        display_request_id = (
+            proposal.client_reference.get("agent_request_id") or proposal.request_id
+        )
         return compute_display_hash(
-            request_id=proposal.request_id,
+            request_id=display_request_id,
             title=str(display.get("title", "")),
             summary=str(display.get("summary", "")),
             risk_tier=str(display.get("risk_tier", "")),

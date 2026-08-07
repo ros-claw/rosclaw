@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from rosclaw.daemon.client import DaemonClientError
 from rosclaw.kernel import ActionEnvelope
 from rosclaw.mcp.adapters.runtime_client import RuntimeClient
 from rosclaw.mcp.schemas.common import MCPError
@@ -22,6 +23,10 @@ class _FakeDaemonClient:
         self.arm_reasons: list[str] = []
         self.disarm_reasons: list[str] = []
         self.permit_error: Exception | None = None
+        self.proposals: dict[str, ActionEnvelope] = {}
+        self.cancelled_proposals: list[str] = []
+        self.tracked_action_leases: list[str] = []
+        self.wait_error: Exception | None = None
 
     def get_runtime_status(self) -> dict[str, Any]:
         return {
@@ -72,11 +77,76 @@ class _FakeDaemonClient:
         self.sessions.append(kwargs)
         return {"session_id": kwargs["session_id"], "state": "ACTIVE"}
 
+    def create_operator_proposal(
+        self,
+        action: ActionEnvelope,
+        *,
+        display: dict[str, Any],
+        ttl_sec: float,
+    ) -> dict[str, Any]:
+        request_id = f"proposal-{action.action_id}"
+        self.proposals[request_id] = action
+        self.sessions.append(
+            {
+                "session_id": action.session_id,
+                "actor_id": action.actor_id,
+                "agent_framework": action.agent_framework,
+                "body_scope": [action.body_id],
+                "capability_scope": [action.capability_id],
+                "ttl_ms": int(ttl_sec * 1000),
+            }
+        )
+        return {
+            "proposal": {
+                "request_id": request_id,
+                "action_intent_hash": "bound-by-runtime-test",
+                "display": display,
+            }
+        }
+
+    def cancel_operator_proposal(self, request_id: str) -> dict[str, Any]:
+        self.cancelled_proposals.append(request_id)
+        return {"proposal": {"request_id": request_id, "state": "CANCELLED"}}
+
+    async def confirm_mcp_form(self, params: dict[str, Any]) -> dict[str, Any]:
+        action = self.proposals[params["request_id"]]
+        armed_here = self.supervision_state != "ARMED"
+        if armed_here:
+            self.arm_reasons.append(f"Operator accepted proposal {params['request_id']}")
+            self.supervision_state = "ARMED"
+        if self.permit_error is not None:
+            if armed_here:
+                self.disarm_reasons.append(
+                    f"Automatic rollback after proposal {params['request_id']} failed"
+                )
+                self.supervision_state = "DISARMED"
+            return {"ok": False, "error": str(self.permit_error)}
+        payload = action.to_dict()
+        payload["authorization"] = {
+            "principal_id": params["requested_principal"],
+            "approved": True,
+            "approval_id": "permit-secret",
+            "scopes": [action.capability_id],
+        }
+        authorized = ActionEnvelope.from_dict(payload)
+        self.actions.append(authorized)
+        return {
+            "ok": True,
+            "approved": True,
+            "action": {"action_id": action.action_id, "state": "QUEUED"},
+        }
+
+    def track_action_lease(self, action_id: str) -> dict[str, Any]:
+        self.tracked_action_leases.append(action_id)
+        return {"action_id": action_id, "state": "QUEUED"}
+
     def close_session(self, session_id: str, *, reason: str) -> dict[str, Any]:
         self.closed_sessions.append((session_id, reason))
         return {"session_id": session_id, "state": "CLOSED"}
 
     def wait_for_action(self, action_id: str, *, timeout_sec: float) -> dict[str, Any]:
+        if self.wait_error is not None:
+            raise self.wait_error
         return {
             "action_id": action_id,
             "state": "FINISHED",
@@ -120,6 +190,7 @@ def client() -> tuple[RuntimeClient, _FakeDaemonClient]:
         robot_id="rh56-test",
         runtime_profile={},
         daemon_client=daemon,
+        operator_confirm=daemon.confirm_mcp_form,
     )
     return runtime_client, daemon
 
@@ -238,9 +309,8 @@ async def test_interactive_confirmation_injects_permit_without_exposing_it(
     assert "permit-secret" not in str(result)
     assert daemon.actions[-1].authorization.approved is True
     assert daemon.sessions[-1]["session_id"] == "action-interactive"
-    assert daemon.arm_reasons == [
-        "Operator confirmed exact REAL action action-interactive through MCP elicitation"
-    ]
+    assert daemon.tracked_action_leases == ["action-interactive"]
+    assert daemon.arm_reasons == ["Operator accepted proposal proposal-action-interactive"]
     assert daemon.closed_sessions == []
 
 
@@ -270,6 +340,39 @@ async def test_interactive_confirmation_closes_terminal_action_session(
     assert result["operator_confirmation"]["session_closed"] is True
     assert result["operator_confirmation"]["session_cleanup_error"] is None
     assert daemon.closed_sessions == [("action-terminal", "confirmed_action_finished")]
+
+
+async def test_interactive_confirmation_returns_live_ticket_on_bounded_wait_timeout(
+    client: tuple[RuntimeClient, _FakeDaemonClient],
+) -> None:
+    runtime_client, daemon = client
+    daemon.wait_error = DaemonClientError(
+        "ACTION_WAIT_TIMEOUT",
+        "The accepted speech action is still running.",
+    )
+    prepared = runtime_client.prepare_operator_action(
+        capability_id="limo.speak_text",
+        arguments={"text": "Inspection still running"},
+        body_snapshot_hash="sha256:body",
+        action_id="action-long-speech",
+        deadline_at="2030-01-02T03:04:05Z",
+    )
+
+    result = await runtime_client.confirm_operator_action(
+        prepared,
+        principal_id="operator-1",
+        confirmation={
+            "accepted": True,
+            "action_intent_hash": prepared.approval_request["action_intent_hash"],
+        },
+        wait_timeout_sec=0.1,
+    )
+
+    assert result["state"] == "QUEUED"
+    assert result["operator_confirmation"]["session_closed"] is False
+    assert daemon.tracked_action_leases == ["action-long-speech"]
+    assert daemon.cancelled_proposals == []
+    assert daemon.closed_sessions == []
 
 
 async def test_interactive_confirmation_does_not_rearm_armed_generation(
@@ -327,7 +430,7 @@ async def test_interactive_confirmation_rolls_back_just_in_time_arm_on_failure(
     assert daemon.supervision_state == "DISARMED"
     assert len(daemon.arm_reasons) == 1
     assert daemon.disarm_reasons == [
-        "Automatic rollback after confirmed action action-arm-rollback failed"
+        "Automatic rollback after proposal proposal-action-arm-rollback failed"
     ]
     assert daemon.actions == []
 

@@ -51,6 +51,7 @@ def test_limo_worker_environment_passes_only_fixed_pulse_bridge(monkeypatch) -> 
     environment = LimoInitialPoseExecutor._worker_environment()
 
     assert environment["ROSCLAW_LIMO_PULSE_SERVER"] == "unix:/run/rosclaw/pulse/native"
+    assert environment["PYTHONDONTWRITEBYTECODE"] == "1"
     assert "UNTRUSTED_AUDIO_DEVICE" not in environment
 
 
@@ -659,12 +660,15 @@ def test_limo_speech_executor_returns_energy_verified_receipt(tmp_path, monkeypa
         "acoustic_loopback": _limo_speech_loopback_payload(),
         "acoustic_loopback_detected": True,
     }
-    monkeypatch.setattr(
-        "rosclaw.robot_pack.runtime_loader.subprocess.run",
-        lambda *_args, **_kwargs: SimpleNamespace(
+    worker_call = {}
+
+    def run_worker(*_args, **kwargs):
+        worker_call.update(kwargs)
+        return SimpleNamespace(
             returncode=0, stdout=__import__("json").dumps(payload), stderr=""
-        ),
-    )
+        )
+
+    monkeypatch.setattr("rosclaw.robot_pack.runtime_loader.subprocess.run", run_worker)
 
     result = LimoSpeechExecutor(instance, adapter_source=source)(action)
 
@@ -674,6 +678,7 @@ def test_limo_speech_executor_returns_energy_verified_receipt(tmp_path, monkeypa
     assert result.verification_result["acoustic_output_independently_observed"] is True
     assert result.verification_result["content_recognition_performed"] is False
     assert result.verification_result["rms_gain_db"] == 18.5
+    assert worker_call["timeout"] == 90.0
 
 
 @pytest.mark.parametrize(
@@ -755,7 +760,7 @@ def test_daemon_loader_registers_limo_initial_pose_executor(tmp_path) -> None:
             installed_at="2026-07-30T00:00:00Z",
             artifact_type="test",
             server_dir=str(home / "mcp"),
-            extra={"repo_commit": "7b71f9611782317fc43c51a48af2aeae230c47b3"},
+            extra={"repo_commit": "f72b475c831cb7c818ba1e3e9f475d262b19a07f"},
         )
     )
     configure_robot_instance(
@@ -773,7 +778,7 @@ def test_daemon_loader_registers_limo_initial_pose_executor(tmp_path) -> None:
     status = load_daemon_robot_pack(runtime, robot_id="limo", home=home)
 
     assert status is not None
-    assert status["pack_ref"].endswith("limo-ros1@0.1.27")
+    assert status["pack_ref"].endswith("limo-ros1@0.1.29")
     assert status["registered_executors"] == [
         "limo.set_initial_pose:SHADOW",
         "limo.set_initial_pose:REAL",
@@ -818,7 +823,7 @@ def test_signed_limo_pack_runs_tone_through_daemon_permit_and_receipt(
             installed_at="2026-07-31T00:00:00Z",
             artifact_type="test",
             server_dir=str(adapter_source),
-            extra={"repo_commit": "7b71f9611782317fc43c51a48af2aeae230c47b3"},
+            extra={"repo_commit": "f72b475c831cb7c818ba1e3e9f475d262b19a07f"},
         )
     )
     instance = configure_robot_instance(

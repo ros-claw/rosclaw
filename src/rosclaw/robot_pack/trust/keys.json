@@ -106,9 +106,19 @@
         "ros-claw/limo-ros1@0.1.24",
         "ros-claw/limo-ros1@0.1.25",
         "ros-claw/limo-ros1@0.1.26",
-        "ros-claw/limo-ros1@0.1.27"
+        "ros-claw/limo-ros1@0.1.27",
+        "ros-claw/limo-ros1@0.1.28"
       ],
       "created_at": "2026-07-31T00:00:00Z"
+    },
+    "rosclaw-limo-pack-v10": {
+      "algorithm": "ed25519",
+      "public_key_base64": "dSM/+QWWFHuO7I0fj/Ebuk0ZvQR9R0m11KzFk/aPpQM=",
+      "status": "trusted",
+      "scopes": [
+        "ros-claw/limo-ros1@0.1.29"
+      ],
+      "created_at": "2026-08-07T00:00:00Z"
     }
   }
 }

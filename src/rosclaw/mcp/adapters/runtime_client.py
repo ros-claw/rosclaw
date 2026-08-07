@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import uuid
@@ -51,6 +52,7 @@ class RuntimeClient:
         runtime_profile: dict[str, Any],
         fixture_mode: bool = False,
         daemon_client: Any | None = None,
+        operator_confirm: Any | None = None,
     ):
         self.project_root = project_root
         self.robot_id = robot_id or "rosclaw_default"
@@ -61,6 +63,7 @@ class RuntimeClient:
 
             daemon_client = DaemonClient()
         self._daemon_client = daemon_client
+        self._operator_confirm = operator_confirm
         self._runtime: Any | None = None
         self._runtime_error: str | None = None
         self._adapter_cache: dict[str, Any] | None = None
@@ -739,7 +742,13 @@ class RuntimeClient:
         wait_timeout_sec: float = 2.0,
         permit_ttl_sec: float = 60.0,
     ) -> dict[str, Any]:
-        """Exchange a host-confirmed proposal for an opaque permit and submit it once."""
+        """Submit a host-confirmed action through the enrolled Operator Broker.
+
+        The MCP process is never allowed to arm rosclawd or issue a Permit.  It creates an
+        exact daemon-owned proposal and asks rosclaw-operatord to sign the already accepted
+        MCP form decision.  rosclawd verifies that proof, then performs arm/Permit/submit
+        internally and atomically.
+        """
 
         action = prepared.action
         expected_hash = prepared.approval_request.get("action_intent_hash")
@@ -755,64 +764,83 @@ class RuntimeClient:
                 "A trusted operator principal is required for REAL confirmation.",
             )
         reason = str(confirmation.get("reason") or "Accepted through MCP elicitation")
-        armed_by_confirmation = False
-        session_created = False
+        proposal_id = ""
         session_closed = False
         session_cleanup_error: str | None = None
         try:
-            runtime_status = await asyncio.to_thread(self._daemon_client.get_runtime_status)
-            await asyncio.to_thread(
-                self._daemon_client.create_session,
-                session_id=action.session_id,
-                actor_id=action.actor_id,
-                agent_framework=action.agent_framework,
-                body_scope=[action.body_id],
-                capability_scope=[action.capability_id],
-                ttl_ms=60_000,
-            )
-            session_created = True
-            if str(runtime_status.get("supervision_state")) != "ARMED":
-                await asyncio.to_thread(
-                    self._daemon_client.arm_runtime,
-                    f"Operator confirmed exact REAL action {action.action_id} through MCP elicitation",
-                )
-                armed_by_confirmation = True
-            issued = await asyncio.to_thread(
-                self._daemon_client.issue_execution_permit,
+            before = await asyncio.to_thread(self._daemon_client.get_runtime_status)
+            pending = await asyncio.to_thread(
+                self._daemon_client.create_operator_proposal,
                 action,
-                principal_id=principal_id,
-                target_peer_uid=os.geteuid(),
-                expires_in_sec=permit_ttl_sec,
-                reason=reason,
+                display=dict(prepared.approval_request.get("display") or {}),
+                ttl_sec=min(60.0, max(1.0, float(permit_ttl_sec))),
             )
-            authorized_action = issued.get("authorized_action")
-            if not isinstance(authorized_action, dict):
-                raise RuntimeError("rosclawd returned no authorized action")
-            ticket = await asyncio.to_thread(
-                self._daemon_client.request_action,
-                authorized_action,
-            )
-            result = ticket
-            if wait_timeout_sec > 0:
-                result = await asyncio.to_thread(
-                    self._daemon_client.wait_for_action,
-                    action.action_id,
-                    timeout_sec=wait_timeout_sec,
+            proposal = pending.get("proposal")
+            if not isinstance(proposal, dict) or not proposal.get("request_id"):
+                raise RuntimeError("rosclawd returned no operator proposal")
+            proposal_id = str(proposal["request_id"])
+            decision_params = {
+                "request_id": proposal_id,
+                "action_intent_hash": expected_hash,
+                "approve": True,
+                "reason": reason,
+                "requested_principal": principal_id,
+            }
+            if self._operator_confirm is not None:
+                decision = await self._operator_confirm(decision_params)
+            else:
+                from rosclaw.agentd.operator_socket import operator_call
+                from rosclaw.operatord.server import default_operatord_socket
+
+                decision = await operator_call(
+                    default_operatord_socket(get_rosclaw_home()),
+                    "approvals.confirm_mcp_form",
+                    decision_params,
                 )
-        except Exception as exc:  # noqa: BLE001
-            if armed_by_confirmation:
+            if not isinstance(decision, dict) or decision.get("ok") is not True:
+                detail = decision.get("error") if isinstance(decision, dict) else decision
+                raise RuntimeError(f"rosclaw-operatord rejected MCP confirmation: {detail}")
+            if decision.get("approved") is not True:
+                raise RuntimeError("rosclaw-operatord did not approve the exact MCP action")
+            # The broker submitted on behalf of this Unix peer.  Read the owner-checked
+            # status through this DaemonClient and adopt its lease before waiting; otherwise
+            # renewal state would remain stranded in the short-lived operatord RPC handler.
+            result = await asyncio.to_thread(
+                self._daemon_client.track_action_lease, action.action_id
+            )
+            if wait_timeout_sec > 0:
                 try:
-                    await asyncio.to_thread(
-                        self._daemon_client.disarm_runtime,
-                        f"Automatic rollback after confirmed action {action.action_id} failed",
+                    result = await asyncio.to_thread(
+                        self._daemon_client.wait_for_action,
+                        action.action_id,
+                        timeout_sec=wait_timeout_sec,
                     )
-                except Exception as rollback_exc:  # noqa: BLE001
-                    self._raise_daemon_error("confirm_operator_action_rollback", rollback_exc)
+                except Exception as exc:  # noqa: BLE001 - preserve accepted long action
+                    if str(getattr(exc, "code", "")) != "ACTION_WAIT_TIMEOUT":
+                        raise
+                    # A bounded MCP wait is not an execution failure.  The broker already
+                    # submitted the action and this DaemonClient owns its renewal schedule;
+                    # return the live ticket so later status polls can keep renewing it.
+                    result = await asyncio.to_thread(
+                        self._daemon_client.get_action_status,
+                        action.action_id,
+                    )
+            after = await asyncio.to_thread(self._daemon_client.get_runtime_status)
+            armed_by_confirmation = (
+                str(before.get("supervision_state")) != "ARMED"
+                and str(after.get("supervision_state")) == "ARMED"
+            )
+        except Exception as exc:  # noqa: BLE001
+            if proposal_id:
+                with contextlib.suppress(Exception):
+                    await asyncio.to_thread(
+                        self._daemon_client.cancel_operator_proposal, proposal_id
+                    )
             if isinstance(exc, MCPError):
                 raise
             self._raise_daemon_error("confirm_operator_action", exc)
 
-        if session_created and result.get("state") in {"FINISHED", "CANCELLED"}:
+        if result.get("state") in {"FINISHED", "CANCELLED"}:
             try:
                 await asyncio.to_thread(
                     self._daemon_client.close_session,
@@ -988,6 +1016,13 @@ class RuntimeClient:
             )
         except Exception as exc:  # noqa: BLE001
             self._raise_daemon_error("get_action_status", exc)
+        if result.get("state") in {"FINISHED", "CANCELLED"}:
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(
+                    self._daemon_client.close_session,
+                    action_id,
+                    reason="polled_action_finished",
+                )
         return self._action_result_metadata(result, "UNKNOWN")
 
     async def get_approval_status(self, request_id: str) -> dict[str, Any]:

@@ -36,7 +36,11 @@ from rosclaw.contracts.operator.decision import (
     canonical_json,
 )
 from rosclaw.operatord.enrollment import OperatorIdentity, load_identity
-from rosclaw.operatord.human import confirm_on_tty, render_card, requester_is_foreground
+from rosclaw.operatord.human import (
+    confirm_on_requester_tty,
+    render_card,
+    requester_is_foreground,
+)
 
 
 def default_operatord_socket(home: Path | None = None) -> Path:
@@ -97,11 +101,89 @@ class OperatorDaemon:
             return await operator_call(self._agent_socket, "approvals.get", params)
         if method == "approvals.decide":
             return await self._decide(principal, params, peer_pid=peer_pid)
+        if method == "approvals.confirm_mcp_form":
+            return await self._confirm_mcp_form(principal, params)
         if method == "grants.revoke":
             return await self._revoke(principal, params)
         if method == "estop":
             return await self._estop(principal, params)
         return {"ok": False, "error": f"unknown method {method!r}"}
+
+    async def _confirm_mcp_form(
+        self, principal: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Sign one exact decision already accepted through MCP form elicitation.
+
+        This keeps the enrollment private key inside operatord.  The daemon-owned proposal
+        and challenge bind the form decision to one immutable ActionEnvelope; rosclawd alone
+        performs the resulting arm, Permit issuance, and submission.
+        """
+
+        from rosclaw.daemon.client import DaemonClientError
+
+        if self._daemon is None:
+            return {"ok": False, "error": "rosclawd is not connected"}
+        request_id = str(params.get("request_id", ""))
+        expected_intent = str(params.get("action_intent_hash", ""))
+        if not request_id or not expected_intent:
+            return {"ok": False, "error": "request_id and action_intent_hash required"}
+        if params.get("approve") is not True:
+            return {"ok": False, "error": "MCP form confirmation was not accepted"}
+        try:
+            status = await asyncio.to_thread(self._daemon.get_operator_proposal, request_id)
+            proposal = status.get("proposal")
+            if not isinstance(proposal, dict):
+                return {"ok": False, "error": "daemon returned no operator proposal"}
+            if str(proposal.get("action_intent_hash", "")) != expected_intent:
+                return {"ok": False, "error": "action_intent_hash_mismatch"}
+            if str(proposal.get("execution_mode", "")) != "REAL":
+                return {"ok": False, "error": "MCP form confirmation requires REAL mode"}
+            challenge_raw = await asyncio.to_thread(
+                self._daemon.get_operator_challenge, request_id
+            )
+            challenge = DecisionChallengeV1.from_dict(dict(challenge_raw["challenge"]))
+        except (DaemonClientError, ValueError, KeyError) as exc:
+            return {"ok": False, "error": f"daemon challenge unavailable: {exc}"}
+        if challenge.proposal_id != request_id:
+            return {"ok": False, "error": "proposal_id_mismatch"}
+        if challenge.canonical_args_hash != expected_intent:
+            return {"ok": False, "error": "canonical_args_hash_mismatch"}
+
+        proof = OperatorDecisionProofV1(
+            enrollment_id=self._identity.enrollment_id,
+            challenge=challenge,
+            decision=ACCEPT,
+            decided_at=datetime.now(UTC).isoformat(),
+            human_confirmation_method="mcp-form-elicitation",
+        )
+        proof = replace(proof, signature_b64=self._identity.sign(proof.signing_payload()))
+        reason = str(params.get("reason") or "operator accepted exact MCP form")
+        requested_principal = str(params.get("requested_principal") or principal)
+        try:
+            submission = await asyncio.to_thread(
+                self._daemon.decide_operator_proposal,
+                request_id,
+                decision=ACCEPT,
+                principal_id=requested_principal,
+                channel="mcp_form_via_rosclaw_operatord",
+                reason=reason,
+                proof=proof.to_dict(),
+            )
+        except DaemonClientError as exc:
+            return {"ok": False, "error": f"daemon decide failed: {exc.code}: {exc}"}
+        receipt = submission.get("decision_receipt")
+        if not isinstance(receipt, dict) or not receipt.get("signature_b64"):
+            return {"ok": False, "error": "daemon returned no signed decision receipt"}
+        action = submission.get("action")
+        return {
+            "ok": True,
+            "approved": True,
+            "principal": requested_principal,
+            "daemon_decided": True,
+            "receipt_id": receipt.get("proposal_id", ""),
+            "submission": submission,
+            "action": action if isinstance(action, dict) else None,
+        }
 
     # -- decisions ---------------------------------------------------------------
 
@@ -196,7 +278,7 @@ class OperatorDaemon:
                 challenge_nonce=challenge.challenge_nonce,
                 expires_at=challenge.expires_at,
             )
-            answer = await asyncio.to_thread(confirm_on_tty, prompt)
+            answer = await asyncio.to_thread(confirm_on_requester_tty, peer_pid, prompt)
             if answer.decision is None:
                 return {"ok": False, "error": f"human confirmation failed: {answer.detail}"}
             decision = ACCEPT if answer.decision else DECLINE

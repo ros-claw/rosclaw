@@ -1,0 +1,4 @@
+# Replace LIMO_OPERATOR with the desktop account that owns PulseAudio.
+# Keep rosclaw-audio separate from the Agent client group: directory traversal
+# is the authorization boundary for the anonymous PulseAudio socket.
+d /run/rosclaw/pulse 0750 LIMO_OPERATOR rosclaw-audio -

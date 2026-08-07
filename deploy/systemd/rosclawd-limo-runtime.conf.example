@@ -1,0 +1,7 @@
+[Service]
+# Preserve the operator-session PulseAudio bridge across rosclawd restarts.
+RuntimeDirectoryPreserve=restart
+
+# LIMO uses the serial base and its USB speaker/microphone.
+SupplementaryGroups=
+SupplementaryGroups=dialout audio

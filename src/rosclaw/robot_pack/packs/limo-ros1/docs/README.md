@@ -2,7 +2,7 @@
 
 This Pack binds the `limo` e-URDF Body to the independently versioned
 `ros-claw/limo-ros-mcp` adapter at commit
-`3e1068b244af636b247125eca32030d72e780477` (MCP 0.9.0).
+`f72b475c831cb7c818ba1e3e9f475d262b19a07f` (MCP 0.10.0).
 
 The first REAL capability is `limo.set_initial_pose`. The Agent submits a
 validated map-frame estimate to `rosclawd`; the daemon validates an exact
@@ -124,6 +124,21 @@ non-finite no-return values are not reliable through rosbridge JSON. The laser
 freshness budget is calibrated to 2.5 seconds from the documented 0.7-second
 driver stamp lag plus roughly 1.7 seconds of bounded Jetson collection time;
 the navigation executor still samples live clearance immediately before dispatch.
+
+Revision 0.1.28 locks MCP 0.10.0 after live chassis diagnostics exposed a
+stalled-navigation failure mode. The navigation worker now polls the action
+result, cancels the move_base goal when it receives SIGTERM or SIGINT, and
+fails within three seconds when a sustained non-zero velocity command produces
+no odometry response. Cancellation verifies stopped odometry before the worker
+exits, preventing an expired daemon lease from leaving a live navigation goal.
+
+Revision 0.1.29 locks the cold-boot patrol and person-interaction fixes verified
+on the physical LIMO. Navigation completion is checked against the stopped live
+`map -> base_link` TF pose, with AMCL retained as auxiliary evidence, so a stale
+mid-motion AMCL sample cannot create a false failure. The adapter adds bounded
+robot-pose and Dabai frame workers for ROS Melodic, fixes operator-runtime
+readiness, and records person responses through the fixed PulseAudio bridge while
+draining the capture continuously and rejecting truncated audio.
 
 H1 means only that the signed contract and executor tests pass. H4 requires a
 real LIMO, an AMCL subscriber, a post-navigation map-frame pose from AMCL or the
