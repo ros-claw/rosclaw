@@ -48,7 +48,7 @@ class AgentConfig:
 
     def to_policy(self) -> ModelPolicy:
         if not self.profiles:
-            raise ValueError("no model profiles configured — run `rosclaw agent init`")
+            raise ValueError("no model profiles configured — run `rosclaw setup model`")
         return ModelPolicy(self.profiles, self.default_profile)
 
 
