@@ -38,20 +38,18 @@ export class ProductUiState {
 		private readonly productVersion: string,
 	) {}
 
-	/** 当前只读快照（字段全部来自权威源）。 */
+	/** 当前只读快照（字段全部来自权威源）。
+	 *  HOTFIX-3：contextState 用 ActiveSessionContext 的显式状态——
+	 *  合法 revision 0 的 FRESH 不再误显 LOADING，过期 revision 12
+	 *  不再误显 FRESH（此前是"revision>0 猜 FRESH"的伪 freshness）。 */
 	snapshot(): ProductUiStateV1 {
 		const state = this.active.current;
-		const contextState: ContextState = !state.missionId
-			? "UNAVAILABLE"
-			: state.contextRevision > 0
-				? "FRESH"
-				: "LOADING";
 		return {
 			productVersion: this.productVersion,
 			missionId: state.missionId,
 			mode: state.mode,
 			bodyId: state.bodyId,
-			contextState,
+			contextState: state.missionId ? state.contextState : "UNAVAILABLE",
 			contextRevision: state.contextRevision,
 			operatorState: this.operatorState,
 			snapshotSeq: this.seq,

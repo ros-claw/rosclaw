@@ -83,37 +83,49 @@ export class AgentSessionCoordinator {
 		};
 	}
 
-	/** fresh context 拉取 + 验证（失败即 stale——不落盘 revision）。 */
+	/** fresh context 拉取 + 验证 + lease（失败即 stale——不落盘 revision）。 */
 	private async freshContext(
 		missionId: string,
-	): Promise<EmbodiedContextEnvelope | null> {
-		const fetched = await fetchEmbodiedContext(this.deps.rosclawHome, missionId);
+		sessionId: string,
+	): Promise<{ envelope: EmbodiedContextEnvelope; leaseId?: string } | null> {
+		const fetched = await fetchEmbodiedContext(
+			this.deps.rosclawHome,
+			missionId,
+			sessionId,
+		);
 		if (fetched.stale || !fetched.envelope) return null;
-		return fetched.envelope;
+		return { envelope: fetched.envelope, leaseId: fetched.contextLeaseId };
 	}
 
-	/** 原子落盘：lease 状态 + fresh context + 新 session 一次性替换。 */
+	/** 原子落盘（P0-4E）：构造完整候选状态后一次性替换。
+	 *  context 失败 = 绑定成功但 NOT_READY——清空 revision/body/lease/
+	 *  动作准入，绝不继承旧 Mission 的任何数据（此前 `?? current.x`
+	 *  会把 A 的 revision/body 带进 B）。 */
 	private commitState(
 		targetSessionId: string,
 		missionId: string,
-		envelope: EmbodiedContextEnvelope | null,
+		fresh: { envelope: EmbodiedContextEnvelope; leaseId?: string } | null,
 	): void {
 		const current = this.deps.active.current;
-		const body = (envelope?.body ?? {}) as {
+		const body = (fresh?.envelope.body ?? {}) as {
 			body_id?: string;
 			effective_body_hash?: string;
 		};
-		const safety = (envelope?.safety ?? {}) as { mode?: string };
+		const safety = (fresh?.envelope.safety ?? {}) as { mode?: string };
 		const next: ActiveSessionState = {
 			...current,
 			sessionId: targetSessionId,
 			missionId,
 			bindingId: this.deps.leaseManager.active?.bindingId,
 			leaseToken: undefined, // token 只存 leaseManager，不进共享状态
-			contextRevision: envelope?.context_revision ?? current.contextRevision,
-			bodyId: body.body_id ?? current.bodyId,
-			bodyHash: body.effective_body_hash ?? current.bodyHash,
-			mode: safety.mode ?? current.mode,
+			leaseState: "ACTIVE",
+			// context：fresh 才有值；失败一律清空（NOT_READY，不继承旧值）。
+			contextRevision: fresh?.envelope.context_revision ?? 0,
+			bodyId: fresh ? body.body_id : undefined,
+			bodyHash: fresh ? body.effective_body_hash : undefined,
+			mode: fresh ? (safety.mode ?? current.mode) : current.mode,
+			contextState: fresh ? "FRESH" : "UNAVAILABLE",
+			contextLeaseId: fresh?.leaseId,
 		};
 		this.deps.active.replace(next);
 	}
@@ -160,15 +172,20 @@ export class AgentSessionCoordinator {
 		} catch (err) {
 			return this.enterNeedsBinding(`绑定失败：${(err as Error).message}`);
 		}
-		// 4. fresh context（失败 = 绑定成功但 context LOADING——不算
-		//    切换失败；before_agent_start 每轮还会重试注入，动作类工具
-		//    由 admission 的 revision 硬校验兜底）。
-		const envelope = await this.freshContext(missionId);
-		// 5. 原子替换。
-		this.commitState(targetSessionId, missionId, envelope);
+		// 4. fresh context（P0-4E：失败 = 绑定成功但 NOT_READY——
+		//    清空 revision/body/动作准入，绝不继承旧 Mission 数据）。
+		const fresh = await this.freshContext(missionId, targetSessionId);
+		// 5. 原子替换（完整候选状态，一次性）。
+		this.commitState(targetSessionId, missionId, fresh);
+		if (!fresh) {
+			this.deps.notify(
+				"已绑定新 Mission，但具身上下文不可用——动作已禁止（context 恢复后自动解除）",
+				"warning",
+			);
+		}
 		if (existing?.archived) {
 			this.deps.notify(
-				"原 Mission 已归档——已新建 SIM Mission 绑定（旧记录只读保留）",
+				"RESUME_REBOUND_TO_NEW_SIM：原 Mission 已归档——已新建 SIM Mission 绑定（旧记录只读保留，这不是原 Mission 的恢复）",
 				"warning",
 			);
 		}
@@ -203,8 +220,14 @@ export class AgentSessionCoordinator {
 		} catch (err) {
 			return this.enterNeedsBinding(`绑定失败：${(err as Error).message}`);
 		}
-		const envelope = await this.freshContext(missionId);
-		this.commitState(sessionId, missionId, envelope);
+		const fresh = await this.freshContext(missionId, sessionId);
+		this.commitState(sessionId, missionId, fresh);
+		if (!fresh) {
+			this.deps.notify(
+				"已绑定新 Mission，但具身上下文不可用——动作已禁止（context 恢复后自动解除）",
+				"warning",
+			);
+		}
 		this.deps.notify(
 			reason === "fork"
 				? `已 fork：新 SIM Mission ${missionId}（authority 不复制，来源 ${sourceMissionId ?? "—"} 仅作只读历史）`

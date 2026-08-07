@@ -65,16 +65,43 @@ export class SessionLeaseManager {
 		}
 	}
 
+	private heartbeatFailures = 0;
+	/** HOTFIX-3（P0-4E）：heartbeat 连续失败 → LEASE_LOST 回调。 */
+	onLeaseLost: (() => void) | null = null;
+
 	private startHeartbeat(): void {
+		this.heartbeatFailures = 0;
 		this.heartbeat = setInterval(() => {
 			if (!this.current) return;
-			void bridgeCall(this.rosclawHome, "pi.session.heartbeat", {
+			void this.call(this.rosclawHome, "pi.session.heartbeat", {
 				mission_id: this.current.missionId,
 				pi_session_id: this.current.piSessionId,
 				lease_token: this.current.leaseToken,
-			}).catch(() => undefined);
+			})
+				.then((response) => {
+					// 心跳被拒（lease 过期/被抢/token 错）即失败，不等超时。
+					if (response.ok === false) {
+						this.noteHeartbeatFailure();
+					} else {
+						this.heartbeatFailures = 0;
+					}
+				})
+				.catch(() => {
+					this.noteHeartbeatFailure();
+				});
 		}, 30_000);
 		this.heartbeat.unref();
+	}
+
+	private noteHeartbeatFailure(): void {
+		this.heartbeatFailures += 1;
+		// 连续 2 次失败即判 LEASE_LOST（一次可能是网络抖动；
+		// 两次 = lease 真的没了——动作必须立即禁行）。
+		if (this.heartbeatFailures >= 2) {
+			this.stopHeartbeat();
+			this.current = null;
+			this.onLeaseLost?.();
+		}
 	}
 
 	private stopHeartbeat(): void {

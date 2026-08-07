@@ -75,10 +75,18 @@ export async function createRosclawRuntime(
 		contextRevision: 0,
 		mode: "SIMULATION",
 		profile: options.profile,
+		contextState: "LOADING",
+		leaseState: "NONE",
+		actionsAllowed: false,
 	});
 	// P0-NA-12：coordinator 拥有 leaseManager；扩展 hook 与 main 初始
 	// 绑定都经它，lease_token 绝不丢弃、heartbeat 唯一。
 	const leaseManager = new SessionLeaseManager(options.rosclawHome);
+	// HOTFIX-3：heartbeat 连续失败 → LEASE_LOST——ActiveSessionContext
+	// 立即禁行动作（admission 的内核校验仍是最终权威）。
+	leaseManager.onLeaseLost = () => {
+		active.markLeaseLost();
+	};
 	const coordinator = new AgentSessionCoordinator({
 		rosclawHome: options.rosclawHome,
 		active,
