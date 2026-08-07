@@ -39,7 +39,12 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ActionRequestContext:
-    """propose/execute 的完整请求上下文（P0-NA-10 结构化 contract）。"""
+    """propose/execute 的完整请求上下文（P0-NA-10 + HOTFIX-1 contract）。
+
+    HOTFIX-1（P0-4A）：context_lease_id 是 agentd 签发的
+    ValidatedContextLease——freshness 的权威凭证；无 lease 即
+    CONTEXT_NOT_FRESH（不再有"revision 碰巧相同就放行"的 stale 捷径）。
+    """
 
     pi_session_id: str
     mission_id: str
@@ -47,6 +52,7 @@ class ActionRequestContext:
     body_hash: str
     mode: str
     idempotency_key: str
+    context_lease_id: str
 
 
 class ActionAdmissionService:
@@ -59,11 +65,26 @@ class ActionAdmissionService:
     # -- 验证链 -----------------------------------------------------------------
 
     def _validate_request_context(self, ctx: ActionRequestContext) -> None:
-        """session → mission → lease → revision → body → mode 全链硬校验。"""
-        if not ctx.pi_session_id:
+        """session → mission → writer lease → context lease → revision →
+        body → mode 全链硬校验（HOTFIX-1：freshness 以 agentd 签发的
+        ValidatedContextLease 为准，不信 TUI 自报的 revision）。"""
+        # 1. 全字段非空（HOTFIX-1：空 body_hash/idempotency 不再放行）。
+        if not ctx.pi_session_id or not ctx.mission_id:
             raise ToolBridgeError(
-                "REQUEST_CONTEXT_REQUIRED", "pi_session_id is required (fail closed)"
+                "REQUEST_CONTEXT_REQUIRED", "session/mission required (fail closed)"
             )
+        if not ctx.body_hash:
+            raise ToolBridgeError(
+                "BODY_HASH_REQUIRED",
+                "body_hash is required for actions (fail closed; empty ≠ match)",
+            )
+        if not ctx.idempotency_key:
+            raise ToolBridgeError(
+                "IDEMPOTENCY_KEY_REQUIRED", "idempotency_key is required (fail closed)"
+            )
+        if not ctx.mode:
+            raise ToolBridgeError("REQUEST_CONTEXT_REQUIRED", "mode required")
+        # 2. session binding + mission。
         binding = self._bindings.binding_for_session(ctx.pi_session_id)
         if binding is None:
             raise ToolBridgeError(
@@ -77,27 +98,63 @@ class ActionAdmissionService:
         mission = self._service.get_mission(ctx.mission_id)
         if mission is None:
             raise ToolBridgeError("MISSION_NOT_FOUND", "unknown mission")
+        # 3. writer lease。
         writer = self._bindings.writer_of(ctx.mission_id)
         if writer is None or writer.pi_session_id != ctx.pi_session_id:
             raise ToolBridgeError(
                 "WRITER_LEASE_REQUIRED",
                 "this session does not hold the writer lease (fail closed)",
             )
+        # 4. ValidatedContextLease（HOTFIX-1 核心）：agentd 签发、未过期、
+        #    未撤销、session/mission 绑定、revision/body/mode 全匹配。
+        from rosclaw.agentd.pi_bridge.context_lease import ContextLeaseStore
+
+        if not ctx.context_lease_id:
+            raise ToolBridgeError(
+                "CONTEXT_LEASE_REQUIRED",
+                "no validated context lease — fetch fresh embodied context "
+                "before acting (fail closed)",
+            )
+        leases = ContextLeaseStore(self._service._store.connection)
+        lease = leases.get(ctx.context_lease_id)
+        if lease is None or not leases.is_valid(lease):
+            raise ToolBridgeError(
+                "CONTEXT_NOT_FRESH",
+                "context lease expired, revoked, or unknown — refresh embodied "
+                "context (fail closed)",
+            )
+        if (
+            lease.pi_session_id != ctx.pi_session_id
+            or lease.mission_id != ctx.mission_id
+        ):
+            raise ToolBridgeError(
+                "CONTEXT_LEASE_MISMATCH",
+                "context lease belongs to another session/mission (fail closed)",
+            )
         snapshot = self._service.snapshot(ctx.mission_id)
-        if ctx.context_revision != snapshot.context_revision:
+        if lease.context_revision != snapshot.context_revision:
+            raise ToolBridgeError(
+                "CONTEXT_NOT_FRESH",
+                f"lease revision {lease.context_revision} != current "
+                f"{snapshot.context_revision} — refresh embodied context",
+            )
+        if ctx.context_revision != lease.context_revision:
             raise ToolBridgeError(
                 "CONTEXT_REVISION_MISMATCH",
-                f"request revision {ctx.context_revision} != current "
-                f"{snapshot.context_revision} — refresh embodied context and "
-                "re-propose (actions require exact context)",
+                "request revision != lease revision — use the context the "
+                "lease was issued for",
             )
         current_body_hash = mission.body_binding.effective_body_hash
-        if current_body_hash and ctx.body_hash and ctx.body_hash != current_body_hash:
+        if current_body_hash and lease.body_hash != current_body_hash:
             raise ToolBridgeError(
                 "BODY_HASH_MISMATCH",
                 "body hash changed since context was issued — re-observe and re-propose",
             )
-        if mission.mode.value != ctx.mode:
+        if ctx.body_hash != lease.body_hash:
+            raise ToolBridgeError(
+                "BODY_HASH_MISMATCH", "request body hash != lease body hash"
+            )
+        if mission.mode.value != ctx.mode or lease.mode != ctx.mode:
             raise ToolBridgeError(
                 "MODE_MISMATCH",
                 f"mission mode is {mission.mode.value}, not {ctx.mode}",
@@ -192,7 +249,7 @@ class ActionAdmissionService:
     # -- phase 2b: execute（TOCTOU 复验 + 精确 grant + 结构化回执） -----------------
 
     async def execute(
-        self, approval_id: str, *, request: ActionRequestContext | None = None
+        self, approval_id: str, *, request: ActionRequestContext
     ) -> dict[str, Any]:
         from rosclaw.contracts.agent.decision import (
             DecisionV1,
@@ -213,17 +270,17 @@ class ActionAdmissionService:
                 "executed": False,
                 "error_code": "OPERATOR_DECLINED",
             }
-        # TOCTOU 复验（P0-NA-10）：approve 之后、execute 之前 lease/
-        # revision/body/mode 任一变化都必须拒绝。
-        if request is not None:
-            if stored.context_revision != request.context_revision:
-                raise ToolBridgeError(
-                    "CONTEXT_REVISION_MISMATCH",
-                    f"card revision {stored.context_revision} != current request "
-                    f"revision {request.context_revision} — context changed after "
-                    "approval; re-propose with fresh context",
-                )
-            self._validate_request_context(request)
+        # TOCTOU 复验（P0-NA-10 + HOTFIX-1/P0-4B）：approve 之后、execute
+        # 之前 lease/revision/body/mode 任一变化都必须拒绝；请求上下文
+        # 强制必填——没有"只给 approval_id 就能执行"的绕过路径。
+        if stored.context_revision != request.context_revision:
+            raise ToolBridgeError(
+                "CONTEXT_REVISION_MISMATCH",
+                f"card revision {stored.context_revision} != current request "
+                f"revision {request.context_revision} — context changed after "
+                "approval; re-propose with fresh context",
+            )
+        self._validate_request_context(request)
         # 卡自身的 revision 与当前权威 snapshot 也必须一致（即使调用方
         # 没带 request context，也不能用过期卡执行）。
         snapshot = service.snapshot(stored.mission_id)

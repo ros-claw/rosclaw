@@ -48,6 +48,9 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 				body_hash: state.bodyHash ?? "",
 				mode: state.mode,
 				idempotency_key: `idem_reqact_${state.sessionId}_${Date.now()}`,
+				// HOTFIX-1：agentd 签发的 ValidatedContextLease——无 lease
+				// 即 CONTEXT_LEASE_REQUIRED（fail closed）。
+				context_lease_id: state.contextLeaseId ?? "",
 			};
 			const proposed = await bridgeCall(ctx.rosclawHome, "pi.action.propose", {
 				...requestContext,
@@ -104,6 +107,8 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 					};
 				}
 				const current = await bridgeCall(ctx.rosclawHome, "pi.action.status", {
+					// HOTFIX-1：status 也做卡主校验——必须带 session。
+					pi_session_id: state.sessionId,
 					approval_id: card.approval_id,
 				});
 				status = String(current.status ?? "PENDING");

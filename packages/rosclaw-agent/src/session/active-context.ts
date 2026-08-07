@@ -18,6 +18,8 @@ export interface ActiveSessionState {
 	bodyHash?: string;
 	mode: string;
 	profile: "developer" | "robot" | "worker";
+	/** HOTFIX-1：agentd 签发的 ValidatedContextLease（action 准入凭证）。 */
+	contextLeaseId?: string;
 }
 
 export class ActiveSessionContext {
@@ -40,8 +42,10 @@ export class ActiveSessionContext {
 		this.state = { ...this.state, ...partial };
 	}
 
-	/** 每轮注入验证通过后写入 revision/body/mode（P0-7 的精确数据来源）。 */
-	applyEnvelope(envelope: EmbodiedContextEnvelope): void {
+	/** 每轮注入验证通过后写入 revision/body/mode（P0-7 的精确数据来源）。
+	 *  HOTFIX-1：agentd 签发的 context lease 一并记录——action 工具必须
+	 *  出示它（lease 只存 id；它本身不是执行权）。 */
+	applyEnvelope(envelope: EmbodiedContextEnvelope, contextLeaseId?: string): void {
 		const body = envelope.body as { body_id?: string; effective_body_hash?: string };
 		const safety = envelope.safety as { mode?: string };
 		this.patch({
@@ -49,6 +53,7 @@ export class ActiveSessionContext {
 			bodyId: body.body_id,
 			bodyHash: body.effective_body_hash,
 			...(safety.mode ? { mode: safety.mode } : {}),
+			...(contextLeaseId ? { contextLeaseId } : {}),
 		});
 	}
 }

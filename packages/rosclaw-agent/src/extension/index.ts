@@ -107,10 +107,14 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			if (!missionId) {
 				return { systemPrompt: options.systemPrompt };
 			}
-			const fetched = await fetchEmbodiedContext(options.rosclawHome, missionId);
+			const fetched = await fetchEmbodiedContext(
+				options.rosclawHome,
+				missionId,
+				options.active.current.sessionId,
+			);
 			if (!fetched.stale && fetched.envelope) {
 				// P0-7：验证通过后写入精确 revision/body/mode。
-				options.active.applyEnvelope(fetched.envelope);
+				options.active.applyEnvelope(fetched.envelope, fetched.contextLeaseId);
 				// P0-NA-16：fresh envelope 到达 → header 从 LOADING 转 FRESH。
 				uiState.noteContextChanged();
 			}

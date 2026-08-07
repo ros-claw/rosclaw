@@ -22,6 +22,9 @@ class PiToolRequestV1(ContractModel):
     requested_at: str
     idempotency_key: str
     actor: dict[str, Any] = Field(default_factory=dict)
+    # HOTFIX-1（P0-4A）：agentd 签发的 ValidatedContextLease——action 类
+    # 工具必须出示（admission 硬校验；缺即 CONTEXT_LEASE_REQUIRED）。
+    context_lease_id: str = ""
 
 
 class PiToolResultV1(ContractModel):

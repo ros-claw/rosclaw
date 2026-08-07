@@ -173,7 +173,11 @@ async def test_stale_context_forced_tool_call_cannot_create_card(tmp_path: Path)
         },
     )
     assert not result.get("ok"), "stale/伪造 revision 的 propose 竟然成功"
+    # HOTFIX-1 后这条路径先被 context lease 拦截（无 lease 即
+    # CONTEXT_LEASE_REQUIRED）；旧 revision/body 校验层仍保留。
     assert result.get("code") in (
+        "CONTEXT_LEASE_REQUIRED",
+        "CONTEXT_NOT_FRESH",
         "CONTEXT_STALE",
         "CONTEXT_REVISION_MISMATCH",
         "BODY_HASH_MISMATCH",

@@ -42,7 +42,24 @@ def _request(tool: str, session: str = "pi_1", mission: str = "", **kwargs) -> P
         arguments=kwargs.get("arguments", {}),
         requested_at=datetime.now(UTC).isoformat(),
         idempotency_key=kwargs.get("idem", f"idem_{tool}_{session}"),
+        context_lease_id=kwargs.get("lease", ""),
     )
+
+
+def _issue_lease(service, mission, session: str = "pi_1") -> str:
+    """按真实路径签发 ValidatedContextLease（HOTFIX-1：不绕过 admission）。"""
+    from rosclaw.agentd.pi_bridge.context_lease import ContextLeaseStore
+
+    snapshot = service.snapshot(mission.mission_id)
+    lease = ContextLeaseStore(service._store.connection).issue(
+        pi_session_id=session,
+        mission_id=mission.mission_id,
+        context_revision=snapshot.context_revision,
+        context_hash="test_hash",
+        body_hash=mission.body_binding.effective_body_hash,
+        mode=mission.mode.value,
+    )
+    return lease.context_lease_id
 
 
 async def _setup(tmp_path: Path):

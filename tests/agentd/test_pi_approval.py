@@ -15,7 +15,7 @@ from rosclaw.agentd.operator_socket import OperatorSocketServer, operator_call
 from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
 from rosclaw.operatord.enrollment import enroll
 from rosclaw.operatord.server import OperatorDaemon
-from tests.agentd.test_pi_tool_bridge import _request, _setup
+from tests.agentd.test_pi_tool_bridge import _issue_lease, _request, _setup
 
 
 async def _setup_with_operatord(tmp_path: Path):
@@ -65,6 +65,7 @@ class TestRequestActionChain:
                     "rosclaw_request_action",
                     mission=mission.mission_id,
                     idem="idem_ra_1",
+                    lease=_issue_lease(service, mission),
                     arguments={
                         "capability_id": "sim_ground_truth",
                         "arguments": {},
@@ -101,6 +102,7 @@ class TestRequestActionChain:
                     "rosclaw_request_action",
                     mission=mission.mission_id,
                     idem="idem_ra_2",
+                    lease=_issue_lease(service, mission),
                     arguments={"capability_id": "sim_ground_truth", "arguments": {}},
                 )
             )
@@ -127,8 +129,26 @@ class TestAdmissionNegativeChain:
         )
 
         snapshot = service.snapshot(mission.mission_id)
+        # HOTFIX-1：admission 现在要求 agentd 签发的 context lease——
+        # 测试也按真实路径签发（不是绕过）。
+        from rosclaw.agentd.pi_bridge.context_lease import ContextLeaseStore
+
+        session = overrides.get("session", "pi_1")
+        lease_id = overrides.get("lease_id")
+        if lease_id is None:
+            lease = ContextLeaseStore(service._store.connection).issue(
+                pi_session_id=session,
+                mission_id=mission.mission_id,
+                context_revision=overrides.get("revision", snapshot.context_revision),
+                context_hash="test_hash",
+                body_hash=overrides.get(
+                    "body_hash", mission.body_binding.effective_body_hash
+                ),
+                mode=overrides.get("mode", mission.mode.value),
+            )
+            lease_id = lease.context_lease_id
         ctx = ActionRequestContext(
-            pi_session_id=overrides.get("session", "pi_1"),
+            pi_session_id=session,
             mission_id=mission.mission_id,
             context_revision=overrides.get("revision", snapshot.context_revision),
             body_hash=overrides.get(
@@ -136,6 +156,7 @@ class TestAdmissionNegativeChain:
             ),
             mode=overrides.get("mode", mission.mode.value),
             idempotency_key=overrides.get("idem", "idem_neg"),
+            context_lease_id=lease_id,
         )
         admission = ActionAdmissionService(service)
         card = await admission.propose(
@@ -185,7 +206,9 @@ class TestAdmissionNegativeChain:
         service._store.bump_context_revision(mission.mission_id)
         with pytest.raises(ToolBridgeError) as excinfo:
             await admission.execute(card["approval_id"], request=ctx)
-        assert excinfo.value.code == "CONTEXT_REVISION_MISMATCH"
+        # 两层都正确：卡 revision 直接比对给 CONTEXT_REVISION_MISMATCH；
+        # lease 层（HOTFIX-1）发现 revision 前进给 CONTEXT_NOT_FRESH。
+        assert excinfo.value.code in ("CONTEXT_REVISION_MISMATCH", "CONTEXT_NOT_FRESH")
         # grant 未被消费。
         row = service._store.connection.execute(
             "SELECT consumed FROM mission_grants WHERE request_id = ?",
@@ -310,6 +333,16 @@ class TestApprovalsGet:
         )
 
         snapshot = service.snapshot(mission.mission_id)
+        from rosclaw.agentd.pi_bridge.context_lease import ContextLeaseStore
+
+        lease = ContextLeaseStore(service._store.connection).issue(
+            pi_session_id="pi_1",
+            mission_id=mission.mission_id,
+            context_revision=snapshot.context_revision,
+            context_hash="test_hash",
+            body_hash=mission.body_binding.effective_body_hash,
+            mode=mission.mode.value,
+        )
         admission = ActionAdmissionService(service)
         card = await admission.propose(
             request=ActionRequestContext(
@@ -319,6 +352,7 @@ class TestApprovalsGet:
                 body_hash=mission.body_binding.effective_body_hash,
                 mode=mission.mode.value,
                 idempotency_key="idem_get_1",
+                context_lease_id=lease.context_lease_id,
             ),
             capability_id="sim_ground_truth",
             arguments={"beep": True},

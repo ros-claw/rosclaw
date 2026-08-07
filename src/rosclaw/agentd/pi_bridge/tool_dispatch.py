@@ -351,6 +351,7 @@ class PiToolDispatcher:
             body_hash=body_hash,
             mode=mission.mode.value if mission else "",
             idempotency_key=request.idempotency_key,
+            context_lease_id=request.context_lease_id,
         )
         admission = ActionAdmissionService(self._service)
         card = await admission.propose(
