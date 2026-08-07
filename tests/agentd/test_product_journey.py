@@ -20,6 +20,7 @@ import json
 import os
 import socket
 import subprocess
+import sys
 import tarfile
 import termios
 import threading
@@ -240,7 +241,7 @@ class _FakeModel:
                     "rosclaw_request_action",
                     json.dumps(
                         {
-                            "capability_id": "sim_ground_truth",
+                            "capability_id": "limo.speaker.play_tone",
                             "arguments": {},
                             "expected_effect": "旅程验收动作",
                             "risk_tier": "LOW",
@@ -414,7 +415,16 @@ class TestProductJourney:
             "      provider: kimi_code\n      model: fake-k3\n"
             f"      base_url: {fake.base_url}\n"
             "      api_key_ref: env:FAKE_JOURNEY_KEY\n"
-            "      capabilities: [llm.chat, llm.structured_decision, llm.tool_use]\n",
+            "      capabilities: [llm.chat, llm.structured_decision, llm.tool_use]\n"
+            # HOTFIX-2/P0-4F：确定性 SIM 执行通道（真实 SimActionChannel +
+            # catalog PHYSICAL_ACTION 能力）——journey 的动作必须真执行、
+            # 真产出 SIMULATED receipt，不再"消费 grant 而无 receipt"。
+            "mcp_servers:\n"
+            "  - name: limo-sim\n"
+            f"    command: {sys.executable}\n"
+            f"    args: [{REPO / 'src' / 'rosclaw' / 'limo' / 'sim_mcp.py'}]\n"
+            "    supported_modes: [SIMULATION]\n"
+            "    sim_executor: true\n",
             encoding="utf-8",
         )
         (home / "agent").mkdir(parents=True, exist_ok=True)
@@ -620,6 +630,33 @@ class TestProductJourney:
                     assert ev.get("grant_id") in grant_ids, (
                         f"grant.consumed 事件的 grant_id 不在链中: {ev}"
                     )
+            # 4. P0-4F：真实 SIM 执行链——ActionTxn 到达 COMPLETED，
+            #    receipt.received 事件精确绑定本 action_id；不再是
+            #    "grant consumed 但无 receipt"。
+            txns = db.execute(
+                "SELECT txn_id, state, approval_id, grant_id, action_id, "
+                "receipt_id, capability_id FROM action_txns"
+            ).fetchall()
+            assert txns, "HOTFIX-2 后动作必须产生 ActionTxn"
+            for txn_id, state, approval_id, grant_id, action_id, receipt_id, capability in txns:
+                assert state == "COMPLETED", f"txn {txn_id} 未完成: {state}"
+                assert approval_id in approval_ids
+                assert grant_id in {g[0] for g in grants}
+                assert action_id and receipt_id, f"txn {txn_id} 缺 action/receipt ID"
+                assert capability == "limo.speaker.play_tone"
+            receipts = [
+                json.loads(p) for t, p in events if t == "receipt.received"
+            ]
+            txn_action_ids = {t[4] for t in txns}
+            matching = [r for r in receipts if r.get("action_id") in txn_action_ids]
+            assert matching, (
+                f"receipt.received 事件未绑定本 ActionTxn 的 action_id: {receipts}"
+            )
+            for r in matching:
+                assert r.get("final_state") == "COMPLETED"
+                assert r.get("trust_level") == "SIMULATED"
+                assert r.get("evidence_domain") == "simulation"
+                assert r.get("usable_for_real_execution") is False
         finally:
             db.close()
 

@@ -485,6 +485,7 @@ class ServiceIntentHandlers:
                         "trust_level": "SIMULATED",
                         "verified": True,
                         "evidence_domain": "simulation",
+                        "usable_for_real_execution": False,
                     },
                 )
                 effect_note = (
