@@ -20,11 +20,15 @@ from tests.agentd.test_start_exit_soak import _write_fake_home
 
 TMUX = "/usr/bin/tmux"
 SESSION = "rosclaw-gate-e"
+# CI 新版 tmux 会在 pane 里打印 extended-keys 警告遮挡 header——用专用
+# 配置文件显式打开（kitty 键盘协议本来也需要）。注意必须 -f 传入：
+# set-option 需要运行中的 server，而测试前 server 尚未启动。
+TMUX_CONF = "/tmp/rosclaw-gate-e.tmux.conf"
 
 
 def _tmux(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [TMUX, *args], capture_output=True, text=True, timeout=30, env=env
+        [TMUX, "-f", TMUX_CONF, *args], capture_output=True, text=True, timeout=30, env=env
     )
 
 
@@ -51,9 +55,7 @@ class TestTmuxEnvironment:
         )
         _tmux("kill-session", "-t", SESSION)
         try:
-            # CI 新版 tmux 会在 pane 里打印 extended-keys 警告遮挡 header——
-            # 显式打开（功能上我们也需要它：kitty 键盘协议）。
-            _tmux("set-option", "-g", "extended-keys", "on")
+            Path(TMUX_CONF).write_text("set -g extended-keys on\n", encoding="utf-8")
             # tmux server 有自己的环境——变量必须内联进 shell 命令。
             shell_cmd = (
                 f"ROSCLAW_HOME={home} TERM=screen-256color "
@@ -70,12 +72,15 @@ class TestTmuxEnvironment:
             # 进程退出后保留窗格最后一帧——否则 /quit 后 pane 立即销毁，
             # resume 提示根本抓不到。
             _tmux("set-option", "-t", SESSION, "remain-on-exit", "on")
-            # 1. 品牌 header。
+            # 1. 品牌 header（P0-NA-16 后格式：ROSClaw <产品版本> · mode…）。
+            from rosclaw import __version__ as _product_version
+
+            header_marker = f"ROSClaw {_product_version}"
             deadline = time.monotonic() + 90
-            while time.monotonic() < deadline and "ROSClaw Native Agent" not in _capture():
+            while time.monotonic() < deadline and header_marker not in _capture():
                 time.sleep(1.0)
             pane = _capture()
-            assert "ROSClaw Native Agent" in pane, f"tmux 里 header 未渲染: {pane[-400:]}"
+            assert header_marker in pane, f"tmux 里 header 未渲染: {pane[-400:]}"
             assert "engine=pi" not in pane
 
             # 2. 中文对话（tmux send-keys 逐字送入）。
