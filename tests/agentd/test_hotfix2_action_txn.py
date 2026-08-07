@@ -162,8 +162,8 @@ class TestExecutionOutcomeChain:
     async def test_old_receipt_never_vouches_new_action(self, tmp_path: Path) -> None:
         """预置旧 receipt 事件 + executor 失败 → FAILED（any-receipt
         判定不存在——P0-NA-13/P0-4F 场景 D）。"""
-        from rosclaw.agentd.sim_executor import SimActionError
         from rosclaw.agentd.operator_socket import operator_call
+        from rosclaw.agentd.sim_executor import SimActionError
 
         service, mission, operatord, agent_server, sock = await _setup_with_operatord(
             tmp_path

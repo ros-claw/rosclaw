@@ -25,11 +25,10 @@ grant、TTL——防止 approve 后到 execute 前发生 TOCTOU。
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
-
-import hashlib
 
 from rosclaw.agentd.pi_bridge.session_binding import SessionBindingStore
 from rosclaw.agentd.pi_bridge.tool_dispatch import ToolBridgeError
