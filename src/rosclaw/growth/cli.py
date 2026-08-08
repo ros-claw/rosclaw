@@ -23,6 +23,9 @@ from rosclaw.growth.ballistic_contact_actor_critic import (
 from rosclaw.growth.ballistic_contact_evaluation import (
     evaluate_g1_ballistic_contact_holdout,
 )
+from rosclaw.growth.ballistic_contact_observer import (
+    derive_g1_ballistic_contact_observer,
+)
 from rosclaw.growth.ballistic_skill_memory import derive_g1_ballistic_skill_memory
 from rosclaw.growth.contextual_phase_calibration import (
     derive_g1_contextual_phase_calibration,
@@ -283,6 +286,21 @@ def _parser() -> argparse.ArgumentParser:
         "--minimum-distance-margin", type=float, default=0.05
     )
     ballistic_memory.set_defaults(handler=_ballistic_skill_memory)
+    ballistic_observer = commands.add_parser(
+        "ballistic-contact-observer",
+        help="learn replay-bound contact-to-launch dynamics without motor authority",
+    )
+    ballistic_observer.add_argument(
+        "--evidence-json", type=Path, action="append", required=True
+    )
+    ballistic_observer.add_argument("--output", type=Path, required=True)
+    ballistic_observer.add_argument(
+        "--source-checkout", type=Path, default=Path.cwd()
+    )
+    ballistic_observer.add_argument(
+        "--ridge-regularization", type=float, default=0.20
+    )
+    ballistic_observer.set_defaults(handler=_ballistic_contact_observer)
     evaluate_football_outcome = commands.add_parser(
         "evaluate-football-outcome-model",
         help="evaluate mandatory shot selection on sealed counterfactual episodes",
@@ -644,6 +662,17 @@ def _ballistic_skill_memory(args: argparse.Namespace) -> int:
     )
     _print(memory.to_dict())
     return 0 if memory.accepted else 3
+
+
+def _ballistic_contact_observer(args: argparse.Namespace) -> int:
+    observer = derive_g1_ballistic_contact_observer(
+        evidence_paths=tuple(args.evidence_json),
+        output_path=args.output,
+        source_checkout=args.source_checkout,
+        ridge_regularization=args.ridge_regularization,
+    )
+    _print(observer.to_dict())
+    return 0 if observer.training_ready else 3
 
 
 def _evaluate_football_outcome_model(args: argparse.Namespace) -> int:

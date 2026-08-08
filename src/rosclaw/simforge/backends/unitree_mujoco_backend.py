@@ -1205,6 +1205,8 @@ class _Contacts:
     ball_right: bool
     ball_force_n: float
     ball_contact_point: tuple[float, float, float]
+    ball_contact_normal_xyz: tuple[float, float, float]
+    ball_contact_force_world_xyz_n: tuple[float, float, float]
     left_ground_force_n: float
     right_ground_force_n: float
 
@@ -1370,6 +1372,8 @@ def _contact_observation(model: Any, data: Any, ids: _ModelIds) -> _Contacts:
     ball_right = False
     ball_force = 0.0
     ball_contact_point: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    ball_contact_normal: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    ball_contact_force_world: tuple[float, float, float] = (0.0, 0.0, 0.0)
     left_ground_force = 0.0
     right_ground_force = 0.0
     force: np.ndarray = np.zeros(6, dtype=np.float64)
@@ -1397,12 +1401,23 @@ def _contact_observation(model: Any, data: Any, ids: _ModelIds) -> _Contacts:
         ball_left = ball_left or other.startswith("left_foot")
         ball_right = ball_right or other.startswith("right_foot")
         mujoco.mj_contactForce(model, data, index, force)
-        ball_force = max(ball_force, float(np.linalg.norm(force[:3])))
-        ball_contact_point = (
-            float(contact.pos[0]),
-            float(contact.pos[1]),
-            float(contact.pos[2]),
-        )
+        contact_force = float(np.linalg.norm(force[:3]))
+        if contact_force >= ball_force:
+            ball_force = contact_force
+            # MuJoCo stores the contact-frame axes as rows; its normal points
+            # from geom1 to geom2.  Normalize every football label to the
+            # physically useful foot-to-ball direction.
+            frame = np.asarray(contact.frame, dtype=np.float64).reshape(3, 3)
+            direction = 1.0 if geom2 == ids.ball_geom else -1.0
+            normal = direction * frame[0]
+            force_world = direction * (frame.T @ force[:3])
+            ball_contact_point = (
+                float(contact.pos[0]),
+                float(contact.pos[1]),
+                float(contact.pos[2]),
+            )
+            ball_contact_normal = tuple(float(value) for value in normal)
+            ball_contact_force_world = tuple(float(value) for value in force_world)
     return _Contacts(
         left_floor=left_floor,
         right_floor=right_floor,
@@ -1411,6 +1426,8 @@ def _contact_observation(model: Any, data: Any, ids: _ModelIds) -> _Contacts:
         ball_right=ball_right,
         ball_force_n=ball_force,
         ball_contact_point=ball_contact_point,
+        ball_contact_normal_xyz=ball_contact_normal,
+        ball_contact_force_world_xyz_n=ball_contact_force_world,
         left_ground_force_n=left_ground_force,
         right_ground_force_n=right_ground_force,
     )

@@ -462,7 +462,12 @@ class G1FreeKickResult:
     ballistic_skill_id: str | None = None
     ballistic_skill_nearest_distance: float | None = None
     ballistic_skill_distance_margin: float | None = None
-    schema_version: str = "rosclaw.simforge.g1_free_kick_result.v19"
+    kick_contact_foot_position_xyz_m: tuple[float, float, float] | None = None
+    kick_contact_foot_velocity_xyz_mps: tuple[float, float, float] | None = None
+    kick_contact_normal_xyz: tuple[float, float, float] | None = None
+    kick_contact_force_world_xyz_n: tuple[float, float, float] | None = None
+    kick_contact_peak_force_n: float | None = None
+    schema_version: str = "rosclaw.simforge.g1_free_kick_result.v20"
 
     @property
     def perceptual_continuity_passed(self) -> bool:
@@ -556,7 +561,7 @@ class G1FreeKickEvidence:
     evidence_domain: str = "DEVELOPMENT_SHOWCASE"
     physics_authority: str = "CPU_MUJOCO"
     hardware_command_sent: bool = False
-    schema_version: str = "rosclaw.simforge.g1_free_kick_evidence.v19"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_evidence.v20"
 
     @property
     def passed(self) -> bool:
@@ -635,6 +640,13 @@ class G1FreeKickEvidence:
                     self.result.perceptual_continuity_passed
                 ),
                 "post_contact_recovery_metrics_from_physics_trace": True,
+                "contact_dynamics_observed_from_physics": bool(
+                    self.result.kick_contact_foot_position_xyz_m is not None
+                    and self.result.kick_contact_foot_velocity_xyz_mps is not None
+                    and self.result.kick_contact_normal_xyz is not None
+                    and self.result.kick_contact_force_world_xyz_n is not None
+                    and self.result.kick_contact_peak_force_n is not None
+                ),
                 "velocity_matched_mid_phase_handoff": (
                     self.flow_config.bridge_entry_velocity_scale > 0.0
                     or self.flow_config.bridge_exit_velocity_scale > 0.0
@@ -782,8 +794,13 @@ def run_g1_free_kick_showcase(
             )
         }
     )
+    if (
+        ballistic_skill_memory is not None
+        and ballistic_skill_memory.implementation_hash != implementation_hash
+    ):
+        raise ValueError("ballistic skill memory implementation hash mismatch")
     request = {
-        "schema_version": "rosclaw.simforge.g1_free_kick_request.v20",
+        "schema_version": "rosclaw.simforge.g1_free_kick_request.v21",
         "body_hash": qualification.body_hash,
         "kick_prior_hash": qualification.kick_prior_hash,
         "learned_gait_qualification_hash": gait_qualification.qualification_hash,
@@ -986,6 +1003,11 @@ def _simulate(
         "torso_quaternion": [],
         "ball_pose": [],
         "ball_velocity": [],
+        "right_foot_position": [],
+        "right_foot_linear_velocity": [],
+        "ball_contact_force_peak_n": [],
+        "ball_contact_normal": [],
+        "ball_contact_force_world": [],
         "controller_mode": [],
         "event_phase": [],
         "policy_phase": [],
@@ -1444,6 +1466,11 @@ def _simulate(
     contact_time: float | None = None
     contact_point: tuple[float, float, float] | None = None
     contact_height_relative_ball_center: float | None = None
+    contact_foot_position: tuple[float, float, float] | None = None
+    contact_foot_velocity: tuple[float, float, float] | None = None
+    contact_normal: tuple[float, float, float] | None = None
+    contact_force_world: tuple[float, float, float] | None = None
+    contact_peak_force: float | None = None
     launch_velocity: tuple[float, float, float] | None = None
     launch_speed = 0.0
     ball_apex_height = _BALL_RADIUS_M
@@ -1601,6 +1628,9 @@ def _simulate(
         pre_guard_raw = np.zeros(29, dtype=np.float64)
         commanded_torque_peak_abs = np.zeros(29, dtype=np.float64)
         contact_in_frame = False
+        frame_contact_force_peak = 0.0
+        frame_contact_normal = np.zeros(3, dtype=np.float64)
+        frame_contact_force_world = np.zeros(3, dtype=np.float64)
         for _ in range(substeps):
             loft_effect = g1_loft_teacher_effect(
                 model=model,
@@ -1681,12 +1711,30 @@ def _simulate(
             physics_steps += 1
             contacts = _contact_observation(model, data, ids)
             contact_in_frame = contact_in_frame or contacts.ball_right
+            if contacts.ball_right and contacts.ball_force_n >= frame_contact_force_peak:
+                frame_contact_force_peak = contacts.ball_force_n
+                frame_contact_normal = np.asarray(
+                    contacts.ball_contact_normal_xyz, dtype=np.float64
+                )
+                frame_contact_force_world = np.asarray(
+                    contacts.ball_contact_force_world_xyz_n, dtype=np.float64
+                )
+            if contacts.ball_right:
+                contact_peak_force = max(contact_peak_force or 0.0, contacts.ball_force_n)
             if contacts.ball_right and contact_time is None:
                 contact_time = float(data.time)
                 contact_point = contacts.ball_contact_point
                 contact_height_relative_ball_center = float(
                     contacts.ball_contact_point[2] - data.qpos[ids.ball_qpos + 2]
                 )
+                contact_foot_position = tuple(
+                    float(value) for value in data.xpos[ids.right_ankle]
+                )
+                contact_foot_velocity = tuple(
+                    float(value) for value in data.cvel[ids.right_ankle][3:6]
+                )
+                contact_normal = contacts.ball_contact_normal_xyz
+                contact_force_world = contacts.ball_contact_force_world_xyz_n
             ball = data.qpos[ids.ball_qpos : ids.ball_qpos + 3].copy()
             if contact_time is not None:
                 ball_apex_height = max(ball_apex_height, float(ball[2]))
@@ -1784,6 +1832,9 @@ def _simulate(
             football_motion_prior_active=motion_prior_active,
             ballistic_contact_target_delta=ballistic_contact_delta,
             ballistic_contact_residual_active=ballistic_contact_active,
+            ball_contact_force_peak_n=frame_contact_force_peak,
+            ball_contact_normal=frame_contact_normal,
+            ball_contact_force_world=frame_contact_force_world,
         )
 
     # A compliant net can arrest a valid shot before its centre reaches the
@@ -1936,6 +1987,11 @@ def _simulate(
         kick_contact_height_relative_ball_center_m=(
             contact_height_relative_ball_center
         ),
+        kick_contact_foot_position_xyz_m=contact_foot_position,
+        kick_contact_foot_velocity_xyz_mps=contact_foot_velocity,
+        kick_contact_normal_xyz=contact_normal,
+        kick_contact_force_world_xyz_n=contact_force_world,
+        kick_contact_peak_force_n=contact_peak_force,
         ball_launch_velocity_xyz_mps=launch_velocity,
         ball_apex_height_m=ball_apex_height,
         ball_speed_peak_mps=maximum_ball_speed,
@@ -2293,6 +2349,9 @@ def _append_trace(
     football_motion_prior_active: bool = False,
     ballistic_contact_target_delta: np.ndarray | None = None,
     ballistic_contact_residual_active: bool = False,
+    ball_contact_force_peak_n: float = 0.0,
+    ball_contact_normal: np.ndarray | None = None,
+    ball_contact_force_world: np.ndarray | None = None,
 ) -> None:
     trace["time"].append(float(data.time))
     trace["joint_position"].append(data.qpos[7:36].copy())
@@ -2372,6 +2431,30 @@ def _append_trace(
     trace["torso_quaternion"].append(data.xquat[ids.torso].copy())
     trace["ball_pose"].append(data.qpos[ids.ball_qpos : ids.ball_qpos + 7].copy())
     trace["ball_velocity"].append(data.qvel[ids.ball_qvel : ids.ball_qvel + 6].copy())
+    trace["right_foot_position"].append(data.xpos[ids.right_ankle].copy())
+    trace["right_foot_linear_velocity"].append(data.cvel[ids.right_ankle][3:6].copy())
+    normal = (
+        np.zeros(3, dtype=np.float64)
+        if ball_contact_normal is None
+        else np.asarray(ball_contact_normal, dtype=np.float64)
+    )
+    force_world = (
+        np.zeros(3, dtype=np.float64)
+        if ball_contact_force_world is None
+        else np.asarray(ball_contact_force_world, dtype=np.float64)
+    )
+    if (
+        normal.shape != (3,)
+        or force_world.shape != (3,)
+        or not np.all(np.isfinite(normal))
+        or not np.all(np.isfinite(force_world))
+        or not math.isfinite(ball_contact_force_peak_n)
+        or ball_contact_force_peak_n < 0.0
+    ):
+        raise FloatingPointError("G1 contact dynamics trace is invalid")
+    trace["ball_contact_force_peak_n"].append(float(ball_contact_force_peak_n))
+    trace["ball_contact_normal"].append(normal.copy())
+    trace["ball_contact_force_world"].append(force_world.copy())
     trace["controller_mode"].append(mode)
     trace["event_phase"].append(int(event_phase))
     trace["policy_phase"].append(phase)

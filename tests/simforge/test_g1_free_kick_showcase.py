@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from rosclaw.simforge.backends.unitree_mujoco_backend import _adapt_target
+from rosclaw.simforge.backends.unitree_mujoco_backend import (
+    _adapt_target,
+    _contact_observation,
+)
 from rosclaw.simforge.g1_free_kick_showcase import (
     G1FootballEventPhase,
     G1FreeKickFlowConfig,
@@ -197,6 +202,51 @@ def test_ballistic_skill_memory_binding_is_paired_and_sonic_only() -> None:
         ballistic_skill_id="sonic-seed-0",
     )
     assert flow.ballistic_skill_id == "sonic-seed-0"
+
+
+@pytest.mark.parametrize(
+    ("geom1", "geom2", "direction"),
+    ((1, 2, 1.0), (2, 1, -1.0)),
+)
+def test_ball_contact_frame_is_normalized_foot_to_ball_in_world(
+    monkeypatch: pytest.MonkeyPatch,
+    geom1: int,
+    geom2: int,
+    direction: float,
+) -> None:
+    frame = np.asarray(((0.0, 1.0, 0.0), (1.0, 0.0, 0.0), (0.0, 0.0, -1.0)))
+    contact = SimpleNamespace(
+        geom1=geom1,
+        geom2=geom2,
+        frame=frame.reshape(-1),
+        pos=np.asarray((0.8, 0.1, 0.2)),
+    )
+    fake_mujoco = SimpleNamespace(
+        mjtObj=SimpleNamespace(mjOBJ_GEOM=0),
+        mj_id2name=lambda _model, _kind, geom: {
+            1: "right_foot_ball",
+            2: "ball_geom",
+        }[geom],
+        mj_contactForce=lambda _model, _data, _index, output: output.__setitem__(
+            slice(None), np.asarray((10.0, 2.0, 0.0, 0.0, 0.0, 0.0))
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "mujoco", fake_mujoco)
+
+    observed = _contact_observation(
+        object(),
+        SimpleNamespace(ncon=1, contact=[contact]),
+        SimpleNamespace(ball_geom=2),
+    )
+
+    assert observed.ball_right
+    assert observed.ball_force_n == pytest.approx(np.hypot(10.0, 2.0))
+    assert observed.ball_contact_normal_xyz == pytest.approx(
+        direction * frame[0]
+    )
+    assert observed.ball_contact_force_world_xyz_n == pytest.approx(
+        direction * (frame.T @ np.asarray((10.0, 2.0, 0.0)))
+    )
 
 
 def test_rejected_video_metrics_render_missing_physics_as_na() -> None:
