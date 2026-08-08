@@ -31,10 +31,13 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 		}),
 		async execute(_id, params, signal, onUpdate, _ctx) {
 			const state = ctx.active.current;
+			// P0-5F：所有返回路径都带结构化 status/capability——内核结果卡
+			// 只读 details，绝不解析模型/工具文本。
+			const capabilityId = String(params.capability_id ?? "");
 			if (!state.missionId) {
 				return {
 					content: [{ type: "text" as const, text: "REJECTED [NO_MISSION]: 未绑定 Mission" }],
-					details: { ok: false },
+					details: { ok: false, status: "REJECTED", capability_id: capabilityId, error_code: "NO_MISSION" },
 					isError: true,
 				};
 			}
@@ -67,7 +70,12 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 							text: `动作提案被拒 [${String(proposed.code ?? "")}]: ${String(proposed.error ?? "")}`,
 						},
 					],
-					details: { ok: false },
+					details: {
+						ok: false,
+						status: "REJECTED",
+						capability_id: capabilityId,
+						error_code: String(proposed.code ?? "PROPOSE_REJECTED"),
+					},
 					isError: true,
 				};
 			}
@@ -102,7 +110,13 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 								text: `已中断——approval ${card.approval_id} 按取消语义处理（未执行）`,
 							},
 						],
-						details: { ok: false, approval_id: card.approval_id, cancelled: true },
+						details: {
+							ok: false,
+							status: "CANCELLED",
+							capability_id: capabilityId,
+							approval_id: card.approval_id,
+							cancelled: true,
+						},
 						isError: true,
 					};
 				}
@@ -123,7 +137,13 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 							text: `Operator 未在期限内决定（默认拒绝）——approval ${card.approval_id} 未执行`,
 						},
 					],
-					details: { ok: false, approval_id: card.approval_id, error_code: "APPROVAL_TIMEOUT" },
+					details: {
+						ok: false,
+						status: "DECLINED",
+						capability_id: capabilityId,
+						approval_id: card.approval_id,
+						error_code: "APPROVAL_TIMEOUT",
+					},
 					isError: true,
 				};
 			}
@@ -135,7 +155,13 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 							text: `Operator 拒绝了该动作（${status}）——未执行，无 grant`,
 						},
 					],
-					details: { ok: false, approval_id: card.approval_id, error_code: "OPERATOR_DECLINED" },
+					details: {
+						ok: false,
+						status: "DECLINED",
+						capability_id: capabilityId,
+						approval_id: card.approval_id,
+						error_code: "OPERATOR_DECLINED",
+					},
 					isError: true,
 				};
 			}
@@ -161,8 +187,13 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 				details: {
 					ok: result.executed === true,
 					status: result.status,
+					capability_id: String(result.capability_id ?? capabilityId),
 					approval_id: card.approval_id,
 					grant_id: result.grant_id ?? null,
+					// P0-5F：完整脱敏 ID 链透传——内核结果卡的唯一数据源。
+					txn_id: result.txn_id ?? null,
+					action_id: result.action_id ?? null,
+					receipt_id: result.receipt_id ?? null,
 					terminal_receipt: result.terminal_receipt ?? false,
 					// P0-NA-13：结构化证据引用（receipt://action_id）随结果
 					// 返回——/evidence 按本回合 action 精确展示，不是摘要。

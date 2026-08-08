@@ -15,6 +15,9 @@ async function collectHandlers() {
 		registerCommand(name: string, options: { description?: string; handler: (args: string, ctx: unknown) => Promise<void> }) {
 			commands.set(name, options);
 		},
+		// P0-5F：内核结果卡/冲突条目的渲染器与落盘 API（mock 空实现）。
+		registerEntryRenderer() {},
+		appendEntry() {},
 	};
 	const { ActiveSessionContext } = await import("../src/session/active-context.js");
 	const { AgentSessionCoordinator } = await import("../src/session/coordinator.js");

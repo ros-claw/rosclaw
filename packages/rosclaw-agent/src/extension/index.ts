@@ -20,6 +20,7 @@ import {
 } from "../session/lifecycle.js";
 import { defaultOperatorSocket, operatorCall } from "../bridge/operatord-client.js";
 import { ApprovalCardComponent } from "../ui/approval-card.js";
+import { ActionResultCardComponent, type ActionResultData } from "../ui/action-result-card.js";
 import { ProductUiState, renderHeader } from "../ui/product-state.js";
 import { EventMirror } from "./event-mirror.js";
 import { buildCommandHandlers } from "./commands.js";
@@ -330,6 +331,82 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			} catch (err) {
 				ctx.ui.notify(`授权卡交互失败：${(err as Error).message}`, "error");
 			}
+		});
+
+		// -- 权威 Action Result Card（五审 P0-5F）--------------------------
+		// 动作终态只由 ROSClaw runtime 渲染（结构化 outcome → 不可变卡）；
+		// 模型自然语言不得宣布/改写完成状态。条目持久化进 session（可审计）
+		// 但不进 LLM 上下文（模型看不到也改不了）。
+		pi.registerEntryRenderer<ActionResultData>(
+			"rosclaw.action_result",
+			(entry) => (entry.data ? new ActionResultCardComponent(entry.data) : undefined),
+		);
+		pi.registerEntryRenderer<{ claim: string; status: string }>(
+			"rosclaw.action_conflict",
+			(entry) =>
+				entry.data
+					? new Text(
+						`⚠ 模型叙述与内核权威结果冲突（实际：${entry.data.status}）——` +
+						`该叙述未被接受，以 ROSClaw 动作结果卡为准。`,
+						1,
+						0,
+					)
+					: undefined,
+		);
+		// 每个 outcome 只校验紧随其后的第一段助手叙述；turn 结束清除。
+		let lastOutcome: (ActionResultData & { narrativeSeen?: boolean; conflictClaim?: string }) | null = null;
+		pi.on("tool_execution_end", async (event, _ctx) => {
+			if (event.toolName !== "rosclaw_request_action") return;
+			const details = ((event.result?.details ?? {}) as Record<string, unknown>);
+			const data: ActionResultData = {
+				status: String(details.status ?? (event.isError ? "FAILED" : "UNKNOWN")),
+				capabilityId: String(details.capability_id ?? ""),
+				approvalId: details.approval_id ? String(details.approval_id) : undefined,
+				grantId: details.grant_id ? String(details.grant_id) : undefined,
+				txnId: details.txn_id ? String(details.txn_id) : undefined,
+				actionId: details.action_id ? String(details.action_id) : undefined,
+				receiptId: details.receipt_id ? String(details.receipt_id) : undefined,
+				errorCode: details.error_code ? String(details.error_code) : undefined,
+			};
+			lastOutcome = data;
+			pi.appendEntry("rosclaw.action_result", data);
+		});
+		// 冲突检测：outcome 非 COMPLETED 而助手叙述自称完成 → 可见冲突标记。
+		// pi 事件模型：tool 执行属于"tool_call turn"——turn_end 先于下一轮
+		// 的助手叙述到达，所以 outcome 要等叙述处理完才清除（不能在第一个
+		// turn_end 就清）。appendEntry 也只能在 turn_end 落（message_end
+		// 内消息 finalize 进行中，会话层会丢条目）。
+		const COMPLETION_CLAIM =
+			/(已执行|已完成|已确认|执行完毕|成功执行|successfully executed|has been executed|action completed)/i;
+		pi.on("message_end", async (event) => {
+			if (!lastOutcome || lastOutcome.narrativeSeen) return undefined;
+			const message = event.message as { role?: string; content?: unknown };
+			if (message.role !== "assistant") return undefined;
+			const raw = message.content;
+			const text = Array.isArray(raw)
+				? raw
+					.map((b) => (typeof b === "object" && b !== null ? String((b as { text?: string }).text ?? "") : ""))
+					.join(" ")
+				: String(raw ?? "");
+			if (!text.trim()) return undefined; // toolCall 消息——叙述还没到，不消费
+			const outcome = lastOutcome;
+			outcome.narrativeSeen = true;
+			if (outcome.status !== "COMPLETED" && COMPLETION_CLAIM.test(text)) {
+				outcome.conflictClaim = text.slice(0, 120);
+			}
+			return undefined;
+		});
+		pi.on("turn_end", async () => {
+			if (lastOutcome?.conflictClaim) {
+				pi.appendEntry("rosclaw.action_conflict", {
+					claim: lastOutcome.conflictClaim,
+					status: lastOutcome.status,
+				});
+			}
+			// 只有叙述已处理（或 conflict 已标记）才清除——否则留给下一个
+			// pi-turn 的助手消息（tool 执行后的最终回答在新 turn）。
+			if (lastOutcome?.narrativeSeen) lastOutcome = null;
+			return undefined;
 		});
 
 		// -- 认知事件镜像（PNA-8，规格 §24.2）：hash-only，不双写全文 ----------

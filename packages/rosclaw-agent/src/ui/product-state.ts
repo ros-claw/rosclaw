@@ -23,6 +23,9 @@ export interface ProductUiStateV1 {
 	contextState: ContextState;
 	contextRevision: number;
 	operatorState: OperatorState;
+	/** P0-5F：动作准入可见性——READY 仅表示 UI 层准入条件满足
+	 * （FRESH+lease+binding），不代表任何动作已获批。 */
+	actionsAllowed: boolean;
 	/** 状态快照序列号——header/status/context 同源断言用。 */
 	snapshotSeq: number;
 }
@@ -52,6 +55,7 @@ export class ProductUiState {
 			contextState: state.missionId ? state.contextState : "UNAVAILABLE",
 			contextRevision: state.contextRevision,
 			operatorState: this.operatorState,
+			actionsAllowed: state.missionId !== undefined && state.actionsAllowed,
 			snapshotSeq: this.seq,
 		};
 	}
@@ -80,9 +84,9 @@ export class ProductUiState {
 	}
 }
 
-/** 推荐头部（P0-NA-16 规格）：
+/** 推荐头部（P0-NA-16 规格 + P0-5F Action 状态）：
  *   ROSClaw 1.2.0 · SIMULATION · Kimi K3
- *   Mission mis_... · Body sim/ur5e · Context FRESH r12 · Operator OFFLINE
+ *   Mission mis_... · Body sim/ur5e · Context FRESH r12 · Operator OFFLINE · Action LOCKED
  */
 export function renderHeader(state: ProductUiStateV1, modelName: string): string {
 	const line1Parts = [`ROSClaw ${state.productVersion}`, state.mode];
@@ -98,6 +102,7 @@ export function renderHeader(state: ProductUiStateV1, modelName: string): string
 			: `Context ${state.contextState}`;
 	const line2 =
 		`Mission ${state.missionId.slice(0, 24)} · Body ${body} · ` +
-		`${context} · Operator ${state.operatorState}`;
+		`${context} · Operator ${state.operatorState} · ` +
+		`Action ${state.actionsAllowed ? "READY" : "LOCKED"}`;
 	return `${line1}\n${line2}`;
 }
