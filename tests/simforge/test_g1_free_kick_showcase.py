@@ -180,6 +180,25 @@ def test_vertical_aim_bias_is_bounded_and_separate_from_the_scoring_target() -> 
         G1FreeKickFlowConfig(aim_bias_z_m=1.21)
 
 
+def test_shot_foot_pitch_exploration_remains_bounded() -> None:
+    assert G1FreeKickFlowConfig(shot_foot_pitch_offset_rad=0.18)
+    with pytest.raises(ValueError, match="shot foot pitch offset"):
+        G1FreeKickFlowConfig(shot_foot_pitch_offset_rad=0.181)
+
+
+def test_ballistic_contact_pulse_timing_is_bounded() -> None:
+    config = G1FreeKickFlowConfig(
+        ballistic_contact_lead_duration_sec=0.08,
+        ballistic_contact_trail_duration_sec=0.16,
+    )
+    assert config.ballistic_contact_lead_duration_sec == 0.08
+    assert config.ballistic_contact_trail_duration_sec == 0.16
+    with pytest.raises(ValueError, match="lead duration"):
+        G1FreeKickFlowConfig(ballistic_contact_lead_duration_sec=0.079)
+    with pytest.raises(ValueError, match="trail duration"):
+        G1FreeKickFlowConfig(ballistic_contact_trail_duration_sec=0.161)
+
+
 def test_post_contact_damping_is_bounded() -> None:
     assert G1FreeKickFlowConfig(post_contact_damping_scale=1.8).post_contact_damping_scale == 1.8
     with pytest.raises(ValueError, match="post-contact damping"):

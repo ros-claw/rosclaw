@@ -635,7 +635,7 @@ def _ballistic_contact_actor_critic(args: argparse.Namespace) -> int:
         ridge_regularization=args.ridge_regularization,
     )
     _print(candidate.to_dict())
-    return 0
+    return 0 if candidate.sim_replay_recommended else 3
 
 
 def _evaluate_ballistic_contact(args: argparse.Namespace) -> int:

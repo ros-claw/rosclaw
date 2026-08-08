@@ -132,6 +132,18 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
     )
     run.add_argument("--ballistic-contact-policy-frame", type=int, default=256)
     run.add_argument(
+        "--ballistic-contact-lead-duration-sec",
+        type=float,
+        default=0.16,
+        help="bounded pre-contact pulse duration for SIM_ONLY contact learning",
+    )
+    run.add_argument(
+        "--ballistic-contact-trail-duration-sec",
+        type=float,
+        default=0.08,
+        help="bounded post-contact pulse duration for SIM_ONLY contact learning",
+    )
+    run.add_argument(
         "--post-contact-damping-scale",
         type=float,
         default=1.0,
@@ -447,6 +459,8 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
                 ),
                 ballistic_contact_residual_rad=ballistic_contact_residual_rad,
                 ballistic_contact_policy_frame=ballistic_contact_policy_frame,
+                ballistic_contact_lead_duration_sec=(args.ballistic_contact_lead_duration_sec),
+                ballistic_contact_trail_duration_sec=(args.ballistic_contact_trail_duration_sec),
                 post_contact_damping_scale=post_contact_damping_scale,
                 ballistic_skill_memory_hash=(
                     None

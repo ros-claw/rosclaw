@@ -148,13 +148,15 @@ class G1FreeKickFlowConfig:
     football_motion_prior_contact_policy_frame: int = 265
     ballistic_contact_residual_rad: tuple[float, ...] = (0.0,) * 6
     ballistic_contact_policy_frame: int = 256
+    ballistic_contact_lead_duration_sec: float = 0.16
+    ballistic_contact_trail_duration_sec: float = 0.08
     football_retry_recovery_duration_sec: float = 0.0
     football_retry_follow_through_gain_scale: float = 1.0
     post_contact_damping_scale: float = 1.0
     ballistic_skill_memory_hash: str | None = None
     ballistic_skill_id: str | None = None
     approach_provider: str = "groot_history"
-    schema_version: str = "rosclaw.simforge.g1_free_kick_flow_config.v23"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_flow_config.v24"
 
     def __post_init__(self) -> None:
         values = (
@@ -189,6 +191,8 @@ class G1FreeKickFlowConfig:
             self.football_retry_follow_through_gain_scale,
             self.post_contact_damping_scale,
             self.football_motion_prior_blend,
+            self.ballistic_contact_lead_duration_sec,
+            self.ballistic_contact_trail_duration_sec,
         )
         if not all(math.isfinite(value) for value in values):
             raise ValueError("free-kick flow config must be finite")
@@ -321,6 +325,8 @@ class G1FreeKickFlowConfig:
         G1BallisticContactResidualConfig(
             right_leg_residual_rad=self.ballistic_contact_residual_rad,
             contact_policy_frame=self.ballistic_contact_policy_frame,
+            lead_duration_sec=self.ballistic_contact_lead_duration_sec,
+            trail_duration_sec=self.ballistic_contact_trail_duration_sec,
         )
         if self.football_retry_recovery_duration_sec != 0.0 and not (
             0.4 <= self.football_retry_recovery_duration_sec <= 2.0
@@ -791,6 +797,7 @@ def run_g1_free_kick_showcase(
                 "growth/football_motion_prior.py",
                 "growth/proprioceptive_expert_router.py",
                 "simforge/backends/unitree_mujoco_backend.py",
+                "simforge/tasks/g1_goalforge/concepts.py",
             )
         }
     )
@@ -800,7 +807,7 @@ def run_g1_free_kick_showcase(
     ):
         raise ValueError("ballistic skill memory implementation hash mismatch")
     request = {
-        "schema_version": "rosclaw.simforge.g1_free_kick_request.v21",
+        "schema_version": "rosclaw.simforge.g1_free_kick_request.v23",
         "body_hash": qualification.body_hash,
         "kick_prior_hash": qualification.kick_prior_hash,
         "learned_gait_qualification_hash": gait_qualification.qualification_hash,
@@ -1043,6 +1050,8 @@ def _simulate(
     ballistic_contact_config = G1BallisticContactResidualConfig(
         right_leg_residual_rad=flow.ballistic_contact_residual_rad,
         contact_policy_frame=flow.ballistic_contact_policy_frame,
+        lead_duration_sec=flow.ballistic_contact_lead_duration_sec,
+        trail_duration_sec=flow.ballistic_contact_trail_duration_sec,
     )
     ballistic_contact_active_frames = 0
     ballistic_contact_peak_target_delta = 0.0

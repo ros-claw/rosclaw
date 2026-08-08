@@ -3,8 +3,10 @@
 The learner treats each strict MuJoCo free-kick episode as one contextual
 bandit transition.  A regularized quadratic critic models the measured task
 reward over the six-dimensional contact residual, and a trust-region actor
-ascends that critic from the best observed safe action.  It emits a SIM_ONLY
-development proposal; it never activates or promotes the proposal.
+ascends that critic from the best observed safe action.  The actor changes one
+independently supported joint at a time: sparse one-axis probes do not justify
+assuming that simultaneous joint changes have no interaction.  It emits a
+SIM_ONLY development proposal; it never activates or promotes the proposal.
 """
 
 from __future__ import annotations
@@ -81,14 +83,20 @@ class G1BallisticContactActorCritic:
     best_observed_action_rad: tuple[float, ...]
     best_observed_reward: float
     proposed_action_rad: tuple[float, ...]
+    proposed_action_dimensions: tuple[int, ...]
+    critic_predicted_best_observed_reward: float
     predicted_proposed_reward: float
+    predicted_improvement_over_anchor: float
+    minimum_predicted_improvement: float
+    maximum_critic_leave_one_out_rmse: float
+    sim_replay_recommended: bool
     trust_region_radius_rad: float
     ridge_regularization: float
     replay_anchor_count: int
     activation_ceiling: str = "SIM_ONLY"
     promotion_authorized: bool = False
     hardware_authorized: bool = False
-    schema_version: str = "rosclaw.growth.g1_ballistic_contact_actor_critic.v2"
+    schema_version: str = "rosclaw.growth.g1_ballistic_contact_actor_critic.v4"
 
     @property
     def candidate_hash(self) -> str:
@@ -99,7 +107,7 @@ class G1BallisticContactActorCritic:
             **asdict(self),
             "joint_names": list(G1_BALLISTIC_CONTACT_JOINT_NAMES),
             "probes": [asdict(probe) for probe in self.probes],
-            "algorithm": "support_rank_constrained_quadratic_contextual_actor_critic",
+            "algorithm": ("support_rank_constrained_coordinate_quadratic_contextual_actor_critic"),
             "critic_target": "measured_goal_error_plus_safety_cost",
             "direct_torque_output": False,
             "online_hot_swap_allowed": False,
@@ -214,31 +222,31 @@ def derive_g1_ballistic_contact_actor_critic(
         raise ValueError("ballistic actor-critic has no safe continuous replay anchor")
     best_index = max(safe_indices, key=lambda index: probes[index].reward)
     best = actions[best_index].copy()
-    actor = best.copy()
     lower = np.maximum(-_ACTION_LIMIT_RAD, best - trust_region_radius_rad)
     upper = np.minimum(_ACTION_LIMIT_RAD, best + trust_region_radius_rad)
     for dimension in frozen_dimensions:
         lower[dimension] = best[dimension]
         upper[dimension] = best[dimension]
-    for _ in range(actor_steps):
-        scaled = actor / _ACTION_LIMIT_RAD
-        gradient_scaled = coefficients[1:7] + 2.0 * coefficients[7:13] * scaled
-        gradient = gradient_scaled / _ACTION_LIMIT_RAD
-        norm = float(np.linalg.norm(gradient))
-        if norm <= 1e-12:
-            break
-        actor = np.clip(actor + actor_step_size_rad * gradient / norm, lower, upper)
-    actor = _ensure_novel_action(
-        actor,
+    actor, proposed_dimensions = _coordinate_actor_proposal(
+        best=best,
         actions=actions,
+        coefficients=coefficients,
         lower=lower,
         upper=upper,
         active_dimensions=active_dimensions,
+        actor_step_size_rad=actor_step_size_rad,
+        actor_steps=actor_steps,
+    )
+    predicted_best = float(
+        _critic_design(best[None, :], active_dimensions=active_dimensions)[0] @ compact_coefficients
     )
     predicted = float(
         _critic_design(actor[None, :], active_dimensions=active_dimensions)[0]
         @ compact_coefficients
     )
+    predicted_improvement = predicted - predicted_best
+    minimum_improvement = max(0.005, 0.10 * loo_rmse)
+    maximum_critic_loo_rmse = 0.15
     report = G1BallisticContactActorCritic(
         body_hash=next(iter(body_hashes)),
         implementation_hash=next(iter(implementation_hashes)),
@@ -253,7 +261,16 @@ def derive_g1_ballistic_contact_actor_critic(
         best_observed_action_rad=tuple(float(value) for value in best),
         best_observed_reward=float(rewards[best_index]),
         proposed_action_rad=tuple(float(value) for value in actor),
+        proposed_action_dimensions=proposed_dimensions,
+        critic_predicted_best_observed_reward=predicted_best,
         predicted_proposed_reward=predicted,
+        predicted_improvement_over_anchor=predicted_improvement,
+        minimum_predicted_improvement=minimum_improvement,
+        maximum_critic_leave_one_out_rmse=maximum_critic_loo_rmse,
+        sim_replay_recommended=(
+            predicted_improvement >= minimum_improvement
+            and loo_rmse <= maximum_critic_loo_rmse
+        ),
         trust_region_radius_rad=trust_region_radius_rad,
         ridge_regularization=ridge_regularization,
         replay_anchor_count=len(safe_indices),
@@ -426,6 +443,56 @@ def _ensure_novel_action(
             if not measured(candidate):
                 return candidate
     raise ValueError("ballistic actor trust region contains no unmeasured supported action")
+
+
+def _coordinate_actor_proposal(
+    *,
+    best: np.ndarray,
+    actions: np.ndarray,
+    coefficients: np.ndarray,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    active_dimensions: tuple[int, ...],
+    actor_step_size_rad: float,
+    actor_steps: int,
+) -> tuple[np.ndarray, tuple[int, ...]]:
+    """Optimize one supported action axis and reject invented interactions.
+
+    A diagonal quadratic critic can identify multiple independently varied
+    axes without identifying their interaction.  Moving all such axes at once
+    therefore makes a stronger assumption than the replay contains.  Generate
+    one candidate per supported axis and return only the highest-scoring one.
+    """
+
+    candidates: list[tuple[float, int, np.ndarray]] = []
+    for dimension in active_dimensions:
+        actor = best.copy()
+        for _ in range(actor_steps):
+            scaled = actor[dimension] / _ACTION_LIMIT_RAD
+            gradient = (
+                coefficients[1 + dimension] + 2.0 * coefficients[7 + dimension] * scaled
+            ) / _ACTION_LIMIT_RAD
+            if abs(gradient) <= 1e-12:
+                break
+            actor[dimension] = np.clip(
+                actor[dimension] + actor_step_size_rad * np.sign(gradient),
+                lower[dimension],
+                upper[dimension],
+            )
+        actor = _ensure_novel_action(
+            actor,
+            actions=actions,
+            lower=lower,
+            upper=upper,
+            active_dimensions=(dimension,),
+        )
+        scaled = actor / _ACTION_LIMIT_RAD
+        predicted = float(
+            coefficients[0] + coefficients[1:7] @ scaled + coefficients[7:13] @ np.square(scaled)
+        )
+        candidates.append((predicted, dimension, actor))
+    _, dimension, actor = max(candidates, key=lambda item: (item[0], -item[1]))
+    return actor, (dimension,)
 
 
 def _ridge_fit(design: np.ndarray, target: np.ndarray, regularization: float) -> np.ndarray:

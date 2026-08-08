@@ -10,6 +10,7 @@ import pytest
 from rosclaw.growth.ballistic_contact_actor_critic import (
     derive_g1_ballistic_contact_actor_critic,
 )
+from rosclaw.growth.cli import dispatch_growth_argv
 
 
 def _hash(path: Path) -> str:
@@ -79,6 +80,9 @@ def test_ballistic_actor_critic_uses_strict_replay_and_proposes_new_action(
     assert candidate.action_unique_counts == (1, 1, 1, 1, 8, 1)
     assert candidate.proposed_action_rad[:4] == (0.0, 0.0, 0.0, 0.0)
     assert candidate.proposed_action_rad[5] == 0.0
+    assert candidate.proposed_action_dimensions == (4,)
+    assert candidate.predicted_improvement_over_anchor > 0.0
+    assert candidate.sim_replay_recommended
     assert candidate.replay_anchor_count == 8
     assert not candidate.promotion_authorized
     assert json.loads((tmp_path / "candidate.json").read_text())["candidate_hash"]
@@ -124,3 +128,82 @@ def test_ballistic_actor_critic_freezes_correlated_low_support_axes(
     assert candidate.active_action_dimensions == (4,)
     assert candidate.proposed_action_rad[1] == candidate.best_observed_action_rad[1]
     assert candidate.proposed_action_rad[2] == candidate.best_observed_action_rad[2]
+
+
+def test_ballistic_actor_critic_changes_only_one_independently_probed_axis(
+    tmp_path: Path,
+) -> None:
+    paths = []
+    ankle_actions = (-0.16, -0.08, 0.0, 0.08)
+    knee_actions = (-0.15, -0.05, 0.05, 0.15)
+    for index, ankle_action in enumerate(ankle_actions):
+        paths.append(_probe(tmp_path, index, ankle_action))
+    for offset, knee_action in enumerate(knee_actions, start=4):
+        path = _probe(tmp_path, offset, 0.02)
+        evidence = json.loads(path.read_text(encoding="utf-8"))
+        evidence["flow_config"]["ballistic_contact_residual_rad"][3] = knee_action
+        evidence["result"]["goal_plane_target_error_m"] = 0.9 - knee_action
+        path.write_text(json.dumps(evidence), encoding="utf-8")
+        paths.append(path)
+
+    candidate = derive_g1_ballistic_contact_actor_critic(
+        evidence_paths=tuple(paths),
+        output_path=tmp_path / "candidate.json",
+        source_checkout=tmp_path / "checkout",
+    )
+
+    changed = tuple(
+        index
+        for index, (best, proposed) in enumerate(
+            zip(
+                candidate.best_observed_action_rad,
+                candidate.proposed_action_rad,
+                strict=True,
+            )
+        )
+        if proposed != pytest.approx(best)
+    )
+    assert candidate.active_action_dimensions == (3, 4)
+    assert changed == candidate.proposed_action_dimensions
+    assert len(changed) == 1
+
+
+def test_ballistic_actor_critic_abstains_when_cross_validation_is_poor(
+    tmp_path: Path,
+) -> None:
+    paths = tuple(
+        _probe(tmp_path, index, action)
+        for index, action in enumerate((-0.16, -0.10, -0.04, 0.0, 0.04, 0.08, 0.12, 0.16))
+    )
+    for index, path in enumerate(paths):
+        evidence = json.loads(path.read_text(encoding="utf-8"))
+        evidence["result"]["goal_plane_target_error_m"] = float(index % 2) * 2.0
+        path.write_text(json.dumps(evidence), encoding="utf-8")
+
+    candidate = derive_g1_ballistic_contact_actor_critic(
+        evidence_paths=paths,
+        output_path=tmp_path / "candidate.json",
+        source_checkout=tmp_path / "checkout",
+    )
+
+    assert candidate.critic_leave_one_out_rmse > 0.15
+    assert candidate.maximum_critic_leave_one_out_rmse == 0.15
+    assert not candidate.sim_replay_recommended
+    assert (
+        dispatch_growth_argv(
+            [
+                "growth",
+                "ballistic-contact-actor-critic",
+                *[
+                    item
+                    for path in paths
+                    for item in ("--evidence-json", str(path))
+                ],
+                "--output",
+                str(tmp_path / "cli-candidate.json"),
+                "--source-checkout",
+                str(tmp_path / "checkout"),
+            ]
+        )
+        == 3
+    )
