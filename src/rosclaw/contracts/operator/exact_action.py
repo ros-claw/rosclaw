@@ -61,7 +61,7 @@ def compute_arguments_hash(normalized_arguments: dict[str, Any]) -> str:
     return hashlib.sha256(canonical_dumps(normalized_arguments).encode()).hexdigest()
 
 
-def compute_action_intent_hash(action: "ExactActionV1") -> str:
+def compute_action_intent_hash(action: ExactActionV1) -> str:
     """完整动作意图 hash——capability/mission/mode/body/context/args/
     risk/effect 全部绑定。任何一项变化 → hash 不同。"""
     payload = action.model_dump(mode="json")

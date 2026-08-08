@@ -133,7 +133,7 @@ class TestExactActionContract:
         assert SIM_ACTION_CAPABILITY in card["title"], (
             f"卡片 title 未绑定真实 capability: {card['title']}"
         )
-        assert "播放提示音（无害）" != card["title"]
+        assert card["title"] != "播放提示音（无害）"
         await service.close()
 
     async def test_schema_validation_nested_and_nonfinite(

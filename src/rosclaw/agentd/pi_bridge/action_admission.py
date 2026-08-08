@@ -25,7 +25,6 @@ grant、TTL——防止 approve 后到 execute 前发生 TOCTOU。
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -33,7 +32,6 @@ from typing import TYPE_CHECKING, Any
 from rosclaw.agentd.pi_bridge.session_binding import SessionBindingStore
 from rosclaw.agentd.pi_bridge.tool_dispatch import ToolBridgeError
 from rosclaw.contracts.common import new_id
-from rosclaw.contracts.pi.canonical import canonical_dumps
 
 if TYPE_CHECKING:
     from rosclaw.agentd.service import AgentService
@@ -305,7 +303,6 @@ class ActionAdmissionService:
         # mode/body/context/risk 全一等字段 + intent hash）。
         from rosclaw.contracts.operator.exact_action import (
             build_exact_action,
-            compute_arguments_hash,
         )
 
         snapshot_now = service.snapshot(request.mission_id)
