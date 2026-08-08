@@ -19,7 +19,9 @@ from typing import Any
 
 from rosclaw.contracts.common import new_id
 
-LEASE_TTL_SEC = 120.0
+# 五审 P0-5B：policy max 不得超过 envelope TTL（30s）——否则 prompt 已
+# stale 时动作 lease 仍可用（前四次审计的实际错位）。
+LEASE_TTL_SEC = 30.0
 
 
 @dataclass(frozen=True)
@@ -34,6 +36,9 @@ class ValidatedContextLeaseV1:
     issued_at: str
     expires_at: str
     revoked: bool = False
+    # 五审 P0-5A：caller 身份绑定（migration 019）。
+    binding_id: str = ""
+    caller_uid: int = -1
 
 
 class ContextLeaseStore:
@@ -50,6 +55,8 @@ class ContextLeaseStore:
         body_hash: str,
         mode: str,
         ttl_sec: float = LEASE_TTL_SEC,
+        binding_id: str = "",
+        caller_uid: int = -1,
     ) -> ValidatedContextLeaseV1:
         """签发新 lease——同 (session, mission) 的旧 lease 立即撤销。"""
         now = datetime.now(UTC)
@@ -68,11 +75,14 @@ class ContextLeaseStore:
             mode=mode,
             issued_at=now.isoformat(),
             expires_at=(now + timedelta(seconds=ttl_sec)).isoformat(),
+            binding_id=binding_id,
+            caller_uid=caller_uid,
         )
         self._conn.execute(
             "INSERT INTO pi_context_leases (context_lease_id, pi_session_id, "
             "mission_id, context_revision, context_hash, body_hash, mode, "
-            "issued_at, expires_at, revoked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
+            "issued_at, expires_at, revoked, binding_id, caller_uid) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
             (
                 lease.context_lease_id,
                 lease.pi_session_id,
@@ -83,6 +93,8 @@ class ContextLeaseStore:
                 lease.mode,
                 lease.issued_at,
                 lease.expires_at,
+                lease.binding_id,
+                lease.caller_uid,
             ),
         )
         self._conn.commit()
@@ -95,6 +107,7 @@ class ContextLeaseStore:
         ).fetchone()
         if row is None:
             return None
+        keys = set(row.keys())
         return ValidatedContextLeaseV1(
             context_lease_id=row["context_lease_id"],
             pi_session_id=row["pi_session_id"],
@@ -106,6 +119,8 @@ class ContextLeaseStore:
             issued_at=row["issued_at"],
             expires_at=row["expires_at"],
             revoked=bool(row["revoked"]),
+            binding_id=row["binding_id"] if "binding_id" in keys else "",
+            caller_uid=int(row["caller_uid"]) if "caller_uid" in keys else -1,
         )
 
     def is_valid(self, lease: ValidatedContextLeaseV1) -> bool:
@@ -130,9 +145,25 @@ class ContextLeaseStore:
 
 
 def context_hash_of(envelope: Any) -> str:
-    """envelope 内容 hash（RFC 8785 canonical——与跨语言 hash 同源）。"""
+    """envelope 内容 hash（RFC 8785 canonical——与跨语言 hash 同源）。
+
+    P0-5B：只覆盖稳定的具身事实（body/mode/revision/capabilities/
+    task graph）。排除 generated_at/expires_at/hash（时间易变），
+    以及 pending_approvals/receipts/active_actions——它们是动作的
+    *结果*（建卡即在 envelope 里新增 pending），不是使上下文失效
+    的输入变化。
+    """
     from rosclaw.contracts.pi.canonical import canonical_dumps
 
-    return hashlib.sha256(
-        canonical_dumps(envelope.model_dump(mode="json")).encode()
-    ).hexdigest()[:32]
+    payload = envelope.model_dump(mode="json")
+    for volatile in (
+        "generated_at",
+        "expires_at",
+        "hash",
+        "freshness",
+        "pending_approvals",
+        "receipts",
+        "active_actions",
+    ):
+        payload.pop(volatile, None)
+    return hashlib.sha256(canonical_dumps(payload).encode()).hexdigest()[:32]

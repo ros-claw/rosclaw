@@ -47,15 +47,21 @@ def _request(tool: str, session: str = "pi_1", mission: str = "", **kwargs) -> P
 
 
 def _issue_lease(service, mission, session: str = "pi_1") -> str:
-    """按真实路径签发 ValidatedContextLease（HOTFIX-1：不绕过 admission）。"""
-    from rosclaw.agentd.pi_bridge.context_lease import ContextLeaseStore
+    """按真实路径签发 ValidatedContextLease（HOTFIX-1：不绕过 admission）。
+    五审 P0-5B：context_hash 必须是当前权威 envelope 的真实 hash
+    （admission 会重算比对）——不能用占位符。"""
+    from rosclaw.agentd.pi_bridge.context import build_embodied_context
+    from rosclaw.agentd.pi_bridge.context_lease import (
+        ContextLeaseStore,
+        context_hash_of,
+    )
 
-    snapshot = service.snapshot(mission.mission_id)
+    envelope = build_embodied_context(service, mission.mission_id)
     lease = ContextLeaseStore(service._store.connection).issue(
         pi_session_id=session,
         mission_id=mission.mission_id,
-        context_revision=snapshot.context_revision,
-        context_hash="test_hash",
+        context_revision=envelope.context_revision,
+        context_hash=context_hash_of(envelope),
         body_hash=mission.body_binding.effective_body_hash,
         mode=mission.mode.value,
     )

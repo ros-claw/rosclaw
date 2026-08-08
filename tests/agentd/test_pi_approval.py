@@ -129,21 +129,32 @@ class TestAdmissionNegativeChain:
         )
 
         snapshot = service.snapshot(mission.mission_id)
-        # HOTFIX-1：admission 现在要求 agentd 签发的 context lease——
-        # 测试也按真实路径签发（不是绕过）。
-        from rosclaw.agentd.pi_bridge.context_lease import ContextLeaseStore
+        # HOTFIX-1：admission 要求 agentd 签发的 context lease——测试按
+        # 真实路径签发（P0-5B：hash 必须是当前权威 envelope 的真值）。
+        from rosclaw.agentd.pi_bridge.context import build_embodied_context
+        from rosclaw.agentd.pi_bridge.context_lease import (
+            ContextLeaseStore,
+            context_hash_of,
+        )
 
         session = overrides.get("session", "pi_1")
         lease_id = overrides.get("lease_id")
         if lease_id is None:
+            body_hash_override = overrides.get("body_hash")
+            if body_hash_override is None:
+                envelope = build_embodied_context(service, mission.mission_id)
+                real_hash = context_hash_of(envelope)
+                body_hash = mission.body_binding.effective_body_hash
+            else:
+                # body 变化场景：hash 相应伪造（与真实 envelope 不同）。
+                real_hash = "tampered_body_hash"
+                body_hash = body_hash_override
             lease = ContextLeaseStore(service._store.connection).issue(
                 pi_session_id=session,
                 mission_id=mission.mission_id,
                 context_revision=overrides.get("revision", snapshot.context_revision),
-                context_hash="test_hash",
-                body_hash=overrides.get(
-                    "body_hash", mission.body_binding.effective_body_hash
-                ),
+                context_hash=real_hash,
+                body_hash=body_hash,
                 mode=overrides.get("mode", mission.mode.value),
             )
             lease_id = lease.context_lease_id
@@ -271,7 +282,9 @@ class TestAdmissionNegativeChain:
         service, mission = await _setup(tmp_path)
         with pytest.raises(ToolBridgeError) as excinfo:
             await self._propose(service, mission, body_hash="body_tampered")
-        assert excinfo.value.code == "BODY_HASH_MISMATCH"
+        # 两层都正确：context hash 层（P0-5B）先发现内容不符；
+        # body hash 直接比对给 BODY_HASH_MISMATCH。
+        assert excinfo.value.code in ("BODY_HASH_MISMATCH", "CONTEXT_HASH_MISMATCH")
         assert service.pending_approvals(mission.mission_id) == []
         await service.close()
 
@@ -333,13 +346,18 @@ class TestApprovalsGet:
         )
 
         snapshot = service.snapshot(mission.mission_id)
-        from rosclaw.agentd.pi_bridge.context_lease import ContextLeaseStore
+        from rosclaw.agentd.pi_bridge.context import build_embodied_context
+        from rosclaw.agentd.pi_bridge.context_lease import (
+            ContextLeaseStore,
+            context_hash_of,
+        )
 
+        envelope = build_embodied_context(service, mission.mission_id)
         lease = ContextLeaseStore(service._store.connection).issue(
             pi_session_id="pi_1",
             mission_id=mission.mission_id,
             context_revision=snapshot.context_revision,
-            context_hash="test_hash",
+            context_hash=context_hash_of(envelope),
             body_hash=mission.body_binding.effective_body_hash,
             mode=mission.mode.value,
         )

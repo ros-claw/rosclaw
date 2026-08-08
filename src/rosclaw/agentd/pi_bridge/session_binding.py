@@ -253,3 +253,28 @@ class SessionBindingStore:
         if row["expires_at"] < _iso(_now()):
             return None
         return PiSessionLeaseV1(**{k: row[k] for k in set(row.keys())})
+
+    def require_writer(
+        self,
+        mission_id: str,
+        pi_session_id: str,
+        *,
+        owner_pid: int,
+        owner_uid: int,
+    ) -> PiSessionLeaseV1:
+        """五审 P0-5A：writer 校验同时比对 session、owner PID、owner UID——
+        同 UID 的另一个进程不能冒充活动 session（SO_PEERCRED 是内核给的
+        真值，JSON 参数不可覆写）。"""
+        writer = self.writer_of(mission_id)
+        if writer is None or writer.pi_session_id != pi_session_id:
+            raise BindingError(
+                "WRITER_LEASE_REQUIRED",
+                "this session does not hold the writer lease",
+            )
+        if writer.owner_uid != owner_uid or writer.owner_pid != owner_pid:
+            raise BindingError(
+                "CALLER_MISMATCH",
+                f"caller pid {owner_pid}/uid {owner_uid} is not the writer "
+                f"process (pid {writer.owner_pid})",
+            )
+        return writer

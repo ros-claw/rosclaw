@@ -180,11 +180,45 @@ class PiBridgeServer:
             response: dict[str, Any] = {"ok": True, "context": envelope.model_dump(mode="json")}
             pi_session_id = str(params.get("pi_session_id", ""))
             if pi_session_id:
+                # P0-5A：只有合法 writer（binding + writer lease + peer
+                # PID/UID 与 lease owner 匹配）才能签 action context
+                # lease——观测面（envelope）仍可读，action lease 绝不
+                # 发给冒名进程。caller_pid/caller_uid 来自 SO_PEERCRED，
+                # JSON 参数不可覆写。
+                caller_uid = int(principal.rsplit(":", 1)[-1])
+                writer = self._bindings.writer_of(mission_id)
+                is_legit_writer = (
+                    writer is not None
+                    and writer.pi_session_id == pi_session_id
+                    and writer.owner_pid == peer_pid
+                    and writer.owner_uid == caller_uid
+                )
+                if not is_legit_writer:
+                    # 不签 lease——观测照常返回，动作准入凭证拒发。
+                    response["context_lease_denied"] = "not the writer process"
+                    return response
                 from rosclaw.agentd.pi_bridge.context_lease import (
                     ContextLeaseStore,
                     context_hash_of,
                 )
 
+                # P0-5B：lease TTL = min(envelope TTL, writer lease 剩余,
+                # policy max)——不得长于 prompt 里告诉模型的有效期。
+                from datetime import UTC as _UTC, datetime as _dt
+
+                envelope_ttl = max(
+                    0.0,
+                    (
+                        _dt.fromisoformat(envelope.expires_at) - _dt.now(_UTC)
+                    ).total_seconds(),
+                )
+                writer_ttl = max(
+                    0.0,
+                    (_dt.fromisoformat(writer.expires_at) - _dt.now(_UTC)).total_seconds(),
+                )
+                from rosclaw.agentd.pi_bridge.context_lease import LEASE_TTL_SEC
+
+                effective_ttl = min(envelope_ttl, writer_ttl, LEASE_TTL_SEC)
                 lease = ContextLeaseStore(service._store.connection).issue(
                     pi_session_id=pi_session_id,
                     mission_id=mission_id,
@@ -192,6 +226,9 @@ class PiBridgeServer:
                     context_hash=context_hash_of(envelope),
                     body_hash=envelope.body.get("effective_body_hash", ""),
                     mode=service.get_mission(mission_id).mode.value,
+                    ttl_sec=effective_ttl,
+                    binding_id=writer.lease_id,
+                    caller_uid=caller_uid,
                 )
                 response["context_lease_id"] = lease.context_lease_id
                 response["context_lease_expires_at"] = lease.expires_at
@@ -245,6 +282,9 @@ class PiBridgeServer:
                     expected_effect=str(params.get("expected_effect", "")),
                     risk_tier=str(params.get("risk_tier", "LOW")),
                     title=str(params.get("title", "")),
+                    # P0-5A：SO_PEERCRED 真值注入——JSON 不可覆写。
+                    caller_pid=peer_pid,
+                    caller_uid=int(principal.rsplit(":", 1)[-1]),
                 )
             except Exception as exc:  # noqa: BLE001
                 return {"ok": False, "error": f"{type(exc).__name__}: {exc}",
@@ -306,7 +346,10 @@ class PiBridgeServer:
             )
             try:
                 result = await admission.execute(
-                    str(params.get("approval_id", "")), request=request_ctx
+                    str(params.get("approval_id", "")), request=request_ctx,
+                    # P0-5A：SO_PEERCRED 真值注入——JSON 不可覆写。
+                    caller_pid=peer_pid,
+                    caller_uid=int(principal.rsplit(":", 1)[-1]),
                 )
             except Exception as exc:  # noqa: BLE001
                 return {"ok": False, "error": f"{type(exc).__name__}: {exc}",

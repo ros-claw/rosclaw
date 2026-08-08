@@ -125,7 +125,7 @@ async def test_propose_without_request_context_rejected(tmp_path: Path) -> None:
     # 只带 mission/capability/arguments 的"宽松"调用——必须被拒。
     result = await bridge._dispatch(
         "user:local:1000",
-        1234,
+        1,  # writer owner_pid（_red_setup 用 1）——P0-5A 后调用者必须匹配
         "pi.action.propose",
         {
             "token": service.control_token,
@@ -158,7 +158,7 @@ async def test_stale_context_forced_tool_call_cannot_create_card(tmp_path: Path)
     bridge = PiBridgeServer(service, tmp_path / "run" / "pi-bridge.sock")
     result = await bridge._dispatch(
         "user:local:1000",
-        1234,
+        1,  # writer owner_pid（_red_setup 用 1）——P0-5A 后调用者必须匹配
         "pi.action.propose",
         {
             "token": service.control_token,
