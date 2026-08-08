@@ -65,6 +65,20 @@ class SimActionChannel:
                 f"sim executor {self._name} failed for {tool_name}: {type(exc).__name__}: {exc}"
             ) from exc
         action_id = new_id("act")
+        # 五审 P0-5E：domain 级失败（ok=false / driver=failed / error 字段）
+        # 不得报 COMPLETED——transport 没错 ≠ 动作成功。success predicate：
+        # 只有明确 ok=true 或无否定字段的结果才算完成。
+        domain_failed = bool(
+            result.get("ok") is False
+            or result.get("driver") == "failed"
+            or result.get("error")
+            or result.get("status") in ("failed", "error", "FAILED", "ERROR")
+        )
+        if domain_failed:
+            raise SimActionError(
+                f"sim executor {self._name} domain failure for {tool_name}: "
+                f"{json.dumps(result, ensure_ascii=False)[:300]}"
+            )
         receipt = {
             "action_id": action_id,
             "capability_id": capability_id,

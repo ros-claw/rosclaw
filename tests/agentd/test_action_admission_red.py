@@ -70,9 +70,16 @@ def test_production_action_path_no_text_success_parsing() -> None:
     admission = (SRC / "agentd" / "pi_bridge" / "action_admission.py").read_text(
         encoding="utf-8"
     )
-    assert "events_replay" not in admission, (
+    # any-receipt 判定（receipt.received 存在即成功）必须绝迹。
+    # 精确 action_id 匹配的 receipt 验证是合法的（P0-5E receipt 合约）。
+    assert "any(" not in admission or "receipt.received" not in admission, (
         "any-receipt 判定——旧 receipt 会为新动作背书（P0-NA-13）"
     )
+    # 若使用 events_replay，必须按 action_id 精确匹配。
+    if "events_replay" in admission:
+        assert 'payload.get("action_id") == action_id' in admission, (
+            "events_replay 存在但没有 action_id 精确匹配"
+        )
 
 
 # ---------------------------------------------------------------- 运行时红线

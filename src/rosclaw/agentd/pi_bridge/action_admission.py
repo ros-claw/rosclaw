@@ -562,14 +562,45 @@ class ActionAdmissionService:
         if handlers is None:
             raise ToolBridgeError("HANDLERS_UNAVAILABLE", "intent handlers not wired")
         mission = service.get_mission(stored.mission_id)
-        # P0-4C/4D：ActionTxn 驱动状态机 + capability 精确恢复（SIM 卡
-        # daemon_capability_id 为空——capability 以 txn/卡参数为准）。
+        # P0-5D：ActionTxn 必须存在且全链一致——legacy 卡（无 txn）明确
+        # 拒绝执行（不返回空 txn_id 继续）。
         from rosclaw.agentd.pi_bridge.action_txn import ActionTxnStore
 
         txns = ActionTxnStore(service._store.connection)
         txn = txns.get_by_approval(approval_id)
+        if txn is None:
+            raise ToolBridgeError(
+                "LEGACY_TXN_UNEXECUTABLE",
+                f"approval {approval_id} has no ActionTxn — legacy cards are "
+                "read-only and cannot execute (fail closed)",
+            )
+        # 全链一致性（P0-5D）：request/approval/grant/txn 必须同属一条
+        # session/mission/body/mode/capability/args 链。
+        if txn.mission_id != request.mission_id or stored.mission_id != request.mission_id:
+            raise ToolBridgeError(
+                "CHAIN_MISMATCH",
+                f"approval/txn mission != request mission ({request.mission_id})",
+            )
+        if txn.pi_session_id != request.pi_session_id:
+            raise ToolBridgeError(
+                "CHAIN_MISMATCH",
+                "txn session != request session — cross-session replay refused",
+            )
+        if txn.approval_id and txn.approval_id != approval_id:
+            raise ToolBridgeError(
+                "CHAIN_MISMATCH", "txn approval binding mismatch"
+            )
+        if txn.body_hash and request.body_hash and txn.body_hash != request.body_hash:
+            raise ToolBridgeError("CHAIN_MISMATCH", "txn body hash != request body hash")
+        if txn.mode != request.mode:
+            raise ToolBridgeError("CHAIN_MISMATCH", "txn mode != request mode")
+        # txn 过期（P0-5D）：expires_at 有真实执行语义。
+        if txn.expires_at and txn.expires_at < datetime.now(UTC).isoformat():
+            raise ToolBridgeError(
+                "TXN_EXPIRED", f"txn {txn.txn_id} expired at {txn.expires_at}"
+            )
         capability_id = (
-            (txn.capability_id if txn else "")
+            txn.capability_id
             or stored.daemon_capability_id
             or str(stored.action_display.parameters.get("capability_id", ""))
         )
@@ -578,12 +609,11 @@ class ActionAdmissionService:
                 "CAPABILITY_MISSING",
                 "approval card lost its capability binding (fail closed)",
             )
-        if txn is not None:
-            # broker 的批准是权威——txn 状态以之为准同步（operatord
-            # decide 经 apply_decision 落库，不走 admission）。
-            if txn.state == "AWAITING_OPERATOR":
-                txn = txns.transition(txn.txn_id, "APPROVED")
-            txn = txns.transition(txn.txn_id, "DISPATCHING", grant_id=grant_id)
+        # broker 的批准是权威——txn 状态以之为准同步（operatord decide
+        # 经 apply_decision 落库，不走 admission）。
+        if txn.state == "AWAITING_OPERATOR":
+            txn = txns.transition(txn.txn_id, "APPROVED")
+        txn = txns.transition(txn.txn_id, "DISPATCHING", grant_id=grant_id)
         decision = DecisionV1(
             decision_id=new_id("dec"),
             mission_id=stored.mission_id,
@@ -606,29 +636,48 @@ class ActionAdmissionService:
             principal=mission.owner_principal if mission else stored.principal,
         ):
             outcome = await handlers.request_action(decision)
-        # 结构化结果（P0-6/P0-NA-13/P0-4F）：success 只由 handler 的
-        # terminal_receipt 决定——绝不扫 Mission 事件找"任意 receipt"
-        # （旧 receipt 会为新动作背书），也不解析自然语言。
-        executed = bool(outcome.terminal_receipt)
+        # P0-5E：COMPLETED 需要严格 receipt 合约——terminal bool +
+        # 非空 action/receipt ID + receipt 事件精确绑定本 action。
+        # terminal_receipt=True 但缺 receipt 一律不是 COMPLETED。
+        terminal_bool = bool(outcome.terminal_receipt)
         action_id = ""
         receipt_id = ""
         if outcome.evidence_ref and outcome.evidence_ref.startswith("receipt://"):
             receipt_id = outcome.evidence_ref.removeprefix("receipt://")
             action_id = receipt_id
-        if txn is not None:
-            if executed:
-                txn = txns.transition(
-                    txn.txn_id, "RECEIPT_PENDING",
-                    action_id=action_id, receipt_id=receipt_id,
-                )
-                txn = txns.transition(txn.txn_id, "COMPLETED")
-            else:
-                txn = txns.transition(txn.txn_id, "FAILED")
-        # ExecutionOutcomeV1（P0-4F）：全 ID 链，不是 bool+文本。
+        # receipt 事件链验证（P0-5E）：receipt.received 事件的 action_id
+        # 必须精确等于本动作的 action_id——不是 Mission 范围内任意 receipt。
+        receipt_ok = False
+        if terminal_bool and action_id:
+            events = service.events_replay(stored.mission_id, limit=50)
+            for e in events:
+                if e.type.value != "receipt.received":
+                    continue
+                payload = e.payload
+                if (
+                    payload.get("action_id") == action_id
+                    and payload.get("final_state") == "COMPLETED"
+                    and payload.get("verified") is True
+                ):
+                    receipt_ok = True
+                    break
+        executed = terminal_bool and receipt_ok
+        if terminal_bool and not receipt_ok:
+            # terminal bool 但 receipt 链不成立——fail closed，不 COMPLETED。
+            executed = False
+        if executed:
+            txn = txns.transition(
+                txn.txn_id, "RECEIPT_PENDING",
+                action_id=action_id, receipt_id=receipt_id,
+            )
+            txn = txns.transition(txn.txn_id, "COMPLETED")
+        else:
+            txn = txns.transition(txn.txn_id, "FAILED")
+        # ExecutionOutcomeV1（P0-4F/5E）：全 ID 链，不是 bool+文本。
         return {
             "schema_version": "rosclaw.execution_outcome.v1",
             "status": "COMPLETED" if executed else "FAILED",
-            "txn_id": txn.txn_id if txn else "",
+            "txn_id": txn.txn_id,
             "approval_id": approval_id,
             "grant_id": grant_id,
             "action_id": action_id,
@@ -636,7 +685,7 @@ class ActionAdmissionService:
             "capability_id": capability_id,
             "executed": executed,
             "terminal": True,
-            "terminal_receipt": bool(outcome.terminal_receipt),
+            "terminal_receipt": terminal_bool,
             "verified": executed,
             "evidence_ref": outcome.evidence_ref,
             "summary": outcome.text[:4000],
