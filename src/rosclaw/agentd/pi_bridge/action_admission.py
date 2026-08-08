@@ -486,15 +486,13 @@ class ActionAdmissionService:
             request, caller_pid=caller_pid, caller_uid=caller_uid
         )
         # 内核 fresh 重观测：当前 envelope 与卡记录逐项精确比对——模型
-        # 不能在批准后修改动作；body/mode/revision/hash 任一变化即拒。
+        # 不能在批准后修改动作；body/mode/revision 任一变化即拒。
         from rosclaw.agentd.pi_bridge.context import build_embodied_context
-        from rosclaw.agentd.pi_bridge.context_lease import context_hash_of
 
         mission_now = service.get_mission(stored.mission_id)
         if mission_now is None:
             raise ToolBridgeError("MISSION_NOT_FOUND", "mission gone after approval")
         fresh = build_embodied_context(service, stored.mission_id)
-        fresh_hash = context_hash_of(fresh)
         if fresh.context_revision != stored.context_revision:
             raise ToolBridgeError(
                 "CONTEXT_NOT_FRESH",
