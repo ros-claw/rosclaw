@@ -1,0 +1,10 @@
+{
+  "passed": true,
+  "assertions": {
+    "all_treatment_routes_match_oracle": true,
+    "treatment_has_no_compatibility_errors": true,
+    "every_treatment_has_pinned_evidence": true,
+    "treatment_reduces_first_compatible_reads": true,
+    "feedback_never_allows_automatic_mutation": true
+  }
+}

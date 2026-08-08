@@ -19,7 +19,7 @@ class TestVersion:
             main()
         assert exc.value.code == 0
         captured = capsys.readouterr()
-        assert "rosclaw 1.0.1" in captured.out
+        assert "rosclaw 1.2.0" in captured.out
 
     def test_top_level_help_discovers_daemon_control_plane(self, capsys):
         from rosclaw.entrypoint import main

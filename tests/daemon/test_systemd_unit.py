@@ -20,9 +20,10 @@ def test_systemd_unit_uses_dedicated_identity_and_private_state() -> None:
 
     assert service["User"] == "rosclaw-hw"
     assert service["Group"] == "rosclaw-agent"
-    assert service["SupplementaryGroups"] == "dialout"
+    assert service["SupplementaryGroups"] == "dialout audio"
     assert service["RuntimeDirectory"] == "rosclaw"
     assert service["RuntimeDirectoryMode"] == "0750"
+    assert service["RuntimeDirectoryPreserve"] == "restart"
     assert service["StateDirectory"] == "rosclaw"
     assert service["StateDirectoryMode"] == "0700"
     assert service["UMask"] == "0077"

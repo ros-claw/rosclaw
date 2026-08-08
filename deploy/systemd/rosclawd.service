@@ -8,7 +8,7 @@ Wants=network-online.target
 Type=simple
 User=rosclaw-hw
 Group=rosclaw-agent
-SupplementaryGroups=dialout
+SupplementaryGroups=dialout audio
 Environment=ROSCLAW_HOME=/var/lib/rosclaw
 Environment=ROSCLAW_DAEMON_SOCKET=/run/rosclaw/rosclawd.sock
 EnvironmentFile=-/etc/rosclaw/rosclawd.env
@@ -18,6 +18,11 @@ RestartSec=2s
 TimeoutStopSec=30s
 RuntimeDirectory=rosclaw
 RuntimeDirectoryMode=0750
+# Keep daemon-adjacent runtime sockets alive across `systemctl restart`.
+# The LIMO PulseAudio bridge is created by the operator session below this
+# directory; removing its pathname leaves PulseAudio holding an unreachable
+# socket inode until the bridge is manually reloaded.
+RuntimeDirectoryPreserve=restart
 StateDirectory=rosclaw
 StateDirectoryMode=0700
 UMask=0077

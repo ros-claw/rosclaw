@@ -1,0 +1,3 @@
+[Service]
+# Add this group without resetting the device groups from the LIMO runtime drop-in.
+SupplementaryGroups=rosclaw-audio

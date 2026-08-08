@@ -1,4 +1,8 @@
-"""rosclaw.how — Heuristic Rules & Recovery Strategies.
+"""Compatibility facade for legacy ROSClaw HOW integrations.
+
+Authoritative v2 implementation lives in ``rosclaw-how``. This package is a
+rollback-compatible runtime adapter; new evidence-backed cognition is exposed
+through :mod:`rosclaw.knowledge` and remains advisory-only.
 
 Two coexisting layers:
 

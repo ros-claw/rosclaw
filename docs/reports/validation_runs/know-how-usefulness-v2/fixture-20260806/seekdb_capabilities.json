@@ -1,0 +1,14 @@
+{
+  "backend": "memory",
+  "fulltext": true,
+  "hybrid_search": true,
+  "sql_join": false,
+  "ai_rerank": false,
+  "multi_vector": true,
+  "transactions": "copy_on_write",
+  "degraded": [
+    "persistent_storage",
+    "native_seekdb",
+    "ai_rerank"
+  ]
+}

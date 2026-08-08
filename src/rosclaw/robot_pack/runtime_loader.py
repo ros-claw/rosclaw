@@ -478,7 +478,12 @@ class LimoInitialPoseExecutor:
             # audio worker.  The worker independently rejects any other path.
             "ROSCLAW_LIMO_PULSE_SERVER",
         }
-        return {key: value for key, value in os.environ.items() if key in allowed}
+        environment = {key: value for key, value in os.environ.items() if key in allowed}
+        # Python 2 writes imported modules beside their source by default.  A
+        # generated sibling .pyc would dirty the revision-locked MCP checkout
+        # and make the next daemon start fail its adapter integrity check.
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        return environment
 
     def _validate_result(self, action: ActionEnvelope, result: dict[str, Any]) -> str | None:
         if (
@@ -577,6 +582,11 @@ class _LimoFixedWorkerExecutor:
     evidence_level = EvidenceLevel.TASK_VERIFIED
     argument_keys: frozenset[str] = frozenset()
 
+    def _worker_timeout_sec(self, action: ActionEnvelope) -> float:
+        """Return the bounded subprocess deadline for this fixed worker."""
+
+        return min(130.0, action.verification_policy.timeout_sec + 8.0)
+
     def __init__(
         self,
         instance: RobotInstanceConfig,
@@ -606,7 +616,7 @@ class _LimoFixedWorkerExecutor:
                 capture_output=True,
                 text=True,
                 check=False,
-                timeout=min(130.0, action.verification_policy.timeout_sec + 8.0),
+                timeout=self._worker_timeout_sec(action),
                 env=LimoInitialPoseExecutor._worker_environment(),
             )
         except (OSError, subprocess.SubprocessError) as exc:
@@ -1243,6 +1253,15 @@ class LimoSpeechExecutor(_LimoFixedWorkerExecutor):
             "expected_effect",
         }
     )
+
+    def _worker_timeout_sec(self, action: ActionEnvelope) -> float:
+        # eSpeak's Mandarin voice can synthesize the bounded 80-character input
+        # into substantially more than 23 seconds of PCM at the minimum allowed
+        # rate.  Keep a speech-specific hard deadline that covers baseline
+        # capture, worst-case bounded playback, loopback capture, and mixer
+        # restoration without widening the other fixed workers.
+        del action
+        return 90.0
 
     def _validate_arguments(self, arguments: dict[str, Any]) -> tuple[str, str] | None:
         code = "LIMO_SPEECH_CONTRACT_INVALID"

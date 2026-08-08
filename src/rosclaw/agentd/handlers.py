@@ -243,7 +243,9 @@ class ServiceIntentHandlers:
             parameters=payload.get("parameters") or arguments or {},
         )
         request = ApprovalRequestV2(
-            request_id=new_id("appr"),
+            # P0-NA-13：调用方可提供精确 request_id（ActionAdmissionService
+            # 生成并持久化 ActionTxn 链）——缺省时本地生成（legacy loop）。
+            request_id=str(payload.get("request_id") or new_id("appr")),
             mission_id=decision.mission_id,
             task_id=payload.get("task_id"),
             principal=self._principal,
@@ -483,6 +485,7 @@ class ServiceIntentHandlers:
                         "trust_level": "SIMULATED",
                         "verified": True,
                         "evidence_domain": "simulation",
+                        "usable_for_real_execution": False,
                     },
                 )
                 effect_note = (

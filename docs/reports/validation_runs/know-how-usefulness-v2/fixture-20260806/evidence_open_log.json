@@ -1,0 +1,26 @@
+[
+  {
+    "scenario_id": "g1_football_fixture",
+    "evidence_id": "evidence-good-g1_football_fixture",
+    "snapshot_id": "snapshot-good-g1_football_fixture",
+    "path": "controllers/g1_soccer_balance.yaml",
+    "opened": true,
+    "fixture_only": true
+  },
+  {
+    "scenario_id": "realsense_arm_fixture",
+    "evidence_id": "evidence-good-realsense_arm_fixture",
+    "snapshot_id": "snapshot-good-realsense_arm_fixture",
+    "path": "deploy/realsense_aarch64.yaml",
+    "opened": true,
+    "fixture_only": true
+  },
+  {
+    "scenario_id": "limo_ros1_fixture",
+    "evidence_id": "evidence-good-limo_ros1_fixture",
+    "snapshot_id": "snapshot-good-limo_ros1_fixture",
+    "path": "navigation/limo_move_base.launch",
+    "opened": true,
+    "fixture_only": true
+  }
+]

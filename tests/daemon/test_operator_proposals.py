@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from rosclaw.contracts.operator.decision import compute_display_hash
 from rosclaw.core.runtime import Runtime, RuntimeConfig
 from rosclaw.daemon.client import DaemonClient, DaemonRequestError
 from rosclaw.daemon.ledger import DaemonLedger, LedgerError
@@ -166,6 +167,47 @@ def test_broker_accepts_exact_proposal_without_exposing_challenge_or_permit(
     assert receipt["decision"] == "ACCEPT"
     assert receipt["proposal_id"] == public["request_id"]
     assert receipt["signature_b64"]
+
+
+def test_daemon_challenge_hash_matches_agentd_projected_card_id(tmp_path: Path) -> None:
+    runtime = _runtime()
+    with DaemonLedger(
+        tmp_path / "state" / "ledger.sqlite3",
+        key_path=tmp_path / "state" / "ledger.key",
+    ) as ledger:
+        service = DaemonControlPlane(runtime=runtime, ledger=ledger)
+        service.start()
+        daemon_peer = PeerCredentials(pid=100, uid=os.geteuid(), gid=os.getegid())
+        display = {
+            "title": "Bounded turn",
+            "summary": "Rotate left by a bounded angle",
+            "risk_tier": "LOW",
+            "parameters": {"yaw": 0.35},
+        }
+        proposal = service.create_operator_proposal(
+            _action("action-agentd-projected-card"),
+            display=display,
+            ttl_sec=60.0,
+            peer=daemon_peer,
+            client_reference={
+                "agent_request_id": "appr-agentd-projected-card",
+                "mission_id": "mission-real",
+            },
+        )["proposal"]
+        challenge = service.get_operator_challenge(proposal["request_id"], daemon_peer)[
+            "challenge"
+        ]
+
+    assert challenge["agent_request_id"] == "appr-agentd-projected-card"
+    assert challenge["display_hash"] == compute_display_hash(
+        request_id="appr-agentd-projected-card",
+        title=display["title"],
+        summary=display["summary"],
+        risk_tier=display["risk_tier"],
+        parameters=display["parameters"],
+        body_hash="sha256:body",
+        expires_at=challenge["expires_at"],
+    )
 
 
 def test_decline_and_wrong_challenge_never_issue_permit_or_dispatch(tmp_path: Path) -> None:

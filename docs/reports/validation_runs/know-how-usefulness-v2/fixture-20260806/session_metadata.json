@@ -1,0 +1,8 @@
+{
+  "control": "keyword_only_no_context",
+  "treatment": "know_reference_pack_then_how_advice",
+  "same_fixture_corpus": true,
+  "llm_model": "deepseekv4",
+  "llm_temperature": 0.0,
+  "llm_pairing": "same model/task; treatment adds pack+advice only"
+}

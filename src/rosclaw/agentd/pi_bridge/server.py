@@ -103,8 +103,16 @@ class PiBridgeServer:
             mission = service.get_mission(mission_id)
             if mission is None:
                 return {"ok": False, "error": "unknown mission", "code": "MISSION_NOT_FOUND"}
+            session_id = str(params.get("pi_session_id", ""))
+            # HOTFIX-1：换绑（或重绑）作废旧 session 的全部 context
+            # lease——切换后必须重新拉取 fresh context 才能动作。
+            previous = self._bindings.binding_for_session(session_id)
+            if previous is not None and previous.mission_id != mission_id:
+                from rosclaw.agentd.pi_bridge.context_lease import ContextLeaseStore
+
+                ContextLeaseStore(service._store.connection).revoke_for_session(session_id)
             binding = self._bindings.bind(
-                pi_session_id=str(params.get("pi_session_id", "")),
+                pi_session_id=session_id,
                 pi_session_path=str(params.get("pi_session_path", "")),
                 mission_id=mission_id,
                 body_id=mission.body_binding.body_id,
@@ -166,7 +174,28 @@ class PiBridgeServer:
                 envelope = build_embodied_context(service, mission_id)
             except ValueError as exc:
                 return {"ok": False, "error": str(exc), "code": "CONTEXT_UNAVAILABLE"}
-            return {"ok": True, "context": envelope.model_dump(mode="json")}
+            # HOTFIX-1（P0-4A）：context 校验成功后由 agentd 签发短期
+            # ValidatedContextLease——action 准入的权威 freshness 凭证
+            # （同一权威源，不信 TUI 自报）。无 session 不签发。
+            response: dict[str, Any] = {"ok": True, "context": envelope.model_dump(mode="json")}
+            pi_session_id = str(params.get("pi_session_id", ""))
+            if pi_session_id:
+                from rosclaw.agentd.pi_bridge.context_lease import (
+                    ContextLeaseStore,
+                    context_hash_of,
+                )
+
+                lease = ContextLeaseStore(service._store.connection).issue(
+                    pi_session_id=pi_session_id,
+                    mission_id=mission_id,
+                    context_revision=envelope.context_revision,
+                    context_hash=context_hash_of(envelope),
+                    body_hash=envelope.body.get("effective_body_hash", ""),
+                    mode=service.get_mission(mission_id).mode.value,
+                )
+                response["context_lease_id"] = lease.context_lease_id
+                response["context_lease_expires_at"] = lease.expires_at
+            return response
         if method == "pi.mission.create":
             # PNA-6（规格 §13）：/new /fork 的新 Mission——fork 强制
             # SIMULATION，authority（grant/permit/approval）永不复制。
@@ -193,12 +222,24 @@ class PiBridgeServer:
                 "mission_archived": service.mission_archived(binding.mission_id),
             }
         if method == "pi.action.propose":
-            from rosclaw.agentd.pi_bridge.action_coordinator import ActionCoordinator
+            # P0-NA-10：唯一 admission path——完整请求上下文是建卡前提。
+            from rosclaw.agentd.pi_bridge.action_admission import (
+                ActionAdmissionService,
+                ActionRequestContext,
+            )
 
-            coordinator = ActionCoordinator(service)
+            admission = ActionAdmissionService(service)
             try:
-                card = await coordinator.propose(
-                    mission_id=str(params.get("mission_id", "")),
+                card = await admission.propose(
+                    request=ActionRequestContext(
+                        pi_session_id=str(params.get("pi_session_id", "")),
+                        mission_id=str(params.get("mission_id", "")),
+                        context_revision=int(params.get("context_revision", -1)),
+                        body_hash=str(params.get("body_hash", "")),
+                        mode=str(params.get("mode", "")),
+                        idempotency_key=str(params.get("idempotency_key", "")),
+                        context_lease_id=str(params.get("context_lease_id", "")),
+                    ),
                     capability_id=str(params.get("capability_id", "")),
                     arguments=dict(params.get("arguments") or {}),
                     expected_effect=str(params.get("expected_effect", "")),
@@ -210,17 +251,63 @@ class PiBridgeServer:
                         "code": getattr(exc, "code", "PROPOSE_FAILED")}
             return {"ok": True, "card": card}
         if method == "pi.action.status":
-            from rosclaw.agentd.pi_bridge.action_coordinator import ActionCoordinator
+            # HOTFIX-1（P0-4B）：status 也必须证明调用方是卡主——只凭
+            # approval_id 不得窥探卡状态。
+            from rosclaw.agentd.pi_bridge.action_admission import (
+                ActionAdmissionService,
+            )
 
-            return {"ok": True, **ActionCoordinator(service).decision_status(
-                str(params.get("approval_id", ""))
+            caller_session = str(params.get("pi_session_id", ""))
+            if not caller_session:
+                return {
+                    "ok": False,
+                    "error": "pi_session_id required (card ownership check)",
+                    "code": "REQUEST_CONTEXT_REQUIRED",
+                }
+            binding = self._bindings.binding_for_session(caller_session)
+            approval_id = str(params.get("approval_id", ""))
+            stored = service._broker.get_request(approval_id)
+            if stored is not None and (
+                binding is None or binding.mission_id != stored.mission_id
+            ):
+                return {
+                    "ok": False,
+                    "error": "not your card",
+                    "code": "FORBIDDEN",
+                }
+            return {"ok": True, **ActionAdmissionService(service).decision_status(
+                approval_id
             )}
         if method == "pi.action.execute":
-            from rosclaw.agentd.pi_bridge.action_coordinator import ActionCoordinator
+            # P0-NA-10：execute 也带请求上下文做 TOCTOU 复验。
+            from rosclaw.agentd.pi_bridge.action_admission import (
+                ActionAdmissionService,
+                ActionRequestContext,
+            )
 
-            coordinator = ActionCoordinator(service)
+            admission = ActionAdmissionService(service)
+            # HOTFIX-1（P0-4B）：请求上下文强制必填——没有"只给
+            # approval_id 就执行"的绕过路径。
+            if not params.get("pi_session_id"):
+                return {
+                    "ok": False,
+                    "error": "full request context required (pi_session_id/mission_id/"
+                    "context_revision/body_hash/mode/idempotency_key/context_lease_id)",
+                    "code": "REQUEST_CONTEXT_REQUIRED",
+                }
+            request_ctx = ActionRequestContext(
+                pi_session_id=str(params.get("pi_session_id", "")),
+                mission_id=str(params.get("mission_id", "")),
+                context_revision=int(params.get("context_revision", -1)),
+                body_hash=str(params.get("body_hash", "")),
+                mode=str(params.get("mode", "")),
+                idempotency_key=str(params.get("idempotency_key", "")),
+                context_lease_id=str(params.get("context_lease_id", "")),
+            )
             try:
-                result = await coordinator.execute(str(params.get("approval_id", "")))
+                result = await admission.execute(
+                    str(params.get("approval_id", "")), request=request_ctx
+                )
             except Exception as exc:  # noqa: BLE001
                 return {"ok": False, "error": f"{type(exc).__name__}: {exc}",
                         "code": getattr(exc, "code", "EXECUTE_FAILED")}

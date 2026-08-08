@@ -18,6 +18,8 @@ import { migrateProviders } from "../credentials/migration.js";
 import { credentialStoreFor } from "../credentials/store.js";
 import { resourcePolicy } from "../extension/resource-policy.js";
 import { ActiveSessionContext } from "../session/active-context.js";
+import { AgentSessionCoordinator } from "../session/coordinator.js";
+import { SessionLeaseManager } from "../session/lease-manager.js";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -55,15 +57,41 @@ export function loadSystemPrompt(): string {
 	throw new Error("native_agent_v2.md not found in dist/prompts (stale/incomplete build?)");
 }
 
+export interface RosclawRuntime {
+	runtime: AgentSessionRuntime;
+	active: ActiveSessionContext;
+	/** P0-NA-12：唯一 session/mission/lease 事务协调器——main 的初始
+	 * 绑定（--mission/--resume/--continue）与扩展的生命周期 hook 共用。 */
+	coordinator: AgentSessionCoordinator;
+	leaseManager: SessionLeaseManager;
+}
+
 export async function createRosclawRuntime(
 	options: RosclawRuntimeOptions,
-): Promise<AgentSessionRuntime> {
+): Promise<RosclawRuntime> {
 	const active = new ActiveSessionContext({
 		sessionId: "",
 		missionId: options.missionId,
 		contextRevision: 0,
 		mode: "SIMULATION",
 		profile: options.profile,
+		contextState: "LOADING",
+		leaseState: "NONE",
+		actionsAllowed: false,
+	});
+	// P0-NA-12：coordinator 拥有 leaseManager；扩展 hook 与 main 初始
+	// 绑定都经它，lease_token 绝不丢弃、heartbeat 唯一。
+	const leaseManager = new SessionLeaseManager(options.rosclawHome);
+	// HOTFIX-3：heartbeat 连续失败 → LEASE_LOST——ActiveSessionContext
+	// 立即禁行动作（admission 的内核校验仍是最终权威）。
+	leaseManager.onLeaseLost = () => {
+		active.markLeaseLost();
+	};
+	const coordinator = new AgentSessionCoordinator({
+		rosclawHome: options.rosclawHome,
+		active,
+		leaseManager,
+		notify: () => undefined, // UI notify 在 hook 触发时注入
 	});
 	const agentDir = `${options.rosclawHome}/agent`;
 	// PNA-7（规格 §22.3）：legacy config.yaml → Pi settings 一次性迁移
@@ -73,10 +101,15 @@ export async function createRosclawRuntime(
 	// P1-1：raw reasoning 默认不显示（live + resumed history 同策；
 	// debug 可在 /settings 手动打开）。
 	settingsManager.setHideThinkingBlock(true);
-	// P0-8（patch-02）：ROBOT profile 的内建命令前置拦截策略。
-	if (options.profile === "robot") {
+	// P0-NA-15：quiet startup——正常启动不显示 [Extensions] inline:rosclaw、
+	// 上游 changelog/资源诊断（debug/doctor 另开）。
+	settingsManager.setQuietStartup(true);
+	// P0-8（patch-02）：内建命令前置拦截策略。ROBOT 全禁一批；
+	// 所有 profile 都禁上游自更新通道（P0-NA-15：版本所有权属于
+	// ROSClaw signed release，harness 不得自行更新）。
+	{
 		(globalThis as Record<string, unknown>).__rosclawBuiltinPolicy = {
-			disabled: new Set(["/trust", "/share", "/import", "/reload"]),
+			disabled: new Set(["/update", "/trust", "/share", "/import", "/reload"]),
 		};
 	}
 	// 凭据后端按 profile：developer=加固文件（0600/原子写/fsync），
@@ -84,7 +117,9 @@ export async function createRosclawRuntime(
 	const modelRuntime = await ModelRuntime.create({
 		credentials: credentialStoreFor(options.profile, agentDir) as never,
 		authPath: `${agentDir}/auth.json`,
-		modelsPath: null,
+		// robot=env-only 时禁 models.json；developer 允许用户自定义 provider
+		// （models.json 自定义 endpoint 是 developer 的合法能力）。
+		modelsPath: options.profile === "robot" ? null : `${agentDir}/models.json`,
 	});
 	const systemPrompt = loadSystemPrompt();
 
@@ -116,6 +151,7 @@ export async function createRosclawRuntime(
 								version: options.version,
 								systemPrompt,
 								active,
+								coordinator,
 								rosclawHome: options.rosclawHome,
 							}),
 						},
@@ -123,29 +159,32 @@ export async function createRosclawRuntime(
 				},
 			});
 			active.patch({ sessionId: sessionManager.getSessionId() });
+			// 具身主 Agent 不需要 coding 工具；ROSClaw 工具走 customTools。
+			// 注意：noTools:"all" 会把 allowedToolNames 置空、连 customTools 一起
+			// 过滤掉（模型将看不到任何工具）——必须用显式 allowlist。
+			const customTools = [
+				buildStatusTool(options.rosclawHome),
+				// PNA-3/PNA-4/PNA-5：bridge 工具需要绑定 session/mission。
+				...buildBridgeTools({
+					rosclawHome: options.rosclawHome,
+					active,
+				}),
+				buildDelegateTool({
+					rosclawHome: options.rosclawHome,
+					active,
+				}),
+				// NA-FIX-4：request_action 必须真实注册（P0-4）。
+				buildRequestActionTool({
+					rosclawHome: options.rosclawHome,
+					active,
+				}),
+			];
 			const result = await createAgentSessionFromServices({
 				services,
 				sessionManager,
 				sessionStartEvent,
-				// 具身主 Agent 不需要 coding 工具；ROSClaw 工具走 customTools。
-				noTools: "all",
-				customTools: [
-					buildStatusTool(options.rosclawHome),
-					// PNA-3/PNA-4/PNA-5：bridge 工具需要绑定 session/mission。
-					...buildBridgeTools({
-						rosclawHome: options.rosclawHome,
-						active,
-					}),
-					buildDelegateTool({
-						rosclawHome: options.rosclawHome,
-						active,
-					}),
-					// NA-FIX-4：request_action 必须真实注册（P0-4）。
-					buildRequestActionTool({
-						rosclawHome: options.rosclawHome,
-						active,
-					}),
-				],
+				tools: customTools.map((tool) => tool.name),
+				customTools,
 			});
 			return {
 				...result,
@@ -163,5 +202,5 @@ export async function createRosclawRuntime(
 				SessionManager.create(options.cwd, `${agentDir}/sessions`),
 		},
 	);
-	return runtime;
+	return { runtime, active, coordinator, leaseManager };
 }

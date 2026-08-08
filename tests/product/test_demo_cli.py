@@ -31,7 +31,7 @@ def test_demo_catalog_and_capability_status_are_machine_readable(capsys) -> None
 
     assert dispatch_product_argv(["status", "capabilities", "--json"]) == 0
     status = json.loads(capsys.readouterr().out)
-    assert status["release"]["version"] == "1.0.1"
+    assert status["release"]["version"] == "1.2.0"
     assert status["golden_paths"]["ur5e_reach"]["dimensions"]["simulation"] == "verified"
     assert status["golden_paths"]["rh56_single_step"]["modes"]["real"] == "developer_observed"
 

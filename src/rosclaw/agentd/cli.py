@@ -81,7 +81,7 @@ def cmd_start(args: argparse.Namespace) -> int:
     config = load_agent_config(home / "config.yaml")
     if not config.profiles:
         print(
-            "未配置模型。先运行 `rosclaw agent init`，或 `rosclaw agent doctor` 查看缺口。",
+            "未配置模型。先运行 `rosclaw setup model`，或 `rosclaw agent doctor` 查看缺口。",
             file=sys.stderr,
         )
         return 2
@@ -374,10 +374,9 @@ def cmd_chat(args: argparse.Namespace) -> int:
     home = _home(args)
     if not _load_stored_credentials(home):
         return 2
-    # 重构路线（rosclaw_native_agent重构.md）：engine=pi 走 Pi-backed
-    # harness（packages/rosclaw-agent），legacy 保持默认直到 Product Gate 通过。
-    # 优先级：--legacy > --engine > config.agent.engine > legacy（规格 §5/
-    # §31——Product Gate 未全过前默认必须保持 legacy）。
+    # NA-FIX-9（规格 §5/§31，Gate A–E 已通过）：Native Agent（pi）是默认
+    # 引擎；legacy 仅作隐藏回退保留一个稳定版本。
+    # 优先级：--legacy > --engine > config.agent.engine > pi。
     if getattr(args, "legacy", False):
         engine = "legacy"
     elif getattr(args, "engine", None):
@@ -386,13 +385,19 @@ def cmd_chat(args: argparse.Namespace) -> int:
         try:
             engine = load_agent_config(home / "config.yaml").engine
         except Exception:  # noqa: BLE001 - 配置问题由后续步骤诚实报出
-            engine = "legacy"
+            engine = "pi"
+    # 两种引擎都需要模型配置——缺失时给出同一指引（pi 侧由
+    # ModelRuntime/auth 接续处理具体 provider 细节）。
+    try:
+        if not load_agent_config(home / "config.yaml").profiles:
+            print("未配置模型。先运行 `rosclaw setup model`。", file=sys.stderr)
+            return 2
+    except ValueError:
+        print("未配置模型。先运行 `rosclaw setup model`。", file=sys.stderr)
+        return 2
     if engine == "pi":
         return _chat_pi(home, args)
     config = load_agent_config(home / "config.yaml")
-    if not config.profiles:
-        print("未配置模型。先运行 `rosclaw agent init`。", file=sys.stderr)
-        return 2
     service = AgentService(config, home)
     if getattr(args, "basic", False):
         return asyncio.run(_chat_repl(service, args))
@@ -401,26 +406,10 @@ def cmd_chat(args: argparse.Namespace) -> int:
 
 def _find_pi_agent_entry() -> tuple[str, str] | None:
     """Locate (node ≥22.19, rosclaw-agent dist entry)。None = 不可用。"""
-    import shutil
-    import subprocess as _sp
-
-    node = None
-    for candidate in filter(None, [shutil.which("node"), "/usr/bin/node", "/usr/local/bin/node"]):
-        try:
-            out = _sp.check_output([candidate, "--version"], text=True, timeout=10).strip()
-            if [int(p) for p in out.lstrip("v").split(".")] >= [22, 19, 0]:
-                node = candidate
-                break
-        except Exception:  # noqa: BLE001
-            continue
+    node = _find_node()
     if node is None:
         return None
-    entry_env = os.environ.get("ROSCLAW_AGENT_ENTRY")
-    repo_entry = (
-        Path(__file__).resolve().parents[3]
-        / "packages" / "rosclaw-agent" / "dist" / "src" / "main.js"
-    )
-    entry = entry_env or (str(repo_entry) if repo_entry.exists() else None)
+    entry = _package_entry("rosclaw-agent", "ROSCLAW_AGENT_ENTRY")
     if not entry or not Path(entry).exists():
         return None
     return node, entry
@@ -439,9 +428,9 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     runtime = _find_pi_agent_entry()
     if runtime is None:
         print(
-            "engine=pi 需要 Node ≥22.19 且已构建 packages/rosclaw-agent"
+            "Native Agent 需要 Node ≥22.19 且已构建 packages/rosclaw-agent"
             "（发布包自带；源码环境先 npm ci && npm run build）。"
-            "回退：rosclaw chat --legacy",
+            "临时回退：rosclaw chat --legacy",
             file=sys.stderr,
         )
         return 2
@@ -479,19 +468,33 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     while time.time() < deadline and not (home / "run" / "pi-bridge.sock").exists():
         time.sleep(0.05)
     if not (home / "run" / "pi-bridge.sock").exists():
-        print("pi-bridge 未能启动——engine=pi 不可用（agentd 内核未就绪）。", file=sys.stderr)
+        print("内核桥未能启动——Native Agent 不可用（agentd 内核未就绪）。", file=sys.stderr)
         server.should_exit = True
         asyncio.run(service.close())
         return 2
     # P0-9：SHADOW/REAL 强制 ROBOT profile——用户不能经 CLI 把
     # REAL 降级为 developer（SIM 桌面用 developer）。
-    profile = (
-        "robot" if mission is not None and mission.mode.value != "SIMULATION" else "developer"
+    # P0-NA-12：--resume/--continue 也必须解析出目标 session 的 mission
+    # mode——恢复非 SIM Mission 时用 developer profile 是安全降级。
+    resume_mode = None
+    if resume_argv:
+        resume_mode = _resume_target_mode(home, args)
+    effective_mode = (
+        mission.mode.value if mission is not None else resume_mode
     )
+    profile = "robot" if effective_mode is not None and effective_mode != "SIMULATION" else "developer"
     argv = [node, entry, "--profile", profile, *resume_argv]
     if mission is not None:
         argv += ["--mission", mission.mission_id]
-    env = dict(os.environ, ROSCLAW_HOME=str(home))
+    # P0-NA-16：产品版本由 Python launcher 显式传给 Node——TS 侧不得
+    # 用内部 npm 子包版本冒充 ROSClaw 产品版本。
+    from rosclaw import __version__ as _product_version
+
+    env = dict(
+        os.environ,
+        ROSCLAW_HOME=str(home),
+        ROSCLAW_PRODUCT_VERSION=_product_version,
+    )
     try:
         return _sp.call(argv, env=env)  # noqa: S603 - fixed entry
     except KeyboardInterrupt:
@@ -501,34 +504,127 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
         asyncio.run(service.close())
 
 
-def _find_tui_runtime() -> tuple[str, str] | None:
-    """Locate (node ≥22.19, rosclaw-tui dist entry). None = unavailable."""
+def _resume_target_mode(home: Path, args: argparse.Namespace) -> str | None:
+    """--resume/--continue 目标 session 的 mission mode（P0-NA-12）。
+
+    session 文件头 id → pi_session_bindings → mission.mode。任一环节
+    缺失返回 None（按 SIM/developer 处理并如实记录——绑定恢复时
+    coordinator 会以权威 mission 为准再次校验）。
+    """
+    import json as _json
+
+    session_dir = home / "agent" / "sessions"
+    session_id = ""
+    if getattr(args, "resume", None):
+        candidate = str(args.resume)
+        # 与 Node 侧同一规则：纯标识符，拒绝路径穿越。
+        import re as _re
+
+        if not _re.fullmatch(r"[A-Za-z0-9_-]+", candidate):
+            return None
+        session_id = candidate
+    elif getattr(args, "continue_last", False):
+        try:
+            newest = max(
+                session_dir.glob("*.jsonl"),
+                key=lambda p: p.stat().st_mtime,
+                default=None,
+            )
+            if newest is None:
+                return None
+            header = _json.loads(newest.read_text(encoding="utf-8").split("\n", 1)[0])
+            session_id = str(header.get("id", ""))
+        except Exception:  # noqa: BLE001 - 恢复失败由 Node 侧诚实报出
+            return None
+    if not session_id:
+        return None
+    db_path = home / "agentd" / "missions.db"
+    if not db_path.exists():
+        return None
+    import sqlite3 as _sqlite3
+
+    try:
+        conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            row = conn.execute(
+                "SELECT mission_id FROM pi_session_bindings "
+                "WHERE pi_session_id = ? AND status = 'ACTIVE'",
+                (session_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            mission_row = conn.execute(
+                "SELECT mode FROM missions WHERE mission_id = ?", (row[0],)
+            ).fetchone()
+            return str(mission_row[0]) if mission_row else None
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _install_prefix_root() -> Path | None:
+    """安装布局根（$PREFIX/current）：venv 位于 <root>/.venv 时返回 root。"""
+    parts = Path(__file__).resolve().parts
+    if ".venv" in parts:
+        idx = parts.index(".venv")
+        if idx > 0:
+            return Path(*parts[:idx])
+    return None
+
+
+def _node_candidates() -> list[str]:
+    """bundled node 优先（发布包免装 Node），其后系统 node。"""
     import shutil
+
+    candidates: list[str] = []
+    root = _install_prefix_root()
+    if root is not None:
+        bundled = root / "vendor" / "node-runtime" / "bin" / "node"
+        if bundled.exists():
+            candidates.append(str(bundled))
+    candidates += [shutil.which("node") or "", "/usr/bin/node", "/usr/local/bin/node"]
+    return candidates
+
+
+def _find_node() -> str | None:
     import subprocess as _sp
 
-    candidates = [shutil.which("node"), "/usr/bin/node", "/usr/local/bin/node"]
-    node = None
-    for candidate in filter(None, candidates):
+    for candidate in filter(None, _node_candidates()):
         try:
             out = _sp.check_output([candidate, "--version"], text=True, timeout=10).strip()
             parts = [int(p) for p in out.lstrip("v").split(".")]
             if parts >= [22, 19, 0]:
-                node = candidate
-                break
+                return candidate
         except Exception:  # noqa: BLE001 - probe next candidate
             continue
+    return None
+
+
+def _package_entry(pkg: str, env_var: str) -> str | None:
+    """pkg dist 入口解析：env → 仓库布局 → 安装布局（<root>/packages/<pkg>）。"""
+    entry_env = os.environ.get(env_var)
+    if entry_env:
+        return entry_env
+    repo_entry = (
+        Path(__file__).resolve().parents[3] / "packages" / pkg / "dist" / "src" / "main.js"
+    )
+    if repo_entry.exists():
+        return str(repo_entry)
+    root = _install_prefix_root()
+    if root is not None:
+        installed = root / "packages" / pkg / "dist" / "src" / "main.js"
+        if installed.exists():
+            return str(installed)
+    return None
+
+
+def _find_tui_runtime() -> tuple[str, str] | None:
+    """Locate (node ≥22.19, rosclaw-tui dist entry). None = unavailable."""
+    node = _find_node()
     if node is None:
         return None
-    entry_env = os.environ.get("ROSCLAW_TUI_ENTRY")
-    repo_entry = (
-        Path(__file__).resolve().parents[3]
-        / "packages"
-        / "rosclaw-tui"
-        / "dist"
-        / "src"
-        / "main.js"
-    )
-    entry = entry_env or (str(repo_entry) if repo_entry.exists() else None)
+    entry = _package_entry("rosclaw-tui", "ROSCLAW_TUI_ENTRY")
     if not entry or not Path(entry).exists():
         return None
     return node, entry
@@ -971,13 +1067,14 @@ def add_agent_subparsers(subparsers) -> None:
         "--engine",
         default=None,
         choices=["pi", "legacy"],
-        help="Agent engine：pi（Pi-backed harness，重构路线）或 legacy"
-        "（当前 Python AgentLoop + rosclaw-tui）。默认 legacy（Product Gate 未过前）。",
+        # NA-FIX-9：公开面不再暴露引擎概念；仅兼容旧脚本/诊断。
+        help=argparse.SUPPRESS,
     )
     p_chat.add_argument(
         "--legacy",
         action="store_true",
-        help="等价于 --engine legacy",
+        # 隐藏回退（保留一个稳定版本后随 legacy 一起退役）。
+        help=argparse.SUPPRESS,
     )
     p_chat.add_argument(
         "--continue",

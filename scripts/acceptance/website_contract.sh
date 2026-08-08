@@ -52,7 +52,7 @@ demos = json.loads((root / "demos.json").read_text(encoding="utf-8"))
 status = json.loads((root / "status.json").read_text(encoding="utf-8"))
 
 assert demos["demos"][0]["id"] == "ur5e-reach"
-assert status["release"]["version"] == "1.0.1"
+assert status["release"]["version"] == "1.2.0"
 assert status["golden_paths"]["ur5e_reach"]["dimensions"]["simulation"] == "verified"
 assert status["golden_paths"]["rh56_single_step"]["agent_ready"] is False
 print("PASS website contract")

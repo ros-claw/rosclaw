@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import select
+import stat
 from dataclasses import dataclass
 
 CONFIRM_TIMEOUT_SEC = 60.0
@@ -108,19 +109,77 @@ def confirm_on_tty(card: str, *, timeout_sec: float = CONFIRM_TIMEOUT_SEC) -> Hu
             None, "tty-yn", f"no controlling terminal ({exc}) — decision refused"
         )
     try:
+        return _confirm_on_fd(tty_fd, card, timeout_sec=timeout_sec, method="tty-yn")
+    finally:
+        os.close(tty_fd)
+
+
+def confirm_on_requester_tty(
+    pid: int, card: str, *, timeout_sec: float = CONFIRM_TIMEOUT_SEC
+) -> HumanPromptResult:
+    """Display and read confirmation on the foreground requester's terminal.
+
+    operatord is intentionally a separate long-lived process and may have no
+    controlling terminal of its own.  The socket peer PID is authenticated via
+    ``SO_PEERCRED`` and checked separately to be in its terminal's foreground
+    process group; opening that peer's fd 0 keeps the prompt on the actual chat
+    surface without trusting redirected stdin or weakening the Y/N requirement.
+    """
+
+    if pid <= 0:
+        return HumanPromptResult(None, "requester-tty-yn", "invalid requester pid")
+    path = f"/proc/{pid}/fd/0"
+    try:
+        # Opening another process' procfs fd can be denied by Yama even when
+        # both processes have the same uid.  Resolving the fd symlink and then
+        # opening the actual PTY preserves the same terminal boundary.
+        tty_path = os.readlink(path)
+        if not tty_path.startswith("/dev/"):
+            raise OSError(f"requester fd 0 does not resolve to a device: {tty_path}")
+        tty_fd = os.open(tty_path, os.O_RDWR | os.O_NOCTTY)
+        opened = os.fstat(tty_fd)
+        if not stat.S_ISCHR(opened.st_mode) or os.ttyname(tty_fd) != tty_path:
+            os.close(tty_fd)
+            raise OSError("requester terminal changed while resolving fd 0")
+    except OSError as exc:
+        return HumanPromptResult(
+            None,
+            "requester-tty-yn",
+            f"requester terminal unavailable ({exc}) — decision refused",
+        )
+    try:
+        if not os.isatty(tty_fd):
+            return HumanPromptResult(
+                None, "requester-tty-yn", "requester stdin is not a tty — decision refused"
+            )
+        return _confirm_on_fd(
+            tty_fd, card, timeout_sec=timeout_sec, method="requester-tty-yn"
+        )
+    finally:
+        os.close(tty_fd)
+
+
+def _confirm_on_fd(
+    tty_fd: int,
+    card: str,
+    *,
+    timeout_sec: float,
+    method: str,
+) -> HumanPromptResult:
+    try:
         os.write(tty_fd, (card + "\n").encode())
         ready, _, _ = select.select([tty_fd], [], [], timeout_sec)
         if not ready:
             os.write(tty_fd, b"\n[timeout - treated as DENY]\n")
-            return HumanPromptResult(None, "tty-yn", "confirmation timed out — denied")
+            return HumanPromptResult(None, method, "confirmation timed out — denied")
         data = os.read(tty_fd, 64)
         if not data:
             os.write(tty_fd, b"\n[EOF - treated as DENY]\n")
-            return HumanPromptResult(None, "tty-yn", "tty EOF — denied")
+            return HumanPromptResult(None, method, "tty EOF — denied")
         answer = data.decode(errors="replace").strip().upper()
         os.write(tty_fd, b"\n")
         if answer.startswith("Y"):
-            return HumanPromptResult(True, "tty-yn", "operator approved on foreground tty")
-        return HumanPromptResult(False, "tty-yn", f"operator denied ({answer or 'empty'})")
-    finally:
-        os.close(tty_fd)
+            return HumanPromptResult(True, method, "operator approved on foreground tty")
+        return HumanPromptResult(False, method, f"operator denied ({answer or 'empty'})")
+    except OSError as exc:
+        return HumanPromptResult(None, method, f"tty I/O failed ({exc}) — decision refused")

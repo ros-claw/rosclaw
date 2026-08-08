@@ -1,0 +1,294 @@
+[
+  {
+    "schema_version": "rosclaw.know.reference_pack.v2",
+    "reference_pack_id": "reference_pack_f08b9b41f92d81642cfb2327",
+    "query": "G1 football balance recovery controller",
+    "context": {
+      "task": "Choose the first implementation route for G1 football balance recovery.",
+      "robot": "unitree_g1",
+      "simulator": "isaac_lab",
+      "ros_distro": "humble",
+      "software_versions": {
+        "torch": "2.7"
+      },
+      "current_stage": "route_selection",
+      "current_failure": null
+    },
+    "generated_at": "2026-08-06T16:48:23.616992Z",
+    "index_version": "fixture-564871b5deed",
+    "items": [
+      {
+        "rank": 1,
+        "project_id": null,
+        "knowledge_unit_ids": [
+          "z-good-g1_football_fixture"
+        ],
+        "title": "G1 football balance recovery controller",
+        "why_relevant": "Matched by fulltext; confidence=0.95.",
+        "relevance_dimensions": [
+          "fulltext"
+        ],
+        "mechanism": "Use route bounded_residual_balance only when robot, ROS and software constraints match.",
+        "what_to_borrow": [
+          "Inspect controllers/g1_soccer_balance.yaml, then apply route bounded_residual_balance in Sandbox/Practice."
+        ],
+        "exact_files": [
+          "controllers/g1_soccer_balance.yaml"
+        ],
+        "exact_sections": [],
+        "incompatibilities": [],
+        "limitations": [
+          "Fixture evidence only; physical behavior is unverified."
+        ],
+        "adaptation_needed": [],
+        "source_version": "git_commit:c2022f9c907f",
+        "evidence_refs": [
+          {
+            "schema_version": "rosclaw.know.evidence_ref.v2",
+            "evidence_id": "evidence-good-g1_football_fixture",
+            "source_id": "source-good-g1_football_fixture",
+            "snapshot_id": "snapshot-good-g1_football_fixture",
+            "document_id": "document-good-g1_football_fixture",
+            "path": "controllers/g1_soccer_balance.yaml",
+            "start_line": 1,
+            "end_line": 4,
+            "section": null,
+            "url": "https://example.invalid/g1_football_fixture/blob/c2022f9c907f/controllers/g1_soccer_balance.yaml",
+            "content_hash": "c2022f9c907f373c68a8a10b19b4dae312415afad750fc32dcfbb0859c76c586",
+            "excerpt": "fixture route=bounded_residual_balance\nfile=controllers/g1_soccer_balance.yaml\nrobot=unitree_g1\nros=humble\nquery=G1 football balance recovery controller"
+          }
+        ],
+        "score": 0.7049180327868853,
+        "score_breakdown": {
+          "exact": 1.0,
+          "rrf": 0.01639344262295082,
+          "compatibility": 1.0,
+          "confidence": 0.95
+        }
+      }
+    ],
+    "comparison": {
+      "shared_principles": [],
+      "conflicting_assumptions": [],
+      "route_tradeoffs": [
+        "Fixture evidence only; physical behavior is unverified."
+      ],
+      "preferred_references": [
+        "z-good-g1_football_fixture"
+      ]
+    },
+    "recommended_reading_order": [
+      "z-good-g1_football_fixture"
+    ],
+    "suggested_next_checks": [
+      "Open the cited file/section at the pinned source version.",
+      "Verify compatibility against current runtime versions before implementation."
+    ],
+    "open_questions": [],
+    "token_budget": 8000,
+    "truncated": false,
+    "continuation_cursor": null,
+    "warnings": [
+      "reranker_used=false; deterministic_fallback=rrf",
+      "AI_RERANK unavailable; deterministic RRF fallback used"
+    ],
+    "cached": false,
+    "stale": false,
+    "cache_age_seconds": 0
+  },
+  {
+    "schema_version": "rosclaw.know.reference_pack.v2",
+    "reference_pack_id": "reference_pack_20b6eda33ec5ac23d0ee0e8e",
+    "query": "RealSense ARM robot camera integration",
+    "context": {
+      "task": "Choose the first integration route for a RealSense camera on an ARM robot.",
+      "robot": "custom_arm_robot",
+      "simulator": "gazebo",
+      "ros_distro": "humble",
+      "software_versions": {
+        "arch": "aarch64",
+        "librealsense": "2.56"
+      },
+      "current_stage": "route_selection",
+      "current_failure": null
+    },
+    "generated_at": "2026-08-06T16:48:37.036201Z",
+    "index_version": "fixture-564871b5deed",
+    "items": [
+      {
+        "rank": 1,
+        "project_id": null,
+        "knowledge_unit_ids": [
+          "z-good-realsense_arm_fixture"
+        ],
+        "title": "RealSense ARM robot camera integration",
+        "why_relevant": "Matched by fulltext; confidence=0.95.",
+        "relevance_dimensions": [
+          "fulltext"
+        ],
+        "mechanism": "Use route aarch64_source_build only when robot, ROS and software constraints match.",
+        "what_to_borrow": [
+          "Inspect deploy/realsense_aarch64.yaml, then apply route aarch64_source_build in Sandbox/Practice."
+        ],
+        "exact_files": [
+          "deploy/realsense_aarch64.yaml"
+        ],
+        "exact_sections": [],
+        "incompatibilities": [],
+        "limitations": [
+          "Fixture evidence only; physical behavior is unverified."
+        ],
+        "adaptation_needed": [],
+        "source_version": "git_commit:0e42da15e8a6",
+        "evidence_refs": [
+          {
+            "schema_version": "rosclaw.know.evidence_ref.v2",
+            "evidence_id": "evidence-good-realsense_arm_fixture",
+            "source_id": "source-good-realsense_arm_fixture",
+            "snapshot_id": "snapshot-good-realsense_arm_fixture",
+            "document_id": "document-good-realsense_arm_fixture",
+            "path": "deploy/realsense_aarch64.yaml",
+            "start_line": 1,
+            "end_line": 4,
+            "section": null,
+            "url": "https://example.invalid/realsense_arm_fixture/blob/0e42da15e8a6/deploy/realsense_aarch64.yaml",
+            "content_hash": "0e42da15e8a6e1d0c373022ea69153f5ff00be3f5938b872e5953fe74e9c3809",
+            "excerpt": "fixture route=aarch64_source_build\nfile=deploy/realsense_aarch64.yaml\nrobot=custom_arm_robot\nros=humble\nquery=RealSense ARM robot camera integration"
+          }
+        ],
+        "score": 0.7049180327868853,
+        "score_breakdown": {
+          "exact": 1.0,
+          "rrf": 0.01639344262295082,
+          "compatibility": 1.0,
+          "confidence": 0.95
+        }
+      }
+    ],
+    "comparison": {
+      "shared_principles": [],
+      "conflicting_assumptions": [],
+      "route_tradeoffs": [
+        "Fixture evidence only; physical behavior is unverified."
+      ],
+      "preferred_references": [
+        "z-good-realsense_arm_fixture"
+      ]
+    },
+    "recommended_reading_order": [
+      "z-good-realsense_arm_fixture"
+    ],
+    "suggested_next_checks": [
+      "Open the cited file/section at the pinned source version.",
+      "Verify compatibility against current runtime versions before implementation."
+    ],
+    "open_questions": [],
+    "token_budget": 8000,
+    "truncated": false,
+    "continuation_cursor": null,
+    "warnings": [
+      "reranker_used=false; deterministic_fallback=rrf",
+      "AI_RERANK unavailable; deterministic RRF fallback used"
+    ],
+    "cached": false,
+    "stale": false,
+    "cache_age_seconds": 0
+  },
+  {
+    "schema_version": "rosclaw.know.reference_pack.v2",
+    "reference_pack_id": "reference_pack_2d04c17f6d689a557b3ee197",
+    "query": "LIMO ROS1 navigation integration",
+    "context": {
+      "task": "Choose the first navigation route for an AgileX LIMO ROS1 stack.",
+      "robot": "agilex_limo",
+      "simulator": "gazebo_classic",
+      "ros_distro": "noetic",
+      "software_versions": {
+        "navigation": "move_base"
+      },
+      "current_stage": "route_selection",
+      "current_failure": null
+    },
+    "generated_at": "2026-08-06T16:48:51.368117Z",
+    "index_version": "fixture-564871b5deed",
+    "items": [
+      {
+        "rank": 1,
+        "project_id": null,
+        "knowledge_unit_ids": [
+          "z-good-limo_ros1_fixture"
+        ],
+        "title": "LIMO ROS1 navigation integration",
+        "why_relevant": "Matched by fulltext; confidence=0.95.",
+        "relevance_dimensions": [
+          "fulltext"
+        ],
+        "mechanism": "Use route limo_move_base only when robot, ROS and software constraints match.",
+        "what_to_borrow": [
+          "Inspect navigation/limo_move_base.launch, then apply route limo_move_base in Sandbox/Practice."
+        ],
+        "exact_files": [
+          "navigation/limo_move_base.launch"
+        ],
+        "exact_sections": [],
+        "incompatibilities": [],
+        "limitations": [
+          "Fixture evidence only; physical behavior is unverified."
+        ],
+        "adaptation_needed": [],
+        "source_version": "git_commit:0a916f199934",
+        "evidence_refs": [
+          {
+            "schema_version": "rosclaw.know.evidence_ref.v2",
+            "evidence_id": "evidence-good-limo_ros1_fixture",
+            "source_id": "source-good-limo_ros1_fixture",
+            "snapshot_id": "snapshot-good-limo_ros1_fixture",
+            "document_id": "document-good-limo_ros1_fixture",
+            "path": "navigation/limo_move_base.launch",
+            "start_line": 1,
+            "end_line": 4,
+            "section": null,
+            "url": "https://example.invalid/limo_ros1_fixture/blob/0a916f199934/navigation/limo_move_base.launch",
+            "content_hash": "0a916f199934b92fec2c186faf01fddabb4f0d78c67df0fdb5511eb555b3f6a7",
+            "excerpt": "fixture route=limo_move_base\nfile=navigation/limo_move_base.launch\nrobot=agilex_limo\nros=noetic\nquery=LIMO ROS1 navigation integration"
+          }
+        ],
+        "score": 0.7049180327868853,
+        "score_breakdown": {
+          "exact": 1.0,
+          "rrf": 0.01639344262295082,
+          "compatibility": 1.0,
+          "confidence": 0.95
+        }
+      }
+    ],
+    "comparison": {
+      "shared_principles": [],
+      "conflicting_assumptions": [],
+      "route_tradeoffs": [
+        "Fixture evidence only; physical behavior is unverified."
+      ],
+      "preferred_references": [
+        "z-good-limo_ros1_fixture"
+      ]
+    },
+    "recommended_reading_order": [
+      "z-good-limo_ros1_fixture"
+    ],
+    "suggested_next_checks": [
+      "Open the cited file/section at the pinned source version.",
+      "Verify compatibility against current runtime versions before implementation."
+    ],
+    "open_questions": [],
+    "token_budget": 8000,
+    "truncated": false,
+    "continuation_cursor": null,
+    "warnings": [
+      "reranker_used=false; deterministic_fallback=rrf",
+      "AI_RERANK unavailable; deterministic RRF fallback used"
+    ],
+    "cached": false,
+    "stale": false,
+    "cache_age_seconds": 0
+  }
+]

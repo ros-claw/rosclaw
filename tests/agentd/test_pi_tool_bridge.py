@@ -42,7 +42,24 @@ def _request(tool: str, session: str = "pi_1", mission: str = "", **kwargs) -> P
         arguments=kwargs.get("arguments", {}),
         requested_at=datetime.now(UTC).isoformat(),
         idempotency_key=kwargs.get("idem", f"idem_{tool}_{session}"),
+        context_lease_id=kwargs.get("lease", ""),
     )
+
+
+def _issue_lease(service, mission, session: str = "pi_1") -> str:
+    """按真实路径签发 ValidatedContextLease（HOTFIX-1：不绕过 admission）。"""
+    from rosclaw.agentd.pi_bridge.context_lease import ContextLeaseStore
+
+    snapshot = service.snapshot(mission.mission_id)
+    lease = ContextLeaseStore(service._store.connection).issue(
+        pi_session_id=session,
+        mission_id=mission.mission_id,
+        context_revision=snapshot.context_revision,
+        context_hash="test_hash",
+        body_hash=mission.body_binding.effective_body_hash,
+        mode=mission.mode.value,
+    )
+    return lease.context_lease_id
 
 
 async def _setup(tmp_path: Path):
@@ -57,6 +74,7 @@ async def _setup(tmp_path: Path):
     bindings.acquire_lease(
         mission_id=mission.mission_id, pi_session_id="pi_1", owner_pid=1, owner_uid=1000
     )
+    _register_sim_action_capability(service)
     return service, mission
 
 
@@ -139,3 +157,51 @@ class TestValidationChain:
         assert not result.ok
         assert result.error_code in {"CAPABILITY_UNKNOWN", "NOT_OBSERVABLE", "CAPABILITY_QUARANTINED"}
         await service.close()
+
+
+SIM_ACTION_CAPABILITY = "sim_ground_truth"
+
+
+def _register_sim_action_capability(service) -> None:
+    """注册确定性 SIM 动作能力（PHYSICAL_ACTION）+ 确定性执行通道。
+
+    HOTFIX-2 后 admission 按 ToolCatalog 权威校验——测试必须走真实
+    catalog 路径（不是绕过）。执行端用进程内 fake client 的
+    SimActionChannel：确定性 JSON、无外部进程依赖。
+    """
+    import json as _json
+
+    from rosclaw.agentd.sim_executor import SimActionChannel
+    from rosclaw.contracts.agent.tool import (
+        ExecutionClass,
+        ToolDescriptorV2,
+        ToolEvidenceClass,
+        ToolSideEffectClass,
+    )
+
+    service._tool_catalog.register(
+        ToolDescriptorV2(
+            tool_id=SIM_ACTION_CAPABILITY,
+            source="native:agentd",
+            execution_class=ExecutionClass.PHYSICAL_ACTION,
+            description="确定性 SIM 验收动作（真实 SIM 执行通道产出 SIMULATED receipt）。",
+            input_schema={"type": "object", "additionalProperties": True},
+            supported_modes=["SIMULATION"],
+            evidence_class=ToolEvidenceClass.SIMULATED,
+            risk_tier="LOW",
+            model_callable=False,
+            requires_exact_action_grant=True,
+            side_effect_class=ToolSideEffectClass.IRREVERSIBLE,
+        )
+    )
+
+    class _FakeSimClient:
+        async def call_tool(self, tool_name: str, arguments: dict) -> str:
+            return _json.dumps(
+                {"tool": tool_name, "args": arguments, "ok": True},
+                ensure_ascii=False,
+            )
+
+    service._handlers._sim_channel = SimActionChannel(
+        command="true", args=(), name="fake-sim", client=_FakeSimClient()
+    )

@@ -27,6 +27,9 @@ export interface ContextFetchResult {
 	envelope?: EmbodiedContextEnvelope;
 	stale: boolean;
 	note: string;
+	/** HOTFIX-1：agentd 签发的 ValidatedContextLease（action 准入凭证）。 */
+	contextLeaseId?: string;
+	contextLeaseExpiresAt?: string;
 }
 
 /** 与 Python json.dumps(sort_keys=True, separators=(",", ":")) 逐字节一致。 */
@@ -51,10 +54,16 @@ export function envelopeHash(envelope: EmbodiedContextEnvelope): string {
 export async function fetchEmbodiedContext(
 	rosclawHome: string,
 	missionId: string,
+	piSessionId?: string,
 ): Promise<ContextFetchResult> {
 	let response: Record<string, unknown>;
 	try {
-		response = await bridgeCall(rosclawHome, "pi.context", { mission_id: missionId });
+		// HOTFIX-1：带 session 拉 context——agentd 会同时签发
+		// ValidatedContextLease（action 准入凭证）并随响应返回。
+		response = await bridgeCall(rosclawHome, "pi.context", {
+			mission_id: missionId,
+			...(piSessionId ? { pi_session_id: piSessionId } : {}),
+		});
 	} catch (err) {
 		return {
 			stale: true,
@@ -77,7 +86,21 @@ export async function fetchEmbodiedContext(
 	if (new Date(envelope.expires_at).getTime() < Date.now()) {
 		return { stale: true, note: "context expired (TTL) — physical actions forbidden" };
 	}
-	return { envelope, stale: false, note: "fresh" };
+	// HOTFIX-1：lease 是 action 准入凭证——无 session 拉取（如 doctor）
+	// 不带 lease，那样的 context 只用于展示，不能授权动作。
+	const leaseId = typeof response.context_lease_id === "string"
+		? response.context_lease_id
+		: undefined;
+	const leaseExpiresAt = typeof response.context_lease_expires_at === "string"
+		? response.context_lease_expires_at
+		: undefined;
+	return {
+		envelope,
+		stale: false,
+		note: "fresh",
+		...(leaseId ? { contextLeaseId: leaseId } : {}),
+		...(leaseExpiresAt ? { contextLeaseExpiresAt: leaseExpiresAt } : {}),
+	};
 }
 
 export function renderTrustedContext(result: ContextFetchResult): string {

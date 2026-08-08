@@ -1,0 +1,34 @@
+{
+  "campaign_type": "controlled_fixture_ab",
+  "physical_claim": false,
+  "scenario_count": 3,
+  "baseline": {
+    "wrong_initial_routes": 3,
+    "compatibility_errors": 3,
+    "pinned_evidence_presented": 0,
+    "references_to_first_compatible_total": 6,
+    "oracle_route_passes": 0
+  },
+  "treatment": {
+    "wrong_initial_routes": 0,
+    "compatibility_errors": 0,
+    "pinned_evidence_presented": 3,
+    "references_to_first_compatible_total": 3,
+    "oracle_route_passes": 3
+  },
+  "delta": {
+    "wrong_initial_routes": -3,
+    "compatibility_errors": -3,
+    "pinned_evidence_presented": 3,
+    "references_to_first_compatible_total": -3,
+    "oracle_route_passes": 3
+  },
+  "paired_llm": {
+    "executed": true,
+    "pairs": 3,
+    "baseline_exact_file": 0,
+    "treatment_exact_file": 3,
+    "baseline_expected_route": 0,
+    "treatment_expected_route": 3
+  }
+}

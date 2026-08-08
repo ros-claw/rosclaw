@@ -1,0 +1,4 @@
+# Merge these lines into the LIMO operator account's PulseAudio default.pa.
+# The runtime directory is created at boot by the matching tmpfiles rule.
+.include /etc/pulse/default.pa
+load-module module-native-protocol-unix socket=/run/rosclaw/pulse/native auth-anonymous=1

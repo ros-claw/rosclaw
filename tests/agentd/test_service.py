@@ -218,14 +218,14 @@ class TestOnboarding:
     def test_doctor_no_profiles(self, tmp_path: Path) -> None:
         report = doctor(tmp_path)
         assert report["status"] == "MODEL_NOT_READY"
-        assert "agent init" in report["reason"]
+        assert "setup model" in report["reason"]
 
 
 class TestCli:
     def test_chat_requires_config(self, tmp_path: Path, capsys) -> None:
         rc = agentd_main(["--home", str(tmp_path), "chat"])
         assert rc == 2
-        assert "agent init" in capsys.readouterr().err
+        assert "setup model" in capsys.readouterr().err
 
     def test_status_json(self, tmp_path: Path, capsys) -> None:
         rc = agentd_main(["--home", str(tmp_path), "status"])

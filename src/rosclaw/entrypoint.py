@@ -33,6 +33,14 @@ def main() -> int:
     if result is not None:
         return result
 
+    # P0-CLI-01：统一 setup 向导（model/body/operator/worker/integration）
+    # 先于 legacy parser——legacy 的 setup 只有 lerobot，契约失真。
+    from rosclaw.setup_cli import dispatch_setup_argv
+
+    result = dispatch_setup_argv(sys.argv[1:])
+    if result is not None:
+        return result
+
     from rosclaw.daemon.cli import dispatch_daemon_argv
 
     result = dispatch_daemon_argv(sys.argv[1:])
@@ -54,6 +62,12 @@ def main() -> int:
     from rosclaw.release_verify import dispatch_release_argv
 
     result = dispatch_release_argv(sys.argv[1:])
+    if result is not None:
+        return result
+
+    from rosclaw.knowledge.cli import dispatch_knowledge_argv
+
+    result = dispatch_knowledge_argv(sys.argv[1:])
     if result is not None:
         return result
 

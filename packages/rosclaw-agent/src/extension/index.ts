@@ -7,8 +7,10 @@
 
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { readFileSync } from "node:fs";
 import { bridgeCall } from "../bridge/bridge-client.js";
 import { ActiveSessionContext } from "../session/active-context.js";
+import type { AgentSessionCoordinator } from "../session/coordinator.js";
 import {
 	handleSessionStart,
 	sessionIdOf,
@@ -18,6 +20,7 @@ import {
 } from "../session/lifecycle.js";
 import { defaultOperatorSocket, operatorCall } from "../bridge/operatord-client.js";
 import { ApprovalCardComponent } from "../ui/approval-card.js";
+import { ProductUiState, renderHeader } from "../ui/product-state.js";
 import { EventMirror } from "./event-mirror.js";
 import { buildCommandHandlers } from "./commands.js";
 import { guardInput } from "./input-guard.js";
@@ -30,6 +33,8 @@ export interface RosclawExtensionOptions {
 	systemPrompt: string;
 	/** NA-FIX-2：动态 session 上下文（切换事务的唯一真实源）。 */
 	active: ActiveSessionContext;
+	/** P0-NA-12：唯一 session/mission/lease 事务协调器。 */
+	coordinator: AgentSessionCoordinator;
 	rosclawHome: string;
 }
 
@@ -37,27 +42,55 @@ const WORKING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", 
 
 export function createRosclawExtension(options: RosclawExtensionOptions): ExtensionFactory {
 	return (pi) => {
-		// -- 品牌 ----------------------------------------------------------------
+		// -- 品牌（P0-NA-16：header 只读权威快照——版本来自 launcher 传入的
+		//    产品版本；Operator 状态来自真实 socket 探测；body/context 来自
+		//    验证过的 envelope；bootstrap 未完成显示 LOADING，不乐观默认） --
+		const uiState = new ProductUiState(
+			options.active,
+			defaultOperatorSocket(options.rosclawHome),
+			options.version,
+		);
+		let modelDisplay = "";
+		let refreshHeader: () => void = () => undefined;
+		let probeTimer: ReturnType<typeof setInterval> | null = null;
 		pi.on("session_start", async (_event, ctx) => {
 			if (!ctx.hasUI) return;
 			ctx.ui.setTitle(`ROSClaw Native Agent`);
-			ctx.ui.setHeader((_tui, _theme) => {
-				const state = options.active.current;
-				const line1 = `ROSClaw Native Agent v${options.version} · ${state.mode} · ${options.profile}`;
-				const line2 = state.missionId
-					? `Mission ${state.missionId.slice(0, 24)} · Body ${state.bodyId ?? "—"} · rev ${state.contextRevision} · Operator ready`
-					: "未绑定 Mission · /help 查看命令";
-				return new Text(`${line1}
-${line2}`);
-			});
+			refreshHeader = () => {
+				ctx.ui.setHeader((_tui, _theme) => new Text(renderHeader(uiState.snapshot(), modelDisplay)));
+			};
+			refreshHeader();
+			// 真实探测 operatord——结果回来后再刷一次（OFFLINE/READY/
+			// UNKNOWN 都是真实返回值，绝不硬编码 ready）。
+			void uiState.probeOperator().then(() => refreshHeader());
+			// 30s 周期复探（HOTFIX-3：timer 有明确生命周期——session
+			// shutdown 时清理，不积累）。
+			if (probeTimer !== null) clearInterval(probeTimer);
+			probeTimer = setInterval(() => {
+				void uiState.probeOperator().then(() => refreshHeader());
+			}, 30_000);
+			probeTimer.unref();
 			ctx.ui.setWorkingIndicator({ frames: WORKING_FRAMES, intervalMs: 80 });
+			// P1-TUI-01：中性本地化状态词——不伪造思维过程（"Thinking..."
+			// 会让人以为在看模型推理；只有真实事件阶段才显示具体阶段）。
+			ctx.ui.setWorkingMessage("正在处理…");
+			ctx.ui.setHiddenThinkingLabel("正在处理…");
+			// ROSClaw footer：模型简称 + 上下文占用 + Operator 状态。
+			// 不显示上游费用缩写/scope 噪声（费用只在 provider 有可信
+			// 价格时才值得显示——当前不显示）。
+			ctx.ui.setFooter((_tui, theme, _footerData) => {
+				const snap = uiState.snapshot();
+				const model = modelDisplay || "未选模型";
+				const parts = [model, snap.mode, `Operator ${snap.operatorState}`];
+				return new Text(theme.fg("dim", parts.join(" · ")), 1, 0);
+			});
 		});
 
 		// -- `!` bash 功能级关闭（PNA-0 即生效；PNA-9 再做 profile 化 UI 拦截） -----
 		pi.on("user_bash", async () => {
 			return {
 				result: {
-					output: "bash execution is disabled by ROSClaw policy (engine=pi)",
+					output: "bash execution is disabled by ROSClaw policy",
 					exitCode: 1,
 					cancelled: false,
 					truncated: false,
@@ -66,15 +99,36 @@ ${line2}`);
 		});
 
 		// -- 每轮注入最新具身上下文（PNA-2，规格 §14.2） ---------------------------
-		pi.on("before_agent_start", async (_event, _ctx) => {
+		pi.on("before_agent_start", async (_event, ctx) => {
+			// header 模型名取真实当前 model（P0-NA-16：同一快照语义）。
+			const current = ctx.model as { name?: string; id?: string } | undefined;
+			const display = current ? String(current.name ?? current.id ?? "") : "";
+			if (display && display !== modelDisplay) {
+				modelDisplay = display;
+				uiState.noteContextChanged();
+				refreshHeader();
+			}
 			const missionId = options.active.current.missionId;
 			if (!missionId) {
 				return { systemPrompt: options.systemPrompt };
 			}
-			const fetched = await fetchEmbodiedContext(options.rosclawHome, missionId);
+			const fetched = await fetchEmbodiedContext(
+				options.rosclawHome,
+				missionId,
+				options.active.current.sessionId,
+			);
 			if (!fetched.stale && fetched.envelope) {
 				// P0-7：验证通过后写入精确 revision/body/mode。
-				options.active.applyEnvelope(fetched.envelope);
+				options.active.applyEnvelope(fetched.envelope, fetched.contextLeaseId);
+				// P0-NA-16：fresh envelope 到达 → header 从 LOADING 转 FRESH。
+				uiState.noteContextChanged();
+				refreshHeader();
+			} else {
+				// HOTFIX-3（P0-4E）：context 拉取失败/过期 → 立即标记
+				// STALE + 禁动作（不再有"revision 碰巧没变就能动作"）。
+				options.active.markContextStale(fetched.note);
+				uiState.noteContextChanged();
+				refreshHeader();
 			}
 			return {
 				systemPrompt: options.systemPrompt,
@@ -193,31 +247,64 @@ ${line2}`);
 			if (details.phase !== "AWAITING_OPERATOR" || !details.approval_id) return;
 			const approvalId = details.approval_id;
 			const displayHash = String(details.display_hash ?? "");
-			// 从 operatord 拉这张精确卡片的内容（不猜、不取第一个）。
+			// 明确告知等待态——tool 的 onUpdate partial 文本会被 TUI spinner
+			// 覆盖；spinner 行持续重绘，是执行中唯一稳定可见的通道。
+			ctx.ui.setWorkingMessage(`等待 Operator 决定（approval ${approvalId}）…默认拒绝`);
+			ctx.ui.notify(`等待 Operator 决定（approval ${approvalId}）…默认拒绝`, "info");
+			// P0-NA-14：经 approvals.get 精确拉卡（不扫 list）；拉取失败、
+			// 字段缺失或 display_hash 不一致 → fail-closed，不显示可批准卡。
 			let cardData: Record<string, unknown> | undefined;
+			let cardError = "";
 			try {
-				const listed = (await operatorCall(
+				const got = (await operatorCall(
 					defaultOperatorSocket(options.rosclawHome),
-					"approvals.list",
-					{ mission_id: options.active.current.missionId },
-				)) as { ok: boolean; approvals?: Array<Record<string, unknown>> };
-				cardData = (listed.approvals ?? []).find((a) => a.request_id === approvalId);
-			} catch {
-				cardData = undefined;
+					"approvals.get",
+					{ request_id: approvalId },
+				)) as { ok: boolean; approval?: Record<string, unknown>; error?: string };
+				if (got.ok && got.approval) {
+					cardData = got.approval;
+				} else {
+					cardError = String(got.error ?? "card not found");
+				}
+			} catch (err) {
+				cardError = (err as Error).message;
 			}
+			// 完整性与 hash 绑定校验：卡片必须带齐 mode/risk/capability/
+			// parameters/expires_at，且服务端 display_hash 与 tool 报告的一致。
+			// （early-return 收窄——TS 不跨复合布尔收窄。）
+			if (
+				cardData === undefined
+				|| typeof cardData.title !== "string"
+				|| typeof cardData.mode !== "string" || cardData.mode === ""
+				|| typeof cardData.risk_tier !== "string"
+				|| typeof cardData.expires_at !== "string" || cardData.expires_at === ""
+				|| typeof cardData.parameters !== "object" || cardData.parameters === null
+				|| (displayHash !== "" && String(cardData.display_hash ?? "") !== displayHash)
+			) {
+				ctx.ui.notify(
+					`授权卡不可用（${cardError || "字段缺失或 hash 不一致"}）——` +
+					"动作未执行。为安全起见本卡不可在此批准；请重新发起请求。",
+					"error",
+				);
+				return;
+			}
+			const card: Record<string, unknown> = cardData;
 			try {
 				await ctx.ui.custom<boolean>((_tui, _theme, _kb, done) => {
 					return new ApprovalCardComponent(
 						{
 							requestId: approvalId,
-							title: String(cardData?.title ?? approvalId),
-							summary: String(cardData?.summary ?? ""),
-							riskTier: String(cardData?.risk_tier ?? ""),
-							mode: String(cardData?.mode ?? "ACTION"),
-							capability: String(cardData?.capability_id ?? ""),
-							parameters: (cardData?.parameters ?? {}) as Record<string, unknown>,
-							expiresAt: String(cardData?.expires_at ?? ""),
+							title: String(card.title ?? approvalId),
+							summary: String(card.summary ?? ""),
+							riskTier: String(card.risk_tier ?? ""),
+							mode: String(card.mode ?? "ACTION"),
+							capability: String(card.capability_id ?? ""),
+							parameters: (card.parameters ?? {}) as Record<string, unknown>,
+							expiresAt: String(card.expires_at ?? ""),
 							displayHash,
+							expectedEffect: String(card.expected_effect ?? ""),
+							failureHandling: String(card.failure_handling ?? ""),
+							bodyId: String(card.body_id ?? ""),
 						},
 						(approve) => done(approve),
 					);
@@ -278,21 +365,25 @@ ${line2}`);
 				return undefined;
 			});
 			pi.on("session_shutdown", async () => {
+				// HOTFIX-3：timer 生命周期——shutdown 清理 operator probe
+				// timer（不积累）+ mirror 落盘。
+				if (probeTimer !== null) {
+					clearInterval(probeTimer);
+					probeTimer = null;
+				}
 				await activeMirror.flush();
 				return undefined;
 			});
 		}
 
-		// -- Session 生命周期映射（PNA-6，规格 §13） ------------------------------
+		// -- Session 生命周期（P0-NA-12：全部经唯一 coordinator 事务） --------
 		const lifecycle: LifecycleDeps = {
-			rosclawHome: options.rosclawHome,
-			getMissionId: () => options.active.current.missionId,
-			setMissionId: (missionId) => {
-				options.active.patch({ missionId });
-			},
+			coordinator: options.coordinator,
+			coordinatorMissionId: () => options.active.current.missionId,
 			notify: (message, type) => undefined,
 		};
 		pi.on("session_start", async (event, ctx) => {
+			options.coordinator.setNotify((message, type) => ctx.ui.notify(message, type));
 			lifecycle.notify = (message, type) => ctx.ui.notify(message, type);
 			try {
 				await handleSessionStart(lifecycle, event.reason, sessionIdOf(ctx));
@@ -302,12 +393,29 @@ ${line2}`);
 		});
 		pi.on("session_before_switch", async (event, ctx) => {
 			lifecycle.notify = (message, type) => ctx.ui.notify(message, type);
-			const veto = await shouldCancelSwitch(lifecycle, sessionIdOf(ctx));
-			return veto ? { cancel: true } : undefined;
+			// 只读预检：target 文件头可解析——绑定动作在 session_start
+			// （此时 target 已是活动 session，id 无歧义）。
+			const veto = await shouldCancelSwitch(event.targetSessionFile, (file) => {
+				try {
+					const firstLine = readFileSync(file, "utf-8").split("\n", 1)[0] ?? "";
+					const header = JSON.parse(firstLine) as { id?: string };
+					return typeof header.id === "string" ? header.id : null;
+				} catch {
+					return null;
+				}
+			});
+			if (veto) {
+				ctx.ui.notify(veto, "warning");
+				return { cancel: true };
+			}
+			return undefined;
 		});
 		pi.on("session_before_tree", async (_event, ctx) => {
 			lifecycle.notify = (message, type) => ctx.ui.notify(message, type);
-			const veto = await shouldCancelTree(lifecycle);
+			const veto = await shouldCancelTree({
+				rosclawHome: options.rosclawHome,
+				missionId: options.active.current.missionId,
+			});
 			if (veto) {
 				ctx.ui.notify(veto, "warning");
 				return { cancel: true };

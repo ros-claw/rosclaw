@@ -1,0 +1,12 @@
+{
+  "fixture_only": true,
+  "knowledge_unit_ids": [
+    "a-bad-g1_football_fixture",
+    "a-bad-limo_ros1_fixture",
+    "a-bad-realsense_arm_fixture",
+    "z-good-g1_football_fixture",
+    "z-good-limo_ros1_fixture",
+    "z-good-realsense_arm_fixture"
+  ],
+  "scenario_count": 3
+}

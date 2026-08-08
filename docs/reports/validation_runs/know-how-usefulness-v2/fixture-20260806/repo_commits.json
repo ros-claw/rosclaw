@@ -1,0 +1,20 @@
+{
+  "rosclaw": {
+    "path": "/home/nvidia/workspace/rosclaw/rosclaw_wiki/rosclaw",
+    "commit": "44d83d1e672fc0244f9509239afcde5e9de16b8a",
+    "branch": "agent/know-how-usefulness-v2",
+    "dirty": true
+  },
+  "rosclaw-know": {
+    "path": "/home/nvidia/workspace/rosclaw/rosclaw_wiki/rosclaw-know",
+    "commit": "3e81b4c9933e5d76d12ab16126decaebdadeae4c",
+    "branch": "agent/know-how-usefulness-v2",
+    "dirty": true
+  },
+  "rosclaw-how": {
+    "path": "/home/nvidia/workspace/rosclaw/rosclaw_wiki/rosclaw-how",
+    "commit": "d2dea03020658dca73a46a60bf1f6e30857a2571",
+    "branch": "agent/know-how-usefulness-v2",
+    "dirty": true
+  }
+}

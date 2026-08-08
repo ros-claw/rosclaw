@@ -294,6 +294,32 @@ Apply a stable `/dev/serial/by-id/...` binding in the robot configuration even
 when the cgroup rule must name the resolved kernel device. Do not use a broad
 `DevicePolicy=auto` override merely to make startup pass.
 
+### LIMO PulseAudio bridge
+
+The LIMO audio workers use a second PulseAudio Unix socket at
+`/run/rosclaw/pulse/native`. Because `/run` is cleared on every boot, creating
+that socket manually is not persistent. Install both reference files so the
+directory exists before the desktop PulseAudio session starts:
+
+1. Create a dedicated `rosclaw-audio` group containing only `rosclaw-hw` and
+   the desktop account that owns PulseAudio. Do not add Agent-only users.
+2. Replace `LIMO_OPERATOR` in
+   [`deploy/tmpfiles.d/rosclaw-limo-pulse.conf.example`](../deploy/tmpfiles.d/rosclaw-limo-pulse.conf.example),
+   install it under `/etc/tmpfiles.d/`, and run `systemd-tmpfiles --create`.
+3. Merge
+   [`deploy/pulse/rosclaw-limo-default.pa.example`](../deploy/pulse/rosclaw-limo-default.pa.example)
+   into that operator's `~/.config/pulse/default.pa`, then restart the user
+   PulseAudio service or log in again.
+4. Add `rosclaw-audio` to the daemon's `SupplementaryGroups` and configure
+   `ROSCLAW_LIMO_PULSE_SERVER=unix:/run/rosclaw/pulse/native` in the protected
+   daemon environment.
+
+The bridge uses anonymous Pulse authentication because the isolated daemon
+cannot read the desktop user's cookie. Access is instead restricted by the
+inner directory's `0750` mode and dedicated group. A missing bridge must fail
+before playback; workers must not silently switch to the desktop user's
+private socket.
+
 Store vendor credentials in `/etc/rosclaw/rosclawd.env`, readable only by root
 and `rosclaw-hw`. Do not put them in project files, `.mcp.json`, Agent
 environment, prompts, or receipts.
