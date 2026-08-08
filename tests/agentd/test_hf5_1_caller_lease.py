@@ -165,7 +165,7 @@ class TestLeaseTtlConsistency:
             body_hash=mission.body_binding.effective_body_hash,
             mode="SIMULATION",
         )
-        from datetime import UTC, datetime
+        from datetime import datetime
 
         issued = datetime.fromisoformat(lease.issued_at)
         expires = datetime.fromisoformat(lease.expires_at)

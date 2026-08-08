@@ -197,14 +197,15 @@ class PiBridgeServer:
                     # 不签 lease——观测照常返回，动作准入凭证拒发。
                     response["context_lease_denied"] = "not the writer process"
                     return response
+                # P0-5B：lease TTL = min(envelope TTL, writer lease 剩余,
+                # policy max)——不得长于 prompt 里告诉模型的有效期。
+                from datetime import UTC as _UTC
+                from datetime import datetime as _dt
+
                 from rosclaw.agentd.pi_bridge.context_lease import (
                     ContextLeaseStore,
                     context_hash_of,
                 )
-
-                # P0-5B：lease TTL = min(envelope TTL, writer lease 剩余,
-                # policy max)——不得长于 prompt 里告诉模型的有效期。
-                from datetime import UTC as _UTC, datetime as _dt
 
                 envelope_ttl = max(
                     0.0,
