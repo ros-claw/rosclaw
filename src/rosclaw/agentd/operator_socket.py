@@ -55,10 +55,11 @@ def display_hash_for(request) -> str:
                 "expected_effect": str(exact.get("expected_effect", "")),
                 "action_intent_hash": str(exact.get("action_intent_hash", "")),
             }
-        except Exception:  # noqa: BLE001 - 损坏的 exact_action 不静默降级
+        except Exception as exc:  # noqa: BLE001 - 损坏的 exact_action 不静默降级
             raise ValueError(
                 f"approval {request.request_id}: exact_action_json is corrupt "
                 "(fail closed — refusing to compute a weaker hash)"
+            ) from exc
             )
     return compute_display_hash(
         request_id=request.request_id,

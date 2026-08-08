@@ -305,7 +305,6 @@ class ActionAdmissionService:
             build_exact_action,
         )
 
-        snapshot_now = service.snapshot(request.mission_id)
         exact_action = build_exact_action(
             capability_id=capability_id,
             capability_version=descriptor.version,
