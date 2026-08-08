@@ -70,6 +70,8 @@ jobs:
           name: journey-evidence-${{ github.sha }}
           path: |
             /tmp/pytest-of-*/pytest-*/test_full_journey_pty*/fake-requests.jsonl
+            /tmp/pytest-of-*/pytest-*/test_full_journey_pty*/pty-*.log
+            /tmp/pytest-of-*/pytest-*/test_full_journey_pty*/failure-dump/**
           if-no-files-found: error
           retention-days: 30
 
