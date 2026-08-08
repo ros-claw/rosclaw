@@ -761,9 +761,12 @@ class TestProductJourney:
             # session 持久化、resume 回放全链路零命中（四审核心反证点）。
             self._assert_no_reasoning_replay(fake, home, from_index=2)
             # 6. request SIM action → 卡片 → Y。
+            # 主标记必须是稳定面：授权 overlay（"ROSCLAW 授权请求"）。
+            # "等待 Operator 决定" 是瞬时 working message/notify——overlay
+            # 打开快时它一帧都渲染不出来（CI 两次失败的根因：overlay 已在
+            # 等 Y/N，journey 却在等一个被覆盖的瞬时文本，永不按 y）。
             session.send("请播放提示音\r")
-            session.expect("等待 Operator 决定".encode(), timeout=120)
-            session.expect("ROSCLAW 授权请求".encode(), timeout=60)
+            session.expect("ROSCLAW 授权请求".encode(), timeout=120)
             session.send("y")
             # 已批准 → 执行（结构化回执或诚实失败，但不许是未决状态）。
             session.expect(b"\xe5\xb7\xb2\xe6\x89\xb9\xe5\x87\x86", timeout=120)
