@@ -9,6 +9,7 @@ import pytest
 from rosclaw.feedback.contracts import canonical_hash
 from rosclaw.growth.learners.iql import (
     IQLResidualGuardConfig,
+    IQLTrainingConfig,
     NumpyIQLActor,
     SupportBoundIQLResidualActor,
     _array_content_hash,
@@ -26,6 +27,8 @@ def _candidate(
     bad_weight_hash: bool = False,
     unsafe_activation: bool = False,
     nonfinite_weights: bool = False,
+    actor_output: str = "executed_torque_nm",
+    action_mean: float = 0.0,
 ) -> Path:
     tmp_path.mkdir(parents=True, exist_ok=True)
     hidden = 16
@@ -38,7 +41,7 @@ def _candidate(
         "net__4__bias": np.zeros(29, dtype=np.float32),
         "state_mean": np.zeros(len(STATE_FEATURES), dtype=np.float32),
         "state_std": np.ones(len(STATE_FEATURES), dtype=np.float32),
-        "action_mean": np.zeros(29, dtype=np.float32),
+        "action_mean": np.full(29, action_mean, dtype=np.float32),
         "action_std": np.ones(29, dtype=np.float32),
     }
     if nonfinite_weights:
@@ -53,7 +56,7 @@ def _candidate(
         "hardware_command_sent": False,
         "artifact": {
             "format": "numpy_npz_no_pickle",
-            "actor_output": "executed_torque_nm",
+            "actor_output": actor_output,
             "learned_output_fraction": 1.0,
             "weights_path": str(weights),
             "weights_hash": "sha256:" + "0" * 64 if bad_weight_hash else _file_hash(weights),
@@ -126,11 +129,39 @@ def test_iql_residual_actor_falls_back_outside_support_envelope(tmp_path: Path) 
     assert np.array_equal(decision.residual_torque, np.zeros(29))
 
 
+def test_iql_teacher_actor_is_interpreted_as_a_direct_bounded_residual(
+    tmp_path: Path,
+) -> None:
+    actor = SupportBoundIQLResidualActor.load(
+        _candidate(
+            tmp_path,
+            actor_output="sim_teacher_residual_torque_nm",
+            action_mean=4.0,
+        ),
+        IQLResidualGuardConfig(
+            residual_fraction=0.50,
+            maximum_residual_nm=10.0,
+            joint_group="whole_body",
+        ),
+    )
+
+    decision = actor.action(
+        np.zeros(len(STATE_FEATURES)),
+        np.full(29, 100.0),
+    )
+
+    assert decision.accepted
+    assert decision.reason == "accepted_bounded_teacher_distillation_residual"
+    assert np.allclose(decision.residual_torque, np.full(29, 2.0))
+
+
 def test_iql_residual_guard_rejects_unsafe_contracts() -> None:
     with pytest.raises(ValueError, match="residual fraction"):
         IQLResidualGuardConfig(residual_fraction=0.0)
     with pytest.raises(ValueError, match="joint group"):
         IQLResidualGuardConfig(joint_group="arms")
+    with pytest.raises(ValueError, match="action source"):
+        IQLTrainingConfig(action_source="raw_motor_command")
 
 
 def test_iql_evaluation_output_must_be_outside_checkout(tmp_path: Path) -> None:

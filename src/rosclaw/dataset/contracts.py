@@ -78,11 +78,12 @@ class DatasetInventory:
     extension_counts: Mapping[str, int]
     issue_counts: Mapping[str, int]
     license_files: tuple[str, ...]
+    football_match_count: int
     football_matches: tuple[str, ...]
     duplicate_content_groups: tuple[tuple[str, ...], ...]
     files: tuple[DatasetFileRecord, ...]
     scan_errors: tuple[str, ...] = ()
-    schema_version: str = "rosclaw.dataset.inventory.v1"
+    schema_version: str = "rosclaw.dataset.inventory.v2"
 
     def __post_init__(self) -> None:
         if not self.dataset_id.strip():
@@ -100,6 +101,8 @@ class DatasetInventory:
         if len(paths) != len(set(paths)):
             raise ValueError("file paths must be unique")
         object.__setattr__(self, "files", files)
+        if self.football_match_count < len(self.football_matches):
+            raise ValueError("football_match_count must cover the retained matches")
         object.__setattr__(
             self,
             "extension_counts",
@@ -131,6 +134,10 @@ class DatasetInventory:
         return bool(self.license_files)
 
     @property
+    def football_matches_truncated(self) -> bool:
+        return self.football_match_count > len(self.football_matches)
+
+    @property
     def training_eligible(self) -> bool:
         """A doctor never adjudicates legal terms or target applicability."""
 
@@ -151,7 +158,9 @@ class DatasetInventory:
             "issue_counts": dict(sorted(self.issue_counts.items())),
             "license_files": list(self.license_files),
             "license_evidence_present": self.license_evidence_present,
+            "football_match_count": self.football_match_count,
             "football_matches": list(self.football_matches),
+            "football_matches_truncated": self.football_matches_truncated,
             "duplicate_content_groups": [list(group) for group in self.duplicate_content_groups],
             "files": [value.to_dict() for value in self.files],
             "scan_errors": list(self.scan_errors),

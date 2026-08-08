@@ -17,11 +17,19 @@ from typing import Any
 
 from rosclaw.agentd.context.sources import EvidenceClass
 from rosclaw.agentd.learning.pipeline import LearningPipeline
+from rosclaw.feedback.contracts import canonical_hash
 
 _SUPPORTED_SCHEMAS = frozenset(
     {
         "rosclaw.growth.g1_structured_recovery_evidence.v1",
         "rosclaw.growth.g1_residual_recovery_evidence.v1",
+    }
+)
+_FAILURE_CURRICULUM_SCHEMAS = frozenset(
+    {
+        "rosclaw.simforge.g1_failure_curriculum_report.v1",
+        "rosclaw.simforge.g1_failure_curriculum_report.v2",
+        "rosclaw.simforge.g1_failure_curriculum_report.v3",
     }
 )
 _MAX_EVIDENCE_BYTES = 128 * 1024 * 1024
@@ -75,9 +83,14 @@ def stage_growth_evaluation_candidate(
     if not isinstance(payload, dict):
         raise ValueError("Growth evaluation evidence must be a JSON object")
     schema = str(payload.get("schema_version", ""))
-    if schema not in _SUPPORTED_SCHEMAS:
+    if schema not in _SUPPORTED_SCHEMAS | _FAILURE_CURRICULUM_SCHEMAS:
         raise ValueError(f"unsupported Growth evaluation schema {schema!r}")
-    _validate_safe_sim_evidence(payload)
+    if schema in _FAILURE_CURRICULUM_SCHEMAS:
+        _validate_failure_curriculum_evidence(payload)
+        evidence = _failure_curriculum_bridge_view(payload)
+    else:
+        _validate_safe_sim_evidence(payload)
+        evidence = payload
 
     file_hash = f"sha256:{hashlib.sha256(raw).hexdigest()}"
     evidence_ref = f"growth-evaluation://{file_hash.removeprefix('sha256:')}"
@@ -86,7 +99,7 @@ def stage_growth_evaluation_candidate(
         "WHERE evidence_refs_json = ? ORDER BY created_at LIMIT 1",
         (json.dumps([evidence_ref], ensure_ascii=False),),
     ).fetchone()
-    passed = bool(payload["passed"])
+    passed = bool(evidence["passed"])
     kind = "HOW" if passed else "MEMORY"
     disposition = "PASSING_SIM_HOW_CANDIDATE" if passed else "NEGATIVE_SIM_MEMORY"
     if existing is not None:
@@ -94,7 +107,7 @@ def stage_growth_evaluation_candidate(
             candidate_id=str(existing["candidate_id"]),
             evidence_file_hash=file_hash,
             evidence_schema=schema,
-            evaluation_status=str(payload["status"]),
+            evaluation_status=str(evidence["status"]),
             learning_kind=str(existing["kind"]),
             disposition=disposition,
             staged=False,
@@ -106,20 +119,20 @@ def stage_growth_evaluation_candidate(
             "partition": str(case["spec"]["partition"]),
             "reasons": _case_failure_reasons(case),
         }
-        for case in payload["cases"]
+        for case in evidence["cases"]
         if not bool(case["passed"])
     ]
     content = {
         "evaluation_schema": schema,
-        "evaluation_status": payload["status"],
+        "evaluation_status": evidence["status"],
         "evaluation_file_hash": file_hash,
-        "candidate_hash": payload["candidate_hash"],
-        "request_hash": payload["request_hash"],
-        "environment_hash": payload["environment_hash"],
-        "implementation_hash": payload["implementation_hash"],
-        "evidence_domain": payload["evidence_domain"],
+        "candidate_hash": evidence["candidate_hash"],
+        "request_hash": evidence["request_hash"],
+        "environment_hash": evidence["environment_hash"],
+        "implementation_hash": evidence["implementation_hash"],
+        "evidence_domain": evidence["evidence_domain"],
         "body_scope": "unitree_g1_sim",
-        "case_count": len(payload["cases"]),
+        "case_count": len(evidence["cases"]),
         "failed_cases": failed_cases,
         "disposition": disposition,
         "deployable": False,
@@ -145,7 +158,7 @@ def stage_growth_evaluation_candidate(
         candidate_id=candidate_id,
         evidence_file_hash=file_hash,
         evidence_schema=schema,
-        evaluation_status=str(payload["status"]),
+        evaluation_status=str(evidence["status"]),
         learning_kind=kind,
         disposition=disposition,
         staged=True,
@@ -203,6 +216,127 @@ def _validate_safe_sim_evidence(payload: dict[str, Any]) -> None:
     expected_status = "SIM_GATE_PASS" if passed else "REJECTED_BY_SIM_GATE"
     if status != expected_status:
         raise ValueError("Growth evaluation status disagrees with gate result")
+
+
+def _validate_failure_curriculum_evidence(payload: dict[str, Any]) -> None:
+    schema = str(payload.get("schema_version", ""))
+    if payload.get("activation_ceiling") != "SIM_ONLY":
+        raise ValueError("failure-curriculum bridge requires SIM_ONLY")
+    if payload.get("evidence_domain") != "SHADOW":
+        raise ValueError("failure-curriculum bridge requires SHADOW evidence")
+    for name in (
+        "body_hash",
+        "kick_prior_hash",
+        "frozen_policy_hash",
+        "curriculum_commitment",
+        "report_hash",
+    ):
+        if not str(payload.get(name, "")).startswith("sha256:"):
+            raise ValueError(f"failure-curriculum evidence requires {name}")
+    unsigned = dict(payload)
+    claimed_report_hash = str(unsigned.pop("report_hash"))
+    if canonical_hash(unsigned) != claimed_report_hash:
+        raise ValueError("failure-curriculum report hash mismatch")
+    validation = payload.get("validation")
+    holdout = payload.get("holdout")
+    if not isinstance(validation, list) or not validation or not isinstance(holdout, list) or not holdout:
+        raise ValueError("failure-curriculum evidence requires sealed validation and holdout")
+    sealed = [*validation, *holdout]
+    if any(
+        not isinstance(row, dict)
+        or row.get("strict_replay") is not True
+        or row.get("quality_accepted") is not True
+        or not isinstance(row.get("critical"), bool)
+        or not isinstance(row.get("success"), bool)
+        for row in sealed
+    ):
+        raise ValueError("failure-curriculum sealed rows require typed gates and strict replay")
+    if schema.endswith(".v3"):
+        if any(not isinstance(row.get("abstained"), bool) for row in sealed):
+            raise ValueError("v3 failure-curriculum rows require typed abstention")
+        for row in sealed:
+            result = row.get("result")
+            if not isinstance(result, dict):
+                raise ValueError("v3 failure-curriculum rows require results")
+            if row["abstained"] and (
+                result.get("status") != "ROBOT_NOT_STABLE"
+                or result.get("physics_executed") is not False
+                or row["success"] is not False
+            ):
+                raise ValueError("failure-curriculum abstention semantics are inconsistent")
+            if not row["abstained"] and result.get("physics_executed") is not True:
+                raise ValueError("failure-curriculum execution semantics are inconsistent")
+        calibration = payload.get("calibration_contract")
+        if not isinstance(calibration, dict) or any(
+            calibration.get(name) is not expected
+            for name, expected in (
+                ("exact_hidden_dynamics_exposed", False),
+                ("abstention_counts_as_success", False),
+            )
+        ):
+            raise ValueError("failure-curriculum calibration isolation is invalid")
+    elif payload.get("decision") == "SIM_CANDIDATE":
+        raise ValueError("only v3 failure-curriculum evidence may stage a HOW candidate")
+    critical = any(bool(row["critical"]) for row in sealed)
+    success_rate = sum(bool(row["success"]) for row in validation) / len(validation)
+    coverage = sum(not bool(row.get("abstained", False)) for row in validation) / len(
+        validation
+    )
+    reasons: list[str] = []
+    if critical:
+        reasons.append("new_critical_failure")
+    if success_rate < 0.5:
+        reasons.append("validation_success_rate_below_50_percent")
+    if schema.endswith(".v3") and coverage < 2.0 / 3.0:
+        reasons.append("validation_execution_coverage_below_two_thirds")
+    expected_decision = "SIM_CANDIDATE" if not reasons else "REJECTED"
+    if payload.get("decision") != expected_decision or payload.get("gate_reasons") != reasons:
+        raise ValueError("failure-curriculum decision disagrees with recomputed gates")
+    learning = payload.get("learning_contract")
+    if not isinstance(learning, dict) or any(
+        learning.get(name) is not expected
+        for name, expected in (
+            ("failed_rollouts_train_actor", False),
+            ("sealed_cases_changed_policy", False),
+        )
+    ):
+        raise ValueError("failure-curriculum learning isolation is invalid")
+
+
+def _failure_curriculum_bridge_view(payload: dict[str, Any]) -> dict[str, Any]:
+    passed = payload["decision"] == "SIM_CANDIDATE"
+    cases: list[dict[str, Any]] = []
+    for row in [*payload["validation"], *payload["holdout"]]:
+        case_passed = bool(
+            row["strict_replay"]
+            and row["quality_accepted"]
+            and not row["critical"]
+            and (row["success"] or row.get("abstained", False))
+        )
+        cases.append(
+            {
+                "spec": {
+                    "case_id": str(row["case_id"]),
+                    "partition": str(row["purpose"]),
+                },
+                "passed": case_passed,
+                "absolute_gate": {
+                    "reasons": []
+                    if case_passed
+                    else [str(row["result"]["status"]).lower()]
+                },
+            }
+        )
+    return {
+        "passed": passed,
+        "status": "SIM_GATE_PASS" if passed else "REJECTED_BY_SIM_GATE",
+        "candidate_hash": payload["frozen_policy_hash"],
+        "request_hash": payload["curriculum_commitment"],
+        "environment_hash": payload["body_hash"],
+        "implementation_hash": payload["report_hash"],
+        "evidence_domain": payload["evidence_domain"],
+        "cases": cases,
+    }
 
 
 def _case_failure_reasons(case: dict[str, Any]) -> list[str]:

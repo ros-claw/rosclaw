@@ -32,6 +32,7 @@ def test_doctor_inventory_is_content_addressed_and_never_training_truth(tmp_path
     assert by_id["OmniContact"].issue_counts["partial_transfer_file"] == 1
     assert by_id["OmniContact"].issue_counts["zero_byte_file"] == 1
     assert by_id["OmniContact"].football_matches
+    assert by_id["OmniContact"].football_match_count == 1
     assert by_id["MotionDecode"].state is DatasetSnapshotState.EMPTY
     assert report.snapshot_complete is False
     assert report.training_eligible is False
@@ -86,6 +87,35 @@ def test_football_assets_require_sport_context_and_exclude_cache_mirrors(
         "samples/Football/Short_Pass/clip.csv",
         "samples/actions/kick_ball.csv",
     )
+    assert inventory.football_match_count == 2
+    assert inventory.football_matches_truncated is False
+
+
+def test_football_sample_limit_is_not_reported_as_the_total(tmp_path: Path) -> None:
+    dataset = tmp_path / "MotionDecode" / "samples" / "Football"
+    dataset.mkdir(parents=True)
+    for index in range(5):
+        (dataset / f"kick_{index}.csv").write_bytes(b"sample")
+
+    inventory = inspect_dataset_root(tmp_path, football_match_limit=2).inventories[0]
+
+    assert inventory.football_match_count == 5
+    assert len(inventory.football_matches) == 2
+    assert inventory.football_matches_truncated is True
+
+
+def test_split_archive_volumes_are_not_mislabeled_as_active_transfers(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "GEAR-SONIC"
+    dataset.mkdir()
+    (dataset / "bones.tar.part_aa").write_bytes(b"first")
+    (dataset / "bones.tar.part_ab").write_bytes(b"second")
+
+    inventory = inspect_dataset_root(tmp_path).inventories[0]
+
+    assert inventory.state is DatasetSnapshotState.READY
+    assert "partial_transfer_file" not in inventory.issue_counts
 
 
 def test_writer_emits_inventory_quality_license_and_asset_matrix(tmp_path: Path) -> None:
@@ -104,6 +134,8 @@ def test_writer_emits_inventory_quality_license_and_asset_matrix(tmp_path: Path)
     licenses = json.loads((output / "license_manifest.json").read_text(encoding="utf-8"))
     assert inventory["report_hash"] == report.report_hash
     assert licenses["datasets"][0]["decision"] == "pending_operator_review"
+    assert licenses["datasets"][0]["license_evidence"][0]["sha256"].startswith("sha256:")
+    assert licenses["datasets"][0]["license_evidence"][0]["hash_status"] == ("computed_license")
     assert "OmniContact" in (output / "dataset_quality_report.html").read_text(encoding="utf-8")
 
 

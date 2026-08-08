@@ -32,9 +32,7 @@ _PARTIAL_MARKERS = (
     ".partial",
     ".tmp",
 )
-_FOOTBALL_SPORT_TOKENS = frozenset(
-    {"football", "soccer", "futsal", "goalkeeper", "goalkeeping"}
-)
+_FOOTBALL_SPORT_TOKENS = frozenset({"football", "soccer", "futsal", "goalkeeper", "goalkeeping"})
 _FOOTBALL_BALL_ACTIONS = frozenset({"kick", "kicking", "shoot", "shooting", "pass"})
 _LICENSE_NAMES = {
     "copying",
@@ -116,6 +114,16 @@ def write_dataset_doctor_artifacts(report: DatasetDoctorReport, output_dir: Path
             {
                 "dataset_id": value.dataset_id,
                 "license_files": list(value.license_files),
+                "license_evidence": [
+                    {
+                        "path": record.relative_path,
+                        "sha256": record.digest,
+                        "size_bytes": record.size_bytes,
+                        "hash_status": record.hash_status,
+                    }
+                    for record in value.files
+                    if record.relative_path in value.license_files
+                ],
                 "decision": "pending_operator_review",
                 "training_eligible": False,
                 "public_demo_allowed": False,
@@ -159,9 +167,10 @@ def _inspect_one(
         for value in files
         if Path(value.relative_path).name.lower() in _LICENSE_NAMES
     )
-    football_matches = tuple(
+    all_football_matches = tuple(
         value.relative_path for value in files if _is_football_path(value.relative_path)
-    )[:football_match_limit]
+    )
+    football_matches = all_football_matches[:football_match_limit]
     digests: dict[str, list[str]] = defaultdict(list)
     if hash_mode is FileHashMode.SHA256:
         for value in files:
@@ -181,6 +190,7 @@ def _inspect_one(
         extension_counts=dict(extension_counts),
         issue_counts=dict(issue_counts),
         license_files=license_files,
+        football_match_count=len(all_football_matches),
         football_matches=football_matches,
         duplicate_content_groups=duplicate_groups,
         files=tuple(files),
@@ -204,7 +214,7 @@ def _inspect_file(path: Path, *, relative: str, hash_mode: FileHashMode) -> Data
             issues.append("partial_transfer_file")
         if before.st_size <= 1024 and _is_lfs_pointer(path):
             issues.append("git_lfs_pointer")
-        if hash_mode is FileHashMode.METADATA:
+        if hash_mode is FileHashMode.METADATA and path.name.lower() not in _LICENSE_NAMES:
             digest = canonical_hash(
                 {
                     "relative_path": relative,
@@ -213,7 +223,7 @@ def _inspect_file(path: Path, *, relative: str, hash_mode: FileHashMode) -> Data
                 }
             )
             hash_status = "metadata_only"
-        elif hash_mode is FileHashMode.SHA256:
+        elif hash_mode is FileHashMode.SHA256 or path.name.lower() in _LICENSE_NAMES:
             digest = _sha256_file(path)
             after = path.stat()
             if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
@@ -221,7 +231,9 @@ def _inspect_file(path: Path, *, relative: str, hash_mode: FileHashMode) -> Data
                 hash_status = "changed_during_scan"
                 issues.append("changed_during_scan")
             else:
-                hash_status = "computed"
+                hash_status = (
+                    "computed_license" if hash_mode is not FileHashMode.SHA256 else "computed"
+                )
     return DatasetFileRecord(
         relative_path=relative,
         size_bytes=before.st_size,
@@ -248,7 +260,12 @@ def _state(
     issues = {issue for value in files for issue in value.issue_codes}
     if "partial_transfer_file" in issues or "changed_during_scan" in issues:
         return DatasetSnapshotState.TRANSFERRING
-    if scan_errors or "git_lfs_pointer" in issues or "not_regular_file" in issues:
+    if (
+        scan_errors
+        or "git_lfs_pointer" in issues
+        or "not_regular_file" in issues
+        or "zero_byte_file" in issues
+    ):
         return DatasetSnapshotState.PARTIAL
     return DatasetSnapshotState.READY
 
@@ -270,7 +287,12 @@ def _is_lfs_pointer(path: Path) -> bool:
 
 def _is_partial_name(name: str) -> bool:
     lowered = name.lower()
-    return ".part_" in lowered or any(lowered.endswith(marker) for marker in _PARTIAL_MARKERS)
+    # Hugging Face publishes some large archives as intentional split volumes
+    # (``.part_aa``, ``.part_ab``, ...).  They are complete artifacts, unlike
+    # downloader scratch files ending in ``.part`` or ``.incomplete``.
+    if re.search(r"\.part_[a-z]{2,}(?:\.metadata)?$", lowered):
+        return False
+    return any(lowered.endswith(marker) for marker in _PARTIAL_MARKERS)
 
 
 def _is_football_path(path: str) -> bool:
@@ -286,8 +308,10 @@ def _is_football_path(path: str) -> bool:
     if _FOOTBALL_SPORT_TOKENS.intersection(tokens):
         return True
     return any(
-        first in _FOOTBALL_BALL_ACTIONS and second == "ball"
-        or first == "ball" and second in _FOOTBALL_BALL_ACTIONS
+        first in _FOOTBALL_BALL_ACTIONS
+        and second == "ball"
+        or first == "ball"
+        and second in _FOOTBALL_BALL_ACTIONS
         for first, second in zip(tokens, tokens[1:], strict=False)
     )
 
@@ -316,7 +340,7 @@ def _asset_matrix_csv(report: DatasetDoctorReport) -> str:
                 value.state.value,
                 value.total_file_count,
                 value.total_size_bytes,
-                len(value.football_matches),
+                value.football_match_count,
                 len(value.license_files),
                 value.issue_counts.get("partial_transfer_file", 0),
                 value.issue_counts.get("git_lfs_pointer", 0),
@@ -334,7 +358,7 @@ def _quality_html(report: DatasetDoctorReport) -> str:
         f"<td><code>{value.state.value}</code></td>"
         f"<td>{value.total_file_count:,}</td>"
         f"<td>{value.total_size_bytes / (1024**3):.3f}</td>"
-        f"<td>{len(value.football_matches)}</td>"
+        f"<td>{value.football_match_count}</td>"
         f"<td>{len(value.license_files)}</td>"
         f"<td>{html.escape(', '.join(f'{key}={count}' for key, count in sorted(value.issue_counts.items())) or 'none')}</td>"
         "</tr>"

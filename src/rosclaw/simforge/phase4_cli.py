@@ -118,6 +118,7 @@ def _recovery_validation(argv: list[str]) -> int:
             "neural-torque-pilot",
             "motion-prior-transfer",
             "recovery-awr-dream",
+            "failure-curriculum",
         ),
         default="recovery",
     )
@@ -144,6 +145,18 @@ def _recovery_validation(argv: list[str]) -> int:
     parser.add_argument("--actor-updates", type=int, default=4)
     parser.add_argument("--validation-round", type=int, default=1)
     args = parser.parse_args(argv)
+    if args.profile == "failure-curriculum":
+        from rosclaw.simforge.g1_failure_curriculum_validation import (
+            run_g1_failure_curriculum_validation,
+        )
+
+        result = run_g1_failure_curriculum_validation(
+            asset_root=args.asset_root,
+            output_dir=args.output,
+            source_checkout=_source_checkout(),
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["decision"] == "SIM_CANDIDATE" else 2
     if args.profile == "motion-prior-transfer":
         if args.motion_prior is None:
             parser.error("motion-prior-transfer requires --motion-prior")

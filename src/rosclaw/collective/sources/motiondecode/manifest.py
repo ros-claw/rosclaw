@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -322,7 +323,7 @@ def register_motiondecode_source(
     )
     requested = tuple(families)
     discovered = _discover_samples(root, requested)
-    selected = discovered[:limit]
+    selected = _stratified_sample(discovered, limit=limit)
     records = [_file_record(root, catalog_path, MotionFamily.OTHER, "text/csv")]
     records.extend(
         _file_record(root, path, classify_motion(path.as_posix()), "text/csv") for path in selected
@@ -386,6 +387,53 @@ def _discover_samples(root: Path, families: tuple[MotionFamily, ...]) -> list[Pa
             continue
         paths.append(relative)
     return sorted(paths, key=lambda item: item.as_posix())
+
+
+def _stratified_sample(paths: list[Path], *, limit: int) -> list[Path]:
+    """Select a deterministic family- and skill-balanced bounded pilot.
+
+    MotionDecode paths are ordered by taxonomy, so taking the first ``limit``
+    files can silently select only one leaf skill (for example Short_Pass).
+    Round-robin first across motion families and then across leaf directories.
+    The returned set is sorted so the content-addressed manifest remains
+    canonical and independent of filesystem traversal order.
+    """
+
+    if limit <= 0 or not paths:
+        return []
+    grouped: dict[MotionFamily, dict[str, deque[Path]]] = defaultdict(
+        lambda: defaultdict(deque)
+    )
+    for path in sorted(paths, key=lambda item: item.as_posix()):
+        family = classify_motion(path.as_posix())
+        grouped[family][path.parent.as_posix()].append(path)
+
+    family_streams: dict[MotionFamily, deque[Path]] = {}
+    for family, leaf_buckets in grouped.items():
+        leaf_names = sorted(leaf_buckets)
+        stream: deque[Path] = deque()
+        while any(leaf_buckets[name] for name in leaf_names):
+            for name in leaf_names:
+                if leaf_buckets[name]:
+                    stream.append(leaf_buckets[name].popleft())
+        family_streams[family] = stream
+
+    families = sorted(family_streams, key=lambda item: item.value)
+    selected: list[Path] = []
+    bounded_limit = min(limit, len(paths))
+    while len(selected) < bounded_limit:
+        progressed = False
+        for family in families:
+            stream = family_streams[family]
+            if not stream:
+                continue
+            selected.append(stream.popleft())
+            progressed = True
+            if len(selected) == bounded_limit:
+                break
+        if not progressed:
+            break
+    return sorted(selected, key=lambda item: item.as_posix())
 
 
 def _safe_file(root: Path, relative: Path) -> Path:

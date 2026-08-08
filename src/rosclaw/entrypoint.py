@@ -17,6 +17,16 @@ def main() -> int:
     if root is not None:
         return root
 
+    # GoalForge development commands use their own fail-closed parser.  They
+    # must run before the compatibility CLI, whose closed command vocabulary
+    # otherwise rejects the intentionally separate ``goalforge`` namespace.
+    if sys.argv[1:2] == ["goalforge"]:
+        from rosclaw.simforge.g1_hat_trick_cli import dispatch_hat_trick_argv
+
+        result = dispatch_hat_trick_argv(sys.argv[1:])
+        if result is not None:
+            return result
+
     from rosclaw.operator.cli import dispatch_operator_argv
 
     result = dispatch_operator_argv(sys.argv[1:])

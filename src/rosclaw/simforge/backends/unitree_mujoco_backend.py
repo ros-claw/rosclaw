@@ -293,7 +293,12 @@ class G1MuJoCoBackend:
         if torque_overlay_policy is not None and all(
             value is None for value in (feedback_runtime, feedforward, recovery_controller)
         ):
-            raise ValueError("target-space torque overlay requires a target-space adapter")
+            safety_only = bool(
+                getattr(torque_overlay_policy, "safety_projection_only", False) is True
+                and getattr(torque_overlay_policy, "activation_ceiling", None) == "SIM_ONLY"
+            )
+            if not safety_only:
+                raise ValueError("target-space torque overlay requires a target-space adapter")
         if (
             feedback_runtime is not None
             and feedback_runtime.spec.body_hash != self.qualification.body_hash
@@ -1338,6 +1343,16 @@ def _adapt_target(
         adapted[7] += parameters.com_shift_y * 0.5
         adapted[8] += parameters.foot_yaw_offset
         adapted[11] += parameters.foot_yaw_offset * 0.25
+        adapted[10] += parameters.foot_pitch_offset
+        # One bounded operational-space-inspired synergy: at the nominal
+        # strike contact, MuJoCo's right-foot vertical Jacobian is dominated
+        # by hip pitch/yaw while knee velocity opposes lift. This low-
+        # dimensional target residual raises the foot path without bypassing
+        # the learned prior, PD loop, or final torque projector.
+        adapted[6] -= parameters.loft_synergy
+        adapted[8] -= parameters.loft_synergy * 0.60
+        adapted[9] += parameters.loft_synergy
+        adapted[10] -= parameters.loft_synergy * 0.25
         adapted[12] += parameters.pelvis_yaw_offset
     if 335 < policy_frame <= 430:
         adapted[6] -= parameters.recovery_step_length * 0.4

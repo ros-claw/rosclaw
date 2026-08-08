@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 
 from rosclaw.feedback.contracts import canonical_hash
-from rosclaw.growth.recovery_dataset import COST_NAMES, REWARD_NAMES, STATE_FEATURES
+from rosclaw.growth.recovery_dataset import STATE_FEATURES
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,8 @@ class IQLTrainingConfig:
     learning_rate: float = 3e-4
     seed: int = 20260805
     device: str = "cpu"
-    schema_version: str = "rosclaw.growth.iql_training_config.v1"
+    action_source: str = "executed_action"
+    schema_version: str = "rosclaw.growth.iql_training_config.v2"
 
     def __post_init__(self) -> None:
         if not 1 <= self.steps <= 1_000_000:
@@ -50,6 +51,8 @@ class IQLTrainingConfig:
             self.device == "cpu" or self.device == "cuda" or self.device.startswith("cuda:")
         ):
             raise ValueError("IQL device must be cpu, cuda, or cuda:<index>")
+        if self.action_source not in {"executed_action", "teacher_residual_action"}:
+            raise ValueError("IQL action source must be executed_action or teacher_residual_action")
 
 
 @dataclass(frozen=True)
@@ -66,8 +69,9 @@ class IQLTrainingReceipt:
     validation_normalized_mse_before: float
     validation_normalized_mse_after: float
     device: str
+    action_source: str
     status: str
-    schema_version: str = "rosclaw.growth.iql_training_receipt.v1"
+    schema_version: str = "rosclaw.growth.iql_training_receipt.v2"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -139,6 +143,9 @@ class NumpyIQLActor:
     action_mean: np.ndarray
     action_std: np.ndarray
     candidate_hash: str
+    state_features: tuple[str, ...]
+    task_id: str
+    actor_output: str
 
     @classmethod
     def load(cls, candidate_path: Path) -> NumpyIQLActor:
@@ -165,10 +172,11 @@ class NumpyIQLActor:
         artifact = candidate.get("artifact", {})
         if artifact.get("format") != "numpy_npz_no_pickle":
             raise ValueError("IQL actor requires the safe NumPy artifact format")
-        if (
-            artifact.get("actor_output") != "executed_torque_nm"
-            or artifact.get("learned_output_fraction") != 1.0
-        ):
+        actor_output = artifact.get("actor_output")
+        if actor_output not in {
+            "executed_torque_nm",
+            "sim_teacher_residual_torque_nm",
+        } or artifact.get("learned_output_fraction") != 1.0:
             raise ValueError("IQL actor output semantics are incompatible")
         weights_path = Path(str(artifact.get("weights_path", ""))).expanduser().resolve()
         if weights_path.parent != metadata_path.parent:
@@ -200,7 +208,13 @@ class NumpyIQLActor:
             raise ValueError("IQL actor artifact contains non-finite arrays")
         weights = tuple(arrays[f"net__{index}__weight"] for index in (0, 2, 4))
         biases = tuple(arrays[f"net__{index}__bias"] for index in (0, 2, 4))
-        state_size = len(STATE_FEATURES)
+        raw_features = artifact.get("state_features", list(STATE_FEATURES))
+        if not isinstance(raw_features, list) or not all(
+            isinstance(item, str) and item for item in raw_features
+        ):
+            raise ValueError("IQL actor state feature contract is invalid")
+        state_features = tuple(raw_features)
+        state_size = len(state_features)
         if weights[0].shape[1] != state_size or weights[-1].shape[0] != 29:
             raise ValueError("IQL actor input/output contract mismatch")
         if any(
@@ -225,6 +239,9 @@ class NumpyIQLActor:
             action_mean=arrays["action_mean"],
             action_std=arrays["action_std"],
             candidate_hash=str(claimed),
+            state_features=state_features,
+            task_id=str(candidate.get("task_id", "g1_post_impact_recovery")),
+            actor_output=str(actor_output),
         )
 
     def action(self, state: np.ndarray) -> np.ndarray:
@@ -299,8 +316,13 @@ class SupportBoundIQLResidualActor:
                 reason="outside_standardized_support_envelope",
             )
         learned = self.actor.action(state)
+        proposed_residual = (
+            learned
+            if self.actor.actor_output == "sim_teacher_residual_torque_nm"
+            else learned - baseline
+        )
         residual = np.clip(
-            learned - baseline,
+            proposed_residual,
             -self.config.maximum_residual_nm,
             self.config.maximum_residual_nm,
         )
@@ -319,7 +341,11 @@ class SupportBoundIQLResidualActor:
             standardized_rms=rms,
             standardized_abs=maximum,
             peak_residual_nm=peak,
-            reason="accepted_bounded_residual",
+            reason=(
+                "accepted_bounded_teacher_distillation_residual"
+                if self.actor.actor_output == "sim_teacher_residual_torque_nm"
+                else "accepted_bounded_residual"
+            ),
         )
 
 
@@ -330,7 +356,7 @@ def train_recovery_iql(
     source_checkout: Path,
     config: IQLTrainingConfig | None = None,
 ) -> IQLTrainingReceipt:
-    """Train an unevaluated candidate; this function can never activate it."""
+    """Train a manifest-governed candidate; this function can never activate it."""
 
     config = config or IQLTrainingConfig()
     root = output_dir.expanduser().resolve()
@@ -348,7 +374,7 @@ def train_recovery_iql(
         arrays = {name: np.asarray(archive[name]) for name in archive.files}
     if _array_content_hash(arrays) != manifest["arrays"]["content_hash"]:
         raise ValueError("IQL dataset content hash mismatch")
-    _verify_arrays(arrays)
+    _verify_arrays(arrays, manifest, action_source=config.action_source)
     episode_ids = sorted(int(item) for item in np.unique(arrays["episode_index"]))
     if len(episode_ids) < 3:
         raise ValueError(
@@ -380,8 +406,29 @@ def train_recovery_iql(
 
     state = arrays["state"].astype(np.float32)
     next_state = arrays["next_state"].astype(np.float32)
-    action = arrays["executed_action"].astype(np.float32)
-    reward = _scalar_return(arrays["reward_vector"], arrays["cost_vector"])
+    action = arrays[config.action_source].astype(np.float32)
+    if config.action_source == "teacher_residual_action":
+        if manifest.get("task_id") != "g1_approach_strike_transition":
+            raise ValueError("teacher residual IQL is limited to approach-to-strike datasets")
+        teacher_active = arrays.get("teacher_active")
+        if teacher_active is None or not np.any(teacher_active[train_mask]):
+            raise ValueError("teacher residual IQL requires active teacher samples in training")
+        if not np.any(teacher_active[validation_mask]) or not np.any(
+            teacher_active[reserved_mask]
+        ):
+            raise ValueError(
+                "teacher residual IQL requires active teacher samples in held-out episodes"
+            )
+    array_contract = manifest["arrays"]
+    reward_names = tuple(str(item) for item in array_contract["reward_names"])
+    cost_names = tuple(str(item) for item in array_contract["cost_names"])
+    reward = _scalar_return(
+        arrays["reward_vector"],
+        arrays["cost_vector"],
+        reward_names=reward_names,
+        cost_names=cost_names,
+        scalarization=array_contract.get("scalarization"),
+    )
     terminal = arrays["terminal"].astype(np.float32)
     state_mean = state[train_mask].mean(axis=0)
     state_std = np.maximum(state[train_mask].std(axis=0), 1e-4)
@@ -501,7 +548,7 @@ def train_recovery_iql(
     candidate = {
         "schema_version": "rosclaw.growth.iql_candidate.v1",
         "learner_id": "iql",
-        "task_id": "g1_post_impact_recovery",
+        "task_id": manifest["task_id"],
         "dataset_manifest_hash": manifest["manifest_hash"],
         "environment_hash": manifest["environment_hash"],
         "config": asdict(config),
@@ -518,8 +565,16 @@ def train_recovery_iql(
             "weights_hash": _file_hash(weights_path),
             "weights_content_hash": _array_content_hash(weights),
             "format": "numpy_npz_no_pickle",
-            "actor_output": "executed_torque_nm",
+            "actor_output": (
+                "sim_teacher_residual_torque_nm"
+                if config.action_source == "teacher_residual_action"
+                else "executed_torque_nm"
+            ),
+            "training_action_source": config.action_source,
             "learned_output_fraction": 1.0,
+            "state_features": list(array_contract["state_features"]),
+            "reward_names": list(reward_names),
+            "cost_names": list(cost_names),
         },
         "metrics": {
             "validation_normalized_mse_before": before,
@@ -551,13 +606,54 @@ def train_recovery_iql(
         validation_normalized_mse_before=before,
         validation_normalized_mse_after=after,
         device=str(device),
+        action_source=config.action_source,
         status=status,
     )
 
 
-def _scalar_return(reward: np.ndarray, cost: np.ndarray) -> np.ndarray:
-    reward_weights = np.asarray((1.0, 1.0, 0.20, 0.002, 1.0, 2.0, 0.01), dtype=np.float32)
-    cost_weights = np.asarray((100.0, 20.0, 0.10, 10.0, 100.0), dtype=np.float32)
+def _scalar_return(
+    reward: np.ndarray,
+    cost: np.ndarray,
+    *,
+    reward_names: tuple[str, ...],
+    cost_names: tuple[str, ...],
+    scalarization: Any,
+) -> np.ndarray:
+    default_reward_weights = {
+        "upright": 1.0,
+        "momentum_unloading": 1.0,
+        "low_joint_speed": 0.20,
+        "low_action_jerk": 0.002,
+        "support_centering": 1.0,
+        "readiness": 2.0,
+        "energy_efficiency": 0.01,
+    }
+    default_cost_weights = {
+        "fall": 100.0,
+        "support_slip_excess": 20.0,
+        "torque_projection": 0.10,
+        "lost_support": 10.0,
+        "episode_safety_violation": 100.0,
+    }
+    configured = scalarization if isinstance(scalarization, dict) else {}
+    configured_reward = configured.get("reward_weights", {})
+    configured_cost = configured.get("cost_weights", {})
+    if not isinstance(configured_reward, dict) or not isinstance(configured_cost, dict):
+        raise ValueError("IQL scalarization weights must be mappings")
+    reward_weights = np.asarray(
+        [configured_reward.get(name, default_reward_weights.get(name, 0.0)) for name in reward_names],
+        dtype=np.float32,
+    )
+    cost_weights = np.asarray(
+        [configured_cost.get(name, default_cost_weights.get(name, 0.0)) for name in cost_names],
+        dtype=np.float32,
+    )
+    if not np.all(np.isfinite(reward_weights)) or not np.all(np.isfinite(cost_weights)):
+        raise ValueError("IQL scalarization weights must be finite")
+    if np.any(reward_weights < 0.0) or np.any(cost_weights < 0.0):
+        raise ValueError("IQL scalarization weights must be non-negative")
+    if not np.any(reward_weights) or not np.any(cost_weights):
+        raise ValueError("IQL scalarization must include reward and safety-cost weights")
     return (reward @ reward_weights - cost @ cost_weights).astype(np.float32)
 
 
@@ -605,9 +701,23 @@ def _verify_dataset_manifest(manifest: dict[str, Any]) -> None:
     profile = manifest.get("data_profile", {})
     if profile.get("offline_rl_ready") is not True:
         raise ValueError("IQL dataset does not satisfy offline-RL semantics")
+    if not isinstance(manifest.get("task_id"), str) or not manifest["task_id"]:
+        raise ValueError("IQL dataset task id is missing")
+    arrays = manifest.get("arrays", {})
+    for name in ("state_features", "reward_names", "cost_names"):
+        values = arrays.get(name)
+        if not isinstance(values, list) or not values or not all(
+            isinstance(item, str) and item for item in values
+        ):
+            raise ValueError(f"IQL dataset {name} contract is invalid")
 
 
-def _verify_arrays(arrays: dict[str, np.ndarray]) -> None:
+def _verify_arrays(
+    arrays: dict[str, np.ndarray],
+    manifest: dict[str, Any],
+    *,
+    action_source: str,
+) -> None:
     required = {
         "state",
         "next_state",
@@ -616,19 +726,25 @@ def _verify_arrays(arrays: dict[str, np.ndarray]) -> None:
         "cost_vector",
         "episode_index",
         "terminal",
+        action_source,
     }
     missing = sorted(required.difference(arrays))
     if missing:
         raise ValueError(f"IQL dataset arrays are missing: {missing}")
     count = len(arrays["state"])
+    contract = manifest["arrays"]
+    state_size = len(contract["state_features"])
+    reward_size = len(contract["reward_names"])
+    cost_size = len(contract["cost_names"])
     expected = {
-        "state": (count, len(STATE_FEATURES)),
-        "next_state": (count, len(STATE_FEATURES)),
+        "state": (count, state_size),
+        "next_state": (count, state_size),
         "executed_action": (count, 29),
-        "reward_vector": (count, len(REWARD_NAMES)),
-        "cost_vector": (count, len(COST_NAMES)),
+        "reward_vector": (count, reward_size),
+        "cost_vector": (count, cost_size),
         "episode_index": (count,),
         "terminal": (count,),
+        action_source: (count, 29),
     }
     invalid = [name for name, shape in expected.items() if arrays[name].shape != shape]
     if invalid or count < 3:
