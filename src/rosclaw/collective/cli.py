@@ -157,8 +157,18 @@ def _parser() -> argparse.ArgumentParser:
     prior_build.add_argument("adapter", choices=["motiondecode"])
     prior_build.add_argument("--registration", type=Path, required=True)
     prior_build.add_argument("--ingest-report", type=Path, required=True)
+    prior_build.add_argument(
+        "--repair-report",
+        type=Path,
+        help="optional content-addressed Q1 repair evidence to replay",
+    )
     prior_build.add_argument("--dataset-root", type=Path, required=True)
     prior_build.add_argument("--target-model", type=Path, required=True)
+    prior_build.add_argument(
+        "--transfer-asset-root",
+        type=Path,
+        help="optional qualified G1 actor body to bind representation transfer",
+    )
     prior_build.add_argument("--output", type=Path, required=True)
     prior_build.add_argument("--sequence-length", type=int, default=32)
     prior_build.add_argument("--maximum-windows", type=int, default=12_000)
@@ -498,8 +508,10 @@ def _prior_build(args: argparse.Namespace) -> int:
     metadata = build_motion_prior_pack(
         registration=registration,
         ingest_report_path=args.ingest_report,
+        repair_report_path=args.repair_report,
         dataset_root=args.dataset_root,
         model_path=args.target_model,
+        transfer_asset_root=args.transfer_asset_root,
         output_path=output,
         sequence_length=args.sequence_length,
         maximum_windows=args.maximum_windows,
@@ -514,13 +526,17 @@ def _prior_build(args: argparse.Namespace) -> int:
             "pack_hash": metadata["pack_hash"],
             "registration_hash": metadata["registration_hash"],
             "ingest_report_hash": metadata["ingest_report_hash"],
+            "repair_report_hash": metadata["repair_report_hash"],
             "source_manifest_hash": metadata["source_manifest_hash"],
             "body_hash": metadata["body_hash"],
+            "kinematic_body_hash": metadata["kinematic_body_hash"],
+            "transfer_contract": metadata["transfer_contract"],
             "feature_count": len(metadata["feature_names"]),
             "sequence_length": metadata["sequence_length"],
             "training_windows": metadata["training_windows"],
             "validation_windows": metadata["validation_windows"],
             "source_episode_count": metadata["source_episode_count"],
+            "repaired_source_episode_count": metadata["repaired_source_episode_count"],
             "allowed_strata": metadata["allowed_strata"],
             "skipped_clip_count": len(metadata["skipped_clips"]),
             "action_semantics": metadata["action_semantics"],

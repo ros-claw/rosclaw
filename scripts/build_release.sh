@@ -192,7 +192,7 @@ if [ "${ROSCLAW_SKIP_TOOL_BINS:-0}" != "1" ]; then
   case "$ARCH_NAME" in
     arm64) FD_ARCH="aarch64-unknown-linux-gnu"; RG_ARCH="aarch64-unknown-linux-gnu" ;;
     # ripgrep 的 x86_64 Linux 资产是 musl（fd 是 gnu）——上游命名不对称，
-    # 不能用同一个后缀（CI x86_64 构建 404 修复）。
+    # 不能用同一个后缀；aarch64 则发布为 gnu，故两个工具的 triple 必须独立。
     x64)   FD_ARCH="x86_64-unknown-linux-gnu";   RG_ARCH="x86_64-unknown-linux-musl" ;;
   esac
   FD_TARBALL="fd-v10.2.0-${FD_ARCH}.tar.gz"

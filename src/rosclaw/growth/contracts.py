@@ -41,7 +41,9 @@ def _unique_nonempty(values: tuple[str, ...], *, label: str) -> tuple[str, ...]:
     return normalized
 
 
-def _hash_tuple(values: tuple[str, ...], *, label: str, allow_empty: bool = False) -> tuple[str, ...]:
+def _hash_tuple(
+    values: tuple[str, ...], *, label: str, allow_empty: bool = False
+) -> tuple[str, ...]:
     normalized = tuple(values)
     if not allow_empty and not normalized:
         raise ValueError(f"{label} must not be empty")
@@ -369,7 +371,10 @@ class ConsolidationManifest:
             raise ValueError("gate_results must contain each required gate exactly once")
         object.__setattr__(self, "gate_results", gates)
         darwin_gate = next(gate for gate in gates if gate.name is GateName.DARWIN)
-        if darwin_gate.report_hash is not None and darwin_gate.report_hash != self.darwin_report_hash:
+        if (
+            darwin_gate.report_hash is not None
+            and darwin_gate.report_hash != self.darwin_report_hash
+        ):
             raise ValueError("darwin_report_hash must match the Darwin gate report")
         expected = self._expected_decision(gates)
         if self.decision is not expected:

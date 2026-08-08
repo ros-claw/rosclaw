@@ -40,6 +40,7 @@ from rosclaw.simforge.g1_muscle_memory import (
 )
 from rosclaw.simforge.g1_neural_torque import (
     G1TorqueControlFrame,
+    G1TorqueObserver,
     G1TorquePolicy,
     G1TorquePolicyReceipt,
 )
@@ -275,13 +276,29 @@ class G1MuJoCoBackend:
         feedforward: ILCFeedforward | None = None,
         recovery_controller: G1CerebellarRecoveryController | None = None,
         torque_policy: G1TorquePolicy | None = None,
+        torque_overlay_policy: G1TorquePolicy | None = None,
+        torque_observer: G1TorqueObserver | None = None,
     ) -> GoalForgeEpisode:
+        if torque_policy is not None and torque_overlay_policy is not None:
+            raise ValueError("direct torque policy and target-space torque overlay are exclusive")
+        active_torque_policy = torque_overlay_policy or torque_policy
+        if active_torque_policy is not None and torque_observer is not None:
+            raise ValueError("direct torque policy and read-only torque observer are exclusive")
         if torque_policy is not None and any(
             value is not None for value in (feedback_runtime, feedforward, recovery_controller)
         ):
             raise ValueError(
                 "direct neural torque policy cannot be combined with target-space adapters"
             )
+        if torque_overlay_policy is not None and all(
+            value is None for value in (feedback_runtime, feedforward, recovery_controller)
+        ):
+            safety_only = bool(
+                getattr(torque_overlay_policy, "safety_projection_only", False) is True
+                and getattr(torque_overlay_policy, "activation_ceiling", None) == "SIM_ONLY"
+            )
+            if not safety_only:
+                raise ValueError("target-space torque overlay requires a target-space adapter")
         if (
             feedback_runtime is not None
             and feedback_runtime.spec.body_hash != self.qualification.body_hash
@@ -323,7 +340,8 @@ class G1MuJoCoBackend:
             feedback_runtime=feedback_runtime,
             feedforward=feedforward,
             recovery_controller=recovery_controller,
-            torque_policy=torque_policy,
+            torque_policy=active_torque_policy,
+            torque_observer=torque_observer,
         )
 
     def run_and_record(
@@ -420,6 +438,7 @@ class G1MuJoCoBackend:
         feedforward: ILCFeedforward | None = None,
         recovery_controller: G1CerebellarRecoveryController | None = None,
         torque_policy: G1TorquePolicy | None = None,
+        torque_observer: G1TorqueObserver | None = None,
     ) -> GoalForgeEpisode:
         import mujoco
 
@@ -434,6 +453,8 @@ class G1MuJoCoBackend:
             recovery_controller.reset()
         if torque_policy is not None:
             torque_policy.reset()
+        if torque_observer is not None:
+            torque_observer.reset()
         _configure_scene(model, scenario)
         state = state_type(29)
         output = output_type(29)
@@ -845,38 +866,42 @@ class G1MuJoCoBackend:
                 raw_scale = float(np.max(np.abs(raw_torque) / hard_limits))
                 peak_torque_scale = max(peak_torque_scale, min(raw_scale, self.torque_guard_scale))
                 frame_torque = np.clip(raw_torque, -guarded_limits, guarded_limits)
+                control_frame = G1TorqueControlFrame(
+                    joint_position=np.asarray(data.qpos[7:36], dtype=np.float64),
+                    joint_velocity=np.asarray(data.qvel[6:35], dtype=np.float64),
+                    joint_lower_limits=joint_lower_limits,
+                    joint_upper_limits=joint_upper_limits,
+                    torso_quaternion_wxyz=np.asarray(data.xquat[ids.torso], dtype=np.float64),
+                    pelvis_position=np.asarray(data.qpos[:3], dtype=np.float64),
+                    base_linear_velocity=np.asarray(data.qvel[:3], dtype=np.float64),
+                    base_angular_velocity=np.asarray(data.qvel[3:6], dtype=np.float64),
+                    ball_position=np.asarray(
+                        data.qpos[ids.ball_qpos : ids.ball_qpos + 3],
+                        dtype=np.float64,
+                    ),
+                    ball_velocity=np.asarray(
+                        data.qvel[ids.ball_qvel : ids.ball_qvel + 3],
+                        dtype=np.float64,
+                    ),
+                    target_y_m=scenario.target_y_m,
+                    target_z_m=scenario.target_z_m,
+                    policy_phase=policy_phase,
+                    left_contact=latest_left_support,
+                    right_contact=latest_right_support,
+                    ball_contact_observed=contact_observed,
+                )
                 if torque_policy is not None:
                     parent_torque = frame_torque.copy()
                     frame_torque = _apply_direct_torque_policy(
                         policy=torque_policy,
-                        frame=G1TorqueControlFrame(
-                            joint_position=np.asarray(data.qpos[7:36], dtype=np.float64),
-                            joint_velocity=np.asarray(data.qvel[6:35], dtype=np.float64),
-                            joint_lower_limits=joint_lower_limits,
-                            joint_upper_limits=joint_upper_limits,
-                            torso_quaternion_wxyz=np.asarray(
-                                data.xquat[ids.torso], dtype=np.float64
-                            ),
-                            pelvis_position=np.asarray(data.qpos[:3], dtype=np.float64),
-                            ball_position=np.asarray(
-                                data.qpos[ids.ball_qpos : ids.ball_qpos + 3],
-                                dtype=np.float64,
-                            ),
-                            ball_velocity=np.asarray(
-                                data.qvel[ids.ball_qvel : ids.ball_qvel + 3],
-                                dtype=np.float64,
-                            ),
-                            target_y_m=scenario.target_y_m,
-                            target_z_m=scenario.target_z_m,
-                            policy_phase=policy_phase,
-                            left_contact=latest_left_support,
-                            right_contact=latest_right_support,
-                        ),
+                        frame=control_frame,
                         parent_torque=parent_torque,
                         guarded_limits=guarded_limits,
                     )
                     raw_scale = float(np.max(np.abs(frame_torque) / hard_limits))
                     peak_torque_scale = max(peak_torque_scale, raw_scale)
+                if torque_observer is not None:
+                    torque_observer.observe(control_frame, frame_torque.copy())
                 torque_violation = torque_violation or bool(
                     np.any(np.abs(frame_torque) > hard_limits)
                 )
@@ -1180,6 +1205,8 @@ class _Contacts:
     ball_right: bool
     ball_force_n: float
     ball_contact_point: tuple[float, float, float]
+    ball_contact_normal_xyz: tuple[float, float, float]
+    ball_contact_force_world_xyz_n: tuple[float, float, float]
     left_ground_force_n: float
     right_ground_force_n: float
 
@@ -1318,6 +1345,16 @@ def _adapt_target(
         adapted[7] += parameters.com_shift_y * 0.5
         adapted[8] += parameters.foot_yaw_offset
         adapted[11] += parameters.foot_yaw_offset * 0.25
+        adapted[10] += parameters.foot_pitch_offset
+        # One bounded operational-space-inspired synergy: at the nominal
+        # strike contact, MuJoCo's right-foot vertical Jacobian is dominated
+        # by hip pitch/yaw while knee velocity opposes lift. This low-
+        # dimensional target residual raises the foot path without bypassing
+        # the learned prior, PD loop, or final torque projector.
+        adapted[6] -= parameters.loft_synergy
+        adapted[8] -= parameters.loft_synergy * 0.60
+        adapted[9] += parameters.loft_synergy
+        adapted[10] -= parameters.loft_synergy * 0.25
         adapted[12] += parameters.pelvis_yaw_offset
     if 335 < policy_frame <= 430:
         adapted[6] -= parameters.recovery_step_length * 0.4
@@ -1335,6 +1372,8 @@ def _contact_observation(model: Any, data: Any, ids: _ModelIds) -> _Contacts:
     ball_right = False
     ball_force = 0.0
     ball_contact_point: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    ball_contact_normal: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    ball_contact_force_world: tuple[float, float, float] = (0.0, 0.0, 0.0)
     left_ground_force = 0.0
     right_ground_force = 0.0
     force: np.ndarray = np.zeros(6, dtype=np.float64)
@@ -1362,12 +1401,23 @@ def _contact_observation(model: Any, data: Any, ids: _ModelIds) -> _Contacts:
         ball_left = ball_left or other.startswith("left_foot")
         ball_right = ball_right or other.startswith("right_foot")
         mujoco.mj_contactForce(model, data, index, force)
-        ball_force = max(ball_force, float(np.linalg.norm(force[:3])))
-        ball_contact_point = (
-            float(contact.pos[0]),
-            float(contact.pos[1]),
-            float(contact.pos[2]),
-        )
+        contact_force = float(np.linalg.norm(force[:3]))
+        if contact_force >= ball_force:
+            ball_force = contact_force
+            # MuJoCo stores the contact-frame axes as rows; its normal points
+            # from geom1 to geom2.  Normalize every football label to the
+            # physically useful foot-to-ball direction.
+            frame = np.asarray(contact.frame, dtype=np.float64).reshape(3, 3)
+            direction = 1.0 if geom2 == ids.ball_geom else -1.0
+            normal = direction * frame[0]
+            force_world = direction * (frame.T @ force[:3])
+            ball_contact_point = (
+                float(contact.pos[0]),
+                float(contact.pos[1]),
+                float(contact.pos[2]),
+            )
+            ball_contact_normal = tuple(float(value) for value in normal)
+            ball_contact_force_world = tuple(float(value) for value in force_world)
     return _Contacts(
         left_floor=left_floor,
         right_floor=right_floor,
@@ -1376,6 +1426,8 @@ def _contact_observation(model: Any, data: Any, ids: _ModelIds) -> _Contacts:
         ball_right=ball_right,
         ball_force_n=ball_force,
         ball_contact_point=ball_contact_point,
+        ball_contact_normal_xyz=ball_contact_normal,
+        ball_contact_force_world_xyz_n=ball_contact_force_world,
         left_ground_force_n=left_ground_force,
         right_ground_force_n=right_ground_force,
     )

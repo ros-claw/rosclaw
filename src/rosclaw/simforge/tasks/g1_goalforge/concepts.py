@@ -123,6 +123,8 @@ class ShotParameters:
     swing_amplitude: float = 1.0
     swing_speed_scale: float = 1.0
     foot_yaw_offset: float = 0.0
+    foot_pitch_offset: float = 0.0
+    loft_synergy: float = 0.0
     contact_phase_offset: float = 0.0
     kick_trigger_delay: float = 0.0
     recovery_step_length: float = 0.04
@@ -137,8 +139,13 @@ class ShotParameters:
             "pelvis_yaw_offset": (self.pelvis_yaw_offset, -0.20, 0.20),
             "com_shift_y": (self.com_shift_y, -0.08, 0.08),
             "swing_amplitude": (self.swing_amplitude, 0.75, 1.15),
-            "swing_speed_scale": (self.swing_speed_scale, 0.80, 1.15),
+            # Direct run-to-strike curricula may compress the pre-contact
+            # motion clock.  Values above the old 1.15 ceiling remain bounded
+            # and must still pass the physical continuity/safety evidence.
+            "swing_speed_scale": (self.swing_speed_scale, 0.80, 1.50),
             "foot_yaw_offset": (self.foot_yaw_offset, -0.12, 0.12),
+            "foot_pitch_offset": (self.foot_pitch_offset, -0.18, 0.18),
+            "loft_synergy": (self.loft_synergy, 0.0, 0.30),
             "contact_phase_offset": (self.contact_phase_offset, -0.10, 0.10),
             "kick_trigger_delay": (self.kick_trigger_delay, 0.0, 0.20),
             "recovery_step_length": (self.recovery_step_length, 0.0, 0.15),

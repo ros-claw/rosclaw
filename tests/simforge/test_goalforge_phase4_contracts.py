@@ -81,6 +81,10 @@ def test_shot_parameters_are_bounded_and_learned_requires_dataset() -> None:
         ShotParameters(stance_offset_x=0.13)
     with pytest.raises(ValueError, match="dataset snapshot"):
         ShotParameters(policy_type="learned_adapter")
+    with pytest.raises(ValueError, match="foot_pitch_offset"):
+        ShotParameters(foot_pitch_offset=0.181)
+    with pytest.raises(ValueError, match="loft_synergy"):
+        ShotParameters(loft_synergy=0.301)
     learned = ShotParameters(
         policy_type="learned_adapter",
         dataset_snapshot_hash=hash_json({"dataset": 1}),

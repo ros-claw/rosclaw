@@ -150,6 +150,69 @@ def test_recovery_state_policy_treats_negative_neighbors_as_abstention_evidence(
     assert receipt.fallback_count == 1
 
 
+def test_recovery_state_policy_requires_neighbors_to_agree_on_same_primitive() -> None:
+    second = replace(_primitive(), settling_standing_pose_blend=0.38)
+    artifact = replace(
+        _artifact(),
+        primitives=(_primitive(), second),
+        prototype_primitive_indices=(0, 1, -1),
+    )
+    policy = G1RecoveryStatePolicy(artifact)
+
+    selections = [policy.select(_observation()) for _ in range(5)]
+
+    assert selections[-1].ready and selections[-1].out_of_distribution
+    assert selections[-1].primitive_index is None
+    assert selections[-1].primitive_consensus == pytest.approx(0.5)
+    assert selections[-1].fallback_reason == "primitive_consensus_below_gate"
+
+
+def test_recovery_state_v3_negative_evidence_vetoes_a_nearby_positive_island() -> None:
+    width = 2 * len(G1_RECOVERY_STATE_FEATURES)
+    artifact = replace(
+        _artifact(),
+        schema_version="rosclaw.g1_goalforge.recovery_state_artifact.v3",
+        negative_veto_distance_ratio=2.0,
+        descriptor_prototypes=(
+            (0.05,) * width,
+            (0.05,) * width,
+            (0.09,) * width,
+        ),
+    )
+    policy = G1RecoveryStatePolicy(artifact)
+
+    selections = [policy.select(_observation()) for _ in range(5)]
+    receipt = policy.build_receipt()
+
+    assert selections[-1].ready and selections[-1].out_of_distribution
+    assert selections[-1].primitive_index is None
+    assert selections[-1].fallback_reason == "negative_evidence_veto"
+    assert selections[-1].nearest_distance == pytest.approx(0.05)
+    assert selections[-1].nearest_negative_distance == pytest.approx(0.09)
+    assert receipt.nearest_negative_distance == pytest.approx(0.09)
+
+
+def test_recovery_state_v3_allows_a_positive_island_with_negative_margin() -> None:
+    width = 2 * len(G1_RECOVERY_STATE_FEATURES)
+    artifact = replace(
+        _artifact(),
+        schema_version="rosclaw.g1_goalforge.recovery_state_artifact.v3",
+        negative_veto_distance_ratio=2.0,
+        descriptor_prototypes=(
+            (0.05,) * width,
+            (0.05,) * width,
+            (0.12,) * width,
+        ),
+    )
+    policy = G1RecoveryStatePolicy(artifact)
+
+    selections = [policy.select(_observation()) for _ in range(5)]
+
+    assert selections[-1].ready and not selections[-1].out_of_distribution
+    assert selections[-1].primitive_index == 0
+    assert selections[-1].nearest_negative_distance == pytest.approx(0.12)
+
+
 def test_recovery_state_policy_fails_closed_on_nonfinite_observation() -> None:
     policy = G1RecoveryStatePolicy(_artifact())
     observation = _observation()
@@ -183,11 +246,33 @@ def test_recovery_state_artifact_roundtrips_as_content_addressed_json(tmp_path) 
     assert loaded.artifact_hash == artifact.artifact_hash
 
 
+def test_recovery_state_v3_artifact_roundtrips_with_negative_veto(tmp_path) -> None:
+    artifact = replace(
+        _artifact(),
+        schema_version="rosclaw.g1_goalforge.recovery_state_artifact.v3",
+        negative_veto_distance_ratio=2.0,
+    )
+    path = tmp_path / "recovery-state-v3.json"
+    path.write_text(json.dumps(artifact.to_dict()), encoding="utf-8")
+
+    loaded = load_g1_recovery_state_artifact(path)
+
+    assert loaded == artifact
+    assert loaded.artifact_hash == artifact.artifact_hash
+    assert loaded.to_dict()["negative_veto_distance_ratio"] == 2.0
+
+
 def test_recovery_state_artifact_rejects_invalid_routes_and_hardware_ceiling() -> None:
     with pytest.raises(ValueError, match="route"):
         replace(_artifact(), prototype_primitive_indices=(2, 0, -1))
     with pytest.raises(ValueError, match="SIM_ONLY"):
         replace(_artifact(), activation_ceiling="REAL")
+    with pytest.raises(ValueError, match="negative veto"):
+        replace(
+            _artifact(),
+            schema_version="rosclaw.g1_goalforge.recovery_state_artifact.v3",
+            negative_veto_distance_ratio=0.5,
+        )
 
 
 def test_controller_collects_temporal_state_before_latching_primitive() -> None:

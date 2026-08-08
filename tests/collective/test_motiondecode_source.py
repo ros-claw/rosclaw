@@ -21,6 +21,7 @@ from rosclaw.collective.sources.motiondecode.joint_mapping import (
 from rosclaw.collective.sources.motiondecode.license import snapshot_license
 from rosclaw.collective.sources.motiondecode.manifest import (
     MotionDecodeRegistration,
+    _stratified_sample,
     register_motiondecode_source,
     verify_registered_files,
 )
@@ -253,6 +254,25 @@ def test_registration_is_content_addressed_and_replays(tmp_path: Path) -> None:
     assert replayed.manifest.source_identity.source_hash == (
         registration.manifest.source_identity.source_hash
     )
+
+
+def test_bounded_pilot_is_balanced_across_families_and_leaf_skills() -> None:
+    paths = [
+        Path(f"samples/football/short/short_{index:03d}.csv") for index in range(20)
+    ]
+    paths.extend(
+        Path(f"samples/football/shooting/shot_{index:03d}.csv") for index in range(20)
+    )
+    paths.extend(Path(f"samples/gait/walking/walk_{index:03d}.csv") for index in range(20))
+
+    selected = _stratified_sample(paths, limit=6)
+
+    assert selected == sorted(selected, key=lambda item: item.as_posix())
+    assert sum("/gait/" in item.as_posix() for item in selected) == 3
+    football = [item for item in selected if "/football/" in item.as_posix()]
+    assert len(football) == 3
+    assert any("/shooting/" in item.as_posix() for item in football)
+    assert any("/short/" in item.as_posix() for item in football)
 
 
 def test_registered_file_mutation_is_rejected_before_parse(tmp_path: Path) -> None:

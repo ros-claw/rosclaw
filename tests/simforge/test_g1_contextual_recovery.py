@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -19,6 +20,7 @@ from rosclaw.simforge.g1_contextual_recovery import (
 )
 from rosclaw.simforge.g1_contextual_recovery_training import (
     _bootstrap_lower_95,
+    _contextual_route_prototype,
     _primitive_library,
 )
 from rosclaw.simforge.g1_muscle_memory import G1_MUSCLE_MEMORY_OBSERVATIONS
@@ -50,6 +52,33 @@ def _configs() -> tuple[G1CerebellarRecoveryConfig, G1CerebellarRecoveryConfig]:
         target_smoothing_start_policy_frame=300,
     )
     return baseline, G1CerebellarRecoveryConfig()
+
+
+def test_contextual_prototype_matches_latched_runtime_selection_frame() -> None:
+    count = len(G1_MUSCLE_MEMORY_OBSERVATIONS)
+    rows = np.zeros((3, count), dtype=np.float64)
+    impulse = G1_MUSCLE_MEMORY_OBSERVATIONS.index("contact_impulse_ns")
+    right_support = G1_MUSCLE_MEMORY_OBSERVATIONS.index("right_support")
+    rows[:, impulse] = 1.0
+    rows[0, right_support] = 1.0
+    rows[1] = np.arange(count, dtype=np.float64) + 1.0
+    rows[1, impulse] = 1.0
+    rows[1, right_support] = 0.0
+    rows[2] = 99.0
+    episode = SimpleNamespace(
+        trajectory={
+            "recovery_proprioception": rows,
+            "recovery_active": np.asarray((False, True, True)),
+        }
+    )
+
+    prototype = _contextual_route_prototype(
+        episode,
+        observation_mean=(0.0,) * count,
+        observation_scale=(1.0,) * count,
+    )
+
+    assert prototype == pytest.approx(rows[1])
 
 
 def _controller_without_artifact(

@@ -31,6 +31,7 @@ from rosclaw.simforge.g1_recovery_quality import (
     compare_g1_momentum_unloading,
     compare_g1_naturalness,
     compare_g1_recovery,
+    evaluate_g1_absolute_recovery_gate,
     measure_g1_recovery_quality,
 )
 from rosclaw.simforge.models import Partition
@@ -70,6 +71,7 @@ class HatTrickShot:
     recovery_baseline_trajectory_hash: str | None = None
     recovery_baseline_strict_replay: bool = False
     recovery_comparison: dict[str, Any] | None = None
+    absolute_recovery_gate: dict[str, Any] | None = None
     momentum_parent_result: dict[str, Any] | None = None
     momentum_parent_metrics: dict[str, Any] | None = None
     momentum_parent_trajectory_path: str | None = None
@@ -92,7 +94,7 @@ class GoalForgeHatTrick:
     kick_prior_hash: str
     backend_commit: str
     shots: tuple[HatTrickShot, ...]
-    schema_version: str = "rosclaw.g1_goalforge.hat_trick.v5"
+    schema_version: str = "rosclaw.g1_goalforge.hat_trick.v6"
 
     @property
     def passed(self) -> bool:
@@ -169,6 +171,10 @@ class GoalForgeHatTrick:
                 "disturbance_feedback_rescue": self.shots[2].result["success"],
                 "post_kick_cerebellar_recovery": all(
                     bool(shot.recovery_comparison and shot.recovery_comparison["passed"])
+                    for shot in self.shots
+                ),
+                "absolute_recovery_growth_ready": all(
+                    bool(shot.absolute_recovery_gate and shot.absolute_recovery_gate["passed"])
                     for shot in self.shots
                 ),
                 "elevated_target_challenge": bool(
@@ -731,6 +737,11 @@ def _shot(
         recovery_baseline_trajectory_hash=_file_hash(recovery_baseline_path),
         recovery_baseline_strict_replay=recovery_pair.baseline_strict_replay,
         recovery_comparison=recovery_pair.comparison.to_dict(),
+        absolute_recovery_gate=evaluate_g1_absolute_recovery_gate(
+            quality=recovery_pair.candidate_metrics,
+            result=episode.result.summary_dict(),
+            strict_replay=strict,
+        ).to_dict(),
         momentum_parent_result=(
             momentum_pair.parent.result.summary_dict() if momentum_pair else None
         ),
