@@ -55,3 +55,7 @@ class ApprovalRequestV2(ContractModel):
     daemon_action_id: str = ""
     daemon_capability_id: str = ""
     daemon_action_intent_hash: str = ""
+    # 五审 P0-5C：SIM/REAL 共用的不可变精确动作合约（ExactActionV1
+    # JSON）——capability/normalized args/intent hash 一等字段。
+    # 空 = legacy V2 卡（只读，不可执行）。
+    exact_action_json: str = ""

@@ -286,23 +286,49 @@ class ActionAdmissionService:
         if _tier_rank.get(risk_tier, -1) > _tier_rank.get(authoritative_risk, 0):
             # 模型可以把风险往高报（更保守），但不能往低报。
             authoritative_risk = risk_tier
-        # 参数 schema 校验（catalog input_schema 是能力合约的一部分）。
+        # P0-5C：完整 JSON Schema 校验 + 默认值展开——人批准的是展开后
+        # 的真实参数（660Hz/0.25s/18%），不是 {}；normalized 对象同一份
+        # 用于 hash/展示/grant/executor/receipt。
+        from rosclaw.agentd.pi_bridge.action_schema import (
+            validate_action_arguments,
+        )
+
         schema = descriptor.input_schema or {}
-        required = list(schema.get("required", []))
-        missing = [k for k in required if k not in arguments]
-        if missing:
+        try:
+            normalized_arguments = validate_action_arguments(schema, arguments)
+        except Exception as exc:  # noqa: BLE001 - ValidationError
             raise ToolBridgeError(
                 "INVALID_ARGUMENTS",
-                f"capability {capability_id} requires arguments {missing} (contract schema)",
-            )
-        if schema.get("additionalProperties") is False:
-            allowed = set((schema.get("properties") or {}).keys())
-            extra = [k for k in arguments if k not in allowed]
-            if extra:
-                raise ToolBridgeError(
-                    "INVALID_ARGUMENTS",
-                    f"arguments {extra} not in capability contract schema",
-                )
+                f"capability {capability_id} arguments rejected: {exc}",
+            ) from exc
+        # ExactActionV1：不可变精确动作合约（capability/args/mission/
+        # mode/body/context/risk 全一等字段 + intent hash）。
+        from rosclaw.contracts.operator.exact_action import (
+            build_exact_action,
+            compute_arguments_hash,
+        )
+
+        snapshot_now = service.snapshot(request.mission_id)
+        exact_action = build_exact_action(
+            capability_id=capability_id,
+            capability_version=descriptor.version,
+            capability_source=descriptor.source,
+            normalized_arguments=normalized_arguments,
+            authoritative_risk_tier=authoritative_risk,
+            side_effect_class=descriptor.side_effect_class.value,
+            mission_id=request.mission_id,
+            mode=mission.mode.value,
+            body_id=mission.body_binding.body_id,
+            body_hash=request.body_hash,
+            context_revision=request.context_revision,
+            context_hash="",
+            expected_effect=expected_effect,
+            created_at=datetime.now(UTC).isoformat(),
+            expires_at=datetime.now(UTC).isoformat(),  # 建卡时由 TTL 覆盖
+        )
+        # 标题由合约派生——capability 永远在标题里，不允许"危险
+        # capability + 无害 title"分离（五审场景 D）。
+        derived_title = exact_action.title
         handlers = service._handlers
         if handlers is None:
             raise ToolBridgeError("HANDLERS_UNAVAILABLE", "intent handlers not wired")
@@ -315,17 +341,17 @@ class ActionAdmissionService:
         )
 
         txns = ActionTxnStore(service._store.connection)
+        # P0-5C：hash 用 normalized arguments（展开默认值后）——
+        # 与卡片/executor/receipt 同一对象。
         request_hash = request_hash_of(
             capability_id=capability_id,
-            arguments=arguments,
+            arguments=normalized_arguments,
             mission_id=request.mission_id,
             mode=request.mode,
             context_revision=request.context_revision,
             body_hash=request.body_hash,
         )
-        arguments_hash = hashlib.sha256(
-            canonical_dumps(arguments).encode()
-        ).hexdigest()
+        arguments_hash = exact_action.arguments_hash
         try:
             txn = txns.create(
                 idempotency_key=request.idempotency_key,
@@ -359,7 +385,7 @@ class ActionAdmissionService:
                 "display_hash": display_hash_for(stored),
                 "mode": mission.mode.value,
                 "capability_id": capability_id,
-                "arguments": arguments,
+                "arguments": normalized_arguments,
                 "risk_tier": authoritative_risk,
                 "title": stored.action_display.title,
                 "summary": stored.action_display.summary,
@@ -382,13 +408,17 @@ class ActionAdmissionService:
                 payload={
                     "request_id": approval_id,
                     "capability_id": capability_id,
-                    "arguments": arguments,
-                    "title": title or capability_id,
+                    "arguments": normalized_arguments,
+                    # P0-5C：title 由合约派生（含 capability），不允许
+                    # "危险 capability + 无害 title"分离。
+                    "title": derived_title,
                     "summary": expected_effect or capability_id,
                     "risk_tier": authoritative_risk,
                     "expected_effect": expected_effect,
-                    "parameters": arguments,
+                    "parameters": normalized_arguments,
                     "arguments_hash": arguments_hash,
+                    "action_intent_hash": exact_action.action_intent_hash,
+                    "exact_action_json": exact_action.model_dump_json(),
                 },
             ),
         )
@@ -417,12 +447,13 @@ class ActionAdmissionService:
             "display_hash": display_hash,
             "mode": mission.mode.value,
             "capability_id": capability_id,
-            "arguments": arguments,
+            "arguments": normalized_arguments,
             "risk_tier": authoritative_risk,
             "title": created.action_display.title,
             "summary": created.action_display.summary,
             "expires_at": created.expires_at,
             "txn_id": txn.txn_id,
+            "action_intent_hash": exact_action.action_intent_hash,
         }
 
     # -- phase 2a: decision status -------------------------------------------------

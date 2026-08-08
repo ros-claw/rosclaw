@@ -52,23 +52,52 @@ def compute_display_hash(
     parameters: dict[str, Any],
     body_hash: str,
     expires_at: str,
+    # 五审 P0-5C：扩展绑定字段（缺省 = 旧 V2 卡公式，向后兼容只读）。
+    capability_id: str = "",
+    mission_id: str = "",
+    mode: str = "",
+    context_revision: int | None = None,
+    context_hash: str = "",
+    expected_effect: str = "",
+    action_intent_hash: str = "",
 ) -> str:
     """审批卡片展示指纹（agentd 与 rosclawd 共用同一公式）。
 
     任何展示内容变化都会改变 hash；operatord 显示的卡片、daemon 的
     challenge/receipt、agentd 的本地卡三方用同一公式互相绑定。
+
+    P0-5C：V3 卡（带 exact_action）必须绑定 capability/mission/mode/
+    context/normalized parameters/intent hash——capability 不再只是
+    "碰巧出现在 title"。
     """
-    canonical = canonical_json(
-        {
-            "request_id": request_id,
-            "title": title,
-            "summary": summary,
-            "risk_tier": risk_tier,
-            "parameters": parameters,
-            "body_hash": body_hash,
-            "expires_at": expires_at,
-        }
-    )
+    payload: dict[str, Any] = {
+        "request_id": request_id,
+        "title": title,
+        "summary": summary,
+        "risk_tier": risk_tier,
+        "parameters": parameters,
+        "body_hash": body_hash,
+        "expires_at": expires_at,
+    }
+    # V3 绑定字段：任一非空即进入 hash（V2 卡全空 = 旧公式不变）。
+    v3: dict[str, Any] = {}
+    if capability_id:
+        v3["capability_id"] = capability_id
+    if mission_id:
+        v3["mission_id"] = mission_id
+    if mode:
+        v3["mode"] = mode
+    if context_revision is not None:
+        v3["context_revision"] = context_revision
+    if context_hash:
+        v3["context_hash"] = context_hash
+    if expected_effect:
+        v3["expected_effect"] = expected_effect
+    if action_intent_hash:
+        v3["action_intent_hash"] = action_intent_hash
+    if v3:
+        payload["exact"] = v3
+    canonical = canonical_json(payload)
     return hashlib.sha256(canonical).hexdigest()[:16]
 
 

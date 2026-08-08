@@ -30,10 +30,36 @@ if TYPE_CHECKING:
 
 
 def display_hash_for(request) -> str:
-    """审批卡片的展示指纹（与 rosclawd 共用同一公式，R1 字段绑定）。"""
+    """审批卡片的展示指纹（与 rosclawd 共用同一公式，R1 字段绑定）。
+
+    P0-5C：V3 卡（带 exact_action_json）把 capability/mission/mode/
+    context_revision/normalized parameters/intent hash 一并绑进 hash。
+    """
     from rosclaw.contracts.operator.decision import compute_display_hash
 
     display = request.action_display
+    # V3 绑定字段（exact_action 存在时）。
+    v3: dict = {}
+    exact_json = getattr(request, "exact_action_json", "") or ""
+    if exact_json:
+        import json as _json
+
+        try:
+            exact = _json.loads(exact_json)
+            v3 = {
+                "capability_id": str(exact.get("capability_id", "")),
+                "mission_id": str(exact.get("mission_id", "")),
+                "mode": str(exact.get("mode", "")),
+                "context_revision": int(exact.get("context_revision", 0)),
+                "context_hash": str(exact.get("context_hash", "")),
+                "expected_effect": str(exact.get("expected_effect", "")),
+                "action_intent_hash": str(exact.get("action_intent_hash", "")),
+            }
+        except Exception:  # noqa: BLE001 - 损坏的 exact_action 不静默降级
+            raise ValueError(
+                f"approval {request.request_id}: exact_action_json is corrupt "
+                "(fail closed — refusing to compute a weaker hash)"
+            )
     return compute_display_hash(
         request_id=request.request_id,
         title=display.title,
@@ -42,6 +68,7 @@ def display_hash_for(request) -> str:
         parameters=display.parameters,
         body_hash=request.effective_body_hash,
         expires_at=request.expires_at,
+        **v3,
     )
 
 

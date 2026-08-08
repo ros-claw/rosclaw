@@ -258,6 +258,8 @@ class ServiceIntentHandlers:
             requested_tier=payload.get("tier", "EXACT_ACTION"),
             created_at=datetime.now(UTC).isoformat(),
             expires_at=(datetime.now(UTC) + timedelta(seconds=approval_ttl_sec)).isoformat(),
+            # P0-5C：一等精确动作合约（SIM/REAL 同一字段）。
+            exact_action_json=str(payload.get("exact_action_json") or ""),
         )
         self._broker.create_request(request)
         await self._emit(
