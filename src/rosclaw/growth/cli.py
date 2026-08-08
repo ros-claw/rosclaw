@@ -23,6 +23,9 @@ from rosclaw.growth.ballistic_contact_actor_critic import (
 from rosclaw.growth.ballistic_contact_evaluation import (
     evaluate_g1_ballistic_contact_holdout,
 )
+from rosclaw.growth.ballistic_contact_island_gate import (
+    derive_g1_ballistic_contact_island_gate,
+)
 from rosclaw.growth.ballistic_contact_observer import (
     derive_g1_ballistic_contact_observer,
 )
@@ -248,6 +251,18 @@ def _parser() -> argparse.ArgumentParser:
     ballistic_actor_critic.add_argument("--trust-region-radius-rad", type=float, default=0.06)
     ballistic_actor_critic.add_argument("--ridge-regularization", type=float, default=0.02)
     ballistic_actor_critic.set_defaults(handler=_ballistic_contact_actor_critic)
+    ballistic_island_gate = commands.add_parser(
+        "ballistic-contact-island-gate",
+        help="learn a replay-anchored contact-event atlas before actor training",
+    )
+    ballistic_island_gate.add_argument(
+        "--evidence-json", type=Path, action="append", required=True
+    )
+    ballistic_island_gate.add_argument("--output", type=Path, required=True)
+    ballistic_island_gate.add_argument(
+        "--source-checkout", type=Path, default=Path.cwd()
+    )
+    ballistic_island_gate.set_defaults(handler=_ballistic_contact_island_gate)
     ballistic_holdout = commands.add_parser(
         "evaluate-ballistic-contact",
         help="fail closed on a frozen contact action over unseen planner seeds",
@@ -636,6 +651,16 @@ def _ballistic_contact_actor_critic(args: argparse.Namespace) -> int:
     )
     _print(candidate.to_dict())
     return 0 if candidate.sim_replay_recommended else 3
+
+
+def _ballistic_contact_island_gate(args: argparse.Namespace) -> int:
+    gate = derive_g1_ballistic_contact_island_gate(
+        evidence_paths=tuple(args.evidence_json),
+        output_path=args.output,
+        source_checkout=args.source_checkout,
+    )
+    _print(gate.to_dict())
+    return 0 if gate.training_ready else 3
 
 
 def _evaluate_ballistic_contact(args: argparse.Namespace) -> int:
