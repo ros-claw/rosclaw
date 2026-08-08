@@ -329,10 +329,13 @@ def _build_and_install(tmp_path: Path) -> tuple[Path, Path]:
 class PtySession:
     """最小 PTY 驱动：expect/send。"""
 
-    def __init__(self, argv: list[str], env: dict[str, str]) -> None:
+    def __init__(self, argv: list[str], env: dict[str, str], log_path: Path | None = None) -> None:
         import pty as _pty
 
         self.master, slave = _pty.openpty()
+        # CI 失败诊断（五审 Gate Evidence）：PTY 全量输出落盘——超时
+        # 断言只有尾部 3000 字节，完整输出是定位 CI-only 失败的唯一证据。
+        self._log = log_path.open("wb") if log_path else None
 
         def _make_controlling_tty() -> None:
             # 新 session + 控制终端——否则 TIOCSWINSZ 的 SIGWINCH 没有
@@ -364,6 +367,10 @@ class PtySession:
                         with self._lock:
                             self.output += chunk
                             self.last_at = time.monotonic()
+                        if self._log is not None:
+                            with contextlib.suppress(OSError):
+                                self._log.write(chunk)
+                                self._log.flush()
                 except OSError:
                     break
 
@@ -393,6 +400,10 @@ class PtySession:
         self._draining = False
         with contextlib.suppress(OSError):
             os.close(self.master)
+        if self._log is not None:
+            with contextlib.suppress(OSError):
+                self._log.close()
+            self._log = None
         if self.proc.poll() is None:
             self.proc.terminate()
             try:
@@ -484,7 +495,11 @@ class TestProductJourney:
                 assert operatord.poll() is None, "operatord 启动失败"
                 time.sleep(0.2)
             assert (home / "run" / "operatord.sock").exists(), "operatord.sock 未出现"
-            self._run_journey(rosclaw, env, home, fake)
+            try:
+                self._run_journey(rosclaw, env, home, fake)
+            except BaseException:
+                self._dump_failure_state(home)
+                raise
         finally:
             operatord.terminate()
             try:
@@ -492,6 +507,48 @@ class TestProductJourney:
             except subprocess.TimeoutExpired:
                 operatord.kill()
             fake.close()
+
+    def _dump_failure_state(self, home: Path) -> None:
+        """CI-only 失败的诊断面（journey artifact 带走）：
+        agentd/operatord 日志 + home 目录清单 + missions.db 关键表快照。
+        脱敏：本测试环境无任何真实密钥（fake key），DB 只有结构化 ID。"""
+        import sqlite3
+
+        dump = home.parent / "failure-dump"
+        with contextlib.suppress(Exception):
+            dump.mkdir(exist_ok=True)
+            listing = sorted(
+                str(p.relative_to(home)) for p in home.rglob("*") if p.is_file()
+            )
+            (dump / "home-listing.json").write_text(
+                json.dumps(listing, indent=1), encoding="utf-8"
+            )
+            for log in home.rglob("*.log"):
+                target = dump / f"{log.parent.name}-{log.name}"
+                target.write_bytes(log.read_bytes()[-200_000:])
+            db_path = home / "agentd" / "missions.db"
+            if db_path.exists():
+                db = sqlite3.connect(db_path)
+                snapshot: dict[str, object] = {}
+                for table in (
+                    "action_txns", "mission_grants", "operator_requests",
+                    "agent_events", "context_leases", "pi_session_leases",
+                ):
+                    exists = db.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                        (table,),
+                    ).fetchone()
+                    if exists:
+                        rows = db.execute(
+                            f"SELECT * FROM {table} ORDER BY rowid DESC LIMIT 20"
+                        ).fetchall()
+                        cols = [d[0] for d in db.execute(
+                            f"SELECT * FROM {table} LIMIT 0").description]
+                        snapshot[table] = [dict(zip(cols, r, strict=True)) for r in rows]
+                db.close()
+                (dump / "db-snapshot.json").write_text(
+                    json.dumps(snapshot, indent=1, default=str), encoding="utf-8"
+                )
 
     def _assert_no_reasoning_replay(
         self, fake: FakeModelServer, home: Path, *, from_index: int
@@ -664,7 +721,9 @@ class TestProductJourney:
         self, rosclaw: Path, env: dict[str, str], home: Path, fake: FakeModelServer
     ) -> None:
         # NA-FIX-9 后默认引擎即 Native Agent——旅程显式验证无 --engine 的默认路径。
-        session = PtySession([str(rosclaw), "chat"], env)
+        session = PtySession(
+            [str(rosclaw), "chat"], env, log_path=home.parent / "pty-main.log"
+        )
         try:
             # 1. 品牌 header（T-IDENTITY + P0-NA-15/16 产品面扫描）。
             session.expect(b"ROSClaw Native Agent", timeout=60)
@@ -756,7 +815,10 @@ class TestProductJourney:
         db.close()
         assert before, "第一段会话应留下 ACTIVE binding"
         first_session, first_mission = before[0]
-        resumed = PtySession([str(rosclaw), "chat", "--continue"], env)
+        resumed = PtySession(
+            [str(rosclaw), "chat", "--continue"], env,
+            log_path=home.parent / "pty-continue.log",
+        )
         try:
             resumed.expect(b"ROSClaw Native Agent", timeout=60)
             # 恢复后工具链可用（/status 经 bridge 读取内核状态）。
