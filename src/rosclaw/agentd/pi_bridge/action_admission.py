@@ -111,13 +111,16 @@ class ActionAdmissionService:
                 "WRITER_LEASE_REQUIRED",
                 "this session does not hold the writer lease (fail closed)",
             )
-        if caller_pid is not None and caller_uid is not None:
-            if writer.owner_uid != caller_uid or writer.owner_pid != caller_pid:
-                raise ToolBridgeError(
-                    "CALLER_MISMATCH",
-                    f"caller pid {caller_pid}/uid {caller_uid} is not the "
-                    f"writer process (pid {writer.owner_pid}) — fail closed",
-                )
+        if (
+            caller_pid is not None
+            and caller_uid is not None
+            and (writer.owner_uid != caller_uid or writer.owner_pid != caller_pid)
+        ):
+            raise ToolBridgeError(
+                "CALLER_MISMATCH",
+                f"caller pid {caller_pid}/uid {caller_uid} is not the "
+                f"writer process (pid {writer.owner_pid}) — fail closed",
+            )
         if mission.mode.value != ctx.mode:
             raise ToolBridgeError(
                 "MODE_MISMATCH",
@@ -171,12 +174,15 @@ class ActionAdmissionService:
             )
         # P0-5A：lease 签发给哪个 caller，就只能由哪个 caller 使用
         # （caller_uid=-1 是旧 lease——不允许用于 action）。
-        if caller_uid is not None and lease.caller_uid >= 0:
-            if lease.caller_uid != caller_uid:
-                raise ToolBridgeError(
-                    "CALLER_MISMATCH",
-                    "context lease was issued to a different caller (fail closed)",
-                )
+        if (
+            caller_uid is not None
+            and lease.caller_uid >= 0
+            and lease.caller_uid != caller_uid
+        ):
+            raise ToolBridgeError(
+                "CALLER_MISMATCH",
+                "context lease was issued to a different caller (fail closed)",
+            )
         # P0-5B：lease 的 context_hash 必须与当前权威 envelope hash 一致
         # ——内容变化但 revision 未升时 fail closed。
         from rosclaw.agentd.pi_bridge.context import build_embodied_context
