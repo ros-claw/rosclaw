@@ -309,6 +309,14 @@ def _build_and_install(tmp_path: Path) -> tuple[Path, Path]:
     )
     assert result.returncode == 0, result.stderr[-1500:]
     bundle = sorted((REPO / "dist").glob("rosclaw-*-linux-*.tar.gz"))[-1]
+    # Gate Evidence V2（五审 §11.8）：被测 bundle 的 sha256 随 artifact
+    # 上传——证据与被测物字节级绑定，不是"某个构建"。
+    import hashlib as _hashlib
+
+    bundle_digest = _hashlib.sha256(bundle.read_bytes()).hexdigest()
+    (tmp_path / "installed_bundle_digest.txt").write_text(
+        f"sha256:{bundle_digest}  {bundle.name}\n", encoding="utf-8"
+    )
     stage = tmp_path / "stage"
     stage.mkdir()
     with tarfile.open(bundle) as tf:
@@ -550,6 +558,119 @@ class TestProductJourney:
                     json.dumps(snapshot, indent=1, default=str), encoding="utf-8"
                 )
 
+    def _write_sanitized_evidence(self, home: Path) -> None:
+        """Gate Evidence V2（五审 §11.4/§11.8）：脱敏机器可读全链证据。
+
+        第三方仅下载 artifact 即可复核 context→approval→grant→txn→receipt
+        全链——无需相信 pytest 文本断言。只含结构化 ID/hash/状态/计数，
+        无任何用户正文或模型文本。
+        """
+        import sqlite3
+
+        db = sqlite3.connect(home / "agentd" / "missions.db")
+        evidence: dict[str, object] = {"schema_version": "rosclaw.journey_evidence.v1"}
+        try:
+            binding = db.execute(
+                "SELECT pi_session_id, mission_id FROM pi_session_bindings "
+                "WHERE status = 'ACTIVE' LIMIT 1"
+            ).fetchone()
+            if binding:
+                evidence["session_id"], evidence["mission_id"] = binding
+            txns = db.execute(
+                "SELECT txn_id, approval_id, grant_id, action_id, receipt_id, "
+                "arguments_hash, request_hash, context_lease_id, context_revision, "
+                "body_hash, mode, capability_id, risk_tier, state, display_hash "
+                "FROM action_txns ORDER BY rowid"
+            ).fetchall()
+            evidence["action_txns"] = [
+                dict(zip(
+                    ("txn_id", "approval_id", "grant_id", "action_id", "receipt_id",
+                     "arguments_hash", "request_hash", "context_lease_id",
+                     "context_revision", "body_hash", "mode", "capability_id",
+                     "risk_tier", "state", "display_hash"),
+                    row, strict=True,
+                ))
+                for row in txns
+            ]
+            leases = db.execute(
+                "SELECT context_lease_id, context_revision, context_hash, body_hash, "
+                "mode, revoked, caller_uid FROM pi_context_leases ORDER BY rowid"
+            ).fetchall()
+            evidence["context_leases"] = [
+                dict(zip(
+                    ("context_lease_id", "context_revision", "context_hash",
+                     "body_hash", "mode", "revoked", "caller_uid"),
+                    row, strict=True,
+                ))
+                for row in leases
+            ]
+            events = db.execute(
+                "SELECT type, payload_json FROM agent_events ORDER BY rowid"
+            ).fetchall()
+            evidence["event_chain"] = [t for t, _ in events]
+            receipts = [
+                json.loads(p) for t, p in events if t == "receipt.received"
+            ]
+            evidence["receipts"] = [
+                {
+                    "action_id": r.get("action_id"),
+                    "final_state": r.get("final_state"),
+                    "trust_level": r.get("trust_level"),
+                    "evidence_domain": r.get("evidence_domain"),
+                    "usable_for_real_execution": r.get("usable_for_real_execution"),
+                }
+                for r in receipts
+            ]
+            grants = db.execute(
+                "SELECT grant_id, request_id, consumed, revoked FROM mission_grants"
+            ).fetchall()
+            evidence["grants"] = [
+                dict(zip(("grant_id", "request_id", "consumed", "revoked"), g, strict=True))
+                for g in grants
+            ]
+            approvals = db.execute(
+                "SELECT request_id, status, decided_by FROM operator_requests"
+            ).fetchall()
+            evidence["approvals"] = [
+                {"request_id": r, "status": s, "decided_by": d}
+                for r, s, d in approvals
+            ]
+        finally:
+            db.close()
+        # reasoning 禁带字段计数（结构计数，不含正文）。
+        forbidden_counts: dict[str, int] = {}
+        session_files = sorted((home / "agent" / "sessions").glob("*.jsonl"))
+        for marker in ("reasoning_content", "redacted_thinking", REASONING_MARKER):
+            forbidden_counts[marker] = sum(
+                f.read_text(encoding="utf-8", errors="replace").count(marker)
+                for f in session_files
+            )
+        evidence["reasoning_forbidden_field_counts"] = forbidden_counts
+        evidence["compaction_entry_id"] = getattr(self, "_compaction_entry_id", None)
+        evidence["verdicts"] = getattr(self, "_journey_verdicts", {})
+        (home.parent / "sanitized_assertions.json").write_text(
+            json.dumps(evidence, indent=1, ensure_ascii=False), encoding="utf-8"
+        )
+        # session 结构报告：entry 类型/角色计数——无正文。
+        structure: dict[str, object] = {}
+        for session_file in session_files:
+            counts: dict[str, int] = {}
+            for line in session_file.read_text(
+                encoding="utf-8", errors="replace"
+            ).splitlines():
+                with contextlib.suppress(Exception):
+                    entry = json.loads(line)
+                    key = entry.get("type", "?")
+                    if key == "message":
+                        key = f"message.{entry.get('message', {}).get('role', '?')}"
+                    elif key == "custom":
+                        key = f"custom.{entry.get('customType', '?')}"
+                    counts[key] = counts.get(key, 0) + 1
+            structure[session_file.name] = counts
+        (home.parent / "session_structure.json").write_text(
+            json.dumps(structure, indent=1), encoding="utf-8"
+        )
+
     def _assert_no_reasoning_replay(
         self, fake: FakeModelServer, home: Path, *, from_index: int
     ) -> None:
@@ -579,6 +700,8 @@ class TestProductJourney:
                 assert forbidden not in content, (
                     f"session 文件 {session_file.name} 含 {forbidden} 字段"
                 )
+        self._journey_verdicts["no_reasoning_replay"] = True
+
     def _expect_compaction_entry(self, home: Path, timeout: float = 60.0) -> None:
         """等待 session JSONL 出现 compaction 条目（compact 真完成的
         结构性证据——不是 UI 文本）。"""
@@ -590,6 +713,8 @@ class TestProductJourney:
                     encoding="utf-8", errors="replace"
                 ).splitlines():
                     if '"type": "compaction"' in line or '"type":"compaction"' in line:
+                        with contextlib.suppress(Exception):
+                            self._compaction_entry_id = json.loads(line).get("id")
                         return
             time.sleep(0.5)
         raise AssertionError("/compact 后 session 无 compaction 条目——compact 未真完成")
@@ -638,6 +763,7 @@ class TestProductJourney:
         assert approvals == baseline_approvals, (
             f"假动作竟产生 approval 卡（{baseline_approvals} → {approvals}）"
         )
+        self._journey_verdicts["adversarial_fake_action_zero_side_effects"] = True
 
     def _assert_grant_consumed(self, home: Path) -> None:
         """授权→执行闭环（P0-NA-13）：直接解析 DB/事件里的结构化证据，
@@ -714,12 +840,15 @@ class TestProductJourney:
                 assert r.get("trust_level") == "SIMULATED"
                 assert r.get("evidence_domain") == "simulation"
                 assert r.get("usable_for_real_execution") is False
+            self._journey_verdicts["approval_grant_txn_receipt_chain"] = True
         finally:
             db.close()
 
     def _run_journey(
         self, rosclaw: Path, env: dict[str, str], home: Path, fake: FakeModelServer
     ) -> None:
+        # Gate Evidence V2：逐项 verdict 累积——进 sanitized_assertions.json。
+        self._journey_verdicts: dict[str, bool] = {}
         # NA-FIX-9 后默认引擎即 Native Agent——旅程显式验证无 --engine 的默认路径。
         session = PtySession(
             [str(rosclaw), "chat"], env, log_path=home.parent / "pty-main.log"
@@ -796,6 +925,10 @@ class TestProductJourney:
             # receipt 链在 compact 后仍可核验（DB 是权威——compaction
             # 是认知层摘要，不动授权/执行记录）。
             self._assert_grant_consumed(home)
+            self._journey_verdicts["compaction_completed_context_retained"] = True
+            # Gate Evidence V2：全链脱敏证据落盘（artifact 上传，第三方
+            # 可独立复核，无需相信 pytest 文本）。
+            self._write_sanitized_evidence(home)
             # 8. /quit → resume 提示必须是 ROSClaw 命令（T-IDENTITY）。
             session.send("/quit\r")
             session.expect(b"rosclaw chat --resume", timeout=30)
