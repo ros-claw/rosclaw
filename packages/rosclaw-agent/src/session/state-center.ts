@@ -177,15 +177,21 @@ export class ProductStateCenter {
 		const now = Date.now();
 		if (!force && now - this.lastOperatorProbe < 30_000) return this.operatorState;
 		this.lastOperatorProbe = now;
+		let next: OperatorState;
 		try {
 			const result = (await this.operatorCallFn(this.deps.operatorSocket, "approvals.list", {
 				mission_id: this.deps.active.current.missionId ?? "",
 			})) as { ok?: boolean };
-			this.operatorState = result.ok ? "READY" : "OFFLINE";
+			next = result.ok ? "READY" : "OFFLINE";
 		} catch {
-			this.operatorState = "OFFLINE";
+			next = "OFFLINE";
 		}
-		this.changed();
+		// 六审 PR-SIX-5（perf 红线）：只在状态变化时 fan-out——30s 周期
+		// 探测不再引发无谓的 chrome 重绘/widget 刷新。
+		if (next !== this.operatorState) {
+			this.operatorState = next;
+			this.changed();
+		}
 		return this.operatorState;
 	}
 
