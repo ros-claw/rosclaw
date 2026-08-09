@@ -49,6 +49,7 @@ async def _propose(service, mission, *, idem: str, session="pi_1", arguments=Non
     )
     admission = ActionAdmissionService(service)
     card = await admission.propose(
+        caller_pid=1, caller_uid=1000,
         request=ctx,
         capability_id=SIM_ACTION_CAPABILITY,
         arguments=arguments if arguments is not None else {},
@@ -92,7 +93,8 @@ class TestChainConsistency:
         )
         service._store.connection.commit()
         with pytest.raises(ToolBridgeError) as excinfo:
-            await admission.execute(card["approval_id"], request=ctx)
+            await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
+
         assert excinfo.value.code in ("TXN_REQUIRED", "LEGACY_TXN_UNEXECUTABLE")
         await operatord.stop()
         await agent_server.stop()
@@ -138,7 +140,10 @@ class TestChainConsistency:
         )
         # 用 B 的上下文执行 A 的卡——必须拒绝（grant 不消费）。
         with pytest.raises(ToolBridgeError) as excinfo:
-            await admission.execute(card_a["approval_id"], request=ctx_b)
+            # B 的合法 writer（owner_pid=2）持 B 的 fresh context——
+            # 要击穿的是 chain 校验，不是 caller 校验。
+            await admission.execute(card_a["approval_id"], request=ctx_b, caller_pid=2, caller_uid=1000)
+
         assert excinfo.value.code in (
             "CHAIN_MISMATCH",
             "MISSION_MISMATCH",
@@ -169,7 +174,8 @@ class TestChainConsistency:
         )
         service._store.connection.commit()
         with pytest.raises(ToolBridgeError) as excinfo:
-            await admission.execute(card["approval_id"], request=ctx)
+            await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
+
         assert excinfo.value.code in ("TXN_EXPIRED", "GRANT_EXPIRED")
         await operatord.stop()
         await agent_server.stop()
@@ -199,7 +205,8 @@ class TestReceiptContract:
 
         service._handlers.request_action = _broken
         await _approve(service, mission, sock, card["approval_id"])
-        outcome = await admission.execute(card["approval_id"], request=ctx)
+        outcome = await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
+
         assert outcome["status"] != "COMPLETED", (
             "terminal_receipt=True 但无 receipt 竟 COMPLETED"
         )
@@ -227,7 +234,8 @@ class TestReceiptContract:
         )
         admission, ctx, card = await _propose(service, mission, idem="idem_domfail")
         await _approve(service, mission, sock, card["approval_id"])
-        outcome = await admission.execute(card["approval_id"], request=ctx)
+        outcome = await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
+
         assert outcome["status"] != "COMPLETED", (
             "domain ok=false 竟报 COMPLETED"
         )
@@ -245,7 +253,8 @@ class TestReceiptContract:
         )
         admission, ctx, card = await _propose(service, mission, idem="idem_full")
         await _approve(service, mission, sock, card["approval_id"])
-        outcome = await admission.execute(card["approval_id"], request=ctx)
+        outcome = await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
+
         assert outcome["executed"] is True
         # 全链字段非空。
         for field in ("txn_id", "approval_id", "grant_id", "action_id",
@@ -267,7 +276,8 @@ class TestReceiptContract:
         )
         admission, ctx, card = await _propose(service, mission, idem="idem_rcpt_id")
         await _approve(service, mission, sock, card["approval_id"])
-        outcome = await admission.execute(card["approval_id"], request=ctx)
+        outcome = await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
+
         assert outcome["executed"] is True
         action_id = outcome["action_id"]
         receipt_id = outcome["receipt_id"]

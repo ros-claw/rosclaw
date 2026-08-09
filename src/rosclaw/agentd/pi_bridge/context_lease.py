@@ -37,8 +37,12 @@ class ValidatedContextLeaseV1:
     expires_at: str
     revoked: bool = False
     # 五审 P0-5A：caller 身份绑定（migration 019）。
+    # 六审 §5.3/§5.5（migration 020）：binding_id 是 session binding
+    # ID（019 错写 writer lease ID）；writer_lease_id/caller_pid 独立。
     binding_id: str = ""
     caller_uid: int = -1
+    writer_lease_id: str = ""
+    caller_pid: int = -1
 
 
 class ContextLeaseStore:
@@ -57,6 +61,8 @@ class ContextLeaseStore:
         ttl_sec: float = LEASE_TTL_SEC,
         binding_id: str = "",
         caller_uid: int = -1,
+        writer_lease_id: str = "",
+        caller_pid: int = -1,
     ) -> ValidatedContextLeaseV1:
         """签发新 lease——同 (session, mission) 的旧 lease 立即撤销。"""
         now = datetime.now(UTC)
@@ -77,12 +83,15 @@ class ContextLeaseStore:
             expires_at=(now + timedelta(seconds=ttl_sec)).isoformat(),
             binding_id=binding_id,
             caller_uid=caller_uid,
+            writer_lease_id=writer_lease_id,
+            caller_pid=caller_pid,
         )
         self._conn.execute(
             "INSERT INTO pi_context_leases (context_lease_id, pi_session_id, "
             "mission_id, context_revision, context_hash, body_hash, mode, "
-            "issued_at, expires_at, revoked, binding_id, caller_uid) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+            "issued_at, expires_at, revoked, binding_id, caller_uid, "
+            "writer_lease_id, caller_pid) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)",
             (
                 lease.context_lease_id,
                 lease.pi_session_id,
@@ -95,6 +104,8 @@ class ContextLeaseStore:
                 lease.expires_at,
                 lease.binding_id,
                 lease.caller_uid,
+                lease.writer_lease_id,
+                lease.caller_pid,
             ),
         )
         self._conn.commit()
@@ -121,6 +132,8 @@ class ContextLeaseStore:
             revoked=bool(row["revoked"]),
             binding_id=row["binding_id"] if "binding_id" in keys else "",
             caller_uid=int(row["caller_uid"]) if "caller_uid" in keys else -1,
+            writer_lease_id=row["writer_lease_id"] if "writer_lease_id" in keys else "",
+            caller_pid=int(row["caller_pid"]) if "caller_pid" in keys else -1,
         )
 
     def is_valid(self, lease: ValidatedContextLeaseV1) -> bool:

@@ -52,6 +52,7 @@ async def _propose_and_approve(service, mission, sock, *, idem: str, session="pi
     )
     admission = ActionAdmissionService(service)
     card = await admission.propose(
+        caller_pid=1, caller_uid=1000,
         request=ctx,
         capability_id=SIM_ACTION_CAPABILITY,
         arguments={},
@@ -183,7 +184,8 @@ class TestExecuteCanonicalRevalidation:
             service, card["approval_id"], lambda e: e.__setitem__(field, tamper(e[field]))
         )
         with pytest.raises(ToolBridgeError) as excinfo:
-            await admission.execute(card["approval_id"], request=ctx)
+            await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
+
         assert excinfo.value.code in (
             "CHAIN_MISMATCH", "EXACT_ACTION_INVALID", "EXACT_ACTION_EXPIRED",
             "CONTEXT_HASH_MISMATCH", "BODY_HASH_MISMATCH", "MODE_MISMATCH",
@@ -212,7 +214,8 @@ class TestExecuteCanonicalRevalidation:
 
         _rewrite_exact_action(service, card["approval_id"], _mutate)
         with pytest.raises(ToolBridgeError) as excinfo:
-            await admission.execute(card["approval_id"], request=ctx)
+            await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
+
         assert excinfo.value.code in ("CHAIN_MISMATCH", "EXACT_ACTION_INVALID")
         assert _grant_consumed(service, card["approval_id"]) == 0
         await operatord.stop()
@@ -235,7 +238,8 @@ class TestExecuteCanonicalRevalidation:
             lambda e: e.__setitem__("expires_at", "2000-01-01T00:00:00+00:00"),
         )
         with pytest.raises(ToolBridgeError) as excinfo:
-            await admission.execute(card["approval_id"], request=ctx)
+            await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
+
         assert excinfo.value.code in (
             "EXACT_ACTION_EXPIRED", "TXN_EXPIRED", "CHAIN_MISMATCH", "GRANT_EXPIRED"
         )
@@ -266,7 +270,8 @@ class TestExecuteCanonicalRevalidation:
             service, mission, sock, idem="idem_six2_exec_args"
         )
         exact = json.loads(_stored_request_json(service, card["approval_id"])["exact_action_json"])
-        outcome = await admission.execute(card["approval_id"], request=ctx)
+        outcome = await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
+
         assert outcome["executed"] is True
         assert captured, "executor 未被调用"
         assert captured[0] == exact["normalized_arguments"], (
@@ -297,7 +302,8 @@ class TestExecuteCanonicalRevalidation:
         )
         service._store.connection.commit()
         with pytest.raises(ToolBridgeError) as excinfo:
-            await admission.execute(card["approval_id"], request=ctx)
+            await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
+
         assert excinfo.value.code == "CHAIN_MISMATCH"
         assert _grant_consumed(service, card["approval_id"]) == 0
         await operatord.stop()
@@ -356,6 +362,7 @@ class TestStrictPhysicalSchema:
         admission = ActionAdmissionService(service)
         with pytest.raises(ToolBridgeError) as excinfo:
             await admission.propose(
+                caller_pid=1, caller_uid=1000,
                 request=ctx,
                 capability_id="sim.loose.action",
                 arguments={"anything": "goes"},

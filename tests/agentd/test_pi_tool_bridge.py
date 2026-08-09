@@ -57,6 +57,13 @@ def _issue_lease(service, mission, session: str = "pi_1") -> str:
     )
 
     envelope = build_embodied_context(service, mission.mission_id)
+    # 六审 §5.3/§5.5（migration 020）：lease 必须带真实 binding/
+    # writer/caller 字段——测试 writer 注册为 owner_pid=1/uid=1000。
+    from rosclaw.agentd.pi_bridge.session_binding import SessionBindingStore
+
+    bindings = SessionBindingStore(service._store.connection)
+    binding = bindings.binding_for_session(session)
+    writer = bindings.writer_of(mission.mission_id)
     lease = ContextLeaseStore(service._store.connection).issue(
         pi_session_id=session,
         mission_id=mission.mission_id,
@@ -64,6 +71,10 @@ def _issue_lease(service, mission, session: str = "pi_1") -> str:
         context_hash=context_hash_of(envelope),
         body_hash=mission.body_binding.effective_body_hash,
         mode=mission.mode.value,
+        binding_id=binding.binding_id if binding else "",
+        writer_lease_id=writer.lease_id if writer else "",
+        caller_uid=1000,
+        caller_pid=1,
     )
     return lease.context_lease_id
 

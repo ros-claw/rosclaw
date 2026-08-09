@@ -39,6 +39,7 @@ async def _propose(service, mission, *, idem: str, arguments: dict | None = None
     )
     admission = ActionAdmissionService(service)
     card = await admission.propose(
+        caller_pid=1, caller_uid=1000,
         request=ctx,
         capability_id=overrides.get("capability", SIM_ACTION_CAPABILITY),
         arguments=arguments if arguments is not None else {},
@@ -129,7 +130,8 @@ class TestExecutionOutcomeChain:
              "display_hash": entry["display_hash"], "approve": True},
         )
         assert decided.get("ok"), decided
-        outcome = await admission.execute(card["approval_id"], request=ctx)
+        outcome = await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
+
         # ExecutionOutcomeV1：全 ID 链（P0-4F）。
         assert outcome["schema_version"] == "rosclaw.execution_outcome.v1"
         assert outcome["executed"] is True
@@ -192,7 +194,8 @@ class TestExecutionOutcomeChain:
             {"request_id": entry["request_id"],
              "display_hash": entry["display_hash"], "approve": True},
         )
-        outcome = await admission.execute(card["approval_id"], request=ctx)
+        outcome = await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
+
         # executor 失败 + 旧 receipt 存在 → 仍必须 FAILED（场景 D）。
         assert outcome["executed"] is False, "旧 receipt 竟为新动作背书"
         assert outcome["status"] == "FAILED"

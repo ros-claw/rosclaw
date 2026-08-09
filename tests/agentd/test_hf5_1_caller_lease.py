@@ -189,6 +189,11 @@ class TestLeaseTtlConsistency:
 
         service, mission = await _setup(tmp_path)
         # 签发一个已过期的 lease（TTL=0）。
+        from rosclaw.agentd.pi_bridge.session_binding import SessionBindingStore
+
+        _bindings = SessionBindingStore(service._store.connection)
+        _binding = _bindings.binding_for_session("pi_1")
+        _writer = _bindings.writer_of(mission.mission_id)
         lease = ContextLeaseStore(service._store.connection).issue(
             pi_session_id="pi_1",
             mission_id=mission.mission_id,
@@ -197,6 +202,10 @@ class TestLeaseTtlConsistency:
             body_hash=mission.body_binding.effective_body_hash,
             mode="SIMULATION",
             ttl_sec=0.0,  # 立即过期
+            binding_id=_binding.binding_id,
+            writer_lease_id=_writer.lease_id,
+            caller_uid=1000,
+            caller_pid=1,
         )
         ctx = await _admission_ctx(service, mission, idem="idem_exp")
         # 用过期 lease 替换。
@@ -211,6 +220,8 @@ class TestLeaseTtlConsistency:
                 arguments={},
                 expected_effect="x",
                 risk_tier="LOW",
+                caller_pid=1,
+                caller_uid=1000,
             )
         assert excinfo.value.code in ("CONTEXT_NOT_FRESH", "CONTEXT_STALE")
         await service.close()
@@ -225,6 +236,11 @@ class TestLeaseTtlConsistency:
 
         service, mission = await _setup(tmp_path)
         # lease 的 hash 与当前 envelope 不符（内容变了但 revision 未升）。
+        from rosclaw.agentd.pi_bridge.session_binding import SessionBindingStore
+
+        _bindings = SessionBindingStore(service._store.connection)
+        _binding = _bindings.binding_for_session("pi_1")
+        _writer = _bindings.writer_of(mission.mission_id)
         lease = ContextLeaseStore(service._store.connection).issue(
             pi_session_id="pi_1",
             mission_id=mission.mission_id,
@@ -232,6 +248,10 @@ class TestLeaseTtlConsistency:
             context_hash="stale_hash_not_current",
             body_hash=mission.body_binding.effective_body_hash,
             mode="SIMULATION",
+            binding_id=_binding.binding_id,
+            writer_lease_id=_writer.lease_id,
+            caller_uid=1000,
+            caller_pid=1,
         )
         ctx = await _admission_ctx(service, mission, idem="idem_hash")
         from dataclasses import replace as dc_replace
@@ -245,6 +265,8 @@ class TestLeaseTtlConsistency:
                 arguments={},
                 expected_effect="x",
                 risk_tier="LOW",
+                caller_pid=1,
+                caller_uid=1000,
             )
         assert excinfo.value.code in (
             "CONTEXT_HASH_MISMATCH",

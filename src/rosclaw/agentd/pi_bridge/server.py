@@ -277,6 +277,13 @@ class PiBridgeServer:
                 from rosclaw.agentd.pi_bridge.context_lease import LEASE_TTL_SEC
 
                 effective_ttl = min(envelope_ttl, writer_ttl, LEASE_TTL_SEC)
+                # 六审 §5.3：binding_id 必须是 session binding ID（此前
+                # 错写 writer.lease_id）；writer_lease_id/caller_pid
+                # 独立成字段。
+                binding = self._bindings.binding_for_session(pi_session_id)
+                if binding is None:
+                    response["context_lease_denied"] = "no active session binding"
+                    return response
                 lease = ContextLeaseStore(service._store.connection).issue(
                     pi_session_id=pi_session_id,
                     mission_id=mission_id,
@@ -285,8 +292,10 @@ class PiBridgeServer:
                     body_hash=envelope.body.get("effective_body_hash", ""),
                     mode=service.get_mission(mission_id).mode.value,
                     ttl_sec=effective_ttl,
-                    binding_id=writer.lease_id,
+                    binding_id=binding.binding_id,
                     caller_uid=caller_uid,
+                    writer_lease_id=writer.lease_id,
+                    caller_pid=peer_pid,
                 )
                 response["context_lease_id"] = lease.context_lease_id
                 response["context_lease_expires_at"] = lease.expires_at
@@ -363,11 +372,28 @@ class PiBridgeServer:
                     "code": "REQUEST_CONTEXT_REQUIRED",
                 }
             binding = self._bindings.binding_for_session(caller_session)
+            # 六审 §5.2：status 也做 caller 身份校验——同 UID 的另一个
+            # 进程知道 session ID 也不得读卡状态。writer owner 必须匹配
+            # SO_PEERCRED 的 peer PID/UID。
+            caller_uid = int(principal.rsplit(":", 1)[-1])
+            writer = (
+                self._bindings.writer_of(binding.mission_id) if binding else None
+            )
+            if (
+                binding is None
+                or writer is None
+                or writer.pi_session_id != caller_session
+                or writer.owner_pid != peer_pid
+                or writer.owner_uid != caller_uid
+            ):
+                return {
+                    "ok": False,
+                    "error": "caller is not the writer process (fail closed)",
+                    "code": "CALLER_MISMATCH",
+                }
             approval_id = str(params.get("approval_id", ""))
             stored = service._broker.get_request(approval_id)
-            if stored is not None and (
-                binding is None or binding.mission_id != stored.mission_id
-            ):
+            if stored is not None and binding.mission_id != stored.mission_id:
                 return {
                     "ok": False,
                     "error": "not your card",
@@ -489,7 +515,13 @@ class PiBridgeServer:
                         "code": "INVALID_REQUEST"}
             dispatcher = PiToolDispatcher(service)
             try:
-                result = await dispatcher.execute(tool_request)
+                # 六审 §5.5.2：dispatcher 的动作路径也要 caller 身份——
+                # SO_PEERCRED 真值注入，JSON 不可覆写。
+                result = await dispatcher.execute(
+                    tool_request,
+                    caller_pid=peer_pid,
+                    caller_uid=int(principal.rsplit(":", 1)[-1]),
+                )
             except ToolBridgeError as exc:
                 return {"ok": False, "error": exc.message, "code": exc.code}
             return {"ok": result.ok, "result": result.model_dump(mode="json"),

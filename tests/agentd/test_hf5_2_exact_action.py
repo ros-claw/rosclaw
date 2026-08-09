@@ -43,6 +43,7 @@ async def _propose(service, mission, *, idem: str, arguments=None, capability=No
     )
     admission = ActionAdmissionService(service)
     card = await admission.propose(
+        caller_pid=1, caller_uid=1000,
         request=ctx,
         capability_id=capability or SIM_ACTION_CAPABILITY,
         arguments=arguments if arguments is not None else {},
@@ -122,6 +123,7 @@ class TestExactActionContract:
         )
         admission = ActionAdmissionService(service)
         card = await admission.propose(
+            caller_pid=1, caller_uid=1000,
             request=ctx,
             capability_id=SIM_ACTION_CAPABILITY,
             arguments={},

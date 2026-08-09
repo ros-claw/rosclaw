@@ -53,8 +53,16 @@ class PiToolDispatcher:
         self._service = service
         self._bindings = SessionBindingStore(service._store.connection)
 
-    async def execute(self, request: PiToolRequestV1) -> PiToolResultV1:
+    async def execute(
+        self,
+        request: PiToolRequestV1,
+        *,
+        caller_pid: int | None = None,
+        caller_uid: int | None = None,
+    ) -> PiToolResultV1:
         conn = self._service._store.connection
+        self._caller_pid = caller_pid
+        self._caller_uid = caller_uid
         # 1. idempotency：重放直接返回首个结果（不产生重复副作用）。
         row = conn.execute(
             "SELECT response_json FROM pi_tool_idempotency WHERE idempotency_key = ?",
@@ -364,6 +372,8 @@ class PiToolDispatcher:
             expected_effect=str(args.get("expected_effect") or capability_id),
             risk_tier=str(args.get("risk_tier", "LOW")),
             title=str(args.get("title") or capability_id),
+            caller_pid=self._caller_pid,
+            caller_uid=self._caller_uid,
         )
         # 等 operator（决定只能经 operatord 到达）。
         deadline_sec = 330.0
@@ -389,7 +399,10 @@ class PiToolDispatcher:
                 approval_id=card["approval_id"],
                 error_code="OPERATOR_DECLINED",
             )
-        result = await admission.execute(card["approval_id"], request=ctx)
+        result = await admission.execute(
+            card["approval_id"], request=ctx,
+            caller_pid=self._caller_pid, caller_uid=self._caller_uid,
+        )
         return PiToolResultV1(
             request_id=request.request_id,
             ok=bool(result.get("executed")),

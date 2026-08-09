@@ -118,6 +118,7 @@ async def test_same_revision_stale_context_cannot_propose(tmp_path: Path) -> Non
     admission = ActionAdmissionService(service)
     with _pytest.raises(ToolBridgeError) as excinfo:
         await admission.propose(
+            caller_pid=1, caller_uid=1000,
             request=_ctx(service, mission, lease=""),  # 无 context lease
             capability_id="sim_ground_truth",
             arguments={},
@@ -145,6 +146,7 @@ async def test_missing_body_hash_rejected(tmp_path: Path) -> None:
     admission = ActionAdmissionService(service)
     with _pytest.raises(ToolBridgeError) as excinfo:
         await admission.propose(
+            caller_pid=1, caller_uid=1000,
             request=_ctx(service, mission, body_hash=""),
             capability_id="sim_ground_truth",
             arguments={},
@@ -172,6 +174,7 @@ async def test_missing_idempotency_key_rejected(tmp_path: Path) -> None:
     admission = ActionAdmissionService(service)
     with _pytest.raises(ToolBridgeError) as excinfo:
         await admission.propose(
+            caller_pid=1, caller_uid=1000,
             request=_ctx(service, mission, idem=""),
             capability_id="sim_ground_truth",
             arguments={},

@@ -61,7 +61,9 @@ class TestRequestActionChain:
         approver = asyncio.create_task(operator_approves())
         try:
             result = await dispatcher.execute(
-                _request(
+                caller_pid=1,
+                caller_uid=1000,
+                request=_request(
                     "rosclaw_request_action",
                     mission=mission.mission_id,
                     idem="idem_ra_1",
@@ -98,7 +100,9 @@ class TestRequestActionChain:
         denier = asyncio.create_task(operator_denies())
         try:
             result = await dispatcher.execute(
-                _request(
+                caller_pid=1,
+                caller_uid=1000,
+                request=_request(
                     "rosclaw_request_action",
                     mission=mission.mission_id,
                     idem="idem_ra_2",
@@ -149,6 +153,11 @@ class TestAdmissionNegativeChain:
                 # body 变化场景：hash 相应伪造（与真实 envelope 不同）。
                 real_hash = "tampered_body_hash"
                 body_hash = body_hash_override
+            from rosclaw.agentd.pi_bridge.session_binding import SessionBindingStore
+
+            _bindings = SessionBindingStore(service._store.connection)
+            _binding = _bindings.binding_for_session(session)
+            _writer = _bindings.writer_of(mission.mission_id)
             lease = ContextLeaseStore(service._store.connection).issue(
                 pi_session_id=session,
                 mission_id=mission.mission_id,
@@ -156,6 +165,10 @@ class TestAdmissionNegativeChain:
                 context_hash=real_hash,
                 body_hash=body_hash,
                 mode=overrides.get("mode", mission.mode.value),
+                binding_id=_binding.binding_id if _binding else "",
+                writer_lease_id=_writer.lease_id if _writer else "",
+                caller_uid=1000,
+                caller_pid=1,
             )
             lease_id = lease.context_lease_id
         ctx = ActionRequestContext(
@@ -171,6 +184,7 @@ class TestAdmissionNegativeChain:
         )
         admission = ActionAdmissionService(service)
         card = await admission.propose(
+            caller_pid=1, caller_uid=1000,
             request=ctx,
             capability_id="sim_ground_truth",
             arguments={},
@@ -216,7 +230,7 @@ class TestAdmissionNegativeChain:
         # 批准后 revision 前进（模拟新观测/新 turn）。
         service._store.bump_context_revision(mission.mission_id)
         with pytest.raises(ToolBridgeError) as excinfo:
-            await admission.execute(card["approval_id"], request=ctx)
+            await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
         # 两层都正确：卡 revision 直接比对给 CONTEXT_REVISION_MISMATCH；
         # lease 层（HOTFIX-1）发现 revision 前进给 CONTEXT_NOT_FRESH。
         assert excinfo.value.code in ("CONTEXT_REVISION_MISMATCH", "CONTEXT_NOT_FRESH")
@@ -257,7 +271,7 @@ class TestAdmissionNegativeChain:
             {"request_id": entry_b["request_id"],
              "display_hash": entry_b["display_hash"], "approve": True},
         )
-        result = await admission.execute(card_b["approval_id"], request=ctx_b)
+        result = await admission.execute(card_b["approval_id"], request=ctx_b, caller_pid=1, caller_uid=1000)
         grant_b_row = service._store.connection.execute(
             "SELECT grant_id, consumed FROM mission_grants WHERE request_id = ?",
             (card_b["approval_id"],),
@@ -323,10 +337,10 @@ class TestAdmissionNegativeChain:
             {"request_id": entry["request_id"],
              "display_hash": entry["display_hash"], "approve": True},
         )
-        first = await admission.execute(card["approval_id"], request=ctx)
+        first = await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
         assert first["grant_id"]
         with pytest.raises(ToolBridgeError) as excinfo:
-            await admission.execute(card["approval_id"], request=ctx)
+            await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
         assert excinfo.value.code == "GRANT_CONSUMED"
         await operatord.stop()
         await agent_server.stop()
@@ -353,6 +367,11 @@ class TestApprovalsGet:
         )
 
         envelope = build_embodied_context(service, mission.mission_id)
+        from rosclaw.agentd.pi_bridge.session_binding import SessionBindingStore
+
+        _bindings = SessionBindingStore(service._store.connection)
+        _binding = _bindings.binding_for_session("pi_1")
+        _writer = _bindings.writer_of(mission.mission_id)
         lease = ContextLeaseStore(service._store.connection).issue(
             pi_session_id="pi_1",
             mission_id=mission.mission_id,
@@ -360,9 +379,14 @@ class TestApprovalsGet:
             context_hash=context_hash_of(envelope),
             body_hash=mission.body_binding.effective_body_hash,
             mode=mission.mode.value,
+            binding_id=_binding.binding_id,
+            writer_lease_id=_writer.lease_id,
+            caller_uid=1000,
+            caller_pid=1,
         )
         admission = ActionAdmissionService(service)
         card = await admission.propose(
+            caller_pid=1, caller_uid=1000,
             request=ActionRequestContext(
                 pi_session_id="pi_1",
                 mission_id=mission.mission_id,

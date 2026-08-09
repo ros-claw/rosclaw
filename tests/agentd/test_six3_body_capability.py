@@ -74,6 +74,7 @@ async def _propose(service, mission, capability_id: str, *, idem: str, session="
     )
     admission = ActionAdmissionService(service)
     return await admission.propose(
+        caller_pid=1, caller_uid=1000,
         request=ctx,
         capability_id=capability_id,
         arguments={},
@@ -197,7 +198,7 @@ class TestExecutorRouting:
             context_lease_id=lease,
         )
         outcome = await ActionAdmissionService(service).execute(
-            card["approval_id"], request=ctx
+            card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000
         )
         assert outcome["executed"] is False, "无 executor 的动作竟执行成功"
         assert outcome.get("error_code") in (

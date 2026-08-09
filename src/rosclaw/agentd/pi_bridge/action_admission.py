@@ -124,11 +124,14 @@ class ActionAdmissionService:
                 "WRITER_LEASE_REQUIRED",
                 "this session does not hold the writer lease (fail closed)",
             )
-        if (
-            caller_pid is not None
-            and caller_uid is not None
-            and (writer.owner_uid != caller_uid or writer.owner_pid != caller_pid)
-        ):
+        # 六审 §5.5.2：peer credentials 强制非空——不再是 Optional
+        # 绕过；内部可信调用必须显式传真实身份。
+        if caller_pid is None or caller_uid is None:
+            raise ToolBridgeError(
+                "CALLER_IDENTITY_REQUIRED",
+                "caller pid/uid required — no anonymous action path (fail closed)",
+            )
+        if writer.owner_uid != caller_uid or writer.owner_pid != caller_pid:
             raise ToolBridgeError(
                 "CALLER_MISMATCH",
                 f"caller pid {caller_pid}/uid {caller_uid} is not the "
@@ -189,16 +192,37 @@ class ActionAdmissionService:
                 "CONTEXT_LEASE_MISMATCH",
                 "context lease belongs to another session/mission (fail closed)",
             )
-        # P0-5A：lease 签发给哪个 caller，就只能由哪个 caller 使用
-        # （caller_uid=-1 是旧 lease——不允许用于 action）。
-        if (
-            caller_uid is not None
-            and lease.caller_uid >= 0
-            and lease.caller_uid != caller_uid
-        ):
+        # P0-5A + 六审 §5.4：lease 签发给哪个 caller，就只能由哪个
+        # caller 使用——legacy caller_uid=-1 一律拒绝（不再绕过比对）。
+        if lease.caller_uid < 0 or lease.caller_pid < 0:
+            raise ToolBridgeError(
+                "LEGACY_LEASE_FORBIDDEN",
+                "context lease predates caller binding (caller_uid/pid=-1) — "
+                "refetch embodied context (fail closed)",
+            )
+        if lease.caller_uid != caller_uid or lease.caller_pid != caller_pid:
             raise ToolBridgeError(
                 "CALLER_MISMATCH",
                 "context lease was issued to a different caller (fail closed)",
+            )
+        # 六审 §5.3：lease 的 binding/writer 字段必须与当前活跃绑定
+        # 精确一致——换绑/重建后旧 lease 字段级失效。
+        if not lease.binding_id or lease.binding_id != binding.binding_id:
+            raise ToolBridgeError(
+                "CONTEXT_LEASE_MISMATCH",
+                "context lease binding_id does not match the active session "
+                "binding (rebind/rebuild invalidates it) — fail closed",
+            )
+        writer_now = self._bindings.writer_of(ctx.mission_id)
+        if (
+            writer_now is None
+            or not lease.writer_lease_id
+            or lease.writer_lease_id != writer_now.lease_id
+        ):
+            raise ToolBridgeError(
+                "CONTEXT_LEASE_MISMATCH",
+                "context lease writer_lease_id does not match the active "
+                "writer lease — fail closed",
             )
         # P0-5B：lease 的 context_hash 必须与当前权威 envelope hash 一致
         # ——内容变化但 revision 未升时 fail closed。
@@ -574,6 +598,11 @@ class ActionAdmissionService:
         stored = service._broker.get_request(approval_id)
         if stored is None:
             raise ToolBridgeError("APPROVAL_NOT_FOUND", "unknown approval_id")
+        # 六审 §5.2：caller 身份必须先于卡状态——非 writer 连
+        # "卡是否 PENDING" 都不得知晓（信息泄露面）。
+        self._validate_session_and_caller(
+            request, caller_pid=caller_pid, caller_uid=caller_uid
+        )
         if stored.status.value == "PENDING":
             raise ToolBridgeError("APPROVAL_PENDING", "operator has not decided yet")
         if stored.status.value != "APPROVED":
@@ -600,12 +629,7 @@ class ActionAdmissionService:
                 f"revision {request.context_revision} — context changed after "
                 "approval; re-propose with fresh context",
             )
-        # 身份链：session/mission/writer/caller（operator 等待可能远超
-        # 30s context lease——不能要求调用方的 lease 仍新鲜；改为内核
-        # 此刻重新观测并精确比对原 approval/txn，P0-5B.6）。
-        self._validate_session_and_caller(
-            request, caller_pid=caller_pid, caller_uid=caller_uid
-        )
+        # 身份链已在开头校验（六审 §5.2 顺序修复）。
         # 内核 fresh 重观测：当前 envelope 与卡记录逐项精确比对——模型
         # 不能在批准后修改动作；body/mode/revision 任一变化即拒。
         from rosclaw.agentd.pi_bridge.context import build_embodied_context
