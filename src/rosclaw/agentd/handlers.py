@@ -482,6 +482,8 @@ class ServiceIntentHandlers:
                     "receipt.received",
                     decision.mission_id,
                     {
+                        # P0-5E：receipt 独立身份——事件同时携带两个 ID。
+                        "receipt_id": outcome.receipt_id,
                         "action_id": outcome.action_id,
                         "final_state": outcome.final_state,
                         "trust_level": "SIMULATED",
@@ -503,7 +505,8 @@ class ServiceIntentHandlers:
                         f"{effect_note}grant 已消费。"
                     ),
                     terminal_receipt=True,
-                    evidence_ref=f"receipt://{outcome.action_id}",
+                    # P0-5E：evidence_ref 绑定独立 receipt_id（不是 action_id）。
+                    evidence_ref=f"receipt://{outcome.receipt_id}",
                 )
             return HandlerOutcome(
                 text=(

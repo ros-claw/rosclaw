@@ -256,3 +256,35 @@ class TestReceiptContract:
         await operatord.stop()
         await agent_server.stop()
         await service.close()
+
+    async def test_receipt_id_independent_from_action_id(self, tmp_path: Path) -> None:
+        """P0-5E 独立身份：receipt_id 不得等于 action_id——receipt 是
+        独立证据对象（有自己的 ID），evidence_ref 绑定 receipt_id，
+        receipt.received 事件同时携带两个 ID。"""
+
+        service, mission, operatord, agent_server, sock = await _setup_with_operatord(
+            tmp_path
+        )
+        admission, ctx, card = await _propose(service, mission, idem="idem_rcpt_id")
+        await _approve(service, mission, sock, card["approval_id"])
+        outcome = await admission.execute(card["approval_id"], request=ctx)
+        assert outcome["executed"] is True
+        action_id = outcome["action_id"]
+        receipt_id = outcome["receipt_id"]
+        assert receipt_id != action_id, (
+            f"receipt_id 竟等于 action_id（{receipt_id}）——receipt 不是独立证据对象"
+        )
+        # evidence_ref 绑定 receipt_id（不是 action_id）。
+        assert outcome["evidence_ref"] == f"receipt://{receipt_id}"
+        # 事件同时携带两个 ID 且与本动作精确一致。
+        events = service.events_replay(mission.mission_id, limit=50)
+        matched = [
+            e for e in events
+            if e.type.value == "receipt.received"
+            and e.payload.get("receipt_id") == receipt_id
+        ]
+        assert matched, "receipt.received 事件缺独立 receipt_id"
+        assert matched[0].payload.get("action_id") == action_id
+        await operatord.stop()
+        await agent_server.stop()
+        await service.close()

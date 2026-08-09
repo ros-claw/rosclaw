@@ -75,11 +75,13 @@ def test_production_action_path_no_text_success_parsing() -> None:
     assert "any(" not in admission or "receipt.received" not in admission, (
         "any-receipt 判定——旧 receipt 会为新动作背书（P0-NA-13）"
     )
-    # 若使用 events_replay，必须按 action_id 精确匹配。
+    # 若使用 events_replay，必须按独立 receipt_id（或 action_id 兜底）
+    # 精确匹配——不是"Mission 内任意 receipt 存在即成功"。
     if "events_replay" in admission:
-        assert 'payload.get("action_id") == action_id' in admission, (
-            "events_replay 存在但没有 action_id 精确匹配"
-        )
+        assert (
+            'payload.get("receipt_id") == receipt_id' in admission
+            or 'payload.get("action_id") == action_id' in admission
+        ), "events_replay 存在但没有 receipt_id/action_id 精确匹配"
 
 
 # ---------------------------------------------------------------- 运行时红线
