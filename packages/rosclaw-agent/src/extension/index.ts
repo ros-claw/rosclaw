@@ -263,6 +263,27 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			// 完整性与 hash 绑定校验：卡片必须带齐 mode/risk/capability/
 			// parameters/expires_at，且服务端 display_hash 与 tool 报告的一致。
 			// （early-return 收窄——TS 不跨复合布尔收窄。）
+			// 六审 §4.4.6：完整性扩展到 ExactAction 绑定字段——capability_id/
+			// mission_id/body_id/context_revision/context_hash/
+			// action_intent_hash/exact expiry 缺任一即 fail closed。
+			const exactRaw = cardData?.exact_action_json;
+			let exactIntegrity = false;
+			if (typeof exactRaw === "string" && exactRaw !== "") {
+				try {
+					const exact = JSON.parse(exactRaw) as Record<string, unknown>;
+					exactIntegrity =
+						typeof exact.capability_id === "string" && exact.capability_id !== ""
+						&& exact.mission_id === options.active.current.missionId
+						&& typeof exact.body_id === "string" && exact.body_id !== ""
+						&& typeof exact.context_revision === "number"
+						&& typeof exact.context_hash === "string" && exact.context_hash !== ""
+						&& typeof exact.action_intent_hash === "string" && exact.action_intent_hash !== ""
+						&& typeof exact.expires_at === "string" && exact.expires_at !== ""
+						&& exact.expires_at === cardData?.expires_at;
+				} catch {
+					exactIntegrity = false;
+				}
+			}
 			if (
 				cardData === undefined
 				|| typeof cardData.title !== "string"
@@ -271,6 +292,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				|| typeof cardData.expires_at !== "string" || cardData.expires_at === ""
 				|| typeof cardData.parameters !== "object" || cardData.parameters === null
 				|| (displayHash !== "" && String(cardData.display_hash ?? "") !== displayHash)
+				|| !exactIntegrity
 			) {
 				ctx.ui.notify(
 					`授权卡不可用（${cardError || "字段缺失或 hash 不一致"}）——` +

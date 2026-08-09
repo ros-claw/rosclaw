@@ -234,6 +234,11 @@ class ServiceIntentHandlers:
                 )
             )
         approval_ttl_sec = 300.0 if self._mode == "REAL" else 600.0
+        # 六审 §4.2：admission 传入统一 created_at/expires_at 时必须
+        # 原样采用（ExactAction/Approval/ActionTxn 同一时间边界）；
+        # 仅 legacy 调用方（无 payload 时间）才本地计算。
+        unified_created_at = str(payload.get("created_at") or "")
+        unified_expires_at = str(payload.get("expires_at") or "")
         display = ActionDisplayV1(
             title=str(payload.get("title") or decision.summary or "动作请求"),
             summary=str(payload.get("summary") or decision.summary or ""),
@@ -256,8 +261,9 @@ class ServiceIntentHandlers:
             context_id=decision.context_id,
             context_revision=decision.context_revision,
             requested_tier=payload.get("tier", "EXACT_ACTION"),
-            created_at=datetime.now(UTC).isoformat(),
-            expires_at=(datetime.now(UTC) + timedelta(seconds=approval_ttl_sec)).isoformat(),
+            created_at=unified_created_at or datetime.now(UTC).isoformat(),
+            expires_at=unified_expires_at
+            or (datetime.now(UTC) + timedelta(seconds=approval_ttl_sec)).isoformat(),
             # P0-5C：一等精确动作合约（SIM/REAL 同一字段）。
             exact_action_json=str(payload.get("exact_action_json") or ""),
         )

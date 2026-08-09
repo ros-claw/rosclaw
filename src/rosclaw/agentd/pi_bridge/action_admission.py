@@ -55,6 +55,21 @@ class ActionRequestContext:
     context_lease_id: str
 
 
+@dataclass
+class ValidatedAdmissionContext:
+    """六审 §4.4：_validate_request_context 的返回值——验证过的真实
+    绑定/lease/context_hash，不再验证后丢弃（ExactAction 必须绑定
+    这里的 context_hash，不得为空）。"""
+
+    binding_id: str
+    writer_lease_id: str
+    context_lease_id: str
+    context_hash: str
+    context_revision: int
+    body_hash: str
+    mode: str
+
+
 class ActionAdmissionService:
     """唯一 action admission path（dispatcher 与 TUI RPC 共用）。"""
 
@@ -131,11 +146,15 @@ class ActionAdmissionService:
         *,
         caller_pid: int | None = None,
         caller_uid: int | None = None,
-    ) -> None:
+    ) -> ValidatedAdmissionContext:
         """session → mission → writer lease → caller identity → context
         lease → revision → body → mode 全链硬校验（HOTFIX-1：freshness
         以 agentd 签发的 ValidatedContextLease 为准；P0-5A：SO_PEERCRED
-        的 PID/UID 必须与 writer owner 匹配）。"""
+        的 PID/UID 必须与 writer owner 匹配）。
+
+        六审 §4.4：返回 ValidatedAdmissionContext（lease/当前权威
+        context_hash 等），不再验证后丢弃——ExactAction 必须绑定
+        这里的真实 context_hash。"""
         # 1-3. session/mission/writer/caller 身份（共用方法）。
         self._validate_session_and_caller(
             ctx, caller_pid=caller_pid, caller_uid=caller_uid
@@ -221,6 +240,17 @@ class ActionAdmissionService:
                 "MODE_MISMATCH",
                 f"mission mode is {mission.mode.value}, not {ctx.mode}",
             )
+        writer = self._bindings.writer_of(ctx.mission_id)
+        assert writer is not None  # _validate_session_and_caller 已保证
+        return ValidatedAdmissionContext(
+            binding_id=binding.binding_id,
+            writer_lease_id=writer.lease_id,
+            context_lease_id=lease.context_lease_id,
+            context_hash=lease.context_hash or current_hash,
+            context_revision=lease.context_revision,
+            body_hash=lease.body_hash,
+            mode=lease.mode,
+        )
 
     # -- phase 1: propose --------------------------------------------------------
 
@@ -247,7 +277,7 @@ class ActionAdmissionService:
             raise ToolBridgeError(
                 "INVALID_ARGUMENTS", "capability_id and arguments required (fail closed)"
             )
-        self._validate_request_context(
+        validated = self._validate_request_context(
             request, caller_pid=caller_pid, caller_uid=caller_uid
         )
         service = self._service
@@ -292,6 +322,23 @@ class ActionAdmissionService:
         )
 
         schema = descriptor.input_schema or {}
+        # 六审 §4.4.5：物理动作 schema 必须声明严格对象边界——未声明
+        # additionalProperties:false 的 PHYSICAL_ACTION 建卡前隔离
+        # （fail closed：未知参数不得进入物理执行链）。
+        if descriptor.execution_class.value == "PHYSICAL_ACTION" and (
+            not isinstance(schema, dict)
+            or schema.get("additionalProperties") is not False
+        ):
+            service._tool_catalog.quarantine_tool(
+                capability_id,
+                "physical action without strict input_schema boundary "
+                "(additionalProperties:false required)",
+            )
+            raise ToolBridgeError(
+                "SCHEMA_NOT_STRICT",
+                f"capability {capability_id} is PHYSICAL_ACTION but its input_schema "
+                "does not declare additionalProperties:false — quarantined (fail closed)",
+            )
         try:
             normalized_arguments = validate_action_arguments(schema, arguments)
         except Exception as exc:  # noqa: BLE001 - ValidationError
@@ -299,6 +346,16 @@ class ActionAdmissionService:
                 "INVALID_ARGUMENTS",
                 f"capability {capability_id} arguments rejected: {exc}",
             ) from exc
+        # 六审 §4.2：统一 TTL——created_at/expires_at 由 admission 一次
+        # 生成（SIM 600s / REAL 300s 策略），ExactAction/Approval/ActionTxn
+        # 同一时间边界；handler 不再自行另算。
+        from datetime import timedelta as _timedelta
+
+        created_at = datetime.now(UTC).isoformat()
+        approval_ttl_sec = 300.0 if mission.mode.value == "REAL" else 600.0
+        unified_expires_at = (
+            datetime.fromisoformat(created_at) + _timedelta(seconds=approval_ttl_sec)
+        ).isoformat()
         # ExactActionV1：不可变精确动作合约（capability/args/mission/
         # mode/body/context/risk 全一等字段 + intent hash）。
         from rosclaw.contracts.operator.exact_action import (
@@ -317,10 +374,12 @@ class ActionAdmissionService:
             body_id=mission.body_binding.body_id,
             body_hash=request.body_hash,
             context_revision=request.context_revision,
-            context_hash="",
+            # 六审 §4.1：绑定验证过的真实 context_hash——不得为空
+            # （此前写死 ""，display_hash V3 绑的是空值）。
+            context_hash=validated.context_hash,
             expected_effect=expected_effect,
-            created_at=datetime.now(UTC).isoformat(),
-            expires_at=datetime.now(UTC).isoformat(),  # 建卡时由 TTL 覆盖
+            created_at=created_at,
+            expires_at=unified_expires_at,
         )
         # 标题由合约派生——capability 永远在标题里，不允许"危险
         # capability + 无害 title"分离（五审场景 D）。
@@ -361,6 +420,8 @@ class ActionAdmissionService:
                 capability_id=capability_id,
                 arguments_hash=arguments_hash,
                 risk_tier=authoritative_risk,
+                ttl_sec=approval_ttl_sec,
+                expires_at=unified_expires_at,
             )
         except IdempotencyConflictError as exc:
             raise ToolBridgeError("IDEMPOTENCY_CONFLICT", str(exc)) from exc
@@ -415,6 +476,10 @@ class ActionAdmissionService:
                     "arguments_hash": arguments_hash,
                     "action_intent_hash": exact_action.action_intent_hash,
                     "exact_action_json": exact_action.model_dump_json(),
+                    # 六审 §4.2：统一 TTL——Approval 与 ExactAction/Txn
+                    # 同一时间边界。
+                    "created_at": created_at,
+                    "expires_at": unified_expires_at,
                 },
             ),
         )
@@ -599,11 +664,86 @@ class ActionAdmissionService:
             raise ToolBridgeError(
                 "TXN_EXPIRED", f"txn {txn.txn_id} expired at {txn.expires_at}"
             )
-        capability_id = (
-            txn.capability_id
-            or stored.daemon_capability_id
-            or str(stored.action_display.parameters.get("capability_id", ""))
+        # 六审 §4.3：execute 完整复验 ExactAction canonical chain——
+        # parse + schema 校验 + 重算 hash + 逐字段对比 txn/approval/
+        # grant/catalog；任何不一致 CHAIN_MISMATCH 且 grant 不消费。
+        from rosclaw.contracts.operator.exact_action import (
+            ExactActionV1,
+            compute_action_intent_hash,
+            compute_arguments_hash,
         )
+
+        if not stored.exact_action_json:
+            raise ToolBridgeError(
+                "EXACT_ACTION_INVALID",
+                "approval card has no exact action contract (fail closed)",
+            )
+        try:
+            exact = ExactActionV1.model_validate_json(stored.exact_action_json)
+        except Exception as exc:
+            raise ToolBridgeError(
+                "EXACT_ACTION_INVALID", f"exact action contract corrupt: {exc}"
+            ) from exc
+        # 1. canonical hash 重算（卡内字段任一篡改都会破坏这两个 hash）。
+        if compute_arguments_hash(exact.normalized_arguments) != exact.arguments_hash:
+            raise ToolBridgeError(
+                "CHAIN_MISMATCH", "exact action arguments_hash recompute failed"
+            )
+        if compute_action_intent_hash(exact) != exact.action_intent_hash:
+            raise ToolBridgeError(
+                "CHAIN_MISMATCH", "exact action intent hash recompute failed"
+            )
+        # 2. 与 txn/approval 持久链逐字段对比。
+        if exact.arguments_hash != txn.arguments_hash:
+            raise ToolBridgeError(
+                "CHAIN_MISMATCH", "exact arguments_hash != txn arguments_hash"
+            )
+        if exact.capability_id != txn.capability_id:
+            raise ToolBridgeError(
+                "CHAIN_MISMATCH", "exact capability != txn capability"
+            )
+        if exact.mission_id != stored.mission_id or exact.mission_id != request.mission_id:
+            raise ToolBridgeError("CHAIN_MISMATCH", "exact mission != approval mission")
+        if exact.mode != stored.mode or exact.mode != request.mode:
+            raise ToolBridgeError("CHAIN_MISMATCH", "exact mode != approval mode")
+        if exact.context_revision != stored.context_revision:
+            raise ToolBridgeError(
+                "CHAIN_MISMATCH", "exact context revision != approval revision"
+            )
+        if stored.effective_body_hash and exact.body_hash != stored.effective_body_hash:
+            raise ToolBridgeError("CHAIN_MISMATCH", "exact body hash != approval body hash")
+        # 3. display_hash 全量重算——卡面任何字段篡改都会破坏它。
+        from rosclaw.agentd.operator_socket import display_hash_for
+
+        if txn.display_hash and display_hash_for(stored) != txn.display_hash:
+            raise ToolBridgeError(
+                "CHAIN_MISMATCH", "display hash recompute != txn display hash"
+            )
+        # 4. catalog drift：capability version/source 与当前目录不一致即拒。
+        descriptor_now = service._tool_catalog.get(exact.capability_id)
+        if descriptor_now is None:
+            raise ToolBridgeError(
+                "CAPABILITY_UNKNOWN",
+                f"capability {exact.capability_id} left the catalog after approval",
+            )
+        if (
+            descriptor_now.version != exact.capability_version
+            or descriptor_now.source != exact.capability_source
+        ):
+            raise ToolBridgeError(
+                "CHAIN_MISMATCH",
+                "capability version/source drifted after approval — re-propose",
+            )
+        # 5. 最短 TTL：ExactAction/Approval/Txn 任一过期即拒。
+        now_iso = datetime.now(UTC).isoformat()
+        if exact.expires_at <= now_iso:
+            raise ToolBridgeError(
+                "EXACT_ACTION_EXPIRED",
+                f"exact action expired at {exact.expires_at} — re-propose",
+            )
+        if stored.expires_at <= now_iso:
+            raise ToolBridgeError("GRANT_EXPIRED", "approval expired before execute")
+        capability_id = exact.capability_id
         if not capability_id:
             raise ToolBridgeError(
                 "CAPABILITY_MISSING",
@@ -627,7 +767,10 @@ class ActionAdmissionService:
                 payload={
                     "grant_id": grant_id,
                     "capability_id": capability_id,
-                    "arguments": stored.action_display.parameters,
+                    # 六审 §4.3：执行参数只能来自 ExactAction.normalized_
+                    # arguments（人批准的 canonical 对象）——不是另一份
+                    # 可变 display 对象。
+                    "arguments": exact.normalized_arguments,
                 },
             ),
         )

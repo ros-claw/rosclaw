@@ -191,7 +191,16 @@ def _register_sim_action_capability(service) -> None:
             source="native:agentd",
             execution_class=ExecutionClass.PHYSICAL_ACTION,
             description="确定性 SIM 验收动作（真实 SIM 执行通道产出 SIMULATED receipt）。",
-            input_schema={"type": "object", "additionalProperties": True},
+            # 六审 §4.4.5：物理动作必须声明严格对象边界——properties
+            # 覆盖既有测试用参（{}/{"a":int}/{"beep":bool}），未知参数拒绝。
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "a": {"type": "integer"},
+                    "beep": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+            },
             supported_modes=["SIMULATION"],
             evidence_class=ToolEvidenceClass.SIMULATED,
             risk_tier="LOW",

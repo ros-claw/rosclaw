@@ -158,6 +158,7 @@ class ActionTxnStore:
         arguments_hash: str,
         risk_tier: str,
         ttl_sec: float = 600.0,
+        expires_at: str = "",
     ) -> ActionTxn:
         """创建事务（PROPOSED）。同 key 已有记录：同 hash 返回既有
         事务，不同 hash 抛 IdempotencyConflictError。"""
@@ -190,7 +191,7 @@ class ActionTxnStore:
                 arguments_hash,
                 risk_tier,
                 now.isoformat(),
-                (now + timedelta(seconds=ttl_sec)).isoformat(),
+                expires_at or (now + timedelta(seconds=ttl_sec)).isoformat(),
             ),
         )
         self._conn.commit()
