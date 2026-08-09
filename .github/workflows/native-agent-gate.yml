@@ -75,24 +75,48 @@ jobs:
           cd packages/rosclaw-agent
           npm ci
       - name: Run product journey
+        id: run
         run: |
           .venv/bin/python -m pytest tests/agentd/test_product_journey.py tests/agentd/test_hf5_4_action_result_ui.py -q --tb=short \
             --junitxml=/tmp/junit-journey.xml
-      - name: Upload journey evidence
+      # 六审 §9.2.4：publishable 证据先 curate 成单份（pytest-0/
+      # pytest-current/test_*0/test_*current 的 glob 会把同一 PTY 日志
+      # 打包多份）。
+      - name: Curate evidence pack
+        if: always()
+        run: |
+          set -e
+          PACK=/tmp/evidence-pack
+          mkdir -p "$PACK"
+          SRC=$(ls -dt /tmp/pytest-of-*/pytest-*/test_full_journey_pty0 2>/dev/null | head -1)
+          HF=$(ls -dt /tmp/pytest-of-*/pytest-*/hf5_40 2>/dev/null | head -1)
+          for f in fake-requests.jsonl sanitized_assertions.json session_structure.json installed_bundle_digest.txt; do
+            [ -f "$SRC/$f" ] && cp "$SRC/$f" "$PACK/journey-$f"
+          done
+          [ -f "$HF/fake-requests.jsonl" ] && cp "$HF/fake-requests.jsonl" "$PACK/hf5_4-fake-requests.jsonl"
+          [ -f /tmp/junit-journey.xml ] && cp /tmp/junit-journey.xml "$PACK/junit.xml"
+          ls -la "$PACK"
+      - name: Upload journey evidence (publishable, sanitized)
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: journey-evidence-${{ github.sha }}
-          path: |
-            /tmp/pytest-of-*/pytest-*/test_full_journey_pty*/fake-requests.jsonl
-            /tmp/pytest-of-*/pytest-*/test_full_journey_pty*/pty-*.log
-            /tmp/pytest-of-*/pytest-*/test_full_journey_pty*/failure-dump/**
-            /tmp/pytest-of-*/pytest-*/test_full_journey_pty*/sanitized_assertions.json
-            /tmp/pytest-of-*/pytest-*/test_full_journey_pty*/session_structure.json
-            /tmp/pytest-of-*/pytest-*/test_full_journey_pty*/installed_bundle_digest.txt
-            /tmp/junit-journey.xml
+          path: /tmp/evidence-pack/**
           if-no-files-found: error
           retention-days: 30
+      # 六审 §9.2.5：restricted 诊断（完整 PTY/失败 DB）仅失败时上传、
+      # 短保留——publishable 与 restricted 分离。
+      - name: Upload failure diagnostics (restricted)
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: journey-diagnostics-${{ github.sha }}
+          path: |
+            /tmp/pytest-of-*/pytest-*/test_full_journey_pty0/pty-*.log
+            /tmp/pytest-of-*/pytest-*/test_full_journey_pty0/failure-dump/**
+            /tmp/pytest-of-*/pytest-*/hf5_40/pty-*.log
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Write evidence manifest
         if: always()
@@ -100,6 +124,8 @@ jobs:
           GITHUB_EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           GITHUB_EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           TEST_SELECTION: "pytest tests/agentd/test_product_journey.py tests/agentd/test_hf5_4_action_result_ui.py"
+          TEST_CONCLUSION: ${{ steps.run.outcome }}
+          BUNDLE_DIGEST: ${{ hashFiles('/tmp/evidence-pack/installed_bundle_digest.txt') }}
         run: bash scripts/ci/write_evidence_manifest.sh "${{ github.job }}" /tmp/evidence/evidence-manifest.json
       - name: Upload evidence manifest
         if: always()
@@ -269,3 +295,51 @@ jobs:
           path: /tmp/evidence/evidence-manifest.json
           if-no-files-found: error
           retention-days: 90
+
+  # 六审 §9.3：独立验证——由生成证据的同一个测试自我声明不算数；
+  # 本 job 下载 artifact 后离线复核全链 ID/hash/状态关系。
+  evidence-verify:
+    name: Journey Evidence Verify (independent)
+    needs: [journey]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - name: Install jsonschema
+        run: pip install jsonschema
+      - name: Download journey evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: journey-evidence-${{ github.sha }}
+          path: /tmp/downloaded-evidence
+      - name: Verify sanitized assertions independently
+        run: |
+          set -e
+          ls -la /tmp/downloaded-evidence
+          python scripts/ci/verify_journey_evidence.py /tmp/downloaded-evidence/journey-sanitized_assertions.json
+      - name: Download journey manifest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: evidence-manifest-journey-${{ github.sha }}
+          path: /tmp/downloaded-manifest
+      - name: Verify manifest fields
+        run: |
+          python - <<'PY'
+          import json, sys
+          from pathlib import Path
+          manifests = list(Path("/tmp/downloaded-manifest").glob("*.json"))
+          assert manifests, "manifest artifact 为空"
+          m = json.loads(manifests[0].read_text())
+          required = ("checked_out_sha", "head_sha", "base_sha", "event_name",
+                      "workflow_hash", "test_conclusion", "bundle_digest",
+                      "evidence_schema_version")
+          missing = [f for f in required if f not in m]
+          assert not missing, f"manifest 缺字段: {missing}"
+          assert m["schema_version"] == "rosclaw.gate_evidence.v2"
+          assert m["evidence_schema_version"] == "rosclaw.journey_evidence.v2"
+          print("manifest fields OK:", {k: m[k] for k in required})
+          PY

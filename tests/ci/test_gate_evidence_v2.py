@@ -65,6 +65,8 @@ def test_every_job_writes_and_uploads_manifest_v2() -> None:
     jobs = _workflow()["jobs"]
     assert jobs, "workflow 无 jobs"
     for job_id, job in jobs.items():
+        if job_id == "evidence-verify":
+            continue  # 验证 job 消费证据，不产出 manifest
         steps = job.get("steps", [])
         run_blobs = "\n".join(str(s.get("run", "")) for s in steps)
         uploads = [

@@ -41,6 +41,9 @@ cat > "$out" <<EOF
   "node_version": "$(node --version 2>/dev/null || echo unavailable)",
   "python_version": "$(python --version 2>/dev/null || echo unavailable)",
   "test_selection": "${TEST_SELECTION:-unspecified}",
+  "test_conclusion": "${TEST_CONCLUSION:-unknown}",
+  "bundle_digest": "${BUNDLE_DIGEST:-}",
+  "evidence_schema_version": "rosclaw.journey_evidence.v2",
   "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 EOF

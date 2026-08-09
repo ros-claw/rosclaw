@@ -652,7 +652,7 @@ class TestProductJourney:
         import sqlite3
 
         db = sqlite3.connect(home / "agentd" / "missions.db")
-        evidence: dict[str, object] = {"schema_version": "rosclaw.journey_evidence.v1"}
+        evidence: dict[str, object] = {"schema_version": "rosclaw.journey_evidence.v2"}
         try:
             binding = db.execute(
                 "SELECT pi_session_id, mission_id FROM pi_session_bindings "
@@ -697,6 +697,9 @@ class TestProductJourney:
             ]
             evidence["receipts"] = [
                 {
+                    # 六审 §9.2.1：receipt_id 独立副本——第三方可直接比
+                    # 对 txn.receipt_id ↔ receipt event。
+                    "receipt_id": r.get("receipt_id"),
                     "action_id": r.get("action_id"),
                     "final_state": r.get("final_state"),
                     "trust_level": r.get("trust_level"),
@@ -713,12 +716,31 @@ class TestProductJourney:
                 for g in grants
             ]
             approvals = db.execute(
-                "SELECT request_id, status, decided_by FROM operator_requests"
+                "SELECT request_id, status, decided_by, request_json FROM operator_requests"
             ).fetchall()
-            evidence["approvals"] = [
-                {"request_id": r, "status": s, "decided_by": d}
-                for r, s, d in approvals
-            ]
+            evidence["approvals"] = []
+            for r, s, d, request_json in approvals:
+                # 六审 §9.2.2：display/action intent hash 独立副本——
+                # approval↔txn 的 hash 关系可离线复核。
+                intent_hash = ""
+                with contextlib.suppress(Exception):
+                    exact = json.loads(
+                        json.loads(request_json).get("exact_action_json") or "{}"
+                    )
+                    intent_hash = str(exact.get("action_intent_hash") or "")
+                from rosclaw.agentd.operator_socket import display_hash_for
+                from rosclaw.contracts.operator.approval import ApprovalRequestV2
+
+                req_obj = ApprovalRequestV2.model_validate_json(request_json)
+                evidence["approvals"].append(
+                    {
+                        "request_id": r,
+                        "status": s,
+                        "decided_by": d,
+                        "display_hash": display_hash_for(req_obj),
+                        "action_intent_hash": intent_hash,
+                    }
+                )
         finally:
             db.close()
         # reasoning 禁带字段计数（结构计数，不含正文）。
