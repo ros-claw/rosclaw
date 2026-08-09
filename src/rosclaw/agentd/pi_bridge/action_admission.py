@@ -644,22 +644,28 @@ class ActionAdmissionService:
         receipt_id = ""
         if outcome.evidence_ref and outcome.evidence_ref.startswith("receipt://"):
             receipt_id = outcome.evidence_ref.removeprefix("receipt://")
-            action_id = receipt_id
-        # receipt 事件链验证（P0-5E）：receipt.received 事件的 action_id
-        # 必须精确等于本动作的 action_id——不是 Mission 范围内任意 receipt。
+        # receipt 事件链验证（P0-5E）：receipt.received 事件必须精确绑定
+        # 本动作的 receipt——按独立 receipt_id 匹配（SIM 路径），action_id
+        # 从事件负载读取（不再假设 receipt_id == action_id）。无独立
+        # receipt_id 的旧 daemon 路径按 action_id 兜底匹配。
         receipt_ok = False
-        if terminal_bool and action_id:
+        if terminal_bool and receipt_id:
             events = service.events_replay(stored.mission_id, limit=50)
             for e in events:
                 if e.type.value != "receipt.received":
                     continue
                 payload = e.payload
+                if payload.get("receipt_id"):
+                    matched = payload.get("receipt_id") == receipt_id
+                else:
+                    matched = payload.get("action_id") == receipt_id
                 if (
-                    payload.get("action_id") == action_id
+                    matched
                     and payload.get("final_state") == "COMPLETED"
                     and payload.get("verified") is True
                 ):
-                    receipt_ok = True
+                    action_id = str(payload.get("action_id") or "")
+                    receipt_ok = bool(action_id)
                     break
         executed = terminal_bool and receipt_ok
         if terminal_bool and not receipt_ok:
