@@ -483,6 +483,26 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
         mission.mode.value if mission is not None else resume_mode
     )
     profile = "robot" if effective_mode is not None and effective_mode != "SIMULATION" else "developer"
+    # 六审 §7：产品 supervisor——SIM developer 且已 enrollment 但服务未
+    # 运行时，chat 直接代为启动独立 operatord（生命周期归本进程；
+    # 决定权/签名仍在 operatord）。未 enrollment 不自动办理——TUI 内
+    # 单键初始化（带安全说明）。REAL/robot 永不自动。
+    managed_operatord = None
+    if profile == "developer":
+        from rosclaw.operatord.enrollment import IDENTITY_FILE
+
+        enrolled = (home / "operatord" / IDENTITY_FILE).exists()
+        operator_sock = home / "run" / "operatord.sock"
+        if enrolled and not operator_sock.exists():
+            managed_operatord = _sp.Popen(  # noqa: S603 - 固定入口
+                [
+                    sys.executable, "-m", "rosclaw.entrypoint",
+                    "operatord", "start", "--no-human-presence-check",
+                ],
+                env=dict(os.environ, ROSCLAW_HOME=str(home)),
+                stdout=(home / "run" / "operatord.out.log").open("ab"),
+                stderr=(home / "run" / "operatord.err.log").open("ab"),
+            )
     argv = [node, entry, "--profile", profile, *resume_argv]
     if mission is not None:
         argv += ["--mission", mission.mission_id]
@@ -502,6 +522,10 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     finally:
         server.should_exit = True
         asyncio.run(service.close())
+        # supervisor 启动的 operatord 随 chat 退出（已运行他人启动的
+        # 不碰——managed_operatord 只在本进程启动时非空）。
+        if managed_operatord is not None:
+            managed_operatord.terminate()
 
 
 def _resume_target_mode(home: Path, args: argparse.Namespace) -> str | None:

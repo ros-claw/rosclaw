@@ -58,6 +58,7 @@ async function collectHarness() {
 		call,
 	});
 	const { ProductStateCenter } = await import("../src/session/state-center.js");
+	const { LocaleManager } = await import("../src/i18n/locale.js");
 	const center = new ProductStateCenter({
 		rosclawHome: "/tmp/rh-test",
 		active,
@@ -66,6 +67,7 @@ async function collectHarness() {
 		call: call as never,
 		operatorCallFn: async () => ({ ok: false }),
 	});
+	const locale = new LocaleManager("/tmp/rh-test/agent");
 	const factory = createRosclawExtension({
 		profile: "developer",
 		version: "0.1.0",
@@ -73,6 +75,7 @@ async function collectHarness() {
 		active,
 		coordinator,
 		center,
+		locale,
 		rosclawHome: "/tmp/rh-test",
 	});
 	factory(pi as never);

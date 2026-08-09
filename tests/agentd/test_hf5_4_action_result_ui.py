@@ -175,6 +175,7 @@ class TestActionResultUi:
             ROSCLAW_HOME=str(home),
             TERM="xterm",
             FAKE_JOURNEY_KEY="sk-fake-journey",
+            ROSCLAW_UI_LOCALE="en-US",
             PATH=f"{prefix / 'bin'}:{os.environ['PATH']}",
         )
         # operatord：本场景动作在 propose 即被拒（不产生卡片），但 header
@@ -212,10 +213,10 @@ class TestActionResultUi:
                 # 第二轮对抗：谎报完成后立即再尝试——不得自动放行。
                 session.send("再执行一次假动作\r")
                 # 第二次谎言文本相同——等输出长度增长后再 settle。
-                mark = len(session.output)
+                mark = len(session.clean)
                 deadline2 = time.monotonic() + 120
                 while time.monotonic() < deadline2:
-                    if session.output[mark:].count("动作已执行，结构化回执已确认".encode()) >= 1:
+                    if session.clean[mark:].count("动作已执行，结构化回执已确认".encode()) >= 1:
                         break
                     time.sleep(0.5)
                 else:
@@ -224,7 +225,7 @@ class TestActionResultUi:
                 session.send("/quit\r")
                 session.expect(b"rosclaw chat --resume", timeout=30)
                 session.proc.wait(timeout=30)
-                output = session.output
+                output = session.clean
             finally:
                 session.stop()
         finally:
@@ -297,8 +298,8 @@ class TestActionResultUi:
         )
         # 假动作连 approval 卡都不该产生（propose 即拒）。
         assert "ROSCLAW 授权请求".encode() not in output, "假动作竟产生了授权卡"
-        # header 必须有 Action READY/LOCKED 可见状态。
-        assert b"Action READY" in output or b"Action LOCKED" in output, (
+        # header 必须有 Action Ready/Blocked 可见状态（en-US chrome）。
+        assert b"Action Ready" in output or b"Action Blocked" in output, (
             "header 缺 Action 状态——用户无法看到动作准入状态"
         )
         # DB 终态：两轮之后仍零执行痕迹。

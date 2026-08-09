@@ -404,6 +404,22 @@ def _build_and_install(tmp_path: Path) -> tuple[Path, Path]:
     return tmp_path / "prefix", root
 
 
+_ANSI_RE = None
+
+
+def _strip_ansi(data: bytes) -> bytes:
+    """去 ANSI 转义/控制序列（PTY 文本断言用——换行重绘会把控制码
+    插进文本中间）。"""
+    global _ANSI_RE
+    if _ANSI_RE is None:
+        import re as _re
+
+        # 只去 CSI/字符集序列——OSC（窗口标题 \x1b]0;...\x07）保留：
+        # 旅程的品牌标题断言匹配的就是 OSC 内容。
+        _ANSI_RE = _re.compile(rb"\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][0-9A-B]")
+    return _ANSI_RE.sub(b"", data)
+
+
 class PtySession:
     """最小 PTY 驱动：expect/send。"""
 
@@ -427,6 +443,9 @@ class PtySession:
         )
         os.close(slave)
         self.output = b""
+        # 六审 §7：长行在窄 PTY 换行后 ANSI 控制码会把文本切碎——
+        # expect 一律匹配去 ANSI 的缓冲（raw output 保留给日志/诊断）。
+        self.clean = b""
         self.last_at = time.monotonic()
         # 后台持续 drain——PTY 缓冲满会阻塞子进程写（没有它测试会假死）。
         self._lock = threading.Lock()
@@ -444,6 +463,7 @@ class PtySession:
                             break
                         with self._lock:
                             self.output += chunk
+                            self.clean += _strip_ansi(chunk)
                             self.last_at = time.monotonic()
                         if self._log is not None:
                             with contextlib.suppress(OSError):
@@ -459,12 +479,12 @@ class PtySession:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             with self._lock:
-                if marker in self.output:
-                    return self.output
+                if marker in self.clean:
+                    return self.clean
             if self.proc.poll() is not None:
                 with self._lock:
-                    if marker in self.output:
-                        return self.output
+                    if marker in self.clean:
+                        return self.clean
                 break
             time.sleep(0.1)
         with self._lock:
@@ -564,39 +584,20 @@ class TestProductJourney:
             TERM="xterm",
             FAKE_JOURNEY_KEY="sk-fake-journey",
             KIMI_API_KEY="sk-fake-journey",
+            # 六审 §8：chrome 走 i18n catalog——旅程固定 en-US（断言
+            # 与 locale 无关的稳定性由 catalog parity 测试保证）。
+            ROSCLAW_UI_LOCALE="en-US",
             PATH=f"{prefix / 'bin'}:{os.environ['PATH']}",
         )
-        # P0-01 架构：授权决定只能经独立 rosclaw-operatord——旅程必须
-        # enroll + start 一个真实 operatord（SIM 卡走 Ed25519 签名
-        # apply_decision；agentd 自身拒绝 decide）。
-        enroll = subprocess.run(
-            [str(rosclaw), "operatord", "enroll"],
-            env=env, capture_output=True, text=True, timeout=60,
-        )
-        assert enroll.returncode == 0, enroll.stderr[-500:]
-        operatord = subprocess.Popen(
-            [str(rosclaw), "operatord", "start", "--no-human-presence-check"],
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        # 六审 §7（黑盒验收）：不再手工 enroll/start operatord——真实
+        # 用户路径就是直接 chat；Operator 初始化必须在 TUI 内单键完成
+        # （旅程在 _run_journey 里按 I 键初始化）。
         try:
-            deadline = time.monotonic() + 30
-            while time.monotonic() < deadline and not (home / "run" / "operatord.sock").exists():
-                assert operatord.poll() is None, "operatord 启动失败"
-                time.sleep(0.2)
-            assert (home / "run" / "operatord.sock").exists(), "operatord.sock 未出现"
-            try:
-                self._run_journey(rosclaw, env, home, fake)
-            except BaseException:
-                self._dump_failure_state(home)
-                raise
+            self._run_journey(rosclaw, env, home, fake)
+        except BaseException:
+            self._dump_failure_state(home)
+            raise
         finally:
-            operatord.terminate()
-            try:
-                operatord.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                operatord.kill()
             fake.close()
 
     def _dump_failure_state(self, home: Path) -> None:
@@ -875,7 +876,7 @@ class TestProductJourney:
         )
         # 拒绝码必须出现在发给模型的 tool 结果里（不是模型自编理由）。
         # 由调用方传 fake 进来太重——从 PTY 输出断言卡片层已拒绝。
-        assert b"BODY_CAPABILITY_MISMATCH" in session.output, (
+        assert b"BODY_CAPABILITY_MISMATCH" in session.clean, (
             "缺 BODY_CAPABILITY_MISMATCH 拒绝证据"
         )
         self._journey_verdicts["cross_body_action_rejected_before_card"] = True
@@ -1017,27 +1018,35 @@ class TestProductJourney:
         try:
             # 1. 品牌 header（T-IDENTITY + P0-NA-15/16 产品面扫描）。
             session.expect(b"ROSClaw Native Agent", timeout=60)
-            assert b"engine=pi" not in session.output
+            assert b"engine=pi" not in session.clean
             # P0-NA-15：供应链边界——启动面不得出现上游自更新通道。
             for leaked in (b"pi update", b"pi.dev", b"Update Available", b"[Extensions]"):
-                assert leaked not in session.output, f"上游泄漏进启动面: {leaked}"
+                assert leaked not in session.clean, f"上游泄漏进启动面: {leaked}"
             # P0-NA-16：产品版本（launcher 传入），不是内部 npm 子包版本。
             from rosclaw import __version__ as _product_version
 
             # header 在 operator probe 后重绘——等版本出现（不是瞬时断言）。
             session.expect(f"ROSClaw {_product_version}".encode(), timeout=60)
-            assert b"v0.1.0" not in session.output, "内部子包版本冒充产品版本"
+            assert b"v0.1.0" not in session.clean, "内部子包版本冒充产品版本"
             # Operator 状态必须是真实探测值（READY/OFFLINE/UNKNOWN），
             # 不是硬编码字符串。
-            assert b"Operator ready" not in session.output
+            assert b"Operator ready" not in session.clean
+            # 1b. 六审 §7 黑盒验收：未预启动 operatord——TUI 内单键初始化
+            #     （en-US chrome：offer 文本 + 完成通知）。
+            session.expect(b"press I for one-key local setup", timeout=60)
+            session.send("i")
+            session.expect(b"Operator initialized", timeout=60)
+            # 初始化完成后 header 必须转为真实 READY（订阅统一刷新）。
+            session.expect(b"Operator Ready", timeout=60)
+            self._journey_verdicts["operator_one_key_bootstrap"] = True
             # 2. 普通对话。
             session.send("你好\r")
             session.expect("你好，我是 ROSClaw".encode(), timeout=90)
             # 3. T-REASONING：推理标记绝不出现。
-            marker_at = len(session.output)
+            marker_at = len(session.clean)
             session.send("SECRET_PROBE 测试\r")
             session.expect("这是最终回答".encode(), timeout=90)
-            assert REASONING_MARKER.encode() not in session.output[marker_at:]
+            assert REASONING_MARKER.encode() not in session.clean[marker_at:]
             time.sleep(3.0)  # 等回合完全 settled 再发命令
             # 4. /status。
             session.send("/status\r")
@@ -1056,7 +1065,7 @@ class TestProductJourney:
             #     UNREACHABLE）。PTY 输出与发给模型的 tool 结果双重断言。
             session.send("读取系统状态\r")
             session.expect("内核状态已读取".encode(), timeout=120)
-            assert b"127.0.0.1:8765" not in session.output, (
+            assert b"127.0.0.1:8765" not in session.clean, (
                 "Native Agent 输出仍引用旧 HTTP 面 8765"
             )
             # 发给模型的 tool 结果（fake 请求的 tool 消息）必须是 READY——
@@ -1078,7 +1087,7 @@ class TestProductJourney:
             # 5c. 动作准入前置（六审 §3.4）：动作发起前 Header 必须是真实
             #     READY——此前显式 mission 路径 leaseState 不写回，
             #     "Action LOCKED" 假锁与成功执行同时存在。
-            session.expect(b"Action READY", timeout=60)
+            session.expect(b"Action Ready", timeout=60)
             # 6. UR5e 机械臂 SIM 闭环（六审 §6.3）：能力面 → 初始观测 →
             #    exact action 卡 → Y → 执行 → 后置观测验证。
             # 主标记必须是稳定面：授权 overlay（"ROSCLAW 授权请求"）。
@@ -1129,10 +1138,10 @@ class TestProductJourney:
             # 8. /quit → resume 提示必须是 ROSClaw 命令（T-IDENTITY）。
             session.send("/quit\r")
             session.expect(b"rosclaw chat --resume", timeout=30)
-            assert b"pi --session" not in session.output
-            assert b"--session-dir" not in session.output
+            assert b"pi --session" not in session.clean
+            assert b"--session-dir" not in session.clean
             session.proc.wait(timeout=30)
-            assert session.proc.returncode == 0, session.output[-400:]
+            assert session.proc.returncode == 0, session.clean[-400:]
         finally:
             session.stop()
         # 9. --continue 恢复（P0-NA-12：必须证明 binding/lease 恢复，

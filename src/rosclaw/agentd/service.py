@@ -1305,6 +1305,11 @@ class AgentService:
         return path
 
     async def close(self) -> None:
+        # 六审 §7：产品 supervisor 管理的 operatord 随 service 终止。
+        managed = getattr(self, "_managed_operator", None)
+        if managed is not None:
+            managed.terminate()
+            self._managed_operator = None
         if getattr(self, "_shared_mcp_client", None) is not None:
             await self._shared_mcp_client.close()
             self._shared_mcp_client = None

@@ -163,6 +163,76 @@ class PiBridgeServer:
                     else None
                 ),
             }
+        if method == "pi.operator.status":
+            # 六审 §7：operator 面真实状态（enrollment + 进程运行）——
+            # TUI 的单键初始化依赖它，不再要求用户另开终端。
+            from rosclaw.operatord.enrollment import IDENTITY_FILE
+
+            home = service._home
+            enrolled = (home / "operatord" / IDENTITY_FILE).exists()
+            sock = home / "run" / "operatord.sock"
+            running = False
+            if sock.exists():
+                import socket as _socket
+
+                try:
+                    probe = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+                    probe.settimeout(1.0)
+                    probe.connect(str(sock))
+                    probe.close()
+                    running = True
+                except OSError:
+                    running = False
+            return {"ok": True, "enrolled": enrolled, "running": running}
+        if method == "pi.operator.bootstrap":
+            # 六审 §7：SIM developer 的单键初始化——enroll（如需要）+
+            # 启动独立 operatord 进程（生命周期归 agentd service 管理；
+            # 决定权/签名仍在 operatord 独立进程）。REAL/SHADOW 一律拒绝。
+            mission_id = str(params.get("mission_id", ""))
+            if mission_id:
+                mission = service.get_mission(mission_id)
+                if mission is not None and mission.mode.value != "SIMULATION":
+                    return {
+                        "ok": False,
+                        "error": "operator bootstrap 仅限 SIMULATION developer——"
+                        "REAL/SHADOW 要求独立 operator readiness/presence 流程",
+                        "code": "MODE_FORBIDDEN",
+                    }
+            from rosclaw.operatord.enrollment import IDENTITY_FILE, enroll
+
+            home = service._home
+            identity_path = home / "operatord" / IDENTITY_FILE
+            if not identity_path.exists():
+                enroll(home / "operatord")
+            sock = home / "run" / "operatord.sock"
+            if not sock.exists():
+                import subprocess as _sp
+                import sys as _sys
+
+                (home / "run").mkdir(parents=True, exist_ok=True)
+
+                proc = _sp.Popen(  # noqa: S603 - 固定入口
+                    [
+                        _sys.executable, "-m", "rosclaw.entrypoint",
+                        "operatord", "start", "--no-human-presence-check",
+                    ],
+                    env={**os.environ, "ROSCLAW_HOME": str(home)},
+                    stdout=(home / "run" / "operatord.out.log").open("ab"),
+                    stderr=(home / "run" / "operatord.err.log").open("ab"),
+                )
+                # 生命周期归 service——close 时终止。
+                service._managed_operator = proc
+                deadline = asyncio.get_event_loop().time() + 20
+                while asyncio.get_event_loop().time() < deadline and not sock.exists():
+                    if proc.poll() is not None:
+                        return {
+                            "ok": False,
+                            "error": f"operatord 启动失败（exit {proc.returncode}）——"
+                            "见 run/operatord.err.log",
+                            "code": "OPERATOR_START_FAILED",
+                        }
+                    await asyncio.sleep(0.2)
+            return {"ok": sock.exists(), "enrolled": True, "running": sock.exists()}
         if method == "pi.capabilities":
             # 六审 §6.2.1/§6.2.6：当前 body 的可信能力面——模型不再靠猜
             # capability ID。动作能力只列 body 兼容项；不兼容/被隔离项进

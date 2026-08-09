@@ -21,6 +21,7 @@ import { ActiveSessionContext } from "../session/active-context.js";
 import { AgentSessionCoordinator } from "../session/coordinator.js";
 import { SessionLeaseManager } from "../session/lease-manager.js";
 import { ProductStateCenter } from "../session/state-center.js";
+import { LocaleManager } from "../i18n/locale.js";
 import { defaultOperatorSocket } from "../bridge/operatord-client.js";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -105,6 +106,9 @@ export async function createRosclawRuntime(
 		productVersion: options.version,
 	});
 	const agentDir = `${options.rosclawHome}/agent`;
+	// PR-SIX-5：UI/回答语言策略（持久化；launcher 可经 ROSCLAW_UI_LOCALE
+	// 覆盖）。
+	const locale = new LocaleManager(agentDir);
 	// PNA-7（规格 §22.3）：legacy config.yaml → Pi settings 一次性迁移
 	// （已有 defaultProvider/defaultModel 则不触碰）。
 	migrateProviders(options.rosclawHome);
@@ -164,6 +168,7 @@ export async function createRosclawRuntime(
 								active,
 								coordinator,
 								center,
+								locale,
 								rosclawHome: options.rosclawHome,
 							}),
 						},

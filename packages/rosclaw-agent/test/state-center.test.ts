@@ -61,12 +61,12 @@ test("Header/Footer 共享同一 snapshot（同 seq 同 model 同 operator）", 
 	await center.probeOperator();
 	const { renderHeader, renderFooter } = await import("../src/ui/product-state.js");
 	const snap = center.snapshot();
-	const header = renderHeader(snap);
-	const footer = renderFooter(snap);
+	const header = renderHeader(snap, "en-US");
+	const footer = renderFooter(snap, "en-US");
 	// 同一快照渲染——model/operator 两侧一致。
 	assert.match(header, /Fake K3/);
 	assert.match(footer, /Fake K3/, "Footer 不得落后/分叉于 Header 的 model");
-	const operatorInHeader = /Operator (READY|OFFLINE|UNKNOWN)/.exec(header)?.[1];
+	const operatorInHeader = /Operator (Ready|Offline|Unknown)/.exec(header)?.[1];
 	assert.ok(operatorInHeader);
 	assert.ok(
 		footer.includes(`Operator ${operatorInHeader}`),
