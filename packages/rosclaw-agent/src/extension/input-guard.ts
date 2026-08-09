@@ -28,6 +28,9 @@ const ROSCLAW_COMMANDS = new Set([
 	"/memory",
 	"/doctor",
 	"/estop",
+	// PR-SIX-5：operator 一键初始化 + 语言策略。
+	"/operator-init",
+	"/language",
 ]);
 
 // Pi 内建（审计 §4 全表）——放行进内建 dispatch。

@@ -468,9 +468,15 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="error"))
     server_loop = asyncio.new_event_loop()
 
+    serve_done = threading.Event()
+
     def _run_server() -> None:
         asyncio.set_event_loop(server_loop)
         server_loop.run_until_complete(server.serve())
+        serve_done.set()
+        # serve 返回后 loop 必须继续受驱动——service.close() 要在这个
+        # loop 上跑（MCP 客户端的 anyio cancel scope 绑定它）。
+        server_loop.run_forever()
 
     thread = threading.Thread(target=_run_server, daemon=True)
     thread.start()
@@ -534,12 +540,16 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
         return 0
     finally:
         server.should_exit = True
-        # 六审 SIX-6：close 必须在 lifespan 同一个 loop 上（MCP 持久
-        # 客户端的 anyio cancel scope 是 task 绑定的）。
+        # 六审 SIX-6：先等服务真正停下，再在同一 loop 上跑 close——
+        # 并发 close 会在 ASGI 关闭途中触发 Event-loop 级竞态。
+        serve_done.wait(timeout=10)
         try:
             asyncio.run_coroutine_threadsafe(service.close(), server_loop).result(timeout=15)
+        except Exception as exc:  # noqa: BLE001 - 退出路径诚实记录
+            print(f"内核关闭异常：{type(exc).__name__}: {exc}", file=sys.stderr)
         finally:
             server_loop.call_soon_threadsafe(server_loop.stop)
+            thread.join(timeout=5)
         # supervisor 启动的 operatord 随 chat 退出（已运行他人启动的
         # 不碰——managed_operatord 只在本进程启动时非空）。
         if managed_operatord is not None:

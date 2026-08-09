@@ -9,6 +9,7 @@ import { defaultOperatorSocket, operatorCall } from "../bridge/operatord-client.
 import type { ActiveSessionContext } from "../session/active-context.js";
 import type { ProductStateCenter } from "../session/state-center.js";
 import type { LocaleManager } from "../i18n/locale.js";
+import { t as i18nT } from "../i18n/index.js";
 
 export interface CommandDeps {
 	rosclawHome: string;
@@ -201,6 +202,32 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 			description: "Memory/Practice/How 查询指引",
 			handler: async (_args, ctx) => {
 				notify(ctx, "用自然语言提问即可——模型会经 rosclaw_memory_query 带证据查询。", "info");
+			},
+		},
+		"operator-init": {
+			description: "初始化并启动本机 Operator（仅 SIMULATION developer）",
+			handler: async (_args, ctx) => {
+				const loc = deps.locale.effective;
+				try {
+					const status = await deps.center.call("pi.operator.status", {});
+					if (status.running) {
+						notify(ctx, i18nT("operator.bootstrap_done", loc), "info");
+						return;
+					}
+					const result = await deps.center.call("pi.operator.bootstrap", {
+						mission_id: deps.active.current.missionId ?? "",
+					});
+					notify(
+						ctx,
+						result.ok
+							? i18nT("operator.bootstrap_done", loc)
+							: `${i18nT("operator.bootstrap_failed", loc)}: ${String(result.error ?? "")}`,
+						result.ok ? "info" : "error",
+					);
+					await deps.center.probeOperator(true);
+				} catch (err) {
+					notify(ctx, `${i18nT("operator.bootstrap_failed", loc)}: ${(err as Error).message}`, "error");
+				}
 			},
 		},
 		language: {

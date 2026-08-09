@@ -1054,9 +1054,9 @@ class TestProductJourney:
             # 不是硬编码字符串。
             assert b"Operator ready" not in session.clean
             # 1b. 六审 §7 黑盒验收：未预启动 operatord——TUI 内单键初始化
-            #     （en-US chrome：offer 文本 + 完成通知）。
-            session.expect(b"press I for one-key local setup", timeout=60)
-            session.send("i")
+            #     （非模态 widget + Ctrl+O；en-US chrome）。
+            session.expect(b"/operator-init", timeout=60)
+            session.send("/operator-init\r")
             session.expect(b"Operator initialized", timeout=60)
             # 初始化完成后 header 必须转为真实 READY（订阅统一刷新）。
             session.expect(b"Operator Ready", timeout=60)
