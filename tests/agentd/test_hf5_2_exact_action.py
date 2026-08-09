@@ -31,7 +31,7 @@ async def _propose(service, mission, *, idem: str, arguments=None, capability=No
     )
 
     snapshot = service.snapshot(mission.mission_id)
-    lease = _issue_lease(service, mission)
+    lease = await _issue_lease(service, mission)
     ctx = ActionRequestContext(
         pi_session_id="pi_1",
         mission_id=mission.mission_id,
@@ -111,7 +111,7 @@ class TestExactActionContract:
 
         service, mission = await _setup(tmp_path)
         snapshot = service.snapshot(mission.mission_id)
-        lease = _issue_lease(service, mission)
+        lease = await _issue_lease(service, mission)
         ctx = ActionRequestContext(
             pi_session_id="pi_1",
             mission_id=mission.mission_id,

@@ -180,6 +180,21 @@ class AgentService:
                     "mcp_servers 不允许内联 env/api_key/token 值——"
                     "凭据只用 env_refs（环境变量名引用）（与 config.yaml 禁令一致）"
                 )
+        # 七审 PR-SEVEN-1：第一方 Robot Kit 原子激活——活跃 body 匹配
+        # kit 的 body_instance_template 且用户未配置同名 server/未禁用
+        # 时自动注入（package-relative 模块入口；不再有"有 body identity
+        # 但动作能力为 0"的假就绪）。
+        from rosclaw.sim.robot_kit import kit_for_body, kit_server_spec
+
+        mcp_servers = list(self._config.mcp_servers)
+        self._active_kit = None
+        disabled_kits = set(self._config.raw.get("kits", {}).get("disabled", []) or [])
+        kit = kit_for_body(self._body_id)
+        if kit is not None and kit.kit_id not in disabled_kits:
+            server_name = kit.executor_identity.removeprefix("mcp:")
+            if not any(s.get("name") == server_name for s in mcp_servers):
+                mcp_servers.append(kit_server_spec(kit))
+            self._active_kit = kit
         self._mcp_adapters = [
             McpCapabilityAdapter(
                 McpServerConfig(
@@ -195,7 +210,7 @@ class AgentService:
                 ),
                 self._tool_catalog,
             )
-            for s in self._config.mcp_servers
+            for s in mcp_servers
             if s.get("name") and s.get("command")
         ]
         self._mcp_discovered = False
@@ -341,7 +356,7 @@ class AgentService:
         # 每个 sim_executor server 一个通道，按 source 名索引；不再有
         # 执行任意物理动作的全局通道。
         self._sim_executors: dict[str, object] = {}
-        for sim_server in (s for s in self._config.mcp_servers if s.get("sim_executor")):
+        for sim_server in (s for s in mcp_servers if s.get("sim_executor")):
             if self._daemon_client is not None:
                 break
             from rosclaw.agentd.sim_executor import SimActionChannel
@@ -577,6 +592,46 @@ class AgentService:
 
     def mission_usage(self, mission_id: str) -> dict:
         return self._usage.mission_totals(mission_id)
+
+    async def robot_kit_status(self) -> dict:
+        """七审 PR-SEVEN-1.4：kit 完整性状态——identity/capabilities/
+        executor/policy/probes 要么全 READY 要么 BROKEN（不再"有
+        identity 没动作"的假就绪）。"""
+        await self._ensure_mcp_discovered()
+        kit = getattr(self, "_active_kit", None)
+        if kit is None:
+            return {
+                "kit_id": "",
+                "state": "BROKEN",
+                "reason": f"no first-party kit for body {self._body_id}",
+                "action_capability_count": 0,
+                "executor": "MISSING",
+            }
+        server_name = kit.executor_identity.removeprefix("mcp:")
+        action_count = sum(
+            1
+            for tool_id in kit.action_tools
+            if self._tool_catalog.get(tool_id) is not None
+            and self._tool_catalog.quarantine_reason(tool_id) is None
+        )
+        executor_ready = self._sim_executors.get(kit.executor_identity) is not None
+        ready = action_count == len(kit.action_tools) and executor_ready
+        return {
+            "kit_id": kit.kit_id,
+            "display_name": kit.display_name,
+            "state": "READY" if ready else "BROKEN",
+            "action_capability_count": action_count,
+            "expected_action_count": len(kit.action_tools),
+            "observation_capability_count": sum(
+                1
+                for tool_id in kit.observation_tools
+                if self._tool_catalog.get(tool_id) is not None
+            ),
+            "executor": "READY" if executor_ready else "MISSING",
+            "executor_identity": kit.executor_identity,
+            "approval_policy": kit.approval_policy,
+            "server": server_name,
+        }
 
     def sim_executor_identity_for(self, source: str) -> str:
         """六审 §6.2.4：按 capability source 解析 SIM 执行通道身份。

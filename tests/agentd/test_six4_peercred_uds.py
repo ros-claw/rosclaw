@@ -168,7 +168,7 @@ class TestRealUdsPeerCred:
                     mission_id=mission.mission_id, pi_session_id="pi_sys",
                     owner_pid=1, owner_uid=1000,
                 )
-                lease2 = _issue_lease(service, mission, "pi_sys")
+                lease2 = await _issue_lease(service, mission, "pi_sys")
                 snap2 = service.snapshot(mission.mission_id)
                 card2 = await ActionAdmissionService(service).propose(
                     request=ActionRequestContext(
@@ -345,7 +345,7 @@ class TestLeaseFieldContracts:
         service, mission, operatord, agent_server, sock = await _setup_with_operatord(
             tmp_path
         )
-        lease_id = _issue_lease(service, mission, "pi_1")
+        lease_id = await _issue_lease(service, mission, "pi_1")
         # 把 lease 改成 legacy 形态（caller_uid=-1）。
         service._store.connection.execute(
             "UPDATE pi_context_leases SET caller_uid = -1 WHERE context_lease_id = ?",

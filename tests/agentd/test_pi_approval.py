@@ -67,7 +67,7 @@ class TestRequestActionChain:
                     "rosclaw_request_action",
                     mission=mission.mission_id,
                     idem="idem_ra_1",
-                    lease=_issue_lease(service, mission),
+                    lease=await _issue_lease(service, mission),
                     arguments={
                         "capability_id": "sim_ground_truth",
                         "arguments": {},
@@ -106,7 +106,7 @@ class TestRequestActionChain:
                     "rosclaw_request_action",
                     mission=mission.mission_id,
                     idem="idem_ra_2",
-                    lease=_issue_lease(service, mission),
+                    lease=await _issue_lease(service, mission),
                     arguments={"capability_id": "sim_ground_truth", "arguments": {}},
                 )
             )
@@ -146,6 +146,7 @@ class TestAdmissionNegativeChain:
         if lease_id is None:
             body_hash_override = overrides.get("body_hash")
             if body_hash_override is None:
+                await service._ensure_mcp_discovered()
                 envelope = build_embodied_context(service, mission.mission_id)
                 real_hash = context_hash_of(envelope)
                 body_hash = mission.body_binding.effective_body_hash
@@ -366,6 +367,7 @@ class TestApprovalsGet:
             context_hash_of,
         )
 
+        await service._ensure_mcp_discovered()
         envelope = build_embodied_context(service, mission.mission_id)
         from rosclaw.agentd.pi_bridge.session_binding import SessionBindingStore
 

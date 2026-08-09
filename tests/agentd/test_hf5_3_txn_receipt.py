@@ -37,7 +37,7 @@ async def _propose(service, mission, *, idem: str, session="pi_1", arguments=Non
     )
 
     snapshot = service.snapshot(mission.mission_id)
-    lease = _issue_lease(service, mission, session)
+    lease = await _issue_lease(service, mission, session)
     ctx = ActionRequestContext(
         pi_session_id=session,
         mission_id=mission.mission_id,
@@ -128,7 +128,7 @@ class TestChainConsistency:
             owner_pid=2, owner_uid=1000,
         )
         snapshot_b = service.snapshot(mission_b.mission_id)
-        lease_b = _issue_lease(service, mission_b, "pi_2")
+        lease_b = await _issue_lease(service, mission_b, "pi_2")
         ctx_b = ActionRequestContext(
             pi_session_id="pi_2",
             mission_id=mission_b.mission_id,

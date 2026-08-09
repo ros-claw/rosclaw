@@ -119,11 +119,44 @@ def _integration_status(home: Path) -> dict:
     }
 
 
+def _robot_kit_status(home: Path) -> dict:
+    """七审 PR-SEVEN-1.4：robot kit 完整性——setup status/body 必须
+    展示它（不再只有 identity linked）。"""
+    try:
+        from rosclaw.agentd.config import load_agent_config
+        from rosclaw.sim.robot_kit import kit_for_body
+
+        config = load_agent_config(home / "config.yaml")
+        kit = kit_for_body(config.active_body_id)
+        if kit is None:
+            return {
+                "state": "NEEDS_SETUP",
+                "detail": f"no first-party kit for body {config.active_body_id}",
+            }
+        # manifest 完整 + 模块可导入 = 可激活（服务期会原子装配）。
+        import importlib.util
+
+        module_ok = importlib.util.find_spec(kit.executor_module) is not None
+        return {
+            "state": "READY" if module_ok else "BROKEN",
+            "kit_id": kit.kit_id,
+            "robot": kit.display_name,
+            "detail": (
+                f"{kit.display_name} · 动作能力 {len(kit.action_tools)} · "
+                f"观测能力 {len(kit.observation_tools)} · executor module "
+                f"{'ok' if module_ok else 'MISSING'}"
+            ),
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"state": "BROKEN", "detail": str(exc)[:120]}
+
+
 def _collect_status(home: Path) -> dict:
     return {
         "schema_version": "rosclaw.setup.status.v1",
         "model": _model_status(home),
         "body": _body_status(home),
+        "robot_kit": _robot_kit_status(home),
         "operator": _operator_status(home),
         "worker": _worker_status(),
         "integration": _integration_status(home),

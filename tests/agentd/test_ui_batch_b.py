@@ -52,6 +52,13 @@ def _fail(request) -> ModelTurnResultV1:
 
 
 def _service(tmp_path: Path, script) -> AgentService:
+    # 七审 PR-SEVEN-1：本文件测 UI/命令面——禁第一方 kit（不起 MCP）。
+    cfg = tmp_path / "config.yaml"
+    if not cfg.exists():
+        cfg.write_text(
+            "agent:\n  enabled: true\nkits:\n  disabled: [rosclaw/ur5e-sim]\n",
+            encoding="utf-8",
+        )
     config = load_agent_config(tmp_path / "config.yaml")
     return AgentService(config, tmp_path, gateway=MockModelGateway(mock_profile(), script))
 

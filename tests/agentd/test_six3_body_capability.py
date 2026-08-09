@@ -62,7 +62,7 @@ async def _propose(service, mission, capability_id: str, *, idem: str, session="
     )
 
     snapshot = service.snapshot(mission.mission_id)
-    lease = _issue_lease(service, mission, session)
+    lease = await _issue_lease(service, mission, session)
     ctx = ActionRequestContext(
         pi_session_id=session,
         mission_id=mission.mission_id,
@@ -140,16 +140,16 @@ class TestBodyCapabilityGate:
             tmp_path
         )
         _register_action(
-            service, "ur5e.move_to_pose", source="mcp:ur5e-sim",
+            service, "test.arm.move_to_pose", source="mcp:test-arm-sim",
             body_types=["sim/ur5e"],
         )
-        card = await _propose(service, mission, "ur5e.move_to_pose", idem="idem_six3_ok")
+        card = await _propose(service, mission, "test.arm.move_to_pose", idem="idem_six3_ok")
         row = service._store.connection.execute(
             "SELECT request_json FROM operator_requests WHERE request_id = ?",
             (card["approval_id"],),
         ).fetchone()
         exact = json.loads(json.loads(row["request_json"])["exact_action_json"])
-        assert exact["capability_source"] == "mcp:ur5e-sim"
+        assert exact["capability_source"] == "mcp:test-arm-sim"
         assert exact.get("executor_identity"), (
             "ExactAction 缺 executor_identity——execute 无法按 (body,source) 路由"
         )
@@ -168,11 +168,11 @@ class TestExecutorRouting:
             tmp_path
         )
         _register_action(
-            service, "ur5e.move_to_pose", source="mcp:ur5e-sim",
+            service, "test.arm.move_to_pose", source="mcp:test-arm-sim",
             body_types=["sim/ur5e"],
         )
         # 不注册任何 mcp:ur5e-sim executor——批准后执行必须 fail closed。
-        card = await _propose(service, mission, "ur5e.move_to_pose", idem="idem_six3_route")
+        card = await _propose(service, mission, "test.arm.move_to_pose", idem="idem_six3_route")
         listed = await operator_call(sock, "approvals.list", {"mission_id": mission.mission_id})
         entry = next(a for a in listed["approvals"] if a["request_id"] == card["approval_id"])
         decided = await operator_call(
@@ -187,7 +187,7 @@ class TestExecutorRouting:
         )
 
         snapshot = service.snapshot(mission.mission_id)
-        lease = _issue_lease(service, mission, "pi_1")
+        lease = await _issue_lease(service, mission, "pi_1")
         ctx = ActionRequestContext(
             pi_session_id="pi_1",
             mission_id=mission.mission_id,
@@ -224,7 +224,7 @@ class TestCapabilitiesSurface:
             tmp_path
         )
         _register_action(
-            service, "ur5e.move_to_pose", source="mcp:ur5e-sim",
+            service, "test.arm.move_to_pose", source="mcp:test-arm-sim",
             body_types=["sim/ur5e"],
         )
         _register_action(
@@ -238,7 +238,7 @@ class TestCapabilitiesSurface:
         )
         assert result.get("ok"), result
         action_ids = [c["capability_id"] for c in result.get("action_capabilities", [])]
-        assert "ur5e.move_to_pose" in action_ids, (
+        assert "test.arm.move_to_pose" in action_ids, (
             f"body 兼容动作未列出: {action_ids}"
         )
         assert "limo.speaker.play_tone" not in action_ids, (

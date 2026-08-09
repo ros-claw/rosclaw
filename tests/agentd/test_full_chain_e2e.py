@@ -139,6 +139,7 @@ def _write_home(home: Path) -> None:
         yaml.safe_dump(
             {
                 "agent": {"enabled": True},
+                "kits": {"disabled": ["rosclaw/ur5e-sim"]},
                 "mcp_servers": [
                     {
                         "name": "limo-sim",

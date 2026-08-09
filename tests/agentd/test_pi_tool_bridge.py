@@ -46,7 +46,7 @@ def _request(tool: str, session: str = "pi_1", mission: str = "", **kwargs) -> P
     )
 
 
-def _issue_lease(service, mission, session: str = "pi_1") -> str:
+async def _issue_lease(service, mission, session: str = "pi_1") -> str:
     """按真实路径签发 ValidatedContextLease（HOTFIX-1：不绕过 admission）。
     五审 P0-5B：context_hash 必须是当前权威 envelope 的真实 hash
     （admission 会重算比对）——不能用占位符。"""
@@ -56,6 +56,9 @@ def _issue_lease(service, mission, session: str = "pi_1") -> str:
         context_hash_of,
     )
 
+    # 七审 SIX-3/SEVEN-1：discovery 先于 hash——capabilities 在
+    # context_hash 内（第一方 kit 自动激活后目录内容取决于发现）。
+    await service._ensure_mcp_discovered()
     envelope = build_embodied_context(service, mission.mission_id)
     # 六审 §5.3/§5.5（migration 020）：lease 必须带真实 binding/
     # writer/caller 字段——测试 writer 注册为 owner_pid=1/uid=1000。

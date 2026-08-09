@@ -20,7 +20,6 @@ import json
 import os
 import socket
 import subprocess
-import sys
 import tarfile
 import termios
 import threading
@@ -517,6 +516,9 @@ class TestProductJourney:
         prefix, _root = _build_and_install(tmp_path)
         home = tmp_path / "rh"
         # kernel（python agentd）配置：fake base_url；Pi 侧 models.json。
+        # 七审 PR-SEVEN-1.8：禁止手写 mcp_servers/引用仓库源码路径——
+        # UR5e 能力必须来自发行包自带的第一方 Robot Kit 自动激活
+        # （clean install 开箱即用），否则证明的只是"注入配置后能 reach"。
         (home / "run").mkdir(parents=True, exist_ok=True)
         (home / "config.yaml").write_text(
             "agent:\n  enabled: true\n  default_profile: embodied_default\n"
@@ -524,29 +526,7 @@ class TestProductJourney:
             "      provider: kimi_code\n      model: fake-k3\n"
             f"      base_url: {fake.base_url}\n"
             "      api_key_ref: env:FAKE_JOURNEY_KEY\n"
-            "      capabilities: [llm.chat, llm.structured_decision, llm.tool_use]\n"
-            # HOTFIX-2/P0-4F：确定性 SIM 执行通道（真实 SimActionChannel +
-            # catalog PHYSICAL_ACTION 能力）——journey 的动作必须真执行、
-            # 真产出 SIMULATED receipt，不再"消费 grant 而无 receipt"。
-            # 六审 §6.3：UR5e 机械臂 SIM 闭环——ur5e-sim 是 SIM 执行器；
-            # limo-sim 也在目录但 body scope 是 sim/limo（交叉调用必须在
-            # 建卡前 BODY_CAPABILITY_MISMATCH）。
-            "mcp_servers:\n"
-            "  - name: ur5e-sim\n"
-            f"    command: {sys.executable}\n"
-            f"    args: [{REPO / 'src' / 'rosclaw' / 'limo' / 'ur5e_sim_mcp.py'}]\n"
-            "    supported_modes: [SIMULATION]\n"
-            "    required_body_types: [sim/ur5e]\n"
-            "    observation_tools: [ur5e.get_joint_state, ur5e.get_end_effector_pose]\n"
-            "    action_tools: [ur5e.move_joints, ur5e.move_to_pose, ur5e.stop]\n"
-            "    sim_executor: true\n"
-            "  - name: limo-sim\n"
-            f"    command: {sys.executable}\n"
-            f"    args: [{REPO / 'src' / 'rosclaw' / 'limo' / 'sim_mcp.py'}]\n"
-            "    supported_modes: [SIMULATION]\n"
-            "    required_body_types: [sim/limo]\n"
-            "    observation_tools: [limo.localization.get_pose, limo.health]\n"
-            "    action_tools: [limo.speaker.play_tone, limo.localization.set_initial_pose]\n",
+            "      capabilities: [llm.chat, llm.structured_decision, llm.tool_use]\n",
             encoding="utf-8",
         )
         (home / "agent").mkdir(parents=True, exist_ok=True)
@@ -877,7 +857,10 @@ class TestProductJourney:
         self._journey_verdicts["post_observation_matches_target"] = True
 
     def _assert_cross_body_rejected(self, session: PtySession, home: Path) -> None:
-        """六审 §6.3.10：LIMO 动作在 UR5e body 上建卡前拒绝，零副作用。"""
+        """六审 §6.3.10 + 七审 kit 化：LIMO 动作不属于 UR5e 机器人——
+        建卡前拒绝，零副作用。kit 时代 LIMO capability 不在本机目录
+        （CAPABILITY_UNKNOWN）或显式 body 不兼容（BODY_CAPABILITY_
+        MISMATCH，单测覆盖）——两者都是 fail closed。"""
         import sqlite3
 
         db = sqlite3.connect(home / "agentd" / "missions.db")
@@ -897,10 +880,10 @@ class TestProductJourney:
             f"交叉本体动作竟产生副作用: {baseline} → {after}"
         )
         # 拒绝码必须出现在发给模型的 tool 结果里（不是模型自编理由）。
-        # 由调用方传 fake 进来太重——从 PTY 输出断言卡片层已拒绝。
-        assert b"BODY_CAPABILITY_MISMATCH" in session.clean, (
-            "缺 BODY_CAPABILITY_MISMATCH 拒绝证据"
-        )
+        assert (
+            b"BODY_CAPABILITY_MISMATCH" in session.clean
+            or b"CAPABILITY_UNKNOWN" in session.clean
+        ), "缺交叉本体拒绝证据（BODY_CAPABILITY_MISMATCH 或 CAPABILITY_UNKNOWN）"
         self._journey_verdicts["cross_body_action_rejected_before_card"] = True
 
     def _assert_adversarial_model_ignored(

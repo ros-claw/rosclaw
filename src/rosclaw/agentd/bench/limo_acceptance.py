@@ -222,6 +222,9 @@ async def run_acceptance(
         yaml.safe_dump(
             {
                 "agent": {"enabled": True},
+                # 七审 PR-SEVEN-1：本 bench 是 LIMO legacy 闭环——UR5e kit
+                # 不激活（否则多 executor 让 legacy 无身份路径无法路由）。
+                "kits": {"disabled": ["rosclaw/ur5e-sim"]},
                 "mcp_servers": [limo_sim_mcp_server_config()],
             }
         ),

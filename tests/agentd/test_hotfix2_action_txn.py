@@ -27,7 +27,7 @@ async def _propose(service, mission, *, idem: str, arguments: dict | None = None
     )
 
     snapshot = service.snapshot(mission.mission_id)
-    lease = _issue_lease(service, mission)
+    lease = await _issue_lease(service, mission)
     ctx = ActionRequestContext(
         pi_session_id=overrides.get("session", "pi_1"),
         mission_id=mission.mission_id,

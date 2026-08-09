@@ -31,7 +31,7 @@ async def _admission_ctx(service, mission, session="pi_1", idem="idem_hf5"):
     from rosclaw.agentd.pi_bridge.action_admission import ActionRequestContext
 
     snapshot = service.snapshot(mission.mission_id)
-    lease = _issue_lease(service, mission, session)
+    lease = await _issue_lease(service, mission, session)
     return ActionRequestContext(
         pi_session_id=session,
         mission_id=mission.mission_id,

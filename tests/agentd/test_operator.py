@@ -275,6 +275,11 @@ def _approval_then_action(request) -> ModelTurnResultV1:
 
 class TestApprovalLoop:
     async def test_full_exact_action_flow(self, tmp_path: Path) -> None:
+        # 七审 PR-SEVEN-1：本用例验证"无执行通道时诚实不派发"——禁 kit。
+        (tmp_path / "config.yaml").write_text(
+            "agent:\n  enabled: true\nkits:\n  disabled: [rosclaw/ur5e-sim]\n",
+            encoding="utf-8",
+        )
         config = load_agent_config(tmp_path / "config.yaml")
         _approval_then_action.calls = 0
         gateway = MockModelGateway(mock_profile(), [_approval_then_action] * 4)

@@ -40,7 +40,7 @@ async def _propose_and_approve(service, mission, sock, *, idem: str, session="pi
     )
 
     snapshot = service.snapshot(mission.mission_id)
-    lease = _issue_lease(service, mission, session)
+    lease = await _issue_lease(service, mission, session)
     ctx = ActionRequestContext(
         pi_session_id=session,
         mission_id=mission.mission_id,
@@ -349,7 +349,7 @@ class TestStrictPhysicalSchema:
             )
         )
         snapshot = service.snapshot(mission.mission_id)
-        lease = _issue_lease(service, mission, "pi_1")
+        lease = await _issue_lease(service, mission, "pi_1")
         ctx = ActionRequestContext(
             pi_session_id="pi_1",
             mission_id=mission.mission_id,
