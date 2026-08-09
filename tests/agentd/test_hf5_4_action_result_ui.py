@@ -115,6 +115,7 @@ class _LieTwiceServer(FakeModelServer):
         self.server.RequestHandlerClass.fake = self.fake
 
 
+@pytest.mark.slow  # PTY + release build——由 Native Agent Gate journey job 跑
 class TestActionResultUi:
     """一个 PTY 旅程跑完两轮对抗，四个测试各自独立断言。"""
 

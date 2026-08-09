@@ -62,7 +62,7 @@ jobs:
           npm ci
       - name: Run product journey
         run: |
-          .venv/bin/python -m pytest tests/agentd/test_product_journey.py -q --tb=short
+          .venv/bin/python -m pytest tests/agentd/test_product_journey.py tests/agentd/test_hf5_4_action_result_ui.py -q --tb=short
       - name: Upload journey evidence
         if: always()
         uses: actions/upload-artifact@v4
