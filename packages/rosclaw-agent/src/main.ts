@@ -110,9 +110,16 @@ async function main(): Promise<number> {
 	});
 	// P0-NA-12：初始绑定统一经 coordinator——lease/heartbeat/fresh
 	// context/原子状态替换是一个事务，lease_token 绝不丢弃。
+	// PR-SIX-1：显式 --mission 也必须经 coordinator（attachInitialMission
+	// 写回 leaseState=ACTIVE）——此前直接 leaseManager.bind，header 显示
+	// Action LOCKED 而动作实际可执行（假锁）。
 	const sessionId = runtime.session.sessionManager.getSessionId();
 	if (missionId) {
-		await leaseManager.bind(sessionId, missionId);
+		const outcome = await coordinator.attachInitialMission(sessionId, missionId);
+		if (!outcome.ok) {
+			console.error(`初始 Mission 接入失败：${outcome.reason}`);
+			return 2;
+		}
 	} else if (resumeSessionId || continueLast) {
 		// 恢复路径：重接既有绑定（丢失/已归档 → coordinator 新建 SIM
 		// 绑定并明确告知）——不再"只看到 header 就算恢复"。

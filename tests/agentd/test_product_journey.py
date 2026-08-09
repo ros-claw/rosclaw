@@ -180,6 +180,10 @@ class _FakeModel:
                 # 对抗场景（P0-4F 场景 D）：admission 已拒绝该动作，但
                 # 模型仍声称完成——旅程必须证明系统状态不采信模型自述。
                 answer = "动作已执行，结构化回执已确认。"
+            elif tool_call_id == "call_status":
+                # 六审 §2.2.5：自然语言 status 的专属回答（与 delegate 的
+                # 通用回答区分，避免 expect 误匹配历史文本）。
+                answer = "内核状态已读取。"
             elif "receipt" in tool_content or "grant" in tool_content or "已批准" in tool_content:
                 answer = "动作已执行，结构化回执已确认。"
             else:
@@ -889,6 +893,35 @@ class TestProductJourney:
             # provider 请求都不得携带 raw reasoning marker——live replay、
             # session 持久化、resume 回放全链路零命中（四审核心反证点）。
             self._assert_no_reasoning_replay(fake, home, from_index=2)
+            # 5b. 自然语言 status（六审 §2.2.5）：模型调用的 rosclaw_status
+            #     必须与 /status 同一 UDS 快照——此前它访问旧 HTTP
+            #     127.0.0.1:8765（chat 的 agentd 用 port=0，必然误报
+            #     UNREACHABLE）。PTY 输出与发给模型的 tool 结果双重断言。
+            session.send("读取系统状态\r")
+            session.expect("内核状态已读取".encode(), timeout=120)
+            assert b"127.0.0.1:8765" not in session.output, (
+                "Native Agent 输出仍引用旧 HTTP 面 8765"
+            )
+            # 发给模型的 tool 结果（fake 请求的 tool 消息）必须是 READY——
+            # 与 /status 同一内核视图。
+            status_tool_results = [
+                str(m.get("content", ""))
+                for body in fake.fake.requests
+                for m in body.get("messages", [])
+                if m.get("role") == "tool"
+                and '"agentd"' in str(m.get("content", ""))
+            ]
+            assert status_tool_results, "rosclaw_status 未被调用或无结果"
+            assert any('"agentd": "READY"' in r for r in status_tool_results), (
+                f"rosclaw_status 未报 READY: {status_tool_results[-1][:200]}"
+            )
+            assert not any("UNREACHABLE" in r for r in status_tool_results), (
+                "UDS 可用时 rosclaw_status 误报 UNREACHABLE"
+            )
+            # 5c. 动作准入前置（六审 §3.4）：动作发起前 Header 必须是真实
+            #     READY——此前显式 mission 路径 leaseState 不写回，
+            #     "Action LOCKED" 假锁与成功执行同时存在。
+            session.expect(b"Action READY", timeout=60)
             # 6. request SIM action → 卡片 → Y。
             # 主标记必须是稳定面：授权 overlay（"ROSCLAW 授权请求"）。
             # "等待 Operator 决定" 是瞬时 working message/notify——overlay

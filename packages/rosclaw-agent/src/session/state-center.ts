@@ -1,0 +1,220 @@
+/** ProductStateCenter（六审 PR-SIX-1）：Single Control Plane 的唯一
+ * 产品状态快照。
+ *
+ * 此前的问题（六审 §2/§3 实证）：
+ * - rosclaw_status 走旧 HTTP 8765（chat 的 agentd 用 port=0——必然
+ *   误报 UNREACHABLE），/status 与 Header 走 UDS——两套状态通道；
+ * - Header/Footer 各自读不同时间/不同缓存的字段（顶部 Kimi K3/
+ *   OFFLINE 与底部未选模型/UNKNOWN 长期共存）；
+ * - 显式 --mission 路径绕过 coordinator，leaseState 不写回——
+ *   Action LOCKED 是假锁，工具侧根本没有准入检查。
+ *
+ * 本中心是 Header/Footer/status tool/context 的唯一状态源：
+ * - 所有字段来自权威组件（UDS pi.status/pi.context、operatord 探测、
+ *   ActiveSessionContext 显式状态、launcher 版本、当前 model）；
+ * - 任何变化（patch/replace/lease lost/context stale/operator probe/
+ *   model select/kernel 不可达）触发同一批 subscriber——extension 在
+ *   一次 refreshChrome() 里用同一 snapshot 同时重绘 Header 与 Footer；
+ * - UDS 失败原子降级：kernel=UNREACHABLE + context=STALE +
+ *   action=BLOCKED(KERNEL_UNREACHABLE)，不允许局部报错而 Header
+ *   保持 FRESH。
+ */
+
+import type { BridgeToolContext } from "../tools/bridge-tools.js";
+import { bridgeCall } from "../bridge/bridge-client.js";
+import { operatorCall } from "../bridge/operatord-client.js";
+import type { ActiveSessionContext } from "./active-context.js";
+
+export type KernelState = "READY" | "UNREACHABLE";
+export type ContextState = "LOADING" | "FRESH" | "STALE" | "UNAVAILABLE";
+export type LeaseState = "ACTIVE" | "LOST" | "NONE";
+export type OperatorState = "READY" | "OFFLINE" | "UNKNOWN";
+export type ReadinessState = "READY" | "BLOCKED" | "DEGRADED";
+
+/** ActionReadinessV1（六审 §3.3）：工具侧硬门 + UI 首要受阻原因。 */
+export interface ActionReadinessV1 {
+	state: ReadinessState;
+	stage?: "PROPOSE" | "APPROVE" | "EXECUTE";
+	reason_codes: string[];
+	snapshot_seq: number;
+}
+
+/** KernelSnapshotV1（ProductSnapshotV2）：一次不可变读取——Header、
+ *  Footer、/status、rosclaw_status 全部渲染自同一个对象。 */
+export interface KernelSnapshotV1 {
+	snapshot_seq: number;
+	product_version: string;
+	kernel: KernelState;
+	model: string;
+	mode: string;
+	mission_id?: string;
+	body_id?: string;
+	context_state: ContextState;
+	context_revision: number;
+	lease_state: LeaseState;
+	operator: OperatorState;
+	action_readiness: ActionReadinessV1;
+}
+
+export interface StateCenterDeps {
+	rosclawHome: string;
+	active: ActiveSessionContext;
+	operatorSocket: string;
+	productVersion: string;
+	/** 可注入的桥调用（测试用）；默认真实 UDS bridgeCall。 */
+	call?: typeof bridgeCall;
+	/** 可注入的 operatord 调用（测试用）。 */
+	operatorCallFn?: typeof operatorCall;
+}
+
+type Listener = () => void;
+
+export class ProductStateCenter {
+	private seq = 0;
+	private kernelState: KernelState = "READY";
+	private operatorState: OperatorState = "UNKNOWN";
+	private lastOperatorProbe = 0;
+	private modelDisplay = "";
+	private readonly listeners = new Set<Listener>();
+	private readonly callFn: typeof bridgeCall;
+	private readonly operatorCallFn: typeof operatorCall;
+
+	constructor(private readonly deps: StateCenterDeps) {
+		this.callFn = deps.call ?? bridgeCall;
+		this.operatorCallFn = deps.operatorCallFn ?? operatorCall;
+		// ActiveSessionContext 任何 patch/replace（context stale、lease
+		// lost、envelope 到达、切换事务）都统一 fan-out。
+		this.deps.active.subscribe(() => this.changed());
+	}
+
+	/** 订阅统一刷新（extension 的 refreshChrome）。 */
+	subscribe(listener: Listener): () => void {
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
+	}
+
+	private changed(): void {
+		this.seq += 1;
+		for (const listener of this.listeners) listener();
+	}
+
+	/** 当前不可变快照（一次读取，所有 chrome 共享）。 */
+	snapshot(): KernelSnapshotV1 {
+		const state = this.deps.active.current;
+		return {
+			snapshot_seq: this.seq,
+			product_version: this.deps.productVersion,
+			kernel: this.kernelState,
+			model: this.modelDisplay,
+			mode: state.mode,
+			mission_id: state.missionId,
+			body_id: state.bodyId,
+			context_state: state.missionId ? state.contextState : "UNAVAILABLE",
+			context_revision: state.contextRevision,
+			lease_state: state.leaseState,
+			operator: this.operatorState,
+			action_readiness: this.computeReadiness(),
+		};
+	}
+
+	/** ActionReadinessV1：UI 提前诚实拒绝；内核 admission 仍是最终权威。 */
+	private computeReadiness(): ActionReadinessV1 {
+		const state = this.deps.active.current;
+		const codes: string[] = [];
+		if (!state.missionId) codes.push("NO_MISSION");
+		if (this.kernelState !== "READY") codes.push("KERNEL_UNREACHABLE");
+		if (state.leaseState !== "ACTIVE") codes.push("NO_WRITER_LEASE");
+		if (state.missionId && state.contextState !== "FRESH") codes.push("CONTEXT_STALE");
+		if (state.missionId && !state.contextLeaseId) codes.push("NO_CONTEXT_LEASE");
+		if (this.operatorState === "OFFLINE") codes.push("OPERATOR_OFFLINE");
+		return {
+			state: codes.length === 0 ? "READY" : "BLOCKED",
+			...(codes.length ? { stage: "PROPOSE" as const } : {}),
+			reason_codes: codes,
+			snapshot_seq: this.seq,
+		};
+	}
+
+	/** 动作工具入口的实时 readiness：强制新鲜 operator/kernel 探测后再判。 */
+	async actionReadiness(): Promise<ActionReadinessV1> {
+		await this.probeOperator(true);
+		return this.computeReadiness();
+	}
+
+	noteModel(display: string): void {
+		if (display && display !== this.modelDisplay) {
+			this.modelDisplay = display;
+			this.changed();
+		}
+	}
+
+	/** UDS 桥调用包装：失败即原子降级（kernel UNREACHABLE + context
+	 *  STALE——不允许局部报错而 Header 保持 FRESH）。 */
+	async call(
+		method: string,
+		params: Record<string, unknown> = {},
+	): Promise<Record<string, unknown>> {
+		try {
+			const result = await this.callFn(this.deps.rosclawHome, method, params);
+			if (this.kernelState !== "READY") {
+				this.kernelState = "READY";
+				this.changed();
+			}
+			return result;
+		} catch (err) {
+			if (this.kernelState !== "UNREACHABLE") {
+				this.kernelState = "UNREACHABLE";
+				// 原子降级：context 一并 STALE（不再信任何缓存 freshness）。
+				this.deps.active.markContextStale("kernel unreachable");
+			}
+			this.changed();
+			throw err;
+		}
+	}
+
+	/** operatord readiness 真实探测（30s 缓存；force 用于动作门前）。 */
+	async probeOperator(force = false): Promise<OperatorState> {
+		const now = Date.now();
+		if (!force && now - this.lastOperatorProbe < 30_000) return this.operatorState;
+		this.lastOperatorProbe = now;
+		try {
+			const result = (await this.operatorCallFn(this.deps.operatorSocket, "approvals.list", {
+				mission_id: this.deps.active.current.missionId ?? "",
+			})) as { ok?: boolean };
+			this.operatorState = result.ok ? "READY" : "OFFLINE";
+		} catch {
+			this.operatorState = "OFFLINE";
+		}
+		this.changed();
+		return this.operatorState;
+	}
+
+	/** /status 与 rosclaw_status 共享的新鲜报告：UDS pi.status + 快照。 */
+	async statusReport(): Promise<{
+		ok: boolean;
+		snapshot: KernelSnapshotV1;
+		agentd?: string;
+		authorization_profile?: string;
+		mission?: Record<string, unknown> | null;
+		error?: string;
+	}> {
+		const status = await this.call("pi.status", {
+			...(this.deps.active.current.missionId
+				? { mission_id: this.deps.active.current.missionId }
+				: {}),
+		});
+		return {
+			ok: status.ok === true,
+			snapshot: this.snapshot(),
+			agentd: String(status.agentd ?? ""),
+			authorization_profile: String(status.authorization_profile ?? ""),
+			mission: (status.mission as Record<string, unknown> | null) ?? null,
+			...(status.ok ? {} : { error: String(status.error ?? "unknown") }),
+		};
+	}
+}
+
+/** BridgeToolContext + center（六审 PR-SIX-1：工具共享状态源）。 */
+export interface CenteredToolContext extends BridgeToolContext {
+	center: ProductStateCenter;
+}

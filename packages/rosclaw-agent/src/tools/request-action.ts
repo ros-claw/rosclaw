@@ -9,7 +9,6 @@
 
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { bridgeCall } from "../bridge/bridge-client.js";
 import type { BridgeToolContext } from "./bridge-tools.js";
 
 const AWAIT_TIMEOUT_MS = 330_000;
@@ -34,10 +33,27 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 			// P0-5F：所有返回路径都带结构化 status/capability——内核结果卡
 			// 只读 details，绝不解析模型/工具文本。
 			const capabilityId = String(params.capability_id ?? "");
-			if (!state.missionId) {
+			// PR-SIX-1（六审 §3.3）：工具侧硬门——readiness BLOCKED 时零桥
+			// 调用、零 approval/txn/grant（此前只查 missionId，Action LOCKED
+			// 是假锁：UI 显示锁、工具照常建卡）。内核 admission 仍是最终权威。
+			const readiness = await ctx.center.actionReadiness();
+			if (readiness.state !== "READY") {
 				return {
-					content: [{ type: "text" as const, text: "REJECTED [NO_MISSION]: 未绑定 Mission" }],
-					details: { ok: false, status: "REJECTED", capability_id: capabilityId, error_code: "NO_MISSION" },
+					content: [
+						{
+							type: "text" as const,
+							text:
+								`REJECTED [ACTION_LOCKED]: 动作准入未就绪 ` +
+								`（${readiness.reason_codes.join("/")}）——未发起任何提案，零副作用`,
+						},
+					],
+					details: {
+						ok: false,
+						status: "REJECTED",
+						capability_id: capabilityId,
+						error_code: "ACTION_LOCKED",
+						reason_codes: readiness.reason_codes,
+					},
 					isError: true,
 				};
 			}
@@ -55,7 +71,7 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 				// 即 CONTEXT_LEASE_REQUIRED（fail closed）。
 				context_lease_id: state.contextLeaseId ?? "",
 			};
-			const proposed = await bridgeCall(ctx.rosclawHome, "pi.action.propose", {
+			const proposed = await ctx.center.call("pi.action.propose", {
 				...requestContext,
 				capability_id: String(params.capability_id),
 				arguments: params.arguments ?? {},
@@ -120,7 +136,7 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 						isError: true,
 					};
 				}
-				const current = await bridgeCall(ctx.rosclawHome, "pi.action.status", {
+				const current = await ctx.center.call("pi.action.status", {
 					// HOTFIX-1：status 也做卡主校验——必须带 session。
 					pi_session_id: state.sessionId,
 					approval_id: card.approval_id,
@@ -172,7 +188,7 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 			// phase 2b: 精确 grant 执行 → 结构化回执。
 			// P0-NA-10：execute 带同一请求上下文做 TOCTOU 复验——批准后
 			// revision/body/lease 任一变化都必须拒绝。
-			const executed = await bridgeCall(ctx.rosclawHome, "pi.action.execute", {
+			const executed = await ctx.center.call("pi.action.execute", {
 				...requestContext,
 				approval_id: card.approval_id,
 			});

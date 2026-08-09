@@ -2,7 +2,6 @@
 
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { bridgeCall } from "../bridge/bridge-client.js";
 import type { BridgeToolContext } from "./bridge-tools.js";
 
 let counter = 0;
@@ -48,13 +47,13 @@ export function buildDelegateTool(ctx: BridgeToolContext) {
 				actor: { engine: "pi", process_id: process.pid, uid: process.getuid?.() ?? 0 },
 			};
 			// 后台委派 + 轮询 worker 状态原位更新（规格 §19.3）。
-			const done = bridgeCall(ctx.rosclawHome, "pi.tools.execute", { request });
+			const done = ctx.center.call("pi.tools.execute", { request });
 			const poll = async () => {
 				while (true) {
 					await new Promise((resolve) => setTimeout(resolve, 2000));
 					if (signal?.aborted) return;
 					try {
-						const status = await bridgeCall(ctx.rosclawHome, "pi.worker.status", {
+						const status = await ctx.center.call("pi.worker.status", {
 							mission_id: state.missionId,
 						});
 						const orders = (status.orders ?? []) as Array<Record<string, unknown>>;

@@ -1,108 +1,64 @@
-/** ProductUiStateV1（三审 P0-NA-16）：header/footer 只读权威快照。
+/** Product chrome 渲染（三审 P0-NA-16 + 六审 PR-SIX-1）：
+ * Header/Footer 都从同一个 KernelSnapshotV1 渲染——纯函数，不读缓存。
  *
  * 红线：
- * - 每个字段只能来自权威组件——operatord 健康来自真实 socket 探测，
- *   body/context 来自验证过的 envelope，版本来自 Python launcher
- *   显式传入的产品版本（禁止内部 npm 子包版本）；
- * - 未完成的 bootstrap 显示 LOADING/UNKNOWN——绝不乐观默认
- *   （此前 `Operator ready` 是硬编码字符串，`Body —` 创建后从不刷新）；
- * - 模型不能决定或改写 UI 安全状态（本对象不接受模型事件输入）。
+ * - 快照只能来自 ProductStateCenter（字段全部权威源）；
+ * - 未完成的 bootstrap 显示 LOADING/UNKNOWN——绝不乐观默认；
+ * - 模型不能决定或改写 UI 安全状态；
+ * - Action 状态显示首要受阻原因（不是干巴巴的 LOCKED）。
  */
 
-import { operatorCall } from "../bridge/operatord-client.js";
-import type { ActiveSessionContext } from "../session/active-context.js";
+import type {
+	ActionReadinessV1,
+	KernelSnapshotV1,
+} from "../session/state-center.js";
 
-export type ContextState = "LOADING" | "FRESH" | "STALE" | "UNAVAILABLE";
-export type OperatorState = "READY" | "OFFLINE" | "UNKNOWN";
+/** 受阻原因码 → 一行可读说明（机器合约保持英文 code）。 */
+const REASON_LABEL: Record<string, string> = {
+	NO_MISSION: "未绑定 Mission",
+	KERNEL_UNREACHABLE: "内核不可达",
+	NO_WRITER_LEASE: "无写租约",
+	CONTEXT_STALE: "上下文过期",
+	NO_CONTEXT_LEASE: "无上下文租约",
+	OPERATOR_OFFLINE: "操作员离线",
+};
 
-export interface ProductUiStateV1 {
-	productVersion: string;
-	missionId?: string;
-	mode: string;
-	bodyId?: string;
-	contextState: ContextState;
-	contextRevision: number;
-	operatorState: OperatorState;
-	/** P0-5F：动作准入可见性——READY 仅表示 UI 层准入条件满足
-	 * （FRESH+lease+binding），不代表任何动作已获批。 */
-	actionsAllowed: boolean;
-	/** 状态快照序列号——header/status/context 同源断言用。 */
-	snapshotSeq: number;
+export function renderActionState(readiness: ActionReadinessV1): string {
+	if (readiness.state === "READY") return "Action READY";
+	const primary = readiness.reason_codes[0] ?? "UNKNOWN";
+	const label = REASON_LABEL[primary];
+	const reason = label ? `${primary}（${label}）` : primary;
+	return `Action BLOCKED (${reason})`;
 }
 
-export class ProductUiState {
-	private seq = 0;
-	private operatorState: OperatorState = "UNKNOWN";
-	private lastOperatorProbe = 0;
-
-	constructor(
-		private readonly active: ActiveSessionContext,
-		private readonly operatorSocket: string,
-		private readonly productVersion: string,
-	) {}
-
-	/** 当前只读快照（字段全部来自权威源）。
-	 *  HOTFIX-3：contextState 用 ActiveSessionContext 的显式状态——
-	 *  合法 revision 0 的 FRESH 不再误显 LOADING，过期 revision 12
-	 *  不再误显 FRESH（此前是"revision>0 猜 FRESH"的伪 freshness）。 */
-	snapshot(): ProductUiStateV1 {
-		const state = this.active.current;
-		return {
-			productVersion: this.productVersion,
-			missionId: state.missionId,
-			mode: state.mode,
-			bodyId: state.bodyId,
-			contextState: state.missionId ? state.contextState : "UNAVAILABLE",
-			contextRevision: state.contextRevision,
-			operatorState: this.operatorState,
-			actionsAllowed: state.missionId !== undefined && state.actionsAllowed,
-			snapshotSeq: this.seq,
-		};
-	}
-
-	/** operatord readiness 真实探测（30s 缓存——header 是热路径）。
-	 * READY 仅表示授权服务可达，不表示任何动作已获批。 */
-	async probeOperator(): Promise<OperatorState> {
-		const now = Date.now();
-		if (now - this.lastOperatorProbe < 30_000) return this.operatorState;
-		this.lastOperatorProbe = now;
-		try {
-			const result = (await operatorCall(this.operatorSocket, "approvals.list", {
-				mission_id: this.active.current.missionId ?? "",
-			})) as { ok?: boolean };
-			this.operatorState = result.ok ? "READY" : "OFFLINE";
-		} catch {
-			this.operatorState = "OFFLINE";
-		}
-		this.seq += 1;
-		return this.operatorState;
-	}
-
-	/** context/envelope 变化时由扩展调用（刷新 header 的触发点）。 */
-	noteContextChanged(): void {
-		this.seq += 1;
-	}
-}
-
-/** 推荐头部（P0-NA-16 规格 + P0-5F Action 状态）：
+/** 推荐头部（P0-NA-16 规格 + P0-5F Action 状态 + 六审首要受阻原因）：
  *   ROSClaw 1.2.0 · SIMULATION · Kimi K3
- *   Mission mis_... · Body sim/ur5e · Context FRESH r12 · Operator OFFLINE · Action LOCKED
+ *   Mission mis_... · Body sim/ur5e · Context FRESH r12 · Operator OFFLINE · Action BLOCKED (NO_WRITER_LEASE)
  */
-export function renderHeader(state: ProductUiStateV1, modelName: string): string {
-	const line1Parts = [`ROSClaw ${state.productVersion}`, state.mode];
-	if (modelName) line1Parts.push(modelName);
+export function renderHeader(state: KernelSnapshotV1): string {
+	const line1Parts = [`ROSClaw ${state.product_version}`, state.mode];
+	if (state.model) line1Parts.push(state.model);
 	const line1 = line1Parts.join(" · ");
-	if (!state.missionId) {
+	if (!state.mission_id) {
 		return `${line1}\n未绑定 Mission · /help 查看命令`;
 	}
-	const body = state.bodyId ?? "LOADING";
+	const body = state.body_id ?? "LOADING";
 	const context =
-		state.contextState === "FRESH"
-			? `Context FRESH r${state.contextRevision}`
-			: `Context ${state.contextState}`;
+		state.context_state === "FRESH"
+			? `Context FRESH r${state.context_revision}`
+			: `Context ${state.context_state}`;
+	const kernel = state.kernel === "READY" ? "" : ` · Kernel ${state.kernel}`;
 	const line2 =
-		`Mission ${state.missionId.slice(0, 24)} · Body ${body} · ` +
-		`${context} · Operator ${state.operatorState} · ` +
-		`Action ${state.actionsAllowed ? "READY" : "LOCKED"}`;
+		`Mission ${state.mission_id.slice(0, 24)} · Body ${body} · ` +
+		`${context} · Operator ${state.operator}${kernel} · ` +
+		renderActionState(state.action_readiness);
 	return `${line1}\n${line2}`;
+}
+
+/** Footer：与 Header 同一快照——model/mode/operator 绝不分叉。 */
+export function renderFooter(state: KernelSnapshotV1): string {
+	const model = state.model || "未选模型";
+	const parts = [model, state.mode, `Operator ${state.operator}`];
+	if (state.kernel !== "READY") parts.push(`Kernel ${state.kernel}`);
+	return parts.join(" · ");
 }

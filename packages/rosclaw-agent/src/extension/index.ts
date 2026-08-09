@@ -8,7 +8,6 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { readFileSync } from "node:fs";
-import { bridgeCall } from "../bridge/bridge-client.js";
 import { ActiveSessionContext } from "../session/active-context.js";
 import type { AgentSessionCoordinator } from "../session/coordinator.js";
 import {
@@ -21,7 +20,8 @@ import {
 import { defaultOperatorSocket, operatorCall } from "../bridge/operatord-client.js";
 import { ApprovalCardComponent } from "../ui/approval-card.js";
 import { ActionResultCardComponent, type ActionResultData } from "../ui/action-result-card.js";
-import { ProductUiState, renderHeader } from "../ui/product-state.js";
+import { renderFooter, renderHeader } from "../ui/product-state.js";
+import type { ProductStateCenter } from "../session/state-center.js";
 import { EventMirror } from "./event-mirror.js";
 import { buildCommandHandlers } from "./commands.js";
 import { guardInput } from "./input-guard.js";
@@ -36,6 +36,8 @@ export interface RosclawExtensionOptions {
 	active: ActiveSessionContext;
 	/** P0-NA-12：唯一 session/mission/lease 事务协调器。 */
 	coordinator: AgentSessionCoordinator;
+	/** PR-SIX-1：唯一产品状态中心（Header/Footer/status/tool 同源）。 */
+	center: ProductStateCenter;
 	rosclawHome: string;
 }
 
@@ -43,32 +45,34 @@ const WORKING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", 
 
 export function createRosclawExtension(options: RosclawExtensionOptions): ExtensionFactory {
 	return (pi) => {
-		// -- 品牌（P0-NA-16：header 只读权威快照——版本来自 launcher 传入的
-		//    产品版本；Operator 状态来自真实 socket 探测；body/context 来自
-		//    验证过的 envelope；bootstrap 未完成显示 LOADING，不乐观默认） --
-		const uiState = new ProductUiState(
-			options.active,
-			defaultOperatorSocket(options.rosclawHome),
-			options.version,
-		);
-		let modelDisplay = "";
-		let refreshHeader: () => void = () => undefined;
+		// -- 品牌 + 单一状态源（六审 PR-SIX-1：Header/Footer 在同一次
+		//    refreshChrome 里用同一个 KernelSnapshotV1 重绘——不允许顶部
+		//    Kimi K3/OFFLINE 与底部未选模型/UNKNOWN 长期共存） --
+		const center = options.center;
+		let refreshChrome: () => void = () => undefined;
 		let probeTimer: ReturnType<typeof setInterval> | null = null;
 		pi.on("session_start", async (_event, ctx) => {
 			if (!ctx.hasUI) return;
 			ctx.ui.setTitle(`ROSClaw Native Agent`);
-			refreshHeader = () => {
-				ctx.ui.setHeader((_tui, _theme) => new Text(renderHeader(uiState.snapshot(), modelDisplay)));
+			refreshChrome = () => {
+				const snap = center.snapshot(); // 一次读取，Header/Footer 共享
+				ctx.ui.setHeader((_tui, _theme) => new Text(renderHeader(snap)));
+				ctx.ui.setFooter((_tui, theme, _footerData) => {
+					return new Text(theme.fg("dim", renderFooter(snap)), 1, 0);
+				});
 			};
-			refreshHeader();
-			// 真实探测 operatord——结果回来后再刷一次（OFFLINE/READY/
-			// UNKNOWN 都是真实返回值，绝不硬编码 ready）。
-			void uiState.probeOperator().then(() => refreshHeader());
+			refreshChrome();
+			// 统一订阅：任何状态变化（context/lease/operator/model/kernel）
+			// 触发同一次 chrome 重绘。
+			center.subscribe(() => refreshChrome());
+			// 真实探测 operatord——结果回来后经 subscribe 统一重绘
+			// （OFFLINE/READY/UNKNOWN 都是真实返回值，绝不硬编码 ready）。
+			void center.probeOperator();
 			// 30s 周期复探（HOTFIX-3：timer 有明确生命周期——session
 			// shutdown 时清理，不积累）。
 			if (probeTimer !== null) clearInterval(probeTimer);
 			probeTimer = setInterval(() => {
-				void uiState.probeOperator().then(() => refreshHeader());
+				void center.probeOperator();
 			}, 30_000);
 			probeTimer.unref();
 			ctx.ui.setWorkingIndicator({ frames: WORKING_FRAMES, intervalMs: 80 });
@@ -76,15 +80,6 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			// 会让人以为在看模型推理；只有真实事件阶段才显示具体阶段）。
 			ctx.ui.setWorkingMessage("正在处理…");
 			ctx.ui.setHiddenThinkingLabel("正在处理…");
-			// ROSClaw footer：模型简称 + 上下文占用 + Operator 状态。
-			// 不显示上游费用缩写/scope 噪声（费用只在 provider 有可信
-			// 价格时才值得显示——当前不显示）。
-			ctx.ui.setFooter((_tui, theme, _footerData) => {
-				const snap = uiState.snapshot();
-				const model = modelDisplay || "未选模型";
-				const parts = [model, snap.mode, `Operator ${snap.operatorState}`];
-				return new Text(theme.fg("dim", parts.join(" · ")), 1, 0);
-			});
 		});
 
 		// -- `!` bash 功能级关闭（PNA-0 即生效；PNA-9 再做 profile 化 UI 拦截） -----
@@ -104,11 +99,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			// header 模型名取真实当前 model（P0-NA-16：同一快照语义）。
 			const current = ctx.model as { name?: string; id?: string } | undefined;
 			const display = current ? String(current.name ?? current.id ?? "") : "";
-			if (display && display !== modelDisplay) {
-				modelDisplay = display;
-				uiState.noteContextChanged();
-				refreshHeader();
-			}
+			if (display) center.noteModel(display);
 			const missionId = options.active.current.missionId;
 			if (!missionId) {
 				return { systemPrompt: options.systemPrompt };
@@ -117,20 +108,18 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				options.rosclawHome,
 				missionId,
 				options.active.current.sessionId,
+				(_home, method, params) => center.call(method, params),
 			);
 			if (!fetched.stale && fetched.envelope) {
 				// P0-7：验证通过后写入精确 revision/body/mode。
 				options.active.applyEnvelope(fetched.envelope, fetched.contextLeaseId);
-				// P0-NA-16：fresh envelope 到达 → header 从 LOADING 转 FRESH。
-				uiState.noteContextChanged();
-				refreshHeader();
 			} else {
 				// HOTFIX-3（P0-4E）：context 拉取失败/过期 → 立即标记
 				// STALE + 禁动作（不再有"revision 碰巧没变就能动作"）。
 				options.active.markContextStale(fetched.note);
-				uiState.noteContextChanged();
-				refreshHeader();
 			}
+			// chrome 刷新由 active.subscribe → center → refreshChrome 统一
+			// 完成（applyEnvelope/markContextStale 都会触发）。
 			return {
 				systemPrompt: options.systemPrompt,
 				message: {
@@ -147,6 +136,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			buildCommandHandlers({
 				rosclawHome: options.rosclawHome,
 				active: options.active,
+				center,
 				registeredToolNames: () => [
 					"rosclaw_status",
 					"rosclaw_observe",
@@ -170,7 +160,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					return;
 				}
 				try {
-					const status = await bridgeCall(options.rosclawHome, "pi.worker.status", {
+					const status = await center.call("pi.worker.status", {
 						mission_id: options.active.current.missionId,
 					});
 					const orders = (status.orders ?? []) as Array<Record<string, unknown>>;
@@ -207,7 +197,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				const [, workerId, goal] = match;
 				ctx.ui.notify(`委派中（${workerId}）：${goal.slice(0, 60)}…`, "info");
 				try {
-					const response = await bridgeCall(options.rosclawHome, "pi.tools.execute", {
+					const response = await center.call("pi.tools.execute", {
 						request: {
 							schema_version: "rosclaw.pi_tool_request.v1",
 							request_id: `ptr_cmd_${Date.now()}`,

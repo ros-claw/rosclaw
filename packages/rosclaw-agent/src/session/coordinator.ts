@@ -92,6 +92,7 @@ export class AgentSessionCoordinator {
 			this.deps.rosclawHome,
 			missionId,
 			sessionId,
+			this.call,
 		);
 		if (fetched.stale || !fetched.envelope) return null;
 		return { envelope: fetched.envelope, leaseId: fetched.contextLeaseId };
@@ -245,5 +246,33 @@ export class AgentSessionCoordinator {
 			goal: `resume rebind (${targetSessionId.slice(0, 8)})`,
 			createIfUnbound: true,
 		});
+	}
+
+	/** 显式初始 Mission（六审 PR-SIX-1）：launcher 预建 Mission 经
+	 *  --mission 传入时的唯一接入点——此前 main.ts 直接 leaseManager.bind，
+	 *  不经 commitState，leaseState 停留在 NONE（Action 假 LOCKED）。
+	 *  与 switchTo 同一事务尾部：release→bind→freshContext→commitState。 */
+	async attachInitialMission(
+		sessionId: string,
+		missionId: string,
+	): Promise<SwitchOutcome> {
+		if (!sessionId || !missionId) {
+			return this.enterNeedsBinding("session/mission id 为空——拒绝初始接入");
+		}
+		try {
+			await this.deps.leaseManager.release();
+			await this.deps.leaseManager.bind(sessionId, missionId);
+		} catch (err) {
+			return this.enterNeedsBinding(`绑定失败：${(err as Error).message}`);
+		}
+		const fresh = await this.freshContext(missionId, sessionId);
+		this.commitState(sessionId, missionId, fresh);
+		if (!fresh) {
+			this.deps.notify(
+				"已绑定 Mission，但具身上下文不可用——动作已禁止（context 恢复后自动解除）",
+				"warning",
+			);
+		}
+		return { ok: true, missionId, rebound: true };
 	}
 }

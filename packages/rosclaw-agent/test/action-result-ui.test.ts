@@ -57,12 +57,22 @@ async function collectHarness() {
 		notify: () => undefined,
 		call,
 	});
+	const { ProductStateCenter } = await import("../src/session/state-center.js");
+	const center = new ProductStateCenter({
+		rosclawHome: "/tmp/rh-test",
+		active,
+		operatorSocket: "/tmp/rh-test/run/operatord.sock",
+		productVersion: "0.1.0",
+		call: call as never,
+		operatorCallFn: async () => ({ ok: false }),
+	});
 	const factory = createRosclawExtension({
 		profile: "developer",
 		version: "0.1.0",
 		systemPrompt: "TEST PROMPT",
 		active,
 		coordinator,
+		center,
 		rosclawHome: "/tmp/rh-test",
 	});
 	factory(pi as never);

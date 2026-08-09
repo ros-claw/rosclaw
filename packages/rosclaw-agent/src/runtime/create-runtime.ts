@@ -20,6 +20,8 @@ import { resourcePolicy } from "../extension/resource-policy.js";
 import { ActiveSessionContext } from "../session/active-context.js";
 import { AgentSessionCoordinator } from "../session/coordinator.js";
 import { SessionLeaseManager } from "../session/lease-manager.js";
+import { ProductStateCenter } from "../session/state-center.js";
+import { defaultOperatorSocket } from "../bridge/operatord-client.js";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -93,6 +95,14 @@ export async function createRosclawRuntime(
 		leaseManager,
 		notify: () => undefined, // UI notify 在 hook 触发时注入
 	});
+	// PR-SIX-1：唯一产品状态中心——Header/Footer/status tool/context 全部
+	// 从它读快照；任何变化经 subscribe 统一刷新 chrome。
+	const center = new ProductStateCenter({
+		rosclawHome: options.rosclawHome,
+		active,
+		operatorSocket: defaultOperatorSocket(options.rosclawHome),
+		productVersion: options.version,
+	});
 	const agentDir = `${options.rosclawHome}/agent`;
 	// PNA-7（规格 §22.3）：legacy config.yaml → Pi settings 一次性迁移
 	// （已有 defaultProvider/defaultModel 则不触碰）。
@@ -152,6 +162,7 @@ export async function createRosclawRuntime(
 								systemPrompt,
 								active,
 								coordinator,
+								center,
 								rosclawHome: options.rosclawHome,
 							}),
 						},
@@ -163,20 +174,23 @@ export async function createRosclawRuntime(
 			// 注意：noTools:"all" 会把 allowedToolNames 置空、连 customTools 一起
 			// 过滤掉（模型将看不到任何工具）——必须用显式 allowlist。
 			const customTools = [
-				buildStatusTool(options.rosclawHome),
+				buildStatusTool(center),
 				// PNA-3/PNA-4/PNA-5：bridge 工具需要绑定 session/mission。
 				...buildBridgeTools({
 					rosclawHome: options.rosclawHome,
 					active,
+					center,
 				}),
 				buildDelegateTool({
 					rosclawHome: options.rosclawHome,
 					active,
+					center,
 				}),
 				// NA-FIX-4：request_action 必须真实注册（P0-4）。
 				buildRequestActionTool({
 					rosclawHome: options.rosclawHome,
 					active,
+					center,
 				}),
 			];
 			const result = await createAgentSessionFromServices({

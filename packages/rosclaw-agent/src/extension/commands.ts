@@ -5,13 +5,16 @@
  */
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { bridgeCall } from "../bridge/bridge-client.js";
 import { defaultOperatorSocket, operatorCall } from "../bridge/operatord-client.js";
 import type { ActiveSessionContext } from "../session/active-context.js";
+import type { ProductStateCenter } from "../session/state-center.js";
 
 export interface CommandDeps {
 	rosclawHome: string;
 	active: ActiveSessionContext;
+	/** PR-SIX-1：唯一状态中心——/status 与 rosclaw_status/Header/Footer
+	 *  同一份快照（不再各自为政）。 */
+	center: ProductStateCenter;
 	registeredToolNames: () => string[];
 }
 
@@ -25,19 +28,24 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 		status: {
 			description: "运行时与具身状态（agentd/mission/body/mode）",
 			handler: async (_args, ctx) => {
-				const missionId = deps.active.current.missionId;
-				const status = await bridgeCall(deps.rosclawHome, "pi.status", {
-					...(missionId ? { mission_id: missionId } : {}),
-				});
-				const mission = status.mission as Record<string, unknown> | null;
-				notify(
-					ctx,
-					`agentd=${String(status.agentd ?? "?")} profile=${String(status.authorization_profile ?? "")}` +
-						(mission
-							? ` mission=${String(mission.mission_id)} [${String(mission.mode)}] ${String(mission.state)}`
-							: " (未绑定 mission)"),
-					"info",
-				);
+				try {
+					const report = await deps.center.statusReport();
+					const snap = report.snapshot;
+					const mission = report.mission;
+					notify(
+						ctx,
+						`agentd=${report.agentd || "?"} profile=${report.authorization_profile ?? ""}` +
+							(mission
+								? ` mission=${String(mission.mission_id)} [${String(mission.mode)}] ${String(mission.state)}`
+								: " (未绑定 mission)") +
+							` · context=${snap.context_state} r${snap.context_revision}` +
+							` · lease=${snap.lease_state} · operator=${snap.operator}` +
+							` · action=${snap.action_readiness.state} · seq=${snap.snapshot_seq}`,
+						"info",
+					);
+				} catch (err) {
+					notify(ctx, `agentd=UNREACHABLE（${(err as Error).message}）——不编造状态`, "error");
+				}
 			},
 		},
 		mission: {
@@ -61,7 +69,7 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 					notify(ctx, "未绑定 Mission", "warning");
 					return;
 				}
-				const response = await bridgeCall(deps.rosclawHome, "pi.context", {
+				const response = await deps.center.call("pi.context", {
 					mission_id: missionId,
 				});
 				const body = ((response.context as Record<string, unknown>)?.body ?? {}) as Record<string, unknown>;
@@ -124,7 +132,7 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 		doctor: {
 			description: "agentd/modeld/授权剖面诊断摘要",
 			handler: async (_args, ctx) => {
-				const status = await bridgeCall(deps.rosclawHome, "pi.status", {});
+				const status = await deps.center.call("pi.status", {});
 				notify(
 					ctx,
 					`agentd=${String(status.agentd ?? "?")} profile=${String(status.authorization_profile ?? "")}`,
@@ -168,7 +176,7 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 					notify(ctx, "未绑定 Mission", "warning");
 					return;
 				}
-				const result = await bridgeCall(deps.rosclawHome, "pi.tools.execute", {
+				const result = await deps.center.call("pi.tools.execute", {
 					request: {
 						schema_version: "rosclaw.pi_tool_request.v1",
 						request_id: `ptr_ev_${Date.now()}`,
