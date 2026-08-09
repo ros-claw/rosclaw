@@ -332,6 +332,9 @@ class TestStrictPhysicalSchema:
                 description="松散 schema 的物理动作（应被隔离）。",
                 input_schema={"type": "object", "additionalProperties": True},
                 supported_modes=["SIMULATION"],
+                # 有 body scope——本测试专测 schema 严格性（SIX-3 的
+                # body scope 门禁另有测试）。
+                required_body_types=["sim/ur5e"],
                 evidence_class=ToolEvidenceClass.SIMULATED,
                 risk_tier="LOW",
                 model_callable=False,

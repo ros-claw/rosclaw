@@ -167,7 +167,10 @@ class PiToolDispatcher:
                     f"capability {capability_id} is {descriptor.execution_class.value}, "
                     "not OBSERVE — action-class capabilities need the approval chain",
                 )
-            if descriptor.quarantined:
+            # 六审 §6.3 旅程暴露：quarantine 判定必须用 catalog API——
+            # ToolDescriptorV2 没有 .quarantined 属性（此前 observe MCP
+            # 能力的路径从未被真实旅程走到）。
+            if service._tool_catalog.quarantine_reason(capability_id) is not None:
                 raise ToolBridgeError(
                     "CAPABILITY_QUARANTINED", f"capability {capability_id} is quarantined"
                 )

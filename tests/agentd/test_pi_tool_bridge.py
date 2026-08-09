@@ -201,6 +201,8 @@ def _register_sim_action_capability(service) -> None:
                 },
                 "additionalProperties": False,
             },
+            # 六审 §6.2：物理动作必须声明 body scope——测试本体是 sim/ur5e。
+            required_body_types=["sim/ur5e"],
             supported_modes=["SIMULATION"],
             evidence_class=ToolEvidenceClass.SIMULATED,
             risk_tier="LOW",

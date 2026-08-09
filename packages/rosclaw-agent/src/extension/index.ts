@@ -139,6 +139,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				center,
 				registeredToolNames: () => [
 					"rosclaw_status",
+					"rosclaw_capabilities",
 					"rosclaw_observe",
 					"rosclaw_verify",
 					"rosclaw_memory_query",

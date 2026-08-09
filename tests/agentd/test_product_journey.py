@@ -180,11 +180,70 @@ class _FakeModel:
                 # 对抗场景（P0-4F 场景 D）：admission 已拒绝该动作，但
                 # 模型仍声称完成——旅程必须证明系统状态不采信模型自述。
                 answer = "动作已执行，结构化回执已确认。"
-            elif tool_call_id == "call_status":
+                frames.append(_sse(_chunk(answer)))
+                frames.append(_sse(_chunk("", "stop")))
+                frames.append(b"data: [DONE]\n\n")
+                return b"".join(frames)
+            if tool_call_id == "call_status":
                 # 六审 §2.2.5：自然语言 status 的专属回答（与 delegate 的
                 # 通用回答区分，避免 expect 误匹配历史文本）。
                 answer = "内核状态已读取。"
-            elif "receipt" in tool_content or "grant" in tool_content or "已批准" in tool_content:
+                frames.append(_sse(_chunk(answer)))
+                frames.append(_sse(_chunk("", "stop")))
+                frames.append(b"data: [DONE]\n\n")
+                return b"".join(frames)
+            # 六审 §6.3：UR5e 机械臂闭环的工具链编排——
+            # capabilities → 初始观测 → exact action → 后置观测。
+            if tool_call_id == "call_caps":
+                frames.extend(
+                    _tool_call_frames(
+                        "call_observe_pre",
+                        "rosclaw_observe",
+                        json.dumps({"capability_id": "ur5e.get_end_effector_pose"}),
+                    )
+                )
+                frames.append(b"data: [DONE]\n\n")
+                return b"".join(frames)
+            if tool_call_id == "call_observe_pre":
+                frames.extend(
+                    _tool_call_frames(
+                        "call_action",
+                        "rosclaw_request_action",
+                        json.dumps(
+                            {
+                                "capability_id": "ur5e.move_to_pose",
+                                "arguments": {"x": 0.35, "y": 0.25, "z": 0.45},
+                                "expected_effect": "末端移动到安全目标位姿",
+                                "risk_tier": "LOW",
+                            }
+                        ),
+                    )
+                )
+                frames.append(b"data: [DONE]\n\n")
+                return b"".join(frames)
+            if tool_call_id == "call_action":
+                frames.extend(
+                    _tool_call_frames(
+                        "call_observe_post",
+                        "rosclaw_observe",
+                        json.dumps({"capability_id": "ur5e.get_end_effector_pose"}),
+                    )
+                )
+                frames.append(b"data: [DONE]\n\n")
+                return b"".join(frames)
+            if tool_call_id == "call_observe_post":
+                frames.append(_sse(_chunk("动作已执行，结构化回执已确认。")))
+                frames.append(_sse(_chunk("", "stop")))
+                frames.append(b"data: [DONE]\n\n")
+                return b"".join(frames)
+            if tool_call_id == "call_limo_tone":
+                # 交叉本体拒绝的诚实回答（六审 §6.3.10）。
+                answer = "本体不兼容，未执行。"
+                frames.append(_sse(_chunk(answer)))
+                frames.append(_sse(_chunk("", "stop")))
+                frames.append(b"data: [DONE]\n\n")
+                return b"".join(frames)
+            if "receipt" in tool_content or "grant" in tool_content or "已批准" in tool_content:
                 answer = "动作已执行，结构化回执已确认。"
             else:
                 answer = "Worker 结果已收到并验证。"
@@ -238,16 +297,23 @@ class _FakeModel:
                     json.dumps({"goal": "总结这段日志", "worker_id": "auto"}),
                 )
             )
+        elif "运行机械臂仿真" in text:
+            # 六审 §6.3：机械臂仿真请求 → 先查当前 body 的可信能力面。
+            frames.extend(
+                _tool_call_frames("call_caps", "rosclaw_capabilities", "{}")
+            )
         elif "播放提示音" in text or "初始位姿" in text:
+            # 六审 §6.3.10：LIMO 动作在 UR5e body 上——建卡前必须
+            # BODY_CAPABILITY_MISMATCH。
             frames.extend(
                 _tool_call_frames(
-                    "call_action",
+                    "call_limo_tone",
                     "rosclaw_request_action",
                     json.dumps(
                         {
                             "capability_id": "limo.speaker.play_tone",
                             "arguments": {},
-                            "expected_effect": "旅程验收动作",
+                            "expected_effect": "交叉本体动作（应被拒）",
                             "risk_tier": "LOW",
                         }
                     ),
@@ -442,12 +508,25 @@ class TestProductJourney:
             # HOTFIX-2/P0-4F：确定性 SIM 执行通道（真实 SimActionChannel +
             # catalog PHYSICAL_ACTION 能力）——journey 的动作必须真执行、
             # 真产出 SIMULATED receipt，不再"消费 grant 而无 receipt"。
+            # 六审 §6.3：UR5e 机械臂 SIM 闭环——ur5e-sim 是 SIM 执行器；
+            # limo-sim 也在目录但 body scope 是 sim/limo（交叉调用必须在
+            # 建卡前 BODY_CAPABILITY_MISMATCH）。
             "mcp_servers:\n"
+            "  - name: ur5e-sim\n"
+            f"    command: {sys.executable}\n"
+            f"    args: [{REPO / 'src' / 'rosclaw' / 'limo' / 'ur5e_sim_mcp.py'}]\n"
+            "    supported_modes: [SIMULATION]\n"
+            "    required_body_types: [sim/ur5e]\n"
+            "    observation_tools: [ur5e.get_joint_state, ur5e.get_end_effector_pose]\n"
+            "    action_tools: [ur5e.move_joints, ur5e.move_to_pose, ur5e.stop]\n"
+            "    sim_executor: true\n"
             "  - name: limo-sim\n"
             f"    command: {sys.executable}\n"
             f"    args: [{REPO / 'src' / 'rosclaw' / 'limo' / 'sim_mcp.py'}]\n"
             "    supported_modes: [SIMULATION]\n"
-            "    sim_executor: true\n",
+            "    required_body_types: [sim/limo]\n"
+            "    observation_tools: [limo.localization.get_pose, limo.health]\n"
+            "    action_tools: [limo.speaker.play_tone, limo.localization.set_initial_pose]\n",
             encoding="utf-8",
         )
         (home / "agent").mkdir(parents=True, exist_ok=True)
@@ -723,6 +802,84 @@ class TestProductJourney:
             time.sleep(0.5)
         raise AssertionError("/compact 后 session 无 compaction 条目——compact 未真完成")
 
+    def _assert_post_observation(
+        self, home: Path, *, target: tuple[float, float, float]
+    ) -> None:
+        """六审 §6.3.8：后置观测验证——从 session JSONL 的 toolResult 取
+        rosclaw_observe 结果（fake 请求日志的尾部窗口放不下完整消息），
+        最后一次观测的 pose 必须与目标位姿在容差内一致。"""
+        import re as _re
+
+        pose_hits: list[dict] = []
+        sessions_dir = home / "agent" / "sessions"
+        for session_file in sessions_dir.glob("*.jsonl"):
+            for line in session_file.read_text(
+                encoding="utf-8", errors="replace"
+            ).splitlines():
+                if '"toolResult"' not in line or "pose" not in line:
+                    continue
+                with contextlib.suppress(Exception):
+                    entry = json.loads(line)
+                    content = entry.get("message", {}).get("content")
+                    if not isinstance(content, list):
+                        continue
+                    for block in content:
+                        if not isinstance(block, dict) or block.get("type") != "text":
+                            continue
+                        text = block.get("text", "")
+                        # 观测结果是嵌套 JSON 文本——解析到内层再取 pose。
+                        match = _re.search(
+                            r'\\?"x\\?":\s*([-\d.]+),\s*\\?"y\\?":\s*([-\d.]+),'
+                            r'\s*\\?"z\\?":\s*([-\d.]+)',
+                            text,
+                        )
+                        if match:
+                            pose_hits.append(
+                                {
+                                    "x": float(match[1]),
+                                    "y": float(match[2]),
+                                    "z": float(match[3]),
+                                }
+                            )
+        assert len(pose_hits) >= 2, (
+            f"缺前置/后置观测（仅 {len(pose_hits)} 次）——闭环必须 observe→"
+            "execute→observe"
+        )
+        initial, post = pose_hits[0], pose_hits[-1]
+        tx, ty, tz = target
+        assert abs(post["x"] - tx) < 1e-6 and abs(post["y"] - ty) < 1e-6 and abs(post["z"] - tz) < 1e-6, (
+            f"后置位姿 {post} 与目标 {target} 不符——动作未产生预期物理效果"
+        )
+        assert initial != post, "前后观测相同——动作无任何效果"
+        self._journey_verdicts["post_observation_matches_target"] = True
+
+    def _assert_cross_body_rejected(self, session: PtySession, home: Path) -> None:
+        """六审 §6.3.10：LIMO 动作在 UR5e body 上建卡前拒绝，零副作用。"""
+        import sqlite3
+
+        db = sqlite3.connect(home / "agentd" / "missions.db")
+
+        def _count(table: str) -> int:
+            return db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+
+        baseline = (_count("action_txns"), _count("mission_grants"), _count("operator_requests"))
+        db.close()
+        session.send("请播放提示音\r")
+        session.expect("本体不兼容，未执行".encode(), timeout=120)
+        time.sleep(1.0)
+        db = sqlite3.connect(home / "agentd" / "missions.db")
+        after = (_count("action_txns"), _count("mission_grants"), _count("operator_requests"))
+        db.close()
+        assert after == baseline, (
+            f"交叉本体动作竟产生副作用: {baseline} → {after}"
+        )
+        # 拒绝码必须出现在发给模型的 tool 结果里（不是模型自编理由）。
+        # 由调用方传 fake 进来太重——从 PTY 输出断言卡片层已拒绝。
+        assert b"BODY_CAPABILITY_MISMATCH" in session.output, (
+            "缺 BODY_CAPABILITY_MISMATCH 拒绝证据"
+        )
+        self._journey_verdicts["cross_body_action_rejected_before_card"] = True
+
     def _assert_adversarial_model_ignored(
         self, session: PtySession, home: Path
     ) -> None:
@@ -830,7 +987,7 @@ class TestProductJourney:
                 assert approval_id in approval_ids
                 assert grant_id in {g[0] for g in grants}
                 assert action_id and receipt_id, f"txn {txn_id} 缺 action/receipt ID"
-                assert capability == "limo.speaker.play_tone"
+                assert capability == "ur5e.move_to_pose"
             receipts = [
                 json.loads(p) for t, p in events if t == "receipt.received"
             ]
@@ -922,13 +1079,14 @@ class TestProductJourney:
             #     READY——此前显式 mission 路径 leaseState 不写回，
             #     "Action LOCKED" 假锁与成功执行同时存在。
             session.expect(b"Action READY", timeout=60)
-            # 6. request SIM action → 卡片 → Y。
+            # 6. UR5e 机械臂 SIM 闭环（六审 §6.3）：能力面 → 初始观测 →
+            #    exact action 卡 → Y → 执行 → 后置观测验证。
             # 主标记必须是稳定面：授权 overlay（"ROSCLAW 授权请求"）。
             # "等待 Operator 决定" 是瞬时 working message/notify——overlay
             # 打开快时它一帧都渲染不出来（CI 两次失败的根因：overlay 已在
             # 等 Y/N，journey 却在等一个被覆盖的瞬时文本，永不按 y）。
-            session.send("请播放提示音\r")
-            session.expect("ROSCLAW 授权请求".encode(), timeout=120)
+            session.send("运行机械臂仿真，把末端移动到安全目标位姿\r")
+            session.expect("ROSCLAW 授权请求".encode(), timeout=180)
             session.send("y")
             # 已批准 → 执行（结构化回执或诚实失败，但不许是未决状态）。
             session.expect(b"\xe5\xb7\xb2\xe6\x89\xb9\xe5\x87\x86", timeout=120)
@@ -936,6 +1094,12 @@ class TestProductJourney:
             # （grant 被消费），而不是只停在批准通知。
             session.expect("动作已执行，结构化回执已确认".encode(), timeout=120)
             self._assert_grant_consumed(home)
+            # 后置观测验证（六审 §6.3.8）：post-observe 的末端位姿必须与
+            # 目标位姿在容差内一致——不是"executor 说完成就完成"。
+            self._assert_post_observation(home, target=(0.35, 0.25, 0.45))
+            # 6c. LIMO 交叉（六审 §6.3.10）：LIMO 动作在 UR5e body 上必须
+            #     建卡前 BODY_CAPABILITY_MISMATCH，零 approval/grant/txn。
+            self._assert_cross_body_rejected(session, home)
             # 6b. 对抗场景（P0-4F 场景 D）：模型谎称完成——系统必须
             #    以结构化状态为准，不采信模型自述。
             self._assert_adversarial_model_ignored(session, home)

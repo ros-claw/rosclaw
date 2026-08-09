@@ -337,10 +337,13 @@ class AgentService:
             self._handlers._consent_channel = self._consent_channel
         # PR-12：SIM 物理权威（无 daemon 时）。mcp_servers[] 带
         # sim_executor: true 的 server 同时提供 SIM actuation。
-        sim_server = next(
-            (s for s in self._config.mcp_servers if s.get("sim_executor")), None
-        )
-        if sim_server is not None and self._daemon_client is None:
+        # 六审 §6.2.4：executor 按 (body, capability source) 路由——
+        # 每个 sim_executor server 一个通道，按 source 名索引；不再有
+        # 执行任意物理动作的全局通道。
+        self._sim_executors: dict[str, object] = {}
+        for sim_server in (s for s in self._config.mcp_servers if s.get("sim_executor")):
+            if self._daemon_client is not None:
+                break
             from rosclaw.agentd.sim_executor import SimActionChannel
             from rosclaw.agentd.tooling.persistent_client import PersistentMcpClient
 
@@ -350,15 +353,17 @@ class AgentService:
                 args=tuple(str(a) for a in sim_server.get("args", []) or []),
             )
             self._shared_mcp_client = shared_client
-            self._handlers._sim_channel = SimActionChannel(
+            server_name = str(sim_server.get("name", "sim"))
+            self._sim_executors[f"mcp:{server_name}"] = SimActionChannel(
                 command=str(sim_server.get("command", "")),
                 args=tuple(str(a) for a in sim_server.get("args", []) or []),
-                name=str(sim_server.get("name", "sim")),
+                name=server_name,
                 client=shared_client,
             )
             for adapter in self._mcp_adapters:
-                if adapter.source == f"mcp:{sim_server.get('name')}":
+                if adapter.source == f"mcp:{server_name}":
                     adapter._client = shared_client
+        self._handlers._sim_executors = self._sim_executors
         # Team Fabric: enabled via config `team.enabled`. Local coordinator
         # in P0 (local_sim); ROS 2/Zenoh transports are later PRs.
         team_cfg = (config.raw.get("team") or {}) if config.raw else {}
@@ -572,6 +577,12 @@ class AgentService:
 
     def mission_usage(self, mission_id: str) -> dict:
         return self._usage.mission_totals(mission_id)
+
+    def sim_executor_identity_for(self, source: str) -> str:
+        """六审 §6.2.4：按 capability source 解析 SIM 执行通道身份。
+        身份即路由目标（mcp:<server>/native:agentd）；通道缺失时由
+        execute fail closed（EXECUTOR_FOR_BODY_UNAVAILABLE）。"""
+        return source
 
     async def _ensure_mcp_discovered(self) -> None:
         """Discover configured MCP servers once (PR-05); failures quarantine

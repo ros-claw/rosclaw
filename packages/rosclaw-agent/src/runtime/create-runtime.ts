@@ -30,6 +30,7 @@ import { createRosclawExtension } from "../extension/index.js";
 import { buildBridgeTools } from "../tools/bridge-tools.js";
 import { buildDelegateTool } from "../tools/delegate.js";
 import { buildRequestActionTool } from "../tools/request-action.js";
+import { buildCapabilitiesTool } from "../tools/capabilities.js";
 import { buildStatusTool } from "../tools/status.js";
 
 export interface RosclawRuntimeOptions {
@@ -175,6 +176,12 @@ export async function createRosclawRuntime(
 			// 过滤掉（模型将看不到任何工具）——必须用显式 allowlist。
 			const customTools = [
 				buildStatusTool(center),
+				// PR-SIX-3：当前 body 的可信能力面（模型不再猜 ID）。
+				buildCapabilitiesTool({
+					rosclawHome: options.rosclawHome,
+					active,
+					center,
+				}),
 				// PNA-3/PNA-4/PNA-5：bridge 工具需要绑定 session/mission。
 				...buildBridgeTools({
 					rosclawHome: options.rosclawHome,

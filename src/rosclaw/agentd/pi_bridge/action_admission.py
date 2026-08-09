@@ -277,17 +277,19 @@ class ActionAdmissionService:
             raise ToolBridgeError(
                 "INVALID_ARGUMENTS", "capability_id and arguments required (fail closed)"
             )
-        validated = self._validate_request_context(
-            request, caller_pid=caller_pid, caller_uid=caller_uid
-        )
         service = self._service
-        mission = service.get_mission(request.mission_id)
-        assert mission is not None  # _validate_request_context 已保证
         # P0-4D：capability/execution class/risk 由 ToolCatalog 权威决定——
         # 模型自报的 risk_tier 只能是提示，不能降低权威 tier。
         # MCP 发现是 lazy 的（此前只在 legacy send_turn 触发）——pi 路径
         # 的 admission 必须自己保证发现完成（幂等）。
+        # 六审 §6.3：发现必须先于 context 校验——capabilities 在
+        # context_hash 内，发现会改变 hash。
         await service._ensure_mcp_discovered()
+        validated = self._validate_request_context(
+            request, caller_pid=caller_pid, caller_uid=caller_uid
+        )
+        mission = service.get_mission(request.mission_id)
+        assert mission is not None  # _validate_request_context 已保证
         descriptor = service._tool_catalog.get(capability_id)
         if descriptor is None:
             raise ToolBridgeError(
@@ -308,6 +310,30 @@ class ActionAdmissionService:
             raise ToolBridgeError(
                 "MODE_FORBIDDEN",
                 f"capability {capability_id} does not support mode {mission.mode.value}",
+            )
+        # 六审 §6.2：Body—Capability 绑定——PHYSICAL_ACTION 必须声明
+        # body scope 且当前本体在 scope 内；缺失即隔离，不匹配即拒。
+        from rosclaw.agentd.tooling.body_compat import check_body_compatibility
+
+        body_reason = check_body_compatibility(
+            descriptor, mission.body_binding.body_id
+        )
+        if body_reason == "BODY_SCOPE_MISSING":
+            service._tool_catalog.quarantine_tool(
+                capability_id,
+                "physical action without body scope declaration "
+                "(required_body_types empty)",
+            )
+            raise ToolBridgeError(
+                "BODY_SCOPE_MISSING",
+                f"capability {capability_id} is PHYSICAL_ACTION but declares no "
+                "body scope — quarantined (fail closed)",
+            )
+        if body_reason is not None:
+            raise ToolBridgeError(
+                body_reason,
+                f"capability {capability_id} is not compatible with body "
+                f"{mission.body_binding.body_id} (fail closed)",
             )
         authoritative_risk = descriptor.risk_tier
         _tier_rank = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
@@ -380,6 +406,9 @@ class ActionAdmissionService:
             expected_effect=expected_effect,
             created_at=created_at,
             expires_at=unified_expires_at,
+            # 六审 §6.2.5：执行通道身份入合约——execute 按 (body,
+            # source) 解析的 executor 路由，不用全局 _sim_channel。
+            executor_identity=service.sim_executor_identity_for(descriptor.source),
         )
         # 标题由合约派生——capability 永远在标题里，不允许"危险
         # capability + 无害 title"分离（五审场景 D）。
@@ -771,6 +800,8 @@ class ActionAdmissionService:
                     # arguments（人批准的 canonical 对象）——不是另一份
                     # 可变 display 对象。
                     "arguments": exact.normalized_arguments,
+                    # 六审 §6.2.4：执行通道按合约记录的身份路由。
+                    "executor_identity": exact.executor_identity,
                 },
             ),
         )
@@ -838,6 +869,8 @@ class ActionAdmissionService:
             "verified": executed,
             "evidence_ref": outcome.evidence_ref,
             "summary": outcome.text[:4000],
-            "error_code": None if executed else "ACTION_FAILED",
+            "error_code": (
+                None if executed else (outcome.error_code or "ACTION_FAILED")
+            ),
             "completed_at": datetime.now(UTC).isoformat(),
         }

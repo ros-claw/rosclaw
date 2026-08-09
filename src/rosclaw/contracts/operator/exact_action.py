@@ -45,6 +45,9 @@ class ExactActionV1(ContractModel):
     expected_effect: str = ""
     failure_handling: str = ""
     verification_plan: list[str] = Field(default_factory=list)
+    # 六审 §6.2.5：执行通道身份（按 body+capability source 解析）——
+    # execute 按它路由 SIM executor，不用全局通道。
+    executor_identity: str = ""
     created_at: str
     expires_at: str
     action_intent_hash: str
@@ -89,6 +92,7 @@ def build_exact_action(
     verification_plan: list[str] | None = None,
     created_at: str,
     expires_at: str,
+    executor_identity: str = "",
 ) -> ExactActionV1:
     """构造 + 计算两个 hash（缺 capability/args/mission 即 fail closed）。"""
     if not capability_id.strip():
@@ -110,6 +114,7 @@ def build_exact_action(
         expected_effect=expected_effect,
         failure_handling=failure_handling,
         verification_plan=verification_plan or [],
+        executor_identity=executor_identity,
         created_at=created_at,
         expires_at=expires_at,
         action_intent_hash="",

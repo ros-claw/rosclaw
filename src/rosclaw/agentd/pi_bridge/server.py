@@ -163,11 +163,68 @@ class PiBridgeServer:
                     else None
                 ),
             }
+        if method == "pi.capabilities":
+            # 六审 §6.2.1/§6.2.6：当前 body 的可信能力面——模型不再靠猜
+            # capability ID。动作能力只列 body 兼容项；不兼容/被隔离项进
+            # excluded 并附机器原因码。
+            mission_id = str(params.get("mission_id", ""))
+            mission = service.get_mission(mission_id) if mission_id else None
+            if mission is None:
+                return {"ok": False, "error": "unknown mission", "code": "MISSION_NOT_FOUND"}
+            await service._ensure_mcp_discovered()
+            from rosclaw.agentd.tooling.body_compat import check_body_compatibility
+
+            body_id = mission.body_binding.body_id
+            observation: list[dict[str, Any]] = []
+            actions: list[dict[str, Any]] = []
+            excluded: list[dict[str, Any]] = []
+            for descriptor in service._tool_catalog.list():
+                if descriptor.execution_class.value != "PHYSICAL_ACTION":
+                    if descriptor.model_callable:
+                        observation.append(
+                            {
+                                "capability_id": descriptor.tool_id,
+                                "version": descriptor.version,
+                                "source": descriptor.source,
+                                "description": descriptor.description[:120],
+                            }
+                        )
+                    continue
+                reason = check_body_compatibility(descriptor, body_id)
+                quarantine = service._tool_catalog.quarantine_reason(descriptor.tool_id)
+                if quarantine and reason is None:
+                    reason = "CAPABILITY_QUARANTINED"
+                if mission.mode.value not in list(descriptor.supported_modes):
+                    reason = reason or "MODE_FORBIDDEN"
+                entry = {
+                    "capability_id": descriptor.tool_id,
+                    "version": descriptor.version,
+                    "source": descriptor.source,
+                    "risk_tier": descriptor.risk_tier,
+                    "side_effect_class": descriptor.side_effect_class.value,
+                    "description": descriptor.description[:120],
+                }
+                if reason is None:
+                    actions.append(entry)
+                else:
+                    excluded.append({**entry, "reason": reason})
+            return {
+                "ok": True,
+                "body_id": body_id,
+                "mode": mission.mode.value,
+                "observation_capabilities": observation,
+                "action_capabilities": actions,
+                "excluded": excluded,
+            }
         if method == "pi.context":
             mission_id = str(params.get("mission_id", ""))
             if service.get_mission(mission_id) is None:
                 return {"ok": False, "error": "unknown mission", "code": "MISSION_NOT_FOUND"}
             # PNA-2：完整 EmbodiedContextEnvelopeV1（TTL + 内容 hash）。
+            # 六审 §6.3：capabilities 在 context_hash 内——lazy discovery
+            # 必须先完成，否则发现前后两个 envelope 的 hash 不同
+            # （lease 签发后 propose 重建即 CONTEXT_HASH_MISMATCH）。
+            await service._ensure_mcp_discovered()
             from rosclaw.agentd.pi_bridge.context import build_embodied_context
 
             try:
