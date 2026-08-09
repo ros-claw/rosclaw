@@ -26,7 +26,6 @@ import pytest
 
 from tests.agentd.test_pi_approval import _setup_with_operatord
 
-
 # ------------------------------------------------------------ 真 UDS 客户端
 _CLIENT_PY = r"""
 import json, socket, sys
@@ -151,13 +150,13 @@ class TestRealUdsPeerCred:
                     ActionAdmissionService,
                     ActionRequestContext,
                 )
-                from tests.agentd.test_pi_tool_bridge import _issue_lease
 
                 # 主进程扮演 writer——把 writer lease 迁到 owner_pid=1
                 # 的注册身份（模拟 writer 进程内建卡）。
                 from rosclaw.agentd.pi_bridge.session_binding import (
                     SessionBindingStore,
                 )
+                from tests.agentd.test_pi_tool_bridge import _issue_lease
 
                 bindings = SessionBindingStore(service._store.connection)
                 bindings.bind(
