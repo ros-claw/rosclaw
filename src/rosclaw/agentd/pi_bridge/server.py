@@ -163,11 +163,17 @@ class PiBridgeServer:
                     )
                 except Exception:  # noqa: BLE001
                     sim_policy = "auto"
+            # 七审 PR-SEVEN-5：机器人友好名 + kit 摘要——UI 默认显示
+            # display_name，不再只显示内部 body_id。
+            kit_status = await service.robot_kit_status()
             return {
                 "ok": True,
                 "agentd": "READY",
                 "authorization_profile": service.authorization_profile(),
                 "sim_policy": sim_policy,
+                "body_id": service._body_id,
+                "body_display": kit_status.get("display_name") or service._body_id,
+                "robot_kit": kit_status,
                 "mission": (
                     {
                         "mission_id": mission.mission_id,
@@ -302,6 +308,21 @@ class PiBridgeServer:
                         }
                     await asyncio.sleep(0.2)
             return {"ok": sock.exists(), "enrolled": True, "running": sock.exists()}
+        if method == "pi.robot.list":
+            # 七审 PR-SEVEN-5：第一方 kit 清单（/robots）。
+            return await service.robot_list()
+        if method == "pi.robot.resolve":
+            # 七审 PR-SEVEN-5：自然语言 Robot Resolver（唯一候选自动选）。
+            return service.robot_resolve(str(params.get("query", "")))
+        if method == "pi.robot.repair":
+            # 七审 PR-SEVEN-5：一键修复（幂等；不触碰 REAL 授权）。
+            return await service.robot_repair(str(params.get("kit_id", "")))
+        if method == "pi.robot.use":
+            # 七审 PR-SEVEN-5：切换活跃机器人（无 kit 的 body 一律拒绝）。
+            return await service.robot_use(str(params.get("body_id", "")))
+        if method == "pi.doctor.task":
+            # 七审 PR-SEVEN-5：task readiness（/doctor task <goal>）。
+            return await service.doctor_task(str(params.get("goal", "")))
         if method == "pi.capabilities":
             # 六审 §6.2.1/§6.2.6：当前 body 的可信能力面——模型不再靠猜
             # capability ID。动作能力只列 body 兼容项；不兼容/被隔离项进

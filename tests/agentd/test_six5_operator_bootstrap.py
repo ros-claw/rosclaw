@@ -71,7 +71,9 @@ class TestOperatorBootstrap:
         bridge = PiBridgeServer(service, tmp_path / "run" / "pi-bridge.sock")
         result = await bridge._dispatch(
             "user:local:1000", 1, "pi.operator.bootstrap",
-            {"token": service.control_token},
+            # 七审 PR-SEVEN-6：bootstrap 强制有效 mission_id（fail closed）。
+            {"token": service.control_token,
+             "mission_id": mission.mission_id},
         )
         assert result.get("ok"), f"bootstrap 失败: {result}"
         # operatord.sock 在合理时间内出现且 approvals.list 可用。

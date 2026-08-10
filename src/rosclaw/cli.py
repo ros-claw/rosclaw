@@ -359,8 +359,74 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return exit_code
 
 
+def _run_doctor_task(goal: str, *, json_output: bool = False) -> int:
+    """七审 PR-SEVEN-5：`rosclaw doctor task <goal>`——按第一方 Robot
+    Kit manifest 静态评估任务就绪（trajectory/executor/verifier）；
+    MISSING 时给结构化 remediation（幂等、可取消、绝不自动完成
+    REAL 授权）。"""
+    import importlib.util
+
+    from rosclaw.agentd.config import load_agent_config
+    from rosclaw.sim.robot_kit import kit_for_body, required_groups_for_goal
+
+    home = resolve_home()
+    config = load_agent_config(home / "config.yaml")
+    body_id = config.active_body_id
+    disabled = set(config.raw.get("kits", {}).get("disabled", []) or [])
+    kit = kit_for_body(body_id)
+    required = required_groups_for_goal(goal)
+    missing: list[str] = []
+    if kit is None or kit.kit_id in disabled:
+        missing = list(required)
+    else:
+        checks = {
+            "trajectory": any("plan" in t for t in kit.compute_tools),
+            "verifier": any(
+                "verify" in t for t in (*kit.compute_tools, *kit.observation_tools)
+            ),
+            "executor": importlib.util.find_spec(kit.executor_module) is not None,
+        }
+        missing = [name for name in required if not checks.get(name, False)]
+    remediation = None
+    if missing and kit is not None:
+        remediation = {
+            "kind": "enable_robot_kit",
+            "kit_id": kit.kit_id,
+            "idempotent": True,
+            "cancellable": True,
+            "real_authorization": False,
+            "command": f"/robot repair {kit.kit_id}",
+        }
+    report = {
+        "goal": goal,
+        "body_id": body_id,
+        "kit_id": kit.kit_id if kit else None,
+        "required": required,
+        "missing": missing,
+        "state": "READY" if not missing else "MISSING",
+        "remediation": remediation,
+        "note": "static manifest check — live executor health is verified by "
+        "`/doctor task` inside rosclaw chat",
+    }
+    if json_output:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        print(f"Task readiness: {report['state']} (body={body_id}, kit={report['kit_id']})")
+        print(f"  required: {', '.join(required)}")
+        if missing:
+            print(f"  missing:  {', '.join(missing)}")
+            if remediation:
+                print(f"  remediation: {remediation['command']} "
+                      f"(idempotent, cancellable, no REAL authorization)")
+    return 0 if not missing else 1
+
+
 def _run_doctor(args: argparse.Namespace) -> int:
     """Internal doctor implementation."""
+    # 七审 PR-SEVEN-5：task readiness——静态检查（无需 agentd 在线）：
+    # "画五角星"需要 trajectory + executor + verifier。
+    if getattr(args, "task", None):
+        return _run_doctor_task(str(args.task), json_output=getattr(args, "json", False))
     if getattr(args, "level", None):
         from rosclaw.runtime.doctor_levels import LevelDoctor
 
@@ -6970,6 +7036,12 @@ def main() -> int:
         help="Run progressive execution-readiness checks",
     )
     doctor_parser.add_argument("--fix", action="store_true", help="Auto-fix safe issues only")
+    doctor_parser.add_argument(
+        "--task",
+        default=None,
+        metavar="GOAL",
+        help="Task readiness check (e.g. --task '画五角星'): trajectory/executor/verifier",
+    )
     doctor_parser.add_argument("--json", action="store_true", help="Output structured JSON")
     doctor_parser.add_argument("--gpu", action="store_true", help="Include GPU/CUDA check")
     doctor_parser.add_argument(

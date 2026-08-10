@@ -32,6 +32,10 @@ const ROSCLAW_COMMANDS = new Set([
 	"/operator-init",
 	"/safety",
 	"/language",
+	// PR-SEVEN-5：Robot-first UX。
+	"/robot",
+	"/robots",
+	"/capabilities",
 ]);
 
 // Pi 内建（审计 §4 全表）——放行进内建 dispatch。

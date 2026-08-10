@@ -3,6 +3,7 @@
   "kit_id": "rosclaw/ur5e-sim",
   "robot_type": "ur5e",
   "display_name": "UR5e（本地仿真）",
+  "keywords": ["ur5e", "arm", "robot arm", "机械臂", "manipulator", "手臂"],
   "body_instance_template": "sim/ur5e",
   "mode": "SIMULATION",
   "capability_sources": ["mcp:ur5e-sim"],

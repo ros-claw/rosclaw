@@ -134,8 +134,33 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 			},
 		},
 		doctor: {
-			description: "agentd/modeld/授权剖面诊断摘要",
-			handler: async (_args, ctx) => {
+			description: "诊断摘要 + 任务就绪检查：/doctor [task <目标>]",
+			handler: async (args, ctx) => {
+				const loc = deps.locale.effective;
+				const [sub, ...rest] = args.trim().split(/\s+/).filter(Boolean);
+				if (sub === "task") {
+					if (!rest.length) {
+						notify(ctx, "用法：/doctor task <目标>（如 /doctor task 画五角星）", "warning");
+						return;
+					}
+					try {
+						const result = await deps.center.call("pi.doctor.task", { goal: rest.join(" ") });
+						const remediation = (result.remediation ?? null) as { command?: string } | null;
+						notify(
+							ctx,
+							result.state === "READY"
+								? `${i18nT("doctor.task_ready", loc)}: ${((result.required ?? []) as string[]).join(" + ")}`
+								: `${i18nT("doctor.task_missing", loc)}: ${((result.missing ?? []) as string[]).join(", ")}` +
+									(remediation?.command
+										? `\n${i18nT("doctor.remediation", loc)}: ${remediation.command}`
+										: ""),
+							result.state === "READY" ? "info" : "warning",
+						);
+					} catch (err) {
+						notify(ctx, `agentd=UNREACHABLE（${(err as Error).message}）`, "error");
+					}
+					return;
+				}
 				const status = await deps.center.call("pi.status", {});
 				notify(
 					ctx,
@@ -297,5 +322,125 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 				);
 			},
 		},
-	};
+		robot: {
+			description: "当前机器人：/robot [use <body_id>|repair [kit_id]]",
+			handler: async (args, ctx) => {
+				const loc = deps.locale.effective;
+				const [sub, ...rest] = args.trim().split(/\s+/).filter(Boolean);
+				try {
+					if (sub === "use") {
+						const bodyId = rest.join(" ");
+						if (!bodyId) {
+							notify(ctx, "用法：/robot use <body_id>（如 sim/ur5e）", "warning");
+							return;
+						}
+						const result = await deps.center.call("pi.robot.use", { body_id: bodyId });
+						notify(
+							ctx,
+							result.ok
+								? result.changed
+									? i18nT("robot.use_saved", loc)
+									: `${i18nT("robot.current", loc)}: ${bodyId}`
+								: `${i18nT("robot.use_refused", loc)}: ${String(result.error ?? "")}`,
+							result.ok ? "info" : "error",
+						);
+						await deps.center.refreshRobotInfo(true);
+						return;
+					}
+					if (sub === "repair") {
+						const kitId = rest.join(" ");
+						const result = await deps.center.call("pi.robot.repair", { kit_id: kitId });
+						const kit = (result.robot_kit ?? {}) as { display_name?: string; state?: string };
+						notify(
+							ctx,
+							result.ok
+								? `${i18nT("robot.repair_done", loc)}: ${kit.display_name ?? kitId} [${kit.state ?? "?"}]`
+								: `${i18nT("robot.repair_failed", loc)}: ${String(result.error ?? kit.state ?? "")}`,
+							result.ok ? "info" : "error",
+						);
+						await deps.center.refreshRobotInfo(true);
+						await deps.center.refreshCapabilities(true);
+						return;
+					}
+					const status = await deps.center.call("pi.status", {});
+					const kit = (status.robot_kit ?? {}) as {
+						display_name?: string; state?: string; reason?: string;
+						remediation?: { command?: string } | null;
+					};
+					const lines = [
+						`${i18nT("robot.current", loc)}: ${String(status.body_display ?? status.body_id ?? "?")} [${String(kit.state ?? "?")}]`,
+					];
+					if (kit.state === "BROKEN") {
+						lines.push(
+							`${i18nT("robot.kit_broken", loc)}: ${kit.reason ?? ""}` +
+							(kit.remediation?.command
+								? ` — ${i18nT("robot.repair_hint", loc)}: ${kit.remediation.command}`
+								: ""),
+						);
+					}
+					notify(ctx, lines.join("\n"), kit.state === "BROKEN" ? "warning" : "info");
+				} catch (err) {
+					notify(ctx, `agentd=UNREACHABLE（${(err as Error).message}）`, "error");
+				}
+			},
+		},
+		robots: {
+			description: "可用机器人套件清单",
+			handler: async (_args, ctx) => {
+				const loc = deps.locale.effective;
+				try {
+					const result = await deps.center.call("pi.robot.list", {});
+					const kits = (result.kits ?? []) as Array<{
+						display_name?: string; kit_id?: string; state?: string; active?: boolean;
+					}>;
+					if (!kits.length) {
+						notify(ctx, i18nT("robot.none_available", loc), "warning");
+						return;
+					}
+					const lines = kits.map((k) =>
+						`${k.active ? "●" : "○"} ${k.display_name ?? k.kit_id} [${k.state ?? "?"}]`,
+					);
+					notify(ctx, lines.join("\n"), "info");
+				} catch (err) {
+					notify(ctx, `agentd=UNREACHABLE（${(err as Error).message}）`, "error");
+				}
+			},
+		},
+		capabilities: {
+			description: "当前机器人能力清单（观测/计算/动作 + 被排除）",
+			handler: async (_args, ctx) => {
+				const loc = deps.locale.effective;
+				const missionId = deps.active.current.missionId;
+				if (!missionId) {
+					notify(ctx, "未绑定 Mission", "warning");
+					return;
+				}
+				try {
+					const result = await deps.center.call("pi.capabilities", { mission_id: missionId });
+					if (!result.ok) {
+						notify(ctx, `capabilities: ${String(result.error ?? "")}`, "error");
+						return;
+					}
+					const names = (list: unknown) =>
+						((list ?? []) as Array<{ capability_id?: string }>)
+							.map((c) => String(c.capability_id ?? "")).filter(Boolean);
+					const excluded = ((result.excluded ?? []) as Array<{ capability_id?: string; reason?: string }>)
+						.map((e) => `${e.capability_id}(${e.reason})`);
+					notify(
+						ctx,
+						`${i18nT("capabilities.summary", loc)}:\n` +
+						`观测: ${names(result.observation_capabilities).join(", ") || "-"}\n` +
+						`计算: ${names(result.compute_capabilities).join(", ") || "-"}\n` +
+						`动作: ${names(result.action_capabilities).join(", ") || "-"}` +
+						(excluded.length
+							? `\n${i18nT("capabilities.excluded", loc)}: ${excluded.join(", ")}`
+							: ""),
+						"info",
+					);
+				} catch (err) {
+					notify(ctx, `agentd=UNREACHABLE（${(err as Error).message}）`, "error");
+				}
+			},
+		},
+		};
 }

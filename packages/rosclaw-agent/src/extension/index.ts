@@ -147,6 +147,24 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			center.subscribe(() => {
 				void updateBootstrapWidget();
 			});
+			// 七审 PR-SEVEN-5：Robot Kit BROKEN → 用户输入前给一键修复
+			// （变化驱动——同一 BROKEN 状态只提示一次）。
+			let kitHintState: string | null = null;
+			center.subscribe(() => {
+				if (!ctx.hasUI) return;
+				const kit = center.snapshot().robot_kit;
+				const state = kit?.state ?? null;
+				if (state === kitHintState) return;
+				kitHintState = state;
+				if (state !== "BROKEN") return;
+				const loc = locale.effective;
+				const command = kit?.remediation?.command;
+				ctx.ui.notify(
+					`${i18nT("robot.kit_broken", loc)}: ${kit?.reason ?? ""}` +
+						(command ? ` — ${i18nT("robot.repair_hint", loc)}: ${command}` : ""),
+					"warning",
+				);
+			});
 			setTimeout(() => {
 				void center.probeOperator(true);
 			}, 800);
@@ -162,8 +180,10 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			probeTimer = setInterval(() => {
 				void center.probeOperator();
 				void center.refreshCapabilities();
+				void center.refreshRobotInfo();
 			}, 30_000);
 			void center.refreshCapabilities(true);
+			void center.refreshRobotInfo(true);
 			probeTimer.unref();
 			ctx.ui.setWorkingIndicator({ frames: WORKING_FRAMES, intervalMs: 80 });
 			// P1-TUI-01：中性本地化状态词——不伪造思维过程（"Thinking..."

@@ -49,11 +49,29 @@ export interface KernelSnapshotV1 {
 	mode: string;
 	mission_id?: string;
 	body_id?: string;
+	/** 七审 PR-SEVEN-5：机器人友好名（kit display_name）——UI 默认
+	 *  显示它而不是内部 body_id。 */
+	body_display?: string;
+	/** 七审 PR-SEVEN-5：Robot Kit 摘要（BROKEN 时 UI 给一键修复）。 */
+	robot_kit?: RobotKitSummary;
 	context_state: ContextState;
 	context_revision: number;
 	lease_state: LeaseState;
 	operator: OperatorState;
 	action_readiness: ActionReadinessV1;
+}
+
+export interface RobotKitSummary {
+	state: string;
+	reason?: string;
+	remediation?: {
+		kind: string;
+		kit_id: string;
+		command?: string;
+		idempotent?: boolean;
+		cancellable?: boolean;
+		real_authorization?: boolean;
+	} | null;
 }
 
 export interface StateCenterDeps {
@@ -77,9 +95,12 @@ export class ProductStateCenter {
 	private modelDisplay = "";
 	private capabilityBlocker: string | null = null;
 	private lastCapabilityProbe = 0;
+	private lastRobotProbe = 0;
 	/** 七审 §2.5：SIM 审批策略（auto=安全仿真自动执行——operator
 	 *  离线不是 blocker；ask=每次人工确认）。 */
 	private simPolicy: "auto" | "ask" = "auto";
+	private bodyDisplay = "";
+	private robotKit: RobotKitSummary | null = null;
 	private readonly listeners = new Set<Listener>();
 	private readonly callFn: typeof bridgeCall;
 	private readonly operatorCallFn: typeof operatorCall;
@@ -114,6 +135,8 @@ export class ProductStateCenter {
 			mode: state.mode,
 			mission_id: state.missionId,
 			body_id: state.bodyId,
+			body_display: this.bodyDisplay || undefined,
+			robot_kit: this.robotKit ?? undefined,
 			context_state: state.missionId ? state.contextState : "UNAVAILABLE",
 			context_revision: state.contextRevision,
 			lease_state: state.leaseState,
@@ -236,6 +259,28 @@ export class ProductStateCenter {
 		}
 	}
 
+	/** 七审 PR-SEVEN-5：机器人信息探测（友好名 + kit 状态）——60s
+	 *  缓存，变化才 fan-out。 */
+	async refreshRobotInfo(force = false): Promise<void> {
+		const now = Date.now();
+		if (!force && now - this.lastRobotProbe < 60_000) return;
+		this.lastRobotProbe = now;
+		try {
+			const status = await this.call("pi.status", {});
+			if (!status.ok) return;
+			const nextDisplay = String(status.body_display ?? "");
+			const nextKit = (status.robot_kit as RobotKitSummary | undefined) ?? null;
+			if (nextDisplay !== this.bodyDisplay ||
+				JSON.stringify(nextKit) !== JSON.stringify(this.robotKit)) {
+				this.bodyDisplay = nextDisplay;
+				this.robotKit = nextKit;
+				this.changed();
+			}
+		} catch {
+			// 桥失败已由 call() 原子降级——机器人信息保持现状。
+		}
+	}
+
 	/** /status 与 rosclaw_status 共享的新鲜报告：UDS pi.status + 快照。 */
 	async statusReport(): Promise<{
 		ok: boolean;
@@ -254,6 +299,14 @@ export class ProductStateCenter {
 		const policy = String(status.sim_policy ?? "");
 		if ((policy === "auto" || policy === "ask") && policy !== this.simPolicy) {
 			this.simPolicy = policy;
+			this.changed();
+		}
+		const nextDisplay = String(status.body_display ?? "");
+		const nextKit = (status.robot_kit as RobotKitSummary | undefined) ?? null;
+		if (nextDisplay !== this.bodyDisplay ||
+			JSON.stringify(nextKit) !== JSON.stringify(this.robotKit)) {
+			this.bodyDisplay = nextDisplay;
+			this.robotKit = nextKit;
 			this.changed();
 		}
 		return {

@@ -3,7 +3,7 @@
 
 export const CATALOG_ZH = {
 	"chrome.mission": "任务",
-	"chrome.body": "本体",
+	"chrome.body": "机器人",
 	"chrome.kernel": "内核",
 	"chrome.context": "上下文",
 	"chrome.operator": "操作员",
@@ -41,6 +41,19 @@ export const CATALOG_ZH = {
 	"operator.bootstrap_done": "Operator 初始化完成",
 	"operator.bootstrap_failed": "Operator 初始化失败",
 	"language.current": "当前语言策略",
+	"robot.current": "当前机器人",
+	"robot.kit_broken": "机器人套件不完整",
+	"robot.repair_hint": "一键修复",
+	"robot.repair_done": "修复完成",
+	"robot.repair_failed": "修复失败",
+	"robot.use_saved": "已切换默认机器人（重启 rosclaw chat 后生效）",
+	"robot.use_refused": "无法切换",
+	"robot.none_available": "无可用机器人套件",
+	"capabilities.summary": "能力清单",
+	"capabilities.excluded": "被排除",
+	"doctor.task_ready": "任务就绪",
+	"doctor.task_missing": "任务缺能力",
+	"doctor.remediation": "修复建议",
 } as const;
 
 export type CatalogKey = keyof typeof CATALOG_ZH;

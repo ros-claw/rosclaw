@@ -66,7 +66,7 @@ export function renderHeader(
 	if (!state.mission_id) {
 		return `${line1}\n${t("chrome.unbound", locale)}`;
 	}
-	const body = state.body_id ?? t("state.LOADING", locale);
+	const body = state.body_display ?? state.body_id ?? t("state.LOADING", locale);
 	const contextState = t(`state.${state.context_state}` as never, locale);
 	const context =
 		state.context_state === "FRESH"

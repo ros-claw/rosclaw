@@ -33,6 +33,9 @@ class RobotKitV1:
     observation_tools: tuple[str, ...]
     compute_tools: tuple[str, ...] = ()
     approval_policy: dict[str, str] = field(default_factory=dict)
+    #: 七审 PR-SEVEN-5：自然语言 Robot Resolver 关键词（机械臂/arm →
+    #: arm kit）。匹配只基于 manifest 声明——无匹配即诚实空候选。
+    keywords: tuple[str, ...] = ()
 
 
 def load_first_party_kits() -> list[RobotKitV1]:
@@ -56,9 +59,45 @@ def load_first_party_kits() -> list[RobotKitV1]:
                 observation_tools=tuple(capabilities.get("observation") or ()),
                 compute_tools=tuple(capabilities.get("compute") or ()),
                 approval_policy=dict(raw.get("approval_policy") or {}),
+                keywords=tuple(str(k) for k in raw.get("keywords") or ()),
             )
         )
     return kits
+
+
+def required_groups_for_goal(goal: str) -> list[str]:
+    """七审 PR-SEVEN-5：任务目标 → 所需能力组（service.doctor_task 与
+    CLI `rosclaw doctor task` 共用同一分类规则）。
+
+    - 绘制/轨迹类目标：trajectory + executor + verifier；
+    - 其余动作目标：executor。
+    """
+    import re
+
+    text = goal.strip().lower()
+    if re.search(r"画|draw|star|五角星|轨迹|trajectory|trace|circle|圆", text):
+        return ["trajectory", "executor", "verifier"]
+    return ["executor"]
+
+
+def match_kits(query: str, kits: list[RobotKitV1] | None = None) -> list[RobotKitV1]:
+    """七审 PR-SEVEN-5：自然语言 → kit 候选（Robot Resolver）。
+
+    匹配只基于 manifest 声明的 kit_id/robot_type/display_name/keywords
+    （大小写不敏感子串）；无匹配返回空列表——绝不伪造候选。候选按
+    命中数降序。
+    """
+    text = query.strip().lower()
+    if not text:
+        return []
+    scored: list[tuple[int, RobotKitV1]] = []
+    for kit in kits if kits is not None else load_first_party_kits():
+        terms = (kit.kit_id, kit.robot_type, kit.display_name, *kit.keywords)
+        hits = sum(1 for term in terms if term and term.lower() in text)
+        if hits:
+            scored.append((hits, kit))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [kit for _, kit in scored]
 
 
 def kit_for_body(body_id: str, kits: list[RobotKitV1] | None = None) -> RobotKitV1 | None:

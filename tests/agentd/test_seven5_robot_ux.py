@@ -146,6 +146,31 @@ class TestDoctorTask:
         await service.close()
 
 
+class TestDoctorTaskCli:
+    def test_cli_doctor_task_ready(self, tmp_path: Path, monkeypatch, capsys) -> None:
+        """rosclaw doctor task（静态 manifest 检查）：默认安装画五角星
+        READY；kit 禁用 → MISSING + remediation。"""
+        from rosclaw.cli import _run_doctor_task
+
+        monkeypatch.setenv("ROSCLAW_HOME", str(tmp_path))
+        (tmp_path / "config.yaml").write_text("", encoding="utf-8")
+        assert _run_doctor_task("画五角星", json_output=True) == 0
+        import json
+
+        report = json.loads(capsys.readouterr().out)
+        assert report["state"] == "READY"
+        assert {"trajectory", "executor", "verifier"} <= set(report["required"])
+
+        (tmp_path / "config.yaml").write_text(
+            "kits:\n  disabled: [rosclaw/ur5e-sim]\n", encoding="utf-8"
+        )
+        assert _run_doctor_task("画五角星", json_output=True) == 1
+        report = json.loads(capsys.readouterr().out)
+        assert report["state"] == "MISSING"
+        assert report["remediation"]["kind"] == "enable_robot_kit"
+        assert report["remediation"]["real_authorization"] is False
+
+
 class TestRepairAndUse:
     async def test_repair_reenables_disabled_kit_idempotent(
         self, tmp_path: Path

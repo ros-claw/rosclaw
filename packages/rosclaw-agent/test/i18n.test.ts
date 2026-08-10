@@ -2,8 +2,8 @@
  *
  * 红测试先行：
  * 1. zh-CN 与 en-US catalog 键位必须一一对应（缺翻译 CI fail）；
- * 2. renderHeader/renderFooter 按 locale 渲染（zh=任务/本体/操作员/
- *    动作；en=Mission/Body/Operator/Action）——当前是散落硬编码；
+ * 2. renderHeader/renderFooter 按 locale 渲染（zh=任务/机器人/操作员/
+ *    动作；en=Mission/Robot/Operator/Action（PR-SEVEN-5：Body→机器人/Robot））——当前是散落硬编码；
  * 3. /language 命令存在且持久化（查看/中文/English/auto/lock）。
  */
 
@@ -46,13 +46,13 @@ test("renderHeader/renderFooter 按 locale 渲染同一快照", async () => {
 	const enHeader = renderHeader(snap, "en-US");
 	// 中文 chrome
 	assert.match(zhHeader, /任务 mis_abc123/);
-	assert.match(zhHeader, /本体 sim\/ur5e/);
+	assert.match(zhHeader, /机器人 sim\/ur5e/);  // PR-SEVEN-5：本体→机器人
 	assert.match(zhHeader, /操作员 离线/);
 	assert.match(zhHeader, /动作 受阻/);
 	assert.match(zhHeader, /仿真/);
 	// 英文 chrome
 	assert.match(enHeader, /Mission mis_abc123/);
-	assert.match(enHeader, /Body sim\/ur5e/);
+	assert.match(enHeader, /Robot sim\/ur5e/);  // PR-SEVEN-5：Body→Robot
 	assert.match(enHeader, /Operator Offline/);
 	assert.match(enHeader, /Action Blocked/i);
 	assert.match(enHeader, /Simulation/);

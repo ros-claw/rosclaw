@@ -602,12 +602,29 @@ class AgentService:
         await self._ensure_mcp_discovered()
         kit = getattr(self, "_active_kit", None)
         if kit is None:
+            from rosclaw.sim.robot_kit import kit_for_body
+
+            candidate = kit_for_body(self._body_id)
             return {
                 "kit_id": "",
                 "state": "BROKEN",
                 "reason": f"no first-party kit for body {self._body_id}",
                 "action_capability_count": 0,
                 "executor": "MISSING",
+                # 七审 PR-SEVEN-5：结构化 remediation——模型/TUI 不再只能
+                # 说"请重新绑定 profile"。
+                "remediation": (
+                    {
+                        "kind": "enable_robot_kit",
+                        "kit_id": candidate.kit_id,
+                        "idempotent": True,
+                        "cancellable": True,
+                        "real_authorization": False,
+                        "command": f"/robot repair {candidate.kit_id}",
+                    }
+                    if candidate
+                    else None
+                ),
             }
         server_name = kit.executor_identity.removeprefix("mcp:")
         action_count = sum(
@@ -618,7 +635,7 @@ class AgentService:
         )
         executor_ready = self._sim_executors.get(kit.executor_identity) is not None
         ready = action_count == len(kit.action_tools) and executor_ready
-        return {
+        result = {
             "kit_id": kit.kit_id,
             "display_name": kit.display_name,
             "state": "READY" if ready else "BROKEN",
@@ -634,6 +651,16 @@ class AgentService:
             "approval_policy": kit.approval_policy,
             "server": server_name,
         }
+        if not ready:
+            result["remediation"] = {
+                "kind": "retry_kit_activation",
+                "kit_id": kit.kit_id,
+                "idempotent": True,
+                "cancellable": True,
+                "real_authorization": False,
+                "command": f"/robot repair {kit.kit_id}",
+            }
+        return result
 
     async def action_blockers(self) -> list[dict[str, str]]:
         """七审 §2.1/PR-SEVEN-2.4：动作受阻原因全量聚合（按可操作性
@@ -651,6 +678,247 @@ class AgentService:
                 }
             )
         return blockers
+
+    # -- 七审 PR-SEVEN-5：Robot-first UX 与自修复 ----------------------------
+
+    @staticmethod
+    def _make_mcp_adapter(spec: dict, catalog) -> object:
+        """server spec → McpCapabilityAdapter（__init__ 与 repair 共用）。"""
+        from rosclaw.agentd.tooling.mcp_adapter import (
+            McpCapabilityAdapter,
+            McpServerConfig,
+        )
+
+        return McpCapabilityAdapter(
+            McpServerConfig(
+                name=str(spec.get("name", "")),
+                command=str(spec.get("command", "")),
+                args=tuple(str(a) for a in spec.get("args", []) or []),
+                env_refs=tuple(str(r) for r in spec.get("env_refs", []) or ()),
+                observation_tools=tuple(spec.get("observation_tools", []) or ()),
+                action_tools=tuple(spec.get("action_tools", []) or ()),
+                compute_tools=tuple(spec.get("compute_tools", []) or ()),
+                supported_modes=tuple(spec.get("supported_modes", ("SIMULATION",)) or ()),
+                required_body_types=tuple(spec.get("required_body_types", []) or ()),
+                effect_domain=str(spec.get("effect_domain", "") or ""),
+                timeout_ms=int(spec.get("timeout_ms", 5000)),
+            ),
+            catalog,
+        )
+
+    async def _activate_kit_runtime(self, kit) -> None:
+        """激活/重激活 kit：adapter + SIM executor + 重发现。幂等——
+        已存在的 adapter/executor 不重复创建。"""
+        from rosclaw.sim.robot_kit import kit_server_spec
+
+        spec = kit_server_spec(kit)
+        server_name = str(spec["name"])
+        if not any(a.source == kit.executor_identity for a in self._mcp_adapters):
+            self._mcp_adapters.append(self._make_mcp_adapter(spec, self._tool_catalog))
+        if self._daemon_client is None and kit.executor_identity not in self._sim_executors:
+            from rosclaw.agentd.sim_executor import SimActionChannel
+            from rosclaw.agentd.tooling.persistent_client import PersistentMcpClient
+
+            shared = PersistentMcpClient(
+                command=str(spec["command"]), args=tuple(spec["args"])
+            )
+            self._shared_mcp_client = shared
+            self._sim_executors[kit.executor_identity] = SimActionChannel(
+                command=str(spec["command"]),
+                args=tuple(spec["args"]),
+                name=server_name,
+                client=shared,
+            )
+            for adapter in self._mcp_adapters:
+                if adapter.source == kit.executor_identity:
+                    adapter._client = shared
+        self._active_kit = kit
+        self._mcp_discovered = False
+        await self._ensure_mcp_discovered()
+
+    async def robot_list(self) -> dict:
+        """PR-SEVEN-5：第一方 kit 清单 + 活跃/状态标记（/robots）。"""
+        from rosclaw.sim.robot_kit import load_first_party_kits
+
+        disabled = set(self._config.raw.get("kits", {}).get("disabled", []) or [])
+        active_status = await self.robot_kit_status()
+        kits = []
+        for kit in load_first_party_kits():
+            matches_body = kit.body_instance_template == self._body_id
+            is_active = matches_body and self._active_kit is not None
+            if is_active:
+                state = active_status.get("state", "BROKEN")
+            elif kit.kit_id in disabled:
+                state = "DISABLED"
+            else:
+                state = "AVAILABLE"
+            kits.append(
+                {
+                    "kit_id": kit.kit_id,
+                    "display_name": kit.display_name,
+                    "robot_type": kit.robot_type,
+                    "body_instance_template": kit.body_instance_template,
+                    "mode": kit.mode,
+                    "active": is_active,
+                    "state": state,
+                }
+            )
+        return {"ok": True, "kits": kits, "active_body_id": self._body_id}
+
+    def robot_resolve(self, query: str) -> dict:
+        """PR-SEVEN-5：自然语言 → kit 候选。唯一候选自动选；多候选
+        由调用方交互选；无匹配诚实空。"""
+        from rosclaw.sim.robot_kit import match_kits
+
+        def _card(kit) -> dict:
+            return {
+                "kit_id": kit.kit_id,
+                "display_name": kit.display_name,
+                "robot_type": kit.robot_type,
+                "body_instance_template": kit.body_instance_template,
+                "mode": kit.mode,
+            }
+
+        candidates = match_kits(query)
+        return {
+            "ok": True,
+            "candidates": [_card(k) for k in candidates],
+            "selected": _card(candidates[0]) if len(candidates) == 1 else None,
+        }
+
+    async def doctor_task(self, goal: str) -> dict:
+        """PR-SEVEN-5：task readiness——"画五角星"需要 trajectory +
+        executor + verifier。MISSING 时给结构化 remediation（幂等、
+        可取消、绝不自动完成 REAL 授权）。"""
+        from rosclaw.sim.robot_kit import kit_for_body, required_groups_for_goal
+
+        required = required_groups_for_goal(goal)
+        await self._ensure_mcp_discovered()
+        kit = self._active_kit
+        status = await self.robot_kit_status()
+        missing: list[str] = []
+        if kit is None or status.get("state") != "READY":
+            missing = list(required)
+        else:
+
+            def _usable(tool_id: str) -> bool:
+                return (
+                    self._tool_catalog.get(tool_id) is not None
+                    and self._tool_catalog.quarantine_reason(tool_id) is None
+                )
+
+            checks = {
+                "trajectory": any(
+                    "plan" in t for t in kit.compute_tools if _usable(t)
+                ),
+                "verifier": any(
+                    "verify" in t for t in (*kit.compute_tools, *kit.observation_tools)
+                    if _usable(t)
+                ),
+                "executor": status.get("executor") == "READY",
+            }
+            missing = [name for name in required if not checks.get(name, False)]
+        remediation = None
+        if missing:
+            target = kit or kit_for_body(self._body_id)
+            remediation = {
+                "kind": "enable_robot_kit",
+                "kit_id": target.kit_id if target else "",
+                "idempotent": True,
+                "cancellable": True,
+                "real_authorization": False,
+                "command": (
+                    f"/robot repair {target.kit_id}" if target else ""
+                ),
+            }
+        return {
+            "ok": True,
+            "goal": goal,
+            "required": required,
+            "missing": missing,
+            "state": "READY" if not missing else "MISSING",
+            "remediation": remediation,
+        }
+
+    async def robot_repair(self, kit_id: str = "") -> dict:
+        """PR-SEVEN-5：一键修复——取消禁用（持久化）+ 清隔离 + 重建
+        adapter/executor + 重发现。幂等；不触碰任何 REAL 授权。"""
+        import logging
+
+        from rosclaw.sim.robot_kit import kit_for_body, load_first_party_kits
+
+        kits = {k.kit_id: k for k in load_first_party_kits()}
+        kit = kits.get(kit_id) if kit_id else (self._active_kit or kit_for_body(self._body_id))
+        if kit is None:
+            return {
+                "ok": False,
+                "error": f"unknown robot kit {kit_id!r}",
+                "code": "KIT_UNKNOWN",
+            }
+        if kit.body_instance_template != self._body_id:
+            return {
+                "ok": False,
+                "error": f"kit {kit.kit_id} binds {kit.body_instance_template}, "
+                f"active body is {self._body_id}",
+                "code": "BODY_MISMATCH",
+            }
+        disabled = list(self._config.raw.get("kits", {}).get("disabled", []) or [])
+        persisted = True
+        if kit.kit_id in disabled:
+            disabled.remove(kit.kit_id)
+            self._config.raw.setdefault("kits", {})["disabled"] = disabled
+            try:
+                self._settings.set_key("kits.disabled", disabled)
+            except Exception:  # noqa: BLE001 — 内存态仍生效，持久化失败诚实上报
+                persisted = False
+        self._tool_catalog.lift_source_quarantine(kit.executor_identity)
+        await self._activate_kit_runtime(kit)
+        status = await self.robot_kit_status()
+        logging.getLogger("rosclaw.agentd.robot").info(
+            "robot.repair kit=%s state=%s persisted=%s",
+            kit.kit_id,
+            status.get("state"),
+            persisted,
+        )
+        return {
+            "ok": status.get("state") == "READY",
+            "robot_kit": status,
+            "persisted": persisted,
+        }
+
+    async def robot_use(self, body_id: str) -> dict:
+        """PR-SEVEN-5：切换活跃机器人。同 body 幂等；跨 body 仅允许
+        有第一方 SIM kit 的目标且 developer 剖面——v1 不做热切换
+        （context/lease 语义 fail-closed），持久化后重启生效；无 kit
+        的 body（含 REAL 真机）一律拒绝，绝不自动完成真机授权。"""
+        from rosclaw.sim.robot_kit import kit_for_body
+
+        body_id = body_id.strip()
+        if not body_id:
+            return {"ok": False, "error": "body_id required", "code": "INVALID_ARGUMENT"}
+        if body_id == self._body_id:
+            return {"ok": True, "body_id": body_id, "changed": False}
+        kit = kit_for_body(body_id)
+        if kit is None:
+            return {
+                "ok": False,
+                "error": f"no first-party kit for body {body_id!r} — REAL/未知本体"
+                "需要完整的安装/授权工作流，robot use 绝不自动完成",
+                "code": "BODY_UNKNOWN",
+            }
+        if kit.mode != "SIMULATION" or self.authorization_profile() != "DEV_SIM_ONLY":
+            return {
+                "ok": False,
+                "error": "robot use 仅允许 SIM kit + developer 剖面",
+                "code": "MODE_FORBIDDEN",
+            }
+        self._settings.set_key("agent.body_id", body_id)
+        return {
+            "ok": True,
+            "body_id": body_id,
+            "changed": True,
+            "restart_required": True,
+        }
 
     def sim_executor_identity_for(self, source: str) -> str:
         """六审 §6.2.4：按 capability source 解析 SIM 执行通道身份。
