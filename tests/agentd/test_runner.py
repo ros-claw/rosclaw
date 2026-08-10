@@ -156,7 +156,10 @@ class TestPerMissionConcurrency:
 
         class SlowGateway(MockModelGateway):
             async def complete(self, request):
-                await asyncio.sleep(0.6)
+                # 七审合并级联实测：共享 runner 抖动下 0.6s 睡眠的
+                # 串行信号（1.2s）与并发实测（1.12s）几乎不可区分——
+                # 加大睡眠拉开串行/并发间隔，阈值取几何中位。
+                await asyncio.sleep(1.0)
                 return _answer(request)
 
             async def complete_stream(self, request, on_text_delta=None):
@@ -178,9 +181,10 @@ class TestPerMissionConcurrency:
             )
             await asyncio.gather(t1, t2)
             elapsed = time.monotonic() - started
-            # 全局锁时代将是 ~1.2s 串行；每 Mission 锁应接近 ~0.6s 并发。
-            # 阈值取 1.1：留出负载抖动余量，仍能区分串行。
-            assert elapsed < 1.1, f"missions were serialized: {elapsed:.2f}s"
+            # 全局锁将是 ~2.0s 串行；每 Mission 锁应接近 ~1.0s 并发。
+            # 阈值 1.8：串行信号明确（2.0s），共享 runner 抖动（实测
+            # 并发 1.1-1.2s）不会误判。
+            assert elapsed < 1.8, f"missions were serialized: {elapsed:.2f}s"
         finally:
             await service.close()
 
