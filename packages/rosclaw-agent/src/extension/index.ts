@@ -174,14 +174,17 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					await runBootstrap(shortcutCtx as typeof ctx);
 				},
 			});
-			// 30s 周期复探（HOTFIX-3：timer 有明确生命周期——session
-			// shutdown 时清理，不积累）。
+			// 周期复探（HOTFIX-3：timer 有明确生命周期——session
+			// shutdown 时清理，不积累）。七审合并级联实测：30s 周期在
+			// 共享 runner 上有可观概率落进 5s idle 测量窗口（三个 UDS
+			// 探测 + 重绘 ≈ 0.2s CPU）——全部对齐 60s（状态变化本来就
+			// 走 subscribe/force 通道，周期探测只是兜底）。
 			if (probeTimer !== null) clearInterval(probeTimer);
 			probeTimer = setInterval(() => {
 				void center.probeOperator();
 				void center.refreshCapabilities();
 				void center.refreshRobotInfo();
-			}, 30_000);
+			}, 60_000);
 			void center.refreshCapabilities(true);
 			void center.refreshRobotInfo(true);
 			probeTimer.unref();

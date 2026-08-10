@@ -228,7 +228,7 @@ export class ProductStateCenter {
 	/** operatord readiness 真实探测（30s 缓存；force 用于动作门前）。 */
 	async probeOperator(force = false): Promise<OperatorState> {
 		const now = Date.now();
-		if (!force && now - this.lastOperatorProbe < 30_000) return this.operatorState;
+		if (!force && now - this.lastOperatorProbe < 60_000) return this.operatorState;
 		this.lastOperatorProbe = now;
 		let next: OperatorState;
 		try {
