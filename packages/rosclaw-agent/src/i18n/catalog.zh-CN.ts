@@ -54,6 +54,8 @@ export const CATALOG_ZH = {
 	"doctor.task_ready": "任务就绪",
 	"doctor.task_missing": "任务缺能力",
 	"doctor.remediation": "修复建议",
+	"tokens.title": "用量（本 Mission）",
+	"tokens.no_mission": "未绑定 Mission——无用量数据",
 } as const;
 
 export type CatalogKey = keyof typeof CATALOG_ZH;

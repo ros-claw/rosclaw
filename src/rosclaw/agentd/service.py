@@ -595,6 +595,47 @@ class AgentService:
     def mission_usage(self, mission_id: str) -> dict:
         return self._usage.mission_totals(mission_id)
 
+    def usage_report(self, mission_id: str) -> dict:
+        """八审 §4 P0-8：面向 /tokens 的用量报告——provider 请求数、
+        token 分项、工具调用计数、provider 延迟与端到端跨度分离。
+        聚合实时计算，不存可变计数器。"""
+        totals = self._usage.mission_totals(mission_id)
+        rows = self._usage.rows(mission_id)
+        latencies = sorted(int(r.get("latency_ms") or 0) for r in rows)
+        latency: dict[str, int | None] = {"p50": None, "p95": None}
+        if latencies:
+            import math
+
+            latency["p50"] = latencies[
+                max(0, min(len(latencies) - 1, math.ceil(0.50 * len(latencies)) - 1))
+            ]
+            latency["p95"] = latencies[
+                max(0, min(len(latencies) - 1, math.ceil(0.95 * len(latencies)) - 1))
+            ]
+        wall_span_ms: int | None = None
+        if len(rows) >= 2:
+            from datetime import datetime
+
+            first = datetime.fromisoformat(rows[0]["recorded_at"])
+            last = datetime.fromisoformat(rows[-1]["recorded_at"])
+            wall_span_ms = int((last - first).total_seconds() * 1000)
+        tool_events = self._store.connection.execute(
+            "SELECT type, COUNT(*) AS n FROM agent_events "
+            "WHERE mission_id = ? AND type IN ('tool.proposed', 'tool.completed') "
+            "GROUP BY type",
+            (mission_id,),
+        ).fetchall()
+        tool_counts = {t: int(n) for t, n in tool_events}
+        return {
+            **totals,
+            "provider_latency_ms": latency,
+            "wall_span_ms": wall_span_ms,
+            "tool_calls": {
+                "proposed": tool_counts.get("tool.proposed", 0),
+                "completed": tool_counts.get("tool.completed", 0),
+            },
+        }
+
     async def robot_kit_status(self) -> dict:
         """七审 PR-SEVEN-1.4：kit 完整性状态——identity/capabilities/
         executor/policy/probes 要么全 READY 要么 BROKEN（不再"有

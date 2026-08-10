@@ -178,12 +178,18 @@ class ActionAdmissionService:
             )
         leases = ContextLeaseStore(self._service._store.connection)
         lease = leases.get(ctx.context_lease_id)
-        if lease is None or not leases.is_valid(lease):
+        # 八审 §1.5/P0-4：撤销/未知绝不复活；仅 TTL 过期进入下方 JIT
+        # 复验（freshness 保护"状态是否变化"，不惩罚"模型想了多久"）。
+        if lease is None or lease.revoked:
             raise ToolBridgeError(
                 "CONTEXT_NOT_FRESH",
-                "context lease expired, revoked, or unknown — refresh embodied "
+                "context lease revoked or unknown — refresh embodied "
                 "context (fail closed)",
             )
+        from datetime import UTC as _UTC
+        from datetime import datetime as _datetime
+
+        lease_expired = lease.expires_at <= _datetime.now(_UTC).isoformat()
         if (
             lease.pi_session_id != ctx.pi_session_id
             or lease.mission_id != ctx.mission_id
@@ -231,17 +237,51 @@ class ActionAdmissionService:
 
         current_envelope = build_embodied_context(self._service, ctx.mission_id)
         current_hash = context_hash_of(current_envelope)
-        if lease.context_hash and lease.context_hash != current_hash:
+        snapshot = self._service.snapshot(ctx.mission_id)
+        hash_changed = bool(lease.context_hash) and lease.context_hash != current_hash
+        revision_changed = lease.context_revision != snapshot.context_revision
+        # 八审 §1.5/P0-4 JIT 语义：lease 过期时，hash/revision 变化是
+        # 关键状态变化——结构化 NEEDS_REPLAN（编排器可重规划一次），
+        # 不是笼统 CONTEXT_NOT_FRESH，更不默默放行。
+        if lease_expired and (hash_changed or revision_changed):
+            raise ToolBridgeError(
+                "NEEDS_REPLAN",
+                "context changed while the model was planning (hash/revision "
+                "moved) — re-observe and re-plan once (fail closed)",
+            )
+        if hash_changed:
             raise ToolBridgeError(
                 "CONTEXT_HASH_MISMATCH",
                 "context content changed without a revision bump — fail closed",
             )
-        snapshot = self._service.snapshot(ctx.mission_id)
-        if lease.context_revision != snapshot.context_revision:
+        if revision_changed:
             raise ToolBridgeError(
                 "CONTEXT_NOT_FRESH",
                 f"lease revision {lease.context_revision} != current "
                 f"{snapshot.context_revision} — refresh embodied context",
+            )
+        if lease_expired:
+            # JIT 透明续租：SIM + 仅 wall-clock TTL 过期 + 权威上下文
+            # （hash/revision/binding/writer/caller/body/mode）全部未变
+            # ——模型思考时间不再是安全失败。REAL/SHADOW 不自动续租
+            # （commit lease 语义由 daemon 在批准后获取）。
+            if mission.mode.value != "SIMULATION":
+                raise ToolBridgeError(
+                    "CONTEXT_NOT_FRESH",
+                    "context lease expired — refresh embodied context "
+                    "(fail closed; no auto-renew outside SIMULATION)",
+                )
+            lease = leases.issue(
+                pi_session_id=lease.pi_session_id,
+                mission_id=lease.mission_id,
+                context_revision=lease.context_revision,
+                context_hash=lease.context_hash,
+                body_hash=lease.body_hash,
+                mode=lease.mode,
+                binding_id=lease.binding_id,
+                caller_uid=lease.caller_uid,
+                writer_lease_id=lease.writer_lease_id,
+                caller_pid=lease.caller_pid,
             )
         if ctx.context_revision != lease.context_revision:
             raise ToolBridgeError(

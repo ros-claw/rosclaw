@@ -35,7 +35,7 @@ class TestPlanCartesianPath:
         result = _call(
             "ur5e.plan_cartesian_path",
             shape="star5", center_x=0.35, center_y=0.25, z=0.30,
-            outer_radius=0.10,
+            outer_radius=0.10, include_payload=True,
         )
         assert result.get("ok"), result
         points = result["trajectory"]["points"]
@@ -52,7 +52,7 @@ class TestPlanCartesianPath:
         again = _call(
             "ur5e.plan_cartesian_path",
             shape="star5", center_x=0.35, center_y=0.25, z=0.30,
-            outer_radius=0.10,
+            outer_radius=0.10, include_payload=True,
         )
         assert again["trajectory"]["hash"] == result["trajectory"]["hash"]
         assert result["trajectory"]["hash"]
@@ -85,7 +85,7 @@ class TestExecuteAndVerify:
         plan = _call(
             "ur5e.plan_cartesian_path",
             shape="star5", center_x=0.35, center_y=0.25, z=0.30,
-            outer_radius=0.10,
+            outer_radius=0.10, include_payload=True,
         )
         trajectory = plan["trajectory"]
         executed = _call(
@@ -95,7 +95,7 @@ class TestExecuteAndVerify:
         assert executed.get("ok"), executed
         assert executed.get("trajectory_hash") == trajectory["hash"]
         # trace 是时间序列——点数与插值点一致。
-        trace = _call("ur5e.get_cartesian_trace")
+        trace = _call("ur5e.get_cartesian_trace", include_points=True)
         assert trace.get("ok")
         points = trace["trace"]["points"]
         assert len(points) == len(trajectory["points"])
@@ -127,7 +127,7 @@ class TestExecuteAndVerify:
         plan = _call(
             "ur5e.plan_cartesian_path",
             shape="star5", center_x=0.35, center_y=0.25, z=0.30,
-            outer_radius=0.10,
+            outer_radius=0.10, include_payload=True,
         )
         trajectory = dict(plan["trajectory"])
         trajectory["points"] = [dict(p) for p in trajectory["points"]]
@@ -150,10 +150,10 @@ class TestExecuteAndVerify:
         plan = _call(
             "ur5e.plan_cartesian_path",
             shape="star5", center_x=0.35, center_y=0.25, z=0.30,
-            outer_radius=0.10,
+            outer_radius=0.10, include_payload=True,
         )
         _call("ur5e.execute_cartesian_path", trajectory=plan["trajectory"])
-        trace = _call("ur5e.get_cartesian_trace")
+        trace = _call("ur5e.get_cartesian_trace", include_points=True)
         assert trace["trace"]["trajectory_hash"] == plan["trajectory"]["hash"]
         svg = trace["trace"].get("svg", "")
         assert svg.startswith("<svg") and "<polyline" in svg or "<polygon" in svg, (

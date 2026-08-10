@@ -33,6 +33,8 @@ _TOOL_TABLE: dict[str, str] = {
     "rosclaw_fail_safe": "control",
     "rosclaw_delegate": "delegate",
     "rosclaw_request_action": "physical_action",
+    # 八审 P0-5：任务级入口——确定性编译器编排，模型只交 TaskSpec。
+    "rosclaw_task": "task",
 }
 #: 后续批次才开放；现在调用必须得到诚实的"未开放"拒绝。
 _DEFERRED_TOOLS = {
@@ -71,6 +73,25 @@ class PiToolDispatcher:
         ).fetchone()
         if row is not None:
             return PiToolResultV1(**json.loads(row["response_json"]))
+        # 八审 §4 P0-6：doom-loop 熔断——同一工具同一参数出错后原样
+        # 重复直接拒绝（不再消耗模型回合）；成功即重置，不误伤合法
+        # 重复观测。进程级指纹（安全语义仍在 fail-closed 链上，熔断
+        # 只是效率护栏）。
+        fingerprint = request.tool_name + ":" + json.dumps(
+            request.arguments, sort_keys=True, ensure_ascii=False
+        )
+        failures = getattr(self._service, "_tool_fail_fingerprints", None)
+        if failures is None:
+            failures = self._service._tool_fail_fingerprints = {}
+        if failures.get(fingerprint):
+            return PiToolResultV1(
+                request_id=request.request_id,
+                ok=False,
+                status="REJECTED",
+                summary="同一调用已失败过一次——原样重复不会成功。请改变参数、"
+                "改用任务级入口（rosclaw_task），或诚实报告无法完成。",
+                error_code="DOOM_LOOP",
+            )
         try:
             result = await self._execute_validated(request)
         except ToolBridgeError as exc:
@@ -82,6 +103,10 @@ class PiToolDispatcher:
                 error_code=exc.code,
                 retryable=exc.retryable,
             )
+        if result.ok:
+            failures.pop(fingerprint, None)
+        else:
+            failures[fingerprint] = True
         conn.execute(
             "INSERT OR IGNORE INTO pi_tool_idempotency "
             "(idempotency_key, request_id, tool_name, response_json, created_at) "
@@ -183,9 +208,16 @@ class PiToolDispatcher:
                 raise ToolBridgeError(
                     "CAPABILITY_QUARANTINED", f"capability {capability_id} is quarantined"
                 )
-            output = await service._tool_registry.execute(
-                capability_id, dict(args.get("arguments", {}))
-            )
+            try:
+                output = await service._tool_registry.execute(
+                    capability_id, dict(args.get("arguments", {}))
+                )
+            except Exception as exc:  # noqa: BLE001 — 八审 P0-6：错误分类
+                raise ToolBridgeError(
+                    "INVALID_ARGUMENTS" if "validation" in str(type(exc).__name__).lower()
+                    or "validation" in str(exc).lower() else "EXECUTOR_ERROR",
+                    f"{type(exc).__name__}: {exc}"[:400],
+                ) from exc
             text = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
             return PiToolResultV1(
                 request_id=request.request_id,
@@ -215,9 +247,16 @@ class PiToolDispatcher:
                 raise ToolBridgeError(
                     "CAPABILITY_QUARANTINED", f"capability {capability_id} is quarantined"
                 )
-            output = await service._tool_registry.execute(
-                capability_id, dict(args.get("arguments", {}))
-            )
+            try:
+                output = await service._tool_registry.execute(
+                    capability_id, dict(args.get("arguments", {}))
+                )
+            except Exception as exc:  # noqa: BLE001 — 八审 P0-6：错误分类
+                raise ToolBridgeError(
+                    "INVALID_ARGUMENTS" if "validation" in str(type(exc).__name__).lower()
+                    or "validation" in str(exc).lower() else "EXECUTOR_ERROR",
+                    f"{type(exc).__name__}: {exc}"[:400],
+                ) from exc
             text = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
             return PiToolResultV1(
                 request_id=request.request_id,
@@ -247,6 +286,8 @@ class PiToolDispatcher:
             )
         if name == "rosclaw_request_action":
             return await self._request_action(request)
+        if name == "rosclaw_task":
+            return await self._task(request)
         if name == "rosclaw_delegate":
             return await self._delegate(request)
         if name == "rosclaw_fail_safe":
@@ -361,6 +402,68 @@ class PiToolDispatcher:
             status="COMPLETED",
             summary=result.summary,
             artifact_refs=[a.ref for a in result.artifacts],
+        )
+
+    async def _task(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """八审 §1.6/P0-5：任务级入口——TaskRunner 确定性编排
+        （规划→策略→单动作→自动验证），模型只收 TaskResult 摘要。"""
+        from rosclaw.agentd.pi_bridge.action_admission import ActionRequestContext
+        from rosclaw.agentd.task_runner import TaskRunner
+
+        args = request.arguments
+        goal = str(args.get("goal", "")).strip()
+        parameters = args.get("parameters")
+        if not str(args.get("task_id", "") or "") and (
+            not goal or not isinstance(parameters, dict)
+        ):
+            raise ToolBridgeError(
+                "INVALID_ARGUMENTS", "goal and parameters required (fail closed)"
+            )
+        mission = self._service.get_mission(request.mission_id)
+        ctx = ActionRequestContext(
+            pi_session_id=request.pi_session_id,
+            mission_id=request.mission_id,
+            context_revision=request.context_revision,
+            body_hash=mission.body_binding.effective_body_hash if mission else "",
+            mode=mission.mode.value if mission else "",
+            idempotency_key=request.idempotency_key,
+            context_lease_id=request.context_lease_id,
+        )
+        runner = TaskRunner(self._service)
+        # 两阶段：submit（wait=False——ASK 时立即返回 WAITING_APPROVAL
+        # 视图供 TUI 展卡）与 resume（task_id 重入，批准后执行+验证）。
+        resume_task_id = str(args.get("task_id", "") or "")
+        if resume_task_id:
+            payload = await runner.resume(
+                task_id=resume_task_id,
+                request_ctx=ctx,
+                caller_pid=self._caller_pid,
+                caller_uid=self._caller_uid,
+            )
+        else:
+            payload = await runner.run(
+                request_ctx=ctx,
+                goal=goal,
+                parameters=parameters,
+                caller_pid=self._caller_pid,
+                caller_uid=self._caller_uid,
+                wait=False,
+            )
+        import json as _json
+
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=payload["state"] in ("VERIFIED", "WAITING_APPROVAL"),
+            status=(
+                "COMPLETED" if payload["state"] == "VERIFIED"
+                else "PENDING" if payload["state"] == "WAITING_APPROVAL"
+                else "REJECTED"
+            ),
+            summary=_json.dumps(payload, ensure_ascii=False),
+            error_code=(
+                "" if payload["state"] in ("VERIFIED", "WAITING_APPROVAL")
+                else payload["state"]
+            ),
         )
 
     async def _request_action(self, request: PiToolRequestV1) -> PiToolResultV1:

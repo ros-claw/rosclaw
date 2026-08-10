@@ -191,6 +191,29 @@ class _FakeModel:
                 frames.append(_sse(_chunk("", "stop")))
                 frames.append(b"data: [DONE]\n\n")
                 return b"".join(frames)
+            if tool_call_id == "call_task":
+                # 八审 P0-5：任务结果即最终回答依据（state VERIFIED +
+                # verification PASS 才说完成）。tool 内容可能是包装
+                # JSON 或直接内层 JSON——两种都解析。
+                state = ""
+                verdict = ""
+                inner: dict = {}
+                with contextlib.suppress(Exception):
+                    wrapper = json.loads(tool_content)
+                    if isinstance(wrapper, dict) and "content" in wrapper:
+                        inner = json.loads(wrapper["content"][0])
+                    elif isinstance(wrapper, dict):
+                        inner = wrapper
+                    state = str(inner.get("state", ""))
+                    verdict = str((inner.get("verification") or {}).get("verdict", ""))
+                if state == "VERIFIED" and verdict == "PASS":
+                    answer = "五角星已绘制完成，几何验证通过。"
+                else:
+                    answer = f"任务未完成（{state or 'UNKNOWN'}）。"
+                frames.append(_sse(_chunk(answer)))
+                frames.append(_sse(_chunk("", "stop")))
+                frames.append(b"data: [DONE]\n\n")
+                return b"".join(frames)
             # 七审 §6 PR-SEVEN-4：五角星任务链——capabilities →
             # plan(COMPUTE) → execute（整条轨迹一个 ExactAction）→
             # trace → verify(COMPUTE) → 基于 verifier 的回答。
@@ -216,22 +239,21 @@ class _FakeModel:
                 frames.append(b"data: [DONE]\n\n")
                 return b"".join(frames)
             if tool_call_id == "call_plan":
-                # 从 plan 结果里取出 trajectory（含 canonical hash）原样
-                # 提交执行——一个 ExactAction 覆盖整条轨迹。tool 结果是
-                # 包装 JSON：{"tool":..., "content": ["<内层 JSON>"]}。
-                trajectory = {}
+                # 八审 P0-3：不透明句柄——plan 结果只含 plan_id/digest/
+                # 摘要；动作只带 plan_id（模型不搬运轨迹/hash）。
+                plan_id = ""
                 with contextlib.suppress(Exception):
                     wrapper = json.loads(tool_content)
                     inner = json.loads(wrapper["content"][0])
-                    trajectory = inner["trajectory"]
+                    plan_id = inner["plan_id"]
                 frames.extend(
                     _tool_call_frames(
                         "call_action",
                         "rosclaw_request_action",
                         json.dumps(
                             {
-                                "capability_id": "ur5e.execute_cartesian_path",
-                                "arguments": {"trajectory": trajectory},
+                                "capability_id": "ur5e.execute_plan",
+                                "arguments": {"plan_id": plan_id},
                                 "expected_effect": "绘制五角星轨迹",
                                 "risk_tier": "LOW",
                             }
@@ -251,12 +273,7 @@ class _FakeModel:
                 frames.append(b"data: [DONE]\n\n")
                 return b"".join(frames)
             if tool_call_id == "call_trace":
-                # 包装 JSON 解析（内层转义——裸正则匹配不到）。
-                expected_hash = ""
-                with contextlib.suppress(Exception):
-                    wrapper = json.loads(tool_content)
-                    inner = json.loads(wrapper["content"][0])
-                    expected_hash = inner["trace"]["trajectory_hash"]
+                # 八审 P0-3：verify 默认验证最近执行的 plan——模型不传 hash。
                 frames.extend(
                     _tool_call_frames(
                         "call_verify",
@@ -264,9 +281,7 @@ class _FakeModel:
                         json.dumps(
                             {
                                 "capability_id": "ur5e.verify_drawing",
-                                "arguments": {
-                                    "expected_trajectory_hash": expected_hash,
-                                },
+                                "arguments": {},
                             }
                         ),
                     )
@@ -351,9 +366,23 @@ class _FakeModel:
                 )
             )
         elif "画五角星" in text or "画一个五角星" in text:
-            # 六审 §6.3：机械臂仿真请求 → 先查当前 body 的可信能力面。
+            # 八审 P0-5：任务级入口——一次 rosclaw_task 调用（确定性
+            # 编译器完成规划/策略/执行/验证），不再手工拼工具链。
             frames.extend(
-                _tool_call_frames("call_caps", "rosclaw_capabilities", "{}")
+                _tool_call_frames(
+                    "call_task",
+                    "rosclaw_task",
+                    json.dumps(
+                        {
+                            "goal": "draw_shape",
+                            "parameters": {
+                                "shape": "star5",
+                                "center_m": [0.35, 0.25, 0.30],
+                                "radius_m": 0.10,
+                            },
+                        }
+                    ),
+                )
             )
         elif "回到零点" in text:
             # 七审 PR-SEVEN-7 Journey B：单独动作（deny 腿）——一次
@@ -1184,68 +1213,49 @@ class TestProductJourney:
         raise AssertionError("/compact 后 session 无 compaction 条目——compact 未真完成")
 
     def _assert_star_verified(self, home: Path) -> None:
-        """七审 §6 PR-SEVEN-4.6-8：五角星任务级证据——
-        - verify_drawing PASS（端点/RMSE/闭合误差数字在案）；
-        - 整条轨迹一个 ActionTxn（不是每个插值点一个）；
-        - trace 与 plan 同 hash。"""
-
-        verdicts: list[dict] = []
-        traces: list[str] = []
-        sessions_dir = home / "agent" / "sessions"
-        for session_file in sessions_dir.glob("*.jsonl"):
-            for line in session_file.read_text(
-                encoding="utf-8", errors="replace"
-            ).splitlines():
-                if '"toolResult"' not in line:
-                    continue
-                with contextlib.suppress(Exception):
-                    entry = json.loads(line)
-                    content = entry.get("message", {}).get("content")
-                    if not isinstance(content, list):
-                        continue
-                    for block in content:
-                        if not isinstance(block, dict) or block.get("type") != "text":
-                            continue
-                        text = block.get("text", "")
-                        if not text.startswith('{"tool": "ur5e.'):
-                            continue
-                        # 包装 JSON：内层转义——解析后取内层结构。
-                        with contextlib.suppress(Exception):
-                            wrapper = json.loads(text)
-                            inner = json.loads(wrapper["content"][0])
-                            if "verification" in inner:
-                                verdict = inner["verification"]
-                                verdicts.append(
-                                    {
-                                        "verdict": verdict.get("verdict"),
-                                        "rmse_m": verdict.get("rmse_m"),
-                                        "closure_error_m": verdict.get("closure_error_m"),
-                                    }
-                                )
-                            trace = inner.get("trace")
-                            if isinstance(trace, dict) and trace.get("trajectory_hash"):
-                                traces.append(trace["trajectory_hash"])
-                            traj = inner.get("trajectory")
-                            if isinstance(traj, dict) and traj.get("hash"):
-                                traces.append(traj["hash"])
-        assert verdicts, "缺 verify_drawing 结果——模型自称完成不算数"
-        assert verdicts[-1]["verdict"] == "PASS", f"几何验证未过: {verdicts[-1]}"
-        assert verdicts[-1]["rmse_m"] is not None and verdicts[-1]["rmse_m"] < 0.005
-        assert verdicts[-1]["closure_error_m"] is not None and verdicts[-1]["closure_error_m"] < 0.005
-        # trace 与 plan 同 hash（执行证据绑定规划对象）。
-        assert traces and len(set(traces)) == 1, f"trace/plan hash 不一致: {set(traces)}"
-        # 整条轨迹一个 txn。
+        """七审 PR-SEVEN-4.6-8 + 八审 P0-5：五角星任务级证据——
+        - task_records 权威状态 VERIFIED + verification PASS（端点/
+          RMSE/闭合误差数字在案）；
+        - 整条轨迹一个 ActionTxn（ur5e.execute_plan）；
+        - plan/txn 引用齐全；
+        - 模型上下文无完整插值点数组（句柄视图）。"""
         import sqlite3
 
         db = sqlite3.connect(home / "agentd" / "missions.db")
+        task = db.execute(
+            "SELECT state, plan_id, plan_digest, verification_json, txn_id "
+            "FROM task_records ORDER BY rowid DESC LIMIT 1"
+        ).fetchone()
         rows = db.execute(
             "SELECT capability_id FROM action_txns"
         ).fetchall()
         db.close()
-        assert len(rows) == 1 and rows[0][0] == "ur5e.execute_cartesian_path", (
+        assert task, "缺 task_records——任务未走 Task Runner"
+        state, plan_id, plan_digest, verification_json, txn_id = task
+        assert state == "VERIFIED", f"任务未 VERIFIED: {state}"
+        verification = json.loads(verification_json)
+        assert verification.get("verdict") == "PASS", f"几何验证未过: {verification}"
+        assert verification.get("rmse_m") is not None and verification["rmse_m"] < 0.005
+        assert (
+            verification.get("closure_error_m") is not None
+            and verification["closure_error_m"] < 0.005
+        )
+        assert plan_id and plan_digest, "task 缺 plan 引用"
+        assert txn_id, "task 缺 txn 引用"
+        # 整条轨迹一个 txn（execute_plan）。
+        assert len(rows) == 1 and rows[0][0] == "ur5e.execute_plan", (
             f"轨迹应单 txn 单动作: {rows}"
         )
         self._journey_verdicts["star_trajectory_verified"] = True
+        # 八审 P0-3 验收：模型上下文（session JSONL）不得出现完整
+        # 插值点数组。
+        sessions_dir = home / "agent" / "sessions"
+        for session_file in sessions_dir.glob("*.jsonl"):
+            content = session_file.read_text(encoding="utf-8", errors="replace")
+            assert '"points": [{' not in content, (
+                "模型上下文泄漏完整插值点数组（plan 必须是句柄视图）"
+            )
+        self._journey_verdicts["no_payload_in_model_context"] = True
 
     def _assert_cross_body_rejected(self, session: PtySession, home: Path) -> None:
         """六审 §6.3.10 + 七审 kit 化：LIMO 动作不属于 UR5e 机器人——
@@ -1384,7 +1394,7 @@ class TestProductJourney:
                 assert approval_id in approval_ids
                 assert grant_id in {g[0] for g in grants}
                 assert action_id and receipt_id, f"txn {txn_id} 缺 action/receipt ID"
-                assert capability == "ur5e.execute_cartesian_path"
+                assert capability == "ur5e.execute_plan"
             receipts = [
                 json.loads(p) for t, p in events if t == "receipt.received"
             ]

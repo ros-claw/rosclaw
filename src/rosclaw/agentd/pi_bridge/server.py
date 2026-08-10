@@ -323,6 +323,13 @@ class PiBridgeServer:
         if method == "pi.doctor.task":
             # 七审 PR-SEVEN-5：task readiness（/doctor task <goal>）。
             return await service.doctor_task(str(params.get("goal", "")))
+        if method == "pi.usage":
+            # 八审 §4 P0-8：/tokens 的用量面（provider 请求/token 分项/
+            # 工具计数/延迟分离）。
+            mission_id = str(params.get("mission_id", ""))
+            if mission_id and service.get_mission(mission_id) is None:
+                return {"ok": False, "error": "unknown mission", "code": "MISSION_NOT_FOUND"}
+            return {"ok": True, "usage": service.usage_report(mission_id)}
         if method == "pi.capabilities":
             # 六审 §6.2.1/§6.2.6：当前 body 的可信能力面——模型不再靠猜
             # capability ID。动作能力只列 body 兼容项；不兼容/被隔离项进

@@ -56,4 +56,6 @@ export const CATALOG_EN: Record<CatalogKey, string> = {
 	"doctor.task_ready": "Task ready",
 	"doctor.task_missing": "Task missing capabilities",
 	"doctor.remediation": "Remediation",
+	"tokens.title": "Usage (this mission)",
+	"tokens.no_mission": "No mission bound — no usage data",
 };

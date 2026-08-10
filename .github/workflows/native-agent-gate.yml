@@ -376,3 +376,71 @@ jobs:
           assert m.get("source_checkout_accessible") is False
           print("manifest fields OK:", {k: m[k] for k in required})
           PY
+
+  # 八审 §4 P0-1：真实模型 Behavior Gate——与 Protocol Journey 并存、
+  # 互不替代。nightly 或显式 dispatch 运行；无真实 provider key 时
+  # 诚实 skip（不假绿）。artifact 为脱敏指标/verdict，无密钥无正文。
+  behavior-gate:
+    name: Real-Model Behavior Gate (Kimi K3)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: Install Python deps (repo .venv — build_release.sh 依赖它)
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -e . pytest pytest-asyncio
+      - name: Install Node deps (rosclaw-agent)
+        run: |
+          cd packages/rosclaw-agent
+          npm ci
+      - name: Run real-model behavior journey
+        id: run
+        env:
+          ROSCLAW_KIMI_API_KEY: ${{ secrets.ROSCLAW_KIMI_API_KEY }}
+        run: |
+          .venv/bin/python -m pytest tests/behavior/test_real_model_sim_star.py -q --tb=short \
+            --junitxml=/tmp/junit-behavior.xml
+      - name: Curate behavior evidence (sanitized)
+        if: always()
+        run: |
+          PACK=/tmp/behavior-pack
+          mkdir -p "$PACK"
+          SRC=$(ls -dt /tmp/pytest-of-*/pytest-*/test_sim_star_real_model0 2>/dev/null | head -1)
+          for f in behavior-metrics.json behavior-verdict.json; do
+            if [ -f "$SRC/$f" ]; then cp "$SRC/$f" "$PACK/$f"; fi
+          done
+          [ -f /tmp/junit-behavior.xml ] && cp /tmp/junit-behavior.xml "$PACK/junit.xml" || true
+          ls -la "$PACK"
+      - name: Upload behavior evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: behavior-gate-${{ github.sha }}
+          path: /tmp/behavior-pack/**
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Write evidence manifest
+        if: always()
+        env:
+          GITHUB_EVENT_HEAD_SHA: ${{ github.event.head_commit.id || github.sha }}
+          GITHUB_EVENT_BASE_SHA: ${{ github.event.before || github.sha }}
+          TEST_SELECTION: "pytest tests/behavior/test_real_model_sim_star.py"
+          TEST_CONCLUSION: ${{ steps.run.outcome }}
+        run: bash scripts/ci/write_evidence_manifest.sh "${{ github.job }}" /tmp/evidence/evidence-manifest.json
+      - name: Upload evidence manifest
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: evidence-manifest-${{ github.job }}-${{ github.sha }}
+          path: /tmp/evidence/evidence-manifest.json
+          if-no-files-found: error
+          retention-days: 90

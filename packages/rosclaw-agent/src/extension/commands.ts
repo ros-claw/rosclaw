@@ -133,6 +133,49 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 				);
 			},
 		},
+		tokens: {
+			description: "Token/延迟用量分解（/tokens）",
+			handler: async (_args, ctx) => {
+				const loc = deps.locale.effective;
+				const missionId = deps.active.current.missionId;
+				if (!missionId) {
+					notify(ctx, i18nT("tokens.no_mission", loc), "warning");
+					return;
+				}
+				try {
+					const result = await deps.center.call("pi.usage", { mission_id: missionId });
+					if (!result.ok) {
+						notify(ctx, `usage: ${String(result.error ?? "")}`, "error");
+						return;
+					}
+					const u = (result.usage ?? {}) as {
+						model_turns?: number; prompt_tokens?: number;
+						completion_tokens?: number; total_tokens?: number;
+						cost_microunits?: number; wall_span_ms?: number | null;
+						provider_latency_ms?: { p50?: number | null; p95?: number | null };
+						tool_calls?: { proposed?: number; completed?: number };
+					};
+					const lat = u.provider_latency_ms ?? {};
+					const tools = u.tool_calls ?? {};
+					notify(
+						ctx,
+						`${i18nT("tokens.title", loc)}:
+` +
+						`模型请求 ${u.model_turns ?? 0} · tokens in/out/total ` +
+						`${u.prompt_tokens ?? 0}/${u.completion_tokens ?? 0}/${u.total_tokens ?? 0} · ` +
+						`成本 ${(u.cost_microunits ?? 0) / 1e6} 元
+` +
+						`provider 延迟 p50/p95 ${lat.p50 ?? "-"}/${lat.p95 ?? "-"}ms · ` +
+						`端到端跨度 ${u.wall_span_ms ?? "-"}ms
+` +
+						`工具调用 proposed/completed ${tools.proposed ?? 0}/${tools.completed ?? 0}`,
+						"info",
+					);
+				} catch (err) {
+					notify(ctx, `agentd=UNREACHABLE（${(err as Error).message}）`, "error");
+				}
+			},
+		},
 		doctor: {
 			description: "诊断摘要 + 任务就绪检查：/doctor [task <目标>]",
 			handler: async (args, ctx) => {

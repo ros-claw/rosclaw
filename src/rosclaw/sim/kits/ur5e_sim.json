@@ -1,32 +1,64 @@
 {
-  "schema_version": "rosclaw.robot_kit.v1",
-  "kit_id": "rosclaw/ur5e-sim",
-  "robot_type": "ur5e",
-  "display_name": "UR5e（本地仿真）",
-  "keywords": ["ur5e", "arm", "robot arm", "机械臂", "manipulator", "手臂"],
-  "body_instance_template": "sim/ur5e",
-  "mode": "SIMULATION",
-  "capability_sources": ["mcp:ur5e-sim"],
-  "executor": {
-    "kind": "python_module",
-    "module": "rosclaw.sim.ur5e_mcp",
-    "identity": "mcp:ur5e-sim"
-  },
-  "safety_envelope": {
-    "workspace": "ur5e_default_workspace_v1",
-    "radius_m": [0.10, 0.80],
-    "z_m": [0.02, 1.20]
-  },
-  "approval_policy": {
-    "simulation_state_only": "auto",
-    "host_mutation": "confirm",
-    "external_network": "confirm",
-    "real_world": "human_operator"
-  },
-  "health_probes": ["catalog_discovery", "executor_roundtrip", "state_reset"],
-  "capabilities": {
-    "observation": ["ur5e.get_joint_state", "ur5e.get_end_effector_pose", "ur5e.get_cartesian_trace"],
-    "action": ["ur5e.move_joints", "ur5e.move_to_pose", "ur5e.stop", "ur5e.execute_cartesian_path", "ur5e.reset_simulation"],
-    "compute": ["ur5e.plan_cartesian_path", "ur5e.verify_drawing"]
-  }
+ "schema_version": "rosclaw.robot_kit.v1",
+ "kit_id": "rosclaw/ur5e-sim",
+ "robot_type": "ur5e",
+ "display_name": "UR5e（本地仿真）",
+ "keywords": [
+  "ur5e",
+  "arm",
+  "robot arm",
+  "机械臂",
+  "manipulator",
+  "手臂"
+ ],
+ "body_instance_template": "sim/ur5e",
+ "mode": "SIMULATION",
+ "capability_sources": [
+  "mcp:ur5e-sim"
+ ],
+ "executor": {
+  "kind": "python_module",
+  "module": "rosclaw.sim.ur5e_mcp",
+  "identity": "mcp:ur5e-sim"
+ },
+ "safety_envelope": {
+  "workspace": "ur5e_default_workspace_v1",
+  "radius_m": [
+   0.1,
+   0.8
+  ],
+  "z_m": [
+   0.02,
+   1.2
+  ]
+ },
+ "approval_policy": {
+  "simulation_state_only": "auto",
+  "host_mutation": "confirm",
+  "external_network": "confirm",
+  "real_world": "human_operator"
+ },
+ "health_probes": [
+  "catalog_discovery",
+  "executor_roundtrip",
+  "state_reset"
+ ],
+ "capabilities": {
+  "observation": [
+   "ur5e.get_joint_state",
+   "ur5e.get_end_effector_pose",
+   "ur5e.get_cartesian_trace"
+  ],
+  "action": [
+   "ur5e.move_joints",
+   "ur5e.move_to_pose",
+   "ur5e.stop",
+   "ur5e.execute_plan",
+   "ur5e.reset_simulation"
+  ],
+  "compute": [
+   "ur5e.plan_cartesian_path",
+   "ur5e.verify_drawing"
+  ]
+ }
 }
