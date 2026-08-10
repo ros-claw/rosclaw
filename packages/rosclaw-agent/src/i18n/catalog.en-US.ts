@@ -34,6 +34,7 @@ export const CATALOG_EN: Record<CatalogKey, string> = {
 	"reason.CONTEXT_STALE": "context stale",
 	"reason.NO_CONTEXT_LEASE": "no context lease",
 	"reason.OPERATOR_OFFLINE": "operator offline",
+	"reason.ROBOT_KIT_INCOMPLETE": "robot motion kit not enabled",
 	"working.default": "Working…",
 	"operator.bootstrap_title": "ROSClaw Operator (local authorization service)",
 	"operator.bootstrap_state_new": "Not initialized",

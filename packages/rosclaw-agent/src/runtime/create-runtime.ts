@@ -32,6 +32,7 @@ import { buildBridgeTools } from "../tools/bridge-tools.js";
 import { buildDelegateTool } from "../tools/delegate.js";
 import { buildRequestActionTool } from "../tools/request-action.js";
 import { buildCapabilitiesTool } from "../tools/capabilities.js";
+import { buildComputeTool } from "../tools/compute.js";
 import { buildStatusTool } from "../tools/status.js";
 
 export interface RosclawRuntimeOptions {
@@ -183,6 +184,12 @@ export async function createRosclawRuntime(
 				buildStatusTool(center),
 				// PR-SIX-3：当前 body 的可信能力面（模型不再猜 ID）。
 				buildCapabilitiesTool({
+					rosclawHome: options.rosclawHome,
+					active,
+					center,
+				}),
+				// PR-SEVEN-2：COMPUTE 能力免审批调用。
+				buildComputeTool({
 					rosclawHome: options.rosclawHome,
 					active,
 					center,

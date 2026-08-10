@@ -633,6 +633,23 @@ class AgentService:
             "server": server_name,
         }
 
+    async def action_blockers(self) -> list[dict[str, str]]:
+        """七审 §2.1/PR-SEVEN-2.4：动作受阻原因全量聚合（按可操作性
+        排序）——Header 显示最可操作的 1-2 个，/status 显示全量。"""
+        blockers: list[dict[str, str]] = []
+        await self._ensure_mcp_discovered()
+        kit_status = await self.robot_kit_status()
+        if kit_status["state"] != "READY":
+            blockers.append(
+                {
+                    "code": "ROBOT_KIT_INCOMPLETE",
+                    "detail": kit_status.get("reason")
+                    or f"动作能力 {kit_status.get('action_capability_count', 0)}"
+                    f"/executor {kit_status.get('executor')}",
+                }
+            )
+        return blockers
+
     def sim_executor_identity_for(self, source: str) -> str:
         """六审 §6.2.4：按 capability source 解析 SIM 执行通道身份。
         身份即路由目标（mcp:<server>/native:agentd）；通道缺失时由

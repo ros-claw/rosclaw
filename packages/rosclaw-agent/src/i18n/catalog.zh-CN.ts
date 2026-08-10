@@ -32,6 +32,7 @@ export const CATALOG_ZH = {
 	"reason.CONTEXT_STALE": "上下文过期",
 	"reason.NO_CONTEXT_LEASE": "无上下文租约",
 	"reason.OPERATOR_OFFLINE": "操作员离线",
+	"reason.ROBOT_KIT_INCOMPLETE": "机器人运动组件未启用",
 	"working.default": "正在处理…",
 	"operator.bootstrap_title": "ROSClaw Operator（本机授权服务）",
 	"operator.bootstrap_state_new": "尚未初始化",

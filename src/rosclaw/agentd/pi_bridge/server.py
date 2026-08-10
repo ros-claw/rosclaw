@@ -245,11 +245,17 @@ class PiBridgeServer:
             from rosclaw.agentd.tooling.body_compat import check_body_compatibility
 
             body_id = mission.body_binding.body_id
+            # 七审 §2.2：按 execution_class 精确分桶——不再是"非
+            # PHYSICAL_ACTION 就算 observation"（COMPUTE 的 sim_reach
+            # 曾被错列为只读观测）。
             observation: list[dict[str, Any]] = []
+            compute: list[dict[str, Any]] = []
             actions: list[dict[str, Any]] = []
             excluded: list[dict[str, Any]] = []
+            sim_executor_sources = set(service._sim_executors.keys())
             for descriptor in service._tool_catalog.list():
-                if descriptor.execution_class.value != "PHYSICAL_ACTION":
+                cls = descriptor.execution_class.value
+                if cls == "OBSERVE":
                     if descriptor.model_callable:
                         observation.append(
                             {
@@ -260,12 +266,34 @@ class PiBridgeServer:
                             }
                         )
                     continue
+                if cls == "COMPUTE":
+                    compute.append(
+                        {
+                            "capability_id": descriptor.tool_id,
+                            "version": descriptor.version,
+                            "source": descriptor.source,
+                            "description": descriptor.description[:120],
+                            "effect_domain": "none",
+                        }
+                    )
+                    continue
+                if cls != "PHYSICAL_ACTION":
+                    continue  # CONTROL/DELEGATE 不混入能力面
                 reason = check_body_compatibility(descriptor, body_id)
                 quarantine = service._tool_catalog.quarantine_reason(descriptor.tool_id)
                 if quarantine and reason is None:
                     reason = "CAPABILITY_QUARANTINED"
                 if mission.mode.value not in list(descriptor.supported_modes):
                     reason = reason or "MODE_FORBIDDEN"
+                legacy_native = (
+                    descriptor.source == "native:agentd"
+                    and getattr(service._handlers, "_sim_channel", None) is not None
+                )
+                executor_state = (
+                    "READY"
+                    if descriptor.source in sim_executor_sources or legacy_native
+                    else "MISSING"
+                )
                 entry = {
                     "capability_id": descriptor.tool_id,
                     "version": descriptor.version,
@@ -273,16 +301,31 @@ class PiBridgeServer:
                     "risk_tier": descriptor.risk_tier,
                     "side_effect_class": descriptor.side_effect_class.value,
                     "description": descriptor.description[:120],
+                    # 七审 §6 PR-SEVEN-2.3：每条动作带 effect_domain/
+                    # executor_state/body_compatibility。
+                    "effect_domain": (
+                        "simulation"
+                        if mission.mode.value == "SIMULATION"
+                        else "real"
+                    ),
+                    "executor_state": executor_state,
+                    "body_compatibility": reason is None,
                 }
-                if reason is None:
+                if reason is None and executor_state == "READY":
                     actions.append(entry)
                 else:
-                    excluded.append({**entry, "reason": reason})
+                    excluded.append(
+                        {
+                            **entry,
+                            "reason": reason or "EXECUTOR_FOR_BODY_UNAVAILABLE",
+                        }
+                    )
             return {
                 "ok": True,
                 "body_id": body_id,
                 "mode": mission.mode.value,
                 "observation_capabilities": observation,
+                "compute_capabilities": compute,
                 "action_capabilities": actions,
                 "excluded": excluded,
             }

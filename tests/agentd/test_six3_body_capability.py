@@ -227,6 +227,10 @@ class TestCapabilitiesSurface:
             service, "test.arm.move_to_pose", source="mcp:test-arm-sim",
             body_types=["sim/ur5e"],
         )
+        # 七审 PR-SEVEN-2：executor_state 进入 listing——本用例测 body
+        # 兼容面，给测试 source 注册一个 executor（否则正确落入
+        # excluded[EXECUTOR_FOR_BODY_UNAVAILABLE]）。
+        service._sim_executors["mcp:test-arm-sim"] = object()
         _register_action(
             service, "limo.speaker.play_tone", source="mcp:limo-sim",
             body_types=["sim/limo"],

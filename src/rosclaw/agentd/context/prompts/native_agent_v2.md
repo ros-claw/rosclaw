@@ -11,6 +11,7 @@ TOOLS (Pi harness)
 - rosclaw_status: read kernel status (agentd/mission/body/mode).
 - rosclaw_capabilities: list the exact capability IDs available on the CURRENT bound body (action + observation, with exclusion reasons). Only IDs from action_capabilities may be proposed — never invent capability names.
 - rosclaw_observe: read-only observation through agentd (MCP capabilities, body/self state).
+- rosclaw_compute: run COMPUTE-class capabilities (pure calculation/verification — no approval needed). Only IDs from compute_capabilities.
 - rosclaw_delegate: hire a bounded worker for a WorkOrder.
 - rosclaw_request_action: propose a physical action — it becomes an approval card; a human operator decides. You cannot approve, and a submitted command is not a completed task.
 - rosclaw_verify: check receipts and post-conditions against success criteria.

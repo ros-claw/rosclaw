@@ -75,6 +75,8 @@ export class ProductStateCenter {
 	private operatorState: OperatorState = "UNKNOWN";
 	private lastOperatorProbe = 0;
 	private modelDisplay = "";
+	private capabilityBlocker: string | null = null;
+	private lastCapabilityProbe = 0;
 	private readonly listeners = new Set<Listener>();
 	private readonly callFn: typeof bridgeCall;
 	private readonly operatorCallFn: typeof operatorCall;
@@ -126,6 +128,11 @@ export class ProductStateCenter {
 		if (state.leaseState !== "ACTIVE") codes.push("NO_WRITER_LEASE");
 		if (state.missionId && state.contextState !== "FRESH") codes.push("CONTEXT_STALE");
 		if (state.missionId && !state.contextLeaseId) codes.push("NO_CONTEXT_LEASE");
+		// 七审 §2.1：kit/能力 blocker 先于 operator——action count=0
+		// 时只怪 Operator 是误导。
+		if (state.missionId && this.capabilityBlocker) {
+			codes.push(this.capabilityBlocker);
+		}
 		if (this.operatorState === "OFFLINE") codes.push("OPERATOR_OFFLINE");
 		return {
 			state: codes.length === 0 ? "READY" : "BLOCKED",
@@ -193,6 +200,28 @@ export class ProductStateCenter {
 			this.changed();
 		}
 		return this.operatorState;
+	}
+
+	/** 七审 PR-SEVEN-2.3：能力面探测（60s 缓存）——action count=0
+	 *  或 executor 缺失时 readiness 含 ROBOT_KIT_INCOMPLETE。 */
+	async refreshCapabilities(force = false): Promise<void> {
+		const missionId = this.deps.active.current.missionId;
+		if (!missionId) return;
+		const now = Date.now();
+		if (!force && now - this.lastCapabilityProbe < 60_000) return;
+		this.lastCapabilityProbe = now;
+		try {
+			const result = await this.call("pi.capabilities", { mission_id: missionId });
+			if (!result.ok) return;
+			const actions = (result.action_capabilities ?? []) as unknown[];
+			const next = actions.length === 0 ? "ROBOT_KIT_INCOMPLETE" : null;
+			if (next !== this.capabilityBlocker) {
+				this.capabilityBlocker = next;
+				this.changed();
+			}
+		} catch {
+			// 桥失败已由 call() 原子降级——capability blocker 保持现状。
+		}
 	}
 
 	/** /status 与 rosclaw_status 共享的新鲜报告：UDS pi.status + 快照。 */

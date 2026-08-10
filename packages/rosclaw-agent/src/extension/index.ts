@@ -153,7 +153,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			if (probeTimer !== null) clearInterval(probeTimer);
 			probeTimer = setInterval(() => {
 				void center.probeOperator();
+				void center.refreshCapabilities();
 			}, 30_000);
+			void center.refreshCapabilities(true);
 			probeTimer.unref();
 			ctx.ui.setWorkingIndicator({ frames: WORKING_FRAMES, intervalMs: 80 });
 			// P1-TUI-01：中性本地化状态词——不伪造思维过程（"Thinking..."
@@ -221,6 +223,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				registeredToolNames: () => [
 					"rosclaw_status",
 					"rosclaw_capabilities",
+					"rosclaw_compute",
 					"rosclaw_observe",
 					"rosclaw_verify",
 					"rosclaw_memory_query",
