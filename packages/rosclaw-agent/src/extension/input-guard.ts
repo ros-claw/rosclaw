@@ -30,6 +30,7 @@ const ROSCLAW_COMMANDS = new Set([
 	"/estop",
 	// PR-SIX-5：operator 一键初始化 + 语言策略。
 	"/operator-init",
+	"/safety",
 	"/language",
 ]);
 

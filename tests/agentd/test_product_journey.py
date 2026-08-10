@@ -1036,14 +1036,10 @@ class TestProductJourney:
             # Operator 状态必须是真实探测值（READY/OFFLINE/UNKNOWN），
             # 不是硬编码字符串。
             assert b"Operator ready" not in session.clean
-            # 1b. 六审 §7 黑盒验收：未预启动 operatord——TUI 内单键初始化
-            #     （非模态 widget + Ctrl+O；en-US chrome）。
-            session.expect(b"/operator-init", timeout=60)
-            session.send("/operator-init\r")
-            session.expect(b"Operator initialized", timeout=60)
-            # 初始化完成后 header 必须转为真实 READY（订阅统一刷新）。
-            session.expect(b"Operator Ready", timeout=60)
-            self._journey_verdicts["operator_one_key_bootstrap"] = True
+            # 七审 §2.5：默认安全 SIM 自动执行（POLICY_AUTO）——不需要
+            # Operator 初始化，不弹逐动作人工卡（ask-every-time 旅程在
+            # SEVEN-7 单独覆盖 bootstrap 路径）。
+            self._journey_verdicts["operator_not_required_for_safe_sim"] = True
             # 2. 普通对话。
             session.send("你好\r")
             session.expect("你好，我是 ROSClaw".encode(), timeout=90)
@@ -1099,15 +1095,33 @@ class TestProductJourney:
             # "等待 Operator 决定" 是瞬时 working message/notify——overlay
             # 打开快时它一帧都渲染不出来（CI 两次失败的根因：overlay 已在
             # 等 Y/N，journey 却在等一个被覆盖的瞬时文本，永不按 y）。
+            # 6. UR5e 机械臂 SIM 闭环（六审 §6.3 + 七审 §2.5 默认安全
+            #    SIM 自动执行）：能力面 → 初始观测 → POLICY_AUTO（无人工
+            #    卡、不按 Y）→ 执行 → 后置观测验证。
+            action_start = len(session.clean)
             session.send("运行机械臂仿真，把末端移动到安全目标位姿\r")
-            session.expect("ROSCLAW 授权请求".encode(), timeout=180)
-            session.send("y")
-            # 已批准 → 执行（结构化回执或诚实失败，但不许是未决状态）。
-            session.expect(b"\xe5\xb7\xb2\xe6\x89\xb9\xe5\x87\x86", timeout=120)
-            # 等工具结果回到模型并产出最终回答——证明 execute 阶段真正完成
-            # （grant 被消费），而不是只停在批准通知。
+            # 政策自动授权必须可见（不是悄悄执行）。
+            session.expect(b"POLICY_AUTO", timeout=180)
+            # 等工具结果回到模型并产出最终回答——证明 execute 阶段真正完成。
             session.expect("动作已执行，结构化回执已确认".encode(), timeout=120)
+            # 安全 SIM 不得弹人工卡。
+            action_segment = session.clean[action_start:]
+            assert "ROSCLAW 授权请求".encode() not in action_segment, (
+                "默认安全 SIM 竟弹人工审批卡"
+            )
             self._assert_grant_consumed(home)
+            # POLICY_AUTO 的审计链：decided_by 记录政策权威。
+            import sqlite3 as _sq
+
+            _db = _sq.connect(home / "agentd" / "missions.db")
+            _row = _db.execute(
+                "SELECT decided_by FROM operator_requests ORDER BY rowid DESC LIMIT 1"
+            ).fetchone()
+            _db.close()
+            assert _row and "POLICY_AUTO" in str(_row[0]), (
+                f"自动执行缺政策审计记录: {_row}"
+            )
+            self._journey_verdicts["safe_sim_auto_executed_with_audit"] = True
             # 后置观测验证（六审 §6.3.8）：post-observe 的末端位姿必须与
             # 目标位姿在容差内一致——不是"executor 说完成就完成"。
             self._assert_post_observation(home, target=(0.35, 0.25, 0.45))

@@ -137,6 +137,9 @@ class McpServerConfig:
     action_tools: tuple[str, ...] = ()
     supported_modes: tuple[str, ...] = ("SIMULATION",)
     required_body_types: tuple[str, ...] = ()
+    #: 七审 §2.5：该 server 动作工具的效果域（sim 服务器
+    #: simulation_state_only；缺省 fail closed 不自动批准）。
+    effect_domain: str = ""
     timeout_ms: int = 5000
 
     def spawn_env(self) -> dict[str, str]:
@@ -243,6 +246,7 @@ class McpCapabilityAdapter:
                 input_schema=dict(tool.inputSchema or {}),
                 supported_modes=list(cfg.supported_modes),
                 required_body_types=list(cfg.required_body_types),
+                effect_domain=cfg.effect_domain if physical else "",
                 freshness_ms=500 if not physical else None,
                 timeout_ms=cfg.timeout_ms,
                 evidence_class=ToolEvidenceClass.MEASURED,

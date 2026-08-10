@@ -204,6 +204,30 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 				notify(ctx, "用自然语言提问即可——模型会经 rosclaw_memory_query 带证据查询。", "info");
 			},
 		},
+		safety: {
+			description: "SIM 审批策略：/safety sim auto|ask-every-time",
+			handler: async (args, ctx) => {
+				const arg = args.trim();
+				if (arg === "sim auto" || arg === "sim ask-every-time") {
+					const policy = arg === "sim auto" ? "auto" : "ask";
+					const result = await deps.center.call("pi.safety.set", { sim_policy: policy });
+					notify(
+						ctx,
+						result.ok
+							? `SIM 审批策略已更新：${policy === "auto" ? "安全仿真自动执行" : "每次人工确认"}`
+							: `更新失败：${String(result.error ?? "")}`,
+						result.ok ? "info" : "error",
+					);
+					return;
+				}
+				const current = await deps.center.call("pi.safety.get", {});
+				notify(
+					ctx,
+					`SIM 审批策略：${String(current.sim_policy ?? "auto")}（auto=安全仿真自动执行 / ask=每次人工确认）。REAL 永远人工确认。`,
+					"info",
+				);
+			},
+		},
 		"operator-init": {
 			description: "初始化并启动本机 Operator（仅 SIMULATION developer）",
 			handler: async (_args, ctx) => {

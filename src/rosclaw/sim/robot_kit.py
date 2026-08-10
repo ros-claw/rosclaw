@@ -81,4 +81,7 @@ def kit_server_spec(kit: RobotKitV1) -> dict[str, Any]:
         "observation_tools": list(kit.observation_tools),
         "action_tools": list(kit.action_tools),
         "sim_executor": True,
+        # 七审 §2.5：第一方 SIM kit 的动作只改仿真状态——POLICY_AUTO
+        # 的效果域依据。
+        "effect_domain": "SIMULATION_STATE_ONLY",
     }

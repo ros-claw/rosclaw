@@ -105,6 +105,14 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				if (!ctx.hasUI) return;
 				if (options.profile !== "developer") return;
 				if (options.active.current.mode !== "SIMULATION") return;
+				// 七审 §2.5：auto SIM 不需要 operator——不提示初始化。
+				if (center.isSimAutoPolicy) {
+					if (bootstrapWidgetState !== "hidden") {
+						bootstrapWidgetState = "hidden";
+						ctx.ui.setWidget("rosclaw-operator", undefined);
+					}
+					return;
+				}
 				if (center.snapshot().operator !== "OFFLINE") {
 					if (bootstrapWidgetState !== "hidden") {
 						bootstrapWidgetState = "hidden";
@@ -320,6 +328,14 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				approval_id?: string;
 				display_hash?: string;
 			};
+			// 七审 §2.5：POLICY_AUTO——安全 SIM 政策自动授权，只通知不弹卡。
+			if (details.phase === "POLICY_AUTO") {
+				ctx.ui.notify(
+					`安全仿真自动执行（POLICY_AUTO，approval ${details.approval_id ?? ""}，全链审计）`,
+					"info",
+				);
+				return;
+			}
 			if (details.phase !== "AWAITING_OPERATOR" || !details.approval_id) return;
 			const approvalId = details.approval_id;
 			const displayHash = String(details.display_hash ?? "");

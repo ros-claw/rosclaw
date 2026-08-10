@@ -100,6 +100,43 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 				display_hash: string;
 				expires_at: string;
 			};
+			// 七审 §2.5：POLICY_AUTO（安全 SIM 政策自动授权）——不弹人工
+			// 卡、不等 Operator，直接进执行；UI 只通知。
+			const decisionAuthority = String((proposed.card as Record<string, unknown>).decision_authority ?? "");
+			if (decisionAuthority === "POLICY_AUTO") {
+				onUpdate?.({
+					content: [{ type: "text", text: "安全仿真自动执行（POLICY_AUTO，全链审计）" }],
+					details: { phase: "POLICY_AUTO", approval_id: card.approval_id },
+				});
+				const autoExecuted = await ctx.center.call("pi.action.execute", {
+					...requestContext,
+					approval_id: card.approval_id,
+				});
+				const autoResult = (autoExecuted.result ?? {}) as Record<string, unknown>;
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: String(autoResult.summary ?? autoResult.status ?? ""),
+						},
+					],
+					details: {
+						ok: autoResult.executed === true,
+						status: autoResult.status,
+						decision_authority: "POLICY_AUTO",
+						capability_id: String(autoResult.capability_id ?? capabilityId),
+						approval_id: card.approval_id,
+						grant_id: autoResult.grant_id ?? null,
+						txn_id: autoResult.txn_id ?? null,
+						action_id: autoResult.action_id ?? null,
+						receipt_id: autoResult.receipt_id ?? null,
+						terminal_receipt: autoResult.terminal_receipt ?? false,
+						evidence_ref: autoResult.evidence_ref ?? null,
+						error_code: autoResult.error_code ?? null,
+					},
+					isError: autoResult.executed !== true && autoResult.status !== "DECLINED",
+				};
+			}
 			onUpdate?.({
 				content: [
 					{

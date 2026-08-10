@@ -77,6 +77,9 @@ export class ProductStateCenter {
 	private modelDisplay = "";
 	private capabilityBlocker: string | null = null;
 	private lastCapabilityProbe = 0;
+	/** 七审 §2.5：SIM 审批策略（auto=安全仿真自动执行——operator
+	 *  离线不是 blocker；ask=每次人工确认）。 */
+	private simPolicy: "auto" | "ask" = "auto";
 	private readonly listeners = new Set<Listener>();
 	private readonly callFn: typeof bridgeCall;
 	private readonly operatorCallFn: typeof operatorCall;
@@ -133,7 +136,12 @@ export class ProductStateCenter {
 		if (state.missionId && this.capabilityBlocker) {
 			codes.push(this.capabilityBlocker);
 		}
-		if (this.operatorState === "OFFLINE") codes.push("OPERATOR_OFFLINE");
+		if (
+			this.operatorState === "OFFLINE"
+			&& !(this.simPolicy === "auto" && state.mode === "SIMULATION")
+		) {
+			codes.push("OPERATOR_OFFLINE");
+		}
 		return {
 			state: codes.length === 0 ? "READY" : "BLOCKED",
 			...(codes.length ? { stage: "PROPOSE" as const } : {}),
@@ -146,6 +154,10 @@ export class ProductStateCenter {
 	async actionReadiness(): Promise<ActionReadinessV1> {
 		await this.probeOperator(true);
 		return this.computeReadiness();
+	}
+
+	get isSimAutoPolicy(): boolean {
+		return this.simPolicy === "auto";
 	}
 
 	noteModel(display: string): void {
@@ -238,6 +250,12 @@ export class ProductStateCenter {
 				? { mission_id: this.deps.active.current.missionId }
 				: {}),
 		});
+		// 七审 §2.5：SIM 审批策略随 status 刷新。
+		const policy = String(status.sim_policy ?? "");
+		if ((policy === "auto" || policy === "ask") && policy !== this.simPolicy) {
+			this.simPolicy = policy;
+			this.changed();
+		}
 		return {
 			ok: status.ok === true,
 			snapshot: this.snapshot(),

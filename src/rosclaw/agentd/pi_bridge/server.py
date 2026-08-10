@@ -148,10 +148,26 @@ class PiBridgeServer:
         if method == "pi.status":
             mission_id = str(params.get("mission_id", ""))
             mission = service.get_mission(mission_id) if mission_id else None
+            # 七审 §2.5：SIM 审批策略透出（readiness/UI 不再把
+            # OPERATOR_OFFLINE 当成 auto SIM 的 blocker）。
+            import json as _json
+
+            sim_policy = "auto"
+            safety_file = service._home / "agent" / "safety.json"
+            if safety_file.exists():
+                try:
+                    sim_policy = str(
+                        _json.loads(safety_file.read_text(encoding="utf-8")).get(
+                            "sim_policy", "auto"
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    sim_policy = "auto"
             return {
                 "ok": True,
                 "agentd": "READY",
                 "authorization_profile": service.authorization_profile(),
+                "sim_policy": sim_policy,
                 "mission": (
                     {
                         "mission_id": mission.mission_id,
@@ -163,6 +179,39 @@ class PiBridgeServer:
                     else None
                 ),
             }
+        if method == "pi.safety.get":
+            import json as _json
+
+            safety_file = service._home / "agent" / "safety.json"
+            sim_policy = "auto"
+            if safety_file.exists():
+                try:
+                    sim_policy = str(
+                        _json.loads(safety_file.read_text(encoding="utf-8")).get(
+                            "sim_policy", "auto"
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    sim_policy = "auto"
+            return {"ok": True, "sim_policy": sim_policy}
+        if method == "pi.safety.set":
+            import json as _json
+
+            policy = str(params.get("sim_policy", ""))
+            if policy not in ("auto", "ask"):
+                return {"ok": False, "error": "sim_policy must be auto|ask",
+                        "code": "INVALID_ARGUMENT"}
+            safety_file = service._home / "agent" / "safety.json"
+            safety_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp = safety_file.with_suffix(".tmp")
+            tmp.write_text(
+                _json.dumps({"sim_policy": policy}, indent=1), encoding="utf-8"
+            )
+            import os as _os
+
+            _os.chmod(tmp, 0o600)
+            tmp.replace(safety_file)
+            return {"ok": True, "sim_policy": policy}
         if method == "pi.operator.status":
             # 六审 §7：operator 面真实状态（enrollment + 进程运行）——
             # TUI 的单键初始化依赖它，不再要求用户另开终端。

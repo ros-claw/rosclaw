@@ -206,6 +206,7 @@ class AgentService:
                     action_tools=tuple(s.get("action_tools", []) or ()),
                     supported_modes=tuple(s.get("supported_modes", ("SIMULATION",)) or ()),
                     required_body_types=tuple(s.get("required_body_types", []) or ()),
+                    effect_domain=str(s.get("effect_domain", "") or ""),
                     timeout_ms=int(s.get("timeout_ms", 5000)),
                 ),
                 self._tool_catalog,

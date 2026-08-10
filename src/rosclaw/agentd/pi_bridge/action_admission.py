@@ -556,6 +556,34 @@ class ActionAdmissionService:
                 approval_id=approval_id,
                 display_hash=display_hash,
             )
+        # 七审 §2.5/PR-SEVEN-3：安全 SIM（第一方 kit + sim-only 效果 +
+        # developer + 用户未开 ask）→ POLICY_AUTO 自动决定——仍走同一
+        # broker.decide（单次 grant + 全链绑定 + 事件留痕），只是决定
+        # 者是策略而非人工。REAL/SHADOW 永不进入此分支。
+        decision_authority = "HUMAN_OPERATOR"
+        if self._policy_auto_applies(mission, descriptor):
+            grant = service._broker.decide(
+                approval_id,
+                principal=mission.owner_principal,
+                approve=True,
+                decided_by="policy:POLICY_AUTO",
+            )
+            if grant is not None:
+                decision_authority = "POLICY_AUTO"
+                # 与 operatord 决定路径同一事件链（审批决定必须可审计——
+                # 政策决定也不例外）。
+                from rosclaw.contracts.agent.agent_event import AgentEventType
+
+                await service._events.append(
+                    request.mission_id,
+                    AgentEventType.APPROVAL_DECIDED,
+                    {
+                        "request_id": approval_id,
+                        "approved": True,
+                        "grant_id": grant.grant_id,
+                        "decided_by": "policy:POLICY_AUTO",
+                    },
+                )
         return {
             "approval_id": created.request_id,
             "display_hash": display_hash,
@@ -568,7 +596,39 @@ class ActionAdmissionService:
             "expires_at": created.expires_at,
             "txn_id": txn.txn_id,
             "action_intent_hash": exact_action.action_intent_hash,
+            "decision_authority": decision_authority,
         }
+
+    def _policy_auto_applies(self, mission, descriptor) -> bool:
+        """七审 §2.5/PR-SEVEN-3：POLICY_AUTO 判定——全部满足才自动：
+        SIMULATION mode + developer 剖面 + 第一方 kit 源 +
+        SIMULATION_STATE_ONLY 效果域 + 用户未开 ask-every-time。
+        REAL/SHADOW 永远 False（政策授权不跨域）。"""
+        if mission is None or mission.mode.value != "SIMULATION":
+            return False
+        if descriptor is None:
+            return False
+        if descriptor.effect_domain != "SIMULATION_STATE_ONLY":
+            return False
+        service = self._service
+        if service.authorization_profile() != "DEV_SIM_ONLY":
+            return False
+        # 第一方 kit 源（非第一方 MCP 即使声明 sim-only 也不自动——
+        # 第三方声明不可信）。
+        kit = getattr(service, "_active_kit", None)
+        if kit is None or descriptor.source != kit.executor_identity:
+            return False
+        # /safety sim ask-every-time 持久化开关。
+        import json as _json
+
+        safety = service._home / "agent" / "safety.json"
+        if safety.exists():
+            try:
+                if _json.loads(safety.read_text(encoding="utf-8")).get("sim_policy") == "ask":
+                    return False
+            except Exception:  # noqa: BLE001 - 损坏即按默认 auto 之外的
+                return False  # 安全策略读不出就不自动（fail closed）
+        return True
 
     # -- phase 2a: decision status -------------------------------------------------
 
