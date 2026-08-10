@@ -15,11 +15,15 @@ export function buildCapabilitiesTool(ctx: BridgeToolContext) {
 		name: "rosclaw_capabilities",
 		label: "ROSClaw Capabilities",
 		description:
-			"List the capabilities available on the CURRENT bound body: observation " +
-			"capabilities and action capabilities (exact IDs you may use with " +
-			"rosclaw_request_action), plus excluded capabilities with machine reason " +
-			"codes. Only IDs from action_capabilities are actionable — never invent " +
-			"capability names.",
+			"List the capabilities available on the CURRENT bound body in three " +
+			"buckets: observation (read-only, via rosclaw_observe), compute " +
+			"(pure calculation/verification like planning — via rosclaw_compute, " +
+			"no approval), and action capabilities (exact IDs for " +
+			"rosclaw_request_action — policy returns AUTO/ASK/DENY; REAL is always " +
+			"gated by rosclawd/operator), plus excluded capabilities with machine " +
+			"reason codes. Prefer compute planning capabilities (e.g. " +
+			"plan_cartesian_path) over inventing parameters. Only IDs from " +
+			"action_capabilities are actionable — never invent capability names.",
 		parameters: Type.Object({}),
 		async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
 			const state = ctx.active.current;
@@ -47,6 +51,9 @@ export function buildCapabilitiesTool(ctx: BridgeToolContext) {
 			}
 			const actions = (result.action_capabilities ?? []) as Array<Record<string, unknown>>;
 			const observation = (result.observation_capabilities ?? []) as Array<Record<string, unknown>>;
+			// 八审 §1.2/P0-2：compute 桶必须透出——七审期间它被静默
+			// 丢弃，真实模型看不到 plan/verify 能力。
+			const compute = (result.compute_capabilities ?? []) as Array<Record<string, unknown>>;
 			const excluded = (result.excluded ?? []) as Array<Record<string, unknown>>;
 			const lines = [
 				`body: ${String(result.body_id)}  mode: ${String(result.mode)}`,
@@ -58,6 +65,13 @@ export function buildCapabilitiesTool(ctx: BridgeToolContext) {
 							`  - ${String(c.capability_id)} [${String(c.risk_tier)}/${String(c.side_effect_class)}] ${String(c.description ?? "")}`,
 					)
 					: ["  （当前 body 没有兼容的动作能力——不要编造动作名）"]),
+				"",
+				"compute_capabilities（规划/验证等纯计算——经 rosclaw_compute 调用，免审批）:",
+				...(compute.length
+					? compute.map(
+						(c) => `  - ${String(c.capability_id)} ${String(c.description ?? "")}`,
+					)
+					: ["  （无）"]),
 				"",
 				"observation_capabilities（只读观测）:",
 				...(observation.length
@@ -76,6 +90,7 @@ export function buildCapabilitiesTool(ctx: BridgeToolContext) {
 					ok: true,
 					action_ids: actions.map((c) => String(c.capability_id)),
 					observation_ids: observation.map((c) => String(c.capability_id)),
+					compute_ids: compute.map((c) => String(c.capability_id)),
 					excluded,
 				},
 			};
