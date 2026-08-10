@@ -48,6 +48,71 @@ _state = {
 SIM_KIND = "kinematic-sandbox"
 
 
+class PlanStore:
+    """执行器侧计划仓库（八审 §1.4/P0-3）：不透明 plan_id。
+
+    完整轨迹只存在于受信执行器进程内——模型只见 plan_id + digest +
+    摘要。单次消费、TTL、容量限制；载荷复验（canonical hash）+
+    工作空间校验在执行时重做一次。任何未知/过期/已消费/篡改一律
+    fail closed。
+    """
+
+    def __init__(self, *, ttl_s: float = 1800.0, capacity: int = 32) -> None:
+        self._ttl_s = ttl_s
+        self._capacity = capacity
+        self._records: dict[str, dict] = {}
+
+    @staticmethod
+    def _now() -> float:
+        return time.monotonic()
+
+    def put(self, trajectory: dict, summary: str) -> dict:
+        digest = str(trajectory["hash"])
+        plan_id = f"plan_{digest[:16]}"
+        if plan_id not in self._records:
+            if len(self._records) >= self._capacity:
+                oldest = min(
+                    self._records, key=lambda k: self._records[k]["created_mono"]
+                )
+                del self._records[oldest]
+            self._records[plan_id] = {
+                "plan_id": plan_id,
+                "digest": digest,
+                "trajectory": trajectory,
+                "summary": summary,
+                "created_mono": self._now(),
+                "status": "PLANNED",
+            }
+        return self._records[plan_id]
+
+    def get_for_execute(self, plan_id: str) -> dict:
+        record = self._records.get(plan_id)
+        if record is None:
+            raise ValueError(f"unknown plan_id {plan_id!r} (fail closed)")
+        if record["status"] != "PLANNED":
+            raise ValueError(
+                f"plan {plan_id} already consumed — single-use (fail closed)"
+            )
+        if self._now() - record["created_mono"] > self._ttl_s:
+            raise ValueError(f"plan {plan_id} expired (fail closed)")
+        return record
+
+    def consume(self, plan_id: str) -> None:
+        self._records[plan_id]["status"] = "CONSUMED"
+
+    def by_digest(self, digest: str) -> dict | None:
+        for record in self._records.values():
+            if record["digest"] == digest:
+                return record
+        return None
+
+    def clear(self) -> None:
+        self._records.clear()
+
+
+_PLAN_STORE = PlanStore()
+
+
 def _canonical_point(point: dict) -> dict:
     return {
         "x": round(float(point["x"]), 6),
@@ -89,6 +154,7 @@ def plan_cartesian_path(
     z: float,
     outer_radius: float,
     max_segment_m: float = 0.02,
+    include_payload: bool = False,
 ) -> str:
     if shape != "star5":
         raise ValueError(f"unsupported shape {shape!r} (supported: star5)")
@@ -138,17 +204,62 @@ def plan_cartesian_path(
         "max_segment_m": max_segment_m,
         "hash": _trajectory_hash(points),
     }
-    _state["plans"][trajectory["hash"]] = trajectory
-    return json.dumps({"ok": True, "sim_kind": SIM_KIND, "trajectory": trajectory})
+    # 八审 §1.4/P0-3：完整载荷只进 PlanStore——模型收到不透明句柄
+    # （plan_id + digest + 摘要），不再搬运 points/hash。
+    summary = (
+        f"{shape} 五角星：中心 ({center_x}, {center_y}, {z})m，"
+        f"外半径 {outer_radius}m，{len(points)} 个插值点，已闭合"
+    )
+    record = _PLAN_STORE.put(trajectory, summary)
+    result = {
+        "ok": True,
+        "sim_kind": SIM_KIND,
+        "plan_id": record["plan_id"],
+        "digest": record["digest"],
+        "summary": summary,
+        "point_count": len(points),
+        "workspace_ok": True,
+    }
+    if include_payload:  # dev/几何单测后门——绝不默认开
+        result["trajectory"] = trajectory
+    return json.dumps(result, ensure_ascii=False)
+
+
+@server.tool(
+    name="ur5e.execute_plan",
+    description="执行已规划的轨迹（物理动作；SIM 下为仿真执行）——"
+    "只接受 plan_id：载荷从 PlanStore 取回并复验 canonical hash + "
+    "工作空间；单次消费。模型不得也不需传轨迹/hash。",
+    annotations={"readOnlyHint": False, "destructiveHint": False},
+)
+def execute_plan(plan_id: str) -> str:
+    record = _PLAN_STORE.get_for_execute(plan_id)
+    trajectory = record["trajectory"]
+    points = trajectory["points"]
+    # 执行前复验（TOCTOU）：canonical hash + 工作空间。
+    actual = _trajectory_hash(points)
+    if actual != record["digest"]:
+        raise ValueError(f"plan {plan_id} payload hash mismatch (fail closed)")
+    for point in points:
+        _workspace_check(point)
+    _PLAN_STORE.consume(plan_id)
+    result = json.loads(_execute_trajectory(trajectory))
+    result["plan_id"] = plan_id
+    result["digest"] = record["digest"]
+    return json.dumps(result, ensure_ascii=False)
 
 
 @server.tool(
     name="ur5e.execute_cartesian_path",
-    description="执行整条笛卡尔轨迹（物理动作；SIM 下为仿真执行）——"
-    "trajectory hash 复验不符即拒；产出时间序列 trace。",
+    description="[deprecated——dev 兼容层] 直接执行完整轨迹对象；"
+    "正式路径是 plan_cartesian_path → execute_plan(plan_id)。",
     annotations={"readOnlyHint": False, "destructiveHint": False},
 )
 def execute_cartesian_path(trajectory: dict) -> str:
+    return _execute_trajectory(trajectory)
+
+
+def _execute_trajectory(trajectory: dict) -> str:
     points = trajectory.get("points") if isinstance(trajectory, dict) else None
     if not points or not isinstance(points, list):
         raise ValueError("trajectory.points required")
@@ -221,18 +332,26 @@ def _trace_svg(trace: list[dict]) -> str:
     "SIM 观测）。",
     annotations={"readOnlyHint": True},
 )
-def get_cartesian_trace() -> str:
+def get_cartesian_trace(include_points: bool = False) -> str:
     trace = list(_state["trace"])
+    # 八审 P0-3/P0-7：模型视图是摘要（点数/hash/端点/边界/SVG）——
+    # 完整时间序列是证据，默认不进模型上下文（include_points 为
+    # dev/几何单测后门）。
+    trace_view: dict = {
+        "trajectory_hash": _trajectory_hash(trace) if trace else "",
+        "point_count": len(trace),
+        "first_point": trace[0] if trace else None,
+        "last_point": trace[-1] if trace else None,
+        "svg": _trace_svg(trace),
+    }
+    if include_points:
+        trace_view["points"] = trace
     return json.dumps(
         {
             "ok": True,
             "evidence_domain": "simulation",
             "sim_kind": SIM_KIND,
-            "trace": {
-                "trajectory_hash": _trajectory_hash(trace) if trace else "",
-                "points": trace,
-                "svg": _trace_svg(trace),
-            },
+            "trace": trace_view,
             "observed_at": _ts(),
         },
         ensure_ascii=False,
@@ -242,13 +361,21 @@ def get_cartesian_trace() -> str:
 @server.tool(
     name="ur5e.verify_drawing",
     description="后验几何验证（COMPUTE）：trace 对目标轨迹的端点误差/"
-    "RMSE/最大误差/闭合误差——全部过阈值才 PASS。",
+    "RMSE/最大误差/闭合误差——全部过阈值才 PASS。默认验证最近执行的"
+    " plan（无需模型传 hash）。",
     annotations={"readOnlyHint": True},
 )
-def verify_drawing(expected_trajectory_hash: str) -> str:
-    expected = _state["plans"].get(expected_trajectory_hash)
-    if expected is None:
+def verify_drawing(expected_trajectory_hash: str = "") -> str:
+    # 八审 P0-3：hash 不该由模型搬运——默认取最近执行 plan 的 digest。
+    if not expected_trajectory_hash:
+        last = _state.get("last_motion") or {}
+        expected_trajectory_hash = str(last.get("trajectory_hash", ""))
+        if not expected_trajectory_hash:
+            raise ValueError("no executed plan to verify (fail closed)")
+    record = _PLAN_STORE.by_digest(expected_trajectory_hash)
+    if record is None:
         raise ValueError(f"unknown trajectory hash {expected_trajectory_hash[:16]}")
+    expected = record["trajectory"]
     trace = list(_state["trace"])
     expected_points = expected["points"]
     if len(trace) != len(expected_points):
@@ -301,6 +428,7 @@ def verify_drawing(expected_trajectory_hash: str) -> str:
 def reset_simulation() -> str:
     _state["trace"] = []
     _state["plans"] = {}
+    _PLAN_STORE.clear()
     _state["moving"] = False
     return json.dumps(
         {
