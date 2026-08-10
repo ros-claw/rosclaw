@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, BinaryIO, cast
 
 import numpy as np
+from numpy.typing import NDArray
 
 from rosclaw.simforge.backends.unitree_mujoco_backend import (
     qualify_g1_assets,
@@ -25,6 +26,10 @@ from rosclaw.simforge.g1_hat_trick_video import (
     _escape_filtergraph_option,
     _load_trajectory,
     _sample_trajectory,
+)
+from rosclaw.simforge.g1_stadium_scene import (
+    G1TrainingGoalSpec,
+    build_g1_stadium_model,
 )
 
 _WIDTH = 640
@@ -146,8 +151,17 @@ def render_g1_self_aware_showcase_video(
     try:
         import mujoco
 
-        scene = qualification.asset_root / "g1_description/scene_with_ball.xml"
-        model = mujoco.MjModel.from_xml_path(str(scene))
+        model = build_g1_stadium_model(
+            qualification.asset_root,
+            G1TrainingGoalSpec(
+                plane_x_m=5.0,
+                width_m=2.8,
+                height_m=1.7,
+                target_y_m=0.75,
+                target_z_m=0.55,
+                precision_radius_m=0.16,
+            ),
+        )
         data = mujoco.MjData(model)
         comparison_data = mujoco.MjData(model)
         renderer = mujoco.Renderer(model, height=_HEIGHT, width=_WIDTH)
@@ -291,7 +305,11 @@ def _load_contrast(v2_path: Path, v3_path: Path, checkout: Path) -> _ContrastSou
     if v2.get("decision") != "REJECTED" or v3.get("decision") != "SIM_CANDIDATE":
         raise ValueError("self-aware contrast requires rejected v2 and candidate v3 reports")
     old = next(
-        (row for row in v2.get("validation", ()) if row.get("case_id") == "sealed-validation-v2-biased"),
+        (
+            row
+            for row in v2.get("validation", ())
+            if row.get("case_id") == "sealed-validation-v2-biased"
+        ),
         None,
     )
     abstention = next(
@@ -436,7 +454,7 @@ def _write_frames(
             ball_qpos=ball_qpos,
             show_shield=True,
         )
-        canvas = np.zeros((720, 1280, 3), dtype=np.uint8)
+        canvas: NDArray[np.uint8] = np.zeros((720, 1280, 3), dtype=np.uint8)
         canvas[180:540, :640] = old
         canvas[180:540, 640:] = safe
         stream.write(np.ascontiguousarray(canvas).tobytes())

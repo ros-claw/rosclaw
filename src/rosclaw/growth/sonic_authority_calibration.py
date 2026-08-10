@@ -26,8 +26,10 @@ class G1SonicAuthorityCalibration:
     demand_quantile: float
     target_demand_ratio: float
     base_calibration_hash: str | None
+    approach_gain_frozen: bool
+    calibration_step_fraction: float
     calibration_hash: str
-    schema_version: str = "rosclaw.growth.g1_sonic_authority_calibration.v5"
+    schema_version: str = "rosclaw.growth.g1_sonic_authority_calibration.v7"
 
     def to_dict(self, *, include_hash: bool = True) -> dict[str, Any]:
         value = {
@@ -41,6 +43,8 @@ class G1SonicAuthorityCalibration:
             "demand_quantile": self.demand_quantile,
             "target_demand_ratio": self.target_demand_ratio,
             "base_calibration_hash": self.base_calibration_hash,
+            "approach_gain_frozen": self.approach_gain_frozen,
+            "calibration_step_fraction": self.calibration_step_fraction,
             "evidence_domain": "SIM_ONLY",
             "promotion_truth_allowed": False,
             "activation_authorized": False,
@@ -60,6 +64,8 @@ def derive_g1_sonic_authority_calibration(
     demand_quantile: float = 0.995,
     target_demand_ratio: float = 0.90,
     base_calibration_path: Path | None = None,
+    freeze_approach_gain: bool = False,
+    calibration_step_fraction: float = 1.0,
 ) -> G1SonicAuthorityCalibration:
     """Fit gain scales from measured APPROACH/ALIGN raw torque demand."""
 
@@ -69,6 +75,10 @@ def derive_g1_sonic_authority_calibration(
         raise ValueError("SONIC calibration quantile must be in [0.90, 1.0)")
     if not 0.50 <= target_demand_ratio <= 0.98:
         raise ValueError("SONIC target demand ratio must be in [0.50, 0.98]")
+    if not math.isfinite(calibration_step_fraction) or not (
+        0.01 <= calibration_step_fraction <= 1.0
+    ):
+        raise ValueError("SONIC calibration step fraction must be in [0.01, 1]")
     output = output_path.expanduser().resolve()
     checkout = source_checkout.expanduser().resolve()
     if output == checkout or checkout in output.parents:
@@ -91,9 +101,7 @@ def derive_g1_sonic_authority_calibration(
     source_follow_through_scales: set[tuple[float, ...]] = set()
     source_calibration_hashes: set[str | None] = set()
     limits = np.asarray(G1_HARD_TORQUE_LIMITS, dtype=np.float64)
-    for trajectory_path, evidence_path in zip(
-        trajectory_paths, evidence_paths, strict=True
-    ):
+    for trajectory_path, evidence_path in zip(trajectory_paths, evidence_paths, strict=True):
         trajectory = trajectory_path.expanduser().resolve()
         evidence_file = evidence_path.expanduser().resolve()
         evidence = json.loads(evidence_file.read_text(encoding="utf-8"))
@@ -116,16 +124,15 @@ def derive_g1_sonic_authority_calibration(
         )
         source_follow_through_scales.add(follow_scales)
         raw_strike_scales = flow_config.get("strike_gain_scales")
-        if raw_strike_scales is None and int(
-            flow_config.get("strike_gain_schedule_start_policy_frame", 0)
-        ) > 0:
+        if (
+            raw_strike_scales is None
+            and int(flow_config.get("strike_gain_schedule_start_policy_frame", 0)) > 0
+        ):
             # The v12 prototype reused follow-through scales for its scheduled
             # pre-contact window. Preserve that effective controller when the
             # v13 split-field calibration is derived from those traces.
             raw_strike_scales = follow_scales
-        source_strike_scales.add(
-            _gain_scale_tuple(raw_strike_scales, label="strike")
-        )
+        source_strike_scales.add(_gain_scale_tuple(raw_strike_scales, label="strike"))
         source_calibration_hashes.add(flow_config.get("authority_calibration_hash"))
         with np.load(trajectory, allow_pickle=False) as archive:
             if not {"commanded_torque", "event_phase"}.issubset(archive.files):
@@ -168,9 +175,7 @@ def derive_g1_sonic_authority_calibration(
         follow_through = np.isin(phase, (5, 6))
         if np.count_nonzero(follow_through) < 10:
             raise ValueError("SONIC calibration trace lacks follow-through samples")
-        follow_through_ratios.append(
-            np.abs(demand[follow_through]) / limits[None, :]
-        )
+        follow_through_ratios.append(np.abs(demand[follow_through]) / limits[None, :])
         source_hashes.append(source_hash)
     if len(set(source_hashes)) != len(source_hashes):
         raise ValueError("SONIC calibration requires independent trajectory hashes")
@@ -199,43 +204,54 @@ def derive_g1_sonic_authority_calibration(
     }:
         raise ValueError("SONIC evidence is not bound to the declared base calibration")
     measured = np.quantile(np.concatenate(ratios, axis=0), demand_quantile, axis=0)
-    approach_adjustment = np.clip(
-        target_demand_ratio / np.maximum(measured, 1e-9), 0.50, 1.0
+    approach_adjustment = np.clip(target_demand_ratio / np.maximum(measured, 1e-9), 0.50, 1.0)
+    source_approach_scales = np.asarray(next(iter(source_joint_scales)), dtype=np.float64)
+    fitted_approach_scales = (
+        source_approach_scales.copy()
+        if freeze_approach_gain
+        else np.clip(
+            approach_adjustment * source_approach_scales,
+            0.50,
+            1.0,
+        )
     )
-    scales = np.clip(
-        approach_adjustment
-        * np.asarray(next(iter(source_joint_scales)), dtype=np.float64),
-        0.50,
-        1.0,
+    scales = source_approach_scales + calibration_step_fraction * (
+        fitted_approach_scales - source_approach_scales
     )
-    measured_strike = np.quantile(
-        np.concatenate(strike_ratios, axis=0), demand_quantile, axis=0
-    )
-    strike_scales = np.clip(
+    measured_strike = np.quantile(np.concatenate(strike_ratios, axis=0), demand_quantile, axis=0)
+    fitted_strike_scales = np.clip(
         target_demand_ratio / np.maximum(measured_strike, 1e-9), 0.50, 1.0
     )
-    strike_scales = np.clip(
-        strike_scales
-        * np.asarray(next(iter(source_strike_scales)), dtype=np.float64),
+    source_strike_scale_array = np.asarray(next(iter(source_strike_scales)), dtype=np.float64)
+    fitted_strike_scales = np.clip(
+        fitted_strike_scales * source_strike_scale_array,
         0.50,
         1.0,
+    )
+    strike_scales = source_strike_scale_array + calibration_step_fraction * (
+        fitted_strike_scales - source_strike_scale_array
     )
     measured_follow_through = np.quantile(
         np.concatenate(follow_through_ratios, axis=0), demand_quantile, axis=0
     )
-    follow_through_scales = np.clip(
+    fitted_follow_through_scales = np.clip(
         target_demand_ratio / np.maximum(measured_follow_through, 1e-9),
         0.50,
         1.0,
     )
-    follow_through_scales = np.clip(
-        follow_through_scales
-        * np.asarray(next(iter(source_follow_through_scales)), dtype=np.float64),
+    source_follow_through_scale_array = np.asarray(
+        next(iter(source_follow_through_scales)), dtype=np.float64
+    )
+    fitted_follow_through_scales = np.clip(
+        fitted_follow_through_scales * source_follow_through_scale_array,
         0.50,
         1.0,
     )
+    follow_through_scales = source_follow_through_scale_array + calibration_step_fraction * (
+        fitted_follow_through_scales - source_follow_through_scale_array
+    )
     unsigned = {
-        "schema_version": "rosclaw.growth.g1_sonic_authority_calibration.v5",
+        "schema_version": "rosclaw.growth.g1_sonic_authority_calibration.v7",
         "joint_gain_scales": [float(value) for value in scales],
         "strike_gain_scales": [float(value) for value in strike_scales],
         "follow_through_gain_scales": [float(value) for value in follow_through_scales],
@@ -247,6 +263,8 @@ def derive_g1_sonic_authority_calibration(
         "base_calibration_hash": (
             None if base_calibration is None else base_calibration.calibration_hash
         ),
+        "approach_gain_frozen": freeze_approach_gain,
+        "calibration_step_fraction": calibration_step_fraction,
         "evidence_domain": "SIM_ONLY",
         "promotion_truth_allowed": False,
         "activation_authorized": False,
@@ -264,6 +282,8 @@ def derive_g1_sonic_authority_calibration(
         base_calibration_hash=(
             None if base_calibration is None else base_calibration.calibration_hash
         ),
+        approach_gain_frozen=freeze_approach_gain,
+        calibration_step_fraction=calibration_step_fraction,
         calibration_hash=canonical_hash(unsigned),
     )
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -280,9 +300,7 @@ def load_g1_sonic_authority_calibration(path: Path) -> G1SonicAuthorityCalibrati
     if claimed != canonical_hash(value):
         raise ValueError("SONIC authority calibration hash mismatch")
     scales = tuple(float(item) for item in value["joint_gain_scales"])
-    strike_scales = tuple(
-        float(item) for item in value.get("strike_gain_scales", (1.0,) * 29)
-    )
+    strike_scales = tuple(float(item) for item in value.get("strike_gain_scales", (1.0,) * 29))
     follow_through_scales = tuple(
         float(item) for item in value.get("follow_through_gain_scales", (1.0,) * 29)
     )
@@ -296,6 +314,9 @@ def load_g1_sonic_authority_calibration(path: Path) -> G1SonicAuthorityCalibrati
         math.isfinite(item) and 0.50 <= item <= 1.0 for item in follow_through_scales
     ):
         raise ValueError("SONIC follow-through gain scales are invalid")
+    step_fraction = float(value.get("calibration_step_fraction", 1.0))
+    if not math.isfinite(step_fraction) or not 0.01 <= step_fraction <= 1.0:
+        raise ValueError("SONIC calibration step fraction is invalid")
     return G1SonicAuthorityCalibration(
         joint_gain_scales=scales,
         strike_gain_scales=strike_scales,
@@ -310,6 +331,8 @@ def load_g1_sonic_authority_calibration(path: Path) -> G1SonicAuthorityCalibrati
             if value.get("base_calibration_hash") is None
             else str(value["base_calibration_hash"])
         ),
+        approach_gain_frozen=bool(value.get("approach_gain_frozen", False)),
+        calibration_step_fraction=step_fraction,
         calibration_hash=str(claimed),
         schema_version=str(value["schema_version"]),
     )
@@ -329,9 +352,7 @@ def _gain_scale_tuple(value: Any, *, label: str) -> tuple[float, ...]:
     if not isinstance(value, (list, tuple)):
         raise ValueError(f"SONIC {label} gain scales must be a sequence")
     scales = tuple(float(item) for item in value)
-    if len(scales) != 29 or not all(
-        math.isfinite(item) and 0.50 <= item <= 1.0 for item in scales
-    ):
+    if len(scales) != 29 or not all(math.isfinite(item) and 0.50 <= item <= 1.0 for item in scales):
         raise ValueError(f"SONIC {label} gain scales are invalid")
     return scales
 

@@ -150,6 +150,24 @@ class G1CerebellarRecoveryConfig:
             raise ValueError("calibrated disturbance bounds must be positive and ordered")
 
 
+def shared_post_impact_recovery_config() -> G1CerebellarRecoveryConfig:
+    """Return the trained recovery contract shared by football roles.
+
+    Keeping the contract beside the controller prevents pass, shot and
+    long-run-up entry points from silently drifting to separate "cerebella".
+    """
+
+    return G1CerebellarRecoveryConfig(
+        start_policy_frame=280,
+        blend_frames=80,
+        standing_pose_blend=0.02,
+        roll_posture_bias_rad=0.0,
+        target_smoothing_alpha=0.60,
+        target_smoothing_start_policy_frame=280,
+        target_smoothing_joint_group="upper_body",
+    )
+
+
 def _recovery_config_hash(config: G1CerebellarRecoveryConfig) -> str:
     return hash_json(
         {

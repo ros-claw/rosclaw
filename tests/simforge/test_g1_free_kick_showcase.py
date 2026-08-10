@@ -11,16 +11,20 @@ import pytest
 from rosclaw.simforge.backends.unitree_mujoco_backend import (
     _adapt_target,
     _contact_observation,
+    _mirror_g1_joint_gains,
+    _mirror_g1_joint_vector,
 )
 from rosclaw.simforge.g1_free_kick_showcase import (
     G1FootballEventPhase,
     G1FreeKickFlowConfig,
     G1FreeKickResult,
+    _apply_compliant_net_force,
     _deepest_goal_mouth_point,
     _select_contextual_phase,
     run_g1_free_kick_showcase,
 )
 from rosclaw.simforge.g1_free_kick_showcase_video import (
+    _configure_offscreen_framebuffer,
     _duration_text,
     _metric_text,
     _optional_finite_float,
@@ -180,6 +184,22 @@ def test_vertical_aim_bias_is_bounded_and_separate_from_the_scoring_target() -> 
         G1FreeKickFlowConfig(aim_bias_z_m=1.21)
 
 
+def test_motion_reference_plane_is_explicit_and_bounded() -> None:
+    assert G1FreeKickFlowConfig().shot_reference_plane_x_m == 0.0
+    assert G1FreeKickFlowConfig(shot_reference_plane_x_m=6.0).shot_reference_plane_x_m == 6.0
+    with pytest.raises(ValueError, match="shot reference plane"):
+        G1FreeKickFlowConfig(shot_reference_plane_x_m=2.9)
+    with pytest.raises(ValueError, match="shot reference plane"):
+        G1FreeKickFlowConfig(shot_reference_plane_x_m=12.1)
+    flow = G1FreeKickFlowConfig(
+        shot_reference_target_y_m=1.0,
+        shot_reference_target_z_m=1.35,
+    )
+    assert flow.shot_reference_target_y_m == 1.0
+    with pytest.raises(ValueError, match="provided together"):
+        G1FreeKickFlowConfig(shot_reference_target_y_m=1.0)
+
+
 def test_shot_foot_pitch_exploration_remains_bounded() -> None:
     assert G1FreeKickFlowConfig(shot_foot_pitch_offset_rad=0.18)
     with pytest.raises(ValueError, match="shot foot pitch offset"):
@@ -203,6 +223,35 @@ def test_post_contact_damping_is_bounded() -> None:
     assert G1FreeKickFlowConfig(post_contact_damping_scale=1.8).post_contact_damping_scale == 1.8
     with pytest.raises(ValueError, match="post-contact damping"):
         G1FreeKickFlowConfig(post_contact_damping_scale=2.51)
+    assert (
+        G1FreeKickFlowConfig(
+            post_contact_damping_delay_sec=0.1,
+            post_contact_damping_ramp_sec=0.2,
+        ).post_contact_damping_ramp_sec
+        == 0.2
+    )
+    with pytest.raises(ValueError, match="damping delay"):
+        G1FreeKickFlowConfig(post_contact_damping_delay_sec=0.41)
+    with pytest.raises(ValueError, match="damping ramp"):
+        G1FreeKickFlowConfig(post_contact_damping_ramp_sec=0.09)
+
+
+def test_shot_recovery_step_is_bounded() -> None:
+    flow = G1FreeKickFlowConfig(
+        shot_recovery_step_length_m=0.04,
+        shot_recovery_step_yaw_rad=0.02,
+    )
+    assert flow.shot_recovery_step_length_m == 0.04
+    assert flow.shot_recovery_step_yaw_rad == 0.02
+    with pytest.raises(ValueError, match="recovery step length"):
+        G1FreeKickFlowConfig(shot_recovery_step_length_m=0.151)
+    with pytest.raises(ValueError, match="recovery step yaw"):
+        G1FreeKickFlowConfig(shot_recovery_step_yaw_rad=-0.151)
+    assert G1FreeKickFlowConfig(
+        shared_cerebellar_recovery_enabled=True
+    ).shared_cerebellar_recovery_enabled
+    with pytest.raises(ValueError, match="recovery flag"):
+        G1FreeKickFlowConfig(shared_cerebellar_recovery_enabled=1)  # type: ignore[arg-type]
 
 
 def test_ballistic_skill_memory_binding_is_paired_and_sonic_only() -> None:
@@ -260,9 +309,7 @@ def test_ball_contact_frame_is_normalized_foot_to_ball_in_world(
 
     assert observed.ball_right
     assert observed.ball_force_n == pytest.approx(np.hypot(10.0, 2.0))
-    assert observed.ball_contact_normal_xyz == pytest.approx(
-        direction * frame[0]
-    )
+    assert observed.ball_contact_normal_xyz == pytest.approx(direction * frame[0])
     assert observed.ball_contact_force_world_xyz_n == pytest.approx(
         direction * (frame.T @ np.asarray((10.0, 2.0, 0.0)))
     )
@@ -301,6 +348,21 @@ def test_foot_pitch_loft_adapter_is_bounded_to_the_swing_phase() -> None:
     assert swing[10] == pytest.approx(-0.145)
 
 
+def test_g1_sagittal_joint_reflection_is_an_involution() -> None:
+    joints = np.linspace(-0.7, 0.9, 29)
+    gains = np.arange(1.0, 30.0)
+
+    mirrored = _mirror_g1_joint_vector(joints)
+
+    assert np.allclose(_mirror_g1_joint_vector(mirrored), joints)
+    assert mirrored[0] == pytest.approx(joints[6])
+    assert mirrored[1] == pytest.approx(-joints[7])
+    assert mirrored[2] == pytest.approx(-joints[8])
+    assert np.array_equal(_mirror_g1_joint_gains(_mirror_g1_joint_gains(gains)), gains)
+    with pytest.raises(ValueError, match="29-joint"):
+        _mirror_g1_joint_vector(np.zeros(28))
+
+
 def test_training_goal_and_runup_specs_fail_closed() -> None:
     goal = G1TrainingGoalSpec()
     runup = G1LearnedRunupConfig()
@@ -309,6 +371,19 @@ def test_training_goal_and_runup_specs_fail_closed() -> None:
     assert goal.precision_radius_m == 0.16
     assert goal.plane_x_m == 5.0
     assert G1TrainingGoalSpec(plane_x_m=7.0).plane_x_m == 7.0
+    assert G1TrainingGoalSpec(precision_radius_m=0.10).precision_radius_m == 0.10
+    showcase_goal = G1TrainingGoalSpec(
+        plane_x_m=8.5,
+        width_m=2.8,
+        height_m=1.7,
+        target_y_m=1.2,
+        target_z_m=1.45,
+        precision_radius_m=0.10,
+    )
+    assert showcase_goal.target_corner == "left_upper"
+    assert G1TrainingGoalSpec().ball_free_joint_damping_n_s_m == 0.02
+    with pytest.raises(ValueError, match="ball free-joint damping"):
+        G1TrainingGoalSpec(ball_free_joint_damping_n_s_m=0.11)
     with pytest.raises(ValueError, match="goal plane"):
         G1TrainingGoalSpec(plane_x_m=12.1)
     assert goal.target_corner == "left_lower"
@@ -380,6 +455,65 @@ def test_net_capture_uses_deepest_measured_point_inside_goal_mouth() -> None:
     assert deepest == (5.16, 0.97, 0.116)
     assert shallower == deepest
     assert outside == deepest
+
+
+def test_compliant_net_is_free_flight_until_back_net_contact() -> None:
+    goal = G1TrainingGoalSpec(plane_x_m=6.0)
+    flow = G1FreeKickFlowConfig(net_capture_depth_m=0.20)
+    data = SimpleNamespace(
+        qpos=np.asarray((6.10, 0.0, 1.2), dtype=np.float64),
+        qvel=np.asarray((8.0, 2.0, 3.0), dtype=np.float64),
+        xfrc_applied=np.zeros((1, 6), dtype=np.float64),
+    )
+    ids = SimpleNamespace(ball=0, ball_qpos=0, ball_qvel=0)
+
+    _apply_compliant_net_force(data, ids, goal, flow)
+    np.testing.assert_allclose(data.xfrc_applied, 0.0)
+
+    data.qpos[0] = 6.25
+    _apply_compliant_net_force(data, ids, goal, flow)
+    assert data.xfrc_applied[0, 0] < 0.0
+    assert abs(data.xfrc_applied[0, 1]) < abs(data.xfrc_applied[0, 0]) * 0.1
+    assert abs(data.xfrc_applied[0, 2]) < abs(data.xfrc_applied[0, 0]) * 0.1
+
+
+def test_compliant_net_dissipates_only_return_motion_inside_goal_pocket() -> None:
+    goal = G1TrainingGoalSpec(plane_x_m=6.0)
+    flow = G1FreeKickFlowConfig(net_capture_depth_m=0.20)
+    data = SimpleNamespace(
+        qpos=np.asarray((6.10, 0.0, 1.2), dtype=np.float64),
+        qvel=np.asarray((-3.0, 1.0, -2.0), dtype=np.float64),
+        xfrc_applied=np.zeros((1, 6), dtype=np.float64),
+    )
+    ids = SimpleNamespace(ball=0, ball_qpos=0, ball_qvel=0)
+
+    _apply_compliant_net_force(data, ids, goal, flow)
+
+    assert data.xfrc_applied[0, 0] > 0.0
+    assert data.xfrc_applied[0, 1] < 0.0
+    assert data.xfrc_applied[0, 2] > 0.0
+
+
+def test_free_kick_video_rejects_unknown_resolution(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="resolution must be"):
+        render_g1_free_kick_showcase_video(
+            evidence_path=tmp_path / "missing.json",
+            asset_root=tmp_path / "assets",
+            output_path=tmp_path / "video.mp4",
+            source_checkout=tmp_path / "checkout",
+            resolution="4k",
+        )
+
+
+def test_free_kick_video_expands_native_offscreen_framebuffer() -> None:
+    model = SimpleNamespace(
+        vis=SimpleNamespace(global_=SimpleNamespace(offwidth=640, offheight=480))
+    )
+
+    _configure_offscreen_framebuffer(model, width=1920, height=1080)
+
+    assert model.vis.global_.offwidth == 1920
+    assert model.vis.global_.offheight == 1080
 
 
 def test_missing_learned_gait_assets_are_ineligible(tmp_path: Path) -> None:
@@ -481,3 +615,6 @@ def test_real_stadium_replaces_wall_with_collision_goal() -> None:
     assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "box") == -1
     assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "goal_crossbar") >= 0
     assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "goal_back_net") >= 0
+    ball_joint = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "ball_free")
+    ball_dof = int(model.jnt_dofadr[ball_joint])
+    assert np.allclose(model.dof_damping[ball_dof : ball_dof + 6], 0.02)

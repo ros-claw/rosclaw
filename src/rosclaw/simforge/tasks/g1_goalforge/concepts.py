@@ -138,7 +138,10 @@ class ShotParameters:
             "stance_offset_y": (self.stance_offset_y, -0.12, 0.12),
             "pelvis_yaw_offset": (self.pelvis_yaw_offset, -0.20, 0.20),
             "com_shift_y": (self.com_shift_y, -0.08, 0.08),
-            "swing_amplitude": (self.swing_amplitude, 0.75, 1.15),
+            # The same whole-body prior is also used for a soft pass.  Keep a
+            # bounded low-power envelope instead of forcing every pass through
+            # the minimum shooting amplitude.
+            "swing_amplitude": (self.swing_amplitude, 0.40, 1.15),
             # Direct run-to-strike curricula may compress the pre-contact
             # motion clock.  Values above the old 1.15 ceiling remain bounded
             # and must still pass the physical continuity/safety evidence.

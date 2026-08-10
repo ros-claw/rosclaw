@@ -1,4 +1,10 @@
-"""SIM-only operational-space teacher for discovering lofted G1 strikes."""
+"""SIM-only operational-space teacher for discovering lofted G1 strikes.
+
+The vertical target is deliberately signed. Positive targets explore an
+upward foot path; negative targets explore a downward, under-centre cut. The
+teacher remains an evidence generator only and never constitutes a promotable
+controller.
+"""
 
 from __future__ import annotations
 
@@ -7,13 +13,14 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 from rosclaw.simforge.tasks.g1_goalforge.concepts import hash_json
 
 
 @dataclass(frozen=True)
 class G1LoftTeacherConfig:
-    """Bounded vertical foot-velocity teacher; zero target disables it."""
+    """Bounded signed foot-velocity teacher; zero target disables that axis."""
 
     target_vertical_speed_mps: float = 0.0
     velocity_gain_n_per_mps: float = 24.0
@@ -21,11 +28,14 @@ class G1LoftTeacherConfig:
     target_forward_speed_mps: float = 0.0
     forward_velocity_gain_n_per_mps: float = 20.0
     maximum_forward_force_n: float = 80.0
+    target_lateral_speed_mps: float = 0.0
+    lateral_velocity_gain_n_per_mps: float = 20.0
+    maximum_lateral_force_n: float = 80.0
     start_policy_frame: int = 230
     end_policy_frame: int = 335
     foot_strike_point_offset_m: tuple[float, float, float] = (0.13, 0.0, -0.025)
     maximum_foot_ball_distance_m: float = 0.0
-    schema_version: str = "rosclaw.simforge.g1_loft_teacher_config.v4"
+    schema_version: str = "rosclaw.simforge.g1_loft_teacher_config.v6"
 
     def __post_init__(self) -> None:
         values = (
@@ -35,14 +45,20 @@ class G1LoftTeacherConfig:
             self.target_forward_speed_mps,
             self.forward_velocity_gain_n_per_mps,
             self.maximum_forward_force_n,
+            self.target_lateral_speed_mps,
+            self.lateral_velocity_gain_n_per_mps,
+            self.maximum_lateral_force_n,
             self.maximum_foot_ball_distance_m,
         )
         if not all(math.isfinite(value) for value in values):
             raise ValueError("G1 loft teacher config must be finite")
         if self.target_vertical_speed_mps != 0.0 and not (
-            3.0 <= self.target_vertical_speed_mps <= 7.0
+            -4.0 <= self.target_vertical_speed_mps <= -0.5
+            or 3.0 <= self.target_vertical_speed_mps <= 7.0
         ):
-            raise ValueError("G1 loft teacher target speed must be zero or in [3, 7] m/s")
+            raise ValueError(
+                "G1 loft teacher target speed must be zero, in [-4, -0.5], or in [3, 7] m/s"
+            )
         if not 5.0 <= self.velocity_gain_n_per_mps <= 50.0:
             raise ValueError("G1 loft teacher velocity gain must be in [5, 50] N/(m/s)")
         if not 10.0 <= self.maximum_vertical_force_n <= 250.0:
@@ -55,6 +71,17 @@ class G1LoftTeacherConfig:
             raise ValueError("G1 loft teacher forward gain must be in [5, 50] N/(m/s)")
         if not 10.0 <= self.maximum_forward_force_n <= 250.0:
             raise ValueError("G1 loft teacher forward force limit must be in [10, 250] N")
+        if self.target_lateral_speed_mps != 0.0 and not (
+            -10.0 <= self.target_lateral_speed_mps <= -1.0
+            or 1.0 <= self.target_lateral_speed_mps <= 10.0
+        ):
+            raise ValueError(
+                "G1 loft teacher lateral speed must be zero, in [-10, -1], or in [1, 10] m/s"
+            )
+        if not 5.0 <= self.lateral_velocity_gain_n_per_mps <= 50.0:
+            raise ValueError("G1 loft teacher lateral gain must be in [5, 50] N/(m/s)")
+        if not 10.0 <= self.maximum_lateral_force_n <= 250.0:
+            raise ValueError("G1 loft teacher lateral force limit must be in [10, 250] N")
         if not 150 <= self.start_policy_frame < self.end_policy_frame <= 430:
             raise ValueError("G1 loft teacher policy window is invalid")
         if len(self.foot_strike_point_offset_m) != 3 or not all(
@@ -70,13 +97,15 @@ class G1LoftTeacherConfig:
         if self.maximum_foot_ball_distance_m != 0.0 and not (
             0.15 <= self.maximum_foot_ball_distance_m <= 1.0
         ):
-            raise ValueError(
-                "G1 loft teacher foot-ball distance must be zero or in [0.15, 1.0] m"
-            )
+            raise ValueError("G1 loft teacher foot-ball distance must be zero or in [0.15, 1.0] m")
 
     @property
     def enabled(self) -> bool:
-        return self.target_vertical_speed_mps > 0.0 or self.target_forward_speed_mps > 0.0
+        return (
+            self.target_vertical_speed_mps != 0.0
+            or self.target_forward_speed_mps > 0.0
+            or self.target_lateral_speed_mps != 0.0
+        )
 
     @property
     def config_hash(self) -> str:
@@ -88,8 +117,10 @@ class G1LoftTeacherEffect:
     torque: np.ndarray
     vertical_force_n: float
     forward_force_n: float
+    lateral_force_n: float
     foot_vertical_speed_mps: float
     foot_forward_speed_mps: float
+    foot_lateral_speed_mps: float
     active: bool
 
 
@@ -115,6 +146,7 @@ def project_g1_vertical_foot_force(
     if not np.all(np.isfinite(jacobian)) or not np.all(np.isfinite(velocity)):
         raise FloatingPointError("G1 loft teacher inputs must be finite")
     foot_forward_speed = float(jacobian[0] @ velocity)
+    foot_lateral_speed = float(jacobian[1] @ velocity)
     foot_vertical_speed = float(jacobian[2] @ velocity)
     vertical_force = (
         0.0
@@ -123,7 +155,7 @@ def project_g1_vertical_foot_force(
             np.clip(
                 config.velocity_gain_n_per_mps
                 * (config.target_vertical_speed_mps - foot_vertical_speed),
-                0.0,
+                -config.maximum_vertical_force_n,
                 config.maximum_vertical_force_n,
             )
         )
@@ -140,9 +172,22 @@ def project_g1_vertical_foot_force(
             )
         )
     )
+    lateral_force = (
+        0.0
+        if config.target_lateral_speed_mps == 0.0
+        else float(
+            np.clip(
+                config.lateral_velocity_gain_n_per_mps
+                * (config.target_lateral_speed_mps - foot_lateral_speed),
+                -config.maximum_lateral_force_n,
+                config.maximum_lateral_force_n,
+            )
+        )
+    )
     torque = (
         jacobian[2, 6:35] * vertical_force
         + jacobian[0, 6:35] * forward_force
+        + jacobian[1, 6:35] * lateral_force
     )
     if torque.shape != (29,) or not np.all(np.isfinite(torque)):
         raise FloatingPointError("G1 loft teacher emitted an invalid joint torque")
@@ -150,9 +195,11 @@ def project_g1_vertical_foot_force(
         torque=torque,
         vertical_force_n=vertical_force,
         forward_force_n=forward_force,
+        lateral_force_n=lateral_force,
         foot_vertical_speed_mps=foot_vertical_speed,
         foot_forward_speed_mps=foot_forward_speed,
-        active=vertical_force > 0.0 or forward_force > 0.0,
+        foot_lateral_speed_mps=foot_lateral_speed,
+        active=(abs(vertical_force) > 0.0 or forward_force > 0.0 or abs(lateral_force) > 0.0),
     )
 
 
@@ -166,19 +213,19 @@ def g1_loft_teacher_effect(
     contact_observed: bool,
     ball_position: np.ndarray | None = None,
 ) -> G1LoftTeacherEffect:
-    """Project a bounded upward task-space force into the 29 joint torques."""
+    """Project a bounded signed task-space force into the 29 joint torques."""
 
     import mujoco
 
-    zero = np.zeros(29, dtype=np.float64)
+    zero: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
     if (
         not config.enabled
         or contact_observed
         or not config.start_policy_frame <= policy_frame <= config.end_policy_frame
     ):
-        return G1LoftTeacherEffect(zero, 0.0, 0.0, 0.0, 0.0, False)
-    jacobian_position = np.zeros((3, int(model.nv)), dtype=np.float64)
-    jacobian_rotation = np.zeros((3, int(model.nv)), dtype=np.float64)
+        return G1LoftTeacherEffect(zero, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, False)
+    jacobian_position: NDArray[np.float64] = np.zeros((3, int(model.nv)), dtype=np.float64)
+    jacobian_rotation: NDArray[np.float64] = np.zeros((3, int(model.nv)), dtype=np.float64)
     foot_rotation = np.asarray(data.xmat[right_ankle_body_id], dtype=np.float64).reshape(3, 3)
     foot_point = np.asarray(
         data.xpos[right_ankle_body_id], dtype=np.float64
@@ -191,7 +238,7 @@ def g1_loft_teacher_effect(
         if ball.shape != (3,) or not np.all(np.isfinite(ball)):
             raise ValueError("G1 loft teacher proximity gate requires a finite ball position")
         if float(np.linalg.norm(foot_point - ball)) > config.maximum_foot_ball_distance_m:
-            return G1LoftTeacherEffect(zero, 0.0, 0.0, 0.0, 0.0, False)
+            return G1LoftTeacherEffect(zero, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, False)
     mujoco.mj_jac(
         model,
         data,

@@ -12,6 +12,7 @@ import math
 from dataclasses import asdict, dataclass
 
 import numpy as np
+from numpy.typing import NDArray
 
 from rosclaw.feedback.contracts import canonical_hash
 from rosclaw.simforge.tasks.g1_goalforge.concepts import G1_DDS_JOINT_NAMES
@@ -30,11 +31,12 @@ class G1BallisticContactResidualConfig:
     trail_duration_sec: float = 0.08
     # This is an exploration ceiling, not an actuator-authority increase.  The
     # target still passes through the qualified PD controller, hard torque
-    # projection and joint-boundary guard.  The 0.25 rad ceiling is small
-    # enough to keep the online curriculum local while allowing the observed
-    # positive ankle-pitch direction to take one additional trust-region step.
+    # projection and joint-boundary guard.  The 0.25 rad ceiling was retained
+    # after strict 0.26--0.29 rad probes all crossed into rejected contact
+    # islands; failures contract rather than expand this SIM-only curriculum.
     maximum_joint_residual_rad: float = 0.25
-    schema_version: str = "rosclaw.growth.g1_ballistic_contact_residual_config.v1"
+    activation_ceiling: str = "SIM_ONLY"
+    schema_version: str = "rosclaw.growth.g1_ballistic_contact_residual_config.v2"
 
     def __post_init__(self) -> None:
         if len(self.right_leg_residual_rad) != 6 or not all(
@@ -50,10 +52,11 @@ class G1BallisticContactResidualConfig:
         if not 0.05 <= self.maximum_joint_residual_rad <= 0.25:
             raise ValueError("ballistic contact residual limit must be in [0.05, 0.25] rad")
         if any(
-            abs(value) > self.maximum_joint_residual_rad
-            for value in self.right_leg_residual_rad
+            abs(value) > self.maximum_joint_residual_rad for value in self.right_leg_residual_rad
         ):
             raise ValueError("ballistic contact residual exceeds its joint limit")
+        if self.activation_ceiling != "SIM_ONLY":
+            raise ValueError("ballistic contact residual is SIM_ONLY")
 
     @property
     def enabled(self) -> bool:
@@ -78,7 +81,7 @@ def blend_g1_ballistic_contact_target(
         raise ValueError("ballistic contact target must contain 29 finite joints")
     if not math.isfinite(control_dt_sec) or control_dt_sec <= 0.0:
         raise ValueError("ballistic contact control clock must be positive")
-    delta = np.zeros(29, dtype=np.float64)
+    delta: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
     relative_time = (policy_frame - config.contact_policy_frame) * control_dt_sec
     if (
         not config.enabled

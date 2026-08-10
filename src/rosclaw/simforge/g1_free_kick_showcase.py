@@ -14,21 +14,32 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 from rosclaw.feedback.contracts import canonical_hash
 from rosclaw.growth.approach_strike_residual import (
     G1ApproachStrikeResidualConfig,
     G1ApproachStrikeResidualController,
 )
+from rosclaw.growth.ballistic_contact_impulse_actor import (
+    G1BallisticContactImpulseActor,
+    g1_ballistic_contact_impulse_context_hash,
+    g1_ballistic_contact_impulse_effect,
+)
 from rosclaw.growth.ballistic_contact_residual import (
     G1BallisticContactResidualConfig,
     blend_g1_ballistic_contact_target,
+)
+from rosclaw.growth.ballistic_contact_torque_residual import (
+    G1BallisticContactTorqueResidualConfig,
+    g1_ballistic_contact_torque_residual,
 )
 from rosclaw.growth.football_motion_prior import (
     G1FootballMotionPrior,
     blend_g1_football_motion_prior_target,
 )
 from rosclaw.simforge.backends.unitree_mujoco_backend import (
+    G1MuJoCoBackend,
     _adapt_target,
     _contact_observation,
     _fill_state,
@@ -38,6 +49,9 @@ from rosclaw.simforge.backends.unitree_mujoco_backend import (
     _roll_pitch,
     qualify_g1_assets,
     trajectory_digest,
+)
+from rosclaw.simforge.g1_cerebellar_recovery import (
+    shared_post_impact_recovery_config,
 )
 from rosclaw.simforge.g1_joint_boundary_guard import (
     G1JointBoundaryGuardConfig,
@@ -114,6 +128,9 @@ class G1FreeKickFlowConfig:
     history_prime_frames: int = 5
     aim_bias_y_m: float = 0.30
     aim_bias_z_m: float = 0.0
+    shot_reference_plane_x_m: float = 0.0
+    shot_reference_target_y_m: float | None = None
+    shot_reference_target_z_m: float | None = None
     net_capture_depth_m: float = 0.20
     net_stiffness_n_m: float = 42.0
     net_damping_n_s_m: float = 8.5
@@ -127,6 +144,9 @@ class G1FreeKickFlowConfig:
     shot_loft_teacher_target_vx_mps: float = 0.0
     shot_loft_teacher_forward_gain_n_per_mps: float = 20.0
     shot_loft_teacher_max_forward_force_n: float = 80.0
+    shot_loft_teacher_target_vy_mps: float = 0.0
+    shot_loft_teacher_lateral_gain_n_per_mps: float = 20.0
+    shot_loft_teacher_max_lateral_force_n: float = 80.0
     shot_loft_teacher_start_policy_frame: int = 230
     shot_loft_teacher_end_policy_frame: int = 335
     shot_loft_teacher_foot_pitch_bonus_rad: float = 0.0
@@ -146,19 +166,34 @@ class G1FreeKickFlowConfig:
     football_motion_prior_hash: str | None = None
     football_motion_prior_blend: float = 0.0
     football_motion_prior_contact_policy_frame: int = 265
+    ballistic_contact_impulse_actor_hash: str | None = None
     ballistic_contact_residual_rad: tuple[float, ...] = (0.0,) * 6
+    ballistic_contact_torque_residual_nm: tuple[float, ...] = (0.0,) * 6
+    ballistic_contact_torque_preload_nm: tuple[float, ...] = (0.0,) * 6
+    ballistic_contact_torque_phase_offset_sec: tuple[float, ...] = (0.0,) * 6
+    ballistic_counterbalance_torque_residual_nm: tuple[float, ...] = (0.0,) * 6
+    ballistic_contact_torque_policy_frame: int = 256
+    ballistic_contact_torque_lead_duration_sec: float = 0.16
+    ballistic_contact_torque_trail_duration_sec: float = 0.08
     ballistic_contact_policy_frame: int = 256
     ballistic_contact_lead_duration_sec: float = 0.16
     ballistic_contact_trail_duration_sec: float = 0.08
     football_retry_recovery_duration_sec: float = 0.0
     football_retry_follow_through_gain_scale: float = 1.0
+    shared_cerebellar_recovery_enabled: bool = False
+    shot_recovery_step_length_m: float = 0.11
+    shot_recovery_step_yaw_rad: float = -0.05
     post_contact_damping_scale: float = 1.0
+    post_contact_damping_delay_sec: float = 0.18
+    post_contact_damping_ramp_sec: float = 0.45
     ballistic_skill_memory_hash: str | None = None
     ballistic_skill_id: str | None = None
     approach_provider: str = "groot_history"
-    schema_version: str = "rosclaw.simforge.g1_free_kick_flow_config.v24"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_flow_config.v34"
 
     def __post_init__(self) -> None:
+        if not isinstance(self.shared_cerebellar_recovery_enabled, bool):
+            raise ValueError("shared cerebellar recovery flag must be boolean")
         values = (
             self.bridge_duration_sec,
             self.contextual_phase_yaw_threshold_rad,
@@ -167,6 +202,7 @@ class G1FreeKickFlowConfig:
             self.bridge_boundary_velocity_limit_rad_s,
             self.aim_bias_y_m,
             self.aim_bias_z_m,
+            self.shot_reference_plane_x_m,
             self.net_capture_depth_m,
             self.net_stiffness_n_m,
             self.net_damping_n_s_m,
@@ -180,6 +216,9 @@ class G1FreeKickFlowConfig:
             self.shot_loft_teacher_target_vx_mps,
             self.shot_loft_teacher_forward_gain_n_per_mps,
             self.shot_loft_teacher_max_forward_force_n,
+            self.shot_loft_teacher_target_vy_mps,
+            self.shot_loft_teacher_lateral_gain_n_per_mps,
+            self.shot_loft_teacher_max_lateral_force_n,
             self.shot_loft_teacher_foot_pitch_bonus_rad,
             self.shot_loft_teacher_max_foot_ball_distance_m,
             self.shot_com_shift_y_m,
@@ -189,7 +228,11 @@ class G1FreeKickFlowConfig:
             self.shot_contact_phase_offset,
             self.football_retry_recovery_duration_sec,
             self.football_retry_follow_through_gain_scale,
+            self.shot_recovery_step_length_m,
+            self.shot_recovery_step_yaw_rad,
             self.post_contact_damping_scale,
+            self.post_contact_damping_delay_sec,
+            self.post_contact_damping_ramp_sec,
             self.football_motion_prior_blend,
             self.ballistic_contact_lead_duration_sec,
             self.ballistic_contact_trail_duration_sec,
@@ -218,6 +261,22 @@ class G1FreeKickFlowConfig:
             raise ValueError("aim bias must be in [-0.5, 2.0] m")
         if not -0.30 <= self.aim_bias_z_m <= 1.20:
             raise ValueError("vertical aim bias must be in [-0.30, 1.20] m")
+        if self.shot_reference_plane_x_m != 0.0 and not (
+            3.0 <= self.shot_reference_plane_x_m <= 12.0
+        ):
+            raise ValueError("shot reference plane must be zero or in [3, 12] m")
+        if self.shot_reference_target_y_m is not None and not (
+            math.isfinite(self.shot_reference_target_y_m)
+            and -2.0 <= self.shot_reference_target_y_m <= 2.0
+        ):
+            raise ValueError("shot reference target y must be in [-2, 2] m")
+        if self.shot_reference_target_z_m is not None and not (
+            math.isfinite(self.shot_reference_target_z_m)
+            and 0.115 <= self.shot_reference_target_z_m <= 2.40
+        ):
+            raise ValueError("shot reference target z must be in [0.115, 2.40] m")
+        if (self.shot_reference_target_y_m is None) != (self.shot_reference_target_z_m is None):
+            raise ValueError("shot reference target y and z must be provided together")
         if not 0.20 <= self.net_capture_depth_m <= 0.70:
             raise ValueError("net capture depth must be in [0.20, 0.70] m")
         if not 10.0 <= self.net_stiffness_n_m <= 100.0:
@@ -241,6 +300,9 @@ class G1FreeKickFlowConfig:
             target_forward_speed_mps=self.shot_loft_teacher_target_vx_mps,
             forward_velocity_gain_n_per_mps=(self.shot_loft_teacher_forward_gain_n_per_mps),
             maximum_forward_force_n=self.shot_loft_teacher_max_forward_force_n,
+            target_lateral_speed_mps=self.shot_loft_teacher_target_vy_mps,
+            lateral_velocity_gain_n_per_mps=(self.shot_loft_teacher_lateral_gain_n_per_mps),
+            maximum_lateral_force_n=self.shot_loft_teacher_max_lateral_force_n,
             start_policy_frame=self.shot_loft_teacher_start_policy_frame,
             end_policy_frame=self.shot_loft_teacher_end_policy_frame,
             maximum_foot_ball_distance_m=(self.shot_loft_teacher_max_foot_ball_distance_m),
@@ -316,17 +378,37 @@ class G1FreeKickFlowConfig:
             raise ValueError("football motion prior hash must be SHA-256")
         if not 0.0 <= self.football_motion_prior_blend <= 0.50:
             raise ValueError("football motion prior blend must be in [0, 0.50]")
-        if (self.football_motion_prior_hash is None) != (
-            self.football_motion_prior_blend == 0.0
-        ):
+        if (self.football_motion_prior_hash is None) != (self.football_motion_prior_blend == 0.0):
             raise ValueError("football motion prior hash and non-zero blend must be paired")
         if not 240 <= self.football_motion_prior_contact_policy_frame <= 300:
             raise ValueError("football motion prior contact frame must be in [240, 300]")
+        if self.ballistic_contact_impulse_actor_hash is not None and not (
+            self.ballistic_contact_impulse_actor_hash.startswith("sha256:")
+        ):
+            raise ValueError("ballistic contact impulse actor hash must be SHA-256")
+        if (
+            self.ballistic_contact_impulse_actor_hash is not None
+            and G1LoftTeacherConfig(
+                target_vertical_speed_mps=self.shot_loft_teacher_target_vz_mps,
+                target_forward_speed_mps=self.shot_loft_teacher_target_vx_mps,
+                target_lateral_speed_mps=self.shot_loft_teacher_target_vy_mps,
+            ).enabled
+        ):
+            raise ValueError("learned contact impulse actor and SIM teacher are exclusive")
         G1BallisticContactResidualConfig(
             right_leg_residual_rad=self.ballistic_contact_residual_rad,
             contact_policy_frame=self.ballistic_contact_policy_frame,
             lead_duration_sec=self.ballistic_contact_lead_duration_sec,
             trail_duration_sec=self.ballistic_contact_trail_duration_sec,
+        )
+        G1BallisticContactTorqueResidualConfig(
+            right_leg_residual_nm=self.ballistic_contact_torque_residual_nm,
+            right_leg_preload_nm=self.ballistic_contact_torque_preload_nm,
+            right_leg_phase_offset_sec=(self.ballistic_contact_torque_phase_offset_sec),
+            counterbalance_residual_nm=(self.ballistic_counterbalance_torque_residual_nm),
+            contact_policy_frame=self.ballistic_contact_torque_policy_frame,
+            lead_duration_sec=self.ballistic_contact_torque_lead_duration_sec,
+            trail_duration_sec=self.ballistic_contact_torque_trail_duration_sec,
         )
         if self.football_retry_recovery_duration_sec != 0.0 and not (
             0.4 <= self.football_retry_recovery_duration_sec <= 2.0
@@ -339,8 +421,16 @@ class G1FreeKickFlowConfig:
             raise ValueError("football retry recovery requires an outcome model")
         if not 0.7 <= self.football_retry_follow_through_gain_scale <= 1.0:
             raise ValueError("football retry follow-through gain scale must be in [0.7, 1.0]")
+        if not 0.0 <= self.shot_recovery_step_length_m <= 0.15:
+            raise ValueError("shot recovery step length must be in [0.0, 0.15] m")
+        if not -0.15 <= self.shot_recovery_step_yaw_rad <= 0.15:
+            raise ValueError("shot recovery step yaw must be in [-0.15, 0.15] rad")
         if not 1.0 <= self.post_contact_damping_scale <= 2.5:
             raise ValueError("post-contact damping scale must be in [1.0, 2.5]")
+        if not 0.0 <= self.post_contact_damping_delay_sec <= 0.4:
+            raise ValueError("post-contact damping delay must be in [0.0, 0.4] s")
+        if not 0.1 <= self.post_contact_damping_ramp_sec <= 0.8:
+            raise ValueError("post-contact damping ramp must be in [0.1, 0.8] s")
         if (self.ballistic_skill_memory_hash is None) != (self.ballistic_skill_id is None):
             raise ValueError("ballistic skill memory hash and skill id must be paired")
         if self.ballistic_skill_memory_hash is not None and not (
@@ -449,6 +539,9 @@ class G1FreeKickResult:
     post_contact_final_joint_velocity_rms_rad_s: float = 0.0
     post_contact_mean_pelvis_speed_mps: float = 0.0
     post_contact_mean_joint_velocity_rms_rad_s: float = 0.0
+    cerebellar_recovery_executed: bool = False
+    cerebellar_recovery_active_frames: int = 0
+    cerebellar_recovery_peak_blend_fraction: float = 0.0
     football_outcome_model_executed: bool = False
     football_outcome_retry_recommended: bool = False
     football_outcome_predicted_hard_safe_probability: float | None = None
@@ -464,6 +557,14 @@ class G1FreeKickResult:
     ballistic_contact_residual_executed: bool = False
     ballistic_contact_residual_active_frames: int = 0
     ballistic_contact_residual_peak_target_delta_rad: float = 0.0
+    ballistic_contact_torque_residual_executed: bool = False
+    ballistic_contact_torque_residual_active_frames: int = 0
+    ballistic_contact_torque_residual_peak_nm: float = 0.0
+    ballistic_contact_impulse_actor_executed: bool = False
+    ballistic_contact_impulse_actor_active_frames: int = 0
+    ballistic_contact_impulse_actor_peak_torque_nm: float = 0.0
+    ballistic_contact_impulse_actor_peak_lateral_force_n: float = 0.0
+    ballistic_contact_impulse_actor_peak_vertical_force_n: float = 0.0
     ballistic_skill_memory_executed: bool = False
     ballistic_skill_id: str | None = None
     ballistic_skill_nearest_distance: float | None = None
@@ -473,7 +574,7 @@ class G1FreeKickResult:
     kick_contact_normal_xyz: tuple[float, float, float] | None = None
     kick_contact_force_world_xyz_n: tuple[float, float, float] | None = None
     kick_contact_peak_force_n: float | None = None
-    schema_version: str = "rosclaw.simforge.g1_free_kick_result.v20"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_result.v23"
 
     @property
     def perceptual_continuity_passed(self) -> bool:
@@ -567,7 +668,7 @@ class G1FreeKickEvidence:
     evidence_domain: str = "DEVELOPMENT_SHOWCASE"
     physics_authority: str = "CPU_MUJOCO"
     hardware_command_sent: bool = False
-    schema_version: str = "rosclaw.simforge.g1_free_kick_evidence.v20"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_evidence.v23"
 
     @property
     def passed(self) -> bool:
@@ -587,8 +688,7 @@ class G1FreeKickEvidence:
                 self.flow_config.ballistic_skill_memory_hash is None
                 or (
                     self.result.ballistic_skill_memory_executed
-                    and self.result.ballistic_skill_id
-                    == self.flow_config.ballistic_skill_id
+                    and self.result.ballistic_skill_id == self.flow_config.ballistic_skill_id
                     and self.result.ballistic_skill_nearest_distance is not None
                     and self.result.ballistic_skill_distance_margin is not None
                 )
@@ -633,19 +733,28 @@ class G1FreeKickEvidence:
                 "bounded_ballistic_contact_residual": (
                     self.result.ballistic_contact_residual_executed
                 ),
-                "full_state_ballistic_skill_memory": (
-                    self.result.ballistic_skill_memory_executed
+                "bounded_sim_only_ballistic_contact_torque_residual": (
+                    self.result.ballistic_contact_torque_residual_executed
                 ),
+                "learned_proprioceptive_contact_impulse_actor": (
+                    self.result.ballistic_contact_impulse_actor_executed
+                ),
+                "full_state_ballistic_skill_memory": (self.result.ballistic_skill_memory_executed),
                 "sim_only_operational_space_loft_teacher": (self.result.loft_teacher_executed),
                 "post_contact_right_ankle_boundary_projection": (
                     self.result.joint_boundary_guard_active_steps > 0
                 ),
                 "event_phase_contract": {phase.name: int(phase) for phase in G1FootballEventPhase},
                 "continuous_runup_kick_recovery": True,
-                "perceptual_run_to_strike_continuity": (
-                    self.result.perceptual_continuity_passed
+                "perceptual_run_to_strike_continuity": (self.result.perceptual_continuity_passed),
+                "scoring_goal_decoupled_from_motion_reference": (
+                    self.flow_config.shot_reference_plane_x_m > 0.0
                 ),
                 "post_contact_recovery_metrics_from_physics_trace": True,
+                "shared_contact_gated_cerebellar_recovery": (
+                    self.result.cerebellar_recovery_executed
+                    and self.result.cerebellar_recovery_active_frames > 0
+                ),
                 "contact_dynamics_observed_from_physics": bool(
                     self.result.kick_contact_foot_position_xyz_m is not None
                     and self.result.kick_contact_foot_velocity_xyz_mps is not None
@@ -704,6 +813,7 @@ def run_g1_free_kick_showcase(
     football_outcome_model: G1FootballOutcomeModel | None = None,
     football_motion_prior: G1FootballMotionPrior | None = None,
     ballistic_skill_memory: G1BallisticSkillMemory | None = None,
+    ballistic_contact_impulse_actor: G1BallisticContactImpulseActor | None = None,
 ) -> G1FreeKickEvidence:
     """Execute and strictly replay one continuous long run-up free kick."""
 
@@ -724,6 +834,16 @@ def run_g1_free_kick_showcase(
             raise ValueError("football motion prior Body hash mismatch")
         if flow.football_motion_prior_hash != football_motion_prior.prior_hash:
             raise ValueError("flow football motion prior hash mismatch")
+    if (
+        ballistic_contact_impulse_actor is None
+        and flow.ballistic_contact_impulse_actor_hash is not None
+    ):
+        raise ValueError("flow declares a contact impulse actor but none was supplied")
+    if ballistic_contact_impulse_actor is not None:
+        if ballistic_contact_impulse_actor.body_hash != qualification.body_hash:
+            raise ValueError("contact impulse actor Body hash mismatch")
+        if flow.ballistic_contact_impulse_actor_hash != ballistic_contact_impulse_actor.actor_hash:
+            raise ValueError("flow contact impulse actor hash mismatch")
     if ballistic_skill_memory is None and flow.ballistic_skill_memory_hash is not None:
         raise ValueError("flow declares a ballistic skill memory but none was supplied")
     if ballistic_skill_memory is not None:
@@ -772,17 +892,31 @@ def run_g1_free_kick_showcase(
             approach_strike_candidate_path,
             residual_config,
         )
+    if ballistic_contact_impulse_actor is not None:
+        actor_context_hash = g1_ballistic_contact_impulse_context_hash(
+            flow_config=asdict(flow),
+            goal_spec=asdict(goal),
+            runup_config=asdict(runup),
+            sonic_runup_config=(None if sonic_config is None else asdict(sonic_config)),
+            approach_strike_candidate_hash=(
+                None if residual_controller is None else residual_controller.candidate_hash
+            ),
+        )
+        if actor_context_hash != ballistic_contact_impulse_actor.experiment_context_hash:
+            raise ValueError("contact impulse actor experiment context mismatch")
     implementation_hash = hash_json(
         {
             name: hash_bytes(Path(__file__).with_name(name).read_bytes())
             for name in (
                 "g1_free_kick_showcase.py",
+                "g1_cerebellar_recovery.py",
                 "g1_joint_boundary_guard.py",
                 "g1_learned_runup.py",
                 "g1_loft_teacher.py",
                 "g1_sonic_runup.py",
                 "g1_stadium_scene.py",
                 "g1_transition_bridge.py",
+                "g1_two_player_relay.py",
             )
         }
         | {
@@ -791,6 +925,8 @@ def run_g1_free_kick_showcase(
                 "growth/approach_strike_contracts.py",
                 "growth/approach_strike_residual.py",
                 "growth/ballistic_contact_residual.py",
+                "growth/ballistic_contact_impulse_actor.py",
+                "growth/ballistic_contact_torque_residual.py",
                 "growth/ballistic_skill_memory.py",
                 "growth/learners/iql.py",
                 "growth/football_outcome_model.py",
@@ -807,7 +943,7 @@ def run_g1_free_kick_showcase(
     ):
         raise ValueError("ballistic skill memory implementation hash mismatch")
     request = {
-        "schema_version": "rosclaw.simforge.g1_free_kick_request.v23",
+        "schema_version": "rosclaw.simforge.g1_free_kick_request.v32",
         "body_hash": qualification.body_hash,
         "kick_prior_hash": qualification.kick_prior_hash,
         "learned_gait_qualification_hash": gait_qualification.qualification_hash,
@@ -827,6 +963,11 @@ def run_g1_free_kick_showcase(
         ),
         "football_motion_prior_hash": (
             None if football_motion_prior is None else football_motion_prior.prior_hash
+        ),
+        "ballistic_contact_impulse_actor_hash": (
+            None
+            if ballistic_contact_impulse_actor is None
+            else ballistic_contact_impulse_actor.actor_hash
         ),
         "goal_spec": asdict(goal),
         "activation_ceiling": "SIM_ONLY",
@@ -877,6 +1018,7 @@ def run_g1_free_kick_showcase(
         football_outcome_model=football_outcome_model,
         football_motion_prior=football_motion_prior,
         ballistic_skill_memory=ballistic_skill_memory,
+        ballistic_contact_impulse_actor=ballistic_contact_impulse_actor,
     )
     replay_result, replay_trajectory = _simulate(
         asset_root=asset_root,
@@ -891,6 +1033,7 @@ def run_g1_free_kick_showcase(
         football_outcome_model=football_outcome_model,
         football_motion_prior=football_motion_prior,
         ballistic_skill_memory=ballistic_skill_memory,
+        ballistic_contact_impulse_actor=ballistic_contact_impulse_actor,
     )
     digest = trajectory_digest(trajectory)
     strict_replay = bool(
@@ -898,7 +1041,7 @@ def run_g1_free_kick_showcase(
         and digest == trajectory_digest(replay_trajectory)
     )
     trajectory_path = root / "g1-free-kick-trajectory.npz"
-    np.savez_compressed(trajectory_path, **trajectory)
+    np.savez_compressed(trajectory_path, **trajectory)  # type: ignore[arg-type]
     evidence = G1FreeKickEvidence(
         body_hash=qualification.body_hash,
         kick_prior_hash=qualification.kick_prior_hash,
@@ -944,6 +1087,7 @@ def _simulate(
     football_outcome_model: G1FootballOutcomeModel | None,
     football_motion_prior: G1FootballMotionPrior | None,
     ballistic_skill_memory: G1BallisticSkillMemory | None,
+    ballistic_contact_impulse_actor: G1BallisticContactImpulseActor | None,
 ) -> tuple[G1FreeKickResult, dict[str, np.ndarray]]:
     import mujoco
 
@@ -994,15 +1138,27 @@ def _simulate(
         "loft_teacher_torque": [],
         "loft_teacher_force_n": [],
         "loft_teacher_forward_force_n": [],
+        "loft_teacher_lateral_force_n": [],
         "loft_teacher_foot_vx_mps": [],
+        "loft_teacher_foot_vy_mps": [],
         "loft_teacher_foot_vz_mps": [],
         "loft_teacher_active": [],
+        "ballistic_contact_impulse_actor_torque": [],
+        "ballistic_contact_impulse_actor_lateral_force_n": [],
+        "ballistic_contact_impulse_actor_vertical_force_n": [],
+        "ballistic_contact_impulse_actor_foot_vy_mps": [],
+        "ballistic_contact_impulse_actor_foot_vz_mps": [],
+        "ballistic_contact_impulse_actor_active": [],
         "joint_boundary_guard_correction": [],
         "joint_boundary_guard_active": [],
         "football_motion_prior_target_delta": [],
         "football_motion_prior_active": [],
         "ballistic_contact_target_delta": [],
         "ballistic_contact_residual_active": [],
+        "ballistic_contact_torque_residual": [],
+        "ballistic_contact_torque_residual_active": [],
+        "cerebellar_recovery_active": [],
+        "cerebellar_recovery_blend_fraction": [],
         "policy_action": [],
         "controller_target_velocity": [],
         "pelvis_pose": [],
@@ -1028,6 +1184,9 @@ def _simulate(
         target_forward_speed_mps=flow.shot_loft_teacher_target_vx_mps,
         forward_velocity_gain_n_per_mps=(flow.shot_loft_teacher_forward_gain_n_per_mps),
         maximum_forward_force_n=flow.shot_loft_teacher_max_forward_force_n,
+        target_lateral_speed_mps=flow.shot_loft_teacher_target_vy_mps,
+        lateral_velocity_gain_n_per_mps=(flow.shot_loft_teacher_lateral_gain_n_per_mps),
+        maximum_lateral_force_n=flow.shot_loft_teacher_max_lateral_force_n,
         start_policy_frame=flow.shot_loft_teacher_start_policy_frame,
         end_policy_frame=flow.shot_loft_teacher_end_policy_frame,
         maximum_foot_ball_distance_m=(flow.shot_loft_teacher_max_foot_ball_distance_m),
@@ -1055,6 +1214,21 @@ def _simulate(
     )
     ballistic_contact_active_frames = 0
     ballistic_contact_peak_target_delta = 0.0
+    ballistic_contact_torque_config = G1BallisticContactTorqueResidualConfig(
+        right_leg_residual_nm=flow.ballistic_contact_torque_residual_nm,
+        right_leg_preload_nm=flow.ballistic_contact_torque_preload_nm,
+        right_leg_phase_offset_sec=flow.ballistic_contact_torque_phase_offset_sec,
+        counterbalance_residual_nm=(flow.ballistic_counterbalance_torque_residual_nm),
+        contact_policy_frame=flow.ballistic_contact_torque_policy_frame,
+        lead_duration_sec=flow.ballistic_contact_torque_lead_duration_sec,
+        trail_duration_sec=flow.ballistic_contact_torque_trail_duration_sec,
+    )
+    ballistic_contact_torque_active_frames = 0
+    ballistic_contact_torque_peak = 0.0
+    ballistic_contact_impulse_actor_active_frames = 0
+    ballistic_contact_impulse_actor_peak_torque = 0.0
+    ballistic_contact_impulse_actor_peak_lateral_force = 0.0
+    ballistic_contact_impulse_actor_peak_vertical_force = 0.0
     finite = True
     saturation = False
     saturation_steps = 0
@@ -1075,7 +1249,7 @@ def _simulate(
         if sonic is not None
         else int(round(runup.total_duration_sec / runup.control_dt_sec))
     )
-    last_torque = np.zeros(29, dtype=np.float64)
+    last_torque: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
 
     for frame in range(runup_frames):
         if sonic is not None:
@@ -1264,9 +1438,7 @@ def _simulate(
             roll, pitch = _roll_pitch(data.xquat[ids.torso])
             runup_min_height = min(runup_min_height, float(data.qpos[2]))
             runup_peak_tilt = max(runup_peak_tilt, abs(roll), abs(pitch))
-            runup_peak_speed = max(
-                runup_peak_speed, float(np.linalg.norm(data.qvel[:2]))
-            )
+            runup_peak_speed = max(runup_peak_speed, float(np.linalg.norm(data.qvel[:2])))
             finite = finite and _finite(data)
             joint_violation = joint_violation or _joint_violation(model, data)
             _append_trace(
@@ -1309,11 +1481,27 @@ def _simulate(
     _fill_state(state, model, data, ids)
     with contextlib.redirect_stdout(io.StringIO()):
         policy = policy_type(state, output)
+    # RoboNaldo's motion prior uses target distance to generate its strike
+    # pose.  A farther scoring plane must not silently flatten a qualified
+    # muscle-memory motion.  A non-zero reference plane preserves that strike
+    # morphology while the physical ball and scoring goal remain untouched.
+    # The value is request-hashed and actor-context-bound for strict replay.
+    motion_reference_x = flow.shot_reference_plane_x_m or goal.plane_x_m
+    motion_reference_y = (
+        goal.target_y_m
+        if flow.shot_reference_target_y_m is None
+        else flow.shot_reference_target_y_m
+    )
+    motion_reference_z = (
+        goal.target_z_m
+        if flow.shot_reference_target_z_m is None
+        else flow.shot_reference_target_z_m
+    )
     policy.target_pos_w = np.asarray(
         (
-            goal.plane_x_m,
-            goal.target_y_m + flow.aim_bias_y_m,
-            goal.target_z_m + flow.aim_bias_z_m,
+            motion_reference_x,
+            motion_reference_y + flow.aim_bias_y_m,
+            motion_reference_z + flow.aim_bias_z_m,
         ),
         dtype=np.float32,
     )
@@ -1458,10 +1646,25 @@ def _simulate(
         foot_pitch_offset=flow.shot_foot_pitch_offset_rad,
         loft_synergy=flow.shot_loft_synergy_rad,
         contact_phase_offset=flow.shot_contact_phase_offset,
-        recovery_step_length=0.11,
-        recovery_step_yaw=-0.05,
+        recovery_step_length=flow.shot_recovery_step_length_m,
+        recovery_step_yaw=flow.shot_recovery_step_yaw_rad,
         policy_type="skill_graph",
     )
+    cerebellar_recovery = None
+    if flow.shared_cerebellar_recovery_enabled:
+        # Use the exact same Body/motion-bound controller and trained config
+        # as the coupled passer and shooter.  The scenario supplies only the
+        # calibrated SIM regime; the controller remains contact/landing gated.
+        from rosclaw.simforge.g1_two_player_relay import _base_scenario
+
+        recovery_backend = G1MuJoCoBackend(asset_root=asset)
+        cerebellar_recovery = recovery_backend.build_cerebellar_recovery_controller(
+            _base_scenario(),
+            shared_post_impact_recovery_config(),
+        )
+        cerebellar_recovery.reset()
+    cerebellar_recovery_active_frames = 0
+    cerebellar_recovery_peak_blend_fraction = 0.0
     # Slower swings need extra policy frames. Faster swings must not shorten
     # the physical observation tail: the ball still needs time to cross the
     # goal plane and the body still needs a full recovery window.
@@ -1491,9 +1694,9 @@ def _simulate(
 
     for frame in range(total_kick_frames):
         _fill_state(state, model, data, ids)
-        motion_prior_delta = np.zeros(29, dtype=np.float64)
+        motion_prior_delta: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
         motion_prior_active = False
-        ballistic_contact_delta = np.zeros(29, dtype=np.float64)
+        ballistic_contact_delta: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
         ballistic_contact_active = False
         current_policy_frame = max(0, int(policy.time_step) - int(policy.WARMUP_STEPS))
         repeat = _policy_repeat_count(parameters.swing_speed_scale, current_policy_frame, frame)
@@ -1545,9 +1748,7 @@ def _simulate(
                         target=target,
                         prior=football_motion_prior,
                         policy_frame=policy_frame,
-                        contact_policy_frame=(
-                            flow.football_motion_prior_contact_policy_frame
-                        ),
+                        contact_policy_frame=(flow.football_motion_prior_contact_policy_frame),
                         control_dt_sec=runup.control_dt_sec,
                         blend=flow.football_motion_prior_blend,
                     )
@@ -1575,6 +1776,45 @@ def _simulate(
             kp = np.asarray(policy.kps, dtype=np.float64) * 0.98
             kd = np.asarray(policy.kds, dtype=np.float64) * 0.98
             policy_frame = current_policy_frame
+        cerebellar_recovery_active = False
+        cerebellar_recovery_blend_fraction = 0.0
+        if cerebellar_recovery is not None:
+            support = _contact_observation(model, data, ids)
+            recovery = cerebellar_recovery.adapt_target(
+                target=target,
+                policy_frame=policy_frame,
+                timestamp_sec=float(data.time),
+                ball_contact_detected=contact_time is not None,
+                left_support=support.left_floor,
+                right_support=support.right_floor,
+            )
+            target = recovery.target
+            terminal_slice = {
+                "whole_body": slice(None),
+                "legs": slice(0, 12),
+                "upper_body": slice(12, None),
+            }[recovery.terminal_damping_joint_group]
+            kp[terminal_slice] *= recovery.terminal_kp_scale
+            kd[terminal_slice] *= recovery.terminal_kd_scale
+            cerebellar_recovery_active = recovery.active
+            cerebellar_recovery_blend_fraction = recovery.blend_fraction
+            cerebellar_recovery_active_frames += int(recovery.active)
+            cerebellar_recovery_peak_blend_fraction = max(
+                cerebellar_recovery_peak_blend_fraction,
+                recovery.blend_fraction,
+            )
+        ballistic_contact_torque, ballistic_contact_torque_active = (
+            g1_ballistic_contact_torque_residual(
+                policy_frame=policy_frame,
+                control_dt_sec=runup.control_dt_sec,
+                config=ballistic_contact_torque_config,
+            )
+        )
+        ballistic_contact_torque_active_frames += int(ballistic_contact_torque_active)
+        ballistic_contact_torque_peak = max(
+            ballistic_contact_torque_peak,
+            float(np.max(np.abs(ballistic_contact_torque))),
+        )
         scheduled_contact_gain = bool(
             flow.strike_gain_schedule_start_policy_frame > 0
             and policy_frame >= flow.strike_gain_schedule_start_policy_frame
@@ -1589,9 +1829,7 @@ def _simulate(
                 dtype=np.float64,
             )
             if contact_time is not None and retry_recovery_executed:
-                gain_scale = (
-                    gain_scale * flow.football_retry_follow_through_gain_scale
-                )
+                gain_scale = gain_scale * flow.football_retry_follow_through_gain_scale
             kp = kp * gain_scale
             kd = kd * gain_scale
             if contact_time is not None and flow.post_contact_damping_scale > 1.0:
@@ -1599,17 +1837,15 @@ def _simulate(
                 # velocity feedback for recovery.  The torque still passes
                 # through the same hard projection and boundary guard.
                 recovery_progress = np.clip(
-                    (float(data.time) - contact_time - 0.18) / 0.45,
+                    (float(data.time) - contact_time - flow.post_contact_damping_delay_sec)
+                    / flow.post_contact_damping_ramp_sec,
                     0.0,
                     1.0,
                 )
-                recovery_blend = recovery_progress * recovery_progress * (
-                    3.0 - 2.0 * recovery_progress
+                recovery_blend = (
+                    recovery_progress * recovery_progress * (3.0 - 2.0 * recovery_progress)
                 )
-                kd = kd * (
-                    1.0
-                    + (flow.post_contact_damping_scale - 1.0) * recovery_blend
-                )
+                kd = kd * (1.0 + (flow.post_contact_damping_scale - 1.0) * recovery_blend)
         last_target = target.copy()
         if contact_time is not None:
             residual_event = G1FootballEventPhase.RECOVERY
@@ -1626,20 +1862,28 @@ def _simulate(
             event_phase=residual_event,
             baseline_torque=baseline,
         )
-        loft_teacher_torque = np.zeros(29, dtype=np.float64)
+        loft_teacher_torque: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
         loft_teacher_force = 0.0
         loft_teacher_forward_force = 0.0
+        loft_teacher_lateral_force = 0.0
         loft_teacher_foot_vx = 0.0
+        loft_teacher_foot_vy = 0.0
         loft_teacher_foot_vz = 0.0
         loft_teacher_active = False
-        boundary_guard_correction = np.zeros(29, dtype=np.float64)
+        impulse_actor_torque: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
+        impulse_actor_lateral_force = 0.0
+        impulse_actor_vertical_force = 0.0
+        impulse_actor_foot_vy = 0.0
+        impulse_actor_foot_vz = 0.0
+        impulse_actor_active = False
+        boundary_guard_correction: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
         boundary_guard_active = False
-        pre_guard_raw = np.zeros(29, dtype=np.float64)
-        commanded_torque_peak_abs = np.zeros(29, dtype=np.float64)
+        pre_guard_raw: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
+        commanded_torque_peak_abs: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
         contact_in_frame = False
         frame_contact_force_peak = 0.0
-        frame_contact_normal = np.zeros(3, dtype=np.float64)
-        frame_contact_force_world = np.zeros(3, dtype=np.float64)
+        frame_contact_normal: NDArray[np.float64] = np.zeros(3, dtype=np.float64)
+        frame_contact_force_world: NDArray[np.float64] = np.zeros(3, dtype=np.float64)
         for _ in range(substeps):
             loft_effect = g1_loft_teacher_effect(
                 model=model,
@@ -1661,21 +1905,57 @@ def _simulate(
             loft_effect_torque = loft_effect.torque
             if loft_effect.active:
                 loft_teacher_active = True
-                if loft_effect.vertical_force_n >= loft_teacher_force:
+                if abs(loft_effect.vertical_force_n) >= abs(loft_teacher_force):
                     loft_teacher_force = loft_effect.vertical_force_n
                     loft_teacher_foot_vz = loft_effect.foot_vertical_speed_mps
                 if loft_effect.forward_force_n >= loft_teacher_forward_force:
                     loft_teacher_forward_force = loft_effect.forward_force_n
                     loft_teacher_foot_vx = loft_effect.foot_forward_speed_mps
+                if abs(loft_effect.lateral_force_n) >= abs(loft_teacher_lateral_force):
+                    loft_teacher_lateral_force = loft_effect.lateral_force_n
+                    loft_teacher_foot_vy = loft_effect.foot_lateral_speed_mps
                 if float(np.max(np.abs(loft_effect_torque))) >= float(
                     np.max(np.abs(loft_teacher_torque))
                 ):
                     loft_teacher_torque = loft_effect_torque.copy()
+            impulse_effect = (
+                None
+                if ballistic_contact_impulse_actor is None
+                else g1_ballistic_contact_impulse_effect(
+                    model=model,
+                    data=data,
+                    right_ankle_body_id=ids.right_ankle,
+                    actor=ballistic_contact_impulse_actor,
+                    policy_frame=policy_frame,
+                    contact_observed=contact_time is not None,
+                    ball_position=np.asarray(
+                        data.qpos[ids.ball_qpos : ids.ball_qpos + 3],
+                        dtype=np.float64,
+                    ),
+                )
+            )
+            impulse_effect_torque = (
+                np.zeros(29, dtype=np.float64) if impulse_effect is None else impulse_effect.torque
+            )
+            if impulse_effect is not None and impulse_effect.active:
+                impulse_actor_active = True
+                if abs(impulse_effect.lateral_force_n) >= abs(impulse_actor_lateral_force):
+                    impulse_actor_lateral_force = impulse_effect.lateral_force_n
+                    impulse_actor_foot_vy = impulse_effect.foot_lateral_speed_mps
+                if abs(impulse_effect.vertical_force_n) >= abs(impulse_actor_vertical_force):
+                    impulse_actor_vertical_force = impulse_effect.vertical_force_n
+                    impulse_actor_foot_vz = impulse_effect.foot_vertical_speed_mps
+                if float(np.max(np.abs(impulse_effect_torque))) >= float(
+                    np.max(np.abs(impulse_actor_torque))
+                ):
+                    impulse_actor_torque = impulse_effect_torque.copy()
             pre_guard_raw = (
                 (target - data.qpos[7:36]) * kp
                 - data.qvel[6:35] * kd
                 + residual
+                + ballistic_contact_torque
                 + loft_effect_torque
+                + impulse_effect_torque
             )
             commanded_torque_peak_abs = np.maximum(
                 commanded_torque_peak_abs,
@@ -1689,7 +1969,9 @@ def _simulate(
             # while dataset-guided trials cannot use a small joint excursion
             # as the price of apparently better continuity or ball flight.
             if (
-                loft_teacher_config.enabled or football_motion_prior is not None
+                loft_teacher_config.enabled
+                or ballistic_contact_impulse_actor is not None
+                or football_motion_prior is not None
             ) and contact_time is not None:
                 raw, active, _ = project_g1_joint_boundary_torque(
                     joint_position=np.asarray(data.qpos[7:36], dtype=np.float64),
@@ -1736,11 +2018,15 @@ def _simulate(
                 contact_height_relative_ball_center = float(
                     contacts.ball_contact_point[2] - data.qpos[ids.ball_qpos + 2]
                 )
-                contact_foot_position = tuple(
-                    float(value) for value in data.xpos[ids.right_ankle]
+                contact_foot_position = (
+                    float(data.xpos[ids.right_ankle][0]),
+                    float(data.xpos[ids.right_ankle][1]),
+                    float(data.xpos[ids.right_ankle][2]),
                 )
-                contact_foot_velocity = tuple(
-                    float(value) for value in data.cvel[ids.right_ankle][3:6]
+                contact_foot_velocity = (
+                    float(data.cvel[ids.right_ankle][3]),
+                    float(data.cvel[ids.right_ankle][4]),
+                    float(data.cvel[ids.right_ankle][5]),
                 )
                 contact_normal = contacts.ball_contact_normal_xyz
                 contact_force_world = contacts.ball_contact_force_world_xyz_n
@@ -1760,7 +2046,11 @@ def _simulate(
                     and candidate_launch_speed > launch_speed
                 ):
                     launch_speed = candidate_launch_speed
-                    launch_velocity = tuple(float(value) for value in ball_linear_velocity)
+                    launch_velocity = (
+                        float(ball_linear_velocity[0]),
+                        float(ball_linear_velocity[1]),
+                        float(ball_linear_velocity[2]),
+                    )
             if crossing is None and previous_ball[0] < goal.plane_x_m <= ball[0]:
                 alpha = (goal.plane_x_m - previous_ball[0]) / max(ball[0] - previous_ball[0], 1e-12)
                 point = previous_ball + alpha * (ball - previous_ball)
@@ -1796,6 +2086,19 @@ def _simulate(
             )
         finite = finite and _finite(data)
         joint_violation = joint_violation or _joint_violation(model, data)
+        ballistic_contact_impulse_actor_active_frames += int(impulse_actor_active)
+        ballistic_contact_impulse_actor_peak_torque = max(
+            ballistic_contact_impulse_actor_peak_torque,
+            float(np.max(np.abs(impulse_actor_torque))),
+        )
+        ballistic_contact_impulse_actor_peak_lateral_force = max(
+            ballistic_contact_impulse_actor_peak_lateral_force,
+            abs(impulse_actor_lateral_force),
+        )
+        ballistic_contact_impulse_actor_peak_vertical_force = max(
+            ballistic_contact_impulse_actor_peak_vertical_force,
+            abs(impulse_actor_vertical_force),
+        )
         phase = min(1.0, policy_frame / max(1, int(policy.motion_total_steps) - 1))
         if contact_in_frame:
             event_phase = G1FootballEventPhase.CONTACT
@@ -1831,9 +2134,17 @@ def _simulate(
             loft_teacher_torque=loft_teacher_torque,
             loft_teacher_force_n=loft_teacher_force,
             loft_teacher_forward_force_n=loft_teacher_forward_force,
+            loft_teacher_lateral_force_n=loft_teacher_lateral_force,
             loft_teacher_foot_vx_mps=loft_teacher_foot_vx,
+            loft_teacher_foot_vy_mps=loft_teacher_foot_vy,
             loft_teacher_foot_vz_mps=loft_teacher_foot_vz,
             loft_teacher_active=loft_teacher_active,
+            ballistic_contact_impulse_actor_torque=impulse_actor_torque,
+            ballistic_contact_impulse_actor_lateral_force_n=(impulse_actor_lateral_force),
+            ballistic_contact_impulse_actor_vertical_force_n=(impulse_actor_vertical_force),
+            ballistic_contact_impulse_actor_foot_vy_mps=impulse_actor_foot_vy,
+            ballistic_contact_impulse_actor_foot_vz_mps=impulse_actor_foot_vz,
+            ballistic_contact_impulse_actor_active=impulse_actor_active,
             joint_boundary_guard_correction=boundary_guard_correction,
             joint_boundary_guard_active=boundary_guard_active,
             commanded_torque_peak_abs=commanded_torque_peak_abs,
@@ -1841,9 +2152,13 @@ def _simulate(
             football_motion_prior_active=motion_prior_active,
             ballistic_contact_target_delta=ballistic_contact_delta,
             ballistic_contact_residual_active=ballistic_contact_active,
+            ballistic_contact_torque_residual=ballistic_contact_torque,
+            ballistic_contact_torque_residual_active=(ballistic_contact_torque_active),
             ball_contact_force_peak_n=frame_contact_force_peak,
             ball_contact_normal=frame_contact_normal,
             ball_contact_force_world=frame_contact_force_world,
+            cerebellar_recovery_active=cerebellar_recovery_active,
+            cerebellar_recovery_blend_fraction=(cerebellar_recovery_blend_fraction),
         )
 
     # A compliant net can arrest a valid shot before its centre reaches the
@@ -1884,7 +2199,11 @@ def _simulate(
             net_capture[2] - goal.target_z_m,
         )
     )
-    final_ball = tuple(float(value) for value in data.qpos[ids.ball_qpos : ids.ball_qpos + 3])
+    final_ball = (
+        float(data.qpos[ids.ball_qpos]),
+        float(data.qpos[ids.ball_qpos + 1]),
+        float(data.qpos[ids.ball_qpos + 2]),
+    )
     final_ball_error = math.hypot(
         final_ball[1] - goal.target_y_m,
         final_ball[2] - goal.target_z_m,
@@ -1941,7 +2260,9 @@ def _simulate(
             float(np.max(np.abs(loft_teacher_array))) if loft_teacher_array.size else 0.0
         ),
         loft_teacher_peak_force_n=(
-            float(np.max(loft_teacher_force_array)) if loft_teacher_force_array.size else 0.0
+            float(np.max(np.abs(loft_teacher_force_array)))
+            if loft_teacher_force_array.size
+            else 0.0
         ),
         joint_boundary_guard_active_steps=boundary_guard_active_steps,
         joint_boundary_guard_peak_correction_nm=boundary_guard_peak_correction,
@@ -1993,9 +2314,7 @@ def _simulate(
         kick_contact_observed=contact_time is not None,
         contact_time_sec=contact_time,
         kick_contact_point_xyz_m=contact_point,
-        kick_contact_height_relative_ball_center_m=(
-            contact_height_relative_ball_center
-        ),
+        kick_contact_height_relative_ball_center_m=(contact_height_relative_ball_center),
         kick_contact_foot_position_xyz_m=contact_foot_position,
         kick_contact_foot_velocity_xyz_mps=contact_foot_velocity,
         kick_contact_normal_xyz=contact_normal,
@@ -2038,48 +2357,51 @@ def _simulate(
         post_contact_backward_displacement_m=post_contact_backward_displacement,
         post_contact_forward_velocity_reversals=post_contact_velocity_reversals,
         post_contact_settling_time_sec=post_contact_settling_time,
-        post_contact_peak_joint_velocity_rms_rad_s=(
-            post_contact_peak_joint_velocity_rms
-        ),
-        post_contact_final_joint_velocity_rms_rad_s=(
-            post_contact_final_joint_velocity_rms
-        ),
+        post_contact_peak_joint_velocity_rms_rad_s=(post_contact_peak_joint_velocity_rms),
+        post_contact_final_joint_velocity_rms_rad_s=(post_contact_final_joint_velocity_rms),
         post_contact_mean_pelvis_speed_mps=post_contact_mean_pelvis_speed,
-        post_contact_mean_joint_velocity_rms_rad_s=(
-            post_contact_mean_joint_velocity_rms
-        ),
+        post_contact_mean_joint_velocity_rms_rad_s=(post_contact_mean_joint_velocity_rms),
+        cerebellar_recovery_executed=cerebellar_recovery is not None,
+        cerebellar_recovery_active_frames=cerebellar_recovery_active_frames,
+        cerebellar_recovery_peak_blend_fraction=(cerebellar_recovery_peak_blend_fraction),
         football_outcome_model_executed=outcome_decision is not None,
         football_outcome_retry_recommended=initial_retry_recommended,
         football_outcome_predicted_hard_safe_probability=(
-            None
-            if outcome_decision is None
-            else outcome_decision.predicted_hard_safe_probability
+            None if outcome_decision is None else outcome_decision.predicted_hard_safe_probability
         ),
         football_outcome_predicted_precision_probability=(
-            None
-            if outcome_decision is None
-            else outcome_decision.predicted_precision_probability
+            None if outcome_decision is None else outcome_decision.predicted_precision_probability
         ),
         football_outcome_predicted_penalized_error_m=(
             None if outcome_decision is None else outcome_decision.predicted_penalized_error_m
         ),
         football_outcome_retry_recovery_executed=retry_recovery_executed,
         football_outcome_retry_recovery_duration_sec=(
-            flow.football_retry_recovery_duration_sec
-            if retry_recovery_executed
-            else 0.0
+            flow.football_retry_recovery_duration_sec if retry_recovery_executed else 0.0
         ),
         football_outcome_retry_initial_speed_mps=retry_initial_speed,
         football_outcome_retry_final_speed_mps=retry_final_speed,
         football_motion_prior_executed=football_motion_prior is not None,
         football_motion_prior_active_frames=football_motion_prior_active_frames,
-        football_motion_prior_peak_target_delta_rad=(
-            football_motion_prior_peak_target_delta
-        ),
+        football_motion_prior_peak_target_delta_rad=(football_motion_prior_peak_target_delta),
         ballistic_contact_residual_executed=ballistic_contact_config.enabled,
         ballistic_contact_residual_active_frames=ballistic_contact_active_frames,
-        ballistic_contact_residual_peak_target_delta_rad=(
-            ballistic_contact_peak_target_delta
+        ballistic_contact_residual_peak_target_delta_rad=(ballistic_contact_peak_target_delta),
+        ballistic_contact_torque_residual_executed=(ballistic_contact_torque_config.enabled),
+        ballistic_contact_torque_residual_active_frames=(ballistic_contact_torque_active_frames),
+        ballistic_contact_torque_residual_peak_nm=ballistic_contact_torque_peak,
+        ballistic_contact_impulse_actor_executed=(ballistic_contact_impulse_actor is not None),
+        ballistic_contact_impulse_actor_active_frames=(
+            ballistic_contact_impulse_actor_active_frames
+        ),
+        ballistic_contact_impulse_actor_peak_torque_nm=(
+            ballistic_contact_impulse_actor_peak_torque
+        ),
+        ballistic_contact_impulse_actor_peak_lateral_force_n=(
+            ballistic_contact_impulse_actor_peak_lateral_force
+        ),
+        ballistic_contact_impulse_actor_peak_vertical_force_n=(
+            ballistic_contact_impulse_actor_peak_vertical_force
         ),
         ballistic_skill_memory_executed=ballistic_skill_selection is not None,
         ballistic_skill_id=(
@@ -2093,9 +2415,7 @@ def _simulate(
             else ballistic_skill_selection.nearest_distance
         ),
         ballistic_skill_distance_margin=(
-            None
-            if ballistic_skill_selection is None
-            else ballistic_skill_selection.distance_margin
+            None if ballistic_skill_selection is None else ballistic_skill_selection.distance_margin
         ),
     )
     trajectory = {key: np.asarray(value) for key, value in trace.items()}
@@ -2210,7 +2530,7 @@ def _deepest_goal_mouth_point(
     )
     if not inside or (current is not None and point[0] <= current[0]):
         return current
-    return tuple(float(value) for value in point)
+    return (float(point[0]), float(point[1]), float(point[2]))
 
 
 def _apply_compliant_net_force(
@@ -2224,16 +2544,34 @@ def _apply_compliant_net_force(
     data.xfrc_applied[ids.ball, :] = 0.0
     ball_position = data.qpos[ids.ball_qpos : ids.ball_qpos + 3]
     capture_x = goal.plane_x_m + flow.net_capture_depth_m
-    if ball_position[0] <= goal.plane_x_m:
-        return
     ball_velocity = data.qvel[ids.ball_qvel : ids.ball_qvel + 3]
+    if ball_position[0] <= capture_x:
+        # A real net wraps around the ball after back-net impact.  Preserve
+        # completely free incoming flight, but dissipate a return trajectory
+        # while it is still inside the goal pocket so the ball cannot pass
+        # unrealistically back through the net mouth.
+        if ball_position[0] > goal.plane_x_m and ball_velocity[0] < 0.0:
+            data.xfrc_applied[ids.ball, :3] = np.clip(
+                np.asarray(
+                    (
+                        -flow.net_damping_n_s_m * float(ball_velocity[0]),
+                        -0.12 * flow.net_damping_n_s_m * float(ball_velocity[1]),
+                        -0.08 * flow.net_damping_n_s_m * float(ball_velocity[2]),
+                    ),
+                    dtype=np.float64,
+                ),
+                -120.0,
+                120.0,
+            )
+        return
     penetration = max(0.0, float(ball_position[0] - capture_x))
+    engagement = float(np.clip(penetration / 0.10, 0.0, 1.0))
     force = np.asarray(
         (
             -flow.net_stiffness_n_m * penetration
-            - flow.net_damping_n_s_m * float(ball_velocity[0]),
-            -0.45 * flow.net_damping_n_s_m * float(ball_velocity[1]),
-            -0.30 * flow.net_damping_n_s_m * float(ball_velocity[2]),
+            - engagement * flow.net_damping_n_s_m * float(ball_velocity[0]),
+            -0.08 * engagement * flow.net_damping_n_s_m * float(ball_velocity[1]),
+            -0.05 * engagement * flow.net_damping_n_s_m * float(ball_velocity[2]),
         ),
         dtype=np.float64,
     )
@@ -2296,18 +2634,14 @@ def _post_contact_recovery_metrics(
     reversals = int(np.count_nonzero(signs[1:] != signs[:-1])) if len(signs) > 1 else 0
     moving = np.flatnonzero(planar_speed > 0.10)
     settling = (
-        0.0
-        if moving.size == 0
-        else max(0.0, float(time[indices[int(moving[-1])]] - contact_time))
+        0.0 if moving.size == 0 else max(0.0, float(time[indices[int(moving[-1])]] - contact_time))
     )
     joint_rms = np.sqrt(np.mean(np.square(joint_velocity[indices]), axis=1))
     recovery_indices = indices[time[indices] >= contact_time + 0.63]
     if recovery_indices.size == 0:
         recovery_indices = indices
     recovery_speed = np.linalg.norm(velocity[recovery_indices, :2], axis=1)
-    recovery_joint_rms = np.sqrt(
-        np.mean(np.square(joint_velocity[recovery_indices]), axis=1)
-    )
+    recovery_joint_rms = np.sqrt(np.mean(np.square(joint_velocity[recovery_indices]), axis=1))
     return (
         float(np.max(planar_speed)),
         backward,
@@ -2348,9 +2682,17 @@ def _append_trace(
     loft_teacher_torque: np.ndarray | None = None,
     loft_teacher_force_n: float = 0.0,
     loft_teacher_forward_force_n: float = 0.0,
+    loft_teacher_lateral_force_n: float = 0.0,
     loft_teacher_foot_vx_mps: float = 0.0,
+    loft_teacher_foot_vy_mps: float = 0.0,
     loft_teacher_foot_vz_mps: float = 0.0,
     loft_teacher_active: bool = False,
+    ballistic_contact_impulse_actor_torque: np.ndarray | None = None,
+    ballistic_contact_impulse_actor_lateral_force_n: float = 0.0,
+    ballistic_contact_impulse_actor_vertical_force_n: float = 0.0,
+    ballistic_contact_impulse_actor_foot_vy_mps: float = 0.0,
+    ballistic_contact_impulse_actor_foot_vz_mps: float = 0.0,
+    ballistic_contact_impulse_actor_active: bool = False,
     joint_boundary_guard_correction: np.ndarray | None = None,
     joint_boundary_guard_active: bool = False,
     commanded_torque_peak_abs: np.ndarray | None = None,
@@ -2358,6 +2700,10 @@ def _append_trace(
     football_motion_prior_active: bool = False,
     ballistic_contact_target_delta: np.ndarray | None = None,
     ballistic_contact_residual_active: bool = False,
+    ballistic_contact_torque_residual: np.ndarray | None = None,
+    ballistic_contact_torque_residual_active: bool = False,
+    cerebellar_recovery_active: bool = False,
+    cerebellar_recovery_blend_fraction: float = 0.0,
     ball_contact_force_peak_n: float = 0.0,
     ball_contact_normal: np.ndarray | None = None,
     ball_contact_force_world: np.ndarray | None = None,
@@ -2393,7 +2739,9 @@ def _append_trace(
     teacher_scalars = (
         loft_teacher_force_n,
         loft_teacher_forward_force_n,
+        loft_teacher_lateral_force_n,
         loft_teacher_foot_vx_mps,
+        loft_teacher_foot_vy_mps,
         loft_teacher_foot_vz_mps,
     )
     if not all(math.isfinite(value) for value in teacher_scalars):
@@ -2401,9 +2749,42 @@ def _append_trace(
     trace["loft_teacher_torque"].append(teacher_torque.copy())
     trace["loft_teacher_force_n"].append(float(loft_teacher_force_n))
     trace["loft_teacher_forward_force_n"].append(float(loft_teacher_forward_force_n))
+    trace["loft_teacher_lateral_force_n"].append(float(loft_teacher_lateral_force_n))
     trace["loft_teacher_foot_vx_mps"].append(float(loft_teacher_foot_vx_mps))
+    trace["loft_teacher_foot_vy_mps"].append(float(loft_teacher_foot_vy_mps))
     trace["loft_teacher_foot_vz_mps"].append(float(loft_teacher_foot_vz_mps))
     trace["loft_teacher_active"].append(bool(loft_teacher_active))
+    impulse_torque = (
+        np.zeros(29, dtype=np.float64)
+        if ballistic_contact_impulse_actor_torque is None
+        else np.asarray(ballistic_contact_impulse_actor_torque, dtype=np.float64)
+    )
+    impulse_scalars = (
+        ballistic_contact_impulse_actor_lateral_force_n,
+        ballistic_contact_impulse_actor_vertical_force_n,
+        ballistic_contact_impulse_actor_foot_vy_mps,
+        ballistic_contact_impulse_actor_foot_vz_mps,
+    )
+    if impulse_torque.shape != (29,) or not np.all(np.isfinite(impulse_torque)):
+        raise FloatingPointError("G1 contact impulse actor trace contains invalid torque")
+    if not all(math.isfinite(value) for value in impulse_scalars):
+        raise FloatingPointError("G1 contact impulse actor trace contains non-finite state")
+    trace["ballistic_contact_impulse_actor_torque"].append(impulse_torque.copy())
+    trace["ballistic_contact_impulse_actor_lateral_force_n"].append(
+        float(ballistic_contact_impulse_actor_lateral_force_n)
+    )
+    trace["ballistic_contact_impulse_actor_vertical_force_n"].append(
+        float(ballistic_contact_impulse_actor_vertical_force_n)
+    )
+    trace["ballistic_contact_impulse_actor_foot_vy_mps"].append(
+        float(ballistic_contact_impulse_actor_foot_vy_mps)
+    )
+    trace["ballistic_contact_impulse_actor_foot_vz_mps"].append(
+        float(ballistic_contact_impulse_actor_foot_vz_mps)
+    )
+    trace["ballistic_contact_impulse_actor_active"].append(
+        bool(ballistic_contact_impulse_actor_active)
+    )
     guard_correction = (
         np.zeros(29, dtype=np.float64)
         if joint_boundary_guard_correction is None
@@ -2430,9 +2811,24 @@ def _append_trace(
     if ballistic_delta.shape != (29,) or not np.all(np.isfinite(ballistic_delta)):
         raise ValueError("ballistic contact target delta must contain 29 finite joints")
     trace["ballistic_contact_target_delta"].append(ballistic_delta.copy())
-    trace["ballistic_contact_residual_active"].append(
-        bool(ballistic_contact_residual_active)
+    trace["ballistic_contact_residual_active"].append(bool(ballistic_contact_residual_active))
+    ballistic_torque = (
+        np.zeros(29, dtype=np.float64)
+        if ballistic_contact_torque_residual is None
+        else np.asarray(ballistic_contact_torque_residual, dtype=np.float64)
     )
+    if ballistic_torque.shape != (29,) or not np.all(np.isfinite(ballistic_torque)):
+        raise ValueError("ballistic contact torque residual must contain 29 finite joints")
+    trace["ballistic_contact_torque_residual"].append(ballistic_torque.copy())
+    trace["ballistic_contact_torque_residual_active"].append(
+        bool(ballistic_contact_torque_residual_active)
+    )
+    if not math.isfinite(cerebellar_recovery_blend_fraction) or not (
+        0.0 <= cerebellar_recovery_blend_fraction <= 1.0
+    ):
+        raise ValueError("cerebellar recovery blend fraction must be in [0, 1]")
+    trace["cerebellar_recovery_active"].append(bool(cerebellar_recovery_active))
+    trace["cerebellar_recovery_blend_fraction"].append(float(cerebellar_recovery_blend_fraction))
     trace["policy_action"].append(np.asarray(target, dtype=np.float64).copy())
     trace["controller_target_velocity"].append(np.asarray(target_velocity, dtype=np.float64).copy())
     trace["pelvis_pose"].append(data.qpos[:7].copy())

@@ -9,6 +9,8 @@ from pathlib import Path
 
 
 def dispatch_hat_trick_argv(argv: list[str]) -> int | None:
+    if len(argv) >= 3 and argv[:2] == ["goalforge", "promo-reel"]:
+        return _dispatch_promo_reel_argv(argv)
     if len(argv) >= 3 and argv[:2] == ["goalforge", "readiness-recovery"]:
         return _dispatch_readiness_recovery_argv(argv)
     if len(argv) >= 3 and argv[:2] == ["goalforge", "free-kick-showcase"]:
@@ -107,6 +109,11 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
         help="full-state SIM_ONLY memory of qualified SONIC ballistic skill islands",
     )
     run.add_argument(
+        "--ballistic-contact-impulse-actor",
+        type=Path,
+        help="strict-evidence-trained SIM-only proprioceptive contact actor",
+    )
+    run.add_argument(
         "--select-best-registered-skill",
         action="store_true",
         help="retrieve the lowest-error registered skill before the mandatory shot",
@@ -129,6 +136,56 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
         default=(0.0,) * 6,
         metavar=("HIP_P", "HIP_R", "HIP_Y", "KNEE", "ANKLE_P", "ANKLE_R"),
         help="bounded SIM curriculum residual for six right-leg joint targets",
+    )
+    run.add_argument(
+        "--ballistic-contact-torque-residual-nm",
+        type=float,
+        nargs=6,
+        default=(0.0,) * 6,
+        metavar=("HIP_P", "HIP_R", "HIP_Y", "KNEE", "ANKLE_P", "ANKLE_R"),
+        help="bounded SIM-only direct-torque curriculum residual for the right leg",
+    )
+    run.add_argument(
+        "--ballistic-contact-torque-preload-nm",
+        type=float,
+        nargs=6,
+        default=(0.0,) * 6,
+        metavar=("HIP_P", "HIP_R", "HIP_Y", "KNEE", "ANKLE_P", "ANKLE_R"),
+        help="bounded pre-contact muscle preload for the SIM-only torque synergy",
+    )
+    run.add_argument("--ballistic-contact-torque-policy-frame", type=int, default=256)
+    run.add_argument(
+        "--ballistic-contact-torque-phase-offset-sec",
+        type=float,
+        nargs=6,
+        default=(0.0,) * 6,
+        metavar=("HIP_P", "HIP_R", "HIP_Y", "KNEE", "ANKLE_P", "ANKLE_R"),
+        help="bounded per-joint phase offsets for the SIM-only torque synergy",
+    )
+    run.add_argument(
+        "--ballistic-counterbalance-torque-residual-nm",
+        type=float,
+        nargs=6,
+        default=(0.0,) * 6,
+        metavar=(
+            "LEFT_HIP_P",
+            "LEFT_HIP_R",
+            "LEFT_HIP_Y",
+            "LEFT_ANKLE_P",
+            "WAIST_Y",
+            "WAIST_P",
+        ),
+        help="bounded SIM-only support-leg and waist counterbalance torque synergy",
+    )
+    run.add_argument(
+        "--ballistic-contact-torque-lead-duration-sec",
+        type=float,
+        default=0.16,
+    )
+    run.add_argument(
+        "--ballistic-contact-torque-trail-duration-sec",
+        type=float,
+        default=0.08,
     )
     run.add_argument("--ballistic-contact-policy-frame", type=int, default=256)
     run.add_argument(
@@ -160,6 +217,17 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
         default=0.0,
         help="bounded policy aim correction for learned ballistic drop compensation",
     )
+    run.add_argument(
+        "--shot-reference-plane-x-m",
+        type=float,
+        default=0.0,
+        help=(
+            "optional motion-prior aim plane; zero uses the physical goal, while a "
+            "non-zero value decouples learned strike morphology from scoring range"
+        ),
+    )
+    run.add_argument("--shot-reference-target-y-m", type=float)
+    run.add_argument("--shot-reference-target-z-m", type=float)
     run.add_argument("--shot-pelvis-yaw-rad", type=float, default=0.10)
     run.add_argument("--shot-foot-yaw-rad", type=float, default=0.01)
     run.add_argument("--shot-foot-pitch-rad", type=float, default=0.0)
@@ -170,6 +238,9 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
     run.add_argument("--shot-loft-teacher-target-vx-mps", type=float, default=0.0)
     run.add_argument("--shot-loft-teacher-forward-gain-n-per-mps", type=float, default=20.0)
     run.add_argument("--shot-loft-teacher-max-forward-force-n", type=float, default=80.0)
+    run.add_argument("--shot-loft-teacher-target-vy-mps", type=float, default=0.0)
+    run.add_argument("--shot-loft-teacher-lateral-gain-n-per-mps", type=float, default=20.0)
+    run.add_argument("--shot-loft-teacher-max-lateral-force-n", type=float, default=80.0)
     run.add_argument("--shot-loft-teacher-start-policy-frame", type=int, default=230)
     run.add_argument("--shot-loft-teacher-end-policy-frame", type=int, default=335)
     run.add_argument("--shot-loft-teacher-foot-pitch-bonus-rad", type=float, default=0.0)
@@ -206,8 +277,20 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
         default=5.0,
         help="goal line x position; the ball starts at x=1 m",
     )
+    run.add_argument("--goal-width-m", type=float, default=2.4)
+    run.add_argument("--goal-height-m", type=float, default=1.6)
     run.add_argument("--target-y-m", type=float)
     run.add_argument("--target-z-m", type=float)
+    run.add_argument("--precision-radius-m", type=float, default=0.16)
+    run.add_argument(
+        "--ball-free-joint-damping-n-s-m",
+        type=float,
+        default=0.02,
+        help="low free-flight damping for the soccer ball; upstream asset uses 0.3",
+    )
+    run.add_argument("--net-capture-depth-m", type=float, default=0.20)
+    run.add_argument("--net-stiffness-n-m", type=float, default=42.0)
+    run.add_argument("--net-damping-n-s-m", type=float, default=8.5)
     run.add_argument("--approach-strike-candidate", type=Path)
     run.add_argument("--residual-fraction", type=float, default=0.20)
     run.add_argument("--maximum-residual-nm", type=float, default=5.0)
@@ -221,6 +304,12 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
     export.add_argument("--source-checkout", type=Path, default=Path.cwd())
     export.add_argument("--fps", type=int, default=30)
     export.add_argument(
+        "--resolution",
+        choices=("720p", "1080p"),
+        default="720p",
+        help="native MuJoCo render resolution; 1080p avoids post-render upscaling",
+    )
+    export.add_argument(
         "--allow-rejected-candidate",
         action="store_true",
         help="render a strict-replay failed candidate with a diagnostic watermark",
@@ -229,6 +318,9 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
     if args.command == "run":
         from rosclaw.growth.approach_strike_residual import (
             G1ApproachStrikeResidualConfig,
+        )
+        from rosclaw.growth.ballistic_contact_impulse_actor import (
+            load_g1_ballistic_contact_impulse_actor,
         )
         from rosclaw.growth.ballistic_skill_memory import (
             load_g1_ballistic_skill_memory,
@@ -295,6 +387,18 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
             if args.ballistic_skill_memory is not None
             else None
         )
+        ballistic_contact_impulse_actor = (
+            load_g1_ballistic_contact_impulse_actor(args.ballistic_contact_impulse_actor)
+            if args.ballistic_contact_impulse_actor is not None
+            else None
+        )
+        teacher_enabled = bool(
+            args.shot_loft_teacher_target_vz_mps != 0.0
+            or args.shot_loft_teacher_target_vx_mps != 0.0
+            or args.shot_loft_teacher_target_vy_mps != 0.0
+        )
+        if ballistic_contact_impulse_actor is not None and teacher_enabled:
+            parser.error("contact impulse actor and SIM teacher are exclusive")
         if args.select_best_registered_skill and ballistic_skill_memory is None:
             parser.error("--select-best-registered-skill requires --ballistic-skill-memory")
         football_motion_prior = (
@@ -399,6 +503,7 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
         )
         planner_seed = args.planner_seed
         ballistic_contact_residual_rad = tuple(args.ballistic_contact_residual_rad)
+        ballistic_contact_torque_residual_nm = tuple(args.ballistic_contact_torque_residual_nm)
         ballistic_contact_policy_frame = args.ballistic_contact_policy_frame
         post_contact_damping_scale = args.post_contact_damping_scale
         ballistic_skill_id = None
@@ -417,7 +522,7 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
             post_contact_damping_scale = prototype.post_contact_damping_scale
             ballistic_skill_id = prototype.skill_id
 
-        result = run_g1_free_kick_showcase(
+        evidence_result = run_g1_free_kick_showcase(
             asset_root=args.asset_root,
             gait_policy_root=args.gait_policy_root,
             output_dir=args.output_dir,
@@ -446,9 +551,7 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
                     None if proprioceptive_router is None else proprioceptive_router.router_hash
                 ),
                 football_outcome_model_hash=(
-                    None
-                    if football_outcome_model is None
-                    else football_outcome_model.model_hash
+                    None if football_outcome_model is None else football_outcome_model.model_hash
                 ),
                 football_motion_prior_hash=(
                     None if football_motion_prior is None else football_motion_prior.prior_hash
@@ -457,25 +560,47 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
                 football_motion_prior_contact_policy_frame=(
                     args.football_motion_prior_contact_policy_frame
                 ),
+                ballistic_contact_impulse_actor_hash=(
+                    None
+                    if ballistic_contact_impulse_actor is None
+                    else ballistic_contact_impulse_actor.actor_hash
+                ),
                 ballistic_contact_residual_rad=ballistic_contact_residual_rad,
+                ballistic_contact_torque_residual_nm=(ballistic_contact_torque_residual_nm),
+                ballistic_contact_torque_preload_nm=tuple(args.ballistic_contact_torque_preload_nm),
+                ballistic_contact_torque_policy_frame=(args.ballistic_contact_torque_policy_frame),
+                ballistic_contact_torque_phase_offset_sec=tuple(
+                    args.ballistic_contact_torque_phase_offset_sec
+                ),
+                ballistic_counterbalance_torque_residual_nm=tuple(
+                    args.ballistic_counterbalance_torque_residual_nm
+                ),
+                ballistic_contact_torque_lead_duration_sec=(
+                    args.ballistic_contact_torque_lead_duration_sec
+                ),
+                ballistic_contact_torque_trail_duration_sec=(
+                    args.ballistic_contact_torque_trail_duration_sec
+                ),
                 ballistic_contact_policy_frame=ballistic_contact_policy_frame,
                 ballistic_contact_lead_duration_sec=(args.ballistic_contact_lead_duration_sec),
                 ballistic_contact_trail_duration_sec=(args.ballistic_contact_trail_duration_sec),
                 post_contact_damping_scale=post_contact_damping_scale,
                 ballistic_skill_memory_hash=(
-                    None
-                    if ballistic_skill_memory is None
-                    else ballistic_skill_memory.memory_hash
+                    None if ballistic_skill_memory is None else ballistic_skill_memory.memory_hash
                 ),
                 ballistic_skill_id=ballistic_skill_id,
-                football_retry_recovery_duration_sec=(
-                    args.football_retry_recovery_sec
-                ),
+                football_retry_recovery_duration_sec=(args.football_retry_recovery_sec),
                 football_retry_follow_through_gain_scale=(
                     args.football_retry_follow_through_gain_scale
                 ),
                 aim_bias_y_m=args.aim_bias_y_m,
                 aim_bias_z_m=args.aim_bias_z_m,
+                shot_reference_plane_x_m=args.shot_reference_plane_x_m,
+                shot_reference_target_y_m=args.shot_reference_target_y_m,
+                shot_reference_target_z_m=args.shot_reference_target_z_m,
+                net_capture_depth_m=args.net_capture_depth_m,
+                net_stiffness_n_m=args.net_stiffness_n_m,
+                net_damping_n_s_m=args.net_damping_n_s_m,
                 shot_pelvis_yaw_offset_rad=args.shot_pelvis_yaw_rad,
                 shot_foot_yaw_offset_rad=args.shot_foot_yaw_rad,
                 shot_foot_pitch_offset_rad=args.shot_foot_pitch_rad,
@@ -488,6 +613,11 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
                     args.shot_loft_teacher_forward_gain_n_per_mps
                 ),
                 shot_loft_teacher_max_forward_force_n=(args.shot_loft_teacher_max_forward_force_n),
+                shot_loft_teacher_target_vy_mps=args.shot_loft_teacher_target_vy_mps,
+                shot_loft_teacher_lateral_gain_n_per_mps=(
+                    args.shot_loft_teacher_lateral_gain_n_per_mps
+                ),
+                shot_loft_teacher_max_lateral_force_n=(args.shot_loft_teacher_max_lateral_force_n),
                 shot_loft_teacher_start_policy_frame=(args.shot_loft_teacher_start_policy_frame),
                 shot_loft_teacher_end_policy_frame=(args.shot_loft_teacher_end_policy_frame),
                 shot_loft_teacher_foot_pitch_bonus_rad=(
@@ -522,8 +652,12 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
             ),
             goal_spec=G1TrainingGoalSpec(
                 plane_x_m=args.goal_plane_x_m,
+                width_m=args.goal_width_m,
+                height_m=args.goal_height_m,
                 target_y_m=target_y_m,
                 target_z_m=target_z_m,
+                precision_radius_m=args.precision_radius_m,
+                ball_free_joint_damping_n_s_m=(args.ball_free_joint_damping_n_s_m),
             ),
             sonic_model_root=args.sonic_model_root,
             sonic_runup_config=(
@@ -560,23 +694,25 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
             football_outcome_model=football_outcome_model,
             football_motion_prior=football_motion_prior,
             ballistic_skill_memory=ballistic_skill_memory,
+            ballistic_contact_impulse_actor=ballistic_contact_impulse_actor,
         )
-        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
-        return 0 if result.passed else 2
+        print(json.dumps(evidence_result.to_dict(), indent=2, sort_keys=True))
+        return 0 if evidence_result.passed else 2
     os.environ.setdefault("MUJOCO_GL", "egl")
     from rosclaw.simforge.g1_free_kick_showcase_video import (
         render_g1_free_kick_showcase_video,
     )
 
-    result = render_g1_free_kick_showcase_video(
+    video_result = render_g1_free_kick_showcase_video(
         evidence_path=args.evidence,
         asset_root=args.asset_root,
         output_path=args.output,
         source_checkout=args.source_checkout,
         fps=args.fps,
+        resolution=args.resolution,
         allow_rejected_candidate=args.allow_rejected_candidate,
     )
-    print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+    print(json.dumps(video_result.to_dict(), indent=2, sort_keys=True))
     return 0
 
 
@@ -672,9 +808,7 @@ def _dispatch_readiness_recovery_argv(argv: list[str]) -> int:
             planner_seed=args.planner_seed,
         ),
         recovery_config=G1ReadinessRecoveryConfig(
-            neural_deceleration_duration_sec=(
-                args.neural_deceleration_duration_sec
-            ),
+            neural_deceleration_duration_sec=(args.neural_deceleration_duration_sec),
             hold_duration_sec=args.hold_duration_sec,
             gain_scale=args.recovery_gain_scale,
         ),
@@ -851,12 +985,12 @@ def _dispatch_coupled_showcase_argv(argv: list[str]) -> int:
             run_g1_coupled_showcase,
         )
 
-        result = run_g1_coupled_showcase(
+        evidence_result = run_g1_coupled_showcase(
             asset_root=args.asset_root,
             output_dir=args.output_dir,
             source_checkout=args.source_checkout,
         )
-        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        print(json.dumps(evidence_result.to_dict(), indent=2, sort_keys=True))
         return 0
     # MuJoCo selects its OpenGL backend during import, so headless CLI export
     # must declare EGL before importing the renderer dependency graph.
@@ -865,10 +999,39 @@ def _dispatch_coupled_showcase_argv(argv: list[str]) -> int:
         render_g1_coupled_showcase_video,
     )
 
-    result = render_g1_coupled_showcase_video(
+    video_result = render_g1_coupled_showcase_video(
         evidence_path=args.evidence,
         asset_root=args.asset_root,
         output_path=args.output,
+        source_checkout=args.source_checkout,
+        fps=args.fps,
+    )
+    print(json.dumps(video_result.to_dict(), indent=2, sort_keys=True))
+    return 0
+
+
+def _dispatch_promo_reel_argv(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="rosclaw goalforge promo-reel")
+    commands = parser.add_subparsers(dest="command", required=True)
+    export = commands.add_parser(
+        "export",
+        help="export an evidence-bound 1080p G1 football promotional pack",
+    )
+    export.add_argument("--precision-manifest", type=Path, required=True)
+    export.add_argument("--coupled-manifest", type=Path, required=True)
+    export.add_argument("--moving-manifest", type=Path, required=True)
+    export.add_argument("--output-dir", type=Path, required=True)
+    export.add_argument("--source-checkout", type=Path, default=Path.cwd())
+    export.add_argument("--fps", type=int, default=30)
+    args = parser.parse_args(argv[2:])
+
+    from rosclaw.simforge.g1_promo_reel import render_g1_promo_pack
+
+    result = render_g1_promo_pack(
+        precision_manifest_path=args.precision_manifest,
+        coupled_manifest_path=args.coupled_manifest,
+        moving_manifest_path=args.moving_manifest,
+        output_dir=args.output_dir,
         source_checkout=args.source_checkout,
         fps=args.fps,
     )

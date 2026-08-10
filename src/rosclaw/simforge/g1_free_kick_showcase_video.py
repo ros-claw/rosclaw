@@ -30,8 +30,7 @@ from rosclaw.simforge.g1_stadium_scene import (
     g1_stadium_scene_hash,
 )
 
-_WIDTH = 640
-_HEIGHT = 360
+_RESOLUTIONS = {"720p": (1280, 720), "1080p": (1920, 1080)}
 
 
 @dataclass(frozen=True)
@@ -52,6 +51,8 @@ class G1FreeKickVideoResult:
     trajectory_hash: str
     renderer_hash: str
     fps: int
+    width: int
+    height: int
     frame_count: int
     duration_sec: float
     clips: tuple[G1FreeKickVideoClip, ...]
@@ -60,7 +61,7 @@ class G1FreeKickVideoResult:
     visualization_only: bool = True
     pixels_used_for_scoring: bool = False
     activation_ceiling: str = "SIM_ONLY"
-    schema_version: str = "rosclaw.simforge.g1_free_kick_video.v4"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_video.v5"
 
     def to_dict(self) -> dict[str, Any]:
         return {**asdict(self), "clips": [asdict(clip) for clip in self.clips]}
@@ -73,6 +74,7 @@ def render_g1_free_kick_showcase_video(
     output_path: Path,
     source_checkout: Path,
     fps: int = 30,
+    resolution: str = "720p",
     allow_rejected_candidate: bool = False,
 ) -> G1FreeKickVideoResult:
     """Render the verified continuous rollout plus a slow-motion goal replay."""
@@ -86,6 +88,10 @@ def render_g1_free_kick_showcase_video(
         raise ValueError("free-kick video output must use .mp4")
     if not 10 <= fps <= 60:
         raise ValueError("free-kick video fps must be in [10, 60]")
+    try:
+        width, height = _RESOLUTIONS[resolution]
+    except KeyError as error:
+        raise ValueError("free-kick video resolution must be 720p or 1080p") from error
     manifest = output.with_suffix(".json")
     if output.exists() or manifest.exists():
         raise FileExistsError("free-kick video or manifest already exists")
@@ -129,7 +135,15 @@ def render_g1_free_kick_showcase_video(
     else:
         contact_time = float(contact_value)
     crossing_value = result.get("goal_crossing_xyz_m")
-    crossing = None if crossing_value is None else tuple(float(value) for value in crossing_value)
+    crossing = (
+        None
+        if crossing_value is None
+        else (
+            float(crossing_value[0]),
+            float(crossing_value[1]),
+            float(crossing_value[2]),
+        )
+    )
     intro = tuple(float(trajectory["time"][0]) for _ in range(int(1.5 * fps)))
     continuous = _uniform_timeline(
         float(trajectory["time"][0]), float(trajectory["time"][-1]), fps, 1.0
@@ -146,8 +160,9 @@ def render_g1_free_kick_showcase_video(
         import mujoco
 
         model = build_g1_stadium_model(asset_root, goal)
+        _configure_offscreen_framebuffer(model, width=width, height=height)
         data = mujoco.MjData(model)
-        renderer = mujoco.Renderer(model, height=_HEIGHT, width=_WIDTH)
+        renderer = mujoco.Renderer(model, height=height, width=width)
         camera = mujoco.MjvCamera()
         camera.type = mujoco.mjtCamera.mjCAMERA_FREE
         process = subprocess.Popen(
@@ -157,6 +172,8 @@ def render_g1_free_kick_showcase_video(
                 fps=fps,
                 durations=durations,
                 evidence=evidence,
+                width=width,
+                height=height,
             ),
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
@@ -198,10 +215,10 @@ def render_g1_free_kick_showcase_video(
             os.environ["MUJOCO_GL"] = previous_gl
 
     clip_specs = (
-        ("01-intro", "NATIVE TRAINING GOAL", "VERIFIED_POSE_HOLD"),
+        ("01-intro", "LONG-RANGE TOP-CORNER CHALLENGE", "VERIFIED_POSE_HOLD"),
         ("02-continuous", "RUN-UP → STRIKE → RECOVERY", "STRICT_PHYSICS_REPLAY"),
         ("03-goal-cam", "TARGET AND ACTUAL CROSSING", "INTERPOLATED_SLOW_MOTION_REPLAY"),
-        ("04-scorecard", "THREE-POSITION ACCURACY", "VERIFIED_FINAL_POSE_HOLD"),
+        ("04-scorecard", "LONG-RANGE TOP-CORNER SCORECARD", "VERIFIED_FINAL_POSE_HOLD"),
     )
     clips = tuple(
         G1FreeKickVideoClip(
@@ -223,6 +240,8 @@ def render_g1_free_kick_showcase_video(
         trajectory_hash=str(evidence["trajectory_hash"]),
         renderer_hash=_file_hash(Path(__file__)),
         fps=fps,
+        width=width,
+        height=height,
         frame_count=sum(clip.frame_count for clip in clips),
         duration_sec=sum(clip.duration_sec for clip in clips),
         clips=clips,
@@ -233,6 +252,14 @@ def render_g1_free_kick_showcase_video(
         json.dumps(value.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     return value
+
+
+def _configure_offscreen_framebuffer(model: Any, *, width: int, height: int) -> None:
+    """Ensure MuJoCo's native offscreen target can hold the requested frame."""
+
+    visual = model.vis.global_
+    visual.offwidth = max(int(visual.offwidth), width)
+    visual.offheight = max(int(visual.offheight), height)
 
 
 def _uniform_timeline(start: float, end: float, fps: int, speed: float) -> tuple[float, ...]:
@@ -276,8 +303,7 @@ def _write_frames(
                 goal_camera=clip_index == 2,
                 final_camera=clip_index == 3,
             )
-            canvas = np.repeat(np.repeat(frame, 2, axis=0), 2, axis=1)
-            stream.write(np.ascontiguousarray(canvas).tobytes())
+            stream.write(np.ascontiguousarray(frame).tobytes())
 
 
 def _render_pose(
@@ -304,18 +330,18 @@ def _render_pose(
     data.qpos[ball_qpos : ball_qpos + 7] = ball
     mujoco.mj_forward(model, data)
     if intro_camera:
-        camera.lookat[:] = (0.85, 0.0, 0.64)
-        camera.distance = 9.25
+        camera.lookat[:] = ((goal.plane_x_m - 3.4) * 0.5, 0.0, 0.64)
+        camera.distance = max(9.25, goal.plane_x_m + 3.0)
         camera.azimuth = 92.0
         camera.elevation = -8.0
     elif goal_camera:
-        camera.lookat[:] = (4.25, 0.38, 0.62)
+        camera.lookat[:] = (goal.plane_x_m - 1.75, 0.38, 0.72)
         camera.distance = 4.15
         camera.azimuth = 132.0
         camera.elevation = -10.0
     elif final_camera:
-        camera.lookat[:] = (2.9, 0.30, 0.68)
-        camera.distance = 6.3
+        camera.lookat[:] = (goal.plane_x_m - 2.6, 0.30, 0.76)
+        camera.distance = max(6.3, goal.plane_x_m - 0.8)
         camera.azimuth = 112.0
         camera.elevation = -9.0
     elif simulation_time < contact_time - 1.0:
@@ -332,8 +358,8 @@ def _render_pose(
         camera.azimuth = 100.0
         camera.elevation = -9.0
     else:
-        camera.lookat[:] = (3.25, 0.34, 0.62)
-        camera.distance = 6.25
+        camera.lookat[:] = (goal.plane_x_m - 2.75, 0.34, 0.72)
+        camera.distance = max(6.25, goal.plane_x_m - 1.2)
         camera.azimuth = 108.0
         camera.elevation = -9.0
     renderer.update_scene(data, camera=camera)
@@ -413,6 +439,8 @@ def _ffmpeg_command(
     fps: int,
     durations: tuple[float, ...],
     evidence: dict[str, Any],
+    width: int,
+    height: int,
 ) -> list[str]:
     font = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
     font_option = f"fontfile={_escape_filtergraph_option(str(font))}:" if font.is_file() else ""
@@ -435,6 +463,9 @@ def _ffmpeg_command(
     elif result.get("ballistic_skill_memory_executed") is True:
         title_text = "ROSClaw GoalForge · FULL-STATE SKILL MEMORY"
         footer_text = "SUPPORTED SKILL ISLAND · NOT PROMOTED · STRICT REPLAY · SIM ONLY"
+    elif result.get("ballistic_contact_impulse_actor_executed") is True:
+        title_text = "ROSClaw GoalForge · G1 LEARNED CONTACT ACTOR"
+        footer_text = "DATA-DRIVEN MUSCLE MEMORY · STRICT REPLAY · SIM ONLY"
     elif flow.get("contextual_phase_calibration_hash") is not None:
         title_text = "ROSClaw GoalForge · PROPRIOCEPTIVE STRIKE ROUTER"
         footer_text = "DEVELOPMENT CANDIDATE · NOT PROMOTED · STRICT REPLAY · SIM ONLY"
@@ -443,7 +474,7 @@ def _ffmpeg_command(
         footer_text = "DIAGNOSTIC ONLY · NOT PROMOTED · STRICT REPLAY · SIM ONLY"
     title = _escape_filtergraph_option(title_text)
     footer = _escape_filtergraph_option(footer_text)
-    initial_distance = float(result["initial_ball_distance_m"])
+    shot_distance = float(result["shot_distance_m"])
     runup = float(result["runup_distance_m"])
     runup_peak = float(result["runup_peak_speed_mps"])
     transition_delay = _optional_finite_float(result.get("handoff_to_contact_sec"))
@@ -471,7 +502,7 @@ def _ffmpeg_command(
         else f" · STATE D {'N/A' if skill_distance is None else f'{skill_distance:.3f}'}"
     )
     headings = (
-        f"{initial_distance:.2f} m SET-PIECE · NATIVE GOAL + FINE NET",
+        f"{shot_distance:.2f} m LONG-RANGE SET PIECE · TOP-LEFT CORNER",
         f"{runup:.2f} m APPROACH · {runup_peak:.2f} m/s PEAK · "
         f"HANDOFF-CONTACT {_duration_text(transition_delay)}",
         f"GOAL PLANE {_metric_text(plane_error)} · LIMIT {threshold:.2f} m · SHOT {speed:.2f} m/s",
@@ -480,18 +511,25 @@ def _ffmpeg_command(
         f"FINAL {final_error:.3f} m",
     )
     colors = ("0xFFD166", "0x65F59A", "0x8DD8FF", "0x65F59A")
+    scale = height / 720.0
+    header_height = round(118 * scale)
+    footer_height = round(64 * scale)
+    left = round(30 * scale)
     filters = [
-        "drawbox=x=0:y=0:w=iw:h=118:color=0x040913@0.84:t=fill",
-        "drawbox=x=0:y=h-64:w=iw:h=64:color=0x040913@0.84:t=fill",
-        f"drawtext={font_option}text={title}:expansion=none:x=30:y=13:fontsize=33:fontcolor=white",
-        f"drawtext={font_option}text={footer}:expansion=none:x=30:y=h-42:fontsize=19:fontcolor=0x8DD8FF",
+        f"drawbox=x=0:y=0:w=iw:h={header_height}:color=0x040913@0.84:t=fill",
+        f"drawbox=x=0:y=h-{footer_height}:w=iw:h={footer_height}:color=0x040913@0.84:t=fill",
+        f"drawtext={font_option}text={title}:expansion=none:x={left}:y={round(13 * scale)}:"
+        f"fontsize={round(33 * scale)}:fontcolor=white",
+        f"drawtext={font_option}text={footer}:expansion=none:x={left}:y=h-{round(42 * scale)}:"
+        f"fontsize={round(19 * scale)}:fontcolor=0x8DD8FF",
     ]
     offset = 0.0
     for heading, color, duration in zip(headings, colors, durations, strict=True):
         end = offset + duration
         filters.append(
             f"drawtext={font_option}text={_escape_filtergraph_option(heading)}:"
-            f"expansion=none:x=30:y=61:fontsize=22:fontcolor={color}:"
+            f"expansion=none:x={left}:y={round(61 * scale)}:"
+            f"fontsize={round(22 * scale)}:fontcolor={color}:"
             f"enable='between(t,{offset:.6f},{end:.6f})'"
         )
         offset = end
@@ -505,7 +543,7 @@ def _ffmpeg_command(
         "-pixel_format",
         "rgb24",
         "-video_size",
-        "1280x720",
+        f"{width}x{height}",
         "-framerate",
         str(fps),
         "-i",

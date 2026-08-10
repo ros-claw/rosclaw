@@ -23,11 +23,17 @@ from rosclaw.growth.ballistic_contact_actor_critic import (
 from rosclaw.growth.ballistic_contact_evaluation import (
     evaluate_g1_ballistic_contact_holdout,
 )
+from rosclaw.growth.ballistic_contact_impulse_actor import (
+    derive_g1_ballistic_contact_impulse_actor,
+)
 from rosclaw.growth.ballistic_contact_island_gate import (
     derive_g1_ballistic_contact_island_gate,
 )
 from rosclaw.growth.ballistic_contact_observer import (
     derive_g1_ballistic_contact_observer,
+)
+from rosclaw.growth.ballistic_contact_torque_actor_critic import (
+    derive_g1_ballistic_contact_torque_actor_critic,
 )
 from rosclaw.growth.ballistic_skill_memory import derive_g1_ballistic_skill_memory
 from rosclaw.growth.contextual_phase_calibration import (
@@ -35,6 +41,9 @@ from rosclaw.growth.contextual_phase_calibration import (
 )
 from rosclaw.growth.football_motion_prior import derive_g1_football_motion_prior
 from rosclaw.growth.football_outcome_model import derive_g1_football_outcome_model
+from rosclaw.growth.motiondecode_football_skill_prior import (
+    derive_motiondecode_g1_football_skill_prior,
+)
 from rosclaw.growth.proprioceptive_expert_router import (
     derive_g1_proprioceptive_expert_router,
 )
@@ -122,6 +131,17 @@ def _parser() -> argparse.ArgumentParser:
     sonic_calibration.add_argument("--demand-quantile", type=float, default=0.995)
     sonic_calibration.add_argument("--target-demand-ratio", type=float, default=0.90)
     sonic_calibration.add_argument("--base-calibration", type=Path)
+    sonic_calibration.add_argument(
+        "--freeze-approach-gain",
+        action="store_true",
+        help="retain the replayed approach gains while learning strike/recovery authority",
+    )
+    sonic_calibration.add_argument(
+        "--calibration-step-fraction",
+        type=float,
+        default=1.0,
+        help="trust-region interpolation from replayed to fitted gain schedules",
+    )
     sonic_calibration.set_defaults(handler=_sonic_authority_calibration)
     sonic_evaluation = commands.add_parser(
         "evaluate-sonic-authority",
@@ -192,9 +212,7 @@ def _parser() -> argparse.ArgumentParser:
         "evaluate-proprioceptive-readiness",
         help="evaluate readiness decisions on sealed three-expert counterfactuals",
     )
-    evaluate_readiness.add_argument(
-        "--evidence-json", type=Path, action="append", required=True
-    )
+    evaluate_readiness.add_argument("--evidence-json", type=Path, action="append", required=True)
     evaluate_readiness.add_argument("--router", type=Path, required=True)
     evaluate_readiness.add_argument("--gate", type=Path, required=True)
     evaluate_readiness.add_argument("--output", type=Path, required=True)
@@ -204,9 +222,7 @@ def _parser() -> argparse.ArgumentParser:
         "evaluate-readiness-recovery",
         help="aggregate frozen physical recovery after readiness abstention",
     )
-    evaluate_recovery.add_argument(
-        "--evidence-json", type=Path, action="append", required=True
-    )
+    evaluate_recovery.add_argument("--evidence-json", type=Path, action="append", required=True)
     evaluate_recovery.add_argument("--router", type=Path, required=True)
     evaluate_recovery.add_argument("--gate", type=Path, required=True)
     evaluate_recovery.add_argument("--output", type=Path, required=True)
@@ -216,12 +232,8 @@ def _parser() -> argparse.ArgumentParser:
         "football-outcome-model",
         help="learn mandatory shot selection from paired success/failure outcomes",
     )
-    football_outcome.add_argument(
-        "--evidence-json", type=Path, action="append", required=True
-    )
-    football_outcome.add_argument(
-        "--expert-phase", type=int, action="append", required=True
-    )
+    football_outcome.add_argument("--evidence-json", type=Path, action="append", required=True)
+    football_outcome.add_argument("--expert-phase", type=int, action="append", required=True)
     football_outcome.add_argument("--output", type=Path, required=True)
     football_outcome.add_argument("--source-checkout", type=Path, default=Path.cwd())
     football_outcome.add_argument("--minimum-precision-improvement", type=int, default=3)
@@ -237,6 +249,21 @@ def _parser() -> argparse.ArgumentParser:
     football_motion_prior.add_argument("--source-checkout", type=Path, default=Path.cwd())
     football_motion_prior.add_argument("--selected-event-count", type=int, default=24)
     football_motion_prior.set_defaults(handler=_football_motion_prior)
+    motiondecode_skill_prior = commands.add_parser(
+        "motiondecode-football-skill-prior",
+        help="distil parent-conditioned whole-body style from Q1 G1 shooting clips",
+    )
+    motiondecode_skill_prior.add_argument("--registration", type=Path, required=True)
+    motiondecode_skill_prior.add_argument("--repair-report", type=Path, required=True)
+    motiondecode_skill_prior.add_argument("--dataset-root", type=Path, required=True)
+    motiondecode_skill_prior.add_argument("--target-model", type=Path, required=True)
+    motiondecode_skill_prior.add_argument("--asset-root", type=Path, required=True)
+    motiondecode_skill_prior.add_argument("--parent-evidence", type=Path, required=True)
+    motiondecode_skill_prior.add_argument("--parent-trajectory", type=Path, required=True)
+    motiondecode_skill_prior.add_argument("--output", type=Path, required=True)
+    motiondecode_skill_prior.add_argument("--source-checkout", type=Path, default=Path.cwd())
+    motiondecode_skill_prior.add_argument("--selected-event-count", type=int, default=16)
+    motiondecode_skill_prior.set_defaults(handler=_motiondecode_football_skill_prior)
     ballistic_actor_critic = commands.add_parser(
         "ballistic-contact-actor-critic",
         help="fit a replay-stabilized SIM_ONLY critic and propose one contact action",
@@ -245,39 +272,49 @@ def _parser() -> argparse.ArgumentParser:
         "--evidence-json", type=Path, action="append", required=True
     )
     ballistic_actor_critic.add_argument("--output", type=Path, required=True)
-    ballistic_actor_critic.add_argument(
-        "--source-checkout", type=Path, default=Path.cwd()
-    )
+    ballistic_actor_critic.add_argument("--source-checkout", type=Path, default=Path.cwd())
     ballistic_actor_critic.add_argument("--trust-region-radius-rad", type=float, default=0.06)
     ballistic_actor_critic.add_argument("--ridge-regularization", type=float, default=0.02)
     ballistic_actor_critic.set_defaults(handler=_ballistic_contact_actor_critic)
+    ballistic_torque_actor_critic = commands.add_parser(
+        "ballistic-contact-torque-actor-critic",
+        help="fit an island-bound SIM_ONLY actor over direct contact torques",
+    )
+    ballistic_torque_actor_critic.add_argument(
+        "--evidence-json", type=Path, action="append", required=True
+    )
+    ballistic_torque_actor_critic.add_argument("--output", type=Path, required=True)
+    ballistic_torque_actor_critic.add_argument("--source-checkout", type=Path, default=Path.cwd())
+    ballistic_torque_actor_critic.add_argument("--trust-region-radius-nm", type=float, default=0.50)
+    ballistic_torque_actor_critic.add_argument("--ridge-regularization", type=float, default=0.02)
+    ballistic_torque_actor_critic.set_defaults(handler=_ballistic_contact_torque_actor_critic)
+    ballistic_impulse_actor = commands.add_parser(
+        "ballistic-contact-impulse-actor",
+        help="distil strict teacher probes into a proprioceptive direct-torque actor",
+    )
+    ballistic_impulse_actor.add_argument(
+        "--evidence-json", type=Path, action="append", required=True
+    )
+    ballistic_impulse_actor.add_argument("--output", type=Path, required=True)
+    ballistic_impulse_actor.add_argument("--source-checkout", type=Path, default=Path.cwd())
+    ballistic_impulse_actor.set_defaults(handler=_ballistic_contact_impulse_actor)
     ballistic_island_gate = commands.add_parser(
         "ballistic-contact-island-gate",
         help="learn a replay-anchored contact-event atlas before actor training",
     )
-    ballistic_island_gate.add_argument(
-        "--evidence-json", type=Path, action="append", required=True
-    )
+    ballistic_island_gate.add_argument("--evidence-json", type=Path, action="append", required=True)
     ballistic_island_gate.add_argument("--output", type=Path, required=True)
-    ballistic_island_gate.add_argument(
-        "--source-checkout", type=Path, default=Path.cwd()
-    )
+    ballistic_island_gate.add_argument("--source-checkout", type=Path, default=Path.cwd())
     ballistic_island_gate.set_defaults(handler=_ballistic_contact_island_gate)
     ballistic_holdout = commands.add_parser(
         "evaluate-ballistic-contact",
         help="fail closed on a frozen contact action over unseen planner seeds",
     )
-    ballistic_holdout.add_argument(
-        "--evidence-json", type=Path, action="append", required=True
-    )
+    ballistic_holdout.add_argument("--evidence-json", type=Path, action="append", required=True)
     ballistic_holdout.add_argument("--output", type=Path, required=True)
-    ballistic_holdout.add_argument(
-        "--source-checkout", type=Path, default=Path.cwd()
-    )
+    ballistic_holdout.add_argument("--source-checkout", type=Path, default=Path.cwd())
     ballistic_holdout.add_argument("--maximum-worst-error-m", type=float, default=0.75)
-    ballistic_holdout.add_argument(
-        "--minimum-crossing-height-m", type=float, default=0.65
-    )
+    ballistic_holdout.add_argument("--minimum-crossing-height-m", type=float, default=0.65)
     ballistic_holdout.add_argument("--maximum-saturation-steps", type=int, default=30)
     ballistic_holdout.set_defaults(handler=_evaluate_ballistic_contact)
     ballistic_memory = commands.add_parser(
@@ -291,30 +328,18 @@ def _parser() -> argparse.ArgumentParser:
         "--rejected-evidence-json", type=Path, action="append", required=True
     )
     ballistic_memory.add_argument("--output", type=Path, required=True)
-    ballistic_memory.add_argument(
-        "--source-checkout", type=Path, default=Path.cwd()
-    )
-    ballistic_memory.add_argument(
-        "--maximum-support-distance", type=float, default=0.35
-    )
-    ballistic_memory.add_argument(
-        "--minimum-distance-margin", type=float, default=0.05
-    )
+    ballistic_memory.add_argument("--source-checkout", type=Path, default=Path.cwd())
+    ballistic_memory.add_argument("--maximum-support-distance", type=float, default=0.35)
+    ballistic_memory.add_argument("--minimum-distance-margin", type=float, default=0.05)
     ballistic_memory.set_defaults(handler=_ballistic_skill_memory)
     ballistic_observer = commands.add_parser(
         "ballistic-contact-observer",
         help="learn replay-bound contact-to-launch dynamics without motor authority",
     )
-    ballistic_observer.add_argument(
-        "--evidence-json", type=Path, action="append", required=True
-    )
+    ballistic_observer.add_argument("--evidence-json", type=Path, action="append", required=True)
     ballistic_observer.add_argument("--output", type=Path, required=True)
-    ballistic_observer.add_argument(
-        "--source-checkout", type=Path, default=Path.cwd()
-    )
-    ballistic_observer.add_argument(
-        "--ridge-regularization", type=float, default=0.20
-    )
+    ballistic_observer.add_argument("--source-checkout", type=Path, default=Path.cwd())
+    ballistic_observer.add_argument("--ridge-regularization", type=float, default=0.20)
     ballistic_observer.set_defaults(handler=_ballistic_contact_observer)
     evaluate_football_outcome = commands.add_parser(
         "evaluate-football-outcome-model",
@@ -325,15 +350,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     evaluate_football_outcome.add_argument("--model", type=Path, required=True)
     evaluate_football_outcome.add_argument("--output", type=Path, required=True)
-    evaluate_football_outcome.add_argument(
-        "--source-checkout", type=Path, default=Path.cwd()
-    )
-    evaluate_football_outcome.add_argument(
-        "--minimum-precision-improvement", type=int, default=1
-    )
-    evaluate_football_outcome.add_argument(
-        "--minimum-mean-improvement-m", type=float, default=0.02
-    )
+    evaluate_football_outcome.add_argument("--source-checkout", type=Path, default=Path.cwd())
+    evaluate_football_outcome.add_argument("--minimum-precision-improvement", type=int, default=1)
+    evaluate_football_outcome.add_argument("--minimum-mean-improvement-m", type=float, default=0.02)
     evaluate_football_outcome.set_defaults(handler=_evaluate_football_outcome_model)
     evaluate_approach = commands.add_parser(
         "evaluate-approach-strike-residual",
@@ -500,6 +519,8 @@ def _sonic_authority_calibration(args: argparse.Namespace) -> int:
         demand_quantile=args.demand_quantile,
         target_demand_ratio=args.target_demand_ratio,
         base_calibration_path=args.base_calibration,
+        freeze_approach_gain=args.freeze_approach_gain,
+        calibration_step_fraction=args.calibration_step_fraction,
     )
     _print(calibration.to_dict())
     return 0
@@ -641,6 +662,23 @@ def _football_motion_prior(args: argparse.Namespace) -> int:
     return 0
 
 
+def _motiondecode_football_skill_prior(args: argparse.Namespace) -> int:
+    prior = derive_motiondecode_g1_football_skill_prior(
+        registration_path=args.registration,
+        repair_report_path=args.repair_report,
+        dataset_root=args.dataset_root,
+        target_model_path=args.target_model,
+        asset_root=args.asset_root,
+        parent_evidence_path=args.parent_evidence,
+        parent_trajectory_path=args.parent_trajectory,
+        output_path=args.output,
+        source_checkout=args.source_checkout,
+        selected_event_count=args.selected_event_count,
+    )
+    _print(prior.to_dict())
+    return 0
+
+
 def _ballistic_contact_actor_critic(args: argparse.Namespace) -> int:
     candidate = derive_g1_ballistic_contact_actor_critic(
         evidence_paths=tuple(args.evidence_json),
@@ -651,6 +689,28 @@ def _ballistic_contact_actor_critic(args: argparse.Namespace) -> int:
     )
     _print(candidate.to_dict())
     return 0 if candidate.sim_replay_recommended else 3
+
+
+def _ballistic_contact_torque_actor_critic(args: argparse.Namespace) -> int:
+    candidate = derive_g1_ballistic_contact_torque_actor_critic(
+        evidence_paths=tuple(args.evidence_json),
+        output_path=args.output,
+        source_checkout=args.source_checkout,
+        trust_region_radius_nm=args.trust_region_radius_nm,
+        ridge_regularization=args.ridge_regularization,
+    )
+    _print(candidate.to_dict())
+    return 0 if candidate.sim_replay_recommended else 3
+
+
+def _ballistic_contact_impulse_actor(args: argparse.Namespace) -> int:
+    actor = derive_g1_ballistic_contact_impulse_actor(
+        evidence_paths=tuple(args.evidence_json),
+        output_path=args.output,
+        source_checkout=args.source_checkout,
+    )
+    _print(actor.to_dict())
+    return 0
 
 
 def _ballistic_contact_island_gate(args: argparse.Namespace) -> int:

@@ -16,6 +16,7 @@ from typing import Any
 from rosclaw.simforge.tasks.g1_goalforge.concepts import hash_bytes, hash_json
 
 _SCENE_REL = Path("g1_description/scene_with_ball.xml")
+_MODEL_REL = Path("g1_description/g1_liao.xml")
 
 
 @dataclass(frozen=True)
@@ -27,11 +28,12 @@ class G1TrainingGoalSpec:
     height_m: float = 1.6
     depth_m: float = 1.0
     post_radius_m: float = 0.035
-    net_strand_radius_m: float = 0.003
+    net_strand_radius_m: float = 0.00125
     target_y_m: float = 1.0
     target_z_m: float = 0.115
     precision_radius_m: float = 0.16
-    schema_version: str = "rosclaw.simforge.g1_training_goal_spec.v3"
+    ball_free_joint_damping_n_s_m: float = 0.02
+    schema_version: str = "rosclaw.simforge.g1_training_goal_spec.v5"
 
     def __post_init__(self) -> None:
         values = (
@@ -44,6 +46,7 @@ class G1TrainingGoalSpec:
             self.target_y_m,
             self.target_z_m,
             self.precision_radius_m,
+            self.ball_free_joint_damping_n_s_m,
         )
         if not all(math.isfinite(value) for value in values):
             raise ValueError("training goal values must be finite")
@@ -57,12 +60,16 @@ class G1TrainingGoalSpec:
             raise ValueError("training goal depth must be in [0.4, 2.0] m")
         if not 0.02 <= self.post_radius_m <= 0.08:
             raise ValueError("training goal post radius must be in [0.02, 0.08] m")
+        if not 0.001 <= self.net_strand_radius_m <= 0.006:
+            raise ValueError("training goal net strand radius must be in [0.001, 0.006] m")
         if abs(self.target_y_m) >= self.width_m / 2.0 - self.post_radius_m:
             raise ValueError("training target must remain inside the goal posts")
         if not 0.115 <= self.target_z_m < self.height_m - self.post_radius_m:
             raise ValueError("training target height must remain inside the goal")
         if not 0.05 <= self.precision_radius_m <= 0.30:
             raise ValueError("precision radius must be in [0.05, 0.30] m")
+        if not 0.001 <= self.ball_free_joint_damping_n_s_m <= 0.10:
+            raise ValueError("ball free-joint damping must be in [0.001, 0.10] N s/m")
 
     @property
     def spec_hash(self) -> str:
@@ -87,24 +94,143 @@ class G1TrainingGoalSpec:
 def build_g1_stadium_model(asset_root: Path, spec: G1TrainingGoalSpec | None = None) -> Any:
     """Compile a qualified G1 scene with the wall replaced by a native goal."""
 
-    import mujoco
+    goal = spec or G1TrainingGoalSpec()
+    parent = _stadium_spec(asset_root, goal)
+    model = parent.compile()
+    _require_stadium_model(model)
+    return model
+
+
+def build_g1_coupled_stadium_model(
+    asset_root: Path,
+    *,
+    passer_origin_m: tuple[float, float, float],
+    spec: G1TrainingGoalSpec | None = None,
+) -> Any:
+    """Compile the two-G1 replay scene with the same native football goal.
+
+    This builder is intended for evidence-downstream visualization.  It keeps
+    the original shooter and ball qpos ordering, then attaches the passer body
+    exactly as the coupled physics model does.  Stored trajectories therefore
+    remain the source of every rendered pose; the derived stadium does not
+    change or rescore their physics.
+    """
 
     goal = spec or G1TrainingGoalSpec()
+    root = asset_root.expanduser().resolve()
+    parent = _stadium_spec(root, goal)
+
+    import mujoco
+
+    child = mujoco.MjSpec.from_file(str(root / _MODEL_REL))
+    frame = parent.worldbody.add_frame(
+        name="passer_frame",
+        pos=passer_origin_m,
+        quat=(0.0, 0.0, 0.0, 1.0),
+    )
+    first_body = child.worldbody.first_body()
+    if first_body is None:
+        raise ValueError("qualified G1 model does not contain a root body")
+    frame.attach_body(first_body, prefix="passer_")
+    model = parent.compile()
+    _require_stadium_model(model)
+    if model.nu != 58:
+        raise ValueError(f"coupled stadium model has {model.nu} actuators, expected 58")
+    return model
+
+
+def build_g1_three_player_stadium_model(
+    asset_root: Path,
+    *,
+    passer_origin_m: tuple[float, float, float],
+    goalkeeper_origin_m: tuple[float, float, float],
+    spec: G1TrainingGoalSpec | None = None,
+) -> Any:
+    """Compile one shared pitch for passer, shooter, goalkeeper and ball.
+
+    The unprefixed source body remains the shooter.  The two attached bodies
+    use the same qualified G1 model and face back toward the shooter.  This is
+    a physical three-body scene, not a video compositing helper.
+    """
+
+    goal = spec or G1TrainingGoalSpec()
+    root = asset_root.expanduser().resolve()
+    parent = _stadium_spec(root, goal)
+
+    import mujoco
+
+    _attach_g1(
+        parent,
+        root=root,
+        frame_name="passer_frame",
+        prefix="passer_",
+        origin_m=passer_origin_m,
+        yaw_rad=math.pi,
+        mujoco=mujoco,
+    )
+    _attach_g1(
+        parent,
+        root=root,
+        frame_name="goalkeeper_frame",
+        prefix="goalkeeper_",
+        origin_m=goalkeeper_origin_m,
+        yaw_rad=math.pi,
+        mujoco=mujoco,
+    )
+    model = parent.compile()
+    _require_stadium_model(model)
+    if model.nu != 87:
+        raise ValueError(f"three-player stadium model has {model.nu} actuators, expected 87")
+    return model
+
+
+def _attach_g1(
+    parent: Any,
+    *,
+    root: Path,
+    frame_name: str,
+    prefix: str,
+    origin_m: tuple[float, float, float],
+    yaw_rad: float,
+    mujoco: Any,
+) -> None:
+    """Attach one qualified G1 without changing source ball/qpos ordering."""
+
+    child = mujoco.MjSpec.from_file(str(root / _MODEL_REL))
+    half_yaw = 0.5 * yaw_rad
+    frame = parent.worldbody.add_frame(
+        name=frame_name,
+        pos=origin_m,
+        quat=(math.cos(half_yaw), 0.0, 0.0, math.sin(half_yaw)),
+    )
+    first_body = child.worldbody.first_body()
+    if first_body is None:
+        raise ValueError("qualified G1 model does not contain a root body")
+    frame.attach_body(first_body, prefix=prefix)
+
+
+def _stadium_spec(asset_root: Path, spec: G1TrainingGoalSpec) -> Any:
+    import mujoco
+
     scene = asset_root.expanduser().resolve() / _SCENE_REL
     parent = mujoco.MjSpec.from_file(str(scene))
     wall = parent.body("box")
     if wall is None:
         raise ValueError("qualified G1 scene does not contain the replaceable box body")
     parent.delete(wall)
-    _style_pitch_and_ball(parent)
-    _add_goal(parent, goal)
-    model = parent.compile()
+    _style_pitch_and_ball(parent, spec)
+    _add_goal(parent, spec)
+    return parent
+
+
+def _require_stadium_model(model: Any) -> None:
+    import mujoco
+
     if mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "box") >= 0:
         raise AssertionError("stadium scene retained the original wall")
     for name in ("goal_left_post", "goal_right_post", "goal_crossbar", "goal_back_net"):
         if mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, name) < 0:
             raise AssertionError(f"stadium scene is missing {name}")
-    return model
 
 
 def g1_stadium_scene_hash(asset_root: Path, spec: G1TrainingGoalSpec | None = None) -> str:
@@ -204,9 +330,11 @@ def _add_goal(parent: Any, spec: G1TrainingGoalSpec) -> None:
     # A fine sloped net is visual geometry. A deterministic compliant force
     # field in the rollout models capture without the rigid-wall rebound of a
     # transparent box.
-    net = (0.91, 0.94, 0.92, 0.74)
-    vertical_count = 17
-    horizontal_count = 11
+    # Sparse, thin strands make depth visible without turning overlapping
+    # alpha-blended cylinders into an opaque wall from oblique cameras.
+    net = (0.91, 0.94, 0.92, 0.22)
+    vertical_count = 7
+    horizontal_count = 5
     for index in range(vertical_count):
         y = -half_width + spec.width_m * index / (vertical_count - 1)
         capsule(
@@ -229,8 +357,8 @@ def _add_goal(parent: Any, spec: G1TrainingGoalSpec) -> None:
             strand=True,
         )
     for side, y in (("left", -half_width), ("right", half_width)):
-        for index in range(7):
-            z = spec.height_m * index / 6.0
+        for index in range(4):
+            z = spec.height_m * index / 3.0
             rear_x = rear_bottom_x + (rear_top_x - rear_bottom_x) * z / spec.height_m
             capsule(
                 f"goal_{side}_net_h_{index}",
@@ -240,8 +368,8 @@ def _add_goal(parent: Any, spec: G1TrainingGoalSpec) -> None:
                 collision=False,
                 strand=True,
             )
-        for index in range(6):
-            alpha = index / 5.0
+        for index in range(3):
+            alpha = index / 2.0
             net_x_bottom = x + alpha * (rear_bottom_x - x)
             net_x_top = x + alpha * (rear_top_x - x)
             capsule(
@@ -252,8 +380,8 @@ def _add_goal(parent: Any, spec: G1TrainingGoalSpec) -> None:
                 collision=False,
                 strand=True,
             )
-    for index in range(9):
-        y = -half_width + spec.width_m * index / 8.0
+    for index in range(4):
+        y = -half_width + spec.width_m * index / 3.0
         capsule(
             f"goal_roof_net_{index}",
             (x, y, spec.height_m),
@@ -264,7 +392,7 @@ def _add_goal(parent: Any, spec: G1TrainingGoalSpec) -> None:
         )
 
 
-def _style_pitch_and_ball(parent: Any) -> None:
+def _style_pitch_and_ball(parent: Any, spec: G1TrainingGoalSpec) -> None:
     """Replace the blue grid with a pitch and add a lightweight ball pattern."""
 
     import mujoco
@@ -273,12 +401,40 @@ def _style_pitch_and_ball(parent: Any) -> None:
     floor.material = ""
     floor.rgba = (0.055, 0.24, 0.075, 1.0)
     world = parent.worldbody
+    pitch_start_x = -5.0
+    pitch_end_x = spec.plane_x_m + spec.depth_m + 1.0
+    stripe_count = 10
+    stripe_width = (pitch_end_x - pitch_start_x) / stripe_count
+    for index in range(stripe_count):
+        shade = 0.105 if index % 2 == 0 else 0.082
+        world.add_geom(
+            name=f"pitch_mowing_stripe_{index}",
+            type=mujoco.mjtGeom.mjGEOM_BOX,
+            pos=(pitch_start_x + (index + 0.5) * stripe_width, 0.0, 0.0015),
+            size=(stripe_width / 2.0, 4.2, 0.0015),
+            rgba=(0.035, shade + 0.12, 0.052, 1.0),
+            contype=0,
+            conaffinity=0,
+        )
     line = (0.93, 0.94, 0.90, 0.92)
+    box_depth = min(2.2, max(1.4, spec.plane_x_m - 2.0))
     for name, pos, size in (
-        ("pitch_goal_line", (5.0, 0.0, 0.004), (0.018, 4.2, 0.003)),
-        ("pitch_box_front", (2.8, 0.0, 0.004), (0.018, 2.8, 0.003)),
-        ("pitch_box_left", (3.9, -2.8, 0.004), (1.1, 0.018, 0.003)),
-        ("pitch_box_right", (3.9, 2.8, 0.004), (1.1, 0.018, 0.003)),
+        ("pitch_goal_line", (spec.plane_x_m, 0.0, 0.004), (0.018, 4.2, 0.003)),
+        (
+            "pitch_box_front",
+            (spec.plane_x_m - box_depth, 0.0, 0.004),
+            (0.018, 2.8, 0.003),
+        ),
+        (
+            "pitch_box_left",
+            (spec.plane_x_m - box_depth / 2.0, -2.8, 0.004),
+            (box_depth / 2.0, 0.018, 0.003),
+        ),
+        (
+            "pitch_box_right",
+            (spec.plane_x_m - box_depth / 2.0, 2.8, 0.004),
+            (box_depth / 2.0, 0.018, 0.003),
+        ),
     ):
         world.add_geom(
             name=name,
@@ -290,6 +446,15 @@ def _style_pitch_and_ball(parent: Any) -> None:
             conaffinity=0,
         )
     ball = parent.body("ball")
+    ball_joints = list(ball.joints)
+    if len(ball_joints) != 1 or ball_joints[0].name != "ball_free":
+        raise ValueError("qualified stadium ball must expose exactly one ball_free joint")
+    # The upstream demonstration scene uses 0.3 N*s/m on all six free-joint
+    # DOFs.  For a 0.41 kg ball this erases about a quarter of the shot speed
+    # per second and damps spin almost instantly, making flight and net entry
+    # look submerged.  Keep only a small numerical damping term; goal capture
+    # is handled separately by the compliant net after the back-net depth.
+    ball_joints[0].damping = (spec.ball_free_joint_damping_n_s_m, 0.0, 0.0)
     for index, position in enumerate(
         (
             (0.102, 0.0, 0.0),
@@ -313,6 +478,8 @@ def _style_pitch_and_ball(parent: Any) -> None:
 
 __all__ = [
     "G1TrainingGoalSpec",
+    "build_g1_coupled_stadium_model",
     "build_g1_stadium_model",
+    "build_g1_three_player_stadium_model",
     "g1_stadium_scene_hash",
 ]

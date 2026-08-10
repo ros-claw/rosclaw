@@ -68,6 +68,77 @@ _MODEL_REL = Path("g1_description/g1_liao.xml")
 _FREEKICK_REL = Path("policy/robonaldo/FreeKick.py")
 _MAX_ARTIFACT_BYTES = 1024 * 1024 * 1024
 
+# Sagittal reflection in the fixed 29-DoF DDS order. Joint coordinates are
+# axial rotations: pitch is preserved while roll and yaw change sign.
+_G1_SAGITTAL_PERMUTATION = np.asarray(
+    (
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        12,
+        13,
+        14,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+    ),
+    dtype=np.int64,
+)
+_G1_SAGITTAL_SIGNS = np.asarray(
+    (
+        1,
+        -1,
+        -1,
+        1,
+        1,
+        -1,
+        1,
+        -1,
+        -1,
+        1,
+        1,
+        -1,
+        -1,
+        -1,
+        1,
+        1,
+        -1,
+        -1,
+        1,
+        -1,
+        1,
+        -1,
+        1,
+        -1,
+        -1,
+        1,
+        -1,
+        1,
+        -1,
+    ),
+    dtype=np.float64,
+)
+
 
 @dataclass(frozen=True)
 class G1AssetQualification:
@@ -316,15 +387,6 @@ class G1MuJoCoBackend:
                 motion_hash=self.qualification.motion_hash,
                 regime_commitment=scenario.scenario_commitment,
             )
-        if parameters.kick_foot != "right":
-            return GoalForgeEpisode(
-                scenario=scenario,
-                parameters=parameters,
-                result=_incompatible_result(),
-                receipt=None,
-                artifact_root=None,
-                trajectory={},
-            )
         if not scenario.reachable:
             return GoalForgeEpisode(
                 scenario=scenario,
@@ -471,17 +533,32 @@ class G1MuJoCoBackend:
             policy_module.onnxruntime.InferenceSession = session_factory
         if self._policy_session is None:
             self._policy_session = policy.ort_session
+        left_foot = parameters.kick_foot == "left"
+        # The public RoboNaldo prior was trained right-footed.  A left-foot
+        # episode runs that same network in a sagittally mirrored virtual
+        # observation frame, then maps its action back to physical G1 joints.
+        # This preserves live proprioceptive feedback and real MuJoCo contact;
+        # it is not an hflip or kinematic video transformation.
         policy.target_pos_w = np.array(
-            [5.0, scenario.target_y_m, scenario.target_z_m],
+            [5.0, -scenario.target_y_m if left_foot else scenario.target_y_m, scenario.target_z_m],
             dtype=np.float32,
         )
         motion = np.load(root / _MOTION_REL)
-        data.qpos[:3] = motion["body_pos_w"][0, 0]
+        initial_base_position = np.asarray(motion["body_pos_w"][0, 0], dtype=np.float64).copy()
+        if left_foot:
+            initial_base_position[1] *= -1.0
+        data.qpos[:3] = initial_base_position
         data.qpos[0] += parameters.stance_offset_x
-        data.qpos[1] += parameters.stance_offset_y
-        data.qpos[3:7] = motion["body_quat_w"][0, 0]
+        data.qpos[1] += -parameters.stance_offset_y if left_foot else parameters.stance_offset_y
+        initial_base_quaternion = np.asarray(motion["body_quat_w"][0, 0], dtype=np.float64).copy()
+        if left_foot:
+            initial_base_quaternion[[1, 3]] *= -1.0
+        data.qpos[3:7] = initial_base_quaternion
         if parameters.pelvis_yaw_offset:
-            half_yaw = parameters.pelvis_yaw_offset * 0.5
+            yaw_offset = (
+                -parameters.pelvis_yaw_offset if left_foot else parameters.pelvis_yaw_offset
+            )
+            half_yaw = yaw_offset * 0.5
             yaw_quaternion = np.asarray(
                 [math.cos(half_yaw), 0.0, 0.0, math.sin(half_yaw)],
                 dtype=np.float64,
@@ -490,7 +567,12 @@ class G1MuJoCoBackend:
                 yaw_quaternion,
                 np.asarray(data.qpos[3:7], dtype=np.float64),
             )
-        data.qpos[7:36] = motion["joint_pos"][0][mujoco_to_isaac]
+        initial_joint_position = np.asarray(
+            motion["joint_pos"][0][mujoco_to_isaac], dtype=np.float64
+        )
+        data.qpos[7:36] = (
+            _mirror_g1_joint_vector(initial_joint_position) if left_foot else initial_joint_position
+        )
         if scenario.joint_zero_bias_rad:
             data.qpos[7:19] += scenario.joint_zero_bias_rad
         _reset_ball(model, data, scenario)
@@ -498,6 +580,8 @@ class G1MuJoCoBackend:
 
         ids = _ModelIds.from_model(model)
         _fill_state(state, model, data, ids)
+        if left_foot:
+            _mirror_g1_state_in_place(state)
         with contextlib.redirect_stdout(io.StringIO()):
             policy.enter()
         target_queue: deque[np.ndarray] = deque()
@@ -659,6 +743,8 @@ class G1MuJoCoBackend:
             if feedforward is not None:
                 feedforward_residual = feedforward.value_at(frame)
             _fill_state(state, model, data, ids)
+            if left_foot:
+                _mirror_g1_state_in_place(state)
             policy_frame = 0
             if frame < delay_frames:
                 target = last_target.copy()
@@ -704,6 +790,13 @@ class G1MuJoCoBackend:
                         parameters=parameters,
                         policy_frame=policy_frame,
                     )
+                    if left_foot:
+                        target = _mirror_g1_joint_vector(target)
+                        kp = _mirror_g1_joint_gains(kp)
+                        kd = _mirror_g1_joint_gains(kd)
+                        # Recovery and safety adapters observe the physical,
+                        # not virtual, body state below.
+                        _fill_state(state, model, data, ids)
                     if recovery_controller is not None:
                         current_phase = min(
                             1.0,
@@ -925,7 +1018,9 @@ class G1MuJoCoBackend:
                     right_ground_force,
                     step_contacts.right_ground_force_n,
                 )
-                if step_contacts.ball_right:
+                kick_contact = step_contacts.ball_left if left_foot else step_contacts.ball_right
+                wrong_contact = step_contacts.ball_right if left_foot else step_contacts.ball_left
+                if kick_contact:
                     contact_observed = True
                     kick_foot_contacted = True
                     if contact_time is None:
@@ -935,16 +1030,21 @@ class G1MuJoCoBackend:
                         step_contacts.ball_contact_point,
                         dtype=np.float64,
                     )
-                if step_contacts.ball_left:
+                if wrong_contact:
                     contact_observed = True
                     wrong_foot_contacted = True
             support_slip = 0.0
-            single_support = left_contact and not right_contact
+            single_support = (
+                right_contact and not left_contact
+                if left_foot
+                else left_contact and not right_contact
+            )
+            support_ankle = ids.right_ankle if left_foot else ids.left_ankle
             if 210 <= policy_frame <= 335 and contact_time is None and single_support:
                 if kick_support_anchor is None:
-                    kick_support_anchor = data.xpos[ids.left_ankle].copy()
+                    kick_support_anchor = data.xpos[support_ankle].copy()
                 support_slip = float(
-                    np.linalg.norm((data.xpos[ids.left_ankle] - kick_support_anchor)[:2])
+                    np.linalg.norm((data.xpos[support_ankle] - kick_support_anchor)[:2])
                 )
             elif contact_time is None:
                 kick_support_anchor = None
@@ -955,7 +1055,7 @@ class G1MuJoCoBackend:
             latest_left_ground_force = left_ground_force
             latest_right_ground_force = right_ground_force
             com = data.subtree_com[ids.pelvis].copy()
-            support_y = float(data.xpos[ids.left_ankle][1])
+            support_y = float(data.xpos[support_ankle][1])
             com_margin = 0.11 - abs(float(com[1]) - support_y)
             if 210 <= policy_frame <= 335 and single_support:
                 com_margin_min = min(com_margin_min, com_margin)
@@ -1022,6 +1122,7 @@ class G1MuJoCoBackend:
                     muscle_memory_out_of_distribution=muscle_memory_out_of_distribution,
                     muscle_memory_residual_rms_rad=muscle_memory_residual_rms_rad,
                     muscle_memory_synergy_actions=muscle_memory_synergy_actions,
+                    kick_foot=parameters.kick_foot,
                 )
             if not finite:
                 break
@@ -1066,6 +1167,7 @@ class G1MuJoCoBackend:
                 muscle_memory_out_of_distribution=muscle_memory_out_of_distribution,
                 muscle_memory_residual_rms_rad=muscle_memory_residual_rms_rad,
                 muscle_memory_synergy_actions=muscle_memory_synergy_actions,
+                kick_foot=parameters.kick_foot,
             )
         target_error = (
             math.hypot(crossing_y - scenario.target_y_m, crossing_z - scenario.target_z_m)
@@ -1314,6 +1416,46 @@ def _fill_state(state: Any, model: Any, data: Any, ids: _ModelIds) -> None:
     state.ball_valid = True
 
 
+def _mirror_g1_joint_vector(value: np.ndarray) -> np.ndarray:
+    """Reflect one joint position/velocity/torque vector across the sagittal plane."""
+
+    vector = np.asarray(value, dtype=np.float64)
+    if vector.shape != (29,) or not np.all(np.isfinite(vector)):
+        raise ValueError("G1 sagittal reflection requires a finite 29-joint vector")
+    return _G1_SAGITTAL_SIGNS * vector[_G1_SAGITTAL_PERMUTATION]
+
+
+def _mirror_g1_joint_gains(value: np.ndarray) -> np.ndarray:
+    """Swap left/right gains without applying joint-coordinate signs."""
+
+    vector = np.asarray(value, dtype=np.float64)
+    if vector.shape != (29,) or not np.all(np.isfinite(vector)):
+        raise ValueError("G1 gain reflection requires a finite 29-joint vector")
+    return vector[_G1_SAGITTAL_PERMUTATION].copy()
+
+
+def _mirror_g1_state_in_place(state: Any) -> None:
+    """Present a physical left-foot state to the right-foot prior as its mirror."""
+
+    for name in ("q", "dq", "ddq", "tau_est"):
+        setattr(state, name, _mirror_g1_joint_vector(getattr(state, name)))
+    for name in ("root_lin_vel_b", "torso_pos_w", "pelvis_pos_w", "ball_pos_w", "ball_vel_w"):
+        value = np.asarray(getattr(state, name), dtype=np.float64).copy()
+        value[1] *= -1.0
+        setattr(state, name, value)
+    for name in ("root_ang_vel_b", "ang_vel"):
+        value = np.asarray(getattr(state, name), dtype=np.float64).copy()
+        value[[0, 2]] *= -1.0
+        setattr(state, name, value)
+    gravity = np.asarray(state.gravity_ori, dtype=np.float64).copy()
+    gravity[1] *= -1.0
+    state.gravity_ori = gravity
+    for name in ("torso_quat_w", "pelvis_quat_w"):
+        quaternion = np.asarray(getattr(state, name), dtype=np.float64).copy()
+        quaternion[[1, 3]] *= -1.0
+        setattr(state, name, quaternion)
+
+
 def _policy_repeat_count(
     speed_scale: float,
     policy_frame: int,
@@ -1416,8 +1558,16 @@ def _contact_observation(model: Any, data: Any, ids: _ModelIds) -> _Contacts:
                 float(contact.pos[1]),
                 float(contact.pos[2]),
             )
-            ball_contact_normal = tuple(float(value) for value in normal)
-            ball_contact_force_world = tuple(float(value) for value in force_world)
+            ball_contact_normal = (
+                float(normal[0]),
+                float(normal[1]),
+                float(normal[2]),
+            )
+            ball_contact_force_world = (
+                float(force_world[0]),
+                float(force_world[1]),
+                float(force_world[2]),
+            )
     return _Contacts(
         left_floor=left_floor,
         right_floor=right_floor,
@@ -1491,6 +1641,7 @@ def _append_trace(
     muscle_memory_out_of_distribution: bool = False,
     muscle_memory_residual_rms_rad: float = 0.0,
     muscle_memory_synergy_actions: np.ndarray | None = None,
+    kick_foot: str = "right",
 ) -> None:
     trace["time"].append(time_sec)
     trace["joint_position"].append(data.qpos[7:36].copy())
@@ -1506,8 +1657,9 @@ def _append_trace(
     trace["support_foot_slip"].append(support_slip)
     trace["policy_phase"].append(policy_phase)
     trace["com_y_relative"].append(float(com[1]) - float(data.xpos[ids.left_ankle][1]))
+    kick_ankle = ids.left_ankle if kick_foot == "left" else ids.right_ankle
     trace["ball_lateral_error_m"].append(
-        float(data.qpos[ids.ball_qpos + 1]) - float(data.xpos[ids.right_ankle][1])
+        float(data.qpos[ids.ball_qpos + 1]) - float(data.xpos[kick_ankle][1])
     )
     trace["ball_pose"].append(data.qpos[ids.ball_qpos : ids.ball_qpos + 7].copy())
     trace["ball_velocity"].append(data.qvel[ids.ball_qvel : ids.ball_qvel + 3].copy())

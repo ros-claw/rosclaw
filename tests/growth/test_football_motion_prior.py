@@ -9,6 +9,7 @@ import pytest
 from rosclaw.growth.football_motion_prior import (
     G1FootballMotionEvent,
     G1FootballMotionPrior,
+    G1FootballStyleEvent,
     blend_g1_football_motion_prior_target,
     load_g1_football_motion_prior,
 )
@@ -99,3 +100,58 @@ def test_motion_prior_blend_is_windowed_and_support_bounded() -> None:
     assert not outside_active
     assert np.array_equal(outside, target)
     assert np.count_nonzero(outside_delta) == 0
+
+
+def test_motiondecode_v2_prior_blends_bounded_whole_body() -> None:
+    rows = tuple(tuple(0.1 * index for index in range(29)) for _ in range(3))
+    prior = G1FootballMotionPrior(
+        body_hash=_HASH,
+        dataset_readme_hash=_HASH,
+        split_manifest_hash=_HASH,
+        joint_order_contract_hash=_HASH,
+        train_partition_hash=_HASH,
+        heldout_partition_commitment=_HASH,
+        joint_names=G1_DDS_JOINT_NAMES[6:12],
+        reference_times_sec=(-0.10, 0.0, 0.10),
+        right_leg_reference_rad=tuple(tuple(row[6:12]) for row in rows),
+        right_leg_iqr_rad=tuple((0.1,) * 6 for _ in rows),
+        selected_events=(),
+        train_files_considered=8,
+        qualified_event_count=8,
+        whole_body_reference_rad=rows,
+        whole_body_iqr_rad=tuple((0.1,) * 29 for _ in rows),
+        whole_body_maximum_target_correction_rad=(0.20,) * 29,
+        motiondecode_source_manifest_hash=_HASH,
+        motiondecode_repair_report_hash=_HASH,
+        parent_trajectory_hash=_HASH,
+        style_events=(
+            G1FootballStyleEvent(
+                relative_path="samples/shoot.csv",
+                source_hash=_HASH,
+                reference_frame=100,
+                frame_count=200,
+                fps=120.0,
+                score=0.8,
+                right_foot_peak_speed_mps=4.0,
+                support_foot_p95_speed_mps=0.4,
+                post_event_joint_velocity_rms_rad_s=0.3,
+            ),
+        ),
+        source_dataset="MotionDecode",
+        schema_version="rosclaw.growth.g1_football_motion_prior.v2",
+    )
+    target = np.full(29, -1.0)
+
+    adapted, delta, active = blend_g1_football_motion_prior_target(
+        target=target,
+        prior=prior,
+        policy_frame=100,
+        contact_policy_frame=100,
+        control_dt_sec=0.02,
+        blend=0.5,
+    )
+
+    assert active
+    assert np.count_nonzero(delta) == 29
+    assert np.max(np.abs(delta)) <= 0.10 + 1e-12
+    assert np.allclose(adapted, target + delta)

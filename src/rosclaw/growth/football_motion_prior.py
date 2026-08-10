@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 from rosclaw.feedback.contracts import canonical_hash
 from rosclaw.simforge.backends.unitree_mujoco_backend import qualify_g1_assets
@@ -81,10 +82,10 @@ def _literal_assignment(path: Path, name: str) -> tuple[str, ...]:
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
         if not any(isinstance(target, ast.Name) and target.id == name for target in targets):
             continue
+        if node.value is None:
+            break
         value = ast.literal_eval(node.value)
-        if not isinstance(value, (list, tuple)) or not all(
-            isinstance(item, str) for item in value
-        ):
+        if not isinstance(value, (list, tuple)) or not all(isinstance(item, str) for item in value):
             break
         return tuple(value)
     raise ValueError(f"joint-order contract does not define literal {name}")
@@ -123,8 +124,7 @@ class G1FootballMotionEvent:
         if not self.source_hash.startswith("sha256:"):
             raise ValueError("football motion event requires a SHA-256 source hash")
         if not (
-            0 <= self.contact_start_frame
-            <= self.reference_contact_frame
+            0 <= self.contact_start_frame <= self.reference_contact_frame
             and self.contact_start_frame <= self.contact_end_frame
         ):
             raise ValueError("football motion event frame order is invalid")
@@ -138,6 +138,38 @@ class G1FootballMotionEvent:
         )
         if not all(math.isfinite(value) for value in values) or self.fps <= 0.0:
             raise ValueError("football motion event metrics must be finite")
+
+
+@dataclass(frozen=True)
+class G1FootballStyleEvent:
+    """One Q1 MotionDecode shooting event used as a kinematic style teacher."""
+
+    relative_path: str
+    source_hash: str
+    reference_frame: int
+    frame_count: int
+    fps: float
+    score: float
+    right_foot_peak_speed_mps: float
+    support_foot_p95_speed_mps: float
+    post_event_joint_velocity_rms_rad_s: float
+
+    def __post_init__(self) -> None:
+        if not self.relative_path or not self.source_hash.startswith("sha256:"):
+            raise ValueError("football style event identity is invalid")
+        if not 0 <= self.reference_frame < self.frame_count or self.frame_count < 3:
+            raise ValueError("football style event frame contract is invalid")
+        values = (
+            self.fps,
+            self.score,
+            self.right_foot_peak_speed_mps,
+            self.support_foot_p95_speed_mps,
+            self.post_event_joint_velocity_rms_rad_s,
+        )
+        if not all(math.isfinite(value) and value >= 0.0 for value in values):
+            raise ValueError("football style event metrics must be finite and non-negative")
+        if self.fps <= 0.0:
+            raise ValueError("football style event FPS must be positive")
 
 
 @dataclass(frozen=True)
@@ -155,6 +187,14 @@ class G1FootballMotionPrior:
     selected_events: tuple[G1FootballMotionEvent, ...]
     train_files_considered: int
     qualified_event_count: int
+    whole_body_reference_rad: tuple[tuple[float, ...], ...] = ()
+    whole_body_iqr_rad: tuple[tuple[float, ...], ...] = ()
+    whole_body_maximum_target_correction_rad: tuple[float, ...] = ()
+    motiondecode_source_manifest_hash: str | None = None
+    motiondecode_repair_report_hash: str | None = None
+    parent_trajectory_hash: str | None = None
+    style_events: tuple[G1FootballStyleEvent, ...] = ()
+    source_dataset: str = "OmniContact"
     maximum_target_correction_rad: float = 0.45
     activation_ceiling: str = "SIM_ONLY"
     promotion_authorized: bool = False
@@ -194,8 +234,60 @@ class G1FootballMotionPrior:
             self.selected_events
         ):
             raise ValueError("football motion prior training counts are inconsistent")
-        if not self.selected_events:
+        if (
+            self.schema_version == "rosclaw.growth.g1_football_motion_prior.v1"
+            and not self.selected_events
+        ):
             raise ValueError("football motion prior requires selected training events")
+        if self.schema_version == "rosclaw.growth.g1_football_motion_prior.v1":
+            if (
+                self.whole_body_reference_rad
+                or self.whole_body_iqr_rad
+                or self.whole_body_maximum_target_correction_rad
+                or self.motiondecode_source_manifest_hash is not None
+                or self.motiondecode_repair_report_hash is not None
+                or self.parent_trajectory_hash is not None
+                or self.style_events
+                or self.source_dataset != "OmniContact"
+            ):
+                raise ValueError("football motion prior v1 cannot contain a whole-body style")
+        elif self.schema_version == "rosclaw.growth.g1_football_motion_prior.v2":
+            expected_whole_body = (len(self.reference_times_sec), len(G1_DDS_JOINT_NAMES))
+            for label, values in (
+                ("whole-body reference", self.whole_body_reference_rad),
+                ("whole-body IQR", self.whole_body_iqr_rad),
+            ):
+                array = np.asarray(values, dtype=np.float64)
+                if array.shape != expected_whole_body or not np.isfinite(array).all():
+                    raise ValueError(f"football motion prior {label} is invalid")
+                if label.endswith("IQR") and np.any(array < 0.0):
+                    raise ValueError("football motion prior whole-body IQR must be non-negative")
+            correction = np.asarray(
+                self.whole_body_maximum_target_correction_rad,
+                dtype=np.float64,
+            )
+            if (
+                correction.shape != (len(G1_DDS_JOINT_NAMES),)
+                or not np.isfinite(correction).all()
+                or np.any(correction < 0.02)
+                or np.any(correction > 0.45)
+            ):
+                raise ValueError("football motion prior whole-body bounds are invalid")
+            for label, artifact_hash in (
+                ("motiondecode_source_manifest_hash", self.motiondecode_source_manifest_hash),
+                ("motiondecode_repair_report_hash", self.motiondecode_repair_report_hash),
+                ("parent_trajectory_hash", self.parent_trajectory_hash),
+            ):
+                if (
+                    artifact_hash is None
+                    or not artifact_hash.startswith("sha256:")
+                    or len(artifact_hash) != 71
+                ):
+                    raise ValueError(f"{label} must bind a sha256: evidence artifact")
+            if self.source_dataset != "MotionDecode" or not self.style_events:
+                raise ValueError("football motion prior v2 requires MotionDecode style events")
+        else:
+            raise ValueError("unsupported football motion prior schema")
         if (
             self.activation_ceiling != "SIM_ONLY"
             or self.promotion_authorized
@@ -208,13 +300,28 @@ class G1FootballMotionPrior:
         return canonical_hash(self._payload())
 
     def _payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             **asdict(self),
             "selected_events": [asdict(event) for event in self.selected_events],
             "heldout_metrics_accessed": False,
             "direct_torque_output": False,
             "training_partition_only": True,
         }
+        if self.schema_version == "rosclaw.growth.g1_football_motion_prior.v1":
+            for field in (
+                "whole_body_reference_rad",
+                "whole_body_iqr_rad",
+                "whole_body_maximum_target_correction_rad",
+                "motiondecode_source_manifest_hash",
+                "motiondecode_repair_report_hash",
+                "parent_trajectory_hash",
+                "style_events",
+                "source_dataset",
+            ):
+                payload.pop(field, None)
+        else:
+            payload["style_events"] = [asdict(event) for event in self.style_events]
+        return payload
 
     def to_dict(self) -> dict[str, Any]:
         return {**self._payload(), "prior_hash": self.prior_hash}
@@ -235,6 +342,17 @@ def load_g1_football_motion_prior(path: Path) -> G1FootballMotionPrior:
     payload["selected_events"] = tuple(
         G1FootballMotionEvent(**event) for event in payload["selected_events"]
     )
+    if "whole_body_reference_rad" in payload:
+        payload["whole_body_reference_rad"] = tuple(
+            tuple(row) for row in payload["whole_body_reference_rad"]
+        )
+        payload["whole_body_iqr_rad"] = tuple(tuple(row) for row in payload["whole_body_iqr_rad"])
+        payload["whole_body_maximum_target_correction_rad"] = tuple(
+            payload["whole_body_maximum_target_correction_rad"]
+        )
+        payload["style_events"] = tuple(
+            G1FootballStyleEvent(**event) for event in payload["style_events"]
+        )
     prior = G1FootballMotionPrior(**payload)
     if declared_hash != prior.prior_hash:
         raise ValueError("football motion prior hash mismatch")
@@ -258,23 +376,35 @@ def blend_g1_football_motion_prior_target(
         raise ValueError("football motion prior blend must be in [0, 0.50]")
     if control_dt_sec <= 0.0 or not math.isfinite(control_dt_sec):
         raise ValueError("football motion prior control clock must be positive")
-    delta = np.zeros(29, dtype=np.float64)
+    delta: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
     relative_time = (policy_frame - contact_policy_frame) * control_dt_sec
     times = np.asarray(prior.reference_times_sec, dtype=np.float64)
     if blend == 0.0 or relative_time < times[0] or relative_time > times[-1]:
         return target.copy(), delta, False
-    reference = np.asarray(prior.right_leg_reference_rad, dtype=np.float64)
+    whole_body = bool(prior.whole_body_reference_rad)
+    reference = np.asarray(
+        prior.whole_body_reference_rad if whole_body else prior.right_leg_reference_rad,
+        dtype=np.float64,
+    )
     desired = np.asarray(
-        [np.interp(relative_time, times, reference[:, joint]) for joint in range(6)],
+        [
+            np.interp(relative_time, times, reference[:, joint])
+            for joint in range(reference.shape[1])
+        ],
         dtype=np.float64,
     )
     progress = (relative_time - times[0]) / max(times[-1] - times[0], 1e-9)
     envelope = math.sin(math.pi * min(1.0, max(0.0, progress))) ** 2
-    indices = np.arange(6, 12)
+    indices = np.arange(29) if whole_body else np.arange(6, 12)
+    maximum = (
+        np.asarray(prior.whole_body_maximum_target_correction_rad, dtype=np.float64)
+        if whole_body
+        else prior.maximum_target_correction_rad
+    )
     bounded = np.clip(
         desired - target[indices],
-        -prior.maximum_target_correction_rad,
-        prior.maximum_target_correction_rad,
+        -maximum,
+        maximum,
     )
     delta[indices] = blend * envelope * bounded
     adapted = target.astype(np.float64, copy=True) + delta
@@ -378,9 +508,7 @@ def derive_g1_football_motion_prior(
                 )
                 outgoing = object_velocity[start:post]
                 deltas = outgoing - before
-                frame_scores = 2.0 * deltas[:, 2] + 0.35 * np.linalg.norm(
-                    deltas[:, :2], axis=1
-                )
+                frame_scores = 2.0 * deltas[:, 2] + 0.35 * np.linalg.norm(deltas[:, :2], axis=1)
                 offset = int(np.argmax(frame_scores))
                 reference_frame = start + offset
                 after = object_velocity[reference_frame]
@@ -497,6 +625,7 @@ def derive_g1_football_motion_prior(
 __all__ = [
     "G1FootballMotionEvent",
     "G1FootballMotionPrior",
+    "G1FootballStyleEvent",
     "blend_g1_football_motion_prior_target",
     "derive_g1_football_motion_prior",
     "load_g1_football_motion_prior",

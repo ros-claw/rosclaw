@@ -57,6 +57,7 @@ def test_sonic_authority_calibration_is_replay_bound_and_joint_local(tmp_path: P
     )
 
     assert calibration.joint_gain_scales[4] < 1.0
+    assert not calibration.approach_gain_frozen
     assert calibration.strike_gain_scales[2] < 1.0
     assert calibration.follow_through_gain_scales[1] < 1.0
     assert calibration.joint_gain_scales[0] == 1.0
@@ -71,6 +72,19 @@ def test_sonic_authority_calibration_is_replay_bound_and_joint_local(tmp_path: P
     assert composed.base_calibration_hash == calibration.calibration_hash
     assert composed.joint_gain_scales[4] <= calibration.joint_gain_scales[4]
     assert composed.strike_gain_scales[2] <= calibration.strike_gain_scales[2]
+    frozen = derive_g1_sonic_authority_calibration(
+        trajectory_paths=(trajectory,),
+        evidence_paths=(evidence,),
+        output_path=tmp_path / "frozen.json",
+        source_checkout=tmp_path / "checkout",
+        freeze_approach_gain=True,
+        calibration_step_fraction=0.10,
+    )
+    assert frozen.approach_gain_frozen
+    assert frozen.joint_gain_scales == (1.0,) * 29
+    assert frozen.strike_gain_scales[2] < 1.0
+    assert frozen.strike_gain_scales[2] > calibration.strike_gain_scales[2]
+    assert frozen.calibration_step_fraction == 0.10
     value = json.loads(output.read_text(encoding="utf-8"))
     value["joint_gain_scales"][4] = 1.0
     output.write_text(json.dumps(value), encoding="utf-8")
@@ -114,7 +128,7 @@ def test_contact_demand_trains_the_runtime_follow_through_authority(tmp_path: Pa
     assert calibration.strike_gain_scales[1] < 1.0
     assert calibration.follow_through_gain_scales[1] < 1.0
     assert calibration.follow_through_gain_scales[1] < 0.70
-    assert calibration.schema_version.endswith(".v5")
+    assert calibration.schema_version.endswith(".v7")
 
 
 def test_online_approach_strike_state_matches_frozen_contract() -> None:

@@ -17,10 +17,14 @@ def test_loft_teacher_is_disabled_by_default_and_bounded() -> None:
     assert config.config_hash.startswith("sha256:")
     with pytest.raises(ValueError, match="target speed"):
         G1LoftTeacherConfig(target_vertical_speed_mps=2.9)
+    with pytest.raises(ValueError, match="target speed"):
+        G1LoftTeacherConfig(target_vertical_speed_mps=-0.4)
     with pytest.raises(ValueError, match="force limit"):
         G1LoftTeacherConfig(maximum_vertical_force_n=251.0)
     with pytest.raises(ValueError, match="forward speed"):
         G1LoftTeacherConfig(target_forward_speed_mps=4.9)
+    with pytest.raises(ValueError, match="lateral speed"):
+        G1LoftTeacherConfig(target_lateral_speed_mps=0.9)
     with pytest.raises(ValueError, match="foot envelope"):
         G1LoftTeacherConfig(foot_strike_point_offset_m=(0.20, 0.0, 0.0))
     with pytest.raises(ValueError, match="foot-ball distance"):
@@ -116,6 +120,51 @@ def test_loft_teacher_preserves_forward_foot_velocity_in_the_contact_neighborhoo
     assert effect.vertical_force_n == 30.0
     assert effect.forward_force_n == 40.0
     assert effect.torque[0] == 25.0
+
+
+def test_loft_teacher_projects_a_bounded_downward_cut() -> None:
+    jacobian = np.zeros((3, 35), dtype=np.float64)
+    jacobian[2, 6] = 0.50
+    jacobian[2, 9] = -0.25
+    config = G1LoftTeacherConfig(
+        target_vertical_speed_mps=-2.0,
+        velocity_gain_n_per_mps=24.0,
+        maximum_vertical_force_n=30.0,
+    )
+
+    effect = project_g1_vertical_foot_force(
+        jacobian_position=jacobian,
+        generalized_velocity=np.zeros(35),
+        config=config,
+    )
+
+    assert effect.active
+    assert effect.vertical_force_n == -30.0
+    assert effect.torque[0] == -15.0
+    assert effect.torque[3] == 7.5
+
+
+def test_loft_teacher_projects_a_signed_lateral_foot_velocity() -> None:
+    jacobian = np.zeros((3, 35), dtype=np.float64)
+    jacobian[1, 7] = 0.4
+    jacobian[1, 8] = -0.2
+    config = G1LoftTeacherConfig(
+        target_lateral_speed_mps=-7.0,
+        lateral_velocity_gain_n_per_mps=20.0,
+        maximum_lateral_force_n=50.0,
+    )
+
+    effect = project_g1_vertical_foot_force(
+        jacobian_position=jacobian,
+        generalized_velocity=np.zeros(35),
+        config=config,
+    )
+
+    assert effect.active
+    assert effect.lateral_force_n == -50.0
+    assert effect.foot_lateral_speed_mps == 0.0
+    assert effect.torque[1] == -20.0
+    assert effect.torque[2] == 10.0
 
 
 def test_loft_teacher_fails_closed_on_bad_shape_or_non_finite_input() -> None:

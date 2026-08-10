@@ -11,12 +11,17 @@ from rosclaw.simforge.g1_coupled_relay import (
     G1CoupledRelayEvidence,
     G1CoupledRelayResult,
     G1CoupledRelayRobustnessCase,
+    G1GoalkeeperConfig,
     G1JointGuardConfig,
+    _normalized_locomotion_command,
     _normalized_zero_locomotion_command,
     _project_joint_safe_torque,
     _select_joint_guard_config,
     _smooth_policy_handoff,
     run_g1_coupled_relay,
+    shared_post_impact_recovery_config,
+    shared_post_impact_simulation_kwargs,
+    trained_coupled_skill_simulation_kwargs,
 )
 from rosclaw.simforge.g1_coupled_relay_video import (
     render_g1_coupled_relay_video,
@@ -52,6 +57,9 @@ def _passing_result(**overrides: object) -> G1CoupledRelayResult:
         "torque_limit_violation": False,
         "actuator_saturation": False,
         "physics_steps": 7500,
+        "pass_delivery_position_m": (1.0, 0.0, 0.115),
+        "pass_delivery_error_m": 0.01,
+        "pass_delivery_lateral_error_m": 0.005,
     }
     values.update(overrides)
     return G1CoupledRelayResult(**values)  # type: ignore[arg-type]
@@ -62,6 +70,8 @@ def test_coupled_relay_result_requires_ordered_contacts_and_high_finish() -> Non
     assert not _passing_result(shot_contact_time_sec=5.5).passed
     assert not _passing_result(shot_peak_ball_speed_mps=5.9).passed
     assert not _passing_result(target_error_m=0.481).passed
+    assert not _passing_result(pass_delivery_error_m=0.051).passed
+    assert not _passing_result(pass_delivery_lateral_error_m=0.031).passed
     assert not _passing_result(passer_min_pelvis_height_m=0.54).passed
 
 
@@ -206,6 +216,62 @@ def test_neutral_locomotion_command_inverts_asymmetric_scaling() -> None:
     assert np.allclose(scaled, 0.0)
 
 
+def test_physical_locomotion_command_round_trips_asymmetric_scaling() -> None:
+    policy = SimpleNamespace(
+        range_velx=np.asarray((-0.4, 0.7)),
+        range_vely=np.asarray((-0.4, 0.4)),
+        range_velz=np.asarray((-1.57, 1.57)),
+    )
+    physical = np.asarray((0.25, -0.18, 0.31))
+
+    command = _normalized_locomotion_command(policy, physical)
+    ranges = np.asarray((policy.range_velx, policy.range_vely, policy.range_velz))
+    round_trip = (command + 1.0) * (ranges[:, 1] - ranges[:, 0]) / 2.0 + ranges[:, 0]
+
+    assert np.allclose(round_trip, physical)
+    with pytest.raises(ValueError, match="outside"):
+        _normalized_locomotion_command(policy, np.asarray((0.8, 0.0, 0.0)))
+
+
+def test_goalkeeper_config_is_strictly_bounded() -> None:
+    assert G1GoalkeeperConfig().maximum_lateral_speed_mps == pytest.approx(0.38)
+    with pytest.raises(ValueError, match="reaction delay"):
+        G1GoalkeeperConfig(reaction_delay_sec=0.01)
+    with pytest.raises(ValueError, match="lateral speed"):
+        G1GoalkeeperConfig(maximum_lateral_speed_mps=0.45)
+    with pytest.raises(ValueError, match="finite"):
+        G1GoalkeeperConfig(arm_spread_rad=float("nan"))
+
+
+def test_shared_post_impact_controller_is_symmetric_and_physical_zero() -> None:
+    recovery = shared_post_impact_recovery_config()
+    values = shared_post_impact_simulation_kwargs()
+
+    assert values["passer_recovery_config"] == recovery
+    assert values["shooter_recovery_config"] == recovery
+    assert values["passer_post_policy_neutral_velocity_enabled"] is True
+    assert values["shooter_post_policy_neutral_velocity_enabled"] is True
+    assert values["passer_post_policy_recovery_enabled"] is True
+    assert values["shooter_post_policy_recovery_enabled"] is True
+    assert values["passer_joint_guard_enabled"] is True
+    assert values["shooter_joint_guard_enabled"] is True
+    assert recovery.standing_pose_blend == pytest.approx(0.02)
+    assert recovery.target_smoothing_alpha == pytest.approx(0.60)
+
+
+def test_trained_coupled_skill_has_causal_early_arrival_aim_expert() -> None:
+    values = trained_coupled_skill_simulation_kwargs()
+
+    assert values["shooter_parameter_overrides"] == {
+        "foot_yaw_offset": 0.085,
+        "foot_pitch_offset": 0.010,
+    }
+    assert values["shooter_early_arrival_parameter_overrides"] == {
+        "foot_yaw_offset": 0.115,
+        "foot_pitch_offset": 0.025,
+    }
+
+
 def test_coupled_evidence_is_strict_replay_and_sim_only() -> None:
     cases = tuple(
         G1CoupledRelayRobustnessCase(
@@ -300,11 +366,11 @@ def test_real_g1_coupled_relay_is_strict_high_and_stable(tmp_path: Path) -> None
     assert evidence.strict_replay
     assert evidence.simultaneous_two_body_physics
     assert evidence.shared_ball_state
-    assert sum(case.passed for case in evidence.receiver_timing_parent) == 1
+    assert sum(case.passed for case in evidence.receiver_timing_parent) == 3
     assert len(evidence.receiver_timing_robustness) == 5
     assert all(case.passed for case in evidence.receiver_timing_robustness)
     assert evidence.result.pass_contact_time_sec == pytest.approx(5.602)
-    assert evidence.result.shot_contact_time_sec == pytest.approx(7.402)
+    assert evidence.result.shot_contact_time_sec == pytest.approx(7.412)
     assert evidence.result.goal_crossing_z_m is not None
     assert evidence.result.goal_crossing_z_m >= 1.0
     assert evidence.result.target_error_m is not None

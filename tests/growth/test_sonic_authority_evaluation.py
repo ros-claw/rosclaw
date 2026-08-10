@@ -72,11 +72,13 @@ def test_sonic_authority_evaluation_accepts_paired_stability_gain(
     baseline_calibration = SimpleNamespace(
         calibration_hash=baseline_hash,
         base_calibration_hash=None,
+        approach_gain_frozen=False,
         body_hash="sha256:" + "1" * 64,
     )
     candidate_calibration = SimpleNamespace(
         calibration_hash=candidate_hash,
         base_calibration_hash=baseline_hash,
+        approach_gain_frozen=False,
         body_hash="sha256:" + "1" * 64,
     )
     monkeypatch.setattr(

@@ -19,7 +19,7 @@ from rosclaw.simforge.backends.unitree_mujoco_backend import (
     qualify_g1_assets,
     trajectory_digest,
 )
-from rosclaw.simforge.g1_coupled_relay import _coupled_model
+from rosclaw.simforge.g1_coupled_relay import _PASSER_ORIGIN
 from rosclaw.simforge.g1_coupled_relay_video import (
     _id,
     _joint_qpos,
@@ -29,9 +29,15 @@ from rosclaw.simforge.g1_hat_trick_video import (
     _append_sphere,
     _escape_filtergraph_option,
 )
+from rosclaw.simforge.g1_stadium_scene import (
+    G1TrainingGoalSpec,
+    build_g1_coupled_stadium_model,
+)
 
-_WIDTH = 640
-_HEIGHT = 360
+_WIDTH = 960
+_HEIGHT = 540
+_OUTPUT_WIDTH = 1920
+_OUTPUT_HEIGHT = 1080
 
 
 @dataclass(frozen=True)
@@ -52,13 +58,15 @@ class G1CoupledShowcaseVideoResult:
     evidence_report_hash: str
     renderer_hash: str
     fps: int
+    width: int
+    height: int
     frame_count: int
     duration_sec: float
     clips: tuple[G1CoupledShowcaseVideoClip, ...]
     visualization_only: bool = True
     simultaneous_two_body_physics: bool = True
     pixels_used_for_promotion: bool = False
-    schema_version: str = "rosclaw.g1_goalforge.coupled_showcase_video.v1"
+    schema_version: str = "rosclaw.g1_goalforge.coupled_showcase_video.v3"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -76,6 +84,8 @@ class _Source:
     subtitle: str
     camera_azimuth_deg: float
     result: dict[str, Any]
+    passer_recovery_quality: dict[str, Any]
+    shooter_recovery_quality: dict[str, Any]
     trajectory_hash: str
     trajectory_digest: str
     trajectory: dict[str, np.ndarray]
@@ -124,7 +134,25 @@ def render_g1_coupled_showcase_video(
     try:
         import mujoco
 
-        model = _coupled_model(asset_root.expanduser().resolve())
+        goal = G1TrainingGoalSpec(
+            plane_x_m=5.0,
+            width_m=2.8,
+            height_m=1.7,
+            target_y_m=1.10,
+            target_z_m=1.09,
+            precision_radius_m=0.16,
+        )
+        model = build_g1_coupled_stadium_model(
+            asset_root.expanduser().resolve(),
+            passer_origin_m=(
+                float(_PASSER_ORIGIN[0]),
+                float(_PASSER_ORIGIN[1]),
+                float(_PASSER_ORIGIN[2]),
+            ),
+            spec=goal,
+        )
+        model.vis.global_.offwidth = max(int(model.vis.global_.offwidth), _WIDTH)
+        model.vis.global_.offheight = max(int(model.vis.global_.offheight), _HEIGHT)
         data = mujoco.MjData(model)
         renderer = mujoco.Renderer(model, height=_HEIGHT, width=_WIDTH)
         try:
@@ -190,6 +218,8 @@ def render_g1_coupled_showcase_video(
         evidence_report_hash=_file_hash(evidence),
         renderer_hash=_file_hash(Path(__file__)),
         fps=fps,
+        width=_OUTPUT_WIDTH,
+        height=_OUTPUT_HEIGHT,
         frame_count=sum(clip.frame_count for clip in clips),
         duration_sec=sum(clip.duration_sec for clip in clips),
         clips=clips,
@@ -220,6 +250,8 @@ def _load_source(case: dict[str, Any], checkout: Path) -> _Source:
         subtitle=str(spec["subtitle"]),
         camera_azimuth_deg=float(spec["camera_azimuth_deg"]),
         result=dict(case["result"]),
+        passer_recovery_quality=dict(case["passer_recovery_quality"]),
+        shooter_recovery_quality=dict(case["shooter_recovery_quality"]),
         trajectory_hash=str(case["trajectory_hash"]),
         trajectory_digest=digest,
         trajectory=trajectory,
@@ -305,10 +337,10 @@ def _write_frames(
 
 def _add_markers(mujoco: Any, scene: Any, source: _Source, index: int) -> None:
     target = np.asarray((5.02, 1.10, 1.09), dtype=np.float64)
-    _append_sphere(mujoco, scene, target, 0.13, (0.12, 1.0, 0.34, 0.92))
-    for angle in np.linspace(0.0, 2.0 * math.pi, 16, endpoint=False):
-        ring = target + np.asarray((0.0, 0.30 * math.cos(angle), 0.30 * math.sin(angle)))
-        _append_sphere(mujoco, scene, ring, 0.025, (0.10, 0.95, 0.55, 0.72))
+    _append_sphere(mujoco, scene, target, 0.018, (0.12, 1.0, 0.34, 0.88))
+    for angle in np.linspace(0.0, 2.0 * math.pi, 20, endpoint=False):
+        ring = target + np.asarray((0.0, 0.10 * math.cos(angle), 0.10 * math.sin(angle)))
+        _append_sphere(mujoco, scene, ring, 0.010, (0.10, 0.95, 0.55, 0.66))
     start = max(0, index - 90)
     indices = np.linspace(start, index, min(22, index - start + 1), dtype=int)
     for trail_index, alpha in zip(
@@ -348,9 +380,10 @@ def _write_label_files(
             encoding="utf-8",
         )
         metric.write_text(
-            f"{source.subtitle} · SHOT {float(source.result['shot_peak_ball_speed_mps']):.2f} m/s "
-            f"· CROSS {float(source.result['goal_crossing_z_m']):.2f} m · "
-            f"ERROR {float(source.result['target_error_m']):.2f} m",
+            f"{source.subtitle} · PASS ERROR {float(source.result['pass_delivery_error_m']):.3f} m "
+            f"· SHOT ERROR {float(source.result['target_error_m']):.3f} m · "
+            f"SETTLE A/B {float(source.passer_recovery_quality['settling_time_sec']):.2f}/"
+            f"{float(source.shooter_recovery_quality['settling_time_sec']):.2f} s",
             encoding="utf-8",
         )
         result.append((heading, metric))
@@ -367,13 +400,15 @@ def _ffmpeg_command(
 ) -> list[str]:
     font = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
     font_option = f"fontfile={_escape_filtergraph_option(str(font))}:" if font.is_file() else ""
-    title = _escape_filtergraph_option("ROSClaw · G1 FIVE-CHALLENGE SHOWCASE")
-    footer = _escape_filtergraph_option("STRICT CPU MUJOCO · SIM ONLY · FIVE REAL PHYSICS ROLLOUTS")
+    title = _escape_filtergraph_option("ROSClaw · G1 SHARED-CEREBELLUM RELAY")
+    footer = _escape_filtergraph_option(
+        "STRICT CPU MUJOCO · SIM ONLY · 5/5 SHOTS < 0.10 m · SHARED RECOVERY"
+    )
     filters = [
-        "drawbox=x=0:y=0:w=iw:h=138:color=0x040913@0.84:t=fill",
-        "drawbox=x=0:y=h-66:w=iw:h=66:color=0x040913@0.84:t=fill",
-        f"drawtext={font_option}text={title}:expansion=none:x=32:y=14:fontsize=34:fontcolor=white",
-        f"drawtext={font_option}text={footer}:expansion=none:x=32:y=h-43:fontsize=20:fontcolor=0x8DD8FF",
+        "drawbox=x=0:y=0:w=iw:h=195:color=0x040913@0.86:t=fill",
+        "drawbox=x=0:y=ih-88:w=iw:h=88:color=0x040913@0.86:t=fill",
+        f"drawtext={font_option}text={title}:expansion=none:x=46:y=18:fontsize=48:fontcolor=white",
+        f"drawtext={font_option}text={footer}:expansion=none:x=46:y=h-59:fontsize=27:fontcolor=0x8DD8FF",
     ]
     offset = 0.0
     for duration, (heading, metric) in zip(durations, label_files, strict=True):
@@ -382,9 +417,9 @@ def _ffmpeg_command(
         filters.extend(
             (
                 f"drawtext={font_option}textfile={_escape_filtergraph_option(str(heading))}:"
-                f"expansion=none:x=32:y=55:fontsize=23:fontcolor=0x65F59A:{enable}",
+                f"expansion=none:x=46:y=80:fontsize=33:fontcolor=0x65F59A:{enable}",
                 f"drawtext={font_option}textfile={_escape_filtergraph_option(str(metric))}:"
-                f"expansion=none:x=32:y=94:fontsize=18:fontcolor=0xFFD166:{enable}",
+                f"expansion=none:x=46:y=137:fontsize=25:fontcolor=0xFFD166:{enable}",
             )
         )
         offset = end
@@ -398,7 +433,7 @@ def _ffmpeg_command(
         "-pixel_format",
         "rgb24",
         "-video_size",
-        "1280x720",
+        f"{_OUTPUT_WIDTH}x{_OUTPUT_HEIGHT}",
         "-framerate",
         str(fps),
         "-i",

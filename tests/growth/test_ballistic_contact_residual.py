@@ -50,3 +50,5 @@ def test_ballistic_contact_residual_rejects_out_of_support_actions() -> None:
         G1BallisticContactResidualConfig(
             right_leg_residual_rad=(0.0, 0.0, 0.0, 0.251, 0.0, 0.0),
         )
+    with pytest.raises(ValueError, match="SIM_ONLY"):
+        G1BallisticContactResidualConfig(activation_ceiling="HARDWARE")
