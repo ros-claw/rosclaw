@@ -133,6 +133,103 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 				);
 			},
 		},
+		task: {
+			description: "当前任务清单与阶段（/task）",
+			handler: async (_args, ctx) => {
+				const missionId = deps.active.current.missionId;
+				if (!missionId) {
+					notify(ctx, "未绑定 Mission", "warning");
+					return;
+				}
+				const result = await deps.center.call("pi.task.list", { mission_id: missionId });
+				const tasks = (result.tasks ?? []) as Array<Record<string, unknown>>;
+				if (!tasks.length) {
+					notify(ctx, "当前无任务", "info");
+					return;
+				}
+				notify(
+					ctx,
+					tasks
+						.map((t) => `${t.task_id} [${t.state}] ${t.goal}${t.error ? ` — ${String(t.error).slice(0, 80)}` : ""}`)
+						.join("\n"),
+					"info",
+				);
+			},
+		},
+		trace: {
+			description: "任务全审计链（/trace <task_id>）",
+			handler: async (args, ctx) => {
+				const taskId = args.trim();
+				if (!taskId) {
+					notify(ctx, "用法：/trace <task_id>（/task 查看清单）", "warning");
+					return;
+				}
+				const result = await deps.center.call("pi.task.trace", { task_id: taskId });
+				if (!result.ok) {
+					notify(ctx, `trace: ${String(result.error ?? "")}`, "error");
+					return;
+				}
+				const tr = (result.trace ?? {}) as Record<string, never | Record<string, unknown>>;
+				const task = (tr.task ?? {}) as Record<string, unknown>;
+				const approval = (tr.approval ?? {}) as Record<string, unknown>;
+				const txn = (tr.txn ?? {}) as Record<string, unknown>;
+				notify(
+					ctx,
+					`task ${taskId} [${task.state}]\n` +
+					`plan: ${task.plan_id || "-"}\n` +
+					`approval: ${approval.request_id || "-"} [${approval.status ?? "-"}] by ${approval.decided_by ?? "-"}\n` +
+					`txn: ${txn.txn_id || "-"} [${txn.state ?? "-"}] receipt: ${txn.receipt_id || "-"}`,
+					"info",
+				);
+			},
+		},
+		context: {
+			description: "具身检查点摘要（权威存储重建，非 LLM 摘要）",
+			handler: async (_args, ctx) => {
+				const missionId = deps.active.current.missionId;
+				if (!missionId) {
+					notify(ctx, "未绑定 Mission", "warning");
+					return;
+				}
+				const result = await deps.center.call("pi.context.checkpoint", { mission_id: missionId });
+				if (!result.ok) {
+					notify(ctx, `checkpoint: ${String(result.error ?? "")}`, "error");
+					return;
+				}
+				const cp = (result.checkpoint ?? {}) as Record<string, unknown>;
+				const nonterminal = (cp.nonterminal_tasks ?? []) as Array<Record<string, unknown>>;
+				const pending = (cp.pending_approvals ?? []) as string[];
+				notify(
+					ctx,
+					`mission ${String(cp.mission_id)} [${cp.mode}] body=${cp.body_id} sim_policy=${cp.sim_policy}\n` +
+					`非终态任务 ${nonterminal.length} · 待批准 ${pending.length} · ` +
+					`最近回执 ${((cp.recent_receipt_refs ?? []) as string[]).filter(Boolean).join(", ") || "无"}`,
+					"info",
+				);
+			},
+		},
+		why: {
+			description: "解释最近一次任务/策略结果（/why）",
+			handler: async (_args, ctx) => {
+				const missionId = deps.active.current.missionId;
+				if (!missionId) {
+					notify(ctx, "未绑定 Mission", "warning");
+					return;
+				}
+				const result = await deps.center.call("pi.task.list", { mission_id: missionId });
+				const tasks = (result.tasks ?? []) as Array<Record<string, unknown>>;
+				if (!tasks.length) {
+					notify(ctx, "当前无任务记录", "info");
+					return;
+				}
+				const latest = tasks[0];
+				notify(
+					ctx,
+					`最近任务 ${latest.task_id} [${latest.state}]：${latest.error || "无错误"}（/trace ${latest.task_id} 看全链）`,
+					"info",
+				);
+			},
+		},
 		tokens: {
 			description: "Token/延迟用量分解（/tokens）",
 			handler: async (_args, ctx) => {

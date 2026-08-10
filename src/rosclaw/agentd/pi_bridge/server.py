@@ -320,6 +320,146 @@ class PiBridgeServer:
         if method == "pi.robot.use":
             # 七审 PR-SEVEN-5：切换活跃机器人（无 kit 的 body 一律拒绝）。
             return await service.robot_use(str(params.get("body_id", "")))
+        if method == "pi.task.list":
+            # 八审 §5：/task——当前 mission 的任务清单（权威 store）。
+            mission_id = str(params.get("mission_id", ""))
+            rows = service._store.connection.execute(
+                "SELECT task_id, goal, state, plan_id, approval_id, txn_id, "
+                "error, updated_at FROM task_records WHERE mission_id = ? "
+                "ORDER BY rowid DESC LIMIT 20",
+                (mission_id,),
+            ).fetchall()
+            return {
+                "ok": True,
+                "tasks": [
+                    {
+                        "task_id": r[0], "goal": r[1], "state": r[2],
+                        "plan_id": r[3], "approval_id": r[4], "txn_id": r[5],
+                        "error": r[6], "updated_at": r[7],
+                    }
+                    for r in rows
+                ],
+            }
+        if method == "pi.task.trace":
+            # 八审 §5：/trace——任务全审计链（task/approval/grant/txn/
+            # receipt 引用逐环）。
+            import json as _json
+
+            task_id = str(params.get("task_id", ""))
+            conn = service._store.connection
+            task = conn.execute(
+                "SELECT * FROM task_records WHERE task_id = ?", (task_id,)
+            ).fetchone()
+            if task is None:
+                return {"ok": False, "error": f"unknown task {task_id!r}", "code": "TASK_NOT_FOUND"}
+            task_d = dict(task)
+            approval = None
+            grant = None
+            txn = None
+            receipt = None
+            if task_d.get("approval_id"):
+                row = conn.execute(
+                    "SELECT request_id, status, decided_by FROM operator_requests "
+                    "WHERE request_id = ?",
+                    (task_d["approval_id"],),
+                ).fetchone()
+                if row:
+                    approval = {"request_id": row[0], "status": row[1], "decided_by": row[2]}
+                row = conn.execute(
+                    "SELECT grant_id, consumed, revoked FROM mission_grants "
+                    "WHERE request_id = ?",
+                    (task_d["approval_id"],),
+                ).fetchone()
+                if row:
+                    grant = {"grant_id": row[0], "consumed": row[1], "revoked": row[2]}
+            if task_d.get("txn_id"):
+                row = conn.execute(
+                    "SELECT txn_id, state, receipt_id FROM action_txns WHERE txn_id = ?",
+                    (task_d["txn_id"],),
+                ).fetchone()
+                if row:
+                    txn = {"txn_id": row[0], "state": row[1], "receipt_id": row[2]}
+                    if row[2]:
+                        events = conn.execute(
+                            "SELECT payload_json FROM agent_events "
+                            "WHERE type = 'receipt.received' ORDER BY rowid DESC LIMIT 20"
+                        ).fetchall()
+                        for (payload_json,) in events:
+                            payload = _json.loads(payload_json)
+                            if payload.get("receipt_id") == row[2]:
+                                receipt = payload
+                                break
+            return {
+                "ok": True,
+                "trace": {
+                    "task": task_d,
+                    "approval": approval,
+                    "grant": grant,
+                    "txn": txn,
+                    "receipt": receipt,
+                },
+            }
+        if method == "pi.context.checkpoint":
+            # 八审 §5：EmbodiedCheckpointV1——从权威存储重建（LLM
+            # compaction 摘要永远不是安全状态权威）。
+            mission_id = str(params.get("mission_id", ""))
+            mission = service.get_mission(mission_id)
+            if mission is None:
+                return {"ok": False, "error": "unknown mission", "code": "MISSION_NOT_FOUND"}
+            conn = service._store.connection
+            nonterminal = conn.execute(
+                "SELECT task_id, goal, state FROM task_records "
+                "WHERE mission_id = ? AND state NOT IN "
+                "('VERIFIED','FAILED','DENIED','CANCELLED','INCONCLUSIVE')",
+                (mission_id,),
+            ).fetchall()
+            recent = conn.execute(
+                "SELECT task_id, goal, state, plan_id FROM task_records "
+                "WHERE mission_id = ? ORDER BY rowid DESC LIMIT 5",
+                (mission_id,),
+            ).fetchall()
+            pending = conn.execute(
+                "SELECT request_id FROM operator_requests WHERE status = 'PENDING'"
+            ).fetchall()
+            receipts = conn.execute(
+                "SELECT payload_json FROM agent_events "
+                "WHERE type = 'receipt.received' ORDER BY rowid DESC LIMIT 3"
+            ).fetchall()
+            import json as _json3
+
+            sim_policy = "auto"
+            safety_file = service._home / "agent" / "safety.json"
+            if safety_file.exists():
+                try:
+                    sim_policy = str(
+                        _json3.loads(safety_file.read_text(encoding="utf-8")).get(
+                            "sim_policy", "auto"
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    sim_policy = "auto"
+            return {
+                "ok": True,
+                "checkpoint": {
+                    "schema_version": "rosclaw.embodied_checkpoint.v1",
+                    "mission_id": mission_id,
+                    "goal": mission.goal.text if hasattr(mission.goal, "text") else str(mission.goal),
+                    "mode": mission.mode.value,
+                    "body_id": mission.body_binding.body_id,
+                    "nonterminal_tasks": [
+                        {"task_id": r[0], "goal": r[1], "state": r[2]} for r in nonterminal
+                    ],
+                    "recent_tasks": [
+                        {"task_id": r[0], "goal": r[1], "state": r[2], "plan_id": r[3]}
+                        for r in recent
+                    ],
+                    "pending_approvals": [r[0] for r in pending],
+                    "recent_receipt_refs": [
+                        _json3.loads(r[0]).get("receipt_id") for r in receipts
+                    ],
+                    "sim_policy": sim_policy,
+                },
+            }
         if method == "pi.task.cancel":
             # 八审 §4 P0-9：/cancel 取消真实 task（非终态 → CANCELLED）。
             from rosclaw.agentd.task_runner import TaskRunner

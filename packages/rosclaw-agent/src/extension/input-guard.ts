@@ -38,6 +38,11 @@ const ROSCLAW_COMMANDS = new Set([
 	"/capabilities",
 	// PR-EIGHT-1：token/延迟用量。
 	"/tokens",
+	// PR-EIGHT-8：任务/审计/检查点。
+	"/task",
+	"/trace",
+	"/context",
+	"/why",
 ]);
 
 // Pi 内建（审计 §4 全表）——放行进内建 dispatch。
