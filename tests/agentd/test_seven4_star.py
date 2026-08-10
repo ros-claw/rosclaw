@@ -45,7 +45,7 @@ class TestPlanCartesianPath:
         assert waypoints[0] == waypoints[-1], "轨迹未闭合"
         # 插值后点数更多且每段不超 max_segment。
         assert len(points) > len(waypoints)
-        for a, b in zip(points, points[1:]):
+        for a, b in zip(points, points[1:], strict=False):
             seg = math.dist((a["x"], a["y"], a["z"]), (b["x"], b["y"], b["z"]))
             assert seg <= result["trajectory"]["max_segment_m"] + 1e-9
         # canonical hash 稳定。
