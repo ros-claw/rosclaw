@@ -91,7 +91,7 @@ jobs:
           PACK=/tmp/evidence-pack
           mkdir -p "$PACK"
           SRC=$(ls -dt /tmp/pytest-of-*/pytest-*/test_full_journey_pty0 2>/dev/null | head -1)
-          JRB=$(ls -dt /tmp/pytest-of-*/pytest-*/test_journey_b_ask_every_tim0 2>/dev/null | head -1)
+          JRB=$(ls -dt /tmp/pytest-of-*/pytest-*/test_journey_b_ask_every_time0 2>/dev/null | head -1)
           JRC=$(ls -dt /tmp/pytest-of-*/pytest-*/test_journey_c_real_boundary0 2>/dev/null | head -1)
           HF=$(ls -dt /tmp/pytest-of-*/pytest-*/hf5_40 2>/dev/null | head -1)
           for f in fake-requests.jsonl sanitized_assertions.json session_structure.json installed_bundle_digest.txt journey-scope.json; do
@@ -126,8 +126,8 @@ jobs:
           path: |
             /tmp/pytest-of-*/pytest-*/test_full_journey_pty0/pty-*.log
             /tmp/pytest-of-*/pytest-*/test_full_journey_pty0/failure-dump/**
-            /tmp/pytest-of-*/pytest-*/test_journey_b_ask_every_tim0/pty-*.log
-            /tmp/pytest-of-*/pytest-*/test_journey_b_ask_every_tim0/failure-dump/**
+            /tmp/pytest-of-*/pytest-*/test_journey_b_ask_every_time0/pty-*.log
+            /tmp/pytest-of-*/pytest-*/test_journey_b_ask_every_time0/failure-dump/**
             /tmp/pytest-of-*/pytest-*/test_journey_c_real_boundary0/pty-*.log
             /tmp/pytest-of-*/pytest-*/test_journey_c_real_boundary0/failure-dump/**
             /tmp/pytest-of-*/pytest-*/hf5_40/pty-*.log
