@@ -100,9 +100,11 @@ jobs:
           # 七审 PR-SEVEN-7：Journey B/C 证据（B 有全链 sanitized
           # evidence；C 的边界证明是 scope + DB 零 REAL 工件断言）。
           for f in sanitized_assertions.json journey-scope.json; do
-            [ -f "$JRB/$f" ] && cp "$JRB/$f" "$PACK/journey-b-$f"
+            # `|| true`：glob 未命中时 [ -f ] 返回 1——set -e 下会杀掉
+            # 整个 curation 步骤（#289 首次 CI 实测）。
+            [ -f "$JRB/$f" ] && cp "$JRB/$f" "$PACK/journey-b-$f" || true
           done
-          [ -f "$JRC/journey-scope.json" ] && cp "$JRC/journey-scope.json" "$PACK/journey-c-journey-scope.json
+          [ -f "$JRC/journey-scope.json" ] && cp "$JRC/journey-scope.json" "$PACK/journey-c-journey-scope.json" || true
           [ -f "$HF/fake-requests.jsonl" ] && cp "$HF/fake-requests.jsonl" "$PACK/hf5_4-fake-requests.jsonl"
           [ -f /tmp/junit-journey.xml ] && cp /tmp/junit-journey.xml "$PACK/junit.xml"
           ls -la "$PACK"
