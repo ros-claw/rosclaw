@@ -285,6 +285,17 @@ class _FakeModel:
                 frames.append(_sse(_chunk("", "stop")))
                 frames.append(b"data: [DONE]\n\n")
                 return b"".join(frames)
+            if tool_call_id == "call_home_action":
+                # 七审 PR-SEVEN-7 Journey B deny 腿：按工具结果诚实
+                # 报告（拒绝≠执行）。
+                if "DECLINED" in tool_content or "拒绝" in tool_content:
+                    answer = "动作已被操作员拒绝，未执行。"
+                else:
+                    answer = "已回到零点。"
+                frames.append(_sse(_chunk(answer)))
+                frames.append(_sse(_chunk("", "stop")))
+                frames.append(b"data: [DONE]\n\n")
+                return b"".join(frames)
             if "receipt" in tool_content or "grant" in tool_content or "已批准" in tool_content:
                 answer = "动作已执行，结构化回执已确认。"
             else:
@@ -343,6 +354,25 @@ class _FakeModel:
             # 六审 §6.3：机械臂仿真请求 → 先查当前 body 的可信能力面。
             frames.extend(
                 _tool_call_frames("call_caps", "rosclaw_capabilities", "{}")
+            )
+        elif "回到零点" in text:
+            # 七审 PR-SEVEN-7 Journey B：单独动作（deny 腿）——一次
+            # 人工拒绝必须 fail closed（无 txn、无 grant、诚实回答）。
+            frames.extend(
+                _tool_call_frames(
+                    "call_home_action",
+                    "rosclaw_request_action",
+                    json.dumps(
+                        {
+                            "capability_id": "ur5e.move_to_pose",
+                            "arguments": {
+                                "x": 0.35, "y": 0.25, "z": 0.40,
+                            },
+                            "expected_effect": "机械臂回到零点",
+                            "risk_tier": "LOW",
+                        }
+                    ),
+                )
             )
         elif "播放提示音" in text or "初始位姿" in text:
             # 六审 §6.3.10：LIMO 动作在 UR5e body 上——建卡前必须
@@ -414,6 +444,28 @@ def _free_port() -> int:
         return sock.getsockname()[1]
 
 
+def _bridge_call(home: Path, method: str, params: dict) -> dict:
+    """pi-bridge UDS JSONL 调用（与 packages/rosclaw-agent bridge-client
+    同一 wire 格式）——Journey C 的 REAL 边界探测用。"""
+    token = (home / "run" / "agentd-control.token").read_text(encoding="utf-8").strip()
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(10)
+        sock.connect(str(home / "run" / "pi-bridge.sock"))
+        sock.sendall(
+            (json.dumps({"method": method, "params": {"token": token, **params}}) + "\n").encode()
+        )
+        buf = b""
+        while b"\n" not in buf:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            buf += chunk
+    finally:
+        sock.close()
+    return json.loads(buf.split(b"\n", 1)[0])
+
+
 def _build_and_install(tmp_path: Path) -> tuple[Path, Path]:
     env = dict(os.environ, ROSCLAW_SIGNING_HOME=str(tmp_path / "signing"))
     result = subprocess.run(
@@ -444,6 +496,50 @@ def _build_and_install(tmp_path: Path) -> tuple[Path, Path]:
     )
     assert install.returncode == 0, install.stderr[-1500:]
     return tmp_path / "prefix", root
+
+
+# 七审 PR-SEVEN-7：版本在 import 期解析——journey 运行期间源码
+# checkout 被改名隐藏（editable 安装路径同时失效），函数内 import
+# rosclaw 会炸。
+from rosclaw import __version__ as PRODUCT_VERSION  # noqa: E402,N812
+from rosclaw.agentd.operator_socket import display_hash_for  # noqa: E402
+from rosclaw.contracts.operator.approval import ApprovalRequestV2  # noqa: E402
+
+
+@contextlib.contextmanager
+def _hidden_source_checkout():
+    """七审 PR-SEVEN-7：journey 运行期间源码 checkout 不可达。
+
+    "clean-install 闭环"的证据不能被仓库源码路径喂绿——安装产物若
+     secretly 引用 REPO/src 下的 executor/包，改名后旅程必然失败。
+    rename 是最强的可恢复隔离（chmod 撤权对 root 无效）。finally
+    恢复；进程崩溃时 checkout 留在 .journey-hidden——CI job 即失败，
+    本地手动改回即可。
+    """
+    hidden = REPO.with_name(REPO.name + ".journey-hidden")
+    os.rename(REPO, hidden)
+    try:
+        yield hidden
+    finally:
+        os.rename(hidden, REPO)
+
+
+def _journey_scope(prefix: Path, journey: str, checkout_accessible: bool) -> dict:
+    """七审 PR-SEVEN-7：journey 证据 scope——独立 verifier 据此确认
+    证据确实是 clean-install 产物，而不是夹具/源码路径喂绿。"""
+    import hashlib as _hashlib
+
+    kit_manifests = sorted(prefix.glob("**/rosclaw/sim/kits/ur5e_sim.json"))
+    kit_digest = ""
+    if kit_manifests:
+        kit_digest = _hashlib.sha256(kit_manifests[0].read_bytes()).hexdigest()
+    return {
+        "journey": journey,
+        "install_origin": "release_tarball",
+        "config_origin": "generated_no_server_fixtures",
+        "robot_kit_digest": f"sha256:{kit_digest}" if kit_digest else "",
+        "source_checkout_accessible": checkout_accessible,
+    }
 
 
 _ANSI_RE = None
@@ -517,17 +613,51 @@ class PtySession:
         self._drain_thread = threading.Thread(target=_drain, daemon=True)
         self._drain_thread.start()
 
-    def expect(self, marker: bytes, timeout: float = 60.0) -> bytes:
+    def expect(self, marker: bytes, timeout: float = 60.0, *, after: int = 0) -> bytes:
+        # 七审 PR-SEVEN-7：after 偏移——同一标记（如授权卡）在一次
+        # 会话里出现多次时，只匹配 after 之后的新内容。
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             with self._lock:
-                if marker in self.clean:
+                if marker in self.clean[after:]:
                     return self.clean
             if self.proc.poll() is not None:
                 with self._lock:
-                    if marker in self.clean:
+                    if marker in self.clean[after:]:
                         return self.clean
                 break
+            time.sleep(0.1)
+        with self._lock:
+            tail = self.output[-3000:]
+        raise AssertionError(f"PTY 超时未等到 {marker!r}；已收输出尾部: {tail!r}")
+
+    def expect_with_resend(
+        self,
+        marker: bytes,
+        payload: str,
+        timeout: float = 60.0,
+        *,
+        after: int = 0,
+        interval: float = 2.0,
+    ) -> bytes:
+        """发送 payload 直到 marker 出现（七审 PR-SEVEN-7：overlay 聚焦/
+        输入时机竞态的确定性重试——授权卡 decided 后 handleInput 忽略
+        后续按键，/quit 重复发送无害）。"""
+        deadline = time.monotonic() + timeout
+        last_sent = 0.0
+        while time.monotonic() < deadline:
+            with self._lock:
+                if marker in self.clean[after:]:
+                    return self.clean
+            if self.proc.poll() is not None:
+                with self._lock:
+                    if marker in self.clean[after:]:
+                        return self.clean
+                break
+            now = time.monotonic()
+            if now - last_sent >= interval:
+                self.send(payload)
+                last_sent = now
             time.sleep(0.1)
         with self._lock:
             tail = self.output[-3000:]
@@ -553,75 +683,277 @@ class PtySession:
 
 
 @pytest.mark.slow
+def _prepare_installed_chat(
+    tmp_path: Path, fake: FakeModelServer, prefix: Path, *, sim_policy: str | None = None
+) -> tuple[Path, dict[str, str], Path]:
+    """安装产物 + 声明式最小配置（kernel fake base_url + Pi 侧
+    models.json）——七审 PR-SEVEN-1.8：禁止手写 MCP server 配置/引用
+    仓库源码路径，UR5e 能力必须来自发行包第一方 Robot Kit 自动激活。
+    sim_policy=ask 时预写 safety.json（Journey B）。"""
+    home = tmp_path / "rh"
+    (home / "run").mkdir(parents=True, exist_ok=True)
+    (home / "config.yaml").write_text(
+        "agent:\n  enabled: true\n  default_profile: embodied_default\n"
+        "models:\n  backend: legacy\n  profiles:\n    embodied_default:\n"
+        "      provider: kimi_code\n      model: fake-k3\n"
+        f"      base_url: {fake.base_url}\n"
+        "      api_key_ref: env:FAKE_JOURNEY_KEY\n"
+        "      capabilities: [llm.chat, llm.structured_decision, llm.tool_use]\n",
+        encoding="utf-8",
+    )
+    (home / "agent").mkdir(parents=True, exist_ok=True)
+    (home / "agent" / "settings.json").write_text(
+        json.dumps({"defaultProvider": "journey-fake", "defaultModel": "fake-k3"}),
+        encoding="utf-8",
+    )
+    (home / "agent" / "models.json").write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "journey-fake": {
+                        "name": "Journey Fake",
+                        "baseUrl": fake.base_url,
+                        "api": "openai-completions",
+                        "apiKey": "$FAKE_JOURNEY_KEY",
+                        "models": [
+                            {
+                                "id": "fake-k3",
+                                "name": "Fake K3",
+                                "contextWindow": 8192,
+                                "maxTokens": 4096,
+                            }
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    if sim_policy is not None:
+        (home / "agent" / "safety.json").write_text(
+            json.dumps({"sim_policy": sim_policy}), encoding="utf-8"
+        )
+    rosclaw = prefix / "bin" / "rosclaw"
+    env = dict(
+        os.environ,
+        ROSCLAW_HOME=str(home),
+        TERM="xterm",
+        FAKE_JOURNEY_KEY="sk-fake-journey",
+        KIMI_API_KEY="sk-fake-journey",
+        # 六审 §8：chrome 走 i18n catalog——旅程固定 en-US（断言
+        # 与 locale 无关的稳定性由 catalog parity 测试保证）。
+        ROSCLAW_UI_LOCALE="en-US",
+        PATH=f"{prefix / 'bin'}:{os.environ['PATH']}",
+    )
+    return home, env, rosclaw
+
+
 class TestProductJourney:
     def test_full_journey_pty(self, tmp_path: Path) -> None:
         fake = FakeModelServer(log_path=tmp_path / "fake-requests.jsonl")
         prefix, _root = _build_and_install(tmp_path)
-        home = tmp_path / "rh"
-        # kernel（python agentd）配置：fake base_url；Pi 侧 models.json。
-        # 七审 PR-SEVEN-1.8：禁止手写 mcp_servers/引用仓库源码路径——
-        # UR5e 能力必须来自发行包自带的第一方 Robot Kit 自动激活
-        # （clean install 开箱即用），否则证明的只是"注入配置后能 reach"。
-        (home / "run").mkdir(parents=True, exist_ok=True)
-        (home / "config.yaml").write_text(
-            "agent:\n  enabled: true\n  default_profile: embodied_default\n"
-            "models:\n  backend: legacy\n  profiles:\n    embodied_default:\n"
-            "      provider: kimi_code\n      model: fake-k3\n"
-            f"      base_url: {fake.base_url}\n"
-            "      api_key_ref: env:FAKE_JOURNEY_KEY\n"
-            "      capabilities: [llm.chat, llm.structured_decision, llm.tool_use]\n",
-            encoding="utf-8",
-        )
-        (home / "agent").mkdir(parents=True, exist_ok=True)
-        (home / "agent" / "settings.json").write_text(
-            json.dumps({"defaultProvider": "journey-fake", "defaultModel": "fake-k3"}),
-            encoding="utf-8",
-        )
-        (home / "agent" / "models.json").write_text(
-            json.dumps(
-                {
-                    "providers": {
-                        "journey-fake": {
-                            "name": "Journey Fake",
-                            "baseUrl": fake.base_url,
-                            "api": "openai-completions",
-                            "apiKey": "$FAKE_JOURNEY_KEY",
-                            "models": [
-                                {
-                                    "id": "fake-k3",
-                                    "name": "Fake K3",
-                                    "contextWindow": 8192,
-                                    "maxTokens": 4096,
-                                }
-                            ],
-                        }
-                    }
-                }
-            ),
-            encoding="utf-8",
-        )
-        rosclaw = prefix / "bin" / "rosclaw"
-        env = dict(
-            os.environ,
-            ROSCLAW_HOME=str(home),
-            TERM="xterm",
-            FAKE_JOURNEY_KEY="sk-fake-journey",
-            KIMI_API_KEY="sk-fake-journey",
-            # 六审 §8：chrome 走 i18n catalog——旅程固定 en-US（断言
-            # 与 locale 无关的稳定性由 catalog parity 测试保证）。
-            ROSCLAW_UI_LOCALE="en-US",
-            PATH=f"{prefix / 'bin'}:{os.environ['PATH']}",
-        )
+        home, env, rosclaw = _prepare_installed_chat(tmp_path, fake, prefix)
+        # 七审 PR-SEVEN-7：journey scope 随证据落盘（install_origin/
+        # config_origin/robot_kit_digest/source_checkout_accessible）。
+        self._journey_scope = _journey_scope(prefix, "A", checkout_accessible=False)
         # 六审 §7（黑盒验收）：不再手工 enroll/start operatord——真实
-        # 用户路径就是直接 chat；Operator 初始化必须在 TUI 内单键完成
-        # （旅程在 _run_journey 里按 I 键初始化）。
+        # 用户路径就是直接 chat；Operator 初始化必须在 TUI 内单键完成。
+        # 七审 PR-SEVEN-7：journey 运行期间源码 checkout 改名隐藏——
+        # 安装产物若偷偷引用仓库路径，旅程必然失败。
         try:
-            self._run_journey(rosclaw, env, home, fake)
+            with _hidden_source_checkout():
+                assert not REPO.exists(), "源码 checkout 隐藏失败"
+                self._run_journey(rosclaw, env, home, fake)
         except BaseException:
             self._dump_failure_state(home)
             raise
         finally:
             fake.close()
+        (tmp_path / "journey-scope.json").write_text(
+            json.dumps(self._journey_scope, indent=1), encoding="utf-8"
+        )
+
+    def test_journey_b_ask_every_time(self, tmp_path: Path) -> None:
+        """七审 PR-SEVEN-7 Journey B：SIM ask-every-time——
+
+        用户启用每次确认策略；TUI 内一键 Operator 初始化；exact card
+        一次批准整条轨迹（不是每个插值点一张卡）；deny fail closed
+        （无 txn、无 grant、模型诚实报告拒绝）。
+        """
+        fake = FakeModelServer(log_path=tmp_path / "fake-requests.jsonl")
+        prefix, _root = _build_and_install(tmp_path)
+        home, env, rosclaw = _prepare_installed_chat(
+            tmp_path, fake, prefix, sim_policy="ask"
+        )
+        self._journey_scope = _journey_scope(prefix, "B", checkout_accessible=False)
+        try:
+            with _hidden_source_checkout():
+                assert not REPO.exists(), "源码 checkout 隐藏失败"
+                self._run_journey_b(rosclaw, env, home, fake)
+        except BaseException:
+            self._dump_failure_state(home)
+            raise
+        finally:
+            fake.close()
+        (tmp_path / "journey-scope.json").write_text(
+            json.dumps(self._journey_scope, indent=1), encoding="utf-8"
+        )
+
+    def _run_journey_b(
+        self, rosclaw: Path, env: dict[str, str], home: Path, fake: FakeModelServer
+    ) -> None:
+        self._journey_verdicts = {}
+        session = PtySession(
+            [str(rosclaw), "chat"], env, log_path=home.parent / "pty-main.log"
+        )
+        try:
+            session.expect(b"ROSClaw Native Agent", timeout=60)
+            session.expect(f"ROSClaw {PRODUCT_VERSION}".encode(), timeout=60)
+            # ask 策略 + Operator 未就绪 → 启动面给一键初始化提示。
+            session.expect(b"Press Shift+Ctrl+B", timeout=90)
+            # TUI 内一键初始化（不离开终端、不另开命令行）。
+            session.send("/operator-init\r")
+            session.expect(b"Operator initialized", timeout=90)
+            # operator 探测复探后 Header 显示真实 READY。
+            session.expect(b"Operator Ready", timeout=60)
+            self._journey_verdicts["operator_bootstrapped_in_tui"] = True
+            # -- 批准腿：一次人工卡覆盖整条轨迹 --------------------------
+            approve_start = len(session.clean)
+            session.send("我想跑一个机械臂仿真，让机械臂画五角星\r")
+            overlay_at = len(session.clean)
+            session.expect("ROSCLAW 授权请求".encode(), timeout=240)
+            # overlay 聚焦竞态：渲染出现 ≠ 键盘路由就绪——重试发 y
+            # 直到任务完成文本出现（decided 后卡片立即关闭，决定行
+            # 不一定渲染——不能用它当 marker）。
+            session.expect_with_resend(
+                "五角星已绘制完成，几何验证通过".encode(), "y", timeout=240
+            )
+            segment = session.clean[approve_start:]
+            assert b"POLICY_AUTO" not in segment, "ask 策略竟走政策自动授权"
+            import sqlite3
+
+            db = sqlite3.connect(home / "agentd" / "missions.db")
+            approved = db.execute(
+                "SELECT decided_by FROM operator_requests "
+                "WHERE status = 'APPROVED' ORDER BY rowid DESC LIMIT 1"
+            ).fetchone()
+            assert approved and "POLICY_AUTO" not in str(approved[0]), (
+                f"ask 策略的批准必须来自人工决定: {approved}"
+            )
+            cards = db.execute("SELECT COUNT(*) FROM operator_requests").fetchone()[0]
+            assert cards == 1, f"整条轨迹应只有一张人工卡: {cards}"
+            db.close()
+            self._journey_verdicts["single_card_covers_whole_trajectory"] = True
+            self._assert_star_verified(home)
+            # -- deny 腿：人工拒绝 fail closed ----------------------------
+            deny_start = len(session.clean)
+            session.send("让机械臂回到零点\r")
+            session.expect("ROSCLAW 授权请求".encode(), timeout=240, after=overlay_at)
+            session.expect_with_resend(
+                "动作已被操作员拒绝，未执行。".encode(), "n", timeout=180, after=deny_start
+            )
+            db = sqlite3.connect(home / "agentd" / "missions.db")
+            denied = db.execute(
+                "SELECT COUNT(*) FROM operator_requests WHERE status = 'DENIED'"
+            ).fetchone()[0]
+            # txn 在 propose 时建行（AWAITING_OPERATOR），拒绝后转
+            # DECLINED——fail closed 的断言是"无执行态事务"，不是无行。
+            txn_states = db.execute(
+                "SELECT state, COUNT(*) FROM action_txns GROUP BY state"
+            ).fetchall()
+            grants = db.execute("SELECT COUNT(*) FROM mission_grants").fetchone()[0]
+            db.close()
+            assert denied == 1, f"拒绝未记录: {denied}"
+            states = dict(txn_states)
+            assert states.get("COMPLETED", 0) == 1 and states.get("DECLINED", 0) == 1, (
+                f"txn 状态不符（期望 1 COMPLETED + 1 DECLINED）: {states}"
+            )
+            assert grants == 1, f"被拒绝的动作竟产生 grant: {grants}"
+            self._journey_verdicts["deny_fail_closed"] = True
+            self._write_sanitized_evidence(home)
+            session.expect_with_resend(b"rosclaw chat --resume", "/quit\r", timeout=60)
+            session.proc.wait(timeout=30)
+            assert session.proc.returncode == 0, session.clean[-400:]
+        finally:
+            session.stop()
+
+    def test_journey_c_real_boundary(self, tmp_path: Path) -> None:
+        """七审 PR-SEVEN-7 Journey C：REAL hard boundary——
+
+        安装产物上 REAL/SHADOW mission 显式 MODE_FORBIDDEN（不是静默
+        降级）；零 REAL 工件（mission/grant/txn）；SIM 授权链不跨
+        REAL（签名链/no-presence 拒签由单测覆盖——见 seven-6）。
+        """
+        fake = FakeModelServer(log_path=tmp_path / "fake-requests.jsonl")
+        prefix, _root = _build_and_install(tmp_path)
+        home, env, rosclaw = _prepare_installed_chat(tmp_path, fake, prefix)
+        self._journey_scope = _journey_scope(prefix, "C", checkout_accessible=False)
+        try:
+            with _hidden_source_checkout():
+                assert not REPO.exists(), "源码 checkout 隐藏失败"
+                self._run_journey_c(rosclaw, env, home)
+        except BaseException:
+            self._dump_failure_state(home)
+            raise
+        finally:
+            fake.close()
+        (tmp_path / "journey-scope.json").write_text(
+            json.dumps(self._journey_scope, indent=1), encoding="utf-8"
+        )
+
+    def _run_journey_c(self, rosclaw: Path, env: dict[str, str], home: Path) -> None:
+        self._journey_verdicts = {}
+        session = PtySession(
+            [str(rosclaw), "chat"], env, log_path=home.parent / "pty-main.log"
+        )
+        try:
+            session.expect(b"ROSClaw Native Agent", timeout=60)
+            session.expect(f"ROSClaw {PRODUCT_VERSION}".encode(), timeout=60)
+            # 先证明输入管道活着（一条普通对话回合）——/quit 石沉大海
+            # 时能把"输入未路由"和"quit 本身坏了"区分开。
+            session.send("你好\r")
+            session.expect("你好，我是 ROSClaw".encode(), timeout=90)
+            # 等 bridge token 落盘（agentd 就绪）。
+            token_file = home / "run" / "agentd-control.token"
+            deadline = time.monotonic() + 60
+            while not token_file.exists() and time.monotonic() < deadline:
+                time.sleep(0.2)
+            assert token_file.exists(), "agentd control token 未落盘"
+            # REAL/SHADOW mission 显式拒绝（MODE_FORBIDDEN，不是静默降级）。
+            for mode in ("REAL", "SHADOW"):
+                result = _bridge_call(
+                    home, "pi.mission.create", {"goal": "boundary probe", "mode": mode}
+                )
+                assert not result.get("ok"), f"{mode} mission 竟被创建: {result}"
+                assert result.get("code") == "MODE_FORBIDDEN", result
+            self._journey_verdicts["real_shadow_mission_refused"] = True
+            # 对照：默认 SIM 会话本身活着（header 已断言）。
+            # 零 REAL 工件：mission/grant/txn 全部不存在非 SIMULATION 行。
+            import sqlite3
+
+            db = sqlite3.connect(home / "agentd" / "missions.db")
+            tables = {
+                r[0]
+                for r in db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            if "missions" in tables:
+                non_sim = db.execute(
+                    "SELECT COUNT(*) FROM missions WHERE mode != 'SIMULATION'"
+                ).fetchone()[0]
+                assert non_sim == 0, f"存在非 SIM mission: {non_sim}"
+            for table in ("mission_grants", "action_txns", "operator_requests"):
+                if table in tables:
+                    count = db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                    assert count == 0, f"边界探测不应产生 {table} 行: {count}"
+            db.close()
+            self._journey_verdicts["zero_real_artifacts"] = True
+            session.expect_with_resend(b"rosclaw chat --resume", "/quit\r", timeout=60)
+            session.proc.wait(timeout=30)
+            assert session.proc.returncode == 0, session.clean[-400:]
+        finally:
+            session.stop()
 
     def _dump_failure_state(self, home: Path) -> None:
         """CI-only 失败的诊断面（journey artifact 带走）：
@@ -751,9 +1083,6 @@ class TestProductJourney:
                         json.loads(request_json).get("exact_action_json") or "{}"
                     )
                     intent_hash = str(exact.get("action_intent_hash") or "")
-                from rosclaw.agentd.operator_socket import display_hash_for
-                from rosclaw.contracts.operator.approval import ApprovalRequestV2
-
                 req_obj = ApprovalRequestV2.model_validate_json(request_json)
                 evidence["approvals"].append(
                     {
@@ -777,6 +1106,12 @@ class TestProductJourney:
         evidence["reasoning_forbidden_field_counts"] = forbidden_counts
         evidence["compaction_entry_id"] = getattr(self, "_compaction_entry_id", None)
         evidence["verdicts"] = getattr(self, "_journey_verdicts", {})
+        # 七审 PR-SEVEN-7：journey scope（install_origin/config_origin/
+        # robot_kit_digest/source_checkout_accessible）——独立 verifier
+        # 据此确认证据是 clean-install 产物而非夹具喂绿。
+        scope = getattr(self, "_journey_scope", None)
+        if scope is not None:
+            evidence["journey_scope"] = scope
         (home.parent / "sanitized_assertions.json").write_text(
             json.dumps(evidence, indent=1, ensure_ascii=False), encoding="utf-8"
         )
@@ -1084,10 +1419,8 @@ class TestProductJourney:
             for leaked in (b"pi update", b"pi.dev", b"Update Available", b"[Extensions]"):
                 assert leaked not in session.clean, f"上游泄漏进启动面: {leaked}"
             # P0-NA-16：产品版本（launcher 传入），不是内部 npm 子包版本。
-            from rosclaw import __version__ as _product_version
-
             # header 在 operator probe 后重绘——等版本出现（不是瞬时断言）。
-            session.expect(f"ROSClaw {_product_version}".encode(), timeout=60)
+            session.expect(f"ROSClaw {PRODUCT_VERSION}".encode(), timeout=60)
             assert b"v0.1.0" not in session.clean, "内部子包版本冒充产品版本"
             # Operator 状态必须是真实探测值（READY/OFFLINE/UNKNOWN），
             # 不是硬编码字符串。

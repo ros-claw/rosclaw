@@ -268,6 +268,14 @@ export class ProductStateCenter {
 		try {
 			const status = await this.call("pi.status", {});
 			if (!status.ok) return;
+			// 七审 PR-SEVEN-7 Journey B：ask 策略必须在启动探测即生效
+			// （此前 simPolicy 只在 /status 的 statusReport 里刷新——ask
+			// 会话的 operator widget 永远不出现）。
+			const policy = String(status.sim_policy ?? "");
+			if ((policy === "auto" || policy === "ask") && policy !== this.simPolicy) {
+				this.simPolicy = policy;
+				this.changed();
+			}
 			const nextDisplay = String(status.body_display ?? "");
 			const nextKit = (status.robot_kit as RobotKitSummary | undefined) ?? null;
 			if (nextDisplay !== this.bodyDisplay ||

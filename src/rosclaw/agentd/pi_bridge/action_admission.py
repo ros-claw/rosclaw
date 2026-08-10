@@ -636,6 +636,16 @@ class ActionAdmissionService:
         request = self._service._broker.get_request(approval_id)
         if request is None:
             return {"status": "MISSING", "approval_id": approval_id}
+        # 七审 PR-SEVEN-7（Journey B deny 腿实测）：TUI 拒绝路径只轮询
+        # status、不调 execute——txn 会永远挂在 AWAITING_OPERATOR。
+        # 终态非 APPROVED 时把滞留 txn 归到 DECLINED（幂等）。
+        if request.status.value not in ("PENDING", "APPROVED"):
+            from rosclaw.agentd.pi_bridge.action_txn import ActionTxnStore
+
+            txns = ActionTxnStore(self._service._store.connection)
+            txn = txns.get_by_approval(approval_id)
+            if txn is not None and txn.state == "AWAITING_OPERATOR":
+                txns.transition(txn.txn_id, "DECLINED")
         return {"status": request.status.value, "approval_id": approval_id}
 
     # -- phase 2b: execute（TOCTOU 复验 + 精确 grant + 结构化回执） -----------------
