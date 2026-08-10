@@ -206,8 +206,23 @@ class OperatorDaemon:
             return await self._decide_daemon_card(
                 card, daemon_proposal_id, principal, params, peer_pid=peer_pid
             )
-        if self._daemon is not None and str(card.get("mode", "")).upper() == "REAL":
+        card_mode = str(card.get("mode", "")).upper()
+        # 七审 §6 PR-SEVEN-6：no-presence 实例只有 SIM scope——REAL/
+        # SHADOW 卡一律拒绝（--no-human-presence-check 启动的 operatord
+        # 不得签署任何 REAL grant）。
+        if card_mode != "SIMULATION" and not self._require_human_presence:
+            return {
+                "ok": False,
+                "error": "no-presence operatord instance is SIM-scope only — "
+                f"{card_mode} decisions require a presence-checked operator",
+            }
+        if self._daemon is not None and card_mode == "REAL":
             return {"ok": False, "error": "REAL decisions require a daemon proposal id"}
+        if card_mode not in ("SIMULATION", ""):
+            return {
+                "ok": False,
+                "error": f"card mode {card_mode} cannot be decided via the SIM card path",
+            }
         return await self._decide_sim_card(card, approve, principal)
 
     async def _find_card(self, request_id: str) -> dict[str, Any] | None:

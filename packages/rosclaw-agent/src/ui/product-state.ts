@@ -15,6 +15,22 @@ import type {
 	KernelSnapshotV1,
 } from "../session/state-center.js";
 
+/** 七审 §6 PR-SEVEN-6：Unicode 分隔符降级——ROSCLAW_TUI_UNICODE=
+ * auto|always|never；auto 按 LC_ALL/LC_CTYPE/LANG 探测（显式非 UTF-8
+ * locale 才降级，未设置 locale 变量默认 Unicode）。非 UTF-8 终端用
+ * ASCII 分隔符，避免 ·/— 渲染为 ?。 */
+export function chromeSep(): string {
+	const pref = (process.env.ROSCLAW_TUI_UNICODE ?? "auto").toLowerCase();
+	if (pref === "never") return " | ";
+	if (pref === "always") return " · ";
+	const locales = [process.env.LC_ALL, process.env.LC_CTYPE, process.env.LANG]
+		.filter((v): v is string => Boolean(v));
+	if (locales.length > 0 && !locales.some((v) => /utf-?8/i.test(v))) {
+		return " | ";
+	}
+	return " · ";
+}
+
 export function renderActionState(
 	readiness: ActionReadinessV1,
 	locale: EffectiveLocale = "zh-CN",
@@ -25,7 +41,9 @@ export function renderActionState(
 	const primary = readiness.reason_codes[0] ?? "UNKNOWN";
 	const labelKey = `reason.${primary}`;
 	const label = t(labelKey as never, locale);
-	const reason = label !== labelKey ? `${primary}（${label}）` : primary;
+	// 七审 §6 PR-SEVEN-6：普通层只显示本地化原因，不做 CODE（label）
+	// 双重双语；机器 code 只在 /status 与 JSON 层暴露。
+	const reason = label !== labelKey ? label : primary;
 	return `${t("chrome.action", locale)} ${t("action.blocked", locale)} (${reason})`;
 }
 
@@ -41,9 +59,10 @@ export function renderHeader(
 	locale: EffectiveLocale = "zh-CN",
 ): string {
 	const mode = t(`mode.${state.mode}` as never, locale);
+	const sep = chromeSep();
 	const line1Parts = [`ROSClaw ${state.product_version}`, mode];
 	if (state.model) line1Parts.push(state.model);
-	const line1 = line1Parts.join(" · ");
+	const line1 = line1Parts.join(sep);
 	if (!state.mission_id) {
 		return `${line1}\n${t("chrome.unbound", locale)}`;
 	}
@@ -57,10 +76,10 @@ export function renderHeader(
 	const kernel =
 		state.kernel === "READY"
 			? ""
-			: ` · ${t("chrome.kernel", locale)} ${t(`state.${state.kernel}` as never, locale)}`;
+			: `${sep}${t("chrome.kernel", locale)} ${t(`state.${state.kernel}` as never, locale)}`;
 	const line2 =
-		`${t("chrome.mission", locale)} ${state.mission_id.slice(0, 24)} · ` +
-		`${t("chrome.body", locale)} ${body} · ${context} · ${operator}${kernel} · ` +
+		`${t("chrome.mission", locale)} ${state.mission_id.slice(0, 24)}${sep}` +
+		`${t("chrome.body", locale)} ${body}${sep}${context}${sep}${operator}${kernel}${sep}` +
 		renderActionState(state.action_readiness, locale);
 	return `${line1}\n${line2}`;
 }
@@ -79,5 +98,5 @@ export function renderFooter(
 	if (state.kernel !== "READY") {
 		parts.push(`${t("chrome.kernel", locale)} ${t(`state.${state.kernel}` as never, locale)}`);
 	}
-	return parts.join(" · ");
+	return parts.join(chromeSep());
 }

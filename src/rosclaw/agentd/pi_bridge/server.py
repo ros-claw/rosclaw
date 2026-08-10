@@ -237,16 +237,36 @@ class PiBridgeServer:
             # 六审 §7：SIM developer 的单键初始化——enroll（如需要）+
             # 启动独立 operatord 进程（生命周期归 agentd service 管理；
             # 决定权/签名仍在 operatord 独立进程）。REAL/SHADOW 一律拒绝。
+            # 七审 §6 PR-SEVEN-6：强制有效 mission + developer 剖面 +
+            # SIMULATION mode——空/未知 mission 一律拒绝（否则可能启动
+            # 带 --no-human-presence-check 的 operatord 而无 scope 约束）。
             mission_id = str(params.get("mission_id", ""))
-            if mission_id:
-                mission = service.get_mission(mission_id)
-                if mission is not None and mission.mode.value != "SIMULATION":
-                    return {
-                        "ok": False,
-                        "error": "operator bootstrap 仅限 SIMULATION developer——"
-                        "REAL/SHADOW 要求独立 operator readiness/presence 流程",
-                        "code": "MODE_FORBIDDEN",
-                    }
+            if not mission_id:
+                return {
+                    "ok": False,
+                    "error": "mission_id required for operator bootstrap (fail closed)",
+                    "code": "MISSION_REQUIRED",
+                }
+            mission = service.get_mission(mission_id)
+            if mission is None:
+                return {
+                    "ok": False,
+                    "error": f"unknown mission {mission_id!r}",
+                    "code": "MISSION_NOT_FOUND",
+                }
+            if mission.mode.value != "SIMULATION":
+                return {
+                    "ok": False,
+                    "error": "operator bootstrap 仅限 SIMULATION developer——"
+                    "REAL/SHADOW 要求独立 operator readiness/presence 流程",
+                    "code": "MODE_FORBIDDEN",
+                }
+            if service.authorization_profile() != "DEV_SIM_ONLY":
+                return {
+                    "ok": False,
+                    "error": "operator bootstrap 仅限 developer profile",
+                    "code": "PROFILE_FORBIDDEN",
+                }
             from rosclaw.operatord.enrollment import IDENTITY_FILE, enroll
 
             home = service._home
