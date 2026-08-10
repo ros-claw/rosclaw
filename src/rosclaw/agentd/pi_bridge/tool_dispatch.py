@@ -73,6 +73,25 @@ class PiToolDispatcher:
         ).fetchone()
         if row is not None:
             return PiToolResultV1(**json.loads(row["response_json"]))
+        # 八审 §4 P0-6：doom-loop 熔断——同一工具同一参数出错后原样
+        # 重复直接拒绝（不再消耗模型回合）；成功即重置，不误伤合法
+        # 重复观测。进程级指纹（安全语义仍在 fail-closed 链上，熔断
+        # 只是效率护栏）。
+        fingerprint = request.tool_name + ":" + json.dumps(
+            request.arguments, sort_keys=True, ensure_ascii=False
+        )
+        failures = getattr(self._service, "_tool_fail_fingerprints", None)
+        if failures is None:
+            failures = self._service._tool_fail_fingerprints = {}
+        if failures.get(fingerprint):
+            return PiToolResultV1(
+                request_id=request.request_id,
+                ok=False,
+                status="REJECTED",
+                summary="同一调用已失败过一次——原样重复不会成功。请改变参数、"
+                "改用任务级入口（rosclaw_task），或诚实报告无法完成。",
+                error_code="DOOM_LOOP",
+            )
         try:
             result = await self._execute_validated(request)
         except ToolBridgeError as exc:
@@ -84,6 +103,10 @@ class PiToolDispatcher:
                 error_code=exc.code,
                 retryable=exc.retryable,
             )
+        if result.ok:
+            failures.pop(fingerprint, None)
+        else:
+            failures[fingerprint] = True
         conn.execute(
             "INSERT OR IGNORE INTO pi_tool_idempotency "
             "(idempotency_key, request_id, tool_name, response_json, created_at) "
@@ -185,9 +208,16 @@ class PiToolDispatcher:
                 raise ToolBridgeError(
                     "CAPABILITY_QUARANTINED", f"capability {capability_id} is quarantined"
                 )
-            output = await service._tool_registry.execute(
-                capability_id, dict(args.get("arguments", {}))
-            )
+            try:
+                output = await service._tool_registry.execute(
+                    capability_id, dict(args.get("arguments", {}))
+                )
+            except Exception as exc:  # noqa: BLE001 — 八审 P0-6：错误分类
+                raise ToolBridgeError(
+                    "INVALID_ARGUMENTS" if "validation" in str(type(exc).__name__).lower()
+                    or "validation" in str(exc).lower() else "EXECUTOR_ERROR",
+                    f"{type(exc).__name__}: {exc}"[:400],
+                ) from exc
             text = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
             return PiToolResultV1(
                 request_id=request.request_id,
@@ -217,9 +247,16 @@ class PiToolDispatcher:
                 raise ToolBridgeError(
                     "CAPABILITY_QUARANTINED", f"capability {capability_id} is quarantined"
                 )
-            output = await service._tool_registry.execute(
-                capability_id, dict(args.get("arguments", {}))
-            )
+            try:
+                output = await service._tool_registry.execute(
+                    capability_id, dict(args.get("arguments", {}))
+                )
+            except Exception as exc:  # noqa: BLE001 — 八审 P0-6：错误分类
+                raise ToolBridgeError(
+                    "INVALID_ARGUMENTS" if "validation" in str(type(exc).__name__).lower()
+                    or "validation" in str(exc).lower() else "EXECUTOR_ERROR",
+                    f"{type(exc).__name__}: {exc}"[:400],
+                ) from exc
             text = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
             return PiToolResultV1(
                 request_id=request.request_id,

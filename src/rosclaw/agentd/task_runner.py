@@ -210,13 +210,19 @@ class TaskRunner:
         # POLICY_CHECK → EXECUTING：恰好一个 ExactAction。
         self._store.transition(task_id, "POLICY_CHECK")
         admission = ActionAdmissionService(service)
+        # 八审 §3.3：任务级卡片人读——形状/中心/半径，不是 plan_id。
+        card_title = (
+            f"绘制五角星（中心 ({compiled['center_x']:.2f}, "
+            f"{compiled['center_y']:.2f}, {compiled['z']:.2f})m，"
+            f"半径 {compiled['outer_radius']:.2f}m，运动学仿真）"
+        )
         card = await admission.propose(
             request=request_ctx,
             capability_id="ur5e.execute_plan",
             arguments={"plan_id": plan_id},
-            expected_effect="绘制五角星轨迹（任务级）",
+            expected_effect=card_title,
             risk_tier="LOW",
-            title="draw_shape star5",
+            title=card_title,
             caller_pid=caller_pid,
             caller_uid=caller_uid,
         )
