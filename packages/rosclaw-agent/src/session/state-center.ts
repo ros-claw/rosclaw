@@ -95,8 +95,19 @@ export class ProductStateCenter {
 		return () => this.listeners.delete(listener);
 	}
 
+	private lastProbeMissionId: string | undefined;
+
 	private changed(): void {
 		this.seq += 1;
+		// PR-SEVEN-2（perf 修复）：mission 一绑定就在 setup 阶段做能力
+		// 探测——首次 MCP discovery 的进程启动 CPU burst 落在绑定时刻，
+		// 不能懒到 30s 定时器在 idle 测量窗口内首次触发（Perf Gate
+		// idle CPU 0.22s/5s 超 0.15 上限的回归根因）。
+		const missionId = this.deps.active.current.missionId;
+		if (missionId && missionId !== this.lastProbeMissionId) {
+			this.lastProbeMissionId = missionId;
+			void this.refreshCapabilities(true);
+		}
 		for (const listener of this.listeners) listener();
 	}
 
