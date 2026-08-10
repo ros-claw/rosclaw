@@ -299,6 +299,18 @@ class TaskRunner:
             request_ctx, caller_pid=caller_pid, caller_uid=caller_uid,
         )
 
+    def cancel(self, task_id: str) -> dict[str, Any]:
+        """八审 §4 P0-9：/cancel 取消真实任务（不只是当前 LLM
+        回合）。非终态 → CANCELLED（待批准卡随之失效——resume 拒绝）；
+        终态 → 诚实 no-op。"""
+        record = self._store.get_by_id(task_id)
+        if record is None:
+            return {"ok": False, "error": f"unknown task {task_id!r}", "code": "TASK_NOT_FOUND"}
+        if record["state"] in TERMINAL_STATES:
+            return {"ok": True, "state": record["state"], "changed": False}
+        self._store.transition(task_id, "CANCELLED")
+        return {"ok": True, "state": "CANCELLED", "changed": True}
+
     async def _execute_and_verify(
         self,
         task_id: str,
@@ -362,11 +374,22 @@ class TaskRunner:
             ).fetchone()
             if row and row[0] and "POLICY_AUTO" in str(row[0]):
                 policy = "AUTO_SIM"
+        # 八审 §4 P0-7 三通道：user_view 一行进度（model_view 是本
+        # 结构；audit_view 全量在 task_records/receipt，/trace 展开）。
+        if record["state"] == "VERIFIED":
+            user_view = "规划 ✓  安全校验 ✓  仿真执行 ✓  几何验证 PASS（运动学仿真）"
+        elif record["state"] == "WAITING_APPROVAL":
+            user_view = "规划 ✓  安全校验 ✓  等待人工确认…"
+        else:
+            user_view = f"任务 {record['state']}" + (
+                f"：{record['error'][:80]}" if record.get("error") else ""
+            )
         return {
             "task_id": record["task_id"],
             "state": record["state"],
             "goal": record["goal"],
             "policy": policy,
+            "user_view": user_view,
             "plan_id": record.get("plan_id") or "",
             "summary": (
                 "UR5e 运动学沙盒绘制闭合五角星"

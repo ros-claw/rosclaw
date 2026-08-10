@@ -234,10 +234,27 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 			},
 		},
 		cancel: {
-			description: "取消当前回合",
-			handler: async (_args, ctx) => {
+			description: "取消当前任务/回合（/cancel [task_id]）",
+			handler: async (args, ctx) => {
+				// 八审 §4 P0-9：/cancel 必须取消真实 task，不只是 LLM 回合。
+				const taskId = args.trim();
+				if (taskId) {
+					try {
+						const result = await deps.center.call("pi.task.cancel", { task_id: taskId });
+						notify(
+							ctx,
+							result.ok
+								? `任务 ${taskId}：${String(result.state)}${result.changed ? "" : "（已是终态）"}`
+								: `取消失败：${String(result.error ?? "")}`,
+							result.ok ? "info" : "error",
+						);
+					} catch (err) {
+						notify(ctx, `取消失败：${(err as Error).message}`, "error");
+					}
+					return;
+				}
 				ctx.abort();
-				notify(ctx, "已请求取消当前回合", "info");
+				notify(ctx, "已请求取消当前回合（/cancel <task_id> 可取消具体任务）", "info");
 			},
 		},
 		evidence: {

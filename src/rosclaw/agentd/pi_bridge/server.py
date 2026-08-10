@@ -320,6 +320,11 @@ class PiBridgeServer:
         if method == "pi.robot.use":
             # 七审 PR-SEVEN-5：切换活跃机器人（无 kit 的 body 一律拒绝）。
             return await service.robot_use(str(params.get("body_id", "")))
+        if method == "pi.task.cancel":
+            # 八审 §4 P0-9：/cancel 取消真实 task（非终态 → CANCELLED）。
+            from rosclaw.agentd.task_runner import TaskRunner
+
+            return TaskRunner(service).cancel(str(params.get("task_id", "")))
         if method == "pi.doctor.task":
             # 七审 PR-SEVEN-5：task readiness（/doctor task <goal>）。
             return await service.doctor_task(str(params.get("goal", "")))

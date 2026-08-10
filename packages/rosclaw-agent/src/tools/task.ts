@@ -64,6 +64,15 @@ export function buildTaskTool(ctx: BridgeToolContext) {
 					return { state: "FAILED", error: String(result.summary ?? "") };
 				}
 			};
+			const notifyView = (payload: Record<string, unknown>) => {
+				const view = String(payload.user_view ?? "");
+				if (view) {
+					onUpdate?.({
+						content: [{ type: "text" as const, text: view }],
+						details: { phase: "TASK_PROGRESS", task_id: payload.task_id ?? "" },
+					});
+				}
+			};
 			const submitted = parse(
 				await callTask(
 					{
@@ -74,6 +83,7 @@ export function buildTaskTool(ctx: BridgeToolContext) {
 				),
 			);
 			const taskState = String(submitted.state ?? "FAILED");
+			notifyView(submitted);
 			if (taskState === "VERIFIED") {
 				// POLICY_AUTO——安全 SIM 政策自动执行，只通知不弹卡。
 				onUpdate?.({
@@ -146,6 +156,7 @@ export function buildTaskTool(ctx: BridgeToolContext) {
 				};
 			}
 			const resumed = parse(await callTask({ task_id: taskId }, `resume_${taskId}`));
+			notifyView(resumed);
 			const verified = String(resumed.state ?? "") === "VERIFIED";
 			return {
 				content: [{ type: "text" as const, text: JSON.stringify(resumed) }],
