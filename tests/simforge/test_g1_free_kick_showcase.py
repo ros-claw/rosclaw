@@ -20,6 +20,7 @@ from rosclaw.simforge.g1_free_kick_showcase import (
     G1FreeKickResult,
     _apply_compliant_net_force,
     _deepest_goal_mouth_point,
+    _net_capture_plane_x,
     _select_contextual_phase,
     run_g1_free_kick_showcase,
 )
@@ -381,6 +382,31 @@ def test_training_goal_and_runup_specs_fail_closed() -> None:
         precision_radius_m=0.10,
     )
     assert showcase_goal.target_corner == "left_upper"
+    regulation_goal = G1TrainingGoalSpec(
+        plane_x_m=8.5,
+        width_m=7.32,
+        height_m=2.44,
+        depth_m=2.0,
+        post_radius_m=0.05,
+        target_y_m=3.1,
+        target_z_m=2.1,
+        ball_radius_m=0.69 / (2.0 * np.pi),
+        ball_mass_kg=0.43,
+        ball_contact_sliding_friction=0.05,
+        ball_sliding_friction=0.55,
+        ball_torsional_friction=0.005,
+        ball_rolling_friction=0.0001,
+        regulation_field_enabled=True,
+    )
+    assert 2.0 * np.pi * regulation_goal.ball_radius_m == pytest.approx(0.69)
+    assert regulation_goal.ball_contact_sliding_friction == 0.05
+    assert regulation_goal.ball_sliding_friction == 0.55
+    assert (regulation_goal.field_length_m, regulation_goal.field_width_m) == (105.0, 68.0)
+    assert regulation_goal.goal_area_depth_m == 5.5
+    assert regulation_goal.penalty_area_depth_m == 16.5
+    assert regulation_goal.target_corner_center_m == pytest.approx(
+        (8.5, 3.5501830893, 2.3301830893)
+    )
     assert G1TrainingGoalSpec().ball_free_joint_damping_n_s_m == 0.02
     with pytest.raises(ValueError, match="ball free-joint damping"):
         G1TrainingGoalSpec(ball_free_joint_damping_n_s_m=0.11)
@@ -461,7 +487,9 @@ def test_compliant_net_is_free_flight_until_back_net_contact() -> None:
     goal = G1TrainingGoalSpec(plane_x_m=6.0)
     flow = G1FreeKickFlowConfig(net_capture_depth_m=0.20)
     data = SimpleNamespace(
-        qpos=np.asarray((6.10, 0.0, 1.2), dtype=np.float64),
+        # The net contacts the sphere when its centre is one radius in front
+        # of the net plane, not after the centre has visually passed it.
+        qpos=np.asarray((6.05, 0.0, 1.2), dtype=np.float64),
         qvel=np.asarray((8.0, 2.0, 3.0), dtype=np.float64),
         xfrc_applied=np.zeros((1, 6), dtype=np.float64),
     )
@@ -470,7 +498,7 @@ def test_compliant_net_is_free_flight_until_back_net_contact() -> None:
     _apply_compliant_net_force(data, ids, goal, flow)
     np.testing.assert_allclose(data.xfrc_applied, 0.0)
 
-    data.qpos[0] = 6.25
+    data.qpos[0] = 6.15
     _apply_compliant_net_force(data, ids, goal, flow)
     assert data.xfrc_applied[0, 0] < 0.0
     assert abs(data.xfrc_applied[0, 1]) < abs(data.xfrc_applied[0, 0]) * 0.1
@@ -492,6 +520,17 @@ def test_compliant_net_dissipates_only_return_motion_inside_goal_pocket() -> Non
     assert data.xfrc_applied[0, 0] > 0.0
     assert data.xfrc_applied[0, 1] < 0.0
     assert data.xfrc_applied[0, 2] > 0.0
+
+
+def test_compliant_net_contact_matches_visible_slope() -> None:
+    goal = G1TrainingGoalSpec(depth_m=2.0)
+    flow = G1FreeKickFlowConfig(net_capture_depth_m=1.6)
+
+    low_contact = _net_capture_plane_x(goal, flow, goal.ball_radius_m)
+    high_contact = _net_capture_plane_x(goal, flow, goal.height_m - goal.ball_radius_m)
+
+    assert low_contact > high_contact
+    assert goal.plane_x_m < high_contact < low_contact < goal.plane_x_m + goal.depth_m
 
 
 def test_free_kick_video_rejects_unknown_resolution(tmp_path: Path) -> None:

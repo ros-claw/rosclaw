@@ -214,11 +214,15 @@ def render_g1_free_kick_showcase_video(
         else:
             os.environ["MUJOCO_GL"] = previous_gl
 
+    target_label = (
+        str(result.get("declared_target_corner", "precision_target")).replace("_", "-").upper()
+    )
+    challenge_label = "REGULATION PRECISION" if goal.regulation_field_enabled else target_label
     clip_specs = (
-        ("01-intro", "LONG-RANGE TOP-CORNER CHALLENGE", "VERIFIED_POSE_HOLD"),
+        ("01-intro", f"{challenge_label} CHALLENGE", "VERIFIED_POSE_HOLD"),
         ("02-continuous", "RUN-UP → STRIKE → RECOVERY", "STRICT_PHYSICS_REPLAY"),
         ("03-goal-cam", "TARGET AND ACTUAL CROSSING", "INTERPOLATED_SLOW_MOTION_REPLAY"),
-        ("04-scorecard", "LONG-RANGE TOP-CORNER SCORECARD", "VERIFIED_FINAL_POSE_HOLD"),
+        ("04-scorecard", f"{challenge_label} SCORECARD", "VERIFIED_FINAL_POSE_HOLD"),
     )
     clips = tuple(
         G1FreeKickVideoClip(
@@ -447,6 +451,9 @@ def _ffmpeg_command(
     passed = evidence.get("passed") is True
     result = evidence["result"]
     flow = evidence.get("flow_config", {})
+    regulation_field = bool(
+        dict(evidence.get("goal_spec", {})).get("regulation_field_enabled", False)
+    )
     teacher = result.get("loft_teacher_executed") is True
     if passed:
         title_text = "ROSClaw GoalForge · G1 LEARNED FREE KICK"
@@ -501,8 +508,12 @@ def _ffmpeg_command(
         if result.get("ballistic_skill_memory_executed") is not True
         else f" · STATE D {'N/A' if skill_distance is None else f'{skill_distance:.3f}'}"
     )
+    target_label = (
+        str(result.get("declared_target_corner", "precision_target")).replace("_", "-").upper()
+    )
+    regulation_label = "REGULATION GOAL · " if regulation_field else ""
     headings = (
-        f"{shot_distance:.2f} m LONG-RANGE SET PIECE · TOP-LEFT CORNER",
+        f"{shot_distance:.2f} m SET PIECE · {regulation_label}{target_label}",
         f"{runup:.2f} m APPROACH · {runup_peak:.2f} m/s PEAK · "
         f"HANDOFF-CONTACT {_duration_text(transition_delay)}",
         f"GOAL PLANE {_metric_text(plane_error)} · LIMIT {threshold:.2f} m · SHOT {speed:.2f} m/s",

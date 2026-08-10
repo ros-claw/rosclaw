@@ -33,7 +33,20 @@ class G1TrainingGoalSpec:
     target_z_m: float = 0.115
     precision_radius_m: float = 0.16
     ball_free_joint_damping_n_s_m: float = 0.02
-    schema_version: str = "rosclaw.simforge.g1_training_goal_spec.v5"
+    ball_radius_m: float = 0.115
+    ball_mass_kg: float = 0.41
+    ball_contact_sliding_friction: float = 0.05
+    ball_sliding_friction: float = 0.05
+    ball_torsional_friction: float = 0.0003
+    ball_rolling_friction: float = 0.00002
+    regulation_field_enabled: bool = False
+    field_length_m: float = 105.0
+    field_width_m: float = 68.0
+    field_line_width_m: float = 0.10
+    goal_area_depth_m: float = 5.50
+    penalty_area_depth_m: float = 16.50
+    penalty_mark_distance_m: float = 11.0
+    schema_version: str = "rosclaw.simforge.g1_training_goal_spec.v7"
 
     def __post_init__(self) -> None:
         values = (
@@ -47,6 +60,18 @@ class G1TrainingGoalSpec:
             self.target_z_m,
             self.precision_radius_m,
             self.ball_free_joint_damping_n_s_m,
+            self.ball_radius_m,
+            self.ball_mass_kg,
+            self.ball_contact_sliding_friction,
+            self.ball_sliding_friction,
+            self.ball_torsional_friction,
+            self.ball_rolling_friction,
+            self.field_length_m,
+            self.field_width_m,
+            self.field_line_width_m,
+            self.goal_area_depth_m,
+            self.penalty_area_depth_m,
+            self.penalty_mark_distance_m,
         )
         if not all(math.isfinite(value) for value in values):
             raise ValueError("training goal values must be finite")
@@ -62,14 +87,41 @@ class G1TrainingGoalSpec:
             raise ValueError("training goal post radius must be in [0.02, 0.08] m")
         if not 0.001 <= self.net_strand_radius_m <= 0.006:
             raise ValueError("training goal net strand radius must be in [0.001, 0.006] m")
-        if abs(self.target_y_m) >= self.width_m / 2.0 - self.post_radius_m:
-            raise ValueError("training target must remain inside the goal posts")
-        if not 0.115 <= self.target_z_m < self.height_m - self.post_radius_m:
-            raise ValueError("training target height must remain inside the goal")
+        if abs(self.target_y_m) > self.width_m / 2.0 - self.ball_radius_m:
+            raise ValueError("training target must keep the whole ball inside the goal posts")
+        if not self.ball_radius_m <= self.target_z_m <= self.height_m - self.ball_radius_m:
+            raise ValueError("training target must keep the whole ball inside the goal height")
         if not 0.05 <= self.precision_radius_m <= 0.30:
             raise ValueError("precision radius must be in [0.05, 0.30] m")
         if not 0.001 <= self.ball_free_joint_damping_n_s_m <= 0.10:
             raise ValueError("ball free-joint damping must be in [0.001, 0.10] N s/m")
+        if not 0.105 <= self.ball_radius_m <= 0.115:
+            raise ValueError("football radius must be in [0.105, 0.115] m")
+        if not 0.40 <= self.ball_mass_kg <= 0.46:
+            raise ValueError("football mass must be in [0.40, 0.46] kg")
+        if not 0.03 <= self.ball_contact_sliding_friction <= 0.80:
+            raise ValueError("football contact sliding friction must be in [0.03, 0.80]")
+        if not 0.03 <= self.ball_sliding_friction <= 0.80:
+            raise ValueError("football-ground sliding friction must be in [0.03, 0.80]")
+        if not 0.0 <= self.ball_torsional_friction <= 0.02:
+            raise ValueError("football torsional friction must be in [0, 0.02]")
+        if not 0.0 <= self.ball_rolling_friction <= 0.001:
+            raise ValueError("football rolling friction must be in [0, 0.001]")
+        if not isinstance(self.regulation_field_enabled, bool):
+            raise ValueError("regulation field flag must be boolean")
+        if self.regulation_field_enabled:
+            if not 100.0 <= self.field_length_m <= 110.0:
+                raise ValueError("international field length must be in [100, 110] m")
+            if not 64.0 <= self.field_width_m <= 75.0:
+                raise ValueError("international field width must be in [64, 75] m")
+            if not 0.0 < self.field_line_width_m <= 0.12:
+                raise ValueError("field line width must be in (0, 0.12] m")
+            if (
+                self.goal_area_depth_m != 5.50
+                or self.penalty_area_depth_m != 16.50
+                or self.penalty_mark_distance_m != 11.0
+            ):
+                raise ValueError("regulation penalty geometry does not match IFAB dimensions")
 
     @property
     def spec_hash(self) -> str:
@@ -85,9 +137,12 @@ class G1TrainingGoalSpec:
 
     @property
     def target_corner_center_m(self) -> tuple[float, float, float]:
-        ball_radius = 0.115
-        y = math.copysign(self.width_m / 2.0 - ball_radius, self.target_y_m)
-        z = self.height_m - ball_radius if "upper" in self.target_corner else ball_radius
+        y = math.copysign(self.width_m / 2.0 - self.ball_radius_m, self.target_y_m)
+        z = (
+            self.height_m - self.ball_radius_m
+            if "upper" in self.target_corner
+            else self.ball_radius_m
+        )
         return (self.plane_x_m, y, z)
 
 
@@ -247,6 +302,73 @@ def g1_stadium_scene_hash(asset_root: Path, spec: G1TrainingGoalSpec | None = No
     )
 
 
+def g1_goal_net_contact_plane_x(
+    spec: G1TrainingGoalSpec,
+    *,
+    capture_depth_m: float,
+    ball_z_m: float,
+) -> float:
+    """Return the ball-centre contact plane aligned to the sloped visible net."""
+
+    if not math.isfinite(capture_depth_m) or not 0.20 <= capture_depth_m <= spec.depth_m:
+        raise ValueError("goal net capture depth must be inside the visible net")
+    normalized_height = min(1.0, max(0.0, ball_z_m / spec.height_m))
+    visible_depth = spec.depth_m * (1.0 - 0.32 * normalized_height)
+    selected_depth = min(capture_depth_m, visible_depth)
+    return spec.plane_x_m + selected_depth - spec.ball_radius_m
+
+
+def apply_g1_compliant_goal_net_force(
+    data: Any,
+    *,
+    ball_body_id: int,
+    ball_qpos: int,
+    ball_qvel: int,
+    spec: G1TrainingGoalSpec,
+    capture_depth_m: float,
+    stiffness_n_m: float,
+    damping_n_s_m: float,
+) -> None:
+    """Apply a bounded spring-damper force matching the visible back/side/roof net."""
+
+    if not 10.0 <= stiffness_n_m <= 250.0:
+        raise ValueError("goal net stiffness must be in [10, 250] N/m")
+    if not 2.0 <= damping_n_s_m <= 30.0:
+        raise ValueError("goal net damping must be in [2, 30] N s/m")
+    data.xfrc_applied[ball_body_id, :] = 0.0
+    x, y, z = (float(value) for value in data.qpos[ball_qpos : ball_qpos + 3])
+    vx, vy, vz = (float(value) for value in data.qvel[ball_qvel : ball_qvel + 3])
+    capture_x = g1_goal_net_contact_plane_x(
+        spec,
+        capture_depth_m=capture_depth_m,
+        ball_z_m=z,
+    )
+    if x <= capture_x:
+        if x > spec.plane_x_m and vx < 0.0:
+            data.xfrc_applied[ball_body_id, :3] = (
+                min(250.0, -damping_n_s_m * vx),
+                max(-250.0, min(250.0, -0.12 * damping_n_s_m * vy)),
+                max(-250.0, min(250.0, -0.08 * damping_n_s_m * vz)),
+            )
+        return
+
+    penetration = x - capture_x
+    engagement = min(1.0, max(0.0, penetration / 0.10))
+    fx = -stiffness_n_m * penetration - engagement * damping_n_s_m * vx
+    fy = -0.20 * engagement * damping_n_s_m * vy
+    fz = -0.12 * engagement * damping_n_s_m * vz
+    side_limit = spec.width_m / 2.0 - spec.ball_radius_m
+    side_penetration = abs(y) - side_limit
+    if x > spec.plane_x_m and side_penetration > 0.0:
+        fy -= math.copysign(stiffness_n_m * side_penetration, y) + damping_n_s_m * vy
+    roof_z = spec.height_m - spec.ball_radius_m
+    if x > spec.plane_x_m and z > roof_z:
+        fz -= stiffness_n_m * (z - roof_z) + damping_n_s_m * max(0.0, vz)
+    data.xfrc_applied[ball_body_id, :3] = tuple(
+        max(-250.0, min(250.0, value)) for value in (fx, fy, fz)
+    )
+
+
 def _add_goal(parent: Any, spec: G1TrainingGoalSpec) -> None:
     import mujoco
 
@@ -330,11 +452,11 @@ def _add_goal(parent: Any, spec: G1TrainingGoalSpec) -> None:
     # A fine sloped net is visual geometry. A deterministic compliant force
     # field in the rollout models capture without the rigid-wall rebound of a
     # transparent box.
-    # Sparse, thin strands make depth visible without turning overlapping
-    # alpha-blended cylinders into an opaque wall from oblique cameras.
+    # Thin half-metre visual mesh makes depth legible without creating any
+    # collision wall. Ball retention comes only from the compliant force field.
     net = (0.91, 0.94, 0.92, 0.22)
-    vertical_count = 7
-    horizontal_count = 5
+    vertical_count = max(7, int(math.ceil(spec.width_m / 0.50)) + 1)
+    horizontal_count = max(5, int(math.ceil(spec.height_m / 0.42)) + 1)
     for index in range(vertical_count):
         y = -half_width + spec.width_m * index / (vertical_count - 1)
         capsule(
@@ -357,8 +479,9 @@ def _add_goal(parent: Any, spec: G1TrainingGoalSpec) -> None:
             strand=True,
         )
     for side, y in (("left", -half_width), ("right", half_width)):
-        for index in range(4):
-            z = spec.height_m * index / 3.0
+        side_horizontal_count = max(4, int(math.ceil(spec.height_m / 0.42)) + 1)
+        for index in range(side_horizontal_count):
+            z = spec.height_m * index / (side_horizontal_count - 1)
             rear_x = rear_bottom_x + (rear_top_x - rear_bottom_x) * z / spec.height_m
             capsule(
                 f"goal_{side}_net_h_{index}",
@@ -368,8 +491,9 @@ def _add_goal(parent: Any, spec: G1TrainingGoalSpec) -> None:
                 collision=False,
                 strand=True,
             )
-        for index in range(3):
-            alpha = index / 2.0
+        side_vertical_count = max(3, int(math.ceil(spec.depth_m / 0.50)) + 1)
+        for index in range(side_vertical_count):
+            alpha = index / (side_vertical_count - 1)
             net_x_bottom = x + alpha * (rear_bottom_x - x)
             net_x_top = x + alpha * (rear_top_x - x)
             capsule(
@@ -380,8 +504,8 @@ def _add_goal(parent: Any, spec: G1TrainingGoalSpec) -> None:
                 collision=False,
                 strand=True,
             )
-    for index in range(4):
-        y = -half_width + spec.width_m * index / 3.0
+    for index in range(vertical_count):
+        y = -half_width + spec.width_m * index / (vertical_count - 1)
         capsule(
             f"goal_roof_net_{index}",
             (x, y, spec.height_m),
@@ -401,9 +525,12 @@ def _style_pitch_and_ball(parent: Any, spec: G1TrainingGoalSpec) -> None:
     floor.material = ""
     floor.rgba = (0.055, 0.24, 0.075, 1.0)
     world = parent.worldbody
-    pitch_start_x = -5.0
-    pitch_end_x = spec.plane_x_m + spec.depth_m + 1.0
-    stripe_count = 10
+    pitch_start_x = spec.plane_x_m - spec.field_length_m if spec.regulation_field_enabled else -5.0
+    pitch_end_x = (
+        spec.plane_x_m if spec.regulation_field_enabled else spec.plane_x_m + spec.depth_m + 1.0
+    )
+    pitch_half_width = spec.field_width_m / 2.0 if spec.regulation_field_enabled else 4.2
+    stripe_count = 20 if spec.regulation_field_enabled else 10
     stripe_width = (pitch_end_x - pitch_start_x) / stripe_count
     for index in range(stripe_count):
         shade = 0.105 if index % 2 == 0 else 0.082
@@ -411,29 +538,41 @@ def _style_pitch_and_ball(parent: Any, spec: G1TrainingGoalSpec) -> None:
             name=f"pitch_mowing_stripe_{index}",
             type=mujoco.mjtGeom.mjGEOM_BOX,
             pos=(pitch_start_x + (index + 0.5) * stripe_width, 0.0, 0.0015),
-            size=(stripe_width / 2.0, 4.2, 0.0015),
+            size=(stripe_width / 2.0, pitch_half_width, 0.0015),
             rgba=(0.035, shade + 0.12, 0.052, 1.0),
             contype=0,
             conaffinity=0,
         )
     line = (0.93, 0.94, 0.90, 0.92)
-    box_depth = min(2.2, max(1.4, spec.plane_x_m - 2.0))
+    line_half = spec.field_line_width_m / 2.0 if spec.regulation_field_enabled else 0.018
+    box_depth = (
+        spec.goal_area_depth_m
+        if spec.regulation_field_enabled
+        else min(2.2, max(1.4, spec.plane_x_m - 2.0))
+    )
+    box_half_width = (
+        spec.width_m / 2.0 + spec.goal_area_depth_m if spec.regulation_field_enabled else 2.8
+    )
     for name, pos, size in (
-        ("pitch_goal_line", (spec.plane_x_m, 0.0, 0.004), (0.018, 4.2, 0.003)),
+        (
+            "pitch_goal_line",
+            (spec.plane_x_m, 0.0, 0.004),
+            (line_half, pitch_half_width, 0.003),
+        ),
         (
             "pitch_box_front",
             (spec.plane_x_m - box_depth, 0.0, 0.004),
-            (0.018, 2.8, 0.003),
+            (line_half, box_half_width, 0.003),
         ),
         (
             "pitch_box_left",
-            (spec.plane_x_m - box_depth / 2.0, -2.8, 0.004),
-            (box_depth / 2.0, 0.018, 0.003),
+            (spec.plane_x_m - box_depth / 2.0, -box_half_width, 0.004),
+            (box_depth / 2.0, line_half, 0.003),
         ),
         (
             "pitch_box_right",
-            (spec.plane_x_m - box_depth / 2.0, 2.8, 0.004),
-            (box_depth / 2.0, 0.018, 0.003),
+            (spec.plane_x_m - box_depth / 2.0, box_half_width, 0.004),
+            (box_depth / 2.0, line_half, 0.003),
         ),
     ):
         world.add_geom(
@@ -445,7 +584,55 @@ def _style_pitch_and_ball(parent: Any, spec: G1TrainingGoalSpec) -> None:
             contype=0,
             conaffinity=0,
         )
+    if spec.regulation_field_enabled:
+        penalty_half_width = spec.width_m / 2.0 + spec.penalty_area_depth_m
+        for name, pos, size in (
+            (
+                "pitch_penalty_front",
+                (spec.plane_x_m - spec.penalty_area_depth_m, 0.0, 0.004),
+                (line_half, penalty_half_width, 0.003),
+            ),
+            (
+                "pitch_penalty_left",
+                (
+                    spec.plane_x_m - spec.penalty_area_depth_m / 2.0,
+                    -penalty_half_width,
+                    0.004,
+                ),
+                (spec.penalty_area_depth_m / 2.0, line_half, 0.003),
+            ),
+            (
+                "pitch_penalty_right",
+                (
+                    spec.plane_x_m - spec.penalty_area_depth_m / 2.0,
+                    penalty_half_width,
+                    0.004,
+                ),
+                (spec.penalty_area_depth_m / 2.0, line_half, 0.003),
+            ),
+        ):
+            world.add_geom(
+                name=name,
+                type=mujoco.mjtGeom.mjGEOM_BOX,
+                pos=pos,
+                size=size,
+                rgba=line,
+                contype=0,
+                conaffinity=0,
+            )
+        world.add_geom(
+            name="pitch_penalty_mark",
+            type=mujoco.mjtGeom.mjGEOM_CYLINDER,
+            pos=(spec.plane_x_m - spec.penalty_mark_distance_m, 0.0, 0.006),
+            size=(0.11, 0.004, 0.0),
+            rgba=line,
+            contype=0,
+            conaffinity=0,
+        )
     ball = parent.body("ball")
+    ball_geom = parent.geom("ball_geom")
+    if ball_geom is None:
+        raise ValueError("qualified stadium is missing ball_geom")
     ball_joints = list(ball.joints)
     if len(ball_joints) != 1 or ball_joints[0].name != "ball_free":
         raise ValueError("qualified stadium ball must expose exactly one ball_free joint")
@@ -455,20 +642,44 @@ def _style_pitch_and_ball(parent: Any, spec: G1TrainingGoalSpec) -> None:
     # look submerged.  Keep only a small numerical damping term; goal capture
     # is handled separately by the compliant net after the back-net depth.
     ball_joints[0].damping = (spec.ball_free_joint_damping_n_s_m, 0.0, 0.0)
-    for index, position in enumerate(
-        (
-            (0.102, 0.0, 0.0),
-            (-0.102, 0.0, 0.0),
-            (0.0, 0.102, 0.0),
-            (0.0, -0.102, 0.0),
-            (0.0, 0.0, 0.102),
-        )
-    ):
+    radius = spec.ball_radius_m
+    inertia = 0.4 * spec.ball_mass_kg * radius * radius
+    ball.mass = spec.ball_mass_kg
+    ball.inertia = (inertia, inertia, inertia)
+    ball_geom.size = (radius, 0.0, 0.0)
+    ball_geom.friction = (
+        spec.ball_contact_sliding_friction,
+        spec.ball_torsional_friction,
+        spec.ball_rolling_friction,
+    )
+    ball_floor = parent.pair("ball_floor")
+    if ball_floor is None:
+        raise ValueError("qualified stadium is missing ball_floor contact pair")
+    ball_floor.condim = 6
+    ball_floor.friction = (
+        spec.ball_sliding_friction,
+        spec.ball_sliding_friction,
+        spec.ball_torsional_friction,
+        spec.ball_rolling_friction,
+        spec.ball_rolling_friction,
+    )
+    patch_distance = radius - 0.003
+    patch_radius = radius * 0.19
+    patch_depth = radius * 0.025
+    patches = (
+        ((patch_distance, 0.0, 0.0), (math.sqrt(0.5), 0.0, math.sqrt(0.5), 0.0)),
+        ((-patch_distance, 0.0, 0.0), (math.sqrt(0.5), 0.0, -math.sqrt(0.5), 0.0)),
+        ((0.0, patch_distance, 0.0), (math.sqrt(0.5), -math.sqrt(0.5), 0.0, 0.0)),
+        ((0.0, -patch_distance, 0.0), (math.sqrt(0.5), math.sqrt(0.5), 0.0, 0.0)),
+        ((0.0, 0.0, patch_distance), (1.0, 0.0, 0.0, 0.0)),
+    )
+    for index, (position, quaternion) in enumerate(patches):
         ball.add_geom(
             name=f"ball_patch_{index}",
-            type=mujoco.mjtGeom.mjGEOM_SPHERE,
+            type=mujoco.mjtGeom.mjGEOM_ELLIPSOID,
             pos=position,
-            size=(0.026, 0.0, 0.0),
+            quat=quaternion,
+            size=(patch_radius, patch_radius, patch_depth),
             rgba=(0.025, 0.025, 0.025, 1.0),
             density=0.0,
             contype=0,
@@ -478,8 +689,10 @@ def _style_pitch_and_ball(parent: Any, spec: G1TrainingGoalSpec) -> None:
 
 __all__ = [
     "G1TrainingGoalSpec",
+    "apply_g1_compliant_goal_net_force",
     "build_g1_coupled_stadium_model",
     "build_g1_stadium_model",
     "build_g1_three_player_stadium_model",
     "g1_stadium_scene_hash",
+    "g1_goal_net_contact_plane_x",
 ]

@@ -75,7 +75,9 @@ from rosclaw.simforge.g1_sonic_runup import (
 )
 from rosclaw.simforge.g1_stadium_scene import (
     G1TrainingGoalSpec,
+    apply_g1_compliant_goal_net_force,
     build_g1_stadium_model,
+    g1_goal_net_contact_plane_x,
     g1_stadium_scene_hash,
 )
 from rosclaw.simforge.g1_transition_bridge import (
@@ -97,7 +99,6 @@ if TYPE_CHECKING:
     )
 
 _MOTION_REL = Path("policy/robonaldo/model/freekick_motion.npz")
-_BALL_RADIUS_M = 0.115
 
 
 class G1FootballEventPhase(IntEnum):
@@ -131,7 +132,7 @@ class G1FreeKickFlowConfig:
     shot_reference_plane_x_m: float = 0.0
     shot_reference_target_y_m: float | None = None
     shot_reference_target_z_m: float | None = None
-    net_capture_depth_m: float = 0.20
+    net_capture_depth_m: float = 0.80
     net_stiffness_n_m: float = 42.0
     net_damping_n_s_m: float = 8.5
     shot_pelvis_yaw_offset_rad: float = 0.10
@@ -189,7 +190,7 @@ class G1FreeKickFlowConfig:
     ballistic_skill_memory_hash: str | None = None
     ballistic_skill_id: str | None = None
     approach_provider: str = "groot_history"
-    schema_version: str = "rosclaw.simforge.g1_free_kick_flow_config.v34"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_flow_config.v35"
 
     def __post_init__(self) -> None:
         if not isinstance(self.shared_cerebellar_recovery_enabled, bool):
@@ -272,17 +273,17 @@ class G1FreeKickFlowConfig:
             raise ValueError("shot reference target y must be in [-2, 2] m")
         if self.shot_reference_target_z_m is not None and not (
             math.isfinite(self.shot_reference_target_z_m)
-            and 0.115 <= self.shot_reference_target_z_m <= 2.40
+            and 0.105 <= self.shot_reference_target_z_m <= 2.40
         ):
-            raise ValueError("shot reference target z must be in [0.115, 2.40] m")
+            raise ValueError("shot reference target z must be in [0.105, 2.40] m")
         if (self.shot_reference_target_y_m is None) != (self.shot_reference_target_z_m is None):
             raise ValueError("shot reference target y and z must be provided together")
-        if not 0.20 <= self.net_capture_depth_m <= 0.70:
-            raise ValueError("net capture depth must be in [0.20, 0.70] m")
-        if not 10.0 <= self.net_stiffness_n_m <= 100.0:
-            raise ValueError("net stiffness must be in [10, 100] N/m")
-        if not 2.0 <= self.net_damping_n_s_m <= 15.0:
-            raise ValueError("net damping must be in [2, 15] N s/m")
+        if not 0.20 <= self.net_capture_depth_m <= 2.50:
+            raise ValueError("net capture depth must be in [0.20, 2.50] m")
+        if not 10.0 <= self.net_stiffness_n_m <= 250.0:
+            raise ValueError("net stiffness must be in [10, 250] N/m")
+        if not 2.0 <= self.net_damping_n_s_m <= 30.0:
+            raise ValueError("net damping must be in [2, 30] N s/m")
         if self.approach_provider not in {"groot_history", "sonic_fullbody"}:
             raise ValueError("approach provider must be groot_history or sonic_fullbody")
         if not -0.20 <= self.shot_pelvis_yaw_offset_rad <= 0.20:
@@ -825,6 +826,8 @@ def run_g1_free_kick_showcase(
     runup = runup_config or G1LearnedRunupConfig()
     flow = flow_config or G1FreeKickFlowConfig()
     goal = goal_spec or G1TrainingGoalSpec()
+    if flow.net_capture_depth_m > goal.depth_m:
+        raise ValueError("net capture depth extends beyond the visible goal net")
     qualification = qualify_g1_assets(asset_root)
     qualification.require_eligible()
     if football_motion_prior is None and flow.football_motion_prior_hash is not None:
@@ -1096,7 +1099,7 @@ def _simulate(
     data = mujoco.MjData(model)
     model.opt.timestep = runup.physics_dt_sec
     ids = _ModelIds.from_model(model)
-    _configure_surface(model)
+    _configure_surface(model, goal)
     gait: G1LearnedRunupController | None = None
     sonic: G1SonicRunupController | None = None
     if flow.approach_provider == "sonic_fullbody":
@@ -1116,7 +1119,7 @@ def _simulate(
     else:
         assert gait is not None
         data.qpos[7:22] = gait.default_lower
-    data.qpos[ids.ball_qpos : ids.ball_qpos + 3] = (1.0, 0.0, _BALL_RADIUS_M)
+    data.qpos[ids.ball_qpos : ids.ball_qpos + 3] = (1.0, 0.0, goal.ball_radius_m)
     data.qpos[ids.ball_qpos + 3 : ids.ball_qpos + 7] = (1.0, 0.0, 0.0, 0.0)
     mujoco.mj_forward(model, data)
     if sonic is not None:
@@ -1685,7 +1688,7 @@ def _simulate(
     contact_peak_force: float | None = None
     launch_velocity: tuple[float, float, float] | None = None
     launch_speed = 0.0
-    ball_apex_height = _BALL_RADIUS_M
+    ball_apex_height = goal.ball_radius_m
     maximum_ball_speed = 0.0
     crossing: tuple[float, float, float] | None = None
     net_capture: tuple[float, float, float] | None = None
@@ -2055,7 +2058,7 @@ def _simulate(
                 alpha = (goal.plane_x_m - previous_ball[0]) / max(ball[0] - previous_ball[0], 1e-12)
                 point = previous_ball + alpha * (ball - previous_ball)
                 crossing = (goal.plane_x_m, float(point[1]), float(point[2]))
-            capture_x = goal.plane_x_m + flow.net_capture_depth_m
+            capture_x = _net_capture_plane_x(goal, flow, float(ball[2]))
             if net_capture is None and previous_ball[0] < capture_x <= ball[0]:
                 alpha = (capture_x - previous_ball[0]) / max(ball[0] - previous_ball[0], 1e-12)
                 point = previous_ball + alpha * (ball - previous_ball)
@@ -2178,18 +2181,18 @@ def _simulate(
     else:
         plane_error = math.hypot(crossing[1] - goal.target_y_m, crossing[2] - goal.target_z_m)
         lower_corner_distance = math.hypot(
-            goal.width_m / 2.0 - abs(crossing[1]), crossing[2] - _BALL_RADIUS_M
+            goal.width_m / 2.0 - abs(crossing[1]), crossing[2] - goal.ball_radius_m
         )
         upper_corner_distance = math.hypot(
             goal.width_m / 2.0 - abs(crossing[1]),
-            goal.height_m - _BALL_RADIUS_M - crossing[2],
+            goal.height_m - goal.ball_radius_m - crossing[2],
         )
         declared_corner_distance = (
             upper_corner_distance if "upper" in goal.target_corner else lower_corner_distance
         )
         mouth_hit = bool(
-            abs(crossing[1]) <= goal.width_m / 2.0 - _BALL_RADIUS_M
-            and _BALL_RADIUS_M <= crossing[2] <= goal.height_m - _BALL_RADIUS_M
+            abs(crossing[1]) <= goal.width_m / 2.0 - goal.ball_radius_m
+            and goal.ball_radius_m <= crossing[2] <= goal.height_m - goal.ball_radius_m
         )
     net_error = (
         None
@@ -2332,9 +2335,9 @@ def _simulate(
         final_ball_xyz_m=final_ball,
         final_ball_yz_target_error_m=final_ball_error,
         ball_retained_in_goal=bool(
-            goal.plane_x_m - _BALL_RADIUS_M
+            goal.plane_x_m - goal.ball_radius_m
             <= final_ball[0]
-            <= goal.plane_x_m + goal.depth_m + _BALL_RADIUS_M
+            <= goal.plane_x_m + goal.depth_m + goal.ball_radius_m
         ),
         precision_radius_m=goal.precision_radius_m,
         declared_target_corner=goal.target_corner,
@@ -2525,8 +2528,10 @@ def _deepest_goal_mouth_point(
     tolerance = 1e-6
     inside = bool(
         point[0] >= goal.plane_x_m - tolerance
-        and abs(point[1]) <= goal.width_m / 2.0 - _BALL_RADIUS_M + tolerance
-        and _BALL_RADIUS_M - tolerance <= point[2] <= goal.height_m - _BALL_RADIUS_M + tolerance
+        and abs(point[1]) <= goal.width_m / 2.0 - goal.ball_radius_m + tolerance
+        and goal.ball_radius_m - tolerance
+        <= point[2]
+        <= goal.height_m - goal.ball_radius_m + tolerance
     )
     if not inside or (current is not None and point[0] <= current[0]):
         return current
@@ -2540,55 +2545,53 @@ def _apply_compliant_net_force(
     flow: G1FreeKickFlowConfig,
 ) -> None:
     """Apply a deterministic one-sided soft-net force to the ball body."""
-
-    data.xfrc_applied[ids.ball, :] = 0.0
-    ball_position = data.qpos[ids.ball_qpos : ids.ball_qpos + 3]
-    capture_x = goal.plane_x_m + flow.net_capture_depth_m
-    ball_velocity = data.qvel[ids.ball_qvel : ids.ball_qvel + 3]
-    if ball_position[0] <= capture_x:
-        # A real net wraps around the ball after back-net impact.  Preserve
-        # completely free incoming flight, but dissipate a return trajectory
-        # while it is still inside the goal pocket so the ball cannot pass
-        # unrealistically back through the net mouth.
-        if ball_position[0] > goal.plane_x_m and ball_velocity[0] < 0.0:
-            data.xfrc_applied[ids.ball, :3] = np.clip(
-                np.asarray(
-                    (
-                        -flow.net_damping_n_s_m * float(ball_velocity[0]),
-                        -0.12 * flow.net_damping_n_s_m * float(ball_velocity[1]),
-                        -0.08 * flow.net_damping_n_s_m * float(ball_velocity[2]),
-                    ),
-                    dtype=np.float64,
-                ),
-                -120.0,
-                120.0,
-            )
-        return
-    penetration = max(0.0, float(ball_position[0] - capture_x))
-    engagement = float(np.clip(penetration / 0.10, 0.0, 1.0))
-    force = np.asarray(
-        (
-            -flow.net_stiffness_n_m * penetration
-            - engagement * flow.net_damping_n_s_m * float(ball_velocity[0]),
-            -0.08 * engagement * flow.net_damping_n_s_m * float(ball_velocity[1]),
-            -0.05 * engagement * flow.net_damping_n_s_m * float(ball_velocity[2]),
-        ),
-        dtype=np.float64,
+    apply_g1_compliant_goal_net_force(
+        data,
+        ball_body_id=ids.ball,
+        ball_qpos=ids.ball_qpos,
+        ball_qvel=ids.ball_qvel,
+        spec=goal,
+        capture_depth_m=flow.net_capture_depth_m,
+        stiffness_n_m=flow.net_stiffness_n_m,
+        damping_n_s_m=flow.net_damping_n_s_m,
     )
-    data.xfrc_applied[ids.ball, :3] = np.clip(force, -120.0, 120.0)
 
 
-def _configure_surface(model: Any) -> None:
+def _net_capture_plane_x(
+    goal: G1TrainingGoalSpec,
+    flow: G1FreeKickFlowConfig,
+    ball_z_m: float,
+) -> float:
+    """Return the ball-centre contact plane aligned to the sloped visible net."""
+
+    return g1_goal_net_contact_plane_x(
+        goal,
+        capture_depth_m=flow.net_capture_depth_m,
+        ball_z_m=ball_z_m,
+    )
+
+
+def _configure_surface(model: Any, goal: G1TrainingGoalSpec) -> None:
     import mujoco
 
     ball_geom = int(mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "ball_geom"))
     floor_geom = int(mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor"))
-    model.geom_friction[ball_geom, 0] = 0.05
+    model.geom_friction[ball_geom] = (
+        goal.ball_contact_sliding_friction,
+        goal.ball_torsional_friction,
+        goal.ball_rolling_friction,
+    )
     model.geom_friction[floor_geom, 0] = 0.90
     for index in range(int(model.npair)):
         name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_PAIR, index) or ""
         if name == "ball_floor":
-            model.pair_friction[index, 0] = 0.05
+            model.pair_friction[index] = (
+                goal.ball_sliding_friction,
+                goal.ball_sliding_friction,
+                goal.ball_torsional_friction,
+                goal.ball_rolling_friction,
+                goal.ball_rolling_friction,
+            )
         elif name.endswith("_floor"):
             model.pair_friction[index, 0] = 0.90
 

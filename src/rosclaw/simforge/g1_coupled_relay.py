@@ -48,6 +48,7 @@ from rosclaw.simforge.g1_cerebellar_recovery import (
 )
 from rosclaw.simforge.g1_stadium_scene import (
     G1TrainingGoalSpec,
+    apply_g1_compliant_goal_net_force,
     build_g1_coupled_stadium_model,
     build_g1_three_player_stadium_model,
 )
@@ -719,14 +720,24 @@ def _simulate(
     ball_qpos = int(model.jnt_qposadr[ball_joint])
     ball_qvel = int(model.jnt_dofadr[ball_joint])
     floor_geom = _id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
-    if not 0.05 <= ball_ground_friction <= 0.15:
-        raise ValueError("coupled relay ball friction must be in [0.05, 0.15]")
-    model.geom_friction[ball_geom, 0] = ball_ground_friction
+    if not 0.03 <= ball_ground_friction <= 0.80:
+        raise ValueError("coupled relay ball friction must be in [0.03, 0.80]")
+    model.geom_friction[ball_geom] = (
+        active_goal.ball_contact_sliding_friction,
+        active_goal.ball_torsional_friction,
+        active_goal.ball_rolling_friction,
+    )
     model.geom_friction[floor_geom, 0] = scenario.support_ground_friction
     for pair_index in range(int(model.npair)):
         pair_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_PAIR, pair_index) or ""
         if pair_name == "ball_floor":
-            model.pair_friction[pair_index, 0] = ball_ground_friction
+            model.pair_friction[pair_index] = (
+                ball_ground_friction,
+                ball_ground_friction,
+                active_goal.ball_torsional_friction,
+                active_goal.ball_rolling_friction,
+                active_goal.ball_rolling_friction,
+            )
 
     state_type, output_type, policy_type, mujoco_to_isaac = _load_robonaldo(root)
     shooter_ballistic_actor: G1BallisticContactImpulseActor | None = None
@@ -1053,7 +1064,7 @@ def _simulate(
     # One immutable shared ball.  This is the pass scenario's local initial
     # state transformed into the coupled world; there is no later teleport.
     data.qpos[ball_qpos : ball_qpos + 3] = active_passer_origin + _rotate_z(
-        np.asarray((*active_passer_ball_xy, 0.115), dtype=np.float64),
+        np.asarray((*active_passer_ball_xy, active_goal.ball_radius_m), dtype=np.float64),
         _PASSER_YAW,
     )
     data.qpos[ball_qpos + 3 : ball_qpos + 7] = (1.0, 0.0, 0.0, 0.0)
@@ -1338,6 +1349,17 @@ def _simulate(
                     np.any(np.abs(torque) >= hard_limits * 0.999)
                 )
                 data.ctrl[robot.actuators] = torque
+            if unified_stadium_scene:
+                apply_g1_compliant_goal_net_force(
+                    data,
+                    ball_body_id=ball_body,
+                    ball_qpos=ball_qpos,
+                    ball_qvel=ball_qvel,
+                    spec=active_goal,
+                    capture_depth_m=max(0.20, 0.80 * active_goal.depth_m),
+                    stiffness_n_m=180.0,
+                    damping_n_s_m=10.0,
+                )
             mujoco.mj_step(model, data)
             for robot in robots:
                 executed_torque[robot.role] = data.actuator_force[robot.actuators].copy()
