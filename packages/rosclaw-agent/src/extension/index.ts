@@ -255,6 +255,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					"rosclaw_status",
 					"rosclaw_capabilities",
 					"rosclaw_compute",
+					"rosclaw_task",
 					"rosclaw_observe",
 					"rosclaw_verify",
 					"rosclaw_memory_query",
@@ -345,7 +346,10 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		// -- Approval 卡片（NA-FIX-5，P0-5 修复）：tool 返回精确 approval_id
 		//    后才展卡——绝不取 pending 列表第一个。
 		pi.on("tool_execution_update", async (event, ctx) => {
-			if (event.toolName !== "rosclaw_request_action" || !ctx.hasUI) return;
+			if (
+				(event.toolName !== "rosclaw_request_action" && event.toolName !== "rosclaw_task")
+				|| !ctx.hasUI
+			) return;
 			const details = (event.partialResult?.details ?? {}) as {
 				phase?: string;
 				approval_id?: string;

@@ -33,6 +33,8 @@ _TOOL_TABLE: dict[str, str] = {
     "rosclaw_fail_safe": "control",
     "rosclaw_delegate": "delegate",
     "rosclaw_request_action": "physical_action",
+    # 八审 P0-5：任务级入口——确定性编译器编排，模型只交 TaskSpec。
+    "rosclaw_task": "task",
 }
 #: 后续批次才开放；现在调用必须得到诚实的"未开放"拒绝。
 _DEFERRED_TOOLS = {
@@ -247,6 +249,8 @@ class PiToolDispatcher:
             )
         if name == "rosclaw_request_action":
             return await self._request_action(request)
+        if name == "rosclaw_task":
+            return await self._task(request)
         if name == "rosclaw_delegate":
             return await self._delegate(request)
         if name == "rosclaw_fail_safe":
@@ -361,6 +365,68 @@ class PiToolDispatcher:
             status="COMPLETED",
             summary=result.summary,
             artifact_refs=[a.ref for a in result.artifacts],
+        )
+
+    async def _task(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """八审 §1.6/P0-5：任务级入口——TaskRunner 确定性编排
+        （规划→策略→单动作→自动验证），模型只收 TaskResult 摘要。"""
+        from rosclaw.agentd.pi_bridge.action_admission import ActionRequestContext
+        from rosclaw.agentd.task_runner import TaskRunner
+
+        args = request.arguments
+        goal = str(args.get("goal", "")).strip()
+        parameters = args.get("parameters")
+        if not str(args.get("task_id", "") or "") and (
+            not goal or not isinstance(parameters, dict)
+        ):
+            raise ToolBridgeError(
+                "INVALID_ARGUMENTS", "goal and parameters required (fail closed)"
+            )
+        mission = self._service.get_mission(request.mission_id)
+        ctx = ActionRequestContext(
+            pi_session_id=request.pi_session_id,
+            mission_id=request.mission_id,
+            context_revision=request.context_revision,
+            body_hash=mission.body_binding.effective_body_hash if mission else "",
+            mode=mission.mode.value if mission else "",
+            idempotency_key=request.idempotency_key,
+            context_lease_id=request.context_lease_id,
+        )
+        runner = TaskRunner(self._service)
+        # 两阶段：submit（wait=False——ASK 时立即返回 WAITING_APPROVAL
+        # 视图供 TUI 展卡）与 resume（task_id 重入，批准后执行+验证）。
+        resume_task_id = str(args.get("task_id", "") or "")
+        if resume_task_id:
+            payload = await runner.resume(
+                task_id=resume_task_id,
+                request_ctx=ctx,
+                caller_pid=self._caller_pid,
+                caller_uid=self._caller_uid,
+            )
+        else:
+            payload = await runner.run(
+                request_ctx=ctx,
+                goal=goal,
+                parameters=parameters,
+                caller_pid=self._caller_pid,
+                caller_uid=self._caller_uid,
+                wait=False,
+            )
+        import json as _json
+
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=payload["state"] in ("VERIFIED", "WAITING_APPROVAL"),
+            status=(
+                "COMPLETED" if payload["state"] == "VERIFIED"
+                else "PENDING" if payload["state"] == "WAITING_APPROVAL"
+                else "REJECTED"
+            ),
+            summary=_json.dumps(payload, ensure_ascii=False),
+            error_code=(
+                "" if payload["state"] in ("VERIFIED", "WAITING_APPROVAL")
+                else payload["state"]
+            ),
         )
 
     async def _request_action(self, request: PiToolRequestV1) -> PiToolResultV1:

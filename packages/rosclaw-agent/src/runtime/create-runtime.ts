@@ -33,6 +33,7 @@ import { buildDelegateTool } from "../tools/delegate.js";
 import { buildRequestActionTool } from "../tools/request-action.js";
 import { buildCapabilitiesTool } from "../tools/capabilities.js";
 import { buildComputeTool } from "../tools/compute.js";
+import { buildTaskTool } from "../tools/task.js";
 import { buildStatusTool } from "../tools/status.js";
 
 export interface RosclawRuntimeOptions {
@@ -190,6 +191,13 @@ export async function createRosclawRuntime(
 				}),
 				// PR-SEVEN-2：COMPUTE 能力免审批调用。
 				buildComputeTool({
+					rosclawHome: options.rosclawHome,
+					active,
+					center,
+				}),
+				// PR-EIGHT-5：任务级入口（确定性编译器——模型只交
+				// TaskSpec，不搬载荷、不逐点控制）。
+				buildTaskTool({
 					rosclawHome: options.rosclawHome,
 					active,
 					center,
