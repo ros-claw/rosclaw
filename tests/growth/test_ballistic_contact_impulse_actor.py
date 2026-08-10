@@ -181,6 +181,7 @@ def test_impulse_actor_derivation_binds_success_and_failure_evidence(tmp_path: P
                 "post_kick_fall": False,
                 "joint_limit_violation": False,
                 "torque_limit_violation": False,
+                "contact_task_authority_scale_min": 0.5 if index == 1 else 1.0,
             },
         }
         path = tmp_path / f"evidence-{index}.json"
@@ -196,8 +197,8 @@ def test_impulse_actor_derivation_binds_success_and_failure_evidence(tmp_path: P
     loaded = load_g1_ballistic_contact_impulse_actor(output)
 
     assert actor.actor_hash == loaded.actor_hash
-    assert actor.precision_success_count == 4
-    assert actor.rejected_probe_count == 4
+    assert actor.precision_success_count == 3
+    assert actor.rejected_probe_count == 5
     assert actor.task_space_actor_weight_matrix == (
         (400.0, -40.0, 0.0),
         (350.0, 0.0, -50.0),

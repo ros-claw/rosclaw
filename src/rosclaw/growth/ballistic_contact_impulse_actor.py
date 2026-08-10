@@ -218,7 +218,7 @@ def derive_g1_ballistic_contact_impulse_actor(
         raise ValueError("contact impulse actor evidence must be outside the source checkout")
     if output.exists():
         raise FileExistsError("contact impulse actor output already exists")
-    rows: list[tuple[float, bool, dict[str, Any], str]] = []
+    rows: list[tuple[float, float, float, bool, dict[str, Any], str]] = []
     body_hashes: set[str] = set()
     implementation_hashes: set[str] = set()
     context_hashes: set[str] = set()
@@ -262,6 +262,23 @@ def derive_g1_ballistic_contact_impulse_actor(
         if not math.isfinite(precision) or not 0.01 <= precision <= 1.0:
             raise ValueError("contact impulse actor precision threshold is invalid")
         precision_radii.add(precision)
+        projection_fraction = float(result.get("torque_authority_projection_fraction", 0.0))
+        preprojection_demand = float(
+            result.get(
+                "torque_authority_preprojection_peak_demand_ratio",
+                result.get("actuator_peak_demand_ratio", 0.0),
+            )
+        )
+        contact_task_scale = float(result.get("contact_task_authority_scale_min", 1.0))
+        if (
+            not math.isfinite(projection_fraction)
+            or projection_fraction < 0.0
+            or not math.isfinite(preprojection_demand)
+            or preprojection_demand < 0.0
+            or not math.isfinite(contact_task_scale)
+            or not 0.0 <= contact_task_scale <= 1.0
+        ):
+            raise ValueError("contact impulse actor authority metrics are invalid")
         safe = bool(
             math.isfinite(error)
             and result.get("kick_contact_observed") is True
@@ -270,12 +287,24 @@ def derive_g1_ballistic_contact_impulse_actor(
             and result.get("post_kick_fall") is False
             and result.get("joint_limit_violation") is False
             and result.get("torque_limit_violation") is False
+            and result.get("actuator_saturation") is not True
+            and result.get("torque_authority_projection_qualified", True) is True
+            and contact_task_scale >= 0.95
         )
         evidence_hash = _file_hash(path)
         if evidence_hash in source_hashes:
             raise ValueError("contact impulse actor evidence contents must be unique")
         source_hashes.append(evidence_hash)
-        rows.append((error, safe and error <= precision, flow, evidence_hash))
+        rows.append(
+            (
+                error,
+                projection_fraction,
+                preprojection_demand,
+                safe and error <= precision,
+                flow,
+                evidence_hash,
+            )
+        )
     if (
         len(body_hashes) != 1
         or len(implementation_hashes) != 1
@@ -283,11 +312,17 @@ def derive_g1_ballistic_contact_impulse_actor(
         or len(precision_radii) != 1
     ):
         raise ValueError("contact impulse actor probe contexts disagree")
-    qualified = [row for row in rows if row[1]]
-    rejected = [row for row in rows if not row[1]]
+    qualified = [row for row in rows if row[3]]
+    rejected = [row for row in rows if not row[3]]
     if len(qualified) < 2 or len(rejected) < 2:
         raise ValueError("contact impulse actor needs two precision successes and two rejects")
-    error, _, selected, selected_hash = min(qualified, key=lambda row: row[0])
+    error, _, _, _, selected, selected_hash = min(
+        qualified,
+        key=lambda row: (
+            row[0] + 2.0 * row[1] + 0.02 * max(0.0, row[2] - 1.0),
+            row[0],
+        ),
+    )
     lateral_gain = float(selected["shot_loft_teacher_lateral_gain_n_per_mps"])
     vertical_gain = float(selected["shot_loft_teacher_gain_n_per_mps"])
     lateral_target = float(selected["shot_loft_teacher_target_vy_mps"])

@@ -472,7 +472,7 @@ def _ffmpeg_command(
         footer_text = "SUPPORTED SKILL ISLAND · NOT PROMOTED · STRICT REPLAY · SIM ONLY"
     elif result.get("ballistic_contact_impulse_actor_executed") is True:
         title_text = "ROSClaw GoalForge · G1 LEARNED CONTACT ACTOR"
-        footer_text = "DATA-DRIVEN MUSCLE MEMORY · STRICT REPLAY · SIM ONLY"
+        footer_text = "DATA-DRIVEN MUSCLE MEMORY · DEVELOPMENT · NOT PROMOTED · SIM ONLY"
     elif flow.get("contextual_phase_calibration_hash") is not None:
         title_text = "ROSClaw GoalForge · PROPRIOCEPTIVE STRIKE ROUTER"
         footer_text = "DEVELOPMENT CANDIDATE · NOT PROMOTED · STRICT REPLAY · SIM ONLY"

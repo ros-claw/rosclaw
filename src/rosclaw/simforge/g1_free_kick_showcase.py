@@ -80,6 +80,10 @@ from rosclaw.simforge.g1_stadium_scene import (
     g1_goal_net_contact_plane_x,
     g1_stadium_scene_hash,
 )
+from rosclaw.simforge.g1_torque_authority import (
+    project_g1_additive_torque_authority,
+    project_g1_torque_authority,
+)
 from rosclaw.simforge.g1_transition_bridge import (
     G1TransitionBridgeConfig,
     G1VelocityMatchedTransitionBridge,
@@ -187,10 +191,12 @@ class G1FreeKickFlowConfig:
     post_contact_damping_scale: float = 1.0
     post_contact_damping_delay_sec: float = 0.18
     post_contact_damping_ramp_sec: float = 0.45
+    torque_authority_projection_ratio: float = 0.0
+    torque_authority_projection_max_fraction: float = 0.01
     ballistic_skill_memory_hash: str | None = None
     ballistic_skill_id: str | None = None
     approach_provider: str = "groot_history"
-    schema_version: str = "rosclaw.simforge.g1_free_kick_flow_config.v35"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_flow_config.v36"
 
     def __post_init__(self) -> None:
         if not isinstance(self.shared_cerebellar_recovery_enabled, bool):
@@ -234,6 +240,8 @@ class G1FreeKickFlowConfig:
             self.post_contact_damping_scale,
             self.post_contact_damping_delay_sec,
             self.post_contact_damping_ramp_sec,
+            self.torque_authority_projection_ratio,
+            self.torque_authority_projection_max_fraction,
             self.football_motion_prior_blend,
             self.ballistic_contact_lead_duration_sec,
             self.ballistic_contact_trail_duration_sec,
@@ -432,6 +440,12 @@ class G1FreeKickFlowConfig:
             raise ValueError("post-contact damping delay must be in [0.0, 0.4] s")
         if not 0.1 <= self.post_contact_damping_ramp_sec <= 0.8:
             raise ValueError("post-contact damping ramp must be in [0.1, 0.8] s")
+        if self.torque_authority_projection_ratio != 0.0 and not (
+            0.90 <= self.torque_authority_projection_ratio <= 0.99
+        ):
+            raise ValueError("torque authority ratio must be zero or in [0.90, 0.99]")
+        if not 0.001 <= self.torque_authority_projection_max_fraction <= 0.05:
+            raise ValueError("torque authority projection fraction must be in [0.001, 0.05]")
         if (self.ballistic_skill_memory_hash is None) != (self.ballistic_skill_id is None):
             raise ValueError("ballistic skill memory hash and skill id must be paired")
         if self.ballistic_skill_memory_hash is not None and not (
@@ -566,6 +580,14 @@ class G1FreeKickResult:
     ballistic_contact_impulse_actor_peak_torque_nm: float = 0.0
     ballistic_contact_impulse_actor_peak_lateral_force_n: float = 0.0
     ballistic_contact_impulse_actor_peak_vertical_force_n: float = 0.0
+    torque_authority_projection_enabled: bool = False
+    torque_authority_projection_steps: int = 0
+    torque_authority_projection_fraction: float = 0.0
+    torque_authority_projection_peak_correction_nm: float = 0.0
+    torque_authority_preprojection_peak_demand_ratio: float = 0.0
+    torque_authority_projection_qualified: bool = True
+    contact_task_authority_projection_steps: int = 0
+    contact_task_authority_scale_min: float = 1.0
     ballistic_skill_memory_executed: bool = False
     ballistic_skill_id: str | None = None
     ballistic_skill_nearest_distance: float | None = None
@@ -575,7 +597,7 @@ class G1FreeKickResult:
     kick_contact_normal_xyz: tuple[float, float, float] | None = None
     kick_contact_force_world_xyz_n: tuple[float, float, float] | None = None
     kick_contact_peak_force_n: float | None = None
-    schema_version: str = "rosclaw.simforge.g1_free_kick_result.v23"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_result.v24"
 
     @property
     def perceptual_continuity_passed(self) -> bool:
@@ -634,6 +656,7 @@ class G1FreeKickResult:
             and not self.joint_limit_violation
             and not self.torque_limit_violation
             and not self.actuator_saturation
+            and self.torque_authority_projection_qualified
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -669,7 +692,7 @@ class G1FreeKickEvidence:
     evidence_domain: str = "DEVELOPMENT_SHOWCASE"
     physics_authority: str = "CPU_MUJOCO"
     hardware_command_sent: bool = False
-    schema_version: str = "rosclaw.simforge.g1_free_kick_evidence.v23"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_evidence.v24"
 
     @property
     def passed(self) -> bool:
@@ -736,6 +759,12 @@ class G1FreeKickEvidence:
                 ),
                 "bounded_sim_only_ballistic_contact_torque_residual": (
                     self.result.ballistic_contact_torque_residual_executed
+                ),
+                "audited_torque_authority_projection": (
+                    self.result.torque_authority_projection_enabled
+                ),
+                "direction_preserving_contact_task_authority_projection": (
+                    self.result.contact_task_authority_projection_steps > 0
                 ),
                 "learned_proprioceptive_contact_impulse_actor": (
                     self.result.ballistic_contact_impulse_actor_executed
@@ -918,6 +947,7 @@ def run_g1_free_kick_showcase(
                 "g1_loft_teacher.py",
                 "g1_sonic_runup.py",
                 "g1_stadium_scene.py",
+                "g1_torque_authority.py",
                 "g1_transition_bridge.py",
                 "g1_two_player_relay.py",
             )
@@ -946,7 +976,7 @@ def run_g1_free_kick_showcase(
     ):
         raise ValueError("ballistic skill memory implementation hash mismatch")
     request = {
-        "schema_version": "rosclaw.simforge.g1_free_kick_request.v32",
+        "schema_version": "rosclaw.simforge.g1_free_kick_request.v33",
         "body_hash": qualification.body_hash,
         "kick_prior_hash": qualification.kick_prior_hash,
         "learned_gait_qualification_hash": gait_qualification.qualification_hash,
@@ -1236,6 +1266,11 @@ def _simulate(
     saturation = False
     saturation_steps = 0
     peak_demand_ratio = 0.0
+    torque_authority_projection_steps = 0
+    torque_authority_projection_peak_correction = 0.0
+    torque_authority_preprojection_peak_demand_ratio = 0.0
+    contact_task_authority_projection_steps = 0
+    contact_task_authority_scale_min = 1.0
     torque_violation = False
     joint_violation = False
     physics_steps = 0
@@ -1253,6 +1288,40 @@ def _simulate(
         else int(round(runup.total_duration_sec / runup.control_dt_sec))
     )
     last_torque: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
+
+    def project_authority(raw_torque: NDArray[np.float64]) -> NDArray[np.float64]:
+        nonlocal peak_demand_ratio
+        nonlocal saturation
+        nonlocal saturation_steps
+        nonlocal torque_authority_projection_steps
+        nonlocal torque_authority_projection_peak_correction
+        nonlocal torque_authority_preprojection_peak_demand_ratio
+
+        raw_value = np.asarray(raw_torque, dtype=np.float64)
+        preprojection_ratio = float(np.max(np.abs(raw_value) / hard_limits))
+        torque_authority_preprojection_peak_demand_ratio = max(
+            torque_authority_preprojection_peak_demand_ratio,
+            preprojection_ratio,
+        )
+        projected = raw_value
+        if flow.torque_authority_projection_ratio > 0.0:
+            projection = project_g1_torque_authority(
+                commanded_torque_nm=raw_value,
+                hard_limits_nm=hard_limits,
+                maximum_demand_ratio=flow.torque_authority_projection_ratio,
+            )
+            projected = projection.projected_torque_nm
+            torque_authority_projection_steps += int(projection.active)
+            torque_authority_projection_peak_correction = max(
+                torque_authority_projection_peak_correction,
+                float(np.max(np.abs(projection.correction_nm))),
+            )
+        demand_ratio = float(np.max(np.abs(projected) / hard_limits))
+        peak_demand_ratio = max(peak_demand_ratio, demand_ratio)
+        saturated_step = bool(demand_ratio >= 0.999)
+        saturation = saturation or saturated_step
+        saturation_steps += int(saturated_step)
+        return np.clip(projected, -hard_limits, hard_limits)
 
     for frame in range(runup_frames):
         if sonic is not None:
@@ -1300,12 +1369,7 @@ def _simulate(
                 ] * gait.lower_kd
                 raw_arms = -data.qpos[22:36] * gait.arm_kp - data.qvel[21:35] * gait.arm_kd
                 raw = np.concatenate((raw_lower, raw_arms)) + residual
-            demand_ratio = float(np.max(np.abs(raw) / hard_limits))
-            peak_demand_ratio = max(peak_demand_ratio, demand_ratio)
-            saturated_step = bool(demand_ratio >= 0.999)
-            saturation = saturation or saturated_step
-            saturation_steps += int(saturated_step)
-            last_torque = np.clip(raw, -hard_limits, hard_limits)
+            last_torque = project_authority(raw)
             torque_violation = torque_violation or bool(np.any(np.abs(last_torque) > hard_limits))
             data.ctrl[:] = last_torque
             mujoco.mj_step(model, data)
@@ -1425,12 +1489,7 @@ def _simulate(
             )
             for _ in range(substeps):
                 raw = sonic.raw_torque(data) + residual
-                demand_ratio = float(np.max(np.abs(raw) / hard_limits))
-                peak_demand_ratio = max(peak_demand_ratio, demand_ratio)
-                saturated_step = bool(demand_ratio >= 0.999)
-                saturation = saturation or saturated_step
-                saturation_steps += int(saturated_step)
-                last_torque = np.clip(raw, -hard_limits, hard_limits)
+                last_torque = project_authority(raw)
                 torque_violation = torque_violation or bool(
                     np.any(np.abs(last_torque) > hard_limits)
                 )
@@ -1579,12 +1638,7 @@ def _simulate(
                 + (bridge_target_velocity - data.qvel[6:35]) * bridge_kd
                 + residual
             )
-            demand_ratio = float(np.max(np.abs(raw) / hard_limits))
-            peak_demand_ratio = max(peak_demand_ratio, demand_ratio)
-            saturated_step = bool(demand_ratio >= 0.999)
-            saturation = saturation or saturated_step
-            saturation_steps += int(saturated_step)
-            last_torque = np.clip(raw, -hard_limits, hard_limits)
+            last_torque = project_authority(raw)
             torque_violation = torque_violation or bool(np.any(np.abs(last_torque) > hard_limits))
             data.ctrl[:] = last_torque
             mujoco.mj_step(model, data)
@@ -1952,14 +2006,29 @@ def _simulate(
                     np.max(np.abs(impulse_actor_torque))
                 ):
                     impulse_actor_torque = impulse_effect_torque.copy()
-            pre_guard_raw = (
+            controller_torque = (
                 (target - data.qpos[7:36]) * kp
                 - data.qvel[6:35] * kd
                 + residual
                 + ballistic_contact_torque
-                + loft_effect_torque
-                + impulse_effect_torque
             )
+            contact_task_torque = loft_effect_torque + impulse_effect_torque
+            if flow.torque_authority_projection_ratio > 0.0 and np.any(
+                np.abs(contact_task_torque) > 1e-12
+            ):
+                task_projection = project_g1_additive_torque_authority(
+                    parent_torque_nm=controller_torque,
+                    additive_torque_nm=contact_task_torque,
+                    hard_limits_nm=hard_limits,
+                    maximum_demand_ratio=flow.torque_authority_projection_ratio,
+                )
+                contact_task_torque = task_projection.projected_additive_torque_nm
+                contact_task_authority_projection_steps += int(task_projection.active)
+                contact_task_authority_scale_min = min(
+                    contact_task_authority_scale_min,
+                    task_projection.scale,
+                )
+            pre_guard_raw = controller_torque + contact_task_torque
             commanded_torque_peak_abs = np.maximum(
                 commanded_torque_peak_abs,
                 np.abs(pre_guard_raw),
@@ -1992,12 +2061,7 @@ def _simulate(
                     boundary_guard_peak_correction,
                     float(np.max(np.abs(boundary_guard_correction))),
                 )
-            demand_ratio = float(np.max(np.abs(raw) / hard_limits))
-            peak_demand_ratio = max(peak_demand_ratio, demand_ratio)
-            saturated_step = bool(demand_ratio >= 0.999)
-            saturation = saturation or saturated_step
-            saturation_steps += int(saturated_step)
-            last_torque = np.clip(raw, -hard_limits, hard_limits)
+            last_torque = project_authority(raw)
             torque_violation = torque_violation or bool(np.any(np.abs(last_torque) > hard_limits))
             data.ctrl[:] = last_torque
             _apply_compliant_net_force(data, ids, goal, flow)
@@ -2406,6 +2470,24 @@ def _simulate(
         ballistic_contact_impulse_actor_peak_vertical_force_n=(
             ballistic_contact_impulse_actor_peak_vertical_force
         ),
+        torque_authority_projection_enabled=(flow.torque_authority_projection_ratio > 0.0),
+        torque_authority_projection_steps=torque_authority_projection_steps,
+        torque_authority_projection_fraction=(
+            torque_authority_projection_steps / max(1, physics_steps)
+        ),
+        torque_authority_projection_peak_correction_nm=(
+            torque_authority_projection_peak_correction
+        ),
+        torque_authority_preprojection_peak_demand_ratio=(
+            torque_authority_preprojection_peak_demand_ratio
+        ),
+        torque_authority_projection_qualified=bool(
+            flow.torque_authority_projection_ratio == 0.0
+            or torque_authority_projection_steps / max(1, physics_steps)
+            <= flow.torque_authority_projection_max_fraction
+        ),
+        contact_task_authority_projection_steps=(contact_task_authority_projection_steps),
+        contact_task_authority_scale_min=contact_task_authority_scale_min,
         ballistic_skill_memory_executed=ballistic_skill_selection is not None,
         ballistic_skill_id=(
             None
