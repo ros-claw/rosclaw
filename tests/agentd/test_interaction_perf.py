@@ -180,10 +180,17 @@ class TestInteractionPerf:
                 fake.fake.answer = orig_answer
 
             # -- 4. idle CPU --------------------------------------------
+            # 八审合并级联实测：共享 runner 的瞬时噪声（GC/调度）单窗
+            # 5s 可达 0.20-0.24s，而真 spinning（如模态 overlay 忙循环）
+            # 在每个窗口都超线——取 3 窗最小值保留反 spin 信号、消除
+            # 单窗噪声误判（0.20/0.22/0.23/0.24 四次 CI 误红）。
             time.sleep(1.0)
-            cpu0 = _tree_cpu_sec(session.proc.pid)
-            time.sleep(5.0)
-            idle_cpu = _tree_cpu_sec(session.proc.pid) - cpu0
+            windows: list[float] = []
+            for _ in range(3):
+                cpu0 = _tree_cpu_sec(session.proc.pid)
+                time.sleep(5.0)
+                windows.append(_tree_cpu_sec(session.proc.pid) - cpu0)
+            idle_cpu = min(windows)
 
             session.send("/quit\r")
             session.proc.wait(timeout=30)
@@ -200,6 +207,7 @@ class TestInteractionPerf:
             "working_p95_ms": _p95(working),
             "redraw_p95_ms": _p95(redraw),
             "idle_cpu_5s_sec": idle_cpu,
+            "idle_cpu_windows_sec": windows,
         }
         (tmp_path / "perf-report.json").write_text(
             __import__("json").dumps(
