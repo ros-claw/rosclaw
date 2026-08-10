@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rosclaw://schemas/rosclaw.journey_evidence.v2",
+  "title": "rosclaw.journey_evidence.v2",
+  "type": "object",
+  "required": [
+    "schema_version", "action_txns", "approvals", "grants", "receipts",
+    "context_leases", "event_chain", "reasoning_forbidden_field_counts",
+    "verdicts"
+  ],
+  "properties": {
+    "schema_version": {"const": "rosclaw.journey_evidence.v2"},
+    "session_id": {"type": "string"},
+    "mission_id": {"type": "string"},
+    "action_txns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["txn_id", "approval_id", "grant_id", "action_id",
+                     "receipt_id", "arguments_hash", "state", "capability_id"],
+        "properties": {
+          "txn_id": {"type": "string", "minLength": 1},
+          "approval_id": {"type": "string", "minLength": 1},
+          "grant_id": {"type": "string", "minLength": 1},
+          "action_id": {"type": "string", "minLength": 1},
+          "receipt_id": {"type": "string", "minLength": 1},
+          "arguments_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "display_hash": {"type": "string"},
+          "state": {"type": "string"},
+          "capability_id": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "approvals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["request_id", "status", "display_hash", "action_intent_hash"],
+        "properties": {
+          "request_id": {"type": "string", "minLength": 1},
+          "status": {"type": "string"},
+          "display_hash": {"type": "string", "minLength": 1},
+          "action_intent_hash": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "grants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["grant_id", "request_id", "consumed", "revoked"]
+      }
+    },
+    "receipts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["receipt_id", "action_id", "final_state", "trust_level",
+                     "evidence_domain", "usable_for_real_execution"],
+        "properties": {
+          "receipt_id": {"type": "string", "minLength": 1},
+          "action_id": {"type": "string", "minLength": 1},
+          "final_state": {"type": "string"},
+          "trust_level": {"type": "string"},
+          "evidence_domain": {"type": "string"},
+          "usable_for_real_execution": {"type": "boolean"}
+        }
+      }
+    },
+    "context_leases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["context_lease_id", "context_hash"]
+      }
+    },
+    "event_chain": {"type": "array", "items": {"type": "string"}},
+    "reasoning_forbidden_field_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer"}
+    },
+    "compaction_entry_id": {},
+    "verdicts": {"type": "object", "additionalProperties": {"type": "boolean"}}
+  }
+}

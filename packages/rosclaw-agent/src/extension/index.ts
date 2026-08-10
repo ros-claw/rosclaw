@@ -8,7 +8,6 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { readFileSync } from "node:fs";
-import { bridgeCall } from "../bridge/bridge-client.js";
 import { ActiveSessionContext } from "../session/active-context.js";
 import type { AgentSessionCoordinator } from "../session/coordinator.js";
 import {
@@ -20,7 +19,11 @@ import {
 } from "../session/lifecycle.js";
 import { defaultOperatorSocket, operatorCall } from "../bridge/operatord-client.js";
 import { ApprovalCardComponent } from "../ui/approval-card.js";
-import { ProductUiState, renderHeader } from "../ui/product-state.js";
+import { ActionResultCardComponent, type ActionResultData } from "../ui/action-result-card.js";
+import { renderFooter, renderHeader } from "../ui/product-state.js";
+import type { ProductStateCenter } from "../session/state-center.js";
+import type { LocaleManager } from "../i18n/locale.js";
+import { t as i18nT } from "../i18n/index.js";
 import { EventMirror } from "./event-mirror.js";
 import { buildCommandHandlers } from "./commands.js";
 import { guardInput } from "./input-guard.js";
@@ -35,6 +38,10 @@ export interface RosclawExtensionOptions {
 	active: ActiveSessionContext;
 	/** P0-NA-12：唯一 session/mission/lease 事务协调器。 */
 	coordinator: AgentSessionCoordinator;
+	/** PR-SIX-1：唯一产品状态中心（Header/Footer/status/tool 同源）。 */
+	center: ProductStateCenter;
+	/** PR-SIX-5：UI/回答语言策略。 */
+	locale: LocaleManager;
 	rosclawHome: string;
 }
 
@@ -42,48 +49,119 @@ const WORKING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", 
 
 export function createRosclawExtension(options: RosclawExtensionOptions): ExtensionFactory {
 	return (pi) => {
-		// -- 品牌（P0-NA-16：header 只读权威快照——版本来自 launcher 传入的
-		//    产品版本；Operator 状态来自真实 socket 探测；body/context 来自
-		//    验证过的 envelope；bootstrap 未完成显示 LOADING，不乐观默认） --
-		const uiState = new ProductUiState(
-			options.active,
-			defaultOperatorSocket(options.rosclawHome),
-			options.version,
-		);
-		let modelDisplay = "";
-		let refreshHeader: () => void = () => undefined;
+		// -- 品牌 + 单一状态源（六审 PR-SIX-1：Header/Footer 在同一次
+		//    refreshChrome 里用同一个 KernelSnapshotV1 重绘——不允许顶部
+		//    Kimi K3/OFFLINE 与底部未选模型/UNKNOWN 长期共存） --
+		const center = options.center;
+		const locale = options.locale;
+		let refreshChrome: () => void = () => undefined;
 		let probeTimer: ReturnType<typeof setInterval> | null = null;
 		pi.on("session_start", async (_event, ctx) => {
 			if (!ctx.hasUI) return;
 			ctx.ui.setTitle(`ROSClaw Native Agent`);
-			refreshHeader = () => {
-				ctx.ui.setHeader((_tui, _theme) => new Text(renderHeader(uiState.snapshot(), modelDisplay)));
+			refreshChrome = () => {
+				const snap = center.snapshot(); // 一次读取，Header/Footer 共享
+				const loc = locale.effective;
+				ctx.ui.setHeader((_tui, _theme) => new Text(renderHeader(snap, loc)));
+				ctx.ui.setFooter((_tui, theme, _footerData) => {
+					return new Text(theme.fg("dim", renderFooter(snap, loc)), 1, 0);
+				});
 			};
-			refreshHeader();
-			// 真实探测 operatord——结果回来后再刷一次（OFFLINE/READY/
-			// UNKNOWN 都是真实返回值，绝不硬编码 ready）。
-			void uiState.probeOperator().then(() => refreshHeader());
+			refreshChrome();
+			// 统一订阅：任何状态变化（context/lease/operator/model/kernel/
+			// locale）触发同一次 chrome 重绘。
+			center.subscribe(() => refreshChrome());
+			locale.subscribe(() => refreshChrome());
+			// 真实探测 operatord——结果回来后经 subscribe 统一重绘
+			// （OFFLINE/READY/UNKNOWN 都是真实返回值，绝不硬编码 ready）。
+			void center.probeOperator();
+			// 六审 §7：Operator 未就绪时的非模态提示 + Ctrl+O/命令一键
+			// 初始化——模态 overlay 会劫持按键（TUI 矩阵/perf 实测回归），
+			// widget 只展示不抢输入。
+			const runBootstrap = async (cmdCtx: typeof ctx) => {
+				try {
+					const status = await center.call("pi.operator.status", {});
+					if (status.running) {
+						cmdCtx.ui.notify(i18nT("operator.bootstrap_done", locale.effective), "info");
+						return;
+					}
+					const result = await center.call("pi.operator.bootstrap", {
+						mission_id: options.active.current.missionId ?? "",
+					});
+					cmdCtx.ui.notify(
+						result.ok
+							? i18nT("operator.bootstrap_done", locale.effective)
+							: `${i18nT("operator.bootstrap_failed", locale.effective)}: ${String(result.error ?? "")}`,
+						result.ok ? "info" : "error",
+					);
+					await center.probeOperator(true);
+				} catch {
+					// 失败诚实保持 OFFLINE——不伪造 READY。
+				}
+			};
+			// 幂等：目标状态未变时不发 UDS 调用、不重绘（idle CPU 红线）。
+			let bootstrapWidgetState: "hidden" | "new" | "stopped" = "hidden";
+			const updateBootstrapWidget = async () => {
+				if (!ctx.hasUI) return;
+				if (options.profile !== "developer") return;
+				if (options.active.current.mode !== "SIMULATION") return;
+				if (center.snapshot().operator !== "OFFLINE") {
+					if (bootstrapWidgetState !== "hidden") {
+						bootstrapWidgetState = "hidden";
+						ctx.ui.setWidget("rosclaw-operator", undefined);
+					}
+					return;
+				}
+				// 已展示且 operator 仍 OFFLINE——enrollment/running 只能经
+				// 我们发起的 bootstrap 改变（它会显式复探）——跳过重复查询。
+				if (bootstrapWidgetState !== "hidden") return;
+				try {
+					const status = await center.call("pi.operator.status", {});
+					if (status.running) {
+						return;
+					}
+					const loc = locale.effective;
+					bootstrapWidgetState = status.enrolled ? "stopped" : "new";
+					ctx.ui.setWidget("rosclaw-operator", [
+						`${i18nT("operator.bootstrap_title", loc)} — ${i18nT(
+							status.enrolled
+								? "operator.bootstrap_state_stopped"
+								: "operator.bootstrap_state_new",
+							loc,
+						)}`,
+						i18nT("operator.bootstrap_offer", loc),
+					]);
+				} catch {
+					// 探测失败保持 OFFLINE 展示。
+				}
+			};
+			// operator 探测结果变化 → 统一刷新 widget（subscribe 链）。
+			center.subscribe(() => {
+				void updateBootstrapWidget();
+			});
+			setTimeout(() => {
+				void center.probeOperator(true);
+			}, 800);
+			pi.registerShortcut("shift+ctrl+b", {
+				description: i18nT("operator.bootstrap_title", locale.effective),
+				handler: async (shortcutCtx) => {
+					await runBootstrap(shortcutCtx as typeof ctx);
+				},
+			});
 			// 30s 周期复探（HOTFIX-3：timer 有明确生命周期——session
 			// shutdown 时清理，不积累）。
 			if (probeTimer !== null) clearInterval(probeTimer);
 			probeTimer = setInterval(() => {
-				void uiState.probeOperator().then(() => refreshHeader());
+				void center.probeOperator();
+				void center.refreshCapabilities();
 			}, 30_000);
+			void center.refreshCapabilities(true);
 			probeTimer.unref();
 			ctx.ui.setWorkingIndicator({ frames: WORKING_FRAMES, intervalMs: 80 });
 			// P1-TUI-01：中性本地化状态词——不伪造思维过程（"Thinking..."
 			// 会让人以为在看模型推理；只有真实事件阶段才显示具体阶段）。
-			ctx.ui.setWorkingMessage("正在处理…");
-			ctx.ui.setHiddenThinkingLabel("正在处理…");
-			// ROSClaw footer：模型简称 + 上下文占用 + Operator 状态。
-			// 不显示上游费用缩写/scope 噪声（费用只在 provider 有可信
-			// 价格时才值得显示——当前不显示）。
-			ctx.ui.setFooter((_tui, theme, _footerData) => {
-				const snap = uiState.snapshot();
-				const model = modelDisplay || "未选模型";
-				const parts = [model, snap.mode, `Operator ${snap.operatorState}`];
-				return new Text(theme.fg("dim", parts.join(" · ")), 1, 0);
-			});
+			ctx.ui.setWorkingMessage(i18nT("working.default", locale.effective));
+			ctx.ui.setHiddenThinkingLabel(i18nT("working.default", locale.effective));
 		});
 
 		// -- `!` bash 功能级关闭（PNA-0 即生效；PNA-9 再做 profile 化 UI 拦截） -----
@@ -103,11 +181,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			// header 模型名取真实当前 model（P0-NA-16：同一快照语义）。
 			const current = ctx.model as { name?: string; id?: string } | undefined;
 			const display = current ? String(current.name ?? current.id ?? "") : "";
-			if (display && display !== modelDisplay) {
-				modelDisplay = display;
-				uiState.noteContextChanged();
-				refreshHeader();
-			}
+			if (display) center.noteModel(display);
 			const missionId = options.active.current.missionId;
 			if (!missionId) {
 				return { systemPrompt: options.systemPrompt };
@@ -116,20 +190,18 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				options.rosclawHome,
 				missionId,
 				options.active.current.sessionId,
+				(_home, method, params) => center.call(method, params),
 			);
 			if (!fetched.stale && fetched.envelope) {
 				// P0-7：验证通过后写入精确 revision/body/mode。
 				options.active.applyEnvelope(fetched.envelope, fetched.contextLeaseId);
-				// P0-NA-16：fresh envelope 到达 → header 从 LOADING 转 FRESH。
-				uiState.noteContextChanged();
-				refreshHeader();
 			} else {
 				// HOTFIX-3（P0-4E）：context 拉取失败/过期 → 立即标记
 				// STALE + 禁动作（不再有"revision 碰巧没变就能动作"）。
 				options.active.markContextStale(fetched.note);
-				uiState.noteContextChanged();
-				refreshHeader();
 			}
+			// chrome 刷新由 active.subscribe → center → refreshChrome 统一
+			// 完成（applyEnvelope/markContextStale 都会触发）。
 			return {
 				systemPrompt: options.systemPrompt,
 				message: {
@@ -146,8 +218,12 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			buildCommandHandlers({
 				rosclawHome: options.rosclawHome,
 				active: options.active,
+				center,
+				locale,
 				registeredToolNames: () => [
 					"rosclaw_status",
+					"rosclaw_capabilities",
+					"rosclaw_compute",
 					"rosclaw_observe",
 					"rosclaw_verify",
 					"rosclaw_memory_query",
@@ -169,7 +245,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					return;
 				}
 				try {
-					const status = await bridgeCall(options.rosclawHome, "pi.worker.status", {
+					const status = await center.call("pi.worker.status", {
 						mission_id: options.active.current.missionId,
 					});
 					const orders = (status.orders ?? []) as Array<Record<string, unknown>>;
@@ -206,7 +282,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				const [, workerId, goal] = match;
 				ctx.ui.notify(`委派中（${workerId}）：${goal.slice(0, 60)}…`, "info");
 				try {
-					const response = await bridgeCall(options.rosclawHome, "pi.tools.execute", {
+					const response = await center.call("pi.tools.execute", {
 						request: {
 							schema_version: "rosclaw.pi_tool_request.v1",
 							request_id: `ptr_cmd_${Date.now()}`,
@@ -272,6 +348,27 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			// 完整性与 hash 绑定校验：卡片必须带齐 mode/risk/capability/
 			// parameters/expires_at，且服务端 display_hash 与 tool 报告的一致。
 			// （early-return 收窄——TS 不跨复合布尔收窄。）
+			// 六审 §4.4.6：完整性扩展到 ExactAction 绑定字段——capability_id/
+			// mission_id/body_id/context_revision/context_hash/
+			// action_intent_hash/exact expiry 缺任一即 fail closed。
+			const exactRaw = cardData?.exact_action_json;
+			let exactIntegrity = false;
+			if (typeof exactRaw === "string" && exactRaw !== "") {
+				try {
+					const exact = JSON.parse(exactRaw) as Record<string, unknown>;
+					exactIntegrity =
+						typeof exact.capability_id === "string" && exact.capability_id !== ""
+						&& exact.mission_id === options.active.current.missionId
+						&& typeof exact.body_id === "string" && exact.body_id !== ""
+						&& typeof exact.context_revision === "number"
+						&& typeof exact.context_hash === "string" && exact.context_hash !== ""
+						&& typeof exact.action_intent_hash === "string" && exact.action_intent_hash !== ""
+						&& typeof exact.expires_at === "string" && exact.expires_at !== ""
+						&& exact.expires_at === cardData?.expires_at;
+				} catch {
+					exactIntegrity = false;
+				}
+			}
 			if (
 				cardData === undefined
 				|| typeof cardData.title !== "string"
@@ -280,6 +377,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				|| typeof cardData.expires_at !== "string" || cardData.expires_at === ""
 				|| typeof cardData.parameters !== "object" || cardData.parameters === null
 				|| (displayHash !== "" && String(cardData.display_hash ?? "") !== displayHash)
+				|| !exactIntegrity
 			) {
 				ctx.ui.notify(
 					`授权卡不可用（${cardError || "字段缺失或 hash 不一致"}）——` +
@@ -330,6 +428,82 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			} catch (err) {
 				ctx.ui.notify(`授权卡交互失败：${(err as Error).message}`, "error");
 			}
+		});
+
+		// -- 权威 Action Result Card（五审 P0-5F）--------------------------
+		// 动作终态只由 ROSClaw runtime 渲染（结构化 outcome → 不可变卡）；
+		// 模型自然语言不得宣布/改写完成状态。条目持久化进 session（可审计）
+		// 但不进 LLM 上下文（模型看不到也改不了）。
+		pi.registerEntryRenderer<ActionResultData>(
+			"rosclaw.action_result",
+			(entry) => (entry.data ? new ActionResultCardComponent(entry.data) : undefined),
+		);
+		pi.registerEntryRenderer<{ claim: string; status: string }>(
+			"rosclaw.action_conflict",
+			(entry) =>
+				entry.data
+					? new Text(
+						`⚠ 模型叙述与内核权威结果冲突（实际：${entry.data.status}）——` +
+						`该叙述未被接受，以 ROSClaw 动作结果卡为准。`,
+						1,
+						0,
+					)
+					: undefined,
+		);
+		// 每个 outcome 只校验紧随其后的第一段助手叙述；turn 结束清除。
+		let lastOutcome: (ActionResultData & { narrativeSeen?: boolean; conflictClaim?: string }) | null = null;
+		pi.on("tool_execution_end", async (event, _ctx) => {
+			if (event.toolName !== "rosclaw_request_action") return;
+			const details = ((event.result?.details ?? {}) as Record<string, unknown>);
+			const data: ActionResultData = {
+				status: String(details.status ?? (event.isError ? "FAILED" : "UNKNOWN")),
+				capabilityId: String(details.capability_id ?? ""),
+				approvalId: details.approval_id ? String(details.approval_id) : undefined,
+				grantId: details.grant_id ? String(details.grant_id) : undefined,
+				txnId: details.txn_id ? String(details.txn_id) : undefined,
+				actionId: details.action_id ? String(details.action_id) : undefined,
+				receiptId: details.receipt_id ? String(details.receipt_id) : undefined,
+				errorCode: details.error_code ? String(details.error_code) : undefined,
+			};
+			lastOutcome = data;
+			pi.appendEntry("rosclaw.action_result", data);
+		});
+		// 冲突检测：outcome 非 COMPLETED 而助手叙述自称完成 → 可见冲突标记。
+		// pi 事件模型：tool 执行属于"tool_call turn"——turn_end 先于下一轮
+		// 的助手叙述到达，所以 outcome 要等叙述处理完才清除（不能在第一个
+		// turn_end 就清）。appendEntry 也只能在 turn_end 落（message_end
+		// 内消息 finalize 进行中，会话层会丢条目）。
+		const COMPLETION_CLAIM =
+			/(已执行|已完成|已确认|执行完毕|成功执行|successfully executed|has been executed|action completed)/i;
+		pi.on("message_end", async (event) => {
+			if (!lastOutcome || lastOutcome.narrativeSeen) return undefined;
+			const message = event.message as { role?: string; content?: unknown };
+			if (message.role !== "assistant") return undefined;
+			const raw = message.content;
+			const text = Array.isArray(raw)
+				? raw
+					.map((b) => (typeof b === "object" && b !== null ? String((b as { text?: string }).text ?? "") : ""))
+					.join(" ")
+				: String(raw ?? "");
+			if (!text.trim()) return undefined; // toolCall 消息——叙述还没到，不消费
+			const outcome = lastOutcome;
+			outcome.narrativeSeen = true;
+			if (outcome.status !== "COMPLETED" && COMPLETION_CLAIM.test(text)) {
+				outcome.conflictClaim = text.slice(0, 120);
+			}
+			return undefined;
+		});
+		pi.on("turn_end", async () => {
+			if (lastOutcome?.conflictClaim) {
+				pi.appendEntry("rosclaw.action_conflict", {
+					claim: lastOutcome.conflictClaim,
+					status: lastOutcome.status,
+				});
+			}
+			// 只有叙述已处理（或 conflict 已标记）才清除——否则留给下一个
+			// pi-turn 的助手消息（tool 执行后的最终回答在新 turn）。
+			if (lastOutcome?.narrativeSeen) lastOutcome = null;
+			return undefined;
 		});
 
 		// -- 认知事件镜像（PNA-8，规格 §24.2）：hash-only，不双写全文 ----------

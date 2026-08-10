@@ -118,6 +118,12 @@ def set_initial_pose(x: float = 0.0, y: float = 0.0, yaw: float = 0.0) -> str:
 
 
 def main() -> None:
+    # 六审 §4.4.5：第一方 SIM 工具声明严格对象边界——FastMCP 由函数
+    # 签名生成的 inputSchema 默认不含 additionalProperties:false，而
+    # 物理动作合约要求 provider 显式声明参数边界（签名即完整边界）。
+    for tool in server._tool_manager._tools.values():
+        if isinstance(tool.parameters, dict):
+            tool.parameters["additionalProperties"] = False
     server.run()
 
 

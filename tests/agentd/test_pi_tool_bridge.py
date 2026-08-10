@@ -46,18 +46,38 @@ def _request(tool: str, session: str = "pi_1", mission: str = "", **kwargs) -> P
     )
 
 
-def _issue_lease(service, mission, session: str = "pi_1") -> str:
-    """按真实路径签发 ValidatedContextLease（HOTFIX-1：不绕过 admission）。"""
-    from rosclaw.agentd.pi_bridge.context_lease import ContextLeaseStore
+async def _issue_lease(service, mission, session: str = "pi_1") -> str:
+    """按真实路径签发 ValidatedContextLease（HOTFIX-1：不绕过 admission）。
+    五审 P0-5B：context_hash 必须是当前权威 envelope 的真实 hash
+    （admission 会重算比对）——不能用占位符。"""
+    from rosclaw.agentd.pi_bridge.context import build_embodied_context
+    from rosclaw.agentd.pi_bridge.context_lease import (
+        ContextLeaseStore,
+        context_hash_of,
+    )
 
-    snapshot = service.snapshot(mission.mission_id)
+    # 七审 SIX-3/SEVEN-1：discovery 先于 hash——capabilities 在
+    # context_hash 内（第一方 kit 自动激活后目录内容取决于发现）。
+    await service._ensure_mcp_discovered()
+    envelope = build_embodied_context(service, mission.mission_id)
+    # 六审 §5.3/§5.5（migration 020）：lease 必须带真实 binding/
+    # writer/caller 字段——测试 writer 注册为 owner_pid=1/uid=1000。
+    from rosclaw.agentd.pi_bridge.session_binding import SessionBindingStore
+
+    bindings = SessionBindingStore(service._store.connection)
+    binding = bindings.binding_for_session(session)
+    writer = bindings.writer_of(mission.mission_id)
     lease = ContextLeaseStore(service._store.connection).issue(
         pi_session_id=session,
         mission_id=mission.mission_id,
-        context_revision=snapshot.context_revision,
-        context_hash="test_hash",
+        context_revision=envelope.context_revision,
+        context_hash=context_hash_of(envelope),
         body_hash=mission.body_binding.effective_body_hash,
         mode=mission.mode.value,
+        binding_id=binding.binding_id if binding else "",
+        writer_lease_id=writer.lease_id if writer else "",
+        caller_uid=1000,
+        caller_pid=1,
     )
     return lease.context_lease_id
 
@@ -185,7 +205,18 @@ def _register_sim_action_capability(service) -> None:
             source="native:agentd",
             execution_class=ExecutionClass.PHYSICAL_ACTION,
             description="确定性 SIM 验收动作（真实 SIM 执行通道产出 SIMULATED receipt）。",
-            input_schema={"type": "object", "additionalProperties": True},
+            # 六审 §4.4.5：物理动作必须声明严格对象边界——properties
+            # 覆盖既有测试用参（{}/{"a":int}/{"beep":bool}），未知参数拒绝。
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "a": {"type": "integer"},
+                    "beep": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+            },
+            # 六审 §6.2：物理动作必须声明 body scope——测试本体是 sim/ur5e。
+            required_body_types=["sim/ur5e"],
             supported_modes=["SIMULATION"],
             evidence_class=ToolEvidenceClass.SIMULATED,
             risk_tier="LOW",

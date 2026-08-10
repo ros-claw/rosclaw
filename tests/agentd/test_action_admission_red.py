@@ -70,9 +70,18 @@ def test_production_action_path_no_text_success_parsing() -> None:
     admission = (SRC / "agentd" / "pi_bridge" / "action_admission.py").read_text(
         encoding="utf-8"
     )
-    assert "events_replay" not in admission, (
+    # any-receipt 判定（receipt.received 存在即成功）必须绝迹。
+    # 精确 action_id 匹配的 receipt 验证是合法的（P0-5E receipt 合约）。
+    assert "any(" not in admission or "receipt.received" not in admission, (
         "any-receipt 判定——旧 receipt 会为新动作背书（P0-NA-13）"
     )
+    # 若使用 events_replay，必须按独立 receipt_id（或 action_id 兜底）
+    # 精确匹配——不是"Mission 内任意 receipt 存在即成功"。
+    if "events_replay" in admission:
+        assert (
+            'payload.get("receipt_id") == receipt_id' in admission
+            or 'payload.get("action_id") == action_id' in admission
+        ), "events_replay 存在但没有 receipt_id/action_id 精确匹配"
 
 
 # ---------------------------------------------------------------- 运行时红线
@@ -125,7 +134,7 @@ async def test_propose_without_request_context_rejected(tmp_path: Path) -> None:
     # 只带 mission/capability/arguments 的"宽松"调用——必须被拒。
     result = await bridge._dispatch(
         "user:local:1000",
-        1234,
+        1,  # writer owner_pid（_red_setup 用 1）——P0-5A 后调用者必须匹配
         "pi.action.propose",
         {
             "token": service.control_token,
@@ -158,7 +167,7 @@ async def test_stale_context_forced_tool_call_cannot_create_card(tmp_path: Path)
     bridge = PiBridgeServer(service, tmp_path / "run" / "pi-bridge.sock")
     result = await bridge._dispatch(
         "user:local:1000",
-        1234,
+        1,  # writer owner_pid（_red_setup 用 1）——P0-5A 后调用者必须匹配
         "pi.action.propose",
         {
             "token": service.control_token,

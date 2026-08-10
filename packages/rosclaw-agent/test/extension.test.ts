@@ -15,6 +15,9 @@ async function collectHandlers() {
 		registerCommand(name: string, options: { description?: string; handler: (args: string, ctx: unknown) => Promise<void> }) {
 			commands.set(name, options);
 		},
+		// P0-5F：内核结果卡/冲突条目的渲染器与落盘 API（mock 空实现）。
+		registerEntryRenderer() {},
+		appendEntry() {},
 	};
 	const { ActiveSessionContext } = await import("../src/session/active-context.js");
 	const { AgentSessionCoordinator } = await import("../src/session/coordinator.js");
@@ -38,7 +41,18 @@ async function collectHandlers() {
 		notify: () => undefined,
 		call,
 	});
-	const factory = createRosclawExtension({ profile: "developer", version: "0.1.0", systemPrompt: "TEST PROMPT", active, coordinator, rosclawHome: "/tmp/rh-test" });
+	const { ProductStateCenter } = await import("../src/session/state-center.js");
+	const { LocaleManager } = await import("../src/i18n/locale.js");
+	const center = new ProductStateCenter({
+		rosclawHome: "/tmp/rh-test",
+		active,
+		operatorSocket: "/tmp/rh-test/run/operatord.sock",
+		productVersion: "0.1.0",
+		call: call as never,
+		operatorCallFn: async () => ({ ok: false }),
+	});
+	const locale = new LocaleManager("/tmp/rh-test/agent");
+	const factory = createRosclawExtension({ profile: "developer", version: "0.1.0", systemPrompt: "TEST PROMPT", active, coordinator, center, locale, rosclawHome: "/tmp/rh-test" });
 	factory(pi as never);
 	return { handlers, commands };
 }

@@ -6,14 +6,17 @@
 
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { bridgeCall } from "../bridge/bridge-client.js";
 
 import type { ActiveSessionContext } from "../session/active-context.js";
+import type { ProductStateCenter } from "../session/state-center.js";
 
 export interface BridgeToolContext {
 	rosclawHome: string;
 	/** NA-FIX-1/2：动态 session 上下文（执行时读取，不捕获启动值）。 */
 	active: ActiveSessionContext;
+	/** PR-SIX-1：唯一状态中心——工具的桥调用经 center.call（UDS 失败
+	 *  原子降级 kernel/context，不允许局部报错而 Header 保持 FRESH）。 */
+	center: ProductStateCenter;
 }
 
 let requestCounter = 0;
@@ -47,7 +50,7 @@ async function executeVia(
 		idempotency_key: `idem_${state.sessionId}_${Date.now()}_${requestCounter}`,
 		actor: { engine: "pi", process_id: process.pid, uid: process.getuid?.() ?? 0 },
 	};
-	const response = await bridgeCall(ctx.rosclawHome, "pi.tools.execute", { request });
+	const response = await ctx.center.call("pi.tools.execute", { request });
 	const result = (response.result ?? {}) as { ok?: boolean; summary?: string; error_code?: string };
 	const ok = response.ok === true;
 	return {

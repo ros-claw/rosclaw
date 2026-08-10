@@ -9,7 +9,6 @@
 
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { bridgeCall } from "../bridge/bridge-client.js";
 import type { BridgeToolContext } from "./bridge-tools.js";
 
 const AWAIT_TIMEOUT_MS = 330_000;
@@ -31,10 +30,30 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 		}),
 		async execute(_id, params, signal, onUpdate, _ctx) {
 			const state = ctx.active.current;
-			if (!state.missionId) {
+			// P0-5F：所有返回路径都带结构化 status/capability——内核结果卡
+			// 只读 details，绝不解析模型/工具文本。
+			const capabilityId = String(params.capability_id ?? "");
+			// PR-SIX-1（六审 §3.3）：工具侧硬门——readiness BLOCKED 时零桥
+			// 调用、零 approval/txn/grant（此前只查 missionId，Action LOCKED
+			// 是假锁：UI 显示锁、工具照常建卡）。内核 admission 仍是最终权威。
+			const readiness = await ctx.center.actionReadiness();
+			if (readiness.state !== "READY") {
 				return {
-					content: [{ type: "text" as const, text: "REJECTED [NO_MISSION]: 未绑定 Mission" }],
-					details: { ok: false },
+					content: [
+						{
+							type: "text" as const,
+							text:
+								`REJECTED [ACTION_LOCKED]: 动作准入未就绪 ` +
+								`（${readiness.reason_codes.join("/")}）——未发起任何提案，零副作用`,
+						},
+					],
+					details: {
+						ok: false,
+						status: "REJECTED",
+						capability_id: capabilityId,
+						error_code: "ACTION_LOCKED",
+						reason_codes: readiness.reason_codes,
+					},
 					isError: true,
 				};
 			}
@@ -52,7 +71,7 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 				// 即 CONTEXT_LEASE_REQUIRED（fail closed）。
 				context_lease_id: state.contextLeaseId ?? "",
 			};
-			const proposed = await bridgeCall(ctx.rosclawHome, "pi.action.propose", {
+			const proposed = await ctx.center.call("pi.action.propose", {
 				...requestContext,
 				capability_id: String(params.capability_id),
 				arguments: params.arguments ?? {},
@@ -67,7 +86,12 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 							text: `动作提案被拒 [${String(proposed.code ?? "")}]: ${String(proposed.error ?? "")}`,
 						},
 					],
-					details: { ok: false },
+					details: {
+						ok: false,
+						status: "REJECTED",
+						capability_id: capabilityId,
+						error_code: String(proposed.code ?? "PROPOSE_REJECTED"),
+					},
 					isError: true,
 				};
 			}
@@ -102,11 +126,17 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 								text: `已中断——approval ${card.approval_id} 按取消语义处理（未执行）`,
 							},
 						],
-						details: { ok: false, approval_id: card.approval_id, cancelled: true },
+						details: {
+							ok: false,
+							status: "CANCELLED",
+							capability_id: capabilityId,
+							approval_id: card.approval_id,
+							cancelled: true,
+						},
 						isError: true,
 					};
 				}
-				const current = await bridgeCall(ctx.rosclawHome, "pi.action.status", {
+				const current = await ctx.center.call("pi.action.status", {
 					// HOTFIX-1：status 也做卡主校验——必须带 session。
 					pi_session_id: state.sessionId,
 					approval_id: card.approval_id,
@@ -123,7 +153,13 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 							text: `Operator 未在期限内决定（默认拒绝）——approval ${card.approval_id} 未执行`,
 						},
 					],
-					details: { ok: false, approval_id: card.approval_id, error_code: "APPROVAL_TIMEOUT" },
+					details: {
+						ok: false,
+						status: "DECLINED",
+						capability_id: capabilityId,
+						approval_id: card.approval_id,
+						error_code: "APPROVAL_TIMEOUT",
+					},
 					isError: true,
 				};
 			}
@@ -135,7 +171,13 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 							text: `Operator 拒绝了该动作（${status}）——未执行，无 grant`,
 						},
 					],
-					details: { ok: false, approval_id: card.approval_id, error_code: "OPERATOR_DECLINED" },
+					details: {
+						ok: false,
+						status: "DECLINED",
+						capability_id: capabilityId,
+						approval_id: card.approval_id,
+						error_code: "OPERATOR_DECLINED",
+					},
 					isError: true,
 				};
 			}
@@ -146,7 +188,7 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 			// phase 2b: 精确 grant 执行 → 结构化回执。
 			// P0-NA-10：execute 带同一请求上下文做 TOCTOU 复验——批准后
 			// revision/body/lease 任一变化都必须拒绝。
-			const executed = await bridgeCall(ctx.rosclawHome, "pi.action.execute", {
+			const executed = await ctx.center.call("pi.action.execute", {
 				...requestContext,
 				approval_id: card.approval_id,
 			});
@@ -161,8 +203,13 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 				details: {
 					ok: result.executed === true,
 					status: result.status,
+					capability_id: String(result.capability_id ?? capabilityId),
 					approval_id: card.approval_id,
 					grant_id: result.grant_id ?? null,
+					// P0-5F：完整脱敏 ID 链透传——内核结果卡的唯一数据源。
+					txn_id: result.txn_id ?? null,
+					action_id: result.action_id ?? null,
+					receipt_id: result.receipt_id ?? null,
 					terminal_receipt: result.terminal_receipt ?? false,
 					// P0-NA-13：结构化证据引用（receipt://action_id）随结果
 					// 返回——/evidence 按本回合 action 精确展示，不是摘要。

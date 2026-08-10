@@ -30,10 +30,36 @@ if TYPE_CHECKING:
 
 
 def display_hash_for(request) -> str:
-    """审批卡片的展示指纹（与 rosclawd 共用同一公式，R1 字段绑定）。"""
+    """审批卡片的展示指纹（与 rosclawd 共用同一公式，R1 字段绑定）。
+
+    P0-5C：V3 卡（带 exact_action_json）把 capability/mission/mode/
+    context_revision/normalized parameters/intent hash 一并绑进 hash。
+    """
     from rosclaw.contracts.operator.decision import compute_display_hash
 
     display = request.action_display
+    # V3 绑定字段（exact_action 存在时）。
+    v3: dict = {}
+    exact_json = getattr(request, "exact_action_json", "") or ""
+    if exact_json:
+        import json as _json
+
+        try:
+            exact = _json.loads(exact_json)
+            v3 = {
+                "capability_id": str(exact.get("capability_id", "")),
+                "mission_id": str(exact.get("mission_id", "")),
+                "mode": str(exact.get("mode", "")),
+                "context_revision": int(exact.get("context_revision", 0)),
+                "context_hash": str(exact.get("context_hash", "")),
+                "expected_effect": str(exact.get("expected_effect", "")),
+                "action_intent_hash": str(exact.get("action_intent_hash", "")),
+            }
+        except Exception as exc:  # noqa: BLE001 - 损坏的 exact_action 不静默降级
+            raise ValueError(
+                f"approval {request.request_id}: exact_action_json is corrupt "
+                "(fail closed — refusing to compute a weaker hash)"
+            ) from exc
     return compute_display_hash(
         request_id=request.request_id,
         title=display.title,
@@ -42,6 +68,7 @@ def display_hash_for(request) -> str:
         parameters=display.parameters,
         body_hash=request.effective_body_hash,
         expires_at=request.expires_at,
+        **v3,
     )
 
 
@@ -133,6 +160,19 @@ class OperatorSocketServer:
                 return {"ok": False, "error": "no pending approval card", "code": "CARD_NOT_FOUND"}
             if service.principal_for_request(card.request_id) != principal:
                 return {"ok": False, "error": "not your card", "code": "FORBIDDEN"}
+            # 六审 §4.4.6：TUI 完整性校验需要一等合约字段——
+            # exact_action_json 透出；capability_id 在 SIM 路径从
+            # exact action 取（daemon_capability_id 只在 REAL 有）。
+            exact_capability = ""
+            if card.exact_action_json:
+                import json as _json
+
+                try:
+                    exact_capability = str(
+                        _json.loads(card.exact_action_json).get("capability_id") or ""
+                    )
+                except Exception:  # noqa: BLE001 - 展示兜底，完整性由 hash 保证
+                    exact_capability = ""
             return {
                 "ok": True,
                 "approval": {
@@ -144,12 +184,13 @@ class OperatorSocketServer:
                     "parameters": card.action_display.parameters,
                     "expected_effect": card.action_display.expected_effect,
                     "failure_handling": card.action_display.failure_handling,
-                    "capability_id": getattr(card, "daemon_capability_id", "") or "",
+                    "capability_id": getattr(card, "daemon_capability_id", "") or exact_capability,
                     "body_id": card.body_id,
                     "expires_at": card.expires_at,
                     "display_hash": display_hash_for(card),
                     "mode": card.mode,
                     "daemon_proposal_id": getattr(card, "daemon_proposal_id", "") or "",
+                    "exact_action_json": card.exact_action_json,
                 },
             }
         if method == "approvals.list":

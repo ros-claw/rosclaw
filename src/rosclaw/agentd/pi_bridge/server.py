@@ -163,11 +163,181 @@ class PiBridgeServer:
                     else None
                 ),
             }
+        if method == "pi.operator.status":
+            # 六审 §7：operator 面真实状态（enrollment + 进程运行）——
+            # TUI 的单键初始化依赖它，不再要求用户另开终端。
+            from rosclaw.operatord.enrollment import IDENTITY_FILE
+
+            home = service._home
+            enrolled = (home / "operatord" / IDENTITY_FILE).exists()
+            sock = home / "run" / "operatord.sock"
+            running = False
+            if sock.exists():
+                import socket as _socket
+
+                try:
+                    probe = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+                    probe.settimeout(1.0)
+                    probe.connect(str(sock))
+                    probe.close()
+                    running = True
+                except OSError:
+                    running = False
+            return {"ok": True, "enrolled": enrolled, "running": running}
+        if method == "pi.operator.bootstrap":
+            # 六审 §7：SIM developer 的单键初始化——enroll（如需要）+
+            # 启动独立 operatord 进程（生命周期归 agentd service 管理；
+            # 决定权/签名仍在 operatord 独立进程）。REAL/SHADOW 一律拒绝。
+            mission_id = str(params.get("mission_id", ""))
+            if mission_id:
+                mission = service.get_mission(mission_id)
+                if mission is not None and mission.mode.value != "SIMULATION":
+                    return {
+                        "ok": False,
+                        "error": "operator bootstrap 仅限 SIMULATION developer——"
+                        "REAL/SHADOW 要求独立 operator readiness/presence 流程",
+                        "code": "MODE_FORBIDDEN",
+                    }
+            from rosclaw.operatord.enrollment import IDENTITY_FILE, enroll
+
+            home = service._home
+            identity_path = home / "operatord" / IDENTITY_FILE
+            if not identity_path.exists():
+                enroll(home / "operatord")
+            sock = home / "run" / "operatord.sock"
+            if not sock.exists():
+                import subprocess as _sp
+                import sys as _sys
+
+                (home / "run").mkdir(parents=True, exist_ok=True)
+
+                proc = _sp.Popen(  # noqa: S603 - 固定入口
+                    [
+                        _sys.executable, "-m", "rosclaw.entrypoint",
+                        "operatord", "start", "--no-human-presence-check",
+                    ],
+                    env={**os.environ, "ROSCLAW_HOME": str(home)},
+                    stdout=(home / "run" / "operatord.out.log").open("ab"),
+                    stderr=(home / "run" / "operatord.err.log").open("ab"),
+                )
+                # 生命周期归 service——close 时终止。
+                service._managed_operator = proc
+                deadline = asyncio.get_event_loop().time() + 20
+                while asyncio.get_event_loop().time() < deadline and not sock.exists():
+                    if proc.poll() is not None:
+                        return {
+                            "ok": False,
+                            "error": f"operatord 启动失败（exit {proc.returncode}）——"
+                            "见 run/operatord.err.log",
+                            "code": "OPERATOR_START_FAILED",
+                        }
+                    await asyncio.sleep(0.2)
+            return {"ok": sock.exists(), "enrolled": True, "running": sock.exists()}
+        if method == "pi.capabilities":
+            # 六审 §6.2.1/§6.2.6：当前 body 的可信能力面——模型不再靠猜
+            # capability ID。动作能力只列 body 兼容项；不兼容/被隔离项进
+            # excluded 并附机器原因码。
+            mission_id = str(params.get("mission_id", ""))
+            mission = service.get_mission(mission_id) if mission_id else None
+            if mission is None:
+                return {"ok": False, "error": "unknown mission", "code": "MISSION_NOT_FOUND"}
+            await service._ensure_mcp_discovered()
+            from rosclaw.agentd.tooling.body_compat import check_body_compatibility
+
+            body_id = mission.body_binding.body_id
+            # 七审 §2.2：按 execution_class 精确分桶——不再是"非
+            # PHYSICAL_ACTION 就算 observation"（COMPUTE 的 sim_reach
+            # 曾被错列为只读观测）。
+            observation: list[dict[str, Any]] = []
+            compute: list[dict[str, Any]] = []
+            actions: list[dict[str, Any]] = []
+            excluded: list[dict[str, Any]] = []
+            sim_executor_sources = set(service._sim_executors.keys())
+            for descriptor in service._tool_catalog.list():
+                cls = descriptor.execution_class.value
+                if cls == "OBSERVE":
+                    if descriptor.model_callable:
+                        observation.append(
+                            {
+                                "capability_id": descriptor.tool_id,
+                                "version": descriptor.version,
+                                "source": descriptor.source,
+                                "description": descriptor.description[:120],
+                            }
+                        )
+                    continue
+                if cls == "COMPUTE":
+                    compute.append(
+                        {
+                            "capability_id": descriptor.tool_id,
+                            "version": descriptor.version,
+                            "source": descriptor.source,
+                            "description": descriptor.description[:120],
+                            "effect_domain": "none",
+                        }
+                    )
+                    continue
+                if cls != "PHYSICAL_ACTION":
+                    continue  # CONTROL/DELEGATE 不混入能力面
+                reason = check_body_compatibility(descriptor, body_id)
+                quarantine = service._tool_catalog.quarantine_reason(descriptor.tool_id)
+                if quarantine and reason is None:
+                    reason = "CAPABILITY_QUARANTINED"
+                if mission.mode.value not in list(descriptor.supported_modes):
+                    reason = reason or "MODE_FORBIDDEN"
+                legacy_native = (
+                    descriptor.source == "native:agentd"
+                    and getattr(service._handlers, "_sim_channel", None) is not None
+                )
+                executor_state = (
+                    "READY"
+                    if descriptor.source in sim_executor_sources or legacy_native
+                    else "MISSING"
+                )
+                entry = {
+                    "capability_id": descriptor.tool_id,
+                    "version": descriptor.version,
+                    "source": descriptor.source,
+                    "risk_tier": descriptor.risk_tier,
+                    "side_effect_class": descriptor.side_effect_class.value,
+                    "description": descriptor.description[:120],
+                    # 七审 §6 PR-SEVEN-2.3：每条动作带 effect_domain/
+                    # executor_state/body_compatibility。
+                    "effect_domain": (
+                        "simulation"
+                        if mission.mode.value == "SIMULATION"
+                        else "real"
+                    ),
+                    "executor_state": executor_state,
+                    "body_compatibility": reason is None,
+                }
+                if reason is None and executor_state == "READY":
+                    actions.append(entry)
+                else:
+                    excluded.append(
+                        {
+                            **entry,
+                            "reason": reason or "EXECUTOR_FOR_BODY_UNAVAILABLE",
+                        }
+                    )
+            return {
+                "ok": True,
+                "body_id": body_id,
+                "mode": mission.mode.value,
+                "observation_capabilities": observation,
+                "compute_capabilities": compute,
+                "action_capabilities": actions,
+                "excluded": excluded,
+            }
         if method == "pi.context":
             mission_id = str(params.get("mission_id", ""))
             if service.get_mission(mission_id) is None:
                 return {"ok": False, "error": "unknown mission", "code": "MISSION_NOT_FOUND"}
             # PNA-2：完整 EmbodiedContextEnvelopeV1（TTL + 内容 hash）。
+            # 六审 §6.3：capabilities 在 context_hash 内——lazy discovery
+            # 必须先完成，否则发现前后两个 envelope 的 hash 不同
+            # （lease 签发后 propose 重建即 CONTEXT_HASH_MISMATCH）。
+            await service._ensure_mcp_discovered()
             from rosclaw.agentd.pi_bridge.context import build_embodied_context
 
             try:
@@ -180,11 +350,53 @@ class PiBridgeServer:
             response: dict[str, Any] = {"ok": True, "context": envelope.model_dump(mode="json")}
             pi_session_id = str(params.get("pi_session_id", ""))
             if pi_session_id:
+                # P0-5A：只有合法 writer（binding + writer lease + peer
+                # PID/UID 与 lease owner 匹配）才能签 action context
+                # lease——观测面（envelope）仍可读，action lease 绝不
+                # 发给冒名进程。caller_pid/caller_uid 来自 SO_PEERCRED，
+                # JSON 参数不可覆写。
+                caller_uid = int(principal.rsplit(":", 1)[-1])
+                writer = self._bindings.writer_of(mission_id)
+                is_legit_writer = (
+                    writer is not None
+                    and writer.pi_session_id == pi_session_id
+                    and writer.owner_pid == peer_pid
+                    and writer.owner_uid == caller_uid
+                )
+                if not is_legit_writer:
+                    # 不签 lease——观测照常返回，动作准入凭证拒发。
+                    response["context_lease_denied"] = "not the writer process"
+                    return response
+                # P0-5B：lease TTL = min(envelope TTL, writer lease 剩余,
+                # policy max)——不得长于 prompt 里告诉模型的有效期。
+                from datetime import UTC as _UTC
+                from datetime import datetime as _dt
+
                 from rosclaw.agentd.pi_bridge.context_lease import (
                     ContextLeaseStore,
                     context_hash_of,
                 )
 
+                envelope_ttl = max(
+                    0.0,
+                    (
+                        _dt.fromisoformat(envelope.expires_at) - _dt.now(_UTC)
+                    ).total_seconds(),
+                )
+                writer_ttl = max(
+                    0.0,
+                    (_dt.fromisoformat(writer.expires_at) - _dt.now(_UTC)).total_seconds(),
+                )
+                from rosclaw.agentd.pi_bridge.context_lease import LEASE_TTL_SEC
+
+                effective_ttl = min(envelope_ttl, writer_ttl, LEASE_TTL_SEC)
+                # 六审 §5.3：binding_id 必须是 session binding ID（此前
+                # 错写 writer.lease_id）；writer_lease_id/caller_pid
+                # 独立成字段。
+                binding = self._bindings.binding_for_session(pi_session_id)
+                if binding is None:
+                    response["context_lease_denied"] = "no active session binding"
+                    return response
                 lease = ContextLeaseStore(service._store.connection).issue(
                     pi_session_id=pi_session_id,
                     mission_id=mission_id,
@@ -192,6 +404,11 @@ class PiBridgeServer:
                     context_hash=context_hash_of(envelope),
                     body_hash=envelope.body.get("effective_body_hash", ""),
                     mode=service.get_mission(mission_id).mode.value,
+                    ttl_sec=effective_ttl,
+                    binding_id=binding.binding_id,
+                    caller_uid=caller_uid,
+                    writer_lease_id=writer.lease_id,
+                    caller_pid=peer_pid,
                 )
                 response["context_lease_id"] = lease.context_lease_id
                 response["context_lease_expires_at"] = lease.expires_at
@@ -245,6 +462,9 @@ class PiBridgeServer:
                     expected_effect=str(params.get("expected_effect", "")),
                     risk_tier=str(params.get("risk_tier", "LOW")),
                     title=str(params.get("title", "")),
+                    # P0-5A：SO_PEERCRED 真值注入——JSON 不可覆写。
+                    caller_pid=peer_pid,
+                    caller_uid=int(principal.rsplit(":", 1)[-1]),
                 )
             except Exception as exc:  # noqa: BLE001
                 return {"ok": False, "error": f"{type(exc).__name__}: {exc}",
@@ -265,11 +485,28 @@ class PiBridgeServer:
                     "code": "REQUEST_CONTEXT_REQUIRED",
                 }
             binding = self._bindings.binding_for_session(caller_session)
+            # 六审 §5.2：status 也做 caller 身份校验——同 UID 的另一个
+            # 进程知道 session ID 也不得读卡状态。writer owner 必须匹配
+            # SO_PEERCRED 的 peer PID/UID。
+            caller_uid = int(principal.rsplit(":", 1)[-1])
+            writer = (
+                self._bindings.writer_of(binding.mission_id) if binding else None
+            )
+            if (
+                binding is None
+                or writer is None
+                or writer.pi_session_id != caller_session
+                or writer.owner_pid != peer_pid
+                or writer.owner_uid != caller_uid
+            ):
+                return {
+                    "ok": False,
+                    "error": "caller is not the writer process (fail closed)",
+                    "code": "CALLER_MISMATCH",
+                }
             approval_id = str(params.get("approval_id", ""))
             stored = service._broker.get_request(approval_id)
-            if stored is not None and (
-                binding is None or binding.mission_id != stored.mission_id
-            ):
+            if stored is not None and binding.mission_id != stored.mission_id:
                 return {
                     "ok": False,
                     "error": "not your card",
@@ -306,7 +543,10 @@ class PiBridgeServer:
             )
             try:
                 result = await admission.execute(
-                    str(params.get("approval_id", "")), request=request_ctx
+                    str(params.get("approval_id", "")), request=request_ctx,
+                    # P0-5A：SO_PEERCRED 真值注入——JSON 不可覆写。
+                    caller_pid=peer_pid,
+                    caller_uid=int(principal.rsplit(":", 1)[-1]),
                 )
             except Exception as exc:  # noqa: BLE001
                 return {"ok": False, "error": f"{type(exc).__name__}: {exc}",
@@ -388,7 +628,13 @@ class PiBridgeServer:
                         "code": "INVALID_REQUEST"}
             dispatcher = PiToolDispatcher(service)
             try:
-                result = await dispatcher.execute(tool_request)
+                # 六审 §5.5.2：dispatcher 的动作路径也要 caller 身份——
+                # SO_PEERCRED 真值注入，JSON 不可覆写。
+                result = await dispatcher.execute(
+                    tool_request,
+                    caller_pid=peer_pid,
+                    caller_uid=int(principal.rsplit(":", 1)[-1]),
+                )
             except ToolBridgeError as exc:
                 return {"ok": False, "error": exc.message, "code": exc.code}
             return {"ok": result.ok, "result": result.model_dump(mode="json"),

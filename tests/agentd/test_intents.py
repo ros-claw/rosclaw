@@ -72,6 +72,14 @@ def _decision_turn(request, decision: dict) -> ModelTurnResultV1:
 
 
 def _service(tmp_path: Path, script) -> AgentService:
+    # 七审 PR-SEVEN-1：本文件测 legacy loop 的"无执行器诚实路径"——
+    # 第一方 kit 不激活（否则 UR5e executor 会改变该语义）。
+    cfg = tmp_path / "config.yaml"
+    if not cfg.exists():
+        cfg.write_text(
+            "agent:\n  enabled: true\nkits:\n  disabled: [rosclaw/ur5e-sim]\n",
+            encoding="utf-8",
+        )
     config = load_agent_config(tmp_path / "config.yaml")
     return AgentService(config, tmp_path, gateway=MockModelGateway(mock_profile(), script))
 

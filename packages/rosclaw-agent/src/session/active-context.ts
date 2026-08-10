@@ -35,6 +35,7 @@ export interface ActiveSessionState {
 
 export class ActiveSessionContext {
 	private state: ActiveSessionState;
+	private readonly listeners = new Set<() => void>();
 
 	constructor(initial: ActiveSessionState) {
 		this.state = { ...initial };
@@ -44,18 +45,31 @@ export class ActiveSessionContext {
 		return this.state;
 	}
 
+	/** PR-SIX-1：状态变化订阅——patch/replace/leaseLost/contextStale 后
+	 *  统一 fan-out（chrome 刷新不再依赖各调用点手动触发）。 */
+	subscribe(listener: () => void): () => void {
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
+	}
+
+	private notify(): void {
+		for (const listener of this.listeners) listener();
+	}
+
 	/** 原子替换（NA-FIX-2 切换事务的唯一写入点）。
 	 *  HOTFIX-3：replace 也必须重算派生字段——否则 A 的 actionsAllowed=true
 	 *  会随切换存活（commitState 设了 UNAVAILABLE 但 actionsAllowed 没变）。 */
 	replace(next: ActiveSessionState): void {
 		this.state = { ...next };
 		this.state = { ...this.state, actionsAllowed: this.computeActionsAllowed() };
+		this.notify();
 	}
 
 	patch(partial: Partial<ActiveSessionState>): void {
 		this.state = { ...this.state, ...partial };
 		// actionsAllowed 是派生字段——任何 patch 后重算，不留陈旧 true。
 		this.state = { ...this.state, actionsAllowed: this.computeActionsAllowed() };
+		this.notify();
 	}
 
 	private computeActionsAllowed(): boolean {

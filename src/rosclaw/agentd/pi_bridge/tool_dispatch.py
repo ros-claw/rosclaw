@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 _TOOL_TABLE: dict[str, str] = {
     "rosclaw_status": "read",
     "rosclaw_observe": "observe",
+    "rosclaw_compute": "compute",
     "rosclaw_verify": "read",
     "rosclaw_memory_query": "read",
     "rosclaw_fail_safe": "control",
@@ -53,8 +54,16 @@ class PiToolDispatcher:
         self._service = service
         self._bindings = SessionBindingStore(service._store.connection)
 
-    async def execute(self, request: PiToolRequestV1) -> PiToolResultV1:
+    async def execute(
+        self,
+        request: PiToolRequestV1,
+        *,
+        caller_pid: int | None = None,
+        caller_uid: int | None = None,
+    ) -> PiToolResultV1:
         conn = self._service._store.connection
+        self._caller_pid = caller_pid
+        self._caller_uid = caller_uid
         # 1. idempotency：重放直接返回首个结果（不产生重复副作用）。
         row = conn.execute(
             "SELECT response_json FROM pi_tool_idempotency WHERE idempotency_key = ?",
@@ -167,7 +176,42 @@ class PiToolDispatcher:
                     f"capability {capability_id} is {descriptor.execution_class.value}, "
                     "not OBSERVE — action-class capabilities need the approval chain",
                 )
-            if descriptor.quarantined:
+            # 六审 §6.3 旅程暴露：quarantine 判定必须用 catalog API——
+            # ToolDescriptorV2 没有 .quarantined 属性（此前 observe MCP
+            # 能力的路径从未被真实旅程走到）。
+            if service._tool_catalog.quarantine_reason(capability_id) is not None:
+                raise ToolBridgeError(
+                    "CAPABILITY_QUARANTINED", f"capability {capability_id} is quarantined"
+                )
+            output = await service._tool_registry.execute(
+                capability_id, dict(args.get("arguments", {}))
+            )
+            text = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
+            return PiToolResultV1(
+                request_id=request.request_id,
+                ok=True,
+                status="COMPLETED",
+                summary=text[:8000],
+            )
+        if name == "rosclaw_compute":
+            # 七审 §2.2/PR-SEVEN-2.2：COMPUTE 能力免审批调用（纯计算无
+            # 物理副作用）——不再被 observe 的 OBSERVE-only 拒绝。
+            capability_id = str(args.get("capability_id", ""))
+            if not capability_id:
+                raise ToolBridgeError("INVALID_ARGUMENTS", "capability_id required")
+            descriptor = service._tool_catalog.get(capability_id)
+            if descriptor is None:
+                raise ToolBridgeError(
+                    "CAPABILITY_UNKNOWN", f"capability {capability_id!r} not in catalog"
+                )
+            if descriptor.execution_class.value != "COMPUTE":
+                raise ToolBridgeError(
+                    "NOT_COMPUTABLE",
+                    f"capability {capability_id} is {descriptor.execution_class.value}, "
+                    "not COMPUTE — actions need the approval chain, observations "
+                    "use rosclaw_observe",
+                )
+            if service._tool_catalog.quarantine_reason(capability_id) is not None:
                 raise ToolBridgeError(
                     "CAPABILITY_QUARANTINED", f"capability {capability_id} is quarantined"
                 )
@@ -361,6 +405,8 @@ class PiToolDispatcher:
             expected_effect=str(args.get("expected_effect") or capability_id),
             risk_tier=str(args.get("risk_tier", "LOW")),
             title=str(args.get("title") or capability_id),
+            caller_pid=self._caller_pid,
+            caller_uid=self._caller_uid,
         )
         # 等 operator（决定只能经 operatord 到达）。
         deadline_sec = 330.0
@@ -386,7 +432,10 @@ class PiToolDispatcher:
                 approval_id=card["approval_id"],
                 error_code="OPERATOR_DECLINED",
             )
-        result = await admission.execute(card["approval_id"], request=ctx)
+        result = await admission.execute(
+            card["approval_id"], request=ctx,
+            caller_pid=self._caller_pid, caller_uid=self._caller_uid,
+        )
         return PiToolResultV1(
             request_id=request.request_id,
             ok=bool(result.get("executed")),

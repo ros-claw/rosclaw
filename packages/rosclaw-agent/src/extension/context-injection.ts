@@ -55,12 +55,15 @@ export async function fetchEmbodiedContext(
 	rosclawHome: string,
 	missionId: string,
 	piSessionId?: string,
+	// PR-SIX-1：可注入桥调用（coordinator/extension 传 center.call——
+	// UDS 失败经中心原子降级，不是局部报错）。
+	call: typeof bridgeCall = bridgeCall,
 ): Promise<ContextFetchResult> {
 	let response: Record<string, unknown>;
 	try {
 		// HOTFIX-1：带 session 拉 context——agentd 会同时签发
 		// ValidatedContextLease（action 准入凭证）并随响应返回。
-		response = await bridgeCall(rosclawHome, "pi.context", {
+		response = await call(rosclawHome, "pi.context", {
 			mission_id: missionId,
 			...(piSessionId ? { pi_session_id: piSessionId } : {}),
 		});

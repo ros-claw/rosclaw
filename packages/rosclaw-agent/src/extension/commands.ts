@@ -5,13 +5,20 @@
  */
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { bridgeCall } from "../bridge/bridge-client.js";
 import { defaultOperatorSocket, operatorCall } from "../bridge/operatord-client.js";
 import type { ActiveSessionContext } from "../session/active-context.js";
+import type { ProductStateCenter } from "../session/state-center.js";
+import type { LocaleManager } from "../i18n/locale.js";
+import { t as i18nT } from "../i18n/index.js";
 
 export interface CommandDeps {
 	rosclawHome: string;
 	active: ActiveSessionContext;
+	/** PR-SIX-1：唯一状态中心——/status 与 rosclaw_status/Header/Footer
+	 *  同一份快照（不再各自为政）。 */
+	center: ProductStateCenter;
+	/** PR-SIX-5：UI/回答语言策略（/language 读写并持久化）。 */
+	locale: LocaleManager;
 	registeredToolNames: () => string[];
 }
 
@@ -25,19 +32,24 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 		status: {
 			description: "运行时与具身状态（agentd/mission/body/mode）",
 			handler: async (_args, ctx) => {
-				const missionId = deps.active.current.missionId;
-				const status = await bridgeCall(deps.rosclawHome, "pi.status", {
-					...(missionId ? { mission_id: missionId } : {}),
-				});
-				const mission = status.mission as Record<string, unknown> | null;
-				notify(
-					ctx,
-					`agentd=${String(status.agentd ?? "?")} profile=${String(status.authorization_profile ?? "")}` +
-						(mission
-							? ` mission=${String(mission.mission_id)} [${String(mission.mode)}] ${String(mission.state)}`
-							: " (未绑定 mission)"),
-					"info",
-				);
+				try {
+					const report = await deps.center.statusReport();
+					const snap = report.snapshot;
+					const mission = report.mission;
+					notify(
+						ctx,
+						`agentd=${report.agentd || "?"} profile=${report.authorization_profile ?? ""}` +
+							(mission
+								? ` mission=${String(mission.mission_id)} [${String(mission.mode)}] ${String(mission.state)}`
+								: " (未绑定 mission)") +
+							` · context=${snap.context_state} r${snap.context_revision}` +
+							` · lease=${snap.lease_state} · operator=${snap.operator}` +
+							` · action=${snap.action_readiness.state} · seq=${snap.snapshot_seq}`,
+						"info",
+					);
+				} catch (err) {
+					notify(ctx, `agentd=UNREACHABLE（${(err as Error).message}）——不编造状态`, "error");
+				}
 			},
 		},
 		mission: {
@@ -61,7 +73,7 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 					notify(ctx, "未绑定 Mission", "warning");
 					return;
 				}
-				const response = await bridgeCall(deps.rosclawHome, "pi.context", {
+				const response = await deps.center.call("pi.context", {
 					mission_id: missionId,
 				});
 				const body = ((response.context as Record<string, unknown>)?.body ?? {}) as Record<string, unknown>;
@@ -124,7 +136,7 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 		doctor: {
 			description: "agentd/modeld/授权剖面诊断摘要",
 			handler: async (_args, ctx) => {
-				const status = await bridgeCall(deps.rosclawHome, "pi.status", {});
+				const status = await deps.center.call("pi.status", {});
 				notify(
 					ctx,
 					`agentd=${String(status.agentd ?? "?")} profile=${String(status.authorization_profile ?? "")}`,
@@ -168,7 +180,7 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 					notify(ctx, "未绑定 Mission", "warning");
 					return;
 				}
-				const result = await bridgeCall(deps.rosclawHome, "pi.tools.execute", {
+				const result = await deps.center.call("pi.tools.execute", {
 					request: {
 						schema_version: "rosclaw.pi_tool_request.v1",
 						request_id: `ptr_ev_${Date.now()}`,
@@ -190,6 +202,75 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 			description: "Memory/Practice/How 查询指引",
 			handler: async (_args, ctx) => {
 				notify(ctx, "用自然语言提问即可——模型会经 rosclaw_memory_query 带证据查询。", "info");
+			},
+		},
+		"operator-init": {
+			description: "初始化并启动本机 Operator（仅 SIMULATION developer）",
+			handler: async (_args, ctx) => {
+				const loc = deps.locale.effective;
+				try {
+					const status = await deps.center.call("pi.operator.status", {});
+					if (status.running) {
+						notify(ctx, i18nT("operator.bootstrap_done", loc), "info");
+						return;
+					}
+					const result = await deps.center.call("pi.operator.bootstrap", {
+						mission_id: deps.active.current.missionId ?? "",
+					});
+					notify(
+						ctx,
+						result.ok
+							? i18nT("operator.bootstrap_done", loc)
+							: `${i18nT("operator.bootstrap_failed", loc)}: ${String(result.error ?? "")}`,
+						result.ok ? "info" : "error",
+					);
+					await deps.center.probeOperator(true);
+				} catch (err) {
+					notify(ctx, `${i18nT("operator.bootstrap_failed", loc)}: ${(err as Error).message}`, "error");
+				}
+			},
+		},
+		language: {
+			description: "界面/回答语言：/language [中文|English|auto|lock 中文|lock English]",
+			handler: async (args, ctx) => {
+				const lm = deps.locale;
+				const arg = args.trim();
+				if (!arg) {
+					notify(
+						ctx,
+						`语言策略：UI=${lm.current.ui_locale}（生效 ${lm.effective}）· ` +
+						`回答=${lm.current.reply_language}。用法：/language 中文|English|auto|lock 中文`,
+						"info",
+					);
+					return;
+				}
+				if (arg === "auto") {
+					lm.setUiLocale("auto");
+				} else if (arg === "中文" || arg === "zh-CN") {
+					lm.setUiLocale("zh-CN");
+				} else if (arg === "English" || arg === "en-US" || arg === "英文") {
+					lm.setUiLocale("en-US");
+				} else if (arg.startsWith("lock ")) {
+					const lang = arg.slice(5).trim();
+					if (lang === "中文" || lang === "zh-CN") {
+						lm.setReplyLanguage("zh-CN");
+					} else if (lang === "English" || lang === "en-US" || lang === "英文") {
+						lm.setReplyLanguage("en-US");
+					} else if (lang === "auto" || lang === "跟随") {
+						lm.setReplyLanguage("follow-user");
+					} else {
+						notify(ctx, `未知语言：${lang}`, "warning");
+						return;
+					}
+				} else {
+					notify(ctx, `未知参数：${arg}（中文|English|auto|lock …）`, "warning");
+					return;
+				}
+				notify(
+					ctx,
+					`已更新：UI=${lm.current.ui_locale}（生效 ${lm.effective}）· 回答=${lm.current.reply_language}`,
+					"info",
+				);
 			},
 		},
 	};

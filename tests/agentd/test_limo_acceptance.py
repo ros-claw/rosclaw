@@ -37,7 +37,7 @@ async def test_shadow_real_gates_honest(tmp_path: Path) -> None:
 
     (tmp_path / "config.yaml").write_text(
         yaml.safe_dump(
-            {"agent": {"enabled": True}, "mcp_servers": [limo_sim_mcp_server_config()]}
+            {"agent": {"enabled": True}, "kits": {"disabled": ["rosclaw/ur5e-sim"]}, "mcp_servers": [limo_sim_mcp_server_config()]}
         ),
         encoding="utf-8",
     )

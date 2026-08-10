@@ -75,6 +75,11 @@ def _tool_then_answer(request) -> ModelTurnResultV1:
 
 @pytest.fixture
 def service(tmp_path: Path) -> AgentService:
+    # 七审 PR-SEVEN-1：本文件测 HTTP/API 面——禁第一方 kit（不起 MCP）。
+    (tmp_path / "config.yaml").write_text(
+        "agent:\n  enabled: true\nkits:\n  disabled: [rosclaw/ur5e-sim]\n",
+        encoding="utf-8",
+    )
     config = load_agent_config(tmp_path / "config.yaml")
     gateway = MockModelGateway(mock_profile(), [_answer] * 30)
     return AgentService(config, tmp_path, gateway=gateway)

@@ -39,6 +39,9 @@ class HandlerOutcome:
     accepted: bool | None = None  # worker verification verdict
     terminal_receipt: bool = False  # verified terminal receipt exists
     evidence_ref: str | None = None
+    #: 六审 §6.2.4：失败的具体错误码（如 EXECUTOR_FOR_BODY_UNAVAILABLE）——
+    #: admission 透传进 ExecutionOutcome，不再笼统 ACTION_FAILED。
+    error_code: str | None = None
 
 
 def _verification_summary(verification: dict) -> str:
@@ -234,6 +237,11 @@ class ServiceIntentHandlers:
                 )
             )
         approval_ttl_sec = 300.0 if self._mode == "REAL" else 600.0
+        # 六审 §4.2：admission 传入统一 created_at/expires_at 时必须
+        # 原样采用（ExactAction/Approval/ActionTxn 同一时间边界）；
+        # 仅 legacy 调用方（无 payload 时间）才本地计算。
+        unified_created_at = str(payload.get("created_at") or "")
+        unified_expires_at = str(payload.get("expires_at") or "")
         display = ActionDisplayV1(
             title=str(payload.get("title") or decision.summary or "动作请求"),
             summary=str(payload.get("summary") or decision.summary or ""),
@@ -256,8 +264,11 @@ class ServiceIntentHandlers:
             context_id=decision.context_id,
             context_revision=decision.context_revision,
             requested_tier=payload.get("tier", "EXACT_ACTION"),
-            created_at=datetime.now(UTC).isoformat(),
-            expires_at=(datetime.now(UTC) + timedelta(seconds=approval_ttl_sec)).isoformat(),
+            created_at=unified_created_at or datetime.now(UTC).isoformat(),
+            expires_at=unified_expires_at
+            or (datetime.now(UTC) + timedelta(seconds=approval_ttl_sec)).isoformat(),
+            # P0-5C：一等精确动作合约（SIM/REAL 同一字段）。
+            exact_action_json=str(payload.get("exact_action_json") or ""),
         )
         self._broker.create_request(request)
         await self._emit(
@@ -348,6 +359,39 @@ class ServiceIntentHandlers:
                     "再在动作请求中引用 grant_id。已拒绝（fail closed）。"
                 )
             )
+        channel = getattr(self, "_action_channel", None)
+        capability = str(payload.get("capability_id", "sim.hold_position"))
+        arguments = payload.get("arguments") or {}
+        # 六审 §6.2.4：SIM 路径先解析执行通道再验 grant——executor 缺失
+        # 是"派发前拒绝"（系统/配置错误），不得消费 operator 的单次授权；
+        # 只有真实派发后（含 domain 失败）才消费。
+        sim_channel = None
+        if channel is None and self._mode == "SIMULATION":
+            executor_identity = str(payload.get("executor_identity") or "")
+            executors = getattr(self, "_sim_executors", None) or {}
+            legacy = getattr(self, "_sim_channel", None)
+            if executor_identity:
+                # 合约路径（admission）：严格按身份路由——只有 native
+                # source 允许 legacy 注册通道兜底（测试/内建）。
+                sim_channel = executors.get(executor_identity)
+                if sim_channel is None and executor_identity == "native:agentd":
+                    sim_channel = legacy
+                if sim_channel is None:
+                    return HandlerOutcome(
+                        text=(
+                            f"SIM 执行通道不可用（executor={executor_identity}，"
+                            f"capability={capability}）——动作未派发、grant 未消费"
+                            "（fail closed）。"
+                        ),
+                        error_code="EXECUTOR_FOR_BODY_UNAVAILABLE",
+                    )
+            else:
+                # legacy 内部决策（非 admission、无合约身份）：注册通道或
+                # 唯一配置通道回退；多通道必须显式身份。无通道则落到下方
+                # 既有的"诚实未派发"返回。
+                sim_channel = legacy or (
+                    next(iter(executors.values())) if len(executors) == 1 else None
+                )
         try:
             # 动作意图由 broker 从已批准的卡片重算，不采信模型自报
             # （精确动作与参数一次性确认，§11.2）。
@@ -456,14 +500,11 @@ class ServiceIntentHandlers:
                 terminal_receipt=verified,
                 evidence_ref=f"receipt://{action_id}",
             )
-        channel = getattr(self, "_action_channel", None)
-        capability = str(payload.get("capability_id", "sim.hold_position"))
-        arguments = payload.get("arguments") or {}
         if channel is None:
             # PR-12：无 daemon 时，SIMULATION 可经 SimActionChannel 在 SIM
             # 身体上执行（SIMULATED receipt，永不证明 REAL）。
-            sim_channel = getattr(self, "_sim_channel", None)
-            if sim_channel is not None and self._mode == "SIMULATION":
+            # 六审 §6.2.4：通道已在 grant 验证前按 executor_identity 解析。
+            if sim_channel is not None:
                 from rosclaw.agentd.sim_executor import SimActionError
 
                 try:
@@ -480,6 +521,8 @@ class ServiceIntentHandlers:
                     "receipt.received",
                     decision.mission_id,
                     {
+                        # P0-5E：receipt 独立身份——事件同时携带两个 ID。
+                        "receipt_id": outcome.receipt_id,
                         "action_id": outcome.action_id,
                         "final_state": outcome.final_state,
                         "trust_level": "SIMULATED",
@@ -501,7 +544,8 @@ class ServiceIntentHandlers:
                         f"{effect_note}grant 已消费。"
                     ),
                     terminal_receipt=True,
-                    evidence_ref=f"receipt://{outcome.action_id}",
+                    # P0-5E：evidence_ref 绑定独立 receipt_id（不是 action_id）。
+                    evidence_ref=f"receipt://{outcome.receipt_id}",
                 )
             return HandlerOutcome(
                 text=(

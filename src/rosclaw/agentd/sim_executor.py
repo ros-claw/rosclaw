@@ -28,6 +28,10 @@ class SimActionOutcome:
     final_state: str  # COMPLETED | FAILED
     receipt: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def receipt_id(self) -> str:
+        return str(self.receipt.get("receipt_id") or "")
+
 
 class SimActionChannel:
     """对一个 SIM MCP server 的动作执行通道（每次调用独立 stdio 会话）。"""
@@ -65,7 +69,26 @@ class SimActionChannel:
                 f"sim executor {self._name} failed for {tool_name}: {type(exc).__name__}: {exc}"
             ) from exc
         action_id = new_id("act")
+        # 五审 P0-5E：receipt 是独立证据对象——独立 receipt_id，
+        # 不得与 action_id 同值（否则"receipt 存在"无法独立于
+        # "action 被派发"被验证）。
+        receipt_id = new_id("rcpt")
+        # 五审 P0-5E：domain 级失败（ok=false / driver=failed / error 字段）
+        # 不得报 COMPLETED——transport 没错 ≠ 动作成功。success predicate：
+        # 只有明确 ok=true 或无否定字段的结果才算完成。
+        domain_failed = bool(
+            result.get("ok") is False
+            or result.get("driver") == "failed"
+            or result.get("error")
+            or result.get("status") in ("failed", "error", "FAILED", "ERROR")
+        )
+        if domain_failed:
+            raise SimActionError(
+                f"sim executor {self._name} domain failure for {tool_name}: "
+                f"{json.dumps(result, ensure_ascii=False)[:300]}"
+            )
         receipt = {
+            "receipt_id": receipt_id,
             "action_id": action_id,
             "capability_id": capability_id,
             "arguments": arguments,

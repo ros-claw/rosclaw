@@ -19,6 +19,7 @@ from rosclaw.contracts.agent.task_graph import TaskGraphPatchV1, TaskGraphV1, Ta
 from rosclaw.contracts.agent.tool import ToolDescriptorV2
 from rosclaw.contracts.common import ContractModel
 from rosclaw.contracts.operator.approval import ApprovalRequestV2
+from rosclaw.contracts.operator.exact_action import ExactActionV1
 from rosclaw.contracts.operator.grant import MissionGrantV1
 from rosclaw.contracts.team.member import TeamMemberCardV1
 from rosclaw.contracts.team.role import RoleLeaseV1
@@ -49,6 +50,7 @@ ALL_CONTRACTS: dict[str, type[ContractModel]] = {
         SharedWorldDeltaV1,
         MissionGrantV1,
         ApprovalRequestV2,
+        ExactActionV1,
         ToolDescriptorV2,
         CommandSpecV1,
         CommandRequestV1,

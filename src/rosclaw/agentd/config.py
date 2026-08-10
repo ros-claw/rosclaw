@@ -109,6 +109,8 @@ def load_agent_config(path: Path | None = None) -> AgentConfig:
             "agent": agent,
             "models": models,
             "team": data.get("team", {}) or {},
+            # 七审 PR-SEVEN-1：第一方 Robot Kit 开关（disabled 列表）。
+            "kits": data.get("kits", {}) or {},
         },
     )
 

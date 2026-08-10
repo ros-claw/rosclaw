@@ -458,11 +458,27 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
             print(f"无法创建 mission：{exc}", file=sys.stderr)
             return 2
     # 起 HTTP app 仅为驱动 lifespan（operator sock + pi bridge + token 文件）。
+    # 六审 SIX-6 旅程暴露：service 的 MCP 持久客户端在 lifespan loop 上
+    # 创建——close 必须在同一个 loop 上跑（anyio cancel scope 是 task
+    # 绑定的；asyncio.run(service.close()) 换新 loop 会在退出时炸
+    # "cancel scope in a different task"，进程非零退出）。
     import uvicorn
 
     app = create_app(service)
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="error"))
-    thread = threading.Thread(target=server.run, daemon=True)
+    server_loop = asyncio.new_event_loop()
+
+    serve_done = threading.Event()
+
+    def _run_server() -> None:
+        asyncio.set_event_loop(server_loop)
+        server_loop.run_until_complete(server.serve())
+        serve_done.set()
+        # serve 返回后 loop 必须继续受驱动——service.close() 要在这个
+        # loop 上跑（MCP 客户端的 anyio cancel scope 绑定它）。
+        server_loop.run_forever()
+
+    thread = threading.Thread(target=_run_server, daemon=True)
     thread.start()
     deadline = time.time() + 5.0
     while time.time() < deadline and not (home / "run" / "pi-bridge.sock").exists():
@@ -470,7 +486,10 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     if not (home / "run" / "pi-bridge.sock").exists():
         print("内核桥未能启动——Native Agent 不可用（agentd 内核未就绪）。", file=sys.stderr)
         server.should_exit = True
-        asyncio.run(service.close())
+        try:
+            asyncio.run_coroutine_threadsafe(service.close(), server_loop).result(timeout=15)
+        finally:
+            server_loop.call_soon_threadsafe(server_loop.stop)
         return 2
     # P0-9：SHADOW/REAL 强制 ROBOT profile——用户不能经 CLI 把
     # REAL 降级为 developer（SIM 桌面用 developer）。
@@ -483,6 +502,26 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
         mission.mode.value if mission is not None else resume_mode
     )
     profile = "robot" if effective_mode is not None and effective_mode != "SIMULATION" else "developer"
+    # 六审 §7：产品 supervisor——SIM developer 且已 enrollment 但服务未
+    # 运行时，chat 直接代为启动独立 operatord（生命周期归本进程；
+    # 决定权/签名仍在 operatord）。未 enrollment 不自动办理——TUI 内
+    # 单键初始化（带安全说明）。REAL/robot 永不自动。
+    managed_operatord = None
+    if profile == "developer":
+        from rosclaw.operatord.enrollment import IDENTITY_FILE
+
+        enrolled = (home / "operatord" / IDENTITY_FILE).exists()
+        operator_sock = home / "run" / "operatord.sock"
+        if enrolled and not operator_sock.exists():
+            managed_operatord = _sp.Popen(  # noqa: S603 - 固定入口
+                [
+                    sys.executable, "-m", "rosclaw.entrypoint",
+                    "operatord", "start", "--no-human-presence-check",
+                ],
+                env=dict(os.environ, ROSCLAW_HOME=str(home)),
+                stdout=(home / "run" / "operatord.out.log").open("ab"),
+                stderr=(home / "run" / "operatord.err.log").open("ab"),
+            )
     argv = [node, entry, "--profile", profile, *resume_argv]
     if mission is not None:
         argv += ["--mission", mission.mission_id]
@@ -501,7 +540,20 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
         return 0
     finally:
         server.should_exit = True
-        asyncio.run(service.close())
+        # 六审 SIX-6：先等服务真正停下，再在同一 loop 上跑 close——
+        # 并发 close 会在 ASGI 关闭途中触发 Event-loop 级竞态。
+        serve_done.wait(timeout=10)
+        try:
+            asyncio.run_coroutine_threadsafe(service.close(), server_loop).result(timeout=15)
+        except Exception as exc:  # noqa: BLE001 - 退出路径诚实记录
+            print(f"内核关闭异常：{type(exc).__name__}: {exc}", file=sys.stderr)
+        finally:
+            server_loop.call_soon_threadsafe(server_loop.stop)
+            thread.join(timeout=5)
+        # supervisor 启动的 operatord 随 chat 退出（已运行他人启动的
+        # 不碰——managed_operatord 只在本进程启动时非空）。
+        if managed_operatord is not None:
+            managed_operatord.terminate()
 
 
 def _resume_target_mode(home: Path, args: argparse.Namespace) -> str | None:
