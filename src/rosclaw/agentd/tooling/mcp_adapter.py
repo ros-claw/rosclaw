@@ -135,6 +135,7 @@ class McpServerConfig:
     env_refs: tuple[str, ...] = ()
     observation_tools: tuple[str, ...] = ()
     action_tools: tuple[str, ...] = ()
+    compute_tools: tuple[str, ...] = ()
     supported_modes: tuple[str, ...] = ("SIMULATION",)
     required_body_types: tuple[str, ...] = ()
     #: 七审 §2.5：该 server 动作工具的效果域（sim 服务器
@@ -180,6 +181,8 @@ class McpCapabilityAdapter:
         cfg = self._config
         if tool_name in cfg.action_tools:
             return ExecutionClass.PHYSICAL_ACTION
+        if tool_name in cfg.compute_tools:
+            return ExecutionClass.COMPUTE
         if tool_name in cfg.observation_tools:
             return ExecutionClass.OBSERVE
         read_only = bool(getattr(annotations, "readOnlyHint", False)) if annotations else False

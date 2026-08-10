@@ -204,6 +204,7 @@ class AgentService:
                     env_refs=tuple(str(r) for r in s.get("env_refs", []) or []),
                     observation_tools=tuple(s.get("observation_tools", []) or ()),
                     action_tools=tuple(s.get("action_tools", []) or ()),
+                    compute_tools=tuple(s.get("compute_tools", []) or ()),
                     supported_modes=tuple(s.get("supported_modes", ("SIMULATION",)) or ()),
                     required_body_types=tuple(s.get("required_body_types", []) or ()),
                     effect_domain=str(s.get("effect_domain", "") or ""),

@@ -31,6 +31,7 @@ class RobotKitV1:
     executor_identity: str
     action_tools: tuple[str, ...]
     observation_tools: tuple[str, ...]
+    compute_tools: tuple[str, ...] = ()
     approval_policy: dict[str, str] = field(default_factory=dict)
 
 
@@ -53,6 +54,7 @@ def load_first_party_kits() -> list[RobotKitV1]:
                 executor_identity=str(executor["identity"]),
                 action_tools=tuple(capabilities.get("action") or ()),
                 observation_tools=tuple(capabilities.get("observation") or ()),
+                compute_tools=tuple(capabilities.get("compute") or ()),
                 approval_policy=dict(raw.get("approval_policy") or {}),
             )
         )
@@ -80,6 +82,7 @@ def kit_server_spec(kit: RobotKitV1) -> dict[str, Any]:
         "required_body_types": [kit.body_instance_template],
         "observation_tools": list(kit.observation_tools),
         "action_tools": list(kit.action_tools),
+        "compute_tools": list(kit.compute_tools),
         "sim_executor": True,
         # 七审 §2.5：第一方 SIM kit 的动作只改仿真状态——POLICY_AUTO
         # 的效果域依据。

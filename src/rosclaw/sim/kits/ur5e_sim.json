@@ -24,7 +24,8 @@
   },
   "health_probes": ["catalog_discovery", "executor_roundtrip", "state_reset"],
   "capabilities": {
-    "observation": ["ur5e.get_joint_state", "ur5e.get_end_effector_pose"],
-    "action": ["ur5e.move_joints", "ur5e.move_to_pose", "ur5e.stop"]
+    "observation": ["ur5e.get_joint_state", "ur5e.get_end_effector_pose", "ur5e.get_cartesian_trace"],
+    "action": ["ur5e.move_joints", "ur5e.move_to_pose", "ur5e.stop", "ur5e.execute_cartesian_path", "ur5e.reset_simulation"],
+    "compute": ["ur5e.plan_cartesian_path", "ur5e.verify_drawing"]
   }
 }
