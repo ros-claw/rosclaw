@@ -51,7 +51,7 @@ test("Robot-first 命令已注册并放行", async () => {
 		locale: { effective: "zh-CN", current: { ui_locale: "auto", reply_language: "follow-user" } },
 	} as never;
 	const handlers = buildCommandHandlers(deps);
-	for (const name of ["robot", "robots", "capabilities", "doctor"]) {
+	for (const name of ["robot", "robots", "capabilities", "doctor", "tokens"]) {
 		assert.ok(handlers[name], `缺 /${name} handler`);
 		const guard = guardInput(`/${name}`, "developer");
 		assert.equal(guard.action, "continue", `/${name} 被 InputGuard 拦截`);
