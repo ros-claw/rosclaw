@@ -58,6 +58,15 @@ class TestJourneySourceHygiene:
 
 
 class TestThreeJourneysExist:
+    def test_journey_class_keeps_slow_mark(self) -> None:
+        """journey 类必须带 @pytest.mark.slow——否则 Full Regression
+        （无 .venv 的 uv --system 环境）会收进旅程并全线失败
+        （PR-SEVEN-7 首次 CI 实测回归：装饰器被重构留在 helper 上）。"""
+        source = JOURNEY.read_text(encoding="utf-8")
+        assert "@pytest.mark.slow\nclass TestProductJourney" in source, (
+            "@pytest.mark.slow 不在 TestProductJourney 类上"
+        )
+
     def test_journey_b_ask_every_time_exists(self) -> None:
         source = JOURNEY.read_text(encoding="utf-8")
         assert "def test_journey_b_ask_every_time" in source, (

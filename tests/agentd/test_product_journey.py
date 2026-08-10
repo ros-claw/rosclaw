@@ -682,7 +682,6 @@ class PtySession:
                 self.proc.kill()
 
 
-@pytest.mark.slow
 def _prepare_installed_chat(
     tmp_path: Path, fake: FakeModelServer, prefix: Path, *, sim_policy: str | None = None
 ) -> tuple[Path, dict[str, str], Path]:
@@ -748,6 +747,7 @@ def _prepare_installed_chat(
     return home, env, rosclaw
 
 
+@pytest.mark.slow
 class TestProductJourney:
     def test_full_journey_pty(self, tmp_path: Path) -> None:
         fake = FakeModelServer(log_path=tmp_path / "fake-requests.jsonl")
