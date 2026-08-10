@@ -119,8 +119,19 @@ class OperatorBroker:
             ).fetchall()
         return [ApprovalRequestV2(**json.loads(r["request_json"])) for r in rows]
 
-    def decide(self, request_id: str, *, principal: str, approve: bool) -> MissionGrantV1 | None:
-        """Human decision. Approval mints a grant; denial is terminal."""
+    def decide(
+        self,
+        request_id: str,
+        *,
+        principal: str,
+        approve: bool,
+        decided_by: str | None = None,
+    ) -> MissionGrantV1 | None:
+        """Human decision. Approval mints a grant; denial is terminal.
+
+        七审 §2.5：decided_by 可与 grant principal 分离——POLICY_AUTO
+        的 grant 仍发给 mission owner（principal），decided_by 记录
+        政策权威（审计链）。"""
         row = self._conn.execute(
             "SELECT request_json, status FROM operator_requests WHERE request_id = ?",
             (request_id,),
@@ -140,7 +151,7 @@ class OperatorBroker:
         self._conn.execute(
             "UPDATE operator_requests SET status = ?, decided_by = ?, decided_at = ? "
             "WHERE request_id = ?",
-            (status, principal, _utcnow(), request_id),
+            (status, decided_by or principal, _utcnow(), request_id),
         )
         self._event(
             f"rosclaw.operator.approval.{status.lower()}.v1",

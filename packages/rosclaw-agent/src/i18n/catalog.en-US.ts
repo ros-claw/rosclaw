@@ -5,7 +5,7 @@ import type { CatalogKey } from "./catalog.zh-CN.js";
 
 export const CATALOG_EN: Record<CatalogKey, string> = {
 	"chrome.mission": "Mission",
-	"chrome.body": "Body",
+	"chrome.body": "Robot",
 	"chrome.kernel": "Kernel",
 	"chrome.context": "Context",
 	"chrome.operator": "Operator",
@@ -43,4 +43,17 @@ export const CATALOG_EN: Record<CatalogKey, string> = {
 	"operator.bootstrap_done": "Operator initialized",
 	"operator.bootstrap_failed": "Operator initialization failed",
 	"language.current": "Current language policy",
+	"robot.current": "Current robot",
+	"robot.kit_broken": "Robot kit incomplete",
+	"robot.repair_hint": "One-key repair",
+	"robot.repair_done": "Repair completed",
+	"robot.repair_failed": "Repair failed",
+	"robot.use_saved": "Default robot switched (takes effect after restarting rosclaw chat)",
+	"robot.use_refused": "Cannot switch",
+	"robot.none_available": "No robot kit available",
+	"capabilities.summary": "Capabilities",
+	"capabilities.excluded": "excluded",
+	"doctor.task_ready": "Task ready",
+	"doctor.task_missing": "Task missing capabilities",
+	"doctor.remediation": "Remediation",
 };

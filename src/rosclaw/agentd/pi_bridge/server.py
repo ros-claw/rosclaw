@@ -148,10 +148,32 @@ class PiBridgeServer:
         if method == "pi.status":
             mission_id = str(params.get("mission_id", ""))
             mission = service.get_mission(mission_id) if mission_id else None
+            # 七审 §2.5：SIM 审批策略透出（readiness/UI 不再把
+            # OPERATOR_OFFLINE 当成 auto SIM 的 blocker）。
+            import json as _json
+
+            sim_policy = "auto"
+            safety_file = service._home / "agent" / "safety.json"
+            if safety_file.exists():
+                try:
+                    sim_policy = str(
+                        _json.loads(safety_file.read_text(encoding="utf-8")).get(
+                            "sim_policy", "auto"
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    sim_policy = "auto"
+            # 七审 PR-SEVEN-5：机器人友好名 + kit 摘要——UI 默认显示
+            # display_name，不再只显示内部 body_id。
+            kit_status = await service.robot_kit_status()
             return {
                 "ok": True,
                 "agentd": "READY",
                 "authorization_profile": service.authorization_profile(),
+                "sim_policy": sim_policy,
+                "body_id": service._body_id,
+                "body_display": kit_status.get("display_name") or service._body_id,
+                "robot_kit": kit_status,
                 "mission": (
                     {
                         "mission_id": mission.mission_id,
@@ -163,6 +185,39 @@ class PiBridgeServer:
                     else None
                 ),
             }
+        if method == "pi.safety.get":
+            import json as _json
+
+            safety_file = service._home / "agent" / "safety.json"
+            sim_policy = "auto"
+            if safety_file.exists():
+                try:
+                    sim_policy = str(
+                        _json.loads(safety_file.read_text(encoding="utf-8")).get(
+                            "sim_policy", "auto"
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    sim_policy = "auto"
+            return {"ok": True, "sim_policy": sim_policy}
+        if method == "pi.safety.set":
+            import json as _json
+
+            policy = str(params.get("sim_policy", ""))
+            if policy not in ("auto", "ask"):
+                return {"ok": False, "error": "sim_policy must be auto|ask",
+                        "code": "INVALID_ARGUMENT"}
+            safety_file = service._home / "agent" / "safety.json"
+            safety_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp = safety_file.with_suffix(".tmp")
+            tmp.write_text(
+                _json.dumps({"sim_policy": policy}, indent=1), encoding="utf-8"
+            )
+            import os as _os
+
+            _os.chmod(tmp, 0o600)
+            tmp.replace(safety_file)
+            return {"ok": True, "sim_policy": policy}
         if method == "pi.operator.status":
             # 六审 §7：operator 面真实状态（enrollment + 进程运行）——
             # TUI 的单键初始化依赖它，不再要求用户另开终端。
@@ -188,16 +243,36 @@ class PiBridgeServer:
             # 六审 §7：SIM developer 的单键初始化——enroll（如需要）+
             # 启动独立 operatord 进程（生命周期归 agentd service 管理；
             # 决定权/签名仍在 operatord 独立进程）。REAL/SHADOW 一律拒绝。
+            # 七审 §6 PR-SEVEN-6：强制有效 mission + developer 剖面 +
+            # SIMULATION mode——空/未知 mission 一律拒绝（否则可能启动
+            # 带 --no-human-presence-check 的 operatord 而无 scope 约束）。
             mission_id = str(params.get("mission_id", ""))
-            if mission_id:
-                mission = service.get_mission(mission_id)
-                if mission is not None and mission.mode.value != "SIMULATION":
-                    return {
-                        "ok": False,
-                        "error": "operator bootstrap 仅限 SIMULATION developer——"
-                        "REAL/SHADOW 要求独立 operator readiness/presence 流程",
-                        "code": "MODE_FORBIDDEN",
-                    }
+            if not mission_id:
+                return {
+                    "ok": False,
+                    "error": "mission_id required for operator bootstrap (fail closed)",
+                    "code": "MISSION_REQUIRED",
+                }
+            mission = service.get_mission(mission_id)
+            if mission is None:
+                return {
+                    "ok": False,
+                    "error": f"unknown mission {mission_id!r}",
+                    "code": "MISSION_NOT_FOUND",
+                }
+            if mission.mode.value != "SIMULATION":
+                return {
+                    "ok": False,
+                    "error": "operator bootstrap 仅限 SIMULATION developer——"
+                    "REAL/SHADOW 要求独立 operator readiness/presence 流程",
+                    "code": "MODE_FORBIDDEN",
+                }
+            if service.authorization_profile() != "DEV_SIM_ONLY":
+                return {
+                    "ok": False,
+                    "error": "operator bootstrap 仅限 developer profile",
+                    "code": "PROFILE_FORBIDDEN",
+                }
             from rosclaw.operatord.enrollment import IDENTITY_FILE, enroll
 
             home = service._home
@@ -233,6 +308,21 @@ class PiBridgeServer:
                         }
                     await asyncio.sleep(0.2)
             return {"ok": sock.exists(), "enrolled": True, "running": sock.exists()}
+        if method == "pi.robot.list":
+            # 七审 PR-SEVEN-5：第一方 kit 清单（/robots）。
+            return await service.robot_list()
+        if method == "pi.robot.resolve":
+            # 七审 PR-SEVEN-5：自然语言 Robot Resolver（唯一候选自动选）。
+            return service.robot_resolve(str(params.get("query", "")))
+        if method == "pi.robot.repair":
+            # 七审 PR-SEVEN-5：一键修复（幂等；不触碰 REAL 授权）。
+            return await service.robot_repair(str(params.get("kit_id", "")))
+        if method == "pi.robot.use":
+            # 七审 PR-SEVEN-5：切换活跃机器人（无 kit 的 body 一律拒绝）。
+            return await service.robot_use(str(params.get("body_id", "")))
+        if method == "pi.doctor.task":
+            # 七审 PR-SEVEN-5：task readiness（/doctor task <goal>）。
+            return await service.doctor_task(str(params.get("goal", "")))
         if method == "pi.capabilities":
             # 六审 §6.2.1/§6.2.6：当前 body 的可信能力面——模型不再靠猜
             # capability ID。动作能力只列 body 兼容项；不兼容/被隔离项进

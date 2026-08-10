@@ -61,6 +61,11 @@
       "$ref": "#/$defs/ToolSideEffectClass",
       "default": "NONE"
     },
+    "effect_domain": {
+      "default": "",
+      "title": "Effect Domain",
+      "type": "string"
+    },
     "description": {
       "default": "",
       "title": "Description",

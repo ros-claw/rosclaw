@@ -135,8 +135,12 @@ class McpServerConfig:
     env_refs: tuple[str, ...] = ()
     observation_tools: tuple[str, ...] = ()
     action_tools: tuple[str, ...] = ()
+    compute_tools: tuple[str, ...] = ()
     supported_modes: tuple[str, ...] = ("SIMULATION",)
     required_body_types: tuple[str, ...] = ()
+    #: 七审 §2.5：该 server 动作工具的效果域（sim 服务器
+    #: simulation_state_only；缺省 fail closed 不自动批准）。
+    effect_domain: str = ""
     timeout_ms: int = 5000
 
     def spawn_env(self) -> dict[str, str]:
@@ -177,6 +181,8 @@ class McpCapabilityAdapter:
         cfg = self._config
         if tool_name in cfg.action_tools:
             return ExecutionClass.PHYSICAL_ACTION
+        if tool_name in cfg.compute_tools:
+            return ExecutionClass.COMPUTE
         if tool_name in cfg.observation_tools:
             return ExecutionClass.OBSERVE
         read_only = bool(getattr(annotations, "readOnlyHint", False)) if annotations else False
@@ -243,6 +249,7 @@ class McpCapabilityAdapter:
                 input_schema=dict(tool.inputSchema or {}),
                 supported_modes=list(cfg.supported_modes),
                 required_body_types=list(cfg.required_body_types),
+                effect_domain=cfg.effect_domain if physical else "",
                 freshness_ms=500 if not physical else None,
                 timeout_ms=cfg.timeout_ms,
                 evidence_class=ToolEvidenceClass.MEASURED,

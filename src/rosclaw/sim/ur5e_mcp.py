@@ -38,7 +38,280 @@ _state = {
     "pose": {"x": 0.30, "y": 0.20, "z": 0.40, "roll": 0.0, "pitch": 3.1416, "yaw": 0.0},
     "moving": False,
     "last_motion": None,
+    # 七审 PR-SEVEN-4：轨迹级状态——时间序列 trace + 计划缓存。
+    "trace": [],
+    "plans": {},
 }
+
+# 七审 §6 PR-SEVEN-4.9：本产品面是确定性运动学沙盒——不暗示
+# Gazebo/MoveIt 物理仿真。
+SIM_KIND = "kinematic-sandbox"
+
+
+def _canonical_point(point: dict) -> dict:
+    return {
+        "x": round(float(point["x"]), 6),
+        "y": round(float(point["y"]), 6),
+        "z": round(float(point["z"]), 6),
+    }
+
+
+def _trajectory_hash(points: list[dict]) -> str:
+    import hashlib
+
+    canonical = json.dumps([_canonical_point(p) for p in points], separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _workspace_check(point: dict) -> None:
+    radius = math.hypot(point["x"], point["y"])
+    r_lo, r_hi = _SAFE_RADIUS
+    z_lo, z_hi = _SAFE_Z
+    if not (r_lo <= radius <= r_hi):
+        raise ValueError(
+            f"point ({point['x']:.3f},{point['y']:.3f}) radius {radius:.3f}m "
+            f"outside safe workspace [{r_lo}, {r_hi}]"
+        )
+    if not (z_lo <= point["z"] <= z_hi):
+        raise ValueError(f"point z={point['z']}m outside safe window [{z_lo}, {z_hi}]")
+
+
+@server.tool(
+    name="ur5e.plan_cartesian_path",
+    description="规划笛卡尔轨迹（COMPUTE，无副作用）：五角星等平面图形"
+    "生成顶点+插值+canonical hash；全部点经安全工作空间校验。",
+    annotations={"readOnlyHint": True},
+)
+def plan_cartesian_path(
+    shape: str,
+    center_x: float,
+    center_y: float,
+    z: float,
+    outer_radius: float,
+    max_segment_m: float = 0.02,
+) -> str:
+    if shape != "star5":
+        raise ValueError(f"unsupported shape {shape!r} (supported: star5)")
+    if not (0.02 <= outer_radius <= 0.35):
+        raise ValueError("outer_radius out of range [0.02, 0.35]")
+    if not (0.005 <= max_segment_m <= 0.1):
+        raise ValueError("max_segment_m out of range [0.005, 0.1]")
+    # 五角星轮廓：5 外顶点 + 5 内顶点每 36° 交替，回到起点。
+    inner_radius = outer_radius * 0.381966
+    waypoints: list[dict] = []
+    for k in range(10):
+        angle = math.radians(90 + k * 36)
+        radius = outer_radius if k % 2 == 0 else inner_radius
+        waypoints.append(
+            _canonical_point(
+                {
+                    "x": center_x + radius * math.cos(angle),
+                    "y": center_y + radius * math.sin(angle),
+                    "z": z,
+                }
+            )
+        )
+    waypoints.append(dict(waypoints[0]))  # 闭合
+    # 全部点经安全工作空间校验（规划即拒越界）。
+    for point in waypoints:
+        _workspace_check(point)
+    # 按最大线段插值。
+    points: list[dict] = [waypoints[0]]
+    for a, b in zip(waypoints, waypoints[1:], strict=False):
+        seg = math.dist((a["x"], a["y"], a["z"]), (b["x"], b["y"], b["z"]))
+        steps = max(1, math.ceil(seg / max_segment_m))
+        for i in range(1, steps + 1):
+            ratio = i / steps
+            points.append(
+                _canonical_point(
+                    {
+                        "x": a["x"] + (b["x"] - a["x"]) * ratio,
+                        "y": a["y"] + (b["y"] - a["y"]) * ratio,
+                        "z": a["z"] + (b["z"] - a["z"]) * ratio,
+                    }
+                )
+            )
+    trajectory = {
+        "shape": shape,
+        "waypoints": waypoints,
+        "points": points,
+        "max_segment_m": max_segment_m,
+        "hash": _trajectory_hash(points),
+    }
+    _state["plans"][trajectory["hash"]] = trajectory
+    return json.dumps({"ok": True, "sim_kind": SIM_KIND, "trajectory": trajectory})
+
+
+@server.tool(
+    name="ur5e.execute_cartesian_path",
+    description="执行整条笛卡尔轨迹（物理动作；SIM 下为仿真执行）——"
+    "trajectory hash 复验不符即拒；产出时间序列 trace。",
+    annotations={"readOnlyHint": False, "destructiveHint": False},
+)
+def execute_cartesian_path(trajectory: dict) -> str:
+    points = trajectory.get("points") if isinstance(trajectory, dict) else None
+    if not points or not isinstance(points, list):
+        raise ValueError("trajectory.points required")
+    claimed = str(trajectory.get("hash", ""))
+    actual = _trajectory_hash(points)
+    if not claimed or claimed != actual:
+        raise ValueError(
+            f"trajectory hash mismatch: claimed {claimed[:16]} != actual {actual[:16]} "
+            "— refuse to execute a tampered trajectory (fail closed)"
+        )
+    for point in points:
+        _workspace_check(point)
+    # 确定性执行：时间序列 trace（dt=50ms 每插值点）。
+    trace = []
+    for i, point in enumerate(points):
+        trace.append({"t": round(i * 0.05, 3), **_canonical_point(point)})
+    _state["trace"] = trace
+    last = points[-1]
+    _state["pose"] = {
+        "x": last["x"], "y": last["y"], "z": last["z"],
+        "roll": 0.0, "pitch": 3.1416, "yaw": 0.0,
+    }
+    _state["last_motion"] = {
+        "kind": "execute_cartesian_path",
+        "trajectory_hash": actual,
+        "points": len(points),
+        "executed_at": _ts(),
+    }
+    return json.dumps(
+        {
+            "ok": True,
+            "driver": "completed",
+            "evidence_domain": "simulation",
+            "sim_kind": SIM_KIND,
+            "trajectory_hash": actual,
+            "points_executed": len(points),
+            "executed_at": _ts(),
+        },
+        ensure_ascii=False,
+    )
+
+
+def _trace_svg(trace: list[dict]) -> str:
+    """trace → 简易 SVG（x/y 投影；证据用，不是渲染品）。"""
+    if not trace:
+        return ""
+    xs = [p["x"] for p in trace]
+    ys = [p["y"] for p in trace]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    span = max(max_x - min_x, max_y - min_y, 1e-6)
+
+    def _px(p: dict) -> tuple[float, float]:
+        return (
+            10 + 280 * (p["x"] - min_x) / span,
+            290 - 280 * (p["y"] - min_y) / span,
+        )
+
+    points_attr = " ".join(f"{_px(p)[0]:.1f},{_px(p)[1]:.1f}" for p in trace)
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300">'
+        f'<polyline points="{points_attr}" fill="none" stroke="black" stroke-width="1.5"/>'
+        "</svg>"
+    )
+
+
+@server.tool(
+    name="ur5e.get_cartesian_trace",
+    description="读取最近执行的笛卡尔轨迹 trace（时间序列 + hash + SVG，"
+    "SIM 观测）。",
+    annotations={"readOnlyHint": True},
+)
+def get_cartesian_trace() -> str:
+    trace = list(_state["trace"])
+    return json.dumps(
+        {
+            "ok": True,
+            "evidence_domain": "simulation",
+            "sim_kind": SIM_KIND,
+            "trace": {
+                "trajectory_hash": _trajectory_hash(trace) if trace else "",
+                "points": trace,
+                "svg": _trace_svg(trace),
+            },
+            "observed_at": _ts(),
+        },
+        ensure_ascii=False,
+    )
+
+
+@server.tool(
+    name="ur5e.verify_drawing",
+    description="后验几何验证（COMPUTE）：trace 对目标轨迹的端点误差/"
+    "RMSE/最大误差/闭合误差——全部过阈值才 PASS。",
+    annotations={"readOnlyHint": True},
+)
+def verify_drawing(expected_trajectory_hash: str) -> str:
+    expected = _state["plans"].get(expected_trajectory_hash)
+    if expected is None:
+        raise ValueError(f"unknown trajectory hash {expected_trajectory_hash[:16]}")
+    trace = list(_state["trace"])
+    expected_points = expected["points"]
+    if len(trace) != len(expected_points):
+        verdict = {
+            "verdict": "FAIL",
+            "reason": f"trace length {len(trace)} != expected {len(expected_points)}",
+        }
+        return json.dumps({"ok": True, "verification": verdict})
+    errors = [
+        math.dist(
+            (t["x"], t["y"], t["z"]), (e["x"], e["y"], e["z"])
+        )
+        for t, e in zip(trace, expected_points, strict=True)
+    ]
+    endpoint_error = errors[-1] if errors else 0.0
+    rmse = math.sqrt(sum(e * e for e in errors) / max(1, len(errors)))
+    max_error = max(errors, default=0.0)
+    closure_error = (
+        math.dist(
+            (trace[0]["x"], trace[0]["y"], trace[0]["z"]),
+            (trace[-1]["x"], trace[-1]["y"], trace[-1]["z"]),
+        )
+        if trace
+        else 0.0
+    )
+    threshold = 0.005  # 5mm
+    passed = (
+        endpoint_error < threshold
+        and rmse < threshold
+        and max_error < threshold
+        and closure_error < threshold
+    )
+    verdict = {
+        "verdict": "PASS" if passed else "FAIL",
+        "endpoint_error_m": endpoint_error,
+        "rmse_m": rmse,
+        "max_error_m": max_error,
+        "closure_error_m": closure_error,
+        "threshold_m": threshold,
+        "trajectory_hash": expected_trajectory_hash,
+    }
+    return json.dumps({"ok": True, "verification": verdict})
+
+
+@server.tool(
+    name="ur5e.reset_simulation",
+    description="重置仿真状态（CONTROL——按策略经授权链或维护通道）。",
+    annotations={"readOnlyHint": False, "destructiveHint": False},
+)
+def reset_simulation() -> str:
+    _state["trace"] = []
+    _state["plans"] = {}
+    _state["moving"] = False
+    return json.dumps(
+        {
+            "ok": True,
+            "driver": "completed",
+            "evidence_domain": "simulation",
+            "reset": True,
+            "executed_at": _ts(),
+        },
+        ensure_ascii=False,
+    )
 
 
 def _ts() -> str:

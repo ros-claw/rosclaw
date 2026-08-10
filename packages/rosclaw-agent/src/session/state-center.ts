@@ -49,11 +49,29 @@ export interface KernelSnapshotV1 {
 	mode: string;
 	mission_id?: string;
 	body_id?: string;
+	/** 七审 PR-SEVEN-5：机器人友好名（kit display_name）——UI 默认
+	 *  显示它而不是内部 body_id。 */
+	body_display?: string;
+	/** 七审 PR-SEVEN-5：Robot Kit 摘要（BROKEN 时 UI 给一键修复）。 */
+	robot_kit?: RobotKitSummary;
 	context_state: ContextState;
 	context_revision: number;
 	lease_state: LeaseState;
 	operator: OperatorState;
 	action_readiness: ActionReadinessV1;
+}
+
+export interface RobotKitSummary {
+	state: string;
+	reason?: string;
+	remediation?: {
+		kind: string;
+		kit_id: string;
+		command?: string;
+		idempotent?: boolean;
+		cancellable?: boolean;
+		real_authorization?: boolean;
+	} | null;
 }
 
 export interface StateCenterDeps {
@@ -77,6 +95,12 @@ export class ProductStateCenter {
 	private modelDisplay = "";
 	private capabilityBlocker: string | null = null;
 	private lastCapabilityProbe = 0;
+	private lastRobotProbe = 0;
+	/** 七审 §2.5：SIM 审批策略（auto=安全仿真自动执行——operator
+	 *  离线不是 blocker；ask=每次人工确认）。 */
+	private simPolicy: "auto" | "ask" = "auto";
+	private bodyDisplay = "";
+	private robotKit: RobotKitSummary | null = null;
 	private readonly listeners = new Set<Listener>();
 	private readonly callFn: typeof bridgeCall;
 	private readonly operatorCallFn: typeof operatorCall;
@@ -122,6 +146,8 @@ export class ProductStateCenter {
 			mode: state.mode,
 			mission_id: state.missionId,
 			body_id: state.bodyId,
+			body_display: this.bodyDisplay || undefined,
+			robot_kit: this.robotKit ?? undefined,
 			context_state: state.missionId ? state.contextState : "UNAVAILABLE",
 			context_revision: state.contextRevision,
 			lease_state: state.leaseState,
@@ -144,7 +170,12 @@ export class ProductStateCenter {
 		if (state.missionId && this.capabilityBlocker) {
 			codes.push(this.capabilityBlocker);
 		}
-		if (this.operatorState === "OFFLINE") codes.push("OPERATOR_OFFLINE");
+		if (
+			this.operatorState === "OFFLINE"
+			&& !(this.simPolicy === "auto" && state.mode === "SIMULATION")
+		) {
+			codes.push("OPERATOR_OFFLINE");
+		}
 		return {
 			state: codes.length === 0 ? "READY" : "BLOCKED",
 			...(codes.length ? { stage: "PROPOSE" as const } : {}),
@@ -157,6 +188,10 @@ export class ProductStateCenter {
 	async actionReadiness(): Promise<ActionReadinessV1> {
 		await this.probeOperator(true);
 		return this.computeReadiness();
+	}
+
+	get isSimAutoPolicy(): boolean {
+		return this.simPolicy === "auto";
 	}
 
 	noteModel(display: string): void {
@@ -193,7 +228,7 @@ export class ProductStateCenter {
 	/** operatord readiness 真实探测（30s 缓存；force 用于动作门前）。 */
 	async probeOperator(force = false): Promise<OperatorState> {
 		const now = Date.now();
-		if (!force && now - this.lastOperatorProbe < 30_000) return this.operatorState;
+		if (!force && now - this.lastOperatorProbe < 60_000) return this.operatorState;
 		this.lastOperatorProbe = now;
 		let next: OperatorState;
 		try {
@@ -235,6 +270,36 @@ export class ProductStateCenter {
 		}
 	}
 
+	/** 七审 PR-SEVEN-5：机器人信息探测（友好名 + kit 状态）——60s
+	 *  缓存，变化才 fan-out。 */
+	async refreshRobotInfo(force = false): Promise<void> {
+		const now = Date.now();
+		if (!force && now - this.lastRobotProbe < 60_000) return;
+		this.lastRobotProbe = now;
+		try {
+			const status = await this.call("pi.status", {});
+			if (!status.ok) return;
+			// 七审 PR-SEVEN-7 Journey B：ask 策略必须在启动探测即生效
+			// （此前 simPolicy 只在 /status 的 statusReport 里刷新——ask
+			// 会话的 operator widget 永远不出现）。
+			const policy = String(status.sim_policy ?? "");
+			if ((policy === "auto" || policy === "ask") && policy !== this.simPolicy) {
+				this.simPolicy = policy;
+				this.changed();
+			}
+			const nextDisplay = String(status.body_display ?? "");
+			const nextKit = (status.robot_kit as RobotKitSummary | undefined) ?? null;
+			if (nextDisplay !== this.bodyDisplay ||
+				JSON.stringify(nextKit) !== JSON.stringify(this.robotKit)) {
+				this.bodyDisplay = nextDisplay;
+				this.robotKit = nextKit;
+				this.changed();
+			}
+		} catch {
+			// 桥失败已由 call() 原子降级——机器人信息保持现状。
+		}
+	}
+
 	/** /status 与 rosclaw_status 共享的新鲜报告：UDS pi.status + 快照。 */
 	async statusReport(): Promise<{
 		ok: boolean;
@@ -249,6 +314,20 @@ export class ProductStateCenter {
 				? { mission_id: this.deps.active.current.missionId }
 				: {}),
 		});
+		// 七审 §2.5：SIM 审批策略随 status 刷新。
+		const policy = String(status.sim_policy ?? "");
+		if ((policy === "auto" || policy === "ask") && policy !== this.simPolicy) {
+			this.simPolicy = policy;
+			this.changed();
+		}
+		const nextDisplay = String(status.body_display ?? "");
+		const nextKit = (status.robot_kit as RobotKitSummary | undefined) ?? null;
+		if (nextDisplay !== this.bodyDisplay ||
+			JSON.stringify(nextKit) !== JSON.stringify(this.robotKit)) {
+			this.bodyDisplay = nextDisplay;
+			this.robotKit = nextKit;
+			this.changed();
+		}
 		return {
 			ok: status.ok === true,
 			snapshot: this.snapshot(),

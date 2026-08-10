@@ -30,7 +30,12 @@ const ROSCLAW_COMMANDS = new Set([
 	"/estop",
 	// PR-SIX-5：operator 一键初始化 + 语言策略。
 	"/operator-init",
+	"/safety",
 	"/language",
+	// PR-SEVEN-5：Robot-first UX。
+	"/robot",
+	"/robots",
+	"/capabilities",
 ]);
 
 // Pi 内建（审计 §4 全表）——放行进内建 dispatch。

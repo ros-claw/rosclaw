@@ -56,7 +56,9 @@ jobs:
   journey:
     name: Product Journey (installed artifact PTY)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 七审 PR-SEVEN-7：三旅程（A 默认安全 SIM / B ask-every-time /
+    # C REAL 边界）各自 build+install+PTY——超时 30→75。
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -89,10 +91,20 @@ jobs:
           PACK=/tmp/evidence-pack
           mkdir -p "$PACK"
           SRC=$(ls -dt /tmp/pytest-of-*/pytest-*/test_full_journey_pty0 2>/dev/null | head -1)
+          JRB=$(ls -dt /tmp/pytest-of-*/pytest-*/test_journey_b_ask_every_time0 2>/dev/null | head -1)
+          JRC=$(ls -dt /tmp/pytest-of-*/pytest-*/test_journey_c_real_boundary0 2>/dev/null | head -1)
           HF=$(ls -dt /tmp/pytest-of-*/pytest-*/hf5_40 2>/dev/null | head -1)
-          for f in fake-requests.jsonl sanitized_assertions.json session_structure.json installed_bundle_digest.txt; do
+          for f in fake-requests.jsonl sanitized_assertions.json session_structure.json installed_bundle_digest.txt journey-scope.json; do
             [ -f "$SRC/$f" ] && cp "$SRC/$f" "$PACK/journey-$f"
           done
+          # 七审 PR-SEVEN-7：Journey B/C 证据（B 有全链 sanitized
+          # evidence；C 的边界证明是 scope + DB 零 REAL 工件断言）。
+          for f in sanitized_assertions.json journey-scope.json; do
+            # `|| true`：glob 未命中时 [ -f ] 返回 1——set -e 下会杀掉
+            # 整个 curation 步骤（#289 首次 CI 实测）。
+            [ -f "$JRB/$f" ] && cp "$JRB/$f" "$PACK/journey-b-$f" || true
+          done
+          [ -f "$JRC/journey-scope.json" ] && cp "$JRC/journey-scope.json" "$PACK/journey-c-journey-scope.json" || true
           [ -f "$HF/fake-requests.jsonl" ] && cp "$HF/fake-requests.jsonl" "$PACK/hf5_4-fake-requests.jsonl"
           [ -f /tmp/junit-journey.xml ] && cp /tmp/junit-journey.xml "$PACK/junit.xml"
           ls -la "$PACK"
@@ -114,6 +126,10 @@ jobs:
           path: |
             /tmp/pytest-of-*/pytest-*/test_full_journey_pty0/pty-*.log
             /tmp/pytest-of-*/pytest-*/test_full_journey_pty0/failure-dump/**
+            /tmp/pytest-of-*/pytest-*/test_journey_b_ask_every_time0/pty-*.log
+            /tmp/pytest-of-*/pytest-*/test_journey_b_ask_every_time0/failure-dump/**
+            /tmp/pytest-of-*/pytest-*/test_journey_c_real_boundary0/pty-*.log
+            /tmp/pytest-of-*/pytest-*/test_journey_c_real_boundary0/failure-dump/**
             /tmp/pytest-of-*/pytest-*/hf5_40/pty-*.log
           if-no-files-found: warn
           retention-days: 7
@@ -126,7 +142,15 @@ jobs:
           TEST_SELECTION: "pytest tests/agentd/test_product_journey.py tests/agentd/test_hf5_4_action_result_ui.py"
           TEST_CONCLUSION: ${{ steps.run.outcome }}
           BUNDLE_DIGEST: ${{ hashFiles('/tmp/evidence-pack/installed_bundle_digest.txt') }}
-        run: bash scripts/ci/write_evidence_manifest.sh "${{ github.job }}" /tmp/evidence/evidence-manifest.json
+        run: |
+          SCOPE=/tmp/evidence-pack/journey-journey-scope.json
+          if [ -f "$SCOPE" ]; then
+            export INSTALL_ORIGIN=$(python3 -c "import json;print(json.load(open('$SCOPE'))['install_origin'])")
+            export CONFIG_ORIGIN=$(python3 -c "import json;print(json.load(open('$SCOPE'))['config_origin'])")
+            export ROBOT_KIT_DIGEST=$(python3 -c "import json;print(json.load(open('$SCOPE'))['robot_kit_digest'])")
+            export SOURCE_CHECKOUT_ACCESSIBLE=$(python3 -c "import json;print(str(json.load(open('$SCOPE'))['source_checkout_accessible']).lower())")
+          fi
+          bash scripts/ci/write_evidence_manifest.sh "${{ github.job }}" /tmp/evidence/evidence-manifest.json
       - name: Upload evidence manifest
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -321,6 +345,9 @@ jobs:
           set -e
           ls -la /tmp/downloaded-evidence
           python scripts/ci/verify_journey_evidence.py /tmp/downloaded-evidence/journey-sanitized_assertions.json
+          # 七审 PR-SEVEN-7：Journey B（ask-every-time）全链证据同样
+          # 独立复核（含 journey scope）。
+          python scripts/ci/verify_journey_evidence.py /tmp/downloaded-evidence/journey-b-sanitized_assertions.json
       - name: Download journey manifest
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -341,5 +368,11 @@ jobs:
           assert not missing, f"manifest 缺字段: {missing}"
           assert m["schema_version"] == "rosclaw.gate_evidence.v2"
           assert m["evidence_schema_version"] == "rosclaw.journey_evidence.v2"
+          # 七审 PR-SEVEN-7：manifest 必须携带 journey scope——
+          # clean-install 证据链的机器可读边界。
+          assert m.get("install_origin") == "release_tarball", m.get("install_origin")
+          assert m.get("config_origin") == "generated_no_server_fixtures"
+          assert str(m.get("robot_kit_digest", "")).startswith("sha256:")
+          assert m.get("source_checkout_accessible") is False
           print("manifest fields OK:", {k: m[k] for k in required})
           PY

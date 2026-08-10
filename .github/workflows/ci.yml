@@ -231,7 +231,9 @@ jobs:
   full-regression:
     name: Full Regression (Python 3.11)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 七审合并级联实测：套件在 20 分钟处超时被 cancel（87%）——
+    # 审计轮次累积的测试让套件超过预算。
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7.0.0
 

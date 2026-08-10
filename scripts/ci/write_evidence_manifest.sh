@@ -43,6 +43,10 @@ cat > "$out" <<EOF
   "test_selection": "${TEST_SELECTION:-unspecified}",
   "test_conclusion": "${TEST_CONCLUSION:-unknown}",
   "bundle_digest": "${BUNDLE_DIGEST:-}",
+  "install_origin": "${INSTALL_ORIGIN:-}",
+  "config_origin": "${CONFIG_ORIGIN:-}",
+  "robot_kit_digest": "${ROBOT_KIT_DIGEST:-}",
+  "source_checkout_accessible": ${SOURCE_CHECKOUT_ACCESSIBLE:-null},
   "evidence_schema_version": "rosclaw.journey_evidence.v2",
   "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }

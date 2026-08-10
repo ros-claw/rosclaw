@@ -53,6 +53,9 @@ class ToolDescriptorV2(ContractModel):
     source: str = Field(min_length=1)
     execution_class: ExecutionClass = ExecutionClass.OBSERVE
     side_effect_class: ToolSideEffectClass = ToolSideEffectClass.NONE
+    #: 七审 §2.5：效果域——POLICY_AUTO 只对 SIMULATION_STATE_ONLY 生效；
+    #: 空值 fail closed（不自动）。
+    effect_domain: str = ""
     description: str = ""
     input_schema: dict[str, Any] = Field(default_factory=dict)
     output_schema: dict[str, Any] = Field(default_factory=dict)

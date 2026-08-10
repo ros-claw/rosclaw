@@ -85,6 +85,14 @@ def _minimal_v2_evidence() -> dict:
         "reasoning_forbidden_field_counts": {"reasoning_content": 0},
         "compaction_entry_id": "cmp_1",
         "verdicts": {"chain_ok": True},
+        # 七审 PR-SEVEN-7：journey scope 是独立验证的强制面。
+        "journey_scope": {
+            "journey": "A",
+            "install_origin": "release_tarball",
+            "config_origin": "generated_no_server_fixtures",
+            "robot_kit_digest": "sha256:" + "0" * 64,
+            "source_checkout_accessible": False,
+        },
     }
 
 
@@ -103,10 +111,12 @@ def test_evidence_writer_includes_receipt_id_and_hashes() -> None:
     assert receipts_block and '"receipt_id"' in receipts_block.group(1), (
         "receipts 脱敏记录缺 receipt_id——txn.receipt_id 无法独立比对"
     )
-    approvals_block = re.search(r'evidence\["approvals"\](.*?)(?:evidence\[|\Z)', body, re.DOTALL)
-    assert approvals_block, "writer 缺 approvals 段"
-    assert "display_hash" in approvals_block.group(1)
-    assert "action_intent_hash" in approvals_block.group(1)
+    # 七审 PR-SEVEN-7：display/action intent hash 在 append 的 dict 里
+    # （import 已提升模块级）——直接对 writer 全体断言，不再依赖
+    # 巧合匹配的局部块。
+    assert 'evidence["approvals"]' in body, "writer 缺 approvals 段"
+    assert "display_hash" in body
+    assert "action_intent_hash" in body
     # schema version 升到 v2
     assert "rosclaw.journey_evidence.v2" in source, "证据 schema 未升 v2"
 

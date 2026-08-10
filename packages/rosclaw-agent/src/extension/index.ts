@@ -105,6 +105,14 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				if (!ctx.hasUI) return;
 				if (options.profile !== "developer") return;
 				if (options.active.current.mode !== "SIMULATION") return;
+				// 七审 §2.5：auto SIM 不需要 operator——不提示初始化。
+				if (center.isSimAutoPolicy) {
+					if (bootstrapWidgetState !== "hidden") {
+						bootstrapWidgetState = "hidden";
+						ctx.ui.setWidget("rosclaw-operator", undefined);
+					}
+					return;
+				}
 				if (center.snapshot().operator !== "OFFLINE") {
 					if (bootstrapWidgetState !== "hidden") {
 						bootstrapWidgetState = "hidden";
@@ -139,6 +147,24 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			center.subscribe(() => {
 				void updateBootstrapWidget();
 			});
+			// 七审 PR-SEVEN-5：Robot Kit BROKEN → 用户输入前给一键修复
+			// （变化驱动——同一 BROKEN 状态只提示一次）。
+			let kitHintState: string | null = null;
+			center.subscribe(() => {
+				if (!ctx.hasUI) return;
+				const kit = center.snapshot().robot_kit;
+				const state = kit?.state ?? null;
+				if (state === kitHintState) return;
+				kitHintState = state;
+				if (state !== "BROKEN") return;
+				const loc = locale.effective;
+				const command = kit?.remediation?.command;
+				ctx.ui.notify(
+					`${i18nT("robot.kit_broken", loc)}: ${kit?.reason ?? ""}` +
+						(command ? ` — ${i18nT("robot.repair_hint", loc)}: ${command}` : ""),
+					"warning",
+				);
+			});
 			setTimeout(() => {
 				void center.probeOperator(true);
 			}, 800);
@@ -148,14 +174,19 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					await runBootstrap(shortcutCtx as typeof ctx);
 				},
 			});
-			// 30s 周期复探（HOTFIX-3：timer 有明确生命周期——session
-			// shutdown 时清理，不积累）。
+			// 周期复探（HOTFIX-3：timer 有明确生命周期——session
+			// shutdown 时清理，不积累）。七审合并级联实测：30s 周期在
+			// 共享 runner 上有可观概率落进 5s idle 测量窗口（三个 UDS
+			// 探测 + 重绘 ≈ 0.2s CPU）——全部对齐 60s（状态变化本来就
+			// 走 subscribe/force 通道，周期探测只是兜底）。
 			if (probeTimer !== null) clearInterval(probeTimer);
 			probeTimer = setInterval(() => {
 				void center.probeOperator();
 				void center.refreshCapabilities();
-			}, 30_000);
+				void center.refreshRobotInfo();
+			}, 60_000);
 			void center.refreshCapabilities(true);
+			void center.refreshRobotInfo(true);
 			probeTimer.unref();
 			ctx.ui.setWorkingIndicator({ frames: WORKING_FRAMES, intervalMs: 80 });
 			// P1-TUI-01：中性本地化状态词——不伪造思维过程（"Thinking..."
@@ -320,6 +351,14 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				approval_id?: string;
 				display_hash?: string;
 			};
+			// 七审 §2.5：POLICY_AUTO——安全 SIM 政策自动授权，只通知不弹卡。
+			if (details.phase === "POLICY_AUTO") {
+				ctx.ui.notify(
+					`安全仿真自动执行（POLICY_AUTO，approval ${details.approval_id ?? ""}，全链审计）`,
+					"info",
+				);
+				return;
+			}
 			if (details.phase !== "AWAITING_OPERATOR" || !details.approval_id) return;
 			const approvalId = details.approval_id;
 			const displayHash = String(details.display_hash ?? "");

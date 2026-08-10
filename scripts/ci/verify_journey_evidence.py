@@ -53,6 +53,16 @@ def verify(evidence: dict) -> list[str]:
         failures.append("action_txns 为空——旅程必须至少完成一次动作")
     for txn in txns:
         tid = txn.get("txn_id", "?")
+        # 七审 PR-SEVEN-7（Journey B deny 腿）：DECLINED txn 是诚实的
+        # 终态——无 grant、无 receipt；校验其 approval 确为 DENIED。
+        if txn.get("state") == "DECLINED":
+            approval = approvals.get(txn.get("approval_id"))
+            if approval is None or approval.get("status") != "DENIED":
+                failures.append(f"{tid}: DECLINED txn 的 approval 不是 DENIED")
+            grant = grants.get(txn.get("grant_id") or "")
+            if grant is not None and grant.get("consumed"):
+                failures.append(f"{tid}: DECLINED txn 的 grant 竟被消费")
+            continue
         approval = approvals.get(txn.get("approval_id"))
         if approval is None:
             failures.append(f"{tid}: approval {txn.get('approval_id')} 不在 approvals")
@@ -73,6 +83,8 @@ def verify(evidence: dict) -> list[str]:
                 failures.append(
                     f"{tid}: grant consumed={grant.get('consumed')} revoked={grant.get('revoked')}"
                 )
+        if not txn.get("receipt_id"):
+            failures.append(f"{tid}: COMPLETED txn 缺 receipt_id")
         if txn.get("receipt_id") == txn.get("action_id"):
             failures.append(f"{tid}: receipt_id 与 action_id 同值——非独立身份")
         matched = [
@@ -122,6 +134,26 @@ def verify(evidence: dict) -> list[str]:
     for name, verdict in evidence.get("verdicts", {}).items():
         if verdict is not True:
             failures.append(f"verdict {name}={verdict}")
+
+    # 七审 PR-SEVEN-7：journey scope——独立 verifier 除链一致性外还要
+    # 验证证据确实是 clean-install 产物（checkout 隐藏、无夹具配置、
+    # kit 摘要存在）。
+    scope = evidence.get("journey_scope")
+    if scope is None:
+        failures.append("journey_scope 缺失——无法确认证据 scope")
+    else:
+        if scope.get("source_checkout_accessible") is not False:
+            failures.append(
+                "journey_scope.source_checkout_accessible 不是 false——"
+                "旅程运行期间源码 checkout 可达，clean-install 证据无效"
+            )
+        if scope.get("install_origin") != "release_tarball":
+            failures.append(f"install_origin={scope.get('install_origin')}")
+        if scope.get("config_origin") != "generated_no_server_fixtures":
+            failures.append(f"config_origin={scope.get('config_origin')}")
+        digest = str(scope.get("robot_kit_digest") or "")
+        if not digest.startswith("sha256:") or len(digest) != 71:
+            failures.append(f"robot_kit_digest 非法: {digest!r}")
     return failures
 
 
