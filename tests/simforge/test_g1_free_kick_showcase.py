@@ -29,6 +29,7 @@ from rosclaw.simforge.g1_free_kick_showcase_video import (
     _duration_text,
     _metric_text,
     _optional_finite_float,
+    _qualify_g1_assets_headless,
     render_g1_free_kick_showcase_video,
 )
 from rosclaw.simforge.g1_learned_runup import (
@@ -553,6 +554,28 @@ def test_free_kick_video_expands_native_offscreen_framebuffer() -> None:
 
     assert model.vis.global_.offwidth == 1920
     assert model.vis.global_.offheight == 1080
+
+
+def test_free_kick_video_selects_egl_before_asset_qualification(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    observed: list[str | None] = []
+
+    def qualify(_asset_root: Path) -> object:
+        observed.append(os.environ.get("MUJOCO_GL"))
+        return object()
+
+    monkeypatch.delenv("MUJOCO_GL", raising=False)
+    monkeypatch.setattr(
+        "rosclaw.simforge.g1_free_kick_showcase_video.qualify_g1_assets",
+        qualify,
+    )
+
+    qualification = _qualify_g1_assets_headless(tmp_path)
+
+    assert qualification is not None
+    assert observed == ["egl"]
+    assert "MUJOCO_GL" not in os.environ
 
 
 def test_missing_learned_gait_assets_are_ineligible(tmp_path: Path) -> None:

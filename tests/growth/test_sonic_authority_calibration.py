@@ -12,6 +12,7 @@ from rosclaw.growth.approach_strike_contracts import STATE_FEATURES
 from rosclaw.growth.approach_strike_residual import (
     G1ApproachStrikeResidualConfig,
     build_online_approach_strike_state,
+    g1_approach_distance_authority,
 )
 from rosclaw.growth.sonic_authority_calibration import (
     derive_g1_sonic_authority_calibration,
@@ -155,3 +156,45 @@ def test_online_approach_strike_state_matches_frozen_contract() -> None:
     assert state[74] == 1.0
     with pytest.raises(ValueError, match="residual fraction"):
         G1ApproachStrikeResidualConfig(residual_fraction=0.0)
+    with pytest.raises(ValueError, match="active phases"):
+        G1ApproachStrikeResidualConfig(active_event_phase_ids=(0, 0))
+    with pytest.raises(ValueError, match="active phases"):
+        G1ApproachStrikeResidualConfig(active_event_phase_ids=(5,))
+    with pytest.raises(ValueError, match="release distances"):
+        G1ApproachStrikeResidualConfig(
+            approach_release_distance_m=1.5,
+            approach_full_authority_distance_m=1.0,
+        )
+    assert G1ApproachStrikeResidualConfig().active_event_phase_ids == (1, 2, 3, 4)
+
+
+def test_approach_residual_authority_tapers_before_handoff() -> None:
+    assert (
+        g1_approach_distance_authority(
+            forward_distance_m=2.0,
+            release_distance_m=1.0,
+            full_authority_distance_m=1.5,
+        )
+        == 1.0
+    )
+    assert g1_approach_distance_authority(
+        forward_distance_m=1.25,
+        release_distance_m=1.0,
+        full_authority_distance_m=1.5,
+    ) == pytest.approx(0.5)
+    assert (
+        g1_approach_distance_authority(
+            forward_distance_m=0.9,
+            release_distance_m=1.0,
+            full_authority_distance_m=1.5,
+        )
+        == 0.0
+    )
+    assert (
+        g1_approach_distance_authority(
+            forward_distance_m=float("nan"),
+            release_distance_m=1.0,
+            full_authority_distance_m=1.5,
+        )
+        == 0.0
+    )

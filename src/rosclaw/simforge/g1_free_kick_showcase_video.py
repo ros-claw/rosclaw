@@ -108,7 +108,10 @@ def render_g1_free_kick_showcase_video(
         )
     if evidence.get("evidence_domain") != "DEVELOPMENT_SHOWCASE":
         raise ValueError("free-kick video only accepts declared development showcase evidence")
-    qualification = qualify_g1_assets(asset_root)
+    # Asset qualification imports MuJoCo.  Select EGL before that first
+    # import; setting MUJOCO_GL only at Renderer construction is too late in a
+    # headless process because MuJoCo has already selected its GL backend.
+    qualification = _qualify_g1_assets_headless(asset_root)
     qualification.require_eligible()
     if qualification.body_hash != evidence.get("body_hash"):
         raise ValueError("free-kick video Body hash does not match evidence")
@@ -581,6 +584,20 @@ def _optional_finite_float(value: Any) -> float | None:
         return None
     converted = float(value)
     return converted if math.isfinite(converted) else None
+
+
+def _qualify_g1_assets_headless(asset_root: Path) -> Any:
+    """Import/qualify MuJoCo assets under EGL without leaking environment state."""
+
+    previous = os.environ.get("MUJOCO_GL")
+    os.environ.setdefault("MUJOCO_GL", "egl")
+    try:
+        return qualify_g1_assets(asset_root)
+    finally:
+        if previous is None:
+            os.environ.pop("MUJOCO_GL", None)
+        else:
+            os.environ["MUJOCO_GL"] = previous
 
 
 def _metric_text(value: float | None) -> str:

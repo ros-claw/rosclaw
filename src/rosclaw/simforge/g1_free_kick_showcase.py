@@ -962,6 +962,7 @@ def run_g1_free_kick_showcase(
                 "growth/ballistic_contact_torque_residual.py",
                 "growth/ballistic_skill_memory.py",
                 "growth/learners/iql.py",
+                "growth/phase_conditioned_residual.py",
                 "growth/football_outcome_model.py",
                 "growth/football_motion_prior.py",
                 "growth/proprioceptive_expert_router.py",
@@ -2036,16 +2037,25 @@ def _simulate(
             raw = pre_guard_raw
             boundary_guard_correction = np.zeros(29, dtype=np.float64)
             boundary_guard_active = False
-            # Non-promotable teacher/prior candidates get a post-contact ankle
-            # boundary projection.  The learned baseline remains unchanged,
-            # while dataset-guided trials cannot use a small joint excursion
-            # as the price of apparently better continuity or ball flight.
+            # Protect the ankle before an active contact residual can cross a
+            # hard limit.  Safety must not depend on whether the force came
+            # from a teacher, a distilled actor, or the structured baseline.
+            # Keep the correction inside the same audited bound used by the
+            # reusable guard policy; the pure projection helper intentionally
+            # does not apply that cap itself.
             if (
-                loft_teacher_config.enabled
+                residual_controller is not None
+                or loft_teacher_config.enabled
                 or ballistic_contact_impulse_actor is not None
                 or football_motion_prior is not None
-            ) and contact_time is not None:
-                raw, active, _ = project_g1_joint_boundary_torque(
+                or any(abs(value) > 0.0 for value in flow.ballistic_contact_residual_rad)
+                or any(abs(value) > 0.0 for value in flow.ballistic_contact_torque_residual_nm)
+                or any(abs(value) > 0.0 for value in flow.ballistic_contact_torque_preload_nm)
+                or any(
+                    abs(value) > 0.0 for value in flow.ballistic_counterbalance_torque_residual_nm
+                )
+            ):
+                projected, _, _ = project_g1_joint_boundary_torque(
                     joint_position=np.asarray(data.qpos[7:36], dtype=np.float64),
                     joint_velocity=np.asarray(data.qvel[6:35], dtype=np.float64),
                     commanded_torque=pre_guard_raw,
@@ -2054,7 +2064,12 @@ def _simulate(
                     protected_joint_indices=right_ankle_pitch_index,
                     config=joint_boundary_guard_config,
                 )
-                boundary_guard_correction = raw - pre_guard_raw
+                boundary_guard_correction = np.clip(
+                    projected - pre_guard_raw,
+                    -joint_boundary_guard_config.maximum_correction_nm,
+                    joint_boundary_guard_config.maximum_correction_nm,
+                )
+                raw = pre_guard_raw + boundary_guard_correction
                 boundary_guard_active = bool(np.any(np.abs(boundary_guard_correction) > 1e-12))
                 boundary_guard_active_steps += int(boundary_guard_active)
                 boundary_guard_peak_correction = max(

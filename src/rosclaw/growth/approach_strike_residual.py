@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +18,9 @@ from rosclaw.growth.learners.iql import (
 )
 
 _EVENT_PHASE_COUNT = len(EVENT_PHASE_NAMES)
-_ACTIVE_EVENT_PHASE_IDS = frozenset((1, 2, 3, 4))
+_DEFAULT_EVENT_PHASE_IDS = (1, 2, 3, 4)
+_ALLOWED_EVENT_PHASE_IDS = frozenset((0, 1, 2, 3, 4))
+_APPROACH_EVENT_PHASE_ID = 0
 
 
 @dataclass(frozen=True)
@@ -30,7 +32,10 @@ class G1ApproachStrikeResidualConfig:
     maximum_standardized_rms: float = 6.0
     maximum_standardized_abs: float = 30.0
     joint_group: str = "whole_body"
-    schema_version: str = "rosclaw.growth.g1_approach_strike_residual_config.v1"
+    active_event_phase_ids: tuple[int, ...] = _DEFAULT_EVENT_PHASE_IDS
+    approach_release_distance_m: float = 0.0
+    approach_full_authority_distance_m: float = 0.0
+    schema_version: str = "rosclaw.growth.g1_approach_strike_residual_config.v3"
 
     def __post_init__(self) -> None:
         values = (
@@ -38,9 +43,28 @@ class G1ApproachStrikeResidualConfig:
             self.maximum_residual_nm,
             self.maximum_standardized_rms,
             self.maximum_standardized_abs,
+            self.approach_release_distance_m,
+            self.approach_full_authority_distance_m,
         )
         if not all(math.isfinite(value) for value in values):
             raise ValueError("approach-strike residual config must be finite")
+        if (
+            not self.active_event_phase_ids
+            or len(set(self.active_event_phase_ids)) != len(self.active_event_phase_ids)
+            or not set(self.active_event_phase_ids).issubset(_ALLOWED_EVENT_PHASE_IDS)
+        ):
+            raise ValueError(
+                "approach-strike active phases must be unique ids drawn from [0, 1, 2, 3, 4]"
+            )
+        if not (
+            0.0
+            <= self.approach_release_distance_m
+            <= self.approach_full_authority_distance_m
+            <= 5.0
+        ):
+            raise ValueError(
+                "approach residual release distances must satisfy 0 <= release <= full <= 5 m"
+            )
         # Reuse the shared guard's stricter contract validation.
         self.guard_config()
 
@@ -89,7 +113,8 @@ class G1ApproachStrikeResidualController:
         event_phase: int,
         baseline_torque: np.ndarray,
     ) -> IQLResidualDecision:
-        if int(event_phase) not in _ACTIVE_EVENT_PHASE_IDS:
+        phase_id = int(event_phase)
+        if phase_id not in self.config.active_event_phase_ids:
             return IQLResidualDecision(
                 residual_torque=np.zeros(29, dtype=np.float64),
                 accepted=False,
@@ -105,7 +130,64 @@ class G1ApproachStrikeResidualController:
             target=target,
             event_phase=event_phase,
         )
-        return self.actor.action(state, baseline_torque)
+        authority = self._approach_authority(data=data, ids=ids, event_phase=phase_id)
+        if authority <= 0.0:
+            return IQLResidualDecision(
+                residual_torque=np.zeros(29, dtype=np.float64),
+                accepted=False,
+                confidence=0.0,
+                standardized_rms=0.0,
+                standardized_abs=0.0,
+                peak_residual_nm=0.0,
+                reason="inside_approach_residual_release_distance",
+            )
+        decision = self.actor.action(state, baseline_torque)
+        if not decision.accepted or authority >= 1.0:
+            return decision
+        residual = decision.residual_torque * authority
+        return replace(
+            decision,
+            residual_torque=residual,
+            confidence=decision.confidence * authority,
+            peak_residual_nm=float(np.max(np.abs(residual))),
+            reason="accepted_with_approach_distance_taper",
+        )
+
+    def _approach_authority(self, *, data: Any, ids: Any, event_phase: int) -> float:
+        release = self.config.approach_release_distance_m
+        full = self.config.approach_full_authority_distance_m
+        if event_phase != _APPROACH_EVENT_PHASE_ID or full <= release:
+            return 1.0
+        pelvis_x = float(data.qpos[0])
+        ball_x = float(data.qpos[ids.ball_qpos])
+        return g1_approach_distance_authority(
+            forward_distance_m=ball_x - pelvis_x,
+            release_distance_m=release,
+            full_authority_distance_m=full,
+        )
+
+
+def g1_approach_distance_authority(
+    *,
+    forward_distance_m: float,
+    release_distance_m: float,
+    full_authority_distance_m: float,
+) -> float:
+    """Return a bounded residual blend that releases authority before handoff."""
+
+    values = (forward_distance_m, release_distance_m, full_authority_distance_m)
+    if not all(math.isfinite(value) for value in values):
+        return 0.0
+    if not 0.0 <= release_distance_m < full_authority_distance_m:
+        return 1.0
+    return float(
+        np.clip(
+            (forward_distance_m - release_distance_m)
+            / (full_authority_distance_m - release_distance_m),
+            0.0,
+            1.0,
+        )
+    )
 
 
 def build_online_approach_strike_state(
@@ -119,7 +201,7 @@ def build_online_approach_strike_state(
 
     pelvis = np.asarray(data.qpos[:7], dtype=np.float64)
     ball = np.asarray(data.qpos[ids.ball_qpos : ids.ball_qpos + 3], dtype=np.float64)
-    one_hot = np.zeros(_EVENT_PHASE_COUNT, dtype=np.float64)
+    one_hot: np.ndarray = np.zeros(_EVENT_PHASE_COUNT, dtype=np.float64)
     one_hot[int(event_phase)] = 1.0
     state = np.concatenate(
         (
@@ -143,4 +225,5 @@ __all__ = [
     "G1ApproachStrikeResidualConfig",
     "G1ApproachStrikeResidualController",
     "build_online_approach_strike_state",
+    "g1_approach_distance_authority",
 ]
