@@ -207,6 +207,25 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
         default=1.0,
         help="bounded recovery velocity-feedback multiplier after follow-through",
     )
+    run.add_argument(
+        "--shared-cerebellar-recovery",
+        action="store_true",
+        help="reuse the bounded cerebellar recovery controller after ball contact",
+    )
+    run.add_argument("--shot-recovery-step-length-m", type=float, default=0.11)
+    run.add_argument("--shot-recovery-step-yaw-rad", type=float, default=-0.05)
+    run.add_argument(
+        "--torque-authority-projection-ratio",
+        type=float,
+        default=0.0,
+        help="optional pre-safety projection ratio for bounded additive torque tasks",
+    )
+    run.add_argument(
+        "--torque-authority-projection-max-fraction",
+        type=float,
+        default=0.01,
+        help="maximum qualified fraction of control steps using torque projection",
+    )
     run.add_argument("--football-retry-recovery-sec", type=float, default=0.0)
     run.add_argument("--football-retry-follow-through-gain-scale", type=float, default=1.0)
     run.add_argument("--contextual-phase-yaw-threshold-rad", type=float, default=0.0)
@@ -599,6 +618,15 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
                 ballistic_contact_lead_duration_sec=(args.ballistic_contact_lead_duration_sec),
                 ballistic_contact_trail_duration_sec=(args.ballistic_contact_trail_duration_sec),
                 post_contact_damping_scale=post_contact_damping_scale,
+                shared_cerebellar_recovery_enabled=args.shared_cerebellar_recovery,
+                shot_recovery_step_length_m=args.shot_recovery_step_length_m,
+                shot_recovery_step_yaw_rad=args.shot_recovery_step_yaw_rad,
+                torque_authority_projection_ratio=(
+                    args.torque_authority_projection_ratio
+                ),
+                torque_authority_projection_max_fraction=(
+                    args.torque_authority_projection_max_fraction
+                ),
                 ballistic_skill_memory_hash=(
                     None if ballistic_skill_memory is None else ballistic_skill_memory.memory_hash
                 ),

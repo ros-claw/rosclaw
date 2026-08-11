@@ -54,6 +54,9 @@ from rosclaw.growth.recovery_dataset import build_g1_recovery_dataset
 from rosclaw.growth.sonic_authority_calibration import (
     derive_g1_sonic_authority_calibration,
 )
+from rosclaw.growth.target_conditioned_contact_evaluation import (
+    evaluate_g1_target_conditioned_contact_actor,
+)
 
 
 def dispatch_growth_argv(argv: list[str]) -> int | None:
@@ -302,7 +305,37 @@ def _parser() -> argparse.ArgumentParser:
     )
     ballistic_impulse_actor.add_argument("--output", type=Path, required=True)
     ballistic_impulse_actor.add_argument("--source-checkout", type=Path, default=Path.cwd())
+    ballistic_impulse_actor.add_argument(
+        "--target-conditioned",
+        action="store_true",
+        help="fit forward contact dynamics and bounded inverse target control",
+    )
+    ballistic_impulse_actor.add_argument(
+        "--ridge-regularization",
+        type=float,
+        default=0.05,
+        help="ridge penalty for the target-conditioned forward contact model",
+    )
     ballistic_impulse_actor.set_defaults(handler=_ballistic_contact_impulse_actor)
+    target_contact_evaluation = commands.add_parser(
+        "evaluate-target-conditioned-contact",
+        help="compare a target-conditioned actor to baseline and stability anchor replays",
+    )
+    target_contact_evaluation.add_argument("--actor", type=Path, required=True)
+    target_contact_evaluation.add_argument(
+        "--baseline-evidence", type=Path, required=True
+    )
+    target_contact_evaluation.add_argument(
+        "--candidate-evidence", type=Path, required=True
+    )
+    target_contact_evaluation.add_argument(
+        "--stability-anchor-evidence", type=Path, required=True
+    )
+    target_contact_evaluation.add_argument("--output", type=Path, required=True)
+    target_contact_evaluation.add_argument(
+        "--source-checkout", type=Path, default=Path.cwd()
+    )
+    target_contact_evaluation.set_defaults(handler=_evaluate_target_conditioned_contact)
     ballistic_island_gate = commands.add_parser(
         "ballistic-contact-island-gate",
         help="learn a replay-anchored contact-event atlas before actor training",
@@ -714,9 +747,24 @@ def _ballistic_contact_impulse_actor(args: argparse.Namespace) -> int:
         evidence_paths=tuple(args.evidence_json),
         output_path=args.output,
         source_checkout=args.source_checkout,
+        target_conditioned=args.target_conditioned,
+        ridge_regularization=args.ridge_regularization,
     )
     _print(actor.to_dict())
     return 0
+
+
+def _evaluate_target_conditioned_contact(args: argparse.Namespace) -> int:
+    evaluation = evaluate_g1_target_conditioned_contact_actor(
+        actor_path=args.actor,
+        baseline_evidence_path=args.baseline_evidence,
+        candidate_evidence_path=args.candidate_evidence,
+        stability_anchor_evidence_path=args.stability_anchor_evidence,
+        output_path=args.output,
+        source_checkout=args.source_checkout,
+    )
+    _print(evaluation.to_dict())
+    return 0 if evaluation.development_breakthrough else 3
 
 
 def _ballistic_contact_island_gate(args: argparse.Namespace) -> int:

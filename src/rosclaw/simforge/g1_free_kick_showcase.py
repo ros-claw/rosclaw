@@ -592,6 +592,10 @@ class G1FreeKickResult:
     ballistic_contact_impulse_actor_peak_torque_nm: float = 0.0
     ballistic_contact_impulse_actor_peak_lateral_force_n: float = 0.0
     ballistic_contact_impulse_actor_peak_vertical_force_n: float = 0.0
+    ballistic_contact_impulse_actor_target_conditioned: bool = False
+    ballistic_contact_impulse_actor_out_of_envelope_frames: int = 0
+    ballistic_contact_impulse_actor_peak_desired_lateral_launch_speed_mps: float = 0.0
+    ballistic_contact_impulse_actor_peak_desired_vertical_launch_speed_mps: float = 0.0
     torque_authority_projection_enabled: bool = False
     torque_authority_projection_steps: int = 0
     torque_authority_projection_fraction: float = 0.0
@@ -609,7 +613,7 @@ class G1FreeKickResult:
     kick_contact_normal_xyz: tuple[float, float, float] | None = None
     kick_contact_force_world_xyz_n: tuple[float, float, float] | None = None
     kick_contact_peak_force_n: float | None = None
-    schema_version: str = "rosclaw.simforge.g1_free_kick_result.v25"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_result.v26"
 
     @property
     def perceptual_continuity_passed(self) -> bool:
@@ -704,7 +708,7 @@ class G1FreeKickEvidence:
     evidence_domain: str = "DEVELOPMENT_SHOWCASE"
     physics_authority: str = "CPU_MUJOCO"
     hardware_command_sent: bool = False
-    schema_version: str = "rosclaw.simforge.g1_free_kick_evidence.v25"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_evidence.v26"
 
     @property
     def passed(self) -> bool:
@@ -950,6 +954,10 @@ def run_g1_free_kick_showcase(
             approach_strike_candidate_hash=(
                 None if residual_controller is None else residual_controller.candidate_hash
             ),
+            target_conditioned=(
+                ballistic_contact_impulse_actor.schema_version
+                == "rosclaw.growth.g1_ballistic_contact_impulse_actor.v2"
+            ),
         )
         if actor_context_hash != ballistic_contact_impulse_actor.experiment_context_hash:
             raise ValueError("contact impulse actor experiment context mismatch")
@@ -993,6 +1001,11 @@ def run_g1_free_kick_showcase(
         and ballistic_skill_memory.implementation_hash != implementation_hash
     ):
         raise ValueError("ballistic skill memory implementation hash mismatch")
+    if (
+        ballistic_contact_impulse_actor is not None
+        and ballistic_contact_impulse_actor.implementation_hash != implementation_hash
+    ):
+        raise ValueError("contact impulse actor implementation hash mismatch")
     request = {
         "schema_version": "rosclaw.simforge.g1_free_kick_request.v33",
         "body_hash": qualification.body_hash,
@@ -1282,6 +1295,9 @@ def _simulate(
     ballistic_contact_impulse_actor_peak_torque = 0.0
     ballistic_contact_impulse_actor_peak_lateral_force = 0.0
     ballistic_contact_impulse_actor_peak_vertical_force = 0.0
+    ballistic_contact_impulse_actor_out_of_envelope_frames = 0
+    ballistic_contact_impulse_actor_peak_desired_lateral_launch_speed = 0.0
+    ballistic_contact_impulse_actor_peak_desired_vertical_launch_speed = 0.0
     finite = True
     saturation = False
     saturation_steps = 0
@@ -2032,6 +2048,13 @@ def _simulate(
                         data.qpos[ids.ball_qpos : ids.ball_qpos + 3],
                         dtype=np.float64,
                     ),
+                    ball_velocity=np.asarray(
+                        data.qvel[ids.ball_qvel : ids.ball_qvel + 3],
+                        dtype=np.float64,
+                    ),
+                    goal_plane_x_m=goal.plane_x_m,
+                    target_y_m=goal.target_y_m,
+                    target_z_m=goal.target_z_m,
                 )
             )
             impulse_effect_torque = (
@@ -2049,6 +2072,18 @@ def _simulate(
                     np.max(np.abs(impulse_actor_torque))
                 ):
                     impulse_actor_torque = impulse_effect_torque.copy()
+            if impulse_effect is not None and impulse_effect.target_conditioned:
+                ballistic_contact_impulse_actor_out_of_envelope_frames += int(
+                    not impulse_effect.launch_envelope_supported
+                )
+                ballistic_contact_impulse_actor_peak_desired_lateral_launch_speed = max(
+                    ballistic_contact_impulse_actor_peak_desired_lateral_launch_speed,
+                    abs(impulse_effect.desired_lateral_launch_speed_mps),
+                )
+                ballistic_contact_impulse_actor_peak_desired_vertical_launch_speed = max(
+                    ballistic_contact_impulse_actor_peak_desired_vertical_launch_speed,
+                    abs(impulse_effect.desired_vertical_launch_speed_mps),
+                )
             controller_torque = (
                 (target - data.qpos[7:36]) * kp
                 + (target_velocity - data.qvel[6:35]) * kd
@@ -2535,6 +2570,20 @@ def _simulate(
         ),
         ballistic_contact_impulse_actor_peak_vertical_force_n=(
             ballistic_contact_impulse_actor_peak_vertical_force
+        ),
+        ballistic_contact_impulse_actor_target_conditioned=bool(
+            ballistic_contact_impulse_actor is not None
+            and ballistic_contact_impulse_actor.schema_version
+            == "rosclaw.growth.g1_ballistic_contact_impulse_actor.v2"
+        ),
+        ballistic_contact_impulse_actor_out_of_envelope_frames=(
+            ballistic_contact_impulse_actor_out_of_envelope_frames
+        ),
+        ballistic_contact_impulse_actor_peak_desired_lateral_launch_speed_mps=(
+            ballistic_contact_impulse_actor_peak_desired_lateral_launch_speed
+        ),
+        ballistic_contact_impulse_actor_peak_desired_vertical_launch_speed_mps=(
+            ballistic_contact_impulse_actor_peak_desired_vertical_launch_speed
         ),
         torque_authority_projection_enabled=(flow.torque_authority_projection_ratio > 0.0),
         torque_authority_projection_steps=torque_authority_projection_steps,
