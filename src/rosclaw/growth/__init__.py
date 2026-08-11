@@ -28,6 +28,21 @@ from rosclaw.growth.generalization import (
     GeneralizationStatus,
 )
 from rosclaw.growth.plan import CandidateManifest, LearningJob, LearningPlan
+from rosclaw.growth.registry import (
+    GROWTH_ADAPTER_GROUP,
+    GROWTH_LEARNER_GROUP,
+    GrowthAdapter,
+    GrowthDiscoveryReport,
+    GrowthExtensionRegistry,
+    LearnerDescriptor,
+)
+from rosclaw.growth.routing import (
+    DataProfile,
+    GrowthProblemSignals,
+    LearnerRoute,
+    RouteDisposition,
+    route_learners,
+)
 
 __all__ = [
     "ActionTraceCommitment",
@@ -41,6 +56,8 @@ __all__ = [
     "EvidenceUsePolicy",
     "ExperienceSegment",
     "FailureSignature",
+    "GROWTH_ADAPTER_GROUP",
+    "GROWTH_LEARNER_GROUP",
     "GateName",
     "GateResult",
     "GateStatus",
@@ -48,10 +65,19 @@ __all__ = [
     "GeneralizationEvidence",
     "GeneralizationStatus",
     "GrowthMetricSpec",
+    "GrowthAdapter",
+    "GrowthDiscoveryReport",
+    "GrowthExtensionRegistry",
+    "GrowthProblemSignals",
+    "DataProfile",
     "LearningJob",
     "LearningPlan",
+    "LearnerDescriptor",
+    "LearnerRoute",
     "MetricDirection",
     "PhysicalAdvantageLabel",
+    "RouteDisposition",
     "SkillGrowthSpec",
     "TrainingEligibility",
+    "route_learners",
 ]
