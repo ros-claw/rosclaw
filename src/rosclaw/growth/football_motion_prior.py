@@ -207,6 +207,7 @@ class G1FootballMotionPrior:
     source_dataset: str = "OmniContact"
     style_profile: str = "parent_nearest"
     velocity_distillation_strategy: str = "coordinatewise_median"
+    position_distillation_strategy: str = "coordinatewise_median"
     maximum_target_correction_rad: float = 0.45
     activation_ceiling: str = "SIM_ONLY"
     promotion_authorized: bool = False
@@ -265,6 +266,7 @@ class G1FootballMotionPrior:
                 or self.source_dataset != "OmniContact"
                 or self.style_profile != "parent_nearest"
                 or self.velocity_distillation_strategy != "coordinatewise_median"
+                or self.position_distillation_strategy != "coordinatewise_median"
             ):
                 raise ValueError("football motion prior v1 cannot contain a whole-body style")
         elif self.schema_version in {
@@ -272,6 +274,7 @@ class G1FootballMotionPrior:
             "rosclaw.growth.g1_football_motion_prior.v3",
             "rosclaw.growth.g1_football_motion_prior.v4",
             "rosclaw.growth.g1_football_motion_prior.v5",
+            "rosclaw.growth.g1_football_motion_prior.v6",
         }:
             expected_whole_body = (len(self.reference_times_sec), len(G1_DDS_JOINT_NAMES))
             for label, values in (
@@ -328,7 +331,14 @@ class G1FootballMotionPrior:
                 for event in self.style_events
             ):
                 raise ValueError("lofted-drive event violates the signed foot velocity contract")
-            if self.schema_version.endswith((".v4", ".v5")):
+            if self.style_profile == "vertical_drive" and any(
+                event.right_foot_forward_speed_mps < 3.0
+                or event.right_foot_vertical_speed_mps < 0.75
+                or abs(event.right_foot_lateral_speed_mps) > 2.5
+                for event in self.style_events
+            ):
+                raise ValueError("vertical-drive event violates the signed foot velocity contract")
+            if self.schema_version.endswith((".v4", ".v5", ".v6")):
                 velocity = np.asarray(
                     self.whole_body_velocity_reference_rad_s,
                     dtype=np.float64,
@@ -346,13 +356,22 @@ class G1FootballMotionPrior:
                     or np.any(velocity_correction > 4.0)
                 ):
                     raise ValueError("football motion prior velocity bounds are invalid")
-                if self.style_profile != "lofted_drive":
-                    raise ValueError("velocity-aware football prior requires lofted-drive style")
-                expected_strategy = (
-                    "representative_event"
-                    if self.schema_version.endswith(".v5")
-                    else "coordinatewise_median"
-                )
+                if self.schema_version.endswith(".v6"):
+                    if self.style_profile != "vertical_drive":
+                        raise ValueError("football motion prior v6 requires vertical-drive style")
+                    expected_strategy = "synchronized_representative_event"
+                    if self.position_distillation_strategy != expected_strategy:
+                        raise ValueError("football motion prior position strategy is invalid")
+                else:
+                    if self.style_profile != "lofted_drive":
+                        raise ValueError(
+                            "velocity-aware football prior requires lofted-drive style"
+                        )
+                    expected_strategy = (
+                        "representative_event"
+                        if self.schema_version.endswith(".v5")
+                        else "coordinatewise_median"
+                    )
                 if self.velocity_distillation_strategy != expected_strategy:
                     raise ValueError("football motion prior velocity strategy is invalid")
             elif (
@@ -362,6 +381,11 @@ class G1FootballMotionPrior:
                 raise ValueError("football motion prior velocity references require v4 or v5")
             elif self.velocity_distillation_strategy != "coordinatewise_median":
                 raise ValueError("position-only football prior velocity strategy is invalid")
+            if (
+                not self.schema_version.endswith(".v6")
+                and self.position_distillation_strategy != "coordinatewise_median"
+            ):
+                raise ValueError("legacy football motion prior position strategy is invalid")
         else:
             raise ValueError("unsupported football motion prior schema")
         if (
@@ -397,6 +421,7 @@ class G1FootballMotionPrior:
                 "source_dataset",
                 "style_profile",
                 "velocity_distillation_strategy",
+                "position_distillation_strategy",
             ):
                 payload.pop(field, None)
         else:
@@ -419,6 +444,13 @@ class G1FootballMotionPrior:
                 "rosclaw.growth.g1_football_motion_prior.v4",
             }:
                 payload.pop("velocity_distillation_strategy", None)
+            if self.schema_version in {
+                "rosclaw.growth.g1_football_motion_prior.v2",
+                "rosclaw.growth.g1_football_motion_prior.v3",
+                "rosclaw.growth.g1_football_motion_prior.v4",
+                "rosclaw.growth.g1_football_motion_prior.v5",
+            }:
+                payload.pop("position_distillation_strategy", None)
         return payload
 
     def to_dict(self) -> dict[str, Any]:

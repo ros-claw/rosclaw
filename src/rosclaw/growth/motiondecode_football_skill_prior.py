@@ -6,8 +6,9 @@ a bounded position-and-velocity reference teacher.  A strict-replay ROSClaw
 trajectory is used to select nearby motion islands; its outcome is not used as a reward.
 The resulting prior remains SIM_ONLY and cannot promote or command hardware.
 An explicit style profile can preserve the nearest parent island or select a
-forward, upward foot path for lofted drives; the profile and signed contact
-velocity are bound into v5 representative-event artifacts.
+forward, upward foot path for lofted drives.  The v6 vertical-drive profile
+keeps position and velocity from the same representative event so the contact
+posture is not paired with an unrelated foot velocity.
 """
 
 from __future__ import annotations
@@ -53,7 +54,7 @@ _REFERENCE_TIMES_SEC = (
 )
 _SHOOTING_TOKEN = "/3.3.3.3.Shooting/"
 _MAX_JSON_BYTES = 128 * 1024 * 1024
-_STYLE_PROFILES = {"parent_nearest", "lofted_drive"}
+_STYLE_PROFILES = {"parent_nearest", "lofted_drive", "vertical_drive"}
 
 
 def derive_motiondecode_g1_football_skill_prior(
@@ -150,9 +151,7 @@ def derive_motiondecode_g1_football_skill_prior(
 
     lower = np.asarray([joint_limits[name][0] for name in G1_DDS_JOINT_NAMES])
     upper = np.asarray([joint_limits[name][1] for name in G1_DDS_JOINT_NAMES])
-    candidates: list[
-        tuple[float, str, np.ndarray, np.ndarray, G1FootballStyleEvent]
-    ] = []
+    candidates: list[tuple[float, str, np.ndarray, np.ndarray, G1FootballStyleEvent]] = []
     heldout: dict[str, str] = {}
     train_files = 0
     for relative, result in sorted(results.items()):
@@ -205,10 +204,10 @@ def derive_motiondecode_g1_football_skill_prior(
     selected = candidates[:selected_event_count]
     sequences = np.asarray([item[2] for item in selected], dtype=np.float64)
     velocity_sequences = np.asarray([item[3] for item in selected], dtype=np.float64)
-    reference = np.median(sequences, axis=0)
+    reference = sequences[0] if style_profile == "vertical_drive" else np.median(sequences, axis=0)
     velocity_reference = (
         velocity_sequences[0]
-        if style_profile == "lofted_drive"
+        if style_profile in {"lofted_drive", "vertical_drive"}
         else np.median(velocity_sequences, axis=0)
     )
     iqr = np.quantile(sequences, 0.75, axis=0) - np.quantile(sequences, 0.25, axis=0)
@@ -235,12 +234,12 @@ def derive_motiondecode_g1_football_skill_prior(
         whole_body_maximum_target_correction_rad=((0.30,) * 12 + (0.16,) * 3 + (0.12,) * 14),
         whole_body_velocity_reference_rad_s=(
             tuple(tuple(float(value) for value in row) for row in velocity_reference)
-            if style_profile == "lofted_drive"
+            if style_profile in {"lofted_drive", "vertical_drive"}
             else ()
         ),
         whole_body_maximum_velocity_correction_rad_s=(
             (1.0,) * 6 + (4.0,) * 6 + (0.8,) * 3 + (1.2,) * 14
-            if style_profile == "lofted_drive"
+            if style_profile in {"lofted_drive", "vertical_drive"}
             else ()
         ),
         motiondecode_source_manifest_hash=registration.manifest.manifest_hash,
@@ -250,14 +249,23 @@ def derive_motiondecode_g1_football_skill_prior(
         source_dataset="MotionDecode",
         style_profile=style_profile,
         velocity_distillation_strategy=(
-            "representative_event"
+            "synchronized_representative_event"
+            if style_profile == "vertical_drive"
+            else "representative_event"
             if style_profile == "lofted_drive"
+            else "coordinatewise_median"
+        ),
+        position_distillation_strategy=(
+            "synchronized_representative_event"
+            if style_profile == "vertical_drive"
             else "coordinatewise_median"
         ),
         maximum_target_correction_rad=0.30,
         schema_version=(
             "rosclaw.growth.g1_football_motion_prior.v2"
             if style_profile == "parent_nearest"
+            else "rosclaw.growth.g1_football_motion_prior.v6"
+            if style_profile == "vertical_drive"
             else "rosclaw.growth.g1_football_motion_prior.v5"
         ),
     )
@@ -340,10 +348,25 @@ def _best_episode_event(
             post = velocity[frame + round(0.30 * fps) : min(q.shape[0], frame + round(0.60 * fps))]
             recovery = float(np.sqrt(np.mean(np.square(post)))) if post.size else math.inf
             selectivity = right_speed[frame] / max(left_speed[frame], 0.20)
-            forward, lateral, vertical = (
-                float(value) for value in right_velocity[frame]
-            )
-            if style_profile == "lofted_drive":
+            forward, lateral, vertical = (float(value) for value in right_velocity[frame])
+            if style_profile == "vertical_drive":
+                if forward < 3.0 or vertical < 0.75 or abs(lateral) > 2.5:
+                    continue
+                # Unlike the generic lofted profile, this profile is intended
+                # to expand vertical reach.  Keep parent distance, support-foot
+                # motion and recovery in the score, but make upward foot speed
+                # the dominant selection signal.  Position and velocity from
+                # the winning event are later kept together as one causal
+                # posture/velocity pair.
+                rank = (
+                    0.10 * style_distance
+                    + 0.010 * support
+                    + 0.010 * recovery
+                    + 0.025 * abs(lateral)
+                    - 0.050 * min(forward, 7.0)
+                    - 0.500 * min(vertical, 4.0)
+                )
+            elif style_profile == "lofted_drive":
                 if forward < 3.0 or vertical < 0.55 or abs(lateral) > 2.5:
                     continue
                 rank = (
@@ -388,10 +411,16 @@ def _best_episode_event(
         forward,
         lateral,
         vertical,
-    ) = min(
-        options, key=lambda item: item[0]
+    ) = min(options, key=lambda item: item[0])
+    # Vertical-drive ranking can legitimately be negative because upward foot
+    # velocity is a reward term.  Map it through a bounded monotone sigmoid so
+    # the evidence score remains interpretable instead of becoming zero or
+    # exceeding one near rank=-1.  Preserve legacy profile scoring and hashes.
+    score = (
+        1.0 / (1.0 + math.exp(max(-60.0, min(60.0, rank))))
+        if style_profile == "vertical_drive"
+        else max(0.0, 1.0 / (1.0 + rank))
     )
-    score = max(0.0, 1.0 / (1.0 + rank))
     event = G1FootballStyleEvent(
         relative_path=relative_path,
         source_hash=source_hash,
@@ -402,9 +431,15 @@ def _best_episode_event(
         right_foot_peak_speed_mps=peak,
         support_foot_p95_speed_mps=support,
         post_event_joint_velocity_rms_rad_s=recovery,
-        right_foot_forward_speed_mps=(forward if style_profile == "lofted_drive" else 0.0),
-        right_foot_lateral_speed_mps=(lateral if style_profile == "lofted_drive" else 0.0),
-        right_foot_vertical_speed_mps=(vertical if style_profile == "lofted_drive" else 0.0),
+        right_foot_forward_speed_mps=(
+            forward if style_profile in {"lofted_drive", "vertical_drive"} else 0.0
+        ),
+        right_foot_lateral_speed_mps=(
+            lateral if style_profile in {"lofted_drive", "vertical_drive"} else 0.0
+        ),
+        right_foot_vertical_speed_mps=(
+            vertical if style_profile in {"lofted_drive", "vertical_drive"} else 0.0
+        ),
     )
     return rank, relative_path, sequence, velocity_sequence, event
 

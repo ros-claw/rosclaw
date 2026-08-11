@@ -17,8 +17,20 @@ from rosclaw.growth.adapters.g1_free_kick import (
     write_g1_free_kick_triage,
 )
 from rosclaw.growth.approach_strike_dataset import build_g1_approach_strike_dataset
+from rosclaw.growth.ballistic_contact_active_sampler import (
+    derive_g1_ballistic_contact_active_sample,
+)
 from rosclaw.growth.ballistic_contact_actor_critic import (
     derive_g1_ballistic_contact_actor_critic,
+)
+from rosclaw.growth.ballistic_contact_candidate_evaluation import (
+    evaluate_g1_ballistic_contact_candidate,
+)
+from rosclaw.growth.ballistic_contact_context_holdout_evaluation import (
+    evaluate_g1_ballistic_contact_context_holdout,
+)
+from rosclaw.growth.ballistic_contact_coupled_actor_critic import (
+    derive_g1_ballistic_contact_coupled_actor_critic,
 )
 from rosclaw.growth.ballistic_contact_evaluation import (
     evaluate_g1_ballistic_contact_holdout,
@@ -274,7 +286,7 @@ def _parser() -> argparse.ArgumentParser:
     motiondecode_skill_prior.add_argument("--selected-event-count", type=int, default=16)
     motiondecode_skill_prior.add_argument(
         "--style-profile",
-        choices=("parent_nearest", "lofted_drive"),
+        choices=("parent_nearest", "lofted_drive", "vertical_drive"),
         default="parent_nearest",
     )
     motiondecode_skill_prior.set_defaults(handler=_motiondecode_football_skill_prior)
@@ -290,6 +302,62 @@ def _parser() -> argparse.ArgumentParser:
     ballistic_actor_critic.add_argument("--trust-region-radius-rad", type=float, default=0.06)
     ballistic_actor_critic.add_argument("--ridge-regularization", type=float, default=0.02)
     ballistic_actor_critic.set_defaults(handler=_ballistic_contact_actor_critic)
+    ballistic_active_sample = commands.add_parser(
+        "ballistic-contact-active-sample",
+        help="fill one local safe evidence gap after contact critic abstention",
+    )
+    ballistic_active_sample.add_argument("--actor-critic", type=Path, required=True)
+    ballistic_active_sample.add_argument("--output", type=Path, required=True)
+    ballistic_active_sample.add_argument("--source-checkout", type=Path, default=Path.cwd())
+    ballistic_active_sample.add_argument("--maximum-step-rad", type=float, default=0.03)
+    ballistic_active_sample.set_defaults(handler=_ballistic_contact_active_sample)
+    ballistic_coupled_actor_critic = commands.add_parser(
+        "ballistic-contact-coupled-actor-critic",
+        help="fit a full-grid two-joint interaction critic for SIM_ONLY replay",
+    )
+    ballistic_coupled_actor_critic.add_argument(
+        "--evidence-json", type=Path, action="append", required=True
+    )
+    ballistic_coupled_actor_critic.add_argument("--output", type=Path, required=True)
+    ballistic_coupled_actor_critic.add_argument("--source-checkout", type=Path, default=Path.cwd())
+    ballistic_coupled_actor_critic.add_argument(
+        "--trust-region-radius-rad", type=float, default=0.03
+    )
+    ballistic_coupled_actor_critic.add_argument("--ridge-regularization", type=float, default=0.01)
+    ballistic_coupled_actor_critic.set_defaults(handler=_ballistic_contact_coupled_actor_critic)
+    ballistic_candidate_evaluation = commands.add_parser(
+        "evaluate-ballistic-contact-candidate",
+        help="gate a measured contact actor proposal against its strict replay anchor",
+    )
+    ballistic_candidate_evaluation.add_argument("--actor-critic", type=Path, required=True)
+    ballistic_candidate_evaluation.add_argument("--anchor-evidence", type=Path, required=True)
+    ballistic_candidate_evaluation.add_argument("--candidate-evidence", type=Path, required=True)
+    ballistic_candidate_evaluation.add_argument("--output", type=Path, required=True)
+    ballistic_candidate_evaluation.add_argument("--source-checkout", type=Path, default=Path.cwd())
+    ballistic_candidate_evaluation.add_argument(
+        "--minimum-error-improvement-m", type=float, default=0.005
+    )
+    ballistic_candidate_evaluation.set_defaults(handler=_evaluate_ballistic_contact_candidate)
+    ballistic_context_evaluation = commands.add_parser(
+        "evaluate-ballistic-contact-context-holdout",
+        help="gate a coupled candidate across paired proprioceptive contexts",
+    )
+    ballistic_context_evaluation.add_argument("--actor-critic", type=Path, required=True)
+    ballistic_context_evaluation.add_argument(
+        "--anchor-evidence", type=Path, action="append", required=True
+    )
+    ballistic_context_evaluation.add_argument(
+        "--candidate-evidence", type=Path, action="append", required=True
+    )
+    ballistic_context_evaluation.add_argument("--output", type=Path, required=True)
+    ballistic_context_evaluation.add_argument("--source-checkout", type=Path, default=Path.cwd())
+    ballistic_context_evaluation.add_argument(
+        "--minimum-mean-improvement-m", type=float, default=0.005
+    )
+    ballistic_context_evaluation.add_argument(
+        "--maximum-context-regression-m", type=float, default=0.005
+    )
+    ballistic_context_evaluation.set_defaults(handler=_evaluate_ballistic_contact_context_holdout)
     ballistic_torque_actor_critic = commands.add_parser(
         "ballistic-contact-torque-actor-critic",
         help="fit an island-bound SIM_ONLY actor over direct contact torques",
@@ -755,6 +823,56 @@ def _ballistic_contact_actor_critic(args: argparse.Namespace) -> int:
     )
     _print(candidate.to_dict())
     return 0 if candidate.sim_replay_recommended else 3
+
+
+def _ballistic_contact_active_sample(args: argparse.Namespace) -> int:
+    sample = derive_g1_ballistic_contact_active_sample(
+        actor_critic_path=args.actor_critic,
+        output_path=args.output,
+        source_checkout=args.source_checkout,
+        maximum_step_rad=args.maximum_step_rad,
+    )
+    _print(sample.to_dict())
+    return 0
+
+
+def _ballistic_contact_coupled_actor_critic(args: argparse.Namespace) -> int:
+    candidate = derive_g1_ballistic_contact_coupled_actor_critic(
+        evidence_paths=tuple(args.evidence_json),
+        output_path=args.output,
+        source_checkout=args.source_checkout,
+        trust_region_radius_rad=args.trust_region_radius_rad,
+        ridge_regularization=args.ridge_regularization,
+    )
+    _print(candidate.to_dict())
+    return 0 if candidate.sim_replay_recommended else 3
+
+
+def _evaluate_ballistic_contact_candidate(args: argparse.Namespace) -> int:
+    evaluation = evaluate_g1_ballistic_contact_candidate(
+        actor_critic_path=args.actor_critic,
+        anchor_evidence_path=args.anchor_evidence,
+        candidate_evidence_path=args.candidate_evidence,
+        output_path=args.output,
+        source_checkout=args.source_checkout,
+        minimum_error_improvement_m=args.minimum_error_improvement_m,
+    )
+    _print(evaluation.to_dict())
+    return 0 if evaluation.accepted else 3
+
+
+def _evaluate_ballistic_contact_context_holdout(args: argparse.Namespace) -> int:
+    evaluation = evaluate_g1_ballistic_contact_context_holdout(
+        actor_critic_path=args.actor_critic,
+        anchor_evidence_paths=tuple(args.anchor_evidence),
+        candidate_evidence_paths=tuple(args.candidate_evidence),
+        output_path=args.output,
+        source_checkout=args.source_checkout,
+        minimum_mean_improvement_m=args.minimum_mean_improvement_m,
+        maximum_context_regression_m=args.maximum_context_regression_m,
+    )
+    _print(evaluation.to_dict())
+    return 0 if evaluation.accepted else 3
 
 
 def _ballistic_contact_torque_actor_critic(args: argparse.Namespace) -> int:

@@ -170,7 +170,7 @@ def derive_g1_ballistic_contact_actor_critic(
             raise ValueError("ballistic actor-critic actions must be independent")
         seen_actions.add(action)
         result = dict(evidence.get("result", {}))
-        probe = _probe_from_result(path=path, action=action, result=result)
+        probe = g1_ballistic_contact_probe_from_result(path=path, action=action, result=result)
         probes.append(probe)
         context_hashes.add(
             canonical_hash(
@@ -268,8 +268,7 @@ def derive_g1_ballistic_contact_actor_critic(
         minimum_predicted_improvement=minimum_improvement,
         maximum_critic_leave_one_out_rmse=maximum_critic_loo_rmse,
         sim_replay_recommended=(
-            predicted_improvement >= minimum_improvement
-            and loo_rmse <= maximum_critic_loo_rmse
+            predicted_improvement >= minimum_improvement and loo_rmse <= maximum_critic_loo_rmse
         ),
         trust_region_radius_rad=trust_region_radius_rad,
         ridge_regularization=ridge_regularization,
@@ -283,7 +282,7 @@ def derive_g1_ballistic_contact_actor_critic(
     return report
 
 
-def _probe_from_result(
+def g1_ballistic_contact_probe_from_result(
     *, path: Path, action: tuple[float, ...], result: dict[str, Any]
 ) -> G1BallisticContactProbe:
     raw_error = result.get("goal_plane_target_error_m")
@@ -304,8 +303,7 @@ def _probe_from_result(
     contact_height = result.get("kick_contact_height_relative_ball_center_m")
     contact_height_value = (
         float(contact_height)
-        if isinstance(contact_height, (int, float))
-        and math.isfinite(float(contact_height))
+        if isinstance(contact_height, (int, float)) and math.isfinite(float(contact_height))
         else -0.25
     )
     saturation_steps = int(result.get("actuator_saturation_steps", 0))
@@ -396,9 +394,7 @@ def _supported_action_dimensions(
             current = proposed
             current_rank = proposed_rank
     if not selected:
-        raise ValueError(
-            "ballistic actor-critic has no independently supported action dimension"
-        )
+        raise ValueError("ballistic actor-critic has no independently supported action dimension")
     return tuple(sorted(selected)), unique_counts
 
 
@@ -505,4 +501,5 @@ __all__ = [
     "G1BallisticContactActorCritic",
     "G1BallisticContactProbe",
     "derive_g1_ballistic_contact_actor_critic",
+    "g1_ballistic_contact_probe_from_result",
 ]

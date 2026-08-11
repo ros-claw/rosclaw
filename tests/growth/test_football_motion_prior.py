@@ -317,6 +317,28 @@ def test_motiondecode_v4_velocity_blend_is_windowed_and_bounded(tmp_path: Path) 
             style_events=(replace(event, right_foot_vertical_speed_mps=0.54),),
         )
 
+    synchronized = replace(
+        prior,
+        schema_version="rosclaw.growth.g1_football_motion_prior.v6",
+        style_profile="vertical_drive",
+        velocity_distillation_strategy="synchronized_representative_event",
+        position_distillation_strategy="synchronized_representative_event",
+    )
+    synchronized_path = tmp_path / "synchronized-vertical-prior.json"
+    synchronized_path.write_text(json.dumps(synchronized.to_dict()), encoding="utf-8")
+    loaded_synchronized = load_g1_football_motion_prior(synchronized_path)
+
+    assert loaded_synchronized.prior_hash == synchronized.prior_hash
+    assert loaded_synchronized.style_profile == "vertical_drive"
+    assert loaded_synchronized.position_distillation_strategy == "synchronized_representative_event"
+    with pytest.raises(ValueError, match="position strategy"):
+        replace(synchronized, position_distillation_strategy="coordinatewise_median")
+    with pytest.raises(ValueError, match="signed foot velocity contract"):
+        replace(
+            synchronized,
+            style_events=(replace(event, right_foot_vertical_speed_mps=0.74),),
+        )
+
 
 def test_position_only_prior_is_velocity_noop() -> None:
     target_velocity = np.linspace(-0.5, 0.5, 29)
