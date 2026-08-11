@@ -1,7 +1,7 @@
-from pathlib import Path
 def test_hash_ignores_turn_in_flight(tmp_path):
     """turn_in_flight 翻转不得改变 context_hash（真实模型验收轮实测）。"""
     import asyncio
+
     from tests.agentd.test_pi_tool_bridge import _setup
     async def main():
         service, mission = await _setup(tmp_path)
