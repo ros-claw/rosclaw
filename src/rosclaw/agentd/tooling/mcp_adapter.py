@@ -223,8 +223,10 @@ class McpCapabilityAdapter:
                 params = StdioServerParameters(
                     command=cfg.command, args=list(cfg.args), env=cfg.spawn_env() or None
                 )
+                from rosclaw.agentd.tooling.persistent_client import _safe_errlog
+
                 async with (
-                    stdio_client(params) as (read, write),
+                    stdio_client(params, errlog=_safe_errlog()) as (read, write),
                     ClientSession(read, write) as session,
                 ):
                     await session.initialize()

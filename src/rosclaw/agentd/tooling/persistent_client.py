@@ -13,9 +13,24 @@ loop 内永远同进程）。
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 
 from rosclaw.contracts.common import ValidationError
+
+
+def _safe_errlog():
+    # MCP stdio spawn 的 errlog 必须有 fileno（捕获环境下
+    # sys.stderr 是替身对象）。
+    import sys
+
+    for stream in (sys.stderr, sys.__stderr__):
+        try:
+            stream.fileno()
+            return stream
+        except Exception:  # noqa: BLE001
+            continue
+    return open(os.devnull, "w")  # noqa: SIM115 - 进程级常量生命周期
 
 
 class PersistentMcpClient:
@@ -52,7 +67,12 @@ class PersistentMcpClient:
         )
         stack = AsyncExitStack()
         try:
-            read, write = await stack.enter_async_context(stdio_client(params))
+            # pytest/捕获环境的 sys.stderr 无 fileno——anyio spawn 需要
+            # 真 fd，否则 UnsupportedOperation: fileno（静默 quarantine
+            # 的隐蔽根因）。
+            read, write = await stack.enter_async_context(
+                stdio_client(params, errlog=_safe_errlog())
+            )
             session = await stack.enter_async_context(ClientSession(read, write))
             await session.initialize()
         except Exception:
