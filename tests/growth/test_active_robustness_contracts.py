@@ -393,3 +393,91 @@ def test_numeric_contracts_reject_boolean_and_nonfinite_values() -> None:
             values=(0.5, float("nan")),
             evidence_hash=_hash("evidence"),
         )
+
+
+@pytest.mark.parametrize(
+    ("domain", "dimension_ids"),
+    (
+        ("navigation", ("linear_gain", "angular_gain")),
+        ("manipulation", ("force_gain", "closure_speed")),
+    ),
+)
+def test_cross_domain_growth_evidence_loop_requires_execution_and_robustness(
+    domain: str,
+    dimension_ids: tuple[str, str],
+) -> None:
+    sampling_status, _, candidate_parameters = _sample(
+        domain=domain,
+        dimension_ids=dimension_ids,
+    )
+    candidate_hash = _hash(repr(sorted(candidate_parameters.items())))
+    parent_hash = _hash(domain + "parent")
+    prediction = CandidateExecutionEvidence(
+        candidate_artifact_hash=candidate_hash,
+        evidence_hash=_hash(domain + "prediction"),
+        evidence_level=EvidenceLevel.WORLD_MODEL,
+        physics_executed=False,
+        strict_replay=False,
+        independently_verified=False,
+    )
+    execution = CandidateExecutionEvidence(
+        candidate_artifact_hash=candidate_hash,
+        evidence_hash=_hash(domain + "execution"),
+        evidence_level=EvidenceLevel.PHYSICS_REPLAY,
+        physics_executed=True,
+        strict_replay=True,
+        independently_verified=True,
+        execution_receipt_hash=_hash(domain + "receipt"),
+    )
+    evidence_gate = CandidateEvidenceGate()
+
+    prediction_only = evidence_gate.evaluate(
+        candidate_artifact_hash=candidate_hash,
+        evidence=(prediction,),
+    )
+    executed = evidence_gate.evaluate(
+        candidate_artifact_hash=candidate_hash,
+        evidence=(prediction, execution),
+    )
+    robust = RobustnessGate(
+        RobustnessProfile(minimum_samples=4, tail_fraction=0.25)
+    ).evaluate(
+        parent=RobustnessEvidence(
+            artifact_hash=parent_hash,
+            metric_id="task.quality",
+            direction=MetricDirection.MAXIMIZE,
+            values=(0.70, 0.72, 0.74, 0.76),
+            evidence_hash=_hash(domain + "parent-robustness"),
+        ),
+        candidate=RobustnessEvidence(
+            artifact_hash=candidate_hash,
+            metric_id="task.quality",
+            direction=MetricDirection.MAXIMIZE,
+            values=(0.75, 0.77, 0.79, 0.81),
+            evidence_hash=_hash(domain + "candidate-robustness"),
+        ),
+    )
+    applicable = ApplicabilityGate(
+        minimum_confidence=0.8,
+        maximum_support_distance=0.2,
+    ).evaluate(
+        ApplicabilityEvidence(
+            candidate_artifact_hash=candidate_hash,
+            parent_artifact_hash=parent_hash,
+            context_hash=_hash(domain + "context"),
+            evidence_hash=_hash(domain + "applicability"),
+            in_distribution=True,
+            confidence=0.9,
+            support_distance=0.1,
+        )
+    )
+
+    assert sampling_status is ActiveSamplingStatus.PROPOSED
+    assert prediction_only.status is CandidateEvidenceStatus.NEEDS_EXECUTION
+    assert executed.status is CandidateEvidenceStatus.PASSED
+    assert robust.status is RobustnessStatus.PASSED
+    assert applicable.used_candidate is True
+    assert applicable.selected_artifact_hash == candidate_hash
+    # These contracts produce evidence and a selection, not an activation grant.
+    assert executed.activation_allowed is False
+    assert applicable.activation_allowed is False
