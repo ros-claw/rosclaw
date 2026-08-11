@@ -162,6 +162,28 @@ class OperatorBroker:
             return None
         return self._mint_grant(request, principal)
 
+    def cancel_request(self, request_id: str, *, principal: str) -> None:
+        """WP-P0-7（总纲 §7.4）：取消传播——撤销未消费的审批请求。
+        仅 PENDING 可撤销；取消是终态（不产 grant、不可再决定）。"""
+        row = self._conn.execute(
+            "SELECT status FROM operator_requests WHERE request_id = ?",
+            (request_id,),
+        ).fetchone()
+        if row is None:
+            raise ValidationError(f"unknown approval request {request_id!r}")
+        if row["status"] != "PENDING":
+            raise ValidationError(f"request {request_id!r} already {row['status']}")
+        self._conn.execute(
+            "UPDATE operator_requests SET status = 'CANCELLED', decided_by = ?, "
+            "decided_at = ? WHERE request_id = ?",
+            (f"cancel:{principal}", _utcnow(), request_id),
+        )
+        self._event(
+            "rosclaw.operator.approval.cancelled.v1",
+            principal,
+            {"request_id": request_id},
+        )
+
     # ------------------------------------------------------------------
     # grants
     # ------------------------------------------------------------------

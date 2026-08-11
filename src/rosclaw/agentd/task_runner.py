@@ -170,6 +170,36 @@ class TaskRunner:
         existing = self._store.get_by_idempotency(idem)
         if existing is not None:
             return self._result(existing)
+        # WP-P0-7（总纲 §7.4）：crash 恢复只能 attach——同 mission/
+        # goal/参数的非终态任务重提（新幂等键）返回既有任务，绝不
+        # 二次提交。
+        fingerprint = json.dumps(
+            {"mission": request_ctx.mission_id, "goal": goal,
+             "parameters": parameters},
+            sort_keys=True, ensure_ascii=False,
+        )
+        row = self._store._conn.execute(
+            "SELECT task_id FROM task_records WHERE mission_id = ? AND goal = ? "
+            "AND state NOT IN ('VERIFIED','FAILED','DENIED','CANCELLED','INCONCLUSIVE') "
+            "ORDER BY rowid DESC LIMIT 1",
+            (request_ctx.mission_id, goal),
+        ).fetchone()
+        if row is not None:
+            candidate = self._store.get_by_id(row[0])
+            if candidate is not None and candidate.get("params_json"):
+                try:
+                    same = json.loads(candidate["params_json"])
+                    same_fp = json.dumps(
+                        {"mission": request_ctx.mission_id, "goal": goal,
+                         "parameters": same},
+                        sort_keys=True, ensure_ascii=False,
+                    )
+                except Exception:  # noqa: BLE001
+                    same_fp = ""
+                if same_fp == fingerprint:
+                    result = self._result(candidate)
+                    result["attached"] = True
+                    return result
         if goal != "draw_shape":
             raise ToolBridgeError(
                 "TASK_UNKNOWN", f"unknown task goal {goal!r} (supported: draw_shape)"
@@ -309,6 +339,14 @@ class TaskRunner:
         if record["state"] in TERMINAL_STATES:
             return {"ok": True, "state": record["state"], "changed": False}
         self._store.transition(task_id, "CANCELLED")
+        # WP-P0-7（总纲 §7.4）：取消传播——撤销未消费的审批卡
+        # （此后 decide 即拒，绝不产 grant/执行）。
+        approval_id = record.get("approval_id") or ""
+        if approval_id:
+            with contextlib.suppress(Exception):
+                self._service._broker.cancel_request(
+                    approval_id, principal="task.cancel"
+                )
         return {"ok": True, "state": "CANCELLED", "changed": True}
 
     async def _execute_and_verify(
@@ -377,7 +415,12 @@ class TaskRunner:
         # 八审 §4 P0-7 三通道：user_view 一行进度（model_view 是本
         # 结构；audit_view 全量在 task_records/receipt，/trace 展开）。
         if record["state"] == "VERIFIED":
-            user_view = "规划 ✓  安全校验 ✓  仿真执行 ✓  几何验证 PASS（运动学仿真）"
+            # WP-P0-6（总纲 §8.3）：诚实证据等级——当前 sandbox 是
+            # 命令回放（路径自洽），不宣称机械臂真的运动过。
+            user_view = (
+                "快速运动学预演完成（命令回放）：路径数据自洽、几何闭合 "
+                "验证 PASS——不能证明动力学或真实机械臂完成运动"
+            )
         elif record["state"] == "WAITING_APPROVAL":
             user_view = "规划 ✓  安全校验 ✓  等待人工确认…"
         else:
@@ -390,6 +433,7 @@ class TaskRunner:
             "goal": record["goal"],
             "policy": policy,
             "user_view": user_view,
+            "evidence_level": "COMMAND_REPLAY",
             "plan_id": record.get("plan_id") or "",
             "summary": (
                 "UR5e 运动学沙盒绘制闭合五角星"

@@ -110,7 +110,21 @@ class PlanStore:
         self._records.clear()
 
 
-_PLAN_STORE = PlanStore()
+def _make_plan_store():
+    """WP-P0-7：ROSCLAW_HOME 可用 → 落盘 PlanStore（executor 重启
+    不丢 plan、已消费不复活）；否则内存（单测直 import）。"""
+    import os as _os
+    from pathlib import Path as _Path
+
+    home = _os.environ.get("ROSCLAW_HOME")
+    if home:
+        from rosclaw.sim.plan_store import PersistentPlanStore
+
+        return PersistentPlanStore(_Path(home) / "sim" / "plans")
+    return PlanStore()
+
+
+_PLAN_STORE = _make_plan_store()
 
 
 def _canonical_point(point: dict) -> dict:
@@ -294,6 +308,14 @@ def _execute_trajectory(trajectory: dict) -> str:
             "driver": "completed",
             "evidence_domain": "simulation",
             "sim_kind": SIM_KIND,
+            # WP-P0-6（总纲 §8.3）：本执行器把规划点写入 sandbox
+            # state——证据等级是 COMMAND_REPLAY（路径自洽），不是
+            # 运动学/动力学仿真，更不是真实机械臂观测。
+            "evidence_level": "COMMAND_REPLAY",
+            "limitation": (
+                "trace 与计划来自同一 sandbox——能证明路径数据自洽，"
+                "不能证明 MuJoCo 动力学或真实机械臂完成运动"
+            ),
             "trajectory_hash": actual,
             "points_executed": len(points),
             "executed_at": _ts(),
@@ -343,6 +365,8 @@ def get_cartesian_trace(include_points: bool = False) -> str:
         "first_point": trace[0] if trace else None,
         "last_point": trace[-1] if trace else None,
         "svg": _trace_svg(trace),
+        # WP-P0-6：trace 来源标注——command replay 不是独立观测。
+        "origin": "command_replay",
     }
     if include_points:
         trace_view["points"] = trace
@@ -350,6 +374,7 @@ def get_cartesian_trace(include_points: bool = False) -> str:
         {
             "ok": True,
             "evidence_domain": "simulation",
+            "evidence_level": "COMMAND_REPLAY",
             "sim_kind": SIM_KIND,
             "trace": trace_view,
             "observed_at": _ts(),
