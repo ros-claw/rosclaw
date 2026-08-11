@@ -113,6 +113,9 @@ async function main(): Promise<number> {
 	} else if (continueLast) {
 		initialSession = SessionManager.continueRecent(process.cwd(), sessionDir);
 	}
+	const isResume = Boolean(
+		resumeSessionId || resumeSessionPath || browseSessions || continueLast,
+	);
 	const { runtime, coordinator, leaseManager } = await createRosclawRuntime({
 		cwd: process.cwd(),
 		rosclawHome,
@@ -120,6 +123,7 @@ async function main(): Promise<number> {
 		version: VERSION,
 		...(missionId ? { missionId } : {}),
 		...(initialSession ? { sessionManager: initialSession } : {}),
+		...(isResume ? { resumed: true } : {}),
 	});
 	// P0-NA-12：初始绑定统一经 coordinator——lease/heartbeat/fresh
 	// context/原子状态替换是一个事务，lease_token 绝不丢弃。

@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -320,6 +321,91 @@ class PiBridgeServer:
         if method == "pi.robot.use":
             # 七审 PR-SEVEN-5：切换活跃机器人（无 kit 的 body 一律拒绝）。
             return await service.robot_use(str(params.get("body_id", "")))
+        if method == "pi.session.resume_report":
+            # WP-P0-3（总纲 §5.4）：恢复对账报告——恢复了什么、重新
+            # 验证了什么、哪些权限失效了。已完成任务绝不重放；运行
+            # 中任务只 attach；过期卡标 REAUTH。
+            import json as _json
+            from datetime import UTC as _UTC2
+            from datetime import datetime as _dt2
+
+            session_id = str(params.get("pi_session_id", ""))
+            binding = self._bindings.binding_for_session(session_id)
+            lines: list[str] = []
+            verdict = "RESUMED"
+            mode = ""
+            body_id = ""
+            if binding is None:
+                return {
+                    "ok": True,
+                    "report": {
+                        "verdict": "READ_ONLY",
+                        "lines": ["无绑定记录——对话只读打开，不伪装成原 Mission"],
+                        "mode": "", "body_id": "",
+                    },
+                }
+            mission = service.get_mission(binding.mission_id)
+            if mission is None:
+                return {
+                    "ok": True,
+                    "report": {
+                        "verdict": "READ_ONLY",
+                        "lines": [
+                            "原 Mission 已不存在——对话只读打开；"
+                            "可从此会话新建 SIM 任务（不伪装原 Mission）"
+                        ],
+                        "mode": "", "body_id": "",
+                    },
+                }
+            mode = mission.mode.value
+            body_id = mission.body_binding.body_id
+            conn = service._store.connection
+            # 任务对账。
+            tasks = conn.execute(
+                "SELECT task_id, state, approval_id FROM task_records "
+                "WHERE mission_id = ? ORDER BY rowid DESC LIMIT 5",
+                (mission.mission_id,),
+            ).fetchall()
+            for task_id, state, approval_id in tasks:
+                if state == "VERIFIED":
+                    lines.append(f"任务 {task_id} 已验证——不会重新执行")
+                elif state == "WAITING_APPROVAL" and approval_id:
+                    row = conn.execute(
+                        "SELECT status, request_json FROM operator_requests "
+                        "WHERE request_id = ?",
+                        (approval_id,),
+                    ).fetchone()
+                    expired = False
+                    if row:
+                        with contextlib.suppress(Exception):
+                            exp = _json.loads(row[1]).get("expires_at", "")
+                            expired = bool(exp) and exp < _dt2.now(_UTC2).isoformat()
+                    if expired or (row and row[0] != "PENDING"):
+                        verdict = "REAUTH_NEEDED"
+                        lines.append(
+                            f"任务 {task_id} 的授权卡已过期/失效——需重新确认，"
+                            "不会自动恢复执行权"
+                        )
+                    else:
+                        lines.append(f"任务 {task_id} 等待人工确认——审批卡已恢复")
+                elif state in ("EXECUTING", "VERIFYING", "PLANNING", "PLANNED"):
+                    lines.append(f"任务 {task_id} 曾进行（{state}）——仅附着查询，不重复提交")
+                else:
+                    lines.append(f"任务 {task_id}：{state}")
+            # 权限行：恢复后 lease 重新获取；旧动作授权按规则失效。
+            lines.append(
+                "权限：writer lease 已重新获取；旧动作授权不随恢复复活"
+                f"（当前模式 {mode}，仿真策略见 /safety）"
+            )
+            return {
+                "ok": True,
+                "report": {
+                    "verdict": verdict,
+                    "lines": lines,
+                    "mode": mode,
+                    "body_id": body_id,
+                },
+            }
         if method == "pi.task.list":
             # 八审 §5：/task——当前 mission 的任务清单（权威 store）。
             mission_id = str(params.get("mission_id", ""))
