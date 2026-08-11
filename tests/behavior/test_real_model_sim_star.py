@@ -196,7 +196,7 @@ class TestRealModelBehavior:
                         "几何验证".encode() in clean
                         or "验证通过".encode() in clean
                         or "验证 PASS".encode() in clean
-                        or "VERIFIED".encode() in clean
+                        or b"VERIFIED" in clean
                         or "已识别任务".encode() in clean
                         or "无法完成".encode() in clean
                         or "未能完成".encode() in clean
