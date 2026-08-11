@@ -325,7 +325,7 @@ def _parser() -> argparse.ArgumentParser:
     ballistic_impulse_actor.set_defaults(handler=_ballistic_contact_impulse_actor)
     episodic_contact_memory = commands.add_parser(
         "episodic-contact-memory",
-        help="build state-routed local contact dynamics from strict multi-context probes",
+        help="learn state-routed goal-plane dynamics from strict multi-context probes",
     )
     episodic_contact_memory.add_argument(
         "--evidence-json", type=Path, action="append", required=True

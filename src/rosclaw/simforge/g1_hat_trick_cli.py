@@ -116,7 +116,7 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
     run.add_argument(
         "--episodic-contact-memory",
         type=Path,
-        help="state-routed SIM-only local contact dynamics memory",
+        help="state-routed SIM-only flight/bounce/roll goal-plane memory",
     )
     run.add_argument(
         "--select-best-registered-skill",

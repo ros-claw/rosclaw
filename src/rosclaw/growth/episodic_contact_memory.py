@@ -1,9 +1,11 @@
-"""State-routed episodic contact dynamics for SIM-only G1 football.
+"""State-routed episodic goal-plane dynamics for SIM-only G1 football.
 
-The memory keeps one locally identified force-to-launch model per qualified
-pre-contact state.  Runtime routing is proprioceptive: planner seeds are audit
-labels only and are never used to select an action.  States outside the
-rehearsed support radius fail closed with zero additive torque.
+The memory keeps one locally identified force-to-goal-plane model per
+qualified pre-contact state.  Unlike a single-flight ballistic approximation,
+the learned outcome includes any measured flight, bounce, and roll before the
+ball reaches the goal plane.  Runtime routing is proprioceptive: planner seeds
+are audit labels only and are never used to select an action.  States, targets,
+or forces outside rehearsed support fail closed with zero additive torque.
 """
 
 from __future__ import annotations
@@ -23,8 +25,8 @@ from rosclaw.growth.ballistic_contact_impulse_actor import (
     g1_ballistic_contact_impulse_context_hash,
 )
 
-_SCHEMA = "rosclaw.growth.g1_episodic_contact_memory.v1"
-_PROTOTYPE_SCHEMA = "rosclaw.growth.g1_episodic_contact_prototype.v1"
+_SCHEMA = "rosclaw.growth.g1_episodic_contact_memory.v2"
+_PROTOTYPE_SCHEMA = "rosclaw.growth.g1_episodic_contact_prototype.v2"
 _OBSERVATION_NAMES = (
     "ankle_ball_dx_m",
     "ankle_ball_dy_m",
@@ -55,6 +57,56 @@ def _roll_pitch(quaternion_wxyz: np.ndarray) -> tuple[float, float]:
     roll = math.atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y))
     pitch = math.asin(max(-1.0, min(1.0, 2.0 * (w * y - z * x))))
     return roll, pitch
+
+
+def _signed_polygon_area(polygon: np.ndarray) -> float:
+    points = np.asarray(polygon, dtype=np.float64)
+    return 0.5 * float(
+        np.sum(points[:, 0] * np.roll(points[:, 1], -1))
+        - np.sum(points[:, 1] * np.roll(points[:, 0], -1))
+    )
+
+
+def _convex_hull(points: np.ndarray) -> np.ndarray:
+    """Return a deterministic counter-clockwise 2-D convex hull."""
+
+    values = sorted({(float(row[0]), float(row[1])) for row in np.asarray(points)})
+    if len(values) < 3:
+        raise ValueError("episodic goal-plane support requires three distinct outcomes")
+
+    def cross(
+        origin: tuple[float, float],
+        left: tuple[float, float],
+        right: tuple[float, float],
+    ) -> float:
+        return (left[0] - origin[0]) * (right[1] - origin[1]) - (left[1] - origin[1]) * (
+            right[0] - origin[0]
+        )
+
+    lower: list[tuple[float, float]] = []
+    for point in values:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], point) <= 0.0:
+            lower.pop()
+        lower.append(point)
+    upper: list[tuple[float, float]] = []
+    for point in reversed(values):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], point) <= 0.0:
+            upper.pop()
+        upper.append(point)
+    hull = np.asarray(lower[:-1] + upper[:-1], dtype=np.float64)
+    if len(hull) < 3 or abs(_signed_polygon_area(hull)) <= 1e-10:
+        raise ValueError("episodic goal-plane support outcomes are collinear")
+    return hull
+
+
+def _inside_convex_polygon(point: np.ndarray, polygon: np.ndarray) -> bool:
+    target = np.asarray(point, dtype=np.float64)
+    hull = np.asarray(polygon, dtype=np.float64)
+    edges = np.roll(hull, -1, axis=0) - hull
+    offsets = target - hull
+    crosses = edges[:, 0] * offsets[:, 1] - edges[:, 1] * offsets[:, 0]
+    tolerance = 1e-9
+    return bool(np.all(crosses >= -tolerance) or np.all(crosses <= tolerance))
 
 
 def g1_episodic_contact_observation(
@@ -112,29 +164,37 @@ def g1_episodic_contact_context_hash(
 class G1EpisodicContactPrototype:
     planner_seed_audit_label: int
     observation: tuple[float, ...]
-    forward_dynamics_weight_matrix: tuple[tuple[float, float], ...]
+    goal_plane_dynamics_weight_matrix: tuple[tuple[float, float, float], ...]
+    supported_goal_plane_polygon_yz_m: tuple[tuple[float, float], ...]
     source_evidence_hashes: tuple[str, ...]
-    reference_forward_ball_speed_mps: float
+    contact_regime: str
     minimum_lateral_force_n: float
     maximum_lateral_force_n: float
     minimum_vertical_force_n: float
     maximum_vertical_force_n: float
-    minimum_supported_lateral_launch_speed_mps: float
-    maximum_supported_lateral_launch_speed_mps: float
-    minimum_supported_vertical_launch_speed_mps: float
-    maximum_supported_vertical_launch_speed_mps: float
-    forward_dynamics_fit_rmse_mps: float
+    goal_plane_fit_rmse_m: float
+    arrival_time_fit_rmse_sec: float
+    maximum_target_prediction_error_m: float
     schema_version: str = _PROTOTYPE_SCHEMA
 
     def __post_init__(self) -> None:
         if self.planner_seed_audit_label < 0:
             raise ValueError("episodic contact prototype seed label must be non-negative")
         observation = np.asarray(self.observation, dtype=np.float64)
-        weights = np.asarray(self.forward_dynamics_weight_matrix, dtype=np.float64)
+        weights = np.asarray(self.goal_plane_dynamics_weight_matrix, dtype=np.float64)
+        polygon = np.asarray(self.supported_goal_plane_polygon_yz_m, dtype=np.float64)
         if observation.shape != (len(_OBSERVATION_NAMES),) or not np.all(np.isfinite(observation)):
             raise ValueError("episodic contact observation must contain 11 finite values")
-        if weights.shape != (3, 2) or not np.all(np.isfinite(weights)):
-            raise ValueError("episodic contact forward dynamics must have finite shape (3, 2)")
+        if weights.shape != (3, 3) or not np.all(np.isfinite(weights)):
+            raise ValueError("episodic goal-plane dynamics must have finite shape (3, 3)")
+        if (
+            polygon.ndim != 2
+            or polygon.shape[1:] != (2,)
+            or len(polygon) < 3
+            or not np.all(np.isfinite(polygon))
+            or abs(_signed_polygon_area(polygon)) <= 1e-10
+        ):
+            raise ValueError("episodic goal-plane support polygon is degenerate")
         if len(self.source_evidence_hashes) < 6 or any(
             not value.startswith("sha256:") for value in self.source_evidence_hashes
         ):
@@ -142,16 +202,15 @@ class G1EpisodicContactPrototype:
         if len(set(self.source_evidence_hashes)) != len(self.source_evidence_hashes):
             raise ValueError("episodic contact prototype evidence hashes must be unique")
         if not (
-            2.0 <= self.reference_forward_ball_speed_mps <= 20.0
-            and -250.0 <= self.minimum_lateral_force_n < self.maximum_lateral_force_n <= 250.0
+            -250.0 <= self.minimum_lateral_force_n < self.maximum_lateral_force_n <= 250.0
             and -250.0 <= self.minimum_vertical_force_n < self.maximum_vertical_force_n <= 250.0
-            and self.minimum_supported_lateral_launch_speed_mps
-            < self.maximum_supported_lateral_launch_speed_mps
-            and self.minimum_supported_vertical_launch_speed_mps
-            < self.maximum_supported_vertical_launch_speed_mps
-            and 0.0 <= self.forward_dynamics_fit_rmse_mps <= 5.0
+            and 0.0 <= self.goal_plane_fit_rmse_m <= 0.25
+            and 0.0 <= self.arrival_time_fit_rmse_sec <= 2.0
+            and 0.005 <= self.maximum_target_prediction_error_m <= 0.25
         ):
             raise ValueError("episodic contact prototype support envelope is invalid")
+        if self.contact_regime not in {"AIRBORNE", "BOUNCE", "ROLLING"}:
+            raise ValueError("episodic contact regime is invalid")
         if self.schema_version != _PROTOTYPE_SCHEMA:
             raise ValueError("episodic contact prototype schema is unsupported")
 
@@ -159,8 +218,11 @@ class G1EpisodicContactPrototype:
         return {
             **asdict(self),
             "observation": list(self.observation),
-            "forward_dynamics_weight_matrix": [
-                list(row) for row in self.forward_dynamics_weight_matrix
+            "goal_plane_dynamics_weight_matrix": [
+                list(row) for row in self.goal_plane_dynamics_weight_matrix
+            ],
+            "supported_goal_plane_polygon_yz_m": [
+                list(row) for row in self.supported_goal_plane_polygon_yz_m
             ],
             "source_evidence_hashes": list(self.source_evidence_hashes),
         }
@@ -264,7 +326,8 @@ class G1EpisodicContactMemory:
             "foot_strike_point_offset_m": list(self.foot_strike_point_offset_m),
             "observation_feature_names": list(_OBSERVATION_NAMES),
             "routing": "nearest_pre_action_state_normalized_rms_fail_closed",
-            "controller": "local_ridge_forward_dynamics_regularized_inverse",
+            "controller": "local_ridge_goal_plane_dynamics_regularized_inverse",
+            "contact_outcome": "measured_flight_bounce_roll_to_goal_plane",
             "direct_joint_torque_output": True,
             "sealed_generalization_evidence": False,
         }
@@ -280,13 +343,14 @@ class G1EpisodicContactEffect:
     vertical_force_n: float
     foot_lateral_speed_mps: float
     foot_vertical_speed_mps: float
-    desired_lateral_launch_speed_mps: float
-    desired_vertical_launch_speed_mps: float
+    predicted_goal_y_m: float
+    predicted_goal_z_m: float
+    predicted_arrival_time_sec: float
     selected_context_seed_label: int | None
     context_distance: float
     active: bool
     context_supported: bool = True
-    launch_envelope_supported: bool = True
+    target_envelope_supported: bool = True
 
 
 def load_g1_episodic_contact_memory(path: Path) -> G1EpisodicContactMemory:
@@ -296,6 +360,7 @@ def load_g1_episodic_contact_memory(path: Path) -> G1EpisodicContactMemory:
         "observation_feature_names",
         "routing",
         "controller",
+        "contact_outcome",
         "direct_joint_torque_output",
         "sealed_generalization_evidence",
     ):
@@ -308,8 +373,11 @@ def load_g1_episodic_contact_memory(path: Path) -> G1EpisodicContactMemory:
     for raw in payload["prototypes"]:
         value = dict(raw)
         value["observation"] = tuple(value["observation"])
-        value["forward_dynamics_weight_matrix"] = tuple(
-            tuple(float(item) for item in row) for row in value["forward_dynamics_weight_matrix"]
+        value["goal_plane_dynamics_weight_matrix"] = tuple(
+            tuple(float(item) for item in row) for row in value["goal_plane_dynamics_weight_matrix"]
+        )
+        value["supported_goal_plane_polygon_yz_m"] = tuple(
+            tuple(float(item) for item in row) for row in value["supported_goal_plane_polygon_yz_m"]
         )
         value["source_evidence_hashes"] = tuple(value["source_evidence_hashes"])
         prototypes.append(G1EpisodicContactPrototype(**value))
@@ -349,9 +417,16 @@ def _pre_action_observation(trace: Any, *, maximum_distance_m: float) -> np.ndar
 
 def _fit_forward_dynamics(
     rows: list[dict[str, Any]], ridge_regularization: float
-) -> tuple[np.ndarray, float, np.ndarray, np.ndarray]:
-    launch = np.asarray(
-        [[float(row["launch"][1]), float(row["launch"][2])] for row in rows],
+) -> tuple[np.ndarray, float, float, np.ndarray, np.ndarray, np.ndarray]:
+    outcomes = np.asarray(
+        [
+            [
+                float(row["goal_crossing"][1]),
+                float(row["goal_crossing"][2]),
+                float(row["arrival_time_sec"]),
+            ]
+            for row in rows
+        ],
         dtype=np.float64,
     )
     force = np.asarray(
@@ -368,16 +443,28 @@ def _fit_forward_dynamics(
         raise ValueError("episodic contact force distribution is degenerate")
     design = np.column_stack((np.ones(len(rows)), (force - mean) / scale))
     penalty = np.diag((0.0, ridge_regularization, ridge_regularization))
-    coefficients = np.linalg.solve(design.T @ design + penalty, design.T @ launch)
+    coefficients = np.linalg.solve(design.T @ design + penalty, design.T @ outcomes)
     slopes = coefficients[1:, :] / scale[:, None]
     intercept = coefficients[0, :] - mean @ slopes
     weights = np.vstack((intercept, slopes))
     predictions = np.column_stack((np.ones(len(rows)), force)) @ weights
-    rmse = float(np.sqrt(np.mean(np.square(predictions - launch))))
-    condition = float(np.linalg.cond(slopes))
-    if not math.isfinite(rmse) or rmse > 5.0 or not math.isfinite(condition) or condition > 1e4:
-        raise ValueError("episodic contact local dynamics are ill-conditioned")
-    return weights, rmse, launch, force
+    goal_rmse = float(np.sqrt(np.mean(np.square(predictions[:, :2] - outcomes[:, :2]))))
+    arrival_rmse = float(np.sqrt(np.mean(np.square(predictions[:, 2] - outcomes[:, 2]))))
+    goal_slopes = slopes[:, :2]
+    condition = float(np.linalg.cond(goal_slopes))
+    response_span = np.ptp(outcomes[:, :2], axis=0)
+    if (
+        not math.isfinite(goal_rmse)
+        or goal_rmse > 0.25
+        or not math.isfinite(arrival_rmse)
+        or arrival_rmse > 2.0
+        or not math.isfinite(condition)
+        or condition > 1e4
+        or np.any(response_span < 1e-3)
+    ):
+        raise ValueError("episodic goal-plane dynamics are ill-conditioned")
+    hull = _convex_hull(outcomes[:, :2])
+    return weights, goal_rmse, arrival_rmse, outcomes, force, hull
 
 
 def derive_g1_episodic_contact_memory(
@@ -460,15 +547,20 @@ def derive_g1_episodic_contact_memory(
         )
         if not teacher and not baseline:
             raise ValueError("episodic contact rows must be teacher probes or zero-force baselines")
-        launch = result.get("ball_launch_velocity_xyz_mps")
+        goal_crossing = result.get("goal_crossing_xyz_m")
         if (
-            not isinstance(launch, list)
-            or len(launch) != 3
+            not isinstance(goal_crossing, list)
+            or len(goal_crossing) != 3
             or not all(
-                isinstance(item, (int, float)) and math.isfinite(float(item)) for item in launch
+                isinstance(item, (int, float)) and math.isfinite(float(item))
+                for item in goal_crossing
             )
+            or not math.isclose(float(goal_crossing[0]), float(goal["plane_x_m"]), abs_tol=1e-6)
         ):
-            raise ValueError("episodic contact evidence requires measured launch velocity")
+            raise ValueError("episodic contact evidence requires a measured goal-plane crossing")
+        contact_time = float(result.get("contact_time_sec", math.nan))
+        if not math.isfinite(contact_time):
+            raise ValueError("episodic contact evidence requires a measured contact time")
         authority = float(result.get("contact_task_authority_scale_min", 1.0))
         hard_safe = bool(
             result.get("kick_contact_observed") is True
@@ -484,6 +576,8 @@ def derive_g1_episodic_contact_memory(
         lateral_force = 0.0
         vertical_force = 0.0
         observation: np.ndarray | None = None
+        arrival_time = math.nan
+        ground_contact_fraction = math.nan
         maximum_distance = float(flow["shot_loft_teacher_max_foot_ball_distance_m"])
         with np.load(trajectory, allow_pickle=False) as trace:
             active = np.asarray(trace["loft_teacher_active"], dtype=np.bool_)
@@ -501,6 +595,34 @@ def derive_g1_episodic_contact_memory(
                 observation = _pre_action_observation(trace, maximum_distance_m=maximum_distance)
             elif np.any(active) or np.any(lateral_trace) or np.any(vertical_trace):
                 raise ValueError("episodic contact zero-force baseline is contaminated")
+            required_outcome = {"time", "ball_pose", "goal_crossing"}
+            if not required_outcome.issubset(trace.files):
+                raise ValueError("episodic contact trajectory lacks goal-plane outcome channels")
+            time = np.asarray(trace["time"], dtype=np.float64)
+            ball_pose = np.asarray(trace["ball_pose"], dtype=np.float64)
+            crossing_mask = np.asarray(trace["goal_crossing"], dtype=np.bool_)
+            if (
+                time.ndim != 1
+                or ball_pose.shape != (len(time), 7)
+                or crossing_mask.shape != time.shape
+                or not np.all(np.isfinite(time))
+                or not np.all(np.isfinite(ball_pose))
+            ):
+                raise ValueError("episodic contact goal-plane trace shapes are invalid")
+            crossing_indices = np.flatnonzero(crossing_mask)
+            if crossing_indices.size == 0:
+                raise ValueError("episodic contact trajectory never reaches the goal plane")
+            crossing_index = int(crossing_indices[0])
+            contact_index = int(np.searchsorted(time, contact_time, side="left"))
+            if not 0 <= contact_index <= crossing_index < len(time):
+                raise ValueError("episodic contact outcome timing is invalid")
+            arrival_time = float(time[crossing_index] - contact_time)
+            ball_radius = float(goal["ball_radius_m"])
+            ground_contact_fraction = float(
+                np.mean(ball_pose[contact_index : crossing_index + 1, 2] <= ball_radius + 0.005)
+            )
+            if not 0.0 < arrival_time <= 10.0 or not 0.0 <= ground_contact_fraction <= 1.0:
+                raise ValueError("episodic contact outcome statistics are invalid")
         # A zero-force baseline intentionally has the teacher disabled, so its
         # serialized teacher window/proximity gate are not part of the learned
         # controller contract.  Bind those values only from active probes.
@@ -514,7 +636,9 @@ def derive_g1_episodic_contact_memory(
                 "teacher": teacher,
                 "hard_safe": hard_safe,
                 "evidence_hash": evidence_hash,
-                "launch": launch,
+                "goal_crossing": goal_crossing,
+                "arrival_time_sec": arrival_time,
+                "ground_contact_fraction": ground_contact_fraction,
                 "lateral_force": lateral_force,
                 "vertical_force": vertical_force,
                 "observation": observation,
@@ -540,34 +664,44 @@ def derive_g1_episodic_contact_memory(
             rejected_seeds.append(seed)
             continue
         try:
-            weights, rmse, launch, force = _fit_forward_dynamics(safe, ridge_regularization)
+            weights, goal_rmse, arrival_rmse, _outcomes, force, hull = _fit_forward_dynamics(
+                safe, ridge_regularization
+            )
         except ValueError:
             rejected_seeds.append(seed)
             continue
         observations = np.asarray([row["observation"] for row in teacher_safe], dtype=np.float64)
         if observations.shape != (len(teacher_safe), len(_OBSERVATION_NAMES)):
             raise ValueError("episodic contact prototype observations are invalid")
-        margin = np.maximum(0.05, 0.10 * np.ptp(launch, axis=0))
+        median_ground_fraction = float(
+            np.median([float(row["ground_contact_fraction"]) for row in safe])
+        )
+        contact_regime = (
+            "AIRBORNE"
+            if median_ground_fraction < 0.05
+            else "ROLLING"
+            if median_ground_fraction >= 0.80
+            else "BOUNCE"
+        )
         prototypes.append(
             G1EpisodicContactPrototype(
                 planner_seed_audit_label=seed,
                 observation=tuple(float(item) for item in np.median(observations, axis=0)),
-                forward_dynamics_weight_matrix=tuple(
-                    tuple(float(item) for item in row) for row in weights
+                goal_plane_dynamics_weight_matrix=tuple(
+                    (float(row[0]), float(row[1]), float(row[2])) for row in weights
+                ),
+                supported_goal_plane_polygon_yz_m=tuple(
+                    (float(row[0]), float(row[1])) for row in hull
                 ),
                 source_evidence_hashes=tuple(row["evidence_hash"] for row in safe),
-                reference_forward_ball_speed_mps=float(
-                    np.median([float(row["launch"][0]) for row in safe])
-                ),
+                contact_regime=contact_regime,
                 minimum_lateral_force_n=float(np.min(force[:, 0])),
                 maximum_lateral_force_n=float(np.max(force[:, 0])),
                 minimum_vertical_force_n=float(np.min(force[:, 1])),
                 maximum_vertical_force_n=float(np.max(force[:, 1])),
-                minimum_supported_lateral_launch_speed_mps=float(np.min(launch[:, 0]) - margin[0]),
-                maximum_supported_lateral_launch_speed_mps=float(np.max(launch[:, 0]) + margin[0]),
-                minimum_supported_vertical_launch_speed_mps=float(np.min(launch[:, 1]) - margin[1]),
-                maximum_supported_vertical_launch_speed_mps=float(np.max(launch[:, 1]) + margin[1]),
-                forward_dynamics_fit_rmse_mps=rmse,
+                goal_plane_fit_rmse_m=goal_rmse,
+                arrival_time_fit_rmse_sec=arrival_rmse,
+                maximum_target_prediction_error_m=float(min(0.25, max(0.005, 3.0 * goal_rmse))),
             )
         )
     if len(prototypes) < 2 or not rejected_seeds:
@@ -639,9 +773,10 @@ def g1_episodic_contact_effect(
         seed: int | None = None,
         distance: float = 0.0,
         context_supported: bool = True,
-        launch_supported: bool = True,
-        desired_vy: float = 0.0,
-        desired_vz: float = 0.0,
+        target_supported: bool = True,
+        predicted_y: float = 0.0,
+        predicted_z: float = 0.0,
+        predicted_arrival: float = 0.0,
         foot_vy: float = 0.0,
         foot_vz: float = 0.0,
     ) -> G1EpisodicContactEffect:
@@ -651,13 +786,14 @@ def g1_episodic_contact_effect(
             vertical_force_n=0.0,
             foot_lateral_speed_mps=foot_vy,
             foot_vertical_speed_mps=foot_vz,
-            desired_lateral_launch_speed_mps=desired_vy,
-            desired_vertical_launch_speed_mps=desired_vz,
+            predicted_goal_y_m=predicted_y,
+            predicted_goal_z_m=predicted_z,
+            predicted_arrival_time_sec=predicted_arrival,
             selected_context_seed_label=seed,
             context_distance=distance,
             active=False,
             context_supported=context_supported,
-            launch_envelope_supported=launch_supported,
+            target_envelope_supported=target_supported,
         )
 
     if contact_observed or not memory.start_policy_frame <= policy_frame <= memory.end_policy_frame:
@@ -715,56 +851,61 @@ def g1_episodic_contact_effect(
     goal_values = (goal_plane_x_m, target_y_m, target_z_m)
     if not all(math.isfinite(value) for value in goal_values):
         raise ValueError("episodic contact memory requires a finite goal target")
-    remaining_x = goal_plane_x_m - float(ball[0])
-    if remaining_x <= 0.0:
+    if goal_plane_x_m <= float(ball[0]):
         return inactive(
             seed=prototype.planner_seed_audit_label,
             distance=distance,
             foot_vy=foot_vy,
             foot_vz=foot_vz,
         )
-    flight_time = remaining_x / prototype.reference_forward_ball_speed_mps
-    desired_vy = (target_y_m - float(ball[1])) / flight_time - float(velocity[1])
-    desired_vz = (target_z_m - float(ball[2]) + 0.5 * 9.81 * flight_time**2) / flight_time - float(
-        velocity[2]
-    )
-    launch_supported = bool(
-        prototype.minimum_supported_lateral_launch_speed_mps
-        <= desired_vy
-        <= prototype.maximum_supported_lateral_launch_speed_mps
-        and prototype.minimum_supported_vertical_launch_speed_mps
-        <= desired_vz
-        <= prototype.maximum_supported_vertical_launch_speed_mps
-    )
-    if not launch_supported:
+    target = np.asarray((target_y_m, target_z_m), dtype=np.float64)
+    polygon = np.asarray(prototype.supported_goal_plane_polygon_yz_m, dtype=np.float64)
+    if not _inside_convex_polygon(target, polygon):
         return inactive(
             seed=prototype.planner_seed_audit_label,
             distance=distance,
-            launch_supported=False,
-            desired_vy=desired_vy,
-            desired_vz=desired_vz,
+            target_supported=False,
             foot_vy=foot_vy,
             foot_vz=foot_vz,
         )
-    weights = np.asarray(prototype.forward_dynamics_weight_matrix, dtype=np.float64)
-    slopes = weights[1:, :]
-    force = (np.asarray((desired_vy, desired_vz)) - weights[0, :]) @ np.linalg.pinv(
-        slopes, rcond=1e-4
+    weights = np.asarray(prototype.goal_plane_dynamics_weight_matrix, dtype=np.float64)
+    goal_slopes = weights[1:, :2]
+    force = (target - weights[0, :2]) @ np.linalg.pinv(goal_slopes, rcond=1e-4)
+    force_supported = bool(
+        prototype.minimum_lateral_force_n - 1e-9
+        <= force[0]
+        <= prototype.maximum_lateral_force_n + 1e-9
+        and prototype.minimum_vertical_force_n - 1e-9
+        <= force[1]
+        <= prototype.maximum_vertical_force_n + 1e-9
     )
+    if not force_supported:
+        return inactive(
+            seed=prototype.planner_seed_audit_label,
+            distance=distance,
+            target_supported=False,
+            foot_vy=foot_vy,
+            foot_vz=foot_vz,
+        )
     lateral = float(
-        np.clip(
-            force[0],
-            prototype.minimum_lateral_force_n,
-            prototype.maximum_lateral_force_n,
-        )
+        np.clip(force[0], prototype.minimum_lateral_force_n, prototype.maximum_lateral_force_n)
     )
     vertical = float(
-        np.clip(
-            force[1],
-            prototype.minimum_vertical_force_n,
-            prototype.maximum_vertical_force_n,
-        )
+        np.clip(force[1], prototype.minimum_vertical_force_n, prototype.maximum_vertical_force_n)
     )
+    prediction = np.asarray((1.0, lateral, vertical), dtype=np.float64) @ weights
+    prediction_error = float(np.linalg.norm(prediction[:2] - target))
+    if prediction_error > prototype.maximum_target_prediction_error_m:
+        return inactive(
+            seed=prototype.planner_seed_audit_label,
+            distance=distance,
+            target_supported=False,
+            predicted_y=float(prediction[0]),
+            predicted_z=float(prediction[1]),
+            predicted_arrival=float(prediction[2]),
+            foot_vy=foot_vy,
+            foot_vz=foot_vz,
+        )
     torque = jacobian[1, 6:35] * lateral + jacobian[2, 6:35] * vertical
     if torque.shape != (29,) or not np.all(np.isfinite(torque)):
         raise FloatingPointError("episodic contact memory emitted invalid joint torque")
@@ -774,8 +915,9 @@ def g1_episodic_contact_effect(
         vertical_force_n=vertical,
         foot_lateral_speed_mps=foot_vy,
         foot_vertical_speed_mps=foot_vz,
-        desired_lateral_launch_speed_mps=desired_vy,
-        desired_vertical_launch_speed_mps=desired_vz,
+        predicted_goal_y_m=float(prediction[0]),
+        predicted_goal_z_m=float(prediction[1]),
+        predicted_arrival_time_sec=float(prediction[2]),
         selected_context_seed_label=prototype.planner_seed_audit_label,
         context_distance=distance,
         active=bool(abs(lateral) > 0.0 or abs(vertical) > 0.0),

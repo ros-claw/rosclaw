@@ -1,4 +1,4 @@
-"""Fail-closed multi-context evaluation for episodic G1 contact memory."""
+"""Fail-closed multi-context evaluation for episodic G1 goal-plane memory."""
 
 from __future__ import annotations
 
@@ -77,7 +77,7 @@ class G1EpisodicContactCaseEvaluation:
     peak_context_distance: float
     candidate_physically_safe: bool
     precision_improved: bool
-    schema_version: str = "rosclaw.growth.g1_episodic_contact_case_evaluation.v1"
+    schema_version: str = "rosclaw.growth.g1_episodic_contact_case_evaluation.v2"
 
     def __post_init__(self) -> None:
         if self.planner_seed_audit_label < 0 or self.selected_context_seed_label < 0:
@@ -124,7 +124,7 @@ class G1EpisodicContactEvaluation:
     sealed_generalization_evidence: bool = False
     promotion_authorized: bool = False
     hardware_authorized: bool = False
-    schema_version: str = "rosclaw.growth.g1_episodic_contact_evaluation.v1"
+    schema_version: str = "rosclaw.growth.g1_episodic_contact_evaluation.v2"
 
     def __post_init__(self) -> None:
         hashes = (
@@ -255,7 +255,9 @@ def evaluate_g1_episodic_contact_memory(
                 candidate_active_frames=active_frames,
                 selected_context_seed_label=selected,
                 peak_context_distance=float(
-                    candidate_result.get("episodic_contact_memory_peak_context_distance", math.inf)
+                    candidate_result.get(
+                        "episodic_contact_memory_peak_active_context_distance", math.inf
+                    )
                 ),
                 candidate_physically_safe=_physically_safe(candidate_result),
                 precision_improved=bool(candidate_error <= precision and improvement >= 0.001),

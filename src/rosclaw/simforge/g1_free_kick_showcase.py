@@ -205,7 +205,7 @@ class G1FreeKickFlowConfig:
     ballistic_skill_memory_hash: str | None = None
     ballistic_skill_id: str | None = None
     approach_provider: str = "groot_history"
-    schema_version: str = "rosclaw.simforge.g1_free_kick_flow_config.v38"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_flow_config.v40"
 
     def __post_init__(self) -> None:
         if not isinstance(self.shared_cerebellar_recovery_enabled, bool):
@@ -627,10 +627,11 @@ class G1FreeKickResult:
     episodic_contact_memory_peak_torque_nm: float = 0.0
     episodic_contact_memory_peak_lateral_force_n: float = 0.0
     episodic_contact_memory_peak_vertical_force_n: float = 0.0
-    episodic_contact_memory_peak_desired_lateral_launch_speed_mps: float = 0.0
-    episodic_contact_memory_peak_desired_vertical_launch_speed_mps: float = 0.0
+    episodic_contact_memory_peak_goal_prediction_error_m: float = 0.0
+    episodic_contact_memory_peak_predicted_arrival_time_sec: float = 0.0
     episodic_contact_memory_selected_seed_label: int | None = None
     episodic_contact_memory_peak_context_distance: float = 0.0
+    episodic_contact_memory_peak_active_context_distance: float = 0.0
     torque_authority_projection_enabled: bool = False
     torque_authority_projection_steps: int = 0
     torque_authority_projection_fraction: float = 0.0
@@ -648,7 +649,7 @@ class G1FreeKickResult:
     kick_contact_normal_xyz: tuple[float, float, float] | None = None
     kick_contact_force_world_xyz_n: tuple[float, float, float] | None = None
     kick_contact_peak_force_n: float | None = None
-    schema_version: str = "rosclaw.simforge.g1_free_kick_result.v27"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_result.v29"
 
     @property
     def perceptual_continuity_passed(self) -> bool:
@@ -743,7 +744,7 @@ class G1FreeKickEvidence:
     evidence_domain: str = "DEVELOPMENT_SHOWCASE"
     physics_authority: str = "CPU_MUJOCO"
     hardware_command_sent: bool = False
-    schema_version: str = "rosclaw.simforge.g1_free_kick_evidence.v27"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_evidence.v29"
 
     @property
     def passed(self) -> bool:
@@ -1071,7 +1072,7 @@ def run_g1_free_kick_showcase(
     ):
         raise ValueError("episodic contact memory implementation hash mismatch")
     request = {
-        "schema_version": "rosclaw.simforge.g1_free_kick_request.v34",
+        "schema_version": "rosclaw.simforge.g1_free_kick_request.v36",
         "body_hash": qualification.body_hash,
         "kick_prior_hash": qualification.kick_prior_hash,
         "learned_gait_qualification_hash": gait_qualification.qualification_hash,
@@ -1290,9 +1291,13 @@ def _simulate(
         "episodic_contact_memory_vertical_force_n": [],
         "episodic_contact_memory_active": [],
         "episodic_contact_memory_context_supported": [],
-        "episodic_contact_memory_launch_supported": [],
+        "episodic_contact_memory_target_supported": [],
+        "episodic_contact_memory_predicted_goal_y_m": [],
+        "episodic_contact_memory_predicted_goal_z_m": [],
+        "episodic_contact_memory_predicted_arrival_time_sec": [],
         "episodic_contact_memory_selected_seed_label": [],
         "episodic_contact_memory_context_distance": [],
+        "episodic_contact_memory_active_context_distance": [],
         "joint_boundary_guard_correction": [],
         "joint_boundary_guard_active": [],
         "football_motion_prior_target_delta": [],
@@ -1383,11 +1388,12 @@ def _simulate(
     episodic_contact_memory_peak_torque = 0.0
     episodic_contact_memory_peak_lateral_force = 0.0
     episodic_contact_memory_peak_vertical_force = 0.0
-    episodic_contact_memory_peak_desired_lateral_launch_speed = 0.0
-    episodic_contact_memory_peak_desired_vertical_launch_speed = 0.0
+    episodic_contact_memory_peak_goal_prediction_error = 0.0
+    episodic_contact_memory_peak_predicted_arrival_time = 0.0
     episodic_contact_memory_selected_seed_label: int | None = None
     episodic_contact_memory_mixed_contexts = False
     episodic_contact_memory_peak_context_distance = 0.0
+    episodic_contact_memory_peak_active_context_distance = 0.0
     finite = True
     saturation = False
     saturation_steps = 0
@@ -2086,10 +2092,14 @@ def _simulate(
         episodic_memory_active = False
         episodic_memory_evaluated = False
         episodic_memory_context_supported = True
-        episodic_memory_launch_supported = True
+        episodic_memory_target_supported = True
+        episodic_memory_predicted_goal_y = 0.0
+        episodic_memory_predicted_goal_z = 0.0
+        episodic_memory_predicted_arrival_time = 0.0
         episodic_memory_selected_seed_label: int | None = None
         episodic_memory_active_seed_label: int | None = None
         episodic_memory_context_distance = 0.0
+        episodic_memory_active_context_distance = 0.0
         boundary_guard_correction: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
         boundary_guard_active = False
         pre_guard_raw: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
@@ -2230,25 +2240,39 @@ def _simulate(
                 episodic_memory_context_supported = bool(
                     episodic_memory_context_supported and episodic_effect.context_supported
                 )
-                episodic_memory_launch_supported = bool(
-                    episodic_memory_launch_supported and episodic_effect.launch_envelope_supported
+                episodic_memory_target_supported = bool(
+                    episodic_memory_target_supported and episodic_effect.target_envelope_supported
                 )
                 episodic_memory_selected_seed_label = episodic_effect.selected_context_seed_label
                 episodic_memory_context_distance = max(
                     episodic_memory_context_distance,
                     episodic_effect.context_distance,
                 )
-                episodic_contact_memory_peak_desired_lateral_launch_speed = max(
-                    episodic_contact_memory_peak_desired_lateral_launch_speed,
-                    abs(episodic_effect.desired_lateral_launch_speed_mps),
-                )
-                episodic_contact_memory_peak_desired_vertical_launch_speed = max(
-                    episodic_contact_memory_peak_desired_vertical_launch_speed,
-                    abs(episodic_effect.desired_vertical_launch_speed_mps),
-                )
+                episodic_memory_predicted_goal_y = episodic_effect.predicted_goal_y_m
+                episodic_memory_predicted_goal_z = episodic_effect.predicted_goal_z_m
+                episodic_memory_predicted_arrival_time = episodic_effect.predicted_arrival_time_sec
+                if (
+                    episodic_effect.target_envelope_supported
+                    and episodic_effect.predicted_arrival_time_sec > 0.0
+                ):
+                    episodic_contact_memory_peak_goal_prediction_error = max(
+                        episodic_contact_memory_peak_goal_prediction_error,
+                        math.hypot(
+                            episodic_effect.predicted_goal_y_m - goal.target_y_m,
+                            episodic_effect.predicted_goal_z_m - goal.target_z_m,
+                        ),
+                    )
+                    episodic_contact_memory_peak_predicted_arrival_time = max(
+                        episodic_contact_memory_peak_predicted_arrival_time,
+                        episodic_effect.predicted_arrival_time_sec,
+                    )
             if episodic_effect is not None and episodic_effect.active:
                 episodic_memory_active = True
                 episodic_memory_active_seed_label = episodic_effect.selected_context_seed_label
+                episodic_memory_active_context_distance = max(
+                    episodic_memory_active_context_distance,
+                    episodic_effect.context_distance,
+                )
                 if abs(episodic_effect.lateral_force_n) >= abs(episodic_memory_lateral_force):
                     episodic_memory_lateral_force = episodic_effect.lateral_force_n
                 if abs(episodic_effect.vertical_force_n) >= abs(episodic_memory_vertical_force):
@@ -2437,7 +2461,7 @@ def _simulate(
         episodic_contact_memory_active_frames += int(episodic_memory_active)
         episodic_contact_memory_out_of_support_frames += int(
             episodic_memory_evaluated
-            and (not episodic_memory_context_supported or not episodic_memory_launch_supported)
+            and (not episodic_memory_context_supported or not episodic_memory_target_supported)
         )
         episodic_contact_memory_peak_torque = max(
             episodic_contact_memory_peak_torque,
@@ -2454,6 +2478,10 @@ def _simulate(
         episodic_contact_memory_peak_context_distance = max(
             episodic_contact_memory_peak_context_distance,
             episodic_memory_context_distance,
+        )
+        episodic_contact_memory_peak_active_context_distance = max(
+            episodic_contact_memory_peak_active_context_distance,
+            episodic_memory_active_context_distance,
         )
         episodic_memory_reported_seed_label = (
             episodic_memory_active_seed_label
@@ -2524,9 +2552,17 @@ def _simulate(
             episodic_contact_memory_vertical_force_n=(episodic_memory_vertical_force),
             episodic_contact_memory_active=episodic_memory_active,
             episodic_contact_memory_context_supported=(episodic_memory_context_supported),
-            episodic_contact_memory_launch_supported=(episodic_memory_launch_supported),
+            episodic_contact_memory_target_supported=(episodic_memory_target_supported),
+            episodic_contact_memory_predicted_goal_y_m=(episodic_memory_predicted_goal_y),
+            episodic_contact_memory_predicted_goal_z_m=(episodic_memory_predicted_goal_z),
+            episodic_contact_memory_predicted_arrival_time_sec=(
+                episodic_memory_predicted_arrival_time
+            ),
             episodic_contact_memory_selected_seed_label=(episodic_memory_reported_seed_label),
             episodic_contact_memory_context_distance=(episodic_memory_context_distance),
+            episodic_contact_memory_active_context_distance=(
+                episodic_memory_active_context_distance
+            ),
             joint_boundary_guard_correction=boundary_guard_correction,
             joint_boundary_guard_active=boundary_guard_active,
             commanded_torque_peak_abs=commanded_torque_peak_abs,
@@ -2814,15 +2850,18 @@ def _simulate(
         episodic_contact_memory_peak_torque_nm=(episodic_contact_memory_peak_torque),
         episodic_contact_memory_peak_lateral_force_n=(episodic_contact_memory_peak_lateral_force),
         episodic_contact_memory_peak_vertical_force_n=(episodic_contact_memory_peak_vertical_force),
-        episodic_contact_memory_peak_desired_lateral_launch_speed_mps=(
-            episodic_contact_memory_peak_desired_lateral_launch_speed
+        episodic_contact_memory_peak_goal_prediction_error_m=(
+            episodic_contact_memory_peak_goal_prediction_error
         ),
-        episodic_contact_memory_peak_desired_vertical_launch_speed_mps=(
-            episodic_contact_memory_peak_desired_vertical_launch_speed
+        episodic_contact_memory_peak_predicted_arrival_time_sec=(
+            episodic_contact_memory_peak_predicted_arrival_time
         ),
         episodic_contact_memory_selected_seed_label=(episodic_contact_memory_selected_seed_label),
         episodic_contact_memory_peak_context_distance=(
             episodic_contact_memory_peak_context_distance
+        ),
+        episodic_contact_memory_peak_active_context_distance=(
+            episodic_contact_memory_peak_active_context_distance
         ),
         torque_authority_projection_enabled=(flow.torque_authority_projection_ratio > 0.0),
         torque_authority_projection_steps=torque_authority_projection_steps,
@@ -3139,9 +3178,13 @@ def _append_trace(
     episodic_contact_memory_vertical_force_n: float = 0.0,
     episodic_contact_memory_active: bool = False,
     episodic_contact_memory_context_supported: bool = True,
-    episodic_contact_memory_launch_supported: bool = True,
+    episodic_contact_memory_target_supported: bool = True,
+    episodic_contact_memory_predicted_goal_y_m: float = 0.0,
+    episodic_contact_memory_predicted_goal_z_m: float = 0.0,
+    episodic_contact_memory_predicted_arrival_time_sec: float = 0.0,
     episodic_contact_memory_selected_seed_label: int | None = None,
     episodic_contact_memory_context_distance: float = 0.0,
+    episodic_contact_memory_active_context_distance: float = 0.0,
     joint_boundary_guard_correction: np.ndarray | None = None,
     joint_boundary_guard_active: bool = False,
     commanded_torque_peak_abs: np.ndarray | None = None,
@@ -3256,6 +3299,10 @@ def _append_trace(
         episodic_contact_memory_lateral_force_n,
         episodic_contact_memory_vertical_force_n,
         episodic_contact_memory_context_distance,
+        episodic_contact_memory_active_context_distance,
+        episodic_contact_memory_predicted_goal_y_m,
+        episodic_contact_memory_predicted_goal_z_m,
+        episodic_contact_memory_predicted_arrival_time_sec,
     )
     if episodic_torque.shape != (29,) or not np.all(np.isfinite(episodic_torque)):
         raise FloatingPointError("G1 episodic contact memory trace contains invalid torque")
@@ -3272,8 +3319,17 @@ def _append_trace(
     trace["episodic_contact_memory_context_supported"].append(
         bool(episodic_contact_memory_context_supported)
     )
-    trace["episodic_contact_memory_launch_supported"].append(
-        bool(episodic_contact_memory_launch_supported)
+    trace["episodic_contact_memory_target_supported"].append(
+        bool(episodic_contact_memory_target_supported)
+    )
+    trace["episodic_contact_memory_predicted_goal_y_m"].append(
+        float(episodic_contact_memory_predicted_goal_y_m)
+    )
+    trace["episodic_contact_memory_predicted_goal_z_m"].append(
+        float(episodic_contact_memory_predicted_goal_z_m)
+    )
+    trace["episodic_contact_memory_predicted_arrival_time_sec"].append(
+        float(episodic_contact_memory_predicted_arrival_time_sec)
     )
     trace["episodic_contact_memory_selected_seed_label"].append(
         -1
@@ -3282,6 +3338,9 @@ def _append_trace(
     )
     trace["episodic_contact_memory_context_distance"].append(
         float(episodic_contact_memory_context_distance)
+    )
+    trace["episodic_contact_memory_active_context_distance"].append(
+        float(episodic_contact_memory_active_context_distance)
     )
     guard_correction = (
         np.zeros(29, dtype=np.float64)
