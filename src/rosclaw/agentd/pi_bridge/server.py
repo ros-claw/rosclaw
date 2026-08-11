@@ -681,6 +681,12 @@ class PiBridgeServer:
             # HOTFIX-1（P0-4A）：context 校验成功后由 agentd 签发短期
             # ValidatedContextLease——action 准入的权威 freshness 凭证
             # （同一权威源，不信 TUI 自报）。无 session 不签发。
+            import os as _os
+            if _os.environ.get("ROSCLAW_DEBUG_CONTEXT"):
+                with contextlib.suppress(Exception):
+                    (service._home / "agentd" / "ctx-at-issue.json").write_text(
+                        envelope.model_dump_json(indent=1), encoding="utf-8"
+                    )
             response: dict[str, Any] = {"ok": True, "context": envelope.model_dump(mode="json")}
             pi_session_id = str(params.get("pi_session_id", ""))
             if pi_session_id:

@@ -250,6 +250,14 @@ class ActionAdmissionService:
                 "moved) — re-observe and re-plan once (fail closed)",
             )
         if hash_changed:
+            # 验收轮诊断：debug 开关下把当前 envelope 落盘，与签发时
+            # 的 dump 做字段级 diff（只有字段名与值，本地诊断用）。
+            import os as _os
+            if _os.environ.get("ROSCLAW_DEBUG_CONTEXT"):
+                with __import__("contextlib").suppress(Exception):
+                    (self._service._home / "agentd" / "ctx-at-mismatch.json").write_text(
+                        current_envelope.model_dump_json(indent=1), encoding="utf-8"
+                    )
             raise ToolBridgeError(
                 "CONTEXT_HASH_MISMATCH",
                 "context content changed without a revision bump — fail closed",

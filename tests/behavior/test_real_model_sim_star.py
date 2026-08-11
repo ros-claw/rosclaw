@@ -173,6 +173,9 @@ class TestRealModelBehavior:
             ROSCLAW_HOME=str(home),
             TERM="xterm",
             ROSCLAW_UI_LOCALE="zh-CN",
+            # 验收轮诊断：签发/失配两个 envelope 落盘（含结构化字段，
+            # 无密钥），失败时字段级 diff 直接可读。
+            ROSCLAW_DEBUG_CONTEXT="1",
             PATH=f"{prefix / 'bin'}:{os.environ['PATH']}",
         )
         session = PtySession(

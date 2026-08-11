@@ -216,6 +216,10 @@ class AgentService:
             if s.get("name") and s.get("command")
         ]
         self._mcp_discovered = False
+        # 验收轮根因修复：discovery 互斥锁——flag-first 模式（先置
+        # True 再发现）会让并发调用方在发现进行中提前返回，拿到空
+        # 能力目录（context hash 随后翻转 → CONTEXT_HASH_MISMATCH）。
+        self._discovery_lock = asyncio.Lock()
         # 批次 B：命令注册表（命令永不进入模型上下文）。
         from rosclaw.agentd.ui.command_service import CommandService
         from rosclaw.agentd.ui.interaction_service import InteractionService
@@ -969,15 +973,24 @@ class AgentService:
 
     async def _ensure_mcp_discovered(self) -> None:
         """Discover configured MCP servers once (PR-05); failures quarantine
-        the source honestly and never block the turn."""
+        the source honestly and never block the turn.
+
+        验收轮根因：并发调用方不得在发现进行中提前返回（否则拿到空
+        目录的 context hash 会在发现完成后翻转）——互斥锁 + 完成后
+        才置 flag。"""
         if self._mcp_discovered:
             return
-        self._mcp_discovered = True
-        for adapter in self._mcp_adapters:
-            try:
-                await adapter.discover()
-            except Exception:  # noqa: BLE001 - discovery must never break chat
-                self._tool_catalog.quarantine_source(adapter.source, "discovery_crashed")
+        async with self._discovery_lock:
+            if self._mcp_discovered:
+                return
+            for adapter in self._mcp_adapters:
+                try:
+                    await adapter.discover()
+                except Exception:  # noqa: BLE001 - discovery must never break chat
+                    self._tool_catalog.quarantine_source(
+                        adapter.source, "discovery_crashed"
+                    )
+            self._mcp_discovered = True
 
     @property
     def tool_catalog(self):

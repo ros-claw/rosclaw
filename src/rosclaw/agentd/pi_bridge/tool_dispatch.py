@@ -105,6 +105,16 @@ class PiToolDispatcher:
             )
         if result.ok:
             failures.pop(fingerprint, None)
+        elif result.error_code in (
+            # 验收轮实测：瞬态/上下文类失败可安全重试（JIT 续租与
+            # 任务 attach 语义保证）——不记入熔断指纹，否则第一次
+            # 瞬态失败会毒化随后的合法重试。
+            "CONTEXT_NOT_FRESH",
+            "CONTEXT_HASH_MISMATCH",
+            "NEEDS_REPLAN",
+            "CONTEXT_LEASE_REQUIRED",
+        ):
+            pass
         else:
             failures[fingerprint] = True
         conn.execute(
