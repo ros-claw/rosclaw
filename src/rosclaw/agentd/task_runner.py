@@ -170,6 +170,36 @@ class TaskRunner:
         existing = self._store.get_by_idempotency(idem)
         if existing is not None:
             return self._result(existing)
+        # WP-P0-7（总纲 §7.4）：crash 恢复只能 attach——同 mission/
+        # goal/参数的非终态任务重提（新幂等键）返回既有任务，绝不
+        # 二次提交。
+        fingerprint = json.dumps(
+            {"mission": request_ctx.mission_id, "goal": goal,
+             "parameters": parameters},
+            sort_keys=True, ensure_ascii=False,
+        )
+        row = self._store._conn.execute(
+            "SELECT task_id FROM task_records WHERE mission_id = ? AND goal = ? "
+            "AND state NOT IN ('VERIFIED','FAILED','DENIED','CANCELLED','INCONCLUSIVE') "
+            "ORDER BY rowid DESC LIMIT 1",
+            (request_ctx.mission_id, goal),
+        ).fetchone()
+        if row is not None:
+            candidate = self._store.get_by_id(row[0])
+            if candidate is not None and candidate.get("params_json"):
+                try:
+                    same = json.loads(candidate["params_json"])
+                    same_fp = json.dumps(
+                        {"mission": request_ctx.mission_id, "goal": goal,
+                         "parameters": same},
+                        sort_keys=True, ensure_ascii=False,
+                    )
+                except Exception:  # noqa: BLE001
+                    same_fp = ""
+                if same_fp == fingerprint:
+                    result = self._result(candidate)
+                    result["attached"] = True
+                    return result
         if goal != "draw_shape":
             raise ToolBridgeError(
                 "TASK_UNKNOWN", f"unknown task goal {goal!r} (supported: draw_shape)"
@@ -309,6 +339,14 @@ class TaskRunner:
         if record["state"] in TERMINAL_STATES:
             return {"ok": True, "state": record["state"], "changed": False}
         self._store.transition(task_id, "CANCELLED")
+        # WP-P0-7（总纲 §7.4）：取消传播——撤销未消费的审批卡
+        # （此后 decide 即拒，绝不产 grant/执行）。
+        approval_id = record.get("approval_id") or ""
+        if approval_id:
+            with contextlib.suppress(Exception):
+                self._service._broker.cancel_request(
+                    approval_id, principal="task.cancel"
+                )
         return {"ok": True, "state": "CANCELLED", "changed": True}
 
     async def _execute_and_verify(
