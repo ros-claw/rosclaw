@@ -79,6 +79,12 @@ def main() -> int:
     if result is not None:
         return result
 
+    from rosclaw.dataset.cli import dispatch_dataset_argv
+
+    result = dispatch_dataset_argv(sys.argv[1:])
+    if result is not None:
+        return result
+
     from rosclaw.collective.cli import dispatch_collective_argv
 
     result = dispatch_collective_argv(sys.argv[1:])
