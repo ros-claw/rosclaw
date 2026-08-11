@@ -151,6 +151,28 @@ def _robot_kit_status(home: Path) -> dict:
         return {"state": "BROKEN", "detail": str(exc)[:120]}
 
 
+def _safety_status(home: Path) -> dict:
+    safety = home / "agent" / "safety.json"
+    if not safety.exists():
+        return {"state": "READY", "detail": "sim_policy=auto（默认：安全仿真自动执行）"}
+    try:
+        policy = json.loads(safety.read_text(encoding="utf-8")).get("sim_policy", "auto")
+        return {"state": "READY", "detail": f"sim_policy={policy}"}
+    except Exception as exc:  # noqa: BLE001
+        return {"state": "NEEDS_SETUP", "detail": str(exc)[:120]}
+
+
+def _language_status(home: Path) -> dict:
+    locale_file = home / "agent" / "locale.json"
+    if not locale_file.exists():
+        return {"state": "READY", "detail": "auto（跟随系统/用户语言）"}
+    try:
+        data = json.loads(locale_file.read_text(encoding="utf-8"))
+        return {"state": "READY", "detail": f"ui={data.get('ui_locale', 'auto')}"}
+    except Exception as exc:  # noqa: BLE001
+        return {"state": "NEEDS_SETUP", "detail": str(exc)[:120]}
+
+
 def _collect_status(home: Path) -> dict:
     return {
         "schema_version": "rosclaw.setup.status.v1",
@@ -158,6 +180,8 @@ def _collect_status(home: Path) -> dict:
         "body": _body_status(home),
         "robot_kit": _robot_kit_status(home),
         "operator": _operator_status(home),
+        "safety": _safety_status(home),
+        "language": _language_status(home),
         "worker": _worker_status(),
         "integration": _integration_status(home),
     }
@@ -293,9 +317,166 @@ _HELP = """rosclaw setup — 统一设置向导
   rosclaw setup model              配置模型提供方（Kimi/OpenAI 兼容/本地）
   rosclaw setup body               查看/引导 Body 链接
   rosclaw setup operator           登记/启动独立授权进程
+  rosclaw setup safety [POLICY]    SIM 审批策略（auto|ask-every-time）
+  rosclaw setup language [LOCALE]  UI 语言（zh-CN|en-US|auto）
   rosclaw setup worker [NAME]      探测外部 Worker（codex/claude-code/hermes）
   rosclaw setup integration lerobot  配置 LeRobot 集成
+  rosclaw setup demo               运行第一个可验证仿真任务（无需模型）
 """
+
+
+def _cmd_safety(args: argparse.Namespace) -> int:
+    """setup safety——SIM 审批策略（auto=安全仿真自动执行 /
+    ask-every-time=每次人工确认；REAL 永远人工）。"""
+    home = _home()
+    safety = home / "agent" / "safety.json"
+    value = getattr(args, "policy", None)
+    if value is None:
+        current = "auto"
+        if safety.exists():
+            try:
+                current = json.loads(safety.read_text(encoding="utf-8")).get(
+                    "sim_policy", "auto"
+                )
+            except Exception:  # noqa: BLE001
+                current = "auto"
+        print(f"SIM 审批策略：{current}（auto=安全仿真自动执行 / "
+              "ask=每次人工确认；REAL 永远人工确认）")
+        return 0
+    mapping = {"auto": "auto", "ask-every-time": "ask", "ask": "ask"}
+    if value not in mapping:
+        print(f"未知策略 {value!r}（auto|ask-every-time）", file=sys.stderr)
+        return 2
+    safety.parent.mkdir(parents=True, exist_ok=True)
+    tmp = safety.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"sim_policy": mapping[value]}, indent=1), encoding="utf-8")
+    os.chmod(tmp, 0o600)
+    tmp.replace(safety)
+    print(f"SIM 审批策略已更新：{mapping[value]}")
+    return 0
+
+
+def _cmd_language(args: argparse.Namespace) -> int:
+    """setup language——UI 语言（zh-CN|en-US|auto）。"""
+    home = _home()
+    locale_file = home / "agent" / "locale.json"
+    value = getattr(args, "locale", None)
+    if value is None:
+        current = "auto"
+        if locale_file.exists():
+            try:
+                current = json.loads(locale_file.read_text(encoding="utf-8")).get(
+                    "ui_locale", "auto"
+                )
+            except Exception:  # noqa: BLE001
+                current = "auto"
+        print(f"UI 语言：{current}（zh-CN|en-US|auto）")
+        return 0
+    aliases = {"zh-CN": "zh-CN", "中文": "zh-CN", "en-US": "en-US",
+               "English": "en-US", "auto": "auto"}
+    if value not in aliases:
+        print(f"未知语言 {value!r}（zh-CN|en-US|auto）", file=sys.stderr)
+        return 2
+    locale_file.parent.mkdir(parents=True, exist_ok=True)
+    existing = {}
+    if locale_file.exists():
+        try:
+            existing = json.loads(locale_file.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            existing = {}
+    existing["ui_locale"] = aliases[value]
+    tmp = locale_file.with_suffix(".tmp")
+    tmp.write_text(json.dumps(existing, indent=1), encoding="utf-8")
+    os.chmod(tmp, 0o600)
+    tmp.replace(locale_file)
+    print(f"UI 语言已更新：{aliases[value]}")
+    return 0
+
+
+def _cmd_demo(args: argparse.Namespace) -> int:
+    """setup demo——第一个可验证仿真任务（内核直跑 draw_shape，
+    无需模型）：验证安装能完成'规划→策略→执行→验证'全链。"""
+    import asyncio
+
+    home = _home()
+    # 注意：import 必须在 asyncio.run 之前完成——在运行中的事件循环
+    # 里首次 import agentd/mcp 模块会触发 heisenbug（实测：discovery
+    # 静默失败 → catalog 空 → planning 失败；提前 import 则稳定）。
+    from rosclaw.agentd.config import load_agent_config
+    from rosclaw.agentd.models.gateway import MockModelGateway
+    from rosclaw.agentd.models.profiles import mock_profile
+    from rosclaw.agentd.pi_bridge.action_admission import ActionRequestContext
+    from rosclaw.agentd.pi_bridge.context import build_embodied_context
+    from rosclaw.agentd.pi_bridge.context_lease import (
+        ContextLeaseStore,
+        context_hash_of,
+    )
+    from rosclaw.agentd.pi_bridge.session_binding import SessionBindingStore
+    from rosclaw.agentd.service import AgentService
+    from rosclaw.agentd.task_runner import TaskRunner
+
+    async def _run() -> dict:
+        config = load_agent_config(home / "config.yaml")
+        # demo 验证的是内核管道（规划→策略→执行→验证），不是模型——
+        # 用 mock gateway 使无模型配置的全新安装也能跑通（诚实标注）。
+        service = AgentService(
+            config, home, gateway=MockModelGateway(mock_profile(), [])
+        )
+        try:
+            mission = service.create_mission("setup demo: draw star")
+            await service._ensure_mcp_discovered()
+
+            bindings = SessionBindingStore(service._store.connection)
+            bindings.bind(
+                pi_session_id="setup_demo", pi_session_path="",
+                mission_id=mission.mission_id,
+                body_id=mission.body_binding.body_id,
+                execution_mode=mission.mode.value,
+                created_by="user:local:1000",
+            )
+            import os as _os
+
+            lease, _token = bindings.acquire_lease(
+                mission_id=mission.mission_id, pi_session_id="setup_demo",
+                owner_pid=_os.getpid(), owner_uid=_os.getuid(),
+            )
+            envelope = build_embodied_context(service, mission.mission_id)
+            lease_id = ContextLeaseStore(service._store.connection).issue(
+                pi_session_id="setup_demo", mission_id=mission.mission_id,
+                context_revision=envelope.context_revision,
+                context_hash=context_hash_of(envelope),
+                body_hash=mission.body_binding.effective_body_hash,
+                mode=mission.mode.value,
+                binding_id=bindings.binding_for_session("setup_demo").binding_id,
+                writer_lease_id=lease.lease_id,
+                caller_uid=_os.getuid(), caller_pid=_os.getpid(),
+            ).context_lease_id
+            snapshot = service.snapshot(mission.mission_id)
+            ctx = ActionRequestContext(
+                pi_session_id="setup_demo", mission_id=mission.mission_id,
+                context_revision=snapshot.context_revision,
+                body_hash=mission.body_binding.effective_body_hash,
+                mode=mission.mode.value,
+                idempotency_key="setup_demo_draw_shape",
+                context_lease_id=lease_id,
+            )
+            return await TaskRunner(service).run(
+                request_ctx=ctx, goal="draw_shape",
+                parameters={"shape": "star5", "center_m": [0.35, 0.25, 0.30],
+                            "radius_m": 0.10},
+                caller_pid=_os.getpid(), caller_uid=_os.getuid(),
+            )
+        finally:
+            await service.close()
+
+    result = asyncio.run(_run())
+    print(f"demo task {result['task_id']}: {result['state']}")
+    print(f"  证据等级：{result.get('evidence_level', '?')}——{result.get('user_view', '')}")
+    verification = result.get("verification") or {}
+    if verification:
+        print(f"  几何验证：{verification.get('verdict')} "
+              f"(rmse={verification.get('rmse_m')}, closure={verification.get('closure_error_m')})")
+    return 0 if result["state"] == "VERIFIED" else 1
 
 
 def dispatch_setup_argv(argv: list[str]) -> int | None:
@@ -336,6 +517,16 @@ def dispatch_setup_argv(argv: list[str]) -> int | None:
         parser.add_argument("worker_name", nargs="?", default=None)
         parser.add_argument("--json", action="store_true")
         return _cmd_worker(parser.parse_args(rest))
+    if sub == "safety":
+        parser = argparse.ArgumentParser(prog="rosclaw setup safety")
+        parser.add_argument("policy", nargs="?", default=None)
+        return _cmd_safety(parser.parse_args(rest))
+    if sub == "language":
+        parser = argparse.ArgumentParser(prog="rosclaw setup language")
+        parser.add_argument("locale", nargs="?", default=None)
+        return _cmd_language(parser.parse_args(rest))
+    if sub == "demo":
+        return _cmd_demo(argparse.Namespace())
     if sub == "integration":
         parser = argparse.ArgumentParser(prog="rosclaw setup integration")
         parser.add_argument("integration_name", choices=list(INTEGRATIONS))
