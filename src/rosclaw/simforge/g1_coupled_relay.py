@@ -47,6 +47,7 @@ from rosclaw.simforge.g1_cerebellar_recovery import (
     shared_post_impact_recovery_config,
 )
 from rosclaw.simforge.g1_stadium_scene import (
+    G1CompliantGoalNetState,
     G1TrainingGoalSpec,
     apply_g1_compliant_goal_net_force,
     build_g1_coupled_stadium_model,
@@ -1168,6 +1169,7 @@ def _simulate(
     goalkeeper_reaction_frames = 0
     goalkeeper_initial_y = 0.0 if goalkeeper is None else float(data.qpos[goalkeeper.qpos_base + 1])
     previous_ball_x = float(data.qpos[ball_qpos])
+    goal_net_state = G1CompliantGoalNetState()
 
     for frame in range(total_frames):
         if not shooter.entered and data.time + 1e-12 >= shooter.start_sec:
@@ -1359,6 +1361,7 @@ def _simulate(
                     capture_depth_m=max(0.20, 0.80 * active_goal.depth_m),
                     stiffness_n_m=180.0,
                     damping_n_s_m=10.0,
+                    state=goal_net_state,
                 )
             mujoco.mj_step(model, data)
             for robot in robots:

@@ -44,6 +44,7 @@ from rosclaw.simforge.g1_sonic_runup import (
     qualify_g1_sonic,
 )
 from rosclaw.simforge.g1_stadium_scene import (
+    G1CompliantGoalNetState,
     G1TrainingGoalSpec,
     build_g1_stadium_model,
 )
@@ -131,6 +132,11 @@ def _passing_result(**changes: object) -> G1FreeKickResult:
         "actuator_saturation_fraction": 0.0,
         "actuator_peak_demand_ratio": 0.95,
         "physics_steps": 10_000,
+        "goal_net_anchor_xyz_m": (5.2, 1.04, 0.115),
+        "goal_net_final_anchor_error_m": 0.04,
+        "goal_net_peak_force_n": 80.0,
+        "goal_net_peak_anchor_displacement_m": 0.12,
+        "goal_net_engagement_count": 1,
         "ballistic_contact_residual_executed": False,
         "ballistic_contact_residual_active_frames": 0,
         "ballistic_contact_residual_peak_target_delta_rad": 0.0,
@@ -146,6 +152,8 @@ def test_free_kick_contract_is_strict_about_precision_and_continuity() -> None:
     assert not _passing_result(runup_terminal_speed_mps=0.05).passed
     assert not _passing_result(pre_contact_motion_pause_sec=0.26).passed
     assert not _passing_result(ball_retained_in_goal=False).passed
+    assert not _passing_result(goal_net_final_anchor_error_m=0.251).passed
+    assert not _passing_result(goal_net_engagement_count=2).passed
     assert not _passing_result(declared_corner_distance_m=0.251).passed
     assert not _passing_result(actuator_saturation=True).passed
     assert not _passing_result(loft_teacher_executed=True).passed
@@ -536,6 +544,34 @@ def test_compliant_net_dissipates_only_return_motion_inside_goal_pocket() -> Non
     assert data.xfrc_applied[0, 0] > 0.0
     assert data.xfrc_applied[0, 1] < 0.0
     assert data.xfrc_applied[0, 2] > 0.0
+
+
+def test_stateful_compliant_net_binds_first_contact_without_target_attraction() -> None:
+    goal = G1TrainingGoalSpec(plane_x_m=6.0, target_y_m=1.0, target_z_m=1.2)
+    flow = G1FreeKickFlowConfig(net_capture_depth_m=0.20)
+    state = G1CompliantGoalNetState()
+    data = SimpleNamespace(
+        qpos=np.asarray((6.10, -0.30, 0.80), dtype=np.float64),
+        qvel=np.asarray((8.0, 2.0, -3.0), dtype=np.float64),
+        xfrc_applied=np.zeros((1, 6), dtype=np.float64),
+    )
+    ids = SimpleNamespace(ball=0, ball_qpos=0, ball_qvel=0)
+
+    _apply_compliant_net_force(data, ids, goal, flow, state=state)
+    assert state.engaged
+    assert state.anchor_xyz_m == pytest.approx((6.085, -0.30, 0.80))
+    assert state.anchor_xyz_m[1:] != pytest.approx((goal.target_y_m, goal.target_z_m))
+    np.testing.assert_allclose(data.xfrc_applied, 0.0)
+
+    data.qpos[:3] = (6.04, -0.20, 0.70)
+    data.qvel[:3] = (-1.0, 1.0, -1.0)
+    _apply_compliant_net_force(data, ids, goal, flow, state=state)
+
+    assert data.xfrc_applied[0, 0] > 0.0
+    assert data.xfrc_applied[0, 1] < 0.0
+    assert data.xfrc_applied[0, 2] > 0.0
+    assert state.engagement_count == 1
+    assert state.peak_force_n > 0.0
 
 
 def test_compliant_net_contact_matches_visible_slope() -> None:

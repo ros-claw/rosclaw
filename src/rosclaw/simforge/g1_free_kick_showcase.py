@@ -81,6 +81,7 @@ from rosclaw.simforge.g1_sonic_runup import (
     qualify_g1_sonic,
 )
 from rosclaw.simforge.g1_stadium_scene import (
+    G1CompliantGoalNetState,
     G1TrainingGoalSpec,
     apply_g1_compliant_goal_net_force,
     build_g1_stadium_model,
@@ -580,6 +581,11 @@ class G1FreeKickResult:
     actuator_saturation_fraction: float
     actuator_peak_demand_ratio: float
     physics_steps: int
+    goal_net_anchor_xyz_m: tuple[float, float, float] | None = None
+    goal_net_final_anchor_error_m: float | None = None
+    goal_net_peak_force_n: float = 0.0
+    goal_net_peak_anchor_displacement_m: float = 0.0
+    goal_net_engagement_count: int = 0
     post_contact_peak_pelvis_speed_mps: float = 0.0
     post_contact_backward_displacement_m: float = 0.0
     post_contact_forward_velocity_reversals: int = 0
@@ -649,7 +655,7 @@ class G1FreeKickResult:
     kick_contact_normal_xyz: tuple[float, float, float] | None = None
     kick_contact_force_world_xyz_n: tuple[float, float, float] | None = None
     kick_contact_peak_force_n: float | None = None
-    schema_version: str = "rosclaw.simforge.g1_free_kick_result.v29"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_result.v30"
 
     @property
     def perceptual_continuity_passed(self) -> bool:
@@ -689,8 +695,9 @@ class G1FreeKickResult:
             and self.goal_mouth_hit
             and self.goal_plane_target_error_m is not None
             and self.goal_plane_target_error_m <= self.precision_radius_m
-            and self.net_capture_target_error_m is not None
-            and self.net_capture_target_error_m <= self.precision_radius_m + 0.05
+            and self.goal_net_final_anchor_error_m is not None
+            and self.goal_net_final_anchor_error_m <= 0.25
+            and self.goal_net_engagement_count == 1
             and self.ball_retained_in_goal
             and self.declared_corner_distance_m is not None
             and self.declared_corner_distance_m <= 0.25
@@ -744,7 +751,7 @@ class G1FreeKickEvidence:
     evidence_domain: str = "DEVELOPMENT_SHOWCASE"
     physics_authority: str = "CPU_MUJOCO"
     hardware_command_sent: bool = False
-    schema_version: str = "rosclaw.simforge.g1_free_kick_evidence.v29"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_evidence.v30"
 
     @property
     def passed(self) -> bool:
@@ -871,6 +878,7 @@ class G1FreeKickEvidence:
                 "native_collision_goal_frame": True,
                 "native_collision_net": False,
                 "compliant_net_capture_force_model": True,
+                "target_independent_stateful_net_pocket": True,
                 "net_capture_from_physics_trajectory": True,
                 "precision_scoring_from_physics_state": True,
                 "rendered_pixels_used_for_scoring": False,
@@ -1320,6 +1328,9 @@ def _simulate(
         "ball_contact_force_peak_n": [],
         "ball_contact_normal": [],
         "ball_contact_force_world": [],
+        "goal_net_force_world": [],
+        "goal_net_engaged": [],
+        "goal_net_anchor_xyz": [],
         "controller_mode": [],
         "event_phase": [],
         "policy_phase": [],
@@ -1879,6 +1890,7 @@ def _simulate(
     crossing: tuple[float, float, float] | None = None
     net_capture: tuple[float, float, float] | None = None
     deepest_net_point: tuple[float, float, float] | None = None
+    goal_net_state = G1CompliantGoalNetState()
     previous_ball = data.qpos[ids.ball_qpos : ids.ball_qpos + 3].copy()
 
     for frame in range(total_kick_frames):
@@ -2356,7 +2368,7 @@ def _simulate(
             last_torque = project_authority(raw)
             torque_violation = torque_violation or bool(np.any(np.abs(last_torque) > hard_limits))
             data.ctrl[:] = last_torque
-            _apply_compliant_net_force(data, ids, goal, flow)
+            _apply_compliant_net_force(data, ids, goal, flow, state=goal_net_state)
             mujoco.mj_step(model, data)
             physics_steps += 1
             contacts = _contact_observation(model, data, ids)
@@ -2575,6 +2587,13 @@ def _simulate(
             ball_contact_force_peak_n=frame_contact_force_peak,
             ball_contact_normal=frame_contact_normal,
             ball_contact_force_world=frame_contact_force_world,
+            goal_net_force_world=np.asarray(goal_net_state.last_force_xyz_n),
+            goal_net_engaged=goal_net_state.engaged,
+            goal_net_anchor_xyz=(
+                None
+                if goal_net_state.anchor_xyz_m is None
+                else np.asarray(goal_net_state.anchor_xyz_m)
+            ),
             cerebellar_recovery_active=cerebellar_recovery_active,
             cerebellar_recovery_blend_fraction=(cerebellar_recovery_blend_fraction),
         )
@@ -2625,6 +2644,14 @@ def _simulate(
     final_ball_error = math.hypot(
         final_ball[1] - goal.target_y_m,
         final_ball[2] - goal.target_z_m,
+    )
+    goal_net_anchor_error = (
+        None
+        if goal_net_state.anchor_xyz_m is None
+        else math.hypot(
+            final_ball[1] - goal_net_state.anchor_xyz_m[1],
+            final_ball[2] - goal_net_state.anchor_xyz_m[2],
+        )
     )
     if not math.isfinite(handoff_min_forward_speed):
         handoff_min_forward_speed = 0.0
@@ -2771,6 +2798,11 @@ def _simulate(
         actuator_saturation_fraction=saturation_steps / max(1, physics_steps),
         actuator_peak_demand_ratio=peak_demand_ratio,
         physics_steps=physics_steps,
+        goal_net_anchor_xyz_m=goal_net_state.anchor_xyz_m,
+        goal_net_final_anchor_error_m=goal_net_anchor_error,
+        goal_net_peak_force_n=goal_net_state.peak_force_n,
+        goal_net_peak_anchor_displacement_m=goal_net_state.peak_anchor_displacement_m,
+        goal_net_engagement_count=goal_net_state.engagement_count,
         post_contact_peak_pelvis_speed_mps=post_contact_peak_speed,
         post_contact_backward_displacement_m=post_contact_backward_displacement,
         post_contact_forward_velocity_reversals=post_contact_velocity_reversals,
@@ -3018,6 +3050,8 @@ def _apply_compliant_net_force(
     ids: _ModelIds,
     goal: G1TrainingGoalSpec,
     flow: G1FreeKickFlowConfig,
+    *,
+    state: G1CompliantGoalNetState | None = None,
 ) -> None:
     """Apply a deterministic one-sided soft-net force to the ball body."""
     apply_g1_compliant_goal_net_force(
@@ -3029,6 +3063,7 @@ def _apply_compliant_net_force(
         capture_depth_m=flow.net_capture_depth_m,
         stiffness_n_m=flow.net_stiffness_n_m,
         damping_n_s_m=flow.net_damping_n_s_m,
+        state=state,
     )
 
 
@@ -3199,6 +3234,9 @@ def _append_trace(
     ball_contact_force_peak_n: float = 0.0,
     ball_contact_normal: np.ndarray | None = None,
     ball_contact_force_world: np.ndarray | None = None,
+    goal_net_force_world: np.ndarray | None = None,
+    goal_net_engaged: bool = False,
+    goal_net_anchor_xyz: np.ndarray | None = None,
 ) -> None:
     trace["time"].append(float(data.time))
     trace["joint_position"].append(data.qpos[7:36].copy())
@@ -3417,6 +3455,27 @@ def _append_trace(
     trace["ball_contact_force_peak_n"].append(float(ball_contact_force_peak_n))
     trace["ball_contact_normal"].append(normal.copy())
     trace["ball_contact_force_world"].append(force_world.copy())
+    net_force = (
+        np.zeros(3, dtype=np.float64)
+        if goal_net_force_world is None
+        else np.asarray(goal_net_force_world, dtype=np.float64)
+    )
+    net_anchor = (
+        np.zeros(3, dtype=np.float64)
+        if goal_net_anchor_xyz is None
+        else np.asarray(goal_net_anchor_xyz, dtype=np.float64)
+    )
+    if (
+        net_force.shape != (3,)
+        or net_anchor.shape != (3,)
+        or not np.all(np.isfinite(net_force))
+        or not np.all(np.isfinite(net_anchor))
+        or (goal_net_engaged and goal_net_anchor_xyz is None)
+    ):
+        raise FloatingPointError("G1 compliant goal-net trace is invalid")
+    trace["goal_net_force_world"].append(net_force.copy())
+    trace["goal_net_engaged"].append(bool(goal_net_engaged))
+    trace["goal_net_anchor_xyz"].append(net_anchor.copy())
     trace["controller_mode"].append(mode)
     trace["event_phase"].append(int(event_phase))
     trace["policy_phase"].append(phase)

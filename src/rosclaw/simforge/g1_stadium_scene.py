@@ -19,6 +19,28 @@ _SCENE_REL = Path("g1_description/scene_with_ball.xml")
 _MODEL_REL = Path("g1_description/g1_liao.xml")
 
 
+@dataclass
+class G1CompliantGoalNetState:
+    """State of the physical net pocket after its first ball engagement.
+
+    The anchor is the measured first-contact point on the sloped back net.  It
+    is deliberately independent of the requested shot target: the net may
+    dissipate and retain a ball, but it must never improve scoring accuracy.
+    """
+
+    engaged: bool = False
+    anchor_xyz_m: tuple[float, float, float] | None = None
+    engagement_count: int = 0
+    peak_force_n: float = 0.0
+    peak_anchor_displacement_m: float = 0.0
+    last_force_xyz_n: tuple[float, float, float] = (0.0, 0.0, 0.0)
+
+    def reset(self) -> None:
+        self.engaged = False
+        self.anchor_xyz_m = None
+        self.last_force_xyz_n = (0.0, 0.0, 0.0)
+
+
 @dataclass(frozen=True)
 class G1TrainingGoalSpec:
     """Geometry and scoring contract for a humanoid-scale training goal."""
@@ -328,14 +350,23 @@ def apply_g1_compliant_goal_net_force(
     capture_depth_m: float,
     stiffness_n_m: float,
     damping_n_s_m: float,
+    state: G1CompliantGoalNetState | None = None,
 ) -> None:
-    """Apply a bounded spring-damper force matching the visible back/side/roof net."""
+    """Apply a bounded spring-damper force matching the visible goal net.
+
+    With ``state`` the net becomes a three-axis deformable pocket: first
+    contact binds a target-independent physical anchor and subsequent steps
+    dissipate motion around that anchor.  Omitting ``state`` retains the
+    original stateless behavior for backwards-compatible callers.
+    """
 
     if not 10.0 <= stiffness_n_m <= 250.0:
         raise ValueError("goal net stiffness must be in [10, 250] N/m")
     if not 2.0 <= damping_n_s_m <= 30.0:
         raise ValueError("goal net damping must be in [2, 30] N s/m")
     data.xfrc_applied[ball_body_id, :] = 0.0
+    if state is not None:
+        state.last_force_xyz_n = (0.0, 0.0, 0.0)
     x, y, z = (float(value) for value in data.qpos[ball_qpos : ball_qpos + 3])
     vx, vy, vz = (float(value) for value in data.qvel[ball_qvel : ball_qvel + 3])
     capture_x = g1_goal_net_contact_plane_x(
@@ -343,6 +374,27 @@ def apply_g1_compliant_goal_net_force(
         capture_depth_m=capture_depth_m,
         ball_z_m=z,
     )
+    if state is not None and state.engaged and x < spec.plane_x_m - spec.ball_radius_m:
+        state.reset()
+    if state is not None and state.engaged:
+        if state.anchor_xyz_m is None:
+            raise RuntimeError("engaged goal net is missing its physical anchor")
+        anchor_x, anchor_y, anchor_z = state.anchor_xyz_m
+        displacement = (x - anchor_x, y - anchor_y, z - anchor_z)
+        fx = -stiffness_n_m * displacement[0] - damping_n_s_m * vx
+        fy = -0.35 * stiffness_n_m * displacement[1] - 0.55 * damping_n_s_m * vy
+        fz = -0.35 * stiffness_n_m * displacement[2] - 0.55 * damping_n_s_m * vz
+        force = tuple(max(-250.0, min(250.0, value)) for value in (fx, fy, fz))
+        data.xfrc_applied[ball_body_id, :3] = force
+        state.last_force_xyz_n = force
+        state.peak_force_n = max(
+            state.peak_force_n, math.sqrt(sum(value * value for value in force))
+        )
+        state.peak_anchor_displacement_m = max(
+            state.peak_anchor_displacement_m,
+            math.sqrt(sum(value * value for value in displacement)),
+        )
+        return
     if x <= capture_x:
         if x > spec.plane_x_m and vx < 0.0:
             data.xfrc_applied[ball_body_id, :3] = (
@@ -350,6 +402,15 @@ def apply_g1_compliant_goal_net_force(
                 max(-250.0, min(250.0, -0.12 * damping_n_s_m * vy)),
                 max(-250.0, min(250.0, -0.08 * damping_n_s_m * vz)),
             )
+        return
+
+    if state is not None:
+        state.engaged = True
+        state.anchor_xyz_m = (capture_x, y, z)
+        state.engagement_count += 1
+        # Evaluate the newly engaged pocket through the same stateful branch
+        # on the next 2 ms physics step.  This avoids an artificial impulse at
+        # the exact event boundary while preserving deterministic capture.
         return
 
     penetration = x - capture_x
@@ -688,6 +749,7 @@ def _style_pitch_and_ball(parent: Any, spec: G1TrainingGoalSpec) -> None:
 
 
 __all__ = [
+    "G1CompliantGoalNetState",
     "G1TrainingGoalSpec",
     "apply_g1_compliant_goal_net_force",
     "build_g1_coupled_stadium_model",
