@@ -13,6 +13,9 @@ SLIM_HELP = """ROSClaw — Embodied Agent Runtime
 
 Get started
   chat        Start the Native Agent
+  continue    Continue the most recent session
+  resume      Resume a session (picker / id / title)
+  sessions    List and search sessions
   setup       Configure model, body and integrations
   status      Show runtime and embodiment status
   doctor      Diagnose installation and safety readiness
@@ -59,6 +62,9 @@ DOMAIN_GROUPS: dict[str, list[str]] = {
 #: 机器可读注册表（name → (group, summary)）。dispatch 实现见 entrypoint.py。
 COMMAND_REGISTRY: dict[str, tuple[str, str]] = {
     "chat": ("core", "Start the Native Agent"),
+    "sessions": ("core", "List and search sessions"),
+    "resume": ("core", "Resume a session (picker / id / title)"),
+    "continue": ("core", "Continue the most recent session"),
     "setup": ("setup", "Configure model, body and integrations"),
     "status": ("core", "Show runtime and embodiment status"),
     "doctor": ("core", "Diagnose installation and safety readiness"),

@@ -223,7 +223,7 @@ class TestActionResultUi:
                     raise AssertionError("第二轮谎言未出现")
                 time.sleep(2.0)
                 session.send("/quit\r")
-                session.expect(b"rosclaw chat --resume", timeout=30)
+                session.expect(b"rosclaw continue", timeout=30)
                 session.proc.wait(timeout=30)
                 output = session.clean
             finally:

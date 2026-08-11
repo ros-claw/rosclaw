@@ -118,12 +118,12 @@ class TestTmuxEnvironment:
                 if probe.returncode != 0 or "1" in probe.stdout:
                     exited = True
                     break
-                if "rosclaw chat --resume" in pane:
+                if "rosclaw continue" in pane:
                     exited = True
                     break
                 time.sleep(1.0)
             assert exited, f"/quit 后会话未结束: {last_pane[-400:]}"
-            assert "rosclaw chat --resume" in last_pane, (
+            assert "rosclaw continue" in last_pane, (
                 f"退出未见 ROSClaw resume 提示: {last_pane[-400:]}"
             )
             assert "pi --session" not in last_pane
