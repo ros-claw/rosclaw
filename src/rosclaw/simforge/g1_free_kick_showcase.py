@@ -37,6 +37,7 @@ from rosclaw.growth.ballistic_contact_torque_residual import (
 from rosclaw.growth.football_motion_prior import (
     G1FootballMotionPrior,
     blend_g1_football_motion_prior_target,
+    blend_g1_football_motion_prior_velocity,
 )
 from rosclaw.simforge.backends.unitree_mujoco_backend import (
     G1MuJoCoBackend,
@@ -170,6 +171,7 @@ class G1FreeKickFlowConfig:
     football_outcome_model_hash: str | None = None
     football_motion_prior_hash: str | None = None
     football_motion_prior_blend: float = 0.0
+    football_motion_prior_velocity_blend: float = 0.0
     football_motion_prior_contact_policy_frame: int = 265
     ballistic_contact_impulse_actor_hash: str | None = None
     ballistic_contact_residual_rad: tuple[float, ...] = (0.0,) * 6
@@ -196,7 +198,7 @@ class G1FreeKickFlowConfig:
     ballistic_skill_memory_hash: str | None = None
     ballistic_skill_id: str | None = None
     approach_provider: str = "groot_history"
-    schema_version: str = "rosclaw.simforge.g1_free_kick_flow_config.v36"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_flow_config.v37"
 
     def __post_init__(self) -> None:
         if not isinstance(self.shared_cerebellar_recovery_enabled, bool):
@@ -243,6 +245,7 @@ class G1FreeKickFlowConfig:
             self.torque_authority_projection_ratio,
             self.torque_authority_projection_max_fraction,
             self.football_motion_prior_blend,
+            self.football_motion_prior_velocity_blend,
             self.ballistic_contact_lead_duration_sec,
             self.ballistic_contact_trail_duration_sec,
         )
@@ -387,7 +390,13 @@ class G1FreeKickFlowConfig:
             raise ValueError("football motion prior hash must be SHA-256")
         if not 0.0 <= self.football_motion_prior_blend <= 0.50:
             raise ValueError("football motion prior blend must be in [0, 0.50]")
-        if (self.football_motion_prior_hash is None) != (self.football_motion_prior_blend == 0.0):
+        if not 0.0 <= self.football_motion_prior_velocity_blend <= 0.50:
+            raise ValueError("football motion prior velocity blend must be in [0, 0.50]")
+        motion_prior_enabled = bool(
+            self.football_motion_prior_blend > 0.0
+            or self.football_motion_prior_velocity_blend > 0.0
+        )
+        if (self.football_motion_prior_hash is not None) != motion_prior_enabled:
             raise ValueError("football motion prior hash and non-zero blend must be paired")
         if not 240 <= self.football_motion_prior_contact_policy_frame <= 300:
             raise ValueError("football motion prior contact frame must be in [240, 300]")
@@ -569,6 +578,9 @@ class G1FreeKickResult:
     football_motion_prior_executed: bool = False
     football_motion_prior_active_frames: int = 0
     football_motion_prior_peak_target_delta_rad: float = 0.0
+    football_motion_prior_velocity_executed: bool = False
+    football_motion_prior_velocity_active_frames: int = 0
+    football_motion_prior_peak_target_velocity_delta_rad_s: float = 0.0
     ballistic_contact_residual_executed: bool = False
     ballistic_contact_residual_active_frames: int = 0
     ballistic_contact_residual_peak_target_delta_rad: float = 0.0
@@ -597,7 +609,7 @@ class G1FreeKickResult:
     kick_contact_normal_xyz: tuple[float, float, float] | None = None
     kick_contact_force_world_xyz_n: tuple[float, float, float] | None = None
     kick_contact_peak_force_n: float | None = None
-    schema_version: str = "rosclaw.simforge.g1_free_kick_result.v24"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_result.v25"
 
     @property
     def perceptual_continuity_passed(self) -> bool:
@@ -692,7 +704,7 @@ class G1FreeKickEvidence:
     evidence_domain: str = "DEVELOPMENT_SHOWCASE"
     physics_authority: str = "CPU_MUJOCO"
     hardware_command_sent: bool = False
-    schema_version: str = "rosclaw.simforge.g1_free_kick_evidence.v24"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_evidence.v25"
 
     @property
     def passed(self) -> bool:
@@ -866,6 +878,11 @@ def run_g1_free_kick_showcase(
             raise ValueError("football motion prior Body hash mismatch")
         if flow.football_motion_prior_hash != football_motion_prior.prior_hash:
             raise ValueError("flow football motion prior hash mismatch")
+        if (
+            flow.football_motion_prior_velocity_blend > 0.0
+            and not football_motion_prior.whole_body_velocity_reference_rad_s
+        ):
+            raise ValueError("flow velocity blend requires a velocity-aware football prior")
     if (
         ballistic_contact_impulse_actor is None
         and flow.ballistic_contact_impulse_actor_hash is not None
@@ -1240,6 +1257,8 @@ def _simulate(
     boundary_guard_peak_correction = 0.0
     football_motion_prior_active_frames = 0
     football_motion_prior_peak_target_delta = 0.0
+    football_motion_prior_velocity_active_frames = 0
+    football_motion_prior_peak_target_velocity_delta = 0.0
     ballistic_contact_config = G1BallisticContactResidualConfig(
         right_leg_residual_rad=flow.ballistic_contact_residual_rad,
         contact_policy_frame=flow.ballistic_contact_policy_frame,
@@ -1753,7 +1772,10 @@ def _simulate(
     for frame in range(total_kick_frames):
         _fill_state(state, model, data, ids)
         motion_prior_delta: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
+        motion_prior_velocity_delta: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
         motion_prior_active = False
+        motion_prior_velocity_active = False
+        target_velocity: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
         ballistic_contact_delta: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
         ballistic_contact_active = False
         current_policy_frame = max(0, int(policy.time_step) - int(policy.WARMUP_STEPS))
@@ -1811,10 +1833,28 @@ def _simulate(
                         blend=flow.football_motion_prior_blend,
                     )
                 )
+                target_velocity, motion_prior_velocity_delta, motion_prior_velocity_active = (
+                    blend_g1_football_motion_prior_velocity(
+                        target_velocity=target_velocity,
+                        prior=football_motion_prior,
+                        policy_frame=policy_frame,
+                        contact_policy_frame=(flow.football_motion_prior_contact_policy_frame),
+                        control_dt_sec=runup.control_dt_sec,
+                        blend=flow.football_motion_prior_velocity_blend,
+                    )
+                )
+                motion_prior_active = motion_prior_active or motion_prior_velocity_active
                 football_motion_prior_active_frames += int(motion_prior_active)
+                football_motion_prior_velocity_active_frames += int(
+                    motion_prior_velocity_active
+                )
                 football_motion_prior_peak_target_delta = max(
                     football_motion_prior_peak_target_delta,
                     float(np.max(np.abs(motion_prior_delta))),
+                )
+                football_motion_prior_peak_target_velocity_delta = max(
+                    football_motion_prior_peak_target_velocity_delta,
+                    float(np.max(np.abs(motion_prior_velocity_delta))),
                 )
             target, ballistic_contact_delta, ballistic_contact_active = (
                 blend_g1_ballistic_contact_target(
@@ -1911,7 +1951,9 @@ def _simulate(
             residual_event = G1FootballEventPhase.LOAD
         else:
             residual_event = G1FootballEventPhase.SWING
-        baseline = (target - data.qpos[7:36]) * kp - data.qvel[6:35] * kd
+        baseline = (target - data.qpos[7:36]) * kp + (
+            target_velocity - data.qvel[6:35]
+        ) * kd
         residual, residual_accepted, residual_confidence = _residual_for_frame(
             residual_controller,
             data=data,
@@ -2009,7 +2051,7 @@ def _simulate(
                     impulse_actor_torque = impulse_effect_torque.copy()
             controller_torque = (
                 (target - data.qpos[7:36]) * kp
-                - data.qvel[6:35] * kd
+                + (target_velocity - data.qvel[6:35]) * kd
                 + residual
                 + ballistic_contact_torque
             )
@@ -2204,7 +2246,7 @@ def _simulate(
             ids,
             last_torque,
             target,
-            np.zeros(29, dtype=np.float64),
+            target_velocity,
             4,
             phase,
             crossing is not None,
@@ -2466,6 +2508,15 @@ def _simulate(
         football_motion_prior_executed=football_motion_prior is not None,
         football_motion_prior_active_frames=football_motion_prior_active_frames,
         football_motion_prior_peak_target_delta_rad=(football_motion_prior_peak_target_delta),
+        football_motion_prior_velocity_executed=bool(
+            football_motion_prior_velocity_active_frames > 0
+        ),
+        football_motion_prior_velocity_active_frames=(
+            football_motion_prior_velocity_active_frames
+        ),
+        football_motion_prior_peak_target_velocity_delta_rad_s=(
+            football_motion_prior_peak_target_velocity_delta
+        ),
         ballistic_contact_residual_executed=ballistic_contact_config.enabled,
         ballistic_contact_residual_active_frames=ballistic_contact_active_frames,
         ballistic_contact_residual_peak_target_delta_rad=(ballistic_contact_peak_target_delta),

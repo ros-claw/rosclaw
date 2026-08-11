@@ -2,9 +2,12 @@
 
 MotionDecode supplies kinematics, not synchronized ball state, actions, rewards,
 or transitions.  This module therefore uses only Q1 repaired shooting clips as
-a bounded position-reference teacher.  A strict-replay ROSClaw trajectory is
-used to select nearby motion islands; its outcome is not used as a reward.
+a bounded position-and-velocity reference teacher.  A strict-replay ROSClaw
+trajectory is used to select nearby motion islands; its outcome is not used as a reward.
 The resulting prior remains SIM_ONLY and cannot promote or command hardware.
+An explicit style profile can preserve the nearest parent island or select a
+forward, upward foot path for lofted drives; the profile and signed contact
+velocity are bound into v5 representative-event artifacts.
 """
 
 from __future__ import annotations
@@ -50,6 +53,7 @@ _REFERENCE_TIMES_SEC = (
 )
 _SHOOTING_TOKEN = "/3.3.3.3.Shooting/"
 _MAX_JSON_BYTES = 128 * 1024 * 1024
+_STYLE_PROFILES = {"parent_nearest", "lofted_drive"}
 
 
 def derive_motiondecode_g1_football_skill_prior(
@@ -64,11 +68,14 @@ def derive_motiondecode_g1_football_skill_prior(
     output_path: Path,
     source_checkout: Path,
     selected_event_count: int = 16,
+    style_profile: str = "parent_nearest",
 ) -> G1FootballMotionPrior:
     """Select and distil nearby Q1 shooting styles from the training split."""
 
     if not 8 <= selected_event_count <= 32:
         raise ValueError("MotionDecode football style event count must be in [8, 32]")
+    if style_profile not in _STYLE_PROFILES:
+        raise ValueError("MotionDecode football style profile is unsupported")
     output = _external_output(output_path, source_checkout)
     registration_artifact = _bounded_json(registration_path)
     registration_value = registration_artifact.get("registration")
@@ -143,7 +150,9 @@ def derive_motiondecode_g1_football_skill_prior(
 
     lower = np.asarray([joint_limits[name][0] for name in G1_DDS_JOINT_NAMES])
     upper = np.asarray([joint_limits[name][1] for name in G1_DDS_JOINT_NAMES])
-    candidates: list[tuple[float, str, np.ndarray, G1FootballStyleEvent]] = []
+    candidates: list[
+        tuple[float, str, np.ndarray, np.ndarray, G1FootballStyleEvent]
+    ] = []
     heldout: dict[str, str] = {}
     train_files = 0
     for relative, result in sorted(results.items()):
@@ -186,6 +195,7 @@ def derive_motiondecode_g1_football_skill_prior(
             spans=spans,
             parent_reference=parent_reference,
             model_path=target_model_path,
+            style_profile=style_profile,
         )
         if candidate is not None:
             candidates.append(candidate)
@@ -194,7 +204,13 @@ def derive_motiondecode_g1_football_skill_prior(
         raise ValueError("too few Q1 MotionDecode shooting events survived style screening")
     selected = candidates[:selected_event_count]
     sequences = np.asarray([item[2] for item in selected], dtype=np.float64)
+    velocity_sequences = np.asarray([item[3] for item in selected], dtype=np.float64)
     reference = np.median(sequences, axis=0)
+    velocity_reference = (
+        velocity_sequences[0]
+        if style_profile == "lofted_drive"
+        else np.median(velocity_sequences, axis=0)
+    )
     iqr = np.quantile(sequences, 0.75, axis=0) - np.quantile(sequences, 0.25, axis=0)
     right_reference = reference[:, 6:12]
     right_iqr = iqr[:, 6:12]
@@ -203,7 +219,7 @@ def derive_motiondecode_g1_football_skill_prior(
         dataset_readme_hash=_hash_file(dataset_root / "README.md"),
         split_manifest_hash=registration.manifest.manifest_hash,
         joint_order_contract_hash=target_model_hash,
-        train_partition_hash=canonical_hash({item[1]: item[3].source_hash for item in selected}),
+        train_partition_hash=canonical_hash({item[1]: item[4].source_hash for item in selected}),
         heldout_partition_commitment=canonical_hash(heldout),
         joint_names=G1_DDS_JOINT_NAMES[6:12],
         reference_times_sec=_REFERENCE_TIMES_SEC,
@@ -217,13 +233,33 @@ def derive_motiondecode_g1_football_skill_prior(
         whole_body_reference_rad=tuple(tuple(float(value) for value in row) for row in reference),
         whole_body_iqr_rad=tuple(tuple(float(value) for value in row) for row in iqr),
         whole_body_maximum_target_correction_rad=((0.30,) * 12 + (0.16,) * 3 + (0.12,) * 14),
+        whole_body_velocity_reference_rad_s=(
+            tuple(tuple(float(value) for value in row) for row in velocity_reference)
+            if style_profile == "lofted_drive"
+            else ()
+        ),
+        whole_body_maximum_velocity_correction_rad_s=(
+            (1.0,) * 6 + (4.0,) * 6 + (0.8,) * 3 + (1.2,) * 14
+            if style_profile == "lofted_drive"
+            else ()
+        ),
         motiondecode_source_manifest_hash=registration.manifest.manifest_hash,
         motiondecode_repair_report_hash=repair_hash,
         parent_trajectory_hash=parent_trajectory_hash,
-        style_events=tuple(item[3] for item in selected),
+        style_events=tuple(item[4] for item in selected),
         source_dataset="MotionDecode",
+        style_profile=style_profile,
+        velocity_distillation_strategy=(
+            "representative_event"
+            if style_profile == "lofted_drive"
+            else "coordinatewise_median"
+        ),
         maximum_target_correction_rad=0.30,
-        schema_version="rosclaw.growth.g1_football_motion_prior.v2",
+        schema_version=(
+            "rosclaw.growth.g1_football_motion_prior.v2"
+            if style_profile == "parent_nearest"
+            else "rosclaw.growth.g1_football_motion_prior.v5"
+        ),
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
@@ -245,7 +281,8 @@ def _best_episode_event(
     spans: tuple[tuple[int, int], ...],
     parent_reference: np.ndarray,
     model_path: Path,
-) -> tuple[float, str, np.ndarray, G1FootballStyleEvent] | None:
+    style_profile: str,
+) -> tuple[float, str, np.ndarray, np.ndarray, G1FootballStyleEvent] | None:
     if not spans:
         return None
     right_position, left_position = _foot_positions(
@@ -254,12 +291,26 @@ def _best_episode_event(
         root_quaternion=root_quaternion,
         model_path=model_path,
     )
-    right_speed = np.linalg.norm(np.gradient(right_position, 1.0 / fps, axis=0), axis=1)
+    right_velocity = np.gradient(right_position, 1.0 / fps, axis=0)
+    right_speed = np.linalg.norm(right_velocity, axis=1)
     left_speed = np.linalg.norm(np.gradient(left_position, 1.0 / fps, axis=0), axis=1)
     right_leg_speed = np.linalg.norm(velocity[:, 6:12], axis=1)
     offsets = np.rint(np.asarray(_REFERENCE_TIMES_SEC) * fps).astype(int)
     weights = np.asarray((2.0,) * 12 + (1.5,) * 3 + (0.25,) * 14)
-    options: list[tuple[float, int, np.ndarray, float, float, float]] = []
+    options: list[
+        tuple[
+            float,
+            int,
+            np.ndarray,
+            np.ndarray,
+            float,
+            float,
+            float,
+            float,
+            float,
+            float,
+        ]
+    ] = []
     for start, end in spans:
         lower = max(start, -int(offsets[0]) + 2)
         upper = min(end, q.shape[0] - int(offsets[-1]) - 2)
@@ -276,6 +327,7 @@ def _best_episode_event(
             ):
                 continue
             sequence = q[frame + offsets]
+            velocity_sequence = velocity[frame + offsets]
             style_distance = float(
                 np.sqrt(np.mean(np.square(sequence - parent_reference) * weights[None, :]))
             )
@@ -288,13 +340,57 @@ def _best_episode_event(
             post = velocity[frame + round(0.30 * fps) : min(q.shape[0], frame + round(0.60 * fps))]
             recovery = float(np.sqrt(np.mean(np.square(post)))) if post.size else math.inf
             selectivity = right_speed[frame] / max(left_speed[frame], 0.20)
-            rank = (
-                style_distance + 0.015 * support + 0.020 * recovery - 0.006 * min(selectivity, 4.0)
+            forward, lateral, vertical = (
+                float(value) for value in right_velocity[frame]
             )
-            options.append((rank, frame, sequence.copy(), support, recovery, right_speed[frame]))
+            if style_profile == "lofted_drive":
+                if forward < 3.0 or vertical < 0.55 or abs(lateral) > 2.5:
+                    continue
+                rank = (
+                    0.35 * style_distance
+                    + 0.015 * support
+                    + 0.020 * recovery
+                    + 0.040 * abs(lateral)
+                    - 0.035 * min(forward, 7.0)
+                    - 0.080 * min(vertical, 3.0)
+                )
+            else:
+                rank = (
+                    style_distance
+                    + 0.015 * support
+                    + 0.020 * recovery
+                    - 0.006 * min(selectivity, 4.0)
+                )
+            options.append(
+                (
+                    rank,
+                    frame,
+                    sequence.copy(),
+                    velocity_sequence.copy(),
+                    support,
+                    recovery,
+                    right_speed[frame],
+                    forward,
+                    lateral,
+                    vertical,
+                )
+            )
     if not options:
         return None
-    rank, frame, sequence, support, recovery, peak = min(options, key=lambda item: item[0])
+    (
+        rank,
+        frame,
+        sequence,
+        velocity_sequence,
+        support,
+        recovery,
+        peak,
+        forward,
+        lateral,
+        vertical,
+    ) = min(
+        options, key=lambda item: item[0]
+    )
     score = max(0.0, 1.0 / (1.0 + rank))
     event = G1FootballStyleEvent(
         relative_path=relative_path,
@@ -306,8 +402,11 @@ def _best_episode_event(
         right_foot_peak_speed_mps=peak,
         support_foot_p95_speed_mps=support,
         post_event_joint_velocity_rms_rad_s=recovery,
+        right_foot_forward_speed_mps=(forward if style_profile == "lofted_drive" else 0.0),
+        right_foot_lateral_speed_mps=(lateral if style_profile == "lofted_drive" else 0.0),
+        right_foot_vertical_speed_mps=(vertical if style_profile == "lofted_drive" else 0.0),
     )
-    return rank, relative_path, sequence, event
+    return rank, relative_path, sequence, velocity_sequence, event
 
 
 def _foot_positions(

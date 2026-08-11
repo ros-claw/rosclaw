@@ -263,6 +263,11 @@ def _parser() -> argparse.ArgumentParser:
     motiondecode_skill_prior.add_argument("--output", type=Path, required=True)
     motiondecode_skill_prior.add_argument("--source-checkout", type=Path, default=Path.cwd())
     motiondecode_skill_prior.add_argument("--selected-event-count", type=int, default=16)
+    motiondecode_skill_prior.add_argument(
+        "--style-profile",
+        choices=("parent_nearest", "lofted_drive"),
+        default="parent_nearest",
+    )
     motiondecode_skill_prior.set_defaults(handler=_motiondecode_football_skill_prior)
     ballistic_actor_critic = commands.add_parser(
         "ballistic-contact-actor-critic",
@@ -674,6 +679,7 @@ def _motiondecode_football_skill_prior(args: argparse.Namespace) -> int:
         output_path=args.output,
         source_checkout=args.source_checkout,
         selected_event_count=args.selected_event_count,
+        style_profile=args.style_profile,
     )
     _print(prior.to_dict())
     return 0

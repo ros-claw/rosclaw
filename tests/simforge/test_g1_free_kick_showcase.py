@@ -180,6 +180,21 @@ def test_retry_recovery_requires_a_bound_outcome_model() -> None:
     assert flow.football_retry_recovery_duration_sec == 1.0
 
 
+def test_motion_prior_position_and_velocity_blends_are_independent() -> None:
+    prior_hash = "sha256:" + "4" * 64
+    flow = G1FreeKickFlowConfig(
+        football_motion_prior_hash=prior_hash,
+        football_motion_prior_velocity_blend=0.20,
+    )
+
+    assert flow.football_motion_prior_blend == 0.0
+    assert flow.football_motion_prior_velocity_blend == 0.20
+    with pytest.raises(ValueError, match="must be paired"):
+        G1FreeKickFlowConfig(football_motion_prior_hash=prior_hash)
+    with pytest.raises(ValueError, match="must be paired"):
+        G1FreeKickFlowConfig(football_motion_prior_velocity_blend=0.20)
+
+
 def test_vertical_aim_bias_is_bounded_and_separate_from_the_scoring_target() -> None:
     assert G1FreeKickFlowConfig(aim_bias_z_m=0.70).aim_bias_z_m == 0.70
     with pytest.raises(ValueError, match="vertical aim bias"):

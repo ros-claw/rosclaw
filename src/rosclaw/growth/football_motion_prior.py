@@ -153,6 +153,9 @@ class G1FootballStyleEvent:
     right_foot_peak_speed_mps: float
     support_foot_p95_speed_mps: float
     post_event_joint_velocity_rms_rad_s: float
+    right_foot_forward_speed_mps: float = 0.0
+    right_foot_lateral_speed_mps: float = 0.0
+    right_foot_vertical_speed_mps: float = 0.0
 
     def __post_init__(self) -> None:
         if not self.relative_path or not self.source_hash.startswith("sha256:"):
@@ -165,9 +168,14 @@ class G1FootballStyleEvent:
             self.right_foot_peak_speed_mps,
             self.support_foot_p95_speed_mps,
             self.post_event_joint_velocity_rms_rad_s,
+            self.right_foot_forward_speed_mps,
+            self.right_foot_lateral_speed_mps,
+            self.right_foot_vertical_speed_mps,
         )
-        if not all(math.isfinite(value) and value >= 0.0 for value in values):
-            raise ValueError("football style event metrics must be finite and non-negative")
+        if not all(math.isfinite(value) for value in values):
+            raise ValueError("football style event metrics must be finite")
+        if any(value < 0.0 for value in values[:5]):
+            raise ValueError("football style event magnitudes must be non-negative")
         if self.fps <= 0.0:
             raise ValueError("football style event FPS must be positive")
 
@@ -190,11 +198,15 @@ class G1FootballMotionPrior:
     whole_body_reference_rad: tuple[tuple[float, ...], ...] = ()
     whole_body_iqr_rad: tuple[tuple[float, ...], ...] = ()
     whole_body_maximum_target_correction_rad: tuple[float, ...] = ()
+    whole_body_velocity_reference_rad_s: tuple[tuple[float, ...], ...] = ()
+    whole_body_maximum_velocity_correction_rad_s: tuple[float, ...] = ()
     motiondecode_source_manifest_hash: str | None = None
     motiondecode_repair_report_hash: str | None = None
     parent_trajectory_hash: str | None = None
     style_events: tuple[G1FootballStyleEvent, ...] = ()
     source_dataset: str = "OmniContact"
+    style_profile: str = "parent_nearest"
+    velocity_distillation_strategy: str = "coordinatewise_median"
     maximum_target_correction_rad: float = 0.45
     activation_ceiling: str = "SIM_ONLY"
     promotion_authorized: bool = False
@@ -244,14 +256,23 @@ class G1FootballMotionPrior:
                 self.whole_body_reference_rad
                 or self.whole_body_iqr_rad
                 or self.whole_body_maximum_target_correction_rad
+                or self.whole_body_velocity_reference_rad_s
+                or self.whole_body_maximum_velocity_correction_rad_s
                 or self.motiondecode_source_manifest_hash is not None
                 or self.motiondecode_repair_report_hash is not None
                 or self.parent_trajectory_hash is not None
                 or self.style_events
                 or self.source_dataset != "OmniContact"
+                or self.style_profile != "parent_nearest"
+                or self.velocity_distillation_strategy != "coordinatewise_median"
             ):
                 raise ValueError("football motion prior v1 cannot contain a whole-body style")
-        elif self.schema_version == "rosclaw.growth.g1_football_motion_prior.v2":
+        elif self.schema_version in {
+            "rosclaw.growth.g1_football_motion_prior.v2",
+            "rosclaw.growth.g1_football_motion_prior.v3",
+            "rosclaw.growth.g1_football_motion_prior.v4",
+            "rosclaw.growth.g1_football_motion_prior.v5",
+        }:
             expected_whole_body = (len(self.reference_times_sec), len(G1_DDS_JOINT_NAMES))
             for label, values in (
                 ("whole-body reference", self.whole_body_reference_rad),
@@ -285,7 +306,62 @@ class G1FootballMotionPrior:
                 ):
                     raise ValueError(f"{label} must bind a sha256: evidence artifact")
             if self.source_dataset != "MotionDecode" or not self.style_events:
-                raise ValueError("football motion prior v2 requires MotionDecode style events")
+                raise ValueError("football motion prior requires MotionDecode style events")
+            if self.schema_version.endswith(".v2") and self.style_profile != "parent_nearest":
+                raise ValueError("football motion prior v2 requires parent_nearest style")
+            if self.schema_version.endswith(".v2") and any(
+                event.right_foot_forward_speed_mps != 0.0
+                or event.right_foot_lateral_speed_mps != 0.0
+                or event.right_foot_vertical_speed_mps != 0.0
+                for event in self.style_events
+            ):
+                raise ValueError("football motion prior v2 cannot bind signed foot velocity")
+            if self.schema_version.endswith(".v3") and self.style_profile not in {
+                "parent_nearest",
+                "lofted_drive",
+            }:
+                raise ValueError("football motion prior v3 style profile is unsupported")
+            if self.style_profile == "lofted_drive" and any(
+                event.right_foot_forward_speed_mps < 3.0
+                or event.right_foot_vertical_speed_mps < 0.55
+                or abs(event.right_foot_lateral_speed_mps) > 2.5
+                for event in self.style_events
+            ):
+                raise ValueError("lofted-drive event violates the signed foot velocity contract")
+            if self.schema_version.endswith((".v4", ".v5")):
+                velocity = np.asarray(
+                    self.whole_body_velocity_reference_rad_s,
+                    dtype=np.float64,
+                )
+                velocity_correction = np.asarray(
+                    self.whole_body_maximum_velocity_correction_rad_s,
+                    dtype=np.float64,
+                )
+                if velocity.shape != expected_whole_body or not np.isfinite(velocity).all():
+                    raise ValueError("football motion prior velocity reference is invalid")
+                if (
+                    velocity_correction.shape != (len(G1_DDS_JOINT_NAMES),)
+                    or not np.isfinite(velocity_correction).all()
+                    or np.any(velocity_correction < 0.10)
+                    or np.any(velocity_correction > 4.0)
+                ):
+                    raise ValueError("football motion prior velocity bounds are invalid")
+                if self.style_profile != "lofted_drive":
+                    raise ValueError("velocity-aware football prior requires lofted-drive style")
+                expected_strategy = (
+                    "representative_event"
+                    if self.schema_version.endswith(".v5")
+                    else "coordinatewise_median"
+                )
+                if self.velocity_distillation_strategy != expected_strategy:
+                    raise ValueError("football motion prior velocity strategy is invalid")
+            elif (
+                self.whole_body_velocity_reference_rad_s
+                or self.whole_body_maximum_velocity_correction_rad_s
+            ):
+                raise ValueError("football motion prior velocity references require v4 or v5")
+            elif self.velocity_distillation_strategy != "coordinatewise_median":
+                raise ValueError("position-only football prior velocity strategy is invalid")
         else:
             raise ValueError("unsupported football motion prior schema")
         if (
@@ -312,15 +388,37 @@ class G1FootballMotionPrior:
                 "whole_body_reference_rad",
                 "whole_body_iqr_rad",
                 "whole_body_maximum_target_correction_rad",
+                "whole_body_velocity_reference_rad_s",
+                "whole_body_maximum_velocity_correction_rad_s",
                 "motiondecode_source_manifest_hash",
                 "motiondecode_repair_report_hash",
                 "parent_trajectory_hash",
                 "style_events",
                 "source_dataset",
+                "style_profile",
+                "velocity_distillation_strategy",
             ):
                 payload.pop(field, None)
         else:
             payload["style_events"] = [asdict(event) for event in self.style_events]
+            if self.schema_version == "rosclaw.growth.g1_football_motion_prior.v2":
+                payload.pop("style_profile", None)
+                for event in payload["style_events"]:
+                    event.pop("right_foot_forward_speed_mps", None)
+                    event.pop("right_foot_lateral_speed_mps", None)
+                    event.pop("right_foot_vertical_speed_mps", None)
+            if self.schema_version in {
+                "rosclaw.growth.g1_football_motion_prior.v2",
+                "rosclaw.growth.g1_football_motion_prior.v3",
+            }:
+                payload.pop("whole_body_velocity_reference_rad_s", None)
+                payload.pop("whole_body_maximum_velocity_correction_rad_s", None)
+            if self.schema_version in {
+                "rosclaw.growth.g1_football_motion_prior.v2",
+                "rosclaw.growth.g1_football_motion_prior.v3",
+                "rosclaw.growth.g1_football_motion_prior.v4",
+            }:
+                payload.pop("velocity_distillation_strategy", None)
         return payload
 
     def to_dict(self) -> dict[str, Any]:
@@ -350,6 +448,13 @@ def load_g1_football_motion_prior(path: Path) -> G1FootballMotionPrior:
         payload["whole_body_maximum_target_correction_rad"] = tuple(
             payload["whole_body_maximum_target_correction_rad"]
         )
+        if "whole_body_velocity_reference_rad_s" in payload:
+            payload["whole_body_velocity_reference_rad_s"] = tuple(
+                tuple(row) for row in payload["whole_body_velocity_reference_rad_s"]
+            )
+            payload["whole_body_maximum_velocity_correction_rad_s"] = tuple(
+                payload["whole_body_maximum_velocity_correction_rad_s"]
+            )
         payload["style_events"] = tuple(
             G1FootballStyleEvent(**event) for event in payload["style_events"]
         )
@@ -408,6 +513,55 @@ def blend_g1_football_motion_prior_target(
     )
     delta[indices] = blend * envelope * bounded
     adapted = target.astype(np.float64, copy=True) + delta
+    return adapted, delta, bool(np.any(np.abs(delta) > 1e-12))
+
+
+def blend_g1_football_motion_prior_velocity(
+    *,
+    target_velocity: np.ndarray,
+    prior: G1FootballMotionPrior,
+    policy_frame: int,
+    contact_policy_frame: int,
+    control_dt_sec: float,
+    blend: float,
+) -> tuple[np.ndarray, np.ndarray, bool]:
+    """Blend bounded data velocity into the audited PD velocity target.
+
+    Older position-only priors remain a strict no-op here.  A v4 prior can
+    influence torque only through the existing derivative-feedback term; it
+    cannot bypass joint guards, authority projection, or the SIM_ONLY ceiling.
+    """
+
+    if target_velocity.shape != (29,) or not np.isfinite(target_velocity).all():
+        raise ValueError("football motion prior velocity target must contain 29 finite joints")
+    if not 0.0 <= blend <= 0.50 or not math.isfinite(blend):
+        raise ValueError("football motion prior blend must be in [0, 0.50]")
+    if control_dt_sec <= 0.0 or not math.isfinite(control_dt_sec):
+        raise ValueError("football motion prior control clock must be positive")
+    delta: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
+    if not prior.whole_body_velocity_reference_rad_s:
+        return target_velocity.copy(), delta, False
+    relative_time = (policy_frame - contact_policy_frame) * control_dt_sec
+    times = np.asarray(prior.reference_times_sec, dtype=np.float64)
+    if blend == 0.0 or relative_time < times[0] or relative_time > times[-1]:
+        return target_velocity.copy(), delta, False
+    reference = np.asarray(prior.whole_body_velocity_reference_rad_s, dtype=np.float64)
+    desired = np.asarray(
+        [
+            np.interp(relative_time, times, reference[:, joint])
+            for joint in range(reference.shape[1])
+        ],
+        dtype=np.float64,
+    )
+    progress = (relative_time - times[0]) / max(times[-1] - times[0], 1e-9)
+    envelope = math.sin(math.pi * min(1.0, max(0.0, progress))) ** 2
+    maximum = np.asarray(
+        prior.whole_body_maximum_velocity_correction_rad_s,
+        dtype=np.float64,
+    )
+    bounded = np.clip(desired - target_velocity, -maximum, maximum)
+    delta = blend * envelope * bounded
+    adapted = target_velocity.astype(np.float64, copy=True) + delta
     return adapted, delta, bool(np.any(np.abs(delta) > 1e-12))
 
 
@@ -627,6 +781,7 @@ __all__ = [
     "G1FootballMotionPrior",
     "G1FootballStyleEvent",
     "blend_g1_football_motion_prior_target",
+    "blend_g1_football_motion_prior_velocity",
     "derive_g1_football_motion_prior",
     "load_g1_football_motion_prior",
 ]

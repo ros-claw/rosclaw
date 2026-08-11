@@ -124,6 +124,7 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
         help="train-only SIM_ONLY football contact-motion prior artifact",
     )
     run.add_argument("--football-motion-prior-blend", type=float, default=0.0)
+    run.add_argument("--football-motion-prior-velocity-blend", type=float, default=0.0)
     run.add_argument(
         "--football-motion-prior-contact-policy-frame",
         type=int,
@@ -406,11 +407,21 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
             if args.football_motion_prior is not None
             else None
         )
-        if (football_motion_prior is None) != (args.football_motion_prior_blend == 0.0):
+        motion_prior_enabled = bool(
+            args.football_motion_prior_blend > 0.0
+            or args.football_motion_prior_velocity_blend > 0.0
+        )
+        if (football_motion_prior is not None) != motion_prior_enabled:
             parser.error(
-                "--football-motion-prior and non-zero --football-motion-prior-blend "
+                "--football-motion-prior and a non-zero motion-prior blend "
                 "must be provided together"
             )
+        if (
+            football_motion_prior is not None
+            and args.football_motion_prior_velocity_blend > 0.0
+            and not football_motion_prior.whole_body_velocity_reference_rad_s
+        ):
+            parser.error("velocity blend requires a velocity-aware football motion prior")
         routing_modes = sum(
             item is not None
             for item in (
@@ -557,6 +568,9 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
                     None if football_motion_prior is None else football_motion_prior.prior_hash
                 ),
                 football_motion_prior_blend=args.football_motion_prior_blend,
+                football_motion_prior_velocity_blend=(
+                    args.football_motion_prior_velocity_blend
+                ),
                 football_motion_prior_contact_policy_frame=(
                     args.football_motion_prior_contact_policy_frame
                 ),
