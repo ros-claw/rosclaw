@@ -114,12 +114,13 @@ def _make_plan_store():
     """WP-P0-7：ROSCLAW_HOME 可用 → 落盘 PlanStore（executor 重启
     不丢 plan、已消费不复活）；否则内存（单测直 import）。"""
     import os as _os
+    from pathlib import Path as _Path
 
     home = _os.environ.get("ROSCLAW_HOME")
     if home:
         from rosclaw.sim.plan_store import PersistentPlanStore
 
-        return PersistentPlanStore(Path(home) / "sim" / "plans")
+        return PersistentPlanStore(_Path(home) / "sim" / "plans")
     return PlanStore()
 
 
