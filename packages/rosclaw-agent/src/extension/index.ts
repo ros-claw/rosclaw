@@ -20,7 +20,12 @@ import {
 import { defaultOperatorSocket, operatorCall } from "../bridge/operatord-client.js";
 import { ApprovalCardComponent } from "../ui/approval-card.js";
 import { ActionResultCardComponent, type ActionResultData } from "../ui/action-result-card.js";
-import { renderFooter, renderHeader } from "../ui/product-state.js";
+import {
+	formatKitBrokenHint,
+	formatKitRecoveredHint,
+	renderFooter,
+	renderHeader,
+} from "../ui/product-state.js";
 import type { ProductStateCenter } from "../session/state-center.js";
 import type { LocaleManager } from "../i18n/locale.js";
 import { t as i18nT } from "../i18n/index.js";
@@ -155,15 +160,22 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				const kit = center.snapshot().robot_kit;
 				const state = kit?.state ?? null;
 				if (state === kitHintState) return;
+				const prev = kitHintState;
 				kitHintState = state;
-				if (state !== "BROKEN") return;
 				const loc = locale.effective;
-				const command = kit?.remediation?.command;
-				ctx.ui.notify(
-					`${i18nT("robot.kit_broken", loc)}: ${kit?.reason ?? ""}` +
-						(command ? ` — ${i18nT("robot.repair_hint", loc)}: ${command}` : ""),
-					"warning",
-				);
+				// 八审 P0-9 修复并入（此前 #296 合并时 index.ts 接线
+				// 丢失——helpers 在但未调用，行为测试首跑抓到）：
+				// 空 reason 不渲染悬空冒号；READY 恢复正面清除。
+				if (state === "BROKEN") {
+					ctx.ui.notify(formatKitBrokenHint(kit ?? {}, loc), "warning");
+				} else if (state === "READY" && prev === "BROKEN") {
+					ctx.ui.notify(
+						formatKitRecoveredHint(
+							center.snapshot().body_display ?? "", loc,
+						),
+						"info",
+					);
+				}
 			});
 			setTimeout(() => {
 				void center.probeOperator(true);
@@ -201,12 +213,46 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		pi.on("input", async (event, ctx) => {
 			const text = String((event as { text?: string }).text ?? "").trim();
 			if (!text || text.startsWith("/")) return { action: "continue" as const };
-			const state = options.active.current;
+			// 首条输入可能早于绑定完成（实测：clean-install 第一句话
+			// 直接进模型路径）——短暂等绑定就绪再判定，最多 5s。
+			let state = options.active.current;
+			if (!state.missionId) {
+				const deadline = Date.now() + 5000;
+				while (!options.active.current.missionId && Date.now() < deadline) {
+					await new Promise((resolve) => setTimeout(resolve, 200));
+				}
+				state = options.active.current;
+			}
 			if (!state.missionId || state.mode !== "SIMULATION") {
 				return { action: "continue" as const };
 			}
 			if (!center.isSimAutoPolicy) return { action: "continue" as const };
 			try {
+				// 路由直跑前先把 kit discovery 落定——否则上下文在
+				// discovery 前构建，propose 复验时 hash 变化即 fail
+				// closed（真实模型首跑实测：CONTEXT_HASH_MISMATCH）。
+				await center.refreshRobotInfo(true);
+				const kit = center.snapshot().robot_kit;
+				if (kit && kit.state !== "READY") {
+					return { action: "continue" as const };
+				}
+				// 路由直跑没有 before_agent_start——总是自取新鲜具身
+				// 上下文 + context lease（真实模型首跑实测：启动早期
+				// kit BROKEN 时代的 lease 会让 propose 复验 hash 失败；
+				// 不能复用既有 lease）。
+				{
+					const fetched = await fetchEmbodiedContext(
+						options.rosclawHome,
+						state.missionId,
+						state.sessionId,
+						(_home, method, params) => center.call(method, params),
+					);
+					if (fetched.stale || !fetched.envelope) {
+						return { action: "continue" as const };
+					}
+					options.active.applyEnvelope(fetched.envelope, fetched.contextLeaseId);
+					state = options.active.current;
+				}
 				const routed = await center.call("pi.intent.route", { text });
 				const spec = routed.spec as {
 					goal?: string; parameters?: Record<string, unknown>;

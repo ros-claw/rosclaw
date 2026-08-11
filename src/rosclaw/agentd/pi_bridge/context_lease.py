@@ -179,4 +179,10 @@ def context_hash_of(envelope: Any) -> str:
         "active_actions",
     ):
         payload.pop(volatile, None)
+    # 八审总纲验证轮实测：turn_in_flight 是回合运行时标志（回合内
+    # 外翻转），不是具身事实——留在 hash 里会让同一有效上下文在
+    # 回合边界上误判 CONTEXT_HASH_MISMATCH。
+    self_state = payload.get("self_state")
+    if isinstance(self_state, dict):
+        self_state.pop("turn_in_flight", None)
     return hashlib.sha256(canonical_dumps(payload).encode()).hexdigest()[:32]

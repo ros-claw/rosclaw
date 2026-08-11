@@ -84,12 +84,14 @@ def _write_real_home(home: Path, key_var: str) -> None:
 
 
 def _collect_metrics(home: Path, session: PtySession) -> dict:
-    """从 missions.db + PTY 文本收集行为指标（结构化计数，无正文）。"""
+    """从权威存储收集行为指标（结构化计数，无正文）。
+
+    首跑实测修正：pi 引擎的模型请求不落 agentd model_usage（那是
+    legacy loop 的表）——从 session JSONL 的 assistant 消息计数；
+    verifier/完成判定读 task_records（权威），不扫 PTY 文本。
+    """
     db = sqlite3.connect(home / "agentd" / "missions.db")
     try:
-        model_requests = db.execute(
-            "SELECT COUNT(*) FROM model_usage"
-        ).fetchone()[0]
         action_proposals = db.execute(
             "SELECT COUNT(*) FROM operator_requests"
         ).fetchone()[0]
@@ -102,27 +104,49 @@ def _collect_metrics(home: Path, session: PtySession) -> dict:
         receipts = db.execute(
             "SELECT payload_json FROM agent_events WHERE type='receipt.received'"
         ).fetchall()
+        task_row = db.execute(
+            "SELECT state, verification_json FROM task_records "
+            "ORDER BY rowid DESC LIMIT 1"
+        ).fetchone()
     finally:
         db.close()
+    # 模型回合 = session JSONL 的 assistant 消息数（pi 引擎权威源）。
+    model_turns = 0
+    sessions_dir = home / "agent" / "sessions"
+    if sessions_dir.is_dir():
+        for session_file in sessions_dir.glob("*.jsonl"):
+            for line in session_file.read_text(
+                encoding="utf-8", errors="replace"
+            ).splitlines():
+                with __import__("contextlib").suppress(Exception):
+                    entry = json.loads(line)
+                    if entry.get("type") == "message" and (
+                        entry.get("message", {}).get("role") == "assistant"
+                    ):
+                        model_turns += 1
+    verifier_pass = False
+    task_completed = False
+    if task_row:
+        task_completed = task_row[0] == "VERIFIED"
+        with __import__("contextlib").suppress(Exception):
+            verification = json.loads(task_row[1] or "{}")
+            verifier_pass = verification.get("verdict") == "PASS"
     with session._lock:
         clean = session.clean.decode("utf-8", "replace")
-    verifier_pass = "几何验证" in clean and (
-        "PASS" in clean or "通过" in clean or "验证通过" in clean
-    )
     return {
         "goal": "draw star",
         "user_messages": 1,
         "user_confirmations": clean.count("授权请求"),
-        "model_requests": model_requests,
+        "model_requests": model_turns,
         "action_proposals": action_proposals,
-        "observation_calls": events.count("tool.proposed"),  # 粗计数见 artifact
+        "observation_calls": events.count("tool.proposed"),
         "capability_queries": 0,
         "context_not_fresh_retries": clean.count("CONTEXT_NOT_FRESH"),
         "schema_retries": clean.count("INVALID_ARGUMENTS")
         + clean.count("trajectory required"),
-        "hash_retries": clean.count("hash"),
-        "lease_retries": clean.count("lease"),
-        "task_completed": "完成" in clean,
+        "hash_retries": clean.count("hash mismatch"),
+        "lease_retries": clean.count("lease expired"),
+        "task_completed": task_completed,
         "verifier_pass": verifier_pass,
         "conflict_with_kernel": "冲突" in clean,
         "_event_counts": {e: events.count(e) for e in sorted(set(events))},
@@ -168,6 +192,9 @@ class TestRealModelBehavior:
                     if (
                         "几何验证".encode() in clean
                         or "验证通过".encode() in clean
+                        or "验证 PASS".encode() in clean
+                        or "VERIFIED".encode() in clean
+                        or "已识别任务".encode() in clean
                         or "无法完成".encode() in clean
                         or "未能完成".encode() in clean
                     ):
