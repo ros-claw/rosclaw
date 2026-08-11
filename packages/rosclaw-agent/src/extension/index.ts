@@ -195,6 +195,66 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			ctx.ui.setHiddenThinkingLabel(i18nT("working.default", locale.effective));
 		});
 
+		// -- WP-P0-5（总纲 §7.1）：确定性 Intent Router——已知任务零模型
+		//    回合。仅 SIM + POLICY_AUTO 直跑（ask 走模型→任务卡通道）；
+		//    未命中/异常一律 continue 交模型，绝不吞输入。
+		pi.on("input", async (event, ctx) => {
+			const text = String((event as { text?: string }).text ?? "").trim();
+			if (!text || text.startsWith("/")) return { action: "continue" as const };
+			const state = options.active.current;
+			if (!state.missionId || state.mode !== "SIMULATION") {
+				return { action: "continue" as const };
+			}
+			if (!center.isSimAutoPolicy) return { action: "continue" as const };
+			try {
+				const routed = await center.call("pi.intent.route", { text });
+				const spec = routed.spec as {
+					goal?: string; parameters?: Record<string, unknown>;
+				} | null;
+				if (!routed.ok || !spec?.goal) return { action: "continue" as const };
+				const response = await center.call("pi.tools.execute", {
+					request: {
+						schema_version: "rosclaw.pi_tool_request.v1",
+						request_id: `ptr_router_${Date.now()}`,
+						pi_session_id: state.sessionId,
+						mission_id: state.missionId,
+						context_revision: state.contextRevision,
+						context_lease_id: state.contextLeaseId ?? "",
+						tool_name: "rosclaw_task",
+						arguments: {
+							goal: spec.goal,
+							parameters: spec.parameters ?? {},
+						},
+						requested_at: new Date().toISOString(),
+						idempotency_key: `idem_router_${state.sessionId}_${Date.now()}`,
+						actor: { engine: "pi" },
+					},
+				});
+				const result = (response.result ?? {}) as { summary?: string };
+				let payload: Record<string, unknown> = {};
+				try {
+					payload = JSON.parse(String(result.summary ?? "{}"));
+				} catch {
+					payload = { state: "FAILED", error: String(result.summary ?? "") };
+				}
+				if (String(payload.state ?? "") !== "VERIFIED") {
+					// 路由直跑未过——交回模型解释/处理（不掩盖失败）。
+					ctx.ui.notify(
+						`任务${String(payload.state ?? "FAILED")}：${String(payload.error ?? "")}`,
+						"warning",
+					);
+					return { action: "continue" as const };
+				}
+				ctx.ui.notify(
+					`已识别任务「${text.slice(0, 30)}」→ ${String(payload.user_view ?? "完成")}`,
+					"info",
+				);
+				return { action: "handled" as const };
+			} catch {
+				return { action: "continue" as const };
+			}
+		});
+
 		// -- `!` bash 功能级关闭（PNA-0 即生效；PNA-9 再做 profile 化 UI 拦截） -----
 		pi.on("user_bash", async () => {
 			return {

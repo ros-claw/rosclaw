@@ -309,6 +309,12 @@ class PiBridgeServer:
                         }
                     await asyncio.sleep(0.2)
             return {"ok": sock.exists(), "enrolled": True, "running": sock.exists()}
+        if method == "pi.intent.route":
+            # WP-P0-5（总纲 §7.1）：确定性 Intent Router——已知任务
+            # 零模型回合；未命中诚实 None（交模型路径）。
+            from rosclaw.agentd.intent_router import route_intent
+
+            return {"ok": True, "spec": route_intent(str(params.get("text", "")))}
         if method == "pi.robot.list":
             # 七审 PR-SEVEN-5：第一方 kit 清单（/robots）。
             return await service.robot_list()
