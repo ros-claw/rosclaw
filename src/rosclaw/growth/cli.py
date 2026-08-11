@@ -39,6 +39,12 @@ from rosclaw.growth.ballistic_skill_memory import derive_g1_ballistic_skill_memo
 from rosclaw.growth.contextual_phase_calibration import (
     derive_g1_contextual_phase_calibration,
 )
+from rosclaw.growth.episodic_contact_evaluation import (
+    evaluate_g1_episodic_contact_memory,
+)
+from rosclaw.growth.episodic_contact_memory import (
+    derive_g1_episodic_contact_memory,
+)
 from rosclaw.growth.football_motion_prior import derive_g1_football_motion_prior
 from rosclaw.growth.football_outcome_model import derive_g1_football_outcome_model
 from rosclaw.growth.motiondecode_football_skill_prior import (
@@ -317,24 +323,45 @@ def _parser() -> argparse.ArgumentParser:
         help="ridge penalty for the target-conditioned forward contact model",
     )
     ballistic_impulse_actor.set_defaults(handler=_ballistic_contact_impulse_actor)
+    episodic_contact_memory = commands.add_parser(
+        "episodic-contact-memory",
+        help="build state-routed local contact dynamics from strict multi-context probes",
+    )
+    episodic_contact_memory.add_argument(
+        "--evidence-json", type=Path, action="append", required=True
+    )
+    episodic_contact_memory.add_argument("--output", type=Path, required=True)
+    episodic_contact_memory.add_argument("--source-checkout", type=Path, default=Path.cwd())
+    episodic_contact_memory.add_argument("--maximum-context-distance", type=float, default=0.50)
+    episodic_contact_memory.add_argument("--ridge-regularization", type=float, default=0.05)
+    episodic_contact_memory.set_defaults(handler=_episodic_contact_memory)
+    episodic_contact_evaluation = commands.add_parser(
+        "evaluate-episodic-contact-memory",
+        help="evaluate supported state islands and a fail-closed stability anchor",
+    )
+    episodic_contact_evaluation.add_argument("--memory", type=Path, required=True)
+    episodic_contact_evaluation.add_argument(
+        "--baseline-evidence", type=Path, action="append", required=True
+    )
+    episodic_contact_evaluation.add_argument(
+        "--candidate-evidence", type=Path, action="append", required=True
+    )
+    episodic_contact_evaluation.add_argument(
+        "--stability-anchor-evidence", type=Path, required=True
+    )
+    episodic_contact_evaluation.add_argument("--output", type=Path, required=True)
+    episodic_contact_evaluation.add_argument("--source-checkout", type=Path, default=Path.cwd())
+    episodic_contact_evaluation.set_defaults(handler=_evaluate_episodic_contact_memory)
     target_contact_evaluation = commands.add_parser(
         "evaluate-target-conditioned-contact",
         help="compare a target-conditioned actor to baseline and stability anchor replays",
     )
     target_contact_evaluation.add_argument("--actor", type=Path, required=True)
-    target_contact_evaluation.add_argument(
-        "--baseline-evidence", type=Path, required=True
-    )
-    target_contact_evaluation.add_argument(
-        "--candidate-evidence", type=Path, required=True
-    )
-    target_contact_evaluation.add_argument(
-        "--stability-anchor-evidence", type=Path, required=True
-    )
+    target_contact_evaluation.add_argument("--baseline-evidence", type=Path, required=True)
+    target_contact_evaluation.add_argument("--candidate-evidence", type=Path, required=True)
+    target_contact_evaluation.add_argument("--stability-anchor-evidence", type=Path, required=True)
     target_contact_evaluation.add_argument("--output", type=Path, required=True)
-    target_contact_evaluation.add_argument(
-        "--source-checkout", type=Path, default=Path.cwd()
-    )
+    target_contact_evaluation.add_argument("--source-checkout", type=Path, default=Path.cwd())
     target_contact_evaluation.set_defaults(handler=_evaluate_target_conditioned_contact)
     ballistic_island_gate = commands.add_parser(
         "ballistic-contact-island-gate",
@@ -759,6 +786,31 @@ def _evaluate_target_conditioned_contact(args: argparse.Namespace) -> int:
         actor_path=args.actor,
         baseline_evidence_path=args.baseline_evidence,
         candidate_evidence_path=args.candidate_evidence,
+        stability_anchor_evidence_path=args.stability_anchor_evidence,
+        output_path=args.output,
+        source_checkout=args.source_checkout,
+    )
+    _print(evaluation.to_dict())
+    return 0 if evaluation.development_breakthrough else 3
+
+
+def _episodic_contact_memory(args: argparse.Namespace) -> int:
+    memory = derive_g1_episodic_contact_memory(
+        evidence_paths=tuple(args.evidence_json),
+        output_path=args.output,
+        source_checkout=args.source_checkout,
+        maximum_context_distance=args.maximum_context_distance,
+        ridge_regularization=args.ridge_regularization,
+    )
+    _print(memory.to_dict())
+    return 0
+
+
+def _evaluate_episodic_contact_memory(args: argparse.Namespace) -> int:
+    evaluation = evaluate_g1_episodic_contact_memory(
+        memory_path=args.memory,
+        baseline_evidence_paths=tuple(args.baseline_evidence),
+        candidate_evidence_paths=tuple(args.candidate_evidence),
         stability_anchor_evidence_path=args.stability_anchor_evidence,
         output_path=args.output,
         source_checkout=args.source_checkout,

@@ -34,6 +34,12 @@ from rosclaw.growth.ballistic_contact_torque_residual import (
     G1BallisticContactTorqueResidualConfig,
     g1_ballistic_contact_torque_residual,
 )
+from rosclaw.growth.episodic_contact_memory import (
+    G1EpisodicContactMemory,
+    g1_episodic_contact_context_hash,
+    g1_episodic_contact_effect,
+    g1_episodic_contact_observation,
+)
 from rosclaw.growth.football_motion_prior import (
     G1FootballMotionPrior,
     blend_g1_football_motion_prior_target,
@@ -174,6 +180,7 @@ class G1FreeKickFlowConfig:
     football_motion_prior_velocity_blend: float = 0.0
     football_motion_prior_contact_policy_frame: int = 265
     ballistic_contact_impulse_actor_hash: str | None = None
+    episodic_contact_memory_hash: str | None = None
     ballistic_contact_residual_rad: tuple[float, ...] = (0.0,) * 6
     ballistic_contact_torque_residual_nm: tuple[float, ...] = (0.0,) * 6
     ballistic_contact_torque_preload_nm: tuple[float, ...] = (0.0,) * 6
@@ -198,7 +205,7 @@ class G1FreeKickFlowConfig:
     ballistic_skill_memory_hash: str | None = None
     ballistic_skill_id: str | None = None
     approach_provider: str = "groot_history"
-    schema_version: str = "rosclaw.simforge.g1_free_kick_flow_config.v37"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_flow_config.v38"
 
     def __post_init__(self) -> None:
         if not isinstance(self.shared_cerebellar_recovery_enabled, bool):
@@ -413,6 +420,24 @@ class G1FreeKickFlowConfig:
             ).enabled
         ):
             raise ValueError("learned contact impulse actor and SIM teacher are exclusive")
+        if self.episodic_contact_memory_hash is not None and not (
+            self.episodic_contact_memory_hash.startswith("sha256:")
+        ):
+            raise ValueError("episodic contact memory hash must be SHA-256")
+        if (
+            self.episodic_contact_memory_hash is not None
+            and self.ballistic_contact_impulse_actor_hash is not None
+        ):
+            raise ValueError("episodic memory and contact impulse actor are exclusive")
+        if (
+            self.episodic_contact_memory_hash is not None
+            and G1LoftTeacherConfig(
+                target_vertical_speed_mps=self.shot_loft_teacher_target_vz_mps,
+                target_forward_speed_mps=self.shot_loft_teacher_target_vx_mps,
+                target_lateral_speed_mps=self.shot_loft_teacher_target_vy_mps,
+            ).enabled
+        ):
+            raise ValueError("episodic contact memory and SIM teacher are exclusive")
         G1BallisticContactResidualConfig(
             right_leg_residual_rad=self.ballistic_contact_residual_rad,
             contact_policy_frame=self.ballistic_contact_policy_frame,
@@ -596,6 +621,16 @@ class G1FreeKickResult:
     ballistic_contact_impulse_actor_out_of_envelope_frames: int = 0
     ballistic_contact_impulse_actor_peak_desired_lateral_launch_speed_mps: float = 0.0
     ballistic_contact_impulse_actor_peak_desired_vertical_launch_speed_mps: float = 0.0
+    episodic_contact_memory_executed: bool = False
+    episodic_contact_memory_active_frames: int = 0
+    episodic_contact_memory_out_of_support_frames: int = 0
+    episodic_contact_memory_peak_torque_nm: float = 0.0
+    episodic_contact_memory_peak_lateral_force_n: float = 0.0
+    episodic_contact_memory_peak_vertical_force_n: float = 0.0
+    episodic_contact_memory_peak_desired_lateral_launch_speed_mps: float = 0.0
+    episodic_contact_memory_peak_desired_vertical_launch_speed_mps: float = 0.0
+    episodic_contact_memory_selected_seed_label: int | None = None
+    episodic_contact_memory_peak_context_distance: float = 0.0
     torque_authority_projection_enabled: bool = False
     torque_authority_projection_steps: int = 0
     torque_authority_projection_fraction: float = 0.0
@@ -613,7 +648,7 @@ class G1FreeKickResult:
     kick_contact_normal_xyz: tuple[float, float, float] | None = None
     kick_contact_force_world_xyz_n: tuple[float, float, float] | None = None
     kick_contact_peak_force_n: float | None = None
-    schema_version: str = "rosclaw.simforge.g1_free_kick_result.v26"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_result.v27"
 
     @property
     def perceptual_continuity_passed(self) -> bool:
@@ -708,7 +743,7 @@ class G1FreeKickEvidence:
     evidence_domain: str = "DEVELOPMENT_SHOWCASE"
     physics_authority: str = "CPU_MUJOCO"
     hardware_command_sent: bool = False
-    schema_version: str = "rosclaw.simforge.g1_free_kick_evidence.v26"
+    schema_version: str = "rosclaw.simforge.g1_free_kick_evidence.v27"
 
     @property
     def passed(self) -> bool:
@@ -785,6 +820,9 @@ class G1FreeKickEvidence:
                 "learned_proprioceptive_contact_impulse_actor": (
                     self.result.ballistic_contact_impulse_actor_executed
                 ),
+                "state_routed_episodic_contact_memory": (
+                    self.result.episodic_contact_memory_executed
+                ),
                 "full_state_ballistic_skill_memory": (self.result.ballistic_skill_memory_executed),
                 "sim_only_operational_space_loft_teacher": (self.result.loft_teacher_executed),
                 "post_contact_right_ankle_boundary_projection": (
@@ -860,6 +898,7 @@ def run_g1_free_kick_showcase(
     football_motion_prior: G1FootballMotionPrior | None = None,
     ballistic_skill_memory: G1BallisticSkillMemory | None = None,
     ballistic_contact_impulse_actor: G1BallisticContactImpulseActor | None = None,
+    episodic_contact_memory: G1EpisodicContactMemory | None = None,
 ) -> G1FreeKickEvidence:
     """Execute and strictly replay one continuous long run-up free kick."""
 
@@ -897,6 +936,13 @@ def run_g1_free_kick_showcase(
             raise ValueError("contact impulse actor Body hash mismatch")
         if flow.ballistic_contact_impulse_actor_hash != ballistic_contact_impulse_actor.actor_hash:
             raise ValueError("flow contact impulse actor hash mismatch")
+    if episodic_contact_memory is None and flow.episodic_contact_memory_hash is not None:
+        raise ValueError("flow declares episodic contact memory but none was supplied")
+    if episodic_contact_memory is not None:
+        if episodic_contact_memory.body_hash != qualification.body_hash:
+            raise ValueError("episodic contact memory Body hash mismatch")
+        if flow.episodic_contact_memory_hash != episodic_contact_memory.memory_hash:
+            raise ValueError("flow episodic contact memory hash mismatch")
     if ballistic_skill_memory is None and flow.ballistic_skill_memory_hash is not None:
         raise ValueError("flow declares a ballistic skill memory but none was supplied")
     if ballistic_skill_memory is not None:
@@ -961,6 +1007,18 @@ def run_g1_free_kick_showcase(
         )
         if actor_context_hash != ballistic_contact_impulse_actor.experiment_context_hash:
             raise ValueError("contact impulse actor experiment context mismatch")
+    if episodic_contact_memory is not None:
+        memory_context_hash = g1_episodic_contact_context_hash(
+            flow_config=asdict(flow),
+            goal_spec=asdict(goal),
+            runup_config=asdict(runup),
+            sonic_runup_config=(None if sonic_config is None else asdict(sonic_config)),
+            approach_strike_candidate_hash=(
+                None if residual_controller is None else residual_controller.candidate_hash
+            ),
+        )
+        if memory_context_hash != episodic_contact_memory.experiment_context_hash:
+            raise ValueError("episodic contact memory experiment context mismatch")
     implementation_hash = hash_json(
         {
             name: hash_bytes(Path(__file__).with_name(name).read_bytes())
@@ -986,6 +1044,7 @@ def run_g1_free_kick_showcase(
                 "growth/ballistic_contact_impulse_actor.py",
                 "growth/ballistic_contact_torque_residual.py",
                 "growth/ballistic_skill_memory.py",
+                "growth/episodic_contact_memory.py",
                 "growth/learners/iql.py",
                 "growth/phase_conditioned_residual.py",
                 "growth/football_outcome_model.py",
@@ -1006,8 +1065,13 @@ def run_g1_free_kick_showcase(
         and ballistic_contact_impulse_actor.implementation_hash != implementation_hash
     ):
         raise ValueError("contact impulse actor implementation hash mismatch")
+    if (
+        episodic_contact_memory is not None
+        and episodic_contact_memory.implementation_hash != implementation_hash
+    ):
+        raise ValueError("episodic contact memory implementation hash mismatch")
     request = {
-        "schema_version": "rosclaw.simforge.g1_free_kick_request.v33",
+        "schema_version": "rosclaw.simforge.g1_free_kick_request.v34",
         "body_hash": qualification.body_hash,
         "kick_prior_hash": qualification.kick_prior_hash,
         "learned_gait_qualification_hash": gait_qualification.qualification_hash,
@@ -1032,6 +1096,9 @@ def run_g1_free_kick_showcase(
             None
             if ballistic_contact_impulse_actor is None
             else ballistic_contact_impulse_actor.actor_hash
+        ),
+        "episodic_contact_memory_hash": (
+            None if episodic_contact_memory is None else episodic_contact_memory.memory_hash
         ),
         "goal_spec": asdict(goal),
         "activation_ceiling": "SIM_ONLY",
@@ -1083,6 +1150,7 @@ def run_g1_free_kick_showcase(
         football_motion_prior=football_motion_prior,
         ballistic_skill_memory=ballistic_skill_memory,
         ballistic_contact_impulse_actor=ballistic_contact_impulse_actor,
+        episodic_contact_memory=episodic_contact_memory,
     )
     replay_result, replay_trajectory = _simulate(
         asset_root=asset_root,
@@ -1098,6 +1166,7 @@ def run_g1_free_kick_showcase(
         football_motion_prior=football_motion_prior,
         ballistic_skill_memory=ballistic_skill_memory,
         ballistic_contact_impulse_actor=ballistic_contact_impulse_actor,
+        episodic_contact_memory=episodic_contact_memory,
     )
     digest = trajectory_digest(trajectory)
     strict_replay = bool(
@@ -1152,6 +1221,7 @@ def _simulate(
     football_motion_prior: G1FootballMotionPrior | None,
     ballistic_skill_memory: G1BallisticSkillMemory | None,
     ballistic_contact_impulse_actor: G1BallisticContactImpulseActor | None,
+    episodic_contact_memory: G1EpisodicContactMemory | None,
 ) -> tuple[G1FreeKickResult, dict[str, np.ndarray]]:
     import mujoco
 
@@ -1207,12 +1277,22 @@ def _simulate(
         "loft_teacher_foot_vy_mps": [],
         "loft_teacher_foot_vz_mps": [],
         "loft_teacher_active": [],
+        "loft_teacher_pre_action_observation": [],
+        "loft_teacher_pre_action_observation_valid": [],
         "ballistic_contact_impulse_actor_torque": [],
         "ballistic_contact_impulse_actor_lateral_force_n": [],
         "ballistic_contact_impulse_actor_vertical_force_n": [],
         "ballistic_contact_impulse_actor_foot_vy_mps": [],
         "ballistic_contact_impulse_actor_foot_vz_mps": [],
         "ballistic_contact_impulse_actor_active": [],
+        "episodic_contact_memory_torque": [],
+        "episodic_contact_memory_lateral_force_n": [],
+        "episodic_contact_memory_vertical_force_n": [],
+        "episodic_contact_memory_active": [],
+        "episodic_contact_memory_context_supported": [],
+        "episodic_contact_memory_launch_supported": [],
+        "episodic_contact_memory_selected_seed_label": [],
+        "episodic_contact_memory_context_distance": [],
         "joint_boundary_guard_correction": [],
         "joint_boundary_guard_active": [],
         "football_motion_prior_target_delta": [],
@@ -1298,6 +1378,16 @@ def _simulate(
     ballistic_contact_impulse_actor_out_of_envelope_frames = 0
     ballistic_contact_impulse_actor_peak_desired_lateral_launch_speed = 0.0
     ballistic_contact_impulse_actor_peak_desired_vertical_launch_speed = 0.0
+    episodic_contact_memory_active_frames = 0
+    episodic_contact_memory_out_of_support_frames = 0
+    episodic_contact_memory_peak_torque = 0.0
+    episodic_contact_memory_peak_lateral_force = 0.0
+    episodic_contact_memory_peak_vertical_force = 0.0
+    episodic_contact_memory_peak_desired_lateral_launch_speed = 0.0
+    episodic_contact_memory_peak_desired_vertical_launch_speed = 0.0
+    episodic_contact_memory_selected_seed_label: int | None = None
+    episodic_contact_memory_mixed_contexts = False
+    episodic_contact_memory_peak_context_distance = 0.0
     finite = True
     saturation = False
     saturation_steps = 0
@@ -1861,9 +1951,7 @@ def _simulate(
                 )
                 motion_prior_active = motion_prior_active or motion_prior_velocity_active
                 football_motion_prior_active_frames += int(motion_prior_active)
-                football_motion_prior_velocity_active_frames += int(
-                    motion_prior_velocity_active
-                )
+                football_motion_prior_velocity_active_frames += int(motion_prior_velocity_active)
                 football_motion_prior_peak_target_delta = max(
                     football_motion_prior_peak_target_delta,
                     float(np.max(np.abs(motion_prior_delta))),
@@ -1967,9 +2055,7 @@ def _simulate(
             residual_event = G1FootballEventPhase.LOAD
         else:
             residual_event = G1FootballEventPhase.SWING
-        baseline = (target - data.qpos[7:36]) * kp + (
-            target_velocity - data.qvel[6:35]
-        ) * kd
+        baseline = (target - data.qpos[7:36]) * kp + (target_velocity - data.qvel[6:35]) * kd
         residual, residual_accepted, residual_confidence = _residual_for_frame(
             residual_controller,
             data=data,
@@ -1986,12 +2072,24 @@ def _simulate(
         loft_teacher_foot_vy = 0.0
         loft_teacher_foot_vz = 0.0
         loft_teacher_active = False
+        loft_teacher_pre_action_observation: NDArray[np.float64] = np.zeros(11, dtype=np.float64)
+        loft_teacher_pre_action_observation_valid = False
         impulse_actor_torque: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
         impulse_actor_lateral_force = 0.0
         impulse_actor_vertical_force = 0.0
         impulse_actor_foot_vy = 0.0
         impulse_actor_foot_vz = 0.0
         impulse_actor_active = False
+        episodic_memory_torque: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
+        episodic_memory_lateral_force = 0.0
+        episodic_memory_vertical_force = 0.0
+        episodic_memory_active = False
+        episodic_memory_evaluated = False
+        episodic_memory_context_supported = True
+        episodic_memory_launch_supported = True
+        episodic_memory_selected_seed_label: int | None = None
+        episodic_memory_active_seed_label: int | None = None
+        episodic_memory_context_distance = 0.0
         boundary_guard_correction: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
         boundary_guard_active = False
         pre_guard_raw: NDArray[np.float64] = np.zeros(29, dtype=np.float64)
@@ -2020,6 +2118,17 @@ def _simulate(
             # zero active frames and zero peak force.
             loft_effect_torque = loft_effect.torque
             if loft_effect.active:
+                if not loft_teacher_pre_action_observation_valid:
+                    loft_teacher_pre_action_observation = g1_episodic_contact_observation(
+                        data=data,
+                        right_ankle_body_id=ids.right_ankle,
+                        torso_body_id=ids.torso,
+                        ball_position=np.asarray(
+                            data.qpos[ids.ball_qpos : ids.ball_qpos + 3],
+                            dtype=np.float64,
+                        ),
+                    )
+                    loft_teacher_pre_action_observation_valid = True
                 loft_teacher_active = True
                 if abs(loft_effect.vertical_force_n) >= abs(loft_teacher_force):
                     loft_teacher_force = loft_effect.vertical_force_n
@@ -2084,13 +2193,79 @@ def _simulate(
                     ballistic_contact_impulse_actor_peak_desired_vertical_launch_speed,
                     abs(impulse_effect.desired_vertical_launch_speed_mps),
                 )
+            episodic_effect = (
+                None
+                if episodic_contact_memory is None
+                else g1_episodic_contact_effect(
+                    model=model,
+                    data=data,
+                    right_ankle_body_id=ids.right_ankle,
+                    torso_body_id=ids.torso,
+                    memory=episodic_contact_memory,
+                    policy_frame=policy_frame,
+                    contact_observed=contact_time is not None,
+                    ball_position=np.asarray(
+                        data.qpos[ids.ball_qpos : ids.ball_qpos + 3],
+                        dtype=np.float64,
+                    ),
+                    ball_velocity=np.asarray(
+                        data.qvel[ids.ball_qvel : ids.ball_qvel + 3],
+                        dtype=np.float64,
+                    ),
+                    goal_plane_x_m=goal.plane_x_m,
+                    target_y_m=goal.target_y_m,
+                    target_z_m=goal.target_z_m,
+                )
+            )
+            episodic_effect_torque = (
+                np.zeros(29, dtype=np.float64)
+                if episodic_effect is None
+                else episodic_effect.torque
+            )
+            if (
+                episodic_effect is not None
+                and episodic_effect.selected_context_seed_label is not None
+            ):
+                episodic_memory_evaluated = True
+                episodic_memory_context_supported = bool(
+                    episodic_memory_context_supported and episodic_effect.context_supported
+                )
+                episodic_memory_launch_supported = bool(
+                    episodic_memory_launch_supported and episodic_effect.launch_envelope_supported
+                )
+                episodic_memory_selected_seed_label = episodic_effect.selected_context_seed_label
+                episodic_memory_context_distance = max(
+                    episodic_memory_context_distance,
+                    episodic_effect.context_distance,
+                )
+                episodic_contact_memory_peak_desired_lateral_launch_speed = max(
+                    episodic_contact_memory_peak_desired_lateral_launch_speed,
+                    abs(episodic_effect.desired_lateral_launch_speed_mps),
+                )
+                episodic_contact_memory_peak_desired_vertical_launch_speed = max(
+                    episodic_contact_memory_peak_desired_vertical_launch_speed,
+                    abs(episodic_effect.desired_vertical_launch_speed_mps),
+                )
+            if episodic_effect is not None and episodic_effect.active:
+                episodic_memory_active = True
+                episodic_memory_active_seed_label = episodic_effect.selected_context_seed_label
+                if abs(episodic_effect.lateral_force_n) >= abs(episodic_memory_lateral_force):
+                    episodic_memory_lateral_force = episodic_effect.lateral_force_n
+                if abs(episodic_effect.vertical_force_n) >= abs(episodic_memory_vertical_force):
+                    episodic_memory_vertical_force = episodic_effect.vertical_force_n
+                if float(np.max(np.abs(episodic_effect_torque))) >= float(
+                    np.max(np.abs(episodic_memory_torque))
+                ):
+                    episodic_memory_torque = episodic_effect_torque.copy()
             controller_torque = (
                 (target - data.qpos[7:36]) * kp
                 + (target_velocity - data.qvel[6:35]) * kd
                 + residual
                 + ballistic_contact_torque
             )
-            contact_task_torque = loft_effect_torque + impulse_effect_torque
+            contact_task_torque = (
+                loft_effect_torque + impulse_effect_torque + episodic_effect_torque
+            )
             if flow.torque_authority_projection_ratio > 0.0 and np.any(
                 np.abs(contact_task_torque) > 1e-12
             ):
@@ -2124,6 +2299,7 @@ def _simulate(
                 residual_controller is not None
                 or loft_teacher_config.enabled
                 or ballistic_contact_impulse_actor is not None
+                or episodic_contact_memory is not None
                 or football_motion_prior is not None
                 or any(abs(value) > 0.0 for value in flow.ballistic_contact_residual_rad)
                 or any(abs(value) > 0.0 for value in flow.ballistic_contact_torque_residual_nm)
@@ -2258,6 +2434,43 @@ def _simulate(
             ballistic_contact_impulse_actor_peak_vertical_force,
             abs(impulse_actor_vertical_force),
         )
+        episodic_contact_memory_active_frames += int(episodic_memory_active)
+        episodic_contact_memory_out_of_support_frames += int(
+            episodic_memory_evaluated
+            and (not episodic_memory_context_supported or not episodic_memory_launch_supported)
+        )
+        episodic_contact_memory_peak_torque = max(
+            episodic_contact_memory_peak_torque,
+            float(np.max(np.abs(episodic_memory_torque))),
+        )
+        episodic_contact_memory_peak_lateral_force = max(
+            episodic_contact_memory_peak_lateral_force,
+            abs(episodic_memory_lateral_force),
+        )
+        episodic_contact_memory_peak_vertical_force = max(
+            episodic_contact_memory_peak_vertical_force,
+            abs(episodic_memory_vertical_force),
+        )
+        episodic_contact_memory_peak_context_distance = max(
+            episodic_contact_memory_peak_context_distance,
+            episodic_memory_context_distance,
+        )
+        episodic_memory_reported_seed_label = (
+            episodic_memory_active_seed_label
+            if episodic_memory_active_seed_label is not None
+            else episodic_memory_selected_seed_label
+        )
+        if episodic_memory_reported_seed_label is not None:
+            if (
+                episodic_contact_memory_selected_seed_label is not None
+                and episodic_contact_memory_selected_seed_label
+                != episodic_memory_reported_seed_label
+            ):
+                episodic_contact_memory_mixed_contexts = True
+            elif not episodic_contact_memory_mixed_contexts:
+                episodic_contact_memory_selected_seed_label = episodic_memory_reported_seed_label
+        if episodic_contact_memory_mixed_contexts:
+            episodic_contact_memory_selected_seed_label = None
         phase = min(1.0, policy_frame / max(1, int(policy.motion_total_steps) - 1))
         if contact_in_frame:
             event_phase = G1FootballEventPhase.CONTACT
@@ -2298,12 +2511,22 @@ def _simulate(
             loft_teacher_foot_vy_mps=loft_teacher_foot_vy,
             loft_teacher_foot_vz_mps=loft_teacher_foot_vz,
             loft_teacher_active=loft_teacher_active,
+            loft_teacher_pre_action_observation=(loft_teacher_pre_action_observation),
+            loft_teacher_pre_action_observation_valid=(loft_teacher_pre_action_observation_valid),
             ballistic_contact_impulse_actor_torque=impulse_actor_torque,
             ballistic_contact_impulse_actor_lateral_force_n=(impulse_actor_lateral_force),
             ballistic_contact_impulse_actor_vertical_force_n=(impulse_actor_vertical_force),
             ballistic_contact_impulse_actor_foot_vy_mps=impulse_actor_foot_vy,
             ballistic_contact_impulse_actor_foot_vz_mps=impulse_actor_foot_vz,
             ballistic_contact_impulse_actor_active=impulse_actor_active,
+            episodic_contact_memory_torque=episodic_memory_torque,
+            episodic_contact_memory_lateral_force_n=(episodic_memory_lateral_force),
+            episodic_contact_memory_vertical_force_n=(episodic_memory_vertical_force),
+            episodic_contact_memory_active=episodic_memory_active,
+            episodic_contact_memory_context_supported=(episodic_memory_context_supported),
+            episodic_contact_memory_launch_supported=(episodic_memory_launch_supported),
+            episodic_contact_memory_selected_seed_label=(episodic_memory_reported_seed_label),
+            episodic_contact_memory_context_distance=(episodic_memory_context_distance),
             joint_boundary_guard_correction=boundary_guard_correction,
             joint_boundary_guard_active=boundary_guard_active,
             commanded_torque_peak_abs=commanded_torque_peak_abs,
@@ -2546,9 +2769,7 @@ def _simulate(
         football_motion_prior_velocity_executed=bool(
             football_motion_prior_velocity_active_frames > 0
         ),
-        football_motion_prior_velocity_active_frames=(
-            football_motion_prior_velocity_active_frames
-        ),
+        football_motion_prior_velocity_active_frames=(football_motion_prior_velocity_active_frames),
         football_motion_prior_peak_target_velocity_delta_rad_s=(
             football_motion_prior_peak_target_velocity_delta
         ),
@@ -2584,6 +2805,24 @@ def _simulate(
         ),
         ballistic_contact_impulse_actor_peak_desired_vertical_launch_speed_mps=(
             ballistic_contact_impulse_actor_peak_desired_vertical_launch_speed
+        ),
+        episodic_contact_memory_executed=(episodic_contact_memory is not None),
+        episodic_contact_memory_active_frames=(episodic_contact_memory_active_frames),
+        episodic_contact_memory_out_of_support_frames=(
+            episodic_contact_memory_out_of_support_frames
+        ),
+        episodic_contact_memory_peak_torque_nm=(episodic_contact_memory_peak_torque),
+        episodic_contact_memory_peak_lateral_force_n=(episodic_contact_memory_peak_lateral_force),
+        episodic_contact_memory_peak_vertical_force_n=(episodic_contact_memory_peak_vertical_force),
+        episodic_contact_memory_peak_desired_lateral_launch_speed_mps=(
+            episodic_contact_memory_peak_desired_lateral_launch_speed
+        ),
+        episodic_contact_memory_peak_desired_vertical_launch_speed_mps=(
+            episodic_contact_memory_peak_desired_vertical_launch_speed
+        ),
+        episodic_contact_memory_selected_seed_label=(episodic_contact_memory_selected_seed_label),
+        episodic_contact_memory_peak_context_distance=(
+            episodic_contact_memory_peak_context_distance
         ),
         torque_authority_projection_enabled=(flow.torque_authority_projection_ratio > 0.0),
         torque_authority_projection_steps=torque_authority_projection_steps,
@@ -2887,12 +3126,22 @@ def _append_trace(
     loft_teacher_foot_vy_mps: float = 0.0,
     loft_teacher_foot_vz_mps: float = 0.0,
     loft_teacher_active: bool = False,
+    loft_teacher_pre_action_observation: np.ndarray | None = None,
+    loft_teacher_pre_action_observation_valid: bool = False,
     ballistic_contact_impulse_actor_torque: np.ndarray | None = None,
     ballistic_contact_impulse_actor_lateral_force_n: float = 0.0,
     ballistic_contact_impulse_actor_vertical_force_n: float = 0.0,
     ballistic_contact_impulse_actor_foot_vy_mps: float = 0.0,
     ballistic_contact_impulse_actor_foot_vz_mps: float = 0.0,
     ballistic_contact_impulse_actor_active: bool = False,
+    episodic_contact_memory_torque: np.ndarray | None = None,
+    episodic_contact_memory_lateral_force_n: float = 0.0,
+    episodic_contact_memory_vertical_force_n: float = 0.0,
+    episodic_contact_memory_active: bool = False,
+    episodic_contact_memory_context_supported: bool = True,
+    episodic_contact_memory_launch_supported: bool = True,
+    episodic_contact_memory_selected_seed_label: int | None = None,
+    episodic_contact_memory_context_distance: float = 0.0,
     joint_boundary_guard_correction: np.ndarray | None = None,
     joint_boundary_guard_active: bool = False,
     commanded_torque_peak_abs: np.ndarray | None = None,
@@ -2954,6 +3203,19 @@ def _append_trace(
     trace["loft_teacher_foot_vy_mps"].append(float(loft_teacher_foot_vy_mps))
     trace["loft_teacher_foot_vz_mps"].append(float(loft_teacher_foot_vz_mps))
     trace["loft_teacher_active"].append(bool(loft_teacher_active))
+    pre_action_observation = (
+        np.zeros(11, dtype=np.float64)
+        if loft_teacher_pre_action_observation is None
+        else np.asarray(loft_teacher_pre_action_observation, dtype=np.float64)
+    )
+    if pre_action_observation.shape != (11,) or not np.all(np.isfinite(pre_action_observation)):
+        raise FloatingPointError("G1 loft teacher pre-action observation is invalid")
+    if loft_teacher_pre_action_observation_valid and not loft_teacher_active:
+        raise ValueError("G1 loft teacher pre-action observation lacks an active teacher")
+    trace["loft_teacher_pre_action_observation"].append(pre_action_observation.copy())
+    trace["loft_teacher_pre_action_observation_valid"].append(
+        bool(loft_teacher_pre_action_observation_valid)
+    )
     impulse_torque = (
         np.zeros(29, dtype=np.float64)
         if ballistic_contact_impulse_actor_torque is None
@@ -2984,6 +3246,42 @@ def _append_trace(
     )
     trace["ballistic_contact_impulse_actor_active"].append(
         bool(ballistic_contact_impulse_actor_active)
+    )
+    episodic_torque = (
+        np.zeros(29, dtype=np.float64)
+        if episodic_contact_memory_torque is None
+        else np.asarray(episodic_contact_memory_torque, dtype=np.float64)
+    )
+    episodic_scalars = (
+        episodic_contact_memory_lateral_force_n,
+        episodic_contact_memory_vertical_force_n,
+        episodic_contact_memory_context_distance,
+    )
+    if episodic_torque.shape != (29,) or not np.all(np.isfinite(episodic_torque)):
+        raise FloatingPointError("G1 episodic contact memory trace contains invalid torque")
+    if not all(math.isfinite(value) for value in episodic_scalars):
+        raise FloatingPointError("G1 episodic contact memory trace contains non-finite state")
+    trace["episodic_contact_memory_torque"].append(episodic_torque.copy())
+    trace["episodic_contact_memory_lateral_force_n"].append(
+        float(episodic_contact_memory_lateral_force_n)
+    )
+    trace["episodic_contact_memory_vertical_force_n"].append(
+        float(episodic_contact_memory_vertical_force_n)
+    )
+    trace["episodic_contact_memory_active"].append(bool(episodic_contact_memory_active))
+    trace["episodic_contact_memory_context_supported"].append(
+        bool(episodic_contact_memory_context_supported)
+    )
+    trace["episodic_contact_memory_launch_supported"].append(
+        bool(episodic_contact_memory_launch_supported)
+    )
+    trace["episodic_contact_memory_selected_seed_label"].append(
+        -1
+        if episodic_contact_memory_selected_seed_label is None
+        else int(episodic_contact_memory_selected_seed_label)
+    )
+    trace["episodic_contact_memory_context_distance"].append(
+        float(episodic_contact_memory_context_distance)
     )
     guard_correction = (
         np.zeros(29, dtype=np.float64)

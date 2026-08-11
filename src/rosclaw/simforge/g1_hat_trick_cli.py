@@ -114,6 +114,11 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
         help="strict-evidence-trained SIM-only proprioceptive contact actor",
     )
     run.add_argument(
+        "--episodic-contact-memory",
+        type=Path,
+        help="state-routed SIM-only local contact dynamics memory",
+    )
+    run.add_argument(
         "--select-best-registered-skill",
         action="store_true",
         help="retrieve the lowest-error registered skill before the mandatory shot",
@@ -348,6 +353,9 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
         from rosclaw.growth.contextual_phase_calibration import (
             load_g1_contextual_phase_calibration,
         )
+        from rosclaw.growth.episodic_contact_memory import (
+            load_g1_episodic_contact_memory,
+        )
         from rosclaw.growth.football_motion_prior import (
             load_g1_football_motion_prior,
         )
@@ -412,6 +420,11 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
             if args.ballistic_contact_impulse_actor is not None
             else None
         )
+        episodic_contact_memory = (
+            load_g1_episodic_contact_memory(args.episodic_contact_memory)
+            if args.episodic_contact_memory is not None
+            else None
+        )
         teacher_enabled = bool(
             args.shot_loft_teacher_target_vz_mps != 0.0
             or args.shot_loft_teacher_target_vx_mps != 0.0
@@ -419,6 +432,10 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
         )
         if ballistic_contact_impulse_actor is not None and teacher_enabled:
             parser.error("contact impulse actor and SIM teacher are exclusive")
+        if episodic_contact_memory is not None and teacher_enabled:
+            parser.error("episodic contact memory and SIM teacher are exclusive")
+        if episodic_contact_memory is not None and ballistic_contact_impulse_actor is not None:
+            parser.error("episodic contact memory and contact impulse actor are exclusive")
         if args.select_best_registered_skill and ballistic_skill_memory is None:
             parser.error("--select-best-registered-skill requires --ballistic-skill-memory")
         football_motion_prior = (
@@ -587,9 +604,7 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
                     None if football_motion_prior is None else football_motion_prior.prior_hash
                 ),
                 football_motion_prior_blend=args.football_motion_prior_blend,
-                football_motion_prior_velocity_blend=(
-                    args.football_motion_prior_velocity_blend
-                ),
+                football_motion_prior_velocity_blend=(args.football_motion_prior_velocity_blend),
                 football_motion_prior_contact_policy_frame=(
                     args.football_motion_prior_contact_policy_frame
                 ),
@@ -597,6 +612,9 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
                     None
                     if ballistic_contact_impulse_actor is None
                     else ballistic_contact_impulse_actor.actor_hash
+                ),
+                episodic_contact_memory_hash=(
+                    None if episodic_contact_memory is None else episodic_contact_memory.memory_hash
                 ),
                 ballistic_contact_residual_rad=ballistic_contact_residual_rad,
                 ballistic_contact_torque_residual_nm=(ballistic_contact_torque_residual_nm),
@@ -621,9 +639,7 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
                 shared_cerebellar_recovery_enabled=args.shared_cerebellar_recovery,
                 shot_recovery_step_length_m=args.shot_recovery_step_length_m,
                 shot_recovery_step_yaw_rad=args.shot_recovery_step_yaw_rad,
-                torque_authority_projection_ratio=(
-                    args.torque_authority_projection_ratio
-                ),
+                torque_authority_projection_ratio=(args.torque_authority_projection_ratio),
                 torque_authority_projection_max_fraction=(
                     args.torque_authority_projection_max_fraction
                 ),
@@ -737,6 +753,7 @@ def _dispatch_free_kick_showcase_argv(argv: list[str]) -> int:
             football_motion_prior=football_motion_prior,
             ballistic_skill_memory=ballistic_skill_memory,
             ballistic_contact_impulse_actor=ballistic_contact_impulse_actor,
+            episodic_contact_memory=episodic_contact_memory,
         )
         print(json.dumps(evidence_result.to_dict(), indent=2, sort_keys=True))
         return 0 if evidence_result.passed else 2
