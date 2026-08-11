@@ -900,7 +900,7 @@ class TestProductJourney:
             assert grants == 1, f"被拒绝的动作竟产生 grant: {grants}"
             self._journey_verdicts["deny_fail_closed"] = True
             self._write_sanitized_evidence(home)
-            session.expect_with_resend(b"rosclaw chat --resume", "/quit\r", timeout=60)
+            session.expect_with_resend(b"rosclaw continue", "/quit\r", timeout=60)
             session.proc.wait(timeout=30)
             assert session.proc.returncode == 0, session.clean[-400:]
         finally:
@@ -978,7 +978,7 @@ class TestProductJourney:
                     assert count == 0, f"边界探测不应产生 {table} 行: {count}"
             db.close()
             self._journey_verdicts["zero_real_artifacts"] = True
-            session.expect_with_resend(b"rosclaw chat --resume", "/quit\r", timeout=60)
+            session.expect_with_resend(b"rosclaw continue", "/quit\r", timeout=60)
             session.proc.wait(timeout=30)
             assert session.proc.returncode == 0, session.clean[-400:]
         finally:
@@ -1555,9 +1555,11 @@ class TestProductJourney:
             self._write_sanitized_evidence(home)
             # 8. /quit → resume 提示必须是 ROSClaw 命令（T-IDENTITY）。
             session.send("/quit\r")
-            session.expect(b"rosclaw chat --resume", timeout=30)
+            session.expect(b"rosclaw continue", timeout=30)
             assert b"pi --session" not in session.clean
             assert b"--session-dir" not in session.clean
+            # WP-P0-1：退出提示不暴露内部 session id。
+            assert b"chat --resume" not in session.clean
             session.proc.wait(timeout=30)
             assert session.proc.returncode == 0, session.clean[-400:]
         finally:
@@ -1606,7 +1608,7 @@ class TestProductJourney:
                 f"resume 后 lease 未恢复: {leases}"
             )
             resumed.send("/quit\r")
-            resumed.expect(b"rosclaw chat --resume", timeout=30)
+            resumed.expect(b"rosclaw continue", timeout=30)
             resumed.proc.wait(timeout=30)
         finally:
             resumed.stop()

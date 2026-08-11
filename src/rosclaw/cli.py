@@ -8930,7 +8930,11 @@ def main() -> int:
                 return dispatch_app_command(args)
             app_parser.print_help()
             return 1
-        elif args.command in ("agentd", "chat", "worker", "eval", "learning"):
+        elif args.command in (
+            "agentd", "chat", "worker", "eval", "learning",
+            # WP-P0-1：会话可发现性顶层命令。
+            "sessions", "resume", "continue",
+        ):
             return dispatch_agent_command(args)
         elif args.command == "provider":
             if args.provider_command == "list":

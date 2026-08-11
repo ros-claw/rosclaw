@@ -445,7 +445,30 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     if getattr(args, "continue_last", False):
         resume_argv = ["--continue"]
     elif getattr(args, "resume", None):
-        resume_argv = ["--resume", args.resume]
+        query = str(args.resume)
+        if query == "__picker__":
+            # WP-P0-1：裸 --resume → 会话选择器。
+            resume_argv = ["--browse-sessions"]
+        else:
+            # WP-P0-1：ID/前缀/标题 → 真实 session 路径（用户不再
+            # 需要知道内部 ID；歧义报候选不猜）。
+            from rosclaw.agentd.session_list import (
+                list_sessions,
+                resolve_session_query,
+            )
+
+            hit = resolve_session_query(list_sessions(home), query)
+            if hit.get("error"):
+                print(f"会话未解析：{query}", file=sys.stderr)
+                for cand in hit.get("candidates", []):
+                    print(
+                        "  候选："
+                        f"{cand.get('display_name') or cand.get('first_message') or cand['session_id']}"
+                        f"（{cand['session_id'][:12]}…）",
+                        file=sys.stderr,
+                    )
+                return 2
+            resume_argv = ["--resume-path", hit["path"]]
     if args.mission:
         mission = service.get_mission(args.mission)
         if mission is None:
@@ -1136,11 +1159,75 @@ def add_agent_subparsers(subparsers) -> None:
     )
     p_chat.add_argument(
         "--resume",
+        nargs="?",
+        const="__picker__",
         default=None,
-        metavar="SESSION_ID",
-        help="恢复指定会话（Native Agent session + Mission 绑定）",
+        metavar="ID或标题",
+        # WP-P0-1：裸 --resume 打开会话选择器；参数支持精确 ID/
+        # 唯一前缀/标题（由 session_list.resolve_session_query 解析）。
+        help="恢复会话：无参数打开选择器；或给 ID/唯一前缀/标题",
     )
     p_chat.set_defaults(func=cmd_chat)
+
+    # WP-P0-1（总纲 §4.2/§5.1）：会话可发现性——用户不再需要知道
+    # 内部 session id。
+    p_sessions = subparsers.add_parser(
+        "sessions", help="列出/搜索会话（TTY 下引导选择器）"
+    )
+    p_sessions.add_argument("query", nargs="?", default="", help="搜索标题/内容")
+    p_sessions.set_defaults(func=cmd_sessions)
+    p_resume = subparsers.add_parser(
+        "resume", help="恢复会话：无参数打开选择器；或给 ID/前缀/标题"
+    )
+    p_resume.add_argument("query", nargs="?", default="", metavar="ID或标题")
+    p_resume.set_defaults(func=cmd_resume)
+    p_continue = subparsers.add_parser("continue", help="继续最近会话")
+    p_continue.set_defaults(func=cmd_continue)
+
+
+def cmd_sessions(args: argparse.Namespace) -> int:
+    # rosclaw sessions——产品级会话列表（标题/消息数/最近活动）。
+    from rosclaw.agentd.session_list import list_sessions
+
+    home = _home(args)
+    sessions = list_sessions(home)
+    query = str(getattr(args, "query", "") or "")
+    if query:
+        sessions = [
+            s for s in sessions
+            if query in (s.get("display_name") or "")
+            or query in (s.get("first_message") or "")
+            or query in s["session_id"]
+        ]
+    if not sessions:
+        print("还没有会话。运行 `rosclaw chat` 开始第一个任务。")
+        return 0
+    for s in sessions:
+        title = s.get("display_name") or s.get("first_message") or "（未命名）"
+        print(f"  {title:<30}  {s['message_count']:>4} 条消息  {s['session_id'][:12]}…")
+    print("\n恢复：rosclaw resume <标题或ID> · 继续最近：rosclaw continue")
+    return 0
+
+
+def cmd_resume(args: argparse.Namespace) -> int:
+    # rosclaw resume [ID|标题]——无参数打开选择器。
+    query = str(getattr(args, "query", "") or "")
+    args.resume = query if query else "__picker__"
+    args.continue_last = False
+    for attr, default in (("mission", None), ("mode", None), ("goal", None)):
+        if not hasattr(args, attr):
+            setattr(args, attr, default)
+    return cmd_chat(args)
+
+
+def cmd_continue(args: argparse.Namespace) -> int:
+    # rosclaw continue——继续最近会话。
+    args.continue_last = True
+    args.resume = None
+    for attr, default in (("mission", None), ("mode", None), ("goal", None)):
+        if not hasattr(args, attr):
+            setattr(args, attr, default)
+    return cmd_chat(args)
 
 
 def dispatch_agent_command(args: argparse.Namespace) -> int:

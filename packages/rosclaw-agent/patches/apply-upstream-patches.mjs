@@ -13,6 +13,18 @@ const T = (...parts) => join(here, "..", "node_modules", ...parts);
 
 const PATCHES = [
 	{
+		// WP-P0-1：清理旧版 hint（'rosclaw chat --resume <id>'）——旧
+		// patch 已应用的 node_modules 会残留旧 return（先 return 先生效）。
+		// optionalAnchor：全新 npm ci 的 pristine 上游没有这行，跳过。
+		target: T("@earendil-works", "pi-coding-agent", "dist", "modes", "interactive", "interactive-mode.js"),
+		name: "patch-01b: retire pre-WP-P0-1 resume hint",
+		optionalAnchor: true,
+		anchor:
+			"    return `rosclaw chat --resume ${sessionManager.getSessionId()}`;\n",
+		replacement:
+			"    // (retired by WP-P0-1: product resume hint below)\n",
+	},
+	{
 		target: T("@earendil-works", "pi-coding-agent", "dist", "modes", "interactive", "interactive-mode.js"),
 		name: "patch-01: rosclaw resume command formatter",
 		anchor:
@@ -24,7 +36,10 @@ const PATCHES = [
 		replacement:
 			"    // ROSCLAW-PATCH-01: AppIdentity resumeCommandFormatter——恢复必须\n" +
 			"    // 经 ROSClaw runtime（kernel/binding/lease/policy），绝不引导外部 CLI。\n" +
-			"    return `rosclaw chat --resume ${sessionManager.getSessionId()}`;\n" +
+			"    // WP-P0-1：退出提示只给产品命令——不暴露内部 session id。\n" +
+			"    const __name = sessionManager.getSessionName?.() || '';\n" +
+			"    return `会话已保存${__name ? '：' + __name : ''}\\n继续：rosclaw continue\\n查看全部：rosclaw sessions`;\n" +
+			"    // ROSCLAW-PATCH-01-APPLIED\n" +
 			"    const args = [APP_NAME];\n" +
 			"    if (!sessionManager.usesDefaultSessionDir()) {\n" +
 			"        args.push(\"--session-dir\", quoteIfNeeded(sessionManager.getSessionDir()));\n" +
@@ -154,6 +169,10 @@ for (const [target, patches] of grouped) {
 			continue;
 		}
 		if (!source.includes(patch.anchor)) {
+			if (patch.optionalAnchor) {
+				console.log(`[skip: anchor absent] ${patch.name}`);
+				continue;
+			}
 			console.error(`PATCH ANCHOR MISSING: ${patch.name}`);
 			console.error("上游已漂移——升级 Pi 后必须人工复核补丁锚点（见 patches/README.md）。");
 			process.exit(1);

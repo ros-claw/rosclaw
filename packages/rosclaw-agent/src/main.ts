@@ -24,6 +24,8 @@ interface CliArgs {
 	print: boolean;
 	missionId?: string;
 	resumeSessionId?: string;
+	resumeSessionPath?: string;
+	browseSessions: boolean;
 	continueLast: boolean;
 }
 
@@ -33,6 +35,8 @@ function parseArgs(argv: string[]): CliArgs {
 	let print = false;
 	let missionId: string | undefined;
 	let resumeSessionId: string | undefined;
+	let resumeSessionPath: string | undefined;
+	let browseSessions = false;
 	let continueLast = false;
 	for (let i = 0; i < argv.length; i += 1) {
 		if (argv[i] === "--profile" && argv[i + 1]) {
@@ -49,11 +53,21 @@ function parseArgs(argv: string[]): CliArgs {
 		} else if (argv[i] === "--resume" && argv[i + 1]) {
 			resumeSessionId = argv[i + 1];
 			i += 1;
+		} else if (argv[i] === "--resume-path" && argv[i + 1]) {
+			// WP-P0-1：Python 侧已把 ID/前缀/标题解析成真实路径——
+			// 不由用户输入拼路径。
+			resumeSessionPath = argv[i + 1];
+			i += 1;
+		} else if (argv[i] === "--browse-sessions") {
+			browseSessions = true;
 		} else if (argv[i] === "--continue" || argv[i] === "-c") {
 			continueLast = true;
 		}
 	}
-	return { profile, initialMessage, print, missionId, resumeSessionId, continueLast };
+	return {
+		profile, initialMessage, print, missionId,
+		resumeSessionId, resumeSessionPath, browseSessions, continueLast,
+	};
 }
 
 async function main(): Promise<number> {
@@ -61,44 +75,43 @@ async function main(): Promise<number> {
 		"@earendil-works/pi-coding-agent"
 	);
 	const { createRosclawRuntime } = await import("./runtime/create-runtime.js");
-	const { profile, initialMessage, print, missionId, resumeSessionId, continueLast } = parseArgs(
-		process.argv.slice(2),
-	);
+	const {
+		profile, initialMessage, print, missionId,
+		resumeSessionId, resumeSessionPath, browseSessions, continueLast,
+	} = parseArgs(process.argv.slice(2));
 	const rosclawHome = rosclawHomeEnv;
-	// NA-FIX-2：--resume/--continue 走 SessionManager.open（不新建 session
-	// 文件、不预建 Mission——由 coordinator 的 resumeInitial 事务接管绑定）。
-	// P0-NA-12：session id 必须是纯标识符（拒绝 ../ 路径穿越与任意 JSONL）；
-	// --continue 按文件 mtime 选最近 session，不按文件名排序。
+	// WP-P0-1（总纲 §5.1）：恢复路径全部经 Pi SessionManager 公开
+	// API——不再有手写目录扫描/mtime 排序/文件名拼接（Pi 文件名可含
+	// 时间前缀，拼接 id 是格式漂移风险）。
 	let initialSession: import("@earendil-works/pi-coding-agent").SessionManager | undefined;
-	if (resumeSessionId || continueLast) {
-		const sessionDir = `${rosclawHome}/agent/sessions`;
-		const { readdirSync, statSync, existsSync } = await import("node:fs");
-		let sessionFile = "";
-		if (resumeSessionId) {
-			if (!/^[A-Za-z0-9_-]+$/.test(resumeSessionId)) {
-				console.error(`非法 session id：${resumeSessionId}（只允许字母数字-_）`);
-				return 2;
-			}
-			const { join } = await import("node:path");
-			sessionFile = join(sessionDir, `${resumeSessionId}.jsonl`);
-			if (!existsSync(sessionFile)) {
-				console.error(
-					`session ${resumeSessionId} 不存在（${sessionDir} 下无此记录）——` +
-					"未启动未绑定会话。用 `rosclaw chat` 开新会话或 `rosclaw chat --continue` 恢复最近会话。",
-				);
-				return 2;
-			}
-		} else {
-			// --continue：mtime 最新且头可解析的 session 文件。
-			const candidates = readdirSync(sessionDir)
-				.filter((f) => f.endsWith(".jsonl"))
-				.map((f) => ({ f, mtime: statSync(`${sessionDir}/${f}`).mtimeMs }))
-				.sort((a, b) => b.mtime - a.mtime);
-			sessionFile = candidates[0] ? `${sessionDir}/${candidates[0].f}` : "";
+	const sessionDir = `${rosclawHome}/agent/sessions`;
+	if (browseSessions) {
+		const { browseSessions: openPicker } = await import("./session/picker.js");
+		const picked = await openPicker(
+			(onProgress) => SessionManager.list(process.cwd(), sessionDir, onProgress),
+			(onProgress) => SessionManager.listAll(sessionDir, onProgress),
+		);
+		if (!picked) return 0;  // 用户取消——干净退出，不建会话
+		initialSession = SessionManager.open(picked, sessionDir);
+	} else if (resumeSessionPath) {
+		initialSession = SessionManager.open(resumeSessionPath, sessionDir);
+	} else if (resumeSessionId) {
+		// 兼容路径：`chat --resume <id>`——精确 ID/唯一前缀经
+		// SessionManager.listAll 解析（拒绝路径穿越由解析保证）。
+		const { resolveSessionQuery } = await import("./session/resolve.js");
+		const sessions = await SessionManager.listAll(sessionDir);
+		const hit = resolveSessionQuery(resumeSessionId, sessions);
+		if (!hit.ok) {
+			console.error(
+				hit.error === "AMBIGUOUS"
+					? `会话不唯一（${hit.candidates.length} 个候选）——请用 rosclaw resume 打开选择器`
+					: `会话 ${resumeSessionId} 不存在——rosclaw sessions 查看全部`,
+			);
+			return 2;
 		}
-		if (sessionFile) {
-			initialSession = SessionManager.open(sessionFile, sessionDir);
-		}
+		initialSession = SessionManager.open(hit.path, sessionDir);
+	} else if (continueLast) {
+		initialSession = SessionManager.continueRecent(process.cwd(), sessionDir);
 	}
 	const { runtime, coordinator, leaseManager } = await createRosclawRuntime({
 		cwd: process.cwd(),
@@ -120,7 +133,7 @@ async function main(): Promise<number> {
 			console.error(`初始 Mission 接入失败：${outcome.reason}`);
 			return 2;
 		}
-	} else if (resumeSessionId || continueLast) {
+	} else if (resumeSessionId || resumeSessionPath || browseSessions || continueLast) {
 		// 恢复路径：重接既有绑定（丢失/已归档 → coordinator 新建 SIM
 		// 绑定并明确告知）——不再"只看到 header 就算恢复"。
 		const outcome = await coordinator.resumeInitial(sessionId);
