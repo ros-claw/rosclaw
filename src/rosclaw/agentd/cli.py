@@ -1186,25 +1186,29 @@ def add_agent_subparsers(subparsers) -> None:
 
 
 def cmd_sessions(args: argparse.Namespace) -> int:
-    # rosclaw sessions——产品级会话列表（标题/消息数/最近活动）。
-    from rosclaw.agentd.session_list import list_sessions
+    # rosclaw sessions——产品级会话列表（WP-P0-2：走 SessionCatalog
+    # 产品索引；先 refresh 增量回填，不再每次全量扫 JSONL）。
+    from rosclaw.agentd.mission.store import MissionStore
+    from rosclaw.agentd.session_catalog import SessionCatalog
 
     home = _home(args)
-    sessions = list_sessions(home)
+    db_path = home / "agentd" / "missions.db"
+    if not db_path.exists():
+        print("还没有会话。运行 `rosclaw chat` 开始第一个任务。")
+        return 0
+    store = MissionStore(db_path)
+    catalog = SessionCatalog(store.connection)
+    catalog.refresh(home)
     query = str(getattr(args, "query", "") or "")
-    if query:
-        sessions = [
-            s for s in sessions
-            if query in (s.get("display_name") or "")
-            or query in (s.get("first_message") or "")
-            or query in s["session_id"]
-        ]
+    sessions = catalog.search(query) if query else catalog.list()
     if not sessions:
         print("还没有会话。运行 `rosclaw chat` 开始第一个任务。")
         return 0
-    for s in sessions:
-        title = s.get("display_name") or s.get("first_message") or "（未命名）"
-        print(f"  {title:<30}  {s['message_count']:>4} 条消息  {s['session_id'][:12]}…")
+    for s in sessions[:30]:
+        title = s.get("display_name") or "（未命名）"
+        robot = s.get("body_id") or "-"
+        state = s.get("lifecycle_state") or ""
+        print(f"  {title:<30}  {robot:<12} {state:<10} {s['session_id'][:12]}…")
     print("\n恢复：rosclaw resume <标题或ID> · 继续最近：rosclaw continue")
     return 0
 
