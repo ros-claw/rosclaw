@@ -100,3 +100,27 @@ export function renderFooter(
 	}
 	return parts.join(chromeSep());
 }
+
+/** 八审 §4 P0-9：kit BROKEN 提示格式——空 reason 不渲染悬空冒号；
+ * 无 remediation 不渲染修复建议。 */
+export function formatKitBrokenHint(
+	kit: { state?: string; reason?: string; remediation?: { command?: string } | null },
+	locale: EffectiveLocale = "zh-CN",
+): string {
+	const parts = [t("robot.kit_broken", locale)];
+	if (kit.reason) parts.push(kit.reason);
+	if (kit.remediation?.command) {
+		parts.push(`${t("robot.repair_hint", locale)}: ${kit.remediation.command}`);
+	}
+	return parts.join(" — ");
+}
+
+/** kit 从 BROKEN 恢复 READY 的正面清除文案（旧 warning 不能悬留）。 */
+export function formatKitRecoveredHint(
+	displayName: string,
+	locale: EffectiveLocale = "zh-CN",
+): string {
+	return locale === "en-US"
+		? `Robot kit ready: ${displayName}`
+		: `机器人套件就绪：${displayName}`;
+}
