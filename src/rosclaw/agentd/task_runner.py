@@ -377,7 +377,12 @@ class TaskRunner:
         # 八审 §4 P0-7 三通道：user_view 一行进度（model_view 是本
         # 结构；audit_view 全量在 task_records/receipt，/trace 展开）。
         if record["state"] == "VERIFIED":
-            user_view = "规划 ✓  安全校验 ✓  仿真执行 ✓  几何验证 PASS（运动学仿真）"
+            # WP-P0-6（总纲 §8.3）：诚实证据等级——当前 sandbox 是
+            # 命令回放（路径自洽），不宣称机械臂真的运动过。
+            user_view = (
+                "快速运动学预演完成（命令回放）：路径数据自洽、几何闭合 "
+                "验证 PASS——不能证明动力学或真实机械臂完成运动"
+            )
         elif record["state"] == "WAITING_APPROVAL":
             user_view = "规划 ✓  安全校验 ✓  等待人工确认…"
         else:
@@ -390,6 +395,7 @@ class TaskRunner:
             "goal": record["goal"],
             "policy": policy,
             "user_view": user_view,
+            "evidence_level": "COMMAND_REPLAY",
             "plan_id": record.get("plan_id") or "",
             "summary": (
                 "UR5e 运动学沙盒绘制闭合五角星"
