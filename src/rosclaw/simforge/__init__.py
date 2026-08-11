@@ -17,6 +17,16 @@ from rosclaw.simforge.monitors import (
     SafetyPredicateMonitor,
     TemporalPredicateMonitor,
 )
+from rosclaw.simforge.registry import (
+    SIMFORGE_BACKEND_GROUP,
+    SIMFORGE_TASK_GROUP,
+    SimForgeBackendFactory,
+    SimForgeBackendRegistry,
+    SimForgeDiscoveryReport,
+    SimForgeExtensionRegistry,
+    SimForgeTaskProvider,
+    SimForgeTaskRegistry,
+)
 from rosclaw.simforge.seed_ledger import SeedLedger
 
 __all__ = [
@@ -33,6 +43,14 @@ __all__ = [
     "ScenarioSampler",
     "ScenarioVariable",
     "SeedLedger",
+    "SIMFORGE_BACKEND_GROUP",
+    "SIMFORGE_TASK_GROUP",
+    "SimForgeBackendFactory",
+    "SimForgeBackendRegistry",
+    "SimForgeDiscoveryReport",
+    "SimForgeExtensionRegistry",
+    "SimForgeTaskProvider",
+    "SimForgeTaskRegistry",
     "SimForgeTaskSpec",
     "TemporalPredicateMonitor",
 ]
