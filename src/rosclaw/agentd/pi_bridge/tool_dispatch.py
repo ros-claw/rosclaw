@@ -371,6 +371,11 @@ class PiToolDispatcher:
             inputs={
                 "instructions": str(args.get("instructions", goal)),
                 "artifacts": args.get("artifact_refs") or [],
+                # 十审 W1：无 secret 模型快照（TS 工具层从 session ctx 取
+                # provider/model/thinking）+ Worker profile。快照绝不携带
+                # 凭据（pi_managed 写 envelope 前有硬校验）。
+                "model_snapshot": args.get("model_snapshot") or {},
+                "worker_profile": str(args.get("worker_profile") or ""),
             },
             budgets=BudgetEnvelope(
                 wall_time_sec=int(args.get("budget", {}).get("wall_time_sec", 300))

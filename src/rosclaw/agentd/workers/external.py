@@ -12,7 +12,6 @@ import hashlib
 import json
 import os
 import shutil
-import signal
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -25,6 +24,11 @@ from rosclaw.agentd.workers.packs import (
     ALL_PACKS,
     WorkerPackManifest,
     version_ok,
+)
+
+# 十审 W1：进程组清理逻辑与 pi_managed 共享。
+from rosclaw.agentd.workers.process import (
+    kill_process_tree as _kill_process_tree,
 )
 from rosclaw.contracts.worker.order import (
     ResultArtifact,
@@ -41,34 +45,6 @@ _ANALYSIS_SYSTEM = (
     "outcomes; clearly mark inference vs fact; reply concisely in the "
     "requester's language."
 )
-
-#: 十审 W0：cancel grace——先 SIGTERM，超时 SIGKILL（指标：2s 级，硬上限 7s）。
-_CANCEL_GRACE_SEC = 5.0
-
-
-async def _kill_process_tree(proc) -> None:
-    """杀整个进程组（start_new_session=True 保证子进程是组长）。
-
-    SIGTERM → grace → SIGKILL；最后 reap。进程已退则静默返回。
-    """
-    if proc.returncode is not None:
-        return
-    import contextlib
-
-    try:
-        pgid = os.getpgid(proc.pid)
-    except (ProcessLookupError, PermissionError):
-        return
-    with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(pgid, signal.SIGTERM)
-    with contextlib.suppress(TimeoutError):
-        await asyncio.wait_for(proc.wait(), timeout=_CANCEL_GRACE_SEC)
-        return
-    with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(pgid, signal.SIGKILL)
-    # 防御：内核都杀不动——不阻塞 cancel 闭环。
-    with contextlib.suppress(TimeoutError):
-        await asyncio.wait_for(proc.wait(), timeout=2)
 
 
 class ExternalHarnessAdapter:

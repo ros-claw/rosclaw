@@ -21,6 +21,12 @@ from rosclaw.agentd.credentials import (
     ModelCredentialBroker,
 )
 from rosclaw.agentd.onboarding import PROVIDER_CHOICES, configure_model, doctor
+from rosclaw.agentd.pi_entry import (
+    find_pi_agent_entry as _find_pi_agent_entry,
+)
+from rosclaw.agentd.pi_entry import (
+    find_tui_runtime as _find_tui_runtime,
+)
 from rosclaw.agentd.service import AgentService, create_app
 
 LOCK_NAME = "agentd/agentd.lock"
@@ -430,17 +436,6 @@ def _route_internal_diagnostics_to_log(home: Path, *, debug: bool) -> None:
         pass
 
 
-def _find_pi_agent_entry() -> tuple[str, str] | None:
-    """Locate (node ≥22.19, rosclaw-agent dist entry)。None = 不可用。"""
-    node = _find_node()
-    if node is None:
-        return None
-    entry = _package_entry("rosclaw-agent", "ROSCLAW_AGENT_ENTRY")
-    if not entry or not Path(entry).exists():
-        return None
-    return node, entry
-
-
 def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     """engine=pi：agentd 内核（sockets/token）+ exec rosclaw-agent。
 
@@ -664,73 +659,6 @@ def _resume_target_mode(home: Path, args: argparse.Namespace) -> str | None:
             conn.close()
     except Exception:  # noqa: BLE001
         return None
-
-
-def _install_prefix_root() -> Path | None:
-    """安装布局根（$PREFIX/current）：venv 位于 <root>/.venv 时返回 root。"""
-    parts = Path(__file__).resolve().parts
-    if ".venv" in parts:
-        idx = parts.index(".venv")
-        if idx > 0:
-            return Path(*parts[:idx])
-    return None
-
-
-def _node_candidates() -> list[str]:
-    """bundled node 优先（发布包免装 Node），其后系统 node。"""
-    import shutil
-
-    candidates: list[str] = []
-    root = _install_prefix_root()
-    if root is not None:
-        bundled = root / "vendor" / "node-runtime" / "bin" / "node"
-        if bundled.exists():
-            candidates.append(str(bundled))
-    candidates += [shutil.which("node") or "", "/usr/bin/node", "/usr/local/bin/node"]
-    return candidates
-
-
-def _find_node() -> str | None:
-    import subprocess as _sp
-
-    for candidate in filter(None, _node_candidates()):
-        try:
-            out = _sp.check_output([candidate, "--version"], text=True, timeout=10).strip()
-            parts = [int(p) for p in out.lstrip("v").split(".")]
-            if parts >= [22, 19, 0]:
-                return candidate
-        except Exception:  # noqa: BLE001 - probe next candidate
-            continue
-    return None
-
-
-def _package_entry(pkg: str, env_var: str) -> str | None:
-    """pkg dist 入口解析：env → 仓库布局 → 安装布局（<root>/packages/<pkg>）。"""
-    entry_env = os.environ.get(env_var)
-    if entry_env:
-        return entry_env
-    repo_entry = (
-        Path(__file__).resolve().parents[3] / "packages" / pkg / "dist" / "src" / "main.js"
-    )
-    if repo_entry.exists():
-        return str(repo_entry)
-    root = _install_prefix_root()
-    if root is not None:
-        installed = root / "packages" / pkg / "dist" / "src" / "main.js"
-        if installed.exists():
-            return str(installed)
-    return None
-
-
-def _find_tui_runtime() -> tuple[str, str] | None:
-    """Locate (node ≥22.19, rosclaw-tui dist entry). None = unavailable."""
-    node = _find_node()
-    if node is None:
-        return None
-    entry = _package_entry("rosclaw-tui", "ROSCLAW_TUI_ENTRY")
-    if not entry or not Path(entry).exists():
-        return None
-    return node, entry
 
 
 def _chat_tui(service: AgentService, args: argparse.Namespace) -> int:

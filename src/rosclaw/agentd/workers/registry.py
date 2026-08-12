@@ -15,7 +15,9 @@ from datetime import UTC, datetime
 from rosclaw.contracts.common import ValidationError, new_id
 from rosclaw.contracts.worker.card import WorkerCardV1
 
-SUPPORTED_ADAPTER_TYPES = frozenset({"native_inproc", "process_stdio", "external_cli"})
+SUPPORTED_ADAPTER_TYPES = frozenset(
+    {"native_inproc", "process_stdio", "external_cli", "pi_managed"}
+)
 SUPPORTED_ADAPTER_VERSIONS = frozenset({"1.0.0"})
 
 #: Scopes a cognitive worker may never request (ADR-0003).
@@ -130,6 +132,65 @@ def native_basic_card() -> WorkerCardV1:
     )
 
 
+def pi_worker_card() -> WorkerCardV1:
+    """内置 Pi headless Worker（十审 W1）——与主 Agent 同一模型配置，
+    只读工具集（scout/analyst profile）；能力声明即真实能力。"""
+    from rosclaw.contracts.worker.card import (
+        CapabilityDecl,
+        WorkerConstraints,
+        WorkerHealth,
+        WorkerImplementation,
+        WorkerKind,
+        WorkerProvenance,
+        WorkerSecurity,
+        WorkerTrust,
+    )
+
+    return WorkerCardV1(
+        worker_id="worker:rosclaw:pi",
+        display_name="ROSClaw Built-in Pi Worker",
+        kind=WorkerKind.NATIVE,
+        adapter_type="pi_managed",
+        adapter_version="1.0.0",
+        implementation=WorkerImplementation(
+            product="rosclaw-agent", version="1.0.0", executable_ref="builtin:worker"
+        ),
+        capabilities=[
+            CapabilityDecl(
+                name="analysis.text",
+                input_schema="rosclaw://schemas/text-task.v1",
+                output_schema="rosclaw://schemas/text-result.v1",
+                side_effect_class="none",
+            ),
+            CapabilityDecl(
+                name="analysis.log_review",
+                input_schema="rosclaw://schemas/text-task.v1",
+                output_schema="rosclaw://schemas/text-result.v1",
+                side_effect_class="none",
+            ),
+            CapabilityDecl(
+                name="review.artifact",
+                input_schema="rosclaw://schemas/text-task.v1",
+                output_schema="rosclaw://schemas/text-result.v1",
+                side_effect_class="none",
+            ),
+            # 只读工具（read/grep/find/ls）真实可读工作区——与外部 pack
+            # 的 text-only 伪仓库分析不同（十审 §10.2 诚实化）。
+            CapabilityDecl(
+                name="code.repository_analysis",
+                input_schema="rosclaw://schemas/text-task.v1",
+                output_schema="rosclaw://schemas/text-result.v1",
+                side_effect_class="none",
+            ),
+        ],
+        constraints=WorkerConstraints(supported_platforms=["linux", "darwin"], max_concurrency=2),
+        security=WorkerSecurity(isolation="process"),
+        health=WorkerHealth(probe="adapter:ping", heartbeat_interval_sec=15, lease_ttl_sec=360),
+        provenance=WorkerProvenance(source="builtin", package_digest=None, license="MIT"),
+        trust=WorkerTrust(initial_level="T3", evidence_count=0),
+    )
+
+
 class WorkerRegistry:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
@@ -156,6 +217,8 @@ class WorkerRegistry:
 
     def register_builtins(self, *, actor_id: str) -> None:
         self.register(native_basic_card(), actor_id=actor_id)
+        # 十审 W1：内置 Pi Worker（默认开发/研究 Worker）。
+        self.register(pi_worker_card(), actor_id=actor_id)
 
     # ------------------------------------------------------------------
     def get(self, worker_id: str) -> WorkerCardV1 | None:

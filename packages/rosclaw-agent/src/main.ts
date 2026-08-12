@@ -71,6 +71,12 @@ function parseArgs(argv: string[]): CliArgs {
 }
 
 async function main(): Promise<number> {
+	// 十审 W1：内置 headless Worker 入口（agentd pi_managed adapter
+	// 以子进程方式调用）——不走交互式 runtime。
+	if (process.argv[2] === "worker") {
+		const { runHeadlessWorker } = await import("./workers/pi-worker-main.js");
+		return await runHeadlessWorker(process.argv.slice(3));
+	}
 	const { InteractiveMode, runPrintMode, SessionManager } = await import(
 		"@earendil-works/pi-coding-agent"
 	);

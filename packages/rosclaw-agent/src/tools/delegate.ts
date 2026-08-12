@@ -73,7 +73,10 @@ export function buildDelegateTool(ctx: BridgeToolContext) {
 		parameters: Type.Object({
 			goal: Type.String({ description: "self-contained subtask goal" }),
 			worker_id: Type.Optional(
-				Type.String({ description: "auto | worker:native:local | worker:claude-code:local | ..." }),
+				Type.String({ description: "auto | worker:rosclaw:pi | worker:native:basic | ..." }),
+			),
+			worker_profile: Type.Optional(
+				Type.String({ description: "built-in worker profile: scout | analyst" }),
 			),
 			capability: Type.Optional(Type.String()),
 			instructions: Type.Optional(Type.String()),
@@ -84,11 +87,18 @@ export function buildDelegateTool(ctx: BridgeToolContext) {
 				}),
 			),
 		}),
-		async execute(_id, params, signal, _onUpdate, _ctx) {
+		async execute(_id, params, signal, _onUpdate, toolCtx) {
 			const workOrderId = `wo_${randomBytes(8).toString("hex")}`;
+			// 十审 W1：无 secret 模型快照——Worker 与主 Agent 同一模型配置
+			// （凭据由子进程从同一 agentDir/auth.json 读取，绝不经 WorkOrder）。
+			const model = (toolCtx as { model?: { provider: string; id: string } } | undefined)?.model;
+			const thinking = (toolCtx as { thinkingLevel?: string } | undefined)?.thinkingLevel;
 			const request = buildRequest(ctx, "rosclaw_delegate", {
 				...(params as Record<string, unknown>),
 				work_order_id: workOrderId,
+				...(model
+					? { model_snapshot: { provider: model.provider, model: model.id, ...(thinking ? { thinking } : {}) } }
+					: {}),
 			});
 			cancelOnAbort(ctx, signal, workOrderId);
 			const response = await ctx.center.call("pi.tools.execute", { request });

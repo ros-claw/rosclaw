@@ -302,8 +302,10 @@ class AgentService:
         # External harness packs (PR-WF-054): register cards by probe result
         # (missing binary → DISABLED with T0 note, never fake readiness).
         # 同步探活（init 可能在 async 上下文中被构造，不能 run_until_complete）。
+        from rosclaw.agentd.pi_entry import find_pi_agent_entry
         from rosclaw.agentd.workers.external import ExternalHarnessAdapter
         from rosclaw.agentd.workers.packs import ALL_PACKS, card_for_pack
+        from rosclaw.agentd.workers.pi_managed import PiManagedAdapter
 
         external_adapter = ExternalHarnessAdapter(cwd=rosclaw_home)
         for pack in ALL_PACKS:
@@ -321,10 +323,21 @@ class AgentService:
             adapters={
                 "native_inproc": NativeWorkerAdapter(self._gateway),
                 "external_cli": external_adapter,
+                # 十审 W1：内置 Pi headless Worker（与主 Agent 同一模型配置）。
+                "pi_managed": PiManagedAdapter(rosclaw_home=rosclaw_home),
             },
             actor_id=self.actor_id,
             event_recorder=self._record_worker_event,
         )
+        # 内置 Pi Worker 的就绪性取决于 node+dist——不可用时诚实 DISABLED
+        # （绝不"看起来装了就 ENABLED"）。
+        if find_pi_agent_entry() is None:
+            self._registry.set_status(
+                "worker:rosclaw:pi",
+                "DISABLED",
+                actor_id=self.actor_id,
+                reason="rosclaw-agent dist 或 Node ≥22.19 不可用",
+            )
         self._handlers = ServiceIntentHandlers(
             registry=self._registry,
             manager=self._worker_manager,

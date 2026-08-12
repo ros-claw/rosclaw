@@ -15,8 +15,8 @@ import {
 	type AgentSessionRuntime,
 } from "@earendil-works/pi-coding-agent";
 import { migrateProviders } from "../credentials/migration.js";
-import { credentialStoreFor } from "../credentials/store.js";
 import { resourcePolicy } from "../extension/resource-policy.js";
+import { createSharedModelRuntime } from "./model-runtime.js";
 import { ActiveSessionContext } from "../session/active-context.js";
 import { AgentSessionCoordinator } from "../session/coordinator.js";
 import { SessionLeaseManager } from "../session/lease-manager.js";
@@ -132,14 +132,8 @@ export async function createRosclawRuntime(
 		};
 	}
 	// 凭据后端按 profile：developer=加固文件（0600/原子写/fsync），
-	// robot=env-only（写即拒）。
-	const modelRuntime = await ModelRuntime.create({
-		credentials: credentialStoreFor(options.profile, agentDir) as never,
-		authPath: `${agentDir}/auth.json`,
-		// robot=env-only 时禁 models.json；developer 允许用户自定义 provider
-		// （models.json 自定义 endpoint 是 developer 的合法能力）。
-		modelsPath: options.profile === "robot" ? null : `${agentDir}/models.json`,
-	});
+	// robot=env-only（写即拒）。十审 W1：与 Worker 共用同一构造逻辑。
+	const modelRuntime = await createSharedModelRuntime(agentDir, options.profile);
 	const systemPrompt = loadSystemPrompt();
 
 	const runtime = await createAgentSessionRuntime(
