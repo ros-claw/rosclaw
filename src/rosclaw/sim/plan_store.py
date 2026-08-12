@@ -45,8 +45,11 @@ class PersistentPlanStore:
         os.replace(tmp, path)
 
     def put(self, trajectory: dict, summary: str) -> dict:
+        # 九审 §17.3：随机实例 ID + digest 内容寻址分离。
+        import uuid as _uuid
+
         digest = str(trajectory["hash"])
-        plan_id = f"plan_{digest[:16]}"
+        plan_id = f"plan_{_uuid.uuid4().hex[:16]}"
         existing = self._read(plan_id)
         if existing is not None:
             return existing

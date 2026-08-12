@@ -1,0 +1,54 @@
+{
+  "additionalProperties": true,
+  "description": "任务何时算完成（§6.3）。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.outcome_contract.v1",
+      "default": "rosclaw.outcome_contract.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "goal": {
+      "title": "Goal",
+      "type": "string"
+    },
+    "required_outcomes": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Outcomes",
+      "type": "array"
+    },
+    "deliverables": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Deliverables",
+      "type": "array"
+    },
+    "required_evidence": {
+      "default": "COMMAND_REPLAY",
+      "title": "Required Evidence",
+      "type": "string"
+    },
+    "success_criteria": {
+      "additionalProperties": true,
+      "default": {},
+      "title": "Success Criteria",
+      "type": "object"
+    },
+    "partial_policy": {
+      "default": "report_partial_with_recovery",
+      "title": "Partial Policy",
+      "type": "string"
+    }
+  },
+  "required": [
+    "goal"
+  ],
+  "title": "rosclaw.outcome_contract.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.outcome_contract.v1"
+}

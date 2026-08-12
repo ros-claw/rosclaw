@@ -1,0 +1,77 @@
+{
+  "additionalProperties": true,
+  "description": "模型/解析器对一次用户 turn 的目标理解（§6.2）。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.goal_envelope.v1",
+      "default": "rosclaw.goal_envelope.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "turn_id": {
+      "title": "Turn Id",
+      "type": "string"
+    },
+    "kind": {
+      "title": "Kind",
+      "type": "string"
+    },
+    "goal": {
+      "title": "Goal",
+      "type": "string"
+    },
+    "target": {
+      "additionalProperties": true,
+      "default": {},
+      "title": "Target",
+      "type": "object"
+    },
+    "requested_mode": {
+      "default": "SIMULATION",
+      "title": "Requested Mode",
+      "type": "string"
+    },
+    "deliverables": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Deliverables",
+      "type": "array"
+    },
+    "constraints": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Constraints",
+      "type": "array"
+    },
+    "ambiguities": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Ambiguities",
+      "type": "array"
+    },
+    "confidence": {
+      "default": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "route_hint": {
+      "default": "",
+      "title": "Route Hint",
+      "type": "string"
+    }
+  },
+  "required": [
+    "turn_id",
+    "kind",
+    "goal"
+  ],
+  "title": "rosclaw.goal_envelope.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.goal_envelope.v1"
+}

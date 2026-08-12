@@ -15,6 +15,14 @@ from rosclaw.contracts.agent.context import EmbodiedContextBundleV1
 from rosclaw.contracts.agent.decision import DecisionV1
 from rosclaw.contracts.agent.mission import MissionSessionV1
 from rosclaw.contracts.agent.model_turn import ModelTurnResultV1
+from rosclaw.contracts.agent.task_contracts import (
+    ArtifactRefV1,
+    EvidenceClaimV1,
+    GoalEnvelopeV1,
+    OutcomeContractV1,
+    TaskSpecV3,
+    WorkOrderV2,
+)
 from rosclaw.contracts.agent.task_graph import TaskGraphPatchV1, TaskGraphV1, TaskNodeV1
 from rosclaw.contracts.agent.tool import ToolDescriptorV2
 from rosclaw.contracts.common import ContractModel
@@ -58,6 +66,12 @@ ALL_CONTRACTS: dict[str, type[ContractModel]] = {
         MissionSnapshotV1,
         InteractionRequestV1,
         ReasoningBranchV1,
+        GoalEnvelopeV1,
+        OutcomeContractV1,
+        TaskSpecV3,
+        ArtifactRefV1,
+        EvidenceClaimV1,
+        WorkOrderV2,
     )
 }
 

@@ -43,9 +43,9 @@ _state = {
     "plans": {},
 }
 
-# 七审 §6 PR-SEVEN-4.9：本产品面是确定性运动学沙盒——不暗示
-# Gazebo/MoveIt 物理仿真。
-SIM_KIND = "kinematic-sandbox"
+# 七审 §6 PR-SEVEN-4.9 + 九审 §21.6：本产品面是确定性命令回放
+# 沙盒（规划点写入 state 再自证）——不暗示运动学/动力学仿真。
+SIM_KIND = "command-replay"
 
 
 class PlanStore:
@@ -67,8 +67,12 @@ class PlanStore:
         return time.monotonic()
 
     def put(self, trajectory: dict, summary: str) -> dict:
+        # 九审 §17.3：plan_instance_id 随机——digest 只做内容寻址；
+        # 同一任务可合法重复执行（每个实例单次消费）。
+        import uuid as _uuid
+
         digest = str(trajectory["hash"])
-        plan_id = f"plan_{digest[:16]}"
+        plan_id = f"plan_{_uuid.uuid4().hex[:16]}"
         if plan_id not in self._records:
             if len(self._records) >= self._capacity:
                 oldest = min(

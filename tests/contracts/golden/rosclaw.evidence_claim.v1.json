@@ -1,0 +1,76 @@
+{
+  "additionalProperties": true,
+  "description": "证据声明（§18.2）。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.evidence_claim.v1",
+      "default": "rosclaw.evidence_claim.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "claim": {
+      "title": "Claim",
+      "type": "string"
+    },
+    "subject": {
+      "default": "",
+      "title": "Subject",
+      "type": "string"
+    },
+    "source": {
+      "default": "",
+      "title": "Source",
+      "type": "string"
+    },
+    "observation": {
+      "default": "",
+      "title": "Observation",
+      "type": "string"
+    },
+    "evidence_level": {
+      "default": "PLANNED",
+      "title": "Evidence Level",
+      "type": "string"
+    },
+    "verifier": {
+      "default": "",
+      "title": "Verifier",
+      "type": "string"
+    },
+    "confidence": {
+      "default": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "limitations": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "artifact_refs": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Artifact Refs",
+      "type": "array"
+    },
+    "receipt_refs": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Receipt Refs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "claim"
+  ],
+  "title": "rosclaw.evidence_claim.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.evidence_claim.v1"
+}

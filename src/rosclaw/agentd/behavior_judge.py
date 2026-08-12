@@ -66,6 +66,12 @@ def judge_session(metrics: dict[str, Any]) -> dict[str, Any]:
     for name, count in retries.items():
         if count > STAR_TASK_SLO["retry_budget"]:
             violations.append(f"{name}_retries={count} > 0（确定性协议工作交给了 LLM）")
+    # 九审 §21.10 硬门：输入落账与因果完整是发布阻断条件——任一
+    # 显式 False 即 FAIL（缺省按未知不计，由 journey 负责提供）。
+    if metrics.get("input_persisted") is False:
+        violations.append("input_persisted=False（用户输入未落账——发布阻断）")
+    if metrics.get("causal_integrity") is False:
+        violations.append("causal_integrity=False（任务/认知账本分叉——发布阻断）")
     # verifier 未 PASS 却声称完成——单独即 FAIL。
     if metrics.get("task_completed") and not metrics.get("verifier_pass"):
         violations.append("verifier 未 PASS 却声称完成（完成真实性违规）")

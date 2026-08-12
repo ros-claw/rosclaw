@@ -449,7 +449,7 @@ class TaskRunner:
             "evidence_level": "COMMAND_REPLAY",
             "plan_id": record.get("plan_id") or "",
             "summary": (
-                "UR5e 运动学沙盒绘制闭合五角星"
+                "UR5e 命令回放沙盒绘制闭合五角星（路径自洽）"
                 if record["state"] == "VERIFIED"
                 else f"任务{record['state']}"
             ),
