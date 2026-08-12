@@ -309,11 +309,11 @@ class TestHeadlessWorkerProtocol:
 
 class TestDelegateRoutesToBuiltinWorker:
     async def test_delegate_accepts_pi_worker_hint(self, tmp_path: Path) -> None:
-        """worker_id=worker:rosclaw:pi 必须能 hire（不报 WORKER_UNAVAILABLE）。"""
+        """worker_id=worker:rosclaw:pi 的调度行为必须诚实：
+        node+dist 可用 → hire 成功（STARTED）；不可用 → 诚实拒绝
+        （WORKER_UNAVAILABLE/SCHEDULING_FAILED），绝不假装能跑。"""
         service, mission = await _setup(tmp_path)
         dispatcher = PiToolDispatcher(service)
-        # 不真跑子进程——hire 后立即 cancel（driver 会 adapter.start 失败
-        # 也允许；这里只验证调度可达）。
         result = await dispatcher.execute(
             _request(
                 "rosclaw_delegate",
@@ -326,16 +326,21 @@ class TestDelegateRoutesToBuiltinWorker:
                 },
             )
         )
-        assert result.ok, result.summary
-        assert result.status == "STARTED"
-        orders = service._worker_manager.orders_for_mission(mission.mission_id)
-        assert orders and orders[0].assigned_to == "worker:rosclaw:pi"
-        await dispatcher.execute(
-            _request(
-                "rosclaw_cancel_work",
-                mission=mission.mission_id,
-                idem="idem_w1_route_c",
-                arguments={"work_order_id": orders[0].work_order_id},
+        enabled = service._registry.status_of("worker:rosclaw:pi") == "ENABLED"
+        if enabled:
+            assert result.ok, result.summary
+            assert result.status == "STARTED"
+            orders = service._worker_manager.orders_for_mission(mission.mission_id)
+            assert orders and orders[0].assigned_to == "worker:rosclaw:pi"
+            await dispatcher.execute(
+                _request(
+                    "rosclaw_cancel_work",
+                    mission=mission.mission_id,
+                    idem="idem_w1_route_c",
+                    arguments={"work_order_id": orders[0].work_order_id},
+                )
             )
-        )
+        else:
+            assert not result.ok
+            assert result.error_code in {"WORKER_UNAVAILABLE", "SCHEDULING_FAILED"}
         await service.close()
