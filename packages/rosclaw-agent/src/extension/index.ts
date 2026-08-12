@@ -252,6 +252,21 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			} catch {
 				// 命名失败不阻塞输入。
 			}
+			// 九审 §6.1/NINE-2：UserTurn 落账（先落账再进模型）——任务
+			// 因果链（caused_by_turn_id）的来源。落账失败不阻塞输入
+			// （Pi JSONL 仍是消息账本；UserTurn 是任务因果投影）。
+			try {
+				const sessionId = options.active.current.sessionId;
+				if (sessionId) {
+					await center.call("pi.turn.record", {
+						pi_session_id: sessionId,
+						text,
+						source: "interactive",
+					});
+				}
+			} catch {
+				// 落账失败不阻塞输入。
+			}
 			return { action: "continue" as const };
 		});
 

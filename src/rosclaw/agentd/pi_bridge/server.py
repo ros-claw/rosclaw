@@ -309,6 +309,30 @@ class PiBridgeServer:
                         }
                     await asyncio.sleep(0.2)
             return {"ok": sock.exists(), "enrolled": True, "running": sock.exists()}
+        if method == "pi.turn.record":
+            # 九审 §6.1：用户输入先落账——interactive 以外来源拒绝。
+            from rosclaw.agentd.turn_store import TurnStore
+
+            session_id = str(params.get("pi_session_id", ""))
+            text = str(params.get("text", ""))
+            source = str(params.get("source", ""))
+            if not session_id or not text:
+                return {"ok": False, "error": "session/text required",
+                        "code": "INVALID_ARGUMENT"}
+            mission_id = ""
+            binding = self._bindings.binding_for_session(session_id)
+            if binding is not None:
+                mission_id = binding.mission_id
+            try:
+                turn = TurnStore(service._store.connection).record(
+                    pi_session_id=session_id,
+                    mission_id=mission_id,
+                    text=text,
+                    source=source,
+                )
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc), "code": "SOURCE_FORBIDDEN"}
+            return {"ok": True, "turn": turn}
         if method == "pi.intent.route":
             # WP-P0-5（总纲 §7.1）：确定性 Intent Router——已知任务
             # 零模型回合；未命中诚实 None（交模型路径）。

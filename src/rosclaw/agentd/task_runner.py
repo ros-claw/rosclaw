@@ -66,13 +66,15 @@ class TaskStore:
         mission_id: str,
         goal: str,
         params: dict,
+        caused_by_turn_id: str = "",
     ) -> None:
         now = datetime.now(UTC).isoformat()
         self._conn.execute(
             "INSERT INTO task_records (task_id, idempotency_key, mission_id, "
-            "goal, params_json, state, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, 'CREATED', ?, ?)",
-            (task_id, idempotency_key, mission_id, goal, json.dumps(params), now, now),
+            "goal, params_json, state, caused_by_turn_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, 'CREATED', ?, ?, ?)",
+            (task_id, idempotency_key, mission_id, goal, json.dumps(params),
+             caused_by_turn_id, now, now),
         )
 
     def get_by_id(self, task_id: str) -> dict | None:
@@ -205,12 +207,23 @@ class TaskRunner:
                 "TASK_UNKNOWN", f"unknown task goal {goal!r} (supported: draw_shape)"
             )
         task_id = new_id("task")
+        # 九审 §7：caused_by_turn_id——任务必须可追溯到用户 turn
+        # （该 session 最近的 interactive 输入；无则空=历史/命令路径）。
+        caused_by = ""
+        with contextlib.suppress(Exception):
+            from rosclaw.agentd.turn_store import TurnStore
+
+            latest = TurnStore(self._service._store.connection).latest_for_session(
+                request_ctx.pi_session_id
+            )
+            caused_by = str(latest["turn_id"]) if latest else ""
         self._store.create(
             task_id=task_id,
             idempotency_key=idem,
             mission_id=request_ctx.mission_id,
             goal=goal,
             params=parameters,
+            caused_by_turn_id=caused_by,
         )
         try:
             compiled = self._compile_draw_shape(parameters)
