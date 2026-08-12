@@ -29,7 +29,7 @@ import { fileURLToPath } from "node:url";
 
 import { createRosclawExtension } from "../extension/index.js";
 import { buildBridgeTools } from "../tools/bridge-tools.js";
-import { buildDelegateTool } from "../tools/delegate.js";
+import { buildDelegateTool, buildCheckWorkTool, buildCancelWorkTool } from "../tools/delegate.js";
 import { buildRequestActionTool } from "../tools/request-action.js";
 import { buildCapabilitiesTool } from "../tools/capabilities.js";
 import { buildComputeTool } from "../tools/compute.js";
@@ -213,6 +213,17 @@ export async function createRosclawRuntime(
 					center,
 				}),
 				buildDelegateTool({
+					rosclawHome: options.rosclawHome,
+					active,
+					center,
+				}),
+				// 十审 W0：异步 WorkOrder 协议（按精确 ID 查询/取消）。
+				buildCheckWorkTool({
+					rosclawHome: options.rosclawHome,
+					active,
+					center,
+				}),
+				buildCancelWorkTool({
 					rosclawHome: options.rosclawHome,
 					active,
 					center,

@@ -57,10 +57,12 @@ CLAUDE_CODE_PACK = WorkerPackManifest(
         "`rosclaw worker probe worker:claude-code:local` 与 `rosclaw worker enable`。"
     ),
     license="proprietary",
+    # 十审 W0（P0-CAPABILITY-LIE）：移除 docs.write——该 pack 运行时
+    # --disallowedTools "*" 禁止一切写；声明 write 是能力欺诈。等 W3
+    # Workbench（真沙箱写）落地后才允许重新声明写能力。
     capabilities=(
         ("code.repository_analysis", "rosclaw://schemas/text-task.v1"),
         ("code.test_analysis", "rosclaw://schemas/text-task.v1"),
-        ("docs.write", "rosclaw://schemas/text-task.v1"),
     ),
     env_passthrough=(
         "ANTHROPIC_BASE_URL",

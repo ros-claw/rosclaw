@@ -336,6 +336,8 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					"rosclaw_memory_query",
 					"rosclaw_fail_safe",
 					"rosclaw_delegate",
+					"rosclaw_check_work",
+					"rosclaw_cancel_work",
 					"rosclaw_request_action",
 				],
 			}),
@@ -403,9 +405,16 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 							actor: { engine: "pi-command" },
 						},
 					});
-					const result = (response.result ?? {}) as { summary?: string; error_code?: string };
+					const result = (response.result ?? {}) as {
+						summary?: string;
+						error_code?: string;
+						status?: string;
+					};
 					if (response.ok) {
-						ctx.ui.notify(`Worker 完成（已验证）：${(result.summary ?? "").slice(0, 200)}`, "info");
+						// 十审 W0：STARTED 不是"完成"——summary 自带精确 ID/
+						// worker/预算/deadline，原样展示，不伪造完成。
+						const headline = result.status === "STARTED" ? "Worker 已启动" : "Worker 完成（已验证）";
+						ctx.ui.notify(`${headline}：${(result.summary ?? "").slice(0, 400)}`, "info");
 					} else {
 						ctx.ui.notify(
 							`委派失败 [${result.error_code ?? response.code ?? "?"}]：${result.summary ?? response.error ?? ""}`,

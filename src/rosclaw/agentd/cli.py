@@ -398,10 +398,36 @@ def cmd_chat(args: argparse.Namespace) -> int:
     if engine == "pi":
         return _chat_pi(home, args)
     config = load_agent_config(home / "config.yaml")
+    # 诊断路由必须先于 AgentService 构造（启动 warning 就在那里出现）。
+    _route_internal_diagnostics_to_log(home, debug=bool(getattr(args, "debug", False)))
     service = AgentService(config, home)
     if getattr(args, "basic", False):
         return asyncio.run(_chat_repl(service, args))
     return _chat_tui(service, args)
+
+
+def _route_internal_diagnostics_to_log(home: Path, *, debug: bool) -> None:
+    """十审 W0（P1-PRODUCT-NOISE）：Python warnings（pydantic forward-ref、
+    第三方 deprecation 等内部诊断）默认进 logs/python-warnings.log，
+    不糊 TUI 第一屏；--debug 或 ROSCLAW_DEBUG 时保持终端可见。
+    """
+    import logging as _logging
+
+    if debug or os.environ.get("ROSCLAW_DEBUG"):
+        return
+    try:
+        log_dir = home / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        handler = _logging.FileHandler(log_dir / "python-warnings.log")
+        handler.setFormatter(
+            _logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
+        )
+        py_warnings = _logging.getLogger("py.warnings")
+        py_warnings.addHandler(handler)
+        py_warnings.propagate = False
+        _logging.captureWarnings(True)
+    except OSError:
+        pass
 
 
 def _find_pi_agent_entry() -> tuple[str, str] | None:
@@ -436,6 +462,8 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
         return 2
     node, entry = runtime
     config = load_agent_config(home / "config.yaml")
+    # 十审 W0：诊断路由必须先于 AgentService 构造（启动 warning 就在那里）。
+    _route_internal_diagnostics_to_log(home, debug=bool(getattr(args, "debug", False)))
     service = AgentService(config, home)
     # Mission：--mission 复用或新建（SIMULATION 默认）。
     # --continue/--resume 不预建 Mission（P0-2：由 session 切换事务
@@ -1137,6 +1165,11 @@ def add_agent_subparsers(subparsers) -> None:
         "--basic",
         action="store_true",
         help="兼容/诊断模式：Python input() 行式 REPL（无 TUI）",
+    )
+    p_chat.add_argument(
+        "--debug",
+        action="store_true",
+        help="诊断模式：内部 warning/MCP 子进程诊断回显终端（默认写入 logs/）",
     )
     p_chat.add_argument(
         "--engine",

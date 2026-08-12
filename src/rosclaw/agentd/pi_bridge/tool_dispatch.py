@@ -13,8 +13,10 @@ PNA-3 工具集（read/observe/verify/memory/fail_safe/status）：
 
 from __future__ import annotations
 
+import asyncio
 import json
-from datetime import UTC, datetime
+import re
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from rosclaw.agentd.pi_bridge.session_binding import SessionBindingStore
@@ -32,6 +34,10 @@ _TOOL_TABLE: dict[str, str] = {
     "rosclaw_memory_query": "read",
     "rosclaw_fail_safe": "control",
     "rosclaw_delegate": "delegate",
+    # 十审 W0：异步 WorkOrder 协议——start 立即返回精确 ID；check/cancel
+    # 按 ID 精确关联（不再是"取 mission 最后一单"）。
+    "rosclaw_check_work": "read",
+    "rosclaw_cancel_work": "delegate",
     "rosclaw_request_action": "physical_action",
     # 八审 P0-5：任务级入口——确定性编译器编排，模型只交 TaskSpec。
     "rosclaw_task": "task",
@@ -300,6 +306,10 @@ class PiToolDispatcher:
             return await self._task(request)
         if name == "rosclaw_delegate":
             return await self._delegate(request)
+        if name == "rosclaw_check_work":
+            return await self._check_work(request)
+        if name == "rosclaw_cancel_work":
+            return await self._cancel_work(request)
         if name == "rosclaw_fail_safe":
             await service.cancel(request.mission_id)
             return PiToolResultV1(
@@ -346,8 +356,14 @@ class PiToolDispatcher:
             )
         order_depth = 0
         capability = str(args.get("capability") or "analysis.text")
+        # 十审 W0：调用方（TS 工具层，非模型字段）可预生成 work_order_id——
+        # abort 在响应返回前也能按精确 ID cancel（修 P0-ORDER-CORRELATION
+        # 的另一半：abort 不再"找不到要杀的单"）。
+        provided_wo = str(args.get("work_order_id", "") or "")
+        if provided_wo and not re.fullmatch(r"wo_[A-Za-z0-9]{8,32}", provided_wo):
+            raise ToolBridgeError("INVALID_ARGUMENTS", "malformed work_order_id")
         order = WorkOrderV1(
-            work_order_id=new_id("wo"),
+            work_order_id=provided_wo or new_id("wo"),
             mission_id=request.mission_id,
             issued_by="rosclaw-agent:pi",
             capability=capability,
@@ -393,25 +409,185 @@ class PiToolDispatcher:
             scheduled = service._worker_manager.hire(order, candidates)
         except Exception as exc:  # noqa: BLE001 - 诚实失败，不伪造委派
             raise ToolBridgeError("SCHEDULING_FAILED", str(exc), retryable=True) from exc
-        result, report = await service._worker_manager.run_to_completion(scheduled)
-        if not report.accepted:
+        # 十审 W0（P0-WORKER-BLOCK）：不在工具请求栈里同步等待整个任务。
+        # 后台驱动任务驱动到终态；这里只在短 grace 内等"快任务"——
+        # 超时返回 STARTED + 精确 WorkOrder ID/worker/预算/deadline。
+        service.spawn_worker_driver(scheduled)
+        grace = float(args.get("sync_grace_sec", 3.0) or 0)
+        grace = max(0.0, min(grace, 10.0))  # 硬上限：永不长阻塞父会话
+        terminal = await self._await_terminal(
+            scheduled.work_order_id, timeout_sec=grace
+        )
+        if terminal is not None:
+            return self._terminal_response(request, terminal)
+        deadline = datetime.now(UTC) + timedelta(seconds=scheduled.budgets.wall_time_sec)
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status="STARTED",
+            summary=(
+                "已启动后台 Worker（不阻塞本会话——你可以继续与用户交互）。\n"
+                f"WorkOrder: {scheduled.work_order_id}\n"
+                f"Worker: {scheduled.assigned_to}\n"
+                f"预算: wall_time {scheduled.budgets.wall_time_sec}s · "
+                f"{scheduled.budgets.model_tokens} tokens\n"
+                f"Deadline: {deadline.isoformat()}\n"
+                f"查询进度：rosclaw_check_work(work_order_id=\"{scheduled.work_order_id}\")；"
+                f"取消：rosclaw_cancel_work(work_order_id=\"{scheduled.work_order_id}\")。"
+                "Worker 产出须经 ROSClaw 验证后才会被采纳。"
+            ),
+        )
+
+    async def _await_terminal(self, work_order_id: str, *, timeout_sec: float):
+        """短 grace 内等待终态（快任务保持同步体验）；超时返回 None。"""
+        if timeout_sec <= 0:
+            return None
+        loop = asyncio.get_running_loop()
+        end = loop.time() + timeout_sec
+        while loop.time() < end:
+            order = self._service._worker_manager.order(work_order_id)
+            if order is not None and order.status in (
+                "ACCEPTED",
+                "FAILED",
+                "EXPIRED",
+                "CANCELLED",
+            ):
+                return order
+            await asyncio.sleep(0.05)
+        return None
+
+    def _terminal_response(self, request: PiToolRequestV1, order) -> PiToolResultV1:
+        """终态 WorkOrder → 工具结果（从权威存储读结果与验证报告）。"""
+        conn = self._service._store.connection
+        row = conn.execute(
+            "SELECT result_json FROM work_results WHERE work_order_id = ?",
+            (order.work_order_id,),
+        ).fetchone()
+        summary = ""
+        artifact_refs: list[str] = []
+        result_status = ""
+        if row is not None:
+            payload = json.loads(row["result_json"])
+            summary = str(payload.get("summary", ""))
+            artifact_refs = [str(a.get("ref", "")) for a in payload.get("artifacts", [])]
+            result_status = str(payload.get("status", ""))
+        verify_row = conn.execute(
+            "SELECT verify_report_json FROM work_orders WHERE work_order_id = ?",
+            (order.work_order_id,),
+        ).fetchone()
+        accepted = False
+        reasons: list[str] = []
+        if verify_row and verify_row["verify_report_json"]:
+            report = json.loads(verify_row["verify_report_json"])
+            accepted = bool(report.get("accepted"))
+            reasons = [str(r) for r in report.get("reasons", [])]
+        if order.status == "ACCEPTED" and accepted:
+            return PiToolResultV1(
+                request_id=request.request_id,
+                ok=True,
+                status="COMPLETED",
+                summary=summary,
+                artifact_refs=artifact_refs,
+            )
+        if order.status == "CANCELLED":
             return PiToolResultV1(
                 request_id=request.request_id,
                 ok=False,
-                status="VERIFY_FAILED",
-                summary=(
-                    f"Worker {scheduled.assigned_to} 提交的结果未通过验证"
-                    f"（{'；'.join(report.reasons) or '未知'}）——未采纳进主上下文。"
-                ),
-                error_code="VERIFICATION_REJECTED",
+                status="CANCELLED",
+                summary=f"WorkOrder {order.work_order_id} 已取消。",
+                error_code="WORK_CANCELLED",
+            )
+        if result_status == "FAILED" or order.status == "FAILED":
+            if reasons:
+                return PiToolResultV1(
+                    request_id=request.request_id,
+                    ok=False,
+                    status="VERIFY_FAILED",
+                    summary=(
+                        f"Worker {order.assigned_to} 提交的结果未通过验证"
+                        f"（{'；'.join(reasons)}）——未采纳进主上下文。"
+                    ),
+                    error_code="VERIFICATION_REJECTED",
+                    retryable=True,
+                )
+            return PiToolResultV1(
+                request_id=request.request_id,
+                ok=False,
+                status="FAILED",
+                summary=summary or f"Worker {order.assigned_to} 失败。",
+                error_code="WORKER_FAILED",
                 retryable=True,
             )
         return PiToolResultV1(
             request_id=request.request_id,
+            ok=False,
+            status=order.status,
+            summary=f"WorkOrder {order.work_order_id} 终态 {order.status}。",
+            error_code="WORK_NOT_COMPLETED",
+            retryable=True,
+        )
+
+    async def _check_work(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """十审 W0：按精确 work_order_id 查询（修 P0-ORDER-CORRELATION）。"""
+        work_order_id = str(request.arguments.get("work_order_id", "")).strip()
+        if not work_order_id:
+            raise ToolBridgeError("INVALID_ARGUMENTS", "work_order_id required")
+        order = self._service._worker_manager.order(work_order_id)
+        if order is None:
+            raise ToolBridgeError(
+                "WORK_ORDER_NOT_FOUND", f"unknown work order {work_order_id!r}"
+            )
+        if order.mission_id != request.mission_id:
+            raise ToolBridgeError(
+                "MISSION_MISMATCH", "work order belongs to a different mission"
+            )
+        if order.status in ("ACCEPTED", "FAILED", "EXPIRED", "CANCELLED"):
+            response = self._terminal_response(request, order)
+            # check 的语义是"查询"——终态本身不是调用失败。
+            response.ok = True
+            return response
+        conn = self._service._store.connection
+        hb = conn.execute(
+            "SELECT last_heartbeat_at, heartbeat_seq FROM work_orders WHERE work_order_id = ?",
+            (work_order_id,),
+        ).fetchone()
+        return PiToolResultV1(
+            request_id=request.request_id,
             ok=True,
-            status="COMPLETED",
-            summary=result.summary,
-            artifact_refs=[a.ref for a in result.artifacts],
+            status=order.status,
+            summary=(
+                f"WorkOrder {order.work_order_id} · Worker {order.assigned_to} · "
+                f"状态 {order.status}"
+                + (
+                    f" · 心跳 seq={hb['heartbeat_seq']} at {hb['last_heartbeat_at']}"
+                    if hb and hb["last_heartbeat_at"]
+                    else " · 暂无心跳"
+                )
+            ),
+        )
+
+    async def _cancel_work(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """十审 W0：cancel 闭环——WorkOrder CANCELLED + adapter 杀进程树。"""
+        work_order_id = str(request.arguments.get("work_order_id", "")).strip()
+        if not work_order_id:
+            raise ToolBridgeError("INVALID_ARGUMENTS", "work_order_id required")
+        reason = str(request.arguments.get("reason", "") or "model_cancel")
+        order = self._service._worker_manager.order(work_order_id)
+        if order is None:
+            raise ToolBridgeError(
+                "WORK_ORDER_NOT_FOUND", f"unknown work order {work_order_id!r}"
+            )
+        if order.mission_id != request.mission_id:
+            raise ToolBridgeError(
+                "MISSION_MISMATCH", "work order belongs to a different mission"
+            )
+        final = await self._service._worker_manager.cancel_order(work_order_id, reason=reason)
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status=final.status,
+            summary=f"WorkOrder {work_order_id} 当前状态 {final.status}。",
+            error_code=None if final.status == "CANCELLED" else "ALREADY_TERMINAL",
         )
 
     async def _task(self, request: PiToolRequestV1) -> PiToolResultV1:

@@ -24,7 +24,10 @@ import time
 
 from mcp.server.fastmcp import FastMCP
 
-server = FastMCP("ur5e-sim")
+# 十审 W0：WARNING——FastMCP 默认 INFO 会把 "Processing request of type
+# ListToolsRequest" 打到 stderr（经 errlog 泄漏进 TUI 第一屏）。内部诊断
+# 只在 --debug/doctor/log 出现。
+server = FastMCP("ur5e-sim", log_level="WARNING")
 
 # UR5e 近似关节限位（rad）——教学级 SIM 边界，不是真实 DH 模型。
 _JOINT_LIMITS = (-2 * math.pi, 2 * math.pi)

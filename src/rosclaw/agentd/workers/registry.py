@@ -23,6 +23,12 @@ HARD_FORBIDDEN_SCOPES = frozenset(
     {"daemon_private_ledger", "physical_permits", "raw_secrets", "direct_hardware"}
 )
 
+#: 十审 W0（P0-CAPABILITY-LIE）：能力名尾段暗示副作用时，side_effect_class
+#: 不得是 "none"——声明即承诺，注册处硬拒绝（docs.write + none = 欺诈）。
+_SIDE_EFFECT_IMPLYING_TAILS = frozenset(
+    {"write", "edit", "delete", "execute", "install", "promote", "apply"}
+)
+
 _WORKER_STATUSES = ("ENABLED", "DISABLED", "QUARANTINED")
 
 
@@ -55,6 +61,13 @@ def validate_card(card: WorkerCardV1) -> None:
             errors.append(f"capability name {cap.name!r} must be namespaced")
         if cap.side_effect_class == "physical":
             errors.append(f"capability {cap.name!r}: physical side effects forbidden in P0/P1")
+        # 十审 W0：名字暗示写/执行副作用却声明 none——能力欺诈，拒绝注册。
+        tail = cap.name.rsplit(".", 1)[-1]
+        if tail in _SIDE_EFFECT_IMPLYING_TAILS and cap.side_effect_class == "none":
+            errors.append(
+                f"capability {cap.name!r} implies side effects but declares "
+                "side_effect_class='none' (capability lie)"
+            )
     requested = set(card.security.default_data_scopes)
     if requested & HARD_FORBIDDEN_SCOPES:
         errors.append(

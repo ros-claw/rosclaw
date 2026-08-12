@@ -20,7 +20,7 @@ import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 
-from rosclaw.agentd.workers.adapter import WorkerAdapter
+from rosclaw.agentd.workers.adapter import RunHandle, WorkerAdapter
 from rosclaw.agentd.workers.scheduler import CandidateView, Scheduler, SchedulingError
 from rosclaw.agentd.workers.verify import VerificationReport, verify_result
 from rosclaw.contracts.common import ValidationError, new_id
@@ -72,6 +72,46 @@ class WorkerManager:
         self._poll_interval = poll_interval_sec
         self._event_recorder = event_recorder
         self._scheduler = Scheduler()
+        # 十审 W0：活动 run 注册表——cancel_order 凭它找到 adapter+handle
+        # 杀进程（此前 handle 只是 run_to_completion 的局部变量，cancel
+        # 永远够不到进程）。
+        self._runs: dict[str, tuple[WorkerAdapter, RunHandle]] = {}
+
+    # ------------------------------------------------------------------
+    # cancel（十审 W0：abort → WorkOrder CANCELLED → adapter cancel →
+    # 进程组 kill 闭环）
+    # ------------------------------------------------------------------
+    async def cancel_order(self, work_order_id: str, *, reason: str = "user_cancel") -> WorkOrderV1:
+        """取消未终态的 WorkOrder：adapter.cancel（杀进程树）+ CANCELLED。
+
+        已终态返回当前状态（诚实 no-op）；未知 ID 抛 ValidationError。
+        run_to_completion 的驱动循环会发现 CANCELLED 并退出（不改写终态）。
+        """
+        order = self.order(work_order_id)
+        if order is None:
+            raise ValidationError(f"unknown work order {work_order_id!r}")
+        if order.status in ("ACCEPTED", "FAILED", "EXPIRED", "CANCELLED"):
+            return order
+        import contextlib
+
+        entry = self._runs.get(work_order_id)
+        if entry is not None:
+            adapter, handle = entry
+            # cancel 尽力而为，状态机照常收尾。
+            with contextlib.suppress(Exception):
+                await adapter.cancel(handle, reason)
+        if self.order(work_order_id).status not in (  # type: ignore[union-attr]
+            "ACCEPTED",
+            "FAILED",
+            "EXPIRED",
+            "CANCELLED",
+        ):
+            # 与驱动循环竞态（如已进 SUBMITTED）：保持诚实当前态。
+            with contextlib.suppress(ValidationError):
+                self._transition(work_order_id, "CANCELLED", reason)
+        current = self.order(work_order_id)
+        assert current is not None
+        return current
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -118,7 +158,47 @@ class WorkerManager:
     async def run_to_completion(
         self, order: WorkOrderV1, *, timeout_sec: float | None = None
     ) -> tuple[WorkResultV1, VerificationReport]:
-        """Drive CLAIMED→RUNNING→SUBMITTED→VERIFYING→ACCEPTED/FAILED."""
+        """Drive CLAIMED→RUNNING→SUBMITTED→VERIFYING→ACCEPTED/FAILED.
+
+        十审 W0：
+        - handle 注册进 self._runs（cancel_order 由此杀进程树）；
+        - 驱动循环发现外部 CANCELLED 即退出（不改写终态、不做验证）；
+        - 驱动器自身异常不得让 WorkOrder 永久 RUNNING——标记 FAILED。
+        """
+        try:
+            return await self._run_to_completion_inner(order, timeout_sec=timeout_sec)
+        except Exception as exc:  # noqa: BLE001 - 后台驱动永不抛出；失败即数据
+            try:
+                current = self.order(order.work_order_id)
+                if current is not None and current.status not in (
+                    "ACCEPTED",
+                    "FAILED",
+                    "EXPIRED",
+                    "CANCELLED",
+                ):
+                    self._transition(
+                        order.work_order_id, "FAILED", f"driver_crash:{type(exc).__name__}"
+                    )
+            finally:
+                self._runs.pop(order.work_order_id, None)
+            result = WorkResultV1(
+                work_order_id=order.work_order_id,
+                worker_id=order.assigned_to or "",
+                lease_id=order.lease.lease_id if order.lease else "",
+                status="FAILED",
+                summary=f"worker driver crashed: {type(exc).__name__}: {exc}",
+                warnings=["driver_crash"],
+            )
+            report = VerificationReport(
+                accepted=False,
+                verifier_results={"driver_alive": False},
+                reasons=(f"driver crashed: {type(exc).__name__}",),
+            )
+            return result, report
+
+    async def _run_to_completion_inner(
+        self, order: WorkOrderV1, *, timeout_sec: float | None = None
+    ) -> tuple[WorkResultV1, VerificationReport]:
         card_row = self._conn.execute(
             "SELECT card_json FROM worker_cards WHERE worker_id = ?",
             (order.assigned_to,),
@@ -128,15 +208,39 @@ class WorkerManager:
         card = WorkerCardV1(**json.loads(card_row["card_json"]))
         adapter = self._adapters[card.adapter_type]
         handle = await adapter.start(order, {})
-        deadline = datetime.now(UTC) + timedelta(seconds=timeout_sec or order.budgets.wall_time_sec)
-        result: WorkResultV1 | None = None
-        while datetime.now(UTC) < deadline:
-            polled = await adapter.poll(handle)
-            if isinstance(polled, WorkResultV1):
-                result = polled
-                break
-            self._heartbeat(order.work_order_id, polled.progress_seq)
-            await asyncio.sleep(self._poll_interval)
+        self._runs[order.work_order_id] = (adapter, handle)
+        try:
+            deadline = datetime.now(UTC) + timedelta(
+                seconds=timeout_sec or order.budgets.wall_time_sec
+            )
+            result: WorkResultV1 | None = None
+            while datetime.now(UTC) < deadline:
+                # 外部 cancel（cancel_order）已翻转状态：退出，不验证不改写。
+                current = self.order(order.work_order_id)
+                if current is not None and current.status == "CANCELLED":
+                    return self._cancelled_result(order), VerificationReport(
+                        accepted=False,
+                        verifier_results={"cancelled": True},
+                        reasons=("cancelled before completion",),
+                    )
+                try:
+                    polled = await adapter.poll(handle)
+                except Exception:  # noqa: BLE001 - cancel 后 handle 已移除等
+                    current = self.order(order.work_order_id)
+                    if current is not None and current.status == "CANCELLED":
+                        return self._cancelled_result(order), VerificationReport(
+                            accepted=False,
+                            verifier_results={"cancelled": True},
+                            reasons=("cancelled before completion",),
+                        )
+                    raise
+                if isinstance(polled, WorkResultV1):
+                    result = polled
+                    break
+                self._heartbeat(order.work_order_id, polled.progress_seq)
+                await asyncio.sleep(self._poll_interval)
+        finally:
+            self._runs.pop(order.work_order_id, None)
         if result is None:
             await adapter.cancel(handle, "deadline_exceeded")
             self._transition(order.work_order_id, "FAILED", "deadline_exceeded")
@@ -197,6 +301,28 @@ class WorkerManager:
         )
         self._update_circuit(order.assigned_to or "", order.capability, report.accepted)
         return result, report
+
+    async def shutdown(self) -> None:
+        """服务关闭：取消所有活动 run 的底层进程/任务（十审 W0：不留孤儿）。
+
+        DB 状态不翻转——权威终态由 sweeper/重启对账决定；这里只保证
+        子进程树不泄漏。
+        """
+        import contextlib
+
+        for _wo_id, (adapter, handle) in list(self._runs.items()):
+            with contextlib.suppress(Exception):  # 尽力而为
+                await adapter.cancel(handle, "service_shutdown")
+
+    def _cancelled_result(self, order: WorkOrderV1) -> WorkResultV1:
+        return WorkResultV1(
+            work_order_id=order.work_order_id,
+            worker_id=order.assigned_to or "",
+            lease_id=order.lease.lease_id if order.lease else "",
+            status="CANCELLED",
+            summary="cancelled before completion",
+            warnings=["cancelled"],
+        )
 
     # ------------------------------------------------------------------
     # lease sweeper + reconciliation

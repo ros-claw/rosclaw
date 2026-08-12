@@ -292,6 +292,10 @@ class AgentService:
 
         self._events = AgentEventStore(self._store.connection)
         self._turn_tasks: dict[str, asyncio.Task] = {}
+        # 十审 W0：WorkOrder 后台驱动任务——delegate 立即返回后由它们
+        # 驱动 run_to_completion；close() 时统一取消（DB 终态权威不变：
+        # 未完成的单由 sweeper/重启对账处理，绝不永久假装 RUNNING 健康）。
+        self._worker_bg_tasks: dict[str, asyncio.Task] = {}
         from rosclaw.agentd.runner import MissionRunner
 
         self._runner = MissionRunner(self)
@@ -1700,7 +1704,39 @@ class AgentService:
         await self._pi_bridge.start()
         return path
 
+    def spawn_worker_driver(self, order) -> None:
+        """十审 W0：WorkOrder 后台驱动——pi 工具请求栈立即返回后由本
+        任务驱动 run_to_completion 到终态；请求断开不影响权威状态。"""
+        task = asyncio.create_task(self._worker_manager.run_to_completion(order))
+        self._worker_bg_tasks[order.work_order_id] = task
+
+        def _done(t: asyncio.Task, wo_id: str = order.work_order_id) -> None:
+            self._worker_bg_tasks.pop(wo_id, None)
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc is not None:  # 防御：manager 已兜底——这里只记录。
+                import logging
+
+                logging.getLogger("rosclaw.agentd.workers").warning(
+                    "worker driver for %s raised: %s", wo_id, exc
+                )
+
+        task.add_done_callback(_done)
+
     async def close(self) -> None:
+        # 十审 W0：先杀活动 Worker 的底层进程树（adapter 级），再取消
+        # 后台驱动任务——顺序反过来会让驱动先死、进程泄漏。
+        import contextlib as _cl
+
+        with _cl.suppress(Exception):
+            await self._worker_manager.shutdown()
+        for task in list(getattr(self, "_worker_bg_tasks", {}).values()):
+            task.cancel()
+        if getattr(self, "_worker_bg_tasks", None):
+            with _cl.suppress(Exception):
+                await asyncio.gather(*self._worker_bg_tasks.values(), return_exceptions=True)
+            self._worker_bg_tasks.clear()
         # 六审 §7：产品 supervisor 管理的 operatord 随 service 终止。
         managed = getattr(self, "_managed_operator", None)
         if managed is not None:

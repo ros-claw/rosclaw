@@ -21,7 +21,8 @@ import time
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
-server = FastMCP("limo-sim")
+# 十审 W0：WARNING——见 ur5e_mcp（stderr INFO 日志泄漏进 TUI）。
+server = FastMCP("limo-sim", log_level="WARNING")
 
 _state = {
     "pose": {"x": 1.25, "y": -0.5, "theta": 0.03},

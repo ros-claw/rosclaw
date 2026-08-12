@@ -22,8 +22,21 @@ from rosclaw.contracts.common import ValidationError
 def _safe_errlog():
     # MCP stdio spawn 的 errlog 必须有 fileno（捕获环境下
     # sys.stderr 是替身对象）。
+    # 十审 W0：子进程 stderr 是内部诊断——默认写 ROSCLAW_HOME 日志文件，
+    # 不糊 TUI 终端（--debug/ROSCLAW_DEBUG 时才回到 stderr）。
     import sys
 
+    if not os.environ.get("ROSCLAW_DEBUG"):
+        home = os.environ.get("ROSCLAW_HOME")
+        if home:
+            try:
+                log_dir = os.path.join(home, "logs")
+                os.makedirs(log_dir, exist_ok=True)
+                return open(  # noqa: SIM115 - 进程级常量生命周期
+                    os.path.join(log_dir, "mcp-child.log"), "a", buffering=1
+                )
+            except OSError:
+                pass
     for stream in (sys.stderr, sys.__stderr__):
         try:
             stream.fileno()

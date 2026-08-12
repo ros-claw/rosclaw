@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import shutil
+import signal
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -40,6 +41,34 @@ _ANALYSIS_SYSTEM = (
     "outcomes; clearly mark inference vs fact; reply concisely in the "
     "requester's language."
 )
+
+#: 十审 W0：cancel grace——先 SIGTERM，超时 SIGKILL（指标：2s 级，硬上限 7s）。
+_CANCEL_GRACE_SEC = 5.0
+
+
+async def _kill_process_tree(proc) -> None:
+    """杀整个进程组（start_new_session=True 保证子进程是组长）。
+
+    SIGTERM → grace → SIGKILL；最后 reap。进程已退则静默返回。
+    """
+    if proc.returncode is not None:
+        return
+    import contextlib
+
+    try:
+        pgid = os.getpgid(proc.pid)
+    except (ProcessLookupError, PermissionError):
+        return
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(pgid, signal.SIGTERM)
+    with contextlib.suppress(TimeoutError):
+        await asyncio.wait_for(proc.wait(), timeout=_CANCEL_GRACE_SEC)
+        return
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(pgid, signal.SIGKILL)
+    # 防御：内核都杀不动——不阻塞 cancel 闭环。
+    with contextlib.suppress(TimeoutError):
+        await asyncio.wait_for(proc.wait(), timeout=2)
 
 
 class ExternalHarnessAdapter:
@@ -191,19 +220,39 @@ class ExternalHarnessAdapter:
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(self._cwd) if self._cwd else None,
                 env=self._env(pack, credential_refs),
+                # 十审 W0：独立进程组——cancel/timeout 才能整组 SIGTERM/
+                # SIGKILL（此前只 cancel asyncio task，子进程与孙进程
+                # 全部变孤儿继续跑/继续计费）。
+                start_new_session=True,
             )
         except FileNotFoundError as exc:
             raise AdapterError(
                 f"{pack.executable!r} not found at start time ({pack.install_hint})"
             ) from exc
+        stdout_task = asyncio.create_task(proc.stdout.read())  # type: ignore[union-attr]
+        stderr_task = asyncio.create_task(proc.stderr.read())  # type: ignore[union-attr]
         try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=order.budgets.wall_time_sec or pack.default_timeout_sec
+            await asyncio.wait_for(
+                proc.wait(),
+                timeout=order.budgets.wall_time_sec or pack.default_timeout_sec,
             )
         except TimeoutError:
-            proc.kill()
-            await proc.wait()
+            await _kill_process_tree(proc)
             raise AdapterError("external harness timed out") from None
+        except asyncio.CancelledError:
+            await _kill_process_tree(proc)
+            stdout_task.cancel()
+            stderr_task.cancel()
+            raise
+        # 进程死后管道 EOF——reader 自然结束（限时兜底防残留）。
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                asyncio.gather(stdout_task, stderr_task), timeout=5
+            )
+        except (TimeoutError, asyncio.CancelledError):
+            stdout_task.cancel()
+            stderr_task.cancel()
+            stdout, stderr = b"", b""
         finished = datetime.now(UTC)
         text, usage_raw = self._parse_output(pack, stdout, proc.returncode, stderr)
         digest = hashlib.sha256(text.encode()).hexdigest()
