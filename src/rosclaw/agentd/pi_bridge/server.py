@@ -963,20 +963,42 @@ class PiBridgeServer:
             return {"ok": True, "stored": stored}
         if method == "pi.worker.status":
             # PNA-4：Worker 状态投影（原位更新 UI 用；只读）。
+            # 十审 W2：终态单附验证后摘要/验收结论（completion push 用——
+            # 只投 verifier 通过后的内容，原始 Worker 输出不进主上下文）。
             mission_id = str(params.get("mission_id", ""))
             orders = service._worker_manager.orders_for_mission(mission_id)
-            return {
-                "ok": True,
-                "orders": [
-                    {
-                        "work_order_id": o.work_order_id,
-                        "assigned_to": o.assigned_to,
-                        "status": o.status,
-                        "goal": o.goal[:120],
-                    }
-                    for o in orders
-                ],
-            }
+            conn = service._store.connection
+            projected = []
+            for o in orders:
+                entry = {
+                    "work_order_id": o.work_order_id,
+                    "assigned_to": o.assigned_to,
+                    "status": o.status,
+                    "goal": o.goal[:120],
+                }
+                if o.status in ("ACCEPTED", "FAILED", "EXPIRED", "CANCELLED"):
+                    row = conn.execute(
+                        "SELECT result_json FROM work_results WHERE work_order_id = ?",
+                        (o.work_order_id,),
+                    ).fetchone()
+                    if row is not None:
+                        payload = json.loads(row["result_json"])
+                        entry["summary"] = str(payload.get("summary", ""))[:2000]
+                        entry["artifacts"] = [
+                            str(a.get("ref", "")) for a in payload.get("artifacts", [])
+                        ]
+                    vrow = conn.execute(
+                        "SELECT verify_report_json FROM work_orders WHERE work_order_id = ?",
+                        (o.work_order_id,),
+                    ).fetchone()
+                    if vrow and vrow["verify_report_json"]:
+                        report = json.loads(vrow["verify_report_json"])
+                        entry["accepted"] = bool(report.get("accepted"))
+                        entry["verdict_reasons"] = [
+                            str(r) for r in report.get("reasons", [])
+                        ][:5]
+                projected.append(entry)
+            return {"ok": True, "orders": projected}
         if method == "pi.tools.execute":
             # PNA-3：完整验证链（binding/mission/lease/allowlist/idempotency）。
             from rosclaw.agentd.pi_bridge.tool_dispatch import (

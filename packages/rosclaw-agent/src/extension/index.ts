@@ -30,6 +30,7 @@ import type { ProductStateCenter } from "../session/state-center.js";
 import type { LocaleManager } from "../i18n/locale.js";
 import { t as i18nT } from "../i18n/index.js";
 import { EventMirror } from "./event-mirror.js";
+import { WorkerCompletionWatcher } from "../workers/completion-watch.js";
 import { buildCommandHandlers } from "./commands.js";
 import { guardInput } from "./input-guard.js";
 import { fetchEmbodiedContext, renderTrustedContext } from "./context-injection.js";
@@ -68,6 +69,22 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		let resumeReportShown = !options.resumed;
 		let refreshChrome: () => void = () => undefined;
 		let probeTimer: ReturnType<typeof setInterval> | null = null;
+		// 十审 W2：Worker 完成推送——custom message 注入（不冒充用户
+		// 输入），投递账本持久化（重启/compact 不重复、不丢失）。
+		let latestCtx: { isIdle(): boolean } | undefined;
+		const watcher = new WorkerCompletionWatcher({
+			rosclawHome: options.rosclawHome,
+			active: options.active,
+			center,
+			sink: () => (latestCtx ? { api: pi, isIdle: latestCtx.isIdle() } : undefined),
+		});
+		pi.on("session_start", async (_event, ctx) => {
+			latestCtx = ctx;
+			watcher.start();
+		});
+		pi.on("session_shutdown", async () => {
+			watcher.stop();
+		});
 		pi.on("session_start", async (_event, ctx) => {
 			if (!ctx.hasUI) return;
 			ctx.ui.setTitle(`ROSClaw Native Agent`);
@@ -338,6 +355,8 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					"rosclaw_delegate",
 					"rosclaw_check_work",
 					"rosclaw_cancel_work",
+					"rosclaw_list_work",
+					"rosclaw_update_work",
 					"rosclaw_request_action",
 				],
 			}),
@@ -373,6 +392,89 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					);
 				} catch (err) {
 					ctx.ui.notify(`查询失败：${(err as Error).message}`, "error");
+				}
+			},
+		});
+		// -- 十审 W2：/jobs /job <id>（命令层直接处理，不进模型、不耗 token） --
+		pi.registerCommand("jobs", {
+			description: "当前 Mission 的后台 WorkOrder 列表（/job <id> 看详情）",
+			handler: async (_args, ctx) => {
+				if (!options.active.current.missionId) {
+					ctx.ui.notify("未绑定 Mission——/jobs 不可用", "warning");
+					return;
+				}
+				try {
+					const status = await center.call("pi.worker.status", {
+						mission_id: options.active.current.missionId,
+					});
+					const orders = (status.orders ?? []) as Array<Record<string, unknown>>;
+					if (orders.length === 0) {
+						ctx.ui.notify("当前 Mission 没有 WorkOrder", "info");
+						return;
+					}
+					ctx.ui.notify(
+						orders
+							.map(
+								(o) =>
+									`${String(o.work_order_id)}  ${String(o.assigned_to ?? "?")}  ${String(o.status)}  ${String(o.goal ?? "")}`,
+							)
+							.join("\n"),
+						"info",
+					);
+				} catch (err) {
+					ctx.ui.notify(`查询失败：${(err as Error).message}`, "error");
+				}
+			},
+		});
+		pi.registerCommand("job", {
+			description: "WorkOrder 详情：/job <wo_id>（/job cancel <wo_id> 取消）",
+			handler: async (args, ctx) => {
+				if (!options.active.current.missionId) {
+					ctx.ui.notify("未绑定 Mission——/job 不可用", "warning");
+					return;
+				}
+				const trimmed = args.trim();
+				const cancelMatch = trimmed.match(/^cancel\s+(\S+)$/);
+				const idMatch = trimmed.match(/^(\S+)$/);
+				if (!idMatch && !cancelMatch) {
+					ctx.ui.notify("用法：/job <wo_id> | /job cancel <wo_id>", "warning");
+					return;
+				}
+				const state = options.active.current;
+				const mkRequest = (tool: string, woId: string, extra: Record<string, unknown> = {}) => ({
+					schema_version: "rosclaw.pi_tool_request.v1",
+					request_id: `ptr_job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+					pi_session_id: state.sessionId,
+					mission_id: state.missionId,
+					context_revision: state.contextRevision,
+					tool_name: tool,
+					arguments: { work_order_id: woId, ...extra },
+					requested_at: new Date().toISOString(),
+					idempotency_key: `idem_job_${tool}_${woId}_${Date.now()}`,
+					actor: { engine: "pi-command" },
+				});
+				try {
+					if (cancelMatch) {
+						const response = await center.call("pi.tools.execute", {
+							request: mkRequest("rosclaw_cancel_work", cancelMatch[1], { reason: "user_command" }),
+						});
+						const result = (response.result ?? {}) as { summary?: string };
+						ctx.ui.notify(
+							response.ok ? (result.summary ?? "已取消") : `取消失败：${result.summary ?? response.error ?? ""}`,
+							response.ok ? "info" : "error",
+						);
+						return;
+					}
+					const response = await center.call("pi.tools.execute", {
+						request: mkRequest("rosclaw_check_work", (idMatch as RegExpMatchArray)[1]),
+					});
+					const result = (response.result ?? {}) as { summary?: string };
+					ctx.ui.notify(
+						response.ok ? (result.summary ?? "") : `查询被拒：${result.summary ?? response.error ?? ""}`,
+						response.ok ? "info" : "error",
+					);
+				} catch (err) {
+					ctx.ui.notify(`操作失败：${(err as Error).message}`, "error");
 				}
 			},
 		});

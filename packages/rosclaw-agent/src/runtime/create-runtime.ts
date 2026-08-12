@@ -29,7 +29,13 @@ import { fileURLToPath } from "node:url";
 
 import { createRosclawExtension } from "../extension/index.js";
 import { buildBridgeTools } from "../tools/bridge-tools.js";
-import { buildDelegateTool, buildCheckWorkTool, buildCancelWorkTool } from "../tools/delegate.js";
+import {
+	buildDelegateTool,
+	buildCheckWorkTool,
+	buildCancelWorkTool,
+	buildListWorkTool,
+	buildUpdateWorkTool,
+} from "../tools/delegate.js";
 import { buildRequestActionTool } from "../tools/request-action.js";
 import { buildCapabilitiesTool } from "../tools/capabilities.js";
 import { buildComputeTool } from "../tools/compute.js";
@@ -218,6 +224,17 @@ export async function createRosclawRuntime(
 					center,
 				}),
 				buildCancelWorkTool({
+					rosclawHome: options.rosclawHome,
+					active,
+					center,
+				}),
+				// 十审 W2：list/update 补齐五工具协议。
+				buildListWorkTool({
+					rosclawHome: options.rosclawHome,
+					active,
+					center,
+				}),
+				buildUpdateWorkTool({
 					rosclawHome: options.rosclawHome,
 					active,
 					center,

@@ -38,6 +38,10 @@ _TOOL_TABLE: dict[str, str] = {
     # 按 ID 精确关联（不再是"取 mission 最后一单"）。
     "rosclaw_check_work": "read",
     "rosclaw_cancel_work": "delegate",
+    # 十审 W2：五工具协议补齐——list（mission 摘要）+ update（steer
+    # 备注；运行中 Worker 的实时转向在 W4，update 诚实说明生效范围）。
+    "rosclaw_list_work": "read",
+    "rosclaw_update_work": "delegate",
     "rosclaw_request_action": "physical_action",
     # 八审 P0-5：任务级入口——确定性编译器编排，模型只交 TaskSpec。
     "rosclaw_task": "task",
@@ -310,6 +314,10 @@ class PiToolDispatcher:
             return await self._check_work(request)
         if name == "rosclaw_cancel_work":
             return await self._cancel_work(request)
+        if name == "rosclaw_list_work":
+            return await self._list_work(request)
+        if name == "rosclaw_update_work":
+            return await self._update_work(request)
         if name == "rosclaw_fail_safe":
             await service.cancel(request.mission_id)
             return PiToolResultV1(
@@ -530,6 +538,78 @@ class PiToolDispatcher:
             summary=f"WorkOrder {order.work_order_id} 终态 {order.status}。",
             error_code="WORK_NOT_COMPLETED",
             retryable=True,
+        )
+
+    async def _list_work(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """十审 W2：当前 mission 的 WorkOrder 摘要（DB 权威——/compact
+        或重启后不丢）。"""
+        orders = self._service._worker_manager.orders_for_mission(request.mission_id)
+        if not orders:
+            return PiToolResultV1(
+                request_id=request.request_id,
+                ok=True,
+                status="EMPTY",
+                summary="当前 Mission 没有 WorkOrder。",
+            )
+        lines = []
+        for o in orders[-20:]:
+            lines.append(
+                f"- {o.work_order_id} · {o.assigned_to or '?'} · {o.status} · "
+                f"{(o.goal or '')[:60]}"
+            )
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status="LISTED",
+            summary=f"当前 Mission 的 WorkOrder（{len(orders)} 单）：\n" + "\n".join(lines),
+        )
+
+    async def _update_work(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """十审 W2：追加约束/steer 备注。
+
+        诚实语义：运行中的 Worker（W2 的内置/外部 adapter）不能实时接收
+        新约束——备注落进 order.inputs.steer_notes（check/list 可见，
+        retry/新 attempt 生效）；要立刻改变方向请 cancel 后重新委派。
+        """
+        work_order_id = str(request.arguments.get("work_order_id", "")).strip()
+        note = str(request.arguments.get("note", "")).strip()
+        if not work_order_id or not note:
+            raise ToolBridgeError("INVALID_ARGUMENTS", "work_order_id and note required")
+        manager = self._service._worker_manager
+        order = manager.order(work_order_id)
+        if order is None:
+            raise ToolBridgeError(
+                "WORK_ORDER_NOT_FOUND", f"unknown work order {work_order_id!r}"
+            )
+        if order.mission_id != request.mission_id:
+            raise ToolBridgeError(
+                "MISSION_MISMATCH", "work order belongs to a different mission"
+            )
+        if order.status in ("ACCEPTED", "FAILED", "EXPIRED", "CANCELLED"):
+            raise ToolBridgeError(
+                "ALREADY_TERMINAL",
+                f"work order already {order.status} — update 对终态无意义",
+            )
+        conn = self._service._store.connection
+        inputs = dict(order.inputs)
+        notes = list(inputs.get("steer_notes") or [])
+        notes.append({"note": note, "at": datetime.now(UTC).isoformat()})
+        inputs["steer_notes"] = notes
+        updated = order.model_copy(update={"inputs": inputs})
+        conn.execute(
+            "UPDATE work_orders SET order_json = ?, updated_at = ? WHERE work_order_id = ?",
+            (updated.model_dump_json(), datetime.now(UTC).isoformat(), work_order_id),
+        )
+        conn.commit()
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status="UPDATED",
+            summary=(
+                f"已记录 steer 备注（{work_order_id}）。注意：当前版本运行中的 "
+                "Worker 不能实时接收新约束——备注对 retry/后续 attempt 生效；"
+                "要立刻改变方向请 rosclaw_cancel_work 后重新委派。"
+            ),
         )
 
     async def _check_work(self, request: PiToolRequestV1) -> PiToolResultV1:

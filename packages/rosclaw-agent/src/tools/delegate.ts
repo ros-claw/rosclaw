@@ -131,6 +131,63 @@ export function buildDelegateTool(ctx: BridgeToolContext) {
 	});
 }
 
+export function buildListWorkTool(ctx: BridgeToolContext) {
+	return defineTool({
+		name: "rosclaw_list_work",
+		label: "ROSClaw List Work",
+		description: "List background WorkOrders of the current mission with status.",
+		parameters: Type.Object({}),
+		async execute(_id, _params, _signal, _onUpdate, _toolCtx) {
+			const request = buildRequest(ctx, "rosclaw_list_work", {});
+			const response = await ctx.center.call("pi.tools.execute", { request });
+			const result = (response.result ?? {}) as { ok?: boolean; summary?: string };
+			const ok = response.ok === true;
+			return {
+				content: [{ type: "text" as const, text: result.summary ?? "" }],
+				details: { ok },
+				isError: !ok,
+			};
+		},
+	});
+}
+
+export function buildUpdateWorkTool(ctx: BridgeToolContext) {
+	return defineTool({
+		name: "rosclaw_update_work",
+		label: "ROSClaw Update Work",
+		description:
+			"Append a constraint/steer note to a running WorkOrder. NOTE: takes " +
+			"effect on retry/next attempt; to redirect immediately, cancel and " +
+			"re-delegate.",
+		parameters: Type.Object({
+			work_order_id: Type.String({ description: "exact wo_... id" }),
+			note: Type.String({ description: "the additional constraint or steering note" }),
+		}),
+		async execute(_id, params, _signal, _onUpdate, _toolCtx) {
+			const request = buildRequest(ctx, "rosclaw_update_work", params as Record<string, unknown>);
+			const response = await ctx.center.call("pi.tools.execute", { request });
+			const result = (response.result ?? {}) as {
+				ok?: boolean;
+				summary?: string;
+				error_code?: string;
+			};
+			const ok = response.ok === true;
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: ok
+							? (result.summary ?? "")
+							: `更新被拒 [${result.error_code ?? response.code ?? "?"}]: ${result.summary ?? response.error ?? ""}`,
+					},
+				],
+				details: { ok, error_code: result.error_code ?? null },
+				isError: !ok,
+			};
+		},
+	});
+}
+
 export function buildCheckWorkTool(ctx: BridgeToolContext) {
 	return defineTool({
 		name: "rosclaw_check_work",
