@@ -44,6 +44,8 @@ export interface RosclawRuntimeOptions {
 	missionId?: string;
 	/** NA-FIX-2：--resume/--continue 打开的既有 session（否则新建）。 */
 	sessionManager?: import("@earendil-works/pi-coding-agent").SessionManager;
+	/** WP-P0-3：本次启动是恢复——session_start 展示 Resume Report。 */
+	resumed?: boolean;
 }
 
 /** native_agent_v2.md：构建期从 Python 源树拷入 dist/prompts（单一事实源）。 */
@@ -172,6 +174,8 @@ export async function createRosclawRuntime(
 								center,
 								locale,
 								rosclawHome: options.rosclawHome,
+								resumed: options.resumed === true,
+								sessionManager,
 							}),
 						},
 					],

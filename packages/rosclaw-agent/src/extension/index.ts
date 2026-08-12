@@ -48,6 +48,10 @@ export interface RosclawExtensionOptions {
 	/** PR-SIX-5：UI/回答语言策略。 */
 	locale: LocaleManager;
 	rosclawHome: string;
+	/** WP-P0-3：恢复启动——session_start 展示 Resume Report。 */
+	resumed?: boolean;
+	/** 会话命名（WP-P0-2 标题产品化）：写入 Pi session_info。 */
+	sessionManager?: import("@earendil-works/pi-coding-agent").SessionManager;
 }
 
 const WORKING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -59,11 +63,34 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		//    Kimi K3/OFFLINE 与底部未选模型/UNKNOWN 长期共存） --
 		const center = options.center;
 		const locale = options.locale;
+		// WP-P0-3：恢复对账报告（恢复了什么/重新验证了什么/哪些权限
+		// 失效）——一次性展示，不重复。
+		let resumeReportShown = !options.resumed;
 		let refreshChrome: () => void = () => undefined;
 		let probeTimer: ReturnType<typeof setInterval> | null = null;
 		pi.on("session_start", async (_event, ctx) => {
 			if (!ctx.hasUI) return;
 			ctx.ui.setTitle(`ROSClaw Native Agent`);
+			if (!resumeReportShown) {
+				resumeReportShown = true;
+				try {
+					const sessionId = options.active.current.sessionId;
+					const result = await center.call("pi.session.resume_report", {
+						pi_session_id: sessionId,
+					});
+					const report = (result.report ?? {}) as {
+						verdict?: string; lines?: string[];
+					};
+					if (result.ok && report.lines?.length) {
+						ctx.ui.notify(
+							`已恢复（${report.verdict ?? "?"}）\n${report.lines.join("\n")}`,
+							report.verdict === "RESUMED" ? "info" : "warning",
+						);
+					}
+				} catch {
+					// 报告失败不阻塞会话——恢复本身已由 coordinator 完成。
+				}
+			}
 			refreshChrome = () => {
 				const snap = center.snapshot(); // 一次读取，Header/Footer 共享
 				const loc = locale.effective;
@@ -207,98 +234,25 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			ctx.ui.setHiddenThinkingLabel(i18nT("working.default", locale.effective));
 		});
 
-		// -- WP-P0-5（总纲 §7.1）：确定性 Intent Router——已知任务零模型
-		//    回合。仅 SIM + POLICY_AUTO 直跑（ask 走模型→任务卡通道）；
-		//    未命中/异常一律 continue 交模型，绝不吞输入。
-		pi.on("input", async (event, ctx) => {
+		// -- 九审 §1.4/§1.5（P0-INPUT-LOSS 热修）：自然语言绝不 handled。
+		//    先显示、先落账、先分配 Turn ID，然后才路由/执行——Pi 的
+		//    handled 语义是"扩展即时处理的小命令"，自然语言任务经
+		//    handled 会从模型/消息链/session JSONL 消失（幽灵执行）。
+		//    本 handler 只做两件无状态小事：自动命名 + 永远 continue。
+		pi.on("input", async (event, _ctx) => {
 			const text = String((event as { text?: string }).text ?? "").trim();
 			if (!text || text.startsWith("/")) return { action: "continue" as const };
-			// 首条输入可能早于绑定完成（实测：clean-install 第一句话
-			// 直接进模型路径）——短暂等绑定就绪再判定，最多 5s。
-			let state = options.active.current;
-			if (!state.missionId) {
-				const deadline = Date.now() + 5000;
-				while (!options.active.current.missionId && Date.now() < deadline) {
-					await new Promise((resolve) => setTimeout(resolve, 200));
-				}
-				state = options.active.current;
-			}
-			if (!state.missionId || state.mode !== "SIMULATION") {
-				return { action: "continue" as const };
-			}
-			if (!center.isSimAutoPolicy) return { action: "continue" as const };
+			// WP-P0-2：首个有效输入自动命名（确定性截断 ≤30 字，不调
+			// 模型）——退出提示/会话列表展示标题而非内部 ID。
 			try {
-				// 路由直跑前先把 kit discovery 落定——否则上下文在
-				// discovery 前构建，propose 复验时 hash 变化即 fail
-				// closed（真实模型首跑实测：CONTEXT_HASH_MISMATCH）。
-				await center.refreshRobotInfo(true);
-				const kit = center.snapshot().robot_kit;
-				if (kit && kit.state !== "READY") {
-					return { action: "continue" as const };
+				const sm = options.sessionManager;
+				if (sm && !sm.getSessionName()) {
+					sm.appendSessionInfo(text.slice(0, 30));
 				}
-				// 路由直跑没有 before_agent_start——总是自取新鲜具身
-				// 上下文 + context lease（真实模型首跑实测：启动早期
-				// kit BROKEN 时代的 lease 会让 propose 复验 hash 失败；
-				// 不能复用既有 lease）。
-				{
-					const fetched = await fetchEmbodiedContext(
-						options.rosclawHome,
-						state.missionId,
-						state.sessionId,
-						(_home, method, params) => center.call(method, params),
-					);
-					if (fetched.stale || !fetched.envelope) {
-						return { action: "continue" as const };
-					}
-					options.active.applyEnvelope(fetched.envelope, fetched.contextLeaseId);
-					state = options.active.current;
-				}
-				const routed = await center.call("pi.intent.route", { text });
-				const spec = routed.spec as {
-					goal?: string; parameters?: Record<string, unknown>;
-				} | null;
-				if (!routed.ok || !spec?.goal) return { action: "continue" as const };
-				const response = await center.call("pi.tools.execute", {
-					request: {
-						schema_version: "rosclaw.pi_tool_request.v1",
-						request_id: `ptr_router_${Date.now()}`,
-						pi_session_id: state.sessionId,
-						mission_id: state.missionId,
-						context_revision: state.contextRevision,
-						context_lease_id: state.contextLeaseId ?? "",
-						tool_name: "rosclaw_task",
-						arguments: {
-							goal: spec.goal,
-							parameters: spec.parameters ?? {},
-						},
-						requested_at: new Date().toISOString(),
-						idempotency_key: `idem_router_${state.sessionId}_${Date.now()}`,
-						actor: { engine: "pi" },
-					},
-				});
-				const result = (response.result ?? {}) as { summary?: string };
-				let payload: Record<string, unknown> = {};
-				try {
-					payload = JSON.parse(String(result.summary ?? "{}"));
-				} catch {
-					payload = { state: "FAILED", error: String(result.summary ?? "") };
-				}
-				if (String(payload.state ?? "") !== "VERIFIED") {
-					// 路由直跑未过——交回模型解释/处理（不掩盖失败）。
-					ctx.ui.notify(
-						`任务${String(payload.state ?? "FAILED")}：${String(payload.error ?? "")}`,
-						"warning",
-					);
-					return { action: "continue" as const };
-				}
-				ctx.ui.notify(
-					`已识别任务「${text.slice(0, 30)}」→ ${String(payload.user_view ?? "完成")}`,
-					"info",
-				);
-				return { action: "handled" as const };
 			} catch {
-				return { action: "continue" as const };
+				// 命名失败不阻塞输入。
 			}
+			return { action: "continue" as const };
 		});
 
 		// -- `!` bash 功能级关闭（PNA-0 即生效；PNA-9 再做 profile 化 UI 拦截） -----

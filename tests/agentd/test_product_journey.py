@@ -1498,21 +1498,17 @@ class TestProductJourney:
             #    SIM 自动执行）：能力面 → 初始观测 → POLICY_AUTO（无人工
             #    卡、不按 Y）→ 执行 → 后置观测验证。
             action_start = len(session.clean)
-            fake_requests_before = len(fake.fake.requests)
             session.send("我想跑一个机械臂仿真，让机械臂画五角星\r")
-            # 总纲 §7.1/WP-P0-5：已知任务走确定性 Intent Router——零
-            # 模型回合、零审批卡、单行任务结果。
-            session.expect("已识别任务".encode(), timeout=120)
-            session.expect("验证 PASS".encode(), timeout=120)
+            # 九审 §1.5：Intent Router 直跑已移除（input 落账优先于
+            # 零模型快路）——模型经 rosclaw_task 完成任务；政策自动
+            # 授权可见（POLICY_AUTO），无人工卡。
+            session.expect(b"POLICY_AUTO", timeout=180)
+            # 最终回答必须基于 verifier（不是模型自称画完）。
+            session.expect("五角星已绘制完成，几何验证通过".encode(), timeout=120)
             action_segment = session.clean[action_start:]
             assert "ROSCLAW 授权请求".encode() not in action_segment, (
                 "默认安全 SIM 竟弹人工审批卡"
             )
-            # 零模型回合：该段不得产生新的 provider 请求。
-            assert len(fake.fake.requests) == fake_requests_before, (
-                f"已知任务竟消耗模型请求: +{len(fake.fake.requests) - fake_requests_before}"
-            )
-            self._journey_verdicts["known_task_zero_model_turn"] = True
             self._assert_grant_consumed(home)
             # POLICY_AUTO 的审计链：decided_by 记录政策权威。
             import sqlite3 as _sq
