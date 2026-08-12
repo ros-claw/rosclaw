@@ -71,12 +71,21 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		let probeTimer: ReturnType<typeof setInterval> | null = null;
 		// 十审 W2：Worker 完成推送——custom message 注入（不冒充用户
 		// 输入），投递账本持久化（重启/compact 不重复、不丢失）。
-		let latestCtx: { isIdle(): boolean } | undefined;
+		let latestCtx: { isIdle(): boolean; hasUI: boolean; ui: { notify(t: string, k: "info"): void } } | undefined;
 		const watcher = new WorkerCompletionWatcher({
 			rosclawHome: options.rosclawHome,
 			active: options.active,
 			center,
-			sink: () => (latestCtx ? { api: pi, isIdle: latestCtx.isIdle() } : undefined),
+			sink: () =>
+				latestCtx
+					? {
+							api: pi,
+							isIdle: latestCtx.isIdle(),
+							notify: latestCtx.hasUI
+								? (text: string) => latestCtx?.ui.notify(text, "info")
+								: undefined,
+						}
+					: undefined,
 		});
 		pi.on("session_start", async (_event, ctx) => {
 			latestCtx = ctx;

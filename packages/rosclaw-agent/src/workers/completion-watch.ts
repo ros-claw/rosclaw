@@ -37,7 +37,7 @@ interface SendSink {
 			display: boolean;
 			details: Record<string, unknown>;
 		},
-		options: { triggerTurn: boolean; deliverAs: "nextTurn" | "followUp" },
+		options: { triggerTurn: boolean; deliverAs?: "nextTurn" | "followUp" },
 	): void;
 }
 
@@ -52,7 +52,7 @@ export class WorkerCompletionWatcher {
 			active: ActiveSessionContext;
 			center: ProductStateCenter;
 			/** 发送面：extension 的 pi.sendMessage + isIdle 判定（运行时注入）。 */
-			sink: () => { api: SendSink; isIdle: boolean } | undefined;
+			sink: () => { api: SendSink; isIdle: boolean; notify?: (text: string) => void } | undefined;
 		},
 	) {
 		this.ledgerPath = `${deps.rosclawHome}/agent/worker-deliveries.json`;
@@ -116,6 +116,7 @@ export class WorkerCompletionWatcher {
 			const headline = accepted
 				? `后台 Worker 已完成并通过验证（${order.work_order_id}）`
 				: `后台 Worker 终态 ${order.status}（${order.work_order_id}）`;
+			sink.notify?.(headline);
 			sink.api.sendMessage(
 				{
 					customType: "rosclaw.worker.result",
@@ -132,7 +133,13 @@ export class WorkerCompletionWatcher {
 						worker: order.assigned_to ?? "",
 					},
 				},
-				{ triggerTurn: true, deliverAs: sink.isIdle ? "nextTurn" : "followUp" },
+				// 注意（pi agent-session.js sendCustomMessage 实证）：
+				// deliverAs "nextTurn" 只排队等下一个用户回合、忽略
+				// triggerTurn——idle 时必须不带 deliverAs 才真正触发回合；
+				// busy 时 followUp 排队。
+				sink.isIdle
+					? { triggerTurn: true }
+					: { triggerTurn: true, deliverAs: "followUp" as const },
 			);
 			this.delivered.add(order.work_order_id);
 			this.persistLedger();

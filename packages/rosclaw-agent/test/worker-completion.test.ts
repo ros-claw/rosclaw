@@ -74,7 +74,9 @@ test("终态订单注入 custom message（triggerTurn + nextTurn）", async () =
 	assert.equal(sent.length, 1);
 	assert.equal(sent[0].message.customType, "rosclaw.worker.result");
 	assert.equal(sent[0].options.triggerTurn, true);
-	assert.equal(sent[0].options.deliverAs, "nextTurn");
+	// idle：不带 deliverAs 才真触发回合（nextTurn 会静默排队）。
+	assert.equal(sent[0].options.triggerTurn, true);
+	assert.equal(sent[0].options.deliverAs, undefined);
 	assert.match(String(sent[0].message.content), /wo_done1/);
 	assert.match(String(sent[0].message.content), /untrusted/);
 	const details = sent[0].message.details as { workOrderId?: string };

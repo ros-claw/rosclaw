@@ -357,6 +357,15 @@ class _FakeModel:
             frames.append(_sse(_chunk("", "stop")))
         elif "读取系统状态" in text:
             frames.extend(_tool_call_frames("call_status", "rosclaw_status", "{}"))
+        elif (
+            "后台 Worker 已完成" in text
+            or "后台 Worker 已完成" in _text(messages[-1] if messages else {})
+        ):
+            # 十审 W2：完成推送回合——custom message 注入（triggerTurn）
+            # 后模型做最终综合。独立文本，旅程可精确等待（不与 delegate
+            # 步骤的"Worker 结果已收到并验证"混淆）。
+            frames.append(_sse(_chunk("Worker 结果已综合给用户。")))
+            frames.append(_sse(_chunk("", "stop")))
         elif "委派" in text:
             frames.extend(
                 _tool_call_frames(
@@ -1484,6 +1493,31 @@ class TestProductJourney:
             assert not any("UNREACHABLE" in r for r in status_tool_results), (
                 "UDS 可用时 rosclaw_status 误报 UNREACHABLE"
             )
+            # 5d. 十审 W2：Worker 完成推送——delegate 的单到终态后
+            #     （≤watcher 轮询周期）custom message 注入 + 自动综合回合。
+            #     必须等它落地再往后走（否则推送回合与 /compact 竞争）。
+            session.expect("后台 Worker 已完成并通过验证".encode(), timeout=90)
+            session.expect("Worker 结果已综合给用户".encode(), timeout=90)
+            time.sleep(2.0)
+            # 推送不冒充用户输入：session JSONL 里是 custom message，
+            # 不是 user 消息（审计 §7.5/§13.3.7）。
+            import json as _json2
+
+            _sessions = list((home / "agent" / "sessions").glob("*.jsonl"))
+            assert _sessions, "session JSONL 不存在"
+            _blob = _sessions[0].read_text(encoding="utf-8", errors="replace")
+            assert "rosclaw.worker.result" in _blob, (
+                "完成推送未写入 session（custom message 缺失）"
+            )
+            for _line in _blob.splitlines():
+                if "后台 Worker 已完成" not in _line:
+                    continue
+                _entry = _json2.loads(_line)
+                _s = json.dumps(_entry, ensure_ascii=False)
+                assert '"role": "user"' not in _s and '"role":"user"' not in _s, (
+                    "完成推送冒充了 user 消息"
+                )
+            self._journey_verdicts["worker_completion_pushed_not_user"] = True
             # 5c. 动作准入前置（六审 §3.4）：动作发起前 Header 必须是真实
             #     READY——此前显式 mission 路径 leaseState 不写回，
             #     "Action LOCKED" 假锁与成功执行同时存在。
