@@ -418,7 +418,17 @@ def _route_internal_diagnostics_to_log(home: Path, *, debug: bool) -> None:
     不糊 TUI 第一屏；--debug 或 ROSCLAW_DEBUG 时保持终端可见。
     """
     import logging as _logging
+    import warnings as _warnings
 
+    # 十二审 HOTFIX-12.1：pydantic_settings 对带 forward-ref 的第三方
+    # settings 模型（如 uvicorn/fastapi 生态的 lifespan 字段）在
+    # pydantic 2.13+ 发 IncompleteFieldDefinitionWarning——已知良性
+    # 第三方告警，定向屏蔽（其余 warning 仍进日志文件）。
+    _warnings.filterwarnings(
+        "ignore",
+        message=".*incomplete definition.*",
+        module=r"pydantic_settings(\..*)?",
+    )
     if debug or os.environ.get("ROSCLAW_DEBUG"):
         return
     try:

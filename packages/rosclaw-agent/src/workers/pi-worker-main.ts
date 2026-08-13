@@ -16,6 +16,7 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { writeSync } from "node:fs";
 
 import { buildSystemPrompt, profileFor } from "./profiles.js";
+import { finalTextOfMessages, normalizeAssistantContent } from "./content-normalize.js";
 import { createSharedModelRuntime } from "../runtime/model-runtime.js";
 
 export interface WorkerEnvelope {
@@ -71,17 +72,8 @@ function makeTranscriptWriter(envelope: WorkerEnvelope) {
 	};
 }
 
-function finalTextOf(messages: Array<Record<string, unknown>>): string {
-	for (let i = messages.length - 1; i >= 0; i -= 1) {
-		const msg = messages[i] as { role?: string; content?: unknown };
-		if (msg.role !== "assistant") continue;
-		const parts = (msg.content ?? []) as Array<{ type?: string; text?: string }>;
-		for (const part of parts) {
-			if (part.type === "text" && part.text) return part.text;
-		}
-	}
-	return "";
-}
+// 十二审 HOTFIX-12.1：统一经 content-normalize（任意 provider shape）。
+const finalTextOf = finalTextOfMessages;
 
 export async function runHeadlessWorker(argv: string[]): Promise<number> {
 	let orderPath = "";
@@ -262,8 +254,18 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 			} else if (event.type === "message_end" && e.message) {
 				messages.push(e.message as Record<string, unknown>);
 				{
-					const parts = ((e.message as { content?: unknown }).content ?? []) as Array<{ type?: string; text?: string }>;
-					const text = parts.filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
+					// 十二审 HOTFIX-12.1：content 可能是字符串/单对象/嵌套/
+					// null——归一化后消费，绝不因 shape 崩 Worker。
+					const normalized = normalizeAssistantContent(
+						(e.message as { content?: unknown }).content,
+					);
+					if (normalized.unknownPartTypes.length > 0) {
+						emit(wo, att, "adapter_note", {
+							note: "unknown content parts ignored",
+							part_types: normalized.unknownPartTypes,
+						});
+					}
+					const text = normalized.text;
 					transcript({
 						role: e.message.role,
 						text: text.length > 4000 ? `${text.slice(0, 4000)}…[truncated]` : text,
@@ -382,9 +384,15 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 		});
 		return 0;
 	} catch (err) {
+		// 十二审 HOTFIX-12.1：错误分类——provider 消息 shape/协议问题
+		// 是 ADAPTER_PROTOCOL_ERROR（同版本盲重试无意义），不是 MODEL_ERROR。
+		const e = err as Error;
+		const isProtocol =
+			e instanceof TypeError
+			&& /filter|map|forEach|reduce|is not a function|of undefined|of null/i.test(e.message);
 		emit(wo, att, "attempt_failed", {
-			error_code: "WORKER_CRASH",
-			message: `${(err as Error).name}: ${(err as Error).message}`,
+			error_code: isProtocol ? "ADAPTER_PROTOCOL_ERROR" : "WORKER_CRASH",
+			message: `${e.name}: ${e.message}`,
 		});
 		return 1;
 	}
