@@ -187,6 +187,64 @@ class PiManagedAdapter:
                 return "running"
         return "not_found"
 
+    async def _collect_partial_note(
+        self, order: WorkOrderV1, workspace: str | None, base_ref: str | None
+    ) -> str:
+        """十二审 PR-12.5（§7.3）：失败/取消前的部分成果回收——workbench
+        单收集已有 diff/媒体工件，返回一句可展示说明（无则空）。"""
+        if str(order.inputs.get("worker_profile") or "") not in WORKBENCH_PROFILES:
+            return ""
+        if not workspace:
+            return ""
+        try:
+            artifacts, _claims, notes = await self._collect_workbench_artifacts(
+                order, workspace, base_ref
+            )
+            if not artifacts:
+                return ""
+            names = []
+            work_dir = self._home / "work" / order.work_order_id / "artifacts"
+            for a in artifacts:
+                names.append(a.ref.rsplit(":", 1)[-1][:12])
+            return (
+                f"已回收部分成果 {len(artifacts)} 件（{work_dir}）"
+                + (f"；{notes}" if notes else "")
+            )
+        except Exception:  # noqa: BLE001 - partial 回收失败不阻塞终态
+            return ""
+
+    def _write_checkpoint(
+        self, order: WorkOrderV1, state: dict, outcome: str, partial_note: str
+    ) -> None:
+        """十二审 PR-12.5：checkpoint.json + terminal state——任何异常
+        路径都有可恢复入口（session_file/partial/note）。"""
+        checkpoint = {
+            "work_order_id": order.work_order_id,
+            "outcome": outcome,
+            "phase": state.get("phase", ""),
+            "last_semantic_seq": order.inputs.get("_last_seq", ""),
+            "session_file": state.get("session_file", ""),
+            "partial": partial_note,
+            "resumable": bool(state.get("session_file")),
+        }
+        try:
+            path = self._home / "work" / order.work_order_id / "checkpoint.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(checkpoint, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            self._events.write_state(
+                order.work_order_id,
+                {
+                    "status": outcome,
+                    "phase": "TERMINAL",
+                    "session_file": state.get("session_file", ""),
+                    "partial": partial_note,
+                },
+            )
+        except OSError:
+            pass
+
     # ------------------------------------------------------------------
     def _annotate(self, work_order_id: str, **fields: str) -> None:
         """订单 inputs 回写（workspace/base_sha 解析快照）——DB 权威。"""
@@ -586,10 +644,19 @@ class PiManagedAdapter:
                             "可恢复的 partial handoff。",
                         )
         except asyncio.CancelledError:
+            # 十二审 PR-12.5：先收集部分成果再终止（cancel 也要 partial）。
+            partial_note = await self._collect_partial_note(order, workspace, base_ref)
             await _teardown()
+            self._write_checkpoint(order, state, "CANCELLED", partial_note)
             raise
-        except Exception:
+        except Exception as exc:
+            # 十二审 PR-12.5：超时/崩溃路径——先冻结收集 partial
+            # （diff/媒体/测试日志已在 artifacts/），附注后再终止。
+            partial_note = await self._collect_partial_note(order, workspace, base_ref)
             await _teardown()
+            self._write_checkpoint(order, state, "FAILED", partial_note)
+            if partial_note:
+                raise AdapterError(f"{exc}；partial: {partial_note}") from exc
             raise
         await readers
         self._procs.pop(order.work_order_id, None)

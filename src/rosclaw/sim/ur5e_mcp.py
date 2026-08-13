@@ -390,6 +390,90 @@ def get_cartesian_trace(include_points: bool = False) -> str:
     )
 
 
+def _render_trace_gif(trace: list[dict], out_path) -> int:
+    """trace → 动画 GIF（PIL，确定性）——路径逐帧揭示 + 末端标记。
+
+    十二审 PR-12.6：这是 COMMAND_REPLAY 的可视化（路径预演），不是
+    动力学仿真。返回帧数。
+    """
+    from PIL import Image, ImageDraw
+
+    if not trace:
+        raise ValueError("empty trace")
+    xs = [p["x"] for p in trace]
+    ys = [p["y"] for p in trace]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    span = max(max_x - min_x, max_y - min_y, 1e-6)
+    size = 480
+
+    def _px(pt: dict) -> tuple[float, float]:
+        return (
+            20 + (size - 40) * (pt["x"] - min_x) / span,
+            size - 20 - (size - 40) * (pt["y"] - min_y) / span,
+        )
+
+    frames = max(30, len(trace))
+    images = []
+    for f in range(frames):
+        upto = max(2, int(len(trace) * (f + 1) / frames))
+        img = Image.new("RGB", (size, size), "white")
+        draw = ImageDraw.Draw(img)
+        pts = [_px(pt) for pt in trace[:upto]]
+        draw.line(pts, fill=(20, 20, 20), width=2)
+        ex, ey = pts[-1]
+        draw.ellipse((ex - 5, ey - 5, ex + 5, ey + 5), outline=(200, 30, 30), width=2)
+        images.append(img)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    images[0].save(
+        out_path, save_all=True, append_images=images[1:], duration=80, loop=0
+    )
+    return frames
+
+
+@server.tool(
+    name="ur5e.render_trace_preview",
+    description="确定性路径预演渲染（COMPUTE）：把最近执行的 trace 渲染成"
+    "可播放 GIF（命令回放的可视化——不是动力学仿真）。返回 artifact 路径"
+    "与帧数。",
+    annotations={"readOnlyHint": True},
+)
+def render_trace_preview() -> str:
+    """十二审 PR-12.6（§6.1.1）：快速路径可视化——数秒内交可播放 GIF，
+    诚实标注 COMMAND_REPLAY。"""
+    trace = list(_state["trace"])
+    if not trace:
+        raise ValueError("no executed trace to render (fail closed)")
+    import os
+    from pathlib import Path
+
+    home = os.environ.get("ROSCLAW_HOME", str(Path.home() / ".rosclaw"))
+    out = (
+        Path(home)
+        / "artifacts"
+        / f"trace-preview-{_trajectory_hash(trace)[:12]}.gif"
+    )
+    frames = _render_trace_gif(trace, out)
+    return json.dumps(
+        {
+            "ok": True,
+            "evidence_domain": "simulation",
+            "evidence_level": "COMMAND_REPLAY",
+            "sim_kind": SIM_KIND,
+            "artifact": {
+                "path": str(out),
+                "media_type": "image/gif",
+                "bytes": out.stat().st_size,
+                "frames": frames,
+                "sha256": __import__("hashlib").sha256(out.read_bytes()).hexdigest(),
+            },
+            "trajectory_hash": _trajectory_hash(trace),
+            "label": "路径预演动画（命令回放可视化——非动力学仿真）",
+        },
+        ensure_ascii=False,
+    )
+
+
 @server.tool(
     name="ur5e.verify_drawing",
     description="后验几何验证（COMPUTE）：trace 对目标轨迹的端点误差/"
