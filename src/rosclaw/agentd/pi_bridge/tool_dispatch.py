@@ -443,6 +443,15 @@ class PiToolDispatcher:
         if terminal is not None:
             return self._terminal_response(request, terminal)
         deadline = datetime.now(UTC) + timedelta(seconds=scheduled.budgets.wall_time_sec)
+        # 十审 §10.3：外部 harness 的模型/账号配置独立——UI 明示，不得
+        # 假装继承 Native Agent。
+        external_note = ""
+        card = service._registry.get(scheduled.assigned_to or "")
+        if card is not None and card.kind.value == "harness":
+            external_note = (
+                "\n注意：这是外部 Worker——使用其自身账号/模型/权限配置"
+                "（独立于 Native Agent 的 Kimi 配置）。"
+            )
         return PiToolResultV1(
             request_id=request.request_id,
             ok=True,
@@ -457,6 +466,7 @@ class PiToolDispatcher:
                 f"查询进度：rosclaw_check_work(work_order_id=\"{scheduled.work_order_id}\")；"
                 f"取消：rosclaw_cancel_work(work_order_id=\"{scheduled.work_order_id}\")。"
                 "Worker 产出须经 ROSClaw 验证后才会被采纳。"
+                f"{external_note}"
             ),
         )
 

@@ -38,6 +38,55 @@ from rosclaw.contracts.worker.order import (
     WorkUsage,
 )
 
+#: 十审 §7.4/§10.3：startup/idle 超时（wall 由 order budget 兜底）。
+STARTUP_TIMEOUT_SEC = 15.0
+IDLE_TIMEOUT_SEC = 60.0
+
+
+def _parse_stream_line(pack: WorkerPackManifest, line: bytes) -> tuple[str, str, dict]:
+    """官方 streaming JSONL 逐行解析。返回 (kind, text, usage)：
+
+    kind: "event"（进度，无文本）| "result"（最终结果）| "error"。
+    """
+    try:
+        event = json.loads(line.decode("utf-8", errors="replace"))
+    except json.JSONDecodeError:
+        return ("event", "", {})
+    if pack.product == "claude-code":
+        etype = event.get("type")
+        if etype is None and "result" in event:
+            # 兼容单发 JSON（旧 fake/旧版本 CLI 非 stream 输出）。
+            usage = dict(event.get("usage") or {})
+            usage.setdefault(
+                "cost_usd",
+                event.get("total_cost_usd") or event.get("cost_usd") or 0,
+            )
+            return ("result", str(event.get("result") or ""), usage)
+        if etype == "result":
+            usage = dict(event.get("usage") or {})
+            usage.setdefault(
+                "cost_usd",
+                event.get("total_cost_usd") or event.get("cost_usd") or 0,
+            )
+            if event.get("is_error"):
+                return ("error", str(event.get("result") or "claude error"), usage)
+            return ("result", str(event.get("result") or ""), usage)
+        return ("event", "", {})
+    # codex --json：item.completed / turn.completed 事件流。
+    if pack.product == "codex-cli":
+        etype = event.get("type", "")
+        if etype == "turn.completed":
+            return ("event", "", dict(event.get("usage") or {}))
+        if etype == "item.completed":
+            item = event.get("item") or {}
+            if item.get("type") in ("agent_message", "message", "assistant_message"):
+                text = str(item.get("text") or item.get("content") or "")
+                if text:
+                    return ("result", text, {})
+        if etype in ("error", "turn.failed"):
+            return ("error", str(event.get("message") or event.get("error") or "codex error"), {})
+        return ("event", "", {})
+    return ("event", "", {})
 _ANALYSIS_SYSTEM = (
     "You are a ROSClaw-managed analysis worker. Rules: answer ONLY the given "
     "task; do not modify, create, or delete files; do not access devices, "
@@ -100,17 +149,29 @@ class ExternalHarnessAdapter:
                 pack.executable,
                 "-p",
                 prompt,
+                # 十审 W5：官方 non-interactive streaming JSON（逐行事件，
+                # 不再 communicate() 到最后）。
                 "--output-format",
-                "json",
+                "stream-json",
+                "--verbose",
                 "--max-turns",
                 str(pack.max_turns),
-                # T1 分析任务：禁止一切工具（不写文件、不联网执行命令），
-                # 而非跳过权限检查。
+                # 十审 §10.3 read-only 权限档：禁写/禁命令执行/禁网络，
+                # 保留 Read/Grep/Glob——repository_analysis 从"text-only
+                # 伪能力"变成真实只读分析（cwd 是 WorkOrder workspace）。
                 "--disallowedTools",
-                "*",
+                "Write Edit NotebookEdit Bash WebFetch WebSearch",
             ]
         if pack.product == "codex-cli":
-            return [pack.executable, "exec", "--json", prompt]
+            # codex 官方 JSONL 事件流 + read-only 沙箱档。
+            return [
+                pack.executable,
+                "exec",
+                "--json",
+                "--sandbox",
+                "read-only",
+                prompt,
+            ]
         raise AdapterError(f"unsupported product {pack.product!r}")
 
     def _env(self, pack: WorkerPackManifest, credential_refs: dict) -> dict[str, str]:
@@ -189,12 +250,18 @@ class ExternalHarnessAdapter:
     ) -> WorkResultV1:
         started = datetime.now(UTC)
         command = self._command(pack, self._prompt_for(order))
+        # 十审 §10.3：cwd 来自已验证的 WorkOrder workspace（不再固定
+        # ~/.rosclaw）——repository_analysis 的目标目录必须真实可读。
+        workspace = str(order.inputs.get("workspace") or "")
+        cwd = workspace if workspace and Path(workspace).is_dir() else (
+            str(self._cwd) if self._cwd else None
+        )
         try:
             proc = await asyncio.create_subprocess_exec(
                 *command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=str(self._cwd) if self._cwd else None,
+                cwd=cwd,
                 env=self._env(pack, credential_refs),
                 # 十审 W0：独立进程组——cancel/timeout 才能整组 SIGTERM/
                 # SIGKILL（此前只 cancel asyncio task，子进程与孙进程
@@ -205,32 +272,91 @@ class ExternalHarnessAdapter:
             raise AdapterError(
                 f"{pack.executable!r} not found at start time ({pack.install_hint})"
             ) from exc
-        stdout_task = asyncio.create_task(proc.stdout.read())  # type: ignore[union-attr]
-        stderr_task = asyncio.create_task(proc.stderr.read())  # type: ignore[union-attr]
+        # 十审 W5：stdout/stderr 并发逐行读取——streaming 事件驱动
+        # progress（真实心跳），startup/idle/wall 三种 timeout 分离。
+        text = ""
+        usage_raw: dict = {}
+        stderr_tail = ""
+        saw_event = False
+
+        async def _read_stdout() -> None:
+            nonlocal text, usage_raw, saw_event
+            assert proc.stdout is not None
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    return
+                saw_event = True
+                handle.progress_seq += 1  # 真实子进程事件才推进心跳
+                kind, t, u = _parse_stream_line(pack, line)
+                if u:
+                    usage_raw.update(u)
+                if kind == "result":
+                    text = t
+                elif kind == "error":
+                    raise AdapterError(t)
+
+        async def _read_stderr() -> None:
+            nonlocal stderr_tail
+            assert proc.stderr is not None
+            while True:
+                line = await proc.stderr.readline()
+                if not line:
+                    return
+                stderr_tail = (stderr_tail + line.decode(errors="replace"))[-2000:]
+
+        readers = asyncio.gather(_read_stdout(), _read_stderr())
+
+        async def _teardown() -> None:
+            if proc.returncode is None:
+                await _kill_process_tree(proc)
+            readers.cancel()
+            import contextlib as _cl
+
+            with _cl.suppress(Exception):
+                await readers
+
         try:
-            await asyncio.wait_for(
-                proc.wait(),
-                timeout=order.budgets.wall_time_sec or pack.default_timeout_sec,
+            # startup：第一条事件必须在限定时间内出现。
+            startup_end = asyncio.get_running_loop().time() + STARTUP_TIMEOUT_SEC
+            while not saw_event:
+                if proc.returncode is not None:
+                    raise AdapterError(
+                        f"{pack.product} exited {proc.returncode} before first event: "
+                        f"{stderr_tail[-300:]}"
+                    )
+                if asyncio.get_running_loop().time() > startup_end:
+                    raise AdapterError(f"{pack.product} startup timeout (no events)")
+                await asyncio.sleep(0.05)
+            # idle/wall：无事件超时 idle；总时长由 wall budget 兜底。
+            wall_end = asyncio.get_running_loop().time() + (
+                order.budgets.wall_time_sec or pack.default_timeout_sec
             )
-        except TimeoutError:
-            await _kill_process_tree(proc)
-            raise AdapterError("external harness timed out") from None
+            while proc.returncode is None:
+                last_seq = handle.progress_seq
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=IDLE_TIMEOUT_SEC)
+                except TimeoutError:
+                    if asyncio.get_running_loop().time() > wall_end:
+                        raise AdapterError("external harness timed out") from None
+                    if handle.progress_seq == last_seq:
+                        raise AdapterError(
+                            f"{pack.product} idle timeout ({IDLE_TIMEOUT_SEC:.0f}s 无事件)"
+                        ) from None
         except asyncio.CancelledError:
-            await _kill_process_tree(proc)
-            stdout_task.cancel()
-            stderr_task.cancel()
+            await _teardown()
             raise
-        # 进程死后管道 EOF——reader 自然结束（限时兜底防残留）。
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                asyncio.gather(stdout_task, stderr_task), timeout=5
-            )
-        except (TimeoutError, asyncio.CancelledError):
-            stdout_task.cancel()
-            stderr_task.cancel()
-            stdout, stderr = b"", b""
+        except Exception:
+            await _teardown()
+            raise
+        await readers
         finished = datetime.now(UTC)
-        text, usage_raw = self._parse_output(pack, stdout, proc.returncode, stderr)
+        if proc.returncode not in (0, None) and not text:
+            raise AdapterError(
+                f"{pack.product} exited {proc.returncode}: {stderr_tail[-300:]}"
+            )
+        if not text:
+            text = "(empty result)"
         digest = hashlib.sha256(text.encode()).hexdigest()
         usage = WorkUsage(
             wall_time_ms=int((finished - started).total_seconds() * 1000),
@@ -262,38 +388,3 @@ class ExternalHarnessAdapter:
             usage=usage,
         )
 
-    def _parse_output(
-        self, pack: WorkerPackManifest, stdout: bytes, returncode: int | None, stderr: bytes
-    ) -> tuple[str, dict]:
-        raw = stdout.decode(errors="replace").strip()
-        if pack.product == "claude-code":
-            try:
-                payload = json.loads(raw)
-                text = payload.get("result") or raw
-                usage = dict(payload.get("usage") or {})
-                usage.setdefault(
-                    "cost_usd",
-                    payload.get("total_cost_usd") or payload.get("cost_usd") or 0,
-                )
-                return text, usage
-            except json.JSONDecodeError:
-                if returncode not in (0, None):
-                    raise AdapterError(
-                        f"claude exited {returncode}: {stderr.decode(errors='replace')[:300]}"
-                    ) from None
-                return raw or "(empty result)", {}
-        # codex --json 是 JSONL：取最后一行的完整结果。
-        lines = [line for line in raw.splitlines() if line.strip()]
-        for line in reversed(lines):
-            try:
-                payload = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            text = payload.get("result") or payload.get("message") or payload.get("output") or ""
-            if text:
-                return text, payload.get("usage") or {}
-        if returncode not in (0, None):
-            raise AdapterError(
-                f"codex exited {returncode}: {stderr.decode(errors='replace')[:300]}"
-            )
-        return raw or "(empty result)", {}
