@@ -42,6 +42,12 @@ class TestSteerChannel:
         monkeypatch.setattr(pi_managed, "find_pi_agent_entry", lambda: ("/bin/sh", str(fake)))
         adapter = pi_managed.PiManagedAdapter(rosclaw_home=tmp_path)
         service._worker_manager._adapters["pi_managed"] = adapter
+        # CI 无 node：service 初始化时按探测诚实 DISABLED——本测试自带
+        # fake entry，强制 ENABLED（产品探测路径由 W1 测试覆盖）。
+        if service._registry.status_of("worker:rosclaw:pi") != "ENABLED":
+            service._registry.set_status(
+                "worker:rosclaw:pi", "ENABLED", actor_id="test", reason="test fake entry"
+            )
 
         dispatcher = PiToolDispatcher(service)
         started = await dispatcher.execute(
