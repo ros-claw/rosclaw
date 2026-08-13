@@ -81,6 +81,49 @@ class TestDeveloperContract:
         self, tmp_path: Path
     ) -> None:
         service, mission = await _setup(tmp_path)
+        if service._registry.status_of("worker:rosclaw:pi") != "ENABLED":
+            # CI 无 node/dist：内置 Worker 按设计 DISABLED——注册 stub
+            # 开发者卡验证合约语义（真实产品路径由 W3 live 覆盖）。
+            from rosclaw.contracts.worker.card import (
+                CapabilityDecl,
+                WorkerCardV1,
+                WorkerConstraints,
+                WorkerHealth,
+                WorkerImplementation,
+                WorkerKind,
+                WorkerProvenance,
+                WorkerSecurity,
+                WorkerTrust,
+            )
+
+            service._registry.register(
+                WorkerCardV1(
+                    worker_id="worker:stub:dev",
+                    display_name="Stub Dev",
+                    kind=WorkerKind.HARNESS,
+                    adapter_type="process_stdio",
+                    adapter_version="1.0.0",
+                    implementation=WorkerImplementation(
+                        product="stub", version="1.0.0", executable_ref="inproc:"
+                    ),
+                    capabilities=[
+                        CapabilityDecl(name="code.develop", side_effect_class="sandbox_process")
+                    ],
+                    constraints=WorkerConstraints(
+                        supported_platforms=["linux"], max_concurrency=4
+                    ),
+                    security=WorkerSecurity(isolation="process"),
+                    health=WorkerHealth(
+                        probe="adapter:ping", heartbeat_interval_sec=15, lease_ttl_sec=3600
+                    ),
+                    provenance=WorkerProvenance(source="test", license="MIT"),
+                    trust=WorkerTrust(initial_level="T3", evidence_count=0),
+                ),
+                actor_id="test",
+            )
+            from tests.agentd.test_ten_w0 import _slow_adapter_module
+
+            service._worker_manager._adapters["process_stdio"] = _slow_adapter_module()()
         dispatcher = PiToolDispatcher(service)
         result = await dispatcher.execute(
             _request(
