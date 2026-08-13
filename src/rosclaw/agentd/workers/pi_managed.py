@@ -69,8 +69,9 @@ async def _git(*args: str, cwd: str | None = None) -> tuple[int, str]:
 class PiManagedAdapter:
     """内置 Pi Worker（每个 WorkOrder 一个 headless 子进程）。"""
 
-    def __init__(self, *, rosclaw_home: Path) -> None:
+    def __init__(self, *, rosclaw_home: Path, conn=None) -> None:
         self._home = Path(rosclaw_home)
+        self._conn = conn  # PR-D：订单 inputs 回写（可选——无则跳过）
         self._runs: dict[str, tuple[RunHandle, asyncio.Task]] = {}
         # W4：活动子进程（steer 通道 + pid 文件崩溃对账）。
         self._procs: dict[str, asyncio.subprocess.Process] = {}
@@ -159,6 +160,26 @@ class PiManagedAdapter:
             if not task.done():
                 return "running"
         return "not_found"
+
+    # ------------------------------------------------------------------
+    def _annotate(self, work_order_id: str, **fields: str) -> None:
+        """订单 inputs 回写（workspace/base_sha 解析快照）——DB 权威。"""
+        conn = self._conn
+        if conn is None:
+            return
+        row = conn.execute(
+            "SELECT order_json FROM work_orders WHERE work_order_id = ?",
+            (work_order_id,),
+        ).fetchone()
+        if row is None:
+            return
+        order = WorkOrderV1(**json.loads(row["order_json"]))
+        inputs = {**dict(order.inputs), **{k: v for k, v in fields.items() if v}}
+        updated = order.model_copy(update={"inputs": inputs})
+        conn.execute(
+            "UPDATE work_orders SET order_json = ?, updated_at = ? WHERE work_order_id = ?",
+            (updated.model_dump_json(), datetime.now(UTC).isoformat(), work_order_id),
+        )
 
     # ------------------------------------------------------------------
     async def _prepare_workspace(self, order: WorkOrderV1) -> tuple[str, Path | None]:
@@ -313,6 +334,9 @@ class PiManagedAdapter:
         started = datetime.now(UTC)
         # W3：写能力 profile 先准备独立 workspace（git worktree/scratch）。
         workspace, base_ref = await self._prepare_workspace(order)
+        # 十一审 PR-D：resolved workspace + base_sha 回写订单（WorkOrder
+        # 引用解析后的快照，不靠自然语言路径）。
+        self._annotate(order.work_order_id, workspace=workspace, base_sha=base_ref or "")
         artifacts_dir = self._home / "work" / order.work_order_id / "artifacts"
         envelope_path, cwd = self._write_envelope(
             order, cwd=workspace, artifacts_dir=artifacts_dir

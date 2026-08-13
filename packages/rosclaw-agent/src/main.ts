@@ -20,6 +20,7 @@ process.env.PI_CODING_AGENT_DIR ??= `${rosclawHomeEnv}/agent`;
 
 interface CliArgs {
 	profile: "developer" | "robot";
+	workspace?: string;
 	initialMessage?: string;
 	print: boolean;
 	missionId?: string;
@@ -38,8 +39,12 @@ function parseArgs(argv: string[]): CliArgs {
 	let resumeSessionPath: string | undefined;
 	let browseSessions = false;
 	let continueLast = false;
+	let workspace: string | undefined;
 	for (let i = 0; i < argv.length; i += 1) {
-		if (argv[i] === "--profile" && argv[i + 1]) {
+		if (argv[i] === "--workspace" && argv[i + 1]) {
+			workspace = argv[i + 1];
+			i += 1;
+		} else if (argv[i] === "--profile" && argv[i + 1]) {
 			profile = argv[i + 1] === "robot" ? "robot" : "developer";
 			i += 1;
 		} else if (argv[i] === "--message" && argv[i + 1]) {
@@ -65,7 +70,7 @@ function parseArgs(argv: string[]): CliArgs {
 		}
 	}
 	return {
-		profile, initialMessage, print, missionId,
+		profile, initialMessage, print, missionId, workspace,
 		resumeSessionId, resumeSessionPath, browseSessions, continueLast,
 	};
 }
@@ -82,7 +87,7 @@ async function main(): Promise<number> {
 	);
 	const { createRosclawRuntime } = await import("./runtime/create-runtime.js");
 	const {
-		profile, initialMessage, print, missionId,
+		profile, initialMessage, print, missionId, workspace,
 		resumeSessionId, resumeSessionPath, browseSessions, continueLast,
 	} = parseArgs(process.argv.slice(2));
 	const rosclawHome = rosclawHomeEnv;
@@ -122,11 +127,18 @@ async function main(): Promise<number> {
 	const isResume = Boolean(
 		resumeSessionId || resumeSessionPath || browseSessions || continueLast,
 	);
+	// 十一审 PR-D：Workspace 一等状态——显式 --workspace > cwd git 自动
+	// 绑定 > 既有绑定。
+	const { WorkspaceStore, resolveStartupWorkspace } = await import("./session/workspace.js");
+	const workspaceStore = new WorkspaceStore(rosclawHome);
+	const startupWs = resolveStartupWorkspace(workspaceStore, workspace, process.cwd());
 	const { runtime, coordinator, leaseManager } = await createRosclawRuntime({
 		cwd: process.cwd(),
 		rosclawHome,
 		profile,
 		version: VERSION,
+		workspaceStore,
+		workspaceAutoBound: startupWs.auto,
 		...(missionId ? { missionId } : {}),
 		...(initialSession ? { sessionManager: initialSession } : {}),
 		...(isResume ? { resumed: true } : {}),

@@ -59,6 +59,8 @@ export interface KernelSnapshotV1 {
 	lease_state: LeaseState;
 	operator: OperatorState;
 	action_readiness: ActionReadinessV1;
+	/** 十一审 PR-D：当前绑定 workspace（None=无 Project）。 */
+	workspace?: string;
 }
 
 export interface RobotKitSummary {
@@ -136,6 +138,15 @@ export class ProductStateCenter {
 	}
 
 	/** 当前不可变快照（一次读取，所有 chrome 共享）。 */
+	private workspaceDisplay: string | undefined;
+
+	/** 十一审 PR-D：workspace 绑定变化 → 快照更新（subscribe 统一重绘）。 */
+	noteWorkspace(display: string | undefined): void {
+		if (this.workspaceDisplay === display) return;
+		this.workspaceDisplay = display;
+		this.changed();
+	}
+
 	snapshot(): KernelSnapshotV1 {
 		const state = this.deps.active.current;
 		return {
@@ -153,6 +164,7 @@ export class ProductStateCenter {
 			lease_state: state.leaseState,
 			operator: this.operatorState,
 			action_readiness: this.computeReadiness(),
+			workspace: this.workspaceDisplay,
 		};
 	}
 

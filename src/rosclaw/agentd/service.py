@@ -324,7 +324,9 @@ class AgentService:
                 "native_inproc": NativeWorkerAdapter(self._gateway),
                 "external_cli": external_adapter,
                 # 十审 W1：内置 Pi headless Worker（与主 Agent 同一模型配置）。
-                "pi_managed": PiManagedAdapter(rosclaw_home=rosclaw_home),
+                "pi_managed": PiManagedAdapter(
+                    rosclaw_home=rosclaw_home, conn=self._store.connection
+                ),
             },
             actor_id=self.actor_id,
             event_recorder=self._record_worker_event,

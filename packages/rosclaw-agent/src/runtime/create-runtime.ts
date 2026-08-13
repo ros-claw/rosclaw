@@ -53,6 +53,9 @@ export interface RosclawRuntimeOptions {
 	sessionManager?: import("@earendil-works/pi-coding-agent").SessionManager;
 	/** WP-P0-3：本次启动是恢复——session_start 展示 Resume Report。 */
 	resumed?: boolean;
+	/** 十一审 PR-D：Workspace 一等状态。 */
+	workspaceStore?: import("../session/workspace.js").WorkspaceStore;
+	workspaceAutoBound?: boolean;
 }
 
 /** native_agent_v2.md：构建期从 Python 源树拷入 dist/prompts（单一事实源）。 */
@@ -177,6 +180,8 @@ export async function createRosclawRuntime(
 								rosclawHome: options.rosclawHome,
 								resumed: options.resumed === true,
 								sessionManager,
+								workspaceStore: options.workspaceStore,
+								workspaceAutoBound: options.workspaceAutoBound === true,
 							}),
 						},
 					],
@@ -217,6 +222,7 @@ export async function createRosclawRuntime(
 					rosclawHome: options.rosclawHome,
 					active,
 					center,
+					workspace: () => options.workspaceStore?.current ?? null,
 				}),
 				// 十审 W0：异步 WorkOrder 协议（按精确 ID 查询/取消）。
 				buildCheckWorkTool({

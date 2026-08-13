@@ -62,6 +62,9 @@ export function renderHeader(
 	const sep = chromeSep();
 	const line1Parts = [`ROSClaw ${state.product_version}`, mode];
 	if (state.model) line1Parts.push(state.model);
+	// 十一审 PR-D：Project 一等显示（无绑定显式占位；ASCII 终端降级）。
+	const noWs = chromeSep() === " | " ? "-" : "—";
+	line1Parts.push(`Project ${state.workspace ?? noWs}`);
 	const line1 = line1Parts.join(sep);
 	if (!state.mission_id) {
 		return `${line1}\n${t("chrome.unbound", locale)}`;

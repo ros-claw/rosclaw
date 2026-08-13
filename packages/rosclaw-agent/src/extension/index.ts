@@ -32,6 +32,7 @@ import { t as i18nT } from "../i18n/index.js";
 import { EventMirror } from "./event-mirror.js";
 import { WorkerCompletionWatcher } from "../workers/completion-watch.js";
 import { JobsWidget, renderJobLog } from "../workers/job-widget.js";
+import { WorkspaceStore } from "../session/workspace.js";
 import { buildCommandHandlers } from "./commands.js";
 import { guardInput } from "./input-guard.js";
 import { fetchEmbodiedContext, renderTrustedContext } from "./context-injection.js";
@@ -54,6 +55,9 @@ export interface RosclawExtensionOptions {
 	resumed?: boolean;
 	/** 会话命名（WP-P0-2 标题产品化）：写入 Pi session_info。 */
 	sessionManager?: import("@earendil-works/pi-coding-agent").SessionManager;
+	/** 十一审 PR-D：Workspace 一等状态。 */
+	workspaceStore?: import("../session/workspace.js").WorkspaceStore;
+	workspaceAutoBound?: boolean;
 }
 
 const WORKING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -107,10 +111,55 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				else latestCtx.ui.setWidget("rosclaw-jobs", lines);
 			},
 		});
+		// 十一审 PR-D：Workspace——header 快照 + /workspace 命令（命令层
+		// 直接处理，不进模型）。
+		const workspaceStore = options.workspaceStore ?? new WorkspaceStore(options.rosclawHome);
+		(center.noteWorkspace?.bind(center) as ((d?: string) => void) | undefined)?.(
+			workspaceStore.current ? workspaceStore.displayName() : undefined,
+		);
+		pi.registerCommand("workspace", {
+			description: "项目 workspace：/workspace show | use <path> | recent",
+			handler: async (args, ctx) => {
+				const sub = args.trim();
+				if (!sub || sub === "show") {
+					const current = workspaceStore.current;
+					ctx.ui.notify(
+						current ? `当前 Project：${current}` : "未绑定 Project（从 git 仓库内启动自动绑定，或 /workspace use <path>）",
+						"info",
+					);
+					return;
+				}
+				if (sub === "recent") {
+					const recent = workspaceStore.recent;
+					ctx.ui.notify(
+						recent.length ? `最近的 workspace：\n${recent.join("\n")}` : "（无最近记录）",
+						"info",
+					);
+					return;
+				}
+				const useMatch = sub.match(/^use\s+(.+)$/);
+				if (useMatch) {
+					try {
+						const bound = workspaceStore.bind(useMatch[1]);
+						(center.noteWorkspace?.bind(center) as ((d?: string) => void) | undefined)?.(
+							workspaceStore.displayName(),
+						);
+						ctx.ui.notify(`已绑定 Project：${bound}`, "info");
+					} catch (err) {
+						ctx.ui.notify(`绑定失败：${(err as Error).message}`, "error");
+					}
+					return;
+				}
+				ctx.ui.notify("用法：/workspace show | use <path> | recent", "warning");
+			},
+		});
 		pi.on("session_start", async (_event, ctx) => {
 			latestCtx = ctx;
 			watcher.start();
 			jobsWidget.start();
+			if (options.workspaceAutoBound && workspaceStore.current) {
+				ctx.ui.notify(`已自动绑定 Project：${workspaceStore.current}（/workspace show 查看）`, "info");
+			}
 		});
 		pi.on("session_shutdown", async () => {
 			watcher.stop();

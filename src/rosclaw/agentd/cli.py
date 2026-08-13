@@ -571,6 +571,11 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     argv = [node, entry, "--profile", profile, *resume_argv]
     if mission is not None:
         argv += ["--mission", mission.mission_id]
+    # 十一审 PR-D：chat [PATH]/--workspace → 显式传给 Native Agent
+    # （git root 归一与自动绑定在 TS 侧）。
+    ws_arg = getattr(args, "workspace", None) or getattr(args, "path", None)
+    if ws_arg:
+        argv += ["--workspace", str(Path(ws_arg).expanduser().resolve())]
     # P0-NA-16：产品版本由 Python launcher 显式传给 Node——TS 侧不得
     # 用内部 npm 子包版本冒充 ROSClaw 产品版本。
     from rosclaw import __version__ as _product_version
@@ -1086,6 +1091,10 @@ def add_agent_subparsers(subparsers) -> None:
     p_lp.set_defaults(func=cmd_learning_promote)
 
     p_chat = subparsers.add_parser("chat", help="chat with the Native Agent")
+    # 十一审 PR-D：rosclaw chat [PATH]——Project workspace 一等状态。
+    p_chat.add_argument("path", nargs="?", default=None,
+                        help="项目目录（git 仓库自动绑定为 workspace）")
+    p_chat.add_argument("--workspace", default=None, help="显式指定 workspace 路径")
     p_chat.add_argument("--mission", default=None)
     p_chat.add_argument("--mode", default=None, choices=["SIMULATION", "SHADOW", "REAL"])
     p_chat.add_argument("--goal", default=None)

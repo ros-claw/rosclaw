@@ -102,8 +102,14 @@ export function buildDelegateTool(ctx: BridgeToolContext) {
 			// （凭据由子进程从同一 agentDir/auth.json 读取，绝不经 WorkOrder）。
 			const model = (toolCtx as { model?: { provider: string; id: string } } | undefined)?.model;
 			const thinking = (toolCtx as { thinkingLevel?: string } | undefined)?.thinkingLevel;
+			const boundWorkspace = ctx.workspace?.() ?? undefined;
 			const request = buildRequest(ctx, "rosclaw_delegate", {
 				...(params as Record<string, unknown>),
+				// 十一审 PR-D：模型未指定时默认绑定 workspace（一等状态，
+				// 不靠自然语言路径）。
+				...(!(params as Record<string, unknown>).workspace && boundWorkspace
+					? { workspace: boundWorkspace }
+					: {}),
 				work_order_id: workOrderId,
 				...(model
 					? { model_snapshot: { provider: model.provider, model: model.id, ...(thinking ? { thinking } : {}) } }

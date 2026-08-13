@@ -17,6 +17,9 @@ export interface BridgeToolContext {
 	/** PR-SIX-1：唯一状态中心——工具的桥调用经 center.call（UDS 失败
 	 *  原子降级 kernel/context，不允许局部报错而 Header 保持 FRESH）。 */
 	center: ProductStateCenter;
+	/** 十一审 PR-D：绑定的 workspace（delegate 默认目标——不再让模型
+	 *  在自然语言里猜路径）。 */
+	workspace?: () => string | null;
 }
 
 let requestCounter = 0;
