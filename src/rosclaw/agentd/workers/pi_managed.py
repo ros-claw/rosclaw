@@ -72,6 +72,8 @@ class PiManagedAdapter:
     def __init__(self, *, rosclaw_home: Path, conn=None) -> None:
         self._home = Path(rosclaw_home)
         self._conn = conn  # PR-D：订单 inputs 回写（可选——无则跳过）
+        # PR-E：WAITING_INPUT 状态迁移需要 manager（service 装配后注入）。
+        self._manager_ref = None
         self._runs: dict[str, tuple[RunHandle, asyncio.Task]] = {}
         # W4：活动子进程（steer 通道 + pid 文件崩溃对账）。
         self._procs: dict[str, asyncio.subprocess.Process] = {}
@@ -155,6 +157,30 @@ class PiManagedAdapter:
             return False
         return True
 
+    def _on_waiting_input(self, work_order_id: str) -> None:
+        manager = self._manager_ref
+        if manager is not None:
+            manager._transition(work_order_id, "BLOCKED", "waiting_input")
+
+    def _on_answered(self, work_order_id: str) -> None:
+        manager = self._manager_ref
+        if manager is not None:
+            manager._transition(work_order_id, "RUNNING", "answer_received")
+
+    async def answer(self, work_order_id: str, text: str) -> bool:
+        """十一审 PR-E：WAITING_INPUT 的用户回答（stdin JSONL）。"""
+        proc = self._procs.get(work_order_id)
+        if proc is None or proc.returncode is not None or proc.stdin is None:
+            return False
+        try:
+            proc.stdin.write(
+                (json.dumps({"type": "answer", "text": text}, ensure_ascii=False) + "\n").encode()
+            )
+            await proc.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            return False
+        return True
+
     async def reconcile(self, idempotency_key: str) -> str:  # noqa: ARG002
         for _handle, task in self._runs.values():
             if not task.done():
@@ -196,6 +222,17 @@ class PiManagedAdapter:
             if not Path(target).is_dir():
                 raise AdapterError(f"workspace {target} 不存在")
             return target, None
+        # 十一审 PR-E：auto-retry/resume 复用既有 worktree（不从零开始）。
+        # 安全闸：只复用 ROSClaw 自己创建的 work 目录下的 worktree——
+        # 绝不把用户主仓库目录当 workbench workspace 直写。
+        reuse = str(order.inputs.get("_reuse_workspace") or "")
+        if (
+            reuse
+            and Path(reuse).is_dir()
+            and str(Path(reuse).resolve()).startswith(str((self._home / "work").resolve()))
+        ):
+            base_sha = str(order.inputs.get("base_sha") or "") or None
+            return reuse, base_sha
         work_root = self._home / "work" / order.work_order_id
         ws = work_root / "workspace"
         base_ref = str(order.inputs.get("base_ref") or "HEAD")
@@ -422,6 +459,17 @@ class PiManagedAdapter:
                     final_report = str(event.get("report", ""))
                 elif kind == "attempt_failed":
                     failure = event
+                elif kind == "waiting_input":
+                    # PR-E：真实 WAITING_INPUT 状态（RUNNING→BLOCKED）。
+                    import contextlib as _cl2
+
+                    with _cl2.suppress(Exception):
+                        self._on_waiting_input(order.work_order_id)
+                elif kind == "answer_received":
+                    import contextlib as _cl3
+
+                    with _cl3.suppress(Exception):
+                        self._on_answered(order.work_order_id)
 
         async def _drain_stderr() -> None:
             # PR-B：stderr 脱敏落盘（不再丢弃）。

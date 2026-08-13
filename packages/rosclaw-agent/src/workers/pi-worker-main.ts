@@ -155,11 +155,27 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 		// write/edit/bash。路径必须在 workspace 内、bash argv 白名单、
 		// env 不含凭据（防 read auth.json / curl 外泄）。
 		const { buildWorkbenchTools } = await import("./workbench.js");
+		// 十一审 PR-E：WAITING_INPUT——提问事件 + stdin 等回答（answer
+		// 由 /job answer 经 supervisor 写入）。
+		let answerResolve: ((text: string) => void) | undefined;
+		const waitersApi = {
+			resolve: (text: string) => {
+				answerResolve?.(text);
+				answerResolve = undefined;
+			},
+		};
+		(globalThis as Record<string, unknown>).__rosclawAnswerWaiter = waitersApi;
 		const workbenchTools = buildWorkbenchTools({
 			root: envelope.cwd,
 			bashLogPath: `${envelope.artifacts_dir ?? `${envelope.cwd}/.rosclaw-work`}/bash-log.txt`,
 			emitProgress: (message) => emit(wo, att, "tool_progress", { message }),
-		}).filter((tool) => profile.tools.includes(tool.name));
+			askUser: (question) => {
+				emit(wo, att, "waiting_input", { question: question.slice(0, 500) });
+				return new Promise<string>((resolvePromise) => {
+					answerResolve = resolvePromise;
+				});
+			},
+		}).filter((tool) => profile.tools.includes(tool.name) || tool.name === "ask_user");
 		const { session } = await createAgentSessionFromServices({
 			services,
 			sessionManager: SessionManager.inMemory(envelope.cwd),
@@ -292,7 +308,13 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 				if (!line.trim()) continue;
 				try {
 					const msg = JSON.parse(line) as { type?: string; text?: string };
-					if (msg.type === "steer" && msg.text) {
+					if (msg.type === "answer" && msg.text !== undefined) {
+						const waiter = (globalThis as Record<string, unknown>).__rosclawAnswerWaiter as
+							| { resolve(text: string): void }
+							| undefined;
+						waiter?.resolve(String(msg.text));
+						emit(wo, att, "answer_received", {});
+					} else if (msg.type === "steer" && msg.text) {
 						void session
 							.sendCustomMessage(
 								{
@@ -314,11 +336,20 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 			}
 		});
 
+		// 十一审 PR-A/§2.2：最终要求按 expected artifacts 动态生成——
+		// developer 必须真实实现+测试，不是"plain text report"。
+		const expected = envelope.expected_artifacts ?? [];
+		const dod = expected.length
+			? `\n\nRequired deliverables (verified by ROSClaw): ${expected.join(", ")}. ` +
+				"Real file changes, exact test commands with exit codes, and all " +
+				"requested artifacts. A design document alone is NOT completion."
+			: "";
 		const task =
 			`WorkOrder goal: ${envelope.goal}\n\n` +
 			`Instructions: ${envelope.instructions || envelope.goal}\n\n` +
 			"Deliverable: a concise final report as plain text (facts verified " +
-			"with your tools, with concrete paths/line numbers where relevant).";
+			"with your tools, with concrete paths/line numbers where relevant)." +
+			dod;
 		await session.prompt(task);
 		unsubscribe();
 		clearInterval(livenessTimer);

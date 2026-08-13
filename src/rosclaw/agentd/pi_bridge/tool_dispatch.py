@@ -44,6 +44,8 @@ _TOOL_TABLE: dict[str, str] = {
     "rosclaw_update_work": "delegate",
     # 十审 W4：终态单 retry（新 attempt 携带 steer 备注 + parent lineage）。
     "rosclaw_retry_work": "delegate",
+    # 十一审 PR-E：WAITING_INPUT 的用户回答（经 /job answer 命令层）。
+    "rosclaw_answer_work": "delegate",
     "rosclaw_request_action": "physical_action",
     # 八审 P0-5：任务级入口——确定性编译器编排，模型只交 TaskSpec。
     "rosclaw_task": "task",
@@ -322,6 +324,8 @@ class PiToolDispatcher:
             return await self._update_work(request)
         if name == "rosclaw_retry_work":
             return await self._retry_work(request)
+        if name == "rosclaw_answer_work":
+            return await self._answer_work(request)
         if name == "rosclaw_fail_safe":
             await service.cancel(request.mission_id)
             return PiToolResultV1(
@@ -769,6 +773,53 @@ class PiToolDispatcher:
                 f"Worker: {scheduled.assigned_to}"
                 + (f" · 携带 {len(notes)} 条 steer 备注" if notes else "")
             ),
+        )
+
+    async def _answer_work(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """十一审 PR-E：WAITING_INPUT 的用户回答——stdin 通道送达 +
+        BLOCKED→RUNNING（adapter answer_received 事件驱动）。"""
+        work_order_id = str(request.arguments.get("work_order_id", "")).strip()
+        text = str(request.arguments.get("text", "")).strip()
+        if not work_order_id or not text:
+            raise ToolBridgeError("INVALID_ARGUMENTS", "work_order_id and text required")
+        manager = self._service._worker_manager
+        order = manager.order(work_order_id)
+        if order is None:
+            raise ToolBridgeError(
+                "WORK_ORDER_NOT_FOUND", f"unknown work order {work_order_id!r}"
+            )
+        if order.mission_id != request.mission_id:
+            raise ToolBridgeError(
+                "MISSION_MISMATCH", "work order belongs to a different mission"
+            )
+        if order.status != "BLOCKED":
+            raise ToolBridgeError(
+                "NOT_WAITING",
+                f"work order is {order.status}——只有 WAITING_INPUT 的单可回答",
+            )
+        card_row = self._service._store.connection.execute(
+            "SELECT card_json FROM worker_cards WHERE worker_id = ?",
+            (order.assigned_to,),
+        ).fetchone()
+        delivered = False
+        if card_row is not None:
+            card = json.loads(card_row["card_json"])
+            adapter = manager._adapters.get(card.get("adapter_type", ""))
+            answer = getattr(adapter, "answer", None)
+            if answer is not None:
+                import contextlib as _cl
+
+                with _cl.suppress(Exception):
+                    delivered = await answer(work_order_id, text)
+        if not delivered:
+            raise ToolBridgeError(
+                "DELIVERY_FAILED", "Worker 进程不在或通道已断——请 retry"
+            )
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status="RUNNING",
+            summary=f"回答已送达 Worker（{work_order_id}）——任务继续。",
         )
 
     async def _check_work(self, request: PiToolRequestV1) -> PiToolResultV1:

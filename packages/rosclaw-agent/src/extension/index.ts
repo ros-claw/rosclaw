@@ -518,9 +518,10 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				const cancelMatch = trimmed.match(/^cancel\s+(\S+)$/);
 				const retryMatch = trimmed.match(/^retry\s+(\S+)$/);
 				const logMatch = trimmed.match(/^log\s+(\S+)$/);
+				const answerMatch = trimmed.match(/^answer\s+(\S+)\s+([\s\S]+)$/);
 				const idMatch = trimmed.match(/^(\S+)$/);
-				if (!idMatch && !cancelMatch && !retryMatch && !logMatch) {
-					ctx.ui.notify("用法：/job <wo_id> | /job log <wo_id> | /job cancel <wo_id> | /job retry <wo_id>", "warning");
+				if (!idMatch && !cancelMatch && !retryMatch && !logMatch && !answerMatch) {
+					ctx.ui.notify("用法：/job <wo_id> | /job log <wo_id> | /job answer <wo_id> <回答> | /job cancel <wo_id> | /job retry <wo_id>", "warning");
 					return;
 				}
 				const state = options.active.current;
@@ -537,6 +538,18 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					actor: { engine: "pi-command" },
 				});
 				try {
+					if (answerMatch) {
+						// 十一审 PR-E：回答 WAITING_INPUT（不耗 token）。
+						const response = await center.call("pi.tools.execute", {
+							request: mkRequest("rosclaw_answer_work", answerMatch[1], { text: answerMatch[2] }),
+						});
+						const result = (response.result ?? {}) as { summary?: string };
+						ctx.ui.notify(
+							response.ok ? (result.summary ?? "已送达") : `回答失败：${result.summary ?? response.error ?? ""}`,
+							response.ok ? "info" : "error",
+						);
+						return;
+					}
 					if (logMatch) {
 						// 十一审 PR-C：事件日志（EventStore tail——不经模型、
 						// 不耗 token；与 widget 同一事件源）。

@@ -117,6 +117,16 @@ def _unwrap_tool_output(output: Any) -> dict:
     return data
 
 
+def evidence_user_label(level: str) -> str:
+    """十一审 PR-E（§P0-7/Gate H）：三层证据语言——低层证据绝不得
+    用高层完成文案。"""
+    return {
+        "COMMAND_REPLAY": "路径预演/几何验证完成（命令回放）",
+        "SIM_DYN_ROLLOUT": "MuJoCo 动力学仿真完成",
+        "REAL_RECEIPT": "真机动作完成",
+    }.get(level, level or "未知证据等级")
+
+
 class TaskRunner:
     """确定性任务编排器——模型只交 TaskSpec，只收 TaskResult。"""
 
@@ -428,11 +438,11 @@ class TaskRunner:
         # 八审 §4 P0-7 三通道：user_view 一行进度（model_view 是本
         # 结构；audit_view 全量在 task_records/receipt，/trace 展开）。
         if record["state"] == "VERIFIED":
-            # WP-P0-6（总纲 §8.3）：诚实证据等级——当前 sandbox 是
-            # 命令回放（路径自洽），不宣称机械臂真的运动过。
-            user_view = (
-                "快速运动学预演完成（命令回放）：路径数据自洽、几何闭合 "
-                "验证 PASS——不能证明动力学或真实机械臂完成运动"
+            # WP-P0-6（总纲 §8.3）+ 十一审 PR-E（§P0-7 三层证据语言）：
+            # COMMAND_REPLAY 只显示"路径预演"——不宣称动力学仿真或真机。
+            user_view = evidence_user_label("COMMAND_REPLAY") + (
+                "：路径数据自洽、几何闭合验证 PASS——不能证明动力学或"
+                "真实机械臂完成运动"
             )
         elif record["state"] == "WAITING_APPROVAL":
             user_view = "规划 ✓  安全校验 ✓  等待人工确认…"

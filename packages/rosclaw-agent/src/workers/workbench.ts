@@ -29,6 +29,9 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 export interface WorkbenchOptions {
 	/** workspace 根（必须是已存在的目录）。 */
 	root: string;
+	/** 十一审 PR-E：Worker 主动提问（WAITING_INPUT）——emit 等待事件 +
+	 *  stdin 等回答。 */
+	askUser?: (question: string) => Promise<string>;
 	/** bash 日志（artifacts/bash-log.txt）。 */
 	bashLogPath: string;
 	/** 长命令保活：bash 运行期间周期性回调（喂 idle watchdog）。 */
@@ -431,5 +434,31 @@ export function buildWorkbenchTools(options: WorkbenchOptions): ToolDefinition[]
 		},
 	});
 
-	return [readTool, grepTool, findTool, lsTool, writeTool, editTool, bashTool];
+	const tools = [readTool, grepTool, findTool, lsTool, writeTool, editTool, bashTool];
+	// 十一审 PR-E：WAITING_INPUT 真实状态——Worker 可以诚实提问，
+	// 而不是猜或停滞。
+	if (options.askUser) {
+		const ask = options.askUser;
+		tools.push(
+			defineTool({
+				name: "ask_user",
+				label: "ask user (blocking)",
+				description:
+					"Ask the user a blocking clarifying question when a missing " +
+					"constraint would materially change the outcome. The job enters " +
+					"WAITING_INPUT until the user answers. Use sparingly.",
+				parameters: Type.Object({
+					question: Type.String(),
+				}),
+				async execute(_id, params) {
+					const answer = await ask(String(params.question));
+					return {
+						content: [{ type: "text" as const, text: `用户回答：${answer}` }],
+						details: { answered: true },
+					};
+				},
+			}) as never,
+		);
+	}
+	return tools;
 }

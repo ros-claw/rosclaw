@@ -213,10 +213,11 @@ export class JobsWidget {
 			const terminal = ["ACCEPTED", "FAILED", "EXPIRED", "CANCELLED"].includes(status);
 			const elapsed = fmtElapsed(now - (this.startedAt.get(id) ?? now));
 			const goal = (view.order.goal ?? "").slice(0, 32);
-			const icon = terminal ? (status === "ACCEPTED" ? "✓" : "✗") : frame;
+			const icon = terminal ? (status === "ACCEPTED" ? "✓" : "✗") : status === "BLOCKED" ? "⚠" : frame;
 			const stallMark = view.stall && !terminal ? " · 静默>90s（仍存活）" : "";
+			const waitMark = status === "BLOCKED" ? " · 等待用户输入（/job answer 回答）" : "";
 			lines.push(
-				`${icon} ${workerLabel(view.order.assigned_to)} · ${goal} · ${elapsed}${stallMark}`,
+				`${icon} ${workerLabel(view.order.assigned_to)} · ${goal} · ${elapsed}${stallMark}${waitMark}`,
 			);
 			const detail = terminal
 				? `${status}${view.turns ? ` · ${view.turns} turns` : ""}`
