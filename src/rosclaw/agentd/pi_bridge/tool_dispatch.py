@@ -68,6 +68,43 @@ class ToolBridgeError(RuntimeError):
         self.retryable = retryable
 
 
+def _expected_artifacts(
+    task_type: str, deliverables_raw: list, is_workbench: bool
+) -> list[str]:
+    """十二审 PR-12.4（§5.2）：任务类型驱动验收面。"""
+    from rosclaw.contracts.worker.workspec import (
+        DeliverableV1,
+        WorkSpecV2,
+        expected_media_types,
+    )
+
+    deliverables = [DeliverableV1(**d) for d in deliverables_raw if isinstance(d, dict)]
+    if task_type == "artifact_build" and not deliverables:
+        # 动画/媒体任务的默认交付物（用户的 GIF/MP4 场景）。
+        deliverables = [
+            DeliverableV1(
+                id="media",
+                media_types=["image/gif", "video/mp4"],
+                validators=["exists", "non_empty", "magic"],
+            )
+        ]
+    if task_type == "simulation_run" and not deliverables:
+        deliverables = [
+            DeliverableV1(id="trace", media_types=["application/json"]),
+            DeliverableV1(
+                id="media",
+                media_types=["image/gif", "video/mp4"],
+                validators=["exists", "non_empty", "magic"],
+            ),
+        ]
+    spec = WorkSpecV2(task_type=task_type, deliverables=deliverables)
+    media = expected_media_types(spec)
+    base = ["text/plain", "text/x-diff"] if is_workbench else ["text/plain"]
+    if task_type == "artifact_build":
+        base = ["text/plain"]  # diff 可选
+    return base + [m for m in media if m not in base]
+
+
 class PiToolDispatcher:
     def __init__(self, service: AgentService) -> None:
         self._service = service
@@ -390,6 +427,12 @@ class PiToolDispatcher:
         if provided_wo and not re.fullmatch(r"wo_[A-Za-z0-9]{8,32}", provided_wo):
             raise ToolBridgeError("INVALID_ARGUMENTS", "malformed work_order_id")
         is_workbench = worker_profile in ("developer", "sim-builder")
+        # 十二审 PR-12.4：WorkSpecV2——任务类型驱动验收（deliverables
+        # 覆盖 profile 默认工件类型）。
+        task_type = str(args.get("task_type") or (
+            "code_change" if is_workbench else "analyze"
+        ))
+        deliverables_raw = args.get("deliverables") or []
         order = WorkOrderV1(
             work_order_id=provided_wo or new_id("wo"),
             mission_id=request.mission_id,
@@ -408,6 +451,10 @@ class PiToolDispatcher:
                 # 可选 base_ref。
                 "workspace": str(args.get("workspace") or ""),
                 "base_ref": str(args.get("base_ref") or ""),
+                # 十二审 PR-12.4：WorkSpecV2 快照（Worker envelope 据此
+                # 生成 DoD；verifier 据此验收）。
+                "task_type": task_type,
+                "deliverables": deliverables_raw,
             },
             budgets=BudgetEnvelope(
                 wall_time_sec=int(args.get("budget", {}).get("wall_time_sec", 300))
@@ -419,7 +466,7 @@ class PiToolDispatcher:
                 # 叶子 worker 单：max_children=0（native adapter 不接受子委派）。
             ),
             expected_output=ExpectedOutput(
-                artifacts=["text/plain", "text/x-diff"] if is_workbench else ["text/plain"]
+                artifacts=_expected_artifacts(task_type, deliverables_raw, is_workbench)
             ),
             side_effect_policy=SideEffectPolicy(
                 **{"class": "sandbox_process" if is_workbench else "none"}
@@ -540,24 +587,38 @@ class PiToolDispatcher:
             )
         if result_status == "FAILED" or order.status == "FAILED":
             if reasons:
+                # 十二审 PR-12.4：verifier 原因之外附上 Worker 的真实失败
+                # 摘要（DELIVERABLE_FAILED/adapter 错误都在 result.summary）
+                # ——竞态下 verify_report_json 可能未落，summary 是兜底真相。
+                detail = f"（{'；'.join(reasons)}）"
+                if summary and summary not in "；".join(reasons):
+                    detail += f" Worker 报告：{summary[:400]}"
                 return PiToolResultV1(
                     request_id=request.request_id,
                     ok=False,
                     status="VERIFY_FAILED",
                     summary=(
                         f"Worker {order.assigned_to} 提交的结果未通过验证"
-                        f"（{'；'.join(reasons)}）——未采纳进主上下文。"
+                        f"{detail}——未采纳进主上下文。"
                     ),
                     error_code="VERIFICATION_REJECTED",
                     retryable=True,
                 )
+            # 失败原因必须透出（DELIVERABLE_FAILED/liveness/adapter 等
+            # 都在 result.summary）——不得只报"失败"让模型猜。
+            code = "WORKER_FAILED"
+            for marker in ("DELIVERABLE_FAILED", "ADAPTER_PROTOCOL_ERROR",
+                           "BLOCKED_PREFLIGHT", "PROVIDER_TIMEOUT"):
+                if marker in summary:
+                    code = marker
+                    break
             return PiToolResultV1(
                 request_id=request.request_id,
                 ok=False,
                 status="FAILED",
                 summary=summary or f"Worker {order.assigned_to} 失败。",
-                error_code="WORKER_FAILED",
-                retryable=True,
+                error_code=code,
+                retryable=code == "WORKER_FAILED",
             )
         return PiToolResultV1(
             request_id=request.request_id,

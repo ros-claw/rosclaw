@@ -9,11 +9,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import stat
 from pathlib import Path
-
-import pytest
 
 from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
 from tests.agentd.test_pi_tool_bridge import _request, _setup
