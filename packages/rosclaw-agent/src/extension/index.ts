@@ -366,6 +366,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					"rosclaw_cancel_work",
 					"rosclaw_list_work",
 					"rosclaw_update_work",
+					"rosclaw_retry_work",
 					"rosclaw_request_action",
 				],
 			}),
@@ -444,9 +445,10 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				}
 				const trimmed = args.trim();
 				const cancelMatch = trimmed.match(/^cancel\s+(\S+)$/);
+				const retryMatch = trimmed.match(/^retry\s+(\S+)$/);
 				const idMatch = trimmed.match(/^(\S+)$/);
-				if (!idMatch && !cancelMatch) {
-					ctx.ui.notify("用法：/job <wo_id> | /job cancel <wo_id>", "warning");
+				if (!idMatch && !cancelMatch && !retryMatch) {
+					ctx.ui.notify("用法：/job <wo_id> | /job cancel <wo_id> | /job retry <wo_id>", "warning");
 					return;
 				}
 				const state = options.active.current;
@@ -463,6 +465,17 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					actor: { engine: "pi-command" },
 				});
 				try {
+					if (retryMatch) {
+						const response = await center.call("pi.tools.execute", {
+							request: mkRequest("rosclaw_retry_work", retryMatch[1]),
+						});
+						const result = (response.result ?? {}) as { summary?: string };
+						ctx.ui.notify(
+							response.ok ? (result.summary ?? "已 retry") : `retry 失败：${result.summary ?? response.error ?? ""}`,
+							response.ok ? "info" : "error",
+						);
+						return;
+					}
 					if (cancelMatch) {
 						const response = await center.call("pi.tools.execute", {
 							request: mkRequest("rosclaw_cancel_work", cancelMatch[1], { reason: "user_command" }),

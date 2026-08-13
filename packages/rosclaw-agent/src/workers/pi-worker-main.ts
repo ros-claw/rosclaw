@@ -195,6 +195,41 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 		process.on("SIGTERM", abort);
 		process.on("SIGINT", abort);
 
+		// 十审 W4：stdin steer 通道——supervisor 写入单行 JSON
+		// {type:"steer", text} 即转向运行中的 Worker（custom 消息，
+		// 不冒充用户输入）。
+		process.stdin.setEncoding("utf-8");
+		let stdinBuf = "";
+		process.stdin.on("data", (chunk: string) => {
+			stdinBuf += chunk;
+			const lines = stdinBuf.split("\n");
+			stdinBuf = lines.pop() ?? "";
+			for (const line of lines) {
+				if (!line.trim()) continue;
+				try {
+					const msg = JSON.parse(line) as { type?: string; text?: string };
+					if (msg.type === "steer" && msg.text) {
+						void session
+							.sendCustomMessage(
+								{
+									role: "custom",
+									customType: "rosclaw.worker.steer",
+									content: `Supervisor steer（追加约束，权威来自 agentd WorkOrder）：${msg.text}`,
+									display: false,
+									details: { source: "rosclaw_update_work" },
+									timestamp: Date.now(),
+								} as never,
+								{ deliverAs: "steer" },
+							)
+							.then(() => emit(wo, att, "steer_ack", { text: msg.text?.slice(0, 200) }))
+							.catch(() => undefined);
+					}
+				} catch {
+					// malformed line 忽略
+				}
+			}
+		});
+
 		const task =
 			`WorkOrder goal: ${envelope.goal}\n\n` +
 			`Instructions: ${envelope.instructions || envelope.goal}\n\n` +

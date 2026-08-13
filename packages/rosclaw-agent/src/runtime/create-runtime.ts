@@ -35,6 +35,7 @@ import {
 	buildCancelWorkTool,
 	buildListWorkTool,
 	buildUpdateWorkTool,
+	buildRetryWorkTool,
 } from "../tools/delegate.js";
 import { buildRequestActionTool } from "../tools/request-action.js";
 import { buildCapabilitiesTool } from "../tools/capabilities.js";
@@ -235,6 +236,12 @@ export async function createRosclawRuntime(
 					center,
 				}),
 				buildUpdateWorkTool({
+					rosclawHome: options.rosclawHome,
+					active,
+					center,
+				}),
+				// 十审 W4：终态单 retry（lineage 保留）。
+				buildRetryWorkTool({
 					rosclawHome: options.rosclawHome,
 					active,
 					center,

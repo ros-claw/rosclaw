@@ -42,6 +42,8 @@ _TOOL_TABLE: dict[str, str] = {
     # 备注；运行中 Worker 的实时转向在 W4，update 诚实说明生效范围）。
     "rosclaw_list_work": "read",
     "rosclaw_update_work": "delegate",
+    # 十审 W4：终态单 retry（新 attempt 携带 steer 备注 + parent lineage）。
+    "rosclaw_retry_work": "delegate",
     "rosclaw_request_action": "physical_action",
     # 八审 P0-5：任务级入口——确定性编译器编排，模型只交 TaskSpec。
     "rosclaw_task": "task",
@@ -318,6 +320,8 @@ class PiToolDispatcher:
             return await self._list_work(request)
         if name == "rosclaw_update_work":
             return await self._update_work(request)
+        if name == "rosclaw_retry_work":
+            return await self._retry_work(request)
         if name == "rosclaw_fail_safe":
             await service.cancel(request.mission_id)
             return PiToolResultV1(
@@ -331,7 +335,6 @@ class PiToolDispatcher:
     async def _delegate(self, request: PiToolRequestV1) -> PiToolResultV1:
         """PNA-4（规格 §19）：招聘 Worker——受限 WorkOrder + 递归上限 +
         验证通过才进结果（未验证输出绝不进入主上下文）。"""
-        from rosclaw.agentd.workers.scheduler import CandidateView
         from rosclaw.contracts.common import new_id
         from rosclaw.contracts.worker.order import (
             BudgetEnvelope,
@@ -418,18 +421,8 @@ class PiToolDispatcher:
             root_work_order_id=str(args.get("root_work_order_id", "") or "") or parent_id,
         )
         service = self._service
-        candidates = [
-            CandidateView(
-                card=card,
-                registry_status=service._registry.status_of(card.worker_id) or "DISABLED",
-                running_orders=len(
-                    service._worker_manager.active_orders_for_worker(card.worker_id)
-                ),
-                circuit_open=service._worker_manager.circuit_open(card.worker_id, capability),
-            )
-            for card in service._registry.list()
-            if worker_hint in ("", "auto") or card.worker_id == worker_hint
-        ]
+        self._check_worker_token_budget(request.mission_id)
+        candidates = self._candidates_for(worker_hint, capability)
         if not candidates:
             raise ToolBridgeError(
                 "WORKER_UNAVAILABLE", f"no worker matches {worker_hint!r}", retryable=True
@@ -617,14 +610,154 @@ class PiToolDispatcher:
             (updated.model_dump_json(), datetime.now(UTC).isoformat(), work_order_id),
         )
         conn.commit()
+        # 十审 W4：运行中的内置 Worker 可实时 steer（stdin 通道）——
+        # 送达与否诚实报告（不假装运行外进程也能收到）。
+        delivered = False
+        if order.status == "RUNNING":
+            card_row = conn.execute(
+                "SELECT card_json FROM worker_cards WHERE worker_id = ?",
+                (order.assigned_to,),
+            ).fetchone()
+            if card_row is not None:
+                card = json.loads(card_row["card_json"])
+                adapter = self._service._worker_manager._adapters.get(
+                    card.get("adapter_type", "")
+                )
+                steer = getattr(adapter, "steer", None)
+                if steer is not None:
+                    import contextlib as _cl
+
+                    with _cl.suppress(Exception):
+                        delivered = await steer(work_order_id, note)
+        if delivered:
+            return PiToolResultV1(
+                request_id=request.request_id,
+                ok=True,
+                status="UPDATED",
+                summary=f"steer 已实时送达运行中的 Worker（{work_order_id}），并落账备查。",
+            )
         return PiToolResultV1(
             request_id=request.request_id,
             ok=True,
             status="UPDATED",
             summary=(
-                f"已记录 steer 备注（{work_order_id}）。注意：当前版本运行中的 "
-                "Worker 不能实时接收新约束——备注对 retry/后续 attempt 生效；"
+                f"已记录 steer 备注（{work_order_id}）。注意：该 Worker 当前不可实时接收"
+                "（非运行中或 adapter 无 steer 通道）——备注对 retry/后续 attempt 生效；"
                 "要立刻改变方向请 rosclaw_cancel_work 后重新委派。"
+            ),
+        )
+
+    def _candidates_for(self, worker_hint: str, capability: str):
+        from rosclaw.agentd.workers.scheduler import CandidateView
+
+        service = self._service
+        return [
+            CandidateView(
+                card=card,
+                registry_status=service._registry.status_of(card.worker_id) or "DISABLED",
+                running_orders=len(
+                    service._worker_manager.active_orders_for_worker(card.worker_id)
+                ),
+                circuit_open=service._worker_manager.circuit_open(card.worker_id, capability),
+            )
+            for card in service._registry.list()
+            if worker_hint in ("", "auto") or card.worker_id == worker_hint
+        ]
+
+    def _check_worker_token_budget(self, mission_id: str) -> None:
+        """十审 W4：mission 级 Worker token 预算——超过即诚实拒绝新委派
+        （防 runaway 计费；ROSCLAW_WORKER_TOKEN_BUDGET 可调，默认 1M）。"""
+        import os
+
+        cap = int(os.environ.get("ROSCLAW_WORKER_TOKEN_BUDGET", "1000000"))
+        if cap <= 0:
+            return
+        conn = self._service._store.connection
+        rows = conn.execute(
+            "SELECT wr.result_json FROM work_results wr "
+            "JOIN work_orders wo ON wo.work_order_id = wr.work_order_id "
+            "WHERE wo.mission_id = ?",
+            (mission_id,),
+        ).fetchall()
+        spent = 0
+        for row in rows:
+            usage = (json.loads(row["result_json"]).get("usage") or {})
+            spent += int(usage.get("prompt_tokens") or 0) + int(
+                usage.get("completion_tokens") or 0
+            )
+        if spent >= cap:
+            raise ToolBridgeError(
+                "WORKER_BUDGET_EXHAUSTED",
+                f"本 Mission 的 Worker token 预算已用尽（{spent}/{cap}）——"
+                "请开新 Mission 或调大 ROSCLAW_WORKER_TOKEN_BUDGET。",
+            )
+
+    async def _retry_work(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """十审 W4：终态单 retry——新 attempt 携带 steer 备注（拼入
+        instructions）+ parent/root lineage（可审计重试链）。"""
+        from rosclaw.contracts.common import new_id
+        from rosclaw.contracts.worker.order import WorkOrderV1
+
+        work_order_id = str(request.arguments.get("work_order_id", "")).strip()
+        if not work_order_id:
+            raise ToolBridgeError("INVALID_ARGUMENTS", "work_order_id required")
+        manager = self._service._worker_manager
+        order = manager.order(work_order_id)
+        if order is None:
+            raise ToolBridgeError(
+                "WORK_ORDER_NOT_FOUND", f"unknown work order {work_order_id!r}"
+            )
+        if order.mission_id != request.mission_id:
+            raise ToolBridgeError(
+                "MISSION_MISMATCH", "work order belongs to a different mission"
+            )
+        if order.status not in ("ACCEPTED", "FAILED", "EXPIRED", "CANCELLED"):
+            raise ToolBridgeError(
+                "NOT_TERMINAL",
+                f"work order is {order.status}——只能 retry 终态单（运行中请先 cancel）",
+            )
+        notes = order.inputs.get("steer_notes") or []
+        instructions = str(order.inputs.get("instructions") or order.goal)
+        if notes:
+            instructions += "\n\n追加约束（来自 retry 前的 steer 备注）：" + "；".join(
+                str(n.get("note", "")) for n in notes
+            )
+        new_order = WorkOrderV1(
+            work_order_id=new_id("wo"),
+            mission_id=order.mission_id,
+            issued_by="rosclaw-agent:pi",
+            capability=order.capability,
+            goal=order.goal,
+            inputs={**dict(order.inputs), "instructions": instructions},
+            budgets=order.budgets,
+            expected_output=order.expected_output,
+            side_effect_policy=order.side_effect_policy,
+            delegation_depth=0,
+            max_delegation_depth=1,
+            parent_work_order_id=order.work_order_id,
+            root_work_order_id=order.root_work_order_id or order.work_order_id,
+        )
+        self._check_worker_token_budget(request.mission_id)
+        worker_hint = order.assigned_to or "auto"
+        candidates = self._candidates_for(worker_hint, order.capability)
+        if not candidates:
+            raise ToolBridgeError(
+                "WORKER_UNAVAILABLE", f"no worker matches {worker_hint!r}", retryable=True
+            )
+        try:
+            scheduled = manager.hire(new_order, candidates)
+        except Exception as exc:  # noqa: BLE001
+            raise ToolBridgeError("SCHEDULING_FAILED", str(exc), retryable=True) from exc
+        self._service.spawn_worker_driver(scheduled)
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status="STARTED",
+            summary=(
+                f"已 retry（新 attempt）：{scheduled.work_order_id}\n"
+                f"parent: {order.work_order_id} · root: {new_order.root_work_order_id}\n"
+                f"Worker: {scheduled.assigned_to}"
+                + (f" · 携带 {len(notes)} 条 steer 备注" if notes else "")
             ),
         )
 

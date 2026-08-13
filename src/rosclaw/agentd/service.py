@@ -1717,6 +1717,47 @@ class AgentService:
         await self._pi_bridge.start()
         return path
 
+    async def reconcile_workers_on_start(self) -> list[str]:
+        """十审 W4：agentd 重启对账——所有非终态 WorkOrder 都是孤儿
+        （内存 run 注册表已随进程消失）：
+
+        - 有 child.pid 的 pi worker 子进程：整组杀掉（不留孤儿继续计费）；
+        - RUNNING → FAILED（agentd_restart）；OFFERED/CLAIMED → CANCELLED；
+        - 绝不假装它们仍在健康运行（resume 后 /jobs 显示真实状态）。
+        """
+        import signal as _signal
+
+        reconciled: list[str] = []
+        conn = self._store.connection
+        rows = conn.execute(
+            "SELECT work_order_id, status FROM work_orders "
+            "WHERE status NOT IN ('ACCEPTED', 'FAILED', 'EXPIRED', 'CANCELLED')"
+        ).fetchall()
+        for row in rows:
+            wo_id = row["work_order_id"]
+            pid_file = self._home / "work" / wo_id / "child.pid"
+            if pid_file.exists():
+                try:
+                    pid = int(pid_file.read_text().strip())
+                    import contextlib as _cl
+
+                    with _cl.suppress(ProcessLookupError, PermissionError):
+                        os.killpg(os.getpgid(pid), _signal.SIGTERM)
+                        await asyncio.sleep(0.5)
+                        os.killpg(os.getpgid(pid), _signal.SIGKILL)
+                except (ValueError, OSError):
+                    pass
+                pid_file.unlink(missing_ok=True)
+            try:
+                if row["status"] == "RUNNING":
+                    self._worker_manager._transition(wo_id, "FAILED", "agentd_restart")
+                else:
+                    self._worker_manager._transition(wo_id, "CANCELLED", "agentd_restart")
+                reconciled.append(wo_id)
+            except Exception:  # noqa: BLE001 - 对账继续
+                pass
+        return reconciled
+
     def spawn_worker_driver(self, order) -> None:
         """十审 W0：WorkOrder 后台驱动——pi 工具请求栈立即返回后由本
         任务驱动 run_to_completion 到终态；请求断开不影响权威状态。"""
@@ -1905,6 +1946,8 @@ def create_app(service: AgentService):
         # PR-11：operator.sock 随 HTTP 服务启动（同一事件循环）。
         # P1-3：HTTP 服务停止时必须关闭 service（子进程/socket/句柄）。
         # P1-4：ephemeral control token 落 0600 文件供同机 TUI/CLI。
+        # 十审 W4：先做 Worker 崩溃对账（孤儿进程清理 + 诚实终态）。
+        await service.reconcile_workers_on_start()
         await service.start_operator_socket()
         await service.start_pi_bridge()
         service.write_control_token_file()

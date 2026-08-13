@@ -66,6 +66,8 @@ class PiManagedAdapter:
     def __init__(self, *, rosclaw_home: Path) -> None:
         self._home = Path(rosclaw_home)
         self._runs: dict[str, tuple[RunHandle, asyncio.Task]] = {}
+        # W4：活动子进程（steer 通道 + pid 文件崩溃对账）。
+        self._procs: dict[str, asyncio.subprocess.Process] = {}
 
     async def probe(self, worker_id: str | None = None) -> WorkerProbeResult:  # noqa: ARG002
         runtime = find_pi_agent_entry()
@@ -126,6 +128,21 @@ class PiManagedAdapter:
         entry = self._runs.pop(handle.work_order_id, None)
         if entry is not None:
             entry[1].cancel()
+
+    async def steer(self, work_order_id: str, note: str) -> bool:
+        """W4：向运行中的 Worker 发送 steer（stdin JSONL）。进程不在
+        （或 stdin 已闭）返回 False——调用方据此诚实降级。"""
+        proc = self._procs.get(work_order_id)
+        if proc is None or proc.returncode is not None or proc.stdin is None:
+            return False
+        try:
+            proc.stdin.write(
+                (json.dumps({"type": "steer", "text": note}, ensure_ascii=False) + "\n").encode()
+            )
+            await proc.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            return False
+        return True
 
     async def reconcile(self, idempotency_key: str) -> str:  # noqa: ARG002
         for _handle, task in self._runs.values():
@@ -307,12 +324,18 @@ class PiManagedAdapter:
             "--headless",
             "--work-order",
             str(envelope_path),
+            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
             env=env,
             start_new_session=True,
         )
+        # W4：活动进程登记 + pid 文件（agentd 崩溃后对账——orphan 必须
+        # 可被下一轮启动清掉）。
+        self._procs[order.work_order_id] = proc
+        pid_file = self._home / "work" / order.work_order_id / "child.pid"
+        pid_file.write_text(f"{proc.pid}\n", encoding="utf-8")
         events: list[dict] = []
         final_report = ""
         failure: dict | None = None
@@ -349,6 +372,8 @@ class PiManagedAdapter:
             readers.cancel()
             with contextlib.suppress(Exception):
                 await readers
+            self._procs.pop(order.work_order_id, None)
+            pid_file.unlink(missing_ok=True)
 
         try:
             # startup timeout：attempt_started 必须在限定时间内出现。
@@ -378,6 +403,8 @@ class PiManagedAdapter:
             await _teardown()
             raise
         await readers
+        self._procs.pop(order.work_order_id, None)
+        pid_file.unlink(missing_ok=True)
         finished = datetime.now(UTC)
         if failure is not None:
             raise AdapterError(

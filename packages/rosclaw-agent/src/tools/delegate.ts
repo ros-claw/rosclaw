@@ -140,6 +140,41 @@ export function buildDelegateTool(ctx: BridgeToolContext) {
 	});
 }
 
+export function buildRetryWorkTool(ctx: BridgeToolContext) {
+	return defineTool({
+		name: "rosclaw_retry_work",
+		label: "ROSClaw Retry Work",
+		description:
+			"Retry a terminal WorkOrder as a new attempt. Carries recorded steer " +
+			"notes into the new attempt and preserves parent/root lineage.",
+		parameters: Type.Object({
+			work_order_id: Type.String({ description: "exact wo_... id of the TERMINAL order" }),
+		}),
+		async execute(_id, params, _signal, _onUpdate, _toolCtx) {
+			const request = buildRequest(ctx, "rosclaw_retry_work", params as Record<string, unknown>);
+			const response = await ctx.center.call("pi.tools.execute", { request });
+			const result = (response.result ?? {}) as {
+				ok?: boolean;
+				summary?: string;
+				error_code?: string;
+			};
+			const ok = response.ok === true;
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: ok
+							? (result.summary ?? "")
+							: `retry 被拒 [${result.error_code ?? response.code ?? "?"}]: ${result.summary ?? response.error ?? ""}`,
+					},
+				],
+				details: { ok, error_code: result.error_code ?? null },
+				isError: !ok,
+			};
+		},
+	});
+}
+
 export function buildListWorkTool(ctx: BridgeToolContext) {
 	return defineTool({
 		name: "rosclaw_list_work",
