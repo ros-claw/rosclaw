@@ -12,12 +12,21 @@
 
 from __future__ import annotations
 
-import asyncio
+import json
+import shutil
 import stat
+import subprocess
 import time
 from pathlib import Path
 
 import pytest
+
+# CI Full Regression 无 node/dist——prompt 契约测试诚实 skip（本地与
+# Node jobs 覆盖）。
+_NODE_AVAILABLE = shutil.which("node") is not None and (
+    Path(__file__).resolve().parents[2]
+    / "packages/rosclaw-agent/dist/src/workers/profiles.js"
+).exists()
 
 from rosclaw.agentd.workers.scheduler import CandidateView
 from rosclaw.contracts.common import new_id
@@ -188,11 +197,9 @@ class TestBudgetWrapup:
         await service.close()
 
 
+@pytest.mark.skipif(not _NODE_AVAILABLE, reason="无 node/dist——诚实 skip")
 class TestPromptContract:
     def test_developer_prompt_has_no_readonly_contradiction(self) -> None:
-        import json
-        import subprocess
-
         # 用 node 直接读编译后 profiles（真实运行面）。
         proc = subprocess.run(
             [
@@ -221,9 +228,6 @@ class TestPromptContract:
         assert "design document" in prompt.lower()  # DoD 反设计稿声明
 
     def test_scout_prompt_manifest_is_readonly_honest(self) -> None:
-        import json
-        import subprocess
-
         proc = subprocess.run(
             [
                 "node",
