@@ -31,6 +31,7 @@ import type { LocaleManager } from "../i18n/locale.js";
 import { t as i18nT } from "../i18n/index.js";
 import { EventMirror } from "./event-mirror.js";
 import { WorkerCompletionWatcher } from "../workers/completion-watch.js";
+import { JobsWidget, renderJobLog } from "../workers/job-widget.js";
 import { buildCommandHandlers } from "./commands.js";
 import { guardInput } from "./input-guard.js";
 import { fetchEmbodiedContext, renderTrustedContext } from "./context-injection.js";
@@ -71,7 +72,15 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		let probeTimer: ReturnType<typeof setInterval> | null = null;
 		// 十审 W2：Worker 完成推送——custom message 注入（不冒充用户
 		// 输入），投递账本持久化（重启/compact 不重复、不丢失）。
-		let latestCtx: { isIdle(): boolean; hasUI: boolean; ui: { notify(t: string, k: "info"): void } } | undefined;
+		type LatestCtx = {
+			isIdle(): boolean;
+			hasUI: boolean;
+			ui: {
+				notify(t: string, k: "info" | "warning" | "error"): void;
+				setWidget(key: string, lines: string[] | undefined): void;
+			};
+		};
+		let latestCtx: LatestCtx | undefined;
 		const watcher = new WorkerCompletionWatcher({
 			rosclawHome: options.rosclawHome,
 			active: options.active,
@@ -87,12 +96,25 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						}
 					: undefined,
 		});
+		// 十一审 PR-C：实时 Job 卡（widget 与 /job log 同一事件源；
+		// 仅 UI 有 ctx 时渲染；内容不变不重绘——idle CPU 红线）。
+		const jobsWidget = new JobsWidget({
+			active: options.active,
+			center,
+			setWidget: (lines) => {
+				if (!latestCtx?.hasUI) return;
+				if (lines === undefined) latestCtx.ui.setWidget("rosclaw-jobs", undefined);
+				else latestCtx.ui.setWidget("rosclaw-jobs", lines);
+			},
+		});
 		pi.on("session_start", async (_event, ctx) => {
 			latestCtx = ctx;
 			watcher.start();
+			jobsWidget.start();
 		});
 		pi.on("session_shutdown", async () => {
 			watcher.stop();
+			jobsWidget.stop();
 		});
 		pi.on("session_start", async (_event, ctx) => {
 			if (!ctx.hasUI) return;
@@ -446,9 +468,10 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				const trimmed = args.trim();
 				const cancelMatch = trimmed.match(/^cancel\s+(\S+)$/);
 				const retryMatch = trimmed.match(/^retry\s+(\S+)$/);
+				const logMatch = trimmed.match(/^log\s+(\S+)$/);
 				const idMatch = trimmed.match(/^(\S+)$/);
-				if (!idMatch && !cancelMatch && !retryMatch) {
-					ctx.ui.notify("用法：/job <wo_id> | /job cancel <wo_id> | /job retry <wo_id>", "warning");
+				if (!idMatch && !cancelMatch && !retryMatch && !logMatch) {
+					ctx.ui.notify("用法：/job <wo_id> | /job log <wo_id> | /job cancel <wo_id> | /job retry <wo_id>", "warning");
 					return;
 				}
 				const state = options.active.current;
@@ -465,6 +488,23 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					actor: { engine: "pi-command" },
 				});
 				try {
+					if (logMatch) {
+						// 十一审 PR-C：事件日志（EventStore tail——不经模型、
+						// 不耗 token；与 widget 同一事件源）。
+						const response = await center.call("pi.worker.events", {
+							work_order_id: logMatch[1],
+							limit: 80,
+						});
+						if (!response.ok) {
+							ctx.ui.notify(`查询失败：${String(response.error ?? "")}`, "error");
+							return;
+						}
+						ctx.ui.notify(renderJobLog(
+							(response.events ?? []) as never,
+							logMatch[1],
+						), "info");
+						return;
+					}
 					if (retryMatch) {
 						const response = await center.call("pi.tools.execute", {
 							request: mkRequest("rosclaw_retry_work", retryMatch[1]),
