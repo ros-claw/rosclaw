@@ -977,11 +977,14 @@ class PiBridgeServer:
             store = WorkerEventStore(service._home)
             after_seq = int(params.get("after_seq", 0) or 0)
             limit = min(int(params.get("limit", 100) or 100), 500)
-            events = store.tail(work_order_id, after_seq=after_seq, limit=limit)
+            # 十二审 PR-12.2：分页语义（earliest N + next_cursor + has_more）
+            page = store.tail_page(work_order_id, after_seq=after_seq, limit=limit)
             return {
                 "ok": True,
-                "events": events,
-                "last_seq": events[-1]["seq"] if events else after_seq,
+                "events": page["events"],
+                "next_cursor": page["next_cursor"],
+                "has_more": page["has_more"],
+                "last_seq": page["next_cursor"],
                 "status": order.status,
                 "stderr_tail": store.tail_stderr(work_order_id)
                 if params.get("include_stderr")

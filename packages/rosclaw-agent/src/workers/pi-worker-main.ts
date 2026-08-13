@@ -57,6 +57,29 @@ function emit(workOrderId: string, attemptId: string, kind: string, payload: Rec
 	writeSync(1, `${line}\n`);
 }
 
+/** 十二审 PR-12.2：事件桥脱敏（与 Python redact 同规则）。 */
+function redactText(text: string): string {
+	return text
+		.replace(/sk-[A-Za-z0-9]{12,}/g, "sk-***REDACTED***")
+		.replace(/(api[_-]?key|secret|password|token)(\s*[:=]\s*)['"]?[\w\-]{8,}/gi, "$1$2***REDACTED***");
+}
+
+/** 工具参数预览（相对路径/截断/脱敏——不展示敏感全文）。 */
+function argsPreview(tool: string, args: unknown, cwd: string): string {
+	try {
+		const a = (args ?? {}) as Record<string, unknown>;
+		let raw: string;
+		if (tool === "bash") raw = Array.isArray(a.argv) ? (a.argv as string[]).join(" ") : JSON.stringify(a);
+		else if (typeof a.path === "string") {
+			raw = a.path.startsWith(cwd) ? a.path.slice(cwd.length + 1) : a.path;
+			if (a.pattern) raw += ` /${String(a.pattern)}/`;
+		} else raw = JSON.stringify(a);
+		return redactText(raw.slice(0, 120));
+	} catch {
+		return "";
+	}
+}
+
 /** 十一审 PR-B：独立 transcript（会话级证据，不落主对话）。 */
 function makeTranscriptWriter(envelope: WorkerEnvelope) {
 	const dir = envelope.artifacts_dir
@@ -227,6 +250,10 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 		}, 2000);
 		providerTimer.unref();
 		const transcript = makeTranscriptWriter(envelope);
+		// 十二审 PR-12.2：delta 批量 + tool update 限频状态。
+		let deltaBuf = "";
+		let deltaLastFlush = 0;
+		const toolUpdateAt = new Map<string, number>();
 		const unsubscribe = session.subscribe((event) => {
 			const e = event as unknown as {
 				type: string;
@@ -242,15 +269,52 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 			} else if (event.type === "tool_execution_start") {
 				phase = "RUNNING_TOOL";
 				spanStartedAt = Date.now();
-				semantic("tool_started", { tool: e.toolName ?? "?" });
+				// 十二审 PR-12.2：工具事件带脱敏参数预览（可回溯的真实
+				// 活动——不是只有工具名）。
+				semantic("tool_started", {
+					tool: e.toolName ?? "?",
+					args_preview: argsPreview(e.toolName ?? "", (event as { args?: unknown }).args, envelope.cwd),
+				});
+			} else if (event.type === "tool_execution_update") {
+				// 限频 passthrough（每工具 500ms 一条上限）。
+				const callId = (event as { toolCallId?: string }).toolCallId ?? "";
+				const nowMs = Date.now();
+				if (nowMs - (toolUpdateAt.get(callId) ?? 0) >= 500) {
+					toolUpdateAt.set(callId, nowMs);
+					semantic("tool_progress", { tool: e.toolName ?? "?", tool_call_id: callId });
+				}
 			} else if (event.type === "tool_execution_end") {
 				phase = "RUNNING_MODEL";
 				spanStartedAt = Date.now();
+				// 结果输出预览（归一化 + 截断 + 脱敏）。
+				const resultText = redactText(
+					normalizeAssistantContent(
+						((event as { result?: { content?: unknown } }).result ?? {}).content ?? "",
+					).text,
+				).slice(0, 400);
 				semantic("tool_finished", {
 					tool: e.toolName ?? "?",
 					is_error: e.isError === true,
+					output_preview: resultText,
 				});
 				transcript({ role: "tool", tool: e.toolName ?? "?", is_error: e.isError === true });
+			} else if (event.type === "message_update") {
+				// 十二审 PR-12.2：text delta 批量落盘（150ms/2KiB），不丢
+				// 也不风暴。
+				const ame = (event as { assistantMessageEvent?: { type?: string; delta?: string } })
+					.assistantMessageEvent;
+				if (ame?.type === "text_delta" && ame.delta) {
+					deltaBuf += ame.delta;
+					const nowMs = Date.now();
+					if (deltaBuf.length >= 2048 || nowMs - deltaLastFlush >= 150) {
+						emit(wo, att, "message_delta", {
+							chars: deltaBuf.length,
+							preview: redactText(deltaBuf.slice(-160)),
+						});
+						deltaBuf = "";
+						deltaLastFlush = nowMs;
+					}
+				}
 			} else if (event.type === "message_end" && e.message) {
 				messages.push(e.message as Record<string, unknown>);
 				{

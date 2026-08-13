@@ -32,6 +32,10 @@ interface WorkerEvent {
 	tool?: string;
 	message?: string;
 	is_error?: boolean;
+	args_preview?: string;
+	output_preview?: string;
+	chars?: number;
+	preview?: string;
 	input_tokens?: number;
 	output_tokens?: number;
 	turns?: number;
@@ -241,10 +245,18 @@ export function renderJobLog(events: WorkerEvent[], workOrderId: string): string
 			case "liveness":
 				continue; // 默认不刷屏——liveness 只供 widget
 			case "tool_started":
-				lines.push(`#${event.seq} ▶ tool ${event.tool}`);
+				lines.push(
+					`#${event.seq} ▶ tool ${event.tool}${event.args_preview ? ` ${event.args_preview}` : ""}`,
+				);
 				break;
 			case "tool_finished":
 				lines.push(`#${event.seq} ✓ tool ${event.tool}${event.is_error ? " (error)" : ""}`);
+				if (event.output_preview) {
+					lines.push(`     ⎿ ${event.output_preview.slice(0, 120)}`);
+				}
+				break;
+			case "message_delta":
+				lines.push(`#${event.seq} … ${event.preview ?? ""}`);
 				break;
 			case "model_started":
 				lines.push(`#${event.seq} ◌ model turn`);

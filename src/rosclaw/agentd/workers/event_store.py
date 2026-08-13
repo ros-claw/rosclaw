@@ -48,6 +48,21 @@ class WorkerEventStore:
 
     def __init__(self, home: Path) -> None:
         self._root = Path(home) / "work"
+        # 十二审 PR-12.2：单写者内存计数（O(1) append）——每个进程内
+        # 唯一写者；首次写时从文件行数初始化（重启续写不重置）。
+        self._seq_counters: dict[str, int] = {}
+
+    def _next_seq(self, events_path: Path, work_order_id: str) -> int:
+        current = self._seq_counters.get(work_order_id)
+        if current is None:
+            current = 0
+            if events_path.exists():
+                with events_path.open("rb") as fh:
+                    current = sum(1 for _ in fh)
+            self._seq_counters[work_order_id] = current
+        current += 1
+        self._seq_counters[work_order_id] = current
+        return current
 
     def _dir(self, work_order_id: str) -> Path:
         # 防路径穿越：wo_ 前缀 + hex。
@@ -70,14 +85,12 @@ class WorkerEventStore:
         d = self._dir(work_order_id)
         d.mkdir(parents=True, exist_ok=True)
         events_path = d / "events.jsonl"
-        existing = 0
-        if events_path.exists():
-            with events_path.open("rb") as fh:
-                existing = sum(1 for _ in fh)
+        seq = self._next_seq(events_path, work_order_id)
         record = {
+            "v": 2,  # 十二审 PR-12.2：事件 schema 版本
             "work_order_id": work_order_id,
             "attempt_id": attempt_id,
-            "seq": existing + 1,
+            "seq": seq,
             "kind": kind,
             "ts": _utcnow(),
             **{k: v for k, v in payload.items() if k not in ("work_order_id", "attempt_id", "seq", "ts")},
@@ -119,11 +132,22 @@ class WorkerEventStore:
     def tail(
         self, work_order_id: str, *, after_seq: int = 0, limit: int = 100
     ) -> list[dict[str, Any]]:
-        """读取 seq > after_seq 的事件（TUI/CLI 轮询即 subscribe）。"""
+        """cursor 后**最早**的 N 条（分页读取用——与 tail_page 同语义）。"""
+        return self.tail_page(work_order_id, after_seq=after_seq, limit=limit)["events"]
+
+    def tail_page(
+        self, work_order_id: str, *, after_seq: int = 0, limit: int = 100
+    ) -> dict[str, Any]:
+        """十二审 PR-12.2：正确分页——返回 cursor 后**最早**的 N 条 +
+        next_cursor + has_more。两次轮询间新增超过 N 条时，旧实现
+        （取最后 N 条）会永久跳过中间事件；本实现零丢失零重复。
+        """
         path = self._dir(work_order_id) / "events.jsonl"
         if not path.exists():
-            return []
+            return {"events": [], "next_cursor": after_seq, "has_more": False}
         events: list[dict[str, Any]] = []
+        last_seq = after_seq
+        has_more = False
         with path.open(encoding="utf-8") as fh:
             for line in fh:
                 if not line.strip():
@@ -132,9 +156,16 @@ class WorkerEventStore:
                     event = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if int(event.get("seq", 0)) > after_seq:
+                seq = int(event.get("seq", 0))
+                if seq <= after_seq:
+                    continue
+                if len(events) < limit:
                     events.append(event)
-        return events[-limit:]
+                    last_seq = seq
+                else:
+                    has_more = True
+                    break
+        return {"events": events, "next_cursor": last_seq, "has_more": has_more}
 
     def tail_stderr(self, work_order_id: str, *, max_bytes: int = 4096) -> str:
         path = self._dir(work_order_id) / "stderr.log"
