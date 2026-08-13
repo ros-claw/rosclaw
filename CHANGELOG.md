@@ -5,6 +5,68 @@ All notable changes to ROSClaw will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-08-13
+
+### Added
+
+- **ROSClaw Channels / OpenClaw + ACP integration (PR-RC-001…005)**
+  - ACP protocol hardening (`src/rosclaw/adapters/acp/server.py`): capability
+    advertisement now matches the implementation (`load_session=True`,
+    `sessionCapabilities` list/resume/close); full session lifecycle
+    `session/new|list|load|resume|close|cancel` with frozen semantics — close
+    never deletes the Mission, cancel is turn-only; per-session turn
+    serialization; unsupported attachment blocks get an explicit
+    "not yet supported" notice instead of being silently dropped.
+  - Graceful shutdown for `rosclaw acp serve`: stdin EOF (OpenClaw closing the
+    ACP child pipe) and SIGTERM/SIGINT both exit cleanly — stream tasks
+    cancelled, connection closed, `AgentService.close()` runs; no orphan
+    processes. stdout carries JSON-RPC frames only (all logs on stderr).
+  - `AgentService.subscribe_events()` / `stream_events()`
+    (`src/rosclaw/agentd/events.py`): one authoritative async event stream —
+    journal replay from `after_sequence` then live bus, lossless (queue
+    overflow gaps backfilled from the journal), deduped, monotonic; replaces
+    the ACP adapter's 250 ms polling loop.
+  - New AgentEvent types `reasoning.started` / `reasoning.summary.delta` /
+    `reasoning.summary.ended` / `plan.updated` for safe reasoning summaries
+    (never raw CoT); ACP mapper projects `reasoning.summary.delta` →
+    `AgentThoughtChunk` and `plan.updated` → `AgentPlanUpdate` with stable
+    message IDs.
+  - ACP mapper (`src/rosclaw/adapters/acp/mapper.py`) rewrite per the frozen
+    mapping table: stable `tool_call_id` (`tool_call_id` → `call_id` →
+    `event_id`, never the tool name), `work_order_id` as the stable worker ID,
+    proper ToolCallStart/Update split for worker lifecycle, visibility gate
+    (only USER events leave via ACP by default; DEBUG/AUDIT stay local),
+    usage update only with a real context size, action/approval remain
+    read-only cards.
+  - `rosclaw channel doctor` / `rosclaw channel setup feishu`
+    (`src/rosclaw/integrations/openclaw/`): read-only channel diagnostics —
+    ROSCLAW_HOME, model config, credentials, live ACP handshake probe
+    (initialize/new/resume/close), Node/OpenClaw/acpx/harness registration,
+    gateway loopback+auth, Feishu pairing/allowlist policy, MCP bridges off,
+    `permissionMode=deny-all`. Never modifies configuration.
+  - `integrations/openclaw/` scaffold: `README.md` bring-up guide,
+    `openclaw.rosclaw.example.json5` single-robot reference config, and
+    `SECURITY.md` trust-boundary baseline. OpenClaw is not vendored.
+
+### Changed
+
+- `agent-client-protocol` dependency pinned to `>=0.12.0,<0.13.0` after
+  verifying 0.12.0 against the ACP test suite (integration version lock).
+- Tool lifecycle events now carry `call_id` in their payloads
+  (`src/rosclaw/agentd/loop.py`) so every UI surface gets stable tool IDs.
+
+### Tests
+
+- `tests/agentd/test_acp.py`: 28 tests — capability advertisement, session
+  lifecycle (close retains Mission, resume rebinds without replay, load
+  replays transcript), turn-only cancel, attachment notice, mapper coverage
+  (tool/worker/reasoning/plan/usage/error/visibility), event subscription
+  (replay→live, reconnect, gap backfill), stdio black-box (stdout purity,
+  EOF/SIGTERM clean exit, kill-then-resume continuity).
+- `tests/agentd/test_channel_doctor.py`: doctor probe handshake, stderr
+  diagnosis on ACP failure, `--require-openclaw` semantics, read-only
+  guarantee.
+
 ## [Unreleased] - 2026-06-21
 
 ### Added

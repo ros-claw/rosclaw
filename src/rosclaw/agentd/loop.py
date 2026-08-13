@@ -505,7 +505,11 @@ class AgentLoop:
                         return result
                     await self._emit(
                         AgentEventType.TOOL_STARTED,
-                        {"name": call.name, "arguments": arguments},
+                        {
+                            "name": call.name,
+                            "call_id": call.call_id,
+                            "arguments": arguments,
+                        },
                     )
                     tool_ok = True
                     try:
@@ -549,7 +553,7 @@ class AgentLoop:
                         )
                     await self._emit(
                         AgentEventType.TOOL_COMPLETED,
-                        {"name": call.name, "ok": tool_ok},
+                        {"name": call.name, "call_id": call.call_id, "ok": tool_ok},
                     )
                     self._conversation.append(
                         {"role": "tool", "tool_call_id": call.call_id, "content": output}

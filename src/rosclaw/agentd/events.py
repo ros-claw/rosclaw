@@ -20,6 +20,7 @@ import asyncio
 import json
 import sqlite3
 from collections import defaultdict
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
 from rosclaw.contracts.agent.agent_event import (
@@ -167,3 +168,54 @@ class AgentEventStore:
             visibility=Visibility(row["visibility"]),
             payload=json.loads(row["payload_json"]),
         )
+
+
+async def stream_events(
+    store: AgentEventStore,
+    mission_id: str,
+    *,
+    after_sequence: int = 0,
+) -> AsyncIterator[AgentEventV2]:
+    """一个 authoritative event stream：journal replay → live bus（Channel 设计 §21）。
+
+    供 ACP / TUI SSE / 未来 AG-UI 共用，替代各消费方自己的轮询循环。
+
+    保证：
+    - 无丢失：先 attach live bus 再 replay journal，起始空窗由 queue 覆盖；
+      live queue 溢出（bus 满时丢最旧事件）产生的 sequence 空洞从 journal
+      补齐——sequence 是 per-mission 严格单调无空洞的，空洞只可能来自丢事件。
+    - 无重复：live 事件 sequence <= 已发送水位时跳过。
+    - sequence 单调递增。
+    - 重连：调用方记录最后收到的 sequence，以 ``after_sequence`` 重新订阅。
+    """
+    queue = store.bus.subscribe(mission_id)  # 先挂 live，关闭 replay 竞态窗口
+    sent = after_sequence
+    try:
+        # 1) journal replay（分页直到追平当前 journal 末尾）
+        while True:
+            batch = store.replay(mission_id, after_sequence=sent, limit=500)
+            if not batch:
+                break
+            for event in batch:
+                if event.sequence > sent:
+                    sent = event.sequence
+                    yield event
+            if len(batch) < 500:
+                break
+        # 2) live bus
+        while True:
+            event = await queue.get()
+            if event.sequence <= sent:
+                continue  # 与 replay 重叠的部分去重
+            if event.sequence > sent + 1:
+                # live queue 溢出丢过事件——从 journal 补齐空洞。
+                for missed in store.replay(
+                    mission_id, after_sequence=sent, before_sequence=event.sequence
+                ):
+                    if missed.sequence > sent:
+                        sent = missed.sequence
+                        yield missed
+            sent = event.sequence
+            yield event
+    finally:
+        store.bus.unsubscribe(mission_id, queue)

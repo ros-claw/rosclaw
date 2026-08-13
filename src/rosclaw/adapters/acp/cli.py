@@ -36,6 +36,13 @@ def dispatch_acp_argv(argv: list[str]) -> int | None:
     service = AgentService(config, home)
     import contextlib
 
+    async def _run() -> None:
+        try:
+            await serve_stdio(service)
+        finally:
+            # graceful shutdown（§37）：flush journal、关闭 MissionStore。
+            await service.close()
+
     with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(serve_stdio(service))
+        asyncio.run(_run())
     return 0

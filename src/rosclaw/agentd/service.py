@@ -509,6 +509,14 @@ class AgentService:
     def events_unsubscribe(self, mission_id: str, queue: asyncio.Queue) -> None:
         self._events.bus.unsubscribe(mission_id, queue)
 
+    def subscribe_events(self, mission_id: str, *, after_sequence: int = 0):
+        """Authoritative async event stream（Channel 设计 §21）：journal replay
+        （``after_sequence`` 之后）→ live bus，无丢失/无重复/sequence 单调，
+        供 ACP、TUI SSE、未来 AG-UI 共用。"""
+        from rosclaw.agentd.events import stream_events
+
+        return stream_events(self._events, mission_id, after_sequence=after_sequence)
+
     async def cancel_turn_v2(self, mission_id: str) -> None:
         await self.cancel(mission_id)
         task = self._turn_tasks.get(mission_id)
@@ -785,9 +793,7 @@ class AgentService:
             from rosclaw.agentd.sim_executor import SimActionChannel
             from rosclaw.agentd.tooling.persistent_client import PersistentMcpClient
 
-            shared = PersistentMcpClient(
-                command=str(spec["command"]), args=tuple(spec["args"])
-            )
+            shared = PersistentMcpClient(command=str(spec["command"]), args=tuple(spec["args"]))
             self._shared_mcp_client = shared
             self._sim_executors[kit.executor_identity] = SimActionChannel(
                 command=str(spec["command"]),
@@ -874,11 +880,10 @@ class AgentService:
                 )
 
             checks = {
-                "trajectory": any(
-                    "plan" in t for t in kit.compute_tools if _usable(t)
-                ),
+                "trajectory": any("plan" in t for t in kit.compute_tools if _usable(t)),
                 "verifier": any(
-                    "verify" in t for t in (*kit.compute_tools, *kit.observation_tools)
+                    "verify" in t
+                    for t in (*kit.compute_tools, *kit.observation_tools)
                     if _usable(t)
                 ),
                 "executor": status.get("executor") == "READY",
@@ -893,9 +898,7 @@ class AgentService:
                 "idempotent": True,
                 "cancellable": True,
                 "real_authorization": False,
-                "command": (
-                    f"/robot repair {target.kit_id}" if target else ""
-                ),
+                "command": (f"/robot repair {target.kit_id}" if target else ""),
             }
         return {
             "ok": True,
@@ -1008,9 +1011,7 @@ class AgentService:
                 try:
                     await adapter.discover()
                 except Exception:  # noqa: BLE001 - discovery must never break chat
-                    self._tool_catalog.quarantine_source(
-                        adapter.source, "discovery_crashed"
-                    )
+                    self._tool_catalog.quarantine_source(adapter.source, "discovery_crashed")
             self._mcp_discovered = True
 
     @property
@@ -1194,7 +1195,10 @@ class AgentService:
                     except Exception as exc:  # noqa: BLE001
                         results.setdefault(domain, {"ok": False, "detail": str(exc)})
                 else:
-                    results[domain] = {"ok": True, "detail": f"re-registered {len(refreshed)} packs"}
+                    results[domain] = {
+                        "ok": True,
+                        "detail": f"re-registered {len(refreshed)} packs",
+                    }
             elif domain == "models":
                 results[domain] = {
                     "ok": True,
@@ -1288,9 +1292,7 @@ class AgentService:
 
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(
-                self._events.append(mission_id, AgentEventType.MISSION_ARCHIVED, {})
-            )
+            loop.create_task(self._events.append(mission_id, AgentEventType.MISSION_ARCHIVED, {}))
         except RuntimeError:
             pass
 
@@ -2057,9 +2059,7 @@ def create_app(service: AgentService):
                     )
             pairing = os.environ.get("ROSCLAW_CONSOLE_TOKEN")
             if pairing and request.headers.get("x-rosclaw-token") != pairing:
-                return JSONResponse(
-                    status_code=403, content={"detail": "pairing token required"}
-                )
+                return JSONResponse(status_code=403, content={"detail": "pairing token required"})
         # P1-4：ephemeral control token——除 /health 与 /console（HTML
         # 壳）外全部端点（含敏感 GET）都必须携带。token 经 0600 文件
         # 交给同机 TUI/CLI，不写 journal、不进 ps。
@@ -2340,7 +2340,9 @@ def create_app(service: AgentService):
         principal = service.principal_for_request(request_id)
         try:
             grant = await service.decide_approval(
-                request_id, principal=principal, approve=payload.approve,
+                request_id,
+                principal=principal,
+                approve=payload.approve,
                 _from_operatord=True,
             )
         except Exception as exc:  # noqa: BLE001
