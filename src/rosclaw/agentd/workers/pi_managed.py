@@ -244,6 +244,80 @@ class PiManagedAdapter:
             )
         except OSError:
             pass
+    def _preflight(self, order: WorkOrderV1) -> None:
+        """十二审 PR-12.4（§5.3）：artifact_build/simulation_run 的依赖
+        预检（媒体编码器/workspace 可写）——失败即 BLOCKED_PREFLIGHT。"""
+        task_type = str(order.inputs.get("task_type") or "")
+        if task_type not in ("artifact_build", "simulation_run"):
+            return
+        import shutil
+
+        has_ffmpeg = shutil.which("ffmpeg") is not None
+        has_pil = False
+        try:
+            import PIL  # noqa: F401
+
+            has_pil = True
+        except ImportError:
+            pass
+        problems = []
+        if not has_ffmpeg and not has_pil:
+            problems.append(
+                "无媒体编码器（ffmpeg 与 Pillow 均不可用）——"
+                "请安装 ffmpeg 或 pip install pillow"
+            )
+        ws = str(order.inputs.get("workspace") or "")
+        if ws and not os.access(ws, os.W_OK):
+            problems.append(f"workspace 不可写: {ws}")
+        if problems:
+            raise AdapterError("BLOCKED_PREFLIGHT: " + "；".join(problems))
+
+    def _validate_deliverables(
+        self, order: WorkOrderV1, workspace: str
+    ) -> list[str]:
+        """required deliverable 硬验收（存在/非空/魔数）。返回失败原因
+        列表（空=全过）。"""
+        from rosclaw.contracts.worker.workspec import validate_media_file
+
+        deliverables = order.inputs.get("deliverables") or []
+        task_type = str(order.inputs.get("task_type") or "")
+        required_types: list[str] = []
+        for d in deliverables:
+            if isinstance(d, dict) and d.get("required", True):
+                required_types.extend(d.get("media_types") or [])
+        if task_type == "artifact_build" and not required_types:
+            required_types = ["image/gif", "video/mp4"]
+        if task_type == "simulation_run" and not required_types:
+            required_types = ["application/json", "image/gif", "video/mp4"]
+        if not required_types:
+            return []
+        failures: list[str] = []
+        for media_type in dict.fromkeys(required_types):
+            # 任一该类型的文件通过即算该 deliverable 满足（or 语义：
+            # gif 或 mp4 任一）。
+            candidates = []
+            if media_type.startswith("image/") or media_type.startswith("video/"):
+                ext = media_type.split("/")[-1].replace("jpeg", "jpg")
+                candidates = [
+                    p for p in Path(workspace).rglob(f"*.{ext}") if ".git" not in p.parts
+                ]
+                if media_type == "image/gif":
+                    candidates += [
+                        p for p in Path(workspace).rglob("*.gif") if ".git" not in p.parts
+                    ]
+            elif media_type == "application/json":
+                candidates = [
+                    p for p in Path(workspace).rglob("*.json") if ".git" not in p.parts
+                ]
+            errors = [validate_media_file(p, media_type) for p in candidates]
+            passed = any(e is None for e in errors)
+            if not passed:
+                failures.append(
+                    f"deliverable {media_type} 未通过（候选 {len(candidates)} 个"
+                    + (f"，首个错误: {errors[0]}" if errors else "，无文件产出")
+                    + "）"
+                )
+        return failures
 
     # ------------------------------------------------------------------
     def _annotate(self, work_order_id: str, **fields: str) -> None:
@@ -430,6 +504,9 @@ class PiManagedAdapter:
         entry: str,
     ) -> WorkResultV1:
         started = datetime.now(UTC)
+        # 十二审 PR-12.4：媒体/仿真任务 preflight——缺依赖 5 秒内
+        # BLOCKED_PREFLIGHT，不烧 Worker 预算。
+        self._preflight(order)
         # W3：写能力 profile 先准备独立 workspace（git worktree/scratch）。
         workspace, base_ref = await self._prepare_workspace(order)
         # 十一审 PR-D：resolved workspace + base_sha 回写订单（WorkOrder
@@ -711,6 +788,11 @@ class PiManagedAdapter:
             claims.extend(wb_claims)
             if notes:
                 summary = f"{summary}\n\n[workbench] {notes}"
+            # 十二审 PR-12.4：required deliverable 未过 = 诚实失败
+            # （deliverable 未通过不得宣布完成）。
+            failures = self._validate_deliverables(order, workspace)
+            if failures:
+                raise AdapterError("DELIVERABLE_FAILED: " + "；".join(failures))
         return WorkResultV1(
             work_order_id=order.work_order_id,
             worker_id=WORKER_ID,

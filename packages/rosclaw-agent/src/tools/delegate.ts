@@ -87,6 +87,21 @@ export function buildDelegateTool(ctx: BridgeToolContext) {
 			base_ref: Type.Optional(
 				Type.String({ description: "git base ref for the worktree (default HEAD)" }),
 			),
+			// 十二审 PR-12.4：WorkSpecV2——任务类型 + 交付物（验收按此，
+			// 不再 profile 硬编码）。
+			task_type: Type.Optional(
+				Type.String({ description: "analyze | code_change | artifact_build | simulation_run" }),
+			),
+			deliverables: Type.Optional(
+				Type.Array(
+					Type.Object({
+						id: Type.Optional(Type.String()),
+						media_types: Type.Array(Type.String()),
+						required: Type.Optional(Type.Boolean()),
+					}),
+					{ description: "required deliverables, e.g. [{media_types:['image/gif']}]" },
+				),
+			),
 			capability: Type.Optional(Type.String()),
 			instructions: Type.Optional(Type.String()),
 			budget: Type.Optional(
