@@ -961,6 +961,32 @@ class PiBridgeServer:
                 stored += 1
             service._store.connection.commit()
             return {"ok": True, "stored": stored}
+        if method == "pi.worker.events":
+            # 十一审 PR-B：WorkerEventStore tail（轮询即 subscribe——
+            # 文件权威，重启/compact 后仍可读；不进模型、不耗 token）。
+            from rosclaw.agentd.workers.event_store import WorkerEventStore
+
+            work_order_id = str(params.get("work_order_id", ""))
+            order = service._worker_manager.order(work_order_id)
+            if order is None:
+                return {
+                    "ok": False,
+                    "error": "unknown work order",
+                    "code": "WORK_ORDER_NOT_FOUND",
+                }
+            store = WorkerEventStore(service._home)
+            after_seq = int(params.get("after_seq", 0) or 0)
+            limit = min(int(params.get("limit", 100) or 100), 500)
+            events = store.tail(work_order_id, after_seq=after_seq, limit=limit)
+            return {
+                "ok": True,
+                "events": events,
+                "last_seq": events[-1]["seq"] if events else after_seq,
+                "status": order.status,
+                "stderr_tail": store.tail_stderr(work_order_id)
+                if params.get("include_stderr")
+                else "",
+            }
         if method == "pi.worker.status":
             # PNA-4：Worker 状态投影（原位更新 UI 用；只读）。
             # 十审 W2：终态单附验证后摘要/验收结论（completion push 用——

@@ -12,7 +12,7 @@
  * PATH 上的 pi、不加载项目资源。
  */
 
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { writeSync } from "node:fs";
 
 import { buildSystemPrompt, profileFor } from "./profiles.js";
@@ -54,6 +54,21 @@ function emit(workOrderId: string, attemptId: string, kind: string, payload: Rec
 	});
 	// 直接写 fd 1——console.log 可能被上游库劫持/缓冲。
 	writeSync(1, `${line}\n`);
+}
+
+/** 十一审 PR-B：独立 transcript（会话级证据，不落主对话）。 */
+function makeTranscriptWriter(envelope: WorkerEnvelope) {
+	const dir = envelope.artifacts_dir
+		? `${envelope.artifacts_dir}/..`
+		: `${envelope.cwd}/.rosclaw-work`;
+	const path = `${dir}/transcript.jsonl`;
+	return (record: Record<string, unknown>) => {
+		try {
+			appendFileSync(path, `${JSON.stringify({ ts: new Date().toISOString(), ...record })}\n`, "utf-8");
+		} catch {
+			// transcript 失败不阻塞工作
+		}
+	};
 }
 
 function finalTextOf(messages: Array<Record<string, unknown>>): string {
@@ -203,6 +218,7 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 			}
 		}, 2000);
 		providerTimer.unref();
+		const transcript = makeTranscriptWriter(envelope);
 		const unsubscribe = session.subscribe((event) => {
 			const e = event as unknown as {
 				type: string;
@@ -226,8 +242,17 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 					tool: e.toolName ?? "?",
 					is_error: e.isError === true,
 				});
+				transcript({ role: "tool", tool: e.toolName ?? "?", is_error: e.isError === true });
 			} else if (event.type === "message_end" && e.message) {
 				messages.push(e.message as Record<string, unknown>);
+				{
+					const parts = ((e.message as { content?: unknown }).content ?? []) as Array<{ type?: string; text?: string }>;
+					const text = parts.filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
+					transcript({
+						role: e.message.role,
+						text: text.length > 4000 ? `${text.slice(0, 4000)}…[truncated]` : text,
+					});
+				}
 				if (e.message.role === "assistant") {
 					usage.turns += 1;
 					const u = e.message.usage ?? {};

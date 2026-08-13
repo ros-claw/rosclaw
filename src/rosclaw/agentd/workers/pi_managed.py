@@ -74,6 +74,10 @@ class PiManagedAdapter:
         self._runs: dict[str, tuple[RunHandle, asyncio.Task]] = {}
         # W4：活动子进程（steer 通道 + pid 文件崩溃对账）。
         self._procs: dict[str, asyncio.subprocess.Process] = {}
+        # 十一审 PR-B：持久化事件账本（文件权威，重启/compact 可读）。
+        from rosclaw.agentd.workers.event_store import WorkerEventStore
+
+        self._events = WorkerEventStore(rosclaw_home)
 
     async def probe(self, worker_id: str | None = None) -> WorkerProbeResult:  # noqa: ARG002
         runtime = find_pi_agent_entry()
@@ -375,6 +379,13 @@ class PiManagedAdapter:
                 now = asyncio.get_running_loop().time()
                 state["last_event_at"] = now
                 kind = event.get("kind")
+                # PR-B：边读边落账本（含 liveness——UI 需要实时流）。
+                self._events.append_event(
+                    order.work_order_id,
+                    str(event.get("attempt_id", "")),
+                    str(kind),
+                    {k: v for k, v in event.items() if k not in ("kind", "attempt_id")},
+                )
                 if kind == "liveness":
                     # 只证明活着——phase/span 供 UI，不推进语义进度。
                     state["phase"] = str(event.get("phase", state["phase"]))
@@ -389,9 +400,15 @@ class PiManagedAdapter:
                     failure = event
 
         async def _drain_stderr() -> None:
+            # PR-B：stderr 脱敏落盘（不再丢弃）。
             assert proc.stderr is not None
-            while await proc.stderr.readline():
-                pass
+            while True:
+                line = await proc.stderr.readline()
+                if not line:
+                    return
+                self._events.append_stderr(
+                    order.work_order_id, line.decode("utf-8", errors="replace")
+                )
 
         readers = asyncio.gather(_read_events(), _drain_stderr())
 
@@ -441,13 +458,15 @@ class PiManagedAdapter:
                 semantic_silent = now - state["last_semantic_at"]
                 if semantic_silent > STALL_WARN_SEC and not state["stall_warned"]:
                     state["stall_warned"] = True
-                    # 告警事件入列（UI 标黄；EventStore 在 PR-B 持久化）。
-                    events.append(
-                        {
-                            "kind": "stall_warning",
-                            "phase": state["phase"],
-                            "semantic_silent_sec": int(semantic_silent),
-                        }
+                    # 告警事件入列 + 落账（UI 标黄）。
+                    stall = {
+                        "kind": "stall_warning",
+                        "phase": state["phase"],
+                        "semantic_silent_sec": int(semantic_silent),
+                    }
+                    events.append(stall)
+                    self._events.append_event(
+                        order.work_order_id, "", "stall_warning", dict(stall)
                     )
                 if wall_end is not None and now > wall_end and not state["wrapup_sent"]:
                     state["wrapup_sent"] = True
@@ -491,6 +510,16 @@ class PiManagedAdapter:
         await readers
         self._procs.pop(order.work_order_id, None)
         pid_file.unlink(missing_ok=True)
+        # PR-B：终态落 state.json（重启对账/tail 可读）。
+        self._events.write_state(
+            order.work_order_id,
+            {
+                "status": "FAILED" if failure is not None else "COMPLETED",
+                "phase": "TERMINAL",
+                "last_seq": handle.progress_seq,
+                "error": failure,
+            },
+        )
         finished = datetime.now(UTC)
         if failure is not None:
             raise AdapterError(
