@@ -363,13 +363,21 @@ class PiToolDispatcher:
                 f"(max_delegation_depth={max_depth})",
             )
         order_depth = 0
-        capability = str(args.get("capability") or "analysis.text")
+        worker_profile = str(args.get("worker_profile") or "")
+        capability = str(args.get("capability") or "")
+        if not capability:
+            # W3：写能力 profile 默认 code.develop（sandbox_process 语义）。
+            capability = (
+                "code.develop" if worker_profile in ("developer", "sim-builder")
+                else "analysis.text"
+            )
         # 十审 W0：调用方（TS 工具层，非模型字段）可预生成 work_order_id——
         # abort 在响应返回前也能按精确 ID cancel（修 P0-ORDER-CORRELATION
         # 的另一半：abort 不再"找不到要杀的单"）。
         provided_wo = str(args.get("work_order_id", "") or "")
         if provided_wo and not re.fullmatch(r"wo_[A-Za-z0-9]{8,32}", provided_wo):
             raise ToolBridgeError("INVALID_ARGUMENTS", "malformed work_order_id")
+        is_workbench = worker_profile in ("developer", "sim-builder")
         order = WorkOrderV1(
             work_order_id=provided_wo or new_id("wo"),
             mission_id=request.mission_id,
@@ -383,7 +391,11 @@ class PiToolDispatcher:
                 # provider/model/thinking）+ Worker profile。快照绝不携带
                 # 凭据（pi_managed 写 envelope 前有硬校验）。
                 "model_snapshot": args.get("model_snapshot") or {},
-                "worker_profile": str(args.get("worker_profile") or ""),
+                "worker_profile": worker_profile,
+                # W3：目标 workspace（git 仓库→worktree；默认当前 cwd）+
+                # 可选 base_ref。
+                "workspace": str(args.get("workspace") or ""),
+                "base_ref": str(args.get("base_ref") or ""),
             },
             budgets=BudgetEnvelope(
                 wall_time_sec=int(args.get("budget", {}).get("wall_time_sec", 300))
@@ -394,8 +406,12 @@ class PiToolDispatcher:
                 else 50_000,
                 # 叶子 worker 单：max_children=0（native adapter 不接受子委派）。
             ),
-            expected_output=ExpectedOutput(artifacts=["text/plain"]),
-            side_effect_policy=SideEffectPolicy(**{"class": "none"}),
+            expected_output=ExpectedOutput(
+                artifacts=["text/plain", "text/x-diff"] if is_workbench else ["text/plain"]
+            ),
+            side_effect_policy=SideEffectPolicy(
+                **{"class": "sandbox_process" if is_workbench else "none"}
+            ),
             delegation_depth=order_depth,
             max_delegation_depth=max_depth,
             parent_work_order_id=parent_id,

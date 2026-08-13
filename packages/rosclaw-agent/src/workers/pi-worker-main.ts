@@ -27,6 +27,8 @@ export interface WorkerEnvelope {
 	cwd: string;
 	budget: { wall_time_sec: number; model_tokens: number };
 	model?: { provider: string; model: string; thinking?: string };
+	/** W3：工件目录（bash log、patch、渲染产物）。 */
+	artifacts_dir?: string;
 }
 
 interface Usage {
@@ -122,12 +124,25 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 				noPromptTemplates: true,
 				noThemes: true,
 				noContextFiles: true,
+				// profile 系统提示（W1 起定义但此前未注入——W3 修复）。
+				systemPrompt: profile.systemPrompt,
 			},
 		});
+		// 十审 W3：全部 profile 使用 Workbench 约束工具（custom 同名覆盖
+		// Pi 内建）——scout/analyst 是只读子集，developer/sim-builder 增加
+		// write/edit/bash。路径必须在 workspace 内、bash argv 白名单、
+		// env 不含凭据（防 read auth.json / curl 外泄）。
+		const { buildWorkbenchTools } = await import("./workbench.js");
+		const workbenchTools = buildWorkbenchTools({
+			root: envelope.cwd,
+			bashLogPath: `${envelope.artifacts_dir ?? `${envelope.cwd}/.rosclaw-work`}/bash-log.txt`,
+			emitProgress: (message) => emit(wo, att, "tool_progress", { message }),
+		}).filter((tool) => profile.tools.includes(tool.name));
 		const { session } = await createAgentSessionFromServices({
 			services,
 			sessionManager: SessionManager.inMemory(envelope.cwd),
 			tools: profile.tools,
+			customTools: workbenchTools,
 			...(model ? { model } : {}),
 		});
 

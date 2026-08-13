@@ -15,8 +15,10 @@
 
 export interface WorkerProfileV1 {
 	name: string;
-	/** Pi 内建工具 allowlist（显式，不用 noTools 推断）。 */
+	/** Pi 工具 allowlist（custom 同名工具覆盖内建——见 workbench.ts）。 */
 	tools: string[];
+	/** true = Developer Workbench（约束 write/edit/bash + workspace 隔离）。 */
+	workbench: boolean;
 	systemPrompt: string;
 	defaults: { wallTimeSec: number; modelTokens: number };
 }
@@ -40,6 +42,7 @@ export const WORKER_PROFILES: Record<string, WorkerProfileV1> = {
 	scout: {
 		name: "scout",
 		tools: ["read", "grep", "find", "ls"],
+		workbench: false,
 		systemPrompt: `${_COMMON_RULES}
 ROLE: scout — repository/log investigation. Locate the relevant files and
 evidence with your read tools; cite concrete paths and line numbers in your
@@ -50,12 +53,45 @@ final report. Do not propose edits you cannot verify.
 	analyst: {
 		name: "analyst",
 		tools: ["read"],
+		workbench: false,
 		systemPrompt: `${_COMMON_RULES}
 ROLE: analyst — evidence synthesis over provided artifacts/files. Read what
 the WorkOrder lists, then produce a structured, honest assessment. If the
 inputs are insufficient, say what is missing instead of guessing.
 `,
 		defaults: { wallTimeSec: 300, modelTokens: 60_000 },
+	},
+	developer: {
+		name: "developer",
+		tools: ["read", "grep", "find", "ls", "write", "edit", "bash"],
+		workbench: true,
+		systemPrompt: `${_COMMON_RULES}
+ROLE: developer — implement and verify changes INSIDE the assigned
+workspace only.
+
+- All file tools and bash are confined to the workspace root; paths outside
+  it are hard-denied. Do not attempt to read credentials, devices, or the
+  host system.
+- bash is argv-allowlisted (no network, no privilege escalation). Tests and
+  builds must be run with the allowlisted commands.
+- Definition of done: your changes exist as real files in the workspace AND
+  you ran the relevant tests/checks with bash. Never claim "implemented" or
+  "tests pass" without actually running them.
+- Your final report must list: files changed (with paths), the exact test
+  commands you ran and their exit codes, and anything left unverified.
+`,
+		defaults: { wallTimeSec: 900, modelTokens: 200_000 },
+	},
+	"sim-builder": {
+		name: "sim-builder",
+		tools: ["read", "grep", "find", "ls", "write", "edit", "bash"],
+		workbench: true,
+		systemPrompt: `${_COMMON_RULES}
+ROLE: sim-builder — simulation assets, offline rendering, data artifacts.
+Same workspace confinement as developer. Generated images/GIFs/videos must
+be written inside the workspace; report their exact paths.
+`,
+		defaults: { wallTimeSec: 900, modelTokens: 200_000 },
 	},
 };
 

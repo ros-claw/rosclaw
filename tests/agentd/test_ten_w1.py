@@ -82,7 +82,9 @@ class TestEnvelopeNoSecrets:
             side_effect_policy=SideEffectPolicy(**{"class": "none"}),
             lease=WorkOrderLease(lease_id="lease_1", issued_at="t", expires_at="t"),
         )
-        path, _cwd = adapter._write_envelope(order)
+        path, _cwd = adapter._write_envelope(
+            order, cwd=str(tmp_path), artifacts_dir=tmp_path / "artifacts"
+        )
         raw = path.read_text()
         assert "sk-" not in raw
         assert "api_key" not in raw.lower()
@@ -120,7 +122,9 @@ class TestEnvelopeNoSecrets:
             lease=WorkOrderLease(lease_id="lease_1", issued_at="t", expires_at="t"),
         )
         with pytest.raises(AdapterError):
-            adapter._write_envelope(order)
+            adapter._write_envelope(
+                order, cwd=str(tmp_path), artifacts_dir=tmp_path / "artifacts"
+            )
 
 
 class TestHeadlessWorkerProtocol:

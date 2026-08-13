@@ -182,6 +182,14 @@ def pi_worker_card() -> WorkerCardV1:
                 output_schema="rosclaw://schemas/text-result.v1",
                 side_effect_class="none",
             ),
+            # W3 Developer Workbench：写能力限定在独立 worktree/scratch
+            # workspace（sandbox_process）——promotion 是独立审查动作。
+            CapabilityDecl(
+                name="code.develop",
+                input_schema="rosclaw://schemas/text-task.v1",
+                output_schema="rosclaw://schemas/text-result.v1",
+                side_effect_class="sandbox_process",
+            ),
         ],
         constraints=WorkerConstraints(supported_platforms=["linux", "darwin"], max_concurrency=2),
         security=WorkerSecurity(isolation="process"),

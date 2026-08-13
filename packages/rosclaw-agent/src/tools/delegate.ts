@@ -76,7 +76,16 @@ export function buildDelegateTool(ctx: BridgeToolContext) {
 				Type.String({ description: "auto | worker:rosclaw:pi | worker:native:basic | ..." }),
 			),
 			worker_profile: Type.Optional(
-				Type.String({ description: "built-in worker profile: scout | analyst" }),
+				Type.String({ description: "built-in worker profile: scout | analyst | developer | sim-builder" }),
+			),
+			workspace: Type.Optional(
+				Type.String({
+					description:
+						"target workspace path (developer/sim-builder only; a git repo gets an isolated worktree)",
+				}),
+			),
+			base_ref: Type.Optional(
+				Type.String({ description: "git base ref for the worktree (default HEAD)" }),
 			),
 			capability: Type.Optional(Type.String()),
 			instructions: Type.Optional(Type.String()),
