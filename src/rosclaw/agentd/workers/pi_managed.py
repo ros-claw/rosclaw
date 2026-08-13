@@ -581,9 +581,16 @@ class PiManagedAdapter:
             startup_end = asyncio.get_running_loop().time() + STARTUP_TIMEOUT_SEC
             while not events:
                 if proc.returncode is not None:
-                    raise AdapterError(
-                        f"worker exited {proc.returncode} before attempt_started"
-                    )
+                    # 竞态修复（CI 实证）：进程可能已退出但 stdout 事件尚
+                    # 未被 reader 消费——先给 reader 一个排水窗口再判死。
+                    await asyncio.sleep(0.2)
+                    if not events:
+                        await asyncio.wait_for(readers, timeout=5)
+                        if not events:
+                            raise AdapterError(
+                                f"worker exited {proc.returncode} before attempt_started"
+                            )
+                    break
                 if asyncio.get_running_loop().time() > startup_end:
                     raise AdapterError("worker startup timeout (no attempt_started)")
                 await asyncio.sleep(0.05)
