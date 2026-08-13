@@ -211,7 +211,9 @@ class WorkerManager:
         self._runs[order.work_order_id] = (adapter, handle)
         try:
             deadline = datetime.now(UTC) + timedelta(
-                seconds=timeout_sec or order.budgets.wall_time_sec
+                # 十一审 PR-A：adapter 的 wall wrap-up（steer + 60s grace）
+                # 优先；manager deadline 只兜 adapter 不收敛的底（+90s）。
+                seconds=(timeout_sec or order.budgets.wall_time_sec) + 90
             )
             result: WorkResultV1 | None = None
             while datetime.now(UTC) < deadline:
@@ -250,6 +252,14 @@ class WorkerManager:
                 lease_id=order.lease.lease_id if order.lease else "",
                 status="FAILED",
                 summary="deadline exceeded before submission",
+            )
+            # 十一审 PR-A：deadline 终态直接返回——不得继续走
+            # SUBMITTED/VERIFYING（FAILED→SUBMITTED 是非法迁移；adapter
+            # 层的 wall wrap-up 已先给过 graceful 机会）。
+            return result, VerificationReport(
+                accepted=False,
+                verifier_results={"within_deadline": False},
+                reasons=("deadline exceeded before submission",),
             )
         # Stale-lease guard: a result under an old lease is late, not accepted.
         if order.lease and result.lease_id != order.lease.lease_id:

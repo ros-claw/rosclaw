@@ -1,21 +1,21 @@
-/** WorkerProfileV1（十审 W1，审计 §6）：通用能力而非任务特化。
+/** WorkerProfileV1（十审 W1，十一审 PR-A 重写 prompt/tool 契约）。
  *
- * Profile 决定工具 allowlist 与系统提示，不决定 provider——默认使用
- * Native Agent 当前模型（ModelExecutionSnapshot 经 WorkOrder 下发，
- * 无 secret）。
+ * 十一审 §2.2：prompt 与工具面必须完全一致——
+ * - 不再有公共"read-only tools"谎言（developer/sim-builder 有写工具）；
+ * - 每个 profile 生成 capability manifest（tools/workspace/write policy/
+ *   network/physical/required evidence）；
+ * - developer 的 Definition of Done 由 envelope 的 expected artifacts
+ *   动态注入（不是永远"plain text report"）。
  *
- * P0 安全边界：
- * - 只读工具集（read/grep/find/ls）——无 write/edit/bash（W3 Workbench
- *   落地前任何内置 Worker 都没有写能力）；
+ * P0 安全边界不变：
  * - 无 ROSClaw custom tools——Worker 永远接触不到 rosclaw_request_action
  *   /rosclaw_delegate/物理面；
- * - 无项目资源（noExtensions/noSkills/noContextFiles——不读 .pi、
- *   AGENTS.md、skills）。
+ * - 无项目资源（noExtensions/noSkills/noContextFiles）。
  */
 
 export interface WorkerProfileV1 {
 	name: string;
-	/** Pi 工具 allowlist（custom 同名工具覆盖内建——见 workbench.ts）。 */
+	/** 工具 allowlist（custom 同名覆盖内建——见 workbench.ts）。 */
 	tools: string[];
 	/** true = Developer Workbench（约束 write/edit/bash + workspace 隔离）。 */
 	workbench: boolean;
@@ -27,8 +27,6 @@ const _COMMON_RULES = `You are a ROSClaw built-in worker: a bounded contractor, 
 
 RULES
 - Complete ONLY the stated WorkOrder goal within its inputs and instructions.
-- You have read-only tools. Never claim to have created, modified, or run
-  anything you did not actually do with an available tool.
 - Never claim access to tools, files, secrets, hardware, or permissions you
   were not explicitly given.
 - Distinguish facts you verified with tools from inference; label inference.
@@ -37,6 +35,45 @@ RULES
   exactly what capability is missing.
 - Answer concisely in the requester's language.
 `;
+
+/** 十一审 §2.2：capability manifest——prompt 与真实工具面逐字一致。 */
+export function capabilityManifest(
+	profile: WorkerProfileV1,
+	workspace: string,
+	expectedArtifacts: string[],
+): string {
+	const evidence =
+		profile.name === "developer" || profile.name === "sim-builder"
+			? (expectedArtifacts.length
+					? expectedArtifacts.join(", ")
+					: "patch.diff + bash test log")
+				: "final report";
+	const dod =
+		profile.name === "developer" || profile.name === "sim-builder"
+			? `
+Definition of done: real file changes in the workspace (patch.diff is
+generated from them), the exact test/check commands you ran with their exit
+codes (in bash-log.txt), and the requested artifacts. A design document or
+proposal alone is NOT completion.`
+			: "";
+	return `
+CAPABILITY MANIFEST (ground truth — your prompt matches your actual tools)
+Available tools: ${profile.tools.join(", ")}.
+Workspace: ${workspace}
+Write policy: ${profile.workbench ? "workspace-only (paths outside are hard-denied)" : "none (read-only profile)"}.
+Network: denied (no curl/wget/ssh; bash is argv-allowlisted).
+Physical tools: none (you can never actuate hardware).
+Required evidence: ${evidence}.${dod}
+`;
+}
+
+export function buildSystemPrompt(
+	profile: WorkerProfileV1,
+	workspace: string,
+	expectedArtifacts: string[],
+): string {
+	return profile.systemPrompt + capabilityManifest(profile, workspace, expectedArtifacts);
+}
 
 export const WORKER_PROFILES: Record<string, WorkerProfileV1> = {
 	scout: {
@@ -69,11 +106,8 @@ inputs are insufficient, say what is missing instead of guessing.
 ROLE: developer — implement and verify changes INSIDE the assigned
 workspace only.
 
-- All file tools and bash are confined to the workspace root; paths outside
-  it are hard-denied. Do not attempt to read credentials, devices, or the
-  host system.
-- bash is argv-allowlisted (no network, no privilege escalation). Tests and
-  builds must be run with the allowlisted commands.
+- You HAVE write/edit/bash tools (workspace-confined). Use them: implement
+  real changes and run real tests; do not stop at proposals.
 - Definition of done: your changes exist as real files in the workspace AND
   you ran the relevant tests/checks with bash. Never claim "implemented" or
   "tests pass" without actually running them.

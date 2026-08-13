@@ -39,8 +39,10 @@ from rosclaw.contracts.worker.order import (
 )
 
 #: 十审 §7.4/§10.3：startup/idle 超时（wall 由 order budget 兜底）。
+#: 十一审 PR-A：外部 CLI 没有 liveness 通道——idle 只兜"真挂死"，
+#: 必须与 provider 级长推理兼容（10min），真正的边界是 wall budget。
 STARTUP_TIMEOUT_SEC = 15.0
-IDLE_TIMEOUT_SEC = 60.0
+IDLE_TIMEOUT_SEC = 600.0
 
 
 def _parse_stream_line(pack: WorkerPackManifest, line: bytes) -> tuple[str, str, dict]:

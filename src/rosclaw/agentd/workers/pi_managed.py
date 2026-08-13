@@ -40,9 +40,15 @@ from rosclaw.contracts.worker.order import (
 
 WORKER_ID = "worker:rosclaw:pi"
 
-#: 十审 §7.4 P0 默认：startup 10s、idle 60s。
-STARTUP_TIMEOUT_SEC = 10.0
-IDLE_TIMEOUT_SEC = 60.0
+#: 十审 §7.4 P0 默认：startup 30s（十一审 PR-A：只管启动握手）。
+#: 十一审 PR-A 三层分离：
+#: - LIVENESS_TIMEOUT：连 liveness 事件都没有才判死（进程真挂死）；
+#: - STALL_WARN：语义静默只告警不杀（高 thinking/长命令合法）；
+#: - wall/token 预算到期先 wrap-up steer，grace 后再终止。
+STARTUP_TIMEOUT_SEC = 30.0
+LIVENESS_TIMEOUT_SEC = 15.0
+STALL_WARN_SEC = 90.0
+WRAPUP_GRACE_SEC = 60.0
 
 #: W3：写能力 profile（Developer Workbench）——workspace 隔离 + diff 工件。
 WORKBENCH_PROFILES = ("developer", "sim-builder")
@@ -273,6 +279,9 @@ class PiManagedAdapter:
             "instructions": str(order.inputs.get("instructions") or order.goal),
             "cwd": cwd,
             "artifacts_dir": str(artifacts_dir),
+            # 十一审 PR-A：DoD 注入——期望工件进 envelope（developer 的
+            # 最终提示据此要求真实 diff/测试日志）。
+            "expected_artifacts": list(order.expected_output.artifacts),
             "budget": {
                 "wall_time_sec": order.budgets.wall_time_sec,
                 "model_tokens": order.budgets.model_tokens,
@@ -339,6 +348,17 @@ class PiManagedAdapter:
         events: list[dict] = []
         final_report = ""
         failure: dict | None = None
+        # 十一审 PR-A：三层分离——liveness（进程活着）≠ activity（模型/
+        # 工具在跑）≠ semantic progress（真实产出）。只有全静默
+        # （连 liveness 都没有）才算死。
+        state = {
+            "last_event_at": asyncio.get_running_loop().time(),
+            "last_semantic_at": asyncio.get_running_loop().time(),
+            "phase": "STARTING",
+            "stall_warned": False,
+            "wrapup_sent": False,
+            "wrapup_at": 0.0,
+        }
 
         async def _read_events() -> None:
             nonlocal final_report, failure
@@ -352,8 +372,17 @@ class PiManagedAdapter:
                 except json.JSONDecodeError:
                     continue
                 events.append(event)
-                handle.progress_seq += 1  # 真实子进程事件才推进心跳
+                now = asyncio.get_running_loop().time()
+                state["last_event_at"] = now
                 kind = event.get("kind")
+                if kind == "liveness":
+                    # 只证明活着——phase/span 供 UI，不推进语义进度。
+                    state["phase"] = str(event.get("phase", state["phase"]))
+                    continue
+                # 真实语义事件：进度与 stall 恢复。
+                handle.progress_seq += 1
+                state["last_semantic_at"] = now
+                state["stall_warned"] = False
                 if kind == "attempt_finished":
                     final_report = str(event.get("report", ""))
                 elif kind == "attempt_failed":
@@ -386,16 +415,73 @@ class PiManagedAdapter:
                 if asyncio.get_running_loop().time() > startup_end:
                     raise AdapterError("worker startup timeout (no attempt_started)")
                 await asyncio.sleep(0.05)
-            # idle timeout：真实事件才刷新；超时不诚实等待。
+            # 主监控循环（十一审 PR-A）：
+            # - 全静默（连 liveness 都没有）> LIVENESS_TIMEOUT → 真死，杀；
+            # - 语义静默 > STALL_WARN → 只告警（UI 标黄），不杀；
+            # - wall 预算到期 → 先 wrap-up steer，grace 后再杀；
+            # - token 预算 ≥80% → wrap-up steer 一次。
+            wall_end = (
+                asyncio.get_running_loop().time() + order.budgets.wall_time_sec
+                if order.budgets.wall_time_sec
+                else None
+            )
             while proc.returncode is None:
-                last_seq = handle.progress_seq
                 try:
-                    await asyncio.wait_for(proc.wait(), timeout=IDLE_TIMEOUT_SEC)
+                    await asyncio.wait_for(proc.wait(), timeout=1.0)
+                    break
                 except TimeoutError:
-                    if handle.progress_seq == last_seq:
-                        raise AdapterError(
-                            f"worker idle timeout ({IDLE_TIMEOUT_SEC:.0f}s 无真实事件)"
-                        ) from None
+                    pass
+                now = asyncio.get_running_loop().time()
+                silent = now - state["last_event_at"]
+                if silent > LIVENESS_TIMEOUT_SEC:
+                    raise AdapterError(
+                        f"worker liveness lost ({LIVENESS_TIMEOUT_SEC:.0f}s 无任何事件"
+                        "——进程挂死，已终止)"
+                    )
+                semantic_silent = now - state["last_semantic_at"]
+                if semantic_silent > STALL_WARN_SEC and not state["stall_warned"]:
+                    state["stall_warned"] = True
+                    # 告警事件入列（UI 标黄；EventStore 在 PR-B 持久化）。
+                    events.append(
+                        {
+                            "kind": "stall_warning",
+                            "phase": state["phase"],
+                            "semantic_silent_sec": int(semantic_silent),
+                        }
+                    )
+                if wall_end is not None and now > wall_end and not state["wrapup_sent"]:
+                    state["wrapup_sent"] = True
+                    state["wrapup_at"] = now
+                    await self.steer(
+                        order.work_order_id,
+                        "已接近 wall 时间预算。停止开新工作：保存当前改动、跑最窄的"
+                        "验证命令，并产出可恢复的 partial handoff（已改文件/已验证"
+                        "内容/未完成事项/阻塞原因）。",
+                    )
+                if state["wrapup_sent"] and now - state["wrapup_at"] > WRAPUP_GRACE_SEC:
+                    raise AdapterError(
+                        "worker wall budget exceeded（wrap-up 宽限后仍未退出）"
+                    )
+                # token 预算 80% → wrap-up（一次）。
+                usage_last = next(
+                    (e for e in reversed(events) if e.get("kind") == "usage"), None
+                )
+                if (
+                    usage_last
+                    and order.budgets.model_tokens
+                    and not state["wrapup_sent"]
+                ):
+                    spent = int(usage_last.get("input_tokens") or 0) + int(
+                        usage_last.get("output_tokens") or 0
+                    )
+                    if spent >= int(order.budgets.model_tokens * 0.8):
+                        state["wrapup_sent"] = True
+                        state["wrapup_at"] = now
+                        await self.steer(
+                            order.work_order_id,
+                            "已接近 token 预算。停止开新工作：保存当前改动并产出"
+                            "可恢复的 partial handoff。",
+                        )
         except asyncio.CancelledError:
             await _teardown()
             raise

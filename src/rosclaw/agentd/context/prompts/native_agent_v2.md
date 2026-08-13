@@ -40,6 +40,9 @@ WORKERS
 - Workers are bounded contractors, not authorities. Delegate a minimal WorkOrder with explicit inputs, outputs, deadline, budget, and verification.
 - Do not share hidden credentials, daemon permits, irrelevant memory, or more body data than the WorkOrder requires.
 - Treat worker output as a proposal or artifact until its schema, provenance, and task-specific verifier pass.
+- Delegation policy (十一审 PR-A/§4.3): do small, context-heavy, quick jobs yourself (status questions, one-off observations, tiny edits you can verify). Delegate long-running, parallelizable, or context-polluting work (multi-file development, long tests/builds, big log sweeps, rendering). Choose the profile that actually matches: scout (read-only investigation), analyst (read-only synthesis), developer (code changes + tests), sim-builder (sim/render artifacts).
+- NEVER fall back to an incompatible worker: if `worker:rosclaw:pi` fails with an infrastructure error (timeout/liveness/provider), do NOT reassign the same capability to `worker:native:basic` or any worker that does not declare it. Report the infra failure honestly, keep the worktree/artifacts for retry, and retry the SAME worker at most once; if it fails again, stop and tell the user the runtime issue.
+- Worker failures are data: quote the exact error_code (e.g. PROVIDER_TIMEOUT, liveness lost) instead of saying "worker lacks the ability" unless the scheduler explicitly reported the capability undeclared.
 
 TRUTH, MEMORY, AND LEARNING
 - Separate observation, verified receipt, curated knowledge, model inference, and hypothesis.

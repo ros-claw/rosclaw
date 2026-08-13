@@ -15,7 +15,7 @@
 import { readFileSync } from "node:fs";
 import { writeSync } from "node:fs";
 
-import { profileFor } from "./profiles.js";
+import { buildSystemPrompt, profileFor } from "./profiles.js";
 import { createSharedModelRuntime } from "../runtime/model-runtime.js";
 
 export interface WorkerEnvelope {
@@ -29,6 +29,8 @@ export interface WorkerEnvelope {
 	model?: { provider: string; model: string; thinking?: string };
 	/** W3：工件目录（bash log、patch、渲染产物）。 */
 	artifacts_dir?: string;
+	/** 十一审 PR-A：期望工件（DoD 注入——不再是永远的 plain text report）。 */
+	expected_artifacts?: string[];
 }
 
 interface Usage {
@@ -124,8 +126,13 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 				noPromptTemplates: true,
 				noThemes: true,
 				noContextFiles: true,
-				// profile 系统提示（W1 起定义但此前未注入——W3 修复）。
-				systemPrompt: profile.systemPrompt,
+				// 十一审 PR-A：manifest 化系统提示（prompt 与真实工具面
+				// 逐字一致；DoD 按 expected artifacts 动态注入）。
+				systemPrompt: buildSystemPrompt(
+					profile,
+					envelope.cwd,
+					envelope.expected_artifacts ?? [],
+				),
 			},
 		});
 		// 十审 W3：全部 profile 使用 Workbench 约束工具（custom 同名覆盖
@@ -146,10 +153,56 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 			...(model ? { model } : {}),
 		});
 
+		// 十一审 PR-A：tool-contract 自检——session 实际工具必须与
+		// profile 声明完全一致，否则不启动（诚实 TOOL_CONTRACT_MISMATCH，
+		// 不让模型在错误工具面下工作）。
+		{
+			const active = new Set(session.getActiveToolNames());
+			const missing = profile.tools.filter((name) => !active.has(name));
+			if (missing.length > 0) {
+				emit(wo, att, "attempt_failed", {
+					error_code: "TOOL_CONTRACT_MISMATCH",
+					message: `profile 声明的工具未在 session 生效: ${missing.join(", ")}`,
+				});
+				return 1;
+			}
+			emit(wo, att, "tool_contract_ok", { tools: [...active].sort() });
+		}
+
 		const usage: Usage = { input: 0, output: 0, cost: 0, turns: 0 };
 		const messages: Array<Record<string, unknown>> = [];
 		let stopReason = "";
 		let errorMessage = "";
+		// 十一审 PR-A：liveness/activity/semantic progress 三层分离。
+		// liveness 每 2s 一条（只证明进程活着，不进模型上下文、不冒充
+		// 进度）；semantic seq 只由真实事件推进。
+		let phase = "STARTING";
+		let spanStartedAt = Date.now();
+		let semanticSeq = 0;
+		let providerTimedOut = false;
+		const semantic = (kind: string, payload: Record<string, unknown>) => {
+			semanticSeq += 1;
+			emit(wo, att, kind, payload);
+		};
+		const livenessTimer = setInterval(() => {
+			emit(wo, att, "liveness", {
+				phase,
+				span_age_ms: Date.now() - spanStartedAt,
+				pid_alive: true,
+				last_semantic_seq: semanticSeq,
+			});
+		}, 2000);
+		livenessTimer.unref();
+		// provider request timeout：单个模型 turn 超过阈值（默认 10 分钟）
+		// 才视为 provider 失败——高 thinking 长推理不再被 60s 误杀。
+		const providerTimeoutMs = Number(process.env.ROSCLAW_WORKER_TURN_TIMEOUT_MS ?? 600_000);
+		const providerTimer = setInterval(() => {
+			if (phase === "RUNNING_MODEL" && Date.now() - spanStartedAt > providerTimeoutMs) {
+				providerTimedOut = true;
+				void session.abort().catch(() => undefined);
+			}
+		}, 2000);
+		providerTimer.unref();
 		const unsubscribe = session.subscribe((event) => {
 			const e = event as unknown as {
 				type: string;
@@ -159,11 +212,17 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 				isError?: boolean;
 			};
 			if (event.type === "turn_start") {
-				emit(wo, att, "model_started", { turn: usage.turns + 1 });
+				phase = "RUNNING_MODEL";
+				spanStartedAt = Date.now();
+				semantic("model_started", { turn: usage.turns + 1 });
 			} else if (event.type === "tool_execution_start") {
-				emit(wo, att, "tool_started", { tool: e.toolName ?? "?" });
+				phase = "RUNNING_TOOL";
+				spanStartedAt = Date.now();
+				semantic("tool_started", { tool: e.toolName ?? "?" });
 			} else if (event.type === "tool_execution_end") {
-				emit(wo, att, "tool_finished", {
+				phase = "RUNNING_MODEL";
+				spanStartedAt = Date.now();
+				semantic("tool_finished", {
 					tool: e.toolName ?? "?",
 					is_error: e.isError === true,
 				});
@@ -237,7 +296,17 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 			"with your tools, with concrete paths/line numbers where relevant).";
 		await session.prompt(task);
 		unsubscribe();
+		clearInterval(livenessTimer);
+		clearInterval(providerTimer);
 
+		if (providerTimedOut) {
+			emit(wo, att, "attempt_failed", {
+				error_code: "PROVIDER_TIMEOUT",
+				message: `单个模型请求超过 ${Math.round(providerTimeoutMs / 1000)}s`,
+				usage,
+			});
+			return 1;
+		}
 		if (stopReason === "aborted") {
 			emit(wo, att, "attempt_cancelled", { usage });
 			return 130;
