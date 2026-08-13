@@ -961,6 +961,55 @@ class PiBridgeServer:
                 stored += 1
             service._store.connection.commit()
             return {"ok": True, "stored": stored}
+        if method == "pi.worker.detail":
+            # 十二审 PR-12.3：会话查看器数据源（transcript/artifacts/diff/
+            # tests/state——文件权威，只读，不经模型）。
+            from rosclaw.agentd.workers.event_store import WorkerEventStore
+
+            work_order_id = str(params.get("work_order_id", ""))
+            order = service._worker_manager.order(work_order_id)
+            if order is None:
+                return {
+                    "ok": False,
+                    "error": "unknown work order",
+                    "code": "WORK_ORDER_NOT_FOUND",
+                }
+            store = WorkerEventStore(service._home)
+            work_dir = store.dir_of(work_order_id)
+            artifacts = []
+            artifacts_dir = work_dir / "artifacts"
+            if artifacts_dir.is_dir():
+                import hashlib as _hashlib
+
+                for f in sorted(artifacts_dir.iterdir()):
+                    if f.is_file():
+                        artifacts.append(
+                            {
+                                "name": f.name,
+                                "bytes": f.stat().st_size,
+                                "sha256": _hashlib.sha256(f.read_bytes()).hexdigest()[:16],
+                            }
+                        )
+            def _tail_text(name: str, max_bytes: int = 6000) -> str:
+                path = work_dir / name
+                if not path.exists():
+                    return ""
+                return path.read_bytes()[-max_bytes:].decode("utf-8", errors="replace")
+
+            return {
+                "ok": True,
+                "status": order.status,
+                "worker": order.assigned_to,
+                "goal": order.goal,
+                "state": store.read_state(work_order_id) or {},
+                "transcript_tail": _tail_text("transcript.jsonl"),
+                "bash_log_tail": _tail_text("artifacts/bash-log.txt"),
+                "patch_tail": _tail_text("artifacts/patch.diff"),
+                "artifacts": artifacts,
+                "has_session": bool(
+                    (store.read_state(work_order_id) or {}).get("session_file")
+                ),
+            }
         if method == "pi.worker.events":
             # 十一审 PR-B：WorkerEventStore tail（轮询即 subscribe——
             # 文件权威，重启/compact 后仍可读；不进模型、不耗 token）。

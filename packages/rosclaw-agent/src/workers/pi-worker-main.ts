@@ -32,6 +32,11 @@ export interface WorkerEnvelope {
 	artifacts_dir?: string;
 	/** 十一审 PR-A：期望工件（DoD 注入——不再是永远的 plain text report）。 */
 	expected_artifacts?: string[];
+	/** 十二审 PR-12.3：持久 session 目录（本 attempt 的 Pi 原生会话）。 */
+	session_dir?: string;
+	/** 十二审 PR-12.3：resume——上一 attempt 的 session 文件（恢复同一
+	 *  Pi 会话：工具历史与上下文保留）。 */
+	resume_session_file?: string;
 }
 
 interface Usage {
@@ -191,12 +196,27 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 				});
 			},
 		}).filter((tool) => profile.tools.includes(tool.name) || tool.name === "ask_user");
+		// 十二审 PR-12.3：持久 SessionManager（落盘）——崩溃/重启后
+		// 会话可恢复；resume 时 SessionManager.open 继续同一 Pi 会话
+		// （retry ≠ resume：retry 是新 attempt，resume 恢复上下文）。
+		const sessionManager = envelope.resume_session_file
+			? SessionManager.open(envelope.resume_session_file, envelope.session_dir)
+			: envelope.session_dir
+				? SessionManager.create(envelope.cwd, envelope.session_dir)
+				: SessionManager.inMemory(envelope.cwd);
 		const { session } = await createAgentSessionFromServices({
 			services,
-			sessionManager: SessionManager.inMemory(envelope.cwd),
+			sessionManager,
 			tools: profile.tools,
 			customTools: workbenchTools,
 			...(model ? { model } : {}),
+		});
+		if (envelope.resume_session_file) {
+			emit(wo, att, "session_resumed", { from: envelope.resume_session_file });
+		}
+		// session 文件路径回告（supervisor 记录 checkpoint 用）。
+		emit(wo, att, "session_persisted", {
+			session_file: sessionManager.getSessionFile() ?? "",
 		});
 
 		// 十一审 PR-A：tool-contract 自检——session 实际工具必须与
@@ -410,7 +430,11 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 				"Real file changes, exact test commands with exit codes, and all " +
 				"requested artifacts. A design document alone is NOT completion."
 			: "";
+		const resumePrefix = envelope.resume_session_file
+			? "这是同一任务的中断恢复（同一 Pi 会话——你的工具历史与上下文还在）。从上次中断处继续；不要从零开始。\n\n"
+			: "";
 		const task =
+			resumePrefix +
 			`WorkOrder goal: ${envelope.goal}\n\n` +
 			`Instructions: ${envelope.instructions || envelope.goal}\n\n` +
 			"Deliverable: a concise final report as plain text (facts verified " +

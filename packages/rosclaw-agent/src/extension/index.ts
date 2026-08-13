@@ -519,9 +519,11 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				const retryMatch = trimmed.match(/^retry\s+(\S+)$/);
 				const logMatch = trimmed.match(/^log\s+(\S+)$/);
 				const answerMatch = trimmed.match(/^answer\s+(\S+)\s+([\s\S]+)$/);
+				const resumeMatch = trimmed.match(/^resume\s+(\S+)$/);
+				const viewMatch = trimmed.match(/^(artifacts|diff|tests|transcript)\s+(\S+)$/);
 				const idMatch = trimmed.match(/^(\S+)$/);
-				if (!idMatch && !cancelMatch && !retryMatch && !logMatch && !answerMatch) {
-					ctx.ui.notify("用法：/job <wo_id> | /job log <wo_id> | /job answer <wo_id> <回答> | /job cancel <wo_id> | /job retry <wo_id>", "warning");
+				if (!idMatch && !cancelMatch && !retryMatch && !logMatch && !answerMatch && !resumeMatch && !viewMatch) {
+					ctx.ui.notify("用法：/job <wo_id>（查看器）| /job log|transcript|artifacts|diff|tests <wo_id> | /job answer|steer|cancel|retry|resume <wo_id>", "warning");
 					return;
 				}
 				const state = options.active.current;
@@ -538,6 +540,42 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					actor: { engine: "pi-command" },
 				});
 				try {
+					if (resumeMatch) {
+						// 十二审 PR-12.3：真 resume（同一 Pi 会话）。
+						const response = await center.call("pi.tools.execute", {
+							request: mkRequest("rosclaw_resume_work", resumeMatch[1]),
+						});
+						const result = (response.result ?? {}) as { summary?: string };
+						ctx.ui.notify(
+							response.ok ? (result.summary ?? "已恢复") : `resume 失败：${result.summary ?? response.error ?? ""}`,
+							response.ok ? "info" : "error",
+						);
+						return;
+					}
+					if (viewMatch) {
+						// 十二审 PR-12.3：transcript/artifacts/diff/tests 视图
+						// （pi.worker.detail——文件权威，不经模型）。
+						const response = await center.call("pi.worker.detail", {
+							work_order_id: viewMatch[2],
+						});
+						if (!response.ok) {
+							ctx.ui.notify(`查询失败：${String(response.error ?? "")}`, "error");
+							return;
+						}
+						const section = viewMatch[1];
+						let text = "";
+						if (section === "transcript") text = String(response.transcript_tail ?? "") || "（无 transcript）";
+						else if (section === "diff") text = String(response.patch_tail ?? "") || "（无 patch）";
+						else if (section === "tests") text = String(response.bash_log_tail ?? "") || "（无 bash 日志）";
+						else {
+							const arts = (response.artifacts ?? []) as Array<{ name: string; bytes: number; sha256: string }>;
+							text = arts.length
+								? arts.map((a) => `${a.name} · ${a.bytes}B · sha256:${a.sha256}`).join("\n")
+								: "（无产物）";
+						}
+						ctx.ui.notify(text.slice(0, 4000), "info");
+						return;
+					}
 					if (answerMatch) {
 						// 十一审 PR-E：回答 WAITING_INPUT（不耗 token）。
 						const response = await center.call("pi.tools.execute", {
@@ -589,13 +627,29 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						);
 						return;
 					}
-					const response = await center.call("pi.tools.execute", {
-						request: mkRequest("rosclaw_check_work", (idMatch as RegExpMatchArray)[1]),
-					});
-					const result = (response.result ?? {}) as { summary?: string };
+					// 十二审 PR-12.3：/job <id> = 实时会话查看器（状态 + 最近
+					// 事件 + 产物摘要——不再是单行摘要）。
+					const woId = (idMatch as RegExpMatchArray)[1];
+					const [checkRes, eventsRes, detailRes] = await Promise.all([
+						center.call("pi.tools.execute", { request: mkRequest("rosclaw_check_work", woId) }),
+						center.call("pi.worker.events", { work_order_id: woId, limit: 25 }),
+						center.call("pi.worker.detail", { work_order_id: woId }),
+					]);
+					const checkResult = (checkRes.result ?? {}) as { summary?: string };
+					const header = checkRes.ok
+						? (checkResult.summary ?? "")
+						: `查询被拒：${checkResult.summary ?? checkRes.error ?? ""}`;
+					const logView = renderJobLog(
+						((eventsRes.events ?? []) as never[]),
+						woId,
+					);
+					const arts = ((detailRes.artifacts ?? []) as Array<{ name: string; bytes: number }>)
+						.map((a) => `${a.name}(${a.bytes}B)`)
+						.join(", ");
 					ctx.ui.notify(
-						response.ok ? (result.summary ?? "") : `查询被拒：${result.summary ?? response.error ?? ""}`,
-						response.ok ? "info" : "error",
+						`${header}\n\n— 最近事件 —\n${logView}\n\n产物: ${arts || "（无）"}\n` +
+						`（/job log|transcript|diff|tests|artifacts ${woId} 看更多）`,
+						checkRes.ok ? "info" : "error",
 					);
 				} catch (err) {
 					ctx.ui.notify(`操作失败：${(err as Error).message}`, "error");

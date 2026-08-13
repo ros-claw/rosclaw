@@ -17,6 +17,7 @@ import asyncio
 import json
 import re
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rosclaw.agentd.pi_bridge.session_binding import SessionBindingStore
@@ -46,6 +47,8 @@ _TOOL_TABLE: dict[str, str] = {
     "rosclaw_retry_work": "delegate",
     # 十一审 PR-E：WAITING_INPUT 的用户回答（经 /job answer 命令层）。
     "rosclaw_answer_work": "delegate",
+    # 十二审 PR-12.3：resume——恢复同一 Pi 会话（retry ≠ resume）。
+    "rosclaw_resume_work": "delegate",
     "rosclaw_request_action": "physical_action",
     # 八审 P0-5：任务级入口——确定性编译器编排，模型只交 TaskSpec。
     "rosclaw_task": "task",
@@ -326,6 +329,8 @@ class PiToolDispatcher:
             return await self._retry_work(request)
         if name == "rosclaw_answer_work":
             return await self._answer_work(request)
+        if name == "rosclaw_resume_work":
+            return await self._resume_work(request)
         if name == "rosclaw_fail_safe":
             await service.cancel(request.mission_id)
             return PiToolResultV1(
@@ -772,6 +777,77 @@ class PiToolDispatcher:
                 f"parent: {order.work_order_id} · root: {new_order.root_work_order_id}\n"
                 f"Worker: {scheduled.assigned_to}"
                 + (f" · 携带 {len(notes)} 条 steer 备注" if notes else "")
+            ),
+        )
+
+    async def _resume_work(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """十二审 PR-12.3：resume——新 attempt 恢复同一 Pi 会话（工具
+        历史与上下文保留）；区别于 retry（新会话从零）。只接受终态单
+        且有持久 session 文件。"""
+        from rosclaw.contracts.common import new_id
+        from rosclaw.contracts.worker.order import WorkOrderV1
+
+        work_order_id = str(request.arguments.get("work_order_id", "")).strip()
+        if not work_order_id:
+            raise ToolBridgeError("INVALID_ARGUMENTS", "work_order_id required")
+        manager = self._service._worker_manager
+        order = manager.order(work_order_id)
+        if order is None:
+            raise ToolBridgeError(
+                "WORK_ORDER_NOT_FOUND", f"unknown work order {work_order_id!r}"
+            )
+        if order.mission_id != request.mission_id:
+            raise ToolBridgeError(
+                "MISSION_MISMATCH", "work order belongs to a different mission"
+            )
+        if order.status not in ("FAILED", "CANCELLED", "EXPIRED", "ACCEPTED"):
+            raise ToolBridgeError(
+                "NOT_TERMINAL", f"work order is {order.status}——只能 resume 终态单"
+            )
+        from rosclaw.agentd.workers.event_store import WorkerEventStore
+
+        state = WorkerEventStore(self._service._home).read_state(work_order_id) or {}
+        session_file = str(state.get("session_file") or "")
+        if not session_file or not Path(session_file).exists():
+            raise ToolBridgeError(
+                "NO_CHECKPOINT",
+                "该 WorkOrder 没有可恢复的会话检查点（session 未持久化）——"
+                "请用 rosclaw_retry_work 开新 attempt",
+            )
+        new_order = WorkOrderV1(
+            work_order_id=new_id("wo"),
+            mission_id=order.mission_id,
+            issued_by=order.issued_by,
+            capability=order.capability,
+            goal=order.goal,
+            inputs={
+                **dict(order.inputs),
+                "_resume_session": session_file,
+            },
+            budgets=order.budgets,
+            expected_output=order.expected_output,
+            side_effect_policy=order.side_effect_policy,
+            delegation_depth=0,
+            max_delegation_depth=1,
+            parent_work_order_id=order.work_order_id,
+            root_work_order_id=order.root_work_order_id or order.work_order_id,
+        )
+        self._check_worker_token_budget(request.mission_id)
+        candidates = self._candidates_for(order.assigned_to or "auto", order.capability)
+        if not candidates:
+            raise ToolBridgeError("WORKER_UNAVAILABLE", "no eligible worker", retryable=True)
+        try:
+            scheduled = manager.hire(new_order, candidates)
+        except Exception as exc:  # noqa: BLE001
+            raise ToolBridgeError("SCHEDULING_FAILED", str(exc), retryable=True) from exc
+        self._service.spawn_worker_driver(scheduled)
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status="STARTED",
+            summary=(
+                f"已从持久会话恢复（新 attempt）：{scheduled.work_order_id}\n"
+                f"resume 自 {work_order_id}（同一 Pi 会话，上下文保留）"
             ),
         )
 

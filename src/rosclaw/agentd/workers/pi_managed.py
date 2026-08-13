@@ -341,6 +341,9 @@ class PiManagedAdapter:
             "instructions": str(order.inputs.get("instructions") or order.goal),
             "cwd": cwd,
             "artifacts_dir": str(artifacts_dir),
+            # 十二审 PR-12.3：持久 session（attempt 目录）+ resume。
+            "session_dir": str(work_dir / "session"),
+            "resume_session_file": str(order.inputs.get("_resume_session") or "") or None,
             # 十一审 PR-A：DoD 注入——期望工件进 envelope（developer 的
             # 最终提示据此要求真实 diff/测试日志）。
             "expected_artifacts": list(order.expected_output.artifacts),
@@ -465,6 +468,8 @@ class PiManagedAdapter:
 
                     with _cl2.suppress(Exception):
                         self._on_waiting_input(order.work_order_id)
+                elif kind == "session_persisted":
+                    state["session_file"] = str(event.get("session_file", ""))
                 elif kind == "answer_received":
                     import contextlib as _cl3
 
@@ -590,6 +595,8 @@ class PiManagedAdapter:
                 "phase": "TERMINAL",
                 "last_seq": handle.progress_seq,
                 "error": failure,
+                # PR-12.3：resume 的恢复点（Pi 原生 session 文件）。
+                "session_file": state.get("session_file", ""),
             },
         )
         finished = datetime.now(UTC)
