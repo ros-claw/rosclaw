@@ -983,11 +983,15 @@ class PiBridgeServer:
 
                 for f in sorted(artifacts_dir.iterdir()):
                     if f.is_file():
+                        size = f.stat().st_size
                         artifacts.append(
                             {
                                 "name": f.name,
-                                "bytes": f.stat().st_size,
-                                "sha256": _hashlib.sha256(f.read_bytes()).hexdigest()[:16],
+                                "bytes": size,
+                                # 大文件不整读（内存保护）——只标大小。
+                                "sha256": _hashlib.sha256(f.read_bytes()).hexdigest()[:16]
+                                if size <= 64 * 1024 * 1024
+                                else "",
                             }
                         )
             def _tail_text(name: str, max_bytes: int = 6000) -> str:

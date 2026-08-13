@@ -272,7 +272,7 @@ class PiManagedAdapter:
         if problems:
             raise AdapterError("BLOCKED_PREFLIGHT: " + "；".join(problems))
 
-    def _validate_deliverables(
+    async def _validate_deliverables(
         self, order: WorkOrderV1, workspace: str
     ) -> list[str]:
         """required deliverable 硬验收（存在/非空/魔数）。返回失败原因
@@ -291,6 +291,7 @@ class PiManagedAdapter:
             required_types = ["application/json", "image/gif", "video/mp4"]
         if not required_types:
             return []
+        changed = await self._changed_files(workspace, str(order.inputs.get("base_sha") or "") or None)
         failures: list[str] = []
         for media_type in dict.fromkeys(required_types):
             # 任一该类型的文件通过即算该 deliverable 满足（or 语义：
@@ -309,6 +310,8 @@ class PiManagedAdapter:
                 candidates = [
                     p for p in Path(workspace).rglob("*.json") if ".git" not in p.parts
                 ]
+            if changed is not None:
+                candidates = [p for p in candidates if p.resolve() in changed]
             errors = [validate_media_file(p, media_type) for p in candidates]
             passed = any(e is None for e in errors)
             if not passed:
@@ -381,6 +384,27 @@ class PiManagedAdapter:
         ws.mkdir(parents=True, exist_ok=True)
         return str(ws), None
 
+    async def _changed_files(
+        self, workspace: str, base_ref: str | None
+    ) -> set[Path] | None:
+        """本 attempt 实际改动的文件集（git status；scratch/无法判定时
+        返回 None=不限制）。工件收集与 deliverable 验收共用——防"仓库
+        既有文件被算作 Worker 产出"。"""
+        if not base_ref:
+            return None
+        code, out = await _git("status", "--porcelain", cwd=workspace)
+        if code != 0:
+            return None
+        changed: set[Path] = set()
+        for line in out.splitlines():
+            if not line.strip():
+                continue
+            rel = line[3:].strip()
+            if " -> " in rel:  # rename
+                rel = rel.split(" -> ", 1)[1]
+            changed.add((Path(workspace) / rel).resolve())
+        return changed
+
     async def _collect_workbench_artifacts(
         self, order: WorkOrderV1, workspace: str, base_ref: str | None
     ) -> tuple[list[ResultArtifact], list[ResultClaim], str]:
@@ -435,11 +459,15 @@ class PiManagedAdapter:
                     evidence_refs=[artifacts[-1].ref],
                 )
             )
-        # 媒体产物（sim-builder）：workspace 内新生成的图片/视频。
+        # 媒体产物（sim-builder）：只收本 attempt 实际改动的文件——
+        # 自审修复：不得把仓库里既有的图片算成 Worker 产出（工件造假）。
+        changed = await self._changed_files(workspace, base_ref)
         for pattern in ("*.png", "*.gif", "*.mp4"):
-            for media in sorted(Path(workspace).rglob(pattern))[:5]:
+            for media in sorted(Path(workspace).rglob(pattern))[:50]:
                 if ".git" in media.parts or media.stat().st_size == 0:
                     continue
+                if changed is not None and media not in changed:
+                    continue  # 非本 attempt 改动——不算产出
                 media_type = {"png": "image/png", "gif": "image/gif", "mp4": "video/mp4"}[
                     media.suffix.lstrip(".")
                 ]
@@ -579,12 +607,15 @@ class PiManagedAdapter:
                 state["last_event_at"] = now
                 kind = event.get("kind")
                 # PR-B：边读边落账本（含 liveness——UI 需要实时流）。
-                self._events.append_event(
-                    order.work_order_id,
-                    str(event.get("attempt_id", "")),
-                    str(kind),
-                    {k: v for k, v in event.items() if k not in ("kind", "attempt_id")},
-                )
+                # 自审修复：账本写失败（磁盘满等）不得杀死事件读者——
+                # 否则健康 Worker 会被 liveness 超时误杀。
+                with contextlib.suppress(Exception):
+                    self._events.append_event(
+                        order.work_order_id,
+                        str(event.get("attempt_id", "")),
+                        str(kind),
+                        {k: v for k, v in event.items() if k not in ("kind", "attempt_id")},
+                    )
                 if kind == "liveness":
                     # 只证明活着——phase/span 供 UI，不推进语义进度。
                     state["phase"] = str(event.get("phase", state["phase"]))
@@ -790,7 +821,7 @@ class PiManagedAdapter:
                 summary = f"{summary}\n\n[workbench] {notes}"
             # 十二审 PR-12.4：required deliverable 未过 = 诚实失败
             # （deliverable 未通过不得宣布完成）。
-            failures = self._validate_deliverables(order, workspace)
+            failures = await self._validate_deliverables(order, workspace)
             if failures:
                 raise AdapterError("DELIVERABLE_FAILED: " + "；".join(failures))
         return WorkResultV1(

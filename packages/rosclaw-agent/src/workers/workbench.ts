@@ -44,11 +44,43 @@ export interface WorkbenchOptions {
 const ALLOWED_BINARIES = new Set([
 	"ls", "cat", "head", "tail", "grep", "find", "wc", "echo", "printf", "pwd",
 	"mkdir", "touch", "cp", "mv", "rm", "diff", "sed", "awk", "sort", "uniq",
-	"tr", "cut", "xargs", "tee", "git", "python", "python3", "pytest",
-	"node", "npm", "npx", "tsc", "make", "jq", "sha256sum", "file", "stat",
+	"tr", "cut", "tee", "git", "python", "python3", "pytest",
+	"node", "npm", "tsc", "make", "jq", "sha256sum", "file", "stat",
 	"chmod", "basename", "dirname", "realpath", "true", "false", "test", "[",
 	"sleep",
 ]);
+
+/** 自审修复（argv 逃逸面）：白名单二进制的危险子命令/参数。
+ *  xargs/npx 直接出列（可执行任意二进制/远程包）；git 禁网络子命令
+ *  与任意配置注入；find 禁 -exec；npm 禁 install/publish；awk/sed
+ *  禁命令执行原语。python -c 的网络面在工具层无法彻底封堵——
+ *  如实记录为 tool_guard 残留风险（§8.2）。 */
+const DENIED_SUBCOMMANDS: Record<string, (args: string[]) => string | null> = {
+	git: (args) => {
+		const sub = args.find((a) => !a.startsWith("-")) ?? "";
+		if (["push", "fetch", "pull", "clone", "remote", "submodule", "send-email"].includes(sub)) {
+			return `git ${sub} 涉及网络/远端——不允许`;
+		}
+		if (args.includes("-c") || args.some((a) => a.startsWith("--exec-path") || a.startsWith("-c "))) {
+			return "git -c/--exec-path 可注入任意命令——不允许";
+		}
+		return null;
+	},
+	find: (args) =>
+		args.some((a) => ["-exec", "-execdir", "-delete", "-ok"].includes(a))
+			? "find -exec/-delete 不允许"
+			: null,
+	npm: (args) => {
+		const sub = args.find((a) => !a.startsWith("-")) ?? "";
+		return ["install", "i", "add", "publish", "link", "exec", "x"].includes(sub)
+			? `npm ${sub} 涉及网络/任意执行——不允许`
+			: null;
+	},
+	awk: (args) => (args.some((a) => /system\s*\(|getline.*\|/.test(a)) ? "awk system/getline-pipe 不允许" : null),
+	sed: (args) => (args.some((a) => /^-[^-]*e|e\s*\/.+\/e?;/.test(a)) ? "sed -e 执行原语不允许" : null),
+	xargs: () => "xargs 可执行任意二进制——不允许",
+	npx: () => "npx 可拉取远程包——不允许",
+};
 
 /** 任何参数命中这些模式即拒绝（网络/特权/设备/宿主机敏感面）。 */
 const DENIED_ARG_PATTERNS = [
@@ -141,7 +173,9 @@ export function buildWorkbenchTools(options: WorkbenchOptions): ToolDefinition[]
 			const text = readFileSync(p, "utf-8");
 			const lines = text.split("\n");
 			const start = Math.max(0, (params.offset ?? 1) - 1);
-			const slice = lines.slice(start, params.limit ? start + params.limit : undefined);
+			// 自审修复：默认上限 2000 行——整本大日志不进模型上下文。
+			const effectiveLimit = params.limit ?? 2000;
+			const slice = lines.slice(start, start + effectiveLimit);
 			return {
 				content: [{ type: "text" as const, text: slice.join("\n") }],
 				details: { path: p, total_lines: lines.length },
@@ -363,6 +397,11 @@ export function buildWorkbenchTools(options: WorkbenchOptions): ToolDefinition[]
 			try {
 				if (DENIED_BINARIES.has(bin)) throw new Error(`binary not allowed: ${bin}`);
 				if (!ALLOWED_BINARIES.has(bin)) throw new Error(`binary not in allowlist: ${bin}`);
+				const subDeny = DENIED_SUBCOMMANDS[bin];
+				if (subDeny) {
+					const reason = subDeny(argv.slice(1));
+					if (reason) throw new Error(reason);
+				}
 				for (const arg of argv.slice(1)) argPathCheck(root, arg);
 			} catch (err) {
 				log(`DENIED ${argv.join(" ")} (${(err as Error).message})`);

@@ -444,6 +444,11 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 		unsubscribe();
 		clearInterval(livenessTimer);
 		clearInterval(providerTimer);
+		// 自审修复：session 文件在首个条目写入后才存在——终态再回告
+		// 一次真实路径（否则 resume 可能拿到空 checkpoint）。
+		emit(wo, att, "session_persisted", {
+			session_file: sessionManager.getSessionFile() ?? "",
+		});
 
 		if (providerTimedOut) {
 			emit(wo, att, "attempt_failed", {
