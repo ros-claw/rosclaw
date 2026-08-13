@@ -32,10 +32,7 @@ import { t as i18nT } from "../i18n/index.js";
 import { EventMirror } from "./event-mirror.js";
 import { WorkerCompletionWatcher } from "../workers/completion-watch.js";
 import { JobsWidget, renderJobLog } from "../workers/job-widget.js";
-<<<<<<< HEAD
 import { WorkspaceStore } from "../session/workspace.js";
-=======
->>>>>>> 29075f1745b81b011dacdc40b1b954ac34117d4f
 import { buildCommandHandlers } from "./commands.js";
 import { guardInput } from "./input-guard.js";
 import { fetchEmbodiedContext, renderTrustedContext } from "./context-injection.js";
@@ -114,7 +111,6 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				else latestCtx.ui.setWidget("rosclaw-jobs", lines);
 			},
 		});
-<<<<<<< HEAD
 		// 十一审 PR-D：Workspace——header 快照 + /workspace 命令（命令层
 		// 直接处理，不进模型）。
 		const workspaceStore = options.workspaceStore ?? new WorkspaceStore(options.rosclawHome);
@@ -157,18 +153,13 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				ctx.ui.notify("用法：/workspace show | use <path> | recent", "warning");
 			},
 		});
-=======
->>>>>>> 29075f1745b81b011dacdc40b1b954ac34117d4f
 		pi.on("session_start", async (_event, ctx) => {
 			latestCtx = ctx;
 			watcher.start();
 			jobsWidget.start();
-<<<<<<< HEAD
 			if (options.workspaceAutoBound && workspaceStore.current) {
 				ctx.ui.notify(`已自动绑定 Project：${workspaceStore.current}（/workspace show 查看）`, "info");
 			}
-=======
->>>>>>> 29075f1745b81b011dacdc40b1b954ac34117d4f
 		});
 		pi.on("session_shutdown", async () => {
 			watcher.stop();
