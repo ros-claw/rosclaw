@@ -21,13 +21,6 @@ from pathlib import Path
 
 import pytest
 
-# CI Full Regression 无 node/dist——prompt 契约测试诚实 skip（本地与
-# Node jobs 覆盖）。
-_NODE_AVAILABLE = shutil.which("node") is not None and (
-    Path(__file__).resolve().parents[2]
-    / "packages/rosclaw-agent/dist/src/workers/profiles.js"
-).exists()
-
 from rosclaw.agentd.workers.scheduler import CandidateView
 from rosclaw.contracts.common import new_id
 from rosclaw.contracts.worker.order import (
@@ -37,6 +30,13 @@ from rosclaw.contracts.worker.order import (
     WorkOrderV1,
 )
 from tests.agentd.test_pi_tool_bridge import _setup
+
+# CI Full Regression 无 node/dist——prompt 契约测试诚实 skip（本地与
+# Node jobs 覆盖）。
+_NODE_AVAILABLE = shutil.which("node") is not None and (
+    Path(__file__).resolve().parents[2]
+    / "packages/rosclaw-agent/dist/src/workers/profiles.js"
+).exists()
 
 
 def _fake(tmp_path: Path, name: str, body: str) -> Path:
