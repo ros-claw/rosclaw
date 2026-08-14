@@ -32,6 +32,7 @@ import { t as i18nT } from "../i18n/index.js";
 import { EventMirror } from "./event-mirror.js";
 import { WorkerCompletionWatcher } from "../workers/completion-watch.js";
 import { JobsWidget, renderJobLog } from "../workers/job-widget.js";
+import { JobViewerComponent } from "../workers/job-viewer.js";
 import { WorkspaceStore } from "../session/workspace.js";
 import { buildCommandHandlers } from "./commands.js";
 import { guardInput } from "./input-guard.js";
@@ -519,11 +520,12 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				const retryMatch = trimmed.match(/^retry\s+(\S+)$/);
 				const logMatch = trimmed.match(/^log\s+(\S+)$/);
 				const answerMatch = trimmed.match(/^answer\s+(\S+)\s+([\s\S]+)$/);
+				const steerMatch = trimmed.match(/^steer\s+(\S+)\s+([\s\S]+)$/);
 				const resumeMatch = trimmed.match(/^resume\s+(\S+)$/);
 				const extendMatch = trimmed.match(/^extend\s+(\S+)(?:\s+--tokens\s+(\S+))?/);
 				const viewMatch = trimmed.match(/^(artifacts|diff|tests|transcript)\s+(\S+)$/);
 				const idMatch = trimmed.match(/^(\S+)$/);
-				if (!idMatch && !cancelMatch && !retryMatch && !logMatch && !answerMatch && !resumeMatch && !viewMatch && !extendMatch) {
+				if (!idMatch && !cancelMatch && !retryMatch && !logMatch && !answerMatch && !resumeMatch && !viewMatch && !extendMatch && !steerMatch) {
 					ctx.ui.notify("用法：/job <wo_id>（查看器）| /job log|transcript|artifacts|diff|tests <wo_id> | /job answer|cancel|retry|resume|extend <wo_id>", "warning");
 					return;
 				}
@@ -541,6 +543,17 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					actor: { engine: "pi-command" },
 				});
 				try {
+					if (steerMatch) {
+						const response = await center.call("pi.tools.execute", {
+							request: mkRequest("rosclaw_update_work", steerMatch[1], { note: steerMatch[2] }),
+						});
+						const result = (response.result ?? {}) as { summary?: string };
+						ctx.ui.notify(
+							response.ok ? (result.summary ?? "已送达") : `steer 失败：${result.summary ?? response.error ?? ""}`,
+							response.ok ? "info" : "error",
+						);
+						return;
+					}
 					if (extendMatch) {
 						// 十三审：预算暂停的追加（--tokens 50000）。
 						const addTokens = extendMatch[2] ? Number(extendMatch[2].replace(/k$/i, "000")) : 50_000;
@@ -641,30 +654,42 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						);
 						return;
 					}
-					// 十二审 PR-12.3：/job <id> = 实时会话查看器（状态 + 最近
-					// 事件 + 产物摘要——不再是单行摘要）。
+					// 十三审 PR-13.4：/job <id> = 持续订阅 overlay 查看器
+					// （不再是一次性 notify 快照）。
 					const woId = (idMatch as RegExpMatchArray)[1];
-					const [checkRes, eventsRes, detailRes] = await Promise.all([
-						center.call("pi.tools.execute", { request: mkRequest("rosclaw_check_work", woId) }),
-						center.call("pi.worker.events", { work_order_id: woId, limit: 25 }),
-						center.call("pi.worker.detail", { work_order_id: woId }),
-					]);
-					const checkResult = (checkRes.result ?? {}) as { summary?: string };
-					const header = checkRes.ok
-						? (checkResult.summary ?? "")
-						: `查询被拒：${checkResult.summary ?? checkRes.error ?? ""}`;
-					const logView = renderJobLog(
-						((eventsRes.events ?? []) as never[]),
-						woId,
-					);
-					const arts = ((detailRes.artifacts ?? []) as Array<{ name: string; bytes: number }>)
-						.map((a) => `${a.name}(${a.bytes}B)`)
-						.join(", ");
-					ctx.ui.notify(
-						`${header}\n\n— 最近事件 —\n${logView}\n\n产物: ${arts || "（无）"}\n` +
-						`（/job log|transcript|diff|tests|artifacts ${woId} 看更多）`,
-						checkRes.ok ? "info" : "error",
-					);
+					await ctx.ui.custom<boolean>((_tui, _theme, _kb, done) => {
+						return new JobViewerComponent({
+							workOrderId: woId,
+							fetchEvents: async (afterSeq, limit) => {
+								const r = await center.call("pi.worker.events", {
+									work_order_id: woId,
+									after_seq: afterSeq,
+									limit,
+								});
+								return {
+									events: (r.events ?? []) as Array<Record<string, unknown>>,
+									status: String(r.status ?? ""),
+								};
+							},
+							onSteer: () => ctx.ui.input("Steer Worker（追加约束）", "例如：只看 src/ 目录"),
+							sendSteer: async (text) => {
+								const r = await center.call("pi.tools.execute", {
+									request: mkRequest("rosclaw_update_work", woId, { note: text }),
+								});
+								const rr = (r.result ?? {}) as { summary?: string };
+								return rr.summary ?? "已发送";
+							},
+							onCancel: async () => {
+								const r = await center.call("pi.tools.execute", {
+									request: mkRequest("rosclaw_cancel_work", woId, { reason: "viewer" }),
+								});
+								const rr = (r.result ?? {}) as { summary?: string };
+								return rr.summary ?? "已取消";
+							},
+							notify: (text, kind) => ctx.ui.notify(text, kind),
+							onClose: () => done(true),
+						});
+					}, { overlay: true });
 				} catch (err) {
 					ctx.ui.notify(`操作失败：${(err as Error).message}`, "error");
 				}

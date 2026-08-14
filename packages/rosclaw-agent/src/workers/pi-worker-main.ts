@@ -296,12 +296,21 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 					args_preview: argsPreview(e.toolName ?? "", (event as { args?: unknown }).args, envelope.cwd),
 				});
 			} else if (event.type === "tool_execution_update") {
-				// 限频 passthrough（每工具 500ms 一条上限）。
+				// 限频 passthrough（每工具 500ms 一条上限）——带 partial
+				// 输出预览（十三审 §1.2：不再只留工具名）。
 				const callId = (event as { toolCallId?: string }).toolCallId ?? "";
 				const nowMs = Date.now();
 				if (nowMs - (toolUpdateAt.get(callId) ?? 0) >= 500) {
 					toolUpdateAt.set(callId, nowMs);
-					semantic("tool_progress", { tool: e.toolName ?? "?", tool_call_id: callId });
+					const partial = (event as { partialResult?: { content?: unknown } }).partialResult;
+					const preview = partial
+						? redactText(normalizeAssistantContent(partial.content ?? "").text).slice(-200)
+						: "";
+					semantic("tool_progress", {
+						tool: e.toolName ?? "?",
+						tool_call_id: callId,
+						message: preview,
+					});
 				}
 			} else if (event.type === "tool_execution_end") {
 				phase = "RUNNING_MODEL";
