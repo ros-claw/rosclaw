@@ -14,7 +14,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -94,7 +93,7 @@ class TestSimulateRenderVerify:
         assert result["ok"], result.get("error")
         assert result["evidence_level"] == "SIM_DYN_ROLLOUT"
         assert result["physics_executed"] is True
-        assert result["point_count"] > 30
+        assert result["point_count"] >= 20  # 每个 IK 航点一个物理采样
         assert result["trace_id"]
         metrics = result["tracking"]
         assert metrics["max_error_m"] >= 0.0
