@@ -503,6 +503,19 @@ ROSCLAW_STRUCTURED_SCHEMAS: dict[str, Any] = {
         },
         "indices": ["status", "rule_id", "created_at"],
     },
+    # Evolution module canonical tables (PR-DF-12, ADR-0010 §33-34): the
+    # generic namespace-row shape backing EvolutionRepository.  Legacy
+    # auto_* tables below stay for compat until the migration PR.
+    "evolution_records": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "namespace": "TEXT",
+            "key": "TEXT",
+            "data": "TEXT",
+            "updated_at": "REAL",
+        },
+        "indices": ["namespace", "updated_at"],
+    },
     # Auto module tables
     "auto_proposals": {
         "columns": {

@@ -53,7 +53,18 @@ class AutoEngine:
                 self._auto_context_adapter = AutoContextAdapter(sense_runtime)
             except Exception:
                 pass
-        self.store = LocalStore(self.config.local_store_path)
+        # PR-DF-12 (flywheel §32): the Structured Store is the Evolution
+        # source of truth when one is injected; LocalStore degrades to
+        # cache/offline spool.  storage_backend="local" keeps the legacy
+        # single-file behavior (standalone users without a data plane).
+        if self._seekdb is not None and self.config.storage_backend in ("seekdb", "hybrid"):
+            from rosclaw.evolution.repository import EvolutionRepository
+
+            self.store = EvolutionRepository(
+                self._seekdb, LocalStore(self.config.local_store_path)
+            )
+        else:
+            self.store = LocalStore(self.config.local_store_path)
         # Sprint C: runners
         runner_backend = self.config.runner_backend
         self.local_runner = LocalRunner({"backend": runner_backend, "latency_sec": 0.01})
