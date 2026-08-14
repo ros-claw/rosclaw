@@ -713,8 +713,18 @@ class Runtime(LifecycleMixin):
                 # Reuse Memory's SeekDB client if available
                 if self._memory is not None:
                     seekdb = getattr(self._memory, "seekdb_client", None)
+                # PR-DF-12: with a data plane present, Evolution state goes
+                # to the structured store (LocalStore becomes its spool).
+                auto_storage = (
+                    "hybrid"
+                    if self._data_plane is not None and self._data_plane.structured_store is not None
+                    else "local"
+                )
                 self._auto = AutoPlugin(
-                    config={"local_store_path": str(workspace_home / "data" / "auto")},
+                    config={
+                        "local_store_path": str(workspace_home / "data" / "auto"),
+                        "storage_backend": auto_storage,
+                    },
                     event_bus=self.event_bus,
                     seekdb_client=seekdb,
                     skill_registry=getattr(self._skill_manager, "registry", None)
