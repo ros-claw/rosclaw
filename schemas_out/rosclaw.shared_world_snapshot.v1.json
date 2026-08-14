@@ -1,0 +1,240 @@
+{
+  "$defs": {
+    "ObjectState": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.world_object.v1",
+          "default": "rosclaw.world_object.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "object_id": {
+          "title": "Object Id",
+          "type": "string"
+        },
+        "pose": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pose"
+        },
+        "twist": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Twist"
+        },
+        "covariance": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Covariance"
+        },
+        "confidence": {
+          "default": 0.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_class": {
+          "default": "measurement",
+          "enum": [
+            "measurement",
+            "inference"
+          ],
+          "title": "Evidence Class",
+          "type": "string"
+        },
+        "evidence_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Ref"
+        },
+        "tombstone": {
+          "default": false,
+          "title": "Tombstone",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "object_id"
+      ],
+      "title": "ObjectState",
+      "type": "object"
+    },
+    "QoSSpec": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.world_qos.v1",
+          "default": "rosclaw.world_qos.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "reliability": {
+          "default": "best_effort",
+          "enum": [
+            "reliable",
+            "best_effort"
+          ],
+          "title": "Reliability",
+          "type": "string"
+        },
+        "history_depth": {
+          "default": 1,
+          "title": "History Depth",
+          "type": "integer"
+        },
+        "deadline_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deadline Ms"
+        },
+        "lifespan_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lifespan Ms"
+        }
+      },
+      "title": "QoSSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "team_id": {
+      "title": "Team Id",
+      "type": "string"
+    },
+    "team_epoch": {
+      "title": "Team Epoch",
+      "type": "integer"
+    },
+    "world_revision": {
+      "title": "World Revision",
+      "type": "integer"
+    },
+    "source_member": {
+      "title": "Source Member",
+      "type": "string"
+    },
+    "source_sensor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Sensor"
+    },
+    "observed_at": {
+      "title": "Observed At",
+      "type": "string"
+    },
+    "published_at": {
+      "title": "Published At",
+      "type": "string"
+    },
+    "max_age_ms": {
+      "default": 1000,
+      "title": "Max Age Ms",
+      "type": "integer"
+    },
+    "frame_id": {
+      "default": "world",
+      "title": "Frame Id",
+      "type": "string"
+    },
+    "transform_revision": {
+      "default": 0,
+      "title": "Transform Revision",
+      "type": "integer"
+    },
+    "merge_policy": {
+      "default": "latest_valid",
+      "enum": [
+        "latest_valid",
+        "covariance_fusion",
+        "authoritative_source"
+      ],
+      "title": "Merge Policy",
+      "type": "string"
+    },
+    "objects": {
+      "items": {
+        "$ref": "#/$defs/ObjectState"
+      },
+      "title": "Objects",
+      "type": "array"
+    },
+    "qos": {
+      "$ref": "#/$defs/QoSSpec"
+    },
+    "schema_version": {
+      "const": "rosclaw.shared_world_snapshot.v1",
+      "default": "rosclaw.shared_world_snapshot.v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "team_id",
+    "team_epoch",
+    "world_revision",
+    "source_member",
+    "observed_at",
+    "published_at"
+  ],
+  "title": "rosclaw.shared_world_snapshot.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.shared_world_snapshot.v1"
+}

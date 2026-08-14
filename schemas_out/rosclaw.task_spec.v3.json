@@ -1,0 +1,139 @@
+{
+  "$defs": {
+    "OutcomeContractV1": {
+      "additionalProperties": true,
+      "description": "任务何时算完成（§6.3）。",
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.outcome_contract.v1",
+          "default": "rosclaw.outcome_contract.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "goal": {
+          "title": "Goal",
+          "type": "string"
+        },
+        "required_outcomes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Outcomes",
+          "type": "array"
+        },
+        "deliverables": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Deliverables",
+          "type": "array"
+        },
+        "required_evidence": {
+          "default": "COMMAND_REPLAY",
+          "title": "Required Evidence",
+          "type": "string"
+        },
+        "success_criteria": {
+          "additionalProperties": true,
+          "default": {},
+          "title": "Success Criteria",
+          "type": "object"
+        },
+        "partial_policy": {
+          "default": "report_partial_with_recovery",
+          "title": "Partial Policy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "goal"
+      ],
+      "title": "OutcomeContractV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "机器可执行任务（§6.4）。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.task_spec.v3",
+      "default": "rosclaw.task_spec.v3",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "task_type": {
+      "title": "Task Type",
+      "type": "string"
+    },
+    "goal": {
+      "default": "",
+      "title": "Goal",
+      "type": "string"
+    },
+    "robot_id": {
+      "default": "",
+      "title": "Robot Id",
+      "type": "string"
+    },
+    "mode": {
+      "default": "SIMULATION",
+      "title": "Mode",
+      "type": "string"
+    },
+    "parameters": {
+      "additionalProperties": true,
+      "default": {},
+      "title": "Parameters",
+      "type": "object"
+    },
+    "constraints": {
+      "additionalProperties": true,
+      "default": {},
+      "title": "Constraints",
+      "type": "object"
+    },
+    "outcome": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OutcomeContractV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "budget": {
+      "additionalProperties": true,
+      "default": {},
+      "title": "Budget",
+      "type": "object"
+    },
+    "safety_policy": {
+      "default": "",
+      "title": "Safety Policy",
+      "type": "string"
+    },
+    "required_capabilities": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Capabilities",
+      "type": "array"
+    },
+    "caused_by_turn_id": {
+      "default": "",
+      "title": "Caused By Turn Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "task_type"
+  ],
+  "title": "rosclaw.task_spec.v3",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.task_spec.v3"
+}

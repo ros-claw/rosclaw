@@ -1,0 +1,125 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.ui.mission_snapshot.v1",
+      "default": "rosclaw.ui.mission_snapshot.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "mission_id": {
+      "title": "Mission Id",
+      "type": "string"
+    },
+    "name": {
+      "default": "",
+      "title": "Name",
+      "type": "string"
+    },
+    "goal_text": {
+      "title": "Goal Text",
+      "type": "string"
+    },
+    "state": {
+      "title": "State",
+      "type": "string"
+    },
+    "mode": {
+      "title": "Mode",
+      "type": "string"
+    },
+    "body_id": {
+      "title": "Body Id",
+      "type": "string"
+    },
+    "context_id": {
+      "title": "Context Id",
+      "type": "string"
+    },
+    "context_revision": {
+      "title": "Context Revision",
+      "type": "integer"
+    },
+    "task_graph_revision": {
+      "default": 0,
+      "title": "Task Graph Revision",
+      "type": "integer"
+    },
+    "last_event_sequence": {
+      "default": 0,
+      "title": "Last Event Sequence",
+      "type": "integer"
+    },
+    "turn_in_flight": {
+      "default": false,
+      "title": "Turn In Flight",
+      "type": "boolean"
+    },
+    "pending_approvals": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Pending Approvals",
+      "type": "array"
+    },
+    "active_grants": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Active Grants",
+      "type": "array"
+    },
+    "open_work_orders": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Open Work Orders",
+      "type": "array"
+    },
+    "usage": {
+      "additionalProperties": true,
+      "title": "Usage",
+      "type": "object"
+    },
+    "budgets": {
+      "additionalProperties": true,
+      "title": "Budgets",
+      "type": "object"
+    },
+    "compaction_count": {
+      "default": 0,
+      "title": "Compaction Count",
+      "type": "integer"
+    },
+    "tool_count": {
+      "default": 0,
+      "title": "Tool Count",
+      "type": "integer"
+    },
+    "degraded": {
+      "default": "",
+      "title": "Degraded",
+      "type": "string"
+    },
+    "captured_at": {
+      "title": "Captured At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "mission_id",
+    "goal_text",
+    "state",
+    "mode",
+    "body_id",
+    "context_id",
+    "context_revision",
+    "captured_at"
+  ],
+  "title": "rosclaw.ui.mission_snapshot.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.ui.mission_snapshot.v1"
+}

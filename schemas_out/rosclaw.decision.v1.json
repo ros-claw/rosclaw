@@ -1,0 +1,288 @@
+{
+  "$defs": {
+    "Assumption": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.decision_assumption.v1",
+          "default": "rosclaw.decision_assumption.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "claim": {
+          "title": "Claim",
+          "type": "string"
+        },
+        "evidence_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Ref"
+        },
+        "confidence": {
+          "default": 0.5,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        }
+      },
+      "required": [
+        "claim"
+      ],
+      "title": "Assumption",
+      "type": "object"
+    },
+    "NextIntent": {
+      "enum": [
+        "ANSWER",
+        "OBSERVE",
+        "PLAN_PATCH",
+        "HIRE_WORKER",
+        "TEAM_COORDINATE",
+        "REQUEST_APPROVAL",
+        "REQUEST_ACTION",
+        "VERIFY",
+        "WAIT",
+        "PAUSE",
+        "FAIL_SAFE"
+      ],
+      "title": "NextIntent",
+      "type": "string"
+    },
+    "OnFailure": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.decision_on_failure.v1",
+          "default": "rosclaw.decision_on_failure.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "intent": {
+          "$ref": "#/$defs/NextIntent",
+          "default": "PAUSE"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "title": "OnFailure",
+      "type": "object"
+    },
+    "ProposedOperation": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.proposed_operation.v1",
+          "default": "rosclaw.proposed_operation.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "type": {
+          "description": "e.g. create_work_order, task_graph_patch",
+          "title": "Type",
+          "type": "string"
+        },
+        "payload_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Payload Ref"
+        },
+        "payload": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Payload"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "ProposedOperation",
+      "type": "object"
+    },
+    "Uncertainty": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.decision_uncertainty.v1",
+          "default": "rosclaw.decision_uncertainty.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "level": {
+          "default": "MODERATE",
+          "enum": [
+            "LOW",
+            "MODERATE",
+            "HIGH"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        }
+      },
+      "title": "Uncertainty",
+      "type": "object"
+    },
+    "Verification": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.decision_verification.v1",
+          "default": "rosclaw.decision_verification.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "schema_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schema Ref"
+        },
+        "verifiers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Verifiers",
+          "type": "array"
+        }
+      },
+      "title": "Verification",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.decision.v1",
+      "default": "rosclaw.decision.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "decision_id": {
+      "title": "Decision Id",
+      "type": "string"
+    },
+    "mission_id": {
+      "title": "Mission Id",
+      "type": "string"
+    },
+    "context_id": {
+      "title": "Context Id",
+      "type": "string"
+    },
+    "context_revision": {
+      "title": "Context Revision",
+      "type": "integer"
+    },
+    "next_intent": {
+      "$ref": "#/$defs/NextIntent"
+    },
+    "summary": {
+      "default": "",
+      "title": "Summary",
+      "type": "string"
+    },
+    "assumptions": {
+      "items": {
+        "$ref": "#/$defs/Assumption"
+      },
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "evidence_refs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Refs",
+      "type": "array"
+    },
+    "uncertainty": {
+      "$ref": "#/$defs/Uncertainty"
+    },
+    "proposed_operation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProposedOperation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "verification": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Verification"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "on_failure": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OnFailure"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "public_rationale": {
+      "default": "",
+      "title": "Public Rationale",
+      "type": "string"
+    }
+  },
+  "required": [
+    "decision_id",
+    "mission_id",
+    "context_id",
+    "context_revision",
+    "next_intent"
+  ],
+  "title": "rosclaw.decision.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.decision.v1"
+}

@@ -1,0 +1,190 @@
+{
+  "$defs": {
+    "ActionDisplayV1": {
+      "additionalProperties": true,
+      "description": "Human-readable risk display (aligned with interaction ActionDisplay).",
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.action_display.v1",
+          "default": "rosclaw.action_display.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "risk_tier": {
+          "default": "LOW",
+          "enum": [
+            "LOW",
+            "MEDIUM",
+            "HIGH",
+            "CRITICAL"
+          ],
+          "title": "Risk Tier",
+          "type": "string"
+        },
+        "expected_effect": {
+          "default": "",
+          "title": "Expected Effect",
+          "type": "string"
+        },
+        "failure_handling": {
+          "default": "",
+          "title": "Failure Handling",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "title",
+        "summary"
+      ],
+      "title": "ActionDisplayV1",
+      "type": "object"
+    },
+    "ApprovalStatus": {
+      "enum": [
+        "PENDING",
+        "APPROVED",
+        "DENIED",
+        "EXPIRED"
+      ],
+      "title": "ApprovalStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.approval_request.v2",
+      "default": "rosclaw.approval_request.v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "request_id": {
+      "title": "Request Id",
+      "type": "string"
+    },
+    "mission_id": {
+      "title": "Mission Id",
+      "type": "string"
+    },
+    "task_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Task Id"
+    },
+    "principal": {
+      "title": "Principal",
+      "type": "string"
+    },
+    "body_id": {
+      "title": "Body Id",
+      "type": "string"
+    },
+    "effective_body_hash": {
+      "title": "Effective Body Hash",
+      "type": "string"
+    },
+    "mode": {
+      "default": "SIMULATION",
+      "enum": [
+        "SIMULATION",
+        "SHADOW",
+        "REAL"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "action_display": {
+      "$ref": "#/$defs/ActionDisplayV1"
+    },
+    "context_id": {
+      "title": "Context Id",
+      "type": "string"
+    },
+    "context_revision": {
+      "title": "Context Revision",
+      "type": "integer"
+    },
+    "requested_tier": {
+      "default": "EXACT_ACTION",
+      "enum": [
+        "EXACT_ACTION",
+        "PLAN",
+        "MISSION"
+      ],
+      "title": "Requested Tier",
+      "type": "string"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "expires_at": {
+      "title": "Expires At",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/ApprovalStatus",
+      "default": "PENDING"
+    },
+    "daemon_proposal_id": {
+      "default": "",
+      "title": "Daemon Proposal Id",
+      "type": "string"
+    },
+    "daemon_action_id": {
+      "default": "",
+      "title": "Daemon Action Id",
+      "type": "string"
+    },
+    "daemon_capability_id": {
+      "default": "",
+      "title": "Daemon Capability Id",
+      "type": "string"
+    },
+    "daemon_action_intent_hash": {
+      "default": "",
+      "title": "Daemon Action Intent Hash",
+      "type": "string"
+    },
+    "exact_action_json": {
+      "default": "",
+      "title": "Exact Action Json",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "mission_id",
+    "principal",
+    "body_id",
+    "effective_body_hash",
+    "action_display",
+    "context_id",
+    "context_revision",
+    "created_at",
+    "expires_at"
+  ],
+  "title": "rosclaw.approval_request.v2",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.approval_request.v2"
+}

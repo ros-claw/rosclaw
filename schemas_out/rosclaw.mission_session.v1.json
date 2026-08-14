@@ -1,0 +1,260 @@
+{
+  "$defs": {
+    "AuthorizationBinding": {
+      "additionalProperties": true,
+      "description": "Grant reference only — private permits never enter this object.",
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.mission_authorization.v1",
+          "default": "rosclaw.mission_authorization.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "mission_grant_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mission Grant Id"
+        },
+        "allowed_risk_tiers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Risk Tiers",
+          "type": "array"
+        }
+      },
+      "title": "AuthorizationBinding",
+      "type": "object"
+    },
+    "BodyBinding": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.body_binding.v1",
+          "default": "rosclaw.body_binding.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "body_id": {
+          "title": "Body Id",
+          "type": "string"
+        },
+        "effective_body_hash": {
+          "title": "Effective Body Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "body_id",
+        "effective_body_hash"
+      ],
+      "title": "BodyBinding",
+      "type": "object"
+    },
+    "Budgets": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.mission_budgets.v1",
+          "default": "rosclaw.mission_budgets.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "wall_time_sec": {
+          "default": 900,
+          "title": "Wall Time Sec",
+          "type": "integer"
+        },
+        "model_tokens": {
+          "default": 200000,
+          "title": "Model Tokens",
+          "type": "integer"
+        },
+        "monetary_microunits": {
+          "default": 5000000,
+          "title": "Monetary Microunits",
+          "type": "integer"
+        },
+        "worker_concurrency": {
+          "default": 3,
+          "title": "Worker Concurrency",
+          "type": "integer"
+        },
+        "physical_action_count": {
+          "default": 0,
+          "title": "Physical Action Count",
+          "type": "integer"
+        },
+        "max_tool_rounds": {
+          "default": 12,
+          "title": "Max Tool Rounds",
+          "type": "integer"
+        }
+      },
+      "title": "Budgets",
+      "type": "object"
+    },
+    "ExecutionMode": {
+      "enum": [
+        "SIMULATION",
+        "SHADOW",
+        "REAL"
+      ],
+      "title": "ExecutionMode",
+      "type": "string"
+    },
+    "Goal": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.mission_goal.v1",
+          "default": "rosclaw.mission_goal.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "language": {
+          "default": "zh-CN",
+          "title": "Language",
+          "type": "string"
+        },
+        "success_criteria": {
+          "items": {
+            "$ref": "#/$defs/SuccessCriterion"
+          },
+          "title": "Success Criteria",
+          "type": "array"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Goal",
+      "type": "object"
+    },
+    "MissionState": {
+      "description": "Native Agent main state machine (总纲 §3.3).",
+      "enum": [
+        "IDLE",
+        "UNDERSTAND",
+        "GROUND",
+        "WAIT_INPUT",
+        "PLAN",
+        "STAFF",
+        "VALIDATE",
+        "WAIT_APPROVAL",
+        "DISPATCH",
+        "MONITOR",
+        "VERIFY",
+        "LEARN",
+        "SUSPENDED",
+        "FAILED"
+      ],
+      "title": "MissionState",
+      "type": "string"
+    },
+    "SuccessCriterion": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.success_criterion.v1",
+          "default": "rosclaw.success_criterion.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "type": {
+          "description": "e.g. object_pose_in_region",
+          "title": "Type",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "SuccessCriterion",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.mission_session.v1",
+      "default": "rosclaw.mission_session.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "mission_id": {
+      "title": "Mission Id",
+      "type": "string"
+    },
+    "owner_principal": {
+      "description": "e.g. user:local:1000",
+      "title": "Owner Principal",
+      "type": "string"
+    },
+    "goal": {
+      "$ref": "#/$defs/Goal"
+    },
+    "body_binding": {
+      "$ref": "#/$defs/BodyBinding"
+    },
+    "mode": {
+      "$ref": "#/$defs/ExecutionMode",
+      "default": "SIMULATION"
+    },
+    "state": {
+      "$ref": "#/$defs/MissionState",
+      "default": "IDLE"
+    },
+    "budgets": {
+      "$ref": "#/$defs/Budgets"
+    },
+    "authorization": {
+      "$ref": "#/$defs/AuthorizationBinding"
+    },
+    "context_revision": {
+      "default": 0,
+      "title": "Context Revision",
+      "type": "integer"
+    },
+    "task_graph_revision": {
+      "default": 0,
+      "title": "Task Graph Revision",
+      "type": "integer"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "mission_id",
+    "owner_principal",
+    "goal",
+    "body_binding",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "rosclaw.mission_session.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.mission_session.v1"
+}

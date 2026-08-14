@@ -1,0 +1,115 @@
+{
+  "$defs": {
+    "RoleScope": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.role_scope.v1",
+          "default": "rosclaw.role_scope.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Region"
+        },
+        "task_types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Task Types",
+          "type": "array"
+        }
+      },
+      "title": "RoleScope",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.role_lease.v1",
+      "default": "rosclaw.role_lease.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "team_id": {
+      "title": "Team Id",
+      "type": "string"
+    },
+    "team_epoch": {
+      "title": "Team Epoch",
+      "type": "integer"
+    },
+    "role": {
+      "description": "e.g. defender:left",
+      "title": "Role",
+      "type": "string"
+    },
+    "holder": {
+      "title": "Holder",
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "#/$defs/RoleScope"
+    },
+    "issued_at": {
+      "title": "Issued At",
+      "type": "string"
+    },
+    "expires_at": {
+      "title": "Expires At",
+      "type": "string"
+    },
+    "renew_after_ms": {
+      "default": 500,
+      "title": "Renew After Ms",
+      "type": "integer"
+    },
+    "priority": {
+      "default": 50,
+      "title": "Priority",
+      "type": "integer"
+    },
+    "conflict_key": {
+      "title": "Conflict Key",
+      "type": "string"
+    },
+    "policy_hash": {
+      "title": "Policy Hash",
+      "type": "string"
+    },
+    "state": {
+      "default": "ACTIVE",
+      "enum": [
+        "ACTIVE",
+        "EXPIRED",
+        "REVOKED",
+        "CONTESTED"
+      ],
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "team_id",
+    "team_epoch",
+    "role",
+    "holder",
+    "issued_at",
+    "expires_at",
+    "conflict_key",
+    "policy_hash"
+  ],
+  "title": "rosclaw.role_lease.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.role_lease.v1"
+}
