@@ -222,6 +222,7 @@ class Runtime(LifecycleMixin):
         self._episode_recorder: Any | None = None
         self._sandbox_practice_bridge: Any | None = None
         self._seekdb_bridge: Any | None = None
+        self._data_plane: Any | None = None  # DataPlaneContext (PR-DF-03)
         self._mcp_drivers: dict[str, Any] = {}
         self._emergency_stop_receipts: dict[str, Any] = {}
         self._emergency_stop_latched = False
@@ -264,9 +265,17 @@ class Runtime(LifecycleMixin):
             else Path(self.config.timeline_output_dir).expanduser().resolve()
         )
 
+        # PR-DF-03 (ADR-0009 §2): the data plane is assembled exactly once.
+        # Modules receive their parts from the context by dependency
+        # injection; the bare ``seekdb`` local below is kept ONLY so the
+        # pre-DF-03 call sites in this method stay readable, and always
+        # points at ``data_plane.structured_store``.
+        data_plane = self._create_data_plane(workspace_home)
+        self._data_plane = data_plane
+
         # Legacy store shared by Memory, Auto, SkillManager, and rollback-only
         # Know/How adapters. Know/How v2 never receives this object.
-        seekdb: Any | None = None
+        seekdb: Any | None = data_plane.structured_store
 
         # Initialize EventBus subscriptions for internal coordination
         self._setup_internal_subscriptions()
@@ -387,26 +396,7 @@ class Runtime(LifecycleMixin):
             try:
                 from rosclaw.memory.interface import MemoryInterface
 
-                seekdb = self._create_seekdb_client()
-                retrieval_facade = None
-                try:
-                    # PR-MEM-5: unified retrieval facade — the canonical
-                    # ACTIVE index serves Memory/KNOW/HOW queries when the
-                    # knowledge backend is native SeekDB; the SQLite store
-                    # is the declared lexical fallback.  Construction never
-                    # loads model weights and never fails memory init.
-                    from rosclaw.memory.seekdb_client import SQLiteStructuredStore
-                    from rosclaw.memory.v2.runtime_retrieval import build_retrieval_facade
-                    from rosclaw.storage.seekdb_native import SeekDBRetrievalStore
-
-                    native = seekdb if isinstance(seekdb, SeekDBRetrievalStore) else None
-                    sqlite = seekdb if isinstance(seekdb, SQLiteStructuredStore) else None
-                    if native is not None or sqlite is not None:
-                        retrieval_facade = build_retrieval_facade(
-                            native_store=native, sqlite_store=sqlite
-                        )
-                except Exception as facade_exc:  # noqa: BLE001
-                    logger.info("Retrieval facade not available: %s", facade_exc)
+                retrieval_facade = data_plane.memory_retrieval
                 self._memory = MemoryInterface(
                     robot_id=self.config.robot_id,
                     event_bus=self.event_bus,
@@ -438,47 +428,8 @@ class Runtime(LifecycleMixin):
             except ImportError as e:
                 logger.info(f"UnifiedTimeline not available: {e}")
 
-            # Optional SeekDB bridge for practice event persistence
-            self._seekdb_bridge = None
-            http_url = self.config.seekdb_http_url
-            if http_url:
-                try:
-                    from rosclaw.practice.seekdb_bridge import SeekDBBridge
-                    from rosclaw.storage.outbox import OutboxStore
-
-                    outbox_enabled = self.config.storage.get("outbox_enabled", False)
-                    if outbox_enabled:
-                        outbox_path = self.config.storage.get(
-                            "outbox_path",
-                            str(workspace_home / "storage" / "outbox.sqlite"),
-                        )
-                        outbox = OutboxStore(
-                            db_path=outbox_path,
-                            max_records=self.config.storage.get("outbox_max_records", 100_000),
-                        )
-                        outbox.connect()
-                        self._seekdb_bridge = SeekDBBridge(
-                            seekdb_url=http_url,
-                            fallback_dir=self.config.seekdb_fallback_dir,
-                            outbox=outbox,
-                        )
-                        # Bridge owns the worker when only outbox is passed.
-                        logger.info(
-                            "SeekDBBridge initialized at %s with outbox (%s)",
-                            http_url,
-                            outbox_path,
-                        )
-                    else:
-                        self._seekdb_bridge = SeekDBBridge(
-                            seekdb_url=http_url,
-                            fallback_dir=self.config.seekdb_fallback_dir,
-                        )
-                        logger.info("SeekDBBridge initialized at %s", http_url)
-                except ImportError as e:
-                    logger.info(f"rosclaw_practice not installed, SeekDB integration disabled: {e}")
-                except Exception as e:
-                    logger.warning(f"SeekDBBridge initialization failed: {e}")
-
+            # Practice event sink + outbox come from the data plane (PR-DF-03).
+            self._seekdb_bridge = data_plane.practice_sink
             seekdb_bridge = self._seekdb_bridge
 
             # Initialize EpisodeRecorder for artifact management
@@ -728,6 +679,82 @@ class Runtime(LifecycleMixin):
             )
 
         logger.info("Initialization complete")
+
+    def _create_data_plane(self, workspace_home: Any) -> Any:
+        """Assemble the :class:`DataPlaneContext` exactly once (PR-DF-03).
+
+        Every piece is best-effort: a data-plane failure must never take the
+        robot down (ADR-0009 §4) — the affected field stays None and the
+        corresponding module degrades exactly as it did before this context
+        existed.
+        """
+        from rosclaw.storage.context import DataPlaneContext
+
+        ctx = DataPlaneContext()
+        try:
+            ctx.structured_store = self._create_seekdb_client()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Data plane: structured store unavailable: %s", exc)
+        store = ctx.structured_store
+        if store is not None:
+            try:
+                # PR-MEM-5: unified retrieval facade — the canonical ACTIVE
+                # index serves Memory/KNOW/HOW queries when the knowledge
+                # backend is native SeekDB; the SQLite store is the declared
+                # lexical fallback.  Construction never loads model weights
+                # and never fails memory init.
+                from rosclaw.memory.seekdb_client import SQLiteStructuredStore
+                from rosclaw.memory.v2.runtime_retrieval import build_retrieval_facade
+                from rosclaw.storage.seekdb_native import SeekDBRetrievalStore
+
+                if isinstance(store, SeekDBRetrievalStore):
+                    ctx.retrieval_store = store
+                sqlite = store if isinstance(store, SQLiteStructuredStore) else None
+                if ctx.retrieval_store is not None or sqlite is not None:
+                    ctx.memory_retrieval = build_retrieval_facade(
+                        native_store=ctx.retrieval_store, sqlite_store=sqlite
+                    )
+            except Exception as facade_exc:  # noqa: BLE001
+                logger.info("Retrieval facade not available: %s", facade_exc)
+        http_url = self.config.seekdb_http_url
+        if http_url:
+            try:
+                from rosclaw.practice.seekdb_bridge import SeekDBBridge
+                from rosclaw.storage.outbox import OutboxStore
+
+                outbox_enabled = self.config.storage.get("outbox_enabled", False)
+                if outbox_enabled:
+                    outbox_path = self.config.storage.get(
+                        "outbox_path",
+                        str(workspace_home / "storage" / "outbox.sqlite"),
+                    )
+                    ctx.outbox = OutboxStore(
+                        db_path=outbox_path,
+                        max_records=self.config.storage.get("outbox_max_records", 100_000),
+                    )
+                    ctx.outbox.connect()
+                    ctx.practice_sink = SeekDBBridge(
+                        seekdb_url=http_url,
+                        fallback_dir=self.config.seekdb_fallback_dir,
+                        outbox=ctx.outbox,
+                    )
+                    # Bridge owns the worker when only outbox is passed.
+                    logger.info(
+                        "SeekDBBridge initialized at %s with outbox (%s)",
+                        http_url,
+                        outbox_path,
+                    )
+                else:
+                    ctx.practice_sink = SeekDBBridge(
+                        seekdb_url=http_url,
+                        fallback_dir=self.config.seekdb_fallback_dir,
+                    )
+                    logger.info("SeekDBBridge initialized at %s", http_url)
+            except ImportError as e:
+                logger.info(f"rosclaw_practice not installed, SeekDB integration disabled: {e}")
+            except Exception as e:
+                logger.warning(f"SeekDBBridge initialization failed: {e}")
+        return ctx
 
     def _create_seekdb_client(self) -> Any:
         """Create the legacy Memory/Auto/Skill store (not the Know v2 store).
