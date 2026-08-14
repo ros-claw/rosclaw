@@ -19,6 +19,7 @@ import asyncio
 import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from rosclaw.agentd.workers.adapter import RunHandle, WorkerAdapter
 from rosclaw.agentd.workers.scheduler import CandidateView, Scheduler, SchedulingError
@@ -399,6 +400,51 @@ class WorkerManager:
             (worker_id,),
         ).fetchall()
         return [WorkOrderV1(**json.loads(r["order_json"])) for r in rows]
+
+    def order_times(self, work_order_id: str) -> dict[str, Any]:
+        """十三审 HOTFIX-13.1：权威时间——created/started/finished 全部
+        来自转移日志（worker_events 幂等键 wo:STATUS），TUI 不得再
+        用本地第一次看到的时间计时。finished_at 一经写入不可变。"""
+        row = self._conn.execute(
+            "SELECT created_at FROM work_orders WHERE work_order_id = ?",
+            (work_order_id,),
+        ).fetchone()
+        created_at = row["created_at"] if row else None
+        rows = self._conn.execute(
+            "SELECT idempotency_key, occurred_at FROM worker_events "
+            "WHERE idempotency_key LIKE ?",
+            (f"{work_order_id}:%",),
+        ).fetchall()
+        by_status = {}
+        for r in rows:
+            status = r["idempotency_key"].rsplit(":", 1)[-1]
+            by_status[status] = r["occurred_at"]
+        terminal = next(
+            (s for s in ("ACCEPTED", "FAILED", "EXPIRED", "CANCELLED") if s in by_status),
+            None,
+        )
+        started_at = by_status.get("RUNNING")
+        finished_at = by_status.get(terminal) if terminal else None
+        duration_ms = None
+        if started_at and finished_at:
+            from datetime import datetime as _dt
+
+            try:
+                duration_ms = int(
+                    (
+                        _dt.fromisoformat(finished_at) - _dt.fromisoformat(started_at)
+                    ).total_seconds()
+                    * 1000
+                )
+            except ValueError:
+                duration_ms = None
+        return {
+            "created_at": created_at,
+            "started_at": started_at,
+            "finished_at": finished_at,
+            "duration_ms": duration_ms,
+            "settled": terminal is not None,
+        }
 
     def orders_for_mission(self, mission_id: str) -> list[WorkOrderV1]:
         rows = self._conn.execute(

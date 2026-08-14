@@ -1057,6 +1057,9 @@ class PiBridgeServer:
                     "assigned_to": o.assigned_to,
                     "status": o.status,
                     "goal": o.goal[:120],
+                    # 十三审 HOTFIX-13.1：权威时间（转移日志）——TUI 不得
+                    # 用本地首见时间计时；终态 finished_at 冻结。
+                    **service._worker_manager.order_times(o.work_order_id),
                 }
                 if o.status in ("ACCEPTED", "FAILED", "EXPIRED", "CANCELLED"):
                     row = conn.execute(

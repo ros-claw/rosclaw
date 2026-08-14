@@ -23,6 +23,12 @@ interface OrderProjection {
 	assigned_to?: string;
 	status: string;
 	goal?: string;
+	// 十三审 HOTFIX-13.1：服务端权威时间。
+	created_at?: string | null;
+	started_at?: string | null;
+	finished_at?: string | null;
+	duration_ms?: number | null;
+	settled?: boolean;
 }
 
 interface WorkerEvent {
@@ -84,7 +90,6 @@ function workerLabel(assigned: string | undefined): string {
 export class JobsWidget {
 	private timer: ReturnType<typeof setInterval> | undefined;
 	private readonly views = new Map<string, JobView>();
-	private readonly startedAt = new Map<string, number>();
 	private readonly terminalAt = new Map<string, number>();
 	private tickCount = 0;
 	private lastRendered = "";
@@ -111,7 +116,6 @@ export class JobsWidget {
 		if (this.timer) clearInterval(this.timer);
 		this.timer = undefined;
 		this.views.clear();
-		this.startedAt.clear();
 		this.terminalAt.clear();
 		this.lastRendered = "";
 	}
@@ -176,7 +180,6 @@ export class JobsWidget {
 					lastSeq: 0,
 				};
 				this.views.set(order.work_order_id, view);
-				this.startedAt.set(order.work_order_id, now);
 			}
 			view.order = order;
 			if (!terminal) {
@@ -193,7 +196,6 @@ export class JobsWidget {
 			if (at !== undefined && now - at > TERMINAL_KEEP_MS) {
 				this.views.delete(id);
 				this.terminalAt.delete(id);
-				this.startedAt.delete(id);
 			}
 		}
 		this.render([...this.views.values()]);
@@ -215,7 +217,22 @@ export class JobsWidget {
 			const id = view.order.work_order_id;
 			const status = view.order.status;
 			const terminal = ["ACCEPTED", "FAILED", "EXPIRED", "CANCELLED"].includes(status);
-			const elapsed = fmtElapsed(now - (this.startedAt.get(id) ?? now));
+			// 十三审 HOTFIX-13.1：权威计时——终态冻结（finished-started），
+			// 运行态用服务端 started_at；缺 finished_at 的终态显示数据
+			// 错误而非继续计时；TUI 重启显示一致。
+			let elapsed: string;
+			if (terminal) {
+				elapsed = view.order.duration_ms != null
+					? fmtElapsed(view.order.duration_ms)
+					: "时长数据不完整";
+			} else {
+				const startedMs = view.order.started_at
+					? Date.parse(view.order.started_at)
+					: NaN;
+				elapsed = Number.isNaN(startedMs)
+					? "起始时间未知"
+					: fmtElapsed(now - startedMs);
+			}
 			const goal = (view.order.goal ?? "").slice(0, 32);
 			const icon = terminal ? (status === "ACCEPTED" ? "✓" : "✗") : status === "BLOCKED" ? "⚠" : frame;
 			const stallMark = view.stall && !terminal ? " · 静默>90s（仍存活）" : "";
