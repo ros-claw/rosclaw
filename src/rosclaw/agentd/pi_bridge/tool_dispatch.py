@@ -1111,21 +1111,71 @@ class PiToolDispatcher:
         )
 
     async def _read_work_transcript(self, request: PiToolRequestV1) -> PiToolResultV1:
-        from rosclaw.agentd.workers.event_store import WorkerEventStore
+        """十四审 PR-14.3：完整公开 transcript 分页（tseq 游标 + channel
+        过滤）——不再是尾部 4000 字节切片。"""
+        from rosclaw.agentd.workers.transcript_store import TranscriptStore
 
         order = self._order_for_read(request)
-        path = (
-            WorkerEventStore(self._service._home).dir_of(order.work_order_id)
-            / "transcript.jsonl"
+        args = request.arguments
+        before_raw = args.get("before_seq")
+        page = TranscriptStore(self._service._home).read_page(
+            order.work_order_id,
+            after_seq=int(args.get("after_seq") or 0) or None,
+            before_seq=int(before_raw) if before_raw is not None else None,
+            limit=min(int(args.get("limit") or 50), 200),
+            channel=str(args.get("channel") or "") or None,
         )
-        text = ""
-        if path.exists():
-            text = path.read_bytes()[-4000:].decode("utf-8", errors="replace")
+        lines = []
+        for record in page["records"]:
+            channel = record.get("channel", "?")
+            if channel == "conversation":
+                lines.append(
+                    f"[{record['tseq']}] {record.get('role', '?')}: "
+                    f"{str(record.get('text', ''))[:2000]}"
+                )
+            elif channel == "tools":
+                if record.get("phase") == "start":
+                    lines.append(
+                        f"[{record['tseq']}] ▶ {record.get('tool', '?')} "
+                        f"{str(record.get('args', ''))[:300]}"
+                    )
+                else:
+                    mark = "✗" if record.get("is_error") else "✓"
+                    lines.append(
+                        f"[{record['tseq']}] {mark} {record.get('tool', '?')} "
+                        f"{str(record.get('output', ''))[:800]}"
+                    )
+            elif channel == "files":
+                lines.append(
+                    f"[{record['tseq']}] 文件 {record.get('op', record.get('kind', '?'))}: "
+                    f"{record.get('path', '')}"
+                )
+            elif channel == "artifacts":
+                files = record.get("files") or []
+                lines.append(
+                    f"[{record['tseq']}] 产物: "
+                    + ", ".join(f"{f.get('name')}({f.get('bytes')}B)" for f in files)
+                )
+            elif channel == "usage":
+                lines.append(
+                    f"[{record['tseq']}] usage: in={record.get('input')} "
+                    f"out={record.get('output')} turns={record.get('turns')}"
+                )
+            elif channel == "control":
+                lines.append(
+                    f"[{record['tseq']}] 控制 ACK: {record.get('state', '?')}"
+                )
+        footer = (
+            f"—— total={page['total']} has_more={page['has_more']} "
+            f"next_cursor={page['next_cursor']}（after_seq 续读；"
+            f"channel=conversation|tools|files|artifacts|usage|control 过滤）"
+        )
+        text = "\n".join(lines) if lines else "（无 transcript——Worker 尚未产出公开消息）"
         return PiToolResultV1(
             request_id=request.request_id,
             ok=True,
             status=order.status,
-            summary=text or "（无 transcript——Worker 尚未产出公开消息）",
+            summary=f"{text}\n{footer}" if lines else text,
         )
 
     async def _list_work_artifacts(self, request: PiToolRequestV1) -> PiToolResultV1:

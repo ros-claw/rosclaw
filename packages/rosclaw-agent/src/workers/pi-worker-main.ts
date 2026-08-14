@@ -12,7 +12,7 @@
  * PATH 上的 pi、不加载项目资源。
  */
 
-import { appendFileSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { writeSync } from "node:fs";
 
 import { buildSystemPrompt, profileFor } from "./profiles.js";
@@ -85,15 +85,26 @@ function argsPreview(tool: string, args: unknown, cwd: string): string {
 	}
 }
 
-/** 十一审 PR-B：独立 transcript（会话级证据，不落主对话）。 */
-function makeTranscriptWriter(envelope: WorkerEnvelope) {
+/** 十一审 PR-B：独立 transcript（会话级证据，不落主对话）。
+ *  十四审 PR-14.3：tseq 单调游标 + channel 分频（conversation/tools/
+ *  files/artifacts/usage/control）——完整公开会话，不再只有预览。 */
+let _tseq = 0;
+function makeTranscript(envelope: WorkerEnvelope) {
 	const dir = envelope.artifacts_dir
 		? `${envelope.artifacts_dir}/..`
 		: `${envelope.cwd}/.rosclaw-work`;
+	// 目录必须先行——artifacts/../ 路径穿越要求父目录存在（否则
+	// appendFileSync ENOENT，catch 静默吞掉 = transcript 整体丢失）。
+	mkdirSync(dir, { recursive: true });
 	const path = `${dir}/transcript.jsonl`;
-	return (record: Record<string, unknown>) => {
+	return (channel: string, record: Record<string, unknown>) => {
+		_tseq += 1;
 		try {
-			appendFileSync(path, `${JSON.stringify({ ts: new Date().toISOString(), ...record })}\n`, "utf-8");
+			appendFileSync(
+				path,
+				`${JSON.stringify({ tseq: _tseq, ts: new Date().toISOString(), channel, ...record })}\n`,
+				"utf-8",
+			);
 		} catch {
 			// transcript 失败不阻塞工作
 		}
@@ -189,6 +200,7 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 			root: envelope.cwd,
 			bashLogPath: `${envelope.artifacts_dir ?? `${envelope.cwd}/.rosclaw-work`}/bash-log.txt`,
 			emitProgress: (message) => emit(wo, att, "tool_progress", { message }),
+			emitRecord: (kind, payload) => transcript("files", { kind, ...payload }),
 			askUser: (question) => {
 				emit(wo, att, "waiting_input", { question: question.slice(0, 500) });
 				return new Promise<string>((resolvePromise) => {
@@ -269,7 +281,7 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 			}
 		}, 2000);
 		providerTimer.unref();
-		const transcript = makeTranscriptWriter(envelope);
+		const transcript = makeTranscript(envelope);
 		// 十二审 PR-12.2：delta 批量 + tool update 限频状态。
 		let deltaBuf = "";
 		let deltaLastFlush = 0;
@@ -291,9 +303,23 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 				spanStartedAt = Date.now();
 				// 十二审 PR-12.2：工具事件带脱敏参数预览（可回溯的真实
 				// 活动——不是只有工具名）。
+				const rawArgs = (event as { args?: unknown }).args;
 				semantic("tool_started", {
 					tool: e.toolName ?? "?",
-					args_preview: argsPreview(e.toolName ?? "", (event as { args?: unknown }).args, envelope.cwd),
+					args_preview: argsPreview(e.toolName ?? "", rawArgs, envelope.cwd),
+				});
+				// 十四审 PR-14.3：tools channel——完整（脱敏、8KiB 上限）
+				// 参数进 transcript，preview 只用于卡片摘要。
+				let argsFull = "";
+				try {
+					argsFull = redactText(JSON.stringify(rawArgs ?? {})).slice(0, 8192);
+				} catch {
+					argsFull = "";
+				}
+				transcript("tools", {
+					phase: "start",
+					tool: e.toolName ?? "?",
+					args: argsFull,
 				});
 			} else if (event.type === "tool_execution_update") {
 				// 限频 passthrough（每工具 500ms 一条上限）——带 partial
@@ -315,18 +341,23 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 			} else if (event.type === "tool_execution_end") {
 				phase = "RUNNING_MODEL";
 				spanStartedAt = Date.now();
-				// 结果输出预览（归一化 + 截断 + 脱敏）。
-				const resultText = redactText(
+				const fullOutput = redactText(
 					normalizeAssistantContent(
 						((event as { result?: { content?: unknown } }).result ?? {}).content ?? "",
 					).text,
-				).slice(0, 400);
+				);
+				// 结果输出预览（卡片摘要）vs 完整输出（transcript 证据）。
 				semantic("tool_finished", {
 					tool: e.toolName ?? "?",
 					is_error: e.isError === true,
-					output_preview: resultText,
+					output_preview: fullOutput.slice(0, 400),
 				});
-				transcript({ role: "tool", tool: e.toolName ?? "?", is_error: e.isError === true });
+				transcript("tools", {
+					phase: "end",
+					tool: e.toolName ?? "?",
+					is_error: e.isError === true,
+					output: fullOutput.slice(0, 51_200),
+				});
 			} else if (event.type === "message_update") {
 				// 十二审 PR-12.2：text delta 批量落盘（150ms/2KiB），不丢
 				// 也不风暴。
@@ -359,9 +390,13 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 						});
 					}
 					const text = normalized.text;
-					transcript({
+					// 十四审 PR-14.3：完整公开全文（脱敏，200KiB 上限）——
+					// 不再 4000 字截断；隐藏思维链永不进 transcript（pi 设置
+					// hideThinkingBlock，content 里本就不含）。
+					transcript("conversation", {
 						role: e.message.role,
-						text: text.length > 4000 ? `${text.slice(0, 4000)}…[truncated]` : text,
+						text: redactText(text).slice(0, 204_800),
+						stop_reason: e.message.stopReason ?? undefined,
 					});
 				}
 				if (e.message.role === "assistant") {
@@ -377,6 +412,12 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 						input_tokens: usage.input,
 						output_tokens: usage.output,
 						turns: usage.turns,
+					});
+					transcript("usage", {
+						input: usage.input,
+						output: usage.output,
+						turns: usage.turns,
+						cost: usage.cost,
 					});
 				}
 			}
@@ -406,6 +447,10 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 		const workDir = envelope.artifacts_dir
 			? `${envelope.artifacts_dir}/..`
 			: `${envelope.cwd}/.rosclaw-work`;
+		mkdirSync(workDir, { recursive: true });
+		mkdirSync(envelope.artifacts_dir ?? `${envelope.cwd}/.rosclaw-work`, {
+			recursive: true,
+		});
 		function writeTermination(cause: string, detail: string, exitCode: number) {
 			try {
 				const payload = JSON.stringify({
@@ -441,6 +486,7 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 				state,
 				session_id: sessionManager.getSessionFile() ?? "",
 			});
+			transcript("control", { control_id: controlId, state });
 		};
 		const requestPause = (controlId: string) => {
 			if (hostState === "PAUSED") {
@@ -657,6 +703,32 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 				usage,
 				model: snapshot ? `${snapshot.provider}/${snapshot.model}` : undefined,
 			});
+			// 十四审 PR-14.3：artifacts channel——产物清单带 sha256（部分
+			// 成果产品化的账本证据：trace/CSV/帧/日志都可审计）。
+			try {
+				const { createHash } = await import("node:crypto");
+				const { readdirSync, statSync } = await import("node:fs");
+				const dir = envelope.artifacts_dir ?? `${envelope.cwd}/.rosclaw-work`;
+				const files = readdirSync(dir)
+					.filter((name) => {
+						try {
+							return statSync(`${dir}/${name}`).isFile();
+						} catch {
+							return false;
+						}
+					})
+					.map((name) => {
+						const content = readFileSync(`${dir}/${name}`);
+						return {
+							name,
+							bytes: content.length,
+							sha256: createHash("sha256").update(content).digest("hex"),
+						};
+					});
+				transcript("artifacts", { files });
+			} catch {
+				// artifacts 清点失败不阻塞完成
+			}
 			writeTermination("COMPLETED", "", 0);
 			exitCode = 0;
 		}

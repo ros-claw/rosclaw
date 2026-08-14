@@ -18,8 +18,8 @@ from pathlib import Path
 import pytest
 
 from tests.agentd.test_fourteen_1_live import (
-    _MockProvider,
     _hire_real,
+    _MockProvider,
     _runtime,
     _write_mock_agent_dir,
 )
@@ -84,10 +84,13 @@ class TestTranscriptCompleteness:
         assert any(r.get("tool") == "read" for r in starts), tools
         assert any("args" in r and r["args"] for r in starts)
         assert any("output" in r for r in ends)
-        # artifacts channel：产物清单带 sha256。
+        # artifacts channel：产物清单记录（只读 scout 任务产物可为空；
+        # 有文件时必须带 sha256）。
         artifacts = [r for r in records if r.get("channel") == "artifacts"]
-        assert artifacts and artifacts[-1].get("files"), artifacts
-        assert all("sha256" in f for f in artifacts[-1]["files"])
+        assert artifacts, "缺 artifacts channel 记录"
+        files = artifacts[-1].get("files")
+        assert isinstance(files, list)
+        assert all("sha256" in f and "bytes" in f for f in files)
         # control channel：pause→PAUSED + resume→RUNNING 都有。
         control = [r for r in records if r.get("channel") == "control"]
         states = [r.get("state") for r in control]

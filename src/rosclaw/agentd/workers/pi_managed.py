@@ -250,7 +250,9 @@ class PiManagedAdapter:
         self, work_order_id: str, control_id: str, want: str,
         timeout: float | None = None,
     ) -> bool:
-        """等 control.ack（state==want）——ACK 是唯一"已生效"证据。"""
+        """等 control.ack（state==want）——ACK 是唯一"已生效"证据。
+        进程已退出时仍给事件读者 2s 排水窗口：worker 可能在 ACK 后
+        立即完成退出（resume→秒回→attempt_finished 的竞态）。"""
         deadline = asyncio.get_running_loop().time() + (
             timeout if timeout is not None else CONTROL_ACK_TIMEOUT_SEC
         )
@@ -260,7 +262,8 @@ class PiManagedAdapter:
                 return True
             proc = self._procs.get(work_order_id)
             if proc is not None and proc.returncode is not None:
-                return False
+                # 进程已死：ack 只能来自尚未排水的 stdout——收窄窗口。
+                deadline = min(deadline, asyncio.get_running_loop().time() + 2.0)
             await asyncio.sleep(0.05)
         return False
 
@@ -1044,7 +1047,9 @@ class PiManagedAdapter:
             raise
         await readers
         self._procs.pop(order.work_order_id, None)
-        self._control_acks.pop(order.work_order_id, None)
+        # 注意：_control_acks 不在此清理——post-exit 与 _wait_ack 有竞态
+        # （worker ACK 后秒退，pop 会抹掉等待者要读的收条）；每单几条
+        # 收条，驻留内存可忽略。
         pid_file.unlink(missing_ok=True)
         # 十四审 PR-14.1（总纲 §3.4）：termination.json 是终态原因唯一
         # 权威；exit code 只是 Unix 表象（130 可能是取消/暂停/信号/重启），
