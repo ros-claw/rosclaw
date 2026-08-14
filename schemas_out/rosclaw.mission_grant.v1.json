@@ -1,0 +1,179 @@
+{
+  "$defs": {
+    "GrantBudgets": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.grant_budgets.v1",
+          "default": "rosclaw.grant_budgets.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "max_actions": {
+          "default": 1,
+          "title": "Max Actions",
+          "type": "integer"
+        },
+        "max_velocity_m_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Velocity M S"
+        },
+        "max_energy_j": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Energy J"
+        }
+      },
+      "title": "GrantBudgets",
+      "type": "object"
+    },
+    "GrantScope": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.grant_scope.v1",
+          "default": "rosclaw.grant_scope.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "action_families": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Action Families",
+          "type": "array"
+        },
+        "regions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Regions",
+          "type": "array"
+        },
+        "tier": {
+          "default": "EXACT_ACTION",
+          "enum": [
+            "EXACT_ACTION",
+            "PLAN",
+            "MISSION",
+            "SITE_POLICY"
+          ],
+          "title": "Tier",
+          "type": "string"
+        },
+        "exact_action_intent": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "EXACT_ACTION grants bind one exact action intent hash",
+          "title": "Exact Action Intent"
+        }
+      },
+      "title": "GrantScope",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.mission_grant.v1",
+      "default": "rosclaw.mission_grant.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "grant_id": {
+      "title": "Grant Id",
+      "type": "string"
+    },
+    "principal": {
+      "title": "Principal",
+      "type": "string"
+    },
+    "body_id": {
+      "title": "Body Id",
+      "type": "string"
+    },
+    "effective_body_hash": {
+      "title": "Effective Body Hash",
+      "type": "string"
+    },
+    "mode": {
+      "default": "SIMULATION",
+      "enum": [
+        "SIMULATION",
+        "SHADOW",
+        "REAL"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "#/$defs/GrantScope"
+    },
+    "risk_ceiling": {
+      "default": "LOW",
+      "enum": [
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "CRITICAL"
+      ],
+      "title": "Risk Ceiling",
+      "type": "string"
+    },
+    "budgets": {
+      "$ref": "#/$defs/GrantBudgets"
+    },
+    "policy_hash": {
+      "title": "Policy Hash",
+      "type": "string"
+    },
+    "issued_at": {
+      "title": "Issued At",
+      "type": "string"
+    },
+    "expires_at": {
+      "title": "Expires At",
+      "type": "string"
+    },
+    "public_hash": {
+      "default": "",
+      "title": "Public Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "grant_id",
+    "principal",
+    "body_id",
+    "effective_body_hash",
+    "scope",
+    "policy_hash",
+    "issued_at",
+    "expires_at"
+  ],
+  "title": "rosclaw.mission_grant.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.mission_grant.v1"
+}

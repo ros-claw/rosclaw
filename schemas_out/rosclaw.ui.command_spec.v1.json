@@ -1,0 +1,125 @@
+{
+  "$defs": {
+    "CommandCategory": {
+      "enum": [
+        "help_ui",
+        "model",
+        "mission",
+        "safety",
+        "execution"
+      ],
+      "title": "CommandCategory",
+      "type": "string"
+    },
+    "CommandOwner": {
+      "enum": [
+        "LOCAL_UI",
+        "AGENT_CONTROL",
+        "MODEL_CONTROL",
+        "MISSION_CONTROL",
+        "SAFETY_CONTROL"
+      ],
+      "title": "CommandOwner",
+      "type": "string"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.ui.command_spec.v1",
+      "default": "rosclaw.ui.command_spec.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "name": {
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "aliases": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Aliases",
+      "type": "array"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "argument_hint": {
+      "default": "",
+      "title": "Argument Hint",
+      "type": "string"
+    },
+    "category": {
+      "$ref": "#/$defs/CommandCategory",
+      "default": "mission"
+    },
+    "owner": {
+      "$ref": "#/$defs/CommandOwner",
+      "default": "MISSION_CONTROL"
+    },
+    "availability": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Availability",
+      "type": "array"
+    },
+    "during_turn": {
+      "default": false,
+      "title": "During Turn",
+      "type": "boolean"
+    },
+    "mutability": {
+      "default": "NONE",
+      "enum": [
+        "NONE",
+        "CONTROL_STATE",
+        "PERSISTED"
+      ],
+      "title": "Mutability",
+      "type": "string"
+    },
+    "confirmation": {
+      "default": "NONE",
+      "enum": [
+        "NONE",
+        "CONFIRM",
+        "TYPE_NAME"
+      ],
+      "title": "Confirmation",
+      "type": "string"
+    },
+    "required_capabilities": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Capabilities",
+      "type": "array"
+    },
+    "handler": {
+      "default": "",
+      "title": "Handler",
+      "type": "string"
+    },
+    "disabled_reason": {
+      "default": "",
+      "title": "Disabled Reason",
+      "type": "string"
+    },
+    "args_schema": {
+      "additionalProperties": true,
+      "title": "Args Schema",
+      "type": "object"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "rosclaw.ui.command_spec.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.ui.command_spec.v1"
+}

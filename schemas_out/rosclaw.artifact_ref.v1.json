@@ -1,0 +1,72 @@
+{
+  "additionalProperties": true,
+  "description": "产物引用（§18.1）——大结果不进模型上下文。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.artifact_ref.v1",
+      "default": "rosclaw.artifact_ref.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "artifact_id": {
+      "title": "Artifact Id",
+      "type": "string"
+    },
+    "task_id": {
+      "default": "",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "kind": {
+      "default": "",
+      "title": "Kind",
+      "type": "string"
+    },
+    "mime_type": {
+      "default": "",
+      "title": "Mime Type",
+      "type": "string"
+    },
+    "path": {
+      "default": "",
+      "title": "Path",
+      "type": "string"
+    },
+    "sha256": {
+      "default": "",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "bytes": {
+      "default": 0,
+      "title": "Bytes",
+      "type": "integer"
+    },
+    "producer": {
+      "default": "",
+      "title": "Producer",
+      "type": "string"
+    },
+    "evidence_level": {
+      "default": "PLANNED",
+      "title": "Evidence Level",
+      "type": "string"
+    },
+    "preview": {
+      "default": false,
+      "title": "Preview",
+      "type": "boolean"
+    },
+    "created_at": {
+      "default": "",
+      "title": "Created At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "artifact_id"
+  ],
+  "title": "rosclaw.artifact_ref.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.artifact_ref.v1"
+}
