@@ -347,3 +347,48 @@ export function buildCancelWorkTool(ctx: BridgeToolContext) {
 		},
 	});
 }
+
+/** 十三审 PR-13.5：Native Agent 只读 Worker 诊断工具（分页、脱敏）。 */
+export function buildWorkDiagnosticTools(ctx: BridgeToolContext) {
+	const mk = (name: string, description: string, extraParams: Record<string, unknown> = {}) =>
+		defineTool({
+			name,
+			label: name,
+			description,
+			parameters: Type.Object({
+				work_order_id: Type.String(),
+				...extraParams,
+			}),
+			async execute(_id, params, _signal, _onUpdate, _toolCtx) {
+				const request = buildRequest(ctx, name, params as Record<string, unknown>);
+				const response = await ctx.center.call("pi.tools.execute", { request });
+				const result = (response.result ?? {}) as {
+					ok?: boolean;
+					summary?: string;
+					error_code?: string;
+				};
+				const ok = response.ok === true;
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: ok
+								? (result.summary ?? "")
+								: `读取被拒 [${result.error_code ?? response.code ?? "?"}]: ${result.summary ?? response.error ?? ""}`,
+						},
+					],
+					details: { ok, error_code: result.error_code ?? null },
+					isError: !ok,
+				};
+			},
+		});
+	return [
+		mk("rosclaw_read_work_events", "Read a worker's event stream (paginated; pass after_seq for next page).", {
+			after_seq: Type.Optional(Type.Number()),
+			limit: Type.Optional(Type.Number()),
+		}),
+		mk("rosclaw_read_work_transcript", "Read a worker's redacted public transcript tail."),
+		mk("rosclaw_list_work_artifacts", "List a worker's artifacts (name/size)."),
+		mk("rosclaw_read_work_failure", "Failure diagnosis: verdict reasons, last events, stderr tail, checkpoint/resume options."),
+	];
+}

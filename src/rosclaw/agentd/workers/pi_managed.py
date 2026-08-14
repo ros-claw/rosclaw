@@ -300,33 +300,58 @@ class PiManagedAdapter:
             )
         except OSError:
             pass
-    def _preflight(self, order: WorkOrderV1) -> None:
-        """十二审 PR-12.4（§5.3）：artifact_build/simulation_run 的依赖
-        预检（媒体编码器/workspace 可写）——失败即 BLOCKED_PREFLIGHT。"""
+    async def _preflight(self, order: WorkOrderV1) -> None:
+        """十二审 PR-12.4（§5.3）+ 十三审 PR-13.6：artifact_build/
+        simulation_run 的依赖预检——必须用 Worker 真实执行面（PATH 的
+        python3，与 workbench bash 同一 env），不是 agentd 自己的 venv
+        （用户实证：agentd venv 有 PIL 但 Worker bash 没有，跑到
+        No module named 'PIL' 才失败）。失败即 BLOCKED_PREFLIGHT。"""
         task_type = str(order.inputs.get("task_type") or "")
         if task_type not in ("artifact_build", "simulation_run"):
             return
         import shutil
 
-        has_ffmpeg = shutil.which("ffmpeg") is not None
-        has_pil = False
-        try:
-            import PIL  # noqa: F401
-
-            has_pil = True
-        except ImportError:
-            pass
         problems = []
+        has_ffmpeg = shutil.which("ffmpeg") is not None
+
+        has_pil = await self._python_has_module("PIL")
         if not has_ffmpeg and not has_pil:
             problems.append(
-                "无媒体编码器（ffmpeg 与 Pillow 均不可用）——"
-                "请安装 ffmpeg 或 pip install pillow"
+                "Worker 环境（PATH python3）无媒体编码器：ffmpeg 与 Pillow"
+                " 均不可用——请安装 ffmpeg 或让系统 python3 可 import PIL"
+            )
+        # 渲染/绘图任务常用 matplotlib——缺失提前报（可选依赖，不阻断，
+        # 但写进事件供用户/模型知晓）。
+        if not await self._python_has_module("matplotlib"):
+            problems_note = "（提示：PATH python3 无 matplotlib——绘图任务可能失败）"
+            self._events.append_event(
+                order.work_order_id, "", "preflight_note",
+                {"note": problems_note},
             )
         ws = str(order.inputs.get("workspace") or "")
         if ws and not os.access(ws, os.W_OK):
             problems.append(f"workspace 不可写: {ws}")
         if problems:
             raise AdapterError("BLOCKED_PREFLIGHT: " + "；".join(problems))
+
+    async def _python_has_module(self, module: str) -> bool:
+        """Worker 执行面（PATH python3 + workbench env）探测模块——
+        不用 agentd 自己的 venv。"""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "python3", "-c", f"import {module}",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+                env={
+                    k: os.environ[k]
+                    for k in ("PATH", "HOME", "LANG", "LC_ALL", "TZ")
+                    if k in os.environ
+                },
+            )
+            await asyncio.wait_for(proc.wait(), timeout=10)
+            return proc.returncode == 0
+        except (OSError, TimeoutError):
+            return False
 
     async def _validate_deliverables(
         self, order: WorkOrderV1, workspace: str
@@ -591,7 +616,7 @@ class PiManagedAdapter:
         loop_start = asyncio.get_running_loop().time()
         # 十二审 PR-12.4：媒体/仿真任务 preflight——缺依赖 5 秒内
         # BLOCKED_PREFLIGHT，不烧 Worker 预算。
-        self._preflight(order)
+        await self._preflight(order)
         # W3：写能力 profile 先准备独立 workspace（git worktree/scratch）。
         workspace, base_ref = await self._prepare_workspace(order)
         # 十一审 PR-D：resolved workspace + base_sha 回写订单（WorkOrder

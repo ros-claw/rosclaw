@@ -36,6 +36,7 @@ import {
 	buildListWorkTool,
 	buildUpdateWorkTool,
 	buildRetryWorkTool,
+	buildWorkDiagnosticTools,
 } from "../tools/delegate.js";
 import { buildRequestActionTool } from "../tools/request-action.js";
 import { buildCapabilitiesTool } from "../tools/capabilities.js";
@@ -248,6 +249,12 @@ export async function createRosclawRuntime(
 				}),
 				// 十审 W4：终态单 retry（lineage 保留）。
 				buildRetryWorkTool({
+					rosclawHome: options.rosclawHome,
+					active,
+					center,
+				}),
+				// 十三审 PR-13.5：只读 Worker 诊断（模型可自查失败原因）。
+				...buildWorkDiagnosticTools({
 					rosclawHome: options.rosclawHome,
 					active,
 					center,

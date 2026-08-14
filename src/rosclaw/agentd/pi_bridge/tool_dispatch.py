@@ -51,6 +51,12 @@ _TOOL_TABLE: dict[str, str] = {
     "rosclaw_resume_work": "delegate",
     # 十三审 HOTFIX-13.2：BUDGET_PAUSED 的追加预算并唤醒。
     "rosclaw_extend_work": "delegate",
+    # 十三审 PR-13.5：Native Agent 只读 Worker 诊断（分页、脱敏——
+    # 不再"无权查看内部日志"）。
+    "rosclaw_read_work_events": "read",
+    "rosclaw_read_work_transcript": "read",
+    "rosclaw_list_work_artifacts": "read",
+    "rosclaw_read_work_failure": "read",
     "rosclaw_request_action": "physical_action",
     # 八审 P0-5：任务级入口——确定性编译器编排，模型只交 TaskSpec。
     "rosclaw_task": "task",
@@ -372,6 +378,14 @@ class PiToolDispatcher:
             return await self._resume_work(request)
         if name == "rosclaw_extend_work":
             return await self._extend_work(request)
+        if name == "rosclaw_read_work_events":
+            return await self._read_work_events(request)
+        if name == "rosclaw_read_work_transcript":
+            return await self._read_work_transcript(request)
+        if name == "rosclaw_list_work_artifacts":
+            return await self._list_work_artifacts(request)
+        if name == "rosclaw_read_work_failure":
+            return await self._read_work_failure(request)
         if name == "rosclaw_fail_safe":
             await service.cancel(request.mission_id)
             return PiToolResultV1(
@@ -1042,6 +1056,132 @@ class PiToolDispatcher:
             ok=True,
             status="RUNNING",
             summary=f"回答已送达 Worker（{work_order_id}）——任务继续。",
+        )
+
+    def _order_for_read(self, request: PiToolRequestV1):
+        work_order_id = str(request.arguments.get("work_order_id", "")).strip()
+        if not work_order_id:
+            raise ToolBridgeError("INVALID_ARGUMENTS", "work_order_id required")
+        order = self._service._worker_manager.order(work_order_id)
+        if order is None:
+            raise ToolBridgeError(
+                "WORK_ORDER_NOT_FOUND", f"unknown work order {work_order_id!r}"
+            )
+        if order.mission_id != request.mission_id:
+            raise ToolBridgeError(
+                "MISSION_MISMATCH", "work order belongs to a different mission"
+            )
+        return order
+
+    async def _read_work_events(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """十三审 PR-13.5：事件分页读取（诊断用——每次调用一页，
+        模型按 cursor 翻页，不整本塞上下文）。"""
+        from rosclaw.agentd.workers.event_store import WorkerEventStore
+
+        order = self._order_for_read(request)
+        after_seq = int(request.arguments.get("after_seq") or 0)
+        limit = min(int(request.arguments.get("limit") or 30), 100)
+        page = WorkerEventStore(self._service._home).tail_page(
+            order.work_order_id, after_seq=after_seq, limit=limit
+        )
+        lines = []
+        for e in page["events"]:
+            kind = e.get("kind", "")
+            if kind == "liveness":
+                continue
+            detail = (
+                e.get("args_preview") or e.get("output_preview")
+                or e.get("preview") or e.get("message") or ""
+            )
+            lines.append(f"#{e.get('seq')} {kind} {str(detail)[:120]}".rstrip())
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status=order.status,
+            summary=(
+                f"Worker 事件（{order.work_order_id}，cursor {after_seq}→"
+                f"{page['next_cursor']}{'，还有更多' if page['has_more'] else ''}）：\n"
+                + ("\n".join(lines) or "（本页无可见事件）")
+            ),
+        )
+
+    async def _read_work_transcript(self, request: PiToolRequestV1) -> PiToolResultV1:
+        from rosclaw.agentd.workers.event_store import WorkerEventStore
+
+        order = self._order_for_read(request)
+        path = (
+            WorkerEventStore(self._service._home).dir_of(order.work_order_id)
+            / "transcript.jsonl"
+        )
+        text = ""
+        if path.exists():
+            text = path.read_bytes()[-4000:].decode("utf-8", errors="replace")
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status=order.status,
+            summary=text or "（无 transcript——Worker 尚未产出公开消息）",
+        )
+
+    async def _list_work_artifacts(self, request: PiToolRequestV1) -> PiToolResultV1:
+        from rosclaw.agentd.workers.event_store import WorkerEventStore
+
+        order = self._order_for_read(request)
+        artifacts_dir = (
+            WorkerEventStore(self._service._home).dir_of(order.work_order_id)
+            / "artifacts"
+        )
+        lines = []
+        if artifacts_dir.is_dir():
+            for f in sorted(artifacts_dir.iterdir()):
+                if f.is_file():
+                    lines.append(f"- {f.name} · {f.stat().st_size}B")
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status=order.status,
+            summary="\n".join(lines) or "（无产物）",
+        )
+
+    async def _read_work_failure(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """失败诊断摘要：终态 + verifier 原因 + 最后事件 + stderr tail +
+        checkpoint/resume 入口——模型据此如实诊断，不再猜。"""
+        from rosclaw.agentd.workers.event_store import WorkerEventStore
+
+        order = self._order_for_read(request)
+        store = WorkerEventStore(self._service._home)
+        conn = self._service._store.connection
+        vrow = conn.execute(
+            "SELECT verify_report_json FROM work_orders WHERE work_order_id = ?",
+            (order.work_order_id,),
+        ).fetchone()
+        reasons = ""
+        if vrow and vrow["verify_report_json"]:
+            reasons = "；".join(
+                str(r) for r in json.loads(vrow["verify_report_json"]).get("reasons", [])
+            )
+        events = store.tail(order.work_order_id, after_seq=0, limit=500)
+        last_semantic = [e for e in events if e.get("kind") not in ("liveness",)][-3:]
+        last_lines = [
+            f"#{e.get('seq')} {e.get('kind')} "
+            f"{str(e.get('output_preview') or e.get('message') or e.get('args_preview') or '')[:100]}"
+            for e in last_semantic
+        ]
+        stderr_tail = store.tail_stderr(order.work_order_id)[-600:]
+        state = store.read_state(order.work_order_id) or {}
+        checkpoint = "有" if state.get("session_file") else "无"
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status=order.status,
+            summary=(
+                f"诊断（{order.work_order_id} · {order.status}）：\n"
+                f"verifier 原因：{reasons or '（无）'}\n"
+                f"最后事件：\n" + "\n".join(last_lines) + "\n"
+                f"stderr 尾部：{stderr_tail[-300:] or '（无）'}\n"
+                f"会话检查点：{checkpoint}"
+                + ("；可 /job resume 恢复" if state.get("session_file") else "")
+            ),
         )
 
     async def _check_work(self, request: PiToolRequestV1) -> PiToolResultV1:

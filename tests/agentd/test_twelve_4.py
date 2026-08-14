@@ -118,17 +118,19 @@ class TestDeliverableGate:
     async def test_preflight_blocks_without_encoder(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        """无 ffmpeg 且无 Pillow → BLOCKED_PREFLIGHT（不起 Worker 进程）。"""
+        """无 ffmpeg 且 Worker python3 无 Pillow → BLOCKED_PREFLIGHT
+        （不起 Worker 进程）。十三审：探测必须走 Worker 真实执行面。"""
         import shutil
 
         from rosclaw.agentd.workers import pi_managed
 
         monkeypatch.setattr(shutil, "which", lambda _x: None)
-        # PIL 不可用场景
-        import sys
-
-        monkeypatch.setitem(sys.modules, "PIL", None)
         adapter = pi_managed.PiManagedAdapter(rosclaw_home=tmp_path)
+        # 模拟 Worker 环境无 PIL/matplotlib（真实探测函数级 mock）。
+        async def _no_module(_module: str) -> bool:
+            return False
+
+        monkeypatch.setattr(adapter, "_python_has_module", _no_module)
         from rosclaw.contracts.common import new_id
         from rosclaw.contracts.worker.order import (
             BudgetEnvelope,
@@ -151,7 +153,7 @@ class TestDeliverableGate:
         from rosclaw.agentd.workers.adapter import AdapterError
 
         with pytest.raises(AdapterError, match="BLOCKED_PREFLIGHT"):
-            adapter._preflight(order)
+            await adapter._preflight(order)
 
 
 class TestDelegateWorkSpecArgs:
