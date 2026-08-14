@@ -108,6 +108,10 @@ class RuntimeConfig:
         default_factory=lambda: os.environ.get("ROSCLAW_KNOW_SEEKDB_PATH")
     )
     enable_auto: bool = True  # Self-Evolution Control Plane (AUTO module)
+    # PR-DF-13 (flywheel §39): Darwin evaluation pressure as a first-class
+    # Runtime module.  Off by default — benchmarks are expensive.
+    enable_darwin: bool = False
+    darwin: dict[str, Any] = field(default_factory=dict)  # seeds / episodes
     enable_provider: bool = True
     joint_dof: int = 6
     sampling_rate_hz: int = 1000
@@ -233,6 +237,7 @@ class Runtime(LifecycleMixin):
         self._recovery_loop: Any | None = None  # PR-DF-08
         self._knowledge_usage_tracker: Any | None = None  # PR-DF-10
         self._memory_insights: Any | None = None  # PR-DF-11
+        self._darwin: Any | None = None  # PR-DF-13
         self._mcp_drivers: dict[str, Any] = {}
         self._emergency_stop_receipts: dict[str, Any] = {}
         self._emergency_stop_latched = False
@@ -736,6 +741,34 @@ class Runtime(LifecycleMixin):
                 logger.info("Self-Evolution Control Plane (Auto) initialized")
             except ImportError as e:
                 logger.info(f"Auto module not available: {e}")
+
+        # PR-DF-13 (flywheel §39-40): Darwin enters the Runtime lifecycle,
+        # sharing the event bus and the data plane's structured store so
+        # Evolution experiments land as darwin_benchmarks rows with full
+        # provenance.  Off by default.
+        self._darwin = None
+        if self.config.enable_darwin:
+            try:
+                from rosclaw.darwin.plugin import DarwinPlugin
+
+                self._darwin = DarwinPlugin(
+                    config={
+                        "default_seeds": self.config.darwin.get("seeds", [0, 1, 2])
+                        if isinstance(getattr(self.config, "darwin", None), dict)
+                        else [0, 1, 2],
+                        "default_episodes": self.config.darwin.get("episodes", 50)
+                        if isinstance(getattr(self.config, "darwin", None), dict)
+                        else 50,
+                    }
+                    if isinstance(getattr(self.config, "darwin", None), dict)
+                    else {},
+                    event_bus=self.event_bus,
+                    seekdb_client=data_plane.structured_store,
+                )
+                self._modules.append(self._darwin)
+                logger.info("Darwin evaluation plane initialized")
+            except ImportError as e:
+                logger.info(f"Darwin module not available: {e}")
 
         # Initialize Provider Layer (Capability Router + Guard)
         if self.config.enable_provider and ProviderRegistry is not None:
