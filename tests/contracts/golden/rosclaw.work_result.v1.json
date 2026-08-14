@@ -124,7 +124,8 @@
       "enum": [
         "COMPLETED",
         "FAILED",
-        "BLOCKED"
+        "BLOCKED",
+        "INTERRUPTED"
       ],
       "title": "Status",
       "type": "string"
