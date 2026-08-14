@@ -520,10 +520,11 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				const logMatch = trimmed.match(/^log\s+(\S+)$/);
 				const answerMatch = trimmed.match(/^answer\s+(\S+)\s+([\s\S]+)$/);
 				const resumeMatch = trimmed.match(/^resume\s+(\S+)$/);
+				const extendMatch = trimmed.match(/^extend\s+(\S+)(?:\s+--tokens\s+(\S+))?/);
 				const viewMatch = trimmed.match(/^(artifacts|diff|tests|transcript)\s+(\S+)$/);
 				const idMatch = trimmed.match(/^(\S+)$/);
-				if (!idMatch && !cancelMatch && !retryMatch && !logMatch && !answerMatch && !resumeMatch && !viewMatch) {
-					ctx.ui.notify("用法：/job <wo_id>（查看器）| /job log|transcript|artifacts|diff|tests <wo_id> | /job answer|steer|cancel|retry|resume <wo_id>", "warning");
+				if (!idMatch && !cancelMatch && !retryMatch && !logMatch && !answerMatch && !resumeMatch && !viewMatch && !extendMatch) {
+					ctx.ui.notify("用法：/job <wo_id>（查看器）| /job log|transcript|artifacts|diff|tests <wo_id> | /job answer|cancel|retry|resume|extend <wo_id>", "warning");
 					return;
 				}
 				const state = options.active.current;
@@ -540,6 +541,19 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					actor: { engine: "pi-command" },
 				});
 				try {
+					if (extendMatch) {
+						// 十三审：预算暂停的追加（--tokens 50000）。
+						const addTokens = extendMatch[2] ? Number(extendMatch[2].replace(/k$/i, "000")) : 50_000;
+						const response = await center.call("pi.tools.execute", {
+							request: mkRequest("rosclaw_extend_work", extendMatch[1], { add_tokens: addTokens }),
+						});
+						const result = (response.result ?? {}) as { summary?: string };
+						ctx.ui.notify(
+							response.ok ? (result.summary ?? "已追加") : `extend 失败：${result.summary ?? response.error ?? ""}`,
+							response.ok ? "info" : "error",
+						);
+						return;
+					}
 					if (resumeMatch) {
 						// 十二审 PR-12.3：真 resume（同一 Pi 会话）。
 						const response = await center.call("pi.tools.execute", {

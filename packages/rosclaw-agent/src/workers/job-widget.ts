@@ -28,6 +28,7 @@ interface OrderProjection {
 	started_at?: string | null;
 	finished_at?: string | null;
 	duration_ms?: number | null;
+	paused_at?: string | null;
 	settled?: boolean;
 }
 
@@ -217,6 +218,7 @@ export class JobsWidget {
 			const id = view.order.work_order_id;
 			const status = view.order.status;
 			const terminal = ["ACCEPTED", "FAILED", "EXPIRED", "CANCELLED"].includes(status);
+			// 十三审：中断/暂停/失联的可读标记。
 			// 十三审 HOTFIX-13.1：权威计时——终态冻结（finished-started），
 			// 运行态用服务端 started_at；缺 finished_at 的终态显示数据
 			// 错误而非继续计时；TUI 重启显示一致。
@@ -229,16 +231,23 @@ export class JobsWidget {
 				const startedMs = view.order.started_at
 					? Date.parse(view.order.started_at)
 					: NaN;
+				// 中断/预算暂停：计时冻结在 paused_at（Worker 不在工作）。
+				const endMs = view.order.paused_at ? Date.parse(view.order.paused_at) : now;
 				elapsed = Number.isNaN(startedMs)
 					? "起始时间未知"
-					: fmtElapsed(now - startedMs);
+					: fmtElapsed(endMs - startedMs);
 			}
 			const goal = (view.order.goal ?? "").slice(0, 32);
 			const icon = terminal ? (status === "ACCEPTED" ? "✓" : "✗") : status === "BLOCKED" ? "⚠" : frame;
 			const stallMark = view.stall && !terminal ? " · 静默>90s（仍存活）" : "";
 			const waitMark = status === "BLOCKED" ? " · 等待用户输入（/job answer 回答）" : "";
+			const stateMark =
+				status === "UNREACHABLE" ? " · 失联探测中（进程仍活）"
+				: status === "INTERRUPTED_RESUMABLE" ? " · 中断可恢复（/job resume）"
+				: status === "BUDGET_PAUSED" ? " · 预算暂停（/job extend 追加）"
+				: "";
 			lines.push(
-				`${icon} ${workerLabel(view.order.assigned_to)} · ${goal} · ${elapsed}${stallMark}${waitMark}`,
+				`${icon} ${workerLabel(view.order.assigned_to)} · ${goal} · ${elapsed}${stallMark}${waitMark}${stateMark}`,
 			);
 			const detail = terminal
 				? `${status}${view.turns ? ` · ${view.turns} turns` : ""}`

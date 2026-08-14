@@ -19,6 +19,8 @@ import type { ProductStateCenter } from "../session/state-center.js";
 
 const POLL_MS = 4000;
 const TERMINAL = new Set(["ACCEPTED", "FAILED", "EXPIRED", "CANCELLED"]);
+// 十三审：中断/预算暂停不是终态，但必须主动告知用户（可恢复/可追加）。
+const NOTIFY_STATES = new Set(["INTERRUPTED_RESUMABLE", "BUDGET_PAUSED"]);
 
 interface OrderProjection {
 	work_order_id: string;
@@ -108,14 +110,18 @@ export class WorkerCompletionWatcher {
 		});
 		const orders = (status.orders ?? []) as OrderProjection[];
 		for (const order of orders) {
-			if (!TERMINAL.has(order.status)) continue;
+			if (!TERMINAL.has(order.status) && !NOTIFY_STATES.has(order.status)) continue;
 			if (this.delivered.has(order.work_order_id)) continue;
 			const sink = this.deps.sink();
 			if (!sink) return; // 扩展上下文未就绪——下一轮再投
 			const accepted = order.status === "ACCEPTED" && order.accepted !== false;
 			const headline = accepted
 				? `后台 Worker 已完成并通过验证（${order.work_order_id}）`
-				: `后台 Worker 终态 ${order.status}（${order.work_order_id}）`;
+				: order.status === "INTERRUPTED_RESUMABLE"
+					? `后台 Worker 中断（会话已保留，可恢复）——/job resume ${order.work_order_id}`
+					: order.status === "BUDGET_PAUSED"
+						? `后台 Worker 预算用尽已暂停——/job extend ${order.work_order_id} 追加`
+						: `后台 Worker 终态 ${order.status}（${order.work_order_id}）`;
 			sink.notify?.(headline);
 			sink.api.sendMessage(
 				{

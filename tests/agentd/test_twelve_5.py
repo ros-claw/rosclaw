@@ -81,6 +81,11 @@ class TestGracefulTermination:
                 "instructions": "x",
                 "worker_profile": "developer",
                 "workspace": str(repo),
+                # 十三审：硬截止必须显式带来源——benchmark。
+                "execution_policy": {
+                    "hard_deadline_sec": 2,
+                    "hard_deadline_source": "benchmark",
+                },
             },
             budgets=BudgetEnvelope(wall_time_sec=2, model_tokens=1000),
             expected_output=ExpectedOutput(artifacts=["text/plain", "text/x-diff"]),
@@ -93,7 +98,7 @@ class TestGracefulTermination:
         )
         result, _report = await service._worker_manager.run_to_completion(scheduled)
         assert result.status == "FAILED"
-        assert "wall budget" in result.summary
+        assert "hard deadline" in result.summary
         # partial 回收：patch 工件含 partial.py
         work_dir = tmp_path / "rh" / "work" / scheduled.work_order_id
         patch = work_dir / "artifacts" / "patch.diff"

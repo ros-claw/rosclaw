@@ -394,7 +394,18 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 				if (!line.trim()) continue;
 				try {
 					const msg = JSON.parse(line) as { type?: string; text?: string };
-					if (msg.type === "answer" && msg.text !== undefined) {
+					if (msg.type === "pause") {
+						// 十三审：BUDGET_PAUSED——abort 当前 turn，进程
+						// 存活等待 extend（session/上下文保留）。
+						void session.abort().then(() => {
+							emit(wo, att, "paused", {});
+						}).catch(() => undefined);
+					} else if (msg.type === "extend") {
+						// 预算追加——继续同一会话。
+						emit(wo, att, "extended", { add_tokens: (msg as { add_tokens?: number }).add_tokens ?? 0 });
+						void session.prompt("预算已追加。继续之前的任务——从当前状态接着做，不要从零开始。")
+							.catch(() => undefined);
+					} else if (msg.type === "answer" && msg.text !== undefined) {
 						const waiter = (globalThis as Record<string, unknown>).__rosclawAnswerWaiter as
 							| { resolve(text: string): void }
 							| undefined;

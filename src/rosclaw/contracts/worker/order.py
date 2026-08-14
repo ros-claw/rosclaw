@@ -20,6 +20,10 @@ WORK_ORDER_STATES = (
     "OFFERED",
     "CLAIMED",
     "RUNNING",
+    # 十三审：失联/中断可恢复/预算暂停（非终态）。
+    "UNREACHABLE",
+    "INTERRUPTED_RESUMABLE",
+    "BUDGET_PAUSED",
     "SUBMITTED",
     "VERIFYING",
     "ACCEPTED",
@@ -167,7 +171,9 @@ class WorkResultV1(ContractModel):
     work_order_id: str
     worker_id: str
     lease_id: str
-    status: Literal["COMPLETED", "FAILED", "BLOCKED"] = "COMPLETED"
+    # 十三审 HOTFIX-13.2：INTERRUPTED = 进程确认死亡但可恢复（不
+    # 等于 FAILED——checkpoint/session 可 resume）。
+    status: Literal["COMPLETED", "FAILED", "BLOCKED", "INTERRUPTED"] = "COMPLETED"
     started_at: str | None = None
     finished_at: str | None = None
     summary: str = ""

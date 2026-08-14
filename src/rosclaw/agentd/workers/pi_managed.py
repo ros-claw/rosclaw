@@ -49,9 +49,36 @@ STARTUP_TIMEOUT_SEC = 30.0
 LIVENESS_TIMEOUT_SEC = 15.0
 STALL_WARN_SEC = 90.0
 WRAPUP_GRACE_SEC = 60.0
+#: UNREACHABLE 宽限：全静默 + 零 CPU 进展持续超过该值才按"恢复失败"
+#: 终止并进 INTERRUPTED_RESUMABLE（working 永不杀）。
+UNREACHABLE_GRACE_SEC = 900.0
 
 #: W3：写能力 profile（Developer Workbench）——workspace 隔离 + diff 工件。
 WORKBENCH_PROFILES = ("developer", "sim-builder")
+
+
+def _probe_process(pid: int) -> str:
+    """十三审 HOTFIX-13.2：多信号判活——/proc 存在 + CPU 时间在推进 =
+    working；/proc 消失 = dead；存在但 CPU 不动 = alive（疑似挂起）。
+    事件管道静默绝不单独判死。"""
+
+    stat_path = f"/proc/{pid}/stat"
+    try:
+        with open(stat_path) as fh:
+            parts1 = fh.read().split()
+        cpu1 = int(parts1[13]) + int(parts1[14])
+    except (OSError, ValueError, IndexError):
+        return "dead"
+    import time as _time
+
+    _time.sleep(0.3)
+    try:
+        with open(stat_path) as fh:
+            parts2 = fh.read().split()
+        cpu2 = int(parts2[13]) + int(parts2[14])
+    except (OSError, ValueError, IndexError):
+        return "dead"
+    return "working" if cpu2 > cpu1 else "alive"
 
 
 async def _git(*args: str, cwd: str | None = None) -> tuple[int, str]:
@@ -151,6 +178,35 @@ class PiManagedAdapter:
         try:
             proc.stdin.write(
                 (json.dumps({"type": "steer", "text": note}, ensure_ascii=False) + "\n").encode()
+            )
+            await proc.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            return False
+        return True
+
+    async def pause(self, work_order_id: str) -> bool:
+        """十三审：BUDGET_PAUSED——子进程 abort 当前 turn 并等待
+        （进程存活、liveness 继续、session 保留）。"""
+        proc = self._procs.get(work_order_id)
+        if proc is None or proc.returncode is not None or proc.stdin is None:
+            return False
+        try:
+            proc.stdin.write(b'{"type":"pause"}\n')
+            await proc.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            return False
+        return True
+
+    async def extend(self, work_order_id: str, add_tokens: int) -> bool:
+        """十三审：/job extend——追加 token 预算并唤醒暂停的 Worker。"""
+        proc = self._procs.get(work_order_id)
+        if proc is None or proc.returncode is not None or proc.stdin is None:
+            return False
+        try:
+            proc.stdin.write(
+                (json.dumps(
+                    {"type": "extend", "add_tokens": add_tokens}, ensure_ascii=False
+                ) + "\n").encode()
             )
             await proc.stdin.drain()
         except (BrokenPipeError, ConnectionResetError):
@@ -532,6 +588,7 @@ class PiManagedAdapter:
         entry: str,
     ) -> WorkResultV1:
         started = datetime.now(UTC)
+        loop_start = asyncio.get_running_loop().time()
         # 十二审 PR-12.4：媒体/仿真任务 preflight——缺依赖 5 秒内
         # BLOCKED_PREFLIGHT，不烧 Worker 预算。
         self._preflight(order)
@@ -682,16 +739,30 @@ class PiManagedAdapter:
                 if asyncio.get_running_loop().time() > startup_end:
                     raise AdapterError("worker startup timeout (no attempt_started)")
                 await asyncio.sleep(0.05)
-            # 主监控循环（十一审 PR-A）：
-            # - 全静默（连 liveness 都没有）> LIVENESS_TIMEOUT → 真死，杀；
-            # - 语义静默 > STALL_WARN → 只告警（UI 标黄），不杀；
-            # - wall 预算到期 → 先 wrap-up steer，grace 后再杀；
-            # - token 预算 ≥80% → wrap-up steer 一次。
-            wall_end = (
-                asyncio.get_running_loop().time() + order.budgets.wall_time_sec
-                if order.budgets.wall_time_sec
-                else None
+            # 主监控循环（十三审 HOTFIX-13.2——Worker 有证据在工作就
+            # 让它继续；时间只是观察指标）：
+            # - 默认无硬截止：hard_deadline 仅在显式权威来源下生效；
+            # - 全静默 > LIVENESS_TIMEOUT → 多信号探测（pid/CPU）——
+            #   活着 = UNREACHABLE（不杀），死了 = INTERRUPTED_RESUMABLE；
+            # - 语义静默 > STALL_WARN → 只告警；
+            # - soft target 到期 → 一次性提醒事件（不干预）；
+            # - token 80% 提醒；100% → BUDGET_PAUSED（暂停待 /job extend）。
+            policy = order.inputs.get("execution_policy") or {}
+            hard_sec = None
+            if policy.get("hard_deadline_sec") and policy.get(
+                "hard_deadline_source"
+            ) in ("user", "benchmark", "admin_policy"):
+                hard_sec = float(policy["hard_deadline_sec"])
+            soft_target_sec = float(
+                policy.get("soft_target_sec") or order.budgets.wall_time_sec or 0
             )
+            token_limit = int(
+                policy.get("token_soft_limit") or order.budgets.model_tokens or 0
+            )
+            wall_end = (
+                asyncio.get_running_loop().time() + hard_sec if hard_sec else None
+            )
+            unreachable_since: float | None = None
             while proc.returncode is None:
                 try:
                     await asyncio.wait_for(proc.wait(), timeout=1.0)
@@ -701,10 +772,50 @@ class PiManagedAdapter:
                 now = asyncio.get_running_loop().time()
                 silent = now - state["last_event_at"]
                 if silent > LIVENESS_TIMEOUT_SEC:
-                    raise AdapterError(
-                        f"worker liveness lost ({LIVENESS_TIMEOUT_SEC:.0f}s 无任何事件"
-                        "——进程挂死，已终止)"
-                    )
+                    # 多信号判活：事件管道故障 ≠ Worker 没在工作。
+                    if unreachable_since is None:
+                        unreachable_since = now
+                        with contextlib.suppress(Exception):
+                            self._manager_ref._transition(
+                                order.work_order_id, "UNREACHABLE", "event_pipe_silent"
+                            )
+                        self._events.append_event(
+                            order.work_order_id, "", "unreachable",
+                            {"silent_sec": int(silent)},
+                        )
+                    probe = _probe_process(proc.pid)
+                    if probe != "working" and (
+                        now - unreachable_since > UNREACHABLE_GRACE_SEC
+                    ):
+                        # 宽限后仍无进展（挂起）= 恢复失败——终止但保留
+                        # 会话/工作区（INTERRUPTED_RESUMABLE，不是 FAILED）。
+                        probe = "dead"
+                    if probe == "dead":
+                        # 进程确认死亡：中断但可恢复（不判 FAILED）。
+                        self._write_checkpoint(order, state, "INTERRUPTED", "")
+                        with contextlib.suppress(Exception):
+                            self._manager_ref._transition(
+                                order.work_order_id,
+                                "INTERRUPTED_RESUMABLE",
+                                "process_dead",
+                            )
+                        return WorkResultV1(
+                            work_order_id=order.work_order_id,
+                            worker_id=WORKER_ID,
+                            lease_id=handle.lease_id,
+                            status="INTERRUPTED",
+                            summary="worker 进程死亡——会话/工作区已保留，"
+                            "可 /job resume 恢复",
+                            warnings=["interrupted_resumable"],
+                        )
+                    # alive/working：继续等（不杀）。
+                else:
+                    if unreachable_since is not None:
+                        unreachable_since = None
+                        with contextlib.suppress(Exception):
+                            self._manager_ref._transition(
+                                order.work_order_id, "RUNNING", "event_pipe_recovered"
+                            )
                 semantic_silent = now - state["last_semantic_at"]
                 if semantic_silent > STALL_WARN_SEC and not state["stall_warned"]:
                     state["stall_warned"] = True
@@ -729,27 +840,46 @@ class PiManagedAdapter:
                     )
                 if state["wrapup_sent"] and now - state["wrapup_at"] > WRAPUP_GRACE_SEC:
                     raise AdapterError(
-                        "worker wall budget exceeded（wrap-up 宽限后仍未退出）"
+                        "worker hard deadline exceeded（wrap-up 宽限后仍未退出）"
                     )
-                # token 预算 80% → wrap-up（一次）。
+                # soft target：一次性提醒（不干预）。
+                if (
+                    soft_target_sec
+                    and now - loop_start > soft_target_sec
+                    and not state.get("soft_notified")
+                ):
+                    state["soft_notified"] = True
+                    self._events.append_event(
+                        order.work_order_id, "", "soft_target_exceeded",
+                        {"soft_target_sec": soft_target_sec},
+                    )
+                # token：80% 提醒；100% BUDGET_PAUSED（暂停待 extend）。
                 usage_last = next(
                     (e for e in reversed(events) if e.get("kind") == "usage"), None
                 )
-                if (
-                    usage_last
-                    and order.budgets.model_tokens
-                    and not state["wrapup_sent"]
-                ):
+                if usage_last and token_limit:
                     spent = int(usage_last.get("input_tokens") or 0) + int(
                         usage_last.get("output_tokens") or 0
                     )
-                    if spent >= int(order.budgets.model_tokens * 0.8):
-                        state["wrapup_sent"] = True
-                        state["wrapup_at"] = now
-                        await self.steer(
-                            order.work_order_id,
-                            "已接近 token 预算。停止开新工作：保存当前改动并产出"
-                            "可恢复的 partial handoff。",
+                    if spent >= token_limit and not state.get("budget_paused"):
+                        state["budget_paused"] = True
+                        await self.pause(order.work_order_id)
+                        with contextlib.suppress(Exception):
+                            self._manager_ref._transition(
+                                order.work_order_id, "BUDGET_PAUSED", "token_limit"
+                            )
+                        self._events.append_event(
+                            order.work_order_id, "", "budget_paused",
+                            {"spent": spent, "limit": token_limit},
+                        )
+                    elif (
+                        spent >= int(token_limit * 0.8)
+                        and not state.get("budget_notified")
+                    ):
+                        state["budget_notified"] = True
+                        self._events.append_event(
+                            order.work_order_id, "", "budget_warning",
+                            {"spent": spent, "limit": token_limit},
                         )
         except asyncio.CancelledError:
             # 十二审 PR-12.5：先收集部分成果再终止（cancel 也要 partial）。

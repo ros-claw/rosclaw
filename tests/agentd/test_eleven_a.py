@@ -46,7 +46,8 @@ def _fake(tmp_path: Path, name: str, body: str) -> Path:
     return path
 
 
-async def _run(service, mission, tmp_path, fake, monkeypatch, *, wall_time=300):
+async def _run(service, mission, tmp_path, fake, monkeypatch, *, wall_time=300,
+               execution_policy=None):
     from rosclaw.agentd.workers import pi_managed
 
     monkeypatch.setattr(pi_managed, "find_pi_agent_entry", lambda: ("/bin/sh", str(fake)))
@@ -63,7 +64,7 @@ async def _run(service, mission, tmp_path, fake, monkeypatch, *, wall_time=300):
         issued_by="test",
         capability="analysis.text",
         goal="长任务",
-        inputs={"instructions": "x"},
+        inputs={"instructions": "x", **({"execution_policy": execution_policy} if execution_policy else {})},
         budgets=BudgetEnvelope(wall_time_sec=wall_time, model_tokens=1000),
         expected_output=ExpectedOutput(artifacts=["text/plain"]),
         side_effect_policy=SideEffectPolicy(**{"class": "none"}),
@@ -114,10 +115,12 @@ class TestNoFalseTimeout:
     async def test_total_silence_killed_by_liveness_timeout(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        """连 liveness 都没有 = 进程挂死——必须判死（不无限等待）。"""
+        """连 liveness 都没有且 CPU 无进展：先 UNREACHABLE，宽限后
+        终止为 INTERRUPTED_RESUMABLE（可恢复——不是 FAILED，不无限等待）。"""
         from rosclaw.agentd.workers import pi_managed
 
         monkeypatch.setattr(pi_managed, "LIVENESS_TIMEOUT_SEC", 2.0)
+        monkeypatch.setattr(pi_managed, "UNREACHABLE_GRACE_SEC", 1.0)
         service, mission = await _setup(tmp_path)
         fake = _fake(
             tmp_path,
@@ -129,9 +132,11 @@ class TestNoFalseTimeout:
         started = time.monotonic()
         result, _report = await _run(service, mission, tmp_path, fake, monkeypatch)
         elapsed = time.monotonic() - started
-        assert result.status == "FAILED"
-        assert "liveness lost" in result.summary, result.summary
+        assert result.status == "INTERRUPTED", result.status
+        assert "resume" in result.summary, result.summary
         assert elapsed < 20, f"判死耗时 {elapsed:.1f}s"
+        order = service._worker_manager.orders_for_mission(mission.mission_id)[0]
+        assert order.status == "INTERRUPTED_RESUMABLE"
         await service.close()
 
 
@@ -158,10 +163,12 @@ class TestBudgetWrapup:
             f"cat >> {stdin_log}\n",
         )
         result, _report = await _run(
-            service, mission, tmp_path, fake, monkeypatch, wall_time=2
+            service, mission, tmp_path, fake, monkeypatch, wall_time=2,
+            # 十三审：硬截止必须显式带来源（benchmark）。
+            execution_policy={"hard_deadline_sec": 2, "hard_deadline_source": "benchmark"},
         )
         assert result.status == "FAILED"
-        assert "wall budget" in result.summary, result.summary
+        assert "hard deadline" in result.summary, result.summary
         assert stdin_log.exists()
         assert "wall" in stdin_log.read_text() or "预算" in stdin_log.read_text()
         await service.close()
@@ -189,7 +196,8 @@ class TestBudgetWrapup:
             "done\n",
         )
         result, report = await _run(
-            service, mission, tmp_path, fake, monkeypatch, wall_time=3
+            service, mission, tmp_path, fake, monkeypatch, wall_time=3,
+            execution_policy={"hard_deadline_sec": 3, "hard_deadline_source": "benchmark"},
         )
         assert result.status == "COMPLETED", result.summary
         assert "partial handoff" in result.summary

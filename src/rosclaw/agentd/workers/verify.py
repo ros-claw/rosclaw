@@ -87,11 +87,14 @@ def verify_result(order: WorkOrderV1, result: WorkResultV1) -> VerificationRepor
         > order.budgets.model_tokens * 2
     ):
         over.append("tokens >> envelope (possible fabricated or runaway usage)")
-    if (
-        order.budgets.wall_time_sec
-        and result.usage.wall_time_ms > order.budgets.wall_time_sec * 1000 * 2
-    ):
-        over.append("wall time >> envelope")
+    # 十三审 HOTFIX-13.2：wall_time_sec 是 soft target（提醒），不是预算
+    # 边界——只有显式权威 hard deadline 才把超时当证据异常。
+    policy = order.inputs.get("execution_policy") or {}
+    hard = policy.get("hard_deadline_sec") if policy.get(
+        "hard_deadline_source"
+    ) in ("user", "benchmark", "admin_policy") else None
+    if hard and result.usage.wall_time_ms > float(hard) * 1000 * 2:
+        over.append("wall time >> hard deadline envelope")
     checks["usage_sane"] = not over
     reasons.extend(over)
 

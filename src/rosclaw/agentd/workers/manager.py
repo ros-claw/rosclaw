@@ -36,10 +36,21 @@ _RUN_TRANSITIONS: dict[str, frozenset[str]] = {
     "DRAFT": frozenset({"OFFERED", "CANCELLED"}),
     "OFFERED": frozenset({"CLAIMED", "CANCELLED", "EXPIRED"}),
     "CLAIMED": frozenset({"RUNNING", "CANCELLED", "EXPIRED"}),
-    "RUNNING": frozenset({"SUBMITTED", "FAILED", "EXPIRED", "CANCELLED", "BLOCKED"}),
+    # 十三审 HOTFIX-13.2：UNREACHABLE（失联探测中）/INTERRUPTED_RESUMABLE
+    # （进程死亡但可恢复）/BUDGET_PAUSED（预算暂停待 extend）不再是
+    # FAILED 的替身。
+    "RUNNING": frozenset({
+        "SUBMITTED", "FAILED", "EXPIRED", "CANCELLED", "BLOCKED",
+        "UNREACHABLE", "INTERRUPTED_RESUMABLE", "BUDGET_PAUSED",
+    }),
     "SUBMITTED": frozenset({"VERIFYING", "FAILED"}),
     "VERIFYING": frozenset({"ACCEPTED", "FAILED"}),
     "BLOCKED": frozenset({"RUNNING", "CANCELLED", "FAILED"}),
+    "UNREACHABLE": frozenset(
+        {"RUNNING", "INTERRUPTED_RESUMABLE", "FAILED", "CANCELLED"}
+    ),
+    "INTERRUPTED_RESUMABLE": frozenset({"RUNNING", "FAILED", "CANCELLED"}),
+    "BUDGET_PAUSED": frozenset({"RUNNING", "CANCELLED", "FAILED"}),
     "FAILED": frozenset(),
     "EXPIRED": frozenset(),
     "CANCELLED": frozenset(),
@@ -211,13 +222,22 @@ class WorkerManager:
         handle = await adapter.start(order, {})
         self._runs[order.work_order_id] = (adapter, handle)
         try:
-            deadline = datetime.now(UTC) + timedelta(
-                # 十一审 PR-A：adapter 的 wall wrap-up（steer + 60s grace）
-                # 优先；manager deadline 只兜 adapter 不收敛的底（+90s）。
-                seconds=(timeout_sec or order.budgets.wall_time_sec) + 90
+            # 十三审 HOTFIX-13.2：无显式硬截止即无 deadline——Worker 有
+            # 进度就让它继续做；时间只是观察指标。
+            hard_sec = timeout_sec
+            if hard_sec is None:
+                policy = order.inputs.get("execution_policy") or {}
+                if policy.get("hard_deadline_sec") and policy.get(
+                    "hard_deadline_source"
+                ) in ("user", "benchmark", "admin_policy"):
+                    hard_sec = float(policy["hard_deadline_sec"]) + 90
+            deadline = (
+                datetime.now(UTC) + timedelta(seconds=hard_sec)
+                if hard_sec is not None
+                else None
             )
             result: WorkResultV1 | None = None
-            while datetime.now(UTC) < deadline:
+            while deadline is None or datetime.now(UTC) < deadline:
                 # 外部 cancel（cancel_order）已翻转状态：退出，不验证不改写。
                 current = self.order(order.work_order_id)
                 if current is not None and current.status == "CANCELLED":
@@ -261,6 +281,22 @@ class WorkerManager:
                 accepted=False,
                 verifier_results={"within_deadline": False},
                 reasons=("deadline exceeded before submission",),
+            )
+        # 十三审 HOTFIX-13.2：INTERRUPTED = 进程死亡但可恢复——不验证、
+        # 不 FAILED；保留 checkpoint 供 resume。
+        if result.status == "INTERRUPTED":
+            current = self.order(order.work_order_id)
+            if current is not None and current.status not in (
+                "ACCEPTED", "FAILED", "EXPIRED", "CANCELLED",
+            ):
+                self._transition(
+                    order.work_order_id, "INTERRUPTED_RESUMABLE",
+                    "worker_interrupted_resumable",
+                )
+            return result, VerificationReport(
+                accepted=False,
+                verifier_results={"interrupted": True},
+                reasons=("worker interrupted (resumable from checkpoint)",),
             )
         # Stale-lease guard: a result under an old lease is late, not accepted.
         if order.lease and result.lease_id != order.lease.lease_id:
@@ -425,6 +461,12 @@ class WorkerManager:
         )
         started_at = by_status.get("RUNNING")
         finished_at = by_status.get(terminal) if terminal else None
+        # 十三审：中断/暂停也要冻结计时（不是终态但 Worker 不在工作）。
+        paused_at = next(
+            (by_status[s] for s in ("INTERRUPTED_RESUMABLE", "BUDGET_PAUSED")
+             if s in by_status),
+            None,
+        )
         duration_ms = None
         if started_at and finished_at:
             from datetime import datetime as _dt
@@ -442,6 +484,7 @@ class WorkerManager:
             "created_at": created_at,
             "started_at": started_at,
             "finished_at": finished_at,
+            "paused_at": paused_at,
             "duration_ms": duration_ms,
             "settled": terminal is not None,
         }

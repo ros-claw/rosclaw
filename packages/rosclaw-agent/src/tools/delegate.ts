@@ -66,9 +66,11 @@ export function buildDelegateTool(ctx: BridgeToolContext) {
 		name: "rosclaw_delegate",
 		label: "ROSClaw Delegate",
 		description:
-			"Start a bounded background worker for a self-contained subtask. Returns " +
-			"immediately with a precise WorkOrder ID (worker, budget, deadline). " +
-			"Poll with rosclaw_check_work; cancel with rosclaw_cancel_work. Worker " +
+			"Start a background worker for a self-contained subtask. Returns " +
+			"immediately with a precise WorkOrder ID (worker, budget, soft target). " +
+			"Poll with rosclaw_check_work; cancel with rosclaw_cancel_work. " +
+			"IMPORTANT: never invent a hard deadline — a worker that is making " +
+			"progress keeps running; only the user can set hard limits. Worker " +
 			"output enters the main context only after ROSClaw verification passes.",
 		parameters: Type.Object({
 			goal: Type.String({ description: "self-contained subtask goal" }),
@@ -106,8 +108,18 @@ export function buildDelegateTool(ctx: BridgeToolContext) {
 			instructions: Type.Optional(Type.String()),
 			budget: Type.Optional(
 				Type.Object({
+					// 十三审：这是 soft target（提醒用），不是处决时间——
+					// Worker 有进度就让它继续。
 					wall_time_sec: Type.Optional(Type.Number()),
 					model_tokens: Type.Optional(Type.Number()),
+				}),
+			),
+			execution_policy: Type.Optional(
+				Type.Object({
+					soft_target_sec: Type.Optional(Type.Number()),
+					hard_deadline_sec: Type.Optional(Type.Number()),
+					hard_deadline_source: Type.Optional(Type.String()),
+					token_soft_limit: Type.Optional(Type.Number()),
 				}),
 			),
 		}),

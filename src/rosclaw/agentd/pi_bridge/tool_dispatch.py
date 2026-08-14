@@ -49,6 +49,8 @@ _TOOL_TABLE: dict[str, str] = {
     "rosclaw_answer_work": "delegate",
     # 十二审 PR-12.3：resume——恢复同一 Pi 会话（retry ≠ resume）。
     "rosclaw_resume_work": "delegate",
+    # 十三审 HOTFIX-13.2：BUDGET_PAUSED 的追加预算并唤醒。
+    "rosclaw_extend_work": "delegate",
     "rosclaw_request_action": "physical_action",
     # 八审 P0-5：任务级入口——确定性编译器编排，模型只交 TaskSpec。
     "rosclaw_task": "task",
@@ -368,6 +370,8 @@ class PiToolDispatcher:
             return await self._answer_work(request)
         if name == "rosclaw_resume_work":
             return await self._resume_work(request)
+        if name == "rosclaw_extend_work":
+            return await self._extend_work(request)
         if name == "rosclaw_fail_safe":
             await service.cancel(request.mission_id)
             return PiToolResultV1(
@@ -427,6 +431,20 @@ class PiToolDispatcher:
         if provided_wo and not re.fullmatch(r"wo_[A-Za-z0-9]{8,32}", provided_wo):
             raise ToolBridgeError("INVALID_ARGUMENTS", "malformed work_order_id")
         is_workbench = worker_profile in ("developer", "sim-builder")
+        # 十三审 HOTFIX-13.2：execution_policy——hard deadline 必须有
+        # 显式权威来源（模型不得凭感觉给 240/300s 处决时间）；缺来源
+        # 的 hard deadline 硬拒绝。wall_time_sec 语义变为 soft target。
+        exec_policy = args.get("execution_policy") or {}
+        if not isinstance(exec_policy, dict):
+            raise ToolBridgeError("INVALID_ARGUMENTS", "execution_policy must be an object")
+        if exec_policy.get("hard_deadline_sec") and exec_policy.get(
+            "hard_deadline_source"
+        ) not in ("user", "benchmark", "admin_policy"):
+            raise ToolBridgeError(
+                "DEADLINE_AUTHORITY_REQUIRED",
+                "hard_deadline_sec 需要显式权威来源（user/benchmark/admin_policy）"
+                "——Worker 有进度就让它继续；wall 时间只是观察指标",
+            )
         # 十二审 PR-12.4：WorkSpecV2——任务类型驱动验收（deliverables
         # 覆盖 profile 默认工件类型）。
         task_type = str(args.get("task_type") or (
@@ -455,6 +473,13 @@ class PiToolDispatcher:
                 # 生成 DoD；verifier 据此验收）。
                 "task_type": task_type,
                 "deliverables": deliverables_raw,
+                # 十三审：执行策略（soft target/hard deadline/token limit）。
+                "execution_policy": {
+                    "soft_target_sec": exec_policy.get("soft_target_sec"),
+                    "hard_deadline_sec": exec_policy.get("hard_deadline_sec"),
+                    "hard_deadline_source": exec_policy.get("hard_deadline_source"),
+                    "token_soft_limit": exec_policy.get("token_soft_limit"),
+                },
             },
             budgets=BudgetEnvelope(
                 wall_time_sec=int(args.get("budget", {}).get("wall_time_sec", 300))
@@ -910,6 +935,66 @@ class PiToolDispatcher:
                 f"已从持久会话恢复（新 attempt）：{scheduled.work_order_id}\n"
                 f"resume 自 {work_order_id}（同一 Pi 会话，上下文保留）"
             ),
+        )
+
+    async def _extend_work(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """十三审 HOTFIX-13.2：BUDGET_PAUSED 追加预算并唤醒（同一会话
+        继续——不是新 attempt）。"""
+        work_order_id = str(request.arguments.get("work_order_id", "")).strip()
+        if not work_order_id:
+            raise ToolBridgeError("INVALID_ARGUMENTS", "work_order_id required")
+        add_tokens = int(request.arguments.get("add_tokens") or 50_000)
+        manager = self._service._worker_manager
+        order = manager.order(work_order_id)
+        if order is None:
+            raise ToolBridgeError(
+                "WORK_ORDER_NOT_FOUND", f"unknown work order {work_order_id!r}"
+            )
+        if order.mission_id != request.mission_id:
+            raise ToolBridgeError(
+                "MISSION_MISMATCH", "work order belongs to a different mission"
+            )
+        if order.status != "BUDGET_PAUSED":
+            raise ToolBridgeError(
+                "NOT_PAUSED", f"work order is {order.status}——只能 extend 预算暂停的单"
+            )
+        # 预算落账 + 唤醒 + BUDGET_PAUSED→RUNNING。
+        policy = dict(order.inputs.get("execution_policy") or {})
+        policy["token_soft_limit"] = int(policy.get("token_soft_limit") or 0) + add_tokens
+        inputs = {**dict(order.inputs), "execution_policy": policy}
+        conn = self._service._store.connection
+        updated = order.model_copy(update={"inputs": inputs})
+        conn.execute(
+            "UPDATE work_orders SET order_json = ?, updated_at = ? WHERE work_order_id = ?",
+            (updated.model_dump_json(), datetime.now(UTC).isoformat(), work_order_id),
+        )
+        conn.commit()
+        card_row = conn.execute(
+            "SELECT card_json FROM worker_cards WHERE worker_id = ?",
+            (order.assigned_to,),
+        ).fetchone()
+        delivered = False
+        if card_row is not None:
+            import json as _json
+
+            card = _json.loads(card_row["card_json"])
+            adapter = manager._adapters.get(card.get("adapter_type", ""))
+            extend = getattr(adapter, "extend", None)
+            if extend is not None:
+                import contextlib as _cl
+
+                with _cl.suppress(Exception):
+                    delivered = await extend(work_order_id, add_tokens)
+        if not delivered:
+            raise ToolBridgeError(
+                "DELIVERY_FAILED", "Worker 进程不在——请用 /job resume 从检查点恢复"
+            )
+        manager._transition(work_order_id, "RUNNING", "budget_extended")
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status="RUNNING",
+            summary=f"已追加 {add_tokens} tokens 并唤醒 Worker（{work_order_id}）——同一会话继续。",
         )
 
     async def _answer_work(self, request: PiToolRequestV1) -> PiToolResultV1:
