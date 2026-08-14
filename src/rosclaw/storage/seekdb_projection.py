@@ -87,6 +87,42 @@ class MemoryRetrievalProjection:
         self._store.connect()
         self._store.delete(PROJECTION_TABLE, memory_id)
 
+    def status(self, repository: Any | None = None) -> dict[str, Any]:
+        """Projection observability (PR-DF-07 §18): watermark + lag.
+
+        ``source_count`` is the structured-store memory_items watermark (when
+        a repository is given); ``projection_count`` is what the retrieval
+        index currently holds; ``lag`` is the difference.  The projection is
+        a rebuildable projection — lag is an operations signal, never a data
+        loss (rebuild() restores parity from the source of truth).
+        """
+        result: dict[str, Any] = {
+            "projection_backend": type(self._store).__name__,
+            "outbox_enabled": self._outbox is not None,
+        }
+        try:
+            self._store.connect()
+            result["projection_count"] = self._store.count(PROJECTION_TABLE)
+        except Exception as exc:  # noqa: BLE001
+            result["projection_count"] = None
+            result["error"] = str(exc)
+        if repository is not None:
+            try:
+                result["source_count"] = repository._client.count(PROJECTION_TABLE)
+                if result.get("projection_count") is not None:
+                    result["lag"] = result["source_count"] - result["projection_count"]
+            except Exception as exc:  # noqa: BLE001
+                result["source_count"] = None
+                result.setdefault("error", str(exc))
+        if self._outbox is not None:
+            try:
+                stats = self._outbox.stats()
+                result["outbox_pending"] = stats.get("pending")
+                result["outbox_deadletters"] = stats.get("deadletters", stats.get("dead_letters"))
+            except Exception:  # noqa: BLE001
+                pass
+        return result
+
     def rebuild(self, repository: Any, *, batch_size: int = 200) -> dict[str, Any]:
         """Rebuild the whole projection from the SQLite source of truth."""
         started = time.time()
