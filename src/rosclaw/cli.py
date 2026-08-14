@@ -5029,6 +5029,39 @@ def cmd_memory_ingest(args: argparse.Namespace) -> int:
     print(f"Events:        {result.get('event_count')}")
     print(f"Outcome:       {result.get('outcome')}")
     print("=" * 60)
+
+
+def cmd_memory_migrate(args: argparse.Namespace) -> int:
+    """Migrate legacy ``experience_graph`` rows into typed memory items (PR-DF-06).
+
+    Delegates to :meth:`MemoryRepository.migrate_experience_graph`, which is
+    idempotent by content-hash dedup — rerunning never duplicates.
+    """
+    from rosclaw.memory.seekdb_client import SQLiteStructuredStore
+    from rosclaw.memory.v2.repository import MemoryRepository
+
+    db_path = _memory_db_path()
+    if not db_path.exists():
+        print(f"[ROSClaw] Memory database not found: {db_path}", file=sys.stderr)
+        return 1
+    store = SQLiteStructuredStore(str(db_path))
+    store.connect()
+    try:
+        stats = MemoryRepository(store).migrate_experience_graph(limit=args.limit)
+    finally:
+        store.disconnect()
+    if getattr(args, "json", False):
+        print(json.dumps({"from": args.migrate_from, **stats}, indent=2))
+    else:
+        print("=" * 60)
+        print("ROSClaw Memory — Legacy Migration (experience_graph -> memory_items)")
+        print("=" * 60)
+        print(f"Scanned:       {stats['scanned']}")
+        print(f"Migrated:      {stats['migrated']}")
+        print(f"Deduplicated:  {stats['deduplicated']}")
+        print(f"Skipped:       {stats['skipped']}")
+        print("=" * 60)
+    return 0
     return 0
 
 
@@ -8199,6 +8232,22 @@ def main() -> int:
     memory_ingest_parser.add_argument("--episode-id", required=True, help="Episode identifier")
     _add_practice_data_root_argument(memory_ingest_parser)
 
+    # PR-DF-06 (flywheel §15 Phase B): legacy store -> memory_items migration
+    memory_migrate_parser = memory_subparsers.add_parser(
+        "migrate", help="Migrate legacy memory tables into memory_items (idempotent)"
+    )
+    memory_migrate_parser.add_argument(
+        "--from",
+        dest="migrate_from",
+        choices=["experience_graph"],
+        default="experience_graph",
+        help="Legacy table to migrate from",
+    )
+    memory_migrate_parser.add_argument(
+        "--limit", type=int, default=10_000, help="Max legacy rows to scan"
+    )
+    memory_migrate_parser.add_argument("--json", action="store_true", help="JSON output")
+
     # acceptance subcommand (Evo-RPS hardware self-evolution, PR-EVO-HW-1)
     from rosclaw.evolution.hardware.cli import (
         cmd_acceptance_evo_rps_baseline,
@@ -9159,6 +9208,8 @@ def main() -> int:
                 return cmd_memory_explain(args)
             elif args.memory_command == "ingest":
                 return cmd_memory_ingest(args)
+            elif args.memory_command == "migrate":
+                return cmd_memory_migrate(args)
             else:
                 memory_parser.print_help()
                 return 1
