@@ -45,7 +45,6 @@ def _order(mission_id: str, wo: str) -> WorkOrderV1:
 def _seed_running(service, mission_id: str, wo: str, *, with_child: bool = True,
                   with_session: bool = True) -> subprocess.Popen | None:
     """直接落库一个 RUNNING 单 + 可选孤儿进程/session（模拟重启前状态）。"""
-    manager = service._worker_manager
     conn = service._store.connection
     order = _order(mission_id, wo).model_copy(update={"status": "RUNNING"})
     conn.execute(
