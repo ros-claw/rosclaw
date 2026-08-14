@@ -117,10 +117,9 @@ class BuiltinToolRegistry:
         from pathlib import Path as _Path
 
         from rosclaw.agentd.sim_trajectory import SimTrajectoryService
-        from rosclaw.contracts.common import ValidationError as _VE
 
         if self._home is None:
-            raise _VE("sim trajectory tools require rosclaw home")
+            raise ValidationError("sim trajectory tools require rosclaw home")
         svc = SimTrajectoryService(_Path(self._home))
         try:
             if name == TRAJ_PLAN_TOOL:
@@ -148,7 +147,7 @@ class BuiltinToolRegistry:
                     max_tracking_error_m=float(arguments["max_tracking_error_m"]),
                 )
         except (ValueError, KeyError) as exc:
-            raise _VE(f"{name} 参数错误: {exc}") from exc
+            raise ValidationError(f"{name} 参数错误: {exc}") from exc
         result["evidence_class"] = "simulated"
         return json.dumps(result, ensure_ascii=False)
 
