@@ -223,6 +223,8 @@ class Runtime(LifecycleMixin):
         self._sandbox_practice_bridge: Any | None = None
         self._seekdb_bridge: Any | None = None
         self._data_plane: Any | None = None  # DataPlaneContext (PR-DF-03)
+        self._memory_repository: Any | None = None  # Memory v2 canonical (PR-DF-05)
+        self._memory_gate: Any | None = None
         self._mcp_drivers: dict[str, Any] = {}
         self._emergency_stop_receipts: dict[str, Any] = {}
         self._emergency_stop_latched = False
@@ -404,6 +406,24 @@ class Runtime(LifecycleMixin):
                     embodied_memory=self.config.embodied_memory,
                     retrieval_facade=retrieval_facade,
                 )
+                # PR-DF-05 (flywheel §12-14): the canonical Memory write path
+                # — MemoryItem -> WriteGate -> Repository over the SAME
+                # structured store.  Built once here; failures degrade to the
+                # legacy experience_graph projection only.
+                self._memory_repository = None
+                self._memory_gate = None
+                try:
+                    from rosclaw.memory.v2.gate import MemoryWriteGate
+                    from rosclaw.memory.v2.repository import MemoryRepository
+
+                    if data_plane.structured_store is not None:
+                        self._memory_repository = MemoryRepository(
+                            data_plane.structured_store,
+                            projection=data_plane.memory_projection,
+                        )
+                        self._memory_gate = MemoryWriteGate(self._memory_repository)
+                except Exception as gate_exc:  # noqa: BLE001
+                    logger.info("Memory canonical write path unavailable: %s", gate_exc)
                 self._modules.append(self._memory)
                 if self._sense is not None:
                     self._memory.set_sense_runtime(self._sense)
@@ -1080,6 +1100,19 @@ class Runtime(LifecycleMixin):
             if reason:
                 tags.append(reason.replace(" ", "_"))
 
+            # PR-DF-05: the canonical write — CriticJudgment becomes an
+            # evidence-backed MemoryItem through the WriteGate.  The legacy
+            # store_experience call below stays as the compatibility
+            # projection (Phase A of the experience_graph retirement, §15).
+            self._store_critic_memory_item(
+                episode_id=episode_id,
+                status=status,
+                reward=reward,
+                reason=reason,
+                skill_name=skill_name,
+                instruction=instruction,
+                tags=tags,
+            )
             self._memory.store_experience(
                 event_id=episode_id,
                 event_type="praxis",
@@ -1101,6 +1134,76 @@ class Runtime(LifecycleMixin):
             )
         except Exception as e:
             logger.info(f"Critic judgment Memory sync failed (non-fatal): {e}")
+
+    def _store_critic_memory_item(
+        self,
+        *,
+        episode_id: str,
+        status: str,
+        reward: float,
+        reason: str,
+        skill_name: str,
+        instruction: str,
+        tags: list[str],
+    ) -> str | None:
+        """Write one critic judgment as an evidence-backed MemoryItem (PR-DF-05 §14).
+
+        The WriteGate decides STORE/MERGE/UPDATE/IGNORE/QUARANTINE exactly as
+        the session distiller's candidates; application mirrors
+        ``distill_events``.  Idempotent: repository content-hash dedup makes
+        a repeated judgment a no-op.  Returns the memory_id or None.
+        """
+        if self._memory_gate is None or self._memory_repository is None:
+            return None
+        try:
+            from rosclaw.memory.v2.models import MemoryItem, MemoryType
+
+            failed = status != "SUCCESS"
+            memory_type = MemoryType.FAILURE.value if failed else MemoryType.EPISODIC.value
+            title = (
+                f"Critic: {skill_name} {status}"
+                + (f" — {reason}" if failed and reason else "")
+            )
+            document = (
+                f"Critic judgment for skill '{skill_name}' (robot {self.config.robot_id}): "
+                f"status={status} reward={reward}."
+                + (f" Reason: {reason}." if reason else "")
+                + (f" Instruction: {instruction}." if instruction else "")
+            )
+            item = MemoryItem(
+                memory_type=memory_type,
+                robot_id=self.config.robot_id,
+                title=title,
+                document=document,
+                episode_id=episode_id,
+                skill_id=skill_name if skill_name != "unknown" else None,
+                outcome=status,
+                reward=reward,
+                failure_type=(reason or None) if failed else None,
+                evidence_refs=[f"critic_result:{episode_id}"],
+                tags=list(tags),
+                metadata={
+                    "source_event_type": "critic_judgment",
+                    "evidence_type": "critic_result",
+                    "source": "runtime_critic",
+                },
+            )
+            decision = self._memory_gate.evaluate(item)
+            if decision.decision == "STORE":
+                return self._memory_repository.store(item)
+            if decision.decision == "MERGE" and decision.target_memory_id:
+                self._memory_repository.merge_into(decision.target_memory_id, item)
+                return decision.target_memory_id
+            if decision.decision == "UPDATE" and decision.target_memory_id:
+                self._memory_repository.supersede(decision.target_memory_id, item)
+                return decision.target_memory_id
+            if decision.decision == "QUARANTINE":
+                item.status = "quarantined"
+                return self._memory_repository.store(item)
+            return None  # IGNORE
+        except Exception as exc:  # noqa: BLE001 — memory write never breaks the loop
+            logger.info("Critic MemoryItem write failed (non-fatal): %s", exc)
+            return None
 
     def _on_agent_command(self, event: Event) -> None:
         """Handle agent commands - route to appropriate module."""
