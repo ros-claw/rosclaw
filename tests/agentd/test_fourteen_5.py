@@ -194,9 +194,9 @@ class TestOrphanCleanup:
         SIGKILL 兜底。"""
         service, mission = await _setup(tmp_path)
         wo = new_id("wo")
-        # 忽略 SIGTERM 的顽固孤儿——必须 SIGKILL 收场。
+        # 忽略 SIGTERM 且自身存活的顽固孤儿——必须 SIGKILL 收场。
         proc = subprocess.Popen(
-            ["sh", "-c", "trap '' TERM; sleep 300"],
+            ["sh", "-c", "trap '' TERM; while true; do sleep 1; done"],
             start_new_session=True,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
