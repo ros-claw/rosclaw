@@ -96,6 +96,9 @@ function renderOperator(state: KernelSnapshotV1, locale: EffectiveLocale): strin
 		| undefined;
 	const operatorInvolved =
 		state.mode !== "SIMULATION"
+		// 已初始化的 Operator 永远显示（用户明确启用——降级只针对
+		// 未初始化时的 "Operator Offline" 紧张感）。
+		|| state.operator === "READY"
 		|| readiness?.state === "BLOCKED"
 		|| (readiness?.reason_codes ?? []).some((c) => c.includes("OPERATOR"));
 	if (!operatorInvolved) {
