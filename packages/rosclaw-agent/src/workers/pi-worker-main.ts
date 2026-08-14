@@ -464,6 +464,15 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 			}
 		};
 		const requestResume = (controlId: string) => {
+			if (hostState === "PAUSE_REQUESTED") {
+				// pause 尚未生效即 resume——撤销暂停：pause 请求方不能
+				// 永远等 PAUSED（统一 ACK RUNNING 收尾）。
+				hostState = "RUNNING";
+				abortReason = null;
+				for (const cid of pendingPauseIds.splice(0)) ack(cid, "RUNNING");
+				ack(controlId, "RUNNING");
+				return;
+			}
 			if (hostState !== "PAUSED") {
 				ack(controlId, "RUNNING");
 				return;
