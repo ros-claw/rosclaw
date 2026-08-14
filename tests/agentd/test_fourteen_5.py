@@ -45,7 +45,6 @@ def _order(mission_id: str, wo: str) -> WorkOrderV1:
 def _seed_running(service, mission_id: str, wo: str, *, with_child: bool = True,
                   with_session: bool = True) -> subprocess.Popen | None:
     """直接落库一个 RUNNING 单 + 可选孤儿进程/session（模拟重启前状态）。"""
-    manager = service._worker_manager
     conn = service._store.connection
     order = _order(mission_id, wo).model_copy(update={"status": "RUNNING"})
     conn.execute(
@@ -194,9 +193,9 @@ class TestOrphanCleanup:
         SIGKILL 兜底。"""
         service, mission = await _setup(tmp_path)
         wo = new_id("wo")
-        # 忽略 SIGTERM 的顽固孤儿——必须 SIGKILL 收场。
+        # 忽略 SIGTERM 且自身存活的顽固孤儿——必须 SIGKILL 收场。
         proc = subprocess.Popen(
-            ["sh", "-c", "trap '' TERM; sleep 300"],
+            ["sh", "-c", "trap '' TERM; while true; do sleep 1; done"],
             start_new_session=True,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
@@ -206,7 +205,6 @@ class TestOrphanCleanup:
         (work_dir / "state.json").write_text(
             json.dumps({"status": "RUNNING", "session_file": ""}), encoding="utf-8"
         )
-        manager = service._worker_manager
         conn = service._store.connection
         order = _order(mission.mission_id, wo).model_copy(update={"status": "RUNNING"})
         conn.execute(
