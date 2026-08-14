@@ -141,13 +141,15 @@ class RetryCoordinator:
             if active is not None:
                 existing = self._manager.order(active)
                 return existing, False, "active_exists"
-            # 同 root 已有成功 attempt（如 auto retry 已完成）——任务
-            # 已达成，retry 返回该 attempt 而不是再烧一次。
+            # 同 root 已有**其他** attempt 成功（如 auto retry 已完成）——
+            # 任务已达成，retry 返回该 attempt 而不是再烧一次。retry
+            # 成功单本身（用户要重跑）是合法新 attempt，不在此列。
             succeeded = self._conn.execute(
                 "SELECT a.attempt_id FROM worker_attempts a "
                 "JOIN work_orders w ON w.work_order_id = a.attempt_id "
-                "WHERE a.root_job_id = ? AND w.status = 'ACCEPTED'",
-                (root,),
+                "WHERE a.root_job_id = ? AND w.status = 'ACCEPTED' "
+                "AND a.attempt_id <> ?",
+                (root, order.work_order_id),
             ).fetchone()
             if succeeded is not None:
                 return (
