@@ -1,9 +1,9 @@
 """Practice distillation: turn raw events into structured knowledge.
 
-``PracticeDistiller`` reads a practice session's events and produces distilled
+``EpisodeFactExtractor`` reads a practice session's events and produces distilled
 artifacts such as body cognition, failure summaries, how-interventions,
 candidate policies, and promotion results. These artifacts can then be ingested
-into SeekDB by ``SeekDBIngestor``.
+into SeekDB by ``PracticeFactIngestor``.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ def _utc_now_iso() -> str:
 
 
 @dataclass
-class DistillationResult:
+class EpisodeFactBundle:
     practice_id: str
     session_id: str
     episode_id: str | None
@@ -42,13 +42,24 @@ class DistillationResult:
     artifact_refs: dict[str, str] = field(default_factory=dict)
 
 
-class PracticeDistiller:
-    """Distill raw practice events into knowledge artifacts."""
+class EpisodeFactExtractor:
+    """Extract the facts of what happened from a finished practice session.
+
+    Canonical name (PR-DF-04 / ADR-0010 §6): Practice owns *facts* —
+    episode summary, failure facts, body observations, intervention facts,
+    sim2real facts, candidate/promotion facts, artifact refs.  Deciding what
+    is worth *remembering* belongs to Memory (MemoryDistiller / WriteGate),
+    not here.  Output: :class:`EpisodeFactBundle`.
+    """
 
     def __init__(self, data_root: Path | str):
         self._data_root = Path(data_root)
         self._layout = PracticeLayout(self._data_root)
         self._artifact_store = ArtifactStore(self._data_root, layout=self._layout)
+
+    def extract(self, practice_id: str, **kwargs: Any) -> EpisodeFactBundle:
+        """Canonical verb (PR-DF-04): extract the EpisodeFactBundle."""
+        return self.distill(practice_id, **kwargs)
 
     def distill(
         self,
@@ -56,7 +67,7 @@ class PracticeDistiller:
         *,
         body_id: str | None = None,
         write_artifacts: bool = True,
-    ) -> DistillationResult:
+    ) -> EpisodeFactBundle:
         """Distill one practice session."""
         catalog = PracticeCatalog(self._layout.catalog_db_path)
         try:
@@ -103,8 +114,8 @@ class PracticeDistiller:
         episode_id: str | None,
         events: list[dict[str, Any]],
         body_id: str | None,
-    ) -> DistillationResult:
-        result = DistillationResult(
+    ) -> EpisodeFactBundle:
+        result = EpisodeFactBundle(
             practice_id=practice_id,
             session_id=session_id,
             episode_id=episode_id,
@@ -214,7 +225,7 @@ class PracticeDistiller:
             "contact_distribution": contact_distribution,
         }
 
-    def _write_distilled_artifacts(self, result: DistillationResult) -> None:
+    def _write_distilled_artifacts(self, result: EpisodeFactBundle) -> None:
         session_id = result.session_id
         episode_id = result.episode_id
 
@@ -277,3 +288,8 @@ class PracticeDistiller:
                 artifact_type="sim2real_deltas",
             )
             result.artifact_refs["sim2real_deltas"] = record.path
+
+
+# ADR-0010 compatibility aliases (PR-DF-04): pre-rename names.
+PracticeDistiller = EpisodeFactExtractor
+DistillationResult = EpisodeFactBundle

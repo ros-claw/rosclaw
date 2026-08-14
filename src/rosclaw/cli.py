@@ -3288,14 +3288,14 @@ def cmd_practice_verify_data(args: argparse.Namespace) -> int:
 
 def cmd_practice_distill(args: argparse.Namespace) -> int:
     """Distill raw practice events into knowledge artifacts."""
-    from rosclaw.practice.distiller import PracticeDistiller
+    from rosclaw.practice.distiller import EpisodeFactExtractor
 
     data_root = resolve_practice_data_root(getattr(args, "data_root", None))
     practice_id = args.practice_id
     body_id = getattr(args, "body_id", None)
     write_artifacts = not getattr(args, "no_artifacts", False)
 
-    distiller = PracticeDistiller(data_root)
+    distiller = EpisodeFactExtractor(data_root)
     try:
         result = distiller.distill(practice_id, body_id=body_id, write_artifacts=write_artifacts)
     except ValueError as e:
@@ -3330,14 +3330,14 @@ def cmd_practice_distill(args: argparse.Namespace) -> int:
 
 def cmd_practice_ingest_seekdb(args: argparse.Namespace) -> int:
     """Ingest a distilled practice session into SeekDB."""
-    from rosclaw.practice.seekdb_ingestor import SeekDBIngestor
+    from rosclaw.practice.seekdb_ingestor import PracticeFactIngestor
 
     data_root = resolve_practice_data_root(getattr(args, "data_root", None))
     practice_id = args.practice_id
 
     try:
         client = _practice_seekdb_client(args)
-        ingestor = SeekDBIngestor(data_root, seekdb_client=client)
+        ingestor = PracticeFactIngestor(data_root, seekdb_client=client)
     except Exception as e:
         print(f"[rosclaw-practice] SeekDB connection failed: {e}", file=sys.stderr)
         return 1

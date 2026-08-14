@@ -173,6 +173,9 @@ class PracticeLayout:
             manifest["status"]["reward"] = summary.reward
             manifest["status"]["failure_labels"] = summary.failure_labels
             manifest["seekdb"]["committed"] = summary.seekdb_committed
+            # PR-DF-04: session-close fact-pipeline observation (verify step)
+            if getattr(summary, "fact_verify", None) is not None:
+                manifest["fact_verify"] = summary.fact_verify
             if summary.mcap_path is not None:
                 manifest["artifacts"]["mcap"] = str(summary.mcap_path)
         path = self.manifest_path(session.practice_id)

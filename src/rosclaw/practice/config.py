@@ -191,3 +191,6 @@ class PracticeSummary:
     mcap_path: Path | None = None
     seekdb_committed: bool | None = None
     failure_labels: list[str] = field(default_factory=list)
+    # PR-DF-04: session-close fact-pipeline observation
+    # (verify passed/errors/warnings); None = verify did not run.
+    fact_verify: dict | None = None

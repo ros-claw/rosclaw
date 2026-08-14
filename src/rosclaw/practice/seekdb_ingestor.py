@@ -1,6 +1,6 @@
 """SeekDB ingestion for distilled ROSClaw Practice results.
 
-``SeekDBIngestor`` takes the output of ``PracticeDistiller`` (or distill a
+``PracticeFactIngestor`` takes the output of ``EpisodeFactExtractor`` (or distill a
 practice on demand) and writes the structured knowledge into the SeekDB
 Knowledge Plane. All writes are idempotent: repeating an ingestion with the
 same episode/failure/candidate/promotion IDs updates the existing records.
@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from rosclaw.memory.seekdb_client import InMemoryStructuredStore, StructuredStore
-from rosclaw.practice.distiller import DistillationResult, PracticeDistiller
+from rosclaw.practice.distiller import EpisodeFactBundle, EpisodeFactExtractor
 from rosclaw.practice.storage.catalog import PracticeCatalog
 from rosclaw.practice.storage.layout import PracticeLayout
 
@@ -51,11 +51,11 @@ def _iso_to_timestamp(value: str | float | int | None) -> float:
         return time.time()
 
 
-class SeekDBIngestor:
+class PracticeFactIngestor:
     """Ingest distilled practice results into SeekDB.
 
     Usage:
-        ingestor = SeekDBIngestor("/data/rosclaw/practice")
+        ingestor = PracticeFactIngestor("/data/rosclaw/practice")
         report = ingestor.ingest_practice("prac_...")
         ingestor.close()
     """
@@ -78,7 +78,7 @@ class SeekDBIngestor:
         if self._owns_connection:
             self._client.disconnect()
 
-    def __enter__(self) -> SeekDBIngestor:
+    def __enter__(self) -> PracticeFactIngestor:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
@@ -88,7 +88,7 @@ class SeekDBIngestor:
         self,
         practice_id: str,
         *,
-        distillation_result: DistillationResult | None = None,
+        distillation_result: EpisodeFactBundle | None = None,
         robot_id: str | None = None,
         task_id: str | None = None,
     ) -> IngestionReport:
@@ -105,7 +105,7 @@ class SeekDBIngestor:
             task_id = task_id or practice.get("task_id") or practice.get("task_name")
 
             if distillation_result is None:
-                distiller = PracticeDistiller(self._data_root)
+                distiller = EpisodeFactExtractor(self._data_root)
                 distillation_result = distiller.distill(practice_id, write_artifacts=False)
 
             report = IngestionReport(
@@ -432,3 +432,7 @@ class SeekDBIngestor:
             "metadata": metadata or {},
         }
         return self._client.insert("artifacts", record)
+
+
+# ADR-0010 compatibility alias (PR-DF-04): pre-rename name.
+SeekDBIngestor = PracticeFactIngestor

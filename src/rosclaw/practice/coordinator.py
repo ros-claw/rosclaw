@@ -19,7 +19,7 @@ from rosclaw.practice.artifact_store import ArtifactStore
 from rosclaw.practice.config import PracticeConfig, PracticeSession, PracticeSummary
 from rosclaw.practice.ids import generate_episode_id, generate_session_id
 from rosclaw.practice.schemas import PracticeEventEnvelope
-from rosclaw.practice.seekdb_ingestor import SeekDBIngestor
+from rosclaw.practice.seekdb_ingestor import PracticeFactIngestor
 from rosclaw.practice.storage.catalog import PracticeCatalog
 from rosclaw.practice.storage.layout import PracticeLayout, generate_practice_id
 from rosclaw.practice.writers.jsonl_writer import JsonlWriter
@@ -387,8 +387,14 @@ class PracticeCoordinator(LifecycleMixin):
                 except Exception as e:
                     logger.error("Failed to insert episode into catalog v2: %s", e)
 
-                # Auto-ingest into SeekDB when a SQL DSN is configured so the
-                # Knowledge Plane is populated immediately after a session finishes.
+                # PR-DF-04 (data flywheel §19): session close runs the fact
+                # pipeline as one observable chain —
+                #   verify raw data → extract facts → structured ingest.
+                # Verification is recorded on the summary and never blocks
+                # the close; a failed verification still ingests (the facts
+                # say what the data showed, including its defects) but the
+                # report is there for ``practice verify``/doctor to surface.
+                self._verify_session_facts()
                 if seekdb_sql_enabled:
                     try:
                         report = self._ingest_seekdb()
@@ -678,17 +684,44 @@ class PracticeCoordinator(LifecycleMixin):
 
         return StoreFactory.create_structured_store(url=url)
 
+    def _verify_session_facts(self) -> Any:
+        """Verify raw session data at close (PR-DF-04): idempotent, non-blocking,
+        observable.  Returns the VerificationReport or None on any failure."""
+        if self._session is None:
+            return None
+        try:
+            from rosclaw.practice.verifier import PracticeVerifier
+
+            report = PracticeVerifier(self.config.data_root).verify(self._session.practice_id)
+            errors = sum(1 for i in report.issues if i.level == "error")
+            warnings = sum(1 for i in report.issues if i.level == "warning")
+            if self._summary is not None:
+                self._summary.fact_verify = {
+                    "passed": report.passed,
+                    "errors": errors,
+                    "warnings": warnings,
+                }
+            if not report.passed:
+                logger.warning(
+                    "Session %s fact-verify: %d errors, %d warnings",
+                    self._session.practice_id, errors, warnings,
+                )
+            return report
+        except Exception as exc:  # noqa: BLE001
+            logger.info("Session fact-verify unavailable: %s", exc)
+            return None
+
     def _ingest_seekdb(self) -> Any:
-        """Distill and ingest the current session into SeekDB."""
-        from rosclaw.practice.distiller import PracticeDistiller
+        """Extract facts and ingest the current session into SeekDB."""
+        from rosclaw.practice.distiller import EpisodeFactExtractor
 
         client = self._make_seekdb_client()
         if client is None:
             raise ValueError("SeekDB enabled but no URL configured")
         if self._session is None:
             raise ValueError("No active session to ingest")
-        distiller = PracticeDistiller(self.config.data_root)
-        ingestor = SeekDBIngestor(
+        distiller = EpisodeFactExtractor(self.config.data_root)
+        ingestor = PracticeFactIngestor(
             self.config.data_root,
             seekdb_client=client,
             layout=self.layout,
