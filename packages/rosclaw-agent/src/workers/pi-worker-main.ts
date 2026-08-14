@@ -12,7 +12,7 @@
  * PATH 上的 pi、不加载项目资源。
  */
 
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { writeSync } from "node:fs";
 
 import { buildSystemPrompt, profileFor } from "./profiles.js";
@@ -382,17 +382,113 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 			}
 		});
 
-		// SIGTERM/SIGINT：abort 当前 turn（attempt_cancelled 由父 supervisor
-		// 在进程真正退出后落账——这里尽力 abort，保证 2s 级退出）。
+		// 十四审 PR-14.1：SIGTERM/SIGINT 不再静默映射 exit 130。
+		// prompt 进行中：记录 signal 原因并 abort（prompt 返回后按
+		// SIGNAL_UNKNOWN 落 termination.json——supervisor 据此判
+		// INTERRUPTED_RESUMABLE 而非 FAILED）；空闲（PAUSED 等待中）：
+		// 直接落 AGENTD_SHUTDOWN 并退出（信号即关闭意图）。
+		let inPrompt = false;
+		let abortReason: "pause" | "cancel" | "signal" | null = null;
 		const abort = () => {
-			void session.abort().catch(() => undefined);
+			if (inPrompt) {
+				abortReason = abortReason ?? "signal";
+				void session.abort().catch(() => undefined);
+			} else {
+				writeTermination("AGENTD_SHUTDOWN", "signal while idle", 143);
+				process.exit(143);
+			}
 		};
 		process.on("SIGTERM", abort);
 		process.on("SIGINT", abort);
 
-		// 十审 W4：stdin steer 通道——supervisor 写入单行 JSON
-		// {type:"steer", text} 即转向运行中的 Worker（custom 消息，
-		// 不冒充用户输入）。
+		// termination.json——终态原因唯一权威（总纲 §3.4）。原子写
+		// （tmp+rename）；exit code 只是 Unix 表象，不得当语义。
+		const workDir = envelope.artifacts_dir
+			? `${envelope.artifacts_dir}/..`
+			: `${envelope.cwd}/.rosclaw-work`;
+		function writeTermination(cause: string, detail: string, exitCode: number) {
+			try {
+				const payload = JSON.stringify({
+					schema_version: "rosclaw.worker_termination.v1",
+					cause,
+					detail: redactText(detail).slice(0, 500),
+					exit_code: exitCode,
+					session_file: sessionManager.getSessionFile() ?? "",
+					at: new Date().toISOString(),
+				});
+				writeFileSync(`${workDir}/termination.json.tmp`, payload, "utf-8");
+				renameSync(
+					`${workDir}/termination.json.tmp`,
+					`${workDir}/termination.json`,
+				);
+			} catch {
+				// termination 落盘失败不阻塞退出（supervisor 按 SIGNAL_UNKNOWN 兜底）
+			}
+			emit(wo, att, "termination", { cause, exit_code: exitCode });
+		}
+
+		// 十四审 PR-14.1：WorkerSessionHost 控制状态机（总纲 §3.3）。
+		// RUNNING → PAUSE_REQUESTED →（模型循环真实停止后）PAUSED →
+		// resume → RUNNING（同一 session 继续）。只有 cancel 产生
+		// CANCELLED；pause 后进程必须存活等待控制消息。
+		type HostState = "RUNNING" | "PAUSE_REQUESTED" | "PAUSED";
+		let hostState: HostState = "RUNNING";
+		const pendingPauseIds: string[] = [];
+		let resumeWaiter: (() => void) | null = null;
+		const ack = (controlId: string, state: string) => {
+			emit(wo, att, "control.ack", {
+				control_id: controlId,
+				state,
+				session_id: sessionManager.getSessionFile() ?? "",
+			});
+		};
+		const requestPause = (controlId: string) => {
+			if (hostState === "PAUSED") {
+				ack(controlId, "PAUSED");
+				return;
+			}
+			if (hostState === "PAUSE_REQUESTED") {
+				pendingPauseIds.push(controlId);
+				ack(controlId, "PAUSE_REQUESTED");
+				return;
+			}
+			hostState = "PAUSE_REQUESTED";
+			ack(controlId, "PAUSE_REQUESTED");
+			if (inPrompt) {
+				pendingPauseIds.push(controlId);
+				abortReason = "pause";
+				void session.abort().catch(() => undefined);
+			} else {
+				hostState = "PAUSED";
+				ack(controlId, "PAUSED");
+			}
+		};
+		const requestResume = (controlId: string) => {
+			if (hostState !== "PAUSED") {
+				ack(controlId, "RUNNING");
+				return;
+			}
+			hostState = "RUNNING";
+			ack(controlId, "RUNNING");
+			resumeWaiter?.();
+		};
+		const requestCancel = (controlId: string) => {
+			abortReason = "cancel";
+			if (inPrompt) {
+				ack(controlId, "CANCELLED");
+				void session.abort().catch(() => undefined);
+			} else {
+				// PAUSED/空闲：无 prompt 可 abort——直接按用户取消终止。
+				ack(controlId, "CANCELLED");
+				emit(wo, att, "attempt_cancelled", { usage });
+				writeTermination("USER_CANCELLED", "cancel while paused", 130);
+				process.exit(130);
+			}
+		};
+
+		// stdin 控制通道——supervisor 写入单行 JSON。新协议
+		// control.request（带 control_id，必须 ACK）；legacy pause/extend
+		// 映射进同一状态机（extend = 预算追加 + resume）。
 		process.stdin.setEncoding("utf-8");
 		let stdinBuf = "";
 		process.stdin.on("data", (chunk: string) => {
@@ -402,18 +498,24 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 			for (const line of lines) {
 				if (!line.trim()) continue;
 				try {
-					const msg = JSON.parse(line) as { type?: string; text?: string };
-					if (msg.type === "pause") {
-						// 十三审：BUDGET_PAUSED——abort 当前 turn，进程
-						// 存活等待 extend（session/上下文保留）。
-						void session.abort().then(() => {
-							emit(wo, att, "paused", {});
-						}).catch(() => undefined);
+					const msg = JSON.parse(line) as {
+						type?: string;
+						text?: string;
+						control_id?: string;
+						action?: string;
+					};
+					if (msg.type === "control.request" && msg.action) {
+						const cid = msg.control_id || `ctl_${Date.now()}`;
+						if (msg.action === "pause") requestPause(cid);
+						else if (msg.action === "resume") requestResume(cid);
+						else if (msg.action === "cancel") requestCancel(cid);
+					} else if (msg.type === "pause") {
+						// legacy（无 control_id）——同一状态机。
+						requestPause(`ctl_legacy_${Date.now()}`);
 					} else if (msg.type === "extend") {
-						// 预算追加——继续同一会话。
+						// 预算追加——resume 同一会话（若未暂停则空操作 ACK）。
 						emit(wo, att, "extended", { add_tokens: (msg as { add_tokens?: number }).add_tokens ?? 0 });
-						void session.prompt("预算已追加。继续之前的任务——从当前状态接着做，不要从零开始。")
-							.catch(() => undefined);
+						requestResume(`ctl_extend_${Date.now()}`);
 					} else if (msg.type === "answer" && msg.text !== undefined) {
 						const waiter = (globalThis as Record<string, unknown>).__rosclawAnswerWaiter as
 							| { resolve(text: string): void }
@@ -453,49 +555,106 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 		const resumePrefix = envelope.resume_session_file
 			? "这是同一任务的中断恢复（同一 Pi 会话——你的工具历史与上下文还在）。从上次中断处继续；不要从零开始。\n\n"
 			: "";
-		const task =
+		const firstTask =
 			resumePrefix +
 			`WorkOrder goal: ${envelope.goal}\n\n` +
 			`Instructions: ${envelope.instructions || envelope.goal}\n\n` +
 			"Deliverable: a concise final report as plain text (facts verified " +
 			"with your tools, with concrete paths/line numbers where relevant)." +
 			dod;
-		await session.prompt(task);
+		// WorkerSessionHost 主循环（总纲 §3.3）：prompt 返回不是进程终点；
+		// aborted+pause → PAUSED 等待控制；只有完成/失败/取消/信号才退出。
+		let nextPrompt = firstTask;
+		let exitCode: number | null = null;
+		while (exitCode === null) {
+			if (hostState === "PAUSED") {
+				// 进程存活等待 resume/cancel（控制通道与 transcript 保持）。
+				await new Promise<void>((resolve) => {
+					resumeWaiter = () => {
+						resumeWaiter = null;
+						resolve();
+					};
+				});
+				nextPrompt =
+					"控制通道已恢复。继续之前的任务——从当前状态接着做，不要从零开始。";
+			}
+			abortReason = null;
+			stopReason = "";
+			errorMessage = "";
+			inPrompt = true;
+			try {
+				await session.prompt(nextPrompt);
+			} catch (promptErr) {
+				errorMessage = `${(promptErr as Error).name}: ${(promptErr as Error).message}`;
+			}
+			inPrompt = false;
+			// 自审修复：session 文件在首个条目写入后才存在——每个 prompt
+			// 边界回告真实路径（resume 才能拿到有效 checkpoint）。
+			emit(wo, att, "session_persisted", {
+				session_file: sessionManager.getSessionFile() ?? "",
+			});
+
+			if (providerTimedOut) {
+				emit(wo, att, "attempt_failed", {
+					error_code: "PROVIDER_TIMEOUT",
+					message: `单个模型请求超过 ${Math.round(providerTimeoutMs / 1000)}s`,
+					usage,
+				});
+				writeTermination("PROVIDER_TRANSIENT", "provider turn timeout", 1);
+				exitCode = 1;
+				break;
+			}
+			if (stopReason === "aborted") {
+				if (abortReason === "pause") {
+					// 模型循环真实停止——现在才可 ACK PAUSED（进程存活）。
+					hostState = "PAUSED";
+					for (const cid of pendingPauseIds.splice(0)) ack(cid, "PAUSED");
+					emit(wo, att, "paused", {});
+					continue;
+				}
+				if (abortReason === "cancel") {
+					// 只有用户取消产生 CANCELLED。
+					emit(wo, att, "attempt_cancelled", { usage });
+					writeTermination("USER_CANCELLED", "cancel requested", 130);
+					exitCode = 130;
+					break;
+				}
+				// 信号/未知 abort：不是取消也不是失败——中断可恢复。
+				emit(wo, att, "attempt_cancelled", { usage, reason: "signal" });
+				writeTermination("SIGNAL_UNKNOWN", "aborted without control request", 130);
+				exitCode = 130;
+				break;
+			}
+			if (stopReason === "error" || errorMessage) {
+				const transient =
+					/timeout|timed out|429|5\d\d|ECONNRESET|ETIMEDOUT|ENOTFOUND|rate.?limit|overloaded/i.test(
+						errorMessage,
+					);
+				emit(wo, att, "attempt_failed", {
+					error_code: "MODEL_ERROR",
+					message: errorMessage || stopReason,
+					usage,
+				});
+				writeTermination(
+					transient ? "PROVIDER_TRANSIENT" : "PROVIDER_FATAL",
+					errorMessage || stopReason,
+					1,
+				);
+				exitCode = 1;
+				break;
+			}
+			emit(wo, att, "attempt_finished", {
+				report: finalTextOf(messages),
+				usage,
+				model: snapshot ? `${snapshot.provider}/${snapshot.model}` : undefined,
+			});
+			writeTermination("COMPLETED", "", 0);
+			exitCode = 0;
+		}
 		unsubscribe();
 		clearInterval(livenessTimer);
 		clearInterval(providerTimer);
-		// 自审修复：session 文件在首个条目写入后才存在——终态再回告
-		// 一次真实路径（否则 resume 可能拿到空 checkpoint）。
-		emit(wo, att, "session_persisted", {
-			session_file: sessionManager.getSessionFile() ?? "",
-		});
-
-		if (providerTimedOut) {
-			emit(wo, att, "attempt_failed", {
-				error_code: "PROVIDER_TIMEOUT",
-				message: `单个模型请求超过 ${Math.round(providerTimeoutMs / 1000)}s`,
-				usage,
-			});
-			return 1;
-		}
-		if (stopReason === "aborted") {
-			emit(wo, att, "attempt_cancelled", { usage });
-			return 130;
-		}
-		if (stopReason === "error" || errorMessage) {
-			emit(wo, att, "attempt_failed", {
-				error_code: "MODEL_ERROR",
-				message: errorMessage || stopReason,
-				usage,
-			});
-			return 1;
-		}
-		emit(wo, att, "attempt_finished", {
-			report: finalTextOf(messages),
-			usage,
-			model: snapshot ? `${snapshot.provider}/${snapshot.model}` : undefined,
-		});
-		return 0;
+		return exitCode;
 	} catch (err) {
 		// 十二审 HOTFIX-12.1：错误分类——provider 消息 shape/协议问题
 		// 是 ADAPTER_PROTOCOL_ERROR（同版本盲重试无意义），不是 MODEL_ERROR。
@@ -507,6 +666,28 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 			error_code: isProtocol ? "ADAPTER_PROTOCOL_ERROR" : "WORKER_CRASH",
 			message: `${e.name}: ${e.message}`,
 		});
+		// 十四审：崩溃也要落 termination.json（WORKER_CRASH）——try 内的
+		// writeTermination 此处不可见，内联原子写兜底。
+		try {
+			const dir = envelope.artifacts_dir
+				? `${envelope.artifacts_dir}/..`
+				: `${envelope.cwd}/.rosclaw-work`;
+			writeFileSync(
+				`${dir}/termination.json.tmp`,
+				JSON.stringify({
+					schema_version: "rosclaw.worker_termination.v1",
+					cause: "WORKER_CRASH",
+					detail: `${e.name}: ${e.message}`.slice(0, 500),
+					exit_code: 1,
+					session_file: "",
+					at: new Date().toISOString(),
+				}),
+				"utf-8",
+			);
+			renameSync(`${dir}/termination.json.tmp`, `${dir}/termination.json`);
+		} catch {
+			// 落盘失败不阻塞退出
+		}
 		return 1;
 	}
 }

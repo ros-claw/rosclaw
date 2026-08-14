@@ -459,6 +459,17 @@ class PiToolDispatcher:
                 "hard_deadline_sec 需要显式权威来源（user/benchmark/admin_policy）"
                 "——Worker 有进度就让它继续；wall 时间只是观察指标",
             )
+        # 十四审 PR-14.1（§3.1）：cost_hard_limit 是唯一可暂停进程的预算
+        # 手段——同样需要显式 user/admin_policy 权威；模型自报的
+        # model_tokens 只是遥测，绝不控制进程。
+        if exec_policy.get("cost_hard_limit_tokens") and exec_policy.get(
+            "cost_hard_limit_source"
+        ) not in ("user", "admin_policy"):
+            raise ToolBridgeError(
+                "COST_LIMIT_AUTHORITY_REQUIRED",
+                "cost_hard_limit_tokens 需要显式权威来源（user/admin_policy）"
+                "——token soft target 只做提示，不改变进程状态",
+            )
         # 十二审 PR-12.4：WorkSpecV2——任务类型驱动验收（deliverables
         # 覆盖 profile 默认工件类型）。
         task_type = str(args.get("task_type") or (

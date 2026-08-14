@@ -24,6 +24,9 @@ WORK_ORDER_STATES = (
     "UNREACHABLE",
     "INTERRUPTED_RESUMABLE",
     "BUDGET_PAUSED",
+    # 十四审：控制请求已发未 ACK（不得乐观落 PAUSED）；用户暂停。
+    "PAUSE_REQUESTED",
+    "PAUSED",
     "SUBMITTED",
     "VERIFYING",
     "ACCEPTED",

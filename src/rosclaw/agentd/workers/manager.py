@@ -42,6 +42,7 @@ _RUN_TRANSITIONS: dict[str, frozenset[str]] = {
     "RUNNING": frozenset({
         "SUBMITTED", "FAILED", "EXPIRED", "CANCELLED", "BLOCKED",
         "UNREACHABLE", "INTERRUPTED_RESUMABLE", "BUDGET_PAUSED",
+        "PAUSE_REQUESTED", "PAUSED",
     }),
     "SUBMITTED": frozenset({"VERIFYING", "FAILED"}),
     "VERIFYING": frozenset({"ACCEPTED", "FAILED"}),
@@ -51,6 +52,12 @@ _RUN_TRANSITIONS: dict[str, frozenset[str]] = {
     ),
     "INTERRUPTED_RESUMABLE": frozenset({"RUNNING", "FAILED", "CANCELLED"}),
     "BUDGET_PAUSED": frozenset({"RUNNING", "CANCELLED", "FAILED"}),
+    # 十四审：PAUSE_REQUESTED 只在 ACK 前存在——ACK 后 PAUSED/BUDGET_PAUSED，
+    # ACK 失败回 RUNNING；用户取消任何时刻合法。
+    "PAUSE_REQUESTED": frozenset(
+        {"PAUSED", "BUDGET_PAUSED", "RUNNING", "CANCELLED", "FAILED"}
+    ),
+    "PAUSED": frozenset({"RUNNING", "CANCELLED", "FAILED", "INTERRUPTED_RESUMABLE"}),
     "FAILED": frozenset(),
     "EXPIRED": frozenset(),
     "CANCELLED": frozenset(),

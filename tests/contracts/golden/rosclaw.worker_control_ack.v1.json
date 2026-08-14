@@ -1,0 +1,43 @@
+{
+  "additionalProperties": true,
+  "description": "worker → supervisor（stdout WorkerEvent kind=control.ack）。\n\nstate=PAUSED 表示模型循环已真实停止且进程存活等待 resume——\n只有此时 supervisor 才可落 PAUSED/BUDGET_PAUSED。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.worker_control_ack.v1",
+      "default": "rosclaw.worker_control_ack.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "control_id": {
+      "title": "Control Id",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "PAUSE_REQUESTED",
+        "PAUSED",
+        "RUNNING",
+        "CANCELLED"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "session_id": {
+      "default": "",
+      "title": "Session Id",
+      "type": "string"
+    },
+    "detail": {
+      "default": "",
+      "title": "Detail",
+      "type": "string"
+    }
+  },
+  "required": [
+    "control_id",
+    "state"
+  ],
+  "title": "rosclaw.worker_control_ack.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.worker_control_ack.v1"
+}

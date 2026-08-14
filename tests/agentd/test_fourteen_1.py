@@ -74,30 +74,32 @@ async def _hire(service, mission, tmp_path, fake, monkeypatch, *, wall=60, polic
 
 #: 新控制协议的 fake worker：pause → ACK PAUSED 并空转等待；resume →
 #: ACK RUNNING 并完成。关键：pause 后进程必须活着（Gate 0）。
+#: 注意：stdin 读取者必须在前台（POSIX sh 后台任务 stdin 是 /dev/null）。
 _FAKE_CONTROL = """#!/bin/sh
 echo '{"kind":"attempt_started"}'
 echo '{"kind":"usage","input_tokens":600,"output_tokens":200}'
 (
-  while IFS= read -r line; do
-    case "$line" in
-      *'"action":"pause"'*)
-        cid=$(echo "$line" | sed -n 's/.*"control_id":"\\([^"]*\\)".*/\\1/p')
-        echo "{\\"kind\\":\\"control.ack\\",\\"control_id\\":\\"$cid\\",\\"state\\":\\"PAUSED\\"}"
-        ;;
-      *'"action":"resume"'*)
-        cid=$(echo "$line" | sed -n 's/.*"control_id":"\\([^"]*\\)".*/\\1/p')
-        echo "{\\"kind\\":\\"control.ack\\",\\"control_id\\":\\"$cid\\",\\"state\\":\\"RUNNING\\"}"
-        echo '{"kind":"attempt_finished","report":"同会话继续并完成"}'
-        exit 0
-        ;;
-    esac
+  i=0
+  while [ $i -lt 20 ]; do
+    echo '{"kind":"liveness","phase":"RUNNING_MODEL"}'
+    sleep 0.5
+    i=$((i+1))
   done
 ) &
-for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-  echo '{"kind":"liveness","phase":"RUNNING_MODEL"}'
-  sleep 0.5
+while IFS= read -r line; do
+  case "$line" in
+    *'"action": "pause"'*)
+      cid=$(echo "$line" | sed -n 's/.*"control_id": "\\([^"]*\\)".*/\\1/p')
+      echo "{\\"kind\\":\\"control.ack\\",\\"control_id\\":\\"$cid\\",\\"state\\":\\"PAUSED\\"}"
+      ;;
+    *'"action": "resume"'*)
+      cid=$(echo "$line" | sed -n 's/.*"control_id": "\\([^"]*\\)".*/\\1/p')
+      echo "{\\"kind\\":\\"control.ack\\",\\"control_id\\":\\"$cid\\",\\"state\\":\\"RUNNING\\"}"
+      echo '{"kind":"attempt_finished","report":"同会话继续并完成"}'
+      exit 0
+      ;;
+  esac
 done
-wait
 """
 
 
@@ -127,9 +129,8 @@ class TestSoftTokenNeverPauses:
         result, report = await service._worker_manager.run_to_completion(scheduled)
         assert result.status == "COMPLETED", result.summary
         # 警告存在、暂停不存在。
-        events = service._worker_manager._events.tail(
-            scheduled.work_order_id, limit=500
-        )
+        adapter = service._worker_manager._adapters["pi_managed"]
+        events = adapter._events.tail(scheduled.work_order_id, limit=500)
         kinds = [e["kind"] for e in events]
         assert "budget_warning" in kinds
         assert "budget_paused" not in kinds
@@ -157,7 +158,7 @@ class TestControlProtocolAck:
         )
         # 等 attempt_started 出现（进程起来了）。
         for _ in range(100):
-            if service._worker_manager._events.tail(scheduled.work_order_id):
+            if service._worker_manager._adapters["pi_managed"]._events.tail(scheduled.work_order_id):
                 break
             await asyncio.sleep(0.05)
         # pause：ACK 语义——返回 True 时 worker 必须已确认 PAUSED。
@@ -197,7 +198,7 @@ class TestControlProtocolAck:
             service._worker_manager.run_to_completion(scheduled)
         )
         for _ in range(100):
-            if service._worker_manager._events.tail(scheduled.work_order_id):
+            if service._worker_manager._adapters["pi_managed"]._events.tail(scheduled.work_order_id):
                 break
             await asyncio.sleep(0.05)
         assert not await adapter.request_pause(scheduled.work_order_id, reason="user")
@@ -249,7 +250,7 @@ class TestTerminationCause:
             'echo \'{"kind":"attempt_failed","error_code":"MODEL_ERROR",'
             '"message":"provider 401 unauthorized"}\'\n'
             # 原子写 termination.json（work/<wo>/termination.json）。
-            "TERM_DIR=$(dirname \"$(dirname \"$0\")\")/work\n"
+            "TERM_DIR=$(dirname \"$0\")/work\n"
             "for d in \"$TERM_DIR\"/wo_*; do\n"
             '  echo \'{"cause":"PROVIDER_FATAL","detail":"provider 401"}\''
             ' > "$d/termination.json.tmp"\n'
