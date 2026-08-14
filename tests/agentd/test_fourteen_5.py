@@ -194,11 +194,18 @@ class TestOrphanCleanup:
         service, mission = await _setup(tmp_path)
         wo = new_id("wo")
         # 忽略 SIGTERM 且自身存活的顽固孤儿——必须 SIGKILL 收场。
+        # ready 文件同步 trap 安装（否则启动竞态下 SIGTERM 先到=-15 偶发）。
+        ready = tmp_path / "trap-ready"
         proc = subprocess.Popen(
-            ["sh", "-c", "trap '' TERM; while true; do sleep 1; done"],
+            ["sh", "-c", f"trap '' TERM; touch {ready}; while true; do sleep 1; done"],
             start_new_session=True,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
+        for _ in range(100):
+            if ready.exists():
+                break
+            time.sleep(0.05)
+        assert ready.exists(), "stubborn 进程未就绪"
         work_dir = tmp_path / "work" / wo
         work_dir.mkdir(parents=True, exist_ok=True)
         (work_dir / "child.pid").write_text(f"{proc.pid}\n", encoding="utf-8")
