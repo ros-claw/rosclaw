@@ -7,6 +7,7 @@ export const CATALOG_ZH = {
 	"chrome.kernel": "内核",
 	"chrome.context": "上下文",
 	"chrome.operator": "操作员",
+	"chrome.sim_auto": "SIM 自动",
 	"chrome.action": "动作",
 	"chrome.unbound": "未绑定 Mission · /help 查看命令",
 	"chrome.no_model": "未选模型",

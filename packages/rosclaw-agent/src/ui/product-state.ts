@@ -75,7 +75,7 @@ export function renderHeader(
 		state.context_state === "FRESH"
 			? `${t("chrome.context", locale)} ${contextState} r${state.context_revision}`
 			: `${t("chrome.context", locale)} ${contextState}`;
-	const operator = `${t("chrome.operator", locale)} ${t(`state.${state.operator}` as never, locale)}`;
+	const operator = renderOperator(state, locale);
 	const kernel =
 		state.kernel === "READY"
 			? ""
@@ -87,6 +87,23 @@ export function renderHeader(
 	return `${line1}\n${line2}`;
 }
 
+/** 十四审 PR-14.7（§1.9）：纯 SIM 任务中 Operator 状态降为次要
+ *  信息——"Operator Offline" 不应在 SIM 自动执行场景造成紧张或
+ *  暗示需要人工审批；只有 REAL/涉及操作员的动作时才突出。 */
+function renderOperator(state: KernelSnapshotV1, locale: EffectiveLocale): string {
+	const readiness = state.action_readiness as
+		| { state?: string; reason_codes?: string[] }
+		| undefined;
+	const operatorInvolved =
+		state.mode !== "SIMULATION"
+		|| readiness?.state === "BLOCKED"
+		|| (readiness?.reason_codes ?? []).some((c) => c.includes("OPERATOR"));
+	if (!operatorInvolved) {
+		return t("chrome.sim_auto", locale);
+	}
+	return `${t("chrome.operator", locale)} ${t(`state.${state.operator}` as never, locale)}`;
+}
+
 /** Footer：与 Header 同一快照——model/mode/operator 绝不分叉。 */
 export function renderFooter(
 	state: KernelSnapshotV1,
@@ -96,7 +113,7 @@ export function renderFooter(
 	const parts = [
 		model,
 		t(`mode.${state.mode}` as never, locale),
-		`${t("chrome.operator", locale)} ${t(`state.${state.operator}` as never, locale)}`,
+		renderOperator(state, locale),
 	];
 	if (state.kernel !== "READY") {
 		parts.push(`${t("chrome.kernel", locale)} ${t(`state.${state.kernel}` as never, locale)}`);

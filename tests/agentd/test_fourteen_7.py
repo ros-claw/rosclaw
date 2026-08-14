@@ -26,17 +26,34 @@ class TestDeadlineLabel:
         """soft target 是'预计/提醒阈值'，不是 Deadline（§1.9）。"""
         service, mission = await _setup(tmp_path)
         dispatcher = PiToolDispatcher(service)
+        # 慢 worker 强制走 STARTED 摘要路径（快任务会同步完成）。
+        from tests.agentd.test_ten_w0 import _register_stub, _slow_adapter_module
+
+        stub = _slow_adapter_module()()
+        _register_stub(
+            service, stub, worker_id="worker:stub:slow",
+            adapter_type="process_stdio",
+        )
         result = await dispatcher.execute(
             _request(
                 "rosclaw_delegate",
                 mission=mission.mission_id,
                 idem="idem_147_label",
-                arguments={"goal": "快任务", "worker_id": "auto"},
+                arguments={"goal": "慢任务", "worker_id": "worker:stub:slow"},
             )
         )
-        assert result.ok
+        assert result.ok and result.status == "STARTED", result.summary
         assert "Deadline" not in result.summary, result.summary
         assert "提醒阈值" in result.summary or "预计" in result.summary
+        wo = result.summary.split("WorkOrder: ")[1].split("\n")[0]
+        await dispatcher.execute(
+            _request(
+                "rosclaw_cancel_work",
+                mission=mission.mission_id,
+                idem="idem_147_cancel",
+                arguments={"work_order_id": wo},
+            )
+        )
         await service.close()
 
 
@@ -49,8 +66,9 @@ class TestWarningsRouting:
         from rosclaw.agentd.cli import _route_internal_diagnostics_to_log
 
         _route_internal_diagnostics_to_log(tmp_path, debug=False)
+        # 不重置过滤器（simplefilter 会覆盖路由安装的 ignore 规则——
+        # 真实启动路径没有 simplefilter 调用）。
         with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
             warnings.warn(
                 "Field `model_dump_json` has an incomplete definition",
                 UserWarning,
@@ -68,12 +86,12 @@ class TestWarningsRouting:
 
         from rosclaw.agentd import cli
 
-        source = inspect.getsource(cli)
-        # serve 路径（create_app 前）必须有路由调用。
-        assert "_route_internal_diagnostics_to_log" in source
-        serve_region = source.split("create_app(service)")[0]
-        assert serve_region.count("_route_internal_diagnostics_to_log(home") >= 3, (
-            "chat/legacy/pi 与 agentd serve 入口都必须安装诊断路由"
+        serve_src = inspect.getsource(cli.cmd_start)
+        assert "_route_internal_diagnostics_to_log" in serve_src, (
+            "agentd serve 入口（cmd_start）必须在 AgentService 前安装诊断路由"
+        )
+        assert serve_src.index("_route_internal_diagnostics_to_log") < serve_src.index(
+            "AgentService(config, home)"
         )
 
     def test_startup_imports_warning_clean(self) -> None:
