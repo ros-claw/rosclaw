@@ -1,0 +1,131 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.exact_action.v1",
+      "default": "rosclaw.exact_action.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "capability_id": {
+      "minLength": 1,
+      "title": "Capability Id",
+      "type": "string"
+    },
+    "capability_version": {
+      "default": "1.0.0",
+      "title": "Capability Version",
+      "type": "string"
+    },
+    "capability_source": {
+      "default": "",
+      "title": "Capability Source",
+      "type": "string"
+    },
+    "normalized_arguments": {
+      "additionalProperties": true,
+      "title": "Normalized Arguments",
+      "type": "object"
+    },
+    "arguments_hash": {
+      "title": "Arguments Hash",
+      "type": "string"
+    },
+    "authoritative_risk_tier": {
+      "enum": [
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "CRITICAL"
+      ],
+      "title": "Authoritative Risk Tier",
+      "type": "string"
+    },
+    "side_effect_class": {
+      "default": "IRREVERSIBLE",
+      "title": "Side Effect Class",
+      "type": "string"
+    },
+    "mission_id": {
+      "title": "Mission Id",
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "SIMULATION",
+        "SHADOW",
+        "REAL"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "body_id": {
+      "title": "Body Id",
+      "type": "string"
+    },
+    "body_hash": {
+      "title": "Body Hash",
+      "type": "string"
+    },
+    "context_revision": {
+      "title": "Context Revision",
+      "type": "integer"
+    },
+    "context_hash": {
+      "title": "Context Hash",
+      "type": "string"
+    },
+    "expected_effect": {
+      "default": "",
+      "title": "Expected Effect",
+      "type": "string"
+    },
+    "failure_handling": {
+      "default": "",
+      "title": "Failure Handling",
+      "type": "string"
+    },
+    "verification_plan": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Verification Plan",
+      "type": "array"
+    },
+    "executor_identity": {
+      "default": "",
+      "title": "Executor Identity",
+      "type": "string"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "expires_at": {
+      "title": "Expires At",
+      "type": "string"
+    },
+    "action_intent_hash": {
+      "title": "Action Intent Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "capability_id",
+    "normalized_arguments",
+    "arguments_hash",
+    "authoritative_risk_tier",
+    "mission_id",
+    "mode",
+    "body_id",
+    "body_hash",
+    "context_revision",
+    "context_hash",
+    "created_at",
+    "expires_at",
+    "action_intent_hash"
+  ],
+  "title": "rosclaw.exact_action.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.exact_action.v1"
+}

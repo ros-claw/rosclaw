@@ -1,0 +1,191 @@
+{
+  "$defs": {
+    "ExecutionClass": {
+      "description": "What kind of thing happens when this tool runs (大纲 §7.1).",
+      "enum": [
+        "OBSERVE",
+        "COMPUTE",
+        "PHYSICAL_ACTION"
+      ],
+      "title": "ExecutionClass",
+      "type": "string"
+    },
+    "ToolEvidenceClass": {
+      "enum": [
+        "MEASURED",
+        "SIMULATED",
+        "CONFIGURED",
+        "DERIVED"
+      ],
+      "title": "ToolEvidenceClass",
+      "type": "string"
+    },
+    "ToolSideEffectClass": {
+      "enum": [
+        "NONE",
+        "REVERSIBLE",
+        "IRREVERSIBLE"
+      ],
+      "title": "ToolSideEffectClass",
+      "type": "string"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.tool_descriptor.v2",
+      "default": "rosclaw.tool_descriptor.v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool_id": {
+      "minLength": 1,
+      "title": "Tool Id",
+      "type": "string"
+    },
+    "version": {
+      "default": "1.0.0",
+      "title": "Version",
+      "type": "string"
+    },
+    "source": {
+      "minLength": 1,
+      "title": "Source",
+      "type": "string"
+    },
+    "execution_class": {
+      "$ref": "#/$defs/ExecutionClass",
+      "default": "OBSERVE"
+    },
+    "side_effect_class": {
+      "$ref": "#/$defs/ToolSideEffectClass",
+      "default": "NONE"
+    },
+    "effect_domain": {
+      "default": "",
+      "title": "Effect Domain",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "input_schema": {
+      "additionalProperties": true,
+      "title": "Input Schema",
+      "type": "object"
+    },
+    "output_schema": {
+      "additionalProperties": true,
+      "title": "Output Schema",
+      "type": "object"
+    },
+    "supported_modes": {
+      "items": {
+        "enum": [
+          "SIMULATION",
+          "SHADOW",
+          "REAL"
+        ],
+        "type": "string"
+      },
+      "title": "Supported Modes",
+      "type": "array"
+    },
+    "required_body_types": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Body Types",
+      "type": "array"
+    },
+    "freshness_ms": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Freshness Ms"
+    },
+    "timeout_ms": {
+      "default": 2000,
+      "exclusiveMinimum": 0,
+      "title": "Timeout Ms",
+      "type": "integer"
+    },
+    "risk_tier": {
+      "default": "LOW",
+      "enum": [
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "CRITICAL"
+      ],
+      "title": "Risk Tier",
+      "type": "string"
+    },
+    "evidence_class": {
+      "$ref": "#/$defs/ToolEvidenceClass",
+      "default": "MEASURED"
+    },
+    "verifier": {
+      "default": "",
+      "title": "Verifier",
+      "type": "string"
+    },
+    "idempotent": {
+      "default": true,
+      "title": "Idempotent",
+      "type": "boolean"
+    },
+    "model_callable": {
+      "default": true,
+      "title": "Model Callable",
+      "type": "boolean"
+    },
+    "requires_exact_action_grant": {
+      "default": false,
+      "title": "Requires Exact Action Grant",
+      "type": "boolean"
+    },
+    "reliability": {
+      "default": 0.5,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Reliability",
+      "type": "number"
+    },
+    "typical_latency_ms": {
+      "default": 100,
+      "minimum": 0,
+      "title": "Typical Latency Ms",
+      "type": "integer"
+    },
+    "cost_hint": {
+      "default": 0.0,
+      "minimum": 0.0,
+      "title": "Cost Hint",
+      "type": "number"
+    },
+    "required_capabilities": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Capabilities",
+      "type": "array"
+    }
+  },
+  "required": [
+    "tool_id",
+    "source"
+  ],
+  "title": "rosclaw.tool_descriptor.v2",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.tool_descriptor.v2"
+}

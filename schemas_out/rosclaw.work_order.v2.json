@@ -1,0 +1,77 @@
+{
+  "additionalProperties": true,
+  "description": "Worker 工作单（§15.3）——无物理权限声明内置。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.work_order.v2",
+      "default": "rosclaw.work_order.v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "work_order_id": {
+      "title": "Work Order Id",
+      "type": "string"
+    },
+    "parent_task_id": {
+      "default": "",
+      "title": "Parent Task Id",
+      "type": "string"
+    },
+    "role": {
+      "default": "",
+      "title": "Role",
+      "type": "string"
+    },
+    "goal": {
+      "default": "",
+      "title": "Goal",
+      "type": "string"
+    },
+    "inputs": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Inputs",
+      "type": "array"
+    },
+    "deliverables": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Deliverables",
+      "type": "array"
+    },
+    "constraints": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Constraints",
+      "type": "array"
+    },
+    "budget": {
+      "additionalProperties": true,
+      "default": {},
+      "title": "Budget",
+      "type": "object"
+    },
+    "verification": {
+      "default": "kernel_review_required",
+      "title": "Verification",
+      "type": "string"
+    },
+    "physical_authority": {
+      "default": "NONE",
+      "title": "Physical Authority",
+      "type": "string"
+    }
+  },
+  "required": [
+    "work_order_id"
+  ],
+  "title": "rosclaw.work_order.v2",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.work_order.v2"
+}

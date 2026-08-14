@@ -1,0 +1,454 @@
+{
+  "$defs": {
+    "AuthorizationContextBinding": {
+      "additionalProperties": true,
+      "description": "Public scope only — signature and private permit stay in the broker.",
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.authorization_context_binding.v1",
+          "default": "rosclaw.authorization_context_binding.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "policy_hash": {
+          "title": "Policy Hash",
+          "type": "string"
+        },
+        "mission_grant_public_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mission Grant Public Hash"
+        }
+      },
+      "required": [
+        "policy_hash"
+      ],
+      "title": "AuthorizationContextBinding",
+      "type": "object"
+    },
+    "BodyContextBinding": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.body_context_binding.v1",
+          "default": "rosclaw.body_context_binding.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "body_id": {
+          "title": "Body Id",
+          "type": "string"
+        },
+        "effective_body_hash": {
+          "title": "Effective Body Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "body_id",
+        "effective_body_hash"
+      ],
+      "title": "BodyContextBinding",
+      "type": "object"
+    },
+    "ContextBudget": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.context_budget.v1",
+          "default": "rosclaw.context_budget.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "maximum_input_tokens": {
+          "default": 120000,
+          "title": "Maximum Input Tokens",
+          "type": "integer"
+        },
+        "used_tokens": {
+          "default": 0,
+          "title": "Used Tokens",
+          "type": "integer"
+        },
+        "truncation_events": {
+          "items": {
+            "$ref": "#/$defs/TruncationEvent"
+          },
+          "title": "Truncation Events",
+          "type": "array"
+        }
+      },
+      "title": "ContextBudget",
+      "type": "object"
+    },
+    "ContextLayers": {
+      "additionalProperties": true,
+      "description": "The nine layers of ADR-0005. L8 is the only untrusted layer.",
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.context_layers.v1",
+          "default": "rosclaw.context_layers.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "constitution": {
+          "$ref": "#/$defs/LayerRef"
+        },
+        "embodiment": {
+          "$ref": "#/$defs/LayerRef"
+        },
+        "dynamic_self": {
+          "$ref": "#/$defs/LayerRef"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/LayerRef"
+        },
+        "mission": {
+          "$ref": "#/$defs/LayerRef"
+        },
+        "memory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LayerRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "organization": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LayerRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "safety": {
+          "$ref": "#/$defs/LayerRef"
+        },
+        "untrusted_inputs": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LayerRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "constitution",
+        "embodiment",
+        "dynamic_self",
+        "capabilities",
+        "mission",
+        "safety"
+      ],
+      "title": "ContextLayers",
+      "type": "object"
+    },
+    "LayerRef": {
+      "additionalProperties": true,
+      "description": "One context layer: content hash plus either inline summary or refs.",
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.context_layer.v1",
+          "default": "rosclaw.context_layer.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "hash": {
+          "title": "Hash",
+          "type": "string"
+        },
+        "content_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Ref"
+        },
+        "inline_summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inline Summary"
+        },
+        "candidate_tools": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Candidate Tools"
+        },
+        "evidence_refs": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Refs"
+        },
+        "message_refs": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message Refs"
+        },
+        "token_estimate": {
+          "default": 0,
+          "title": "Token Estimate",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hash"
+      ],
+      "title": "LayerRef",
+      "type": "object"
+    },
+    "SelfBinding": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.self_binding.v1",
+          "default": "rosclaw.self_binding.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "self_snapshot_hash": {
+          "title": "Self Snapshot Hash",
+          "type": "string"
+        },
+        "sequence": {
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "observed_at": {
+          "title": "Observed At",
+          "type": "string"
+        },
+        "max_age_ms": {
+          "default": 500,
+          "title": "Max Age Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "self_snapshot_hash",
+        "sequence",
+        "observed_at"
+      ],
+      "title": "SelfBinding",
+      "type": "object"
+    },
+    "TeamBinding": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.team_binding.v1",
+          "default": "rosclaw.team_binding.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "team_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Team Id"
+        },
+        "epoch": {
+          "default": 0,
+          "title": "Epoch",
+          "type": "integer"
+        },
+        "world_revision": {
+          "default": 0,
+          "title": "World Revision",
+          "type": "integer"
+        }
+      },
+      "title": "TeamBinding",
+      "type": "object"
+    },
+    "TruncationEvent": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.truncation_event.v1",
+          "default": "rosclaw.truncation_event.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "layer": {
+          "title": "Layer",
+          "type": "string"
+        },
+        "dropped_tokens": {
+          "title": "Dropped Tokens",
+          "type": "integer"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "layer",
+        "dropped_tokens",
+        "reason"
+      ],
+      "title": "TruncationEvent",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.embodied_context.v1",
+      "default": "rosclaw.embodied_context.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "context_id": {
+      "title": "Context Id",
+      "type": "string"
+    },
+    "context_revision": {
+      "title": "Context Revision",
+      "type": "integer"
+    },
+    "compiled_at": {
+      "title": "Compiled At",
+      "type": "string"
+    },
+    "compiler_version": {
+      "default": "1.0.0",
+      "title": "Compiler Version",
+      "type": "string"
+    },
+    "mission_id": {
+      "title": "Mission Id",
+      "type": "string"
+    },
+    "body_binding": {
+      "$ref": "#/$defs/BodyContextBinding"
+    },
+    "self_binding": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SelfBinding"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "team_binding": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TeamBinding"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "authorization_binding": {
+      "$ref": "#/$defs/AuthorizationContextBinding"
+    },
+    "layers": {
+      "$ref": "#/$defs/ContextLayers"
+    },
+    "budget": {
+      "$ref": "#/$defs/ContextBudget"
+    },
+    "bundle_hash": {
+      "default": "",
+      "title": "Bundle Hash",
+      "type": "string"
+    },
+    "extra": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Extra"
+    }
+  },
+  "required": [
+    "context_id",
+    "context_revision",
+    "compiled_at",
+    "mission_id",
+    "body_binding",
+    "authorization_binding",
+    "layers"
+  ],
+  "title": "rosclaw.embodied_context.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.embodied_context.v1"
+}

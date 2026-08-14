@@ -1,0 +1,343 @@
+{
+  "$defs": {
+    "BudgetEnvelope": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.work_budgets.v1",
+          "default": "rosclaw.work_budgets.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "wall_time_sec": {
+          "default": 1800,
+          "title": "Wall Time Sec",
+          "type": "integer"
+        },
+        "model_tokens": {
+          "default": 150000,
+          "title": "Model Tokens",
+          "type": "integer"
+        },
+        "monetary_microunits": {
+          "default": 3000000,
+          "title": "Monetary Microunits",
+          "type": "integer"
+        },
+        "max_tool_calls": {
+          "default": 300,
+          "title": "Max Tool Calls",
+          "type": "integer"
+        },
+        "max_children": {
+          "default": 0,
+          "title": "Max Children",
+          "type": "integer"
+        }
+      },
+      "title": "BudgetEnvelope",
+      "type": "object"
+    },
+    "DataScope": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.work_data_scope.v1",
+          "default": "rosclaw.work_data_scope.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "readable_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Readable Paths",
+          "type": "array"
+        },
+        "writable_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Writable Paths",
+          "type": "array"
+        },
+        "memory_namespaces": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Memory Namespaces",
+          "type": "array"
+        }
+      },
+      "title": "DataScope",
+      "type": "object"
+    },
+    "ExpectedOutput": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.expected_output.v1",
+          "default": "rosclaw.expected_output.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "schema_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schema Ref"
+        },
+        "artifacts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Artifacts",
+          "type": "array"
+        }
+      },
+      "title": "ExpectedOutput",
+      "type": "object"
+    },
+    "SideEffectPolicy": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.side_effect_policy.v1",
+          "default": "rosclaw.side_effect_policy.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "class": {
+          "default": "none",
+          "description": "none | sandbox_process | workspace_write | network_write | physical",
+          "title": "Class",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Idempotency Key"
+        },
+        "physical_side_effects": {
+          "default": "forbidden",
+          "enum": [
+            "forbidden",
+            "team_task_only"
+          ],
+          "title": "Physical Side Effects",
+          "type": "string"
+        }
+      },
+      "title": "SideEffectPolicy",
+      "type": "object"
+    },
+    "WorkOrderLease": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.work_lease.v1",
+          "default": "rosclaw.work_lease.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "lease_id": {
+          "title": "Lease Id",
+          "type": "string"
+        },
+        "issued_at": {
+          "title": "Issued At",
+          "type": "string"
+        },
+        "expires_at": {
+          "title": "Expires At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "lease_id",
+        "issued_at",
+        "expires_at"
+      ],
+      "title": "WorkOrderLease",
+      "type": "object"
+    },
+    "WorkVerification": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.work_verification.v1",
+          "default": "rosclaw.work_verification.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "deterministic": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Deterministic",
+          "type": "array"
+        },
+        "independent_review": {
+          "default": false,
+          "title": "Independent Review",
+          "type": "boolean"
+        }
+      },
+      "title": "WorkVerification",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.work_order.v1",
+      "default": "rosclaw.work_order.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "work_order_id": {
+      "title": "Work Order Id",
+      "type": "string"
+    },
+    "mission_id": {
+      "title": "Mission Id",
+      "type": "string"
+    },
+    "task_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Task Id"
+    },
+    "issued_by": {
+      "title": "Issued By",
+      "type": "string"
+    },
+    "assigned_to": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Assigned To"
+    },
+    "capability": {
+      "title": "Capability",
+      "type": "string"
+    },
+    "goal": {
+      "title": "Goal",
+      "type": "string"
+    },
+    "inputs": {
+      "additionalProperties": true,
+      "title": "Inputs",
+      "type": "object"
+    },
+    "allowed_tools": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Allowed Tools",
+      "type": "array"
+    },
+    "data_scope": {
+      "$ref": "#/$defs/DataScope"
+    },
+    "budgets": {
+      "$ref": "#/$defs/BudgetEnvelope"
+    },
+    "lease": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WorkOrderLease"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "expected_output": {
+      "$ref": "#/$defs/ExpectedOutput"
+    },
+    "verification": {
+      "$ref": "#/$defs/WorkVerification"
+    },
+    "side_effect_policy": {
+      "$ref": "#/$defs/SideEffectPolicy"
+    },
+    "delegation_depth": {
+      "default": 0,
+      "title": "Delegation Depth",
+      "type": "integer"
+    },
+    "max_delegation_depth": {
+      "default": 1,
+      "title": "Max Delegation Depth",
+      "type": "integer"
+    },
+    "parent_work_order_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Work Order Id"
+    },
+    "root_work_order_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Work Order Id"
+    },
+    "status": {
+      "default": "DRAFT",
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "work_order_id",
+    "mission_id",
+    "issued_by",
+    "capability",
+    "goal"
+  ],
+  "title": "rosclaw.work_order.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.work_order.v1"
+}

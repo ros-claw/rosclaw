@@ -1,0 +1,214 @@
+{
+  "$defs": {
+    "MemberBody": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.member_body.v1",
+          "default": "rosclaw.member_body.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "body_id": {
+          "title": "Body Id",
+          "type": "string"
+        },
+        "effective_body_hash": {
+          "title": "Effective Body Hash",
+          "type": "string"
+        },
+        "class": {
+          "default": "unknown",
+          "title": "Class",
+          "type": "string"
+        }
+      },
+      "required": [
+        "body_id",
+        "effective_body_hash"
+      ],
+      "title": "MemberBody",
+      "type": "object"
+    },
+    "MemberEndpoints": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.member_endpoints.v1",
+          "default": "rosclaw.member_endpoints.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "task": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "e.g. a2a:https://blue-02.local/a2a",
+          "title": "Task"
+        },
+        "world": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "e.g. zenoh:team/blue/member/02",
+          "title": "World"
+        }
+      },
+      "title": "MemberEndpoints",
+      "type": "object"
+    },
+    "MemberHealth": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.member_health.v1",
+          "default": "rosclaw.member_health.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "state": {
+          "default": "CANDIDATE",
+          "enum": [
+            "CANDIDATE",
+            "JOINING",
+            "READY",
+            "SUSPECT",
+            "LOST",
+            "LEFT"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "ttl_ms": {
+          "default": 1000,
+          "title": "Ttl Ms",
+          "type": "integer"
+        }
+      },
+      "title": "MemberHealth",
+      "type": "object"
+    },
+    "MemberSecurity": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.member_security.v1",
+          "default": "rosclaw.member_security.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "identity_key_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Identity Key Id"
+        },
+        "cert_fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cert Fingerprint"
+        }
+      },
+      "title": "MemberSecurity",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.team_member_card.v1",
+      "default": "rosclaw.team_member_card.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "team_id": {
+      "title": "Team Id",
+      "type": "string"
+    },
+    "member_id": {
+      "title": "Member Id",
+      "type": "string"
+    },
+    "agent_card_url": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Agent Card Url"
+    },
+    "body": {
+      "$ref": "#/$defs/MemberBody"
+    },
+    "capabilities": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "endpoints": {
+      "$ref": "#/$defs/MemberEndpoints"
+    },
+    "security": {
+      "$ref": "#/$defs/MemberSecurity"
+    },
+    "health": {
+      "$ref": "#/$defs/MemberHealth"
+    },
+    "team_epoch": {
+      "default": 0,
+      "title": "Team Epoch",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "team_id",
+    "member_id",
+    "body"
+  ],
+  "title": "rosclaw.team_member_card.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.team_member_card.v1"
+}

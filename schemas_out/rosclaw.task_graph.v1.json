@@ -1,0 +1,324 @@
+{
+  "$defs": {
+    "Assignee": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.task_assignee.v1",
+          "default": "rosclaw.task_assignee.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "type": {
+          "default": "native",
+          "enum": [
+            "native",
+            "worker",
+            "robot"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        }
+      },
+      "title": "Assignee",
+      "type": "object"
+    },
+    "Lease": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.task_lease.v1",
+          "default": "rosclaw.task_lease.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "lease_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lease Id"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
+        }
+      },
+      "title": "Lease",
+      "type": "object"
+    },
+    "TaskConstraints": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.task_constraints.v1",
+          "default": "rosclaw.task_constraints.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "body_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Body Id"
+        },
+        "freshness_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Freshness Ms"
+        },
+        "risk_tier": {
+          "default": "LOW",
+          "title": "Risk Tier",
+          "type": "string"
+        },
+        "deadline": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deadline"
+        }
+      },
+      "title": "TaskConstraints",
+      "type": "object"
+    },
+    "TaskKind": {
+      "enum": [
+        "perceive",
+        "reason",
+        "create_artifact",
+        "validate",
+        "request_action",
+        "coordinate",
+        "wait"
+      ],
+      "title": "TaskKind",
+      "type": "string"
+    },
+    "TaskNodeV1": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.task_node.v1",
+          "default": "rosclaw.task_node.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "mission_id": {
+          "title": "Mission Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/TaskKind"
+        },
+        "goal": {
+          "title": "Goal",
+          "type": "string"
+        },
+        "dependencies": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dependencies",
+          "type": "array"
+        },
+        "inputs": {
+          "additionalProperties": true,
+          "title": "Inputs",
+          "type": "object"
+        },
+        "constraints": {
+          "$ref": "#/$defs/TaskConstraints"
+        },
+        "required_capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Capabilities",
+          "type": "array"
+        },
+        "assignee": {
+          "$ref": "#/$defs/Assignee"
+        },
+        "lease": {
+          "$ref": "#/$defs/Lease"
+        },
+        "verification": {
+          "$ref": "#/$defs/TaskVerification"
+        },
+        "status": {
+          "$ref": "#/$defs/TaskStatus",
+          "default": "PENDING"
+        },
+        "attempt": {
+          "default": 0,
+          "title": "Attempt",
+          "type": "integer"
+        },
+        "max_attempts": {
+          "default": 3,
+          "title": "Max Attempts",
+          "type": "integer"
+        },
+        "artifacts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "trace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trace Id"
+        }
+      },
+      "required": [
+        "task_id",
+        "mission_id",
+        "kind",
+        "goal"
+      ],
+      "title": "TaskNodeV1",
+      "type": "object"
+    },
+    "TaskStatus": {
+      "enum": [
+        "PENDING",
+        "READY",
+        "RUNNING",
+        "BLOCKED",
+        "NEEDS_REBINDING",
+        "SUCCEEDED",
+        "FAILED",
+        "CANCELLED"
+      ],
+      "title": "TaskStatus",
+      "type": "string"
+    },
+    "TaskVerification": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.task_verification.v1",
+          "default": "rosclaw.task_verification.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "schema_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schema Ref"
+        },
+        "verifier": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "e.g. deterministic:pose_bounds",
+          "title": "Verifier"
+        }
+      },
+      "title": "TaskVerification",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.task_graph.v1",
+      "default": "rosclaw.task_graph.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "mission_id": {
+      "title": "Mission Id",
+      "type": "string"
+    },
+    "revision": {
+      "default": 0,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "nodes": {
+      "items": {
+        "$ref": "#/$defs/TaskNodeV1"
+      },
+      "title": "Nodes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "mission_id"
+  ],
+  "title": "rosclaw.task_graph.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.task_graph.v1"
+}
