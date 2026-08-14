@@ -81,6 +81,11 @@ def _load_storage_config(args: argparse.Namespace) -> dict[str, Any]:
     outbox_enabled = storage_cfg.get("outbox_enabled", False)
     outbox_path = storage_cfg.get("outbox_path") or str(home / "storage" / "outbox.sqlite")
 
+    # PR-DF-07: retrieval projection section (Config v2) with legacy fallback
+    retrieval_cfg = storage_cfg.get("retrieval", {})
+    retrieval_enabled = retrieval_cfg.get("enabled", storage_cfg.get("vector_enabled", False))
+    retrieval_path = retrieval_cfg.get("path") or str(home / "data" / "seekdb")
+
     practice_data_root = practice_cfg.get("output_dir") or str(get_default_data_root())
 
     return {
@@ -96,6 +101,8 @@ def _load_storage_config(args: argparse.Namespace) -> dict[str, Any]:
         "vector_enabled": storage_cfg.get("vector_enabled", False),
         "outbox_enabled": outbox_enabled,
         "outbox_path": outbox_path,
+        "retrieval_enabled": retrieval_enabled,
+        "retrieval_path": retrieval_path,
         "practice_data_root": practice_data_root,
     }
 
@@ -286,6 +293,34 @@ def _session_event_consistency(
 
 
 @_with_stdout_flush
+def _projection_status(cfg: dict[str, Any], client: Any) -> dict[str, Any] | None:
+    """Retrieval-projection watermark/lag for ``db status`` (PR-DF-07 §18).
+
+    Only meaningful when the structured store is the SQL source of truth and
+    a retrieval backend is enabled; entirely best-effort.
+    """
+    if not cfg.get("retrieval_enabled"):
+        return None
+    result: dict[str, Any] = {"enabled": True, "path": cfg.get("retrieval_path")}
+    try:
+        result["source_count"] = client.count("memory_items")
+    except Exception:  # noqa: BLE001
+        result["source_count"] = None
+    try:
+        from rosclaw.storage.seekdb_native import SeekDBEmbeddedRetrievalStore
+
+        native = SeekDBEmbeddedRetrievalStore(path=cfg["retrieval_path"])
+        native.connect()
+        result["projection_backend"] = type(native).__name__
+        result["projection_count"] = native.count("memory_items")
+        if result["source_count"] is not None:
+            result["lag"] = result["source_count"] - result["projection_count"]
+    except Exception as exc:  # noqa: BLE001
+        result["projection_count"] = None
+        result["error"] = str(exc)
+    return result
+
+
 def cmd_db_status(args: argparse.Namespace) -> int:
     """Show storage backend status and capabilities."""
     cfg = _load_storage_config(args)
@@ -314,6 +349,9 @@ def cmd_db_status(args: argparse.Namespace) -> int:
             extras["outbox"] = outbox_stats
         extras["vector"] = _vector_status(client)
         extras["practice"] = _practice_status(cfg)
+        projection = _projection_status(cfg, client)
+        if projection is not None:
+            extras["projection"] = projection
     finally:
         _close_client(client)
 
@@ -360,6 +398,16 @@ def cmd_db_status(args: argparse.Namespace) -> int:
         print("  Vector:")
         print(f"    enabled:    {vec.get('enabled')}")
         print(f"    warmed:     {vec.get('warmed')}")
+    if extras.get("projection"):
+        proj = extras["projection"]
+        print("  Retrieval projection:")
+        print(f"    backend:    {proj.get('projection_backend')}")
+        print(f"    source:     {proj.get('source_count')}")
+        print(f"    projected:  {proj.get('projection_count')}")
+        if proj.get("lag") is not None:
+            print(f"    lag:        {proj['lag']}")
+        if proj.get("error"):
+            print(f"    error:      {proj['error']}")
     if extras.get("practice"):
         prac = extras["practice"]
         print("  Practice:")

@@ -225,6 +225,7 @@ class Runtime(LifecycleMixin):
         self._data_plane: Any | None = None  # DataPlaneContext (PR-DF-03)
         self._memory_repository: Any | None = None  # Memory v2 canonical (PR-DF-05)
         self._memory_gate: Any | None = None
+        self._projection_worker: Any | None = None  # PR-DF-07
         self._mcp_drivers: dict[str, Any] = {}
         self._emergency_stop_receipts: dict[str, Any] = {}
         self._emergency_stop_latched = False
@@ -736,6 +737,62 @@ class Runtime(LifecycleMixin):
                     )
             except Exception as facade_exc:  # noqa: BLE001
                 logger.info("Retrieval facade not available: %s", facade_exc)
+            # PR-DF-07 (flywheel §17-18): when the structured store is the
+            # SQLite source of truth and a retrieval backend is configured,
+            # maintain the native SeekDB retrieval projection of
+            # memory_items — rebuildable, never the source of truth.  All
+            # best-effort: a missing pyseekdb or a dead native store leaves
+            # the fields None and changes nothing else.
+            try:
+                storage_cfg = self.config.storage or {}
+                retrieval_cfg = storage_cfg.get("retrieval", {})
+                retrieval_enabled = retrieval_cfg.get(
+                    "enabled", storage_cfg.get("vector_enabled", False)
+                )
+                from rosclaw.memory.seekdb_client import SQLiteStructuredStore as _SQLite
+
+                if retrieval_enabled and isinstance(store, _SQLite):
+                    from rosclaw.storage.seekdb_native import SeekDBEmbeddedRetrievalStore
+                    from rosclaw.storage.seekdb_projection import (
+                        MemoryRetrievalProjection,
+                        MemoryRetrievalProjectionCommitter,
+                    )
+
+                    native_path = retrieval_cfg.get("path") or str(
+                        workspace_home / "data" / "seekdb"
+                    )
+                    ctx.retrieval_store = SeekDBEmbeddedRetrievalStore(path=native_path)
+                    projection_outbox = ctx.outbox
+                    if projection_outbox is not None:
+                        # Target-filtered worker: drains ONLY projection
+                        # records off the shared outbox (the practice
+                        # bridge's worker owns its own target), so the two
+                        # pipelines never race each other's rows.
+                        from rosclaw.storage.outbox import OutboxWorker
+
+                        self._projection_worker = OutboxWorker(
+                            projection_outbox,
+                            MemoryRetrievalProjectionCommitter(ctx.retrieval_store),
+                            target="seekdb_projection",
+                            name="memory-projection-worker",
+                            interval_sec=float(
+                                storage_cfg.get("outbox", {}).get(
+                                    "flush_interval_sec",
+                                    storage_cfg.get("outbox_flush_interval_sec", 5.0),
+                                )
+                            ),
+                        )
+                        self._projection_worker.start()
+                    ctx.memory_projection = MemoryRetrievalProjection(
+                        ctx.retrieval_store, outbox=projection_outbox
+                    )
+                    logger.info(
+                        "Memory retrieval projection: native SeekDB at %s (outbox=%s)",
+                        native_path,
+                        projection_outbox is not None,
+                    )
+            except Exception as proj_exc:  # noqa: BLE001
+                logger.info("Memory retrieval projection not available: %s", proj_exc)
         http_url = self.config.seekdb_http_url
         if http_url:
             try:
@@ -864,6 +921,14 @@ class Runtime(LifecycleMixin):
         if self._event_sink is not None:
             self._event_sink.close()
             self._event_sink = None
+        # PR-DF-07: flush + stop the projection worker before the bridge.
+        if self._projection_worker is not None:
+            try:
+                self._projection_worker.flush(timeout=5.0)
+                self._projection_worker.stop()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Projection worker stop failed (non-fatal): %s", exc)
+            self._projection_worker = None
         # Close SeekDB bridge (and any owned outbox worker) before stopping modules.
         if self._seekdb_bridge is not None and hasattr(self._seekdb_bridge, "close"):
             try:
