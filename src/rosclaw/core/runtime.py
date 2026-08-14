@@ -232,6 +232,7 @@ class Runtime(LifecycleMixin):
         self._projection_worker: Any | None = None  # PR-DF-07
         self._recovery_loop: Any | None = None  # PR-DF-08
         self._knowledge_usage_tracker: Any | None = None  # PR-DF-10
+        self._memory_insights: Any | None = None  # PR-DF-11
         self._mcp_drivers: dict[str, Any] = {}
         self._emergency_stop_receipts: dict[str, Any] = {}
         self._emergency_stop_latched = False
@@ -663,6 +664,26 @@ class Runtime(LifecycleMixin):
             except Exception as e:  # noqa: BLE001
                 logger.info(f"Heuristic grounding not available: {e}")
 
+        # PR-DF-11 (flywheel §25-27): the publisher half of
+        # rosclaw.memory.insight — recurring failures with proven recoveries
+        # become typed insights that Auto turns into memory-guided Proposals.
+        self._memory_insights = None
+        if self._memory is not None and data_plane.structured_store is not None:
+            try:
+                from rosclaw.memory.insights import MemoryInsightService
+
+                self._memory_insights = MemoryInsightService(
+                    self.event_bus,
+                    data_plane.structured_store,
+                    robot_id=self.config.robot_id,
+                    failure_threshold=int(self.config.auto.get("trigger_failure_threshold", 3))
+                    if isinstance(getattr(self.config, "auto", None), dict)
+                    else 3,
+                )
+                self._memory_insights.subscribe()
+            except Exception as exc:  # noqa: BLE001
+                logger.info("MemoryInsightService not available: %s", exc)
+
         # PR-DF-08 (flywheel §23): the RecoveryLoop closes
         # failure → hint → retry → VERIFIED physics outcome → rule efficacy.
         # It only learns — it never dispatches motion, and REAL recovery
@@ -976,6 +997,13 @@ class Runtime(LifecycleMixin):
         if self._event_sink is not None:
             self._event_sink.close()
             self._event_sink = None
+        # PR-DF-11: insight service off the bus.
+        if self._memory_insights is not None:
+            try:
+                self._memory_insights.unsubscribe()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("MemoryInsightService unsubscribe failed (non-fatal): %s", exc)
+            self._memory_insights = None
         # PR-DF-10: usage tracker off the bus.
         if self._knowledge_usage_tracker is not None:
             try:

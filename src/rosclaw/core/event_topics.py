@@ -76,6 +76,8 @@ class EventTopics:
     # ── Memory ──
     MEMORY_EXPERIENCE_STORED = "rosclaw.memory.experience.stored"
     MEMORY_WRITE_COMPLETED = "rosclaw.memory.write.completed"
+    # PR-DF-11 (flywheel §25-26): typed insight feed consumed by Auto.
+    MEMORY_INSIGHT_CREATED = "rosclaw.memory.insight"
 
     # ── How / Recovery ──
     HOW_RECOVERY_HINT_GENERATED = "rosclaw.how.recovery_hint.generated"
