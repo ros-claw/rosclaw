@@ -76,6 +76,11 @@ class KnowledgeFacade:
                 "reference_pack_id": pack.reference_pack_id,
                 "index_version": pack.index_version,
                 "count": len(pack.items),
+                # PR-DF-10: the usage tracker needs unit ids to attribute
+                # feedback to the knowledge actually presented.
+                "knowledge_unit_ids": [
+                    unit_id for item in pack.items for unit_id in item.knowledge_unit_ids
+                ],
             },
         )
         return pack

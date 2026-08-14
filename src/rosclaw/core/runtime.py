@@ -231,6 +231,7 @@ class Runtime(LifecycleMixin):
         self._memory_gate: Any | None = None
         self._projection_worker: Any | None = None  # PR-DF-07
         self._recovery_loop: Any | None = None  # PR-DF-08
+        self._knowledge_usage_tracker: Any | None = None  # PR-DF-10
         self._mcp_drivers: dict[str, Any] = {}
         self._emergency_stop_receipts: dict[str, Any] = {}
         self._emergency_stop_latched = False
@@ -576,6 +577,17 @@ class Runtime(LifecycleMixin):
                 self._knowledge_v2 = KnowledgeFacade(
                     self._knowledge_v2_manager, event_bus=self.event_bus
                 )
+                # PR-DF-10 (flywheel §29-31): automatic ReferencePack → Advice
+                # → Receipt → Feedback loop; conservative verdicts only.
+                try:
+                    from rosclaw.knowledge.usage_tracker import KnowledgeUsageTracker
+
+                    self._knowledge_usage_tracker = KnowledgeUsageTracker(
+                        self.event_bus, self._knowledge_v2
+                    )
+                    self._knowledge_usage_tracker.subscribe()
+                except Exception as track_exc:  # noqa: BLE001
+                    logger.info("Knowledge usage tracker unavailable: %s", track_exc)
                 logger.info(
                     "Knowledge v2 orchestration initialized (mode=%s, federation=%s)",
                     v2_mode,
@@ -964,6 +976,13 @@ class Runtime(LifecycleMixin):
         if self._event_sink is not None:
             self._event_sink.close()
             self._event_sink = None
+        # PR-DF-10: usage tracker off the bus.
+        if self._knowledge_usage_tracker is not None:
+            try:
+                self._knowledge_usage_tracker.unsubscribe()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Usage tracker unsubscribe failed (non-fatal): %s", exc)
+            self._knowledge_usage_tracker = None
         # PR-DF-08: RecoveryLoop off the bus first (no learning mid-shutdown).
         if self._recovery_loop is not None:
             try:
