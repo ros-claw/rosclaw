@@ -839,11 +839,15 @@ class PiManagedAdapter:
                         await asyncio.wait_for(readers, timeout=5)
                         if not events:
                             raise AdapterError(
-                                f"worker exited {proc.returncode} before attempt_started"
+                                f"worker attempt failed [WORKER_CRASH]: "
+                                f"exited {proc.returncode} before attempt_started"
                             )
                     break
                 if asyncio.get_running_loop().time() > startup_end:
-                    raise AdapterError("worker startup timeout (no attempt_started)")
+                    raise AdapterError(
+                        "worker attempt failed [WORKER_CRASH]: "
+                        "startup timeout (no attempt_started)"
+                    )
                 await asyncio.sleep(0.05)
             # 主监控循环（十四审 PR-14.1——Worker 有证据在工作就
             # 让它继续；soft target 只是观察指标，绝不控制进程）：

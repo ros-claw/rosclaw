@@ -333,6 +333,21 @@ class AgentService:
         )
         # 十一审 PR-E：pi_managed 的 WAITING_INPUT 状态迁移需要 manager。
         self._worker_manager._adapters["pi_managed"]._manager_ref = self._worker_manager
+        # 十四审 PR-14.2：RetryCoordinator 是唯一重试决策者——自动/手动
+        # retry 同一 CAS 仲裁，一个 root job 一张卡、一个活跃 attempt。
+        from rosclaw.agentd.workers.retry import RetryCoordinator
+
+        def _candidates(worker_hint: str, capability: str):
+            from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
+
+            return PiToolDispatcher(self)._candidates_for(worker_hint, capability)
+
+        self._retry_coordinator = RetryCoordinator(
+            self._store.connection,
+            manager=self._worker_manager,
+            candidates_fn=_candidates,
+            spawn_fn=self.spawn_worker_driver,
+        )
         # 内置 Pi Worker 的就绪性取决于 node+dist——不可用时诚实 DISABLED
         # （绝不"看起来装了就 ENABLED"）。
         if find_pi_agent_entry() is None:
@@ -1762,78 +1777,25 @@ class AgentService:
                 pass
         return reconciled
 
-    #: 基础设施错误指纹（adapter+phase 归一）——只这类可自动重试。
-    _INFRA_FAILURE_MARKERS = (
-        "liveness lost",
-        "startup timeout",
-        "PROVIDER_TIMEOUT",
-        "provider_timeout",
-        "driver crashed",
-        "driver_crash",
-        "worker exited",
-        "not found at start time",
-    )
-
     async def _drive_worker(self, order) -> None:
-        """十一审 PR-E：基础设施错误自动重试至多一次（复用 worktree/
-        workspace，不从零再花 token）；语义失败（验证拒绝等）不重试。"""
+        """基础设施错误自动重试至多一次（复用 worktree/workspace，不从零
+        再花 token）。十四审 PR-14.2：重试只能有一个所有者——
+        RetryCoordinator（总纲 §3.5）：
+        - 只认结构化可重试 cause（PROVIDER_TRANSIENT/WORKER_CRASH/
+          EVENT_PIPE_BROKEN）；"worker exited" 进程表象永不是依据；
+        - 自动/手动 retry 同一 CAS——绝不裂变成三张任务卡；
+        - USER_CANCELLED/USER_PAUSED/语义失败不自动重试。"""
         result, _report = await self._worker_manager.run_to_completion(order)
-        if (
-            result.status == "FAILED"
-            and not order.inputs.get("_auto_retried")
-            and any(m in result.summary for m in self._INFRA_FAILURE_MARKERS)
-        ):
-            await self._auto_retry_worker(order, result.summary)
-
-    async def _auto_retry_worker(self, order, reason: str) -> None:
-        """同 fingerprint 最多一次；复用已解析 workspace/worktree。"""
-        from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
-        from rosclaw.contracts.common import new_id
-        from rosclaw.contracts.worker.order import WorkOrderV1
-
-        retry = WorkOrderV1(
-            work_order_id=new_id("wo"),
-            mission_id=order.mission_id,
-            issued_by=order.issued_by,
-            capability=order.capability,
-            goal=order.goal,
-            inputs={
-                **dict(order.inputs),
-                "_auto_retried": True,
-                # 复用既有 worktree（pi_managed 识别该键直接使用，不再
-                # 新建 worktree）+ 提示继续而非从零。
-                "_reuse_workspace": str(order.inputs.get("workspace") or ""),
-                "instructions": (
-                    f"{order.inputs.get('instructions') or order.goal}\n\n"
-                    f"（上一次 attempt 因基础设施错误中断[{reason[:120]}]——"
-                    "workspace 里可能已有部分成果：先检查现状，再继续，不要从零开始。）"
-                ),
-            },
-            budgets=order.budgets,
-            expected_output=order.expected_output,
-            side_effect_policy=order.side_effect_policy,
-            delegation_depth=0,
-            max_delegation_depth=1,
-            parent_work_order_id=order.work_order_id,
-            root_work_order_id=order.root_work_order_id or order.work_order_id,
-        )
-        dispatcher = PiToolDispatcher(self)
-        candidates = dispatcher._candidates_for(order.assigned_to or "auto", order.capability)
-        if not candidates:
+        if result.status != "FAILED" or order.inputs.get("_auto_retried"):
             return
-        try:
-            scheduled = self._worker_manager.hire(retry, candidates)
-        except Exception:  # noqa: BLE001 - 重试失败保持原终态
-            return
-        import logging
+        from rosclaw.agentd.workers.retry import parse_cause
 
-        logging.getLogger("rosclaw.agentd.workers").info(
-            "auto-retry %s → %s (infra: %s)",
-            order.work_order_id,
-            scheduled.work_order_id,
-            reason[:80],
+        cause = parse_cause(result.summary)
+        if cause is None:
+            return
+        await self._retry_coordinator.request_retry(
+            order, cause=cause, actor="auto", note=result.summary[:120]
         )
-        self.spawn_worker_driver(scheduled)
 
     def spawn_worker_driver(self, order) -> None:
         """十审 W0：WorkOrder 后台驱动——pi 工具请求栈立即返回后由本
