@@ -292,7 +292,6 @@ def _session_event_consistency(
     return event_count, events_lines, consistent, timeline_exists
 
 
-@_with_stdout_flush
 def _projection_status(cfg: dict[str, Any], client: Any) -> dict[str, Any] | None:
     """Retrieval-projection watermark/lag for ``db status`` (PR-DF-07 §18).
 
@@ -321,6 +320,7 @@ def _projection_status(cfg: dict[str, Any], client: Any) -> dict[str, Any] | Non
     return result
 
 
+@_with_stdout_flush
 def cmd_db_status(args: argparse.Namespace) -> int:
     """Show storage backend status and capabilities."""
     cfg = _load_storage_config(args)
@@ -663,6 +663,96 @@ def _native_seekdb_checks(
         result["seekdb"]["dsn"] = dsn
 
 
+def _flywheel_checks(
+    cfg: dict[str, Any],
+    client: Any,
+    checks: list[tuple[str, str, bool]],
+    issues: list[str],
+) -> None:
+    """Data-flywheel integrity checks for db doctor (PR-DF-15 §45-46).
+
+    All best-effort: every probe degrades to a skipped check, never a crash.
+    """
+    if client is None:
+        return
+
+    # Memory integrity (§46): ACTIVE memory_items must carry evidence.
+    try:
+        items = client.query("memory_items", {"status": "active"}, limit=100_000)
+        if items:
+            orphan = 0
+            for item in items:
+                evd = client.query("memory_evidence", {"memory_id": item["id"]}, limit=1)
+                refs = item.get("evidence_refs")
+                if not evd and not refs:
+                    orphan += 1
+            checks.append(("memory evidence", f"{orphan} orphan of {len(items)}", orphan == 0))
+            if orphan:
+                issues.append(f"{orphan} ACTIVE memory_items have no evidence rows.")
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Lineage (§36/§45): receipts that never got a lineage edge.
+    try:
+        receipts = client.query("execution_receipts", limit=100_000)
+        if receipts:
+            edges = client.query("lineage_edges", limit=500_000)
+            linked = {e.get("from_id") for e in edges}
+            missing = sum(1 for r in receipts if r.get("id") not in linked)
+            checks.append(
+                ("lineage edges", f"{missing} receipt(s) unlinked of {len(receipts)}", missing == 0)
+            )
+            if missing:
+                issues.append(f"{missing} execution_receipts have no lineage edges.")
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Retrieval projection (§18/§45): source vs projected watermark lag.
+    if cfg.get("retrieval_enabled"):
+        try:
+            source = client.count("memory_items")
+            projected = None
+            error = None
+            try:
+                from rosclaw.storage.seekdb_native import SeekDBEmbeddedRetrievalStore
+
+                native = SeekDBEmbeddedRetrievalStore(path=cfg["retrieval_path"])
+                native.connect()
+                projected = native.count("memory_items")
+            except Exception as exc:  # noqa: BLE001
+                error = str(exc)
+            if projected is None:
+                checks.append(("retrieval projection", f"unavailable: {error}", False))
+                issues.append(f"Retrieval projection unavailable: {error}")
+            else:
+                lag = source - projected
+                checks.append(
+                    ("projection lag", f"{lag} (source {source} / projected {projected})", lag == 0)
+                )
+                if lag != 0:
+                    issues.append(
+                        f"Retrieval projection lag {lag} — run the projection rebuild/catch-up."
+                    )
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Outbox health (§45): pending + dead letters.
+    if cfg.get("outbox_enabled"):
+        try:
+            from rosclaw.storage.outbox import OutboxStore
+
+            outbox = OutboxStore(db_path=cfg["outbox_path"])
+            outbox.connect()
+            stats = outbox.stats()
+            pending = stats.get("pending", 0)
+            dead = stats.get("deadletters", stats.get("dead_letters", 0)) or 0
+            checks.append(("outbox", f"pending={pending} dead={dead}", dead == 0))
+            if dead:
+                issues.append(f"Outbox has {dead} dead-letter record(s).")
+        except Exception:  # noqa: BLE001
+            pass
+
+
 @_with_stdout_flush
 def cmd_db_doctor(args: argparse.Namespace) -> int:
     """Run storage health checks and optionally apply safe fixes."""
@@ -939,6 +1029,10 @@ def cmd_db_doctor(args: argparse.Namespace) -> int:
             }
         except Exception as exc:  # noqa: BLE001
             issues.append(f"Latest session consistency check failed: {exc}")
+
+    # PR-DF-15: data-flywheel integrity checks (memory evidence, lineage,
+    # projection lag, outbox dead letters)
+    _flywheel_checks(cfg, client, checks, issues)
 
     if client is not None:
         _close_client(client)
