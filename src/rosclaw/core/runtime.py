@@ -87,6 +87,10 @@ class RuntimeConfig:
     enable_skill_manager: bool = True
     enable_knowledge: bool = True  # KnowledgeInterface (KNOW module)
     enable_how: bool = True  # HeuristicEngine (HOW module)
+    # PR-DF-08 (flywheel §23): wire the RecoveryLoop into the Runtime
+    # lifecycle.  The loop only learns from verified physics outcomes;
+    # REAL recovery still flows through the full gateway path (§24).
+    enable_recovery_loop: bool = True
     # Versioned Know/How integration. ``disabled`` preserves the legacy
     # adapters as a rollback path; v2 never receives Memory's store.
     knowledge_v2_mode: str = field(
@@ -226,6 +230,7 @@ class Runtime(LifecycleMixin):
         self._memory_repository: Any | None = None  # Memory v2 canonical (PR-DF-05)
         self._memory_gate: Any | None = None
         self._projection_worker: Any | None = None  # PR-DF-07
+        self._recovery_loop: Any | None = None  # PR-DF-08
         self._mcp_drivers: dict[str, Any] = {}
         self._emergency_stop_receipts: dict[str, Any] = {}
         self._emergency_stop_latched = False
@@ -629,6 +634,27 @@ class Runtime(LifecycleMixin):
             except Exception as e:  # noqa: BLE001
                 logger.info(f"Heuristic grounding not available: {e}")
 
+        # PR-DF-08 (flywheel §23): the RecoveryLoop closes
+        # failure → hint → retry → VERIFIED physics outcome → rule efficacy.
+        # It only learns — it never dispatches motion, and REAL recovery
+        # proposals still re-enter through the ActionGateway/permit path
+        # (§24), so the safety control plane is never bypassed.
+        self._recovery_loop = None
+        if (
+            self.config.enable_how
+            and self.config.enable_recovery_loop
+            and self._memory is not None
+            and self._how is not None
+        ):
+            try:
+                from rosclaw.how.recovery_loop import RecoveryLoop
+
+                self._recovery_loop = RecoveryLoop(self.event_bus, self._memory, self._how)
+                self._recovery_loop.subscribe()
+                logger.info("RecoveryLoop subscribed (How recovery learning active)")
+            except Exception as exc:  # noqa: BLE001
+                logger.info("RecoveryLoop not available: %s", exc)
+
         # Initialize Auto Self-Evolution Control Plane
         if self.config.enable_auto:
             try:
@@ -921,6 +947,13 @@ class Runtime(LifecycleMixin):
         if self._event_sink is not None:
             self._event_sink.close()
             self._event_sink = None
+        # PR-DF-08: RecoveryLoop off the bus first (no learning mid-shutdown).
+        if self._recovery_loop is not None:
+            try:
+                self._recovery_loop.unsubscribe()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("RecoveryLoop unsubscribe failed (non-fatal): %s", exc)
+            self._recovery_loop = None
         # PR-DF-07: flush + stop the projection worker before the bridge.
         if self._projection_worker is not None:
             try:
