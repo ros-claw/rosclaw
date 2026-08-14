@@ -205,7 +205,6 @@ class TestOrphanCleanup:
         (work_dir / "state.json").write_text(
             json.dumps({"status": "RUNNING", "session_file": ""}), encoding="utf-8"
         )
-        manager = service._worker_manager
         conn = service._store.connection
         order = _order(mission.mission_id, wo).model_copy(update={"status": "RUNNING"})
         conn.execute(
