@@ -72,8 +72,11 @@ class TestWarningsRouting:
             warnings.warn(
                 "Field `model_dump_json` has an incomplete definition",
                 UserWarning,
+                stacklevel=2,
             )
-            warnings.warn("some other warning stays visible", UserWarning)
+            warnings.warn(
+                "some other warning stays visible", UserWarning, stacklevel=2
+            )
         messages = [str(w.message) for w in caught]
         assert not any("incomplete definition" in m for m in messages)
         assert any("some other warning" in m for m in messages)
