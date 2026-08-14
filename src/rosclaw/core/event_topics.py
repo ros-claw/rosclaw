@@ -79,6 +79,10 @@ class EventTopics:
     # PR-DF-11 (flywheel §25-26): typed insight feed consumed by Auto.
     MEMORY_INSIGHT_CREATED = "rosclaw.memory.insight"
 
+    # ── Receipts (PR-DF-14, §21/§42) ──
+    ACTION_RECEIPT = "rosclaw.runtime.action.receipt"  # kernel gateway publication
+    RECEIPT_VERIFIED = "rosclaw.receipt.verified"
+
     # ── How / Recovery ──
     HOW_RECOVERY_HINT_GENERATED = "rosclaw.how.recovery_hint.generated"
     HOW_RECOVERY_EXECUTED = "rosclaw.how.recovery_executed"

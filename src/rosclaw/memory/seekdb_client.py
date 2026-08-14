@@ -503,6 +503,52 @@ ROSCLAW_STRUCTURED_SCHEMAS: dict[str, Any] = {
         },
         "indices": ["status", "rule_id", "created_at"],
     },
+    # Execution receipts (PR-DF-14, flywheel §21): the data-plane projection
+    # of kernel ExecutionReceipts.  rosclawd's own ledgers stay authoritative
+    # — this table is an async index, never consulted for authorization.
+    "execution_receipts": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "receipt_id": "TEXT",
+            "action_id": "TEXT",
+            "trace_id": "TEXT",
+            "session_id": "TEXT",
+            "practice_id": "TEXT",
+            "episode_id": "TEXT",
+            "robot_id": "TEXT",
+            "body_id": "TEXT",
+            "capability_id": "TEXT",
+            "execution_mode": "TEXT",
+            "final_state": "TEXT",
+            "acknowledgement_stage": "TEXT",
+            "evidence_level": "TEXT",
+            "evidence_domain": "TEXT",
+            "dispatched_at": "REAL",
+            "observed_at": "REAL",
+            "verified_at": "REAL",
+            "artifact_refs": "TEXT",
+            "verification_refs": "TEXT",
+            "schema_version": "TEXT",
+            "created_at": "REAL",
+        },
+        "indices": ["action_id", "trace_id", "practice_id", "episode_id", "final_state"],
+    },
+    # Lineage edges (PR-DF-14, flywheel §36-38): the typed ancestry graph
+    # answering "why is this champion v1.7" down to the physical receipt.
+    "lineage_edges": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "from_type": "TEXT",
+            "from_id": "TEXT",
+            "relation": "TEXT",
+            "to_type": "TEXT",
+            "to_id": "TEXT",
+            "trace_id": "TEXT",
+            "metadata": "TEXT",
+            "created_at": "REAL",
+        },
+        "indices": ["from_id", "to_id", "relation", "trace_id"],
+    },
     # Evolution module canonical tables (PR-DF-12, ADR-0010 §33-34): the
     # generic namespace-row shape backing EvolutionRepository.  Legacy
     # auto_* tables below stay for compat until the migration PR.

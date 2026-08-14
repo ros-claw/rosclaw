@@ -238,6 +238,8 @@ class Runtime(LifecycleMixin):
         self._knowledge_usage_tracker: Any | None = None  # PR-DF-10
         self._memory_insights: Any | None = None  # PR-DF-11
         self._darwin: Any | None = None  # PR-DF-13
+        self._lineage: Any | None = None  # PR-DF-14
+        self._receipt_projector: Any | None = None
         self._mcp_drivers: dict[str, Any] = {}
         self._emergency_stop_receipts: dict[str, Any] = {}
         self._emergency_stop_latched = False
@@ -912,6 +914,20 @@ class Runtime(LifecycleMixin):
                     )
             except Exception as proj_exc:  # noqa: BLE001
                 logger.info("Memory retrieval projection not available: %s", proj_exc)
+        # PR-DF-14 (flywheel §21/§36): receipt projection + lineage graph.
+        # Async index only — the authorization path never consults it.
+        try:
+            from rosclaw.storage.lineage import LineageRepository
+            from rosclaw.storage.receipts import ReceiptProjector
+
+            if ctx.structured_store is not None:
+                self._lineage = LineageRepository(ctx.structured_store)
+                self._receipt_projector = ReceiptProjector(
+                    self.event_bus, ctx.structured_store, lineage=self._lineage
+                )
+                self._receipt_projector.subscribe()
+        except Exception as exc:  # noqa: BLE001
+            logger.info("Receipt projection unavailable: %s", exc)
         http_url = self.config.seekdb_http_url
         if http_url:
             try:
@@ -1040,6 +1056,13 @@ class Runtime(LifecycleMixin):
         if self._event_sink is not None:
             self._event_sink.close()
             self._event_sink = None
+        # PR-DF-14: receipt projector off the bus.
+        if self._receipt_projector is not None:
+            try:
+                self._receipt_projector.unsubscribe()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("ReceiptProjector unsubscribe failed (non-fatal): %s", exc)
+            self._receipt_projector = None
         # PR-DF-11: insight service off the bus.
         if self._memory_insights is not None:
             try:
