@@ -155,6 +155,7 @@ class AgentService:
         self._tools = BuiltinToolRegistry(
             body_id=self._body_id,
             body_summary=body.summary if body else "configured body is unavailable",
+            home=rosclaw_home,
         )
         # PR-05: Tool/Capability Catalog — descriptors, resolver, evidence.
         from rosclaw.agentd.tooling.artifact_result import ArtifactResultStore

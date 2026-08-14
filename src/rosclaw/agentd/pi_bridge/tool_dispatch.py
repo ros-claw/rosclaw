@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -548,7 +548,8 @@ class PiToolDispatcher:
         )
         if terminal is not None:
             return self._terminal_response(request, terminal)
-        deadline = datetime.now(UTC) + timedelta(seconds=scheduled.budgets.wall_time_sec)
+        # 十四审 PR-14.7：wall_time 只是 soft target（提醒阈值）——
+        # 不再向模型/用户展示 "Deadline"（概念误导→错误归因之源）。
         # 十审 §10.3：外部 harness 的模型/账号配置独立——UI 明示，不得
         # 假装继承 Native Agent。
         external_note = ""
@@ -566,9 +567,10 @@ class PiToolDispatcher:
                 "已启动后台 Worker（不阻塞本会话——你可以继续与用户交互）。\n"
                 f"WorkOrder: {scheduled.work_order_id}\n"
                 f"Worker: {scheduled.assigned_to}\n"
-                f"预算: wall_time {scheduled.budgets.wall_time_sec}s · "
+                f"预算（soft target 提醒阈值，不会强杀 Worker）: "
+                f"wall_time {scheduled.budgets.wall_time_sec}s · "
                 f"{scheduled.budgets.model_tokens} tokens\n"
-                f"Deadline: {deadline.isoformat()}\n"
+                "Worker 有进度就让它继续做；wall/token 到点只提醒不终止。\n"
                 f"查询进度：rosclaw_check_work(work_order_id=\"{scheduled.work_order_id}\")；"
                 f"取消：rosclaw_cancel_work(work_order_id=\"{scheduled.work_order_id}\")。"
                 "Worker 产出须经 ROSClaw 验证后才会被采纳。"
