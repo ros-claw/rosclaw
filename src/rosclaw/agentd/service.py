@@ -1737,12 +1737,15 @@ class AgentService:
         return path
 
     async def reconcile_workers_on_start(self) -> list[str]:
-        """十审 W4：agentd 重启对账——所有非终态 WorkOrder 都是孤儿
-        （内存 run 注册表已随进程消失）：
+        """agentd 重启对账（十四审 PR-14.5，总纲 §1.7——降级方案）：
 
-        - 有 child.pid 的 pi worker 子进程：整组杀掉（不留孤儿继续计费）；
-        - RUNNING → FAILED（agentd_restart）；OFFERED/CLAIMED → CANCELLED；
-        - 绝不假装它们仍在健康运行（resume 后 /jobs 显示真实状态）。
+        - RUNNING/PAUSED/UNREACHABLE 等活跃单 → INTERRUPTED_RESUMABLE
+          （**禁止 FAILED**——合并红线）：session/workspace 保留，
+          /job resume 从同一 Pi 会话恢复；
+        - 有 child.pid 的孤儿子进程：SIGTERM 宽限（worker 可落
+          termination.json）→ SIGKILL（不留孤儿继续计费）；
+        - OFFERED/CLAIMED → CANCELLED（从未启动，诚实取消）；
+        - INTERRUPTED_RESUMABLE 不再二次对账（幂等）。
         """
         import signal as _signal
 
@@ -1750,7 +1753,8 @@ class AgentService:
         conn = self._store.connection
         rows = conn.execute(
             "SELECT work_order_id, status FROM work_orders "
-            "WHERE status NOT IN ('ACCEPTED', 'FAILED', 'EXPIRED', 'CANCELLED')"
+            "WHERE status NOT IN ('ACCEPTED', 'FAILED', 'EXPIRED', 'CANCELLED', "
+            "'INTERRUPTED_RESUMABLE')"
         ).fetchall()
         for row in rows:
             wo_id = row["work_order_id"]
@@ -1760,16 +1764,32 @@ class AgentService:
                     pid = int(pid_file.read_text().strip())
                     import contextlib as _cl
 
+                    # SIGTERM 宽限 2s——worker 的信号处理会尽力 abort 并
+                    # 落 termination.json（SIGNAL_UNKNOWN/AGENTD_SHUTDOWN）；
+                    # 顽固进程 SIGKILL 收场。
                     with _cl.suppress(ProcessLookupError, PermissionError):
                         os.killpg(os.getpgid(pid), _signal.SIGTERM)
-                        await asyncio.sleep(0.5)
+                    deadline = asyncio.get_running_loop().time() + 2.0
+                    while asyncio.get_running_loop().time() < deadline:
+                        try:
+                            os.kill(pid, 0)
+                        except OSError:
+                            break
+                        await asyncio.sleep(0.1)
+                    with _cl.suppress(ProcessLookupError, PermissionError):
                         os.killpg(os.getpgid(pid), _signal.SIGKILL)
                 except (ValueError, OSError):
                     pass
                 pid_file.unlink(missing_ok=True)
             try:
-                if row["status"] == "RUNNING":
-                    self._worker_manager._transition(wo_id, "FAILED", "agentd_restart")
+                if row["status"] in (
+                    "RUNNING", "PAUSED", "BUDGET_PAUSED", "PAUSE_REQUESTED",
+                    "UNREACHABLE", "BLOCKED",
+                ):
+                    # 降级方案：中断可恢复（不是 FAILED——总纲 §1.7 禁止项）。
+                    self._worker_manager._transition(
+                        wo_id, "INTERRUPTED_RESUMABLE", "agentd_restart"
+                    )
                 else:
                     self._worker_manager._transition(wo_id, "CANCELLED", "agentd_restart")
                 reconciled.append(wo_id)

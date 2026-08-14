@@ -46,16 +46,20 @@ _RUN_TRANSITIONS: dict[str, frozenset[str]] = {
     }),
     "SUBMITTED": frozenset({"VERIFYING", "FAILED"}),
     "VERIFYING": frozenset({"ACCEPTED", "FAILED"}),
-    "BLOCKED": frozenset({"RUNNING", "CANCELLED", "FAILED"}),
+    "BLOCKED": frozenset(
+        {"RUNNING", "CANCELLED", "FAILED", "INTERRUPTED_RESUMABLE"}
+    ),
     "UNREACHABLE": frozenset(
         {"RUNNING", "INTERRUPTED_RESUMABLE", "FAILED", "CANCELLED"}
     ),
     "INTERRUPTED_RESUMABLE": frozenset({"RUNNING", "FAILED", "CANCELLED"}),
     "BUDGET_PAUSED": frozenset({"RUNNING", "CANCELLED", "FAILED"}),
     # 十四审：PAUSE_REQUESTED 只在 ACK 前存在——ACK 后 PAUSED/BUDGET_PAUSED，
-    # ACK 失败回 RUNNING；用户取消任何时刻合法。
+    # ACK 失败回 RUNNING；用户取消任何时刻合法；agentd 重启可落
+    # INTERRUPTED_RESUMABLE（PR-14.5 降级方案）。
     "PAUSE_REQUESTED": frozenset(
-        {"PAUSED", "BUDGET_PAUSED", "RUNNING", "CANCELLED", "FAILED"}
+        {"PAUSED", "BUDGET_PAUSED", "RUNNING", "CANCELLED", "FAILED",
+         "INTERRUPTED_RESUMABLE"}
     ),
     "PAUSED": frozenset({"RUNNING", "CANCELLED", "FAILED", "INTERRUPTED_RESUMABLE"}),
     "FAILED": frozenset(),
@@ -612,6 +616,26 @@ class WorkerManager:
         if to_status in (
             "ACCEPTED", "FAILED", "EXPIRED", "CANCELLED", "INTERRUPTED_RESUMABLE",
         ):
+            # PR-14.5：legacy 单（14.2 前创建，无 attempts 行）先补账再
+            # 结算——重启对账的 INTERRUPTED_RESUMABLE 也有完整 Job 视图。
+            root = order.root_work_order_id or order.work_order_id
+            self._conn.execute(
+                "INSERT OR IGNORE INTO worker_jobs "
+                "(root_job_id, mission_id, user_goal, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (root, order.mission_id, order.goal, _utcnow()),
+            )
+            backfill_seq = self._conn.execute(
+                "SELECT COALESCE(MAX(attempt_seq), 0) + 1 AS s FROM worker_attempts "
+                "WHERE root_job_id = ?",
+                (root,),
+            ).fetchone()["s"]
+            self._conn.execute(
+                "INSERT OR IGNORE INTO worker_attempts (attempt_id, root_job_id, "
+                "attempt_seq, actor, state, created_at) "
+                "VALUES (?, ?, ?, 'native_agent', 'ACTIVE', ?)",
+                (work_order_id, root, backfill_seq, _utcnow()),
+            )
             self._conn.execute(
                 "UPDATE worker_attempts SET state = 'SETTLED', "
                 "termination_cause = ?, settled_at = ? "
