@@ -204,16 +204,24 @@ export class JobsWidget {
 
 	private render(views: JobView[]): void {
 		this.tickCount += 1;
+		// 十四审 PR-14.4：footer 常驻可发现——无任务也显示 `F2 Tasks`
+		// （内容不变不重绘，idle CPU 红线不变）。
 		if (views.length === 0) {
-			if (this.lastRendered !== "") {
-				this.lastRendered = "";
-				this.deps.setWidget(undefined);
+			const idle = "F2 Tasks";
+			if (this.lastRendered !== idle) {
+				this.lastRendered = idle;
+				this.deps.setWidget([idle]);
 			}
 			return;
 		}
 		const frame = SPINNER[this.tickCount % SPINNER.length];
 		const now = Date.now();
-		const lines: string[] = ["● Jobs"];
+		const terminalSet = ["ACCEPTED", "FAILED", "EXPIRED", "CANCELLED"];
+		const running = views.filter((v) => !terminalSet.includes(v.order.status)).length;
+		const waiting = views.filter((v) => v.order.status === "BLOCKED").length;
+		const lines: string[] = [
+			`F2 Tasks · ${running} running${waiting ? ` · ${waiting} waiting` : ""}`,
+		];
 		for (const view of views) {
 			const id = view.order.work_order_id;
 			const status = view.order.status;
